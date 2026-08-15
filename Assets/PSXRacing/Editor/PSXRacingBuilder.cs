@@ -228,7 +228,13 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  Materials
         // ------------------------------------------------------------------
-        static Material MakeMat(string name, string texPath, float cutoff = 0f, Color? tint = null)
+        /// <param name="affine">1 = PS1 affine texture warping, 0 = perspective
+        /// correct. Warping grows with triangle size, so the big generated
+        /// surfaces (road, kerb, ground, walls) opt out — on a 12 m x 4 m road
+        /// quad it bends the painted centreline into a visible diagonal. Props,
+        /// buildings and the car keep it, which is where the look actually reads.</param>
+        static Material MakeMat(string name, string texPath, float cutoff = 0f,
+                                Color? tint = null, float affine = 1f)
         {
             string assetPath = MatDir + "/" + name + ".mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
@@ -246,6 +252,7 @@ namespace PSXRacing.EditorTools
             }
             mat.color = tint ?? Color.white;
             mat.SetFloat("_Cutoff", cutoff);
+            mat.SetFloat("_Affine", affine);
             if (cutoff > 0f) mat.renderQueue = 2450;
             EditorUtility.SetDirty(mat);
             return mat;
@@ -426,7 +433,7 @@ namespace PSXRacing.EditorTools
             go.transform.SetParent(parent, false);
             go.layer = RoadLayer;   // wheels detect tarmac by layer, not by name
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mat = MakeMat("Road", Root + "/Art/GasStation/Textures/Road.jpg");
+            var mat = MakeMat("Road", Root + "/Art/GasStation/Textures/Road.jpg", affine: 0f);
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
@@ -440,7 +447,7 @@ namespace PSXRacing.EditorTools
         static void BuildKerbs(List<Vector3> pts, Transform parent)
         {
             int n = pts.Count;
-            var mat = MakeMat("Kerb", Root + "/Art/GasStation/Textures/Checker.png");
+            var mat = MakeMat("Kerb", Root + "/Art/GasStation/Textures/Checker.png", affine: 0f);
             mat.mainTextureScale = new Vector2(1f, 1f);
 
             foreach (float side in new[] { -1f, 1f })
@@ -480,7 +487,7 @@ namespace PSXRacing.EditorTools
 
         static void BuildWalls(List<Vector3> pts, Transform parent)
         {
-            var wallMat = MakeMat("Wall", Root + "/Art/Roads/T (2).jpg");
+            var wallMat = MakeMat("Wall", Root + "/Art/Roads/T (2).jpg", affine: 0f);
             var physMat = GetOrCreatePhysMat("WallPhys", 0.05f, 0f);
             int n = pts.Count;
 
@@ -608,11 +615,8 @@ namespace PSXRacing.EditorTools
             go.transform.SetParent(parent, false);
             go.transform.position = new Vector3(40f, 0f, 140f); // roughly track center
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var groundMat = MakeMat("Ground", Root + "/Art/Roads/T (5).jpg");
-            // The one surface big enough for PS1 affine warping to read as a bug
-            // rather than as character.
-            groundMat.SetFloat("_Affine", 0f);
-            go.AddComponent<MeshRenderer>().sharedMaterial = groundMat;
+            go.AddComponent<MeshRenderer>().sharedMaterial =
+                MakeMat("Ground", Root + "/Art/Roads/T (5).jpg", affine: 0f);
             var box = go.AddComponent<BoxCollider>();
             box.center = new Vector3(0f, -0.26f, 0f);
             box.size = new Vector3(size, 0.5f, size);
