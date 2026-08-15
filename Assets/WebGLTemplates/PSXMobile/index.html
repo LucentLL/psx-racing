@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{{ PRODUCT_NAME }}}</title>
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#000000">
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #000; overflow: hidden;
+      /* Stop the browser from hijacking drags as scroll/zoom gestures */
+      touch-action: none; -ms-touch-action: none;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #unity-container { position: fixed; inset: 0; }
+    #unity-canvas {
+      width: 100%; height: 100%; display: block; background: #000;
+      touch-action: none;
+    }
+    #splash {
+      position: fixed; inset: 0; z-index: 10;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: linear-gradient(#1a1030, #d4744a);
+      color: #fff; text-align: center; padding: 24px;
+    }
+    #splash h1 {
+      font-size: clamp(22px, 6vw, 40px); letter-spacing: .18em;
+      margin: 0 0 6px; font-weight: 800; text-shadow: 2px 2px 0 #00000066;
+    }
+    #splash h2 {
+      font-size: clamp(11px, 3vw, 15px); letter-spacing: .3em;
+      margin: 0 0 34px; font-weight: 500; opacity: .85;
+    }
+    #bar {
+      width: min(70vw, 340px); height: 12px; border: 2px solid #ffffffcc;
+      background: #00000055; padding: 2px;
+    }
+    #bar > div { height: 100%; width: 0%; background: #ffd766; transition: width .15s; }
+    #status { margin-top: 14px; font-size: 12px; letter-spacing: .12em; opacity: .9; }
+    #play {
+      margin-top: 26px; padding: 16px 44px; font-size: 17px; font-weight: 700;
+      letter-spacing: .2em; color: #2a1408; background: #ffd766;
+      border: none; cursor: pointer; display: none;
+    }
+    #play:active { transform: translateY(2px); }
+    #rotate {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      align-items: center; justify-content: center; flex-direction: column;
+      background: #000; color: #fff; font-size: 15px; letter-spacing: .12em;
+    }
+    #rotate svg { margin-bottom: 18px; }
+    /* Only nag about orientation on phone-sized screens */
+    @media (orientation: portrait) and (max-width: 900px) {
+      #rotate.armed { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+  </div>
+
+  <div id="splash">
+    <h1>{{{ PRODUCT_NAME }}}</h1>
+    <h2>SUNSET CITY GP</h2>
+    <div id="bar"><div id="fill"></div></div>
+    <div id="status">LOADING&hellip;</div>
+    <button id="play">START</button>
+  </div>
+
+  <div id="rotate">
+    <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6">
+      <rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 19h6"/>
+    </svg>
+    <div>ROTATE TO LANDSCAPE</div>
+  </div>
+
+<script src="Build/{{{ LOADER_FILENAME }}}"></script>
+<script>
+  var canvas = document.querySelector("#unity-canvas");
+  var splash = document.querySelector("#splash");
+  var fill = document.querySelector("#fill");
+  var status = document.querySelector("#status");
+  var playBtn = document.querySelector("#play");
+  var rotate = document.querySelector("#rotate");
+  var unityInstance = null;
+
+  var config = {
+    dataUrl: "Build/{{{ DATA_FILENAME }}}",
+    frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+    codeUrl: "Build/{{{ CODE_FILENAME }}}",
+    streamingAssetsUrl: "StreamingAssets",
+    companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+    productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+    productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+    matchWebGLToCanvasSize: true,
+    devicePixelRatio: 1
+  };
+
+  // Render at CSS pixels, not retina pixels. The game is a 320x240 buffer
+  // upscaled anyway, so a 3x device pixel ratio would cost fill rate for nothing.
+  function resize() {
+    var dpr = 1;
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+  }
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () { setTimeout(resize, 250); });
+  resize();
+
+  // Block pinch-zoom and double-tap-zoom so driving gestures stay in the canvas
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("touchmove", function (e) {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+
+  createUnityInstance(canvas, config, function (p) {
+    fill.style.width = (p * 100) + "%";
+    status.textContent = "LOADING " + Math.round(p * 100) + "%";
+  }).then(function (inst) {
+    unityInstance = inst;
+    status.textContent = "READY";
+    playBtn.style.display = "block";
+    rotate.classList.add("armed");
+  }).catch(function (err) {
+    status.textContent = "FAILED: " + err;
+  });
+
+  playBtn.addEventListener("click", function () {
+    splash.style.display = "none";
+    // Browsers only allow fullscreen and audio from inside a user gesture.
+    var el = document.documentElement;
+    var rq = el.requestFullscreen || el.webkitRequestFullscreen;
+    // Both of these reject rather than throw when the browser declines (iOS
+    // Safari has no element fullscreen, and orientation lock needs fullscreen
+    // first). An unhandled rejection would surface as a page error.
+    if (rq) {
+      try { var p = rq.call(el); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    }
+    if (screen.orientation && screen.orientation.lock) {
+      try {
+        var q = screen.orientation.lock("landscape");
+        if (q && q.catch) q.catch(function () {});
+      } catch (e) {}
+    }
+    canvas.focus();
+    resize();
+  });
+</script>
+</body>
+</html>
