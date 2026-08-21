@@ -108,7 +108,9 @@ namespace PSXRacing
                 case RaceManager.RaceState.Finished:
                     center = "FINISH!  P" + pos +
                              "\nBEST " + FormatTime(p != null ? p.bestLapTime : 0f) +
-                             "\n\nPRESS R TO RESTART";
+                             (RaceHandoff.FromLifeSim
+                                ? "\n\nPRESS R TO GO HOME"
+                                : "\n\nPRESS R TO RESTART");
                     break;
             }
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }

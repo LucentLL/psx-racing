@@ -43,18 +43,15 @@ namespace PSXRacing.EditorTools
         {
             try
             {
-                // The scene builder normally sets this, but a fresh sandbox copy may
-                // not have run it yet.
-                if (EditorBuildSettings.scenes == null || EditorBuildSettings.scenes.Length == 0 ||
-                    !EditorBuildSettings.scenes.Any(s => s.path == ScenePath))
+                // The scene builder normally produces both scenes, but a fresh
+                // sandbox copy may not have run it yet.
+                if (!File.Exists(ScenePath))
                 {
-                    if (!File.Exists(ScenePath))
-                    {
-                        Debug.LogError("[PSXBuildWebGL] Scene missing, running scene builder first.");
-                        PSXRacingBuilder.Build();
-                    }
-                    EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+                    Debug.LogError("[PSXBuildWebGL] Race scene missing, running scene builder first.");
+                    PSXRacingBuilder.Build();
                 }
+                if (!File.Exists(LifeHomeSceneBuilder.ScenePath))
+                    LifeHomeSceneBuilder.Build();
 
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
@@ -85,7 +82,8 @@ namespace PSXRacing.EditorTools
 
                 var options = new BuildPlayerOptions
                 {
-                    scenes = new[] { ScenePath },
+                    // LifeHome first: it is scene index 0, the boot scene.
+                    scenes = new[] { LifeHomeSceneBuilder.ScenePath, ScenePath },
                     locationPathName = outDir,
                     target = BuildTarget.WebGL,
                     targetGroup = BuildTargetGroup.WebGL,

@@ -119,8 +119,17 @@ namespace PSXRacing
             RecomputePositions();
 
             var kb = Keyboard.current;
-            if (State == RaceState.Finished && kb != null && kb.rKey.wasPressedThisFrame)
-                SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+            bool touchContinue = TouchControls.Instance != null && TouchControls.Instance.RestartPressed;
+            if (State == RaceState.Finished &&
+                ((kb != null && kb.rKey.wasPressedThisFrame) || touchContinue))
+            {
+                // From the LifeSim, R returns home with the result in the
+                // mailbox; standalone it just restarts the race as before.
+                if (RaceHandoff.FromLifeSim)
+                    SceneManager.LoadScene(0);
+                else
+                    SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+            }
         }
 
         void OnCarFinished(CarProgress p)
@@ -129,6 +138,14 @@ namespace PSXRacing
             {
                 State = RaceState.Finished;
                 SetCarInputEnabled(playerCar, false);
+
+                // Stamp the result for the LifeSim. Harmless standalone.
+                RaceHandoff.ResultReady = true;
+                RaceHandoff.FinishPos = GetPosition(playerCar);
+                RaceHandoff.FieldSize = allCars.Count;
+                RaceHandoff.RaceTimeSeconds = p.finishTime;
+                RaceHandoff.BestLapSeconds = p.bestLapTime;
+                RaceHandoff.MetersDriven = totalLaps * path.TotalLength;
             }
             else
             {

@@ -96,7 +96,15 @@ namespace PSXRacing.EditorTools
                 Log("Added GameSystems (bootstrap + touch controls + pause menu).");
 
                 EditorSceneManager.SaveScene(scene, ScenePath);
-                EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+                // LifeHome is scene 0 (the boot scene: RaceManager returns to
+                // index 0, LifeHomeScreen loads index 1). Build it if missing.
+                if (!File.Exists(LifeHomeSceneBuilder.ScenePath))
+                    LifeHomeSceneBuilder.Build();
+                EditorBuildSettings.scenes = new[]
+                {
+                    new EditorBuildSettingsScene(LifeHomeSceneBuilder.ScenePath, true),
+                    new EditorBuildSettingsScene(ScenePath, true),
+                };
                 Log("Scene saved: " + ScenePath);
                 Log("BUILD OK");
             }
