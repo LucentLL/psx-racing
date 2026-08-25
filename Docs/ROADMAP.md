@@ -1,0 +1,1396 @@
+# PSX Racing Roadmap (2026-08-21)
+
+Two plans: (I) finish the LifeSim port from Racing Game 2, (II) proper racing physics.
+Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c46ed0d
+Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
+Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
+
+## CHARLOTTE, 1:1 (2026-08-25)
+
+Asked for: base the game on a real city the way Midnight Club used Atlanta and
+LA — a 3D Charlotte from the road network already built in the HTML game, "as
+close to scale as possible while maintaining LoD, draw distance, and 60-100+
+FPS", with two standing rules: every road over water gets a bridge, and every
+highway over a road goes over on one.
+
+Full design and the decisions behind it: `Docs/CHARLOTTE.md`. The short form:
+
+**The data was better than the maps suggested.** RG2 carries TWO Charlottes —
+the hand-traced PNG layers the reference images render, and a full OSM import
+(`fixtures/osm/charlotte_rows.json`) nobody had ported: 3,076 named rows with
+lanes, one-way flags, real bridge decks, 840+ real interchange ramps, and the
+whole thing invertible to lat/lon. Roads come from the OSM bake; the WATER
+only exists in the traced set, so the creeks are co-registered onto the OSM
+frame by fitting the one shape both datasets share — the I-485 loop (26 m mean
+residual). `tools/city/export_charlotte.mjs` welds, T-snaps 2,629 ramp tips,
+classifies every geometric crossing (same-z = junction, else = grade
+separation — the bake's own H1327 convention), detects water spans, and bakes
+`Resources/charlotte_city.json`: 7,287 edges / 5,383 nodes / 2,574 km, 526
+separations, 179 water spans. Attribution: OpenStreetMap, ODbL — on the HUD's
+opening seconds and the menu blurb, as required.
+
+**The scale trick is RG2's own, dialled to 1:1.** Layout metres and
+cross-section metres are different currencies (the car is real-size at any
+layout scale); RG2 ran layout at 1:6 and this port runs it at 1.0 —
+`CityMap.LayoutScale`, one knob. The I-485 belt is ~31 km across and the far
+edge sits ~16 km out, where float32 quantises at ~2 mm — inside the wobble a
+PSX renderer adds on purpose.
+
+**The project's first runtime world.** Every circuit is baked whole into its
+scene; a 31 km city cannot be, so `Charlotte.unity` ships nearly empty and
+`CityWorld` streams 256 m tiles around the car — a 5×5 ring, one tile build
+per frame, the tile under the car force-built so the ground can never lose
+the race. The 360 m far plane and the fog that closes before it are what make
+this cheap. Meshes are tile-local so precision never depends on distance from
+origin. `GroundHeightAt`'s O(track) Gaussian could not come along: the city
+ground query is tile-local through a spatial hash, same shelf/sink/blend
+shape as the circuits.
+
+**Elevation is solved from FACTS, not painted z.** A freeway is not 14 m in
+the air its whole length — z is a stacking order. Every edge follows terrain;
+each grade separation lifts its OVER edge clear by 5 m + deck at 4.5%
+approaches; humps that overlap merge into viaducts (I-277 emerges by itself);
+water spans hold their line while the ground carves a bed. Getting the solver
+CONVERGENT was the day's real fight, and each failure mode earned its rule:
+
+- Node reconciliation (a junction takes its highest incident end, so ramps
+  meet the mainline they climb to) can lift a road AFTER its overpass solved
+  — so raise/reconcile iterate to quiescence and END on a raise.
+- A ramp that both MEETS a street at a node and passes under it further along
+  is a feedback loop — one South Tryon cluster ratcheted 24 m into the sky.
+  Crossing targets LATCH on first computation; three final fresh passes make
+  the guarantee exact without re-opening the loop.
+- A capped hump reach left a fifteen-metre CLIFF under the four-level stacks,
+  which the grade-relax pass "fixed" by hauling the deck down through the
+  road it cleared. The cap is gone (a cone fades below terrain on its own)
+  and nothing that can LOWER a road runs after the final raise.
+- Short viaduct fragments whose nodes disagree by more than they can climb
+  raise their low node to what the climb can reach; sub-30 m slivers stay
+  honestly steep and the audit reports rather than fails them.
+
+`CityAudit` (menu: PSX Racing/Audit City) holds the invariants: 98.7% of road
+length reachable from spawn, every enforced separation clears (worst 4.78 m),
+every water crossing decked, no drivable grade past 16%, tile builds
+deterministic. `CityPreview` photographs uptown, an overpass, a water bridge
+and I-485 without play mode — which is how "every street in the city rendered
+only from underneath" was caught: the ribbon quad's corners ran
+counter-clockwise, and the junction patches (their own code path) were the
+only thing visible from above.
+
+**What a city street is here:** no walls, no kerb ribbon — road ribbon on the
+Road layer (grip by layer), painted per-class surfaces DRAWN by the builder
+from the same lane ladder the exporter bakes widths from (minor 2-lane,
+4-lane arterial, divided grass/asphalt, 8-lane motorway, ramp), junction
+patches that also kill z-fighting by construction, buildings seated off road
+frontage with one BoxCollider each. Facades are the owner's building pack
+(tower glass, midrise, brick) plus a composed 4-shopfront atlas; heights fall
+from an uptown tower cluster through midrise to thin suburbia. Driving off
+the road is legal Midnight Club behaviour; grass grip is the penalty.
+
+**Mode wiring:** Charlotte is a `TrackCatalog` entry with `city = true`,
+LAST, so every scene index holds; `PSXRacingBuilder.Build` branches to a city
+baker that reuses the car assembler (extracted to `BuildOneCar`), lighting
+and camera/HUD. There is no RaceManager in the scene — `CityMode` is the
+session (rolling start, respawn onto the graph, street name for the HUD, the
+session ledger), and everything that used to reach for RaceManager.Instance
+goes through `DriveSession`, which knows which world it is in. FREE ROAM
+launches from the MAIN tab (practice-pattern: costs a slot, burns real fuel,
+pays nothing), the pause menu's EXIT stamps the session into RaceHandoff, and
+the apply-back banks metres/fuel/wear with a "free roam — X km in Charlotte"
+line. The race picker skips the city; the fuel gate refuses under 10% because
+there are no pumps out there yet — the fuel truck covers stranding.
+
+**Not in v1** (the city's own backlog): traffic (the graph it needs now
+exists), city races (point-to-point through the graph), minimap, in-city gas
+stations, street lamps and signal heads, a skyline backdrop past the fog,
+residential streets (one Overpass fetch away — needs the owner's nod), real
+building footprints, and the PSX Shader Kit pass if its shaders beat PSX/Lit.
+
+## THE PUMPS, AND A GARAGE YOU CAN WALK INTO (2026-08-24)
+
+Asked for: "I would like to actually stop at gas pumps and fill the gas tank
+full, instead of pressing a button in the garage" and "a simple 1st person
+garage mode where cars and car parts are stored."
+
+### Fuel became a thing in the car
+
+It used to be a number the menu subtracted after a race: distance in, percentage
+out, one REFUEL button in the garage. Two circuits had a gas station beside the
+road and neither could be reached — the barrier ran past it unbroken and the
+model carried a single box collider over the whole of it, pumps included. It was
+a photograph of a gas station.
+
+`FuelTank` now burns down in real time on the player car, at exactly
+`LifeRules.FuelPctPerMeter` — the same constant the apply-back used, so a race
+driven start to finish consumes precisely what it always did. Nothing in the
+economy moved; what moved is where the tank is filled. The burn is per METRE and
+not per second on purpose: a time-based idle burn drains the tank on the grid
+during the countdown and while the player is parked at the pump deciding, and
+both are moments the game has taken the controls away.
+
+Below 2% the pickup sucks air and the engine stumbles before it stops, because
+the stumble is the only warning a player who ignored the gauge will read.
+
+`RaceHandoff` carries the tank both ways. The apply-back writes the MEASURED end
+level rather than re-deriving a burn from the distance — a car that stopped at
+the forecourt on lap two covered the same metres as one that did not and is
+carrying a completely different amount of fuel, so the odometer can no longer
+answer that question.
+
+### Four things the forecourt needed, in order
+
+Each depends on the last, which is why `PlanFuelStop` runs before the terrain
+mesh rather than with the rest of the scenery:
+
+1. **Plan** it first, so the ground can be flattened under it. The pad is flat
+   ACROSS the road and follows the road's own gradient ALONG it. One constant
+   height would be the obvious choice and it is wrong: the apron reaches to the
+   kerb, and inside the corridor the ground is pinned level with a road that
+   climbs — a single height would step against the racing line by a metre on
+   Ridge Pass. The corridor's 10 cm sink survives the pad, or a coarse 8 m
+   ground triangle would sit exactly level with the tarmac.
+2. **Cut** the barrier. The vertex run stays (so the UV distance either side of
+   the opening still lines up) and only the faces and colliders are dropped, on
+   the forecourt's side only. `SaveMesh`'s zero-normal guard now counts over the
+   vertices triangles actually *use*, because the orphans this leaves are not
+   the double-winding bug that guard exists for.
+3. **Lay** an apron on the ROAD layer, three centimetres above the ground *at
+   each point* rather than above the pad's plane — the difference is a ramp at
+   the entrance instead of a lip the car has to bump up. Wheels tell tarmac from
+   grass by layer, and a forecourt at field grip is one nobody can stop on.
+4. **Place** the station facing the road, turned by where its own `Fuel_pump`
+   objects are rather than by an assumption about the model's forward axis, and
+   collide only what should stop a car: the shop behind the pumps, and the pump
+   islands. Everything between is where the player drives.
+
+### The model is not a building
+
+The pad has to be sized off the station, and sizing it took four wrong answers
+before a right one. `Gas_station.fbx` is not a filling station. It is a
+DIORAMA — the pack's display scene, complete with a painted skyline 39 m tall,
+a checkerboard photography floor, roads, hillsides and a treeline, 300 x 143 m
+of it. The builder had always scaled it "so it is 7 m tall", which is to say it
+scaled the backdrop to 7 m and took the station down with it to a fifth of its
+size. That is why the forecourt looked like a hedge with a shed in it.
+
+Three passes fix it, and the order is the point:
+
+- **Strip** the backdrop and the checkerboard by name.
+- **Scale** off the PUMPS. A fuel pump is 1.85 m tall, everywhere, always —
+  the only dimension in the file whose real size is knowable. Every other
+  candidate measures something that is not the building.
+- **Trim** to 30 m around the pumps, judged by how far each mesh REACHES and
+  not where its middle is: an 80 m strip of the diorama's road runs right past
+  the pumps, so by centre it is local and by reach it is scenery. That one
+  distinction is the difference between a 129 m "lot" and the 42 x 41 m one the
+  station actually is.
+
+Then the numbers come out like a filling station: 42 m wide, 41 m deep, 14 m to
+the top of the price sign, pumps spread over 19 x 11 m, 22 m of open apron
+between the kerb and the front of the lot.
+
+### Two things this turned up that were never about fuel
+
+**Imported foliage has always rendered as opaque black quads.**
+`PSXMaterialFor` never set `_Cutoff`, so every alpha-masked billboard in every
+imported model came through solid — invisible until now only because the one
+model full of them was built at a fifth scale behind a barrier nobody could
+cross. It now asks the importer whether the source carries alpha, rather than
+guessing from the file extension.
+
+**Every reference screenshot this project has produced since the cluster moved
+to an overlay is two thirds white rectangle.** The capture pass pulls overlay
+canvases in front of the shot camera so the HUD is in frame, and that includes
+the canvas whose entire job is to display the framebuffer — which outside play
+mode has no texture and draws flat white. It is excluded now, which is the only
+reason any of the above could be seen at all.
+
+**Two texture traps, same shape.** `Concrete.jpg` is a wall photograph WITH its
+painted skirting board; tiled across the garage floor that skirting is a dark
+stripe every three metres. `Asphalt.jpg` is tarmac WITH its painted kerb line;
+tiled across the forecourt it is a yellow stripe every eight. These are
+photographs of surfaces complete with their trim, and a texture named for the
+material it is made of is not a texture named for the surface it belongs on.
+
+### An audit for the thing that fails silently
+
+`TrackObstacleAudit` gained a forecourt check. Everything else in that file asks
+whether something solid stands where the player drives; this asks the opposite,
+because the way IN is generated rather than authored — a driveway that did not
+get cut leaves a pump nobody can reach and nothing else would say a word. It
+scans the barrier for an opening, then walks from it to each pump in turn.
+
+Both of its first two answers were wrong in instructive ways. It reported the
+pump's own island as the obstacle, because a car parks BESIDE a nozzle and a
+line drawn to one ends inside it — it stops five metres short now. Then it
+reported Harbor Point walled in, because it measured against collider BOUNDING
+BOXES and the shop's 42 m box is yawed to face the road, so on a diagonal
+forecourt its world-axis box is half as big again and swallows the pumps
+standing in front of it. It uses `ClosestPoint` now. An audit that cries wolf is
+worse than no audit.
+
+Every circuit has one now. Harbor Point and the airfield had `gasStation =
+false` back when it was set dressing; a circuit with no pumps is one a long race
+cannot be finished on. Drag strips still have none and cannot: the run ends at
+the traps 400 m in.
+
+### The gate got looser, not tighter
+
+The pre-race gate demanded fuel for the WHOLE race, because the whole race was
+the only unit fuel came in. `LifeRules.RequiredFuelPct` now asks only whether
+the car can REACH a forecourt. Starting on a half tank and planning a stop is a
+strategy, and the gate had no business calling it a mistake — but the screen
+says so out loud before you go.
+
+### The truck, and why it exists
+
+A resource you can only buy in one PLACE can strand a player who runs dry
+somewhere else, and being stuck with no legal move is not a difficulty setting.
+So the garage's REFUEL button became a CALL FUEL TRUCK button at a $40 call-out
+fee on top of the fuel, and the same row is in the pause menu for a car that
+died mid-lap. The pumps are a quarter of the price; that is the whole point.
+
+`StuckRecovery` stands down at a pump and on an empty tank. A car deliberately
+stationary on a forecourt is exactly what "beached" looks like from outside, and
+respawning a dry car would teleport it, find it still motionless and fire again.
+
+### The garage is a room
+
+`Scenes/Garage.unity`, built by `GarageSceneBuilder`, LAST in build settings —
+`TrackCatalog.SceneIndex` addresses circuits by position, so a scene inserted
+before them would silently send every race to the wrong place.
+
+The ROOM is baked and the CONTENTS are not. A scene with four cars in it would
+show four cars to a player who owns one, so `GarageWorld` spawns the bays, the
+crates and the tool board out of the save at Start — using the same measured
+geometry `CarBody` and the menu turntable use, because a third opinion about
+where a Charger's wheels go is a third chance to be wrong.
+
+Anything needing a MENU walks the player back to LifeHome on the right tab
+(`LifeHomeScreen.PendingTab`) rather than rebuilding it in 3D. The tuning
+ladder, the fault quotes and the toolbox are hundreds of lines of rules each,
+and a second implementation standing at a workbench would be a second set of
+prices to keep in agreement with the first. What happens in the room is what
+only makes sense in the room: walking up to a particular car and taking its keys
+because you are looking at it.
+
+Targets are found by scoring a registered LIST by angle then distance, not by
+raycasting. Half of what is worth looking at is spawned at runtime and has no
+authored collider, and a car is a four-metre object whose transform sits at its
+axle midpoint — a ray that misses the bodywork by ten centimetres would find
+nothing while the player is plainly standing in front of it.
+
+Three control schemes, because the game ships to phones: mouse-look behind a
+pointer lock the browser will only grant on a click, a pad, and two thumbs.
+Touches are claimed once by where they STARTED and keep the job until they lift,
+which is what makes walking and looking at the same time work.
+
+`GarageWorld.PreviewBuild` is public for the screenshot pass — `AddComponent`
+does not call Start outside play mode, so every reference shot would otherwise
+be a photograph of an empty concrete box.
+
+### What an adversarial review pass found afterwards
+
+Four independent reviewers over the new code, each finding verified by a
+separate agent told to refute it: 16 findings, 9 survived. Every one was real,
+and none of them were visible in a screenshot or catchable by the audits —
+which is the argument for the pass.
+
+**The garage was unusable on a phone.** `GarageTouchPanel` claimed a touch slot
+on the frame a finger landed and then `continue`d past the bookkeeping that
+records "I still hold this slot" — so the slot was released the same frame it
+was taken, and the next frame the touch is `Moved` rather than `Began`, so it
+never claimed again. Arriving in the garage on a phone meant no walking, no
+looking, and no way to reach the door: a soft-lock whose only exit is reloading
+the page. Compounding it, the panel decided whether to exist once at Awake off
+`isMobilePlatform || deviceType == Handheld`, which reports DESKTOP on a tablet
+browser set to request the desktop site. Out on the circuit that costs a
+steering wheel and a keyboard is one tap away; in a room whose door you have to
+WALK to, it is the whole session. It reveals on the first touch now.
+
+**Three ways the pumps mishandled money.**
+
+- RESTART RACE reloaded the scene, and the reload re-seeds the tank from
+  `StartFuelPct` — written once, before the lights. Fuel bought mid-race has
+  already left the wallet and been saved, so restarting after a fill handed
+  back the empty tank and charged for the same fill twice.
+- The sub-dollar remainder was rounded UP on every release of the trigger
+  rather than once per visit. One unbroken hold cost the $12 the prompt quotes;
+  the same fill in 22 taps cost $22.
+- `SpentThisRace` was reset only in `GasPump.Awake`, and a drag strip has no
+  pumps — so no Awake ran, the static survived the scene load, and the strip
+  reported the previous circuit's fuel bill as its own, writing a receipt for
+  fuel nobody bought into the permanent calendar log.
+
+The fix for all three is the same shape: the unit is a VISIT, not a volume and
+not a squeeze of the trigger, and the race's fuel bill accumulates into
+`RaceHandoff.FuelSpent` — which is already cleared before every race — instead
+of into a counter that resets on a scene load that may not happen.
+
+**A nudge between two overlapping pumps split one fill in half.** The station
+carries several named pump objects whose volumes overlap, so a parked car is
+routinely inside two; edging forward exits one while still inside the other.
+That settled the bill, wrote a log line and zeroed the on-screen receipt
+mid-fill. A visit now survives the hand-off and closes only when nothing has
+claimed the car for a few frames — which is what driving away looks like.
+
+**And the excuse that went too far.** `StuckRecovery` was told to stand down at
+a pump, because a stationary car on a forecourt is one the driver parked. True
+of a parked car; not true of one on its roof. A car rolled onto the forecourt
+was left there permanently, with the fuel prompt drawn over the banner that
+would have told it how to get out. The stand-down is now conditional on the car
+being upright and clear of a wall, and a genuinely stuck car's prompt outranks
+the nozzle.
+
+## THE CABIN, AT DEVICE RESOLUTION (2026-08-24)
+
+Reported: "gauges are too small and too blurry. steering wheel has wrong
+geometry compared to HTML. pedals, shifter and e-brake are missing from HTML."
+
+**The cluster moved off the framebuffer.** It was rasterised into the 240-line
+buffer with everything else, on the reasoning that instruments should dither and
+crawl along with the picture rather than sit on top of it as crisp modern vector
+art. That is right in a still and wrong on a phone: `radiusFrac` of 0.105 is
+25 pixels of radius, carrying numerals clamped to an 8-pixel floor, and an
+8-pixel glyph out of a dynamic font atlas is a grey smudge whatever you upscale
+it with. Both halves of "too small and too blurry" were the same number.
+
+It now has its own `ScreenSpaceOverlay` canvas at device resolution, which also
+makes the split deliberate rather than accidental — the touch wheel and pedals
+were ALREADY on a screen-resolution overlay, so the frame was never uniformly
+240 lines. The CABIN (what you read and what you hold) is at device resolution;
+the WORLD, and the race data printed over it, stay at 240.
+
+Three consequences worth naming:
+
+- The dial rasterisers were baked at exactly the layout size and point filtered,
+  "so nothing resamples". True while the layout size WAS a framebuffer pixel
+  count; false on a scaling canvas, where the same 166 units is 249 device
+  pixels on one phone and 332 on another. They now draw at 2x, mipmapped and
+  trilinear, so the resampling that is going to happen anyway happens cleanly.
+- `LabelStep` sized the numeral count off `radius / 7`, which read as "room" and
+  handed a 108-unit speedometer FOURTEEN three-digit labels — a smear across the
+  top of the sweep at exactly the size meant to make it readable. Label count is
+  bounded by ANGLE and by character count, not by radius: the type scales with
+  the dial, so a bigger dial fits the same numbers larger, not more of them.
+- The dials used to be placed at a fraction of the frame width chosen to clear
+  the wheel on one side and the pedals on the other. A fraction that clears both
+  is a different fraction every time the panel is retuned, and it was wrong
+  within one build of each of the last two changes. `TouchControls` now PUBLISHES
+  `WheelInset` and `PedalsInset` and the cluster centres two dials in the band
+  between them, shrinking them if the band is too narrow. Both canvases were
+  given identical scaler settings, because a band measured in one currency and
+  spent in another is not a measurement.
+
+**The steering wheel had three geometry errors against `index.html`.** Its SVG
+draws the rim as a 22-wide stroke on r=89 in a 220-unit viewBox, so every radius
+is that number over 100:
+
+- SPOKES were angular wedges 4.5 to 11 degrees wide that got WIDER toward the
+  rim. The source spoke is a LINEAR flare — a slab 9 units half-height at r=22
+  opening to 25 at r=87 — which is 22 degrees at the hub NARROWING to 16 at the
+  rim. Wedges are thin sticks where the original has cast-metal arms, and they
+  taper the wrong way. They were also shaded bright down the centre, which turns
+  three arms into three beams of light; the source fills them flat and strokes
+  the edge.
+- STITCHING was 2.4 units wide at 40% duty and fully opaque, against the
+  source's 1.2 wide, 29% duty (`dasharray 2.5 6`), at 55% alpha over the
+  leather. It read as a bright dotted ring rather than as thread.
+- OUTLINES were missing: the source strokes black at r=100 and r=78, which is
+  what stops the rim bleeding into the scene behind it.
+
+And one that only a picture catches: the wheel painter does polar maths and
+wants y UP, but the shared painter hands every sprite DESIGN coordinates with y
+DOWN (the CSS convention the other eight want). The whole wheel was mirrored top
+to bottom — the twelve-o'clock marker painted at SIX o'clock, and the three
+spokes sat at the reflection of their intended MOMO stance. It survived a review
+of the maths and died the moment it was rendered.
+
+**The pedals, handbrake and shifter had no hardware at all.** Each was a tinted
+translucent slab with a plain rounded rectangle sliding on it — the same shape
+four times in four colours, which is why the panel read as programmer art next
+to the browser it was copied from. New `Scripts/TouchArt.cs` draws all nine
+sprites from the source's own numbers:
+
+- Pedal linkage: `.ped-base` (36x14 steel mount), `.ped-arm` (5x60 rod, lit down
+  its centre) and `.ped-face` — the gas pedal a 26x62 perforated alloy plate with
+  the source's seven-hole zigzag, the brake a 30x38 foam pad. The pad rises
+  TOWARD its mount as it is pressed and the arm shortens to match, off RG2's
+  `ARM_TRAVEL_PX = 28` / `ARM_MIN_SCALE = 32/60`, both driven from one amount so
+  they cannot come apart. The old code moved the pad the other way, which read as
+  a pedal being pushed off the end of its own linkage.
+- Handbrake: the `.ebh-rotor` lever — ribbed grip, chrome release button. On a
+  phone the source hides the e-brake's whole pedal stack and shows only this, so
+  the lever IS the control. The CSS rotates it `62deg - amt * 75deg` about its
+  base; this canvas is orthographic, so that shows up as foreshortening and the
+  lever reaches full length as it comes toward you.
+- Shifter: a 44px puck lit from the upper left with a 30px bevelled recess
+  carrying the gear, on the cyan centre line that gives the throw a datum.
+- Bars and fills are TRANSPARENT, as they are in the CSS. The rails of ticks
+  down both edges mark the control out and the hardware shows the level; a
+  tinted slab behind a drawn pedal is a slab with a pedal on it.
+
+`BarScale` (1.8) is the one number that scales the whole design at once. Parts
+drawn to their own dimensions and dropped into a bar of a different shape give
+you a different pedal that merely has the same parts, which is what the first
+version was.
+
+**`PSX Racing/Preview Touch Control Panel` now renders the cluster too**, and at
+1280x720 — the reference resolution both canvases scale from, so every control
+appears at its design size with no scale factor to divide out by eye. The
+cluster shares the bottom edge with the wheel and the pedals and is the whole
+reason those two are pushed into the corners, so a panel shot without it could
+not answer the question it exists to answer. Runner: `tools\controls-preview.ps1`.
+
+## THE PUNCH-CLOCK KERB, AND A WALL IN THE GRAVEL (2026-08-23)
+
+Reported from a HarborPoint race: "I got stuck on an invisible barrier on a
+track here. Also, where are the curbs, just some analog meter?"
+
+**The kerb was a photograph of a punch clock.** The kerb strip down both sides
+of all six circuits, and the start/finish line, were textured with
+`Art/GasStation/Textures/Checker.png` — a filename that promises a chequerboard
+and a file that contains the Acroprint time recorder off the back-office wall of
+the gas station asset pack, teal case, white dial and all. Laid at one repeat
+per 2 m of kerb, that is a mile of wall clocks end to end, which is exactly what
+the report describes.
+
+It survived every pass because nothing in the build ever LOOKS at a texture,
+only at its path, and `Checker.png` reads correctly in a diff. Both markings are
+now drawn by `GenerateTrackTextures()` into `Art/Track/`: 1 m red/white bands
+with a dark line down each long edge (0.9 m of high chroma between grey tarmac
+and grey gravel reads as a light source without one, and night is when the kerb
+matters most), and an actual chequer for the line. Drawn rather than sourced, so
+no pack update can put the clock back.
+
+**The invisible barrier was one warehouse corner, 0.57 m inside the barrier
+line.** `PlaceBuildings` seats each block at `WallOffset + BuildingClearance`
+past its own waypoint, along that one waypoint's normal — one distance, from one
+point, on a curve. A 20 m warehouse laid tangentially beside HarborPoint's
+20.2 m minimum-radius corner has its far corners raked round toward the inside
+of the bend, and one of them came to rest 9.43 m off the centreline: inside the
+10 m barrier, out in the gravel, on the Solid layer with no renderer of its own.
+Buildings are now pushed outward until EVERY corner of the footprint clears the
+barrier line measured against the WHOLE path — iteratively, because moving a
+building changes which stretch of road is nearest to it — and dropped outright
+when no offset on that normal works, rather than seated where a car can reach
+them. The same pass fixes the footing sample, which measured the ground about
+the mesh ORIGIN rather than about the middle of the footprint.
+
+This is the second building collider to end up where a car can reach it. The
+first (2026-08-21) was a SIZING error and was audited against the tarmac; this
+one is a PLACEMENT error out in the run-off, which that audit could not see.
+
+**`TrackObstacleAudit` could not have found it, by construction.** It measured
+±(roadWidth/2 + 0.6 m) — the tarmac — while HarborPoint's barriers stand at
+10 m, leaving 4 m of legal gravel either side that it never looked at and
+reported as CLEAR. Running wide onto that gravel is a normal part of a lap. It
+now measures TWO bands, ON TRACK and RUN-OFF, out to the barrier line, off the
+same `WallOffset` and `KerbWidth` constants the builder places from.
+
+Three classes of false positive went with it, all of which had been masking the
+report. Concave `MeshCollider`s have no `ClosestPoint` — Unity hands the query
+point straight back — so the road, the ground and every bridge deck reported as
+touching the centreline; they are surfaces you drive on, and are now named,
+counted and skipped rather than measured wrongly. Bridge piers reported as
+intruding because the height gate allowed anything down to 1.5 m below the road,
+and a pier's top is 1.22 m under its own deck; the gate is now the road surface
+itself, since a car sitting on the road cannot be stopped by something entirely
+beneath it. And six "invisible walls" lying across the end of both drag strips
+were `TrackPath.GetTangent` handing back `Vector3.zero`: on a strip `Wrap`
+CLAMPS, so at the last waypoint both samples are the same point, and a zero
+right-vector measures every barrier as touching the centreline. That zero also
+reached `GetRotation` (`LookRotation` of nothing), the AI's lateral basis and
+respawn; it now steps BACKWARD off the end of the strip instead.
+
+**And a second instrument, asking the question the other way round.** The audit
+above measures collider geometry against the barrier line, which it does well
+for boxes and cannot do at all for concave meshes — so the road, the ground and
+every bridge deck are skipped there. Those three are surfaces you drive on, so
+skipping them is right, but it leaves a hole: an abutment cap, a fold in the
+ground, a ribbon crossing itself are all concave mesh. New
+`Editor/TrackSweepAudit.cs` (menu: PSX Racing/Sweep Track For Blockages) instead
+PUTS THE CAR THERE — an OverlapBox the size of the player's collider, at ride
+height, every 0.5 m across the full width of every waypoint, 58,000 probes over
+the six circuits. Whatever kind of collider is in the way, a box that does not
+fit is a car that does not fit.
+
+It is allowed to use physics queries, which the bounds audit deliberately is
+not, only because it starts with a CONTROL PROBE inside the barrier where there
+is definitely a wall. An edit-mode physics scene that never got populated
+answers every query with "nothing", which is indistinguishable from a clean
+circuit; if the control probe comes back empty the tool reports that it cannot
+sweep rather than a false all-clear. Post-fix it finds nothing on any circuit
+except the barrier itself, which is the intended limit and is filtered.
+New `tools\obstacle-audit.ps1` and `tools\sweep-audit.ps1`, each of which mirrors, rebuilds and then audits in one go —
+the audit reads scenes, and the source scenes are always stale.
+## DRAG STRIPS, AND FOUR CAMERA/LIGHT CORRECTIONS (2026-08-23)
+
+**Two strips: 1/4 mile (402.336 m) and 1/8 (201.168 m).** A strip is not a
+loop, and that distinction runs deeper than it looks: `TrackCatalog.Sample`
+emits a straight instead of a cyclic spline, `TrackPath` clamps every index
+walk instead of wrapping (an AI that reaches the shutdown area and WRAPS turns
+round and drives back up the strip at the field), the road, kerb and wall
+ribbons stop at the last waypoint instead of closing one segment back onto
+waypoint 0 — which on a straight is 700 m of road laid back down on top of
+itself — and the grid stages ABREAST on the line rather than in a rolling 2×2,
+because a staggered grid decides a drag race before the tree does. `RaceManager`
+finishes on a distance rather than a lap count and records a trap speed; the HUD
+prints the ET and the trap instead of a best lap, because "best lap" is the
+circuit's answer to a question the strip did not ask.
+
+**Top-down is now a drag-strip view only.** On a circuit it is a novelty that
+makes the car impossible to place against a corner whose entry is off-screen;
+on a strip, where the only question is which car is ahead, it is the clearest
+view in the game. The cycle simply does not reach it elsewhere, and a top-down
+saved from a strip does not follow the player onto a circuit.
+
+**The bonnet camera now sits at the MEASURED base of the windscreen.**
+`CarModelBaker` bins the body mesh's vertices by Z, takes the highest point in
+each bin, and walks back from the nose until the profile climbs away from the
+bonnet line — that bin is the cowl, and it is stored on the shell as `cowlZ` /
+`cowlY`. A height profile is the right instrument because it needs no material
+names, no sub-object names and no UV convention, none of which the vehicle pack
+has consistently. The old fixed fraction of car length gave a Superbird and a
+1970s Civic the same bonnet, which is not close to true. A cab-over van
+correctly measures a cowl at the nose — that is not a failure, that is a van.
+
+**The close chase went UP, not down.** At 1.48 m the lens was level with the
+roofline of the car it followed, so the view could not see past its own car —
+reported as "too low to the ground making it hard to see in front". 2.07 m
+keeps the car filling the frame and gives the road back.
+
+**Every car runs selective-yellow headlights.** The catalog is 1960s-90s
+machinery; a white LED is decades out of period, tungsten and halogen both burn
+yellow, and French cars were legally required to. The pool on the tarmac
+matches — a warm lamp throwing a white pool reads as two different lights.
+
+## THE GRID OFF THE ISLAND (2026-08-23)
+
+Reported: "I was spawned off the track and outside the walls and couldn't get
+back on the track."
+
+`BuildCars` placed each grid row by extrapolating the START LINE'S TANGENT
+backwards — `pts[0] - tangent * back`. That is only correct when the start line
+sits on a straight. The three polar-generated circuits all begin at their
+easternmost control point, which on an elongated oval is the APEX OF A HAIRPIN,
+so projecting 28.5 m back along a straight line put the player's row on the far
+side of the barrier with no way back onto the road. The city circuit was fine
+purely because its waypoint 0 happens to sit on a straight.
+
+The grid now walks BACK ALONG THE PATH — index arithmetic on the waypoint list,
+with `RightAt` for the lateral offset — so every row lands on the racing line
+whatever the circuit is doing there.
+
+## THE BLANK TOUCH PANEL (2026-08-23)
+
+`TouchControls.MakeLabel` took a caption as a parameter and never assigned
+`Text.text`. Every label on the touch panel — GAS, BRAKE, E-BRK, CAM, RESET —
+has therefore been an unlabelled slab since the panel was written; only the
+shifter's gear number appeared, because TouchShifter rewrites it every frame.
+
+It survived a whole pass ABOUT the legibility of those buttons (which darkened
+their backgrounds and made the type solid to fix "two blank grey slabs") because
+a missing caption and a low-contrast one are the same picture. And it is the
+real answer to "I don't see an option to change camera angle": the button that
+cycles the six views was a blank rectangle in the corner.
+
+`Preview Touch Control Panel` now logs an **error** when any Text has no font,
+no string, or no alpha — a rendered PNG cannot tell those three apart, so the
+instrument has to say so itself. The CAM button also prints the view it is
+currently in underneath the word CAM.
+
+## INSPECTION (2026-08-23) — L5's hidden faults, and the garage that shows them
+
+Ported from RG2's `docs/INSPECT_SPEC.md` + `sim/inspectComponents.ts` +
+`sim/inspectOwnCar.ts`. This is the "hidden faults + inspection" half of L5,
+the phase that had not been started.
+
+**The fault model needed nothing new.** `CarFault` has carried a `hidden` flag
+since the port landed and literally nothing ever set it — `RollWearFault` wrote
+`hidden = false` with a comment saying the hidden layer was a later pass. This
+is that pass. A car bought off the newspaper now gets 0-3 undisclosed faults
+(`Inspection.SeedHidden`, weighted by mileage and condition) on top of whatever
+the seller admitted to.
+
+**A hidden fault afflicts the car.** `FaultCatalog.Aggregate_` used to skip
+hidden faults, which would have made inspecting a pure cost — you pay a time
+slot to be told about a bill. Counting them means a rough used car really is
+down on power from the first race and INSPECT is how you find out why. What
+detection gates is the LISTING, not the affliction; every fault list in the
+menus now counts through `KnownFaults`.
+
+**The X-ray is the HTML game's own geometry** (`LifeSim/CarXray.cs`, ported from
+`render/carBody/xrayDrivetrain.ts`). FF puts the block transverse across the
+front axle; FR and 4WD sit its front face just over that axle with the box
+behind it; MR hangs it between cabin and rear axle; RR puts it behind the axle
+with the gearbox reaching forward. Cylinder count and arrangement come from the
+catalog's own engine string, and the wheelbase, track and tyre size are the
+measurements off the shell the car is actually wearing. The first version here
+was a generic front-engined box diagram, which is a lie about every mid-engined
+car in a 317-car catalog — and the source's layout maths had already absorbed
+several rounds of "the driveshaft is off-centre" and "the engine is too far back
+on trucks" that re-deriving would have re-earned. Two deliberate departures:
+RG2's `max(1.6, L*0.055)`-style floors are dropped (they exist for sprites of
+40-60 units; at 4.3 metres they would BE the car), and a UGUI Image cannot be a
+tapered polygon, so the gearbox is a rect and every shaft is a rotated one.
+
+**Eight components, thirty-six sub-checks, one roll each.**
+`p = 0.5 + skill×0.003 + tools + access`, clamped to 0.05-0.95, straight from
+the spec. Underside checks are −0.10 on a jack and +0.15 on a lift; the
+borescope is +0.15 inside the engine; brakes without an impact wrench cap at
+0.15; frame rails refuse outright without a lift. Entering costs an activity
+slot (the gym pattern) and each sub latches per car per day, so a failed check
+reads "looks fine" until tomorrow rather than letting the player tap until the
+dice agree. A free floor-check on opening any component rolls the leak faults
+at a flat 25% — the user's own "no leaks are seen on the garage floor" line.
+
+**Most checks find nothing, and that is the feature.** Eleven of the
+thirty-six have no fault ids at all; checking the clutch linkage and being
+told it moves cleanly through the gates IS the fiction. The self-test asserts
+the thing that would actually be broken: that **every id the fault pools can
+roll has a home somewhere on the map**, because a fault with nowhere to be
+found is one the player can never diagnose and nothing would ever say so.
+
+**Toolbox** (`LifeSim/Toolbox.cs`): floor jack (free with the first car), LED
+lamp $35, impact wrench $180, borescope $260, two-post lift $2,200 —
+deliberately the most expensive thing in the game outside the cars.
+
+**The garage now shows the cars.** The switcher returned early when there was
+only one car to choose between, so a one-car garage listed nothing at all;
+it is now always a list, with a paint swatch, drivetrain, mileage, worst
+condition stat and known-fault count per row. Reported as "I don't see cars in
+the garage."
+
+## PRESENTATION PASS (2026-08-23) — cameras, circuits, hours, and a garage you can look at
+
+Four features, one theme: the game had one view, one track and one time of day,
+and nothing to look at between races.
+
+**Six camera views** (`ChaseCamera`). Chase, close chase, roof, bonnet, front
+bumper, top-down — cycled with C, gamepad north, the pause menu, or the CAM
+button on the touch pad. That button had existed since the touch controls
+landed and was wired to NOTHING, so on a phone there was no way to change view
+at all; it is the same one line of plumbing as the keyboard path. Every mounted
+view is positioned off the car's own BoxCollider rather than from constants,
+because CarBody resizes that box to whichever of the sixteen shells the player
+is driving — a bumper cam pinned at a fixed 1.9 m sits inside the nose of a Land
+Rover and a metre in front of a supermini. The choice persists in PlayerPrefs,
+and the HUD flashes the view's name for 2.4 s after a switch — and once on
+the grid, with the control that changes it, because six views are worth nothing
+to a player who never learns there is more than one. The touch button names the
+view it is in.
+
+**Four circuits** (`TrackCatalog`, runtime). The shape of a track used to be a
+`ControlPoints` array inside the scene builder, which is fine for one track and
+useless for four: the LifeSim has to name a circuit, quote its length before a
+race and draw it in a picker, and none of that is reachable from editor-only
+code. So the shapes moved into runtime code and the builder consumes them
+through the same resampler — the length the menu quotes IS the length the car
+drives. Layouts 2-4 were generated as polar loops, `r(t) = R(1 + Σ aₖcos(kt+φₖ))`,
+which cannot self-intersect however the harmonics are tuned, then checked for
+minimum corner radius and self-clearance; both checks are now in the self-test,
+so a future edit that puts a 12 m hairpin in fails loudly.
+
+| circuit | length | laps | character |
+| --- | --- | --- | --- |
+| Sunset City GP | 1168 m | 3 | the original — downtown, close walls |
+| Harbor Point | 824 m | 4 | narrow, technical, concrete and corrugated hoarding |
+| Ridge Pass | 1632 m | 2 | long and flowing, dry-stone walls, trees |
+| Airfield Sprint | 1468 m | 2 | two long straights joined by hairpins |
+
+Laps differ so every race is ~3.3 km, which is what keeps ONE fuel and wear
+economy honest across four circuits. The LOOK of each is a `Theme` in the
+builder — ground, barrier and tree textures plus scenery density — keyed by
+track id and asserted by the self-test, because a missing theme is invisible: it
+just builds another city circuit. One scene per track, `[0] LifeHome` then the
+catalog in order; `TrackCatalog.SceneIndex` is the only place that contract is
+written down, and the self-test checks Build Settings against it.
+
+**Seven hours** (`TimeOfDay`). Dawn, morning, noon, afternoon, sunset, dusk,
+night — replacing three hard-coded arrays in RaceHandoffApplier that only knew
+morning/afternoon/night. Fog does most of the work: the draw distance is 360 m
+and the circuits are up to 660 m across, so what reads as "time of day" is
+mostly the colour the world fades into and how close in it starts, which is
+exactly how a PS1 game got its atmosphere. The LifeSim still has three activity
+slots — the whole economy is built on three actions a day — so the seven fold
+into three bands and the day number picks within the band, meaning racing the
+morning slot on Tuesday and on Wednesday are not the same picture. A TIME row
+beside the track picker overrides that for any race — it started as a
+practice-only cycle tucked under the practice button, which is how you end up
+with seven skies and a player who reports there is no way to change the time of
+day.
+
+Dark hours light the world: a new additive `PSX/Glow` pass draws headlight and
+tail-light sprites on every car plus the pool they throw on the tarmac, and
+street lamps along the barriers (`NightGlow`). Brake lights are independent of
+the hour — they come on whenever the car is braking, day or night, because that
+is the one lighting cue that tells you what the car in front is about to do.
+
+**A garage you can look at** (`CarViewer`). The garage could name a car and
+price it but never show it, which after the vehicle pack landed is a strange
+thing for a garage to be: the player picks between 317 cars wearing sixteen
+bodies and had no way to see which one they bought short of starting a race. A
+320x200 point-filtered turntable renders the shell and livery the car actually
+races in, on the garage tab and on the market's buy page. It is a component on
+the LifeHome object rather than on the panel, because Rebuild destroys the whole
+body on every button press and a render texture reallocated per keypress is how
+a menu starts stuttering. Vertical drags are handed back to the enclosing
+ScrollRect — the viewer sits at the top of the garage, which is where a thumb
+starts a flick.
+
+**Verification.** `Tools > PSX Racing > Capture Screenshots` now sweeps every
+circuit from four angles, every hour from two, and every camera view — framed
+through ChaseCamera's own offset and FOV tables rather than a copy of them,
+because all of these fail SILENTLY: a barrier textured with the wrong JPEG, a
+ground plane that does not reach its own back straight, a headlight quad buried
+in the bodywork, a bonnet cam looking out from inside the windscreen. The
+obstacle audit runs on all four circuits against each one's own road width, and
+the self-test gained sections for circuit geometry, the hour table and the
+camera list.
+
+**Not done.** Every circuit is FLAT. The road ribbon, the ground plane and its
+collider all live at y = 0, and giving one of them elevation means giving all
+three of them elevation plus a shoulder mesh to join road to ground — which is
+a pass of its own, and the one that would make Ridge Pass deserve its name.
+
+## CAR IMPORT, PASS 3 (2026-08-22) — bodywork
+
+Pass 2 closed everything about a car except its shape, and said so: "the RX-7
+mesh still stands in for all 317 — that is the one deliberate hole." This pass
+closes it with a 15-vehicle pack from the same artist who made the FD, plus a
+free compact pickup. Sixteen shells against 317 cars, so the job is curation,
+not lookup.
+
+**The pack, identified.** The author shipped reference art beside the meshes, so
+the Americans and the R32 are named by their own blueprints and the A80 by its
+cutaway. The European folder ships none, so those were identified from the shape
+and the factory colour names on the liveries — "Signal Red" and "Ivory" on a
+1960s hardtop roadster is a Pagoda. Every identification is corroborated by the
+geometry the baker measures: R32 2.62 m against a real 2.615, A80 2.55 against
+2.55, E30 2.55 against 2.57, Defender 110 2.80 against 2.79.
+
+**`Art/Car/Models/<key>/` — three OBJs per model, generated.**
+`tools/carmodels/export_models.mjs` splits the pack into a body file and two
+axle files. The split is at the FILE boundary because Unity's OBJ importer
+splits on MATERIAL, not on object: the pack paints a whole car from one 128×128
+sheet, so an OBJ carrying `o body` and `o wheel_FL` imports as a single merged
+mesh named "default" with the axles gone. Front and rear axles are separate
+files so the baker never guesses which end is the nose — an overhang heuristic
+looked sound until the cab-over van turned up with its front axle further from
+the bumper than its rear one is from the tailgate. One model comes in as an
+empty OBJ and is round-tripped from its GLB through Blender.
+
+**`CarModelBaker` (editor) → `Resources/CarModels/<key>.prefab`.** Every number
+a shell carries is MEASURED off the imported mesh — axles, track, tyre radius,
+body box, and which way Unity's importer landed the car. A hand-written table
+would be four numbers per model that quietly disagree with the geometry the
+moment the pack updates. The FD is the deliberate exception: it keeps its
+literal 2.425 / 1.46 / 0.31 and its pinned wheel material, because it is the car
+every handling decision was made against and the self-test asserts it has not
+moved. Liveries bake to one shared material each, with a mean colour so a car
+can be given the paint its catalog entry claims.
+
+**`CarModelLibrary` — which car wears what.** Two passes: 155 hand-mapped (the
+cars the pack actually is, their badge-engineered twins — a Superbird IS a
+winged Charger, a Cougar IS a Mustang — and a dozen calls the scorer gets wrong
+on principle), then 162 scored on body class, then continent, era and weight.
+Body leads because a Civic in a Charger reads as broken while a Civic in a
+French supermini only reads as a substitution. Era is the one axis that can go
+NEGATIVE: rewarding a close year is not enough, or the scorer happily dresses a
+1992 supercar in a 1965 roadster on body class alone. 14 of 16 shells race;
+`Docs/car_model_mapping.txt` lists all 317 assignments.
+
+**`CarBody` (runtime) fits the chassis to the shell**, not just the skin —
+collider, blob shadow, wheelbase, track and tyre radius, through a new
+`CarController.RebuildGeometry()`. A '69 Charger is 60 cm longer in the
+wheelbase than the FD, and having it turn in like an FD is a bigger lie than the
+mesh swap fixes. `CarBody.applyGeometry` turns that half off if a handling
+change ever needs isolating from the body.
+
+**The two shells no catalog car can wear** — the panel van and the compact
+pickup — became roadside parking. Nothing in a GT4-derived list is a 1950s
+delivery van, and the scorer is barred from reaching for them, so the worst-
+matched car on a grid can never turn up to a race in a van.
+
+**Verification.** `Tools > PSX Racing > Preview Car Models` renders all sixteen
+to PNG from two angles without play mode; every failure mode here is visual and
+silent (a car facing backwards, wheels beside the arches, a livery landing on
+the wrong half of the sheet) and none of them throw. `LifeSimSelfTest` gained a
+car-models section covering prefab presence, the FD's frozen numbers, a
+road-car sanity band on every measurement, and that all 317 resolve.
+
+## CAR IMPORT, PASS 2 (2026-08-22) — engines, aspiration, and the tuning ladder
+
+P3 brought the 317-car catalog across as PHYSICS. This pass brings across
+everything else a car is, short of its bodywork: what it sounds like, whether it
+makes boost, and how far it can be built. The RX-7 mesh still stood in for all
+317 — the one deliberate hole, closed by Pass 3 above.
+
+**Catalog (`Resources/rg2_cars.json`, re-baked).** Five fields added per car:
+`eType` and `asp` (raw GT4 engine type + aspiration), `dispCc`, `engineFamily`,
+and the upgrade endpoints `builtHp` / `minKg`. The last three are ANSWERS, not
+inputs — `resolveEngineFamily` and `getUpgradeHeadroom` are 700 lines of RG2
+rules over GT4_SPECS, and baking what they return is exactly as correct as
+porting them while costing the Unity build nothing. 317/317 resolve to a family;
+137 turbo, 4 supercharged, 176 NA.
+
+**Engine voices (28 families, `Resources/Engines/<family>/`).** Every car now
+speaks with its own engine instead of the 13B-REW. 560 clips imported from the
+Skril pack — the 15-take band ladder plus the intake layer and the two one-shots
+— encoded once to Ogg Vorbis q8 on the way in. WAV would have put 180 MB in a
+repo whose history is already 105 MB and force-pushes a WebGL build through it;
+30 MB of Ogg costs one generation of a codec on broadband engine noise, which
+is not audible. `EngineVoiceLibrary` owns the band ladders (they used to live in
+the builder) and loads families lazily; `EngineAudio.SetFamily` rebuilds the
+voice, and RaceHandoffApplier calls it per car for the player AND the AI field.
+
+- **Import settings are split.** The core set keeps Vorbis q1.0 preloaded. The
+  engine families are q0.8 and `preloadAudioData = false` — 560 clips
+  decompressed at scene load is hundreds of megabytes of PCM in a browser tab,
+  and a race touches five families. `EngineVoiceLibrary.Clip` pulls sample data
+  on first reference, so only what races is ever decompressed.
+- **EngineAudio does not build in Awake.** RaceHandoffApplier learns which car
+  this is during Start, one phase later; building the default in Awake
+  decompressed ~6 MB of RX-7 per car that nothing then played.
+- **Forced induction is gated on data.** `TurboAudio` grew an `Aspiration` mode:
+  turbo keeps the three-layer spool/max/blow-off rig, supercharger gets a
+  belt-whine layer with no lag and no blow-off (a blower makes boost the instant
+  the crank turns), and NA gets silence. 176 of 317 cars were getting sequential
+  twin-turbo blow-off they do not have.
+
+**Tuning ladder (five categories x four stages).** `CarTune` holds the pure
+curves on the race side; `LifeSim/Upgrades` adds prices, days, skill gates and
+per-car state. The `up*` fields have been sitting unread in `OwnedCar` since L3.
+
+- Power scales the torque CURVE (never in place — `CarSpec`s are shared out of
+  the catalog, so scaling `spec.curveNm` would tune every opponent too, and
+  compound each race). Weight, drag, downforce, inertia and chassis rates all
+  re-derive together inside `ApplySpec`, which is why the tune is a parameter to
+  it rather than a pass afterwards.
+- Brakes are capped by the TYRE stage (`BrakeGCapStock` 1.05 g): bigger brakes
+  resist fade, they do not raise peak mu. Suspension maps RG2's turn-rate
+  multiplier onto `corneringStiffness` — the input that moves turn rate in a
+  raycast-wheel car — hard-capped at 13, the ceiling the drift tuning was set
+  against.
+- DIY vs shop survives; RG2's two-step "order a kit, then install it" does not.
+  That needs an `ownedParts` inventory, and a menu-based build has no garage to
+  walk into. Jobs queue into the same `pendingParts` list the repairs use, so a
+  build costs real days and lands through the same rollover.
+- **Drag is now solved from STOCK torque.** It was solved from whatever curve
+  the car had, which after a power stage meant solving for MORE drag and pinning
+  terminal velocity at the stock number — a full engine build would have
+  accelerated harder and topped out at exactly the same speed. Invisible until
+  someone timed it.
+- **Two one-off mods** from RG2's PARTS_SHOP, which are not a ladder: WELD DIFF
+  ($150-ish, skill 35) and SUPERCHARGER ($3000-ish, skill 85). The blower is a
+  Roots curve — flat +30% to 60% of the rev range, tapering to +15% at redline —
+  and is offered on NATURALLY ASPIRATED cars only. RG2's modular port allows it
+  on anything because `CatalogCar` never grew the per-car `canSC` flag, but its
+  own docs say the monolith excluded turbo cars, and `asp` is right there in the
+  baked spec. Fitting one also switches the car's audio to the blower whine.
+  The welded diff has no direct analogue here (there is no left/right diff in
+  the model), so it scales the wheelspin ratio — the input to the yaw injector —
+  by 1.3: the driven wheels break away together, which is the mod's whole point.
+- New screen: GARAGE > PARTS + TUNING. Buy screen now shows the engine line
+  (layout, displacement, aspiration, build ceiling) — with one body for 317
+  cars, that line is what distinguishes two listings.
+
+**Self-test** gained `TestEngineVoices` (every car names a family, every family
+has every clip the ladder plays — an unimported family is SILENT, not a crash)
+and `TestUpgrades` (stages only ever improve, brakes never out-run tyres, all
+20 stages quote and land through Sleep on both the cheapest and the dearest car
+in the catalog).
+
+**Known cost:** WebGL.data grows by ~30 MB. Lower `EngineClipQuality` in
+`PSXRacingBuilder` to trade it back, but not toward 0.65 — `AudioToneChain`'s
++7.5 dB low shelf at 110 Hz re-amplifies exactly what a low-bitrate Vorbis
+encoder discards down there, which is what "sounds 1980s arcade, no bass" was.
+
+## DEVICE BUGS, ROUND 3 (2026-08-22) — menus and instructions
+
+8. **"Options are off screen — I can't repair the car."** Two causes stacked.
+   (a) The body scrolls, but **a ScrollRect is driven by drag events routed from
+   whatever Graphic is under the finger** — every MenuKit label is
+   `raycastTarget = false` (they must be, or they swallow clicks meant for the
+   buttons behind them) and a bare RectTransform is not hit-testable, so a drag
+   on a label or on empty space scrolled NOTHING. Only a drag that happened to
+   start on a button worked. `ScrollBody` now puts a transparent Image on the
+   viewport. (b) `MenuKit.Label` pivoted on its ANCHOR regardless of text
+   alignment, so every left-aligned label was centred on its x and hung half its
+   width further left than the call site wrote — with 500-800 unit labels that
+   put the garage's car name and repair rows off the left edge. Labels now pivot
+   on their ALIGNMENT, so x means the edge the text starts from. Buttons still
+   take a centre (`MenuKit.ColLeft`/`ColRight`).
+   All hard-coded x margins (-610/-400/-360/-300/-230) became `ColL`/`ColR`/
+   `ColW`, derived from the real canvas. The MARKET tab's two-column layout is
+   now a single column: its listings ran to +104 units while its garage column
+   started at +120, so on a handheld they were one long car name from
+   overlapping. The body scrolls, so length is free and width is not.
+9. **"Notifications tell me to use PC controls."** The finish screen said PRESS R
+   on a device with no keyboard. It now names the control the player has — TAP
+   RESET (TOP RIGHT) when the touch layer is up — and the RESET/CAM buttons were
+   16% white on a bright outdoor scene, i.e. two blank grey slabs; darker ground,
+   solid type, larger.
+
+`LifeHomePreview` now renders EVERY tab (three of these bugs were on tabs nobody
+had rendered) and logs content-vs-viewport height plus whether the drag catcher
+is present, per tab per aspect — a static screenshot can never show whether a
+screen can be scrolled.
+
+## DEVICE BUGS, ROUND 2 (2026-08-21) — controls
+
+5. **Steering wheel turned the wrong way.** `TouchWheel.TryAngle` took
+   `Atan2` of the point `ScreenPointToLocalPointInRectangle` returns — which is
+   relative to the PIVOT, and the hit zone is pivoted at its bottom-left corner
+   (0,0) so it can anchor into the corner of the screen. So rotation was
+   measured about a point 150 units down-and-left of the hub the player is
+   actually turning: the 15% dead zone guarded the corner instead of the centre
+   (so dragging through the real hub could wrap +/-pi and snap to full lock),
+   small movements near the hub produced huge angle swings, and on the side
+   nearer the origin the sign of the delta inverted outright. Now measured from
+   `self.rect.center`, which is correct for any pivot.
+6. **Brake permanently engaged at 30%.** `TouchPedal.Amount` was both the value
+   the car read AND the value the gauge drew, so `ReflectState` — the mirror
+   that lets keyboard players see the pedals move — was a feedback loop:
+   PlayerCarInput forces `brake = 0.3f` while input is disabled on the starting
+   grid, that got written into `Amount`, the input layer read it straight back
+   out as a real brake request, and wrote it in again next frame. Nothing could
+   clear it. Display is now a separate `displayAmount`; only a finger writes
+   `Amount`. **An output must never be readable as an input.**
+7. **E-brake engaged in the wrong direction.** It is a LEVER, not a pedal. RG2
+   wires it `addSliderPedal('ebrkBtn', …, { ignoreInvert: true })` with the
+   comment "so it always reads 'pull bottom to engage' like a real handbrake" —
+   `dir = -1` against the pedals' `+1`. The port gave all three controls the
+   pedals' direction. New `TouchPedal.topMounted`: drag DOWN to engage, fill
+   hangs from the top, thumb rides the leading edge downward.
+
+Verified two ways. `PSX Racing/Preview Touch Control Panel` renders the
+ASSEMBLED panel at known control values (gas 0.75 / e-brake 0.4 / steer +0.5),
+because every control bug so far has been in wiring or geometry, not artwork,
+and dumping the sprites alone could never have shown any of them. Edit mode does
+not run lifecycle callbacks, so the tool invokes `Awake` by reflection.
+
+And `PSX Racing/Run Controls Self-Test` (`Editor/ControlsSelfTest.cs`) now DRIVES
+real pointer events into TouchPedal and TouchWheel and asserts which way each
+moves: pedal up engages / down does not, e-brake down engages / up does not, a
+mirrored 0.3 brake never becomes a real request, and the wheel's sign follows
+the ROTATION rather than which side of the rim was gripped. These controls have
+shipped wrong twice; all four bugs compiled cleanly and looked fine in a
+screenshot, so behaviour is the only thing worth asserting. Writing it caught
+two errors in the test's own geometry — the wheel accumulates from its current
+rotation (a second sweep from a turned wheel only unwinds it), and clockwise at
+9 o'clock means the hand goes UP.
+
+## DEVICE BUGS (2026-08-21, from a phone playtest) — all four fixed
+
+1. **Throttle stuck on with no finger on the screen.** Every analog touch
+   control latched on pointer-down and cleared only on pointer-up, and on mobile
+   that up event routinely never arrives — the browser claims the touch for a
+   gesture, focus is lost, or the EventSystem retargets the id. New
+   `TouchPointerWatch.AnyPointerDown()`; pedal, wheel and shifter all release
+   when no pointer exists anywhere. Deliberately NOT a per-id check: the
+   EventSystem's pointerId and the Input System's touchId are not contractually
+   the same number, and a wrong id match would release a control the player IS
+   holding, which is worse than the bug.
+2. **Invisible barriers around the track.** 19 building colliders reached clear
+   across the racing line, on the Solid layer with no renderer of their own.
+   Two compounding errors: the collider was sized from `Renderer.bounds` (a
+   WORLD AABB, so a building yawed to face the road reported its DIAGONAL, up to
+   1.41x its footprint) and that inflated size was then applied along the
+   building's own rotated axes; and placement used `extents * 0.5f` when extents
+   is ALREADY a half-size, seating every building about half its own width too
+   close. Now measured with `LocalBounds()` — an oriented box in the building's
+   own frame — and placed off its road-facing FACE at a named clearance.
+   New `Editor/TrackObstacleAudit.cs` (menu: PSX Racing/Audit Track Obstacles)
+   reports anything reaching inside +/-6.6 m of the centreline; it now runs
+   clean. Measure with `Collider.ClosestPoint`, not `bounds` — auditing rotated
+   boxes by their AABB reproduces the very error being hunted.
+3. **Race view boxed in black bars.** The framebuffer was a fixed 320x240 shown
+   4:3 letterboxed, so a 2.24:1 phone lost about a third of its screen.
+   PSXCameraOutput now locks the VERTICAL resolution at 240 lines and takes the
+   width from the display (clamped 256-960, even numbers only so the 4x4 dither
+   tile does not crawl), rebuilding on orientation/resize. Locking lines is what
+   preserves the era — pixel size, dither scale and HUD type all key off the line
+   count, and the PS1 was itself a fixed-lines/variable-width machine.
+4. **Menus unreadable on mobile.** Three-part fix: the type scale went up ~20%;
+   `MenuKit.DesignHeight` drops from 720 to 560 units on handhelds (the scaler
+   matches height, so that number IS the magnification — together about 1.6x);
+   and the body became a ScrollRect, because a 560-unit column cannot show what
+   a 720-unit one did and the content should move rather than the type shrink.
+   `MenuKit.HalfWidth` was added so columns stop being absolute offsets that
+   only fit one canvas.
+
+Two traps worth remembering, both hit here. `MenuKit.Label`/`Button` centre
+their rect on the x they are handed and TEXT ALIGNMENT DOES NOT MOVE THE RECT,
+so a column is placed from its edge offset by half its own width — left column
+clipped off-screen, right column printed through its neighbour. That arithmetic
+now lives in `MenuKit.ColLeft`/`ColRight`. And the menu preview tool rendered
+into a RenderTexture while MenuKit read the real `Screen`, so it silently
+validated the DESKTOP layout and labelled it "phone" —
+`MenuKit.ScreenSizeOverride` lets the preview impersonate a device properly.
+
+## P4 — LATERAL & DRIFT POLISH (2026-08-21)
+
+- **Downforce is derived per-car, not configured.** New
+  `downforceWeightFractionAtVmax = 0.35` solves the coefficient as
+  `fraction * m * g / vmax^2`. Expressed as a fraction so it means the same
+  thing on all 317 cars — a 950 kg hatchback and a 1700 kg GT both gain 35% of
+  their own weight where they are hardest to hold, instead of one gaining 60%
+  and the other 15% off a shared number. Lands the reference FD at a 1.05
+  coefficient, which is exactly where the handling notes wanted it by hand; the
+  old flat 0.35 gave the FD 11% of its weight, enough to measure and not to
+  feel. Applied to the body, so it reaches grip through spring compression
+  rather than being poked into the friction circle.
+- **One-tick-stale `Drifting` fixed** by a slip pre-pass. `UpdateDriftState` ran
+  after `TireForces`, which put the tick's consumers on two sides of the mode
+  switch: steering and the gesture layer read LAST tick's answer while the yaw
+  damper and injector read this one, so for one tick of every mode change the
+  car steered as if gripping while being damped as if sliding. `RefreshSlipAngles()`
+  measures slip from THIS tick's velocity using last tick's contact geometry and
+  steer angle — strictly fresher than what the steering saw before — and the
+  state machine now runs before anything reads it.
+- **~20 unnamed constants promoted** out of `ApplyYawLayer` and
+  `ApplyLateralStabilizer` into a documented block. Values unchanged; the point
+  is that a tuning session should not have to find them by reading the
+  algorithm.
+- DriftSeconds already shipped with L2. Still deliberately kept: inferred
+  wheelspin, the flat brake model, the CG-applied stabilizer.
+
+## P2 + L4 — CONSEQUENCES & THE BLACKLIST (2026-08-21)
+
+Verified by sandbox scene build (BUILD OK) + `PSX Racing/Run LifeSim Self-Test`
+(90+ assertions, all pass). New file: `Scripts/LifeSim/Blacklist.cs`.
+Save format is at v4 (blacklist lists + `atFaultIncidents` + `lastAnyRaceDay`).
+
+**P2 — collision consequences.**
+- `atFaultIncidents`: CollisionResponder now counts DISCRETE hits (≥6 m/s
+  closing, square-on, one per 0.6 s) alongside the continuous DamageScore. The
+  insurer wants incidents, not energy. Capped at 2/race so one bad night cannot
+  spend L5's whole six-incident allowance. Shown on BILLS; the premium
+  multiplier itself is still L5's job.
+- AI proximity: each AI eases up to 2.4 m off line and lifts when it is closing
+  on a car within 14 m ahead and 2.6 m across. Deviation from the plan — this
+  reads transforms directly rather than RaceManager's progress cache, because
+  "am I about to hit them" is a position question and progress-along-track
+  answers a different one. Not overtaking logic, deliberately.
+- AIDriver moved Update → FixedUpdate. It writes CarController's inputs and
+  reads physics state, so on Update how hard the field drove depended on the
+  player's frame rate.
+- Recovery: the 4 s stuck timer drops to 1.5 s while CollisionResponder reports
+  wall contact (a pinned car never recovers on its own), plus a wrong-way clock
+  (2 s below −0.3 alignment above 3 m/s) — the lookahead steering will otherwise
+  chase a car spun past 90° around in a circle indefinitely.
+- Damage → body/paint wear + impact-cause fault was already live from P1/L2.
+
+**Open decision 3 is closed: the field is catalog-built.** `RaceHandoff` carries
+`OpponentSpecIds` / `OpponentSkills` (parallel ';'-joined lists) and
+RaceHandoffApplier respecs the grid, retiring any car past the end of the list.
+`LifeRules.FillOpponentField` draws 3 cars priced 0.65–1.20× the player's car,
+the band opening upward with street tier (tier 3: 0.89–1.65×), skills spread
+±0.04 around 0.88 + tier×0.04. Before this a beater and a supercar raced the
+same four RX-7s.
+
+**L4 — blacklist.** Ten rivals, ranks 10→1, gates and taunts ported from RG2.
+Open = all lower ranks beaten AND wins ≥ gate AND rep ≥ gate; rep decay can
+re-lock an unfought rival, defeats are permanent, the call-out latches one-shot
+per rank and its mail expires after 3 days. Challenge = 1v1 in the rival's
+signature car at a tuned skill (0.90 → 1.05 up the ladder), started from the new
+RIVALS tab, side-by-side on the grid. Purse `400 + (10−rank)×220`; a win adds
++2 rep on top of the normal tier gain.
+- Deviation from RG2: rival cars resolve to the PRICIEST match of the first
+  matching name pattern, not the first. The catalog is price-sorted, so "first"
+  meant cheapest — KAZE got a $13.5k 185 hp FC when the same pattern also held
+  an $18.5k 215 hp one. Same car, better example of it. The self-test prints the
+  whole resolved roster, since a catalog re-bake can silently change it.
+- A challenge does NOT burn the one-purse-race-a-day cap (there are ten in a
+  career and each needs its own gate). Rep decay therefore moved off
+  `lastRaceDay` onto the new `lastAnyRaceDay`, or a player working the ladder
+  would decay while racing constantly.
+- `BlacklistRival.venue` is carried and deliberately unused: RG2 ignores it too
+  (every challenge there is a meet drag), and this build has one circuit.
+
+## P5 — CONTROLS & HANDLING (2026-08-21, after the "swings back and forth" report)
+
+Root cause was INPUT, not the tire model:
+- Touch throttle/brake were BINARY (`Pressed ? 1f : 0f`). First gear makes ~2x the
+  force the rear tires hold, so binary throttle pins wheelspinRatio instantly, and
+  wheelspin is the direct input to the yaw injector that rotates the car.
+- The steering pad was RELATIVE (origin = wherever the finger landed), so neutral
+  drifted and every correction overshot.
+
+Shipped: `TouchWheel.cs` (rotary accumulation, +/-pi unwrap, 15%-radius hub dead
+zone, accumulates from current rotation, +/-165 deg clamp, axis = rot/165),
+`TouchPedal.cs` (relative-drag travel, anchors at lastAmt, full lift on release),
+`TouchShifter.cs` (40-of-53 throw, one shift per drag, no tap-to-shift). All
+multi-touch by pointer id. Wheel art is generated procedurally (see
+`PSX Racing/Preview Touch Control Art` to dump the sprites to PNG).
+
+`PlayerCarInput` now passes analog sources RAW — CarController already rate-limits
+road wheels at 220 deg/s, and the old MoveTowards was a second filter in series
+adding lag. Release uses RG2's slew: instant attack, instant direction flip,
+rate-limited only unwinding to centre (3.0 units/s).
+
+Three P3 regressions fixed at the same time:
+1. Gear ratios were derived from RG2's `gearSpeeds`, which LOOK per-car but come
+   from GEAR_PATTERNS — a generic table keyed only on gear count. Its 6-speed row
+   implies a 5.88 ratio spread vs a real box's 4.98, giving every six-speed a first
+   gear ~24% short and inflating wheelspin ~50%. Now uses fixed per-gear-count
+   shapes (the 6-speed row IS the FD's real box) anchored to redline-at-vmax.
+   FD is now 3.65/2.11/1.46/1.05/0.84/0.73 vs the real 3.483/2.015/1.391/1.0/0.806/0.7.
+2. `ApplySpec` changed mass without rescaling springs, dampers, anti-roll or
+   staticWheelLoad — every non-RX-7 ran FD suspension. `ScaleChassisToMass()` added.
+3. Impact grace could be re-armed by every contact of a wall scrape, holding the
+   stabilizers down for the length of the wall (same self-feeding shape as the old
+   drift-latch bug). Now requires severity > 0.15 (~1.4 m/s into the surface).
+
+NOT touched: the yaw injector and counter-steer assist. Tuning them against binary
+input would have been tuning against the wrong signal. Re-evaluate with analog.
+
+## STATUS — P1, L1, L2, P3, L3 SHIPPED (2026-08-21)
+
+Verified by batchmode scene build (BUILD OK) + `PSX Racing/Run LifeSim Self-Test`
+(60+ assertions, all pass; writes `PSXRacing_selftest_log.txt`).
+
+New files: `Scripts/CollisionResponder.cs`, `Scripts/CollisionAudio.cs`,
+`Scripts/RaceHandoffApplier.cs`, `Scripts/CarCatalog.cs`,
+`Scripts/LifeSim/FaultCatalog.cs`, `Scripts/LifeSim/CarMarket.cs`,
+`Editor/LifeSimSelfTest.cs`, `Resources/rg2_faults.json`, `Resources/rg2_cars.json`.
+
+Save format is at v3 (`LifeSimManager.Migrate`): v2 retired v1's synthetic
+uncatalogued faults, v3 added `OwnedCar.specId` / `catalogPrice`.
+
+Both data files are BAKED from RG2, not hand-copied. To re-bake after an RG2
+change: esbuild-bundle a TS entry importing the tables with `--alias:@=./src` and
+run it against `Assets/PSXRacing/Resources`.
+  - faults: FAULT_POOLS (45) / FAULT_EFFECTS (39) / USED_FAULTS (36).
+    USED_FAULTS is module-private in RG2, so bake from a generated copy with the
+    const exported rather than editing the game's source.
+  - cars: CAR_CATALOG filtered to ACCESSIBLE_CAR_IDS, minus bikes, minus the five
+    JOB_VEHICLE_IDS (ambulance/tow_truck/police_cruiser/semi_truck/box_truck —
+    they carry 10- and 13-speed truck gearboxes and RG2 excludes them from its
+    own classifieds). Yields 317 cars, every one with a torque curve.
+    Peak torque is DERIVED: scale the normalized curve so peak power == catalog
+    hp. Gear ratios are derived from per-gear speed bounds, anchored so the
+    engine hits redline at the car's spec'd top speed.
+
+Three open decisions surfaced while building (see the artifact's callout):
+1. The seeded 73,300-mile RX-7 starts at ~76 condition; one 3.5 km race takes tires
+   76 -> 38 (mileage ramp 1.73x), so a new save gets a fault on race one. Either seed
+   the car healthier or drop `RaceWearScale` to ~0.6. Needs playtest evidence.
+2. Health has no consumer. 20 days without food drives it to 0 and nothing happens.
+   Faithful to RG2 (health only gates gym level 3 there) — a design decision, not a bug.
+3. ~~The AI field is still four hardcoded RX-7s~~ — CLOSED, see P2 above.
+
+NOTE: sandbox builds do NOT write back to the user's project. Re-run the scene build
+in the user's editor (`psx_autobuild.flag` + focus) to regenerate CityCircuit.unity
+with the collision + handoff components. Also: `robocopy /MIR` in the sandbox scripts
+overwrites the sandbox's freshly-built scene with the user's stale one, so verify a
+built scene BEFORE the next sync.
+
+---
+
+## PART I — Finishing the LifeSim
+
+### Current state (audited 2026-08-21)
+
+- **Shipped v1**: slot clock + single Rollover() pipeline; 7-job economy (FOOD DELIVERY and
+  TRAFFIC COP dropped from RG2's 9), payday flat 22% tax, 55% hire, firing ladder; bills +
+  credit on the 1st; health/hunger/sleep; groceries; race apply-back (tier purse, rep, wear,
+  fuel, odo, threshold faults); wizard; 5 tabs (MAIN/GARAGE/EAT/BILLS/JOBS).
+- **Declared but unwired**: RaceHandoff fault-handicap fields (neither end), purse fields
+  (ApplyRaceResult pays from its own table), DriftSeconds (read by wear math, never written
+  → drift wear always 0), CarLoan/BankLoan (decremented, never populated), mail list,
+  Housing ladder table, mechSkill, up* stages, garageSlots, TimeSlot (sent, never read).
+- **Missing**: repairs (wear is a one-way ratchet — breaks after ~20 races), car
+  catalog/market, loans UI, housing moves, gym, newspaper, mail UI, blacklist, hidden
+  faults/inspection, upgrades, insurance record multipliers, calendar tab, delete-save UI.
+
+### L1 — Garage pass (repairs) — FIRST
+
+- Bake fault data via a ~20-line node script in RG2: FAULT_POOLS (44), FAULT_EFFECTS (41),
+  USED_FAULTS (36) → `Assets/PSXRacing/Resources/rg2_faults.json`. Preserve row order
+  (RNG-parity warning in RG2 comments).
+- Replace LifeRules.RollThresholdFault with diagnoseFault.ts port: mileage tier <60k/<150k,
+  one fault per stat, severe prefers cost ≥ $100, jpn ×1.0 in v1, faults visible
+  ("DIAGNOSED:" on race result; hidden layer is L5).
+- Venues: DIY / MECH ×2 / DEALER ×3 instant, cap $12,000, PendingPart queue ticked in
+  Rollover. Math (repairCost.ts):
+  `diff = (mech?55:45) + min(20, floor(cost/100)*3)`;
+  `carCostMult = clamp(sqrt(price/15000), .6, 3.5)`;
+  `laborFactor = clamp(.45 + (cost-150)/450*.55, .45, 1)`; `effMult = 1+(ccm-1)*lf`.
+  DIY days `max(1, round(max(1, days+ceil(diff/25)) / (1+max(0,skill-diff)/6)))`.
+  Skill gain: challenge=diff−skill; ≥0 → 3+min(5,round(c/8)); else max(0, 2+round(c/10)).
+  Intent: skill starts 15, diffs ~45-55 → early game is mechanic-priced; DIY affordability
+  IS the progression.
+- Mechanic services menu (8 rows: Oil Change $50/+15 eng … Full Service $500/+30 all);
+  services clear faults on their stat lane. Fuel grades 87 $0.99 / 93 $1.24 / 110 $2.49,
+  free for FUEL TANKER.
+- Garage UI: per-fault 3 venue buttons, IN PROGRESS lane, QUICK-SELL 50% of value − payoff
+  (never the only car). `getCarValue = catalogPrice*(eng*.3+tires*.15+body*.3+paint*.25)/100
+  * max(.2, 1−odoMiles/200000)`; paidPrice stands in for catalogPrice until L3.
+- Acceptance test: 35 days + 20 races; wear recoverable, 5 paydays, 1 bills fire.
+
+### L2 — Race wiring (small, high leverage)
+
+- ComputeFaultEffects aggregator (accel/fuel/grip/brake multiply; steerPull adds signed with
+  cached ±1 dir; shiftMult/engineWearMult max; HUD flags OR) → fill RaceHandoff request.
+- CarController application points: AccelMult×drive force, GripMult×mu, BrakeMult×brake,
+  SteerPull steering bias, ShiftMult×shift time; RpmFlutter/HideGauges → RaceHUD.
+  RaceHandoffApplier no-ops when !FromLifeSim.
+- DriftSeconds: accumulate while Drifting at speed, stamp on finish (shared with P4).
+- TimeSlot lighting: 07:00/13:00/20:00 presets, headlights binary at night.
+- Purse from handoff = single source; HUD shows the offer. PRACTICE LAP: costs slot, no
+  purse/rep/lastRaceDay.
+- v1.5 option — breakdown race events: pFrame = (odo<5000 ? 5e-6 : 5e-5) *
+  (1−(eng+tires+body)/300) * wearMult; pRace = 1−(1−pFrame)^(60*raceSeconds).
+  ENGINE STALL (3 s cut, −15 eng) / FLAT TIRE (DNF, −20 tires) / OVERHEATING (DNF, −15
+  eng); DNF = last, +1 rep, $50 tow.
+
+### L3 — Cars & money
+
+- Bake catalog from GT4_DB (380 rows; accessibility ≥100 hp) → rg2_catalog.json with
+  id/name/hp/kg/drv/price/gears/color. v1: curate ~40-60 cars, FR/MR only until P3 adds
+  FF/4WD.
+- OwnedCar.catalogPrice + saveVersion 2 migration (paidPrice → catalogPrice). Field names
+  are save API (JsonUtility silently resets renames).
+- Newspaper classifieds: 5 listings/day, expiry day+3..7, cond max(15, 100−mi/2500+rand),
+  price MSRP*(0.3+cond/200), ×0.55 problem disclosure (30% of used), exclude owned + job
+  vehicles, refresh in Rollover.
+- Dealer lot: 8 rows, 15% new at MSRP, cond 40-89, no pre-faults, RESHUFFLE.
+- Finance: cash · used 48mo @10.5% 15% down · new 60mo @8.5% 10% down; APR + tier adj
+  (EXC −.005, GOOD 0, FAIR +.015, POOR +.03, BAD +.06; lease needs ≥GOOD). Amortized
+  payment: P*(r(1+r)^n)/((1+r)^n−1), r=apr/12. Monthly decrement already exists in bills.
+- Used pre-faults from USED_FAULTS (v1: detected split only). Tier detect/priceMult:
+  cheap .30/.92, moderate .50/.80, extensive .70/.65, severe .60/.40.
+- Selling: ad at 0.9×value → daily offers (chance .45+.10/day cap .85, skip weekends,
+  offer .5-.95×value) as mail ACCEPT/DECLINE; refuse upside-down; trade-in 50%. Makes MAIL
+  tab real.
+- Starting lanes replace RX-7 seed: BEATER (15-39 cond, 100-220k mi, $400-3k, paid,
+  cheapest fault surfaced) / USED RELIABLE / NEW LOAN / LEASE (36mo, residual 45%, MF
+  .0035). H1287: money never deducted, only the loan follows. targetMonthly =
+  max(80, dailyPay*20*.25).
+- CarSpec drives CarController (see P3). RX-7 mesh recolored by catalog color; stats carry
+  identity in v1.
+- Jobs to 9 (cheap): FOOD DELIVERY ($0 + $2-10 tips, free daily meal), TRAFFIC COP ($115 +
+  ticket bonus) as data + perk flags.
+- Price formulas (three coexist by design): calcUsedPrice → starting lanes only;
+  MSRP*(0.3+cond/200) → lot/newspaper; getCarValue → owned resale/insurance.
+
+### L4 — Blacklist (needs L3 rivals)
+
+- Roster rank 10→1 (wins/rep gates): JUICE Civic 3/10 · PENNY Roadster 4/18 · DEACON
+  Silvia 5/25 · KAZE RX-7 FC 7/33 · BIG SAL Cuda 9/41 · WRENCH Impreza 11/50 · DUCHESS
+  S2000 13/58 · PREACHER Supra 15/66 · GHOST R34 18/75 · CALLAHAN RUF CTR2 20/85.
+- Open = all lower beaten AND wins ≥ gate AND rep ≥ gate; decay can re-lock unfought;
+  defeats permanent; one-shot page latch, 3-day expiry. Pager → mail/toast ("COME TAKE MY
+  SPOT" / "LADDER MOVES"). Port the 2 taunt lines per rival.
+- Race = 1v1 vs named AI in the rival's catalog car, tuned skill. RG2 ignores declared
+  venue (all meet drags) — matching is fidelity. Rival challenges don't burn the 1/day cap.
+- Out of scope (unimplemented in RG2 too): pink slips, boss-car uniqueness.
+- Gates tuned against +6/+4/+2 rep and 1-race/day cap — retune together or not at all.
+
+### L5 — Deep life (piecewise)
+
+- Housing ladder 6 tiers (apt1br $425 … Nice Home $189k @ $1,325/mo). Newspaper REAL
+  ESTATE listings; approval: min down by tier 5/10/15/20%, DTI ≤ 35%, loan ≤ 4× annual
+  income, 360mo @ 7.5%+adj. Garage slots from tier — ENFORCE the cap (RG2 never did).
+  Eviction at 3 missed home payments.
+- Bank loans: caps $50k/25k/10k/3.5k/denied; APR 9.5/11.5/14.5/18.5/24%; DTI gate; −5
+  credit originate, +15 payoff. Port bankLoan.ts (RG2 has a duplicate impl in finance.ts —
+  bankLoan.ts is live).
+- Gym: levels $0/$10/$20 → fit +2/+4/+6, health +1/+2/+3 minus hunger penalties; consumes
+  slot; once/day; closes the fitness loop (decays daily with no raise path today).
+- Hidden faults + inspection: H1309 (wear rolls → hidden with vague symptom; INSPECT sells
+  the name). DIY once/day vs detectChance; shop $120 skill 65 / $360 skill 90 at
+  clamp(detect + skill*.003 + .15, .05, .95); reveals every ~0.8-3.2 mi.
+- Upgrades 5×5: headroom overrides (FD 500, Supra 700, R34 560…), POWER_STAGE_FRAC
+  [0,.45,.7,.88,1], $55/hp + $12/kg, two-step DIY (kit ships 2 days → install). Feeds
+  CarSpec.
+- Insurance multipliers (+15%/ticket cap 10, +25%/incident cap 6) — incident source =
+  P2 collision damage → atFaultIncidents.
+- Also: calendar grid, coffee buff, connections (mechanicDiscount @10 visits,
+  dispatcherTrust, sceneRegular, localDeals @60 days), save export/import JSON (iOS Safari
+  evicts storage ~7 idle days).
+
+### Part I hazards
+
+1. JsonUtility renames silently reset → saveVersion bump + migration always.
+2. Unit trap (third time): WPX_PER_M 6.2746 and all converted constants ONLY in LifeRules'
+   unit-bridge block; unit-test 2400 m → ~39% fuel, ~15 tires.
+3. Coupled balance: blacklist gates ↔ rep gains ↔ race cap; rent ↔ purse; RaceWearScale
+   moves the whole repair economy.
+
+---
+
+## PART II — Proper racing physics
+
+Audit verdict: longitudinal (15-pt torque curve, 6-speed, engine braking), lateral
+(slip-angle + friction circle + stabilizer), drift (state machine + injector + damping
+tiers) are solid. **Collision is absent**: zero OnCollision* in 29 scripts, walls friction
+.05 / bounce 0 (combine Minimum), stabilizers erase impacts in ~3 ticks, no audio/VFX/
+shake/damage, AI collision-blind.
+
+### P1 — Collision foundation (feel) — FIRST
+
+- Tunneling: 80 m/s × 0.02 s = 1.6 m/tick vs 0.35 m walls. Player rb →
+  ContinuousDynamic, AI → ContinuousSpeculative; thicken walls outward ~1 m; overlap the
+  292 segment boxes (seam-snag prevention).
+- New CollisionResponder.cs (first collision code): classify contact normal vs velocity —
+  glancing <~30° → scrape state (loop + sparks + mild scrub); hard >~60° →
+  impulse-proportional scrub + camera shake + tiered impact one-shot. Keep wall friction
+  low (NFS rail-slide is desirable); code supplies angle-aware consequence.
+- Post-impact grace ~0.5 s scaled by impulse: fade ApplyLateralStabilizer + counter-steer
+  assist toward 0 so hits knock the car off line. THE change that makes collisions exist.
+- ChaseCamera trauma shake (impulse → trauma, shake ∝ trauma², fast decay).
+- Audio: only skid_loop.wav exists. Add 3 impact one-shots + 1 scrape loop through
+  AudioToneChain (flagged missing since the audio port).
+- Suspension ray hygiene: rays have no layer mask + QueriesHitTriggers on → wheels can
+  "ground" on walls/buildings. Own layer for walls/buildings, mask ray to ground+road.
+
+### P2 — Collision consequences
+
+- Damage: scaled impulse sum → RaceHandoff.DamageScore → body/paint wear on apply-back;
+  past threshold roll an impact-cause fault (pools tag cause: wear/impact/ignition/
+  cooling); big hits → atFaultIncidents (feeds L5 insurance). 14-zone model stays deferred.
+- AI proximity: neighbor check from RaceManager's per-frame cache → lateral bias away +
+  throttle lift when closing. Not overtaking logic, just "don't drive through the player."
+- AIDriver Update() → FixedUpdate (currently framerate-dependent on physics state).
+- Wall-pin / wrong-way detection → faster respawn (today: 4 s under 1 m/s only).
+
+### P3 — Drivetrain / CarSpec
+
+- Extract CarSpec from hardcoded FD (280 PS / 1280 kg / FR / 6-speed): mass, torque scale,
+  gears, final drive, mu, drag, inertia dims (currently a literal that disagrees with the
+  collider 4.28×1.76×1.23 vs 4.1×1.72×1.0). Built from catalog hp/kg/drv; upgrades modify
+  the spec (power→torque, weight→mass, brakes→brakeForce, susp→spring/damper/ARB,
+  tires→mu).
+- Fix rear force split: driveForce*0.5 per wheel loses half the output if one rear is
+  airborne → redistribute to the loaded wheel, clamp by its circle. Same in brake split.
+- Drive layouts: add FF (front drive, injector off, lift-off rotation) and 4WD (fixed
+  split, reduced injector). Until then catalog is FR/MR-gated.
+- topSpeedMps 64.75 is only a normalizer (real vmax ~80 m/s from drag). Derive drag from
+  per-car spec'd top speed (recommended) or rename. Delete stale staticWheelLoad
+  initializer.
+- Parking brake below 0.3 m/s (matters when a track has gradient).
+
+### P4 — Lateral & drift polish
+
+- Downforce 0.35 → try 1.0-1.2 (handling notes' next knob); per-spec after P3.
+- Fix one-tick-stale Drifting (UpdateDriftState runs after TireForces) — slip pre-pass or
+  reorder.
+- DriftSeconds accumulation (shared with L2) → optional drift-score line on results.
+- Promote ~15 unnamed inline constants in the yaw/drift layer (injector 2.0/1.5/0.20,
+  damping 1.8/2.2/4.0/0.45, assist ×15, gates .05/.35 …) into the named const block
+  before the next tuning session.
+- Deliberately keep: inferred wheelspin (no wheel rotational state), flat brake model,
+  CG-applied stabilizer — arcade-correct for the NFS target.
+
+### Suggested order
+
+P1 → L1 → L2 → (P3 + L3 together) → P2 → L4 → P4/L5 ongoing.
+Everything through P4 is shipped. **L5 is the only phase not started** — housing
+ladder, bank loans, gym, hidden faults + inspection, upgrades 5x5, and the
+insurance multiplier that `atFaultIncidents` is already feeding. L5 was the next
+thing in progress when the phone playtest came back; the four device bugs above
+took priority and L5 has not been begun.
