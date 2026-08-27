@@ -5,6 +5,96 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE BLUE RIDGE PARKWAY (2026-08-27)
+
+Asked for: touge. "I often see Touge games from Japan or California canyon
+like Initial D or NFS Carbon. I'm thinking the Blue Ridge Parkway would be a
+good idea. Maybe not the entire thing, but sections of it for racing and
+sight-seeing. Let's test out adding mountains — that's almost entirely what
+the BRP is."
+
+**The section is the Grandfather Mountain mile, southbound.** 7.0 km from
+below Rough Ridge, across the Linn Cove Viaduct at two-thirds distance, to a
+finish at Beacon Heights — the most famous stretch of the parkway's 469
+miles, and the photo the request came with. Southbound puts the viaduct's
+outside lane against the Wilson Creek valley and the signature corner right
+before the flag.
+
+**Real road, real mountain.** `tools/brp/fetch_brp.mjs` pulls the parkway
+centreline from OpenStreetMap (credited in the blurb, like Charlotte) and
+elevation from SRTM 1-arc-second — the skadi `.hgt` mirror, raw int16, no
+image decoding — then bakes 4 m waypoints into `Resources/brp_stage.json`
+and two DEM grids into `Art/BRP` (12 m posts near, 60 m far). All eight real
+bridge spans came off the OSM `bridge=yes` tags, and the 392 m one IS the
+Linn Cove Viaduct (real length 379). DEM heights along a ledge road carry
+the cliff in them, so the profile is smoothed sigma-85 with the grade
+clamped at 8.5% and the clamp's own kinks re-rounded — a hard clamp leaves a
+vertical hairpin, and the crest-radius floor exists precisely to catch it.
+Min corner radius 26.9 m, min crest radius 424 m, max grade 8.5%: a real
+mountain road that happens to pass every floor the invented circuits set.
+
+**A stage is the third kind of track.** `TrackDef.stage`: point-to-point
+with ENDS like a strip (clamped waypoints, finish at a distance, standing
+2x2 start behind a lead-in line), but a real winding road — so everything
+that is really about DRAG RACING (staging abreast, trap-speed talk, the
+top-down camera) stays on `drag`, and everything that means "the list has
+ends" asks the new `TrackPath.HasEnds`. The catalog entry is APPENDED after
+Charlotte so every existing save's track index still points where it did.
+
+**The terrain inverts the circuits' rule and keeps their guarantee.** A
+circuit grades the land TO the road; here the road came FROM the land, and
+the ground truth is the DEM itself — but the corridor is pinned to the road
+exactly the way the circuits pin theirs (16 m shelf, 48 m blend, 10 cm
+sink), released back to the real slope through bridge spans so the
+mountainside falls away under the deck. `GroundHeightAt` branches to the
+stage field whenever a stage DEM is loaded, so the pier builder, the
+footings and the audits read the mountain without knowing it is one. Ground
+is CHUNKED (one 144-grid sized to 7 km would have 50 m cells): 140 near
+chunks at 12 m with colliders on the drivable band, 69 far chunks at 60 m,
+painted as autumn forest and sunk 0.4 m so the overlap ring cannot
+z-fight. Chunk normals come from the height FIELD, not RecalculateNormals —
+per-chunk recalculation disagrees along shared borders and draws every
+border as a lighting seam across a hillside.
+
+**The forest is the point.** 10,591 crossed-quad billboards from the CC0
+"Ultimate Retro PSX Tree Pack" (the owner's new asset drop), sixteen
+species composed into one 512 atlas so a whole chunk of forest is one draw
+call. Species follow the mountain: spruce-fir probability climbs with
+elevation, the fall colours cluster by low-frequency noise the way a
+hillside does, true cliffs (50 degrees+) stay bare, and 521 trees stand
+UNDER the viaduct decks — the Linn Cove look is a road riding over canopy.
+Chunks live on a Foliage layer that `StageCulling` clips at 520 m; the fog
+band runs 3.2x the hour presets (PSXGlobals.fogScale, one multiplier, so
+the seven-hour table stays one table) under a 1.5 km far plane. What reads
+as the Blue Ridge is the ridgelines dissolving into exactly that haze.
+
+**Guard walls only where the mountain says so.** The parkway's low stone
+walls appear where the land drops 5 m within 30 m of the shoulder, and on
+both sides of every deck — 7.5 of the 14.5 km of roadside. The visible
+stone is 0.85 m; the collider is 1.7 m and one 4 m chord per station,
+because the first pass used 16 m chords and the obstacle audit correctly
+found their sag reaching 1.2 m inside the wall line on tight corners — an
+invisible face, at 151 spots, exactly the class of bug that audit was
+written for. The uphill side is open: the slope is the barrier.
+
+**Verification carried straight over.** The self-test gained a stage branch
+(finish-line contract, corner floor, self-clearance against the stage's own
+5.9 m barrier line, and grade checks that CLAMP at the ends — wrapping
+measures the fake "grade" between finish and start, which on a stage that
+drops 46 m end to end reads as a cliff). TerrainAudit rays the chunked
+ground through a collider set and now skips the city's by-design empty
+scene instead of reporting a permanent phantom problem. The whole battery
+is green: road clear of ground at 0.106 m at its tightest, real gorges
+11.2 m deep under 238 span waypoints, 8 decks for 8 spans, nothing solid
+inside the barrier line.
+
+**Not in v1** (the stage's own backlog): overlook pull-offs as parking pads
+(the data knows where they are), rock-cut faces on the uphill side, a
+second BRP section (the fetch script is parameterised by anchor + length),
+Japanese cherry species from the same pack for a pink-season variant, the
+tree_pack_1.1 bushes as rhododendron understory once its license is known,
+and a proper point-to-point rival duel (the grid already stages 2x2).
+
 ## CHARLOTTE, 1:1 (2026-08-25)
 
 Asked for: base the game on a real city the way Midnight Club used Atlanta and
