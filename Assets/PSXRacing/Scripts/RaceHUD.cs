@@ -181,17 +181,19 @@ namespace PSXRacing
             }
 
             bool drag = rm.path != null && rm.path.drag;
+            bool ends = rm.path != null && rm.path.HasEnds;
 
             if (p != null)
             {
                 // A strip has no laps to count, so the slot names the distance
                 // instead — "LAP 1/1" on a quarter mile is a readout that tells
-                // the player nothing they did not already know.
-                int lap = drag ? 1 : Mathf.Min(p.lap, rm.totalLaps);
+                // the player nothing they did not already know. A stage names
+                // its run the same way.
+                int lap = ends ? 1 : Mathf.Min(p.lap, rm.totalLaps);
                 if (lap != lastLap)
                 {
                     lastLap = lap;
-                    Set(lapText, drag ? rm.path.dragLabel : "LAP " + lap + "/" + rm.totalLaps);
+                    Set(lapText, ends ? rm.path.dragLabel : "LAP " + lap + "/" + rm.totalLaps);
                 }
 
                 // The clock only needs redrawing when a hundredth ticks over.
@@ -264,10 +266,12 @@ namespace PSXRacing
                                : "PRESS R";
                     // A drag result is an ET and a trap speed. Reporting a "best
                     // lap" for a single 402 m run would be the circuit's answer
-                    // to a question the strip did not ask.
-                    string sheet = drag
+                    // to a question the strip did not ask. A stage result is an
+                    // ET too — but a trap speed on a mountain finish line is
+                    // drag talk, so the stage sheet is the time alone.
+                    string sheet = ends
                         ? "\nET " + FormatTime(p != null ? p.finishTime : 0f) +
-                          "   TRAP " + Mathf.RoundToInt(p != null ? p.trapSpeedKmh : 0f) + " km/h"
+                          (drag ? "   TRAP " + Mathf.RoundToInt(p != null ? p.trapSpeedKmh : 0f) + " km/h" : "")
                         : "\nBEST " + FormatTime(p != null ? p.bestLapTime : 0f);
                     center = ladder + "FINISH!  P" + pos + sheet +
                              "\n\n" + how +

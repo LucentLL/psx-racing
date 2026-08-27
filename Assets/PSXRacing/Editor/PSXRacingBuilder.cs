@@ -60,7 +60,7 @@ namespace PSXRacing.EditorTools
         /// Every ribbon in here used to close by walking one segment past the
         /// last waypoint back to the first; on a straight that segment is 700 m
         /// of road laid back down the strip on top of itself.</summary>
-        static bool Loop => track == null || !track.drag;
+        static bool Loop => track == null || (!track.drag && !track.stage);
 
         internal const float WallOffset = 10f;
         // 2.4 m puts the top edge above the ~1.9 m chase-cam eyeline, so the
@@ -185,6 +185,21 @@ namespace PSXRacing.EditorTools
             // and light poles close enough together to read as speed.
             ["DragQuarter"] = DragTheme(),
             ["DragEighth"] = DragTheme(),
+
+            // The parkway: real terrain, a fall forest the stage plants
+            // itself, low stone guard walls, and NOTHING built — no lamps, no
+            // buildings, no pumps, which is what the road is like. The zeros
+            // are load-bearing: the stage runs its own forest pass instead of
+            // PlaceTrees, and every other scatter pass stays off.
+            ["BlueRidge"] = new Theme
+            {
+                ground = Root + "/Art/GasStation/Textures/Ground.jpg",
+                wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — the parkway's own guard wall
+                groundTile = 13f,
+                relief = 0f,                            // the DEM is the relief
+                buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+                gasStation = false,
+            },
         };
 
         static Theme DragTheme() => new Theme
@@ -308,13 +323,22 @@ namespace PSXRacing.EditorTools
             path.spacing = Spacing;
             path.roadWidth = RoadWidth;
             path.drag = def.drag;
+            path.pointToPoint = def.stage;
             path.finishIndex = def.FinishIndex;
             path.dragLabel = def.dragLabel;
+
+            // A stage's ground truth is a real DEM rather than a field derived
+            // from the road. Loaded before ANY height is asked for, because
+            // GroundHeightAt silently answers for whichever world is loaded.
+            if (def.stage) StageLoadDem();
+            else StageUnloadDem();
 
             // Before anything that has to sit ON the ground, which is
             // everything below: the road is the only thing here whose height is
             // its own, and the land is graded to it rather than the other way
-            // round.
+            // round. (On the stage the roles flip — the road came FROM the real
+            // land — but the corridor pinning below still reads this field's
+            // bridge table.)
             BuildTerrainField(waypoints);
 
             // Before the ground mesh and before the barriers, both of which
@@ -325,11 +349,14 @@ namespace PSXRacing.EditorTools
 
             BuildRoad(waypoints, pathGO.transform);
             BuildKerbs(waypoints, pathGO.transform);
-            BuildWalls(waypoints, pathGO.transform);
-            BuildGround(waypoints, pathGO.transform);
+            if (def.stage) BuildStageWalls(waypoints, pathGO.transform);
+            else BuildWalls(waypoints, pathGO.transform);
+            if (def.stage) BuildStageGround(waypoints, pathGO.transform);
+            else BuildGround(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
             BuildStartLine(waypoints, pathGO.transform);
-            BuildScenery(waypoints, pathGO.transform);
+            if (def.stage) BuildStageForest(waypoints, pathGO.transform);
+            else BuildScenery(waypoints, pathGO.transform);
 
             var lightGO = BuildLighting();
             var cars = BuildCars(waypoints);
@@ -493,14 +520,19 @@ namespace PSXRacing.EditorTools
                 var p = AssetDatabase.GUIDToAssetPath(guid);
                 var imp = AssetImporter.GetAtPath(p) as TextureImporter;
                 if (imp == null) continue;
+                // The forest atlas is 4x4 species on one 512 sheet: clamping it
+                // to 256 would halve every tree to 64 px — chunkier than the
+                // circuit trees it replaces. One page of exemption, explicitly.
+                int wantMax = p.Contains("/BRP/Gen/TreeAtlas") ? 512 : 256;
                 bool dirty = imp.filterMode != FilterMode.Point || imp.mipmapEnabled ||
-                             imp.textureCompression != TextureImporterCompression.Uncompressed;
+                             imp.textureCompression != TextureImporterCompression.Uncompressed ||
+                             (wantMax != 256 && imp.maxTextureSize != wantMax);
                 imp.filterMode = FilterMode.Point;
                 imp.mipmapEnabled = false;
                 imp.textureCompression = TextureImporterCompression.Uncompressed;
                 // 256 is the PS1's own texture-page ceiling, so this is both the
                 // authentic look and a 4x cut in download size for mobile.
-                imp.maxTextureSize = 256;
+                imp.maxTextureSize = wantMax;
                 imp.wrapMode = TextureWrapMode.Repeat;
                 if (p.EndsWith(".png")) imp.alphaIsTransparency = true;
                 if (dirty) { imp.SaveAndReimport(); n++; }
@@ -602,6 +634,10 @@ namespace PSXRacing.EditorTools
         /// suspension raycast mask so a wheel can never take spring force from a
         /// barrier face — see CarController.solidLayer.</summary>
         const int SolidLayer = 9;
+        /// <summary>The stage's forest chunks. Their own layer purely so
+        /// StageCulling can clip them at ~500 m while the terrain runs out to
+        /// the stage's full far plane. No colliders ever go on it.</summary>
+        const int FoliageLayer = 10;
 
         static void EnsureRoadLayer()
         {
@@ -609,9 +645,10 @@ namespace PSXRacing.EditorTools
             if (assets == null || assets.Length == 0) { Log("WARN: TagManager.asset not found"); return; }
             var so = new SerializedObject(assets[0]);
             var layers = so.FindProperty("layers");
-            if (layers == null || layers.arraySize <= SolidLayer) return;
+            if (layers == null || layers.arraySize <= FoliageLayer) return;
             layers.GetArrayElementAtIndex(RoadLayer).stringValue = "Road";
             layers.GetArrayElementAtIndex(SolidLayer).stringValue = "Solid";
+            layers.GetArrayElementAtIndex(FoliageLayer).stringValue = "Foliage";
             so.ApplyModifiedPropertiesWithoutUndo();
             Log("Layer " + RoadLayer + " named 'Road', layer " + SolidLayer + " named 'Solid'.");
         }
@@ -791,7 +828,13 @@ namespace PSXRacing.EditorTools
             // pointing at the fourth circuit's geometry.
             name = MeshPrefix + name;
             m.name = name;
-            m.RecalculateNormals();
+            // A mesh that arrives with its own normals keeps them: the stage's
+            // terrain chunks compute theirs from the height FIELD so adjacent
+            // chunks agree along their shared border, which per-chunk
+            // recalculation cannot do.
+            var existingNormals = m.normals;
+            if (existingNormals == null || existingNormals.Length != m.vertexCount)
+                m.RecalculateNormals();
             // Guard: this exact failure shipped once already. Double-sided
             // triangles cancel in RecalculateNormals and the surface goes unlit.
             //
@@ -871,7 +914,13 @@ namespace PSXRacing.EditorTools
         static void BuildKerbs(List<Vector3> pts, Transform parent)
         {
             int n = pts.Count, last = Loop ? n : n - 1;
-            var mat = MakeMat("Kerb", KerbTexPath, affine: 0f);
+            // The parkway has no racing kerb — its tarmac runs into a mown
+            // gravel verge, so the stage lays the same strip in gravel. Same
+            // geometry either way: the strip is also what visually seals the
+            // corridor-sink lip at the road edge.
+            var mat = track != null && track.stage
+                ? MakeMat(MeshPrefix + "Kerb", StageGenDir + "/Shoulder.png", affine: 0f)
+                : MakeMat("Kerb", KerbTexPath, affine: 0f);
             mat.mainTextureScale = new Vector2(1f, 1f);
 
             foreach (float side in new[] { -1f, 1f })
@@ -1188,6 +1237,11 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static float GroundHeightAt(float x, float z)
         {
+            // The stage's ground truth is the real DEM (with the same corridor
+            // pinning this function does), so every caller — piers, footings,
+            // scatter, audits — reads the mountain without knowing it is one.
+            if (stageDemLoaded) return StageGroundHeightAt(x, z);
+
             var pts = terrainPts;
             if (pts == null || pts.Count == 0) return 0f;
             int n = pts.Count;
@@ -1315,8 +1369,11 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         /// <summary>Deck half-width. Wider than the barrier line so the parapet
         /// stands ON the deck instead of over its edge, which is the difference
-        /// between a bridge and a road with nothing under it.</summary>
-        static float DeckHalfWidth => WallOffset + 1.4f;
+        /// between a bridge and a road with nothing under it. On the stage the
+        /// barrier hugs the shoulder, so the deck does too — a 23 m deck under
+        /// a 9.5 m parkway would read as an aircraft carrier.</summary>
+        static float DeckHalfWidth => track != null && track.stage
+            ? StageWallOffset + 1.2f : WallOffset + 1.4f;
         /// <summary>Depth of the deck box under the tarmac.</summary>
         const float DeckThick = 1.3f;
         /// <summary>Metres between piers. Real short-span viaducts sit around
@@ -1503,11 +1560,16 @@ namespace PSXRacing.EditorTools
             var mat = MakeMat("StartLine", GridTexPath);
             mat.mainTextureScale = new Vector2(8f, 2f);
 
-            Line("StartLine", 0);
-            // A strip needs a line at each end: the one you launch from is not
-            // the one that stops the clock, and on a quarter mile they are 400 m
+            // On the stage the start line sits a lead-in past waypoint 0, so
+            // the whole grid can stand on real road behind it without the
+            // index walk falling off the front of the list.
+            int startIdx = track.stage
+                ? Mathf.RoundToInt(track.stageStartLineM / Spacing) : 0;
+            Line("StartLine", startIdx);
+            // A route with ends needs a line at each end: the one you launch
+            // from is not the one that stops the clock, and they are kilometres
             // apart with a shutdown area beyond.
-            if (track.drag && track.FinishIndex > 0 && track.FinishIndex < pts.Count)
+            if ((track.drag || track.stage) && track.FinishIndex > 0 && track.FinishIndex < pts.Count)
                 Line("FinishLine", track.FinishIndex);
 
             void Line(string name, int idx)
@@ -2881,8 +2943,12 @@ namespace PSXRacing.EditorTools
             globals.sun = light;
             globals.ambient = hour.ambient;
             globals.fogColor = hour.fogColor;
-            globals.fogNear = hour.fogNear;
-            globals.fogFar = hour.fogFar;
+            // The stage lives at mountain scale: the same hour table, seen
+            // three times further. TimeOfDay.Apply reads the scale back at
+            // runtime, so the seven hours all stretch with the venue.
+            globals.fogScale = track != null && track.stage ? StageFogScale : 1f;
+            globals.fogNear = hour.fogNear * globals.fogScale;
+            globals.fogFar = hour.fogFar * globals.fogScale;
 
             var skyShader = Shader.Find("PSX/Sky");
             if (skyShader != null)
@@ -2960,6 +3026,25 @@ namespace PSXRacing.EditorTools
                     float laneW = RoadWidth / (CarSetups.Length + 1);
                     float lane = (c - (CarSetups.Length - 1) * 0.5f) * laneW;
                     gridPos = pts[0] + right * lane + Vector3.up * 0.35f;
+                }
+                else if (track.stage)
+                {
+                    // A stage grids like a circuit — 2x2, player at the back —
+                    // but the index walk CLAMPS on the lead-in behind the start
+                    // line instead of wrapping, because wrapping backwards from
+                    // waypoint 0 on a point-to-point route puts the grid at the
+                    // FINISH, seven kilometres away.
+                    int lineIdx = Mathf.RoundToInt(track.stageStartLineM / Spacing);
+                    int row = isPlayer ? 3 : c - 1;
+                    float back = 9f + row * 6.5f;
+                    float lateral = (row % 2 == 0) ? -2.1f : 2.1f;
+                    float fIdx = lineIdx - back / Spacing;
+                    int i0 = Mathf.Max(0, Mathf.FloorToInt(fIdx));
+                    int i1 = Mathf.Min(pts.Count - 1, i0 + 1);
+                    right = RightAt(pts, i0);
+                    tangent = Vector3.Cross(right, Vector3.up).normalized;
+                    gridPos = Vector3.Lerp(pts[i0], pts[i1], Mathf.Clamp01(fIdx - i0))
+                            + right * lateral + Vector3.up * 0.35f;
                 }
                 else
                 {
@@ -3262,8 +3347,13 @@ namespace PSXRacing.EditorTools
             var cam = camGO.AddComponent<Camera>();
             cam.fieldOfView = 58f;
             cam.nearClipPlane = 0.25f;
-            cam.farClipPlane = 360f;
+            // The circuits end at 360 m because their fog closes before that.
+            // The stage's fog closes around three times further out, and what
+            // it is buying is the far wall of the valley.
+            cam.farClipPlane = track != null && track.stage ? StageFarClip : 360f;
             cam.clearFlags = CameraClearFlags.Skybox;
+            if (track != null && track.stage)
+                camGO.AddComponent<StageCulling>();
             camGO.AddComponent<AudioListener>();
             // Master tone chain: Unity has no parametric EQ, so the low shelf,
             // rotary formant and saturation that give the mix weight are done as

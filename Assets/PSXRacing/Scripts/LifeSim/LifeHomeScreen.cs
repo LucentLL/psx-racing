@@ -596,7 +596,10 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, t.name, 24, new Vector2(0.5f, 1f), new Vector2(textX, y),
                 TextAnchor.MiddleLeft, MenuKit.Accent, textW, height: 30f, bold: true);
             MenuKit.Label(body,
-                t.drag
+                t.stage
+                    ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " + t.dragLabel +
+                      "  ·  point to point"
+                : t.drag
                     ? Mathf.RoundToInt(t.dragMeters) + " m  ·  " + t.dragLabel + "  ·  standing start"
                     : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps  ·  " +
                       (t.RaceMeters / 1000f).ToString("0.0") + " km",

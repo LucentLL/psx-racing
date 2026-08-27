@@ -14,6 +14,15 @@ namespace PSXRacing
         public Color fogColor = new Color(0.87f, 0.56f, 0.44f);
         public float fogNear = 60f;
         public float fogFar = 240f;
+        /// <summary>
+        /// Per-SCENE multiplier on the hour presets' fog band, baked by the
+        /// scene builder. The circuits live happily inside 360 m; a mountain
+        /// stage is about the ridge two valleys over, so its scene bakes ~3x
+        /// and TimeOfDay.Apply multiplies the preset through this. The preset
+        /// table itself stays one table — a second table of seven hours per
+        /// venue would drift apart the first time one of them was tuned.
+        /// </summary>
+        public float fogScale = 1f;
         public bool vertexSnap = true;
 
         void OnEnable() => Apply();

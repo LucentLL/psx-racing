@@ -30,3 +30,5 @@ Thumbs.db
 # Paid Asset Store content - the repo is public, do not redistribute
 Assets/PSXShaderKit/
 Assets/PSXShaderKit.meta
+
+tools/brp/cache/

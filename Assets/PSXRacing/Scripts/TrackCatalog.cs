@@ -86,6 +86,26 @@ namespace PSXRacing
             /// every loop-shaped consumer branches on this the way it already
             /// branches on <see cref="drag"/>.</summary>
             public bool city;
+
+            /// <summary>
+            /// A point-to-point STAGE on a real road: the centreline comes out
+            /// of a baked Resources JSON (real map data, real elevation) rather
+            /// than from control points, and the run has ENDS like a drag strip
+            /// — clamped waypoints, a finish at a distance, a standing start.
+            /// Everything drag-SPECIFIC (staging four abreast, trap-speed talk,
+            /// the top-down camera) stays on <see cref="drag"/>; a stage is a
+            /// mountain road, not a strip.
+            /// </summary>
+            public bool stage;
+            /// <summary>Resources name of the stage bake (e.g. "brp_stage").</summary>
+            public string stageData;
+
+            // Loaded lazily out of stageData by EnsureStage. The waypoints ARE
+            // the bake — no spline pass here, the bake already resampled its
+            // spline at Spacing.
+            [System.NonSerialized] public Vector3[] stagePts;
+            [System.NonSerialized] public float stageStartLineM;
+            [System.NonSerialized] public string stageAttribution = "";
             /// <summary>Metres from the line to the traps. 402.336 is a quarter
             /// mile, 201.168 an eighth — spelled out rather than rounded,
             /// because the whole point of a drag strip is the number at the end
@@ -114,11 +134,27 @@ namespace PSXRacing
             /// pre-race quote. A strip is measured to the TRAPS — the shutdown
             /// area is real distance the car covers, but quoting a quarter mile
             /// as 722 m would be the one number a drag racer would not forgive.
+            /// A stage is measured to its finish line the same way.
             /// </summary>
-            public float RaceMeters => drag ? dragMeters : LengthM * laps;
+            public float RaceMeters
+            {
+                get
+                {
+                    if (stage) { EnsureStage(this); return dragMeters; }
+                    return drag ? dragMeters : LengthM * laps;
+                }
+            }
 
-            /// <summary>Waypoint index the traps sit at, or -1 on a circuit.</summary>
-            public int FinishIndex => drag ? Mathf.RoundToInt(dragMeters / Spacing) : -1;
+            /// <summary>Waypoint index the traps (or the stage finish) sit at,
+            /// -1 on a circuit.</summary>
+            public int FinishIndex
+            {
+                get
+                {
+                    if (stage) { EnsureStage(this); return Mathf.RoundToInt(dragMeters / Spacing); }
+                    return drag ? Mathf.RoundToInt(dragMeters / Spacing) : -1;
+                }
+            }
 
             /// <summary>
             /// Whether this venue has pumps you can pull into mid-race.
@@ -129,7 +165,10 @@ namespace PSXRacing
             /// The pre-race fuel gate branches on this — a strip still has to
             /// be entered with enough fuel for the whole run.
             /// </summary>
-            public bool hasFuelStop => !drag && !city;   // city pumps are a follow-up; the fuel truck covers it
+            // City pumps are a follow-up; the fuel truck covers it. The
+            // parkway has no services on it in real life either — the fuel
+            // gate demands a tank for the whole run, which at 7 km is small.
+            public bool hasFuelStop => !drag && !city && !stage;
         }
 
         /// <summary>Waypoint spacing, metres. The scene builder reads its own
@@ -292,9 +331,9 @@ namespace PSXRacing
                 dragShutdown = 260f,
                 dragLabel = "1/8 MILE",
             },
-            // LAST, deliberately: every scene index before it holds. The city
-            // is not in the race picker (StepTrack skips it) — FREE ROAM on
-            // the MAIN tab is its door.
+            // AFTER every circuit, deliberately: every scene index before it
+            // holds. The city is not in the race picker (StepTrack skips it) —
+            // FREE ROAM on the MAIN tab is its door.
             new TrackDef
             {
                 id = "Charlotte",
@@ -303,6 +342,22 @@ namespace PSXRacing
                 roadWidth = 12f,
                 laps = 1,
                 city = true,
+            },
+            // Appended after the city so every existing save's track index
+            // still points where it always did. The garage index is a formula,
+            // so it moves over by itself.
+            new TrackDef
+            {
+                id = "BlueRidge",
+                name = "BLUE RIDGE PARKWAY",
+                blurb = "Grandfather Mountain at 1:1 — down from Rough Ridge, out over the " +
+                        "Linn Cove Viaduct. Map (c) OpenStreetMap contributors.",
+                roadWidth = 9.5f,
+                laps = 1,
+                stage = true,
+                stageData = "brp_stage",
+                dragLabel = "LINN COVE",
+                bridgeDepth = 6f,   // reused as the audit's minimum daylight under a deck
             },
         };
 
@@ -332,6 +387,56 @@ namespace PSXRacing
         /// </summary>
         public static int GarageSceneIndex => 1 + All.Length;
 
+        // ------------------------------------------------------------------
+        //  Stage bake loading
+        // ------------------------------------------------------------------
+        [System.Serializable]
+        class StageJson
+        {
+            public string name = "", attribution = "";
+            public float spacing = 4f, startLineM, finishM, baseM;
+            public float[] xyz;       // interleaved x,y,z per waypoint
+            public float[] bridges;   // interleaved fromM,toM per span
+        }
+
+        /// <summary>
+        /// Pull a stage's baked centreline out of Resources, once. The bake is
+        /// already an arc-length resample at <see cref="Spacing"/> of a spline
+        /// through the real road's map geometry, with elevation sampled from
+        /// the real terrain — so unlike a circuit there is no spline maths
+        /// here, just the list.
+        /// </summary>
+        public static void EnsureStage(TrackDef def)
+        {
+            if (!def.stage || def.stagePts != null) return;
+            var ta = Resources.Load<TextAsset>(def.stageData);
+            if (ta == null)
+            {
+                // Fail LOUD but not fatal: a missing bake becomes a token
+                // straight road, which no audit will mistake for the parkway.
+                Debug.LogError("Stage bake missing from Resources: " + def.stageData);
+                def.stagePts = new[] { Vector3.zero, new Vector3(Spacing, 0f, 0f) };
+                def.dragMeters = Spacing;
+                return;
+            }
+            var j = JsonUtility.FromJson<StageJson>(ta.text);
+            int n = j.xyz.Length / 3;
+            var pts = new Vector3[n];
+            for (int i = 0; i < n; i++)
+                pts[i] = new Vector3(j.xyz[i * 3], j.xyz[i * 3 + 1], j.xyz[i * 3 + 2]);
+            def.stagePts = pts;
+            def.stageStartLineM = j.startLineM;
+            def.stageAttribution = j.attribution ?? "";
+            def.dragMeters = j.finishM;
+            if (j.bridges != null && j.bridges.Length >= 2)
+            {
+                var spans = new Vector2[j.bridges.Length / 2];
+                for (int i = 0; i < spans.Length; i++)
+                    spans[i] = new Vector2(j.bridges[i * 2], j.bridges[i * 2 + 1]);
+                def.bridges = spans;
+            }
+        }
+
         /// <summary>
         /// Dense Catmull-Rom through the control points, then an arc-length
         /// resample at <paramref name="spacing"/> metres. This IS the track: the
@@ -345,6 +450,33 @@ namespace PSXRacing
             // spline maths it has no business reaching.
             if (def.city)
                 return new List<Vector3> { Vector3.zero, new Vector3(spacing, 0f, 0f) };
+
+            // A stage is pre-sampled at Spacing by its bake. Callers get a
+            // copy — waypoint lists get handed around and this one is shared.
+            if (def.stage)
+            {
+                EnsureStage(def);
+                if (Mathf.Abs(spacing - Spacing) < 0.01f)
+                    return new List<Vector3>(def.stagePts);
+                // Nothing asks for a different spacing today; if something
+                // does, resample linearly rather than lie about the pitch.
+                var resampled = new List<Vector3>();
+                float run = 0f;
+                resampled.Add(def.stagePts[0]);
+                for (int i = 1; i < def.stagePts.Length; i++)
+                {
+                    float d = Vector3.Distance(def.stagePts[i - 1], def.stagePts[i]);
+                    run += d;
+                    while (run >= spacing)
+                    {
+                        float over = run - spacing;
+                        resampled.Add(Vector3.Lerp(def.stagePts[i], def.stagePts[i - 1],
+                            over / Mathf.Max(d, 0.0001f)));
+                        run = over;
+                    }
+                }
+                return resampled;
+            }
 
             // A strip is not a spline. Waypoint 0 IS the start line — the cars
             // stage on it rather than rolling up to it — and the list runs
@@ -437,12 +569,24 @@ namespace PSXRacing
             float best = 0f;
             foreach (var span in def.bridges)
             {
-                // Measured on the LAP, so a span may legitimately wrap past the
-                // start line. Both the distance forward from the start of the
-                // span and back from its end are taken modulo the lap.
-                float from = Mathf.Repeat(metres - span.x, lap);
-                float len = Mathf.Repeat(span.y - span.x, lap);
-                if (from > len) continue;                    // outside this span
+                float from, len;
+                if (def.stage)
+                {
+                    // A stage has ENDS — a span near the finish must not bleed
+                    // through the modulo onto the start of the run.
+                    len = span.y - span.x;
+                    from = metres - span.x;
+                    if (from < 0f || from > len) continue;
+                }
+                else
+                {
+                    // Measured on the LAP, so a span may legitimately wrap past
+                    // the start line. Both the distance forward from the start
+                    // of the span and back from its end are taken modulo the lap.
+                    from = Mathf.Repeat(metres - span.x, lap);
+                    len = Mathf.Repeat(span.y - span.x, lap);
+                    if (from > len) continue;                // outside this span
+                }
                 float into = Mathf.Min(from, len - from);    // metres from the nearer end
                 float t = Mathf.Clamp01(into / BridgeRampM);
                 // Cosine rather than linear: a linear ramp leaves a crease in
@@ -513,7 +657,11 @@ namespace PSXRacing
 
             var line = new Color32(255, 204, 64, 255);
             var halo = new Color32(92, 70, 30, 255);
-            for (int i = 0; i < pts.Count; i++)
+            // A route with ENDS must not close back onto itself: on a strip the
+            // phantom closing segment hides inside the strip, on a 7 km stage
+            // it is a chord drawn straight across the map.
+            int segs = (def.drag || def.stage) ? pts.Count - 1 : pts.Count;
+            for (int i = 0; i < segs; i++)
             {
                 var a = pts[i];
                 var c = pts[(i + 1) % pts.Count];
@@ -528,8 +676,9 @@ namespace PSXRacing
             var white = new Color32(255, 255, 255, 255);
             Plot(px, size, pts[0].x * scale + ox, pts[0].z * scale + oz, white, white);
             // On a strip the interesting end is the OTHER one: a horizontal bar
-            // with one dot on it says nothing about where the traps are.
-            if (def.drag && def.FinishIndex > 0 && def.FinishIndex < pts.Count)
+            // with one dot on it says nothing about where the traps are. Same
+            // for a stage's finish.
+            if ((def.drag || def.stage) && def.FinishIndex > 0 && def.FinishIndex < pts.Count)
             {
                 var f = pts[def.FinishIndex];
                 var red = new Color32(255, 90, 70, 255);

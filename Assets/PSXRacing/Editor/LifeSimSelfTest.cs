@@ -140,6 +140,27 @@ namespace PSXRacing.EditorTools
                     Check(MinCornerRadius(pts) > 1000f, t.id + " is actually straight",
                           MinCornerRadius(pts).ToString("0"));
                 }
+                else if (t.stage)
+                {
+                    // A stage is a real road: it shares the strip's finish-line
+                    // contract and the circuit's corner floor, and is exempt
+                    // from the 3.3 km economy band — a 7 km mountain run
+                    // paying and burning like 7 km is the honest answer.
+                    Check(pts.Count > 500, t.id + " bakes to a real stage", pts.Count);
+                    Check(t.FinishIndex > 20 && t.FinishIndex < pts.Count - 20,
+                          t.id + " has a finish with shutdown beyond it",
+                          t.FinishIndex + " of " + pts.Count);
+                    Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
+                    Check(t.stageStartLineM > 20f,
+                          t.id + " has a lead-in for the grid", t.stageStartLineM);
+                    float stageMinR = MinCornerRadius(pts);
+                    Check(stageMinR >= 18f, t.id + " tightest corner is drivable",
+                          stageMinR.ToString("0.0") + " m");
+                    float stageNeed = t.roadWidth + 2f * 5.9f;   // StageWallOffset
+                    float stageGap = MinSelfClearance(pts);
+                    Check(stageGap >= stageNeed, t.id + " never runs into its own barriers",
+                          stageGap.ToString("0.0") + " m vs " + stageNeed.ToString("0.0"));
+                }
                 else
                 {
                     Check(pts.Count > 120, t.id + " resamples to a real circuit", pts.Count);
@@ -240,11 +261,15 @@ namespace PSXRacing.EditorTools
                   + (t.controlPoints != null ? t.controlPoints.Length : 0));
 
             int n = pts.Count;
+            bool hasEnds = t.drag || t.stage;
             float lo = float.MaxValue, hi = float.MinValue, maxGrade = 0f;
             for (int i = 0; i < n; i++)
             {
                 lo = Mathf.Min(lo, pts[i].y); hi = Mathf.Max(hi, pts[i].y);
-                int j = t.drag ? Mathf.Min(i + 1, n - 1) : (i + 1) % n;
+                // Clamped on a route with ends: wrapping measures the fake
+                // "grade" between the finish and the start, which on a stage
+                // that drops 46 m end to end reads as a cliff.
+                int j = hasEnds ? Mathf.Min(i + 1, n - 1) : (i + 1) % n;
                 maxGrade = Mathf.Max(maxGrade, Mathf.Abs(pts[j].y - pts[i].y) / TrackCatalog.Spacing);
             }
 
@@ -260,7 +285,9 @@ namespace PSXRacing.EditorTools
             float minVertR = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
-                Vector3 a = pts[(i - 3 + n) % n], b = pts[i], c = pts[(i + 3) % n];
+                Vector3 a = pts[hasEnds ? Mathf.Max(0, i - 3) : (i - 3 + n) % n],
+                        b = pts[i],
+                        c = pts[hasEnds ? Mathf.Min(n - 1, i + 3) : (i + 3) % n];
                 float g1 = (b.y - a.y) / (3f * TrackCatalog.Spacing);
                 float g2 = (c.y - b.y) / (3f * TrackCatalog.Spacing);
                 float dg = Mathf.Abs(g2 - g1) / (3f * TrackCatalog.Spacing);

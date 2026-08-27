@@ -35,15 +35,31 @@ namespace PSXRacing
             public float lapStartTime;
             public bool finished;
             public float finishTime;
+            /// <summary>Speed through the traps, km/h. Drag only.</summary>
+            public float trapSpeedKmh;
         }
 
         readonly Dictionary<CarController, CarProgress> progressMap = new Dictionary<CarController, CarProgress>();
         public IReadOnlyDictionary<CarController, CarProgress> Progress => progressMap;
 
+        /// <summary>Seconds the player spent actually sliding. RG2 charges tire,
+        /// chassis and paint wear per second of drift; the LifeSim's wear math has
+        /// always read this, but until now nothing wrote it, so drift wear was
+        /// silently zero on every race.</summary>
+        float playerDriftSeconds;
+        /// <summary>Drift wear should not accrue from the state flag alone — the
+        /// machine can read Drifting while the car is nearly stopped.</summary>
+        const float DriftWearMinSpeed = 4f;
+
         void Awake() => Instance = this;
 
         void Start()
         {
+            // The handoff can RETIRE cars (a blacklist challenge is 1v1 on a grid
+            // built for four), so the field has to settle before the progress
+            // table is built from it.
+            GetComponent<RaceHandoffApplier>()?.Apply(allCars);
+
             // Stagger the starters across the countdown so the grid does not fire
             // as one voice, and so the tach and the audio agree at lights-out.
             float startDelay = 0.25f;
@@ -76,6 +92,10 @@ namespace PSXRacing
                 return;
             }
 
+            if (State == RaceState.Racing && playerCar != null && playerCar.Drifting &&
+                Mathf.Abs(playerCar.forwardSpeed) > DriftWearMinSpeed)
+                playerDriftSeconds += Time.deltaTime;
+
             foreach (var p in progressMap.Values)
             {
                 if (p.finished) continue;
@@ -83,6 +103,23 @@ namespace PSXRacing
 
                 int prev = p.nearestIdx;
                 p.nearestIdx = path.NearestIndex(p.car.transform.position, prev);
+
+                // A strip — or a point-to-point stage — is decided by a
+                // DISTANCE, not a lap count. There is no line to cross twice
+                // and no rolling start to detect: the clock runs from the
+                // green and stops at the traps (or the stage finish).
+                if (path.HasEnds)
+                {
+                    p.progress = p.nearestIdx * path.spacing;
+                    if (path.finishIndex > 0 && p.nearestIdx >= path.finishIndex)
+                    {
+                        p.finished = true;
+                        p.finishTime = p.raceTime;
+                        p.trapSpeedKmh = Mathf.Abs(p.car.speedKmh);
+                        OnCarFinished(p);
+                    }
+                    continue;
+                }
 
                 // Lap line crossing: jump from the last few waypoints to the first few
                 int n = path.Count;
@@ -119,9 +156,17 @@ namespace PSXRacing
             RecomputePositions();
 
             var kb = Keyboard.current;
+            var pad = Gamepad.current;
             bool touchContinue = TouchControls.Instance != null && TouchControls.Instance.RestartPressed;
+            // A pad had no way off the results screen at all: R and the touch
+            // RESET button were the only two continues, so a controller player
+            // who finished a race was simply stranded there.
+            // Not Start: that is the pause toggle, and having it also advance
+            // the results screen would mean one press did two things.
+            bool padContinue = pad != null && pad.buttonSouth.wasPressedThisFrame &&
+                               !PauseMenu.IsOpen;
             if (State == RaceState.Finished &&
-                ((kb != null && kb.rKey.wasPressedThisFrame) || touchContinue))
+                ((kb != null && kb.rKey.wasPressedThisFrame) || touchContinue || padContinue))
             {
                 // From the LifeSim, R returns home with the result in the
                 // mailbox; standalone it just restarts the race as before.
@@ -144,8 +189,33 @@ namespace PSXRacing
                 RaceHandoff.FinishPos = GetPosition(playerCar);
                 RaceHandoff.FieldSize = allCars.Count;
                 RaceHandoff.RaceTimeSeconds = p.finishTime;
-                RaceHandoff.BestLapSeconds = p.bestLapTime;
-                RaceHandoff.MetersDriven = totalLaps * path.TotalLength;
+                // On a strip the ET IS the lap: there is one run and its time is
+                // the whole result, so it goes in the field the LifeSim already
+                // reports as the headline number rather than staying blank.
+                RaceHandoff.BestLapSeconds = path.HasEnds ? p.finishTime : p.bestLapTime;
+                RaceHandoff.TrapSpeedKmh = p.trapSpeedKmh;
+                RaceHandoff.MetersDriven = path.HasEnds
+                    ? path.finishIndex * path.spacing
+                    : totalLaps * path.TotalLength;
+                RaceHandoff.DriftSeconds = playerDriftSeconds;
+                var responder = playerCar.GetComponent<CollisionResponder>();
+                RaceHandoff.DamageScore = responder != null ? responder.DamageScore : 0f;
+                RaceHandoff.HardHits = responder != null ? responder.HardHits : 0;
+
+                // The tank is MEASURED, not re-derived. A car that pulled into
+                // the forecourt on lap two covered the same distance as one that
+                // did not and is carrying a completely different amount of fuel,
+                // so the odometer is no longer able to answer this question.
+                var tank = playerCar.GetComponent<FuelTank>();
+                if (tank != null)
+                {
+                    RaceHandoff.EndFuelPct = tank.percent;
+                    RaceHandoff.FuelReported = true;
+                }
+                // FuelSpent is accumulated by the pumps as the money is taken,
+                // not stamped here. Reading a static counter at the flag meant a
+                // strip — which has no pumps, so no pump ever ran to clear
+                // it — reported the previous circuit's fuel bill as its own.
             }
             else
             {
