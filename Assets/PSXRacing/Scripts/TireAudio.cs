@@ -76,7 +76,7 @@ namespace PSXRacing
                     src.maxDistance = 70f;
                     src.minDistance = 5f;
                 }
-                src.Play();
+                AudioLoopStarter.PlayLoop(src);
             }
         }
 

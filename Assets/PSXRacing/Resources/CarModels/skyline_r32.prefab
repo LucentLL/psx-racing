@@ -1,0 +1,101 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7332183663902604290
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7209703547469542300}
+  - component: {fileID: 7951102232366873278}
+  m_Layer: 0
+  m_Name: skyline_r32
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7209703547469542300
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7332183663902604290}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7951102232366873278
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7332183663902604290}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: skyline_r32
+  displayName: Nissan Skyline GT-R (R32)
+  bodyMesh: {fileID: -2432090755550338912, guid: cf6a875069376ae4d8f2f377ac456829, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 9c3b99f3f92626144a70f7af42210bd7, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 2461bc421846a26419ba0194a5652635, type: 2}
+  - {fileID: 2100000, guid: a86627c572a30514981ba17848802b0e, type: 2}
+  - {fileID: 2100000, guid: 3fc41b3630780be41884c277329338ba, type: 2}
+  - {fileID: 2100000, guid: 2c5e8d54bafc13d48a1bdaadc1c9e311, type: 2}
+  - {fileID: 2100000, guid: c49c229d206c8a54aa4c079aae5c7b78, type: 2}
+  - {fileID: 2100000, guid: c576aede29c42a244b297a2502f0f82d, type: 2}
+  - {fileID: 2100000, guid: 0bf707c236b3bd444a81ef58d496f6c9, type: 2}
+  - {fileID: 2100000, guid: 9de8be7c26a500744a8051e62619d045, type: 2}
+  - {fileID: 2100000, guid: 74880bacb405d3f4e957aaa7a8f7a4ee, type: 2}
+  - {fileID: 2100000, guid: 77a1689658e5ace4a9c0ddc6cd681e63, type: 2}
+  - {fileID: 2100000, guid: 92be727a20199884d8162ac839de2c77, type: 2}
+  skinNames:
+  - competition_yellow
+  - gunmetal_grey
+  - laser_blue
+  - millennium_jade
+  - motorsport_blue
+  - pearl_white
+  - performance_red
+  - rpm_red
+  - sparkle_black
+  - super_silver
+  - zenki_grey
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.8944921, g: 0.80026245, b: 0.4184199, a: 1}
+  - {r: 0.21290876, g: 0.21290876, b: 0.21290876, a: 1}
+  - {r: 0.20984185, g: 0.5670105, b: 0.80656356, a: 1}
+  - {r: 0.20966944, g: 0.7340873, b: 0.3426053, a: 1}
+  - {r: 0.19300325, g: 0.25618246, b: 0.3228978, a: 1}
+  - {r: 0.8331761, g: 0.8331761, b: 0.8331761, a: 1}
+  - {r: 0.72744423, g: 0.031649485, b: 0.2318693, a: 1}
+  - {r: 0.936328, g: 0.14660837, b: 0.025613341, a: 1}
+  - {r: 0.14360388, g: 0.15431152, b: 0.17440762, a: 1}
+  - {r: 0.6546946, g: 0.65516484, b: 0.71984553, a: 1}
+  - {r: 0.39022094, g: 0.39022094, b: 0.39022094, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.0197279
+  bodyZOffset: 0.012486517
+  wheelbase: 2.6186519
+  trackWidth: 1.514747
+  wheelRadius: 0.3151896
+  wheelMeshScale: 0.93
+  cowlZ: 0.86732304
+  cowlY: 0.908408
+  noseZ: 2.2929578
+  roofY: 1.3087384
+  colliderCenter: {x: 0, y: 0.7487386, z: -0.011098444}
+  colliderSize: {x: 1.7673043, y: 1.0442348, z: 4.4007473}
+  blobSize: {x: 2.3564057, y: 4.9306803}

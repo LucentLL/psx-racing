@@ -170,7 +170,7 @@ namespace PSXRacing
             if (tank == null) return "FUEL TRUCK: N/A";
             if (tank.percent >= 99.5f) return "FUEL TRUCK: TANK FULL";
             if (!RaceHandoff.FromLifeSim) return "FUEL TRUCK: FILL (FREE)";
-            int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent);
+            int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent, tank.Profile);
             var s = LifeSim.LifeSimManager.State;
             return s.money < cost
                 ? "FUEL TRUCK: NEED " + LifeSim.MenuKit.Money(cost)
@@ -185,7 +185,7 @@ namespace PSXRacing
             if (RaceHandoff.FromLifeSim)
             {
                 var s = LifeSim.LifeSimManager.State;
-                int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent);
+                int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent, tank.Profile);
                 if (s.money < cost) { if (fuelLabel != null) fuelLabel.text = FuelLabel(); return; }
                 s.money -= cost;
                 tank.percent = 100f;

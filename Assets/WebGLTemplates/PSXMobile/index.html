@@ -51,6 +51,10 @@
       border: none; cursor: pointer; display: none;
     }
     #play:active { transform: translateY(2px); }
+    #hint {
+      margin-top: 12px; font-size: 11px; letter-spacing: .18em;
+      opacity: .75; display: none;
+    }
     #rotate {
       position: fixed; inset: 0; z-index: 20; display: none;
       align-items: center; justify-content: center; flex-direction: column;
@@ -74,6 +78,7 @@
     <div id="bar"><div id="fill"></div></div>
     <div id="status">LOADING&hellip;</div>
     <button id="play">START</button>
+    <div id="hint">CLICK, TAP OR PRESS ENTER</div>
   </div>
 
   <div id="rotate">
@@ -92,6 +97,8 @@
   var playBtn = document.querySelector("#play");
   var rotate = document.querySelector("#rotate");
   var unityInstance = null;
+  var ready = false;      // player build finished loading
+  var started = false;    // splash dismissed; start() is idempotent
 
   var config = {
     dataUrl: "Build/{{{ DATA_FILENAME }}}",
@@ -129,12 +136,36 @@
     unityInstance = inst;
     status.textContent = "READY";
     playBtn.style.display = "block";
+    document.querySelector("#hint").style.display = "block";
     rotate.classList.add("armed");
+    ready = true;
+    // So Enter/Space land on the button without the player having to click it
+    // first -- which is the whole point: a keydown grants the user activation
+    // that fullscreen and the audio context need, and a GAMEPAD press does not.
+    // Browsers only count click / tap / keydown as a gesture, so a player on a
+    // pad still has to touch a key or the mouse exactly once to get in.
+    try { playBtn.focus(); } catch (e) {}
   }).catch(function (err) {
     status.textContent = "FAILED: " + err;
   });
 
-  playBtn.addEventListener("click", function () {
+  document.addEventListener("keydown", function (e) {
+    if (!ready || started) return;
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      start();
+    }
+  });
+
+  // The whole splash is a target, not just the 44-pixel button: a mistimed tap
+  // on a phone otherwise looks like the game failing to start.
+  splash.addEventListener("click", function () { if (ready) start(); });
+
+  playBtn.addEventListener("click", function (e) { e.stopPropagation(); start(); });
+
+  function start() {
+    if (started) return;
+    started = true;
     splash.style.display = "none";
     // Browsers only allow fullscreen and audio from inside a user gesture.
     var el = document.documentElement;
@@ -153,7 +184,7 @@
     }
     canvas.focus();
     resize();
-  });
+  }
 </script>
 </body>
 </html>

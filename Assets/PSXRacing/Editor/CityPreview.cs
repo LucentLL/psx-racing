@@ -53,6 +53,27 @@ namespace PSXRacing.EditorTools
             var trims = CityMeshes.NodeTrims(map);
             var buildings = CityBuildings.Precompute(map);
 
+            // The new prop lots are the thing most likely to be silently wrong
+            // (a floating house, a restaurant in a junction), so photograph a
+            // drive-thru and the housiest suburb tile on every run.
+            Vector2? burgerAt = null, pizzaAt = null, suburbAt = null;
+            int bestHouses = 0;
+            foreach (var kv in buildings)
+            {
+                int houses = 0;
+                Vector2 first = Vector2.zero;
+                foreach (var b in kv.Value)
+                {
+                    if (b.kind == CityProps.Burger && burgerAt == null) burgerAt = b.pos;
+                    if (b.kind == CityProps.Pizzeria && pizzaAt == null) pizzaAt = b.pos;
+                    if (b.kind == CityProps.House) { houses++; first = b.pos; }
+                }
+                if (houses > bestHouses) { bestHouses = houses; suburbAt = first; }
+            }
+            if (suburbAt.HasValue) probes.Add(("suburb", suburbAt.Value));
+            if (burgerAt.HasValue) probes.Add(("burger", burgerAt.Value));
+            if (pizzaAt.HasValue) probes.Add(("pizzeria", pizzaAt.Value));
+
             // PSX/Lit reads global fog + snap; give it a daylight look
             Shader.SetGlobalFloat("_PSXFogNear", 900f);
             Shader.SetGlobalFloat("_PSXFogFar", 2000f);
@@ -119,6 +140,22 @@ namespace PSXRacing.EditorTools
                     Wrap(root, tm.roads, mats, tm.roadSlots);
                     Wrap(root, tm.water, mats, new[] { CityMeshes.Slot.Water });
                     Wrap(root, tm.buildings, mats, tm.buildingSlots);
+
+                    // the prop lots, exactly as CityWorld stands them up
+                    long key = ((long)(ptx + dx) << 24) ^ ((ptz + dz) & 0xFFFFFF);
+                    if (buildings.TryGetValue(key, out var lots))
+                        foreach (var b in lots)
+                        {
+                            if (b.kind == 0) continue;
+                            var prefab = CityProps.Prefab(b.kind);
+                            if (prefab == null) continue;
+                            var def = CityProps.Defs[b.kind];
+                            var inst = (GameObject)Object.Instantiate(prefab, root.transform);
+                            inst.transform.position = new Vector3(b.pos.x,
+                                CityBuildings.SeatY(map, b.pos, b.w, b.d, b.yaw) - def.sink, b.pos.y);
+                            inst.transform.rotation = Quaternion.Euler(
+                                0f, b.yaw * Mathf.Rad2Deg + def.yawOffsetDeg, 0f);
+                        }
                     made.Add(root);
                 }
             return made;

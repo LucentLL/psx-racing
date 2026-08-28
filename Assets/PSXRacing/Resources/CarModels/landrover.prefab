@@ -1,0 +1,86 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &814965680797062136
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7072627142900095514}
+  - component: {fileID: 8129547491979410798}
+  m_Layer: 0
+  m_Name: landrover
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7072627142900095514
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 814965680797062136}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8129547491979410798
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 814965680797062136}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: landrover
+  displayName: Land Rover pickup
+  bodyMesh: {fileID: -2432090755550338912, guid: 499c0ee4586a46045a42bdf2aacca5ea, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 57c52a08d443c6d4f80e3de567eee97f, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 4ff0efe23812cd8408b5b66b7b43e713, type: 2}
+  - {fileID: 2100000, guid: d2eb853bde5e94f46a5d3242e24d9c82, type: 2}
+  - {fileID: 2100000, guid: c23bf80e3db32644885523441f47db3d, type: 2}
+  - {fileID: 2100000, guid: adc5e9eba5d018f4cb0e84c09d44d94c, type: 2}
+  - {fileID: 2100000, guid: 9b1f9f1ea31c31f44a9de1c9088ad2c1, type: 2}
+  - {fileID: 2100000, guid: 412b736823be2674e8b0dbb46149eee3, type: 2}
+  skinNames:
+  - emerald_green
+  - meadow_green
+  - moorland_green
+  - navy_blue_metallic
+  - sagebrush
+  - sandstone_beige
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.2644198, g: 0.4785086, b: 0.27388176, a: 1}
+  - {r: 0.38545644, g: 0.47136363, b: 0.26707256, a: 1}
+  - {r: 0.32350266, g: 0.33749875, b: 0.26790854, a: 1}
+  - {r: 0.24820352, g: 0.3221888, b: 0.36491892, a: 1}
+  - {r: 0.46857625, g: 0.49225518, b: 0.37225208, a: 1}
+  - {r: 0.7297976, g: 0.70040274, b: 0.6366751, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.010712977
+  bodyZOffset: -0.19017923
+  wheelbase: 2.7999895
+  trackWidth: 1.5049009
+  wheelRadius: 0.35340002
+  wheelMeshScale: 0.93
+  cowlZ: 0.7563593
+  cowlY: 1.2957104
+  noseZ: 2.0007696
+  roofY: 1.9294244
+  colliderCenter: {x: 0, y: 1.1979665, z: -0.18720472}
+  colliderSize: {x: 1.7555996, y: 1.354564, z: 4.179031}
+  blobSize: {x: 2.3407996, y: 4.6822658}

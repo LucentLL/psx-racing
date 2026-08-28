@@ -73,12 +73,35 @@ namespace PSXRacing
             /// </summary>
             public int laps = 3;
 
-            /// <summary>A straight strip rather than a closed loop. Everything
-            /// downstream branches on this: the waypoints are not cyclic, the
-            /// road ribbon does not close, the grid stages ON the line instead
-            /// of behind it, and the race ends at a distance rather than a lap
-            /// count.</summary>
+            /// <summary>A SYNTHETIC straight strip rather than a closed loop:
+            /// the waypoints are generated flat and dead straight from
+            /// <see cref="dragMeters"/> instead of coming from map data or
+            /// control points, and the road ribbon does not close.
+            ///
+            /// This is a statement about GEOMETRY, not about the event. The
+            /// bridge runs are drag races on real, graded, mapped road, so they
+            /// set <see cref="dragEvent"/> and leave this false — the builder
+            /// keys its bridge decks and piers off this flag, and a strip
+            /// cannot have either.</summary>
             public bool drag;
+
+            /// <summary>
+            /// Run this as a DRAG RACE regardless of where the geometry came
+            /// from: field staged abreast on the line, trap speed on the HUD,
+            /// the top-down camera unlocked.
+            ///
+            /// Split out from <see cref="drag"/> when Bogue Banks arrived. A
+            /// drag race down a strip and a drag race over a 1.4 km high-rise
+            /// bridge want the same presentation and completely different
+            /// geometry, and the runtime already made exactly this distinction
+            /// (TrackPath.pointToPoint vs TrackPath.drag) — the catalog was the
+            /// only place still conflating them.
+            /// </summary>
+            public bool dragEvent;
+
+            /// <summary>Show the drag presentation. Ask this, never
+            /// <see cref="drag"/>, for anything the PLAYER sees.</summary>
+            public bool IsDragEvent => drag || dragEvent;
 
             /// <summary>A streamed open city (Charlotte) rather than a circuit.
             /// The scene is built nearly empty and CityWorld generates tiles at
@@ -106,6 +129,10 @@ namespace PSXRacing
             [System.NonSerialized] public Vector3[] stagePts;
             [System.NonSerialized] public float stageStartLineM;
             [System.NonSerialized] public string stageAttribution = "";
+            /// <summary>World Y of the sea surface. 0 on a stage with no water
+            /// — the mountain leaves it there and every water pass skips.
+            /// </summary>
+            [System.NonSerialized] public float stageWaterY;
             /// <summary>Metres from the line to the traps. 402.336 is a quarter
             /// mile, 201.168 an eighth — spelled out rather than rounded,
             /// because the whole point of a drag strip is the number at the end
@@ -140,7 +167,13 @@ namespace PSXRacing
             {
                 get
                 {
-                    if (stage) { EnsureStage(this); return dragMeters; }
+                    // A stage's finishM is measured from WAYPOINT 0, which is
+                    // the far end of the lead-in, so the raced distance is the
+                    // finish less the lead-in. It matters more here than it did
+                    // on the parkway: 60 m lost in 6.9 km is a rounding error,
+                    // 60 m added to a quarter mile is a menu quoting 462 m for
+                    // a race the player will time at 402.
+                    if (stage) { EnsureStage(this); return dragMeters - stageStartLineM; }
                     return drag ? dragMeters : LengthM * laps;
                 }
             }
@@ -359,6 +392,67 @@ namespace PSXRacing
                 dragLabel = "LINN COVE",
                 bridgeDepth = 6f,   // reused as the audit's minimum daylight under a deck
             },
+
+            // ----------------------------------------------------------------
+            //  Bogue Banks — the Crystal Coast. Three venues off one barrier
+            //  island, all real road, all baked by tools/bogue/fetch_bogue.mjs.
+            //
+            //  Appended after Blue Ridge for the same reason Blue Ridge was
+            //  appended after the city: every existing save's track index still
+            //  points where it always did, and GarageSceneIndex is a formula so
+            //  it moves along by itself.
+            // ----------------------------------------------------------------
+            new TrackDef
+            {
+                id = "EmeraldIsle",
+                name = "EMERALD ISLE — 1/4 MILE",
+                blurb = "A real quarter mile on Emerald Drive, ocean one side, sound the other. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 11f,
+                laps = 1,
+                stage = true,
+                dragEvent = true,
+                stageData = "bogue_emerald",
+                dragLabel = "1/4 MILE",
+            },
+            // The two bridges. Both cross the Atlantic Intracoastal Waterway,
+            // which mandates 65 ft of clearance — so both are high-rises, and
+            // the grade is the whole event. Trap speeds here are NOT comparable
+            // with the flat strips and are not meant to be: a car that runs
+            // 12s on tarmac will not run 12s up a 5% ramp, and finding out by
+            // how much is the reason to come here.
+            new TrackDef
+            {
+                id = "LangstonBridge",
+                name = "LANGSTON BRIDGE",
+                blurb = "1.4 km over Bogue Sound. Climb at 4.5%, crest, and run it out downhill. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 11f,
+                laps = 1,
+                stage = true,
+                dragEvent = true,
+                stageData = "bogue_langston",
+                dragLabel = "THE SPAN",
+                // Not a gorge: the ground under this deck is the SOUND, and it
+                // only has to drop far enough to stay under the water plane the
+                // bake fixed at y=6. Nine metres of dry canyon under a bridge
+                // over water would be a hole in the sea.
+                bridgeDepth = 4f,
+            },
+            new TrackDef
+            {
+                id = "AtlanticBeachBridge",
+                name = "ATLANTIC BEACH BRIDGE",
+                blurb = "1.3 km, four lanes, steeper than Langston. Morehead City to the island. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 13f,
+                laps = 1,
+                stage = true,
+                dragEvent = true,
+                stageData = "bogue_atlantic",
+                dragLabel = "THE SPAN",
+                bridgeDepth = 4f,
+            },
         };
 
         public static int Count => All.Length;
@@ -395,6 +489,10 @@ namespace PSXRacing
         {
             public string name = "", attribution = "";
             public float spacing = 4f, startLineM, finishM, baseM;
+            /// <summary>World Y of the sea surface, on a stage that has one.
+            /// Zero means "no water on this stage" — which is what every
+            /// inland bake leaves it as, and what the mountain is.</summary>
+            public float waterY;
             public float[] xyz;       // interleaved x,y,z per waypoint
             public float[] bridges;   // interleaved fromM,toM per span
         }
@@ -427,6 +525,9 @@ namespace PSXRacing
             def.stagePts = pts;
             def.stageStartLineM = j.startLineM;
             def.stageAttribution = j.attribution ?? "";
+            def.stageWaterY = j.waterY;
+            // finishM is measured from waypoint 0, and so is dragMeters — the
+            // lead-in is inside both, which is what FinishIndex assumes.
             def.dragMeters = j.finishM;
             if (j.bridges != null && j.bridges.Length >= 2)
             {

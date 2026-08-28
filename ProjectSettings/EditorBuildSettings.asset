@@ -6,7 +6,43 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/PSXRacing/Scenes/LifeHome.unity
+    guid: 1142cef9239509246a975de7a40ecf71
+  - enabled: 1
     path: Assets/PSXRacing/Scenes/CityCircuit.unity
     guid: 1123e70f2a014304b9bc6864e060f843
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/HarborPoint.unity
+    guid: 5eae664eed4a7804ba4e9cd5f60a8927
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/RidgePass.unity
+    guid: 883702787e788c3458bbe011fc7ec00e
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/AirfieldSprint.unity
+    guid: f03d7c2adf605fd44961829b720e3de0
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/DragQuarter.unity
+    guid: 0a56d364a0c679c4dbe89b764be75cb5
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/DragEighth.unity
+    guid: ea98e52dee5db474ab58efeaf5b53e81
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/Charlotte.unity
+    guid: 90c11edbf4206c5419678cf754e4fd69
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/BlueRidge.unity
+    guid: d8713c758455bdb478bdc3ab92ba83ba
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/EmeraldIsle.unity
+    guid: 74e3d041195775f48a1c770e46bc0c29
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/LangstonBridge.unity
+    guid: bb56273f2e76a304da79e6a2fa44878f
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/AtlanticBeachBridge.unity
+    guid: b169dc122b08b214fac9555f3562ef03
+  - enabled: 1
+    path: Assets/PSXRacing/Scenes/Garage.unity
+    guid: d099113265a173c41acb7c09d5dd49e8
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

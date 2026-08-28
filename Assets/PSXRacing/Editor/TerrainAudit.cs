@@ -76,17 +76,34 @@ namespace PSXRacing.EditorTools
                 log.AppendLine(def.id + ": no track path, no ground or no road");
                 return 1;
             }
-            // One collider on a circuit; a set of chunk colliders on the stage,
-            // where the ground is tiled so the far mountains can cull. Either
-            // way the audit rays the GROUND specifically.
+            // Every ground MESH, not every ground COLLIDER.
+            //
+            // This gathered colliders for its whole life, and that is exactly
+            // how the stage's far mountain chunks — 60 m cells, renderer-only,
+            // no collision because nothing drivable ever reaches them — sat in
+            // the middle of the parkway for a week with the audit reporting a
+            // clean pass every run. A hillside you can drive through still
+            // hides the corner. Temporary colliders go on for the audit and
+            // come off below; the scene is never saved.
             var groundCols = new List<Collider>();
-            var own = ground.GetComponent<Collider>();
-            if (own != null) groundCols.Add(own);
-            else groundCols.AddRange(ground.GetComponentsInChildren<Collider>());
+            var temporary = new List<MeshCollider>();
+            foreach (var mf in ground.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh == null) continue;
+                var col = mf.GetComponent<Collider>();
+                if (col == null)
+                {
+                    var mc = mf.gameObject.AddComponent<MeshCollider>();
+                    mc.sharedMesh = mf.sharedMesh;
+                    temporary.Add(mc);
+                    col = mc;
+                }
+                groundCols.Add(col);
+            }
             var roadCol = road.GetComponent<Collider>();
             if (groundCols.Count == 0 || roadCol == null)
             {
-                log.AppendLine(def.id + ": ground or road has no collider");
+                log.AppendLine(def.id + ": ground has no mesh, or road has no collider");
                 return 1;
             }
 
@@ -94,8 +111,16 @@ namespace PSXRacing.EditorTools
             int problems = 0;
 
             // ---- 1. the ground never comes up through the tarmac ----
+            // Sampled across the WIDTH, not only down the centreline. A crest
+            // that carpets the outside of a corner leaves the middle of the
+            // lane perfectly clean, so the centreline-only version of this
+            // passed every single run while the corner was unreadable from the
+            // driving seat.
+            float half = Mathf.Max(1f, path.roadWidth * 0.5f - 0.6f);
             float worstClear = float.MaxValue;
             int worstIdx = -1;
+            string worstWhat = null;
+            int buried = 0, probes = 0;
             float lowY = float.MaxValue, highY = float.MinValue;
             for (int i = 0; i < path.Count; i++)
             {
@@ -103,20 +128,29 @@ namespace PSXRacing.EditorTools
                 lowY = Mathf.Min(lowY, wp.y); highY = Mathf.Max(highY, wp.y);
                 // Skip the spans that are SUPPOSED to have nothing under them.
                 if (BlendAt(def, i, path.spacing) > 0.02f) continue;
-                // Both surfaces measured, so the answer needs no copy of the
-                // builder constant that lifts the ribbon off the ground.
-                if (!DropAny(groundCols, wp, out float gy)) continue;
-                if (!Drop(roadCol, wp, out float ry)) continue;
-                float clear = ry - gy;
-                if (clear < worstClear) { worstClear = clear; worstIdx = i; }
+                Vector3 right = RightAt(path, i);
+                foreach (float off in new[] { -half, 0f, half })
+                {
+                    Vector3 at = wp + right * off;
+                    // Both surfaces measured, so the answer needs no copy of
+                    // the builder constant that lifts the ribbon off the
+                    // ground.
+                    if (!DropAny(groundCols, at, out float gy, out string what)) continue;
+                    if (!Drop(roadCol, at, out float ry)) continue;
+                    probes++;
+                    float clear = ry - gy;
+                    if (clear < RoadClearMin) buried++;
+                    if (clear < worstClear) { worstClear = clear; worstIdx = i; worstWhat = what; }
+                }
             }
             if (worstIdx >= 0)
             {
                 bool ok = worstClear >= RoadClearMin;
                 if (!ok) problems++;
                 log.AppendLine(string.Format(
-                    "  {0} road stands {1:0.000} m clear of the ground at its tightest (waypoint {2})",
-                    ok ? "ok  " : "FAIL", worstClear, worstIdx));
+                    "  {0} road stands {1:0.000} m clear of the ground at its tightest " +
+                    "(waypoint {2}, {3}); {4} of {5} probes buried",
+                    ok ? "ok  " : "FAIL", worstClear, worstIdx, worstWhat ?? "?", buried, probes));
             }
             log.AppendLine(string.Format("  ..   climbs {0:0.0} m ({1:0.0} to {2:0.0})",
                 highY - lowY, lowY, highY));
@@ -191,6 +225,7 @@ namespace PSXRacing.EditorTools
                 if (showing > worstGap) { worstGap = showing; worstName = root.name; }
                 if (showing > 0.05f) floating++;
             }
+            foreach (var mc in temporary) Object.DestroyImmediate(mc);
             if (sampled > 0)
             {
                 bool ok = floating == 0;
@@ -220,20 +255,36 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The same drop against a SET of ground colliders (the
-        /// stage's chunks), keeping the highest hit — in the near/far overlap
-        /// ring both answer, and the far mesh deliberately sits low.</summary>
-        static bool DropAny(List<Collider> grounds, Vector3 from, out float y)
+        /// stage's chunks), keeping the HIGHEST hit and naming what answered —
+        /// in the near/far overlap ring both answer, and which of the two is
+        /// the one standing in the road is the whole diagnosis.</summary>
+        static bool DropAny(List<Collider> grounds, Vector3 from, out float y, out string what)
         {
-            y = float.MinValue;
+            y = float.MinValue; what = null;
             bool any = false;
             foreach (var g in grounds)
             {
                 var b = g.bounds;
                 if (from.x < b.min.x - 1f || from.x > b.max.x + 1f ||
                     from.z < b.min.z - 1f || from.z > b.max.z + 1f) continue;
-                if (Drop(g, from, out float gy) && gy > y) { y = gy; any = true; }
+                if (Drop(g, from, out float gy) && gy > y) { y = gy; what = g.gameObject.name; any = true; }
             }
             return any;
+        }
+
+        static bool DropAny(List<Collider> grounds, Vector3 from, out float y) =>
+            DropAny(grounds, from, out y, out _);
+
+        /// <summary>Road-right at a waypoint, from the neighbouring points.
+        /// Clamped rather than wrapped: one sample either side of the seam on a
+        /// loop is not worth a special case in an audit.</summary>
+        static Vector3 RightAt(TrackPath path, int i)
+        {
+            int a = Mathf.Max(0, i - 1), b = Mathf.Min(path.Count - 1, i + 1);
+            Vector3 t = path.GetPoint(b) - path.GetPoint(a);
+            t.y = 0f;
+            if (t.sqrMagnitude < 1e-6f) return Vector3.right;
+            return Vector3.Cross(Vector3.up, t.normalized).normalized;
         }
 
         static Bounds WorldBounds(GameObject go)

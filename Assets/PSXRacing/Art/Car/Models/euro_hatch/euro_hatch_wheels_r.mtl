@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl euro_hatch_wheels_r
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/cranberry_red.png

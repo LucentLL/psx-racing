@@ -38,7 +38,14 @@ namespace PSXRacing.LifeSim
             ("TRUCK DRIVER",    154, 1200, 4500),
             ("PACKAGE COURIER", 192,  800, 4000),
             ("FUEL TANKER",     231, 1500, 6000),
+            // RG2's ninth job, restored now the game has restaurants to deliver
+            // for: $0 salary + tips, and you eat on shift. Appended LAST so the
+            // wizard's job indices keep meaning what they always did.
+            ("FOOD DELIVERY",    96,  300, 1500),
         };
+        /// <summary>The delivery job's advertised $96/day is an AVERAGE of the
+        /// tip roll below, not a salary — WorkOneDay branches on the name.</summary>
+        public const string DeliveryJobName = "FOOD DELIVERY";
         public const float PaycheckTaxRate = 0.22f;   // flat stand-in for calcPaycheckTax
         public const float ApplyHireChance = 0.55f;   // applyForJob.ts
         public const int NewHireWorkRep = 25;
@@ -70,14 +77,31 @@ namespace PSXRacing.LifeSim
             else { mult = 0.75f; rep = Random.value < 0.55f ? -2 : 0; }
 
             int earned = Mathf.RoundToInt(s.basePay * s.payMultiplier * mult);
+
+            // FOOD DELIVERY is tips, not salary: RG2 paid it $0 + $2-10 a drop.
+            // basePay stands in for the average night, the roll swings around
+            // it, and the perk is a meal eaten on shift — junk, because it is
+            // pizza out of the bag between runs, and the rollover's opinion of
+            // junk is the correct long-run opinion of that diet.
+            bool delivery = s.playerJob == DeliveryJobName;
+            if (delivery)
+            {
+                earned = Mathf.RoundToInt((s.basePay + Random.Range(-34, 46)) *
+                                          s.payMultiplier * mult);
+                s.ateToday = true;
+                s.daysSinceEat = 0;
+                s.lastMealTier = "junk";
+            }
+
             s.pendingSalary += earned;
             s.workRep = Mathf.Clamp(s.workRep + rep, 0f, 100f);
             s.workDaysTotal++; s.workDaysPresent++;
             s.consecutiveAbsences = 0;
             s.workedToday = true;
-            return perf >= 0.8f ? "A solid shift. +$" + earned
-                 : perf >= 0.5f ? "A rough shift (tired). +$" + earned
-                 : "You could barely function. +$" + earned;
+            string meal = delivery ? "  Ate on shift." : "";
+            return perf >= 0.8f ? "A solid shift. +$" + earned + meal
+                 : perf >= 0.5f ? "A rough shift (tired). +$" + earned + meal
+                 : "You could barely function. +$" + earned + meal;
         }
 
         // ================= unit bridge (physicsUnits.ts) =================
@@ -94,16 +118,19 @@ namespace PSXRacing.LifeSim
         static readonly int[] TierRepGain = { 6, 4, 2, 2 };
         public const int LossRepGain = 1;
 
-        // Race fuel + wear (fast-travel factors converted to meters, x the H78
+        // Race wear (fast-travel factors converted to meters, x the H78
         // mileage ramp). RaceWearScale is THE balance knob: 1.0 = a race wears
         // exactly what the same miles wear in RG2 (new tires every ~4-5
         // races). Tune only with playtest evidence.
-        public const float FuelPctPerMeter = 0.01619f;
+        //
+        // Fuel is NOT here. It used to be — one flat FuelPctPerMeter for every
+        // car in the game — and that is exactly what made a 7 km parkway stage
+        // cost more than a full tank. It lives in FuelModel now, per car, off
+        // the tank size and the MPG the HTML game always used.
         public const float TireWearPerM = 0.0062746f;
         public const float EngineWearPerM = 0.0031373f;
         public const float PaintWearPerM = 0.00062746f;
         public const float RaceWearScale = 1.0f;
-        public const float RefuelCostPerPct = 0.1188f;   // $11.88 for a full 87-octane tank
 
         /// <summary>
         /// What a truck charges to come to you. Fuel is bought at the pumps on
@@ -117,12 +144,15 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public const int FuelCallOutFee = 40;
 
-        /// <summary>Fill this tank without driving to a pump.</summary>
-        public static int CallOutRefuelCost(float fuelPct) =>
-            FuelCallOutFee + Mathf.CeilToInt(Mathf.Max(0f, 100f - fuelPct) * RefuelCostPerPct);
+        /// <summary>Fill this tank without driving to a pump. The fuel itself
+        /// is priced off the car's own tank, so a supercar's rescue costs what
+        /// a supercar's tank costs; only the fee is flat.</summary>
+        public static int CallOutRefuelCost(float fuelPct, FuelProfile fuel) =>
+            FuelCallOutFee + fuel.CostToFill(fuelPct);
 
         public static int CallOutRefuelCost(OwnedCar car) =>
-            car == null ? FuelCallOutFee : CallOutRefuelCost(car.fuel);
+            car == null ? FuelCallOutFee
+                        : CallOutRefuelCost(car.fuel, FuelProfile.For(car));
 
         /// <summary>
         /// How far round the lap the forecourt sits. The scene builder puts it
@@ -141,11 +171,11 @@ namespace PSXRacing.LifeSim
         /// racing line. On a strip, and on anything else with no pumps, it is
         /// still the whole run.
         /// </summary>
-        public static float RequiredFuelPct(TrackCatalog.TrackDef track)
+        public static float RequiredFuelPct(TrackCatalog.TrackDef track, OwnedCar car)
         {
             if (track == null) return 0f;
-            if (!track.hasFuelStop) return RaceFuelBurnPct(track.RaceMeters);
-            return RaceFuelBurnPct(track.LengthM * FuelStopLapFraction * 1.5f);
+            if (!track.hasFuelStop) return RaceFuelBurnPct(track.RaceMeters, car);
+            return RaceFuelBurnPct(track.LengthM * FuelStopLapFraction * 1.5f, car);
         }
 
         public static (int idx, string name) StreetTier(float rep) =>
@@ -236,10 +266,16 @@ namespace PSXRacing.LifeSim
             return true;
         }
 
-        public static float RaceFuelBurnPct(float meters) => meters * FuelPctPerMeter;
+        /// <summary>What a car of THIS spec spends covering that distance at a
+        /// racing pace — the estimate behind the pre-race gate and the menu's
+        /// warnings. The live tank out on track measures the same burn against
+        /// the actual needle instead of assuming an average.</summary>
+        public static float RaceFuelBurnPct(float meters, OwnedCar car) =>
+            FuelProfile.For(car).Burn(meters, FuelModel.RacePaceLoad);
 
+        /// <summary>Pump price to fill this car's tank from where it is.</summary>
         public static int RefuelCost(OwnedCar car) =>
-            Mathf.CeilToInt((100f - car.fuel) * RefuelCostPerPct);
+            car == null ? 0 : FuelProfile.For(car).CostToFill(car.fuel);
 
         /// <summary>Bank a finished race — the apply-back contract, in order:
         /// slot, odometer, fuel, wear, fault rolls, payout+rep, log.</summary>
@@ -265,7 +301,7 @@ namespace PSXRacing.LifeSim
                 if (RaceHandoff.FuelReported)
                     car.fuel = Mathf.Clamp(RaceHandoff.EndFuelPct, 0f, 100f);
                 else
-                    car.fuel = Mathf.Max(0f, car.fuel - RaceFuelBurnPct(meters) * RaceHandoff.FuelMult);
+                    car.fuel = Mathf.Max(0f, car.fuel - RaceFuelBurnPct(meters, car) * RaceHandoff.FuelMult);
 
                 // 4. wear: per-meter factors x mileage ramp, plus drift wear
                 float wearMult = (1f + car.odoMiles / 100000f) * RaceWearScale;
@@ -613,13 +649,26 @@ namespace PSXRacing.LifeSim
             h >= 25 ? "Poor" : h >= 10 ? "Bad" : "Critical";
 
         // ================= housing & bills (billsCalc.ts / insurance.ts) =================
-        // v1 housing ladder subset; start = cheapest apartment.
+        // The ladder is HOUSES now, not apartments: the player starts in a
+        // small rented house with a one-car garage (the same house the walk-in
+        // scene builds), and the slots column is the garage that comes with
+        // each rung. Rents kept exactly where the apartment ladder had them so
+        // the economy does not move. Old saves are renamed onto these keys by
+        // LifeSimManager.Migrate (v6).
         public static readonly (string key, string label, int rent, int slots)[] Housing =
         {
-            ("apt1br", "1BR APARTMENT", 425, 1),
-            ("apt2br", "2BR APARTMENT", 575, 2),
-            ("rentHouse", "RENTED HOUSE", 750, 3),
+            ("house1g", "SMALL HOUSE — 1-CAR GARAGE", 425, 1),
+            ("house2g", "BRICK HOUSE — 2-CAR GARAGE", 575, 2),
+            ("house3g", "SUBURBAN HOUSE — 3-CAR GARAGE", 750, 3),
         };
+
+        /// <summary>Friendly name for a housing key; falls back to the raw key
+        /// so an unknown save value never renders as an empty bill line.</summary>
+        public static string HousingLabel(string key)
+        {
+            foreach (var h in Housing) if (h.key == key) return h.label;
+            return string.IsNullOrEmpty(key) ? "HOUSING" : key.ToUpperInvariant();
+        }
         public const int InsuranceBase = 50;          // $/mo
         public const float InsuranceValueRate = 0.005f; // +0.5% of fleet value /mo
 
@@ -802,7 +851,7 @@ namespace PSXRacing.LifeSim
                 playerJob = job.name,
                 basePay = job.dailyPay,
                 workRep = NewHireWorkRep,
-                housingType = "apt1br",
+                housingType = "house1g",
                 monthlyHousingCost = 425,
                 foodStock = 4,
                 lastMealTier = "regular",
@@ -858,7 +907,8 @@ namespace PSXRacing.LifeSim
                 jobName == "TRUCK DRIVER" ? 30 :
                 jobName == "PARAMEDIC" ? 25 :
                 jobName == "TOW TRUCK" ? 15 :
-                jobName == "AUTO PARTS RUN" ? 10 : 0;
+                jobName == "AUTO PARTS RUN" ? 10 :
+                jobName == DeliveryJobName ? 5 : 0;
             int savingsAdj = Mathf.Min(120, Mathf.FloorToInt(money / 1000f) * 8);
             return Mathf.Clamp(650 + (age - 25) * 6 + savingsAdj + jobAdj, 350, 850);
         }

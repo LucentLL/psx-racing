@@ -1,0 +1,86 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7047125725435086606
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 693483868831161511}
+  - component: {fileID: 664252606894766885}
+  m_Layer: 0
+  m_Name: euro_hatch
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &693483868831161511
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7047125725435086606}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &664252606894766885
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7047125725435086606}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: euro_hatch
+  displayName: European supermini
+  bodyMesh: {fileID: -2432090755550338912, guid: d6f8c7de3e8cc8b48a51486310ebbc3b, type: 3}
+  wheelMesh: {fileID: 4300000, guid: c9231362b681b6b4dbfef540543afbe8, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: c4b0b9ed765672b42b17059476e2312d, type: 2}
+  - {fileID: 2100000, guid: 772524bc8d5c5df4fb467790918dfce0, type: 2}
+  - {fileID: 2100000, guid: 1b8744d50d88c904dae2cb3a4dd41be3, type: 2}
+  - {fileID: 2100000, guid: e64440ede1b508242bdc40c5e40a2b47, type: 2}
+  - {fileID: 2100000, guid: 4f25b99024cf3b64f958b248fb421891, type: 2}
+  - {fileID: 2100000, guid: b40e8e8f8cafaaa49919f2fcdf246abf, type: 2}
+  skinNames:
+  - cranberry_red
+  - midnight_blue
+  - mossy_glen
+  - pea_green
+  - pearl_white
+  - sunburst_yellow
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.8284876, g: 0.07998005, b: 0.2294103, a: 1}
+  - {r: 0.0982697, g: 0.29167247, b: 0.5619669, a: 1}
+  - {r: 0.25998184, g: 0.4974335, b: 0.26925978, a: 1}
+  - {r: 0.54615164, g: 0.61911, b: 0.31910938, a: 1}
+  - {r: 0.60631394, g: 0.60819066, b: 0.6072382, a: 1}
+  - {r: 0.78769064, g: 0.65326566, b: 0.37040168, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.0070099444
+  bodyZOffset: 0.011090994
+  wheelbase: 2.222201
+  trackWidth: 1.2312245
+  wheelRadius: 0.24312805
+  wheelMeshScale: 0.93
+  cowlZ: 0.83249766
+  cowlY: 0.8941533
+  noseZ: 1.701481
+  roofY: 1.3536342
+  colliderCenter: {x: 0, y: 0.80613905, z: 0.026332498}
+  colliderSize: {x: 1.5815911, y: 1.0214946, z: 3.1995335}
+  blobSize: {x: 2.1087883, y: 3.584818}

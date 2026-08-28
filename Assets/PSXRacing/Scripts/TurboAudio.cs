@@ -3,14 +3,21 @@ using UnityEngine;
 namespace PSXRacing
 {
     /// <summary>
-    /// Sequential twin-turbo voice for the 13B-REW, using the recorded Turbo
-    /// Sound Pack takes. Ported from Racing Game 2's forcedInduction.ts
-    /// (recorded-sample path).
+    /// Forced-induction voice, using the recorded Turbo Sound Pack takes.
+    /// Ported from Racing Game 2's forcedInduction.ts (recorded-sample path).
     ///
-    /// Three layers:
+    /// Turbo — three layers:
     ///  - a spool loop, volume rising with RPM and pitch tracking it 0.5x -> 1.5x
     ///  - a max-boost loop crossfaded in on the physics rev-limiter flag
     ///  - blow-off shots fired on a throttle release that had real boost behind it
+    ///
+    /// Supercharger — one layer: a belt-driven whine tied straight to RPM, with
+    /// no spool lag and no blow-off, because a positive-displacement blower has
+    /// neither. Four of the 317 catalog cars are supercharged.
+    ///
+    /// Naturally aspirated — nothing. 176 of the 317 are NA, and the single
+    /// worst thing this component can do is put a turbo on all of them, which is
+    /// what it did while the built-in RX-7 was the only car in the game.
     ///
     /// The boost value is a proxy, not a manifold model: a first-order lag that
     /// spools up slowly and collapses roughly four times faster, which is what
@@ -18,9 +25,17 @@ namespace PSXRacing
     /// </summary>
     public class TurboAudio : MonoBehaviour
     {
+        public enum Aspiration { NaturallyAspirated, Turbo, Supercharger }
+
         public CarController car;
+        /// <summary>Which voice to run. Set per car by RaceHandoffApplier from
+        /// the catalog's GT4 aspiration field.</summary>
+        public Aspiration aspiration = Aspiration.Turbo;
+
         public AudioClip spoolClip;
         public AudioClip maxLoopClip;
+        public AudioClip superchargerOnClip;
+        public AudioClip superchargerOffClip;
         public AudioClip[] blowOffLong;
         public AudioClip[] blowOffShort;
 
@@ -45,25 +60,67 @@ namespace PSXRacing
         const float LimiterBlend = 0.03f;
         const float GainTC = 0.05f;
 
-        AudioSource spoolSrc, maxSrc, shotSrc;
+        AudioSource spoolSrc, maxSrc, shotSrc, blowerOnSrc, blowerOffSrc;
         float boost;
         float prevThrottle;
         float bovCooldown;
-        float spoolGain, maxGain;
+        float spoolGain, maxGain, blowerGain;
         int shotIndex;
 
         void Awake()
         {
             if (car == null) car = GetComponent<CarController>();
-            spoolSrc = MakeLoop(spoolClip, "turbo_spool");
-            maxSrc = MakeLoop(maxLoopClip, "turbo_max");
+            BuildVoice();
+        }
 
-            var go = new GameObject("snd_turbo_bov");
-            go.transform.SetParent(transform, false);
-            shotSrc = go.AddComponent<AudioSource>();
-            shotSrc.playOnAwake = false;
-            shotSrc.loop = false;
-            Configure(shotSrc);
+        /// <summary>
+        /// Point this at a different aspiration and rebuild. Called once by
+        /// RaceHandoffApplier before the lights, so the teardown never happens
+        /// mid-race; no-ops when nothing changed.
+        /// </summary>
+        public void SetAspiration(Aspiration a)
+        {
+            if (a == aspiration && built) return;
+            aspiration = a;
+            BuildVoice();
+        }
+
+        bool built;
+
+        void BuildVoice()
+        {
+            if (spoolSrc != null) Destroy(spoolSrc.gameObject);
+            if (maxSrc != null) Destroy(maxSrc.gameObject);
+            if (blowerOnSrc != null) Destroy(blowerOnSrc.gameObject);
+            if (blowerOffSrc != null) Destroy(blowerOffSrc.gameObject);
+            spoolSrc = maxSrc = blowerOnSrc = blowerOffSrc = null;
+            spoolGain = maxGain = blowerGain = 0f;
+            boost = 0f;
+            built = true;
+
+            if (aspiration == Aspiration.Turbo)
+            {
+                spoolSrc = MakeLoop(spoolClip, "turbo_spool");
+                maxSrc = MakeLoop(maxLoopClip, "turbo_max");
+            }
+            else if (aspiration == Aspiration.Supercharger)
+            {
+                blowerOnSrc = MakeLoop(superchargerOnClip, "blower_on");
+                blowerOffSrc = MakeLoop(superchargerOffClip, "blower_off");
+            }
+
+            // The one-shot source is kept for every aspiration — it costs one
+            // idle voice, and rebuilding it would drop a blow-off already in
+            // flight. FireBlowOff is gated on the mode instead.
+            if (shotSrc == null)
+            {
+                var go = new GameObject("snd_turbo_bov");
+                go.transform.SetParent(transform, false);
+                shotSrc = go.AddComponent<AudioSource>();
+                shotSrc.playOnAwake = false;
+                shotSrc.loop = false;
+                Configure(shotSrc);
+            }
         }
 
         void OnEnable()
@@ -88,7 +145,7 @@ namespace PSXRacing
             src.volume = 0f;
             src.playOnAwake = false;
             Configure(src);
-            src.Play();
+            AudioLoopStarter.PlayLoop(src);
             return src;
         }
 
@@ -105,13 +162,15 @@ namespace PSXRacing
 
         void Update()
         {
-            if (car == null) return;
+            if (car == null || aspiration == Aspiration.NaturallyAspirated) return;
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
 
             float rpmNorm = Mathf.Clamp01(
                 (car.currentRPM - car.idleRPM) / Mathf.Max(car.revLimitRPM - car.idleRPM, 1f));
             float throttle = Mathf.Clamp01(car.throttleInput);
+
+            if (aspiration == Aspiration.Supercharger) { UpdateBlower(rpmNorm, throttle, dt); return; }
 
             // --- boost proxy: asymmetric first-order lag ---
             float flow = Mathf.Clamp01((rpmNorm - SpoolRpmFloor) / 0.5f);
@@ -147,6 +206,35 @@ namespace PSXRacing
             if (maxSrc != null) { maxSrc.volume = maxGain; maxSrc.pitch = 1f; }
         }
 
+        /// <summary>
+        /// Belt-driven whine: gain and pitch ride RPM directly, with no lag
+        /// term at all. That is the whole character difference — a blower is
+        /// making boost the instant the crank turns, so there is nothing to
+        /// spool and nothing to dump on a lift. Load only crossfades between the
+        /// on- and off-throttle takes.
+        ///
+        /// The take is a single mid-range rung, so the pitch span is kept
+        /// narrower than the turbo's 0.5-1.5: past about ±35% a stretched whine
+        /// stops sounding like gears and starts sounding like a sample.
+        /// </summary>
+        void UpdateBlower(float rpmNorm, float throttle, float dt)
+        {
+            float target = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.55f, rpmNorm))
+                           * LoopVolPeak * LoopVolume * TurboMaster * masterVolume;
+            blowerGain = Smooth(blowerGain, target, GainTC, dt);
+            float pitch = Mathf.Lerp(0.72f, 1.35f, rpmNorm);
+            if (blowerOnSrc != null)
+            {
+                blowerOnSrc.volume = blowerGain * throttle;
+                blowerOnSrc.pitch = pitch;
+            }
+            if (blowerOffSrc != null)
+            {
+                blowerOffSrc.volume = blowerGain * (1f - throttle) * 0.8f;
+                blowerOffSrc.pitch = pitch;
+            }
+        }
+
         void FireBlowOff(float rpmNorm)
         {
             var pool = rpmNorm > LongShotThreshold ? blowOffLong : blowOffShort;
@@ -158,13 +246,15 @@ namespace PSXRacing
 
             shotIndex = (shotIndex + 1) % pool.Length;   // cycle so it never repeats back to back
             shotSrc.pitch = Random.Range(0.94f, 1.06f);
-            shotSrc.PlayOneShot(pool[shotIndex], vol * TurboMaster * masterVolume * 1.6f);
+            AudioLoopStarter.PlayOneShot(shotSrc, pool[shotIndex],
+                                         vol * TurboMaster * masterVolume * 1.6f);
         }
 
         /// <summary>Upshift flutter: a partial dump at 55%, since the throttle is
         /// only closed for the length of the shift.</summary>
         public void PlayShiftFlutter(float rpmNorm)
         {
+            if (aspiration != Aspiration.Turbo) return;   // nothing to flutter
             if (bovCooldown > 0.38f) return;   // a lift-and-shift must not double-psshh
             var pool = blowOffShort;
             if (pool == null || pool.Length == 0 || shotSrc == null) return;
@@ -172,7 +262,8 @@ namespace PSXRacing
             if (vol <= 0.01f) return;
             shotIndex = (shotIndex + 1) % pool.Length;
             shotSrc.pitch = Random.Range(0.96f, 1.08f);
-            shotSrc.PlayOneShot(pool[shotIndex], vol * TurboMaster * masterVolume * 1.6f);
+            AudioLoopStarter.PlayOneShot(shotSrc, pool[shotIndex],
+                                         vol * TurboMaster * masterVolume * 1.6f);
             bovCooldown = 0.22f;
         }
 

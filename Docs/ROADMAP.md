@@ -5,6 +5,172 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## A HOUSE, A TOWN, AND SOMEWHERE TO EAT (2026-08-28)
+
+Asked for: wire the new asset packs (House, Trailer_Park, BurgerPiz, Pizzeria,
+food props) into the life sim — "I'd like the player to start with a one car
+garage house … Houses can be placed around Charlotte and Emerald Isle similar
+to Google Maps" — and fix the rival race that spawned both cars off the track.
+
+**The starter house is real.** The walk-in garage scene is now the player's
+lot: the furnished two-storey house from the pack (with its matching collider
+mesh), the one-car garage standing OPEN with the active car inside, driveway
+and kerb bays for the rest of the fleet, and the garage fixtures (rack, tool
+board, bench) rehomed against the garage's own walls. A garage fridge runs
+`LifeRules.EatMeal` — same rule as the EAT tab, walk-up-able. The housing
+ladder is houses now (`house1g/house2g/house3g`, save v6 renames the old
+apartment keys): same rents, same slots, so the economy did not move — but the
+starting rung reads "SMALL HOUSE — 1-CAR GARAGE" and the walk-in scene IS it.
+
+**Charlotte grew suburbs and restaurants.** `CityBuildings.B` gained a `kind`:
+0 stays a procedural facade box; anything else is a `CityProps` prefab the
+streamed tile instantiates (baked to `Resources/CityProps` by the prop baker —
+a runtime tile cannot AssetDatabase-load an FBX). Outer-suburb frontage is now
+~60% real houses (past 5 km, some trailers); midrise shop streets salt in the
+pizzeria pack's eight mid-rise blocks; and ten restaurants — STACK BURGER
+drive-thrus alternating with SLICE HOUSE pizzerias — sit on big surface
+streets, spaced ≥1.5 km, all deterministic off the edge-index hash. Prefab
+lots claim EVERY 18 m occupancy cell under their footprint (all-or-nothing),
+because two identical prefabs interpenetrating read as a glitch where two
+different procedural boxes just read dense.
+
+**Ordering food is the pump pattern minus the walking.** `DriveThru` is a
+trigger volume baked onto the restaurant prefabs: roll in, stop under 4.5
+km/h, F/pad-South/touch-ACTION opens a `StoreScreen` with the venue's stock —
+eat-now items (health + the hunger clock, like the 6TWELVE) and take-home
+packs that ARE the EAT tab's grocery rows made physical (burger family bag =
+junk $8→4 meals, pizzeria pies = regular $25→5). One economy, two doors.
+`RaceHUD`'s city path draws `DriveThru.Prompt` and relabels the touch button
+ORDER. FOOD DELIVERY is back in the job book too (RG2 had it; the port dropped
+it): $96/day advertised as tips (roll ±$34-45 around it), and you eat on shift
+— junk, because the rollover's opinion of that diet is the correct one.
+
+**Emerald Isle is a town now.** The theme grew `stageHomes`: the quarter mile
+runs past ~50 houses and trailers seated on the stage DEM (skipping lots that
+are steep, underwater, on the staging box, or on a bridge approach), with one
+burger box past the traps and a pizzeria mid-island. Same baked prefabs as
+Charlotte, instantiated at build time.
+
+**The rival-race spawn.** The 1v1 override teleported the player to
+`rival.right * 5.2 m` — measured for the circuits' 2×2 grid. On a drag venue
+the field is already abreast in FOUR-car lanes, so the surviving pair sat
+lopsided, and on an 11 m stage road the offset ran the player to the wall.
+`RaceHandoffApplier` now restages a drag 1v1 onto the two CENTRE lanes off the
+TrackPath itself (`±min(roadWidth/6, 2.75)` about the rival's station).
+`LifeSimSelfTest` gained `TestGridStaging` — opens every BUILT scene and
+asserts all four baked cars AND the 1v1 restage sit inside the road width — so
+this class of bug now fails the pipeline instead of a race night.
+
+## BOGUE BANKS — A DRAG RACE ON A GRADE (2026-08-27)
+
+Asked for: "next I'd like to try a drag race on the outer banks. Something
+like Emerald Isle works for this, with a large bridge on each end, could drag
+over either bridge, or down the outback strip." Pushed back that a high-rise
+bridge produces trap speeds not comparable with the flat strips; answer was
+"I understand its not traditional and won't have traditional times, but I
+find it interesting. why not drag race on a grade? it can be a straight line
+race (if the bridges are straight)." They are, and it is.
+
+**Three venues off one barrier island**, all real road, all baked by
+`tools/bogue/fetch_bogue.mjs`:
+
+| id | run | profile |
+|---|---|---|
+| `EmeraldIsle` | 402.3 m | flat — 1.5% max, on the island's longest true straight (2741 m of Emerald Drive) |
+| `LangstonBridge` | 1408 m | climb 644 m @ 4.5%, crest, descend 764 m @ 3.8% |
+| `AtlanticBeachBridge` | 1140 m | climb 420 m @ 6.2%, crest, descend 720 m @ 4.1% |
+
+(Emerald Isle is on **Bogue Banks** — Crystal Coast, "Southern Outer Banks" —
+not the Outer Banks proper. The distinction decides which lighthouses are
+road-reachable, which is the next request.)
+
+### Four things this needed that the parkway bake did not
+
+**1. Routing, not chaining.** The parkway is one road with no junctions worth
+the name, so `fetch_brp` grows a chain by matching way endpoints. NC-58 forks
+at Atlantic Beach — north over the bridge, east along Fort Macon Road — and a
+chainer takes whichever way matches first. The first attempt walked 27 km up
+the MAINLAND leg of NC-58 toward Jacksonville. `route.mjs` builds a graph and
+Dijkstras between anchors, with per-road-class cost so the line does not cut
+through beach-house cul-de-sacs. Every venue is then a list of anchors, and
+the 72 km island-and-mainland circuit falls out of the same function for free.
+
+**2. The DEM does not know the bridges exist.** SRTM is a radar return off the
+water; both spans read as sea level, and the entire point of them is that they
+are 20 m in the air. Decks are SYNTHESISED against the real 65 ft Intracoastal
+clearance — and the crown goes where the route actually crosses the AIWW,
+which OSM maps as a named waterway, not at the midpoint of the span. On
+Langston those are 60 m apart and on Atlantic Beach 124 m, which is the
+difference between a symmetric hump and a bridge where the climb and the
+descent are honestly different lengths. Smoothstep each side of the crown
+gives zero grade at both abutments AND at the crown — no kink anywhere — with
+peak grade exactly 1.5x the average, which lands both spans in the 4-6% a real
+high-rise runs.
+
+**3. A surface mask.** A mountain is ground everywhere; a barrier island is
+ocean, sound, sand and scrub. The bake writes a byte grid beside the DEM from
+OSM's coastline (land-on-left) and its beach polygons, and the near chunks
+split into a scrub submesh and a sand one. The sign of that test is the one
+thing that can go catastrophically wrong without throwing — an inverted
+coastline produces a beautiful bake of an island that is entirely underwater —
+so the bake walks its own route afterwards and fails if tarmac is on open
+water with no deck over it.
+
+**4. The sea is one flat plane, not a polygon.** The tempting design builds
+water geometry only where the mask says water, and it is wrong: then the
+SHORELINE is a boundary you have to keep aligned with the terrain, and every
+disagreement is a crack you can see the sky through. A flat plane at a known
+height has no shoreline at all — the coast is wherever the ground rises
+through it, exact by construction and free. The bake guarantees the clearance
+(land held 0.4 m above, seabed 4 m below), so there is nothing to z-fight.
+
+### The catalog flag that had to be split
+
+`TrackDef.drag` meant two things at once — "synthetic flat strip geometry" and
+"run this as a drag race" — and the builder gates bridge decks and piers off
+it. Setting it on a bridge would have deleted the bridge. The RUNTIME already
+made the right distinction (`TrackPath.pointToPoint` for geometry,
+`TrackPath.drag` for the top-down camera and trap speed, `HasEnds` for their
+union); only the catalog was still conflating them. So: `drag` keeps meaning
+synthetic strip, new `dragEvent` carries the presentation, `IsDragEvent` is
+what anything player-facing asks. The grid staging then had to learn that a
+stage's waypoint 0 is the far end of the lead-in, not the start line — staging
+there would have started both bridge runs 150 m back down the causeway.
+
+### Three bugs worth remembering
+
+**Catmull-Rom on unequal segments.** OSM models both bridges as a single
+two-vertex way, so the point list arriving at the deck read 40 m, 40 m,
+1288 m, and the uniform-parameterisation spline derived an enormous tangent at
+that junction: an **11 m-radius hairpin 48 m past the Atlantic Beach start
+line**, on the one venue whose whole premise is that it is straight. It
+splayed the road ribbon to ~60 m wide, flung the parapets apart, and buried
+the grid in its own tarmac. Densifying long segments to 25 m before splining
+makes the parameterisation uniform and leaves straight lines exactly straight.
+Diagnosed only after guessing wrong once — the first theory was the lead-in
+walk turning at a junction, which was worth fixing anyway but was not this.
+
+**The road was in raw ASL and the terrain in baseM-relative metres**, so the
+first bake put every road a clean 6 m under its own ground. Sampling and
+rebasing now happen in the same expression.
+
+**A drag race can fall off a bridge.** Every other stuck state resolves or is
+at least standing on something; falling is above `movingKmh` all the way down,
+so the watchdog never armed and the car descended for ever. `StuckRecovery`
+now derives a floor from the route's own lowest waypoint and recovers with no
+warning banner — there is no freeing yourself from that one — and a stage with
+a sea collides its whole near band rather than the mountain's 120 m.
+
+### Still to do
+
+- The full **71.97 km circuit** — island out on NC-58, back on NC-24 through
+  Newport, a bridge at each end. Routed and measured; needs a cyclic stage
+  (today `stage` implies point-to-point) before it can be a lap.
+- **Lighthouse to lighthouse**: Currituck Beach → Bodie Island → Cape Hatteras,
+  ~110-120 km of NC-12 with the Basnight and Rodanthe bridges on it. Ocracoke
+  is ferry-only, so the road chain ends at Hatteras. 16x the parkway: terrain
+  chunks already scale, but the road ribbon at 27,500 stations needs chunking.
+
 ## THE BLUE RIDGE PARKWAY (2026-08-27)
 
 Asked for: touge. "I often see Touge games from Japan or California canyon

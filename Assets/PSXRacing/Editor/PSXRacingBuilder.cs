@@ -119,6 +119,38 @@ namespace PSXRacing.EditorTools
             /// reads as a street rather than as a fence.</summary>
             public double buildingSkip = 0.25, treeSkip = 0.35;
             public bool gasStation = true;
+
+            // --------------------------------------------------------------
+            //  Stage-only. Ignored entirely by a circuit.
+            // --------------------------------------------------------------
+            /// <summary>Where this stage's baked DEM, mask and generated art
+            /// live, and the filename prefix inside it. Was hardcoded to BRP
+            /// until there was a second region; a stage that shared the
+            /// mountain's folder would load the mountain's heights and put a
+            /// barrier island 1200 m up the Blue Ridge.</summary>
+            public string stageDir = Root + "/Art/BRP";
+            public string stagePrefix = "brp";
+            /// <summary>Plant the billboard forest. Off on sand — the tree pass
+            /// is the single most expensive thing a stage does, and a barrier
+            /// island's vegetation is knee-high scrub nobody sees at 200 km/h.
+            /// </summary>
+            public bool stageForest = true;
+            /// <summary>Plant houses, trailers and a couple of restaurants
+            /// along a stage road. On for Emerald Isle — a drag strip through a
+            /// beach TOWN — and meaningless on a bridge or a mountside.</summary>
+            public bool stageHomes = false;
+            /// <summary>Ground textures for the surface mask the bake writes
+            /// beside the DEM. Null <see cref="sand"/> means the stage has no
+            /// mask — which is what the mountain is, and why it is allowed to
+            /// stay null rather than being given a beach it does not have.
+            /// </summary>
+            public string sand, water;
+            /// <summary>Salt marsh. Falls back to <see cref="ground"/> when a
+            /// coastal theme has not been given one, so a stage whose bake has
+            /// marsh in it never renders a hole.</summary>
+            public string marsh;
+            /// <summary>Metres of ground per repeat for those three.</summary>
+            public float sandTile = 8f, waterTile = 26f, marshTile = 6f;
         }
 
         static readonly Dictionary<string, Theme> Themes = new Dictionary<string, Theme>
@@ -200,7 +232,54 @@ namespace PSXRacing.EditorTools
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
                 gasStation = false,
             },
+
+            // Bogue Banks. One look, three venues: pale sand, scrub behind the
+            // dune line, water on both sides of everything. All three share a
+            // folder because they share an island; the DEM PREFIX is what keeps
+            // their three bakes apart.
+            ["EmeraldIsle"] = EmeraldTheme(),
+            ["LangstonBridge"] = BogueTheme(),
+            ["AtlanticBeachBridge"] = BogueTheme(),
         };
+
+        /// <summary>
+        /// The Crystal Coast. Everything here is a consequence of the ground
+        /// being sand at sea level: no forest pass, no relief (the DEM is as
+        /// flat as the island), concrete parapet rather than stone, and the two
+        /// extra ground materials the surface mask needs.
+        /// </summary>
+        static Theme BogueTheme() => new Theme
+        {
+            ground = Root + "/Art/Bogue/Gen/Scrub.png",
+            sand = Root + "/Art/Bogue/Gen/Sand.png",
+            water = Root + "/Art/Bogue/Gen/Sea.png",
+            marsh = Root + "/Art/Bogue/Gen/Marsh.png",
+            wall = Root + "/Art/Roads/T (4).jpg",   // concrete — a bridge parapet
+            groundTile = 11f,
+            sandTile = 7f,
+            waterTile = 24f,
+            // Tighter than the scrub: cordgrass is a fine texture and at 11 m
+            // it smears into a flat olive field from the bridge deck.
+            marshTile = 5.5f,
+            relief = 0f,                            // the DEM is the relief
+            stageDir = Root + "/Art/Bogue",
+            // Null on purpose: three tracks share this theme and each has its
+            // own bake, so the prefix comes off the TRACK (see StagePrefix)
+            // rather than being three near-identical Theme literals.
+            stagePrefix = null,
+            stageForest = false,
+            buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+            gasStation = false,
+        };
+
+        /// <summary>Emerald Isle is the Bogue look plus the town: the quarter
+        /// mile runs down a real residential drive, so it gets the houses.</summary>
+        static Theme EmeraldTheme()
+        {
+            var t = BogueTheme();
+            t.stageHomes = true;
+            return t;
+        }
 
         static Theme DragTheme() => new Theme
         {
@@ -232,6 +311,13 @@ namespace PSXRacing.EditorTools
             return Themes["CityCircuit"];
         }
 
+        /// <summary>Filename prefix for the current stage's bake. The theme may
+        /// name one (the parkway does — "brp"); otherwise the track's own
+        /// Resources key is it, which is how three Bogue Banks venues share one
+        /// theme without sharing one another's terrain.</summary>
+        static string StagePrefix =>
+            !string.IsNullOrEmpty(theme.stagePrefix) ? theme.stagePrefix : track.stageData;
+
         [MenuItem("PSX Racing/Build Scene")]
         public static void Build()
         {
@@ -254,6 +340,12 @@ namespace PSXRacing.EditorTools
                 // out of Resources when the LifeSim hands over a field.
                 CarModelBaker.Bake();
                 foreach (var line in CarModelBaker.LastLog) Log("  model " + line);
+
+                // The LifeSim props (houses, trailers, restaurants) bake next:
+                // Charlotte's streamed tiles load them from Resources at
+                // runtime, and the Emerald Isle town pass instantiates the same
+                // prefabs at build time below.
+                BakeCityProps();
 
                 DeleteLegacyMeshes();
 
@@ -322,7 +414,13 @@ namespace PSXRacing.EditorTools
             path.curvatures = curvatures;
             path.spacing = Spacing;
             path.roadWidth = RoadWidth;
-            path.drag = def.drag;
+            // PRESENTATION, not geometry: TrackPath.drag is what unlocks the
+            // top-down camera and the trap-speed readout, and a bridge run
+            // wants both on a route that is emphatically not a synthetic strip.
+            // TrackPath.pointToPoint carries the geometry, and HasEnds is their
+            // union, so a stage with dragEvent gets clamped index walks either
+            // way.
+            path.drag = def.IsDragEvent;
             path.pointToPoint = def.stage;
             path.finishIndex = def.FinishIndex;
             path.dragLabel = def.dragLabel;
@@ -355,8 +453,9 @@ namespace PSXRacing.EditorTools
             else BuildGround(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
             BuildStartLine(waypoints, pathGO.transform);
-            if (def.stage) BuildStageForest(waypoints, pathGO.transform);
+            if (def.stage && theme.stageForest) BuildStageForest(waypoints, pathGO.transform);
             else BuildScenery(waypoints, pathGO.transform);
+            if (def.stage && theme.stageHomes) BuildStageHomes(waypoints, pathGO.transform);
 
             var lightGO = BuildLighting();
             var cars = BuildCars(waypoints);
@@ -471,10 +570,38 @@ namespace PSXRacing.EditorTools
             WriteTexture(GridTexPath, 32, 32, (x, y) =>
                 ((x < 16) ^ (y < 16)) ? new Color32(18, 18, 20, 255)
                                       : new Color32(220, 218, 212, 255));
+
+            // A bridge expansion joint, seen from a car: two steel angle plates
+            // with the finger gap between them, dark with the grease and grit
+            // that collects in it. v runs ACROSS the band (along the road), so
+            // the gap is the middle third and the plates are the outer thirds.
+            //
+            // Shared rather than per-theme: four circuits have bridges too, and
+            // the parkway's eight spans have exactly the same joints on them —
+            // they were simply never drawn.
+            WriteTexture(JointTexPath, 16, 16, (x, y) =>
+            {
+                int band = y * 3 / 16;                 // 0 plate, 1 gap, 2 plate
+                uint h = (uint)(x * 374761393 + y * 668265263) + 1442695041u;
+                h = (h ^ (h >> 13)) * 1274126177u;
+                int n = (int)((h >> 8) & 0x0F);
+                if (band == 1)
+                {
+                    // The gap: near black, with the odd glint off whatever is
+                    // wedged in it.
+                    byte v = (byte)(22 + n / 2);
+                    return new Color32(v, v, (byte)(v + 3), 255);
+                }
+                // Galvanised steel, streaked along the band so it reads as
+                // rolled plate rather than as noise.
+                byte s = (byte)(118 + ((x * 5) % 11) * 4 + n / 3);
+                return new Color32(s, s, (byte)(s + 6), 255);
+            });
         }
 
         static string KerbTexPath => TrackTexDir + "/Kerb.png";
         static string GridTexPath => TrackTexDir + "/StartGrid.png";
+        static string JointTexPath => TrackTexDir + "/Joint.png";
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a
@@ -709,6 +836,11 @@ namespace PSXRacing.EditorTools
 
         static Material PSXMaterialFor(Texture tex, string fallbackName, Vector2 scale, Vector2 offset)
         {
+            // Reachable from OTHER builders (the home scene, the prop baker)
+            // outside a full Build() — without this, a standalone run created
+            // every scenery material with a NULL shader and saved the magenta
+            // to disk.
+            if (psxLit == null) psxLit = Shader.Find("PSX/Lit");
             if (tex == null) tex = Texture2D.whiteTexture;
             string texKey = AssetDatabase.GetAssetPath(tex);
             if (string.IsNullOrEmpty(texKey)) texKey = tex.name;
@@ -749,8 +881,9 @@ namespace PSXRacing.EditorTools
             return mat;
         }
 
-        static void ConvertToPSXMaterials(GameObject go)
+        internal static void ConvertToPSXMaterials(GameObject go)
         {
+            if (psxLit == null) psxLit = Shader.Find("PSX/Lit");
             foreach (var r in go.GetComponentsInChildren<Renderer>())
             {
                 var mats = r.sharedMaterials;
@@ -880,7 +1013,7 @@ namespace PSXRacing.EditorTools
                 Vector3 right = RightAt(pts, idx);
                 // 12 cm above the ground plane: enough depth separation that the
                 // road doesn't z-fight ("flash orange") against it at distance
-                Vector3 center = pts[idx] + Vector3.up * 0.12f;
+                Vector3 center = pts[idx] + Vector3.up * RoadLift;
                 verts[i * 2] = center - right * (RoadWidth * 0.5f);
                 verts[i * 2 + 1] = center + right * (RoadWidth * 0.5f);
                 uvs[i * 2] = new Vector2(dist / 24f, 0.02f);
@@ -903,6 +1036,78 @@ namespace PSXRacing.EditorTools
             var mat = MakeMat(MeshPrefix + "Road", theme.road, affine: 0f);
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
+            go.isStatic = true;
+
+            BuildRoadEdge(pts, parent);
+        }
+
+        /// <summary>
+        /// The cut face of the roadbed: the side of the slab, from the outer
+        /// edge of the shoulder strip down to the subgrade.
+        ///
+        /// The ground beside the road is dug to the bottom of this face
+        /// (RoadbedSinkAt), so most of it is buried and what shows is the top
+        /// couple of hand-spans — which is exactly right, because that is what
+        /// a road edge looks like from a car. Where the land falls away, on an
+        /// embankment or off the end of a bridge approach, the whole 45 cm
+        /// shows and the road finally reads as a thing with a thickness rather
+        /// than a painted ribbon.
+        ///
+        /// No collider. It lives entirely below the driving surface and a
+        /// collider down there is something for a wheel to catch on.
+        /// </summary>
+        static void BuildRoadEdge(List<Vector3> pts, Transform parent)
+        {
+            int n = pts.Count, last = Loop ? n : n - 1;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+
+            foreach (float side in new[] { -1f, 1f })
+            {
+                float dist = 0f;
+                for (int i = 0; i <= last; i++)
+                {
+                    int idx = Loop ? i % n : i;
+                    Vector3 outw = RightAt(pts, idx) * side;
+                    // Starts where the shoulder strip ends, so the strip caps
+                    // the slab and there is no seam on the driving surface.
+                    Vector3 top = pts[idx] + Vector3.up * (RoadLift + 0.01f)
+                                + outw * (RoadWidth * 0.5f + KerbWidth);
+                    Vector3 toe = pts[idx] + Vector3.up * (RoadLift - RoadSlabDepth)
+                                + outw * (RoadWidth * 0.5f + KerbWidth + RoadSlabBatter);
+                    int v = verts.Count;
+                    verts.Add(top); verts.Add(toe);
+                    uvs.Add(new Vector2(dist / 6f, 1f));
+                    uvs.Add(new Vector2(dist / 6f, 1f - RoadSlabDepth / 6f));
+                    dist += Spacing;
+                    if (i < last)
+                    {
+                        // Wound to face OUTWARD on each side — the inward face
+                        // is under the tarmac and nothing is ever in there.
+                        if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
+                        else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
+                    }
+                }
+            }
+
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
+            };
+            mesh.RecalculateNormals();
+            SaveMesh(mesh, "RoadEdgeMesh");
+
+            var go = new GameObject("RoadEdge");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            // The ground texture, darkened: this IS cut earth and aggregate
+            // under a wearing course, and at PSX resolution one material does
+            // for both halves of that.
+            go.AddComponent<MeshRenderer>().sharedMaterial =
+                MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f,
+                        tint: new Color(0.42f, 0.39f, 0.36f));
             go.isStatic = true;
         }
 
@@ -936,7 +1141,7 @@ namespace PSXRacing.EditorTools
                     Vector3 outw = RightAt(pts, idx) * side;
                     // 1 cm above the road ribbon so it reads as a raised kerb and
                     // cannot z-fight; the road mesh ends exactly at 6 m.
-                    Vector3 inner = pts[idx] + Vector3.up * 0.13f + outw * (RoadWidth * 0.5f);
+                    Vector3 inner = pts[idx] + Vector3.up * (RoadLift + 0.01f) + outw * (RoadWidth * 0.5f);
                     Vector3 outer = inner + outw * KerbWidth;
                     int v = verts.Count;
                     verts.Add(inner); verts.Add(outer);
@@ -1163,6 +1368,57 @@ namespace PSXRacing.EditorTools
         /// </summary>
         const float CorridorSink = 0.1f;
 
+        /// <summary>Metres the tarmac ribbon rides above the waypoint plane.
+        /// Was written as a bare 0.12 in three places that all had to agree.
+        /// </summary>
+        internal const float RoadLift = 0.12f;
+
+        /// <summary>
+        /// Structural depth of the pavement — surface course over base over
+        /// subbase, the way a DOT section is built.
+        ///
+        /// A road with no thickness is a decal, and the ground only has to
+        /// disagree with it by a millimetre to be ON it. This is the margin
+        /// the coarse ground grid gets to spend before anything shows: the
+        /// subgrade is dug to the bottom of the slab under the paved
+        /// footprint, so there is 45 cm between the tarmac and the land rather
+        /// than the 22 cm the lift and the shelf sink used to buy between
+        /// them. It is also what you SEE where the land falls away — a road
+        /// edge with a section, instead of a ribbon one polygon thick.
+        /// </summary>
+        internal const float RoadSlabDepth = 0.45f;
+
+        /// <summary>Batter on the slab's cut face. Nearly vertical, because
+        /// there is nowhere to put a real fill slope: the stage's guard wall
+        /// stands 1.15 m off the tarmac edge, and anything wider than this
+        /// would push the roadbed out through the masonry.</summary>
+        internal const float RoadSlabBatter = 0.25f;
+
+        /// <summary>How far outside the slab the dig ramps back up to the
+        /// shoulder shelf. Short, and entirely inside CorridorR, so every
+        /// height outside the roadbed is exactly what it was before this
+        /// existed — barriers, scenery and the forecourt pad have not
+        /// moved.</summary>
+        const float RoadbedRamp = 2.5f;
+
+        /// <summary>Outer edge of the paved footprint: tarmac, shoulder strip
+        /// and the batter that finishes the slab.</summary>
+        static float RoadbedToe => RoadWidth * 0.5f + KerbWidth + RoadSlabBatter;
+
+        /// <summary>
+        /// How far below the road datum the shelf sits, as a function of
+        /// distance from the centreline: the roadbed dig under the pavement
+        /// itself, ramping back out to the shoulder shelf beside it.
+        ///
+        /// Returns exactly <see cref="CorridorSink"/> from RoadbedToe +
+        /// RoadbedRamp outward, which is well inside CorridorR — so this
+        /// changes the ground UNDER the road and nowhere else.
+        /// </summary>
+        static float RoadbedSinkAt(float d) =>
+            Mathf.Lerp(RoadSlabDepth - RoadLift, CorridorSink,
+                       Mathf.SmoothStep(0f, 1f,
+                           Mathf.InverseLerp(RoadbedToe, RoadbedToe + RoadbedRamp, d)));
+
         static List<Vector3> terrainPts;
         /// <summary>Height of the GROUND at each waypoint — the road height,
         /// except under a bridge where it drops into the gorge. The road itself
@@ -1296,7 +1552,7 @@ namespace PSXRacing.EditorTools
             float blend = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(CorridorR, CorridorR + CorridorBlend, d));
             float h = Mathf.Lerp(nearY, far, blend)
-                    - CorridorSink * (1f - blend)
+                    - RoadbedSinkAt(d) * (1f - blend)
                     + terrainRelief * ReliefNoise(x, z) * blend;
 
             // The forecourt is graded into whatever the land was doing here.
@@ -1313,7 +1569,7 @@ namespace PSXRacing.EditorTools
             // between its own vertices, and the forecourt reaches to the kerb —
             // so cancelling it here would put a coarse 8 m ground triangle
             // exactly level with the road for the length of the fuel stop.
-            return Mathf.Lerp(h, PadSurfaceY(along, deep) - CorridorSink * (1f - blend), pw);
+            return Mathf.Lerp(h, PadSurfaceY(along, deep) - RoadbedSinkAt(d) * (1f - blend), pw);
         }
 
         /// <summary>
@@ -1425,6 +1681,7 @@ namespace PSXRacing.EditorTools
             if (origin >= n) origin = 0;     // the whole lap is elevated
 
             int spanNo = 0, piers = 0;
+            var jointIdx = new List<int>();
             for (int k = 0; k < n; )
             {
                 if (blend[(origin + k) % n] <= 0.001f) { k++; continue; }
@@ -1434,9 +1691,91 @@ namespace PSXRacing.EditorTools
                 int from = (origin + k) % n;
                 BuildOneDeck(pts, from, len, root.transform, deckMat, physMat, ++spanNo);
                 piers += BuildPiers(pts, from, len, root.transform, pierMat);
+                CollectJoints(from, len, n, jointIdx);
                 k += len;
             }
-            Log($"Built {spanNo} bridge deck(s) and {piers} piers.");
+
+            if (jointIdx.Count > 0)
+            {
+                BuildJointBands(pts, jointIdx, root.transform);
+                jointIdx.Sort();
+                // On the Track object, beside the TrackPath it reads — the
+                // component needs the waypoint list, and `parent` IS that
+                // object (BuildBridges is handed pathGO.transform).
+                var jc = parent.gameObject.AddComponent<PSXRacing.BridgeJoints>();
+                jc.path = parent.GetComponent<TrackPath>();
+                jc.jointIndex = jointIdx.ToArray();
+            }
+
+            Log($"Built {spanNo} bridge deck(s), {piers} piers and {jointIdx.Count} expansion joints.");
+        }
+
+        /// <summary>
+        /// Where the expansion joints go: over the piers, because that is where
+        /// a real span ends and the next begins. Derived from the SAME
+        /// <see cref="PierEvery"/> the columns are placed on rather than a
+        /// spacing of their own — a joint band between two piers would be a
+        /// gap in a beam, which is the one place a bridge does not have one.
+        ///
+        /// The abutments get one each too. They are the joints you feel most:
+        /// the step from solid ground onto a deck that moves.
+        /// </summary>
+        static void CollectJoints(int from, int stations, int n, List<int> into)
+        {
+            float runM = stations * Spacing;
+            int count = Mathf.Max(1, Mathf.RoundToInt(runM / PierEvery));
+            for (int p = 0; p <= count; p++)
+            {
+                int k = Mathf.RoundToInt(p * (stations - 1f) / count);
+                int i = (from + k) % n;
+                if (!into.Contains(i)) into.Add(i);
+            }
+        }
+
+        /// <summary>Metal band across the deck at each joint. One merged mesh —
+        /// 50-odd quads on a 1.4 km bridge, and fifty GameObjects for something
+        /// you drive over at 200 km/h would be fifty draw calls for four
+        /// pixels each.</summary>
+        static void BuildJointBands(List<Vector3> pts, List<int> joints, Transform parent)
+        {
+            int n = pts.Count;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            // Half the joint's width along the road. 0.34 m reads as a band at
+            // this texture resolution without becoming a stripe.
+            const float halfLen = 0.34f;
+            float hw = DeckHalfWidth - 0.15f;
+
+            foreach (int i in joints)
+            {
+                Vector3 right = RightAt(pts, i);
+                Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
+                // ABOVE the road ribbon (+0.12) rather than level with it: two
+                // coplanar surfaces z-fight, and a joint that flickers is worse
+                // than no joint at all. 6 mm is under the suspension's notice.
+                Vector3 c = pts[i] + Vector3.up * 0.126f;
+                int b = verts.Count;
+                verts.Add(c - right * hw - fwd * halfLen); uvs.Add(new Vector2(0f, 0f));
+                verts.Add(c + right * hw - fwd * halfLen); uvs.Add(new Vector2(1f, 0f));
+                verts.Add(c + right * hw + fwd * halfLen); uvs.Add(new Vector2(1f, 1f));
+                verts.Add(c - right * hw + fwd * halfLen); uvs.Add(new Vector2(0f, 1f));
+                tris.AddRange(new[] { b, b + 3, b + 2, b, b + 2, b + 1 });
+            }
+
+            var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
+            mesh.RecalculateNormals();
+            SaveMesh(mesh, "BridgeJoints");
+
+            var go = new GameObject("BridgeJoints");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial =
+                MakeMat(MeshPrefix + "Joint", JointTexPath, affine: 0f);
+            go.isStatic = true;
+            // No collider, deliberately: the jolt comes from BridgeJoints by
+            // distance, and a 6 mm lip in the suspension's path would be a
+            // random extra depending on where the raycast happened to land.
         }
 
         static void BuildOneDeck(List<Vector3> pts, int from, int stations,
@@ -3015,17 +3354,26 @@ namespace PSXRacing.EditorTools
                 // the barrier, in a spot with no way back onto the road.
                 Vector3 right, tangent, gridPos;
 
-                if (track.drag)
+                if (track.IsDragEvent)
                 {
-                    // A strip stages its field ABREAST on the line. There is no
-                    // rolling start and no advantage to being ahead — the whole
-                    // event is which car leaves first and pulls hardest, so a
-                    // staggered grid would decide it before the tree does.
-                    right = RightAt(pts, 0);
+                    // A drag race stages its field ABREAST on the line. There is
+                    // no rolling start and no advantage to being ahead — the
+                    // whole event is which car leaves first and pulls hardest,
+                    // so a staggered grid would decide it before the tree does.
+                    //
+                    // WHICH line, though, is not the same question on both kinds
+                    // of venue. A synthetic strip's waypoint 0 IS the start line.
+                    // A baked stage's waypoint 0 is the far end of the lead-in,
+                    // so staging there would start the bridge runs 150 m back
+                    // down the causeway and hand every ET a free run-up.
+                    int lineIdx = track.stage
+                        ? Mathf.Clamp(Mathf.RoundToInt(track.stageStartLineM / Spacing), 0, pts.Count - 1)
+                        : 0;
+                    right = RightAt(pts, lineIdx);
                     tangent = Vector3.Cross(right, Vector3.up).normalized;
                     float laneW = RoadWidth / (CarSetups.Length + 1);
                     float lane = (c - (CarSetups.Length - 1) * 0.5f) * laneW;
-                    gridPos = pts[0] + right * lane + Vector3.up * 0.35f;
+                    gridPos = pts[lineIdx] + right * lane + Vector3.up * 0.35f;
                 }
                 else if (track.stage)
                 {
@@ -3176,6 +3524,7 @@ namespace PSXRacing.EditorTools
                 lights.box = box;
 
                 AttachAudio(root, car, isPlayer);
+                AttachTireEffects(root, car, isPlayer);
 
                 // Collision layer. The audio clips are synthesised (no crash
                 // samples exist in the pack) and shared statically, so the extra
@@ -3299,6 +3648,207 @@ namespace PSXRacing.EditorTools
                     Clip("turbo_bov_short_1"), Clip("turbo_bov_short_2"), Clip("turbo_bov_short_3"),
                 };
             }
+        }
+
+        /// <summary>
+        /// The marks a sliding tyre leaves and the smoke that comes off it.
+        ///
+        /// On EVERY car, not just the player's. A drifting opponent that leaves
+        /// no line is the tell that the effect is a decoration on the player
+        /// rather than something the physics is doing — and a pack of four cars
+        /// braking into the first corner is the whole reason to have it. The
+        /// opponents get shorter trails and thinner clouds, because their smoke
+        /// is not the smoke being looked at and four full budgets is four times
+        /// the vertex upload for a car three lengths away.
+        /// </summary>
+        static void AttachTireEffects(GameObject root, CarController car, bool isPlayer)
+        {
+            var marks = root.AddComponent<SkidMarks>();
+            marks.car = car;
+            marks.material = MakeSkidMaterial();
+            marks.capacity = isPlayer ? 224 : 72;
+
+            var smoke = root.AddComponent<TireSmoke>();
+            smoke.car = car;
+            smoke.material = MakeSmokeMaterial();
+            smoke.capacity = isPlayer ? 80 : 24;
+            smoke.density = isPlayer ? 1f : 0.65f;
+        }
+
+        /// <summary>
+        /// Tyre-mark material: PSX/Decal, tinted almost black, in the
+        /// transparent queue BELOW the blob shadow so a car's shadow falls over
+        /// its own marks rather than under them.
+        /// </summary>
+        static Material MakeSkidMaterial()
+        {
+            var mat = LoadOrCreate(MatDir + "/SkidMark.mat", "PSX/Decal");
+            if (mat == null) return null;
+            mat.mainTexture = MakeSkidTexture();
+            mat.SetColor("_Tint", new Color(0.06f, 0.06f, 0.07f, 1f));
+            mat.renderQueue = 2800;      // Transparent (3000) - 200
+            return mat;
+        }
+
+        /// <summary>Smoke material: the same shader, white, in the ordinary
+        /// transparent queue so it draws over the marks and the cars.</summary>
+        static Material MakeSmokeMaterial()
+        {
+            var mat = LoadOrCreate(MatDir + "/TireSmoke.mat", "PSX/Decal");
+            if (mat == null) return null;
+            mat.mainTexture = MakeSmokeTexture();
+            mat.SetColor("_Tint", Color.white);
+            mat.renderQueue = 3050;
+            return mat;
+        }
+
+        static Material LoadOrCreate(string path, string shaderName)
+        {
+            var shader = Shader.Find(shaderName);
+            if (shader == null) { Log("WARN: shader " + shaderName + " missing."); return null; }
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null) { mat = new Material(shader); AssetDatabase.CreateAsset(mat, path); }
+            mat.shader = shader;
+            return mat;
+        }
+
+        /// <summary>
+        /// One tyre mark across its width: soft at the shoulders, with the
+        /// grooves of a tread down the middle.
+        ///
+        /// U runs ACROSS the mark and V along it, so the ribs are columns here
+        /// and the length repeats every 1.4 m of road. Soft edges are the whole
+        /// point — a mark with hard sides is a strip of tape, and at 240 lines
+        /// the two-pixel ramp is most of what sells it as rubber.
+        /// </summary>
+        static Texture2D MakeSkidTexture()
+        {
+            string p = GenDir + "/SkidMark.asset";
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+            if (tex != null) return tex;
+
+            const int W = 32, H = 32;
+            tex = new Texture2D(W, H, TextureFormat.RGBA32, true) { name = "SkidMark" };
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    float u = (x + 0.5f) / W;
+                    // Shoulders: full in the middle, ramped over the outer 12%.
+                    //
+                    // The whole cross-section has to average HIGH, and that is
+                    // not a taste decision. A mark is about four pixels wide on
+                    // screen, so the texture is minified twenty to one and what
+                    // is sampled is a deep mip — the MEAN of this row, not any
+                    // part of it. Soft shoulders over 18% with ribs at half
+                    // alpha averaged to about a fifth, and the marks came out
+                    // as grey hairlines that a drift barely registered on.
+                    float a = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((0.5f - Mathf.Abs(u - 0.5f)) / 0.12f));
+                    // Four ribs, and a scuffed length so the mark is not a
+                    // uniform bar of grey.
+                    float rib = Mathf.Repeat(u * 4f, 1f);
+                    if (rib < 0.16f) a *= 0.72f;
+                    a *= 0.90f + 0.10f * Mathf.PerlinNoise(u * 6f, (y + 0.5f) / H * 9f);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            tex.wrapMode = TextureWrapMode.Repeat;
+            tex.filterMode = FilterMode.Bilinear;
+            AssetDatabase.CreateAsset(tex, p);
+            return tex;
+        }
+
+        /// <summary>
+        /// One puff: a soft round blob with its edge broken up, so a dozen of
+        /// them at different sizes read as a cloud rather than as a dozen
+        /// circles.
+        ///
+        /// Small — 32 pixels — but FILTERED, which is the one place this game
+        /// does not point-sample. Everything else it draws is a surface with a
+        /// texture on it, where point filtering is the era's look; a puff is an
+        /// alpha ramp, and a point-sampled alpha ramp blown up to a third of
+        /// the screen is a staircase of hard-edged rectangles rather than
+        /// anything resembling smoke.
+        /// </summary>
+        static Texture2D MakeSmokeTexture()
+        {
+            string p = GenDir + "/TireSmoke.asset";
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+            if (tex != null) return tex;
+
+            const int S = 32;
+            tex = new Texture2D(S, S, TextureFormat.RGBA32, true) { name = "TireSmoke" };
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++)
+                {
+                    float dx = (x + 0.5f) / S - 0.5f, dy = (y + 0.5f) / S - 0.5f;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
+                    // Lumpy radius, so the silhouette is not a circle.
+                    float lump = 0.82f + 0.18f * Mathf.PerlinNoise(
+                        Mathf.Atan2(dy, dx) * 1.6f + 4f, d * 2f);
+                    float a = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.15f, lump, d));
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            AssetDatabase.CreateAsset(tex, p);
+            return tex;
+        }
+
+        /// <summary>Where the cockpit artwork lives. See the README in it.</summary>
+        const string CockpitDir = Root + "/Art/Cockpit";
+
+        /// <summary>
+        /// One piece of cockpit artwork, imported as a Sprite.
+        ///
+        /// The import settings are FORCED rather than assumed. A PNG dropped
+        /// into an Assets folder arrives as a plain Texture, and
+        /// LoadAssetAtPath&lt;Sprite&gt; on a plain Texture returns null — so
+        /// the cabin would silently not exist and the only symptom would be a
+        /// cockpit view with no cockpit in it. Guarded the same way
+        /// CarModelBaker guards its own importer settings: compare first and
+        /// only reimport when something actually differs, because a
+        /// SaveAndReimport on every scene build is how this project's audio
+        /// pipeline used to take twelve minutes.
+        ///
+        /// Missing is a normal state, not a warning worth failing over: the
+        /// view works without artwork and says so once.
+        /// </summary>
+        static Sprite CockpitSprite(string name)
+        {
+            string path = CockpitDir + "/" + name + ".png";
+            if (!File.Exists(path)) { Log("Cockpit: no " + name + ".png — cabin left unpainted."); return null; }
+
+            var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (imp != null)
+            {
+                bool ok = imp.textureType == TextureImporterType.Sprite
+                          && imp.spriteImportMode == SpriteImportMode.Single
+                          && imp.alphaIsTransparency
+                          && !imp.mipmapEnabled
+                          && imp.wrapMode == TextureWrapMode.Clamp
+                          && imp.filterMode == FilterMode.Bilinear
+                          && imp.maxTextureSize >= 2048;
+                if (!ok)
+                {
+                    imp.textureType = TextureImporterType.Sprite;
+                    imp.spriteImportMode = SpriteImportMode.Single;
+                    imp.alphaIsTransparency = true;
+                    // No mips. This sheet is displayed at roughly one texel per
+                    // pixel and never minified, and a mip chain on it only
+                    // costs memory and softens the edge of the windscreen.
+                    imp.mipmapEnabled = false;
+                    imp.wrapMode = TextureWrapMode.Clamp;
+                    imp.filterMode = FilterMode.Bilinear;
+                    imp.maxTextureSize = 2048;
+                    imp.SaveAndReimport();
+                }
+            }
+
+            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+            if (sprite == null) Log("WARN: " + path + " would not import as a sprite.");
+            else Log("Cockpit: " + name + ".png " + sprite.texture.width + "x" + sprite.texture.height);
+            return sprite;
         }
 
         static Material MakeBlobShadowMaterial()
@@ -3548,6 +4098,40 @@ namespace PSXRacing.EditorTools
             var cluster = clusterGO.AddComponent<GaugeCluster>();
             cluster.car = player;
             hud.cluster = cluster;
+
+            // The cabin, for COCKPIT view: roof, pillars, dash, the car's own
+            // bonnet and a working mirror.
+            //
+            // Its own canvas UNDER the cluster's (90) and under the touch
+            // panel's (100), because that is the order these things are in
+            // physically: the dashboard is behind the instruments on it, and
+            // both are behind the wheel and pedals the player is holding.
+            //
+            // The scaler matches the cluster's exactly, for the same reason the
+            // cluster's matches the touch panel's — the cabin decides where the
+            // dash line is and the cluster puts its binnacle on that line, and
+            // a canvas unit has to mean the same thing on both or the
+            // instruments float above the dashboard or sink into it.
+            var cabinCanvasGO = new GameObject("CockpitCanvas");
+            var cabinCanvas = cabinCanvasGO.AddComponent<Canvas>();
+            cabinCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            cabinCanvas.sortingOrder = 80;
+            var cabinScaler = cabinCanvasGO.AddComponent<CanvasScaler>();
+            cabinScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            cabinScaler.referenceResolution = new Vector2(1280f, 720f);
+            cabinScaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            cabinScaler.matchWidthOrHeight = 0.5f;
+
+            var cabinGO = new GameObject("Cockpit", typeof(RectTransform));
+            cabinGO.transform.SetParent(cabinCanvasGO.transform, false);
+            var cabinRT = (RectTransform)cabinGO.transform;
+            cabinRT.anchorMin = Vector2.zero; cabinRT.anchorMax = Vector2.one;
+            cabinRT.offsetMin = Vector2.zero; cabinRT.offsetMax = Vector2.zero;
+            var cabin = cabinGO.AddComponent<CockpitView>();
+            cabin.car = player;
+            cabin.worldCamera = cam;
+            cabin.cabin = CockpitSprite("cabin");
+            cabin.wheel = CockpitSprite("wheel");
 
             // Race manager — or, with no path, the city: Charlotte has no laps
             // to count, so no RaceManager exists there at all; CityMode (wired

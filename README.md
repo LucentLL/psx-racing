@@ -46,6 +46,21 @@ The tire curve and the drift layer are ported from an earlier project of mine
   bolted to the road, relaxed while drifting
 - gear-scaled engine braking on the rear axle only, so lift-off rotates the car
 
+## The cars
+
+317 cars from the GT4-derived catalog, wearing sixteen body shells: a Skyline
+R32, a Supra A80, the FD, a '66 GTO, a '67 Mustang fastback, a '69 Charger and
+its winged Daytona, a Pagoda SL, an E30, a Volvo estate, a CX, a supermini, a
+Defender pickup, a panel van and a compact truck.
+
+Sixteen shells against 317 cars means most of it is curation. The cars the pack
+actually modelled get their own shell, along with their badge-engineered twins —
+a Superbird IS a winged Charger. Everything else is scored on body style first,
+then continent, era and kerb weight. The shell brings its real geometry with it:
+a Charger races on a 2.99 m wheelbase and a supermini on 2.22 m.
+
+`Docs/car_model_mapping.txt` lists every assignment.
+
 ## The audio
 
 A sample-based rotary voice: eight RPM band loops on a *geometric* ladder
@@ -79,5 +94,6 @@ powershell -ExecutionPolicy Bypass -File tools\build-and-publish.ps1
 
 ## Credits
 
-Art: PSX-style car, buildings, gas station and road assets. Audio: Realistic
+Art: PSX Vehicles by boggle (15 cars), a free compact pickup, plus buildings,
+gas station and road assets. Audio: Realistic
 Engine Sound and Turbo Sound Pack (Rotary_x8_free set).

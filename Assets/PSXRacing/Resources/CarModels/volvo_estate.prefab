@@ -1,0 +1,86 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8611476392739202644
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7084686424647851128}
+  - component: {fileID: 3579959002964300441}
+  m_Layer: 0
+  m_Name: volvo_estate
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7084686424647851128
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8611476392739202644}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3579959002964300441
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8611476392739202644}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: volvo_estate
+  displayName: Volvo 240 Estate
+  bodyMesh: {fileID: -2432090755550338912, guid: b992c683de7d80b40807c2bea0d1aac5, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 50b9fd4ca01076f458799db0290950e1, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 325947711c498534088b19b3ce1ce2b5, type: 2}
+  - {fileID: 2100000, guid: e9f2dd02df8fc1044a3b2488cb54215e, type: 2}
+  - {fileID: 2100000, guid: 014fd38f333991a4899063c1892e4669, type: 2}
+  - {fileID: 2100000, guid: 3646c92e97a82ca458218dba9f4b995b, type: 2}
+  - {fileID: 2100000, guid: 2f49fa5ef08bae24ca5ebf397df7bc85, type: 2}
+  - {fileID: 2100000, guid: 2bf995ba87f1fcc4b95c6d0d9da090c5, type: 2}
+  skinNames:
+  - nova_blue
+  - ocean_night
+  - onyx_black
+  - polar_white
+  - ruby_red
+  - silver_grey
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.2724781, g: 0.3901746, b: 0.44804263, a: 1}
+  - {r: 0.17276849, g: 0.2979851, b: 0.44269693, a: 1}
+  - {r: 0.15974942, g: 0.15951987, b: 0.15593086, a: 1}
+  - {r: 0.72485507, g: 0.7252319, b: 0.7232395, a: 1}
+  - {r: 0.7093098, g: 0.09367185, b: 0.16672994, a: 1}
+  - {r: 0.63849044, g: 0.6385653, b: 0.69956654, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.017623484
+  bodyZOffset: -0.13911474
+  wheelbase: 2.6249645
+  trackWidth: 1.4076841
+  wheelRadius: 0.29953253
+  wheelMeshScale: 0.93
+  cowlZ: 0.8460319
+  cowlY: 0.95395106
+  noseZ: 2.2572289
+  roofY: 1.4213645
+  colliderCenter: {x: 0, y: 0.83752, z: -0.11952376}
+  colliderSize: {x: 1.7123988, y: 1.08692, z: 4.539598}
+  blobSize: {x: 2.2831984, y: 5.0862513}

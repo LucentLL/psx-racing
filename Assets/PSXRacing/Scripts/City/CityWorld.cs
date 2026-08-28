@@ -183,6 +183,26 @@ namespace PSXRacing.City
                 bc.size = box.size;
             }
 
+            // Real models on this tile — houses, trailers, restaurants. They
+            // parent under the tile root so streaming drops them with it, and
+            // they seat on the same GroundY the meshes were built from, so a
+            // porch meets its lawn on every slope in the county.
+            if (buildings != null && buildings.TryGetValue(key, out var lots))
+            {
+                foreach (var b in lots)
+                {
+                    if (b.kind == 0) continue;
+                    var prefab = CityProps.Prefab(b.kind);
+                    if (prefab == null) continue;
+                    var def = CityProps.Defs[b.kind];
+                    float gy = CityBuildings.SeatY(Map, b.pos, b.w, b.d, b.yaw);
+                    var go = Instantiate(prefab, root.transform);
+                    go.transform.position = new Vector3(b.pos.x, gy - def.sink, b.pos.y);
+                    go.transform.rotation = Quaternion.Euler(
+                        0f, b.yaw * Mathf.Rad2Deg + def.yawOffsetDeg, 0f);
+                }
+            }
+
             live[key] = new Tile { go = root, meshes = meshes.ToArray() };
         }
 

@@ -1,0 +1,98 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2671262590998622912
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5440213426108815022}
+  - component: {fileID: 3024542535798994852}
+  m_Layer: 0
+  m_Name: gto_66
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5440213426108815022
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2671262590998622912}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3024542535798994852
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2671262590998622912}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: gto_66
+  displayName: Pontiac GTO '66
+  bodyMesh: {fileID: -2432090755550338912, guid: eaebebe22fdf6c846909ff86d6f4985a, type: 3}
+  wheelMesh: {fileID: 4300000, guid: eaaf765222c0e014e95f811a2fcc28af, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: c7e9f648e2d9d4441b226b408a9eaffe, type: 2}
+  - {fileID: 2100000, guid: c2a3cb471671e3a4b9c591516013b058, type: 2}
+  - {fileID: 2100000, guid: 13b4228fbe8ed7f47bc82992e66490c7, type: 2}
+  - {fileID: 2100000, guid: 6ae552a1c06d0234584137ad2c5a2c8e, type: 2}
+  - {fileID: 2100000, guid: 2f571f20453130d4289d190de57a8181, type: 2}
+  - {fileID: 2100000, guid: 284c2296d5e3ff24cad871e5bcf9c1cd, type: 2}
+  - {fileID: 2100000, guid: fd2704bdafd53844fb85338c5c5d403f, type: 2}
+  - {fileID: 2100000, guid: 79a6e1b0a1f87b042ac1f64b2ee16ae6, type: 2}
+  - {fileID: 2100000, guid: 78f828aae8adbee43b3a747a52f1b37b, type: 2}
+  - {fileID: 2100000, guid: 888fa6841f5c03944afab71a521ab206, type: 2}
+  skinNames:
+  - candy_apple_red
+  - casper_white
+  - fiero_red
+  - gto_red
+  - midsummer_gold
+  - pulaski_blue
+  - rally_green
+  - silver_condor
+  - torch_red
+  - tri_power_black
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.8772295, g: 0.21704791, b: 0.109279804, a: 1}
+  - {r: 0.7615401, g: 0.76657426, b: 0.7090532, a: 1}
+  - {r: 0.87416947, g: 0.111038856, b: 0.2655224, a: 1}
+  - {r: 0.87697643, g: 0.27441686, b: 0.27564612, a: 1}
+  - {r: 0.8758015, g: 0.7576121, b: 0.10792243, a: 1}
+  - {r: 0.31687352, g: 0.50139844, b: 0.65397906, a: 1}
+  - {r: 0.20808905, g: 0.5289017, b: 0.21221986, a: 1}
+  - {r: 0.6439345, g: 0.6439345, b: 0.6439345, a: 1}
+  - {r: 0.87626296, g: 0.5704424, b: 0.10857024, a: 1}
+  - {r: 0.45840013, g: 0.45840013, b: 0.45840013, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.016650787
+  bodyZOffset: -0.24578398
+  wheelbase: 2.99046
+  trackWidth: 1.557919
+  wheelRadius: 0.3138462
+  wheelMeshScale: 0.93
+  cowlZ: 0.8249305
+  cowlY: 0.95013136
+  noseZ: 2.36412
+  roofY: 1.3568211
+  colliderCenter: {x: 0, y: 0.79581916, z: -0.22819942}
+  colliderSize: {x: 1.9814545, y: 1.0459889, z: 4.95133}
+  blobSize: {x: 2.6419394, y: 5.547564}

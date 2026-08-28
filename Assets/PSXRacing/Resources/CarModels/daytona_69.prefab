@@ -1,0 +1,101 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1403012055896202536
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2336318952764893255}
+  - component: {fileID: 6503128855117411983}
+  m_Layer: 0
+  m_Name: daytona_69
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2336318952764893255
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1403012055896202536}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6503128855117411983
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1403012055896202536}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: daytona_69
+  displayName: Charger Daytona '69
+  bodyMesh: {fileID: -2432090755550338912, guid: 792dd116a2ca6f44680372664f71f6c0, type: 3}
+  wheelMesh: {fileID: 4300000, guid: c84363e609bc3a248b91643465cccfc8, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 453e6858e8ce7fe4d913adc3570e6853, type: 2}
+  - {fileID: 2100000, guid: 90c6fe290479a414aacbe64889e234fd, type: 2}
+  - {fileID: 2100000, guid: 5445a82cb1d0fa5419470076502a68b2, type: 2}
+  - {fileID: 2100000, guid: 60057cdd135d93247a6d57a8e6af9438, type: 2}
+  - {fileID: 2100000, guid: a4a584adba84d0c4ebb7694b5e573f98, type: 2}
+  - {fileID: 2100000, guid: 83186079b78493648806e9f53d1c93ef, type: 2}
+  - {fileID: 2100000, guid: 4e2629e88243e3245b93818f3afda6ff, type: 2}
+  - {fileID: 2100000, guid: 2692e8598f9b5b24eb679ed7b5271ecd, type: 2}
+  - {fileID: 2100000, guid: fa7a435dcff61ee47ab32b349a8274ce, type: 2}
+  - {fileID: 2100000, guid: 700630cb7724289439ce7a978d7135f0, type: 2}
+  - {fileID: 2100000, guid: bd984c4d8c88fcc45a5c12b6d83819cc, type: 2}
+  skinNames:
+  - go_mango
+  - in_violet
+  - midnight_blue
+  - plum_crazy
+  - redline
+  - regal_gold
+  - silver_dust
+  - sinamon_metallic
+  - snow_white
+  - sublime
+  - torred
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.90222865, g: 0.4854728, b: 0.28946787, a: 1}
+  - {r: 0.4602721, g: 0.18976748, b: 0.51615405, a: 1}
+  - {r: 0.18758143, g: 0.19863683, b: 0.21791956, a: 1}
+  - {r: 0.3934533, g: 0.09174498, b: 0.39801332, a: 1}
+  - {r: 0.9072548, g: 0.05310539, b: 0.2255315, a: 1}
+  - {r: 0.89964104, g: 0.76748097, b: 0.0518412, a: 1}
+  - {r: 0.64052004, g: 0.6417387, b: 0.70310456, a: 1}
+  - {r: 0.8995973, g: 0.69076663, b: 0.478622, a: 1}
+  - {r: 0.7452381, g: 0.7452381, b: 0.7452381, a: 1}
+  - {r: 0.3902327, g: 0.732189, b: 0.73345417, a: 1}
+  - {r: 0.90832496, g: 0.16582304, b: 0.052672364, a: 1}
+  bodyYaw: 0
+  bodyYOffset: 0.13354789
+  bodyZOffset: -0.20270824
+  wheelbase: 2.9876366
+  trackWidth: 1.758532
+  wheelRadius: 0.3375514
+  wheelMeshScale: 0.93
+  cowlZ: 0.76075613
+  cowlY: 1.0132462
+  noseZ: 2.6903358
+  roofY: 1.3953652
+  colliderCenter: {x: 0, y: 0.96760887, z: -0.0418123}
+  colliderSize: {x: 1.9043713, y: 1.258965, z: 5.218403}
+  blobSize: {x: 2.5391617, y: 5.8467975}

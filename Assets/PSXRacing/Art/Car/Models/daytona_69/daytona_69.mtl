@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl daytona_69
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/go_mango.png

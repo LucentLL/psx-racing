@@ -133,9 +133,15 @@ namespace PSXRacing
 
             string center = !city.Live ? "CHARLOTTE"
                 : (stuck != null ? stuck.Prompt : null)
+                  ?? DriveThru.Prompt
                   ?? DryTankPrompt()
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
+
+            // UpdateFuel() above claims the ACTION button for a nozzle that
+            // does not exist out here; the order window takes it back.
+            var cityTouch = TouchControls.Instance;
+            if (cityTouch != null && DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
         }
 
         /// <summary>The city world, for the attribution gate above. Wired by
@@ -245,6 +251,7 @@ namespace PSXRacing
                            : (stuck != null ? stuck.Prompt : null)
                              ?? GasPump.Prompt
                              ?? OnFoot.ForecourtMode.Prompt
+                             ?? DriveThru.Prompt
                              ?? DryTankPrompt()
                              ?? "";
                     break;

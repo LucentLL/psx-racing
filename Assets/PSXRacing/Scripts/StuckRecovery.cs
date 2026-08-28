@@ -54,6 +54,23 @@ namespace PSXRacing
 
         float stuckTimer;
 
+        /// <summary>
+        /// Below this the car has left the world, and no amount of patience
+        /// brings it back.
+        ///
+        /// Every other state here resolves eventually or is at least standing
+        /// on something. Falling does not: the car is well above `movingKmh`
+        /// all the way down, so `crawling` is false, so the watchdog never
+        /// arms and the car descends for ever. On the circuits there was
+        /// nowhere to fall from. Bogue Banks put a 20 m bridge over open water
+        /// with a low parapet, which is a place to fall from.
+        ///
+        /// Derived from the route rather than a constant, because "too low"
+        /// means something different on a sea-level island and a mountain
+        /// 1200 m up.
+        /// </summary>
+        float floorY = float.NegativeInfinity;
+
         void Awake()
         {
             if (car == null) car = GetComponent<CarController>();
@@ -62,10 +79,41 @@ namespace PSXRacing
             if (tank == null) tank = GetComponent<FuelTank>();
         }
 
+        void Start()
+        {
+            // In Start, not Awake: RaceManager builds its path in Awake, and
+            // asking too early gets a null every time and silently disables
+            // the guard.
+            var rm = RaceManager.Instance;
+            if (rm != null && rm.path != null && rm.path.Count > 0)
+            {
+                float lowest = float.MaxValue;
+                foreach (var w in rm.path.waypoints) if (w.y < lowest) lowest = w.y;
+                // 60 m under the lowest point of the road. Deeper than any
+                // gorge floor, any seabed and any legitimate excursion, so
+                // nothing that is still in the world can reach it.
+                floorY = lowest - 60f;
+            }
+        }
+
         void Update()
         {
             bool live = DriveSession.Live &&
                         (input == null || input.inputEnabled) && !PauseMenu.IsOpen;
+
+            // Out of the world: recover NOW, with no warning banner and no
+            // grace period. The grace exists so a player who was about to free
+            // themselves still can, and there is no freeing yourself from this
+            // — by the time the prompt could be read the car is a kilometre
+            // down. Deliberately ahead of the parked-on-purpose excuses too:
+            // nobody parks below the seabed.
+            if (live && car != null && transform.position.y < floorY)
+            {
+                DriveSession.Respawn(car);
+                stuckTimer = 0f;
+                Prompt = null;
+                return;
+            }
 
             bool rolled = car != null && Vector3.Dot(transform.up, Vector3.up) < 0.25f;
             bool pinned = responder != null && responder.InWallContact;

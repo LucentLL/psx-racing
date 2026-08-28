@@ -1,0 +1,101 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1263706482906599591
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2300522542472945497}
+  - component: {fileID: 1190836938265894397}
+  m_Layer: 0
+  m_Name: jdm_pickup
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2300522542472945497
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1263706482906599591}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1190836938265894397
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1263706482906599591}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: jdm_pickup
+  displayName: Compact pickup
+  bodyMesh: {fileID: -2432090755550338912, guid: 39c8685743043b246aa9ea9a7e0cbd2e, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 0c8976e414d4a864f8b9cd080f128dcb, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: b23759af369731a4588ab7211daff3cc, type: 2}
+  - {fileID: 2100000, guid: 6e6904d44bf95664888c82372566caf3, type: 2}
+  - {fileID: 2100000, guid: 470544e0dd329fe419e4627388c46f29, type: 2}
+  - {fileID: 2100000, guid: 2775c2b4b7e784d45bd5d88d3de542af, type: 2}
+  - {fileID: 2100000, guid: f6434bc70b538f546b786e97690f16ef, type: 2}
+  - {fileID: 2100000, guid: 66c87f7b26574f1488fd2b0f94da45b9, type: 2}
+  - {fileID: 2100000, guid: 327e78d7f81427c4eaad88da40ad881e, type: 2}
+  - {fileID: 2100000, guid: d4b8846c45efab240a5f2292070a8af1, type: 2}
+  - {fileID: 2100000, guid: 40dc9645fa150ad4cbb7fd79a504a608, type: 2}
+  - {fileID: 2100000, guid: 127001ad68869a34ca5752497a68039b, type: 2}
+  - {fileID: 2100000, guid: 8dbd607cbb9e875429ad23af34aa6a66, type: 2}
+  skinNames:
+  - blue
+  - earth
+  - green
+  - market_yellow
+  - misty_grey
+  - purple
+  - red
+  - river
+  - sand
+  - sunset
+  - white
+  wheelMaterial: {fileID: 2100000, guid: d59204d33a4f73f439dc4ce338e9ef83, type: 2}
+  skinColors:
+  - {r: 0.27781057, g: 0.48225468, b: 0.65682715, a: 1}
+  - {r: 0.5541778, g: 0.2930841, b: 0.036659196, a: 1}
+  - {r: 0.25032586, g: 0.5237311, b: 0.26048437, a: 1}
+  - {r: 0.91466844, g: 0.7745638, b: 0.03637285, a: 1}
+  - {r: 0.3883182, g: 0.38596714, b: 0.38821486, a: 1}
+  - {r: 0.40875983, g: 0.35137025, b: 0.832652, a: 1}
+  - {r: 0.9141963, g: 0.03550213, b: 0.21310724, a: 1}
+  - {r: 0.4502254, g: 0.40645587, b: 0.2398119, a: 1}
+  - {r: 0.80912, g: 0.80469865, b: 0.73326135, a: 1}
+  - {r: 0.91468585, g: 0.58518904, b: 0.4566129, a: 1}
+  - {r: 0.76363635, g: 0.75712174, b: 0.76333475, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.011366599
+  bodyZOffset: -0.10418147
+  wheelbase: 2.33
+  trackWidth: 1.201352
+  wheelRadius: 0.28180438
+  wheelMeshScale: 0.93
+  cowlZ: 0.7355659
+  cowlY: 0.93179524
+  noseZ: 1.8822994
+  roofY: 1.3528036
+  colliderCenter: {x: 0, y: 0.79026383, z: -0.090575516}
+  colliderSize: {x: 1.44021, y: 1.0487331, z: 3.768191}
+  blobSize: {x: 1.9202801, y: 4.221953}

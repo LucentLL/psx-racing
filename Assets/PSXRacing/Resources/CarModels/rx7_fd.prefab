@@ -1,0 +1,98 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2310084373446139617
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8106352442724316874}
+  - component: {fileID: 3814415612159463840}
+  m_Layer: 0
+  m_Name: rx7_fd
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8106352442724316874
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2310084373446139617}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3814415612159463840
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2310084373446139617}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: rx7_fd
+  displayName: Mazda RX-7 (FD)
+  bodyMesh: {fileID: -2432090755550338912, guid: 0442ca056476f054284aa086b30227fb, type: 3}
+  wheelMesh: {fileID: -2432090755550338912, guid: 7a65c4c69108af842badf3403200df9e, type: 3}
+  skinMaterials:
+  - {fileID: 2100000, guid: 82e5e94569425e9438fdd5af550f273b, type: 2}
+  - {fileID: 2100000, guid: 88163bd7268c4a5428429184b90e9724, type: 2}
+  - {fileID: 2100000, guid: de8264912ebe52f4989a0cac1070cf46, type: 2}
+  - {fileID: 2100000, guid: 795cea605e21ee947b88b1db5ab8802c, type: 2}
+  - {fileID: 2100000, guid: 0372b0914ba10994480400a750bd63f7, type: 2}
+  - {fileID: 2100000, guid: dd1c6f551d34af04abd8d5ab60324fe4, type: 2}
+  - {fileID: 2100000, guid: 6b570f531e2dde944a7b98c8b08fa53d, type: 2}
+  - {fileID: 2100000, guid: ef2b17cb4c089f74a98a9e2becc8dec6, type: 2}
+  - {fileID: 2100000, guid: 4ead51293e8740941b6c6f7d62a3af5e, type: 2}
+  - {fileID: 2100000, guid: 0f5ab149b3964c1469ca292e8f88fe8c, type: 2}
+  skinNames:
+  - bright_yellow
+  - crystal_white
+  - laser_blue
+  - marina_blue
+  - merlot_red
+  - noble_green
+  - shade_green
+  - silver_tornado_silver
+  - sunlight_yellow
+  - sunrise_red
+  wheelMaterial: {fileID: 2100000, guid: 88163bd7268c4a5428429184b90e9724, type: 2}
+  skinColors:
+  - {r: 0.9395758, g: 0.79520655, b: 0.018233992, a: 1}
+  - {r: 0.80954194, g: 0.80954194, b: 0.80954194, a: 1}
+  - {r: 0.20718923, g: 0.5709787, b: 0.8142069, a: 1}
+  - {r: 0.32994857, g: 0.6674266, b: 0.9244999, a: 1}
+  - {r: 0.4275878, g: 0.041088436, b: 0.07436529, a: 1}
+  - {r: 0.18585189, g: 0.5068288, b: 0.36452168, a: 1}
+  - {r: 0.24399911, g: 0.5356453, b: 0.25506845, a: 1}
+  - {r: 0.6588727, g: 0.6591128, b: 0.72395724, a: 1}
+  - {r: 0.89284915, g: 0.72676575, b: 0.37957597, a: 1}
+  - {r: 0.9476155, g: 0.019285556, b: 0.20479542, a: 1}
+  bodyYaw: 0
+  bodyYOffset: 0
+  bodyZOffset: -0.089
+  wheelbase: 2.425
+  trackWidth: 1.46
+  wheelRadius: 0.31
+  wheelMeshScale: 0.93
+  cowlZ: 0.6785077
+  cowlY: 0.83127856
+  noseZ: 2.0596473
+  roofY: 1.2531303
+  colliderCenter: {x: 0, y: 0.72, z: -0.039}
+  colliderSize: {x: 1.72, y: 1, z: 4.1}
+  blobSize: {x: 2.3, y: 4.6}

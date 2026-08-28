@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl landrover_wheels_f
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/emerald_green.png

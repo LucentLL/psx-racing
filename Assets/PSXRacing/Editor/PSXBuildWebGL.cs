@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -20,7 +21,19 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class PSXBuildWebGL
     {
-        const string ScenePath = "Assets/PSXRacing/Scenes/CityCircuit.unity";
+        /// <summary>Every scene the player can reach, in build-index order:
+        /// LifeHome at 0 then one per circuit, matching TrackCatalog.SceneIndex.
+        /// Built from the catalog rather than listed, so adding a track is one
+        /// edit and not three.</summary>
+        static string[] ScenePaths()
+        {
+            var list = new List<string> { LifeHomeSceneBuilder.ScenePath };
+            foreach (var t in PSXRacing.TrackCatalog.All)
+                list.Add("Assets/PSXRacing/Scenes/" + t.id + ".unity");
+            // Then the garage, last — see TrackCatalog.GarageSceneIndex.
+            list.Add(GarageSceneBuilder.ScenePath);
+            return list.ToArray();
+        }
 
         [MenuItem("PSX Racing/Build WebGL")]
         public static void BuildMenu() => Run(DefaultOutput());
@@ -43,12 +56,19 @@ namespace PSXRacing.EditorTools
         {
             try
             {
-                // The scene builder normally produces both scenes, but a fresh
-                // sandbox copy may not have run it yet.
-                if (!File.Exists(ScenePath))
+                // The scene builder normally produces every scene, but a fresh
+                // sandbox copy may not have run it yet — and one MISSING
+                // circuit is as fatal as none, since the build index of every
+                // track after it would shift.
+                var scenePaths = ScenePaths();
+                foreach (var p in scenePaths)
                 {
-                    Debug.LogError("[PSXBuildWebGL] Race scene missing, running scene builder first.");
+                    if (File.Exists(p)) continue;
+                    Debug.LogError("[PSXBuildWebGL] Scene missing (" + p +
+                                   "), running scene builder first.");
                     PSXRacingBuilder.Build();
+                    scenePaths = ScenePaths();
+                    break;
                 }
                 if (!File.Exists(LifeHomeSceneBuilder.ScenePath))
                     LifeHomeSceneBuilder.Build();
@@ -83,7 +103,7 @@ namespace PSXRacing.EditorTools
                 var options = new BuildPlayerOptions
                 {
                     // LifeHome first: it is scene index 0, the boot scene.
-                    scenes = new[] { LifeHomeSceneBuilder.ScenePath, ScenePath },
+                    scenes = scenePaths,
                     locationPathName = outDir,
                     target = BuildTarget.WebGL,
                     targetGroup = BuildTargetGroup.WebGL,

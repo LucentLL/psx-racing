@@ -1,0 +1,89 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8557943559025471707
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5477021431387746266}
+  - component: {fileID: 4925178084498556903}
+  m_Layer: 0
+  m_Name: classic_van
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5477021431387746266
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8557943559025471707}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &4925178084498556903
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8557943559025471707}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: classic_van
+  displayName: Classic panel van
+  bodyMesh: {fileID: -2432090755550338912, guid: e6ce24ffa7d24464cbfff99d627c7ff7, type: 3}
+  wheelMesh: {fileID: 4300000, guid: d4df96bc981d9b24fae3c08bbcf27cc8, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 178d0a1b479775f4bb244f3e3ddee838, type: 2}
+  - {fileID: 2100000, guid: 4b836dafd5d0dfc4fa59db38120dc2eb, type: 2}
+  - {fileID: 2100000, guid: eaad3994da5ffa94d8f67e89da6906ff, type: 2}
+  - {fileID: 2100000, guid: c0416a837decb32499b00235a315dc34, type: 2}
+  - {fileID: 2100000, guid: be9251ef4c4757e4b9029ceda893731a, type: 2}
+  - {fileID: 2100000, guid: 9e377a70fa3ae064693cddcb4ad38a50, type: 2}
+  - {fileID: 2100000, guid: ef279c19195693a4cb5855273a320f2f, type: 2}
+  skinNames:
+  - british_green
+  - cream
+  - dark_brown
+  - purple
+  - red
+  - silver_birch
+  - snow_white
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.28848845, g: 0.4947488, b: 0.30334005, a: 1}
+  - {r: 0.74978966, g: 0.69479305, b: 0.5888122, a: 1}
+  - {r: 0.4374078, g: 0.40727913, b: 0.2874856, a: 1}
+  - {r: 0.4014057, g: 0.36310318, b: 0.65838075, a: 1}
+  - {r: 0.7774856, g: 0.27389234, b: 0.27778348, a: 1}
+  - {r: 0.50693494, g: 0.5549495, b: 0.59138995, a: 1}
+  - {r: 0.7242957, g: 0.7280018, b: 0.7331746, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.022108432
+  bodyZOffset: 0.11937922
+  wheelbase: 2.3499994
+  trackWidth: 1.390771
+  wheelRadius: 0.32388508
+  wheelMeshScale: 0.93
+  cowlZ: 2.1364033
+  cowlY: 1.2731923
+  noseZ: 2.2557962
+  roofY: 1.9636563
+  colliderCenter: {x: 0, y: 1.140033, z: 0.13325423}
+  colliderSize: {x: 1.8998603, y: 1.5207453, z: 4.0540547}
+  blobSize: {x: 2.533147, y: 4.5422397}

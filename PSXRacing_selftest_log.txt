@@ -1,0 +1,651 @@
+catalog:
+  ok   rg2_faults.json loads with pool entries
+  ok   tire_wear grip is 0.78  (got 0.78)
+  ok   50k mi is 'new'
+  ok   90k mi is 'mid'
+  ok   200k mi is 'high'
+  ok   unknown fault id is identity
+calendar (35 days):
+  ok   35 sleeps land on day 36  (got 36)
+  ok   5 paydays in 35 days  (got 5)
+  ok   1 bills fire in 35 days  (got 1)
+  ok   a fed, rested month keeps health high  (got 100)
+  ok   20 days without food is fatal-grade  (got 0)
+repair economy:
+  ok   seeded car exists
+  ok   a fault surfaces within 40 races (took 1)  (got 1)
+  ok   the fault is catalogued (named + priced): Control Arm Bushings $280
+  ok   fault sits on a real stat lane  (got tires)
+  ok   dealer > mechanic > DIY pricing  (got 245/490/736)
+  ok   dealer same-day, mechanic takes days
+  ok   DIY is out of reach at starting skill 15 (diff 61)
+  ok   dealer repair is accepted
+  ok   the repaired stat went UP  (got 37.81744 -> 72.81744)
+  ok   the fault is gone
+  ok   a service restores condition  (got 55)
+  ok   and charges for it  (got 0)
+fault gate:
+  ok   first engine fault rolls
+  ok   a second normal-severity engine fault is refused
+  ok   a severe roll still gets through
+  ok   and is a different fault
+  ok   but the lane caps at two
+  ok   a different stat lane is unaffected
+car catalog:
+  ok   rg2_cars.json loads  (got 317)
+  ok   every car has a torque curve  (got 0 without)
+  ok   gear counts are sane (3-8)  (got 0 odd)
+  ok   top speeds are sane (72-468 km/h)  (got 0 odd)
+  ok   gear ratios descend on every car  (got 0 inverted)
+  ..   FD ratios: 3.65 / 2.11 / 1.46 / 1.05 / 0.84 / 0.73
+  ok   FD first gear is a real reduction and top is an overdrive
+  ok   FF and 4WD cars exist in the catalog  (got 57 FF, 81 4WD)
+  ok   FF sends all torque forward
+  ok   4WD splits torque  (got 0.4)
+  ok   FR stays rear-driven
+engine voices:
+  ok   every car names an engine family  (got 0 without)
+  ok   every car has a known aspiration  (got 0 odd)
+  ..   28 distinct families across 317 cars
+  ok   every family has an imported clip folder
+  ok   every family has every clip the ladder plays  (got 0 missing)
+  ..   forced induction: 137 turbo, 4 supercharged, 176 NA
+  ok   aspiration actually varies across the catalog
+car models:
+  ok   every library key has a baked prefab
+  ok   every shell has a body and a wheel mesh  (got 0 without)
+  ok   every shell has at least one livery  (got 0 without)
+  ok   every shell's cowl is on the car and below its roof
+  ok   every shell has a believable roof height
+  ok   every shell's bonnet camera clears its own bonnet
+  ok   every shell seats its driver in its own cabin
+  ok   mounted-camera standoff clears its own near plane  (got 0.18 vs 0.18)
+  ok   reference FD wheelbase unmoved  (got 2.425)
+  ok   reference FD track unmoved  (got 1.46)
+  ok   reference FD tyre unmoved  (got 0.31)
+  ok   reference FD keeps its own wheel material
+  ok   every shell measures like a road car  (got 0 out of band)
+  ok   every catalog car resolves to a real shell and livery  (got 0)
+  ..   155/317 hand-mapped, 14 of 16 shells raced (the van and the work truck are scenery)
+  ok   the field is spread across the pack  (got 14)
+upgrades:
+  ok   built HP >= stock and min weight <= stock  (got 0 inverted)
+  ok   every stage is an improvement  (got 0 backwards)
+  ok   stage-4 brakes on stock tyres stay under the tyre cap  (got 1.050 g)
+  ok   tyres raise the ceiling the brakes work against
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 1
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 2
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 3
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 4
+  ok   four stages of Power land  (got 4)
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 1
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 2
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 3
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 4
+  ok   four stages of Weight land  (got 4)
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 1
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 2
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 3
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 4
+  ok   four stages of Brakes land  (got 4)
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 1
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 2
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 3
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 4
+  ok   four stages of Suspension land  (got 4)
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 1
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 2
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 3
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 4
+  ok   four stages of Tires land  (got 4)
+  ..   Honda CIVIC 1500 3door CX `79 ($5,500): stages cost $160 - $1,866
+  ok   stage prices stay in a payable range for Honda CIVIC 1500 3door CX `79
+  ok   a full power build reaches the engine's ceiling  (got 162)
+  ok   a full weight build reaches the minimum weight  (got 701)
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 1
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 2
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 3
+  ok   shop costs more than DIY (Power)
+  ok   order Power stage 4
+  ok   four stages of Power land  (got 4)
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 1
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 2
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 3
+  ok   shop costs more than DIY (Weight)
+  ok   order Weight stage 4
+  ok   four stages of Weight land  (got 4)
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 1
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 2
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 3
+  ok   shop costs more than DIY (Brakes)
+  ok   order Brakes stage 4
+  ok   four stages of Brakes land  (got 4)
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 1
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 2
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 3
+  ok   shop costs more than DIY (Suspension)
+  ok   order Suspension stage 4
+  ok   four stages of Suspension land  (got 4)
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 1
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 2
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 3
+  ok   shop costs more than DIY (Tires)
+  ok   order Tires stage 4
+  ok   four stages of Tires land  (got 4)
+  ..   Jaguar XJR-9 Race Car `88 ($1,066,000): stages cost $634 - $28,643
+  ok   stage prices stay in a payable range for Jaguar XJR-9 Race Car `88
+  ok   a full power build reaches the engine's ceiling  (got 897)
+  ok   a full weight build reaches the minimum weight  (got 884)
+  ok   a blower is offered on an NA car
+  ok   a blower is refused on a turbo car  (got ALREADY TURBOCHARGED)
+  ok   a welded diff is offered on any car
+  ok   the blower can be bought
+  ok   and it lands on the car
+  ok   and cannot be bought twice
+used-car market:
+  ok   the character seeds with NO car (lane picker follows)  (got 0)
+  ok   starting credit is in range  (got 722)
+  ok   the classifieds have listings  (got 5)
+  ok   starting lanes are offered  (got 3)
+  ok   lane 'BEATER' is a real car: Mitsubishi GALANT GTO MR `70 $471
+  ok   lane 'USED, RELIABLE' is a real car: Lotus Motor Sport Elise `99 $37,341
+  ok   lane 'NEW, ON FINANCE' is a real car: Ford FOCUS Rally Car `99 $85,000
+  ok   a financed lane does NOT deduct savings (H1287)  (got 4620 -> 4620)
+  ok   but the loan follows you  (got 1)
+  ok   with a real monthly payment  (got 805)
+  ok   the chosen car is owned and active
+  ok   the owned car carries its catalog price  (got 50000)
+  ok   and resolves back to a catalog spec
+  ok   a cash purchase is accepted
+  ok   the car lands in the garage  (got 2)
+  ok   and leaves the classifieds
+  ok   a full garage refuses the next purchase  (got garage full (2))
+  ok   quick-sell works with a spare car
+  ok   and pays out  (got 10749)
+  ok   the only car cannot be sold
+  ok   value falls with condition, then with mileage  (got 50000 > 20000 > 5000)
+  ok   depreciation compounds with age  (got 24000 vs 5580)
+  ok   a loan costs more than the principal  (got 256/mo)
+  ok   0% APR splits evenly
+race field:
+  ok   a field is chosen for the seeded car
+  ok   the grid fills to 3  (got 3)
+  ok   skills are parallel to ids  (got 3)
+  ok   every opponent id resolves to a catalog car  (got 0)
+  ok   and no car shows up twice  (got 0)
+  ok   the field is priced near the player's car  (got $25,500-$40,700 vs $36,000)
+  ok   skill 0.92 is in AIDriver's range
+  ok   skill 0.88 is in AIDriver's range
+  ok   skill 0.84 is in AIDriver's range
+  ok   a high-rep field averages further up the catalog  (got $32,950 -> $43,247)
+  ok   nine hits in one race record 2 incidents  (got 2)
+blacklist:
+  ok   ten rivals  (got 10)
+  ok   every rival resolves a signature car from the catalog  (got 0 unresolved)
+  ..   #10 JUICE     skill 0.90  Honda CIVIC TYPE R (EK) `98 (185hp FF, $20,000)
+  ..   #9 PENNY     skill 0.92  Mazda MX-5 Miata 1.8 RS (NB, J) `98 (145hp FR, $20,500)
+  ..   #8 DEACON    skill 0.94  Nissan 240SX (S14) `96 (220hp FR, $18,500)
+  ..   #7 KAZE      skill 0.96  Mazda RX-7 INFINI III (FC, J) `90 (215hp FR, $18,500)
+  ..   #6 BIG SAL   skill 0.97  Plymouth Cuda 440 Six Pack `71 (390hp FR, $38,000)
+  ..   #5 WRENCH    skill 0.98  Subaru IMPREZA Premium Sport Coupe 22B-STi Version (GC) `98 (280hp 4WD, $42,000)
+  ..   #4 DUCHESS   skill 1.00  Honda S2000 `99 (250hp FR, $32,000)
+  ..   #3 PREACHER  skill 1.01  Toyota SUPRA RZ `97 (280hp FR, $42,000)
+  ..   #2 GHOST     skill 1.03  NISMO Skyline GT-R R-tune (R34) `99 (450hp 4WD, $85,000)
+  ..   #1 CALLAHAN  skill 1.05  RUF CTR2 `96 (520hp 4WD, $235,000)
+  ok   AI skill climbs from rank 10 to rank 1
+  ok   a fresh driver cannot challenge anyone
+  ok   and nothing is open
+  ok   the gate opens rank 10
+  ok   rank 9 stays locked while rank 10 stands
+  ok   the call-out fires
+  ok   and does not fire twice
+  ok   rep decay can close a gate again
+  ok   a reopened gate does not re-page
+  ok   and posts no second call-out
+  ok   a win records the rank
+  ok   and pays the scalp bonus  (got 2)
+  ok   a beaten rival stays beaten through a rep collapse
+  ok   the ladder moves to rank 9
+  ok   rank 9 opens
+  ok   a loss does not take the spot
+  ok   and leaves them challengeable
+  ok   the challenge field builds
+  ok   a challenge is 1v1  (got mazda_mx_5_miata_1_8_rs__nb__j___98)
+  ok   against a real catalog car: Mazda MX-5 Miata 1.8 RS (NB, J) `98
+  ok   winning the challenge takes the spot
+  ok   a challenge does not burn the daily race  (got 0)
+  ok   but does reset the rep-decay clock  (got 1 vs day 1)
+  ok   and pays its purse  (got 620)
+tracks:
+  ok   catalog has more than one circuit  (got 11)
+  ok   unique id CityCircuit
+  ok   CityCircuit scene exists
+  ok   CityCircuit has a builder theme
+  ok   CityCircuit resamples to a real circuit  (got 292)
+  ok   CityCircuit race is 2.5-4.5 km  (got 3.50)
+  ok   CityCircuit tightest corner is drivable  (got 30.9 m)
+  ok   CityCircuit never runs into its own barriers  (got 80.9 m vs 32.0)
+  ok   CityCircuit has one height per control point  (got 17 vs 17)
+  ok   CityCircuit grade is drivable  (got 6.8%)
+  ok   CityCircuit crests are gentler than the ground grid  (got 694 m)
+  ..   CityCircuit climbs 11.1 m, 6.8% max, vertical radius 694 m
+  ok   CityCircuit bridge span is longer than its own approaches  (got 110 m vs 52)
+  ok   CityCircuit bridge span is on the lap  (got 340..450)
+  ok   CityCircuit bridge reaches full depth somewhere  (got 1.00)
+  ok   CityCircuit fits inside a full tank for every car  (got 21% of the thirstiest tank in the game)
+  ok   CityCircuit draws a map  (got 908)
+  ok   unique id HarborPoint
+  ok   HarborPoint scene exists
+  ok   HarborPoint has a builder theme
+  ok   HarborPoint resamples to a real circuit  (got 206)
+  ok   HarborPoint race is 2.5-4.5 km  (got 3.30)
+  ok   HarborPoint tightest corner is drivable  (got 22.2 m)
+  ok   HarborPoint never runs into its own barriers  (got 73.5 m vs 30.5)
+  ok   HarborPoint has one height per control point  (got 16 vs 16)
+  ok   HarborPoint grade is drivable  (got 5.0%)
+  ok   HarborPoint crests are gentler than the ground grid  (got 674 m)
+  ..   HarborPoint climbs 5.7 m, 5.0% max, vertical radius 674 m
+  ok   HarborPoint bridge span is longer than its own approaches  (got 120 m vs 52)
+  ok   HarborPoint bridge span is on the lap  (got 150..270)
+  ok   HarborPoint bridge reaches full depth somewhere  (got 1.00)
+  ok   HarborPoint fits inside a full tank for every car  (got 20% of the thirstiest tank in the game)
+  ok   HarborPoint draws a map  (got 909)
+  ok   unique id RidgePass
+  ok   RidgePass scene exists
+  ok   RidgePass has a builder theme
+  ok   RidgePass resamples to a real circuit  (got 408)
+  ok   RidgePass race is 2.5-4.5 km  (got 3.26)
+  ok   RidgePass tightest corner is drivable  (got 26.1 m)
+  ok   RidgePass never runs into its own barriers  (got 77.8 m vs 33.0)
+  ok   RidgePass has one height per control point  (got 24 vs 24)
+  ok   RidgePass grade is drivable  (got 9.8%)
+  ok   RidgePass crests are gentler than the ground grid  (got 456 m)
+  ..   RidgePass climbs 28.7 m, 9.8% max, vertical radius 456 m
+  ok   RidgePass bridge span is longer than its own approaches  (got 140 m vs 52)
+  ok   RidgePass bridge span is on the lap  (got 920..1060)
+  ok   RidgePass bridge reaches full depth somewhere  (got 1.00)
+  ok   RidgePass fits inside a full tank for every car  (got 20% of the thirstiest tank in the game)
+  ok   RidgePass draws a map  (got 897)
+  ok   unique id AirfieldSprint
+  ok   AirfieldSprint scene exists
+  ok   AirfieldSprint has a builder theme
+  ok   AirfieldSprint resamples to a real circuit  (got 367)
+  ok   AirfieldSprint race is 2.5-4.5 km  (got 2.94)
+  ok   AirfieldSprint tightest corner is drivable  (got 25.5 m)
+  ok   AirfieldSprint never runs into its own barriers  (got 73.9 m vs 34.0)
+  ok   AirfieldSprint has one height per control point  (got 18 vs 18)
+  ok   AirfieldSprint grade is drivable  (got 1.3%)
+  ok   AirfieldSprint crests are gentler than the ground grid  (got 2760 m)
+  ..   AirfieldSprint climbs 4.0 m, 1.3% max, vertical radius 2760 m
+  ok   AirfieldSprint fits inside a full tank for every car  (got 18% of the thirstiest tank in the game)
+  ok   AirfieldSprint draws a map  (got 650)
+  ok   unique id DragQuarter
+  ok   DragQuarter scene exists
+  ok   DragQuarter has a builder theme
+  ok   DragQuarter has traps with shutdown beyond them  (got 101 of 181)
+  ok   DragQuarter traps land within a waypoint of the real distance  (got 404.0 vs 402.336)
+  ok   DragQuarter is named for the HUD
+  ok   DragQuarter is actually straight  (got 9999)
+  ok   DragQuarter has one height per control point  (got 0 vs 0)
+  ok   DragQuarter is dead level  (got 0.000 m)
+  ok   DragQuarter has no bridges on it
+  ok   DragQuarter fits inside a full tank for every car  (got 2% of the thirstiest tank in the game)
+  ok   DragQuarter draws a map  (got 261)
+  ok   unique id DragEighth
+  ok   DragEighth scene exists
+  ok   DragEighth has a builder theme
+  ok   DragEighth has traps with shutdown beyond them  (got 50 of 116)
+  ok   DragEighth traps land within a waypoint of the real distance  (got 200.0 vs 201.168)
+  ok   DragEighth is named for the HUD
+  ok   DragEighth is actually straight  (got 9999)
+  ok   DragEighth has one height per control point  (got 0 vs 0)
+  ok   DragEighth is dead level  (got 0.000 m)
+  ok   DragEighth has no bridges on it
+  ok   DragEighth fits inside a full tank for every car  (got 1% of the thirstiest tank in the game)
+  ok   DragEighth draws a map  (got 261)
+  ok   unique id Charlotte
+  ok   Charlotte scene exists
+  ok   Charlotte draws a map  (got 6046)
+  ok   unique id BlueRidge
+  ok   BlueRidge scene exists
+  ok   BlueRidge has a builder theme
+  ok   BlueRidge bakes to a real stage  (got 1812)
+  ok   BlueRidge has a finish with shutdown beyond it  (got 1740 of 1812)
+  ok   BlueRidge is named for the HUD
+  ok   BlueRidge has a lead-in for the grid  (got 60)
+  ok   BlueRidge tightest corner is drivable  (got 50.9 m)
+  ok   BlueRidge never runs into its own barriers  (got 83.3 m vs 21.3)
+  ok   BlueRidge has one height per control point  (got 0 vs 0)
+  ok   BlueRidge grade is drivable  (got 8.5%)
+  ok   BlueRidge crests are gentler than the ground grid  (got 847 m)
+  ..   BlueRidge climbs 70.1 m, 8.5% max, vertical radius 847 m
+  ok   BlueRidge bridge span is longer than its own approaches  (got 112 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 1612..1724)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 164 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 1864..2028)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 128 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 2688..2816)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 140 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 3472..3612)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 180 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 3704..3884)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 392 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 4488..4880)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 100 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 5464..5564)
+  ok   BlueRidge bridge span is longer than its own approaches  (got 88 m vs 52)
+  ok   BlueRidge bridge span is on the lap  (got 6576..6664)
+  ok   BlueRidge bridge reaches full depth somewhere  (got 1.00)
+  ok   BlueRidge fits inside a full tank for every car  (got 41% of the thirstiest tank in the game)
+  ok   BlueRidge draws a map  (got 481)
+  ok   unique id EmeraldIsle
+  ok   EmeraldIsle scene exists
+  ok   EmeraldIsle has a builder theme
+  ok   EmeraldIsle bakes to a real stage  (got 786)
+  ok   EmeraldIsle has a finish with shutdown beyond it  (got 116 of 786)
+  ok   EmeraldIsle is named for the HUD
+  ok   EmeraldIsle has a lead-in for the grid  (got 60)
+  ok   EmeraldIsle tightest corner is drivable  (got 303.5 m)
+  ok   EmeraldIsle never runs into its own barriers  (got 88.0 m vs 22.8)
+  ok   EmeraldIsle traps sit well past the start line  (got 464 m vs line at 60 m)
+  ok   EmeraldIsle has one height per control point  (got 0 vs 0)
+  ok   EmeraldIsle grade is drivable  (got 1.5%)
+  ok   EmeraldIsle crests are gentler than the ground grid  (got 2880 m)
+  ..   EmeraldIsle climbs 6.3 m, 1.5% max, vertical radius 2880 m
+  ok   EmeraldIsle fits inside a full tank for every car  (got 2% of the thirstiest tank in the game)
+  ok   EmeraldIsle draws a map  (got 312)
+  ok   unique id LangstonBridge
+  ok   LangstonBridge scene exists
+  ok   LangstonBridge has a builder theme
+  ok   LangstonBridge bakes to a real stage  (got 460)
+  ok   LangstonBridge has a finish with shutdown beyond it  (got 390 of 460)
+  ok   LangstonBridge is named for the HUD
+  ok   LangstonBridge has a lead-in for the grid  (got 152)
+  ok   LangstonBridge tightest corner is drivable  (got 3291.3 m)
+  ok   LangstonBridge never runs into its own barriers  (got 88.0 m vs 22.8)
+  ok   LangstonBridge traps sit well past the start line  (got 1560 m vs line at 152 m)
+  ok   LangstonBridge has one height per control point  (got 0 vs 0)
+  ok   LangstonBridge grade is drivable  (got 4.8%)
+  ok   LangstonBridge crests are gentler than the ground grid  (got 1108 m)
+  ..   LangstonBridge climbs 20.0 m, 4.8% max, vertical radius 1108 m
+  ok   LangstonBridge bridge span is longer than its own approaches  (got 1408 m vs 52)
+  ok   LangstonBridge bridge span is on the lap  (got 152..1560)
+  ok   LangstonBridge bridge reaches full depth somewhere  (got 1.00)
+  ok   LangstonBridge fits inside a full tank for every car  (got 8% of the thirstiest tank in the game)
+  ok   LangstonBridge draws a map  (got 325)
+  ok   unique id AtlanticBeachBridge
+  ok   AtlanticBeachBridge scene exists
+  ok   AtlanticBeachBridge has a builder theme
+  ok   AtlanticBeachBridge bakes to a real stage  (got 393)
+  ok   AtlanticBeachBridge has a finish with shutdown beyond it  (got 323 of 393)
+  ok   AtlanticBeachBridge is named for the HUD
+  ok   AtlanticBeachBridge has a lead-in for the grid  (got 152)
+  ok   AtlanticBeachBridge tightest corner is drivable  (got 160.8 m)
+  ok   AtlanticBeachBridge never runs into its own barriers  (got 87.9 m vs 24.8)
+  ok   AtlanticBeachBridge traps sit well past the start line  (got 1292 m vs line at 152 m)
+  ok   AtlanticBeachBridge has one height per control point  (got 0 vs 0)
+  ok   AtlanticBeachBridge grade is drivable  (got 6.3%)
+  ok   AtlanticBeachBridge crests are gentler than the ground grid  (got 1200 m)
+  ..   AtlanticBeachBridge climbs 19.9 m, 6.3% max, vertical radius 1200 m
+  ok   AtlanticBeachBridge bridge span is longer than its own approaches  (got 1192 m vs 52)
+  ok   AtlanticBeachBridge bridge span is on the lap  (got 100..1292)
+  ok   AtlanticBeachBridge bridge reaches full depth somewhere  (got 1.00)
+  ok   AtlanticBeachBridge fits inside a full tank for every car  (got 7% of the thirstiest tank in the game)
+  ok   AtlanticBeachBridge draws a map  (got 308)
+  ok   scene index 0 is 1
+  ok   scene index 1 is 2
+  ok   scene index 2 is 3
+  ok   scene index 3 is 4
+  ok   scene index 4 is 5
+  ok   scene index 5 is 6
+  ok   scene index 6 is 7
+  ok   scene index 7 is 8
+  ok   scene index 8 is 9
+  ok   scene index 9 is 10
+  ok   scene index 10 is 11
+  ok   build settings hold home + every circuit + the garage  (got 13)
+  ok   build index 1 is CityCircuit  (got Assets/PSXRacing/Scenes/CityCircuit.unity)
+  ok   build index 2 is HarborPoint  (got Assets/PSXRacing/Scenes/HarborPoint.unity)
+  ok   build index 3 is RidgePass  (got Assets/PSXRacing/Scenes/RidgePass.unity)
+  ok   build index 4 is AirfieldSprint  (got Assets/PSXRacing/Scenes/AirfieldSprint.unity)
+  ok   build index 5 is DragQuarter  (got Assets/PSXRacing/Scenes/DragQuarter.unity)
+  ok   build index 6 is DragEighth  (got Assets/PSXRacing/Scenes/DragEighth.unity)
+  ok   build index 7 is Charlotte  (got Assets/PSXRacing/Scenes/Charlotte.unity)
+  ok   build index 8 is BlueRidge  (got Assets/PSXRacing/Scenes/BlueRidge.unity)
+  ok   build index 9 is EmeraldIsle  (got Assets/PSXRacing/Scenes/EmeraldIsle.unity)
+  ok   build index 10 is LangstonBridge  (got Assets/PSXRacing/Scenes/LangstonBridge.unity)
+  ok   build index 11 is AtlanticBeachBridge  (got Assets/PSXRacing/Scenes/AtlanticBeachBridge.unity)
+  ok   garage scene index sits after every circuit  (got 12)
+  ok   build index 12 is the garage  (got Assets/PSXRacing/Scenes/Garage.unity)
+time of day:
+  ok   more than a morning/afternoon/night  (got 7)
+  ok   hour 0 is named
+  ok   DAWN fog band is the right way round  (got 60..250)
+  ok   DAWN has a sun  (got 0.72)
+  ok   hour 1 is named
+  ok   MORNING fog band is the right way round  (got 105..330)
+  ok   MORNING has a sun  (got 1.05)
+  ok   hour 2 is named
+  ok   NOON fog band is the right way round  (got 150..355)
+  ok   NOON has a sun  (got 1.34)
+  ok   hour 3 is named
+  ok   AFTERNOON fog band is the right way round  (got 120..335)
+  ok   AFTERNOON has a sun  (got 1.2)
+  ok   hour 4 is named
+  ok   SUNSET fog band is the right way round  (got 75..265)
+  ok   SUNSET has a sun  (got 1.05)
+  ok   hour 5 is named
+  ok   DUSK fog band is the right way round  (got 58..215)
+  ok   DUSK has a sun  (got 0.55)
+  ok   hour 6 is named
+  ok   NIGHT fog band is the right way round  (got 45..190)
+  ok   NIGHT has a sun  (got 0.38)
+  ok   index clamps low
+  ok   index clamps high
+  ok   every slot stays inside its own band over 40 days
+  ok   the same day picks the same hour
+cameras:
+  ok   every camera view has a name  (got 7 vs 7)
+  ok   every camera view has a short name  (got 7 vs 7)
+  ok   seven views or more  (got 7)
+  ok   top-down is the last view in the cycle  (got 6)
+toolbox:
+  ok   the floor jack comes free with the first car
+  ok   the lift does not
+  ok   cannot buy a lift with $10
+  ok   can buy one with $5,000
+  ok   and then owns it
+  ok   and paid for it  (got 2800)
+  ok   cannot buy it twice
+inspection:
+  ok   eight components  (got 8)
+  ok   ENGINE has sub-checks  (got 9)
+  ok   unique sub key ENGINE/plugs
+  ok   SPARK PLUGS has prose for a find
+  ok   SPARK PLUGS has prose for a clean check
+  ok   unique sub key ENGINE/headgasket
+  ok   HEAD GASKET has prose for a find
+  ok   HEAD GASKET has prose for a clean check
+  ok   unique sub key ENGINE/throttle
+  ok   THROTTLE BODY has prose for a find
+  ok   THROTTLE BODY has prose for a clean check
+  ok   unique sub key ENGINE/intake
+  ok   INTAKE MANIFOLD has prose for a find
+  ok   INTAKE MANIFOLD has prose for a clean check
+  ok   unique sub key ENGINE/timing
+  ok   TIMING COVER has prose for a find
+  ok   TIMING COVER has prose for a clean check
+  ok   unique sub key ENGINE/valvecover
+  ok   VALVE COVER has prose for a find
+  ok   VALVE COVER has prose for a clean check
+  ok   unique sub key ENGINE/oilpan
+  ok   OIL PAN has prose for a find
+  ok   OIL PAN has prose for a clean check
+  ok   unique sub key ENGINE/sensors
+  ok   SENSORS & WIRING has prose for a find
+  ok   SENSORS & WIRING has prose for a clean check
+  ok   unique sub key ENGINE/battery
+  ok   BATTERY & ALTERNATOR has prose for a find
+  ok   BATTERY & ALTERNATOR has prose for a clean check
+  ok   TRANSMISSION has sub-checks  (got 3)
+  ok   unique sub key TRANSMISSION/transpan
+  ok   FLUID & PAN has prose for a find
+  ok   FLUID & PAN has prose for a clean check
+  ok   unique sub key TRANSMISSION/clutch
+  ok   CLUTCH & LINKAGE has prose for a find
+  ok   CLUTCH & LINKAGE has prose for a clean check
+  ok   unique sub key TRANSMISSION/mounts
+  ok   MOUNTS has prose for a find
+  ok   MOUNTS has prose for a clean check
+  ok   DRIVELINE has sub-checks  (got 3)
+  ok   unique sub key DRIVELINE/propshaft
+  ok   PROP SHAFT & U-JOINTS has prose for a find
+  ok   PROP SHAFT & U-JOINTS has prose for a clean check
+  ok   unique sub key DRIVELINE/diff
+  ok   DIFFERENTIAL has prose for a find
+  ok   DIFFERENTIAL has prose for a clean check
+  ok   unique sub key DRIVELINE/cvboots
+  ok   CV BOOTS has prose for a find
+  ok   CV BOOTS has prose for a clean check
+  ok   COOLING has sub-checks  (got 4)
+  ok   unique sub key COOLING/radcore
+  ok   RADIATOR CORE has prose for a find
+  ok   RADIATOR CORE has prose for a clean check
+  ok   unique sub key COOLING/hoses
+  ok   HOSES & CLAMPS has prose for a find
+  ok   HOSES & CLAMPS has prose for a clean check
+  ok   unique sub key COOLING/waterpump
+  ok   WATER PUMP has prose for a find
+  ok   WATER PUMP has prose for a clean check
+  ok   unique sub key COOLING/overflow
+  ok   OVERFLOW TANK has prose for a find
+  ok   OVERFLOW TANK has prose for a clean check
+  ok   STEERING has sub-checks  (got 3)
+  ok   unique sub key STEERING/tierods
+  ok   TIE ROD ENDS has prose for a find
+  ok   TIE ROD ENDS has prose for a clean check
+  ok   unique sub key STEERING/pslines
+  ok   PS PUMP & LINES has prose for a find
+  ok   PS PUMP & LINES has prose for a clean check
+  ok   unique sub key STEERING/rackboots
+  ok   RACK BOOTS has prose for a find
+  ok   RACK BOOTS has prose for a clean check
+  ok   SUSPENSION has sub-checks  (got 5)
+  ok   unique sub key SUSPENSION/struts
+  ok   STRUTS & SHOCKS has prose for a find
+  ok   STRUTS & SHOCKS has prose for a clean check
+  ok   unique sub key SUSPENSION/controlarms
+  ok   CONTROL ARMS has prose for a find
+  ok   CONTROL ARMS has prose for a clean check
+  ok   unique sub key SUSPENSION/balljoints
+  ok   BALL JOINTS has prose for a find
+  ok   BALL JOINTS has prose for a clean check
+  ok   unique sub key SUSPENSION/springs
+  ok   SPRINGS & AIR BAGS has prose for a find
+  ok   SPRINGS & AIR BAGS has prose for a clean check
+  ok   unique sub key SUSPENSION/endlinks
+  ok   SWAY BAR END LINKS has prose for a find
+  ok   SWAY BAR END LINKS has prose for a clean check
+  ok   WHEELS & BRAKES has sub-checks  (got 4)
+  ok   unique sub key WHEELS & BRAKES/tires
+  ok   TIRES has prose for a find
+  ok   TIRES has prose for a clean check
+  ok   unique sub key WHEELS & BRAKES/pads
+  ok   BRAKE PADS has prose for a find
+  ok   BRAKE PADS has prose for a clean check
+  ok   unique sub key WHEELS & BRAKES/rotors
+  ok   ROTORS has prose for a find
+  ok   ROTORS has prose for a clean check
+  ok   unique sub key WHEELS & BRAKES/bearings
+  ok   WHEEL BEARINGS has prose for a find
+  ok   WHEEL BEARINGS has prose for a clean check
+  ok   BODY has sub-checks  (got 5)
+  ok   unique sub key BODY/paint
+  ok   PAINT & TRIM has prose for a find
+  ok   PAINT & TRIM has prose for a clean check
+  ok   unique sub key BODY/panels
+  ok   PANELS & BUMPERS has prose for a find
+  ok   PANELS & BUMPERS has prose for a clean check
+  ok   unique sub key BODY/framerails
+  ok   FRAME RAILS has prose for a find
+  ok   FRAME RAILS has prose for a clean check
+  ok   unique sub key BODY/exhaust
+  ok   EXHAUST has prose for a find
+  ok   EXHAUST has prose for a clean check
+  ok   unique sub key BODY/interior
+  ok   INTERIOR & ELECTRONICS has prose for a find
+  ok   INTERIOR & ELECTRONICS has prose for a clean check
+  ok   every pool fault has somewhere to be found
+  ok   find chance stays in 0.05-0.95  (got 0.15..0.95)
+  ok   the ladder's three worked examples exist
+  ok   no underside check on the ground
+  ok   stands open the underside
+  ok   a check you can make standing up needs no jack
+  ok   frame rails refuse the stands
+  ok   frame rails open on the lift
+  ok   every refusal says what would fix it
+  ok   the lift beats the stands underneath
+  ok   the brake pad check exists
+  ok   a wrench with the car on the floor is still guesswork  (got 0.15)
+  ok   the same wrench with it on stands takes the wheel off  (got 0.5)
+  ok   a car starts on its wheels
+  ok   with no lift owned, the jack is what you get  (got 1)
+  ok   a bought lift is what the same button raises onto  (got 2)
+  ok   a save claiming a lift nobody owns is clamped, not trusted
+  ok   the seeded career has a car to inspect
+  ok   opening an inspection costs a slot
+  ok   re-entering the same day is free
+  ok   the spark plug check exists
+  ok   a sub only rolls once a day
+  ok   a sub only rolls once a day
+  ok   a planted hidden fault can be found
+  ok   and stops being hidden once it is
+  ok   a hidden fault still slows the car  (got 0.85)
+x-ray:
+  ok   L4 is an inline
+  ok   L4 has four pots  (got 4)
+  ok   V8 is a vee
+  ok   V8 is four a bank  (got 4)
+  ok   a boxer lies flat
+  ok   Rotor2 is a rotary
+  ok   so is the Rotar2 typo
+  ok   an unknown engine still draws something
+  ok   the engine parser covers the catalog  (got 4 of 317 fell through)
+  ok   every drivetrain code the catalog uses has a layout
+  ok   no engine block is drawn bigger than the car it is in
+SELF-TEST OK

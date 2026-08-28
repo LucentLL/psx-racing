@@ -547,6 +547,10 @@ namespace PSXRacing.City
 
             foreach (var b in list)
             {
+                // Prefab lots are CityWorld's to instantiate — no facade box,
+                // no solid; the model carries its own collider.
+                if (b.kind != 0) continue;
+
                 float cy = Mathf.Cos(b.yaw), sy = Mathf.Sin(b.yaw);
                 Vector2 fwd = new Vector2(sy, cy);           // faces the road
                 Vector2 rgt = new Vector2(cy, -sy);

@@ -596,11 +596,20 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, t.name, 24, new Vector2(0.5f, 1f), new Vector2(textX, y),
                 TextAnchor.MiddleLeft, MenuKit.Accent, textW, height: 30f, bold: true);
             MenuKit.Label(body,
-                t.stage
+                // A drag race is a drag race whether the strip was generated or
+                // surveyed, so this asks IsDragEvent and not where the geometry
+                // came from. And it quotes SHORT runs in metres: the bridges
+                // and the quarter mile all round to "1.4 km" and "0.4 km"
+                // otherwise, which loses the only number that distinguishes
+                // them.
+                t.IsDragEvent
+                    ? (t.RaceMeters < 1000f
+                          ? Mathf.RoundToInt(t.RaceMeters) + " m"
+                          : (t.RaceMeters / 1000f).ToString("0.00") + " km")
+                      + "  ·  " + t.dragLabel + "  ·  standing start"
+                : t.stage
                     ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " + t.dragLabel +
                       "  ·  point to point"
-                : t.drag
-                    ? Mathf.RoundToInt(t.dragMeters) + " m  ·  " + t.dragLabel + "  ·  standing start"
                     : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps  ·  " +
                       (t.RaceMeters / 1000f).ToString("0.0") + " km",
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(textX, y - 32f),
@@ -688,13 +697,18 @@ namespace PSXRacing.LifeSim
             // is only whether the car can REACH one. Running a race on a
             // half-tank and planning a stop is a strategy, not a mistake, and
             // the gate has no business calling it one.
-            float burn = LifeRules.RaceFuelBurnPct(track.RaceMeters);
-            float need = LifeRules.RequiredFuelPct(track);
+            float burn = LifeRules.RaceFuelBurnPct(track.RaceMeters, S.ActiveCar);
+            float need = LifeRules.RequiredFuelPct(track, S.ActiveCar);
             bool lowFuel = S.ActiveCar != null && S.ActiveCar.fuel <= need;
             bool needsStop = !lowFuel && S.ActiveCar != null && S.ActiveCar.fuel <= burn;
             string raceLabel = racedToday ? "RACED TODAY — SLEEP FIRST"
                              : lowFuel ? (track.hasFuelStop ? "TOO LOW TO REACH THE PUMPS"
-                                                            : "LOW FUEL — NO PUMPS ON A STRIP")
+                                          // A strip, a stage and the city all
+                                          // have no forecourt, and only one of
+                                          // them is a strip — the parkway read
+                                          // "NO PUMPS ON A STRIP" for months.
+                                          : track.drag ? "LOW FUEL — NO PUMPS ON A STRIP"
+                                                       : "LOW FUEL — NO PUMPS OUT THERE")
                              : "GET IN CAR  >>";
             bool canRace = !racedToday && !lowFuel;
             int tier = LifeRules.StreetTier(S.streetRep).idx;
@@ -719,7 +733,9 @@ namespace PSXRacing.LifeSim
                     lowFuel
                         ? (track.hasFuelStop
                             ? "Not enough to get to the pumps. Call the truck from the garage."
-                            : "A strip has no pumps. Fill up before you go.")
+                            : track.drag
+                                ? "A strip has no pumps. Fill up before you go."
+                                : "There are no services out on this route. Fill up before you go.")
                         : "This race burns more than you are carrying — plan a stop at the pumps.",
                     14, new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
                     lowFuel ? MenuKit.Bad : MenuKit.Accent, 470f);
@@ -1174,7 +1190,7 @@ namespace PSXRacing.LifeSim
             // rather than under the condition bars: on a phone column the bars,
             // the fuel row and the fault list push anything below them off the
             // first screen, and a feature nobody scrolls to is one nobody finds.
-            MenuKit.Button(body, "WALK INTO THE GARAGE  >>",
+            MenuKit.Button(body, "WALK INTO YOUR HOUSE  >>",
                 new Vector2(0.5f, 1f), new Vector2(0f, y),
                 new Vector2(Mathf.Min(ColW, 460f), 52f), () =>
                 {
@@ -1187,6 +1203,21 @@ namespace PSXRacing.LifeSim
             DrawBar("BODY", car.carHP, ref y);
             DrawBar("PAINT", car.paint, ref y);
             DrawBar("FUEL", car.fuel, ref y);
+
+            // A percentage on its own does not answer the question the player
+            // is actually asking, which is whether this car gets to the end of
+            // the thing they picked. Tank and economy are per-car now, so a
+            // half-tank means something different in every car in the garage
+            // and the number of kilometres has to be printed to be known.
+            var fuel = FuelProfile.For(car);
+            MenuKit.Label(body,
+                fuel.tankGal.ToString("0.0") + " gal   ·   " + Mathf.RoundToInt(fuel.mpg) +
+                " mpg   ·   about " +
+                Mathf.RoundToInt(fuel.RangeKm(FuelModel.RacePaceLoad) * car.fuel / 100f) +
+                " km left, driven hard",
+                14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, 800f);
+            y -= 30f;
 
             // Fuel is bought at the PUMPS now — drive onto the forecourt on any
             // circuit, stop, and hold the fuel control. What is left here is the
@@ -1209,8 +1240,9 @@ namespace PSXRacing.LifeSim
                 }) : null, 17, canFill ? (Color?)null : MenuKit.BtnBgDisabled);
             y -= 56f;
             MenuKit.Label(body, "Pumps on the circuit cost " +
-                MenuKit.Money(Mathf.CeilToInt(100f * LifeRules.RefuelCostPerPct)) +
-                " a tank — the truck adds " + MenuKit.Money(LifeRules.FuelCallOutFee) + ".",
+                MenuKit.Money(fuel.CostToFill(0f)) +
+                " to fill this one — the truck adds " +
+                MenuKit.Money(LifeRules.FuelCallOutFee) + ".",
                 14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 800f);
             y -= 30f;
@@ -2279,7 +2311,12 @@ namespace PSXRacing.LifeSim
 
             MenuKit.Label(body, "BUY GROCERIES", 15, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 400f);
-            y -= 36f;
+            y -= 30f;
+            MenuKit.Label(body, "Also sold out in the world: the 6TWELVE at the pumps, " +
+                "STACK BURGER drive-thrus and SLICE HOUSE pizzerias around Charlotte " +
+                "and Emerald Isle.", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 40f);
+            y -= 44f;
             foreach (var g in LifeRules.Groceries)
             {
                 var captured = g;
@@ -2385,7 +2422,7 @@ namespace PSXRacing.LifeSim
             // Same gate as the main screen, and for the same reason: enough to
             // REACH the forecourt, not enough to finish without one.
             bool lowFuel = car == null ||
-                           car.fuel <= LifeRules.RequiredFuelPct(TrackCatalog.At(S.trackIndex));
+                           car.fuel <= LifeRules.RequiredFuelPct(TrackCatalog.At(S.trackIndex), car);
 
             // Boss at the top, the way a wanted list reads.
             for (int rank = 1; rank <= 10; rank++)
@@ -2450,7 +2487,7 @@ namespace PSXRacing.LifeSim
             int due = housing + insurance + loans;
             int daysLeft = LifeRules.DaysPerMonth - LifeRules.DayOfMonth(S.day) + 1;
 
-            Row("HOUSING (" + S.housingType + ")", MenuKit.Money(housing), ref y);
+            Row(LifeRules.HousingLabel(S.housingType), MenuKit.Money(housing), ref y);
             Row("INSURANCE", MenuKit.Money(insurance), ref y);
             if (loans > 0) Row("LOAN PAYMENTS", MenuKit.Money(loans), ref y);
             y -= 12f;

@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl gto_66_wheels_f
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/candy_apple_red.png

@@ -1,0 +1,372 @@
+PSX Racing — catalog car to body shell
+317 cars across 14 of 16 shells; 155 hand-mapped, 162 scored.
+  =  hand-mapped (the real car, its twin, or a deliberate call)
+  ~  scored on body style, region, era and weight
+
+=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 77 cars
+    wheelbase 2.43 m, track 1.46 m, tyre 0.310 m, 10 liveries
+    = 1967 jpn FR  1006kg  110hp GT       Mazda 110S (L10A) `67
+    ~ 1968 jpn FR   753kg  100hp Coupe    Honda S800 RSC Race Car `68
+    ~ 1968 jpn FR  1087kg  120hp Coupe    Isuzu 117 Coupe `68
+    = 1968 jpn FR  1027kg  128hp GT       Mazda 110S (L10B) `68
+    ~ 1969 jpn FR  1038kg  120hp Coupe    Isuzu Bellett 1600 GT-R `69
+    ~ 1970 jpn FR  1048kg  125hp Coupe    Mitsubishi GALANT GTO MR `70
+    ~ 1971 jpn FR  1045kg  150hp Coupe    Nissan 240ZG (HS30) `71
+    ~ 1978 jpn FR  1268kg  145hp Coupe    Nissan Fairlady Z 280Z-L 2seater (S130) `78
+    ~ 1981 jpn FR  1232kg  135hp Coupe    Isuzu PIAZZA XE `81
+    ~ 1983 jpn FR  1038kg  240hp Coupe    Nissan SILVIA 240RS (S100) `83
+    ~ 1983 jpn FR  1006kg  130hp Coupe    Toyota COROLLA LEVIN GT-APEX (AE86) `83
+    ~ 1983 jpn FR  1006kg  130hp Coupe    Toyota SPRINTER TRUENO GT-APEX (AE86) `83
+    ~ 1985 usa 4WD 1153kg  426hp Coupe    Ford RS200 Rally Car `85
+    = 1985 jpn FR  1280kg  185hp Coupe    Mazda RX-7 GT-Limited (FC, J) `85
+    ~ 1985 jpn FR  1141kg  240hp Coupe    Nissan 240RS Rally Car `85
+    ~ 1986 jpn MR  1159kg  130hp Coupe    Toyota MR2 1600 G `86
+    ~ 1986 jpn MR  1107kg  145hp Coupe    Toyota MR2 1600 G-Limited Super Charger `86
+    ~ 1988 jpn FF  1262kg  120hp Coupe    Honda ACCORD Coupe `88
+    ~ 1988 jpn FR  1180kg  175hp Coupe    Nissan SILVIA K's (S13) `88
+    ~ 1988 jpn FR  1128kg  135hp Coupe    Nissan SILVIA Q's (S13) `88
+    ~ 1989 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata (NA) `89
+    ~ 1989 jpn 4WD 1242kg  350hp Coupe    Mitsubishi HSR-II Concept `89
+    = 1990 jpn FR  1249kg  205hp Coupe    Mazda RX-7 GT-X (FC, J) `90
+    = 1990 jpn FR  1242kg  215hp Coupe    Mazda RX-7 INFINI III (FC, J) `90
+    ~ 1991 jpn FF  1280kg  200hp Coupe    Honda PRELUDE Si VTEC `91
+    ~ 1991 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata J-Limited (NA, J) `91
+    = 1991 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `91
+    ~ 1991 jpn FR  1211kg  205hp Coupe    Nissan SILVIA K's (S13) `91
+    ~ 1991 jpn FR  1148kg  140hp Coupe    Nissan SILVIA Q's (S13) `91
+    ~ 1991 jpn FF  1309kg  165hp Coupe    Toyota CELICA GT-R (ST183, 4WS) `91
+    = 1992 jpn FR  1273kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `92
+    ~ 1993 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata J-Limited II (NA, J) `93
+    ~ 1993 jpn FR  1014kg  130hp Roadster Mazda MX-5 Miata V-Special Type II (NA, J) `93
+    = 1993 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `93
+    = 1993 jpn FR  1284kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `93
+    ~ 1993 jpn FR  1262kg  220hp Coupe    Nissan SILVIA K's AERO (S14) `93
+    ~ 1993 jpn FR  1200kg  160hp Coupe    Nissan SILVIA Q's AERO (S14) `93
+    ~ 1994 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `94
+    ~ 1994 jpn FF  1191kg  170hp Coupe    Mitsubishi FTO GR `94
+    = 1994 eur FR  1284kg  270hp Coupe    NISMO 270R `94
+    ~ 1995 jpn FR  1071kg  130hp Roadster Mazda MX-5 Miata S-Special Type I (NA, J) `95
+    ~ 1995 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata VR-Limited (NA, J) `95
+    = 1995 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R-S (FD, J) `95
+    = 1995 jpn FR  1249kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `95
+    ~ 1995 jpn FF  1329kg  230hp Coupe    Mitsubishi ECLIPSE GT `95
+    ~ 1995 jpn 4WD 1412kg  299hp Coupe    Toyota CELICA GT-FOUR Rally Car (ST185) `95
+    ~ 1995 jpn 4WD 1412kg  300hp Coupe    Toyota CELICA GT-FOUR Rally Car (ST205) `95
+    ~ 1996 jpn FF  1260kg  200hp Coupe    Honda PRELUDE SiR `96
+    ~ 1996 jpn FF  1309kg  220hp Coupe    Honda PRELUDE Type S `96
+    = 1996 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS (FD, J) `96
+    = 1996 jpn FR  1249kg  265hp Coupe    Mazda RX-7 Type RZ (FD, J) `96
+    ~ 1996 jpn FR  1249kg  220hp Coupe    Nissan 240SX (S14) `96
+    ~ 1996 jpn FR  1262kg  205hp Coupe    Nissan 240SX `96
+    ~ 1996 jpn FR  1232kg  160hp Coupe    Nissan SILVIA Q's AERO (S14) `96
+    ~ 1997 usa FF  1252kg  140hp Coupe    EAGLE Talon Esi `97
+    ~ 1997 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata SR-Limited (NA, J) `97
+    = 1997 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS-R (FD) `97
+    ~ 1997 jpn FF  1191kg  200hp Coupe    Mitsubishi FTO GP Version R `97
+    ~ 1997 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `97
+    ~ 1997 jpn FF  1191kg  180hp Coupe    Mitsubishi FTO GR `97
+    ~ 1997 jpn 4WD 1153kg  394hp Coupe    Mitsubishi FTO Super Touring Car `97
+    ~ 1997 jpn FF  1242kg  200hp Coupe    Toyota CELICA SS-II (ST202) `97
+    ~ 1997 jpn MR  1262kg  200hp Coupe    Toyota MR2 G-Limited `97
+    ~ 1997 jpn MR  1269kg  245hp Coupe    Toyota MR2 GT-S `97
+    ~ 1998 jpn FF  1269kg  220hp Coupe    Honda PRELUDE SiR S spec `98
+    ~ 1998 jpn FF  1309kg  220hp Coupe    Honda PRELUDE Type S `98
+    ~ 1998 jpn FR  1066kg  145hp Roadster Mazda MX-5 Miata 1.8 RS (NB, J) `98
+    = 1998 jpn FR  1280kg  280hp Coupe    Mazda RX-7 Type RS (FD) `98
+    = 1998 eur FR  1211kg  205hp Coupe    SILEIGHTY `98
+    ~ 1998 jpn 4WD 1389kg  255hp Coupe    Toyota CELICA GT-FOUR (ST205) `98
+    ~ 1999 jpn FR  1284kg  250hp Roadster Honda S2000 `99
+    ~ 1999 jpn FF  1191kg  200hp Coupe    Mitsubishi FTO GP Version R `99
+    ~ 1999 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `99
+    ~ 1999 jpn FR  1284kg  250hp Coupe    Nissan SILVIA Spec R AERO (S15) `99
+    ~ 1999 jpn FR  1242kg  165hp Coupe    Nissan SILVIA Spec S AERO (S15) `99
+    ~ 1999 jpn FF  1180kg  190hp Coupe    Toyota CELICA SS-II (ZZT231) `99
+    ~ 1999 jpn MR  1038kg  140hp Roadster Toyota MR2 Spyder `99
+
+=== supra_a80  (Toyota Supra (A80), Japan 1993 GT)  — 62 cars
+    wheelbase 2.55 m, track 1.53 m, tyre 0.326 m, 11 liveries
+    ~ 1967 jpn FR  1159kg  150hp GT       Toyota 2000GT `67
+    ~ 1970 jpn MR   729kg  800hp GT       Toyota 7 Race Car `70
+    ~ 1974 gbr FR  1771kg  390hp GT       Jensen Interceptor MkIII `74
+    ~ 1978 eur MR   985kg  145hp GT       DOME ZERO `78
+    = 1981 jpn FR  1278kg  170hp Coupe    Toyota CELICA XX 2800GT `81
+    = 1983 jpn FR  1380kg  230hp Coupe    Nissan Fairlady Z 300ZX (Z31) `83
+    ~ 1986 jpn 4WD 1349kg  185hp GT       Toyota CELICA 2000GT-FOUR (ST165) `86
+    ~ 1986 jpn FF  1169kg  160hp GT       Toyota CELICA 2000GT-R (ST162) `86
+    ~ 1987 gbr MR  1186kg  218hp GT       Lotus Esprit Turbo HC `87
+    ~ 1988 gbr MR  1052kg  760hp GT       Jaguar XJR-9 Race Car `88
+    = 1988 jpn FR  1533kg  240hp Coupe    Toyota SUPRA 3.0GT Turbo A `88
+    ~ 1989 jpn MR  1000kg  800hp GT       MINOLTA Toyota 88C-V Race Car `89
+    = 1989 jpn FR  1474kg  280hp Coupe    Nissan 300ZX 2seater (Z32) `89
+    ~ 1989 jpn MR  1059kg  800hp GT       Nissan R89C Race Car `89
+    ~ 1989 ger MR  1051kg  720hp GT       Sauber Mercedes C 9 Race Car `89
+    ~ 1990 jpn MR  1349kg  280hp GT       Honda NSX `90
+    = 1990 jpn FR  1484kg  280hp Coupe    Toyota SUPRA 2.5GT Twin Turbo R `90
+    ~ 1991 jpn MR  1365kg  274hp GT       Acura NSX `91
+    ~ 1991 jpn MR   976kg  700hp GT       Mazda 787B Race Car `91
+    ~ 1991 gbr FR  1087kg  243hp GT       TVR V8S `91
+    ~ 1992 jpn MR  1273kg  280hp GT       Honda NSX Type R `92
+    ~ 1992 gbr MR  1565kg  550hp GT       Jaguar XJ220 `92
+    ~ 1992 jpn MR  1059kg  800hp GT       Nissan R92CP Race Car `92
+    ~ 1992 fra MR   882kg  520hp GT       Peugeot 905 Race Car `92
+    ~ 1993 jpn MR  1349kg  280hp GT       Honda NSX `93
+    ~ 1994 ita MR  1601kg  568hp GT       Cizeta V16T `94
+    ~ 1994 gbr FR  1096kg  324hp GT       TVR Griffith 500 `94
+    ~ 1995 jpn MR  1349kg  280hp GT       Honda NSX `95
+    = 1995 jpn 4WD 1640kg  280hp Coupe    Mitsubishi 3000GT MR (J) `95
+    = 1995 jpn 4WD 1572kg  225hp Coupe    Mitsubishi 3000GT SL (J) `95
+    = 1995 jpn 4WD 1669kg  280hp Coupe    Mitsubishi 3000GT VR-4 Turbo (J) `95
+    = 1996 jpn 4WD 1572kg  225hp Coupe    Mitsubishi 3000GT SL (J) `96
+    = 1996 jpn 4WD 1669kg  280hp Coupe    Mitsubishi 3000GT VR-4 Turbo (J) `96
+    ~ 1997 jpn MR  1392kg  294hp GT       Acura NSX Coupe `97
+    ~ 1997 ger MR  1118kg  600hp GT       BMW McLaren F1 GTR Race Car `97
+    ~ 1997 jpn MR  1349kg  280hp GT       Honda NSX `97
+    ~ 1997 jpn MR  1320kg  280hp GT       Honda NSX Type S `97
+    ~ 1997 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `97
+    = 1997 jpn FR  1522kg  280hp Coupe    Lexus SC300 `97
+    = 1997 jpn FR  1474kg  280hp Coupe    Toyota SUPRA RZ `97
+    = 1997 jpn FR  1449kg  225hp Coupe    Toyota SUPRA SZ-R `97
+    ~ 1997 gbr FR  1169kg  355hp GT       TVR Cerbera Speed Six `97
+    ~ 1998 ger MR  1176kg  608hp GT       AMG Mercedes CLK-GTR Race Car `98
+    ~ 1998 gbr MR  1325kg  354hp GT       Lotus Esprit V8 GT `98
+    ~ 1998 gbr MR  1380kg  354hp GT       Lotus Esprit V8 SE `98
+    = 1998 jpn 4WD 1631kg  280hp Coupe    Mitsubishi 3000GT MR (J) `98
+    = 1998 jpn 4WD 1562kg  225hp Coupe    Mitsubishi 3000GT SL (J) `98
+    = 1998 jpn 4WD 1640kg  280hp Coupe    Mitsubishi 3000GT VR-4 (J) `98
+    = 1998 jpn FR  1542kg  280hp Coupe    Nissan 300ZX 2by2 (Z32) `98
+    = 1998 jpn FR  1484kg  280hp Coupe    Nissan 300ZX 2seater (Z32) `98
+    ~ 1998 jpn MR  1176kg  650hp GT       Nissan R390 GT1 Race Car `98
+    ~ 1998 jpn MR  1221kg  350hp GT       Nissan R390 GT1 Road Car `98
+    ~ 1998 eur FR  1353kg  600hp GT       Panoz Esperante GTR-1 Race Car `98
+    ~ 1999 gbr FR  1924kg  558hp GT       Aston Martin V8 Vantage `99
+    ~ 1999 ger MR  1059kg  580hp GT       BMW V12 LMR Race Car `99
+    ~ 1999 fra MR  1016kg  167hp GT       Hommell Berlinette R/S Coupe `99
+    ~ 1999 jpn MR  1349kg  280hp GT       Honda NSX `99
+    ~ 1999 jpn MR  1320kg  280hp GT       Honda NSX Type S `99
+    ~ 1999 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `99
+    ~ 1999 gbr FR  1601kg  375hp GT       Jaguar XKR Coupe `99
+    ~ 1999 gbr FR  1692kg  602hp GT       Lister Storm V12 Race Car `99
+    ~ 1999 jpn MR  1059kg  608hp GT       Toyota GT-ONE Race Car (TS020) `99
+
+=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 59 cars
+    wheelbase 2.62 m, track 1.51 m, tyre 0.315 m, 11 liveries
+    = 1967 jpn FR  1133kg  125hp GT       Nissan SKYLINE 2000GT-B (S54A) `67
+    = 1970 jpn FR  1139kg  160hp GT       Nissan SKYLINE Hard Top 2000GT-R (KPGC10) `70
+    = 1973 jpn FR  1185kg  160hp GT       Nissan SKYLINE 2000GT-R (KPGC110) `73
+    = 1983 jpn FR  1216kg  190hp Coupe    Nissan SKYLINE Hard Top 2000 Turbo RS (R30) `83
+    ~ 1984 usa 4WD 1346kg  250hp Coupe    Ford RS200 `84
+    ~ 1984 jpn 4WD 1471kg  360hp Coupe    Mitsubishi STARION 4WD Rally Car `84
+    = 1984 jpn FR  1249kg  205hp Coupe    Nissan SKYLINE Hard Top 2000 RS-X Turbo C (R30) `84
+    = 1987 jpn FR  1340kg  210hp Coupe    Nissan SKYLINE GTS-R (R31) `87
+    = 1989 jpn 4WD 1340kg  205hp Coupe    Mitsubishi Galant 2.0 DOHC Turbo VR-4 `89
+    = 1989 jpn 4WD 1429kg  280hp Coupe    Nissan SKYLINE GT-R (R32) `89
+    = 1989 jpn FR  1260kg  215hp Coupe    Nissan SKYLINE GTS-t Type M (R32) `89
+    = 1991 jpn FR  1640kg  280hp Saloon   Lexus GS300 `91
+    = 1991 jpn 4WD 1480kg  280hp Coupe    Nissan SKYLINE GT-R (R32) `91
+    = 1991 jpn 4WD 1469kg  280hp Coupe    Nissan SKYLINE GT-R N1 (R32) `91
+    = 1991 jpn FR  1320kg  180hp Coupe    Nissan SKYLINE GTS25 Type S (R32) `91
+    = 1991 jpn FR  1260kg  215hp Coupe    Nissan SKYLINE GTS-t Type M (R32) `91
+    ~ 1991 jpn 4WD 1460kg  235hp Coupe    Toyota CELICA GT-FOUR RC (ST185) `91
+    = 1992 jpn 4WD 1284kg  250hp Coupe    Mitsubishi Lancer Evolution GSR `92
+    = 1993 jpn 4WD 1482kg  550hp Coupe    Nissan CALSONIC SKYLINE GT-R Race Car `93
+    = 1993 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R32) `93
+    = 1993 jpn 4WD 1469kg  280hp Coupe    Nissan SKYLINE GT-R Vspec N1 (R32) `93
+    = 1994 jpn 4WD 1249kg  260hp Coupe    Mitsubishi Lancer Evolution II GSR `94
+    = 1994 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec II (R32) `94
+    = 1994 jpn 4WD 1273kg  250hp Saloon   Subaru IMPREZA Sedan WRX STi (GC) `94
+    = 1995 jpn 4WD 1260kg  270hp Coupe    Mitsubishi Lancer Evolution III GSR `95
+    = 1995 eur FR  1542kg  305hp Coupe    NISMO GT-R LM Road Going Version `95
+    = 1995 jpn 4WD 1493kg  280hp Coupe    Nissan SKYLINE GT-R (R33) `95
+    = 1995 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R N1 (R33) `95
+    = 1995 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R33) `95
+    = 1995 jpn 4WD 1284kg  275hp Saloon   Subaru IMPREZA Sedan WRX STi Version II (GC) `95
+    = 1996 jpn 4WD 1349kg  280hp Coupe    Mitsubishi Lancer Evolution IV GSR `96
+    = 1996 eur 4WD 1513kg  400hp Coupe    NISMO 400R `96
+    = 1996 jpn 4WD 1493kg  280hp Coupe    Nissan SKYLINE GT-R (R33) `96
+    = 1996 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R33) `96
+    = 1996 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec LM Limited (R33) `96
+    = 1996 jpn 4WD 1249kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version III (GC) `96
+    = 1997 jpn 4WD 1447kg  284hp Coupe    Mitsubishi Lancer Evolution IV Rally Car `97
+    = 1997 jpn 4WD 1493kg  280hp Coupe    Nissan SKYLINE GT-R (R33) `97
+    = 1997 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R33) `97
+    = 1997 jpn 4WD 1249kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version IV (GC) `97
+    = 1998 jpn FR  1340kg  210hp Saloon   Lexus IS200 (J) `98
+    = 1998 jpn FR  1309kg  160hp Saloon   Lexus IS200 `98
+    = 1998 jpn 4WD 1360kg  280hp Coupe    Mitsubishi Lancer Evolution V GSR `98
+    = 1998 jpn 4WD 1513kg  280hp Coupe    Mitsubishi LEGNUM VR-4 Type V `98
+    = 1998 jpn 4WD 1269kg  280hp Coupe    Subaru IMPREZA Premium Sport Coupe 22B-STi Version (GC) `98
+    = 1998 jpn 4WD 1269kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version V (GC) `98
+    = 1998 jpn 4WD 1440kg  280hp Coupe    Subaru LEGACY B4 RSK `98
+    = 1999 jpn 4WD 1360kg  280hp Coupe    Mitsubishi Lancer Evolution VI GSR `99
+    = 1999 jpn 4WD 1447kg  302hp Coupe    Mitsubishi Lancer Evolution VI Rally Car `99
+    = 1999 jpn 4WD 1260kg  280hp Coupe    Mitsubishi Lancer Evolution VI RS `99
+    = 1999 eur 4WD 1522kg  450hp Coupe    NISMO Skyline GT-R R-tune (R34) `99
+    = 1999 jpn FR  1412kg  500hp Coupe    Nissan PENNZOIL Nismo GT-R (JGTC) `99
+    = 1999 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R (R34) `99
+    = 1999 jpn 4WD 1513kg  280hp Coupe    Nissan SKYLINE GT-R Special Color Midnight Purple II (R34) `99
+    = 1999 jpn 4WD 1522kg  280hp Coupe    Nissan SKYLINE GT-R V-spec (R34) `99
+    = 1999 jpn 4WD 1513kg  280hp Coupe    Nissan SKYLINE GT-R V-spec N1 (R34) `99
+    = 1999 jpn 4WD 1260kg  280hp Coupe    Subaru IMPREZA Coupe WRXtypeR STi Version VI (GC) `99
+    = 1999 jpn 4WD 1447kg  304hp Coupe    Subaru IMPREZA Rally Car `99
+    = 1999 jpn 4WD 1269kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version VI (GC) `99
+
+=== jdm_pickup  (Compact pickup, Japan 1983 Pickup)  — 0 cars
+    wheelbase 2.33 m, track 1.20 m, tyre 0.282 m, 11 liveries
+    (no catalog car — used as roadside scenery)
+
+=== gto_66  (Pontiac GTO '66, America 1966 Muscle)  — 7 cars
+    wheelbase 2.99 m, track 1.56 m, tyre 0.314 m, 10 liveries
+    = 1962 usa FR  1364kg  564hp Muscle   BUICK Special `62
+    = 1964 usa FR  1420kg  330hp Muscle   Pontiac Tempest Le Mans GTO `64
+    = 1969 usa FR  1400kg  304hp Muscle   Chevrolet Camaro SS `69
+    = 1969 usa FR  1414kg  294hp Muscle   Chevrolet Camaro Z28 302 `69
+    = 1987 usa FR  1562kg  280hp Coupe    BUICK GNX `87
+    = 1988 usa FR  1467kg  233hp Coupe    Chevrolet Camaro IROC-Z Concept `88
+    = 1997 usa FR  1524kg  289hp Coupe    Chevrolet Camaro Z28 Coupe `97
+
+=== mustang_67  (Ford Mustang Fastback '67, America 1967 Muscle)  — 12 cars
+    wheelbase 2.70 m, track 1.50 m, tyre 0.324 m, 6 liveries
+    = 1954 usa FR  1308kg  152hp Roadster Chevrolet Corvette Convertible (C1) `54
+    = 1963 usa FR  1369kg  253hp Muscle   Chevrolet Corvette Coupe (C2) `63
+    = 1963 usa FR  1374kg  608hp Muscle   Chevrolet Corvette Z06 (C2) Race Car `63
+    = 1965 usa FR  1267kg  310hp Muscle   Shelby Mustang G.T. 350R `65
+    = 1967 eur MR   907kg  426hp Muscle   Chaparral 2D Race Car `67
+    = 1967 usa FR  1418kg  324hp Muscle   Mercury Cougar XR-7 `67
+    = 1969 usa FR  1489kg  355hp Muscle   Chevrolet Corvette Stingray L46 350 (C3) `69
+    = 1969 usa MR  1174kg  500hp Muscle   Ford GT40 Race Car `69
+    = 1970 eur MR   966kg  689hp Muscle   Chaparral 2J Race Car `70
+    = 1990 usa FR  1562kg  380hp Coupe    Chevrolet Corvette ZR-1 (C4) `90
+    = 1996 usa FR  1495kg  335hp Coupe    Chevrolet Corvette GRAND SPORT (C4) `96
+    = 1999 usa FR  1532kg  456hp Coupe    Dodge VIPER GTS `99
+
+=== charger_69  (Dodge Charger '69, America 1969 Muscle)  — 4 cars
+    wheelbase 2.99 m, track 1.76 m, tyre 0.338 m, 11 liveries
+    = 1970 usa FR  1720kg  456hp Muscle   Chevrolet Chevelle SS 454 `70
+    = 1970 usa FR  1611kg  380hp Muscle   Dodge Charger 440 R/T `70
+    = 1971 usa FR  1798kg  431hp Muscle   Dodge Charger Super Bee 426 Hemi `71
+    = 1971 usa FR  1539kg  390hp Muscle   Plymouth Cuda 440 Six Pack `71
+
+=== daytona_69  (Charger Daytona '69, America 1969 Muscle)  — 1 car
+    wheelbase 2.99 m, track 1.76 m, tyre 0.338 m, 11 liveries
+    = 1970 usa FR  1713kg  431hp Muscle   Plymouth Super Bird `70
+
+=== bmw_e30  (BMW 3-Series (E30), Europe 1985 Saloon)  — 8 cars
+    wheelbase 2.55 m, track 1.42 m, tyre 0.300 m, 8 liveries
+    = 1973 ger FR  1118kg  172hp Coupe    BMW 2002 Turbo `73
+    ~ 1983 jpn FR  1122kg  160hp Saloon   Mitsubishi Lancer EX 1800GSR IC Turbo `83
+    = 1986 ger RR  1221kg  374hp Coupe    RUF BTR `86
+    = 1987 ger RR  1272kg  469hp Coupe    RUF CTR "Yellow Bird" `87
+    = 1991 ger FR  1340kg  235hp Coupe    Mercedes-Benz 190 E 2.5 - 16 Evolution II `91
+    = 1992 ger FR  1153kg  378hp Coupe    AMG Mercedes 190 E 2.5 - 16 Evolution II Touring Car `92
+    = 1996 ger 4WD 1380kg  520hp Coupe    RUF CTR2 `96
+    = 1998 ger FR  1465kg  321hp Coupe    BMW M Coupe `98
+
+=== audi_saloon  (Audi 80/100, Europe 1986 Saloon)  — 7 cars
+    wheelbase 2.65 m, track 1.47 m, tyre 0.317 m, 8 liveries
+    = 1982 ger 4WD 1289kg  203hp Coupe    Audi quattro `82
+    ~ 1989 jpn FF  1242kg  125hp Saloon   Toyota CARINA ED 2.0 X 4WS `89
+    ~ 1990 jpn FF  1252kg  150hp Saloon   Infiniti G20 `90
+    = 1990 gbr FR  1615kg  382hp Coupe    Lotus Carlton `90
+    = 1994 ger 4WD 1224kg  420hp Coupe    Opel Calibra Touring Car `94
+    = 1998 ger 4WD 1474kg  265hp Coupe    Audi S4 `98
+    ~ 1998 usa FF  1473kg  238hp Saloon   Ford Taurus SHO `98
+
+=== euro_hatch  (European supermini, Europe 1983 Hatch)  — 46 cars
+    wheelbase 2.22 m, track 1.23 m, tyre 0.243 m, 6 liveries
+    ~ 1965 ita FR   796kg  115hp Hatch    Alfa Romeo Giulia Sprint GTA 1600 `65
+    ~ 1970 jpn FF   964kg  110hp Hatch    Honda 1300 Coupe 9 S `70
+    ~ 1970 jpn FR  1006kg  115hp Hatch    Toyota CELICA 1600GT (TA22) `70
+    = 1976 ger FF   878kg  110hp Hatch    Volkswagen Golf I GTI `76
+    ~ 1979 jpn FF   834kg   85hp Hatch    Honda CIVIC 1500 3door CX `79
+    = 1980 fra MR  1038kg  162hp Hatch    Renault 5 Turbo `80
+    ~ 1983 jpn FF   872kg  110hp Hatch    Honda BALLADE SPORTS CR-X 1.5i `83
+    ~ 1983 jpn FF   786kg  110hp Hatch    Honda CITY Turbo II `83
+    ~ 1983 jpn FF   872kg  100hp Hatch    Honda CIVIC 1500 3door 25i `83
+    ~ 1985 ita 4WD 1047kg  456hp Hatch    Lancia Delta S4 Rally Car `85
+    = 1985 fra 4WD 1266kg  202hp Hatch    Peugeot 205 Turbo 16 `85
+    = 1985 fra 4WD 1106kg  350hp Hatch    Peugeot 205 Turbo 16 Rally Car `85
+    = 1985 fra MR  1065kg  355hp Hatch    Renault 5 Maxi Turbo Rally Car `85
+    = 1986 fra 4WD 1071kg  456hp Hatch    Peugeot 205 Turbo 16 Evolution 2 Rally Car `86
+    ~ 1987 jpn FF  1047kg  225hp Hatch    Honda MUGEN MOTUL CIVIC Si Race Car `87
+    ~ 1988 jpn FF  1107kg  120hp Hatch    Nissan EXA CANOPY L.A.Version Type S (N13) `88
+    ~ 1990 jpn FF  1055kg  160hp Hatch    Honda CR-X SiR `90
+    ~ 1991 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `91
+    ~ 1991 ita 4WD 1349kg  213hp Hatch    Lancia DELTA HF Integrale Evoluzione `91
+    ~ 1992 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `92
+    ~ 1992 jpn FF  1139kg  170hp Hatch    Honda CR-X del Sol SiR `92
+    ~ 1992 ita 4WD 1318kg  300hp Hatch    Lancia DELTA HF Integrale Rally Car `92
+    ~ 1992 jpn FF   974kg  110hp Hatch    Toyota SERA `92
+    ~ 1993 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `93
+    ~ 1993 jpn FF  1284kg  170hp Hatch    Mazda Mazda 323F `93
+    ~ 1995 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `95
+    ~ 1995 jpn FF  1096kg  200hp Hatch    Honda INTEGRA TYPE R (DC2) `95
+    ~ 1997 jpn FF  1087kg  185hp Hatch    Honda CIVIC TYPE R (EK) `97
+    ~ 1997 jpn FF  1096kg  175hp Hatch    Mitsubishi MIRAGE CYBORG ZR `97
+    ~ 1997 jpn FF   985kg  135hp Hatch    Toyota STARLET Glanza V `97
+    = 1998 usa 4WD 1447kg  304hp Coupe    Ford Escort Rally Car `98
+    ~ 1998 jpn FF  1087kg  185hp Hatch    Honda CIVIC TYPE R (EK) `98
+    ~ 1998 jpn FF  1094kg  185hp Hatch    Honda Gathers Drider CIVIC Race Car `98
+    ~ 1998 jpn FF  1118kg  200hp Hatch    Honda INTEGRA TYPE R (DC2) `98
+    = 1998 ger FF  1154kg  102hp Hatch    Mercedes-Benz A 160 Avantgarde `98
+    ~ 1998 jpn FF  1118kg  165hp Hatch    Toyota COROLLA LEVIN BZ-R `98
+    ~ 1998 jpn 4WD 1447kg  303hp Hatch    Toyota COROLLA Rally Car `98
+    ~ 1998 jpn FF  1118kg  165hp Hatch    Toyota SPRINTER TRUENO BZ-R `98
+    = 1999 fra FF  1129kg  299hp Hatch    Citroen Xsara Rally Car `99
+    = 1999 usa 4WD 1447kg  304hp Coupe    Ford FOCUS Rally Car `99
+    ~ 1999 jpn FF  1118kg  200hp Hatch    Honda INTEGRA TYPE R (DC2) `99
+    ~ 1999 jpn FF  1027kg  100hp Hatch    Mazda DEMIO (J) `99
+    = 1999 ger FF  1068kg  106hp Hatch    Opel Tigra 1.6i `99
+    = 1999 fra 4WD 1447kg  304hp Hatch    Peugeot 206 Rally Car `99
+    = 1999 fra FF  1118kg  140hp Hatch    Peugeot 206 S16 `99
+    = 1999 eur FF  1271kg  230hp Coupe    Spoon INTEGRA TYPE R (DC2) `99
+
+=== volvo_estate  (Volvo 240 Estate, Europe 1985 Estate)  — 5 cars
+    wheelbase 2.62 m, track 1.41 m, tyre 0.300 m, 6 liveries
+    = 1988 eur FR  1845kg  129hp Estate   Volvo 240 GLT Estate `88
+    = 1996 jpn 4WD 1429kg  280hp Estate   Subaru LEGACY Touring Wagon GT-B `96
+    = 1998 jpn 4WD 1611kg  280hp Estate   Nissan STAGEA 25t RS FOUR S `98
+    = 1998 jpn 4WD 1679kg  280hp Estate   Nissan STAGEA 260RS AutechVersion `98
+    = 1999 jpn 4WD 1309kg  280hp Estate   Subaru IMPREZA Sport Wagon WRX STi Version VI (GF) `99
+
+=== citroen_cx  (Citroen CX, Europe 1980 Saloon)  — 9 cars
+    wheelbase 2.79 m, track 1.56 m, tyre 0.311 m, 7 liveries
+    ~ 1969 jpn FR  1135kg  130hp Saloon   Nissan BLUEBIRD Rally Car (510) `69
+    ~ 1973 jpn FR   882kg  110hp Saloon   Mitsubishi Lancer 1600 GSR `73
+    ~ 1974 jpn FR   971kg  160hp Saloon   Mitsubishi Lancer 1600 GSR Rally Car `74
+    ~ 1977 ita MR  1035kg  274hp Coupe    Lancia STRATOS Rally Car `77
+    ~ 1979 jpn FR  1087kg  105hp Saloon   Nissan BLUEBIRD Hardtop 1800SSS (910) `79
+    = 1993 ita 4WD 1188kg  420hp Saloon   Alfa Romeo 155 2.5 V6 TI `93
+    = 1998 ita FF  1320kg  190hp Saloon   Alfa Romeo 156 2.5 V6 24V `98
+    = 1998 ita FF  1484kg  190hp Saloon   Alfa Romeo 166 2.5 V6 24V Sportronic `98
+    = 1998 fra FF  1522kg  207hp Saloon   Peugeot 406 3.0 V6 Coupe `98
+
+=== mb_pagoda  (Mercedes-Benz SL 'Pagoda', Europe 1965 Roadster)  — 18 cars
+    wheelbase 2.35 m, track 1.28 m, tyre 0.295 m, 8 liveries
+    = 1954 ger FR  1294kg  215hp Coupe    Mercedes-Benz 300 SL Coupe `54
+    ~ 1961 gbr FR  1261kg  269hp GT       Jaguar E-Type Coupe `61
+    ~ 1962 gbr FR   684kg  105hp Coupe    Lotus Elan S1 `62
+    ~ 1963 ita FR  1016kg  112hp Coupe    Alfa Romeo Giulia Sprint Speciale `63
+    ~ 1966 gbr FR  1311kg  485hp Roadster AC Cars 427 S/C `66
+    ~ 1966 ita FR  1027kg  110hp Roadster Alfa Romeo Spider 1600 Duetto `66
+    ~ 1967 usa FR  1105kg  492hp Roadster Shelby Cobra 427 `67
+    ~ 1968 jpn FR   995kg  145hp Roadster Nissan Fairlady 2000 (SR311) `68
+    ~ 1971 gbr MR   781kg  128hp Roadster Lotus Europa Special `71
+    ~ 1973 fra RR   765kg  140hp Roadster Alpine A110 1600S `73
+    ~ 1973 fra RR   995kg  125hp Coupe    Alpine A310 1600VE `73
+    ~ 1973 ita MR  1048kg  188hp Coupe    Lancia STRATOS `73
+    ~ 1997 gbr MR  1107kg  145hp Roadster MGF `97
+    ~ 1998 gbr MR   716kg  193hp Roadster Lotus Elise Sport 190 `98
+    = 1998 ger FR  1758kg  306hp Coupe    Mercedes-Benz SL 500 (R129) `98
+    = 1998 ger FR  1981kg  394hp Coupe    Mercedes-Benz SL 600 (R129) `98
+    = 1998 ger FR  1325kg  196hp Coupe    Mercedes-Benz SLK 230 Kompressor `98
+    ~ 1999 gbr MR   749kg  203hp Roadster Lotus Motor Sport Elise `99
+
+=== landrover  (Land Rover pickup, Europe 1985 Offroad)  — 2 cars
+    wheelbase 2.80 m, track 1.50 m, tyre 0.353 m, 6 liveries
+    = 1985 jpn 4WD 1414kg  230hp Offroad  Mitsubishi PAJERO Rally Raid Car `85
+    = 1998 jpn 4WD  941kg  995hp Offroad  Suzuki ESCUDO Dirt Trial Car `98
+
+=== classic_van  (Classic panel van, Europe 1960 Van)  — 0 cars
+    wheelbase 2.35 m, track 1.39 m, tyre 0.324 m, 7 liveries
+    (no catalog car — used as roadside scenery)
+

@@ -1,0 +1,92 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &6619757005110415488
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8183186981401738311}
+  - component: {fileID: 3366252103397824437}
+  m_Layer: 0
+  m_Name: bmw_e30
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8183186981401738311
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6619757005110415488}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3366252103397824437
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6619757005110415488}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: bmw_e30
+  displayName: BMW 3-Series (E30)
+  bodyMesh: {fileID: -2432090755550338912, guid: 9572f2f68f8841245a1645e02c824cbb, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 760d4187c45749f4ba65b8e6514d3453, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: eacccc08a8d583b43acd7c0ad0d0d233, type: 2}
+  - {fileID: 2100000, guid: 599fccbf7f22962479a2b89e3305c29b, type: 2}
+  - {fileID: 2100000, guid: dc8c355d052543243acafca36ca5f032, type: 2}
+  - {fileID: 2100000, guid: 58d1e444c1d7f9542aa5cf89e75c6a3f, type: 2}
+  - {fileID: 2100000, guid: 7d430d234795eb94cb9d1e682d21aee9, type: 2}
+  - {fileID: 2100000, guid: 5742004f8d37f1946b000a48ef489778, type: 2}
+  - {fileID: 2100000, guid: 960f5bf6b794dc446890dfb8414d29cc, type: 2}
+  - {fileID: 2100000, guid: 5962ee4200b9fb342ac0d54920cc18d2, type: 2}
+  skinNames:
+  - ash_mist
+  - camel_coat
+  - crimson_blaze
+  - lemon_chamois
+  - misty_teal
+  - racing
+  - shadow_oak
+  - storm_chaser
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.70649326, g: 0.7072473, b: 0.70782787, a: 1}
+  - {r: 0.7458655, g: 0.64788693, b: 0.42281023, a: 1}
+  - {r: 0.5447346, g: 0.09616911, b: 0.10570917, a: 1}
+  - {r: 0.75539833, g: 0.7637017, b: 0.46980587, a: 1}
+  - {r: 0.2932068, g: 0.42001042, b: 0.3927416, a: 1}
+  - {r: 0.70441216, g: 0.70341444, b: 0.7050813, a: 1}
+  - {r: 0.26401636, g: 0.17600355, b: 0.17294246, a: 1}
+  - {r: 0.22715023, g: 0.21173973, b: 0.3863474, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.0032426221
+  bodyZOffset: -0.11955601
+  wheelbase: 2.546955
+  trackWidth: 1.4200001
+  wheelRadius: 0.29993337
+  wheelMeshScale: 0.93
+  cowlZ: 0.910404
+  cowlY: 0.9334246
+  noseZ: 2.033114
+  roofY: 1.3776357
+  colliderCenter: {x: 0, y: 0.81642985, z: -0.13114601}
+  colliderSize: {x: 1.6578519, y: 1.046521, z: 4.133736}
+  blobSize: {x: 2.2104692, y: 4.6315165}

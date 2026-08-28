@@ -47,6 +47,9 @@ namespace PSXRacing.EditorTools
             TestToolbox();
             TestInspection();
             TestCarXray();
+            TestHousingAndJobs();
+            TestCityProps();
+            TestGridStaging();
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -61,6 +64,131 @@ namespace PSXRacing.EditorTools
         {
             if (!ok) failures++;
             Line((ok ? "  ok   " : "  FAIL ") + what + (got != null ? "  (got " + got + ")" : ""));
+        }
+
+        // ---------------------------------------------------------------
+        //  Housing, delivery job, and the props the world stands up
+        // ---------------------------------------------------------------
+        static void TestHousingAndJobs()
+        {
+            Line("housing + jobs:");
+            Check(LifeRules.Housing.Length >= 3 && LifeRules.Housing[0].slots == 1,
+                  "starting rung is the 1-car-garage house");
+            var seeded = LifeRules.SeedNewGame("TEST", 25, 0);
+            bool known = false;
+            foreach (var h in LifeRules.Housing) if (h.key == seeded.housingType) known = true;
+            Check(known, "seeded housingType exists in the ladder", seeded.housingType);
+            Check(LifeRules.HousingLabel(seeded.housingType).Contains("1-CAR"),
+                  "seed labels as a one-car-garage house",
+                  LifeRules.HousingLabel(seeded.housingType));
+
+            bool hasDelivery = false;
+            foreach (var j in LifeRules.Jobs) if (j.name == LifeRules.DeliveryJobName) hasDelivery = true;
+            Check(hasDelivery, "FOOD DELIVERY is back in the job book");
+
+            var s = LifeRules.SeedNewGame("TEST", 25, LifeRules.Jobs.Length - 1);
+            Check(s.playerJob == LifeRules.DeliveryJobName,
+                  "last job index seeds the delivery job", s.playerJob);
+            s.ateToday = false; s.daysSinceEat = 2;
+            LifeRules.WorkOneDay(s);
+            Check(s.ateToday && s.daysSinceEat == 0, "a delivery shift feeds the driver");
+            Check(s.pendingSalary > 0, "tips accrue into pendingSalary", s.pendingSalary);
+        }
+
+        static void TestCityProps()
+        {
+            Line("city props:");
+            int missing = 0;
+            foreach (var kv in PSXRacing.City.CityProps.Defs)
+            {
+                string path = "Assets/PSXRacing/Resources/" + kv.Value.res + ".prefab";
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab == null) { missing++; Line("       missing " + path); continue; }
+                if (kv.Key == PSXRacing.City.CityProps.Burger ||
+                    kv.Key == PSXRacing.City.CityProps.Pizzeria)
+                {
+                    Check(prefab.GetComponentInChildren<DriveThru>(true) != null,
+                          kv.Value.res + " carries its order bay");
+                    bool trigger = false;
+                    foreach (var c in prefab.GetComponentsInChildren<BoxCollider>(true))
+                        if (c.isTrigger) trigger = true;
+                    Check(trigger, kv.Value.res + " order bay is a trigger");
+                }
+                else
+                {
+                    Check(prefab.GetComponentInChildren<Collider>(true) != null,
+                          kv.Value.res + " is solid to a car");
+                }
+            }
+            Check(missing == 0, "every CityProps row baked a prefab", missing + " missing");
+        }
+
+        // ---------------------------------------------------------------
+        //  Grid staging, read off the BUILT scenes
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// Every car the builder baked, and the spot the 1v1 restage would put
+        /// the player, must be ON THE ROAD of its own venue. This opens the
+        /// built scenes — straight after a mirror with no scene build it fails
+        /// the same way the build-settings checks do, and means the same thing.
+        /// </summary>
+        static void TestGridStaging()
+        {
+            Line("grid staging (built scenes):");
+            var scenes = EditorBuildSettings.scenes;
+            for (int t = 0; t < TrackCatalog.Count; t++)
+            {
+                var def = TrackCatalog.At(t);
+                if (def.city) continue;
+                int sceneIdx = TrackCatalog.SceneIndex(t);
+                if (sceneIdx >= scenes.Length || !System.IO.File.Exists(scenes[sceneIdx].path))
+                {
+                    Check(false, def.id + ": scene not built yet");
+                    continue;
+                }
+                UnityEditor.SceneManagement.EditorSceneManager.OpenScene(scenes[sceneIdx].path);
+                var path = Object.FindFirstObjectByType<TrackPath>();
+                var applier = Object.FindFirstObjectByType<RaceHandoffApplier>();
+                if (path == null || applier == null || applier.playerCar == null)
+                {
+                    Check(false, def.id + ": scene missing path/applier/player");
+                    continue;
+                }
+
+                bool allOn = OnRoad(path, applier.playerCar.transform.position);
+                foreach (var ai in applier.aiCars)
+                    if (ai != null) allOn &= OnRoad(path, ai.transform.position);
+                Check(allOn, def.id + ": baked grid is on the road");
+
+                if (applier.aiCars.Count > 0 && applier.aiCars[0] != null)
+                {
+                    var rival = applier.aiCars[0].transform;
+                    bool ok;
+                    if (path.drag)
+                    {
+                        int idx = path.NearestIndex(rival.position);
+                        Vector3 centre = path.GetPoint(idx);
+                        Vector3 right = path.GetRotation(idx) * Vector3.right;
+                        float lane = Mathf.Min(path.roadWidth / 6f, 2.75f);
+                        ok = OnRoad(path, centre - right * lane) &&
+                             OnRoad(path, centre + right * lane);
+                    }
+                    else
+                    {
+                        ok = OnRoad(path, rival.position + rival.right * 5.2f);
+                    }
+                    Check(ok, def.id + ": 1v1 restage stays on the road");
+                }
+            }
+        }
+
+        static bool OnRoad(TrackPath path, Vector3 pos)
+        {
+            int idx = path.NearestIndex(pos);
+            Vector3 wp = path.waypoints[idx];
+            Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(idx)).normalized;
+            float lateral = Vector3.Dot(pos - wp, right);
+            return Mathf.Abs(lateral) <= path.roadWidth * 0.5f - 0.8f;
         }
 
         // ---------------------------------------------------------------
@@ -93,6 +221,25 @@ namespace PSXRacing.EditorTools
         /// 18 m is a tight hairpin, and two stretches of circuit need road plus
         /// both wall lines between them or the barriers cross.
         /// </summary>
+        /// <summary>
+        /// The heaviest fuel bill this track can hand out: the thirstiest car
+        /// in the catalog, built to stage 4, driven at a racing pace for the
+        /// whole race. Fully built rather than stock because that is the car a
+        /// player who has been at this a while is actually sitting in.
+        /// </summary>
+        static float WorstRaceTankPct(TrackCatalog.TrackDef t)
+        {
+            var maxed = new CarTune.Stages { power = CarTune.MaxStage, weight = CarTune.MaxStage };
+            float worst = 0f;
+            foreach (var spec in CarCatalog.All)
+            {
+                float pct = FuelProfile.For(spec, maxed)
+                                       .Burn(t.RaceMeters, FuelModel.RacePaceLoad);
+                if (pct > worst) worst = pct;
+            }
+            return worst;
+        }
+
         static void TestTracks()
         {
             Line("tracks:");
@@ -120,7 +267,44 @@ namespace PSXRacing.EditorTools
 
                 var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
 
-                if (t.drag)
+                // STAGE FIRST. These two are no longer mutually exclusive: the
+                // Bogue Banks bridges are drag events on baked map data, and
+                // testing one as a synthetic strip would demand a corner radius
+                // over 1000 m from a route whose shutdown area turns off the
+                // bridge onto a causeway.
+                if (t.stage)
+                {
+                    // A stage is a real road: it shares the strip's finish-line
+                    // contract and the circuit's corner floor, and is exempt
+                    // from the 3.3 km economy band — a 7 km mountain run
+                    // paying and burning like 7 km is the honest answer.
+                    //
+                    // The floor is a STUB test, not a length test: a missing
+                    // bake becomes a 2-point token road, and the Bogue Banks
+                    // bridges are legitimately 400-odd waypoints long.
+                    Check(pts.Count > 100, t.id + " bakes to a real stage", pts.Count);
+                    Check(t.FinishIndex > 20 && t.FinishIndex < pts.Count - 20,
+                          t.id + " has a finish with shutdown beyond it",
+                          t.FinishIndex + " of " + pts.Count);
+                    Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
+                    Check(t.stageStartLineM > 20f,
+                          t.id + " has a lead-in for the grid", t.stageStartLineM);
+                    float stageMinR = MinCornerRadius(pts);
+                    Check(stageMinR >= 18f, t.id + " tightest corner is drivable",
+                          stageMinR.ToString("0.0") + " m");
+                    float stageNeed = t.roadWidth + 2f * 5.9f;   // StageWallOffset
+                    float stageGap = MinSelfClearance(pts);
+                    Check(stageGap >= stageNeed, t.id + " never runs into its own barriers",
+                          stageGap.ToString("0.0") + " m vs " + stageNeed.ToString("0.0"));
+                    // A drag event has to be RACEABLE from a standing start on
+                    // the line: the traps sit past the grid, not behind it.
+                    if (t.dragEvent)
+                        Check(t.FinishIndex * TrackCatalog.Spacing > t.stageStartLineM + 100f,
+                              t.id + " traps sit well past the start line",
+                              (t.FinishIndex * TrackCatalog.Spacing).ToString("0") + " m vs line at "
+                                  + t.stageStartLineM.ToString("0") + " m");
+                }
+                else if (t.drag)
                 {
                     // A strip is judged on different things entirely: it has no
                     // corners to be too tight and no second stretch to run into.
@@ -139,27 +323,6 @@ namespace PSXRacing.EditorTools
                     // the AI lifting for a corner that is not there.
                     Check(MinCornerRadius(pts) > 1000f, t.id + " is actually straight",
                           MinCornerRadius(pts).ToString("0"));
-                }
-                else if (t.stage)
-                {
-                    // A stage is a real road: it shares the strip's finish-line
-                    // contract and the circuit's corner floor, and is exempt
-                    // from the 3.3 km economy band — a 7 km mountain run
-                    // paying and burning like 7 km is the honest answer.
-                    Check(pts.Count > 500, t.id + " bakes to a real stage", pts.Count);
-                    Check(t.FinishIndex > 20 && t.FinishIndex < pts.Count - 20,
-                          t.id + " has a finish with shutdown beyond it",
-                          t.FinishIndex + " of " + pts.Count);
-                    Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
-                    Check(t.stageStartLineM > 20f,
-                          t.id + " has a lead-in for the grid", t.stageStartLineM);
-                    float stageMinR = MinCornerRadius(pts);
-                    Check(stageMinR >= 18f, t.id + " tightest corner is drivable",
-                          stageMinR.ToString("0.0") + " m");
-                    float stageNeed = t.roadWidth + 2f * 5.9f;   // StageWallOffset
-                    float stageGap = MinSelfClearance(pts);
-                    Check(stageGap >= stageNeed, t.id + " never runs into its own barriers",
-                          stageGap.ToString("0.0") + " m vs " + stageNeed.ToString("0.0"));
                 }
                 else
                 {
@@ -181,6 +344,15 @@ namespace PSXRacing.EditorTools
                 }
 
                 CheckElevation(t, pts);
+
+                // The tank has to be able to DO the race. A single flat
+                // per-metre burn once put every tank in the game at 6.2 km,
+                // which quietly made the 7 km parkway stage unfinishable by
+                // anything in the catalog — and a race nobody can finish shows
+                // up only as a button that will not light.
+                float worstPct = WorstRaceTankPct(t);
+                Check(worstPct < 85f, t.id + " fits inside a full tank for every car",
+                      worstPct.ToString("0") + "% of the thirstiest tank in the game");
 
                 var thumb = TrackCatalog.Thumbnail(t, 96);
                 Check(thumb != null && OpaquePixels(thumb) > 200, t.id + " draws a map",
@@ -403,7 +575,13 @@ namespace PSXRacing.EditorTools
             Check(ChaseCamera.ShortNames.Length == enumCount,
                   "every camera view has a short name",
                   ChaseCamera.ShortNames.Length + " vs " + enumCount);
-            Check(enumCount >= 6, "six views or more", enumCount);
+            Check(enumCount >= 7, "seven views or more", enumCount);
+            // TOP DOWN has to stay the highest value in the enum. It is the one
+            // conditional view — drag strips only — and the cycle drops it by
+            // SHORTENING itself by one, which quietly cycles through the wrong
+            // set the moment something is added after it.
+            Check((int)ChaseCamera.View.TopDown == enumCount - 1,
+                  "top-down is the last view in the cycle", (int)ChaseCamera.View.TopDown);
         }
 
         // ---------------------------------------------------------------
@@ -855,6 +1033,7 @@ namespace PSXRacing.EditorTools
             var badCowl = new List<string>();
             var badRoof = new List<string>();
             var badLens = new List<string>();
+            var badEye = new List<string>();
             foreach (var m in CarModelLibrary.Models)
             {
                 var def = CarModelLibrary.Load(m.key);
@@ -899,6 +1078,26 @@ namespace PSXRacing.EditorTools
                 if (!onMeasurement || !clearsPanel)
                     badLens.Add(m.key + "(lens " + lens.y.ToString("0.00") + " over " +
                                 def.cowlY.ToString("0.00") + (onMeasurement ? "" : " FALLBACK") + ")");
+
+                // The driver's seat, same argument. A cockpit eye is wrong in
+                // exactly two silent ways — through the roof, or out in front of
+                // the windscreen looking back at nothing — and both of them are
+                // a picture rather than an exception. It also has to stay INSIDE
+                // the body box lengthways: a cab-forward shell has its cowl near
+                // the middle of the car, and half a metre further back from
+                // there is a camera in the boot.
+                Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit,
+                                                      def.colliderCenter, def.colliderSize, def);
+                float eyeHalfLen = def.colliderSize.z * 0.5f;
+                bool inCabin = eye.y > def.cowlY && eye.y < def.roofY;
+                bool inBody = eye.z < def.cowlZ &&
+                              eye.z > def.colliderCenter.z - eyeHalfLen &&
+                              eye.z < def.colliderCenter.z + eyeHalfLen;
+                bool offCentre = eye.x < -0.15f && eye.x > -def.colliderSize.x * 0.5f;
+                if (!inCabin || !inBody || !offCentre)
+                    badEye.Add(m.key + "(eye " + eye.y.ToString("0.00") + "/" +
+                               eye.z.ToString("0.00") + " cowl " + def.cowlY.ToString("0.00") +
+                               "/" + def.cowlZ.ToString("0.00") + " roof " + def.roofY.ToString("0.00") + ")");
             }
             Check(badCowl.Count == 0, "every shell's cowl is on the car and below its roof",
                   badCowl.Count == 0 ? null : string.Join(" ", badCowl.ToArray()));
@@ -906,6 +1105,8 @@ namespace PSXRacing.EditorTools
                   badRoof.Count == 0 ? null : string.Join(" ", badRoof.ToArray()));
             Check(badLens.Count == 0, "every shell's bonnet camera clears its own bonnet",
                   badLens.Count == 0 ? null : string.Join(" ", badLens.ToArray()));
+            Check(badEye.Count == 0, "every shell seats its driver in its own cabin",
+                  badEye.Count == 0 ? null : string.Join(" ", badEye.ToArray()));
             // The standoff and the near plane are one decision, and it is the
             // near plane that sets it: the bonnet enters frame at clearance /
             // tan(halfFOV + pitch), so a standoff under about 0.77x the near

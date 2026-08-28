@@ -1,0 +1,92 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1926650358054989406
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7079632391565723179}
+  - component: {fileID: 8353437427585503977}
+  m_Layer: 0
+  m_Name: audi_saloon
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7079632391565723179
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1926650358054989406}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8353437427585503977
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1926650358054989406}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: audi_saloon
+  displayName: Audi 80/100
+  bodyMesh: {fileID: -2432090755550338912, guid: 169d903f267895c45b66186e01380ed7, type: 3}
+  wheelMesh: {fileID: 4300000, guid: e84cc0ac74278764fad026c41dc74faa, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 5fcc1145b015eb54892c581a472d3ff7, type: 2}
+  - {fileID: 2100000, guid: 226299ee6cd8c854fb0b87f011b28573, type: 2}
+  - {fileID: 2100000, guid: 6959c4234e1d97f4e87d5a5d8136a774, type: 2}
+  - {fileID: 2100000, guid: abb5a3ec7c98c33498faa1ce210b0c4e, type: 2}
+  - {fileID: 2100000, guid: 6bf161e9c611c7948be1ba4d1e4db667, type: 2}
+  - {fileID: 2100000, guid: 68333e4e36b98934ca0b6089f242a14b, type: 2}
+  - {fileID: 2100000, guid: 60443d2cd65b67541bfe68086f1ea69f, type: 2}
+  - {fileID: 2100000, guid: 0792bb7359745564b8f7bf9841fc28fa, type: 2}
+  skinNames:
+  - glacier_white
+  - gomera
+  - graphite
+  - indigo
+  - jade
+  - lemon
+  - ruby
+  - sky_blue
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.77682775, g: 0.7742359, b: 0.774164, a: 1}
+  - {r: 0.19958408, g: 0.28027844, b: 0.31296542, a: 1}
+  - {r: 0.5561169, g: 0.5551231, b: 0.55508, a: 1}
+  - {r: 0.2484254, g: 0.26030278, b: 0.3294079, a: 1}
+  - {r: 0.22032122, g: 0.72343576, b: 0.34588772, a: 1}
+  - {r: 0.8329269, g: 0.83094496, b: 0.54760325, a: 1}
+  - {r: 0.7105619, g: 0.10151342, b: 0.17502941, a: 1}
+  - {r: 0.22035356, g: 0.49686825, b: 0.8265851, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.005473046
+  bodyZOffset: -0.06638825
+  wheelbase: 2.6489255
+  trackWidth: 1.473244
+  wheelRadius: 0.31731045
+  wheelMeshScale: 0.93
+  cowlZ: 0.99406564
+  cowlY: 0.9619151
+  noseZ: 2.3293648
+  roofY: 1.3655877
+  colliderCenter: {x: 0, y: 0.8306925, z: -0.07117283}
+  colliderSize: {x: 1.7460488, y: 0.99909085, z: 4.5850267}
+  blobSize: {x: 2.328065, y: 5.1371503}

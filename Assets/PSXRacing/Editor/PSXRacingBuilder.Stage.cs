@@ -74,8 +74,12 @@ namespace PSXRacing.EditorTools
         /// never z-fight. Invisible at the 300 m+ where far terrain lives.</summary>
         const float FarSink = 0.4f;
 
-        const string StageArtDir = Root + "/Art/BRP";
-        const string StageGenDir = Root + "/Art/BRP/Gen";
+        /// <summary>Where THIS stage's bake and generated art live. Was a const
+        /// pointing at the parkway until Bogue Banks arrived; a second region
+        /// sharing the folder would have loaded the mountain's DEM and put a
+        /// barrier island 1200 m up the Blue Ridge.</summary>
+        static string StageArtDir => theme.stageDir;
+        static string StageGenDir => theme.stageDir + "/Gen";
         const string TreesSrcDir =
             @"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\ultimate_retro_tree_pack\ultimate_retro_tree_pack\textures";
 
@@ -92,10 +96,19 @@ namespace PSXRacing.EditorTools
         static Dictionary<long, List<int>> stageHash;
         const float StageHashCell = 48f;
 
+        /// <summary>Surface classes the bake writes beside the near DEM. The
+        /// numbers are a file format — fetch_bogue.mjs writes them.</summary>
+        enum Surf : byte { Land = 0, Sand = 1, Water = 2, Marsh = 3 }
+        /// <summary>One byte per NEAR cell, or null on a stage with no mask —
+        /// which is every inland bake, and is why every read of this is
+        /// null-guarded rather than the mountain being given a beach.</summary>
+        static byte[] surfNear;
+
         static void StageUnloadDem()
         {
             stageDemLoaded = false;
             demNear = demFar = null;
+            surfNear = null;
             stageWp = null; stageHash = null;
         }
 
@@ -103,13 +116,30 @@ namespace PSXRacing.EditorTools
         /// art. Called before ANY stage height is asked for.</summary>
         static void StageLoadDem()
         {
-            string metaPath = ProjectRootPath(StageArtDir + "/brp_dem_meta.json");
+            string pre = StageArtDir + "/" + StagePrefix;
+            string metaPath = ProjectRootPath(pre + "_dem_meta.json");
             if (!File.Exists(metaPath))
-                throw new Exception("Stage DEM missing — run tools/brp/fetch_brp.mjs first (" + metaPath + ")");
+                throw new Exception("Stage DEM missing — run the region's fetch script first ("
+                    + metaPath + ")");
             var meta = JsonUtility.FromJson<DemMeta>(File.ReadAllText(metaPath));
             demNearMeta = meta.near; demFarMeta = meta.far;
-            demNear = ReadDemBytes(StageArtDir + "/brp_dem_near.bytes", meta.near);
-            demFar = ReadDemBytes(StageArtDir + "/brp_dem_far.bytes", meta.far);
+            demNear = ReadDemBytes(pre + "_dem_near.bytes", meta.near);
+            demFar = ReadDemBytes(pre + "_dem_far.bytes", meta.far);
+
+            // The surface mask is optional: a stage inland has nothing to
+            // classify. Its absence is not an error, but a mask that does not
+            // MATCH the near grid is — it would paint the beach in the wrong
+            // place with no symptom an audit could catch.
+            surfNear = null;
+            string maskPath = ProjectRootPath(pre + "_mask_near.bytes");
+            if (File.Exists(maskPath))
+            {
+                var bytes = File.ReadAllBytes(maskPath);
+                if (bytes.Length != meta.near.cols * meta.near.rows)
+                    throw new Exception($"{maskPath}: {bytes.Length} bytes, expected "
+                        + (meta.near.cols * meta.near.rows));
+                surfNear = bytes;
+            }
 
             // The waypoints, for the corridor hash. TrackCatalog has already
             // loaded them (BuildWaypoints ran Sample), but ask again so this
@@ -129,7 +159,9 @@ namespace PSXRacing.EditorTools
             GenerateStageTextures();
             AssetDatabase.Refresh();
             Log($"Stage DEM loaded: near {meta.near.cols}x{meta.near.rows} @ {meta.near.cell} m, " +
-                $"far {meta.far.cols}x{meta.far.rows} @ {meta.far.cell} m, base {meta.baseM} m ASL.");
+                $"far {meta.far.cols}x{meta.far.rows} @ {meta.far.cell} m, base {meta.baseM} m ASL" +
+                (surfNear != null ? ", surface mask present" : "") +
+                (track.stageWaterY > 0f ? $", sea at y={track.stageWaterY:0.0}" : "") + ".");
         }
 
         static short[] ReadDemBytes(string assetPath, DemGridMeta m)
@@ -162,6 +194,21 @@ namespace PSXRacing.EditorTools
             float h00 = grid[r0 * m.cols + c0], h01 = grid[r0 * m.cols + c0 + 1];
             float h10 = grid[(r0 + 1) * m.cols + c0], h11 = grid[(r0 + 1) * m.cols + c0 + 1];
             return (Mathf.Lerp(Mathf.Lerp(h00, h01, tx), Mathf.Lerp(h10, h11, tx), tz)) * 0.1f;
+        }
+
+        /// <summary>
+        /// Surface class at a world point — NEAREST cell, not interpolated: the
+        /// mask is categorical, and the average of "sand" and "sea" is not a
+        /// surface. Land outside the near grid, and on any stage with no mask.
+        /// </summary>
+        static Surf StageSurfAt(float x, float z)
+        {
+            if (surfNear == null) return Surf.Land;
+            var m = demNearMeta;
+            int c = Mathf.RoundToInt((x - m.originX) / m.cell);
+            int r = Mathf.RoundToInt((z - m.originZ) / m.cell);
+            if (c < 0 || r < 0 || c >= m.cols || r >= m.rows) return Surf.Land;
+            return (Surf)surfNear[r * m.cols + c];
         }
 
         /// <summary>Raw DEM height (world Y), from the near grid where it
@@ -253,7 +300,7 @@ namespace PSXRacing.EditorTools
             float blend = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(CorridorR, CorridorR + CorridorBlend, d));
             float pinned = Mathf.Lerp(roadY, dem, blend)
-                         - CorridorSink * (1f - blend);
+                         - RoadbedSinkAt(d) * (1f - blend);
 
             if (f <= 0.001f) return pinned;
 
@@ -297,9 +344,27 @@ namespace PSXRacing.EditorTools
             // The near ground carries a warm autumn tint: untinted, the dirt
             // texture reads grey-green against the mottle's orange and the
             // border between the two draws itself as a band across the hills.
+            // Sand needs no such correction — it is already the colour it is.
+            bool sandy = surfNear != null && !string.IsNullOrEmpty(theme.sand);
             var nearMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f,
-                                  tint: new Color(1.0f, 0.90f, 0.70f));
-            var farMat = MakeMat(MeshPrefix + "GroundFar", StageGenDir + "/FallMottle.png", affine: 0f);
+                                  tint: sandy ? (Color?)null : new Color(1.0f, 0.90f, 0.70f));
+            var sandMat = sandy ? MakeMat(MeshPrefix + "Sand", theme.sand, affine: 0f) : null;
+            var marshMat = sandy ? MakeMat(MeshPrefix + "Marsh",
+                                           string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
+                                           affine: 0f) : null;
+            var nearMats = sandy ? new[] { nearMat, sandMat, marshMat } : new[] { nearMat };
+            // Far: the mountain paints its distance as autumn forest. An island
+            // has no distance to paint — what is out there is water, and the
+            // sea plane covers it — so the far ring reuses the near ground.
+            //
+            // SCRUB, not sand. Painting it sand was the obvious choice and it
+            // was wrong: the overview came back with the whole mainland and
+            // both shores rendered as one continuous beach, because a beach is
+            // a narrow strip and everything BEHIND it is not. Distant land is
+            // scrub; the sand is where the mask says it is, in the near band.
+            var farMat = string.IsNullOrEmpty(theme.sand)
+                ? MakeMat(MeshPrefix + "GroundFar", StageGenDir + "/FallMottle.png", affine: 0f)
+                : MakeMat(MeshPrefix + "GroundFar", theme.ground, affine: 0f);
 
             var b = new Bounds(pts[0], Vector3.zero);
             foreach (var p in pts) b.Encapsulate(p);
@@ -311,11 +376,23 @@ namespace PSXRacing.EditorTools
             {
                 float mid = RouteDistanceCoarse(ox + NearChunk * 0.5f, oz + NearChunk * 0.5f);
                 if (mid > NearCoverage + NearChunk * 0.71f) return;
-                var mesh = GridChunkMesh(ox, oz, NearChunk, NearCell, theme.groundTile, 0f);
+                var mesh = GridChunkMesh(ox, oz, NearChunk, NearCell, theme.groundTile, 0f,
+                                         splitSand: sandy, sandTile: theme.sandTile,
+                                         marshTile: theme.marshTile);
+                if (mesh == null) return;
                 nearVerts += mesh.vertexCount;
                 var go = ChunkGO(root.transform, "GroundN_" + cx + "_" + cz, mesh,
-                                 nearMat, ox, oz, "StageGroundN_" + cx + "_" + cz);
-                if (mid < ColliderBand + NearChunk * 0.71f)
+                                 mesh.subMeshCount > 1 ? nearMats : new[] { nearMat },
+                                 ox, oz, "StageGroundN_" + cx + "_" + cz);
+                // On a mountain, 120 m of collider is generous — anything
+                // further from the road is a slope you hit on the way there.
+                // Over water it is not: the parapet of a bridge 20 m up is
+                // easy to clear, there is nothing between it and the sound, and
+                // a car that lands past the band falls through a seabed with no
+                // collider and keeps going. Flat water chunks are cheap to
+                // cook, so a stage with a sea collides its whole near band.
+                float band = track.stageWaterY > 0f ? NearCoverage : ColliderBand;
+                if (mid < band + NearChunk * 0.71f)
                 {
                     go.AddComponent<MeshCollider>().sharedMesh = mesh;
                     withColl++;
@@ -330,16 +407,95 @@ namespace PSXRacing.EditorTools
             {
                 float mid = RouteDistanceCoarse(ox + FarChunk * 0.5f, oz + FarChunk * 0.5f);
                 if (mid > FarCoverage + FarChunk * 0.71f) return;
-                if (mid + FarChunk * 0.71f < NearCoverage - FarCell) return;   // fully under near
-                var mesh = GridChunkMesh(ox, oz, FarChunk, FarCell, 300f, -FarSink);
+                // The old "fully under near" test compared the chunk CENTRE's
+                // route distance against the near band, which for a 960 m
+                // chunk could never be true — so every far chunk was built,
+                // road corridor and all, and their 60 m cells draped the
+                // parkway. The cutout is per-QUAD now (dropInside), which is
+                // the only resolution at which the question makes sense.
+                var mesh = GridChunkMesh(ox, oz, FarChunk, FarCell, 300f, -FarSink,
+                                         NearCoverage - FarCell);
+                if (mesh == null) return;
                 farVerts += mesh.vertexCount;
                 ChunkGO(root.transform, "GroundF_" + cx + "_" + cz, mesh,
-                        farMat, ox, oz, "StageGroundF_" + cx + "_" + cz);
+                        new[] { farMat }, ox, oz, "StageGroundF_" + cx + "_" + cz);
                 farChunks++;
             });
 
             Log($"Stage ground: {nearChunks} near chunks ({nearVerts} verts, {withColl} with colliders), " +
                 $"{farChunks} far chunks ({farVerts} verts).");
+
+            BuildStageSea(b, root.transform);
+        }
+
+        /// <summary>Cell size of the sea grid. The plane is dead flat, so this
+        /// is not about shape — it is about VERTEX fog and affine mapping,
+        /// which are per-vertex, and one horizon-sized quad would get one fog
+        /// value for the whole ocean.</summary>
+        const float SeaCell = 90f;
+
+        /// <summary>
+        /// The sea, as a single flat plane at the bake's water height.
+        ///
+        /// The tempting design is to classify each terrain cell and build water
+        /// geometry only where the mask says water — and it is wrong, because
+        /// then the SHORELINE is a polygon boundary you have to keep aligned
+        /// with the terrain, and every disagreement is a crack you can see the
+        /// sky through. A flat plane at a known height has no shoreline at all:
+        /// the coast is wherever the ground rises through it, which is exact by
+        /// construction and free. The bake guarantees the clearance — land is
+        /// held 0.4 m above the plane and the seabed 4 m below it — so there is
+        /// nothing to z-fight either.
+        /// </summary>
+        static void BuildStageSea(Bounds routeBounds, Transform parent)
+        {
+            float y = track != null ? track.stageWaterY : 0f;
+            if (y <= 0f || string.IsNullOrEmpty(theme.water)) return;
+
+            var mat = MakeMat(MeshPrefix + "Sea", theme.water, affine: 0f,
+                              tint: new Color(0.86f, 0.94f, 1f));
+            // Out to the far ring, so the water reaches the fog wall on every
+            // heading rather than ending in a visible edge over the shoulder.
+            float reach = FarCoverage + FarChunk;
+            float minX = routeBounds.min.x - reach, maxX = routeBounds.max.x + reach;
+            float minZ = routeBounds.min.z - reach, maxZ = routeBounds.max.z + reach;
+            int cols = Mathf.CeilToInt((maxX - minX) / SeaCell);
+            int rows = Mathf.CeilToInt((maxZ - minZ) / SeaCell);
+
+            var verts = new Vector3[(cols + 1) * (rows + 1)];
+            var norms = new Vector3[verts.Length];
+            var uvs = new Vector2[verts.Length];
+            var tris = new int[cols * rows * 6];
+            for (int r = 0, v = 0; r <= rows; r++)
+                for (int c = 0; c <= cols; c++, v++)
+                {
+                    float wx = minX + c * SeaCell, wz = minZ + r * SeaCell;
+                    verts[v] = new Vector3(wx, y, wz);
+                    uvs[v] = new Vector2(wx / theme.waterTile, wz / theme.waterTile);
+                    norms[v] = Vector3.up;
+                }
+            for (int r = 0, t = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                {
+                    int v = r * (cols + 1) + c;
+                    tris[t++] = v; tris[t++] = v + cols + 1; tris[t++] = v + cols + 2;
+                    tris[t++] = v; tris[t++] = v + cols + 2; tris[t++] = v + 1;
+                }
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = verts, normals = norms, uv = uvs, triangles = tris,
+            };
+            SaveMesh(mesh, "StageSea");
+            var go = new GameObject("Sea");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            go.isStatic = true;
+            // NO COLLIDER, deliberately. A car that goes over the parapet
+            // should end up in the sound, and StuckRecovery is what brings it
+            // back — a collider here would let it drive on the water instead.
+            Log($"Stage sea: {cols}x{rows} @ {SeaCell} m at y={y:0.0} ({verts.Length} verts).");
         }
 
         static void ForEachChunk(Bounds b, float chunk, float coverage,
@@ -360,20 +516,43 @@ namespace PSXRacing.EditorTools
         /// the same reason: RecalculateNormals only sees this chunk's
         /// triangles, so two chunks disagree along their shared edge and the
         /// border becomes a hard lighting seam across the hillside.</summary>
+        /// <param name="dropInside">Omit quads whose four corners are ALL
+        /// closer to the route than this. The far grid's 60 m cells cannot
+        /// resolve a road corridor: one corner lands on the pinned shelf and
+        /// the next is 60 m up the mountainside, and the triangle between them
+        /// runs straight through the tarmac. It did — six metres above the
+        /// road, over a third of the parkway, invisible to an audit that rayed
+        /// colliders because the far chunks have none. The near grid already
+        /// covers everything inside NearCoverage, so the fix is for the far
+        /// grid to stop pretending it can. 0 keeps every quad.</param>
+        /// <returns>Null when nothing survived the cutout — a chunk entirely
+        /// under the near band has no geometry left to build.</returns>
+        /// <param name="splitSand">Emit a SECOND submesh for quads the surface
+        /// mask calls beach, so one chunk can be scrub inland and sand at the
+        /// waterline. Ignored where there is no mask.</param>
         static Mesh GridChunkMesh(float ox, float oz, float size, float cell,
-                                  float tile, float yOffset)
+                                  float tile, float yOffset, float dropInside = 0f,
+                                  bool splitSand = false, float sandTile = 8f,
+                                  float marshTile = 6f)
         {
+            bool sandy = splitSand && surfNear != null;
             int cells = Mathf.RoundToInt(size / cell);
             var verts = new Vector3[(cells + 1) * (cells + 1)];
             var norms = new Vector3[verts.Length];
             var uvs = new Vector2[verts.Length];
-            var tris = new int[cells * cells * 6];
+            var surf = sandy ? new Surf[verts.Length] : null;
+            var routeD = dropInside > 0f ? new float[verts.Length] : null;
+            var tris = new List<int>(cells * cells * 6);
+            var sandTris = sandy ? new List<int>(cells * cells * 2) : null;
+            var marshTris = sandy ? new List<int>(cells * cells * 2) : null;
             for (int gz = 0, v = 0; gz <= cells; gz++)
                 for (int gx = 0; gx <= cells; gx++, v++)
                 {
                     float wx = ox + gx * cell, wz = oz + gz * cell;
                     verts[v] = new Vector3(gx * cell, StageGroundHeightAt(wx, wz) + yOffset, gz * cell);
                     uvs[v] = new Vector2(wx / tile, wz / tile);
+                    if (surf != null) surf[v] = StageSurfAt(wx, wz);
+                    if (routeD != null) routeD[v] = RouteDistanceCoarse(wx, wz);
                     // Central differences at half a cell: a function of world
                     // position alone, so both sides of a chunk border compute
                     // the identical normal.
@@ -382,30 +561,102 @@ namespace PSXRacing.EditorTools
                     float dhdz = (StageGroundHeightAt(wx, wz + e) - StageGroundHeightAt(wx, wz - e)) / (2f * e);
                     norms[v] = new Vector3(-dhdx, 1f, -dhdz).normalized;
                 }
-            int t = 0;
             for (int gz = 0; gz < cells; gz++)
                 for (int gx = 0; gx < cells; gx++)
                 {
                     int v = gz * (cells + 1) + gx;
-                    tris[t++] = v; tris[t++] = v + cells + 1; tris[t++] = v + cells + 2;
-                    tris[t++] = v; tris[t++] = v + cells + 2; tris[t++] = v + 1;
+                    int a = v, b = v + cells + 1, c = v + cells + 2, e2 = v + 1;
+                    // All four corners inside the near band: the near mesh owns
+                    // this quad. A quad that STRADDLES the line is kept, so the
+                    // two grids overlap by a cell and the seam stays sealed.
+                    if (routeD != null && routeD[a] < dropInside && routeD[b] < dropInside &&
+                        routeD[c] < dropInside && routeD[e2] < dropInside) continue;
+                    var into = tris;
+                    if (sandy)
+                    {
+                        // Marsh wins over everything. It is the surface that
+                        // borders open water here, so any "half the corners are
+                        // wet" rule would eat it — and it is the single most
+                        // visible thing about this coast from the air.
+                        int nM = 0, nS = 0;
+                        foreach (int k in new[] { a, b, c, e2 })
+                        {
+                            if (surf[k] == Surf.Marsh) nM++;
+                            // Counting WATER as sand matters: the cells seaward
+                            // of the waterline are submerged sand, and they are
+                            // what shows through the sea plane in the shallows
+                            // — leave them scrub and the shore reads as a lawn
+                            // running into the surf.
+                            else if (surf[k] == Surf.Sand || surf[k] == Surf.Water) nS++;
+                        }
+                        if (nM >= 2) into = marshTris;
+                        else if (nS >= 2) into = sandTris;
+                    }
+                    into.Add(a); into.Add(b); into.Add(c);
+                    into.Add(a); into.Add(c); into.Add(e2);
                 }
-            return new Mesh
+            bool split = sandy && (sandTris.Count > 0 || marshTris.Count > 0);
+            if (tris.Count == 0 && !split) return null;
+
+            var mesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
-                vertices = verts, normals = norms, uv = uvs, triangles = tris,
+                vertices = verts, normals = norms, uv = uvs,
             };
+            if (!split) { mesh.triangles = tris.ToArray(); return mesh; }
+
+            // Each surface gets its OWN uv scale: a beach at the same 11 m
+            // repeat as the scrub behind it reads as one surface in two
+            // colours, and marsh grass wants a tighter repeat than either.
+            // uv2 is not an option — the PSX shader samples uv only — so each
+            // submesh gets its own copy of the vertex block, re-UV'd. 169 verts
+            // a chunk, so three copies is still nothing.
+            //
+            // ALWAYS three blocks, even when a chunk has no marsh in it: the
+            // renderer's material array is indexed by submesh, so a chunk that
+            // sometimes has two and sometimes three would need the material
+            // list rebuilt per chunk to match. Empty submeshes cost no
+            // triangles and keep slot N meaning the same thing everywhere.
+            int vn = verts.Length;
+            var vAll = new Vector3[vn * 3];
+            var nAll = new Vector3[vn * 3];
+            var uAll = new Vector2[vn * 3];
+            for (int b = 0; b < 3; b++)
+            {
+                verts.CopyTo(vAll, vn * b);
+                norms.CopyTo(nAll, vn * b);
+            }
+            uvs.CopyTo(uAll, 0);
+            for (int i = 0; i < vn; i++)
+            {
+                uAll[vn + i] = new Vector2((ox + verts[i].x) / sandTile,
+                                           (oz + verts[i].z) / sandTile);
+                uAll[vn * 2 + i] = new Vector2((ox + verts[i].x) / marshTile,
+                                                (oz + verts[i].z) / marshTile);
+            }
+            for (int i = 0; i < sandTris.Count; i++) sandTris[i] += vn;
+            for (int i = 0; i < marshTris.Count; i++) marshTris[i] += vn * 2;
+
+            mesh.vertices = vAll; mesh.normals = nAll; mesh.uv = uAll;
+            mesh.subMeshCount = 3;
+            mesh.SetTriangles(tris, 0);
+            mesh.SetTriangles(sandTris, 1);
+            mesh.SetTriangles(marshTris, 2);
+            return mesh;
         }
 
         static GameObject ChunkGO(Transform parent, string name, Mesh mesh,
-                                  Material mat, float ox, float oz, string meshName)
+                                  Material[] mats, float ox, float oz, string meshName)
         {
             SaveMesh(mesh, meshName);
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             go.transform.position = new Vector3(ox, 0f, oz);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            // sharedMaterialS: a two-submesh chunk with one material draws the
+            // sand submesh in the scrub material and nothing looks wrong until
+            // you notice the beach is green.
+            go.AddComponent<MeshRenderer>().sharedMaterials = mats;
             go.isStatic = true;
             return go;
         }
@@ -589,10 +840,18 @@ namespace PSXRacing.EditorTools
 
         static void EnsureStageArt()
         {
-            foreach (var dir in new[] { StageArtDir + "/Trees", StageGenDir })
-                if (!AssetDatabase.IsValidFolder(dir))
-                    AssetDatabase.CreateFolder(
-                        Path.GetDirectoryName(dir).Replace('\\', '/'), Path.GetFileName(dir));
+            if (!AssetDatabase.IsValidFolder(StageArtDir))
+                AssetDatabase.CreateFolder(
+                    Path.GetDirectoryName(StageArtDir).Replace('\\', '/'),
+                    Path.GetFileName(StageArtDir));
+            if (!AssetDatabase.IsValidFolder(StageGenDir))
+                AssetDatabase.CreateFolder(StageArtDir, "Gen");
+            // The CC0 tree pack is 16 PNGs copied out of a folder on this
+            // machine. A stage with no forest must not need it to exist — the
+            // island builds on a checkout that has never seen the pack.
+            if (!theme.stageForest) return;
+            if (!AssetDatabase.IsValidFolder(StageArtDir + "/Trees"))
+                AssetDatabase.CreateFolder(StageArtDir, "Trees");
             int copied = 0;
             foreach (var s in StageTrees)
             {
@@ -611,6 +870,8 @@ namespace PSXRacing.EditorTools
         /// thousand trees at a few dozen draw calls.</summary>
         static void GenerateStageTextures()
         {
+            if (!theme.stageForest) { GenerateCoastTextures(); return; }
+
             string atlasPath = StageGenDir + "/TreeAtlas.png";
             if (!File.Exists(ProjectRootPath(atlasPath)))
             {
@@ -677,6 +938,114 @@ namespace PSXRacing.EditorTools
                 int h = (x * 7 + y * 13) % 17;
                 byte v = (byte)(96 + (h * 5) % 28);
                 return new Color32(v, (byte)(v - 8), (byte)(v - 22), 255);
+            });
+        }
+
+        /// <summary>
+        /// The Crystal Coast ground set: sand, dune scrub, sea, and a shell-
+        /// gravel shoulder. Generated rather than sourced, like every other
+        /// ground texture in the game — a 64 px tile of beach is a noise
+        /// function, and hand-painting one would be four things to redraw the
+        /// moment the tile scale changes.
+        ///
+        /// All three tile at different world scales (see Theme.sandTile /
+        /// groundTile / waterTile) because they are seen at completely
+        /// different distances: you drive ON the sand, past the scrub, and look
+        /// across two kilometres of water.
+        /// </summary>
+        static void GenerateCoastTextures()
+        {
+            // Beach sand. Warm, pale, and very low contrast — the grain is
+            // there to stop 24-bit banding across a flat surface, not to be
+            // seen as texture. A couple of darker grains per tile read as shell
+            // fragments at the scale a wheel passes over them.
+            WriteTexture(StageGenDir + "/Sand.png", 64, 64, (x, y) =>
+            {
+                float n = Noise(x, y);
+                float m = Noise(x >> 2, y >> 2);          // coarse tonal drift
+                byte r = (byte)(206 + n * 16 + m * 12);
+                byte g = (byte)(191 + n * 16 + m * 12);
+                byte b = (byte)(163 + n * 18 + m * 10);
+                if (Noise(x + 91, y + 17) > 0.965f) { r -= 34; g -= 30; b -= 24; }
+                return new Color32(r, g, b, 255);
+            });
+
+            // Behind the dune line: sea oats and wax myrtle over sand, so the
+            // green is thin and the sand shows through it. Blending TOWARD the
+            // sand colour rather than using a green of its own is what keeps
+            // the scrub/sand boundary from reading as a painted edge.
+            WriteTexture(StageGenDir + "/Scrub.png", 64, 64, (x, y) =>
+            {
+                float n = Noise(x, y);
+                float clump = Noise(x >> 3, y >> 3);      // patchy, not uniform
+                // 0.18..0.68 rather than 0.35..0.90: the first pass came back
+                // reading as mown lawn either side of the road. Dune scrub is
+                // mostly the sand it is growing out of.
+                float green = Mathf.Clamp01(0.18f + clump * 0.5f);
+                byte r = (byte)Mathf.Lerp(200 + n * 14, 108 + n * 26, green);
+                byte g = (byte)Mathf.Lerp(186 + n * 14, 126 + n * 28, green);
+                byte b = (byte)Mathf.Lerp(158 + n * 14, 74 + n * 20, green);
+                return new Color32(r, g, b, 255);
+            });
+
+            // The sea. Anisotropic on purpose: the swell runs in lines, so the
+            // noise is stretched along x and the wave terms are sines of y
+            // alone. Wrap-friendly (all terms are k*2pi*n/64) or the tile seam
+            // draws a straight line across the sound every 24 m.
+            WriteTexture(StageGenDir + "/Sea.png", 64, 64, (x, y) =>
+            {
+                float u = x * (Mathf.PI * 2f / 64f), v = y * (Mathf.PI * 2f / 64f);
+                float swell = Mathf.Sin(v * 3f + Mathf.Sin(u * 2f) * 0.6f)
+                            + 0.5f * Mathf.Sin(v * 7f - u * 1f + 1.1f)
+                            + 0.3f * Mathf.Sin(v * 11f + u * 3f + 2.2f);
+                float t = Mathf.InverseLerp(-1.8f, 1.8f, swell);
+                // Green-grey inshore water, not tropical blue: this is the
+                // Atlantic off North Carolina in the same frame as the sound.
+                byte r = (byte)Mathf.Lerp(28, 74, t);
+                byte g = (byte)Mathf.Lerp(66, 116, t);
+                byte b = (byte)Mathf.Lerp(78, 122, t);
+                // Sparse glint on the crests. Rare enough to read as sun on
+                // water rather than as noise.
+                if (t > 0.86f && Noise(x + 7, y + 53) > 0.90f) { r += 46; g += 44; b += 38; }
+                return new Color32(r, g, b, 255);
+            });
+
+            // Salt marsh: smooth cordgrass over dark tidal mud, cut through by
+            // creeks. The photographs of the Langston crossing are more than
+            // half this, and it was rendering as open sound.
+            //
+            // The creeks are the point. A flat olive field reads as a lawn from
+            // 20 m up; what makes marsh look like marsh from a bridge is the
+            // braided drainage running through it, so a couple of wrapping sine
+            // terms carve dark channels and the grass sits between them.
+            WriteTexture(StageGenDir + "/Marsh.png", 64, 64, (x, y) =>
+            {
+                float u = x * (Mathf.PI * 2f / 64f), v = y * (Mathf.PI * 2f / 64f);
+                float creek = Mathf.Sin(u * 2f + Mathf.Sin(v * 3f) * 1.1f)
+                            + 0.7f * Mathf.Sin(v * 3f - u * 1f + 2.0f);
+                float n = Noise(x, y);
+                if (Mathf.Abs(creek) < 0.16f)
+                {
+                    // Tidal channel: dark water over mud.
+                    byte b = (byte)(52 + n * 16);
+                    return new Color32((byte)(b - 8), b, (byte)(b + 10), 255);
+                }
+                // Cordgrass. Olive-brown and desaturated — Spartina is not a
+                // lawn green, and against the sea it must not read as one.
+                float clump = Noise(x >> 2, y >> 2);
+                byte r = (byte)(104 + clump * 34 + n * 12);
+                byte g = (byte)(112 + clump * 30 + n * 12);
+                byte bl = (byte)(62 + clump * 22 + n * 10);
+                return new Color32(r, g, bl, 255);
+            });
+
+            // The verge: crushed shell and sand, which is what a shoulder on
+            // this island actually is.
+            WriteTexture(StageGenDir + "/Shoulder.png", 32, 16, (x, y) =>
+            {
+                int h = (x * 7 + y * 13) % 19;
+                byte v = (byte)(172 + (h * 4) % 34);
+                return new Color32(v, (byte)(v - 6), (byte)(v - 20), 255);
             });
         }
 
@@ -770,7 +1139,7 @@ namespace PSXRacing.EditorTools
                     indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
                     vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
                 };
-                var go = ChunkGO(root.transform, "Forest_" + cx + "_" + cz, mesh, mat,
+                var go = ChunkGO(root.transform, "Forest_" + cx + "_" + cz, mesh, new[] { mat },
                                  ox, oz, "StageForest_" + cx + "_" + cz);
                 go.layer = FoliageLayer;
                 chunks++;

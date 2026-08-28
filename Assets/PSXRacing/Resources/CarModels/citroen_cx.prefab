@@ -1,0 +1,89 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &503634485925151070
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4887200850125697918}
+  - component: {fileID: 8434141219655796558}
+  m_Layer: 0
+  m_Name: citroen_cx
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4887200850125697918
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 503634485925151070}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8434141219655796558
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 503634485925151070}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: citroen_cx
+  displayName: Citroen CX
+  bodyMesh: {fileID: -2432090755550338912, guid: 72a28e179a65f2f4d8d0624eabeb632d, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 8c584cdef7cb6464ab674346d8aa1c12, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: f9b955f5b06c076468079915ea7e0b88, type: 2}
+  - {fileID: 2100000, guid: 143e951a0b19627489bcb10c2a186a56, type: 2}
+  - {fileID: 2100000, guid: 417f24022c971ab4bae59e271e668e9f, type: 2}
+  - {fileID: 2100000, guid: 1c4015d3c8be0e244909ffbe555f9a26, type: 2}
+  - {fileID: 2100000, guid: 90c138fa329697d428a9bd473f23fdd5, type: 2}
+  - {fileID: 2100000, guid: 88eac9ca77b80d3499ea991d89d726b8, type: 2}
+  - {fileID: 2100000, guid: 8e721ac2488b6674f87db4170926d90d, type: 2}
+  skinNames:
+  - coastal_mist
+  - copper_beige
+  - heritage_green
+  - meteor_silver
+  - nightscape_blue
+  - perl_luxe
+  - velocity_red
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.4291708, g: 0.52019846, b: 0.5883453, a: 1}
+  - {r: 0.5424236, g: 0.40777367, b: 0.24801867, a: 1}
+  - {r: 0.18345958, g: 0.30482522, b: 0.2504898, a: 1}
+  - {r: 0.5916592, g: 0.61501026, b: 0.6304994, a: 1}
+  - {r: 0.24694254, g: 0.32132372, b: 0.4362076, a: 1}
+  - {r: 0.5714853, g: 0.56839883, b: 0.5692826, a: 1}
+  - {r: 0.7610624, g: 0.21122028, b: 0.12250196, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.013467045
+  bodyZOffset: -0.049486756
+  wheelbase: 2.7874675
+  trackWidth: 1.5567861
+  wheelRadius: 0.31125847
+  wheelMeshScale: 0.93
+  cowlZ: 0.91665775
+  cowlY: 0.9653617
+  noseZ: 2.2703052
+  roofY: 1.3666916
+  colliderCenter: {x: 0, y: 0.7844605, z: -0.058550715}
+  colliderSize: {x: 1.7809103, y: 1.0848176, z: 4.448115}
+  blobSize: {x: 2.374547, y: 4.9837523}
