@@ -65,6 +65,43 @@ namespace PSXRacing.City
             }
             nodeTrims = cachedTrims;
             buildings = cachedBuildings;
+            BuildFoodIndex();
+        }
+
+        /// <summary>Every restaurant in the city, flattened out of the tile
+        /// buckets once. Ten of them across 2,574 km of road, and the far
+        /// plane is 360 m: without an index there is nothing to point at, and
+        /// without something pointing at them a player can drive for twenty
+        /// minutes past nine thousand houses and never find a drive-thru.</summary>
+        readonly List<(byte kind, Vector2 pos)> food = new List<(byte, Vector2)>();
+
+        void BuildFoodIndex()
+        {
+            food.Clear();
+            if (buildings == null) return;
+            foreach (var kv in buildings)
+                foreach (var b in kv.Value)
+                    if (CityProps.IsFood(b.kind)) food.Add((b.kind, b.pos));
+        }
+
+        /// <summary>The nearest place to eat, for the free-roam HUD cue.</summary>
+        public bool NearestFood(Vector3 from, out string label, out Vector2 at, out float dist)
+        {
+            label = ""; at = Vector2.zero; dist = 0f;
+            if (food.Count == 0) return false;
+            var p = new Vector2(from.x, from.z);
+            float best = float.MaxValue;
+            int bi = -1;
+            for (int i = 0; i < food.Count; i++)
+            {
+                float d = (food[i].pos - p).sqrMagnitude;
+                if (d < best) { best = d; bi = i; }
+            }
+            if (bi < 0) return false;
+            at = food[bi].pos;
+            dist = Mathf.Sqrt(best);
+            label = CityProps.FoodName(food[bi].kind);
+            return true;
         }
 
         void Start()

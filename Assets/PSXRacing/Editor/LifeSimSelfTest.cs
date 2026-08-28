@@ -151,6 +151,28 @@ namespace PSXRacing.EditorTools
                 }
             }
             Check(missing == 0, "every CityProps row baked a prefab", missing + " missing");
+
+            // The restaurants are the only props the player goes LOOKING for,
+            // and the placement gates (four lanes, 1.2-9.5 km from uptown,
+            // 1.5 km apart, off a ramp, out of the water) are strict enough
+            // that a small change to any of them could quietly leave the city
+            // with nowhere to eat. The HUD's signpost would then point at
+            // nothing at all.
+            var map = PSXRacing.City.CityMap.Get();
+            if (map != null)
+            {
+                var placed = PSXRacing.City.CityBuildings.Precompute(map);
+                int burgers = 0, pizzas = 0;
+                foreach (var kv in placed)
+                    foreach (var b in kv.Value)
+                    {
+                        if (b.kind == PSXRacing.City.CityProps.Burger) burgers++;
+                        else if (b.kind == PSXRacing.City.CityProps.Pizzeria) pizzas++;
+                    }
+                Check(burgers >= 3, "Charlotte has drive-thrus", burgers);
+                Check(pizzas >= 3, "Charlotte has pizzerias", pizzas);
+            }
+
         }
 
         // ---------------------------------------------------------------
@@ -261,8 +283,13 @@ namespace PSXRacing.EditorTools
                   bay0 != null ? bay0.transform.position.y.ToString("0.000") : "missing");
 
             // Eye height above the ground the player is standing on.
+            // The player's OWN camera. FindFirstObjectByType returns whichever
+            // camera the scene happens to list first, and this scene also holds
+            // the PSX output camera parked at the origin — which is how this
+            // assertion once reported a 20 cm eye height for a rig that was
+            // fine.
             var player = GameObject.Find("Player");
-            var cam = Object.FindFirstObjectByType<Camera>();
+            var cam = player != null ? player.GetComponentInChildren<Camera>() : null;
             if (player != null && cam != null)
             {
                 float eye = cam.transform.position.y - player.transform.position.y;

@@ -105,6 +105,35 @@ is at human height, the yard is subdivided, and every baked prop is the size
 its `CityProps.Def` claims — that last one being the invariant the placement
 maths depends on and the one that would have caught the oversized house.
 
+### "Where are the fast food drive-thru and Pizza building?" (2026-08-28)
+
+They were all there. The player spawns at Trade & Tryon, the placement rule
+keeps restaurants 1.2-9.5 km out (a drive-thru does not belong among the
+towers) and 1.5 km apart, and the far plane is 360 m with fog closing before
+it. Ten buildings over 2,574 km of road that you can only see from 360 m away
+are findable by accident and no other way. Placement was right; DISCOVERY was
+missing.
+
+The free-roam HUD now carries a signpost in the slot the OSM attribution uses
+for its first seven seconds: `/^  STACK BURGER  1.4 km`. An eight-point arrow
+relative to WHERE THE CAR IS POINTING, not a compass bearing — a player
+mid-corner can act on "over your left shoulder" and cannot act on
+"north-north-east". `CityWorld` flattens the restaurants out of the tile
+buckets once into a food index; `RaceHUD.FoodCue` refreshes on a 0.4 s timer
+rather than per frame, because it is a concatenated string on a screen whose
+whole design is change-gated. Inside 30 m it drops to the name alone and the
+ORDER prompt takes over.
+
+The self-test now fails the build if Charlotte ends up with fewer than three
+of each. Those placement gates are strict enough that one tweak could empty
+the city of food and leave the new signpost pointing at nothing.
+
+KNOWN, and deliberately not fixed here: Emerald Isle's two restaurants are
+SCENERY. `RaceManager.OnCarFinished` disables player input at the traps, so
+the car coasts through the shutdown area unable to order, and the island has
+no free-roam mode. Making them live means either a free roam for the island or
+leaving input enabled through the shutdown area after a drag finish.
+
 **The rival-race spawn.** The 1v1 override teleported the player to
 `rival.right * 5.2 m` — measured for the circuits' 2×2 grid. On a drag venue
 the field is already abreast in FOUR-car lanes, so the surviving pair sat

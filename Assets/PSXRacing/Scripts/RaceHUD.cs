@@ -117,8 +117,12 @@ namespace PSXRacing
             if (centis != lastTimeCentis) { lastTimeCentis = centis; Set(timeText, FormatTime(city.SessionSeconds)); }
 
             Set(posText, "FREE ROAM");
+            // The attribution has its seven seconds, then the slot becomes the
+            // signpost. Ten restaurants over 2,574 km of road behind a 360 m
+            // fog wall are findable only by accident otherwise — the question
+            // that prompted this was literally "where are they?".
             Set(lastLapText, city.SessionSeconds < 7f && world != null && world.Map != null
-                ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS" : "");
+                ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS" : FoodCue());
 
             UpdateFuel();
 
@@ -142,6 +146,49 @@ namespace PSXRacing
             // does not exist out here; the order window takes it back.
             var cityTouch = TouchControls.Instance;
             if (cityTouch != null && DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
+        }
+
+
+        /// <summary>
+        /// Which way to the nearest drive-thru, and how far. An eight-point
+        /// arrow relative to where the CAR IS POINTING rather than a compass
+        /// bearing, because a player mid-corner can act on "over your left
+        /// shoulder" and cannot act on "north-north-east".
+        ///
+        /// Refreshed on a timer rather than per frame: it is a string built by
+        /// concatenation on a screen whose whole design is change-gated, and
+        /// the answer moves by a metre a frame.
+        /// </summary>
+        static readonly string[] FoodArrows =
+            { "^", "/^", ">", "\v", "v", "v/", "<", "^\\" };
+
+        float foodNext;
+        string foodLine = "";
+
+        string FoodCue()
+        {
+            if (world == null || car == null) return "";
+            if (Time.unscaledTime < foodNext) return foodLine;
+            foodNext = Time.unscaledTime + 0.4f;
+
+            if (!world.NearestFood(car.transform.position, out string label,
+                                   out Vector2 at, out float dist))
+            { foodLine = ""; return foodLine; }
+
+            // Standing in the car park already: the order prompt says the rest.
+            if (dist < 30f) { foodLine = label; return foodLine; }
+
+            Vector3 to = new Vector3(at.x - car.transform.position.x, 0f,
+                                     at.y - car.transform.position.z);
+            float rel = Vector3.SignedAngle(
+                new Vector3(car.transform.forward.x, 0f, car.transform.forward.z), to, Vector3.up);
+            int oct = Mathf.RoundToInt(Mathf.Repeat(rel, 360f) / 45f) % 8;
+
+            string range = dist >= 1000f
+                ? (dist / 1000f).ToString("0.0") + " km"
+                : Mathf.RoundToInt(dist / 10f) * 10 + " m";
+            foodLine = FoodArrows[oct] + "  " + label + "  " + range;
+            return foodLine;
         }
 
         /// <summary>The city world, for the attribution gate above. Wired by

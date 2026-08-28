@@ -51,6 +51,15 @@ namespace PSXRacing.City
         public const byte Burger = 20;
         public const byte Pizzeria = 21;
 
+        public static bool IsFood(byte kind) => kind == Burger || kind == Pizzeria;
+
+        /// <summary>Shop sign, for the HUD's nearest-food cue and the order
+        /// screen. Here rather than on DriveThru because the HUD has to name a
+        /// restaurant it has not reached yet, which means naming it from the
+        /// map rather than from the component standing in it.</summary>
+        public static string FoodName(byte kind) =>
+            kind == Burger ? "STACK BURGER" : kind == Pizzeria ? "SLICE HOUSE" : "";
+
         // yawOffsetDeg = 180 on every row: the whole pack models its fronts
         // toward Blender -Y, which lands at Unity -Z — and the placement code
         // points +Z at the road. Verified off the first preview pass, where
