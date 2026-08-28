@@ -62,8 +62,21 @@ namespace PSXRacing.EditorTools
                 var def = CityProps.Defs[kind];
                 string name = System.IO.Path.GetFileNameWithoutExtension(def.res);
 
-                var inst = (GameObject)Object.Instantiate(prefab);
-                inst.name = name;
+                var model = (GameObject)Object.Instantiate(prefab);
+
+                // The MODEL is scaled; the prefab ROOT is not. Everything added
+                // below — solid box, order bay, foundation skirt — is authored
+                // in real metres, so it must not inherit the correction, and
+                // the world-space bounds it measures already carry it.
+                GameObject inst;
+                if (def.Scale != 1f)
+                {
+                    inst = new GameObject(name);
+                    model.transform.SetParent(inst.transform, false);
+                    model.transform.localScale = Vector3.one * def.Scale;
+                }
+                else { inst = model; inst.name = name; }
+
                 ConvertToPSXMaterials(inst);
                 foreach (var t in inst.GetComponentsInChildren<Transform>(true))
                     t.gameObject.isStatic = false;   // streamed tiles move whole objects
@@ -252,8 +265,18 @@ namespace PSXRacing.EditorTools
                 return;
             }
 
+            // The ground is already BUILT and collided by the time this runs,
+            // so seat every lot on the surface the player will actually stand
+            // on rather than on the height function that described it. Those
+            // two disagreed — the stage ground is chunked, masked and pinned to
+            // the road corridor after the DEM is sampled — and the difference
+            // is what left half the beach town buried to the eaves.
+            Physics.SyncTransforms();
+            bool hitBackfaces = Physics.queriesHitBackfaces;
+            Physics.queriesHitBackfaces = true;
+
             var rand = new System.Random(41);
-            int placed = 0, eats = 0;
+            int placed = 0, eats = 0, sunk = 0;
             float startM = track.stageStartLineM;
             float finishM = track.FinishIndex * Spacing;
 
@@ -268,17 +291,6 @@ namespace PSXRacing.EditorTools
                 Vector3 rightv = RightAt(pts, i);
                 float off = 14f + (float)rand.NextDouble() * 6f;
                 Vector3 at = pts[i] + rightv * (side * off);
-
-                float gy = GroundHeightAt(at.x, at.z);
-                // the sound side of Emerald Drive slides underwater fast; a
-                // beach house with wet carpet is a skipped lot
-                if (track.stage && trackStageWaterY() > -9000f && gy < trackStageWaterY() + 0.6f) continue;
-                // reject slopes that would bury a corner or float a porch,
-                // then seat on the HIGHEST sample — the skirt hides the rest
-                float g2 = GroundHeightAt(at.x + 6f, at.z);
-                float g3 = GroundHeightAt(at.x, at.z + 6f);
-                if (Mathf.Abs(g2 - gy) > 2.2f || Mathf.Abs(g3 - gy) > 2.2f) continue;
-                gy = Mathf.Max(gy, Mathf.Max(g2, g3));
 
                 // the restaurants: one burger box past the traps, one pizzeria
                 // mid-island, then houses and trailers for everyone else
@@ -299,20 +311,68 @@ namespace PSXRacing.EditorTools
                 if (prefab == null) continue;
                 var def = CityProps.Defs[kind];
 
+                // Sample the REAL surface under all four corners of the lot and
+                // the middle of it. All five must find ground, or the lot is
+                // over water or off the edge of the chunked terrain.
+                Vector3 face = -rightv * side;
+                var rot = Quaternion.LookRotation(face, Vector3.up);
+                Vector3 fwd = rot * Vector3.forward, rgt = rot * Vector3.right;
+                float lo = float.MaxValue, hi = float.MinValue;
+                bool ok = true;
+                for (int c = 0; c < 5 && ok; c++)
+                {
+                    float fx = c == 4 ? 0f : ((c & 1) == 0 ? -0.5f : 0.5f) * def.w;
+                    float fz = c == 4 ? 0f : ((c & 2) == 0 ? -0.5f : 0.5f) * def.d;
+                    Vector3 probe = at + rgt * fx + fwd * fz;
+                    if (SurfaceY(probe, out float sy)) { lo = Mathf.Min(lo, sy); hi = Mathf.Max(hi, sy); }
+                    else ok = false;
+                }
+                if (!ok) { sunk++; continue; }
+                // A lot that falls away by more than the skirt can cover is a
+                // house on stilts at one corner; leave that ground empty.
+                if (hi - lo > 1.8f) { sunk++; continue; }
+                if (trackStageWaterY() > -9000f && lo < trackStageWaterY() + 0.5f) { sunk++; continue; }
+
                 var go = (GameObject)Object.Instantiate(prefab);
                 go.name = prefab.name;
                 go.transform.SetParent(root.transform, false);
-                go.transform.position = new Vector3(at.x, gy - def.sink, at.z);
+                // Seat on the HIGHEST corner: a model cannot stretch its walls
+                // down into a bank, and the baked foundation skirt is what the
+                // low corner shows instead of daylight.
+                go.transform.position = new Vector3(at.x, hi - def.sink, at.z);
                 // face the road: the lot sits at +right*side, so looking back
                 // along -right*side is looking at the tarmac
-                Vector3 face = -rightv * side;
-                go.transform.rotation = Quaternion.LookRotation(face, Vector3.up)
-                                        * Quaternion.Euler(0f, def.yawOffsetDeg, 0f);
+                go.transform.rotation = rot * Quaternion.Euler(0f, def.yawOffsetDeg, 0f);
                 foreach (var t in go.GetComponentsInChildren<Transform>(true))
                     t.gameObject.isStatic = true;
                 placed++;
             }
-            Log("Beach town: " + placed + " lots (" + eats + " places to eat)");
+
+            Physics.queriesHitBackfaces = hitBackfaces;
+            Log("Beach town: " + placed + " lots (" + eats + " places to eat), " +
+                sunk + " sites rejected as wet, steep or off-mesh");
+        }
+
+        /// <summary>
+        /// World Y of the ground under a point, off the terrain that has
+        /// actually been built. Drops from well overhead so it lands on the top
+        /// face, and ignores the ROAD layer — a lot whose corner overhangs the
+        /// tarmac must seat on the earth beside it, not on the carriageway.
+        /// </summary>
+        static bool SurfaceY(Vector3 at, out float y)
+        {
+            y = 0f;
+            var hits = Physics.RaycastAll(new Vector3(at.x, at.y + 400f, at.z),
+                                          Vector3.down, 900f);
+            bool found = false;
+            float best = float.MinValue;
+            foreach (var h in hits)
+            {
+                if (h.collider.gameObject.layer == RoadLayer) continue;
+                if (h.point.y > best) { best = h.point.y; found = true; }
+            }
+            if (found) y = best;
+            return found;
         }
 
         /// <summary>Stage water level, or -9999 when the stage has none. Small

@@ -244,6 +244,21 @@ namespace PSXRacing
             if (pixelLabel != null) pixelLabel.text = PixelLabel();
         }
 
+        Text lookLabel;
+
+        static string LookLabel() => "LOOK Y: " + LookPrefs.Label;
+
+        /// <summary>
+        /// Flip the on-foot pitch axis. Reachable from here because the
+        /// forecourt is a walking place reached from a race, and a player who
+        /// needs this needs it the moment they first look up and go down.
+        /// </summary>
+        void ToggleLook()
+        {
+            LookPrefs.Toggle();
+            if (lookLabel != null) lookLabel.text = LookLabel();
+        }
+
         void ToggleDebug()
         {
             debugOn = !debugOn;
@@ -366,6 +381,10 @@ namespace PSXRacing
                        new Vector2(0f, y), new Vector2(360f, 48f), 20, CycleBulb);
             bulbLabel = bulbBtn.GetComponentInChildren<Text>();
             menuItems.Add(bulbBtn); y -= 54f;
+            var lookBtn = MakeButton(panel.transform, LookLabel(), font, new Vector2(0.5f, 1f),
+                       new Vector2(0f, y), new Vector2(360f, 48f), 20, ToggleLook);
+            lookLabel = lookBtn.GetComponentInChildren<Text>();
+            menuItems.Add(lookBtn); y -= 54f;
             menuItems.Add(MakeButton(panel.transform, "RESET CAR (UNSTICK)", font, new Vector2(0.5f, 1f),
                        new Vector2(0f, y), new Vector2(360f, 48f), 20, ResetCar)); y -= 54f;
             // Above RESTART rather than below it: a player opening this menu

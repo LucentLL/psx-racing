@@ -50,6 +50,7 @@ namespace PSXRacing.EditorTools
             TestHousingAndJobs();
             TestCityProps();
             TestGridStaging();
+            TestHomeLot();
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -119,6 +120,35 @@ namespace PSXRacing.EditorTools
                     Check(prefab.GetComponentInChildren<Collider>(true) != null,
                           kv.Value.res + " is solid to a car");
                 }
+
+                // The declared footprint IS the placement maths — the corridor
+                // test, the occupancy grid and the seating all measure with it.
+                // A def that disagrees with the model it names puts buildings
+                // through each other and through roads, silently. Measured off
+                // the model only: the apron and the foundation skirt are ours,
+                // and deliberately bigger than the building.
+                var inst = (GameObject)Object.Instantiate(prefab);
+                var b = new Bounds();
+                bool any = false;
+                foreach (var r in inst.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    string n = r.gameObject.name;
+                    if (n == "Apron" || n == "Skirt" || n == "Solid" || n == "OrderBay") continue;
+                    if (!any) { b = r.bounds; any = true; } else b.Encapsulate(r.bounds);
+                }
+                Object.DestroyImmediate(inst);
+                if (any)
+                {
+                    float wide = Mathf.Max(b.size.x, b.size.z);
+                    float deep = Mathf.Min(b.size.x, b.size.z);
+                    float declW = Mathf.Max(kv.Value.w, kv.Value.d);
+                    float declD = Mathf.Min(kv.Value.w, kv.Value.d);
+                    bool fits = Mathf.Abs(wide - declW) < declW * 0.18f + 0.5f &&
+                                Mathf.Abs(deep - declD) < declD * 0.18f + 0.5f;
+                    Check(fits, kv.Value.res + " is the size its Def claims",
+                          wide.ToString("0.0") + " x " + deep.ToString("0.0") +
+                          " vs " + declW.ToString("0.0") + " x " + declD.ToString("0.0"));
+                }
             }
             Check(missing == 0, "every CityProps row baked a prefab", missing + " missing");
         }
@@ -180,6 +210,72 @@ namespace PSXRacing.EditorTools
                     Check(ok, def.id + ": 1v1 restage stays on the road");
                 }
             }
+        }
+
+        /// <summary>
+        /// The home lot, in the three ways it has actually been wrong: a house
+        /// too big for the person walking round it, a parking bay under its own
+        /// garage floor, and a ground plane too coarse to stop the PSX vertex
+        /// snap swimming underfoot. All three were reported by eye and none of
+        /// them throws, so all three are asserted here.
+        /// </summary>
+        static void TestHomeLot()
+        {
+            Line("home lot:");
+            if (!System.IO.File.Exists(GarageSceneBuilder.ScenePath))
+            {
+                Check(false, "garage scene is built");
+                return;
+            }
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene(GarageSceneBuilder.ScenePath);
+
+            var house = GameObject.Find("House");
+            Check(house != null, "the house is in the scene");
+            if (house == null) return;
+
+            // A person is 1.62 m to the eye, so the house has to be a house.
+            var doors = new List<float>();
+            float garageBaseY = float.MaxValue;
+            foreach (var r in house.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                string n = r.name;
+                if (n.StartsWith("Garage_Door"))
+                    garageBaseY = Mathf.Min(garageBaseY, r.bounds.min.y);
+                else if (n == "Door" || (n.StartsWith("Door_0") && !n.Contains("frame")))
+                    doors.Add(r.bounds.size.y);
+            }
+            doors.Sort();
+            float med = doors.Count > 0 ? doors[doors.Count / 2] : 0f;
+            Check(doors.Count > 0 && Mathf.Abs(med - 2.03f) < 0.25f,
+                  "interior doors are door-sized (2.03 m +/- 0.25)", med.ToString("0.00"));
+
+            // The garage floor is the datum the whole lot sits on: at y=0 the
+            // lot's own ground slab IS the garage floor, which matters because
+            // the collider mesh has no garage floor in it.
+            Check(garageBaseY < float.MaxValue && Mathf.Abs(garageBaseY) < 0.12f,
+                  "garage floor sits at y=0", garageBaseY.ToString("0.000"));
+
+            var bay0 = GameObject.Find("Bay0");
+            Check(bay0 != null && Mathf.Abs(bay0.transform.position.y - garageBaseY) < 0.12f,
+                  "bay 0 is ON the garage floor, not under it",
+                  bay0 != null ? bay0.transform.position.y.ToString("0.000") : "missing");
+
+            // Eye height above the ground the player is standing on.
+            var player = GameObject.Find("Player");
+            var cam = Object.FindFirstObjectByType<Camera>();
+            if (player != null && cam != null)
+            {
+                float eye = cam.transform.position.y - player.transform.position.y;
+                Check(eye > 1.45f && eye < 1.95f, "the eye sits at human height", eye.ToString("0.00"));
+            }
+            else Check(false, "player rig is in the scene");
+
+            // Ground panels are subdivided: the PSX snap on a two-triangle lawn
+            // is the "ground warps as I walk" report.
+            var yard = GameObject.Find("Yard");
+            var mf = yard != null ? yard.GetComponent<MeshFilter>() : null;
+            int verts = mf != null && mf.sharedMesh != null ? mf.sharedMesh.vertexCount : 0;
+            Check(verts >= 400, "the yard is subdivided, not one big quad", verts + " verts");
         }
 
         static bool OnRoad(TrackPath path, Vector3 pos)

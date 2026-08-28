@@ -69,8 +69,21 @@ namespace PSXRacing.OnFoot
         void Update()
         {
             HandleCapture();
+            HandleInvertKey();
             Look();
             Move();
+        }
+
+        /// <summary>
+        /// Flip the pitch axis without leaving the room. The setting also lives
+        /// in the pause menu and on the home screen, but a player who has just
+        /// looked up and gone down needs it HERE, in the two seconds before
+        /// they decide the controls are broken.
+        /// </summary>
+        void HandleInvertKey()
+        {
+            var kb = Keyboard.current;
+            if (kb != null && kb.iKey.wasPressedThisFrame) LookPrefs.Toggle();
         }
 
         // ------------------------------------------------------------------
@@ -143,6 +156,11 @@ namespace PSXRacing.OnFoot
                 if (kb.upArrowKey.isPressed) dPitch -= k;
                 if (kb.downArrowKey.isPressed) dPitch += k;
             }
+
+            // ONE place, after every source has been summed: mouse, stick,
+            // arrow keys and the phone's thumb drag all pitch the same way, so
+            // the setting cannot end up honoured on one device and not another.
+            dPitch *= LookPrefs.PitchSign;
 
             yaw += dYaw;
             pitch = Mathf.Clamp(pitch + dPitch, -pitchLimit, pitchLimit);

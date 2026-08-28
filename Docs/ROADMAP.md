@@ -51,6 +51,60 @@ are steep, underwater, on the staging box, or on a bridge approach), with one
 burger box past the traps and a pizzeria mid-island. Same baked prefabs as
 Charlotte, instantiated at build time.
 
+### The scale pass (2026-08-28, same day, after play-testing)
+
+Four reports, three of them one root cause. **"My character appears 3ft tall
+(half the door height)"** and **"the car is in the ground of the garage"** and
+**"many houses in Emerald Isle are underground"** — plus the older **"at the
+gas pumps the character felt eight feet tall"**.
+
+**The pack is not built to real-world scale, and nothing was checking.** Its
+interior doors measure 2.51 m against a real 2.03 — 1.23x oversized. The
+player's eye is a fixed 1.62 m, so an oversized house does not look like a big
+house, it makes the PLAYER look like a child. The house is now scaled from its
+own doors (0.81), which lands the garage door at a real 2.84 x 2.43 m and the
+garage interior at 3.10 m across. The same correction goes into the city prop
+prefabs for the residential models and the single-storey restaurant (whose
+6.5 m parapet was a storey and a half too tall); the multi-storey blocks are
+left alone, because 13.5 m over four floors is already right.
+
+**The same bug inverted at the pumps.** `PumpHeightM` was 1.85 — a pump BODY
+height — applied to a `Fuel_pump` object that measures 2.81 m because it
+includes the price display. That shrank the whole forecourt by a sixth. Now
+2.2 m, which is a real dispenser over its head.
+
+**The garage floor is 0.71 m above the model's origin, and the collider mesh
+has no garage floor in it at all.** The house was being seated at a flat -0.04
+with the bays at 0, so the car parked most of a metre under its own slab. The
+house is now seated by its MEASURED garage-door base, so the floor lands at
+y=0 — which is where the lot's own ground slab is, and that slab is therefore
+what the garage stands on.
+
+**Emerald Isle's houses were seated from the height FUNCTION, not the ground.**
+`GroundHeightAt` and the terrain that actually gets built disagree — the stage
+ground is chunked, surface-masked and pinned to the road corridor after the DEM
+is sampled. Lots now raycast the real collider under all four corners and the
+centre, seat on the highest, and refuse any site that is wet, steep, or off the
+edge of the mesh. (The same lesson as the garage door: measure the thing, not
+the function that describes it.)
+
+**"The ground is warping as I walk (we fixed this for race tracks)"** — right,
+and for the same reason. The lawn was one 64 x 48 m quad, so the PSX vertex
+snap moved four corners and dragged the whole surface between them. Yard,
+driveway and street are subdivided meshes now at ~2 m cells.
+
+**Inverted Y.** `LookPrefs` — a PlayerPrefs bool applied at the ONE place every
+pitch source is summed, so mouse, right stick, arrow keys and the phone's thumb
+drag cannot disagree. Reachable three ways because the walking scenes have no
+pause menu: `I` on foot, a LOOK Y row in the pause menu, and a row beside WALK
+INTO YOUR HOUSE on the home screen (the only route a touch player has).
+
+Six new self-test assertions, each one the shape of a report that got here by
+eye: doors are door-sized, the garage floor is at y=0, bay 0 is on it, the eye
+is at human height, the yard is subdivided, and every baked prop is the size
+its `CityProps.Def` claims — that last one being the invariant the placement
+maths depends on and the one that would have caught the oversized house.
+
 **The rival-race spawn.** The 1v1 override teleported the player to
 `rival.right * 5.2 m` — measured for the circuits' 2×2 grid. On a drag venue
 the field is already abreast in FOUR-car lanes, so the surviving pair sat

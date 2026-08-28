@@ -2679,9 +2679,9 @@ namespace PSXRacing.EditorTools
         static readonly string[] StationBackdrop = { "Background", "Checker" };
 
         /// <summary>
-        /// A fuel pump is about 1.85 m tall. Everywhere. Always.
+        /// How tall the model's <c>Fuel_pump</c> object stands, in metres.
         ///
-        /// That is the ONLY dimension in this model whose real-world size is
+        /// That object is the ONLY thing in this model whose real-world size is
         /// known, and it is the anchor everything else about the station's
         /// scale hangs off. Every other candidate was tried and every one of
         /// them was measuring something that is not the building: the raw
@@ -2690,8 +2690,18 @@ namespace PSXRacing.EditorTools
         /// with roads and hillsides and a treeline, not as a filling station.
         /// Scaling by any of those is how the station ended up a fifth of the
         /// size of its own forecourt.
+        ///
+        /// 2.2 rather than the 1.85 this shipped with. 1.85 is the height of a
+        /// pump's BODY, and the object being measured is the whole dispenser
+        /// including its price display — a Gilbarco Encore is 2.29 m over the
+        /// head, a Wayne Ovation 2.2. Measuring the tall thing and calling it
+        /// the short thing shrank the entire forecourt by a sixth, which is
+        /// what the player was reporting when they said they felt eight feet
+        /// tall looking over the pumps. Everything else on the forecourt — pad,
+        /// apron, colliders, trigger volumes — is derived from this one number,
+        /// so it is the only place the correction has to be made.
         /// </summary>
-        const float PumpHeightM = 1.85f;
+        const float PumpHeightM = 2.2f;
 
         /// <summary>How far from the pumps the station itself reaches. Thirty
         /// metres covers the shop behind them and the apron in front; past that

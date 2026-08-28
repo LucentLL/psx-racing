@@ -1197,7 +1197,21 @@ namespace PSXRacing.LifeSim
                     LifeSimManager.Save();
                     SceneManager.LoadScene(TrackCatalog.GarageSceneIndex);
                 }, 18, new Color(0.20f, 0.30f, 0.24f, 1f));
-            y -= 64f;
+            y -= 58f;
+
+            // Next to the door it applies to. On a phone there is no I key and
+            // no pause menu in the house, so this row is the ONLY way a touch
+            // player can flip the look axis — which makes it the one that has
+            // to be here rather than in a settings screen this game does not
+            // have.
+            MenuKit.Button(body, "LOOK Y: " + LookPrefs.Label,
+                new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 460f), 40f), () =>
+                {
+                    LookPrefs.Toggle();
+                    Rebuild();
+                }, 15);
+            y -= 54f;
             DrawBar("ENGINE", car.engine, ref y);
             DrawBar("TIRES", car.tires, ref y);
             DrawBar("BODY", car.carHP, ref y);

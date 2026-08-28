@@ -151,7 +151,7 @@ namespace PSXRacing.OnFoot
         FootTarget lastIt;
         string lastCtrl, lastHint;
         int lastMoney = int.MinValue, lastDay = int.MinValue;
-        bool lastCaptured, lastPad;
+        bool lastCaptured, lastPad, lastInvert;
 
         /// <summary>Force the prompt to be re-read. The world edits an
         /// interactable's wording IN PLACE when the player takes the keys to a
@@ -203,10 +203,15 @@ namespace PSXRacing.OnFoot
             // changes every one of them.
             bool captured = walker != null && walker.MouseCaptured;
             bool pad = Gamepad.current != null;
-            if (captured != lastCaptured || pad != lastPad || lastHint == null)
+            // The invert state is IN the hint, so it has to be in the gate too:
+            // a line that names the setting and then does not change when the
+            // player presses the key reads as the key having done nothing.
+            bool inv = LookPrefs.InvertY;
+            if (captured != lastCaptured || pad != lastPad || inv != lastInvert || lastHint == null)
             {
                 lastCaptured = captured;
                 lastPad = pad;
+                lastInvert = inv;
                 lastHint = HintLines();
                 Set(hintText, lastHint);
             }
@@ -216,12 +221,18 @@ namespace PSXRacing.OnFoot
 
         string HintLines()
         {
+            // The look axis is the one control a player cannot work around, so
+            // the key that flips it is named on every device that has a
+            // keyboard — and named as LOOK Y, matching the pause-menu row, so
+            // the two read as the same setting rather than two settings.
+            string invert = "   ·   I INVERTS LOOK Y (" + LookPrefs.Label + ")";
+
             if (Thumbs) return "LEFT THUMB WALKS  ·  RIGHT THUMB LOOKS  ·  USE BUTTON ACTS";
 
             if (Gamepad.current != null)
-                return "LEFT STICK MOVES   ·   RIGHT STICK LOOKS   ·   A / CROSS USES";
+                return "LEFT STICK MOVES   ·   RIGHT STICK LOOKS   ·   A / CROSS USES" + invert;
 
-            string line = "WASD / ARROWS MOVE   ·   MOUSE LOOKS   ·   F OR ENTER USES";
+            string line = "WASD / ARROWS MOVE   ·   MOUSE LOOKS   ·   F OR ENTER USES" + invert;
             if (walker != null && !walker.MouseCaptured)
                 line = "CLICK TO LOOK AROUND\n" + line + "   ·   ESC FREES THE MOUSE";
             return line;

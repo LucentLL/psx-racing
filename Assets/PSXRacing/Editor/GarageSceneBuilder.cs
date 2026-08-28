@@ -48,7 +48,19 @@ namespace PSXRacing.EditorTools
         // fallbacks for a build where the model is missing entirely.
         static float garX = 4.45f;        // garage doorway centre
         static float garZ = -6.45f;       // garage doorway plane
-        const float GarageDepth = 5.7f;   // doorway to rear wall
+        const float GarageDepth = 4.6f;   // doorway to rear wall, at scale
+
+        /// <summary>
+        /// A US residential interior door is 80 inches. It is the only feature
+        /// in this pack with a dimension the real world agrees about, so it is
+        /// the ruler the whole house is scaled by.
+        ///
+        /// The pack ships ~1.23x oversized, and that is not a cosmetic problem:
+        /// the player's eye is a fixed 1.62 m, so an oversized house makes the
+        /// PLAYER look like a child. The report was "my character appears 3ft
+        /// tall (half the door height)" — measured, the doors were 2.51 m.
+        /// </summary>
+        const float RealInteriorDoorH = 2.03f;
 
         /// <summary>Five parking spots: the garage bay, the driveway, and
         /// three kerbside. The LifeSim's slot ladder decides how many hold
@@ -145,18 +157,26 @@ namespace PSXRacing.EditorTools
             float depth = YardBackZ - LotFrontZ;
             float midZ = (YardBackZ + LotFrontZ) * 0.5f;
 
-            Slab(parent, "Yard", new Vector3(0f, -0.1f, midZ),
-                 new Vector3(LotHalfX * 2f, 0.2f, depth), grass, true);
+            // SUBDIVIDED, not one big quad. The PSX shader snaps vertices to a
+            // coarse grid, and a 64 x 48 m surface drawn as two triangles has
+            // its whole area interpolated from four snapping corners — so the
+            // ground swims underfoot as you walk. That is the same bug the
+            // circuits' ground had, and the same fix: enough vertices that the
+            // snap moves each of them a distance you cannot see. Cells are
+            // ~2 m, which is finer than the tracks' 9 m because this is a
+            // surface the player stands ON rather than drives over at 200 km/h.
+            GridSlab(parent, "Yard", new Vector3(0f, 0f, midZ),
+                     LotHalfX * 2f, depth, 2f, grass, true, 14f);
 
             // Driveway, just proud of the grass so the seam never z-fights.
             float driveTop = (garZ + StreetZ + 2.4f) * 0.5f;
-            Slab(parent, "Driveway", new Vector3(garX, -0.088f, driveTop),
-                 new Vector3(4.4f, 0.22f, garZ - StreetZ - 2.4f), drive, false);
+            GridSlab(parent, "Driveway", new Vector3(garX, 0.012f, driveTop),
+                     4.4f, garZ - StreetZ - 2.4f, 1.5f, drive, false, 5f);
 
             // The street out front, and its far kerb. The world ends past the
             // kerb — the fog is closed long before the eye gets there.
-            Slab(parent, "Street", new Vector3(0f, -0.086f, StreetZ),
-                 new Vector3(LotHalfX * 2f, 0.22f, 7f), road, false);
+            GridSlab(parent, "Street", new Vector3(0f, 0.014f, StreetZ),
+                     LotHalfX * 2f, 7f, 2f, road, false, 8f);
             Slab(parent, "Kerb", new Vector3(0f, 0.05f, StreetZ + 3.65f),
                  new Vector3(LotHalfX * 2f, 0.14f, 0.3f), kerb, false);
 
@@ -165,6 +185,36 @@ namespace PSXRacing.EditorTools
             Wall(parent, new Vector3(0f, 1.5f, LotFrontZ), new Vector3(LotHalfX * 2f, 3f, 0.3f));
             Wall(parent, new Vector3(-LotHalfX, 1.5f, 0f), new Vector3(0.3f, 3f, depth + 6f));
             Wall(parent, new Vector3(LotHalfX, 1.5f, 0f), new Vector3(0.3f, 3f, depth + 6f));
+        }
+
+        /// <summary>
+        /// How much to shrink the pack's house so a person fits it: the median
+        /// interior-door height against a real 80-inch door. The median rather
+        /// than any one door, because the model carries nine of them and two
+        /// are a different size; and interior doors rather than the garage door
+        /// or the house's overall size, because a door is the one thing whose
+        /// real dimension is not a matter of taste.
+        /// </summary>
+        static float MeasuredScale(GameObject house)
+        {
+            var heights = new System.Collections.Generic.List<float>();
+            foreach (var r in house.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                string n = r.name;
+                if (n != "Door" && !(n.StartsWith("Door_0") && !n.Contains("frame"))) continue;
+                heights.Add(r.bounds.size.y);
+            }
+            if (heights.Count == 0)
+            {
+                Debug.LogWarning("[Home] no interior doors to measure — house left at 1:1");
+                return 1f;
+            }
+            heights.Sort();
+            float median = heights[heights.Count / 2];
+            float scale = median > 0.1f ? RealInteriorDoorH / median : 1f;
+            Debug.Log("[Home] " + heights.Count + " interior doors, median " +
+                      median.ToString("0.00") + " m -> scale " + scale.ToString("0.000"));
+            return scale;
         }
 
         static void Wall(Transform parent, Vector3 centre, Vector3 size)
@@ -193,12 +243,18 @@ namespace PSXRacing.EditorTools
             var house = (GameObject)Object.Instantiate(housePrefab);
             house.name = "House";
             house.transform.SetParent(parent, false);
-            house.transform.position = new Vector3(0f, -0.04f, 0f);
             // The pack fronts face +Z after import (the wide garage door and
             // the house's own drive apron measured at POSITIVE z on the first
             // build) — turn the whole house so its true front greets the
             // street. Everything downstream is measured, so it follows.
             house.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
+
+            // SCALE, from the model's own doors. Applied before anything is
+            // measured off it, because every number below is a world-space
+            // bound and world-space bounds move when the scale does.
+            float scale = MeasuredScale(house);
+            house.transform.localScale = Vector3.one * scale;
+
             PSXRacingBuilder.ConvertToPSXMaterials(house);
             foreach (var t in house.GetComponentsInChildren<Transform>(true))
                 t.gameObject.isStatic = true;
@@ -208,21 +264,47 @@ namespace PSXRacing.EditorTools
             // the width taken as max(x,z) so no import-axis surprise can hide
             // it — and the wide door's centre is the datum the whole lot is
             // laid out from before it disappears.
+            //
+            // Its BASE is the second datum, and the more important one: the
+            // house stands on a foundation, so its garage slab is most of a
+            // metre above the model's own origin. Seat the house by that and
+            // the garage floor lands at y=0 with the driveway — which is what
+            // the lot's own ground slab then IS, because the collider mesh has
+            // no garage floor in it at all. Placing the house at a flat -0.04
+            // is what left the car parked most of a metre under its own floor.
             bool measured = false;
+            float doorBaseY = 0f;
+            float widest = 0f;
             foreach (var t in house.GetComponentsInChildren<Transform>(true))
             {
                 if (!t.name.StartsWith("Garage_Door")) continue;
                 var r = t.GetComponentInChildren<MeshRenderer>();
                 if (r == null) continue;
                 var b = r.bounds;
-                if (Mathf.Max(b.size.x, b.size.z) > 3f && b.size.y > 2f)
+                float w = Mathf.Max(b.size.x, b.size.z);
+                if (w > 2.2f && b.size.y > 1.8f && w > widest)
                 {
+                    widest = w;
                     garX = b.center.x;
                     garZ = b.center.z;
+                    doorBaseY = b.min.y;
                     measured = true;
-                    t.gameObject.SetActive(false);
                 }
             }
+            if (measured)
+            {
+                // A pure Y move, so the X/Z datums just measured still hold.
+                house.transform.position = new Vector3(0f, -doorBaseY, 0f);
+                foreach (var t in house.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!t.name.StartsWith("Garage_Door")) continue;
+                    var r = t.GetComponentInChildren<MeshRenderer>();
+                    if (r == null) continue;
+                    if (Mathf.Max(r.bounds.size.x, r.bounds.size.z) > 2.2f && r.bounds.size.y > 1.8f)
+                        t.gameObject.SetActive(false);
+                }
+            }
+            else house.transform.position = Vector3.zero;
             // Sweep the doorway region for stacked leaves: the pack draws the
             // closed door as more than one mesh, and a bay that still shows a
             // shut door after "opening" hides the car the whole scene is for.
@@ -233,16 +315,17 @@ namespace PSXRacing.EditorTools
                     var r = t.GetComponent<MeshRenderer>();
                     if (r == null || !t.gameObject.activeInHierarchy) continue;
                     var b = r.bounds;
-                    if (Mathf.Abs(b.center.x - garX) > 2.0f) continue;
-                    if (Mathf.Abs(b.center.z - garZ) > 0.55f) continue;
-                    if (b.size.y < 1.8f || b.center.y > 4f) continue;
+                    if (Mathf.Abs(b.center.x - garX) > 1.7f) continue;
+                    if (Mathf.Abs(b.center.z - garZ) > 0.45f) continue;
+                    if (b.size.y < 1.5f || b.center.y > 3.4f) continue;
                     float wide = Mathf.Max(b.size.x, b.size.z);
-                    if (wide < 1.5f || wide > 5f) continue;
+                    if (wide < 1.2f || wide > 4f) continue;
                     t.gameObject.SetActive(false);
                 }
             }
             Debug.Log("[Home] garage door measured=" + measured + " at x=" +
-                      garX.ToString("0.00") + " z=" + garZ.ToString("0.00"));
+                      garX.ToString("0.00") + " z=" + garZ.ToString("0.00") +
+                      "  floor now y=0 (was " + doorBaseY.ToString("0.00") + ")");
 
             var colPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(HouseDir + "/house_hero_colliders.fbx");
             if (colPrefab != null)
@@ -250,6 +333,10 @@ namespace PSXRacing.EditorTools
                 var cols = (GameObject)Object.Instantiate(colPrefab);
                 cols.name = "HouseColliders";
                 cols.transform.SetParent(parent, false);
+                // Scale and seat IDENTICALLY to the visual house. A collider
+                // shell at 1:1 around a house at 0.81 is a set of invisible
+                // walls a metre outside the ones you can see.
+                cols.transform.localScale = house.transform.localScale;
                 cols.transform.position = house.transform.position;
                 cols.transform.rotation = house.transform.rotation;
                 foreach (var mf in cols.GetComponentsInChildren<MeshFilter>(true))
@@ -285,7 +372,7 @@ namespace PSXRacing.EditorTools
             // three-quarter is what greets a player walking up the drive.
             // Dead centre of the doorway: the model's furniture stands off
             // both walls, so the aisles clear on either side of the car.
-            Bay(0, new Vector3(garX, 0f, garZ + 2.55f), 180f);
+            Bay(0, new Vector3(garX, 0f, garZ + 2.4f), 180f);
             // Bay 1: the driveway.
             Bay(1, new Vector3(garX, 0f, -14.5f), 180f);
             // Bays 2-4: parallel-parked along the kerb.
@@ -318,11 +405,14 @@ namespace PSXRacing.EditorTools
             // The rear-left corner floor: crates stack where a garage actually
             // piles its boxes. (garX is the door centre; -X is the wall away
             // from the house interior.)
-            float x = garX - 1.75f, z = garZ + GarageDepth - 0.55f;
+            // Measured: the garage is 3.10 m across at the scale the doors set,
+            // so anything further than ~1.3 m off the centreline is inside a
+            // wall rather than against it.
+            float x = garX - 1.25f, z = garZ + GarageDepth - 0.5f;
 
             var root = new GameObject("PartsRack");
             root.transform.SetParent(parent, false);
-            root.transform.position = new Vector3(x + 0.4f, 0.6f, z - 0.4f);
+            root.transform.position = new Vector3(x + 0.3f, 0.6f, z - 0.4f);
 
             var anchor = new GameObject("CrateAnchor");
             anchor.transform.SetParent(parent, false);
@@ -338,15 +428,15 @@ namespace PSXRacing.EditorTools
         {
             // The model's shelving run on the house-side wall carries the
             // toolbox hook; bought tools spawn as small plaques over the bins.
-            float x = garX + 1.85f, z = garZ + 3.0f;
+            float x = garX + 1.35f, z = garZ + 2.8f;
 
             var root = new GameObject("ToolBoard");
             root.transform.SetParent(parent, false);
-            root.transform.position = new Vector3(x - 0.6f, 1.4f, z);
+            root.transform.position = new Vector3(x - 0.45f, 1.4f, z);
 
             var anchor = new GameObject("ToolAnchor");
             anchor.transform.SetParent(parent, false);
-            anchor.transform.position = new Vector3(x - 0.25f, 1.7f, z);
+            anchor.transform.position = new Vector3(x - 0.2f, 1.55f, z);
             // Local +Z into the garage (toward -X), local +X along the wall.
             anchor.transform.rotation = Quaternion.Euler(0f, -90f, 0f);
             toolAnchor = anchor.transform;
@@ -360,7 +450,7 @@ namespace PSXRacing.EditorTools
             // the hook just stands next to it.
             var root = new GameObject("Workbench");
             root.transform.SetParent(parent, false);
-            root.transform.position = new Vector3(garX - 1.8f, 1.0f, garZ + 3.6f);
+            root.transform.position = new Vector3(garX - 1.3f, 1.0f, garZ + 3.4f);
             return root.transform;
         }
 
@@ -368,13 +458,14 @@ namespace PSXRacing.EditorTools
         /// meals made walk-up-able. GarageWorld hangs the EAT hook on it.</summary>
         static Transform BuildFridge(Transform parent, Material fridgeMat)
         {
-            // Front-left inside the bay, clear of the model's furniture runs.
-            float x = garX - 1.75f, z = garZ + 1.0f;
+            // Just inside the door on the left, where a garage fridge lives and
+            // where it is clear of both the car and the model's own shelving.
+            float x = garX - 1.22f, z = garZ + 0.85f;
             Slab(parent, "GarageFridge", new Vector3(x, 0.44f, z),
-                 new Vector3(0.6f, 0.88f, 0.6f), fridgeMat, true);
+                 new Vector3(0.58f, 0.88f, 0.58f), fridgeMat, true);
             var root = new GameObject("FridgeAnchor");
             root.transform.SetParent(parent, false);
-            root.transform.position = new Vector3(x, 0.9f, z + 0.4f);
+            root.transform.position = new Vector3(x, 0.9f, z + 0.45f);
             return root.transform;
         }
 
@@ -384,7 +475,9 @@ namespace PSXRacing.EditorTools
             // get back to the desk, the phone, and the rest of the menus.
             var root = new GameObject("ExitDoor");
             root.transform.SetParent(parent, false);
-            root.transform.position = new Vector3(-2.4f, 1.3f, garZ - 0.4f);
+            // Beside the garage opening, on the porch side, at the scale the
+            // doors set. Derived from the door datum so it follows the house.
+            root.transform.position = new Vector3(garX + 3.2f, 1.3f, garZ - 0.3f);
             return root.transform;
         }
 
@@ -538,6 +631,82 @@ namespace PSXRacing.EditorTools
         /// surface with hand-authored UVs — would be a dozen more files in
         /// Generated/ for a lot made of a handful of slabs.
         /// </summary>
+        /// <summary>
+        /// A flat, SUBDIVIDED ground panel. The PSX shader snaps vertices to a
+        /// coarse grid; on a two-triangle surface the size of a garden that
+        /// snap is shared by four corners and the whole plane visibly swims as
+        /// the camera moves. Enough vertices and each one moves by less than a
+        /// pixel. UVs are world-space over <paramref name="tile"/> metres, so
+        /// the texture does not stretch when a panel changes size.
+        /// </summary>
+        static GameObject GridSlab(Transform parent, string name, Vector3 centre,
+                                   float sizeX, float sizeZ, float cell,
+                                   Material mat, bool solid, float tile)
+        {
+            int nx = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeX) / cell));
+            int nz = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeZ) / cell));
+            var verts = new Vector3[(nx + 1) * (nz + 1)];
+            var uvs = new Vector2[verts.Length];
+            var tris = new int[nx * nz * 6];
+
+            for (int z = 0; z <= nz; z++)
+                for (int x = 0; x <= nx; x++)
+                {
+                    float fx = (x / (float)nx - 0.5f) * sizeX;
+                    float fz = (z / (float)nz - 0.5f) * sizeZ;
+                    int v = z * (nx + 1) + x;
+                    verts[v] = new Vector3(fx, 0f, fz);
+                    uvs[v] = new Vector2((fx + centre.x) / tile, (fz + centre.z) / tile);
+                }
+            int t = 0;
+            for (int z = 0; z < nz; z++)
+                for (int x = 0; x < nx; x++)
+                {
+                    int v = z * (nx + 1) + x;
+                    tris[t++] = v; tris[t++] = v + nx + 1; tris[t++] = v + nx + 2;
+                    tris[t++] = v; tris[t++] = v + nx + 2; tris[t++] = v + 1;
+                }
+
+            var mesh = new Mesh { name = "Home_" + name };
+            mesh.vertices = verts;
+            mesh.uv = uvs;
+            mesh.triangles = tris;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            SaveMesh(mesh, "Home_" + name);
+
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = centre;
+            go.isStatic = true;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (mat != null) mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            // A plane has no underside to stand on, so the collider is a thin
+            // BOX rather than a MeshCollider: a car dropped onto a one-sided
+            // mesh at the wrong moment falls through it.
+            if (solid)
+            {
+                var col = go.AddComponent<BoxCollider>();
+                col.size = new Vector3(Mathf.Abs(sizeX), 0.4f, Mathf.Abs(sizeZ));
+                col.center = new Vector3(0f, -0.2f, 0f);
+            }
+            return go;
+        }
+
+        static void SaveMesh(Mesh mesh, string name)
+        {
+            const string dir = Root + "/Generated";
+            if (!AssetDatabase.IsValidFolder(dir))
+                AssetDatabase.CreateFolder(Root, "Generated");
+            string path = dir + "/" + name + ".asset";
+            var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (existing != null) AssetDatabase.DeleteAsset(path);
+            AssetDatabase.CreateAsset(mesh, path);
+        }
+
         static GameObject Slab(Transform parent, string name, Vector3 centre, Vector3 size,
                                Material mat, bool solid)
         {
