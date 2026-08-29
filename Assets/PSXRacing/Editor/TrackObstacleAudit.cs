@@ -114,6 +114,8 @@ namespace PSXRacing.EditorTools
             // station collider that grew over the approach, leaves a pump
             // nobody can reach — and nothing else here would say a word.
             AuditForecourt(path, colliders, log);
+            AuditFacing(path, log);
+            AuditVerge(def, path, trackHalf, reachHalf, log);
 
             foreach (var col in colliders)
             {
@@ -209,6 +211,223 @@ namespace PSXRacing.EditorTools
                                (o.hasRenderer ? "" : ", NO RENDERER — invisible") +
                                "]  near wp " + o.waypoint + "  " + o.key);
             }
+        }
+
+        // ==================================================================
+        //  Is the track furniture facing the driver?
+        // ==================================================================
+        /// <summary>
+        /// Every single-sided surface beside the road is drawn once and has to
+        /// be drawn the right way round, and the corner order that does that
+        /// FLIPS with the side of the track — because "outward" and "toward the
+        /// road" are opposite vectors on the two sides.
+        ///
+        /// `BuildRoadEdge` and `BuildOneStageWall` have always branched on
+        /// side. `BuildKerbs` and the circuits' `BuildWalls` never did, so the
+        /// LEFT kerb of every circuit faced downward and the LEFT barrier faced
+        /// out over the scenery: from the driving seat there was no kerb and no
+        /// wall on that side at all, only a collider that stopped you. It had
+        /// been that way since the circuits were built and no screenshot showed
+        /// it, because a picture of a missing thing looks like a picture of a
+        /// track that has nothing there.
+        ///
+        /// Cheap to assert and impossible to see by eye, so it is asserted:
+        /// road-like surfaces face UP, barriers face the centreline.
+        /// </summary>
+        static void AuditFacing(TrackPath path, StringBuilder log)
+        {
+            int checkedObjs = 0, wrong = 0;
+            foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                string n = mf.gameObject.name;
+                bool wantUp = n == "Road" || n == "KerbL" || n == "KerbR" || n == "RoadEdge";
+                bool wantIn = n == "WallL" || n == "WallR";
+                if (!wantUp && !wantIn) continue;
+
+                var mesh = mf.sharedMesh;
+                var v = mesh.vertices;
+                var t = mesh.triangles;
+                var xf = mf.transform;
+                int bad = 0, seen = 0;
+                for (int i = 0; i + 2 < t.Length; i += 3)
+                {
+                    Vector3 a = xf.TransformPoint(v[t[i]]);
+                    Vector3 b = xf.TransformPoint(v[t[i + 1]]);
+                    Vector3 c = xf.TransformPoint(v[t[i + 2]]);
+                    Vector3 nrm = Vector3.Cross(b - a, c - a);
+                    if (nrm.sqrMagnitude < 1e-8f) continue;
+                    nrm.Normalize();
+                    Vector3 mid = (a + b + c) / 3f;
+                    seen++;
+                    if (wantUp) { if (nrm.y <= 0f) bad++; }
+                    else
+                    {
+                        // Toward the road, measured in plan against the nearest
+                        // point on the centreline.
+                        Vector3 toRoad = path.GetPoint(path.NearestIndex(mid)) - mid;
+                        toRoad.y = 0f;
+                        if (toRoad.sqrMagnitude < 1e-6f) continue;
+                        if (Vector3.Dot(new Vector3(nrm.x, 0f, nrm.z), toRoad.normalized) <= 0f) bad++;
+                    }
+                }
+                if (seen == 0) continue;
+                checkedObjs++;
+                if (bad > 0)
+                {
+                    wrong++;
+                    log.AppendLine("  BACKWARDS  " + n + " — " + bad + " of " + seen +
+                                   " faces point " + (wantUp ? "DOWN" : "away from the road") +
+                                   " and are invisible from the car");
+                }
+            }
+            log.AppendLine(wrong == 0
+                ? "  FACING OK — all " + checkedObjs + " single-sided surfaces face the driver"
+                : "  FACING: " + wrong + " of " + checkedObjs + " surfaces are inside out");
+        }
+
+        // ==================================================================
+        //  Can a car that ran wide get back on?
+        // ==================================================================
+        /// <summary>Lateral sample pitch across the run-off.</summary>
+        const float VergeStep = 0.25f;
+        /// <summary>
+        /// Tallest step up a car can take at this pitch and still climb it.
+        ///
+        /// The wheels are 0.666 m across, so a 0.33 m obstacle is exactly axle
+        /// height and a car meets it as a wall rather than as a ramp. Half of
+        /// that is the line between "a jolt" and "you are not getting back on".
+        /// </summary>
+        const float VergeMaxStep = 0.17f;
+        /// <summary>Waypoints between profiles. Every tenth is a section every
+        /// 40 m, which is finer than any feature the ground grid can hold.
+        /// </summary>
+        const int VergeEvery = 10;
+        /// <summary>How far past each end of a span the gorge still counts as
+        /// the bridge's. Three waypoints — the abutment and its approach.
+        /// </summary>
+        const float AbutmentM = 12f;
+
+        /// <summary>
+        /// Walk a section across the run-off at intervals down the whole track
+        /// and measure the biggest STEP UP a car driving back toward the
+        /// centreline has to climb.
+        ///
+        /// The obstacle test above asks whether anything is standing in the
+        /// run-off. This asks the other half of the same question, which
+        /// nothing was asking: whether the run-off is a place you can leave.
+        /// The ground beside the road is dug to the bottom of the road slab, so
+        /// a car that runs wide lands in a trench — and because that dig is
+        /// sampled by a nine-metre ground lattice, how deep the trench is
+        /// varies along the track. That is why it was reported as SOME sections
+        /// being impossible to drive back onto: the failure is real, it is
+        /// everywhere, and it is only severe where the lattice happens to fall.
+        /// </summary>
+        /// <summary>
+        /// The height of the SURFACE under a point — the thing a wheel would
+        /// rest on, and nothing else.
+        ///
+        /// A plain downward raycast is not that. The first version of this
+        /// walked into the grid and reported a 1.5 m step in the middle of the
+        /// road, which is the roof of a parked car; a lamp arm or a tree canopy
+        /// over the run-off would have done the same. The rule that separates
+        /// them is the one the obstacle test above already uses from the other
+        /// direction: a concave mesh collider is a surface (road, ground, deck,
+        /// forecourt, kerb, verge), and everything solid enough to be an
+        /// obstacle is a box, a capsule or a convex hull.
+        /// </summary>
+        static bool SurfaceUnder(Vector3 from, out float y)
+        {
+            y = 0f;
+            var hits = Physics.RaycastAll(from, Vector3.down, 12f, ~0,
+                                          QueryTriggerInteraction.Ignore);
+            bool found = false;
+            foreach (var h in hits)
+            {
+                var mc = h.collider as MeshCollider;
+                if (mc == null || mc.convex) continue;
+                // Highest surface wins: that is the one the car stands on.
+                if (!found || h.point.y > y) { y = h.point.y; found = true; }
+            }
+            return found;
+        }
+
+        static void AuditVerge(TrackCatalog.TrackDef def, TrackPath path,
+                               float trackHalf, float reachHalf, StringBuilder log)
+        {
+            if (reachHalf <= trackHalf + VergeStep)
+            {
+                log.AppendLine("  no run-off to profile (the barrier is on the kerb)");
+                return;
+            }
+
+            float worst = 0f;
+            int worstIdx = -1;
+            float worstAt = 0f, worstSide = 0f;
+            int profiles = 0, bad = 0, spans = 0;
+            float lap = Mathf.Max(def.LengthM, 1f);
+
+            for (int i = 0; i < path.Count; i += VergeEvery)
+            {
+                // A bridge is exempt, and honestly so. The run-off beside a
+                // viaduct is a fourteen-metre gorge: there IS a step at the
+                // deck edge, it is meant to be there, and no amount of grading
+                // lets a car drive back up onto a bridge from underneath it.
+                // Counted and reported rather than silently dropped — a silent
+                // exemption is how an audit stops measuring the thing it was
+                // written for.
+                // Reaches PAST the span at both ends, because the abutment is
+                // the point: BridgeBlend is zero at the first metre of a bridge
+                // and the ground beside that station has already fallen into
+                // the gorge the deck crosses. RidgePass's span starts at 920 m,
+                // waypoint 230 lands exactly on it, and testing the station
+                // alone exempted its neighbours and flagged the abutment.
+                float s = Mathf.Repeat(i * TrackCatalog.Spacing, lap);
+                bool overSpan = false;
+                for (float o = -AbutmentM; o <= AbutmentM && !overSpan; o += AbutmentM)
+                    if (TrackCatalog.BridgeBlend(def, Mathf.Repeat(s + o + lap, lap)) > 0.001f)
+                        overSpan = true;
+                if (overSpan) { spans++; continue; }
+
+                Vector3 c = path.GetPoint(i);
+                Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+                profiles++;
+                foreach (float side in new[] { -1f, 1f })
+                {
+                    float prevY = 0f;
+                    bool havePrev = false;
+                    bool sideBad = false;
+                    // Outside in, the way a car drives back onto the track.
+                    for (float d = reachHalf; d >= 0f; d -= VergeStep)
+                    {
+                        Vector3 probe = c + right * (side * d) + Vector3.up * 4f;
+                        if (!SurfaceUnder(probe, out float y)) { havePrev = false; continue; }
+                        if (havePrev)
+                        {
+                            float step = y - prevY;      // positive = climbing
+                            if (step > worst) { worst = step; worstIdx = i; worstAt = d; worstSide = side; }
+                            if (step > VergeMaxStep) sideBad = true;
+                        }
+                        prevY = y;
+                        havePrev = true;
+                    }
+                    if (sideBad) bad++;
+                }
+            }
+
+            string where = worstIdx >= 0
+                ? " (wp " + worstIdx + ", " + worstAt.ToString("0.0") + " m " +
+                  (worstSide < 0f ? "left" : "right") + " of the centreline)"
+                : "";
+            log.AppendLine("  run-off profile: " + profiles + " sections" +
+                           (spans > 0 ? " (+" + spans + " over bridges, exempt)" : "") +
+                           ", worst step up " + worst.ToString("0.00") + " m per " +
+                           VergeStep.ToString("0.00") + " m" + where);
+            log.AppendLine(bad == 0
+                ? "  RE-ENTRY OK — nothing steeper than " + VergeMaxStep.ToString("0.00") +
+                  " m stands between the run-off and the tarmac"
+                : "  RE-ENTRY BLOCKED on " + bad + " of " + (profiles * 2) +
+                  " half-sections — a car that runs wide there cannot climb back on");
         }
 
         /// <summary>Half a car, and then some. The corridor a driver needs to

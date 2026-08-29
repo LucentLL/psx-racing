@@ -148,6 +148,19 @@ namespace PSXRacing.OnFoot
 
             MenuKit.Button(panel, "BACK OUTSIDE", new Vector2(0.5f, 1f),
                 new Vector2(0f, y), new Vector2(340f, 48f), Close, 18);
+
+            // Without this the shop is mouse- and touch-only: UGUI routes pad
+            // navigation to the SELECTED object and nothing here ever selected
+            // one, so a player who walked into the 6TWELVE on a pad could look
+            // at the shelves and not buy anything.
+            var items = MenuNav.Collect(panel);
+            MenuNav.Column(items);
+            if (items.Count > 0)
+            {
+                MenuNav.Select(items[0]);
+                var watch = MenuNav.Watch(gameObject, items[0]);
+                MenuNav.Defer(watch, null, items, null);
+            }
         }
 
         void Buy(Item it)

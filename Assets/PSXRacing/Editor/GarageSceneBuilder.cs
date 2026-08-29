@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -30,6 +31,11 @@ namespace PSXRacing.EditorTools
     {
         const string Root = "Assets/PSXRacing";
         const string MatDir = Root + "/Materials";
+        /// <summary>The owner's art folder, outside the project. Same shape as
+        /// the building and tree packs use: source art lives there, the build
+        /// copies what it needs into Assets, and the copy is what ships.</summary>
+        const string SrcArtRoot =
+            @"C:UsersmcgeeOneDriveDocumentsGame DevelopmentPSX AssetsPSX Racing";
         const string TexDir = Root + "/Art/GasStation/Textures";
         const string HouseDir = Root + "/Art/LifeSim/House";
         public const string ScenePath = Root + "/Scenes/Garage.unity";
@@ -105,6 +111,7 @@ namespace PSXRacing.EditorTools
             var board = BuildToolBoard(lot.transform, boardMat, out Transform toolAnchor);
             var bench = BuildBench(lot.transform, benchMat, shelfMat);
             var fridge = BuildFridge(lot.transform, fridgeMat);
+            BuildEngineHoist(lot.transform, rigMat);
             var door = BuildDoorAnchor(lot.transform);
 
             BuildLighting();
@@ -454,6 +461,174 @@ namespace PSXRacing.EditorTools
             return root.transform;
         }
 
+        // ------------------------------------------------------------------
+        //  engine hoist
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// A shop crane in the corner with an LS1 swinging off the chain.
+        ///
+        /// The engine is a SPRITE, not a model, and that is the whole point of
+        /// it being here: the question was whether this game needs modelled
+        /// engines or whether a photographed one on a billboard holds up, and
+        /// the only way to answer that is to hang one at eye height in a room
+        /// the player walks round. The crane itself is primitives, like the
+        /// jack and the stands - what has to be right is the HEIGHT and the
+        /// reach, because a sprite that floats a foot off the hook reads as a
+        /// bug no matter how good the photograph is.
+        ///
+        /// Placed beside the front bumper of bay 0 rather than over it. There
+        /// is no spot in a 3.1 m garage that is not also where the car is, and
+        /// of the two ways to be wrong, standing next to the car is the one
+        /// that still lets the player see the engine.
+        ///
+        /// Nothing here is solid. A crane you can walk through is odd; a crane
+        /// that wedges the player between itself and the car in a one-car
+        /// garage is worse, and the doorway is the only way out.
+        /// </summary>
+        static void BuildEngineHoist(Transform parent, Material rigMat)
+        {
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(EngineTexPath);
+            if (tex == null)
+            {
+                tex = ImportEngineSheet();
+                if (tex == null) { Debug.LogWarning("[Home] engine sprite missing — no hoist"); return; }
+            }
+
+            var root = new GameObject("EngineHoist");
+            root.transform.SetParent(parent, false);
+
+            // Mast base, against the house-side wall level with the front
+            // bumper. The legs run toward the door so the crane is parked the
+            // way one is parked: nose out, ready to be rolled.
+            float x = garX + 1.05f, z = garZ + 1.62f;
+            const float MastH = 1.92f;
+            const float BoomReach = 1.00f;
+            const float ChainLen = 0.26f;
+            const float EngineSize = 0.86f;
+
+            Slab(root.transform, "HoistMast", new Vector3(x, MastH * 0.5f, z),
+                 new Vector3(0.11f, MastH, 0.11f), rigMat, false);
+            foreach (float side in new[] { -0.26f, 0.26f })
+            {
+                Slab(root.transform, "HoistLeg",
+                     new Vector3(x + side, 0.09f, z - 0.62f),
+                     new Vector3(0.08f, 0.10f, 1.30f), rigMat, false);
+                // Casters, so the legs end in something rather than in mid-air.
+                foreach (float end in new[] { -1.22f, -0.06f })
+                    Slab(root.transform, "HoistCaster",
+                         new Vector3(x + side, 0.035f, z + end),
+                         new Vector3(0.09f, 0.07f, 0.09f), rigMat, false);
+            }
+            Slab(root.transform, "HoistCross", new Vector3(x, 0.09f, z + 0.02f),
+                 new Vector3(0.62f, 0.10f, 0.10f), rigMat, false);
+
+            // Boom: out over the legs and tilted down a little, the way a
+            // loaded one sits. Rotated rather than stepped, because a staircase
+            // of little cubes is exactly what the first raise rig looked like.
+            float dropY = 0.09f;
+            var boom = Slab(root.transform, "HoistBoom",
+                new Vector3(x, MastH - 0.05f - dropY * 0.5f, z - BoomReach * 0.5f),
+                new Vector3(0.09f, 0.10f, BoomReach + 0.12f), rigMat, false);
+            boom.transform.rotation = Quaternion.Euler(
+                -Mathf.Atan2(dropY, BoomReach) * Mathf.Rad2Deg, 0f, 0f);
+
+            // Ram: mast to mid-boom, the diagonal that makes it read as a crane
+            // rather than as a coat stand.
+            var ramA = new Vector3(x, 0.72f, z - 0.04f);
+            var ramB = new Vector3(x, MastH - 0.14f, z - BoomReach * 0.45f);
+            var ram = Slab(root.transform, "HoistRam", (ramA + ramB) * 0.5f,
+                new Vector3(0.08f, 0.08f, Vector3.Distance(ramA, ramB)), rigMat, false);
+            ram.transform.rotation = Quaternion.LookRotation(ramB - ramA, Vector3.up);
+
+            float tipY = MastH - 0.05f - dropY;
+            float tipZ = z - BoomReach;
+            Slab(root.transform, "HoistChain",
+                 new Vector3(x, tipY - ChainLen * 0.5f, tipZ),
+                 new Vector3(0.035f, ChainLen, 0.035f), rigMat, false);
+
+            // ---- the engine ----
+            var engMat = LoadOrCreate("GarageEngineSprite", psxLit);
+            engMat.shader = psxLit;
+            engMat.mainTexture = tex;
+            engMat.color = Color.white;
+            // Cut out, not blended: the sheet has a real alpha channel and a
+            // cutout costs no sorting. 0.4 rather than 0.5 because the export
+            // tops out at alpha 253, so the solid body of the engine is not
+            // quite 1.0 anywhere.
+            if (engMat.HasProperty("_Cutoff")) engMat.SetFloat("_Cutoff", 0.4f);
+            if (engMat.HasProperty("_Affine")) engMat.SetFloat("_Affine", 0f);
+            engMat.renderQueue = 2450;
+            EditorUtility.SetDirty(engMat);
+
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = "EngineSprite";
+            Object.DestroyImmediate(quad.GetComponent<Collider>());
+            quad.transform.SetParent(root.transform, false);
+            quad.transform.position = new Vector3(
+                x, tipY - ChainLen - EngineSize * 0.5f + 0.04f, tipZ);
+            quad.transform.localScale = new Vector3(EngineSize, EngineSize, 1f);
+            var qmr = quad.GetComponent<MeshRenderer>();
+            qmr.sharedMaterial = engMat;
+            qmr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            qmr.receiveShadows = false;
+
+            var bb = quad.AddComponent<PSXRacing.OnFoot.AtlasBillboard>();
+            bb.cellSize = new Vector2(1f / 3f, 0.5f);
+            // The sheet is 3x2. Unity's UV origin is bottom-left and a PNG's
+            // first row is the TOP one, so the sheet's top row lives at v=0.5.
+            //   top row:    front | rear  | side
+            //   bottom row: side  | above | below
+            // Only the four HORIZONTAL views are listed — above and below are
+            // on the sheet and are exactly the two a walking player never gets
+            // to, so putting them in the rotation would show a plan view of an
+            // engine to somebody standing beside it.
+            bb.viewOffsets = new[]
+            {
+                new Vector2(0f / 3f, 0.5f),   // front — accessory drive
+                new Vector2(0f / 3f, 0.0f),   // side
+                new Vector2(1f / 3f, 0.5f),   // rear — flywheel
+                new Vector2(2f / 3f, 0.5f),   // the other side
+            };
+            bb.facing = Vector3.back;   // the crane faces the door
+        }
+
+        const string EngineArtDir = Root + "/Art/Engines";
+        const string EngineTexPath = EngineArtDir + "/LS1_V8.png";
+
+        /// <summary>
+        /// Copy the sheet out of the art folder and set it up PSX-style.
+        ///
+        /// Point-filtered with no mips, and NOT compressed: a 512 px cell of
+        /// alpha-cut machinery is all high-frequency edges, and DXT eats the
+        /// cutout boundary first — the engine comes back with a fringe of
+        /// half-transparent grey around every header pipe.
+        /// </summary>
+        static Texture2D ImportEngineSheet()
+        {
+            string proj = Directory.GetParent(Application.dataPath).FullName;
+            string dst = Path.Combine(proj, EngineTexPath);
+            if (!File.Exists(dst))
+            {
+                string src = Path.Combine(SrcArtRoot, "Engine Sprites", "LS1 V8.png");
+                if (!File.Exists(src)) { Debug.LogWarning("[Home] no LS1 sheet at " + src); return null; }
+                Directory.CreateDirectory(Path.GetDirectoryName(dst));
+                File.Copy(src, dst);
+                AssetDatabase.ImportAsset(EngineTexPath, ImportAssetOptions.ForceUpdate);
+            }
+            var ti = AssetImporter.GetAtPath(EngineTexPath) as TextureImporter;
+            if (ti != null && (ti.filterMode != FilterMode.Point || ti.mipmapEnabled ||
+                               ti.textureCompression != TextureImporterCompression.Uncompressed))
+            {
+                ti.filterMode = FilterMode.Point;
+                ti.mipmapEnabled = false;
+                ti.wrapMode = TextureWrapMode.Clamp;
+                ti.alphaIsTransparency = true;
+                ti.textureCompression = TextureImporterCompression.Uncompressed;
+                ti.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(EngineTexPath);
+        }
+
         /// <summary>The garage fridge — a man-cave staple, and the LifeSim's
         /// meals made walk-up-able. GarageWorld hangs the EAT hook on it.</summary>
         static Transform BuildFridge(Transform parent, Material fridgeMat)
@@ -484,92 +659,22 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  player, lighting, display
         // ------------------------------------------------------------------
-        static GameObject BuildPlayer(out Camera cam)
-        {
-            var go = new GameObject("Player");
-            // On the driveway, looking up at the house and the open garage —
-            // the first thing a player sees is their own place with their own
-            // car in it.
-            go.transform.position = new Vector3(garX, 0.2f, -13.5f);
-
-            var body = go.AddComponent<CharacterController>();
-            body.height = 1.75f;
-            body.radius = 0.32f;
-            body.center = new Vector3(0f, 0.9f, 0f);
-            body.slopeLimit = 50f;
-            // Low. A parked car's collider starts about 22 cm off the floor, and
-            // the default step height is enough to walk straight up onto the
-            // bonnet of one — which is the sort of thing a player finds in the
-            // first thirty seconds and never unsees.
-            body.stepOffset = 0.15f;
-
-            var headGO = new GameObject("Head");
-            headGO.transform.SetParent(go.transform, false);
-            headGO.transform.localPosition = new Vector3(0f, 1.62f, 0f);
-
-            var camGO = new GameObject("PSXCamera");
-            camGO.tag = "MainCamera";
-            camGO.transform.SetParent(headGO.transform, false);
-            cam = camGO.AddComponent<Camera>();
-            cam.fieldOfView = 60f;
-            cam.nearClipPlane = 0.08f;
-            cam.farClipPlane = 160f;
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.63f, 0.72f, 0.83f);
-            camGO.AddComponent<AudioListener>();
-
-            var walk = go.AddComponent<FirstPersonWalk>();
-            walk.head = headGO.transform;
-
-            var interactor = go.AddComponent<FootInteractor>();
-            interactor.eye = camGO.transform;
-
-            return go;
-        }
+        /// <summary>
+        /// The player, on the driveway looking up at the house and the open
+        /// garage — the first thing they see is their own place with their own
+        /// car in it. The RIG itself comes from FootRig, which is where the
+        /// six-foot height lives now that a second walk-in scene wants the
+        /// same person standing in it.
+        /// </summary>
+        static GameObject BuildPlayer(out Camera cam) =>
+            FootRig.Build(new Vector3(garX, 0.2f, -13.5f), 0f, out cam);
 
         /// <summary>
         /// Late-afternoon sun over the lot. Outdoors now, so the fog closes at
         /// the far kerb line and the backdrop past it is the fog's own colour —
         /// the same trick every circuit uses to end its world.
         /// </summary>
-        static GameObject BuildLighting()
-        {
-            var go = new GameObject("Sun");
-            var light = go.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.color = new Color(1f, 0.93f, 0.80f);
-            light.intensity = 1.1f;
-            light.shadows = LightShadows.None;
-            go.transform.rotation = Quaternion.Euler(38f, 145f, 0f);
-
-            var globals = go.AddComponent<PSXGlobals>();
-            globals.sun = light;
-            globals.ambient = new Color(0.50f, 0.49f, 0.52f);
-            globals.fogColor = new Color(0.63f, 0.72f, 0.83f);
-            globals.fogNear = 70f;
-            globals.fogFar = 220f;
-
-            var skyShader = Shader.Find("PSX/Sky");
-            if (skyShader != null)
-            {
-                string p = MatDir + "/HomeSky.mat";
-                var sky = AssetDatabase.LoadAssetAtPath<Material>(p);
-                if (sky == null)
-                {
-                    sky = new Material(skyShader);
-                    AssetDatabase.CreateAsset(sky, p);
-                }
-                sky.shader = skyShader;
-                sky.SetColor("_TopColor", new Color(0.25f, 0.44f, 0.75f));
-                sky.SetColor("_HorizonColor", new Color(0.70f, 0.78f, 0.87f));
-                sky.SetColor("_BottomColor", new Color(0.63f, 0.72f, 0.83f));
-                sky.SetFloat("_HorizonSharpness", 1.4f);
-                EditorUtility.SetDirty(sky);
-                RenderSettings.skybox = sky;
-            }
-            else RenderSettings.skybox = null;
-            return go;
-        }
+        static GameObject BuildLighting() => FootRig.BuildLighting(MatDir, indoors: false);
 
         /// <summary>
         /// The same low-resolution pipeline the circuits render through: camera
@@ -577,49 +682,11 @@ namespace PSXRacing.EditorTools
         /// the dither blit. The home is part of the same game and has to be
         /// made of the same pixels.
         /// </summary>
-        static string BuildDisplay(Camera cam)
-        {
-            var output = cam.gameObject.AddComponent<PSXCameraOutput>();
-            output.height = PSXQuality.Height;
+        /// <summary>The PSX display chain — see FootRig.BuildDisplay, which is
+        /// where it lives now that a second walk-in scene needed it and got only
+        /// half of it.</summary>
+        static string BuildDisplay(Camera cam) => FootRig.BuildDisplay(cam, MatDir);
 
-            var outCamGO = new GameObject("OutputCamera");
-            var outCam = outCamGO.AddComponent<Camera>();
-            outCam.clearFlags = CameraClearFlags.SolidColor;
-            outCam.backgroundColor = Color.black;
-            outCam.cullingMask = 0;
-            outCam.depth = 50f;
-
-            var canvasGO = new GameObject("DisplayCanvas");
-            var canvas = canvasGO.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 0;
-            canvasGO.AddComponent<CanvasScaler>();
-
-            var rawGO = new GameObject("PSXDisplay");
-            rawGO.transform.SetParent(canvasGO.transform, false);
-            var raw = rawGO.AddComponent<RawImage>();
-            var fitter = rawGO.AddComponent<AspectRatioFitter>();
-            fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
-            fitter.aspectRatio = 16f / 9f;
-            var rrt = raw.rectTransform;
-            rrt.anchorMin = Vector2.zero; rrt.anchorMax = Vector2.one;
-            rrt.offsetMin = Vector2.zero; rrt.offsetMax = Vector2.zero;
-
-            var blitShader = Shader.Find("PSX/Blit");
-            if (blitShader != null)
-            {
-                var blit = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/Blit.mat");
-                if (blit == null)
-                {
-                    blit = new Material(blitShader);
-                    AssetDatabase.CreateAsset(blit, MatDir + "/Blit.mat");
-                }
-                blit.shader = blitShader;
-                raw.material = blit;
-            }
-            output.display = raw;
-            return output.height + " lines";
-        }
 
         // ------------------------------------------------------------------
         //  primitives

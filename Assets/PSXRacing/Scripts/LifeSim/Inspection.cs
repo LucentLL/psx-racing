@@ -483,5 +483,80 @@ namespace PSXRacing.LifeSim
             foreach (var f in car.faults) if (f.hidden) n++;
             return n;
         }
+
+        // ------------------------------------------------------------------
+        //  Somebody else looks at it
+        // ------------------------------------------------------------------
+        /// <summary>Who is doing the looking. The player's own inspection is
+        /// the component map; these two are the ways to buy the answer.</summary>
+        public enum Pro { Mechanic, Dealer }
+
+        /// <summary>
+        /// What each pro finds, per hidden fault.
+        ///
+        /// The mechanic misses things — that is the whole reason the dealer's
+        /// price is worth paying and the reason a careful owner still gets
+        /// under it themselves. The dealer has the ramp, the reader and the
+        /// service history, so they find everything; what they charge for it is
+        /// the balance.
+        /// </summary>
+        static float FindRate(Pro who) => who == Pro.Dealer ? 1f : 0.72f;
+
+        /// <summary>Base fee before the car-value scaling every other bill in
+        /// this game gets.</summary>
+        static int BaseFee(Pro who) => who == Pro.Dealer ? 300 : 120;
+
+        public static int ProCost(OwnedCar car, Pro who) =>
+            LifeRules.ServiceCost(car, BaseFee(who));
+
+        public static string ProLabel(Pro who) =>
+            who == Pro.Dealer ? "DEALER INSPECTION" : "MECHANIC INSPECTION";
+
+        /// <summary>
+        /// Book a professional inspection: money and a time slot for a list of
+        /// what is actually wrong with the car.
+        ///
+        /// Returns the line to show the player. Costs a slot like the player's
+        /// own inspection does, because it is the same errand — the car has to
+        /// go somewhere and come back — and because a paid inspection that cost
+        /// no time would make the player's own toolbox pointless.
+        /// </summary>
+        public static string BookPro(LifeState s, OwnedCar car, Pro who)
+        {
+            if (car == null) return "no car";
+            int price = ProCost(car, who);
+            if (s.money < price) return "need " + MenuKit.Money(price);
+
+            s.money -= price;
+            LifeRules.SpendActivitySlot(s);
+            // Leave a mark on the CAR, not just in the calendar. Without it the
+            // save cannot tell a fault a dealer found from one that was never
+            // hidden in the first place, which is precisely the ambiguity the
+            // v7 migration had to guess its way through.
+            car.proInspectDay = s.day;
+
+            float rate = FindRate(who);
+            var found = new List<string>();
+            foreach (var f in car.faults)
+            {
+                if (!f.hidden) continue;
+                if (Random.value > rate) continue;
+                f.hidden = false;
+                f.diagnosed = true;
+                found.Add(f.label);
+            }
+
+            string what = found.Count == 0
+                ? "nothing they could find"
+                : string.Join(", ", found);
+            s.calendarLog.Add("Day " + s.day + ": " + ProLabel(who) + " on " +
+                              car.displayName + " — " + what);
+            // Deliberately does NOT say how many are left. A clean bill from the
+            // mechanic has to be able to be wrong, or paying the dealer never
+            // buys anything.
+            return found.Count == 0
+                ? ProLabel(who) + ": they found nothing"
+                : ProLabel(who) + ": " + what;
+        }
     }
 }

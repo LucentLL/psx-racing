@@ -151,6 +151,52 @@ namespace PSXRacing.EditorTools
             sb.AppendLine("  garage floor runs " + lastFloor.ToString("0.0") +
                           " m in from the door plane  (a car is 4.3 m)");
 
+            // ---- INDEPENDENT scale checks ----
+            //
+            // The scale above is derived from door HEIGHT, so re-measuring door
+            // height proves nothing — it comes back as 2.03 by construction,
+            // which is exactly what the self-test has been cheerfully asserting.
+            // These are the numbers the scale did NOT set, so they are the ones
+            // that can disagree with it:
+            //
+            //   interior door leaf   0.76 m wide  (a 30" door)
+            //   ceiling              2.44 m       (an 8-foot ceiling)
+            //   garage door          2.44-2.74 m wide
+            //
+            // If the doors come out square-ish or the ceilings come out at
+            // three and a half metres, the pack's doors are not proportioned
+            // like real doors and scaling off their height put the whole house
+            // out — which a player reads as being three feet tall.
+            var dws = new List<float>();
+            var dhs = new List<float>();
+            foreach (var r in vis.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                if (!(r.name == "Door" || (r.name.StartsWith("Door_0") && !r.name.Contains("frame")))) continue;
+                var b = r.bounds;
+                dws.Add(Mathf.Max(b.size.x, b.size.z));   // leaf is thin on one axis
+                dhs.Add(b.size.y);
+            }
+            dws.Sort(); dhs.Sort();
+            if (dws.Count > 0)
+            {
+                float mw = dws[dws.Count / 2], mh = dhs[dhs.Count / 2];
+                sb.AppendLine("SCALE CHECK: interior door " + mw.ToString("0.000") + " m wide x " +
+                              mh.ToString("0.000") + " m high   (real: 0.76 x 2.03)");
+                sb.AppendLine("  => width says the house is " + (mw / 0.76f).ToString("0.000") +
+                              "x real size");
+            }
+
+            // Ceiling, measured in the middle of the biggest interior span we
+            // can find: straight up from the garage-door datum, a metre in.
+            Vector3 mid = new Vector3(dx, dFloor + 0.30f, dz + inward * 2.0f);
+            if (Physics.Raycast(mid, Vector3.up, out var ch, 12f))
+                sb.AppendLine("  garage ceiling " + (ch.point.y - dFloor).ToString("0.00") +
+                              " m above the slab   (real: 2.4-3.0)");
+            else sb.AppendLine("  garage ceiling: no hit");
+
+            sb.AppendLine("  a 6 ft player stands 1.83 m with eyes at ~1.70 m; " +
+                          "the builder puts the head at 1.62 m");
+
             Physics.queriesHitBackfaces = hitBackfaces;
             Object.DestroyImmediate(vis);
             Object.DestroyImmediate(cols);

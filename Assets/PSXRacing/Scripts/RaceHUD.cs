@@ -261,7 +261,19 @@ namespace PSXRacing
             }
 
             int pos = rm.GetPosition(car);
-            if (pos != lastPos) { lastPos = pos; Set(posText, "POS " + pos + "/" + rm.allCars.Count); }
+            if (RaceHandoff.Delivery)
+            {
+                // A delivery has no field, so "POS 1/1" is a readout that tells
+                // the player nothing — the slot carries the tip instead. It has
+                // to be here and it has to be LIVE: the whole job is now graded
+                // on the clock and on the state of the box, and a grade the
+                // player only learns about on the results screen is not a rule
+                // they can drive to, it is a surprise. Watching it fall as you
+                // run late, and drop a band the moment you hit something, is the
+                // mechanic.
+                UpdateDeliveryTip(p);
+            }
+            else if (pos != lastPos) { lastPos = pos; Set(posText, "POS " + pos + "/" + rm.allCars.Count); }
 
             UpdateFuel();
 
@@ -327,12 +339,111 @@ namespace PSXRacing
                         ? "\nET " + FormatTime(p != null ? p.finishTime : 0f) +
                           (drag ? "   TRAP " + Mathf.RoundToInt(p != null ? p.trapSpeedKmh : 0f) + " km/h" : "")
                         : "\nBEST " + FormatTime(p != null ? p.bestLapTime : 0f);
-                    center = ladder + "FINISH!  P" + pos + sheet +
+                    // A delivery is not a race result. Reporting "FINISH! P1" for
+                    // a solo run to a customer's door would be the circuit's
+                    // answer to a question the job did not ask; what the player
+                    // wants at that moment is whether the tip survived.
+                    string head = RaceHandoff.Delivery
+                        ? DeliverySheet(p != null ? p.finishTime : 0f)
+                        : ladder + "FINISH!  P" + pos + sheet;
+                    center = head +
                              "\n\n" + how +
                              (RaceHandoff.FromLifeSim ? " TO GO HOME" : " TO RESTART");
                     break;
             }
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
+        }
+
+        // =================== the delivery readout ===================
+        //
+        // Both halves below go through LifeRules.ScoreDelivery, which is also
+        // what the apply-back pays from. That is deliberate and it is the whole
+        // point of the function existing: a HUD that counts down its own idea of
+        // the tip and a wallet that grants a different one is worse than showing
+        // nothing, because the player would learn to distrust the number and
+        // then the mechanic is invisible again.
+
+        string lastTipLine;
+        /// <summary>Rebuilt on a timer rather than per frame. It is a string
+        /// built out of two floats and every assignment to Text.text rebuilds
+        /// the mesh — the same reason every other field on this HUD is
+        /// change-gated. Four times a second is faster than a tip actually
+        /// moves.</summary>
+        float nextTipAt;
+        const float TipRefreshSeconds = 0.25f;
+
+        /// <summary>Live damage off the car itself. The stamped
+        /// RaceHandoff.DamageScore does not exist until the run ends, and the
+        /// point of this readout is to react the instant the player hits
+        /// something.</summary>
+        CollisionResponder responder;
+        bool responderChecked;
+
+        void UpdateDeliveryTip(RaceManager.CarProgress p)
+        {
+            if (posText == null) return;
+            if (Time.unscaledTime < nextTipAt) return;
+            nextTipAt = Time.unscaledTime + TipRefreshSeconds;
+
+            if (!responderChecked)
+            {
+                responder = car != null ? car.GetComponent<CollisionResponder>() : null;
+                responderChecked = true;
+            }
+
+            var drop = LiveDrop(p != null ? p.raceTime : 0f);
+            // Short. This is the top-right corner of a 240-line framebuffer at
+            // 12 px, and the slot it inherited held "POS 1/4". The box only
+            // earns a mention once it has stopped being intact — a state line
+            // that is showing the good news every second of every clean run is
+            // chrome, and it would push the number that matters off the edge.
+            string line = drop.refused
+                ? "REFUSED"
+                : "TIP $" + drop.tip +
+                  (drop.condition >= LifeSim.LifeRules.PizzaPerfectCondition ? ""
+                   : " " + LifeSim.LifeRules.PizzaConditionLabel(drop.condition));
+            if (line != lastTipLine) { lastTipLine = line; Set(posText, line); }
+        }
+
+        /// <summary>
+        /// Score the drop as it stands.
+        ///
+        /// Off the LIVE responder while the run is going, because
+        /// RaceHandoff.DamageScore does not exist until the finish and the point
+        /// of the readout is to react the instant the player hits something —
+        /// but off the STAMPED numbers once the result is in. RaceManager kills
+        /// input at the line and the car keeps rolling; a delivery that coasted
+        /// into a barrier on its slowing-down lap would otherwise show a result
+        /// screen worse than the one the wallet is about to pay from, which is
+        /// the one direction this readout must never drift.
+        /// </summary>
+        LifeSim.LifeRules.DeliveryOutcome LiveDrop(float seconds)
+        {
+            bool stamped = RaceHandoff.ResultReady;
+            return LifeSim.LifeRules.ScoreDelivery(
+                RaceHandoff.DeliveryPay, RaceHandoff.TrackIndex, seconds,
+                stamped ? RaceHandoff.DamageScore
+                        : (responder != null ? responder.DamageScore : 0f),
+                stamped ? RaceHandoff.HardHits
+                        : (responder != null ? responder.HardHits : 0),
+                inProgress: !stamped);
+        }
+
+        string DeliverySheet(float finishTime)
+        {
+            if (!responderChecked)
+            {
+                responder = car != null ? car.GetComponent<CollisionResponder>() : null;
+                responderChecked = true;
+            }
+            var drop = LiveDrop(finishTime);
+            string clock = LifeSim.LifeRules.DeliveryClock(drop.seconds) +
+                           "  (PAR " + LifeSim.LifeRules.DeliveryClock(drop.parSeconds) + ")";
+            if (drop.refused)
+                return "REFUSED\nthe box was a write-off\n" + clock + "\nNO TIP";
+            return "DELIVERED\n" + clock +
+                   "\nBOX " + LifeSim.LifeRules.PizzaConditionLabel(drop.condition) +
+                   "\nTIP  " + LifeSim.MenuKit.Money(drop.tip);
         }
 
         Color lastFuelColor = new Color(-1f, -1f, -1f, -1f);

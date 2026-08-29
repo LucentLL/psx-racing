@@ -46,6 +46,248 @@ namespace PSXRacing.LifeSim
         /// <summary>The delivery job's advertised $96/day is an AVERAGE of the
         /// tip roll below, not a salary — WorkOneDay branches on the name.</summary>
         public const string DeliveryJobName = "FOOD DELIVERY";
+        /// <summary>
+        /// What one drop is worth, rolled at the counter.
+        ///
+        /// Same shape as the menu job's tip roll — basePay is the AVERAGE night
+        /// and the swing is the tips — but per DELIVERY rather than per shift,
+        /// so it is scaled down to roughly a third of a day's takings. Three or
+        /// four runs is a shift, which is what the activity slots allow anyway.
+        ///
+        /// Tiredness still counts: WorkPerformance is the same curve the desk
+        /// jobs pay against, and a driver who has not slept in three days is
+        /// worth less to the shop for the same reason.
+        /// </summary>
+        public static int RollDeliveryPay(LifeState s)
+        {
+            float perf = WorkPerformance(s);
+            float mult = perf >= 0.8f ? 1.0f : perf >= 0.5f ? 0.9f : 0.75f;
+            int basePer = Mathf.Max(8, Mathf.RoundToInt(DeliveryBasePay / 3f));
+            return Mathf.Max(5, Mathf.RoundToInt(
+                (basePer + Random.Range(-6, 15)) * s.payMultiplier * mult));
+        }
+
+        /// <summary>The advertised daily average for FOOD DELIVERY, kept beside
+        /// the Jobs table so the two cannot drift.</summary>
+        public const int DeliveryBasePay = 96;
+
+        /// <summary>
+        /// Where tonight's drop is: a RANDOM venue, rolled at the counter.
+        ///
+        /// The circuits stand in for streets for now, at the owner's ask
+        /// ("for now just make it choose a random race track") — a delivery is
+        /// a run from one end of a real route to the other, and a circuit is a
+        /// real route the game already has. City deliveries come later.
+        ///
+        /// Charlotte is the one venue excluded, and it has to be: it has no
+        /// finish line, so there would be nothing to arrive AT and the run
+        /// could never end. Everything else is fair game, strips included —
+        /// <see cref="DeliveryParSeconds"/> sizes the clock off the venue's own
+        /// raced distance, so a quarter mile and a seven-kilometre parkway
+        /// stage are both graded against what they actually take to drive.
+        ///
+        /// Rolled rather than rotated. The previous version stepped through the
+        /// catalog by day so a player could learn the route, which is the right
+        /// instinct for a race and the wrong one for a job: the whole texture of
+        /// delivery work is not knowing where the next one is going.
+        /// </summary>
+        public static int DeliveryTrackIndex(LifeState s)
+        {
+            var all = TrackCatalog.All;
+            int n = all.Length;
+            var car = s != null ? s.ActiveCar : null;
+
+            // Rolled from the venues this CAR CAN FINISH, not from the catalog.
+            //
+            // Rotating by day hid this: the parkway stage is 6.9 km with no
+            // forecourt on it, so a driver who set off on a quarter tank ran dry
+            // somewhere on a mountain with no pumps and no way to end the run.
+            // Rolling at random turns that from a rare unlucky Tuesday into a
+            // one-in-eight chance every single shift. The race menu has gated on
+            // RequiredFuelPct for months; a job that dispatches you somewhere you
+            // cannot reach is the same bug with a wage attached.
+            int start = Random.Range(0, n);
+            for (int i = 0; i < n; i++)
+            {
+                int idx = (start + i) % n;
+                var t = all[idx];
+                if (t.city) continue;
+                if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
+                return idx;
+            }
+
+            // Nothing in the catalog fits the tank. Send them to the cheapest
+            // run there is rather than refusing the shift — the shortest drop
+            // still might not fit, but it is the one that comes closest, and a
+            // career whose only job silently stops existing at low fuel is the
+            // trap the fallback shift was written to avoid in the first place.
+            int cheapest = -1; float least = float.MaxValue;
+            for (int i = 0; i < n; i++)
+            {
+                if (all[i].city) continue;
+                float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
+                if (need < least) { least = need; cheapest = i; }
+            }
+            return cheapest >= 0 ? cheapest : 0;
+        }
+
+        // ---- what a drop is actually worth when it arrives ----------------
+        //
+        // The quote at the counter is the CEILING. What the customer hands over
+        // is that quote scaled by how fast the run was and by what state the box
+        // is in — and past a point they simply refuse it. The owner's ask: "tip
+        // is based on how quickly the track is completed. wrecked the car
+        // damages the pizza and lowers tip. might even get the delivery denied."
+        //
+        // ONE scoring function, called from the two places that must not
+        // disagree: the HUD counts the tip down live while the player drives,
+        // and the apply-back pays it. A readout that promises $40 against a
+        // wallet that grants $18 is worse than no readout at all.
+
+        /// <summary>Average speed a delivery is graded against, m/s. 22 is about
+        /// 79 km/h — brisk on these circuits without being a qualifying lap, so
+        /// a player who drives properly and does not crash lands on par.
+        /// </summary>
+        public const float DeliveryParSpeed = 22f;
+        /// <summary>A strip or a bridge run is a standing start and then flat
+        /// out, so par there is a far higher average. Grading a quarter mile
+        /// against 79 km/h would make every drag delivery a free bonus.
+        /// </summary>
+        public const float DeliveryParSpeedDrag = 35f;
+        /// <summary>Seconds allowed for the lights, the launch and getting up to
+        /// speed, on top of the distance. It matters most where the run is
+        /// shortest: six seconds is 4% of a circuit and 40% of a quarter mile.
+        /// </summary>
+        public const float DeliveryLaunchAllowance = 6f;
+
+        /// <summary>Impact energy a delivery gets for free. Kerbs, rubs and a
+        /// clipped wall happen on any real drive, and a job that punished the
+        /// first bump would be graded on luck.</summary>
+        public const float PizzaFreeDamage = 6f;
+        /// <summary>Condition lost per point of impact energy past the
+        /// allowance, and per discrete heavy hit. The hit term is separate
+        /// because a box does not care about total energy — it cares how many
+        /// times the car stopped dead.</summary>
+        public const float PizzaShockPerDamage = 0.022f;
+        public const float PizzaShockPerHardHit = 0.20f;
+        /// <summary>At or below this the customer refuses it outright.</summary>
+        public const float PizzaRuinedCondition = 0.25f;
+        /// <summary>At or above this the box counts as untouched.</summary>
+        public const float PizzaPerfectCondition = 0.90f;
+        /// <summary>What a barely-accepted box is worth: a quarter. There is
+        /// still a tip for turning up with a squashed pizza, because a driver
+        /// who crashed and finished anyway did more work than one who did not,
+        /// and paying $0 for anything short of perfect would turn the job into a
+        /// coin flip.</summary>
+        public const float PizzaWorstMult = 0.25f;
+        /// <summary>Best and worst the clock alone can do to a tip. A quarter
+        /// over for beating par is worth chasing; the floor is not zero, because
+        /// a cold pizza is still a delivered pizza.</summary>
+        public const float DeliveryFastMult = 1.25f;
+        public const float DeliverySlowMult = 0.15f;
+
+        /// <summary>How long the drop is expected to take, in seconds — the
+        /// number the tip is graded against and the number the player is quoted
+        /// when they pick the order up. Measured off the venue's OWN raced
+        /// distance, so it means the same thing everywhere.</summary>
+        public static float DeliveryParSeconds(int trackIndex)
+        {
+            var all = TrackCatalog.All;
+            if (trackIndex < 0 || trackIndex >= all.Length) return 120f;
+            var t = all[trackIndex];
+            float speed = t.IsDragEvent ? DeliveryParSpeedDrag : DeliveryParSpeed;
+            return DeliveryLaunchAllowance + Mathf.Max(1f, t.RaceMeters) / speed;
+        }
+
+        /// <summary>What is left of the pizza, 0-1, from the race's damage
+        /// tally. Pure, so the HUD can watch it fall in real time off the live
+        /// CollisionResponder while the payout recomputes it from the stamped
+        /// result and gets the same answer.</summary>
+        public static float PizzaCondition(float damage, int hardHits)
+        {
+            float shock = Mathf.Max(0f, damage - PizzaFreeDamage) * PizzaShockPerDamage
+                        + Mathf.Max(0, hardHits) * PizzaShockPerHardHit;
+            return Mathf.Clamp01(1f - shock);
+        }
+
+        /// <summary>The whole result of one drop.</summary>
+        public struct DeliveryOutcome
+        {
+            /// <summary>Dollars actually handed over. Zero when refused.</summary>
+            public int tip;
+            /// <summary>The quote from the counter, i.e. the ceiling.</summary>
+            public int quoted;
+            public float parSeconds;
+            public float seconds;
+            /// <summary>0-1. What the box looks like when it is opened.</summary>
+            public float condition;
+            public float timeMult;
+            public float conditionMult;
+            /// <summary>The customer would not take it.</summary>
+            public bool refused;
+            /// <summary>True while the run is still going — the HUD asks for a
+            /// running total before there is a finish time.</summary>
+            public bool inProgress;
+        }
+
+        /// <summary>
+        /// Score a drop. Called live by the HUD (with the clock so far) and
+        /// again by the apply-back (with the finish time), so the number the
+        /// player watches falling is the number that lands in the wallet.
+        /// </summary>
+        public static DeliveryOutcome ScoreDelivery(int quoted, int trackIndex,
+                                                    float seconds, float damage,
+                                                    int hardHits, bool inProgress = false)
+        {
+            var o = new DeliveryOutcome
+            {
+                quoted = Mathf.Max(0, quoted),
+                parSeconds = DeliveryParSeconds(trackIndex),
+                seconds = seconds,
+                condition = PizzaCondition(damage, hardHits),
+                inProgress = inProgress,
+            };
+
+            // The clock. Under par pays a premium that keeps climbing to a
+            // quarter over at 0.6x par; over par it slides to the floor by the
+            // time the run has taken more than twice as long as it should.
+            float ratio = seconds / Mathf.Max(1f, o.parSeconds);
+            o.timeMult = ratio <= 1f
+                ? Mathf.Lerp(DeliveryFastMult, 1f, Mathf.InverseLerp(0.6f, 1f, ratio))
+                : Mathf.Lerp(1f, DeliverySlowMult, Mathf.InverseLerp(1f, 2.2f, ratio));
+
+            // The box. Untouched pays in full; anything the customer will still
+            // accept pays at least a quarter.
+            o.conditionMult = Mathf.Lerp(PizzaWorstMult, 1f,
+                Mathf.InverseLerp(PizzaRuinedCondition, PizzaPerfectCondition, o.condition));
+
+            o.refused = o.condition <= PizzaRuinedCondition;
+            o.tip = o.refused ? 0
+                  : Mathf.Max(0, Mathf.RoundToInt(o.quoted * o.timeMult * o.conditionMult));
+            return o;
+        }
+
+        /// <summary>The box, in words, for the HUD and the result line. Same
+        /// bands the multiplier uses, so what the player reads and what they are
+        /// paid cannot tell different stories.</summary>
+        public static string PizzaConditionLabel(float condition)
+        {
+            if (condition <= PizzaRuinedCondition) return "RUINED";
+            if (condition < 0.5f) return "WRECKED";
+            if (condition < 0.75f) return "SHAKEN";
+            if (condition < PizzaPerfectCondition) return "KNOCKED ABOUT";
+            return "INTACT";
+        }
+
+        /// <summary>mm:ss for a delivery clock. The race HUD has its own
+        /// hundredths formatter; a tip target does not want hundredths.</summary>
+        public static string DeliveryClock(float seconds)
+        {
+            if (seconds < 0f) seconds = 0f;
+            int t = Mathf.RoundToInt(seconds);
+            return (t / 60) + ":" + (t % 60).ToString("00");
+        }
+
         public const float PaycheckTaxRate = 0.22f;   // flat stand-in for calcPaycheckTax
         public const float ApplyHireChance = 0.55f;   // applyForJob.ts
         public const int NewHireWorkRep = 25;
@@ -350,6 +592,52 @@ namespace PSXRacing.LifeSim
                 // The metres, fuel and wear above are already banked.
                 summary = "free roam — " + (RaceHandoff.MetersDriven / 1000f).ToString("0.0") + " km in Charlotte";
             }
+            else if (RaceHandoff.Delivery)
+            {
+                // ARRIVED. The finish line is the customer's door, so crossing
+                // it is the whole job — there is nobody to beat and no position
+                // to place in. But arriving is not the same as arriving WELL:
+                // the quote at the counter is a ceiling, and what is actually
+                // handed over is that quote graded on the clock and on the state
+                // of the box. ScoreDelivery is the same call the HUD has been
+                // counting down all run, so the number the player watched fall
+                // is the number that lands here.
+                //
+                // Paid straight into the wallet rather than into pendingSalary:
+                // a delivery driver is tipped in cash at the door, and waiting
+                // until Friday for it would make the one job you actually drive
+                // the one job you cannot feel. The shift ALSO counts as the
+                // day's work, and the meal comes with it — same perk the menu
+                // version has always granted, for the same reason.
+                var drop = ScoreDelivery(RaceHandoff.DeliveryPay, RaceHandoff.TrackIndex,
+                                         RaceHandoff.RaceTimeSeconds,
+                                         RaceHandoff.DamageScore, RaceHandoff.HardHits);
+                s.money += drop.tip;
+                s.workedToday = true;
+                s.workDaysTotal++; s.workDaysPresent++;
+                s.consecutiveAbsences = 0;
+                // The shop hears about a refused order. A turned-away box costs
+                // standing rather than money — the money is already gone — and
+                // it is the only way the job can go backwards, which is what
+                // makes driving carefully worth anything.
+                s.workRep = Mathf.Clamp(s.workRep + (drop.refused ? -3f : 1f), 0f, 100f);
+                // You ate either way, and when it is refused you ate THIS one.
+                // Leaving the meal off a failed run would mean a crash cost the
+                // tip and the dinner, and starve a player for driving badly.
+                s.ateToday = true;
+                s.daysSinceEat = 0;
+                s.lastMealTier = "junk";
+                s.lastAnyRaceDay = s.day;   // rep-decay clock: you were out driving
+                // Short enough for the toast, which is 760 px of ONE line and
+                // already carries a "RACE RESULT: " prefix. The venue is left
+                // out on purpose: the player has just driven it.
+                summary = drop.refused
+                    ? "REFUSED — the box was a write-off. No tip; you ate it."
+                    : "delivered — " + DeliveryClock(drop.seconds) +
+                      " (par " + DeliveryClock(drop.parSeconds) + "), box " +
+                      PizzaConditionLabel(drop.condition).ToLower() + ", +" +
+                      MenuKit.Money(drop.tip);
+            }
             else if (RaceHandoff.IsPractice)
             {
                 s.lastAnyRaceDay = s.day;   // rep-decay clock: every race resets it
@@ -429,14 +717,46 @@ namespace PSXRacing.LifeSim
         {
             if (f == null) return;
             car.faults.Add(f);
+            if (f.hidden)
+            {
+                // The car is genuinely worse now and the player will feel it,
+                // but nobody has looked at it. Naming the part here would hand
+                // over the answer an inspection exists to find — so the log and
+                // the result screen report the SYMPTOM, which is all a driver
+                // gets from the seat.
+                s.calendarLog.Add("Day " + s.day + ": " + car.displayName +
+                                  " is not running right");
+                lastSymptom = SymptomFor(f.stat);
+                return;
+            }
             s.calendarLog.Add("Day " + s.day + ": DIAGNOSED — " + f.label +
                               " ($" + f.cost + ")");
             lastDiagnosed = f.label;
         }
 
+        /// <summary>What a fault in this lane feels like from the driver's seat.
+        /// Deliberately vague about the part and specific about the sensation:
+        /// it should send the player to INSPECT, not stand in for it.</summary>
+        static string SymptomFor(string stat)
+        {
+            switch (stat)
+            {
+                case "tires": return "the car does not want to hold a line";
+                case "hp": return "something is loose in the bodywork";
+                case "paint": return "the paint has taken a knock";
+                default: return "the engine is down on song";
+            }
+        }
+
         /// <summary>Set by the last apply-back so the result screen can show a
-        /// "DIAGNOSED:" line. Read once, then cleared.</summary>
+        /// "DIAGNOSED:" line. Read once, then cleared. Only faults somebody has
+        /// actually diagnosed reach it.</summary>
         public static string lastDiagnosed;
+
+        /// <summary>Set instead of <see cref="lastDiagnosed"/> when the race
+        /// left the car with a fault nobody has found yet. Read once, then
+        /// cleared.</summary>
+        public static string lastSymptom;
 
         // ================= repairs (repairCost.ts / pendingParts.ts) =================
         // Crash damage: DamageScore is roughly summed closing speed in m/s, so a
@@ -836,6 +1156,25 @@ namespace PSXRacing.LifeSim
             s.money = DebugMoney;
             s.garageSlots = Mathf.Max(s.garageSlots, DebugGarageSlots);
             s.creditScore = Mathf.Max(s.creditScore, DebugCredit);
+        }
+
+        /// <summary>
+        /// The job a career starts in.
+        ///
+        /// FOOD DELIVERY, on the owner's instruction — "I want the player's
+        /// default job (for now) to be pizza delivery" — because it is the only
+        /// job you can actually DRIVE, and a new player should meet the game
+        /// through the part of it that is a game rather than through a button
+        /// that adds money.
+        /// </summary>
+        public static int DefaultJobIndex
+        {
+            get
+            {
+                for (int i = 0; i < Jobs.Length; i++)
+                    if (Jobs[i].name == DeliveryJobName) return i;
+                return 0;
+            }
         }
 
         public static LifeState SeedNewGame(string name, int age, int jobIdx)

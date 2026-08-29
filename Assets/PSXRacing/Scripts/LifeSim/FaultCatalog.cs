@@ -160,8 +160,15 @@ namespace PSXRacing.LifeSim
                 days = pick.days,
                 add = pick.add,
                 repairType = pick.type,
-                hidden = false,      // v1 pushes wear faults visible; the hidden
-                diagnosed = true,    // layer + inspection are a later pass
+                // NOTHING arrives diagnosed. A fault is a thing the car has,
+                // not a thing the player is told about — the car goes off song
+                // (Aggregate_ counts hidden faults, so it really is slower) and
+                // finding out what is wrong costs an inspection, whether that
+                // is the player under it themselves, a mechanic, or a dealer.
+                // Wear faults used to announce themselves the moment they were
+                // rolled, which made the whole inspection layer decorative.
+                hidden = true,
+                diagnosed = false,
                 severity = severe ? 2f : 1f,
                 pullDir = UnityEngine.Random.value < 0.5f ? -1 : 1,
             };

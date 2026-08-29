@@ -56,7 +56,13 @@ namespace PSXRacing.LifeSim
         /// JsonUtility leaves them at their initializer defaults — so this only
         /// handles cases where an old value would be WRONG rather than absent.
         /// </summary>
-        static void Migrate(LifeState s)
+        /// <summary>Bring an older save forward. PUBLIC rather than private
+        /// because the self-test lives in the editor assembly, which cannot
+        /// see internals of this one - and the v7 rule is the only thing
+        /// between an old career and a fault list it never earned, which makes
+        /// it exactly the code that has to be pinned rather than assumed.
+        /// Idempotent: it runs on every load.</summary>
+        public static void Migrate(LifeState s)
         {
             if (s.saveVersion < 2)
             {
@@ -133,6 +139,55 @@ namespace PSXRacing.LifeSim
                     _ => string.IsNullOrEmpty(s.housingType) ? "house1g" : s.housingType,
                 };
                 s.saveVersion = 6;
+            }
+
+            if (s.saveVersion < 7)
+            {
+                // v7 is the save-side half of "nothing diagnoses itself". Until
+                // 2026-08-28 RollWearFault stamped every wear, threshold and
+                // impact fault hidden=false/diagnosed=true, so a career carried
+                // over from before that change lists parts by name on the MAIN
+                // and GARAGE screens that nobody ever inspected for - reported
+                // exactly that way, as fault pop-ups after a race.
+                //
+                // The save records WHAT was found, never WHO found it, so the
+                // discriminator has to be the car's own inspection history: a
+                // car nobody has ever had a lamp under is a car nobody has
+                // found anything on. Faults on a car the player HAS inspected
+                // stay visible, because that reading is at least as likely to
+                // be the true one and taking knowledge back is the worse error.
+                //
+                // BookPro was the one hole - it revealed without stamping the
+                // car - so it stamps proInspectDay now. That cannot be
+                // recovered for an existing save, and under the old rules it
+                // had nothing to reveal anyway: every fault was born visible,
+                // so its `if (!f.hidden) continue` skipped the lot. Under-
+                // revealing is the safe direction regardless - the fault is
+                // still on the car and still slowing it down, and one
+                // inspection finds it again.
+                foreach (var car in s.cars)
+                {
+                    if (car == null) continue;
+                    // proInspectDay is an ADDED field, so JsonUtility hands it
+                    // back as 0 rather than the -1 it initialises to - and 0 is
+                    // a day BEFORE the game starts, so left alone it would read
+                    // as "a dealer looked at this car" for every car in the
+                    // save and re-hide nothing at all. Same trap v5 hit with
+                    // inspectDay; normalise before anything reads it.
+                    if (car.proInspectDay == 0) car.proInspectDay = -1;
+                    if (car.faults == null) continue;
+                    bool everLooked = car.inspectDay >= 0 || car.floorCheckedDay >= 0 ||
+                                      car.proInspectDay >= 0 ||
+                                      (car.inspectedSubs != null && car.inspectedSubs.Count > 0);
+                    if (everLooked) continue;
+                    foreach (var f in car.faults)
+                    {
+                        if (f == null) continue;
+                        f.hidden = true;
+                        f.diagnosed = false;
+                    }
+                }
+                s.saveVersion = 7;
             }
         }
 

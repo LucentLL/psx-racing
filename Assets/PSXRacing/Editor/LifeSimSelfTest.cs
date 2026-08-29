@@ -51,6 +51,7 @@ namespace PSXRacing.EditorTools
             TestCityProps();
             TestGridStaging();
             TestHomeLot();
+            TestMenuNavigation();
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -293,7 +294,11 @@ namespace PSXRacing.EditorTools
             if (player != null && cam != null)
             {
                 float eye = cam.transform.position.y - player.transform.position.y;
-                Check(eye > 1.45f && eye < 1.95f, "the eye sits at human height", eye.ToString("0.00"));
+                // SIX FEET, not just "human". The owner asked for a six-foot
+                // player and the old range would have passed a five-foot-four
+                // one just as happily, which is how it sat at 1.62 unnoticed.
+                Check(eye > 1.64f && eye < 1.76f,
+                      "the eye is at six-foot eye height (1.70)", eye.ToString("0.00"));
             }
             else Check(false, "player rig is in the scene");
 
@@ -415,7 +420,11 @@ namespace PSXRacing.EditorTools
                     float stageMinR = MinCornerRadius(pts);
                     Check(stageMinR >= 18f, t.id + " tightest corner is drivable",
                           stageMinR.ToString("0.0") + " m");
-                    float stageNeed = t.roadWidth + 2f * 5.9f;   // StageWallOffset
+                    // Asked of the builder rather than restated: the stage
+                    // barrier line follows the road's width now, and a literal
+                    // here would go on testing the parkway's number against
+                    // every other stage — which is the bug this pass fixed.
+                    float stageNeed = t.roadWidth + 2f * PSXRacingBuilder.WallOffsetFor(t);
                     float stageGap = MinSelfClearance(pts);
                     Check(stageGap >= stageNeed, t.id + " never runs into its own barriers",
                           stageGap.ToString("0.0") + " m vs " + stageNeed.ToString("0.0"));
@@ -488,8 +497,8 @@ namespace PSXRacing.EditorTools
             // to the catalog and not to the scene list sends the player to the
             // wrong circuit, or to no scene at all.
             var scenes = EditorBuildSettings.scenes;
-            Check(scenes.Length == TrackCatalog.Count + 2,
-                  "build settings hold home + every circuit + the garage", scenes.Length);
+            Check(scenes.Length == TrackCatalog.Count + 3,
+                  "build settings hold home + every circuit + garage + pizzeria", scenes.Length);
             for (int i = 0; i < TrackCatalog.Count && i + 1 < scenes.Length; i++)
                 Check(scenes[i + 1].path.EndsWith("/" + TrackCatalog.At(i).id + ".unity"),
                       "build index " + (i + 1) + " is " + TrackCatalog.At(i).id, scenes[i + 1].path);
@@ -503,6 +512,357 @@ namespace PSXRacing.EditorTools
                   "build index " + TrackCatalog.GarageSceneIndex + " is the garage",
                   TrackCatalog.GarageSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.GarageSceneIndex].path : "missing");
+
+            // The pizza shop, on the end. Same formula, same failure mode: it
+            // is addressed by position, and DoWork sends the player there by
+            // that number alone — a wrong one drops them onto a race track
+            // holding nothing, with no way to tell what went wrong.
+            Check(TrackCatalog.PizzeriaSceneIndex == TrackCatalog.GarageSceneIndex + 1,
+                  "pizzeria scene index sits after the garage", TrackCatalog.PizzeriaSceneIndex);
+            Check(TrackCatalog.PizzeriaSceneIndex < scenes.Length &&
+                  scenes[TrackCatalog.PizzeriaSceneIndex].path.EndsWith("/Pizzeria.unity"),
+                  "build index " + TrackCatalog.PizzeriaSceneIndex + " is the pizzeria",
+                  TrackCatalog.PizzeriaSceneIndex < scenes.Length
+                      ? scenes[TrackCatalog.PizzeriaSceneIndex].path : "missing");
+
+            // THE PLAYER'S list, not the editor's.
+            //
+            // Everything above reads EditorBuildSettings, and every assertion
+            // passed while the shipped WebGL player was missing the pizza shop
+            // entirely — PSXBuildWebGL kept a SECOND hand-written scene list and
+            // it had never been told about the new scene. LoadScene(13) on a
+            // 13-scene build does nothing at all: no exception, no log the
+            // player can see, just a button that appears dead. This is the
+            // assertion that would have caught it.
+            var shipped = PSXRacingBuilder.SceneOrder();
+            Check(shipped.Length == scenes.Length,
+                  "the WebGL scene list is the same LENGTH as the build settings",
+                  shipped.Length + " vs " + scenes.Length);
+            bool sameOrder = shipped.Length == scenes.Length;
+            for (int i = 0; sameOrder && i < shipped.Length; i++)
+                if (shipped[i] != scenes[i].path) sameOrder = false;
+            Check(sameOrder, "...and the same scenes in the same ORDER");
+
+            TestDeliveryJob();
+            TestVertexSnapOff();
+            TestWalkInScenesRender();
+        }
+
+        /// <summary>
+        /// Every walk-in scene must actually DRAW.
+        ///
+        /// PSXCameraOutput takes the camera off the screen and renders into a
+        /// RenderTexture; something then has to blit that texture back. Add the
+        /// component and nothing else and the scene renders no world at all —
+        /// and because WebGL does not clear the framebuffer between frames, what
+        /// the player sees is the PREVIOUS scene's pixels with the new scene's
+        /// overlay UI on top. The pizza shop shipped exactly that way and was
+        /// reported as "GO TO WORK does not work, it just puts the walk button
+        /// over the menu": the scene had loaded perfectly and was invisible.
+        ///
+        /// Nothing throws, nothing logs, and a screenshot of the scene taken by
+        /// a preview camera looks perfect — the preview makes its own camera and
+        /// never goes through this chain. So it is asserted here.
+        /// </summary>
+        static void TestWalkInScenesRender()
+        {
+            Line("walk-in scenes render:");
+            foreach (var path in new[] { GarageSceneBuilder.ScenePath,
+                                         PizzeriaSceneBuilder.ScenePath })
+            {
+                string name = System.IO.Path.GetFileNameWithoutExtension(path);
+                if (!System.IO.File.Exists(path))
+                {
+                    Check(false, name + " scene exists (run the scene build)");
+                    continue;
+                }
+                var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                    path, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+
+                PSXRacing.PSXCameraOutput output = null;
+                foreach (var go in scene.GetRootGameObjects())
+                {
+                    var f = go.GetComponentInChildren<PSXRacing.PSXCameraOutput>(true);
+                    if (f != null) { output = f; break; }
+                }
+                Check(output != null, name + " has a PSXCameraOutput");
+                Check(output != null && output.display != null,
+                      name + " blits it back to the screen (display wired)");
+                Check(output == null || output.height > 0,
+                      name + " renders at a real height",
+                      output != null ? output.height : 0);
+
+                // PSX/Lit reads GLOBAL uniforms, not Unity's lights, and
+                // PSXGlobals is the only thing that pushes them. A scene with a
+                // Light and no PSXGlobals leaves ambient, sun and fog colour all
+                // at ZERO — which is not a dark room, it is a working room
+                // rendered entirely in black, with the interaction prompts
+                // readable over a void. The pizza shop shipped exactly that.
+                PSXRacing.PSXGlobals globals = null;
+                PSXRacing.OnFoot.FirstPersonWalk walker = null;
+                PSXRacing.OnFoot.FootScreen foot = null;
+                foreach (var go in scene.GetRootGameObjects())
+                {
+                    globals = globals ?? go.GetComponentInChildren<PSXRacing.PSXGlobals>(true);
+                    walker = walker ?? go.GetComponentInChildren<PSXRacing.OnFoot.FirstPersonWalk>(true);
+                    foot = foot ?? go.GetComponentInChildren<PSXRacing.OnFoot.FootScreen>(true);
+                }
+                Check(globals != null, name + " has PSXGlobals (or it renders black)");
+                Check(globals != null && globals.sun != null,
+                      name + " PSXGlobals has a sun");
+                Check(globals != null &&
+                      (globals.ambient.r + globals.ambient.g + globals.ambient.b) > 0.05f,
+                      name + " has non-black ambient",
+                      globals != null ? globals.ambient.ToString() : "none");
+                Check(globals != null && globals.fogFar > globals.fogNear && globals.fogFar > 0f,
+                      name + " fog band is the right way round",
+                      globals != null ? globals.fogNear + ".." + globals.fogFar : "none");
+                Check(walker != null, name + " has a player who can walk");
+                Check(foot != null, name + " has a FootScreen");
+
+                UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+            }
+        }
+
+        /// <summary>
+        /// The delivery shift: the job the player actually drives.
+        ///
+        /// Everything here is silent when it breaks. A delivery that routes to
+        /// Charlotte finds no finish line and never pays; a pay roll that can
+        /// return zero makes the whole job look like a bug; and the default job
+        /// is the one thing a new career cannot change its mind about after the
+        /// fact.
+        /// </summary>
+        static void TestDeliveryJob()
+        {
+            Line("delivery job:");
+
+            int di = LifeRules.DefaultJobIndex;
+            Check(LifeRules.Jobs[di].name == LifeRules.DeliveryJobName,
+                  "a new career starts on pizza delivery", LifeRules.Jobs[di].name);
+
+            var s = LifeRules.SeedNewGame("TESTER", 25, di);
+            Check(s.playerJob == LifeRules.DeliveryJobName,
+                  "and the seeded save says so", s.playerJob);
+
+            // The route. Charlotte has no finish line — it is an open city with
+            // no lap and no line to cross — so a delivery sent there would drive
+            // forever and never get paid.
+            bool everCity = false;
+            for (int day = 1; day <= 40; day++)
+                for (int slot = 0; slot < 3; slot++)
+                {
+                    s.day = day; s.slotIndex = slot;
+                    int t = LifeRules.DeliveryTrackIndex(s);
+                    if (t < 0 || t >= TrackCatalog.Count) { everCity = true; break; }
+                    if (TrackCatalog.At(t).city) everCity = true;
+                }
+            Check(!everCity, "no delivery is ever routed to the open city");
+
+            // The tank. A random venue is only an improvement if it is a venue
+            // the car can finish: the parkway stage is 6.9 km with no forecourt
+            // on it, and a driver dispatched there on a quarter tank stops on a
+            // mountain with no pumps and no way to end the run. Rotating by day
+            // made that a rare unlucky Tuesday; rolling at random would make it
+            // one shift in eight.
+            LifeRules.SeedFallbackCar(s);
+            if (s.ActiveCar != null)
+            {
+                bool everDry = false; string sentTo = "";
+                foreach (float tank in new[] { 100f, 45f, 18f, 8f })
+                {
+                    s.ActiveCar.fuel = tank;
+                    for (int i = 0; i < 60; i++)
+                    {
+                        int t = LifeRules.DeliveryTrackIndex(s);
+                        var def = TrackCatalog.At(t);
+                        float need = LifeRules.RequiredFuelPct(def, s.ActiveCar);
+                        // The last band is deliberately below anything in the
+                        // catalog — there the fallback is allowed to send them
+                        // to the SHORTEST run, and all that is asserted is that
+                        // it picks the cheapest one rather than a random one.
+                        if (tank >= 18f && need > tank)
+                        { everDry = true; sentTo = def.name + " needs " + need.ToString("0") + "% on " + tank + "%"; }
+                    }
+                }
+                Check(!everDry, "no delivery is routed past the tank", sentTo);
+
+                // The fallback, which only runs when NOTHING in the catalog
+                // fits. A DRY tank, not a low one: this first read 4%, and at 4%
+                // the bridge sprints and the strips all still qualify, so the
+                // first loop answered and the fallback was never reached — the
+                // assertion was testing a path it could not enter and failed on
+                // a perfectly correct answer.
+                s.ActiveCar.fuel = 0f;
+                float cheapest = float.MaxValue;
+                for (int i = 0; i < TrackCatalog.Count; i++)
+                    if (!TrackCatalog.At(i).city)
+                        cheapest = Mathf.Min(cheapest,
+                                   LifeRules.RequiredFuelPct(TrackCatalog.At(i), s.ActiveCar));
+                Check(cheapest > 0f, "an empty tank really does fit nowhere",
+                      cheapest.ToString("0.000") + "% needed for the cheapest run");
+                var starved = TrackCatalog.At(LifeRules.DeliveryTrackIndex(s));
+                Check(Mathf.Approximately(
+                          LifeRules.RequiredFuelPct(starved, s.ActiveCar), cheapest),
+                      "and gets the shortest run there is", starved.name);
+                s.ActiveCar.fuel = 100f;
+            }
+
+            // The tip. Never zero, never negative, and it moves.
+            s.day = 5; s.slotIndex = 0; s.daysSinceSleep = 0;
+            int lo = int.MaxValue, hi = 0;
+            for (int i = 0; i < 400; i++)
+            {
+                int p = LifeRules.RollDeliveryPay(s);
+                lo = Mathf.Min(lo, p); hi = Mathf.Max(hi, p);
+            }
+            Check(lo > 0, "a drop always pays something", lo);
+            Check(hi > lo, "and the tip varies", lo + ".." + hi);
+
+            // Tiredness costs money, same as it does at every other job.
+            s.daysSinceSleep = 0; int rested = 0;
+            s.daysSinceSleep = 4; int wrecked = 0;
+            for (int i = 0; i < 400; i++)
+            {
+                s.daysSinceSleep = 0; rested += LifeRules.RollDeliveryPay(s);
+                s.daysSinceSleep = 4; wrecked += LifeRules.RollDeliveryPay(s);
+            }
+            Check(wrecked < rested, "a driver who has not slept earns less",
+                  wrecked + " vs " + rested);
+
+            // ---- the drop is GRADED now: clock, then box ------------------
+            //
+            // Every one of these is a rule the player is told about at the
+            // counter and watches on the HUD, so every one of them is a rule
+            // that can silently inverse itself in a refactor and still compile.
+
+            // A par at every venue the roll can actually produce, and a
+            // believable one: nothing is a five-second drop and nothing is an
+            // afternoon.
+            float parLo = float.MaxValue, parHi = 0f;
+            string worst = "";
+            for (int t = 0; t < TrackCatalog.Count; t++)
+            {
+                if (TrackCatalog.At(t).city) continue;
+                float par = LifeRules.DeliveryParSeconds(t);
+                if (par < parLo) { parLo = par; worst = TrackCatalog.At(t).name; }
+                parHi = Mathf.Max(parHi, par);
+            }
+            // Ten seconds, not fifteen. The eighth mile is 201 m and pars at
+            // 11.7 s, which LOOKS like a broken number and is the correct one: a
+            // real eighth-mile ET is 9-10 s in a quick car and 13 in a slow one,
+            // so the clock still separates a good drop from a bad one there. It
+            // stays in the pool because the owner asked for a random race track
+            // and the player does not get to pick — a twelve-second shift is a
+            // lucky Tuesday, not a strategy.
+            Check(parLo >= 10f, "the shortest drop is still a drive",
+                  worst + " " + parLo.ToString("0") + "s");
+            Check(parHi <= 900f, "and the longest is not an afternoon",
+                  parHi.ToString("0") + "s");
+
+            // The clock. Same box, same venue, three times: under par pays more
+            // than par, and par pays more than crawling in.
+            int venue = 0;
+            for (int t = 0; t < TrackCatalog.Count; t++)
+                if (!TrackCatalog.At(t).city) { venue = t; break; }
+            float parV = LifeRules.DeliveryParSeconds(venue);
+            var fast = LifeRules.ScoreDelivery(100, venue, parV * 0.7f, 0f, 0);
+            var onPar = LifeRules.ScoreDelivery(100, venue, parV, 0f, 0);
+            var late = LifeRules.ScoreDelivery(100, venue, parV * 2.4f, 0f, 0);
+            Check(fast.tip > onPar.tip && onPar.tip > late.tip,
+                  "a quicker drop tips better",
+                  fast.tip + " > " + onPar.tip + " > " + late.tip);
+            Check(late.tip > 0, "and a late one still pays something", late.tip);
+
+            // The box. Same clock, worse driving.
+            var clean = LifeRules.ScoreDelivery(100, venue, parV, 0f, 0);
+            var scuffed = LifeRules.ScoreDelivery(100, venue, parV, 14f, 0);
+            var crashed = LifeRules.ScoreDelivery(100, venue, parV, 26f, 1);
+            Check(clean.tip > scuffed.tip && scuffed.tip > crashed.tip,
+                  "hitting things costs the tip",
+                  clean.tip + " > " + scuffed.tip + " > " + crashed.tip);
+            Check(!clean.refused && Mathf.Approximately(clean.conditionMult, 1f),
+                  "a clean run loses nothing to the box", clean.conditionMult);
+
+            // A kerb is not a crash. The free allowance exists so the job is
+            // graded on driving rather than on luck.
+            var kerbed = LifeRules.ScoreDelivery(100, venue, parV, LifeRules.PizzaFreeDamage, 0);
+            Check(kerbed.tip == clean.tip, "a scrape inside the allowance costs nothing",
+                  kerbed.tip + " vs " + clean.tip);
+
+            // The cliff. A genuine wreck is refused outright, and refused means
+            // no money at all rather than a small one.
+            var wreck = LifeRules.ScoreDelivery(100, venue, parV, 70f, 3);
+            Check(wreck.refused, "a wrecked car gets the delivery denied",
+                  wreck.condition.ToString("0.00"));
+            Check(wreck.tip == 0, "and a refused drop pays nothing", wreck.tip);
+
+            // Nothing on any path can hand out more than the quote plus the
+            // speed bonus, or less than nothing.
+            bool inBand = true; string bad = "";
+            for (int i = 0; i < 600; i++)
+            {
+                var o = LifeRules.ScoreDelivery(100, venue,
+                            Random.Range(1f, parV * 4f), Random.Range(0f, 90f),
+                            Random.Range(0, 5));
+                if (o.tip < 0 || o.tip > 100 * LifeRules.DeliveryFastMult + 1)
+                { inBand = false; bad = o.tip.ToString(); break; }
+            }
+            Check(inBand, "no roll pays outside the quoted band", bad);
+        }
+
+        /// <summary>
+        /// The renderer the player actually gets.
+        ///
+        /// PSXGlobals.vertexSnap is a SERIALISED field, so turning the default
+        /// off in code changes nothing about a scene that was baked before that
+        /// — the old `true` is sitting in the .unity file, and the only thing
+        /// that clears it is a rebuild. The failure mode is silent and
+        /// venue-shaped: one circuit nobody rebuilt keeps jittering while every
+        /// other one is clean, which reads as that TRACK being broken.
+        ///
+        /// Worth an assertion for a second reason too. Every preview tool in
+        /// this project forces _PSXSnap to 0 before it shoots, so no screenshot
+        /// pass can ever catch this — the tools were showing a renderer the game
+        /// did not have. See PSXGlobals.vertexSnap.
+        /// </summary>
+        static void TestVertexSnapOff()
+        {
+            Line("renderer:");
+            int found = 0, jittering = 0, missing = 0;
+            string names = "";
+            foreach (var entry in PSXRacingBuilder.SceneOrder())
+            {
+                if (!System.IO.File.Exists(entry)) { missing++; continue; }
+                var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                    entry, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+
+                // The scene's OWN roots, not FindFirstObjectByType — this opens
+                // additively, so a type search would happily answer out of
+                // whatever scene the runner already had loaded and certify a
+                // scene it never looked at.
+                PSXRacing.PSXGlobals globals = null;
+                foreach (var go in scene.GetRootGameObjects())
+                {
+                    var g = go.GetComponentInChildren<PSXRacing.PSXGlobals>(true);
+                    if (g != null) { globals = g; break; }
+                }
+                if (globals != null)
+                {
+                    found++;
+                    if (globals.vertexSnap)
+                    {
+                        jittering++;
+                        names += (names.Length > 0 ? ", " : "") +
+                                 System.IO.Path.GetFileNameWithoutExtension(entry);
+                    }
+                }
+                UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, false);
+            }
+            Check(missing == 0, "every scene in the order is built", missing + " missing");
+            Check(found > 0, "scenes carry a PSXGlobals to check", found);
+            Check(jittering == 0, "no scene ships with vertex snapping on",
+                  jittering == 0 ? "all " + found + " clean" : names);
         }
 
         /// <summary>Circumradius of waypoint triples, two apart so a single
@@ -1079,6 +1439,79 @@ namespace PSXRacing.EditorTools
             Check(s.money == 0, "and charges for it", s.money);
         }
 
+        /// <summary>
+        /// The pad's map of a page: down goes down, right goes right.
+        ///
+        /// Worth asserting because nothing else can see it. The navigation
+        /// graph is built at runtime over a UI that is also built at runtime,
+        /// so a compile proves nothing and a screenshot shows a page that looks
+        /// perfectly fine while the cursor walks through it sideways — which is
+        /// exactly what happened: every control was chained in CREATION order,
+        /// so a repair row's DIY / MECH / DLR buttons, which sit side by side,
+        /// were three presses of DOWN. A page with four faults on it took ten.
+        ///
+        /// Built from bare RectTransforms rather than from a real screen: with
+        /// anchorMin == anchorMax a rect resolves from its own sizeDelta and
+        /// needs no canvas, so this measures the graph and not the layout.
+        /// </summary>
+        static void TestMenuNavigation()
+        {
+            Line("menu navigation:");
+            var root = new GameObject("NavTest", typeof(RectTransform));
+            var rootRT = (RectTransform)root.transform;
+
+            UnityEngine.UI.Selectable Btn(string name, float x, float y, float w, float h)
+            {
+                var go = new GameObject(name, typeof(RectTransform));
+                go.transform.SetParent(rootRT, false);
+                var rt = (RectTransform)go.transform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(w, h);
+                rt.anchoredPosition = new Vector2(x, y);
+                var img = go.AddComponent<UnityEngine.UI.Image>();
+                var b = go.AddComponent<UnityEngine.UI.Button>();
+                b.targetGraphic = img;
+                return b;
+            }
+
+            // A page shaped like the garage tab: a full-width caption row, then
+            // a fault's three venue quotes side by side, then another one.
+            var head = Btn("head", 0f, 0f, 600f, 44f);
+            var diy1 = Btn("diy1", -260f, -60f, 250f, 40f);
+            var mech1 = Btn("mech1", 0f, -60f, 250f, 40f);
+            var dlr1 = Btn("dlr1", 260f, -60f, 250f, 40f);
+            var diy2 = Btn("diy2", -260f, -140f, 250f, 40f);
+            var all = new List<UnityEngine.UI.Selectable>
+                { head, diy1, mech1, dlr1, diy2 };
+
+            var lines = MenuNav.Lines(all);
+            Check(lines.Count == 3, "three side-by-side buttons are ONE line, not three",
+                  lines.Count + " lines");
+
+            MenuNav.Grid(all);
+            Check(diy1.navigation.selectOnRight == mech1, "right off DIY reaches MECH");
+            Check(mech1.navigation.selectOnRight == dlr1, "and MECH reaches DLR");
+            Check(diy1.navigation.selectOnDown == diy2,
+                  "DOWN off DIY skips the rest of its row and lands on the next one");
+            Check(dlr1.navigation.selectOnLeft == mech1, "left off DLR walks back");
+            Check(dlr1.navigation.selectOnRight == null,
+                  "and right off the last button in a row does not wrap across the page");
+            Check(diy1.navigation.selectOnUp == head, "UP off the row reaches the caption above it");
+            Check(mech1.navigation.selectOnUp == head,
+                  "from every button in the row, not just the first");
+
+            // The tab bar joins to the LINE under it, at the column you left.
+            var tabA = Btn("tabA", -260f, 120f, 250f, 44f);
+            var tabB = Btn("tabB", 260f, 120f, 250f, 44f);
+            var tabs = new List<UnityEngine.UI.Selectable> { tabA, tabB };
+            MenuNav.JoinLines(tabs, all, tabB);
+            Check(head.navigation.selectOnUp == tabB,
+                  "UP off the body returns to the tab you are ON, not the first tab");
+
+            Object.DestroyImmediate(root);
+        }
+
         static void TestFaultGate()
         {
             Line("fault gate:");
@@ -1104,6 +1537,82 @@ namespace PSXRacing.EditorTools
 
             var t = FaultCatalog.RollWearFault(car, "tires", false);
             Check(t != null, "a different stat lane is unaffected");
+
+            // Nothing diagnoses itself. This is the whole contract of the
+            // inspection layer, and it was broken for a whole release by two
+            // words in the roller — so it is asserted rather than assumed.
+            Check(a == null || a.hidden, "a rolled fault arrives HIDDEN");
+            Check(a == null || !a.diagnosed, "and undiagnosed");
+
+            // ...and the two people you can pay to look. The dealer is the
+            // deterministic one, so it is the one a test can assert on.
+            s.money = 500000;
+            car.faults.Clear();
+            car.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs",
+                                          stat = "engine", hidden = true, diagnosed = false });
+            int before = s.slotIndex + s.day * 3;
+            Inspection.BookPro(s, car, Inspection.Pro.Dealer);
+            Check(!car.faults[0].hidden, "a dealer inspection reveals a hidden fault");
+            Check(s.slotIndex + s.day * 3 > before, "and costs a time slot");
+            Check(car.proInspectDay == s.day, "and leaves a mark on the CAR");
+
+            TestOldSaveMigration();
+        }
+
+        /// <summary>
+        /// A career carried over from before the hidden layer landed.
+        ///
+        /// Every fault rolled under the old rules was written
+        /// hidden=false/diagnosed=true, so a save from then lists parts by name
+        /// that nobody inspected for — which is how this was reported. The
+        /// migration cannot know WHO found what, so it reads the car's own
+        /// inspection history, and both halves of that judgement are worth
+        /// pinning: the untouched car goes quiet, the one somebody has been
+        /// under keeps what it knows.
+        ///
+        /// The trap under this one is that proInspectDay is an ADDED field.
+        /// JsonUtility hands an old save back with it at 0, not the -1 it
+        /// initialises to, and 0 is a day before the game starts — so a
+        /// migration that reads it before normalising it decides every car has
+        /// seen a dealer and re-hides nothing at all.
+        /// </summary>
+        static void TestOldSaveMigration()
+        {
+            Line("save migration (v6 -> v7):");
+
+            var s = new LifeState { saveVersion = 6, day = 40 };
+
+            var untouched = new OwnedCar { id = "old1", displayName = "Untouched" };
+            untouched.proInspectDay = 0;      // what JsonUtility actually hands back
+            untouched.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs",
+                                                stat = "engine", hidden = false, diagnosed = true });
+
+            var looked = new OwnedCar { id = "old2", displayName = "Inspected", inspectDay = 12 };
+            looked.proInspectDay = 0;
+            looked.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs",
+                                             stat = "engine", hidden = false, diagnosed = true });
+
+            s.cars.Add(untouched);
+            s.cars.Add(looked);
+            LifeSimManager.Migrate(s);
+
+            Check(s.saveVersion >= 7, "the save is stamped forward");
+            Check(untouched.faults[0].hidden,
+                  "a fault on a car nobody inspected goes back to hidden");
+            Check(!untouched.faults[0].diagnosed, "and undiagnosed with it");
+            Check(!looked.faults[0].hidden,
+                  "but a fault on a car the player HAS inspected is left alone");
+            Check(untouched.proInspectDay < 0,
+                  "and the 0 JsonUtility invents becomes -1, not day zero");
+
+            // Idempotent: Migrate runs on every load, and a second pass must
+            // not re-hide what an inspection has since revealed.
+            untouched.faults[0].hidden = false;
+            untouched.faults[0].diagnosed = true;
+            untouched.proInspectDay = 41;
+            LifeSimManager.Migrate(s);
+            Check(!untouched.faults[0].hidden,
+                  "a second load does not re-hide what has since been found");
         }
 
         /// <summary>

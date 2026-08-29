@@ -57,6 +57,21 @@ namespace PSXRacing.OnFoot
         float yaw, pitch;
         float fallSpeed;
 
+        // ---- stuck watchdog ----
+        /// <summary>Somewhere the player was standing, moving, and not wedged.
+        /// Sampled while they are visibly getting somewhere.</summary>
+        Vector3 lastFreeSpot;
+        float stuckFor;
+        float sinceFreeSample;
+
+        /// <summary>How long to be pushing against nothing before we accept
+        /// that the room has hold of us. Long enough that walking into a wall
+        /// on purpose does not trigger it — a player leaning on a doorframe for
+        /// a second and a half is not stuck, one doing it for four is.</summary>
+        const float StuckSeconds = 4f;
+        /// <summary>Below this, a metre-per-second walk has not moved.</summary>
+        const float StuckSpeed = 0.12f;
+
         void Awake()
         {
             body = GetComponent<CharacterController>();
@@ -202,7 +217,62 @@ namespace PSXRacing.OnFoot
             fallSpeed += Physics.gravity.y * Time.deltaTime;
             step.y = fallSpeed;
 
+            Vector3 before = transform.position;
             body.Move(step * Time.deltaTime);
+            Unstick(wish, before);
+        }
+
+        /// <summary>
+        /// Get the player out of the geometry when the geometry has them.
+        ///
+        /// A CharacterController can wedge itself into a corner it is able to
+        /// enter and not able to leave — a doorframe against a skirting board
+        /// does it, and the house pack has a bathroom doorway that managed it.
+        /// There is no recovery from inside the game: the player has walk, look
+        /// and use, and none of them help. It was reported as a soft-lock, which
+        /// is exactly what it is.
+        ///
+        /// So: remember where they last stood while actually moving, and if they
+        /// spend four seconds asking to move and going nowhere, put them back
+        /// there. Not a teleport to a fixed respawn — that would drag somebody
+        /// across the house for brushing a wall — just a step back to the last
+        /// place that was demonstrably not a trap.
+        ///
+        /// The same idea the cars have had since a Bogue Banks run put one in
+        /// the marsh (StuckRecovery); people on foot needed it too.
+        /// </summary>
+        void Unstick(Vector2 wish, Vector3 before)
+        {
+            bool wants = wish.sqrMagnitude > 0.04f;
+            float moved = (transform.position - before).magnitude / Mathf.Max(Time.deltaTime, 1e-4f);
+
+            if (!wants || moved > StuckSpeed)
+            {
+                stuckFor = 0f;
+                // Only sample somewhere we are STANDING: a spot recorded in
+                // mid-air would put them back into the fall they were taking.
+                sinceFreeSample += Time.deltaTime;
+                if (wants && body.isGrounded && sinceFreeSample > 0.35f)
+                {
+                    lastFreeSpot = transform.position;
+                    sinceFreeSample = 0f;
+                }
+                return;
+            }
+
+            stuckFor += Time.deltaTime;
+            if (stuckFor < StuckSeconds) return;
+            stuckFor = 0f;
+            if (lastFreeSpot == Vector3.zero) return;   // never had a good spot yet
+
+            // Disable while moving the transform: CharacterController caches its
+            // own position and writing transform.position under it is ignored on
+            // the next Move, which is the classic way a teleport silently
+            // does nothing.
+            body.enabled = false;
+            transform.position = lastFreeSpot + Vector3.up * 0.05f;
+            body.enabled = true;
+            fallSpeed = 0f;
         }
     }
 }

@@ -43,6 +43,20 @@ namespace PSXRacing
         /// apply-back banks metres/fuel/wear but pays no purse and moves no
         /// rep — a drive is not a result.</summary>
         public static bool FreeRoam;
+
+        /// <summary>This run is a paid delivery, not a race: the player picked
+        /// an order up at the shop and the finish line is the customer's door.
+        /// No purse, no rep, no rivals — <see cref="DeliveryPay"/> instead, paid
+        /// on arrival.</summary>
+        public static bool Delivery;
+        /// <summary>What the drop is worth, rolled at the shop so the player
+        /// can be told before they set off. Tips, so it swings.</summary>
+        public static int DeliveryPay;
+        /// <summary>Retire the whole AI field. An EMPTY OpponentSpecIds does
+        /// NOT mean this — ApplyField reads an empty list as "leave the grid as
+        /// the track authored it", which is four cars. Solo has to be asked for
+        /// out loud.</summary>
+        public static bool Solo;
         /// <summary>Tank level the car arrives with, 0-100. The race scene's
         /// <see cref="FuelTank"/> starts here and burns down in real time, so
         /// the pre-race gate and the gauge on the dash read the same number.
@@ -146,6 +160,7 @@ namespace PSXRacing
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             FreeRoam = false;
+            Delivery = false; DeliveryPay = 0; Solo = false;
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null;

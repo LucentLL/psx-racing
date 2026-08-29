@@ -186,7 +186,79 @@ namespace PSXRacing.EditorTools
             Line($"uptown tile: {VCount(t1.ground)} ground, {VCount(t1.roads)} road, " +
                  $"{VCount(t1.buildings)} building verts, {t1.solids.Count} solids");
 
+            CheckBuildingFacing(t1);
+
             Finish();
+        }
+
+        /// <summary>
+        /// Every building face must point away from the building it belongs to.
+        ///
+        /// This exists because it did not: the facade walls and the roof were
+        /// wound the same way round the box as each other and the wrong way
+        /// round for Unity's culling, so the near wall of every block was
+        /// discarded and the far wall's INSIDE was drawn. The result reads as a
+        /// two-sided open box rather than as a building, which is exactly how
+        /// it was reported — and nothing in a compile, a vertex count or a
+        /// determinism check can see it. The face normal can.
+        ///
+        /// A wall's outward direction is "away from the solid this face belongs
+        /// to", and the roof's is up, which is also away from the centre — so
+        /// one test covers both without having to know which face is which.
+        /// </summary>
+        static void CheckBuildingFacing(CityMeshes.TileMeshes tm)
+        {
+            if (tm.buildings == null || tm.solids.Count == 0)
+            {
+                Check(false, "uptown tile has facade geometry to check", "none built");
+                return;
+            }
+
+            var v = tm.buildings.vertices;
+            var tris = tm.buildings.triangles;
+            int inward = 0, total = 0;
+            for (int i = 0; i + 2 < tris.Length; i += 3)
+            {
+                Vector3 a = v[tris[i]], b = v[tris[i + 1]], c = v[tris[i + 2]];
+                Vector3 n = Vector3.Cross(b - a, c - a);
+                if (n.sqrMagnitude < 1e-8f) continue;
+                Vector3 mid = (a + b + c) / 3f;
+
+                // Which box this triangle came off.
+                //
+                // NOT the nearest centre. A tile holds fifteen buildings and
+                // they are not evenly spaced: a face on the far wall of a small
+                // building can easily be nearer the middle of the tower next to
+                // it, and attributing it there inverts the answer. Every face
+                // of a box lies ON that box's surface, so the box that owns it
+                // is the one whose surface the centroid sits on — the one whose
+                // largest normalised local coordinate is closest to 1.
+                Vector3 owner = tm.solids[0].center;
+                float best = float.MaxValue;
+                foreach (var s in tm.solids)
+                {
+                    var inv = Quaternion.Inverse(Quaternion.Euler(0f, s.yawDeg, 0f));
+                    Vector3 l = inv * (mid - s.center);
+                    Vector3 h = s.size * 0.5f;
+                    float m = Mathf.Max(Mathf.Abs(l.x) / Mathf.Max(h.x, 1e-3f),
+                              Mathf.Max(Mathf.Abs(l.y) / Mathf.Max(h.y, 1e-3f),
+                                        Mathf.Abs(l.z) / Mathf.Max(h.z, 1e-3f)));
+                    float err = Mathf.Abs(m - 1f);
+                    if (err < best) { best = err; owner = s.center; }
+                }
+
+                total++;
+                if (Vector3.Dot(n.normalized, (mid - owner).normalized) < 0f)
+                {
+                    inward++;
+                    if (inward <= 4)
+                        Line("    inward face at " + mid.ToString("F1") +
+                             " normal " + n.normalized.ToString("F2") +
+                             " owner " + owner.ToString("F1"));
+                }
+            }
+            Check(inward == 0, "every building face points outward",
+                  total + " faces, " + inward + " inward");
         }
 
         static int VCount(Mesh m) => m == null ? 0 : m.vertexCount;

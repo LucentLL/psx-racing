@@ -405,7 +405,8 @@ namespace PSXRacing
                      new Vector2(0.5f, 1f), new Vector2(0f, y)).color = new Color(0.72f, 0.74f, 0.85f);
 
             MenuNav.Column(menuItems);
-            MenuNav.Watch(gameObject, menuItems[0]);
+            var navWatch = MenuNav.Watch(gameObject, menuItems[0]);
+            MenuNav.Defer(navWatch, null, menuItems, null);
 
             // Debug readout lives outside the panel so it stays up while driving
             var dbgGO = new GameObject("DebugText");

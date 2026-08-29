@@ -145,7 +145,20 @@ namespace PSXRacing.City
                              ref float w, ref float d, ref float h)
         {
             byte kind = 0;
-            if (distUp > 2600f && e.lanes < 4)
+            if (distUp < 900f)
+            {
+                // Uptown belongs to the skyscraper pack. Not every slot, and
+                // deliberately not: a tower whose footprint will not clear the
+                // surrounding corridors is REJECTED outright by the caller
+                // rather than downgraded back to a box, so the slot produces
+                // nothing at all. Offering one everywhere would hollow out the
+                // middle of the city; a little under half leaves the
+                // procedural blocks to fill in between them, which is what a
+                // downtown actually looks like.
+                if (Hash01(a, b, 24) < 0.42f)
+                    kind = TowerPick[(int)(Hash01(a, b, 25) * (TowerPick.Length - 0.001f))];
+            }
+            else if (distUp > 2600f && e.lanes < 4)
             {
                 // the suburbs: half the frontage becomes real houses, and past
                 // 5 km the odd lot is a trailer instead
@@ -168,6 +181,30 @@ namespace PSXRacing.City
             }
             return 0;
         }
+
+        /// <summary>
+        /// Which towers get offered uptown, and how often.
+        ///
+        /// Weighted by REPEATS rather than by a branch, because the thing being
+        /// balanced is how likely a pick is to survive the corridor test. A
+        /// 33 m floorplate needs about 22 m of clearance from every road and
+        /// fits a normal downtown block; the 49 m and 65 m ones need 30 and 40
+        /// and only land mid-block on the big lots, so they appear once each —
+        /// often enough to be landmarks, rarely enough that they do not spend
+        /// slots failing.
+        /// </summary>
+        static readonly byte[] TowerPick =
+        {
+            (byte)(CityProps.Tower0 + 0),  (byte)(CityProps.Tower0 + 1),    // 25 m
+            (byte)(CityProps.Tower0 + 6),  (byte)(CityProps.Tower0 + 7),    // 29 m
+            (byte)(CityProps.Tower0 + 4),  (byte)(CityProps.Tower0 + 5),    // 33 m
+            (byte)(CityProps.Tower0 + 8),  (byte)(CityProps.Tower0 + 9),
+            (byte)(CityProps.Tower0 + 10), (byte)(CityProps.Tower0 + 11),
+            (byte)(CityProps.Tower0 + 12), (byte)(CityProps.Tower0 + 13),
+            (byte)(CityProps.Tower0 + 14), (byte)(CityProps.Tower0 + 15),
+            (byte)(CityProps.Tower0 + 2),  (byte)(CityProps.Tower0 + 3),    // 49 m
+            (byte)(CityProps.Tower0 + 16), (byte)(CityProps.Tower0 + 17),   // 65 m
+        };
 
         /// <summary>Claim every 18 m occupancy cell under a w×d lot centred at
         /// c. All-or-nothing: on any collision nothing is claimed and the slot

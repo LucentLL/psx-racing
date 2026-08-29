@@ -228,12 +228,16 @@ namespace PSXRacing.LifeSim
             }
 
             // A disclosed problem is a real fault, not flavour text: the buyer
-            // knew, which is why the price was 45% off.
+            // knew, which is why the price was 45% off. It is also the ONE
+            // fault in the game that arrives already diagnosed — faults are
+            // hidden by default now, and leaving this one hidden would charge
+            // the player 45% less for a problem the advert named and then never
+            // show it to them.
             if (!string.IsNullOrEmpty(listing.problem))
             {
                 var f = FaultCatalog.RollWearFault(car, ProblemStat(listing.problem), false,
                                                   "wear", spec.origin);
-                if (f != null) car.faults.Add(f);
+                if (f != null) { f.hidden = false; f.diagnosed = true; car.faults.Add(f); }
             }
 
             // And the problems the seller did NOT disclose. These go on HIDDEN:
@@ -460,12 +464,22 @@ namespace PSXRacing.LifeSim
                 });
             }
 
-            // Beater guarantee: a rough car arrives with something already wrong,
-            // so the garage is part of the game from the first morning.
+            // Beater guarantee: a rough car arrives with something already
+            // wrong, so the garage is part of the game from the first morning.
+            //
+            // Hidden, like everything else nobody has looked at — but the
+            // calendar says the car is not right, because the point of this
+            // fault is to send a new player into the garage on day one and a
+            // fault with no symptom at all would not do that.
             if (lane.cond <= 55)
             {
                 var f = FaultCatalog.RollWearFault(car, "engine", false, "wear", lane.spec.origin);
-                if (f != null) car.faults.Add(f);
+                if (f != null)
+                {
+                    car.faults.Add(f);
+                    s.calendarLog.Add("Day " + s.day + ": the " + car.displayName +
+                                      " has a noise you cannot place — worth an inspection");
+                }
             }
         }
     }

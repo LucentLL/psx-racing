@@ -25,15 +25,21 @@ namespace PSXRacing.EditorTools
         /// LifeHome at 0 then one per circuit, matching TrackCatalog.SceneIndex.
         /// Built from the catalog rather than listed, so adding a track is one
         /// edit and not three.</summary>
-        static string[] ScenePaths()
-        {
-            var list = new List<string> { LifeHomeSceneBuilder.ScenePath };
-            foreach (var t in PSXRacing.TrackCatalog.All)
-                list.Add("Assets/PSXRacing/Scenes/" + t.id + ".unity");
-            // Then the garage, last — see TrackCatalog.GarageSceneIndex.
-            list.Add(GarageSceneBuilder.ScenePath);
-            return list.ToArray();
-        }
+        /// <summary>
+        /// The shipped scene list — deferred to PSXRacingBuilder so there is
+        /// exactly one of them.
+        ///
+        /// This used to build its OWN copy, and the copy was missing the pizza
+        /// shop: the editor's build settings had 14 scenes and the PLAYER had
+        /// 13, so GO TO WORK called LoadScene(13) on a build whose highest
+        /// index was 12 and nothing happened at all. Nothing threw, the
+        /// self-test passed (it reads EditorBuildSettings, which was right),
+        /// and the only symptom was a button that did nothing.
+        ///
+        /// Same shape of bug as CityPreview's private material table earlier the
+        /// same day. Two lists that must agree will not.
+        /// </summary>
+        static string[] ScenePaths() => PSXRacingBuilder.SceneOrder();
 
         [MenuItem("PSX Racing/Build WebGL")]
         public static void BuildMenu() => Run(DefaultOutput());

@@ -5,6 +5,111 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE DELIVERY RUN, AND THE JITTER NOBODY COULD SEE (2026-08-29)
+
+Asked for, from a phone playtest of the pizza shop: (1) "many textures are
+interfering when moving. this should never happen in buildings or when driving";
+(2) "I try to leave the front (and only) door and it doesn't let me leave to make
+the delivery"; (3) "later I will add city deliveries, but for now just make it
+choose a random race track"; (4) "tip is based on how quickly the track is
+completed. wrecked the car damages the pizza and lowers tip. might even get the
+delivery denied."
+
+### The jitter: vertex snapping, and five preview tools that hid it
+
+`PSXGlobals.vertexSnap` now defaults to **false**.
+
+The snap quantises a vertex's NDC xy to the framebuffer grid and leaves its
+DEPTH alone, so the depth rasterised across a polygon stops describing where
+that polygon is. Two surfaces lying on each other — a table top and its trim, a
+road and its painted line, a wall and its poster — then disagree about which is
+in front, per pixel, and differently every frame. The error is ANGULAR, so its
+world size grows with distance without bound, and it is worst on exactly the
+surfaces you look at most: floors and roads at a grazing angle, where half a
+pixel sideways is a long way forward. It is invisible at 960 lines and vicious
+at 240.
+
+The same call `_Affine` got in PSXLit.shader, for the same reason and from the
+same person. Both are only ever right on small triangles, and almost nothing in
+this game is made of small triangles.
+
+**Why no screenshot pass ever caught it: every preview tool in the project
+forces `_PSXSnap` to 0 before it shoots.** CityPreview, TownPreview,
+PizzeriaPreview, TireFxPreview, HoistPreview — all five. So every screenshot the
+look was ever signed off from was of a renderer the player did not have, and the
+one artefact the tools could not show is the one that came back from the device.
+PizzeriaPreview now shoots the pair deliberately (`snap_ON_240` / `snap_OFF_240`,
+at the game's own resolution and clip planes) so the evidence survives, and
+`LifeSimSelfTest.TestVertexSnapOff` opens every scene in `SceneOrder()` and fails
+the build if any of them ships with it on — `vertexSnap` is a SERIALISED field,
+so turning the default off changes nothing about a scene nobody rebuilt.
+
+### The door
+
+`PizzaShift` put the drive on a hook attached to the player's car, which the
+scene builder parks 8.2 m out on the street. The shop front is a sealed shell —
+the door leaf is 2.43 m tall so `AddColliders` gives it a MeshCollider like every
+other panel in the pack — so that car was never once reachable, and the door
+itself refused to open while carrying ("somebody is waiting on that"). A player
+who collected an order had no remaining action anywhere in the room.
+
+**A door you cannot walk through has to BE the exit, not guard one.** The door
+is now the control: carrying, it reads `OUT TO THE CAR — START THE RUN` and
+names the drop and the money; empty-handed it is `CLOCK OFF — GO HOME`. Its
+anchor moved to the INSIDE of the threshold (it was 80 cm out on the street side,
+reachable only by leaning on the glass) and its range went 2.6 → 3.4 m.
+
+The counter became two-way with it — `PUT THE ORDER BACK` — because the door now
+starts the run, so every one of `Drive`'s refusals would otherwise strand a
+player holding a pizza with no action in the room and no way out of the scene.
+That is the same bug shape this pass exists to fix. The ticket does not re-roll
+on a put-back: pay and destination are the shop's decision, not a slot machine.
+
+### The drop, graded
+
+`DeliveryTrackIndex` rolls at random instead of rotating by day, and **rolls from
+the venues the car can finish**. Charlotte is still excluded (no finish line, so
+nothing to arrive at); everything else is fair game including the strips. The
+fuel filter is new and load-bearing: the parkway stage is 6.9 km with no
+forecourt on it, and rotating by day made "dispatched somewhere you cannot reach"
+a rare unlucky Tuesday where rolling at random would make it one shift in eight.
+With nothing in the catalog inside the tank it sends them to the cheapest run
+there is rather than refusing the shift.
+
+`LifeRules.ScoreDelivery` is the whole grade, and it exists as ONE function
+because two places consume it: the HUD counts the tip down live in the slot that
+used to say "POS 1/1", and `ApplyRaceResult` pays it. A readout that promises $40
+against a wallet that grants $18 is worse than no readout.
+
+- **Par** = `6 s + RaceMeters / 22 m/s` (35 m/s on a drag event, which is a
+  standing start and then flat out — grading a quarter mile against 79 km/h would
+  make every strip delivery a free bonus). Measured off the venue's own raced
+  distance so it means the same thing at a quarter mile and at 6.9 km.
+- **Clock**: 1.25x at 0.6x par, 1.0x on par, sliding to 0.15x by 2.2x par. The
+  floor is not zero — a cold pizza is still a delivered pizza.
+- **Box**: `1 − (damage − 6) × 0.022 − hardHits × 0.20`. The free allowance is
+  there so the job is graded on driving rather than on luck; the hard-hit term is
+  separate because a box does not care about total energy, it cares how many
+  times the car stopped dead.
+- **Refused** below 0.25 condition: no tip at all, and −3 workRep. It is the only
+  way the job can go backwards, which is what makes driving carefully worth
+  anything. You still ate — leaving the meal off a failed run would mean one
+  crash cost the tip AND the dinner.
+
+The counter quote is what the run pays ON PAR, worded that way ("$41 on the door,
+beat 2:30 for more") because the live readout starts at the fast multiplier and
+"$41 if it's there in 2:30" followed by $51 on the grid reads as the game
+inflating a number to take it back.
+
+### Verification
+
+`tools/delivery-pass.ps1` — mirror, scene build, PizzeriaPreview (rendering, so
+no `-nographics`), self-test. The self-test grew nine assertions: par is sane at
+every venue, quicker pays more, hitting things pays less, a scrape inside the
+allowance costs nothing, a wreck is refused and pays zero, no roll escapes the
+quoted band, no delivery is routed past the tank, an empty tank gets the shortest
+run there is, and no scene ships with vertex snapping on.
+
 ## A HOUSE, A TOWN, AND SOMEWHERE TO EAT (2026-08-28)
 
 Asked for: wire the new asset packs (House, Trailer_Park, BurgerPiz, Pizzeria,

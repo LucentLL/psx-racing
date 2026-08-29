@@ -30,7 +30,18 @@ namespace PSXRacing.City
         public const float StationStep = 10f;
         public const float ClearanceM = 5.0f;   // under-side of deck over road below
         public const float DeckThick = 0.55f;
-        public const float CorridorSink = 0.12f;
+        /// <summary>How far below the tarmac the land sits inside a road
+        /// corridor. 0.12 m did not survive the 8 m ground grid: the grass
+        /// between two samples interpolates straight while the road crests and
+        /// sags, so it came up through the tarmac. This is a kerb height now,
+        /// and CityMeshes.KerbDepth is cut deeper still so the road's own side
+        /// always reaches down to it.
+        ///
+        /// Held to a real kerb height rather than pushed as deep as the seam
+        /// would tolerate: this is the step the car drives off and back up,
+        /// and the systematic half of the clipping is fixed by the tMin clamp
+        /// below, not by digging.</summary>
+        public const float CorridorSink = 0.18f;
         public const float CorridorBlend = 26f;
         public const float ElevMarginM = 1.0f;  // above pre-raise line = on structure
 
@@ -521,7 +532,7 @@ namespace PSXRacing.City
             float reachR = MaxCorridorHalf + CorridorBlend;
             map.EdgeSegsInRect(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
 
-            float wSum = 0f, tSum = 0f, wMax = 0f;
+            float wSum = 0f, tSum = 0f, wMax = 0f, tMin = float.MaxValue;
             foreach (var packed in segScratch)
             {
                 int ei = packed >> 12, si = packed & 0xFFF;
@@ -541,11 +552,20 @@ namespace PSXRacing.City
                 w = w * w * (3f - 2f * w);
                 wSum += w; tSum += target * w;
                 if (w > wMax) wMax = w;
+                if (dist <= ch && target < tMin) tMin = target;
             }
             if (wSum > 1e-4f)
             {
                 float target = tSum / wSum;
                 baseY = Mathf.Lerp(baseY, target, wMax);
+                // ...and never above the LOWEST tarmac this point is actually
+                // under. The blend above is a weighted MEAN, so where two roads
+                // at different heights share a corridor - a climbing street
+                // beside a flat one, every junction of two grades - it settles
+                // BETWEEN them, which is above the lower road. That is the
+                // systematic half of the grass-through-the-asphalt report; the
+                // grid resolution is only the rest of it.
+                if (tMin < float.MaxValue) baseY = Mathf.Min(baseY, tMin);
             }
             return baseY;
         }

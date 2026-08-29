@@ -564,7 +564,11 @@ namespace PSXRacing.EditorTools
                 mat.mainTexture = tex;
                 mat.color = Color.white;
                 mat.SetFloat("_Cutoff", 0f);
-                mat.SetFloat("_Affine", 1f);
+                // Perspective-correct like everything else. A car body panel is
+                // a handful of large triangles and the warp swims across it as
+                // the chase camera moves, which is the one place the player is
+                // guaranteed to be looking.
+                mat.SetFloat("_Affine", 0f);
                 EditorUtility.SetDirty(mat);
 
                 // A sheet named "wheel" is exactly that — the one model in the

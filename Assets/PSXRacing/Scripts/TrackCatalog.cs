@@ -481,6 +481,12 @@ namespace PSXRacing
         /// </summary>
         public static int GarageSceneIndex => 1 + All.Length;
 
+        /// <summary>The pizza shop the delivery shift starts in. Appended after
+        /// the garage for the same reason the garage went after the circuits:
+        /// every index below it is addressed by position, so a new scene can
+        /// only ever go on the END.</summary>
+        public static int PizzeriaSceneIndex => 2 + All.Length;
+
         // ------------------------------------------------------------------
         //  Stage bake loading
         // ------------------------------------------------------------------

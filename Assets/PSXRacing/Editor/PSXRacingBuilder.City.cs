@@ -112,17 +112,27 @@ namespace PSXRacing.EditorTools
         //  Materials, one per CityMeshes.Slot. Big flat surfaces opt out of
         //  affine exactly like the circuit road/ground do.
         // ------------------------------------------------------------------
-        static Material[] CityMaterials()
+        /// <summary>One material per slot, in slot order. INTERNAL because
+        /// CityPreview needs the same array: it used to keep a hand-written
+        /// parallel list of material names, and the moment the slot enum grew
+        /// the road textures the preview started photographing the city with
+        /// facade brick on the carriageway and magenta everywhere past the end
+        /// of its list. Two sources for one table is a bug generator; this is
+        /// the table.</summary>
+        internal static Material[] CityMaterials()
         {
             var m = new Material[(int)CityMeshes.Slot.COUNT];
             m[(int)CityMeshes.Slot.Ground] = MakeMat("CityGround", CityTexDir + "/city_grass.png", affine: 0f);
-            m[(int)CityMeshes.Slot.RoadMinor] = MakeMat("CityRoadMinor", CityTexDir + "/city_road_minor.png", affine: 0f);
-            m[(int)CityMeshes.Slot.RoadMajor] = MakeMat("CityRoadMajor", CityTexDir + "/city_road_major.png", affine: 0f);
-            m[(int)CityMeshes.Slot.DividedGrass] = MakeMat("CityRoadDivG", CityTexDir + "/city_road_divided_grass.png", affine: 0f);
-            m[(int)CityMeshes.Slot.DividedAsphalt] = MakeMat("CityRoadDivA", CityTexDir + "/city_road_divided_asphalt.png", affine: 0f);
-            m[(int)CityMeshes.Slot.Motorway] = MakeMat("CityMotorway", CityTexDir + "/city_road_motorway.png", affine: 0f);
-            m[(int)CityMeshes.Slot.Ramp] = MakeMat("CityRamp", CityTexDir + "/city_road_ramp.png", affine: 0f);
-            m[(int)CityMeshes.Slot.Junction] = MakeMat("CityJunction", CityTexDir + "/city_junction.png", affine: 0f);
+            for (int c = 0; c < CityMeshes.RoadClassCount; c++)
+                for (int s = 0; s < CityMeshes.SurfaceCount; s++)
+                {
+                    var cls = (CityMeshes.RoadClass)c;
+                    var surf = (CityMeshes.Surface)s;
+                    string file = RoadTexFile(cls, surf);
+                    m[(int)CityMeshes.SlotOf(cls, surf)] =
+                        MakeMat("CityRoad_" + ClassKey(cls) + "_" + SurfaceKey(surf),
+                                CityTexDir + "/" + file, affine: 0f);
+                }
             m[(int)CityMeshes.Slot.Concrete] = MakeMat("CityConcrete", CityTexDir + "/city_concrete.png", affine: 0f);
             m[(int)CityMeshes.Slot.Water] = MakeMat("CityWater", CityTexDir + "/city_water.png", affine: 0f,
                 tint: new Color(0.9f, 0.95f, 1f));
@@ -140,18 +150,76 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         const float LaneM = 3.6576f;
 
+        // ------------------------------------------------------------------
+        //  The four road surfaces, straight out of the HTML game.
+        //
+        //  RG2 (_getAsphaltBaseColor, v8.99.126.50) settled on ONE canonical
+        //  pair per material after trying to carry road class in the colour as
+        //  well — the markings already tell a major road from a minor one, so
+        //  the tarmac only has to say what it is MADE of and how long it has
+        //  been there:
+        //
+        //    asphalt  new  #1e1e22   fresh blacktop, near-black
+        //    asphalt  old  #43403e   weathered grey, sun-faded oxidation
+        //    concrete new  #c0b8a8   clean light cream-grey, freshly poured
+        //    concrete old  #988772   warm tan-grey, oil-stained weathered
+        //
+        //  Kept as the literal hex the HTML game uses rather than as
+        //  "about right" greys, because these are the colours the user has been
+        //  looking at for a year and a near-miss reads as a mistake.
+        // ------------------------------------------------------------------
+        static readonly Color32[] SurfaceBase =
+        {
+            new Color32(0x1e, 0x1e, 0x22, 255),
+            new Color32(0x43, 0x40, 0x3e, 255),
+            new Color32(0xc0, 0xb8, 0xa8, 255),
+            new Color32(0x98, 0x87, 0x72, 255),
+        };
+
+        static bool IsConcrete(CityMeshes.Surface s) =>
+            s == CityMeshes.Surface.ConcreteNew || s == CityMeshes.Surface.ConcreteOld;
+
+        static string SurfaceKey(CityMeshes.Surface s) => s switch
+        {
+            CityMeshes.Surface.AsphaltNew => "asphalt_new",
+            CityMeshes.Surface.AsphaltOld => "asphalt_old",
+            CityMeshes.Surface.ConcreteNew => "concrete_new",
+            _ => "concrete_old",
+        };
+
+        static string ClassKey(CityMeshes.RoadClass c) => c switch
+        {
+            CityMeshes.RoadClass.Minor => "minor",
+            CityMeshes.RoadClass.Major => "major",
+            CityMeshes.RoadClass.DividedGrass => "divided_grass",
+            CityMeshes.RoadClass.DividedAsphalt => "divided_asphalt",
+            CityMeshes.RoadClass.Motorway => "motorway",
+            CityMeshes.RoadClass.Ramp => "ramp",
+            _ => "junction",
+        };
+
+        internal static string RoadTexFile(CityMeshes.RoadClass c, CityMeshes.Surface s) =>
+            "city_road_" + ClassKey(c) + "_" + SurfaceKey(s) + ".png";
+
         static void GenerateCityTextures()
         {
-            DrawRoadTex("city_road_minor.png", lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0f, width: 128);
-            DrawRoadTex("city_road_major.png", lanesPerSide: 2, medianM: 0f, grassMed: false, shoulderM: 0f, width: 128);
-            DrawRoadTex("city_road_divided_grass.png", lanesPerSide: 3, medianM: LaneM * 6f * 0.25f, grassMed: true, shoulderM: LaneM * 0.5f, width: 256);
-            DrawRoadTex("city_road_divided_asphalt.png", lanesPerSide: 3, medianM: LaneM * 6f * 0.22f, grassMed: false, shoulderM: LaneM * 0.5f, width: 256);
-            DrawRoadTex("city_road_motorway.png", lanesPerSide: 4, medianM: LaneM * 8f * 0.02f, grassMed: false, shoulderM: LaneM * 0.5f, width: 256);
-            DrawRoadTex("city_road_ramp.png", lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0.3f, width: 64, oneWay: true);
+            for (int s = 0; s < CityMeshes.SurfaceCount; s++)
+            {
+                var surf = (CityMeshes.Surface)s;
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Minor, surf), lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0f, width: 128, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Major, surf), lanesPerSide: 2, medianM: 0f, grassMed: false, shoulderM: 0f, width: 128, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.DividedGrass, surf), lanesPerSide: 3, medianM: LaneM * 6f * 0.25f, grassMed: true, shoulderM: LaneM * 0.5f, width: 256, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.DividedAsphalt, surf), lanesPerSide: 3, medianM: LaneM * 6f * 0.22f, grassMed: false, shoulderM: LaneM * 0.5f, width: 256, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Motorway, surf), lanesPerSide: 4, medianM: LaneM * 8f * 0.02f, grassMed: false, shoulderM: LaneM * 0.5f, width: 256, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Ramp, surf), lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0.3f, width: 64, oneWay: true, surf: surf);
 
-            // plain surfaces
-            WriteTexture(CityTexDir + "/city_junction.png", 64, 64, (x, y) =>
-                Asphalt(x, y));
+                // A junction is a poured slab with no markings on it at all,
+                // so it is the base surface and nothing else.
+                var captured = surf;
+                WriteTexture(CityTexDir + "/" + RoadTexFile(CityMeshes.RoadClass.Junction, surf),
+                    64, 64, (x, y) => Grain(x, y, captured));
+            }
+
             WriteTexture(CityTexDir + "/city_grass.png", 64, 64, (x, y) =>
             {
                 float n = Noise(x, y);
@@ -171,12 +239,32 @@ namespace PSXRacing.EditorTools
             });
         }
 
-        static Color32 Asphalt(int x, int y)
+        /// <summary>
+        /// One pixel of road surface: the palette colour with a little grain
+        /// over it, plus slab joints on the concretes.
+        ///
+        /// The joints are what make concrete read as concrete rather than as
+        /// pale asphalt - a poured carriageway is laid in bays and the seams
+        /// between them are the single most recognisable thing about it. They
+        /// run across the road (constant V) because that is the way a slab is
+        /// poured, and at 21 px on a 64 px tile covering 18 m they land about
+        /// every 6 m, which is the real spacing.
+        /// </summary>
+        static Color32 Grain(int x, int y, CityMeshes.Surface surf)
         {
-            float n = Noise(x, y);
-            byte v = (byte)(52 + n * 14);
-            return new Color32(v, v, (byte)(v + 2), 255);
+            var b = SurfaceBase[(int)surf];
+            float n = Noise(x, y) - 0.5f;
+            float amp = IsConcrete(surf) ? 20f : 14f;
+            float joint = IsConcrete(surf) && (y % 21) == 0 ? -26f : 0f;
+            return new Color32(
+                Chan(b.r, n * amp + joint),
+                Chan(b.g, n * amp + joint),
+                Chan(b.b, n * amp + joint + 2f), 255);
         }
+
+        /// <summary>Clamped, because asphalt-new sits at 0x1e and the grain
+        /// would otherwise wrap a dark pixel round to white.</summary>
+        static byte Chan(byte b, float d) => (byte)Mathf.Clamp(b + d, 0f, 255f);
 
         static float Noise(int x, int y)
         {
@@ -188,12 +276,89 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        // ------------------------------------------------------------------
+        //  The same surfaces, for a circuit
+        // ------------------------------------------------------------------
+        /// <summary>Metres of road per V repeat. The city's own number, so a
+        /// circuit's dashes run at the same pitch as a Charlotte street's.
+        /// </summary>
+        internal const float TrackRoadVTile = CityMeshes.RoadVTile;
+
+        /// <summary>
+        /// A Charlotte road surface drawn to a circuit's exact width.
+        ///
+        /// The circuits used to wear a photographed road JPEG stretched across
+        /// the whole carriageway and repeated every 24 m along it, which put a
+        /// single blurred centre line down a 12 m road and no lane markings at
+        /// all. Charlotte's roads are drawn instead of photographed, with the
+        /// paint placed from the real 3.6576 m lane ladder — so they are sharp
+        /// at any resolution and the markings are the right SIZE. This fits
+        /// that ladder inside whatever width a track was authored at and hands
+        /// back the asset path.
+        ///
+        /// Fitted rather than scaled: the lanes stay 3.6576 m and the remainder
+        /// becomes shoulder. Stretching the ladder to the width instead would
+        /// give a 20 m road 20 m lanes, which is how the old texture looked
+        /// wrong in the first place.
+        /// </summary>
+        internal static string EnsureTrackRoadTex(float totalM, bool oneWay,
+            CityMeshes.Surface surf = CityMeshes.Surface.AsphaltOld)
+        {
+            EnsureCityFolders();
+            // As many real lanes as fit while still leaving a shoulder either
+            // side. A road that is 14 m wide is two lanes with generous paved
+            // shoulders, not four narrow ones — the ladder does not stretch.
+            const float MinShoulder = 0.4f;
+            int lanesPerSide = 1;
+            float shoulderM = Mathf.Max(0f, (totalM - (oneWay ? LaneM : LaneM * 2f)) * 0.5f);
+            for (int n = 2; n <= 4; n++)
+            {
+                float sh = (totalM - n * (oneWay ? LaneM : LaneM * 2f)) * 0.5f;
+                if (sh < MinShoulder || sh >= shoulderM) continue;
+                lanesPerSide = n;
+                shoulderM = sh;
+            }
+
+            string file = "city_road_track_" + Mathf.RoundToInt(totalM * 10f) +
+                          (oneWay ? "_ow" : "") + "_" + SurfaceKey(surf) + ".png";
+            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf);
+            return CityTexDir + "/" + file;
+        }
+
+        /// <summary>Concrete, for anything structural: bridge decks, piers, and
+        /// the parapets on them. Shared with the city so a viaduct reads the
+        /// same wherever the player meets one.</summary>
+        internal static string EnsureConcreteTex()
+        {
+            EnsureCityFolders();
+            WriteTexture(CityTexDir + "/city_concrete.png", 64, 64, (x, y) =>
+            {
+                float n = Noise(x + 31, y + 7);
+                byte v = (byte)(148 + n * 26);
+                return new Color32(v, v, (byte)(v - 4), 255);
+            });
+            return CityTexDir + "/city_concrete.png";
+        }
+
         static void DrawRoadTex(string file, int lanesPerSide, float medianM, bool grassMed,
-                                float shoulderM, int width, bool oneWay = false)
+                                float shoulderM, int width, bool oneWay = false,
+                                CityMeshes.Surface surf = CityMeshes.Surface.AsphaltOld)
         {
             int laneCount = oneWay ? lanesPerSide : lanesPerSide * 2;
             float carriage = laneCount * LaneM;
             float total = carriage + medianM + shoulderM * 2f;
+            DrawRoadTexCore(file, lanesPerSide, medianM, grassMed, shoulderM, total, width, oneWay, surf);
+        }
+
+        /// <summary>The painter. Split out from <see cref="DrawRoadTex"/> so a
+        /// caller can give the total width instead of deriving it: the city
+        /// builds its roads FROM the ladder, a circuit fits the ladder INTO a
+        /// width it already has.</summary>
+        static void DrawRoadTexCore(string file, int lanesPerSide, float medianM, bool grassMed,
+                                    float shoulderM, float total, int width, bool oneWay,
+                                    CityMeshes.Surface surf)
+        {
+            int laneCount = oneWay ? lanesPerSide : lanesPerSide * 2;
             int h = 64;
 
             // stripe positions in metres from the left edge
@@ -210,7 +375,7 @@ namespace PSXRacing.EditorTools
             WriteTexture(CityTexDir + "/" + file, width, h, (x, y) =>
             {
                 float m = (x + 0.5f) / width * total;
-                var px = Asphalt(x, y);
+                var px = Grain(x, y, surf);
 
                 // median
                 if (!oneWay && medianM > 0.2f && m > medStart && m < medStart + medianM)

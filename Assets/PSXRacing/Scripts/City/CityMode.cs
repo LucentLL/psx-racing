@@ -109,12 +109,31 @@ namespace PSXRacing.City
             }
 
             var e = map.edges[ei];
-            var pt = e.PointAt(at);
             var tan2 = e.TangentAt(at);
             var tan = new Vector3(tan2.x, 0f, tan2.y);
-            if (Vector3.Dot(car.transform.forward, tan) < 0f && !e.oneway) tan = -tan;
-            float y = e.YAt(at);
-            car.ResetTo(new Vector3(pt.x, y + 0.45f, pt.y), Quaternion.LookRotation(tan, Vector3.up));
+            // Which way round the street the car ends up pointing, and therefore
+            // which way along the edge's own parameterisation "forward" is.
+            bool along = e.oneway || Vector3.Dot(car.transform.forward, tan) >= 0f;
+            if (!along) tan = -tan;
+            var rot = Quaternion.LookRotation(tan, Vector3.up);
+
+            // Walk ALONG the street until there is room, the same way the
+            // circuits walk the racing line: the nearest point on the nearest
+            // road is also the nearest point to whatever the car wedged itself
+            // against, and putting it back there is putting it back stuck.
+            // Forward for the CAR, so a recovery never faces the player the
+            // wrong way down the street to find space.
+            float dir = along ? 1f : -1f;
+            for (int step = 0; step <= 12; step++)
+            {
+                float s = Mathf.Clamp(at + dir * step * 6f, 0f, e.length);
+                var q = e.PointAt(s);
+                if (DriveSession.TryPlace(car, new Vector3(q.x, e.YAt(s), q.y), rot)) return;
+                if (s <= 0f || s >= e.length) break;
+            }
+
+            var pt = e.PointAt(at);
+            car.ResetTo(new Vector3(pt.x, e.YAt(at) + 0.05f, pt.y), rot);
         }
 
         /// <summary>

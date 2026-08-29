@@ -173,21 +173,20 @@ namespace PSXRacing.EditorTools
             mr.sharedMaterials = use;
         }
 
-        static Material[] CityMaterialsForPreview()
-        {
-            // load the baked material assets straight from the project
-            string MatPath(string n) => "Assets/PSXRacing/Materials/" + n + ".mat";
-            var names = new[]
-            {
-                "CityGround", "CityRoadMinor", "CityRoadMajor", "CityRoadDivG", "CityRoadDivA",
-                "CityMotorway", "CityRamp", "CityJunction", "CityConcrete", "CityWater",
-                "CityFacadeTower", "CityFacadeMid", "CityFacadeBrick", "CityShops",
-            };
-            var mats = new Material[(int)CityMeshes.Slot.COUNT];
-            for (int i = 0; i < names.Length; i++)
-                mats[i] = AssetDatabase.LoadAssetAtPath<Material>(MatPath(names[i]));
-            return mats;
-        }
+        /// <summary>
+        /// The materials the GAME uses, not a copy of them.
+        ///
+        /// This was a hand-written list of fourteen material names in slot
+        /// order, and it silently stopped being the truth the moment the slot
+        /// enum grew from fourteen entries to thirty-five: the preview
+        /// photographed uptown Charlotte with brick facade on the road surface
+        /// and magenta wherever the list ran out, which reads exactly like the
+        /// game being broken. The whole value of a preview pass is that it
+        /// tells you what the player will see, and it cannot do that from its
+        /// own private idea of what the materials are.
+        /// </summary>
+        static Material[] CityMaterialsForPreview() =>
+            PSXRacingBuilder.CityMaterials();
 
         static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho)
         {

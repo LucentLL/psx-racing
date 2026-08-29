@@ -40,15 +40,35 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  Stage constants
         // ------------------------------------------------------------------
-        /// <summary>Barrier line for the stage: the parkway's guard wall hugs
-        /// the shoulder. RoadWidth/2 (4.75) + 1.15 m of verge.</summary>
-        internal const float StageWallOffset = 5.9f;
+        /// <summary>Metres of verge between the tarmac edge and the stage's
+        /// guard wall. The parkway's wall hugs the shoulder, and most of this
+        /// is the kerb strip, so what is left is a hand's breadth of gravel.
+        /// </summary>
+        internal const float StageVerge = 1.15f;
+
+        /// <summary>
+        /// Barrier line for a stage, measured from ITS road.
+        ///
+        /// This was frozen at 5.9 — "RoadWidth/2 (4.75) + 1.15 m of verge",
+        /// which is exactly right for the 9.5 m parkway it was written for and
+        /// wrong for every stage added afterwards. Langston is 11 m wide and
+        /// Atlantic Beach 13, so a wall drawn at 5.9 m stood 0.6 m and 1.6 m
+        /// INSIDE the tarmac: 692 and 584 collider segments of invisible
+        /// masonry down the driving surface, which the obstacle audit reported
+        /// the moment it was asked. Derived from the width, it lands back on
+        /// 5.9 for the parkway and moves out for the rest.
+        /// </summary>
+        internal static float StageWallOffsetFor(TrackCatalog.TrackDef def) =>
+            (def != null ? def.roadWidth : 9.5f) * 0.5f + StageVerge;
 
         /// <summary>The barrier line for a given venue — what the audits must
         /// measure to. The circuits' 10 m constant is wrong for the stage,
         /// whose guard walls hug the shoulder.</summary>
         internal static float WallOffsetFor(TrackCatalog.TrackDef def) =>
-            def != null && def.stage ? StageWallOffset : WallOffset;
+            def != null && def.stage ? StageWallOffsetFor(def) : WallOffset;
+
+        /// <summary>The barrier line for the stage being built right now.</summary>
+        static float StageWallOffset => StageWallOffsetFor(track);
         /// <summary>Fog band multiplier over the hour presets. 3.2 puts noon's
         /// 355 m fogFar at ~1.1 km — the far wall of the valley, hazy, which
         /// is what the Blue Ridge is named for.</summary>

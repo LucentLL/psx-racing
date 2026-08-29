@@ -71,8 +71,8 @@ Invoke-UnityJob -Log "$proj\obstacle.log" -UnityArgs @(
     "-executeMethod","PSXRacing.EditorTools.TrackObstacleAudit.Run",
     "-logFile","$proj\obstacle.log","-accept-apiupdate") | Out-Null
 if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
-    Select-String -Path "$proj\PSXRacing_obstacle_audit.txt" -Pattern "CLEAR|worst|intrusion" |
-        Select-Object -First 20 | ForEach-Object { $_.Line }
+    Select-String -Path "$proj\PSXRacing_obstacle_audit.txt" -Pattern "CLEAR|worst|intrusion|RE-ENTRY|ON TRACK|RUN-OFF|FACING|BACKWARDS" |
+        Select-Object -First 40 | ForEach-Object { $_.Line }
 }
 
 # Graphics on: these render through the pipeline, and a headless editor has no

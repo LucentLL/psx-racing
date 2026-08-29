@@ -94,7 +94,10 @@ namespace PSXRacing.EditorTools
                 if (car.faults.Count == 0)
                 {
                     var f = FaultCatalog.RollWearFault(car, "tires", false);
-                    if (f != null) car.faults.Add(f);
+                    // Revealed by hand: faults now arrive hidden, and the whole
+                    // point of this shot is the repair row's LAYOUT, which a
+                    // hidden fault does not draw.
+                    if (f != null) { f.hidden = false; f.diagnosed = true; car.faults.Add(f); }
                 }
             }
             s.money = 4841;

@@ -263,12 +263,40 @@ namespace PSXRacing
         public CarProgress GetProgress(CarController car) =>
             progressMap.TryGetValue(car, out var p) ? p : null;
 
+        /// <summary>
+        /// Put a car back in the middle of the road, facing the way the road
+        /// goes — and somewhere it can actually drive away from.
+        ///
+        /// The nearest waypoint IS the centre of the road, so that part was
+        /// always right. What was missing is that the nearest waypoint is also
+        /// the nearest waypoint to whatever the car got stuck ON: a pier, a
+        /// barrier end, another car, a block of concrete beside the line. The
+        /// old version dropped the car there regardless, so recovering from
+        /// those spots handed the car straight back into them, and the player
+        /// experienced the unstick as doing nothing. It now walks FORWARD along
+        /// the line until it finds a clear station, which is also the direction
+        /// the player wants to be pointed in.
+        /// </summary>
         public void RespawnCar(CarController car)
         {
-            int idx = path.NearestIndex(car.transform.position,
+            if (car == null || path == null || path.Count == 0) return;
+            int start = path.NearestIndex(car.transform.position,
                 progressMap.TryGetValue(car, out var p) ? p.nearestIdx : -1);
-            car.ResetTo(path.GetPoint(idx), path.GetRotation(idx));
-            if (p != null) p.nearestIdx = idx;
+
+            // Roughly 60 m of line at 4 m stations, then give up and take the
+            // nearest one anyway: a car left where it is would be worse than a
+            // car put back somewhere imperfect.
+            const int Search = 15;
+            for (int step = 0; step <= Search; step++)
+            {
+                int idx = path.Wrap(start + step);
+                if (!DriveSession.TryPlace(car, path.GetPoint(idx), path.GetRotation(idx))) continue;
+                if (p != null) p.nearestIdx = idx;
+                return;
+            }
+
+            car.ResetTo(path.GetPoint(start), path.GetRotation(start));
+            if (p != null) p.nearestIdx = start;
         }
     }
 }

@@ -8,6 +8,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UI;
 using PSXRacing;
+using PSXRacing.City;
 
 namespace PSXRacing.EditorTools
 {
@@ -368,8 +369,16 @@ namespace PSXRacing.EditorTools
                 // this list. TrackCatalog.GarageSceneIndex is the other half of
                 // that contract.
                 GarageSceneBuilder.Build();
-                scenes.Add(new EditorBuildSettingsScene(GarageSceneBuilder.ScenePath, true));
+                PizzeriaSceneBuilder.Build();
 
+                // Written from SceneOrder rather than from the list assembled
+                // as we went, so the build settings and the WebGL player are the
+                // same list BY CONSTRUCTION and not by agreement. They were
+                // maintained separately and drifted: the player shipped without
+                // the pizza shop, and GO TO WORK silently did nothing.
+                scenes.Clear();
+                foreach (var p in SceneOrder())
+                    scenes.Add(new EditorBuildSettingsScene(p, true));
                 EditorBuildSettings.scenes = scenes.ToArray();
                 Log($"BUILD OK — {TrackCatalog.Count} circuits + home + garage.");
             }
@@ -551,6 +560,31 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void GenerateTrackTextures()
         {
+            // Charlotte's surfaces first, and for EVERY venue rather than
+            // lazily when a track asks: ConfigureTextureImporters runs straight
+            // after this and is what makes these point-filtered with no mips.
+            // A texture written later in the build misses that pass and gets
+            // Unity's defaults — bilinear and mipmapped, which averages a
+            // 12 cm lane marking away to nothing by the second mip level. The
+            // city textures had that bug and only escaped it because a SECOND
+            // build configured what the first one drew.
+            EnsureCityFolders();
+            GenerateCityTextures();
+            EnsureConcreteTex();
+            foreach (var def in TrackCatalog.All)
+            {
+                if (def.city) continue;      // the city draws its own by class
+                // All four, not just the one this circuit turns out to want.
+                // BuildRoad picks its asphalt age and its deck surface from the
+                // geometry, which does not exist yet at texture time — and a
+                // texture written later in the build misses the importer pass
+                // above and comes back bilinear and mipmapped. Four 256x64
+                // PNGs per venue is nothing; a coordination channel between
+                // here and there would have been the expensive part.
+                for (int s = 0; s < CityMeshes.SurfaceCount; s++)
+                    EnsureTrackRoadTex(def.roadWidth, def.drag, (CityMeshes.Surface)s);
+            }
+
             // Bands run ACROSS the direction of travel. BuildKerbs lays u along
             // the road at one repeat per 2 m, so two bands is the 1 m red/white
             // dashing a real kerb has.
@@ -803,13 +837,45 @@ namespace PSXRacing.EditorTools
         //  Materials
         // ------------------------------------------------------------------
         /// <param name="affine">1 = PS1 affine texture warping, 0 = perspective
-        /// correct. Warping grows with triangle size, so the big generated
-        /// surfaces (road, kerb, ground, walls) opt out — on a 12 m x 4 m road
-        /// quad it bends the painted centreline into a visible diagonal. Props,
-        /// buildings and the car keep it, which is where the look actually reads.</param>
-        static Material MakeMat(string name, string texPath, float cutoff = 0f,
-                                Color? tint = null, float affine = 1f)
+        /// correct. DEFAULTS TO 0 everywhere now — warping grows with triangle
+        /// size and nothing in this game is made of small enough triangles for
+        /// it to read as anything but a bug. Left as a parameter so one mesh
+        /// could opt back in; nothing does.</param>
+        /// <summary>
+        /// Every scene the game ships, in build-index order.
+        ///
+        /// THE definition — EditorBuildSettings and the WebGL player both come
+        /// from here, because they were separately maintained and drifted: the
+        /// player shipped without the pizza shop while the editor knew about it,
+        /// and the only symptom was GO TO WORK doing nothing.
+        ///
+        /// Order is a contract: LifeHome is 0 (the boot scene RaceManager
+        /// returns to), then one per circuit IN CATALOG ORDER, then the garage,
+        /// then the pizzeria. TrackCatalog.SceneIndex / GarageSceneIndex /
+        /// PizzeriaSceneIndex are the other half of it, and anything new can
+        /// only ever go on the END.
+        /// </summary>
+        public static string[] SceneOrder()
         {
+            var list = new List<string> { LifeHomeSceneBuilder.ScenePath };
+            foreach (var t in TrackCatalog.All)
+                list.Add("Assets/PSXRacing/Scenes/" + t.id + ".unity");
+            list.Add(GarageSceneBuilder.ScenePath);
+            list.Add(PizzeriaSceneBuilder.ScenePath);
+            return list.ToArray();
+        }
+
+        static Material MakeMat(string name, string texPath, float cutoff = 0f,
+                                Color? tint = null, float affine = 0f)
+        {
+            // Resolve the shader HERE rather than trusting Build() to have run.
+            // psxLit is only assigned inside Build, and every other entry point
+            // that makes materials already carries this guard (PSXMaterialFor,
+            // ConvertToPSXMaterials) — MakeMat did not, so the moment CityPreview
+            // was pointed at the real material table it wrote a NULL shader onto
+            // all thirty-five city materials and SAVED them. Magenta roads,
+            // magenta ground, and a corrupted asset each time the preview ran.
+            if (psxLit == null) psxLit = Shader.Find("PSX/Lit");
             string assetPath = MatDir + "/" + name + ".mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             if (mat == null)
@@ -834,6 +900,12 @@ namespace PSXRacing.EditorTools
 
         static Dictionary<string, Material> matByKey = new Dictionary<string, Material>();
 
+        /// <summary>A float as a short, stable, filename-safe token. Rounded to
+        /// a thousandth: UV numbers that differ below that are the same window,
+        /// and a raw ToString() would put a minus sign and a dot in a path.</summary>
+        static string Sig(float v) =>
+            Mathf.RoundToInt(v * 1000f).ToString().Replace("-", "n");
+
         static Material PSXMaterialFor(Texture tex, string fallbackName, Vector2 scale, Vector2 offset)
         {
             // Reachable from OTHER builders (the home scene, the prop baker)
@@ -847,7 +919,24 @@ namespace PSXRacing.EditorTools
             string key = texKey + "|" + scale + "|" + offset;
             if (matByKey.TryGetValue(key, out var cached)) return cached;
             string safe = string.Join("_", (tex.name + "_" + fallbackName).Split(Path.GetInvalidFileNameChars()));
-            if (scale != Vector2.one) safe += "_t" + matByKey.Count;
+            // The FILE has to be keyed by everything the cache is keyed by.
+            //
+            // It used to add a suffix only when the SCALE was non-default, so
+            // two materials sharing a texture and a name and differing only in
+            // OFFSET took different cache slots and the same .mat file — the
+            // second call loaded the first's asset and overwrote its offset, so
+            // both ended up drawing whichever UV window was written last. On an
+            // atlased prop that is the fridge showing its own shelves on the
+            // outside of the door, and the bin showing the bag. Reported
+            // exactly that way.
+            //
+            // And the old suffix was matByKey.Count, which depends on the
+            // order materials happen to be met in — so the same material could
+            // land on a different file between builds. Derived from the numbers
+            // themselves now: same inputs, same path, every time.
+            if (scale != Vector2.one || offset != Vector2.zero)
+                safe += "_uv" + Sig(scale.x) + "x" + Sig(scale.y) +
+                        "o" + Sig(offset.x) + "x" + Sig(offset.y);
             string assetPath = MatDir + "/scenery_" + safe + ".mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             if (mat == null)
@@ -860,6 +949,13 @@ namespace PSXRacing.EditorTools
             mat.mainTextureScale = scale;     // keep the source material's tiling
             mat.mainTextureOffset = offset;
             mat.color = Color.white;
+            // Perspective-correct. This factory dresses every IMPORTED model in
+            // the game — the house and its doors, the trees, the gas station,
+            // the restaurants — and it never set _Affine at all, so all of them
+            // silently inherited the shader's old default of 1. A door leaf is
+            // two triangles: at that size the warp bends the panel lines as you
+            // walk past, which is exactly how this was reported.
+            if (mat.HasProperty("_Affine")) mat.SetFloat("_Affine", 0f);
 
             // Cut out where the source has an alpha channel.
             //
@@ -1004,8 +1100,25 @@ namespace PSXRacing.EditorTools
             int last = Loop ? n : n - 1;
             var verts = new Vector3[(last + 1) * 2];
             var uvs = new Vector2[(last + 1) * 2];
-            var tris = new List<int>();
+            // Two triangle lists, one per surface. A bridge deck is poured
+            // concrete and the ribbon over it was blacktop, so a viaduct read
+            // as a road that happened to have a parapet - the deck, the piers
+            // and the fascia were all concrete underneath and the one surface
+            // you actually look at was not.
+            var tris = new List<int>();      // submesh 0: tarmac
+            var deckTris = new List<int>();  // submesh 1: the spans
             float dist = 0f;
+
+            // Same BridgeBlend the deck builder reads, so the concrete on the
+            // driving surface starts and stops exactly where the structure
+            // under it does. Two thresholds would drift.
+            var onDeck = new bool[n];
+            if (track != null && !track.drag && track.bridges != null && track.bridges.Length > 0)
+            {
+                float lap = Mathf.Max(track.LengthM, 1f);
+                for (int i = 0; i < n; i++)
+                    onDeck[i] = TrackCatalog.BridgeBlend(track, Mathf.Repeat(i * Spacing, lap)) > 0.001f;
+            }
 
             for (int i = 0; i <= last; i++)
             {
@@ -1016,25 +1129,61 @@ namespace PSXRacing.EditorTools
                 Vector3 center = pts[idx] + Vector3.up * RoadLift;
                 verts[i * 2] = center - right * (RoadWidth * 0.5f);
                 verts[i * 2 + 1] = center + right * (RoadWidth * 0.5f);
-                uvs[i * 2] = new Vector2(dist / 24f, 0.02f);
-                uvs[i * 2 + 1] = new Vector2(dist / 24f, 0.98f);
+                // U ACROSS the carriageway, V along it — Charlotte's mapping,
+                // and the reason its markings are the right size. The old
+                // mapping ran U along the road and squeezed the whole texture
+                // across the width, so a photographed road surface was
+                // stretched over 12 m and its one painted line was the only
+                // marking a circuit had.
+                uvs[i * 2] = new Vector2(0f, dist / TrackRoadVTile);
+                uvs[i * 2 + 1] = new Vector2(1f, dist / TrackRoadVTile);
                 dist += Spacing;
                 if (i < last)
                 {
                     int a = i * 2;
-                    tris.AddRange(new[] { a, a + 2, a + 1, a + 1, a + 2, a + 3 });
+                    // A quad counts as deck if EITHER end stands on one, so the
+                    // concrete reaches the abutment rather than stopping a
+                    // waypoint short of it with a stripe of tarmac in mid-air.
+                    int nxt = Loop ? (i + 1) % n : i + 1;
+                    var into = (onDeck[idx] || onDeck[nxt]) ? deckTris : tris;
+                    into.AddRange(new[] { a, a + 2, a + 1, a + 1, a + 2, a + 3 });
                 }
             }
 
-            var mesh = new Mesh { vertices = verts, uv = uvs, triangles = tris.ToArray() };
+            bool anyDeck = deckTris.Count > 0;
+            var mesh = new Mesh { vertices = verts, uv = uvs };
+            mesh.subMeshCount = anyDeck ? 2 : 1;
+            mesh.SetTriangles(tris, 0, false);
+            if (anyDeck) mesh.SetTriangles(deckTris, 1, false);
             SaveMesh(mesh, "RoadMesh");
 
             var go = new GameObject("Road");
             go.transform.SetParent(parent, false);
             go.layer = RoadLayer;   // wheels detect tarmac by layer, not by name
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mat = MakeMat(MeshPrefix + "Road", theme.road, affine: 0f);
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            // Drawn to THIS track's width, so the lane ladder lands where the
+            // tarmac actually ends. The per-track name matters: two circuits of
+            // different widths sharing one material would each get whichever
+            // one built last.
+            // How long since this venue was resurfaced: the city's own hash on
+            // the first waypoint, so a circuit and the streets outside it are
+            // aged by the same rule and the answer is the same on every build.
+            bool fresh = pts.Count > 0 && CityMeshes.IsFresh(new Vector2(pts[0].x, pts[0].z));
+            var tarmacSurf = fresh ? CityMeshes.Surface.AsphaltNew : CityMeshes.Surface.AsphaltOld;
+            var deckSurf = fresh ? CityMeshes.Surface.ConcreteNew : CityMeshes.Surface.ConcreteOld;
+
+            var mat = MakeMat(MeshPrefix + "Road",
+                              EnsureTrackRoadTex(RoadWidth, track != null && track.drag, tarmacSurf),
+                              affine: 0f);
+            var mr = go.AddComponent<MeshRenderer>();
+            if (anyDeck)
+            {
+                var deckRoadMat = MakeMat(MeshPrefix + "RoadDeck",
+                                          EnsureTrackRoadTex(RoadWidth, track != null && track.drag, deckSurf),
+                                          affine: 0f);
+                mr.sharedMaterials = new[] { mat, deckRoadMat };
+            }
+            else mr.sharedMaterial = mat;
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
 
@@ -1042,19 +1191,45 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// The cut face of the roadbed: the side of the slab, from the outer
-        /// edge of the shoulder strip down to the subgrade.
+        /// How far out the verge batter runs before it meets the graded ground.
         ///
-        /// The ground beside the road is dug to the bottom of this face
-        /// (RoadbedSinkAt), so most of it is buried and what shows is the top
-        /// couple of hand-spans — which is exactly right, because that is what
-        /// a road edge looks like from a car. Where the land falls away, on an
-        /// embankment or off the end of a bridge approach, the whole 45 cm
-        /// shows and the road finally reads as a thing with a thickness rather
-        /// than a painted ribbon.
+        /// Bounded by the barrier line, so a stage — whose guard wall stands
+        /// less than a metre off the tarmac — keeps the near-vertical slab face
+        /// it has always had, and a circuit with four metres of run-off gets a
+        /// real slope. Never inside the kerb: the strip caps the slab and there
+        /// must be no seam on the driving surface.
+        /// </summary>
+        static float VergeOuter()
+        {
+            float kerbOuter = RoadWidth * 0.5f + KerbWidth;
+            float want = Mathf.Min(RoadbedToe + RoadbedRamp, WallOffsetFor(track) - 0.6f);
+            return Mathf.Max(kerbOuter + RoadSlabBatter, want);
+        }
+
+        /// <summary>
+        /// The shoulder: the fill batter from the outer edge of the kerb strip
+        /// down to the graded ground beside it.
         ///
-        /// No collider. It lives entirely below the driving surface and a
-        /// collider down there is something for a wheel to catch on.
+        /// This used to be the CUT FACE of the roadbed — a 45 cm drop over
+        /// 25 cm of batter, with no collider, because it was thought of as
+        /// something you look at rather than something you drive on. That is
+        /// true right up until a car runs wide, and then it is a wall: the
+        /// ground beside the tarmac is dug to the bottom of the slab
+        /// (<see cref="RoadbedSinkAt"/>), so a car in the gravel sits half a
+        /// metre below the road with a step taller than its own wheels between
+        /// it and the way back. That is what "some sections of track are almost
+        /// impossible to drive back onto" was, and it was on both sides of
+        /// every circuit.
+        ///
+        /// Now it lands ON the graded ground rather than in the trench, which
+        /// makes it a ramp of a few degrees, and it CARRIES A COLLIDER so a
+        /// wheel finds it. The outer edge is dropped three centimetres under
+        /// the ground it meets, so the two interpenetrate instead of fighting
+        /// for the same pixels.
+        ///
+        /// Where the land genuinely falls away — an embankment, the end of a
+        /// bridge approach — the ground goes with it and the full section still
+        /// shows, which is what made this worth drawing in the first place.
         /// </summary>
         static void BuildRoadEdge(List<Vector3> pts, Transform parent)
         {
@@ -1063,6 +1238,18 @@ namespace PSXRacing.EditorTools
             var uvs = new List<Vector2>();
             var tris = new List<int>();
 
+            float kerbOuter = RoadWidth * 0.5f + KerbWidth;
+            float outer = VergeOuter();
+            float run = outer - kerbOuter;
+            // The toe stays at the BOTTOM of the slab, as deep as it always
+            // was; only the batter got longer. That depth is what makes the
+            // result robust: the graded ground beside the road is never lower
+            // than the slab bottom, so the batter is never left standing proud
+            // of it with a lip at its outer end — the two surfaces simply cross
+            // somewhere in the middle and the car rides whichever is higher,
+            // continuously, all the way in.
+            const float ToeDrop = RoadSlabDepth - RoadLift;
+
             foreach (float side in new[] { -1f, 1f })
             {
                 float dist = 0f;
@@ -1070,21 +1257,31 @@ namespace PSXRacing.EditorTools
                 {
                     int idx = Loop ? i % n : i;
                     Vector3 outw = RightAt(pts, idx) * side;
-                    // Starts where the shoulder strip ends, so the strip caps
-                    // the slab and there is no seam on the driving surface.
                     Vector3 top = pts[idx] + Vector3.up * (RoadLift + 0.01f)
-                                + outw * (RoadWidth * 0.5f + KerbWidth);
-                    Vector3 toe = pts[idx] + Vector3.up * (RoadLift - RoadSlabDepth)
-                                + outw * (RoadWidth * 0.5f + KerbWidth + RoadSlabBatter);
+                                + outw * kerbOuter;
+                    Vector3 toe = pts[idx] + Vector3.down * ToeDrop + outw * outer;
                     int v = verts.Count;
                     verts.Add(top); verts.Add(toe);
                     uvs.Add(new Vector2(dist / 6f, 1f));
-                    uvs.Add(new Vector2(dist / 6f, 1f - RoadSlabDepth / 6f));
+                    uvs.Add(new Vector2(dist / 6f, 1f - run / 6f));
                     dist += Spacing;
+                    // The batter runs THROUGH the forecourt driveway too.
+                    //
+                    // It was skipped there at first, on the reasoning that the
+                    // pad is graded flush with the road and two surfaces in the
+                    // same place would fight. They do not overlap: the pad's
+                    // near edge is at WallOffset - PadRoadOverlap, which on the
+                    // airfield is 8.3 m, and the kerb ends at 7.9 — so skipping
+                    // left a 40 cm strip of open trench across the one place on
+                    // the circuit a car is MEANT to leave the road, and the
+                    // run-off audit found it on exactly the handful of stations
+                    // the driveway spans. Where they do meet the pad sits
+                    // higher and simply wins.
                     if (i < last)
                     {
-                        // Wound to face OUTWARD on each side — the inward face
-                        // is under the tarmac and nothing is ever in there.
+                        // Wound to face UPWARD and outward on each side — the
+                        // underside is buried in the subgrade and nothing is
+                        // ever in there.
                         if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
                         else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
                     }
@@ -1101,6 +1298,11 @@ namespace PSXRacing.EditorTools
 
             var go = new GameObject("RoadEdge");
             go.transform.SetParent(parent, false);
+            // Deliberately NOT on the road layer, even though a wheel now rolls
+            // on it: grip is decided by that layer, and a gravel shoulder that
+            // gripped like tarmac would make running wide free. Off the road
+            // layer it supports the car and gives it offroadGrip, which is what
+            // a shoulder is.
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             // The ground texture, darkened: this IS cut earth and aggregate
             // under a wearing course, and at PSX resolution one material does
@@ -1108,6 +1310,7 @@ namespace PSXRacing.EditorTools
             go.AddComponent<MeshRenderer>().sharedMaterial =
                 MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f,
                         tint: new Color(0.42f, 0.39f, 0.36f));
+            go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
         }
 
@@ -1149,7 +1352,21 @@ namespace PSXRacing.EditorTools
                     uvs.Add(new Vector2(dist / 2f, 0f));
                     uvs.Add(new Vector2(dist / 2f, 1f));
                     dist += Spacing;
-                    if (i < last) tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
+                    // Opposite winding on the two sides, because `outw` flips
+                    // with `side` and the corner order goes with it — the same
+                    // branch BuildRoadEdge has always had, and which this strip
+                    // never got. Without it the LEFT kerb faced downward: it was
+                    // invisible from the car (which is why every screenshot of
+                    // this game has a kerb on one side only), and once the strip
+                    // carried a collider its back face was invisible to a
+                    // downward raycast too, so the run-off audit found half a
+                    // metre of missing surface down the left of all four
+                    // circuits and none down the right.
+                    if (i < last)
+                    {
+                        if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
+                        else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
+                    }
                 }
 
                 var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
@@ -1158,6 +1375,22 @@ namespace PSXRacing.EditorTools
                 go.transform.SetParent(parent, false);
                 go.AddComponent<MeshFilter>().sharedMesh = mesh;
                 go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                // A COLLIDER, which this strip has never had.
+                //
+                // The road mesh stops dead at RoadWidth/2 and the strip runs
+                // 0.9 m further out, so for its whole width there was nothing
+                // under the car at all: a wheel over the white line raycast
+                // straight past the kerb it can SEE and landed on the ground
+                // half a metre below. A car putting two wheels wide therefore
+                // fell into a trench at the exact edge of the tarmac and then
+                // had a lip taller than its own wheels between it and the way
+                // back — invisible, because the picture showed a kerb.
+                //
+                // On the road layer for a circuit, because that is a racing
+                // kerb and it grips; off it on a stage, where the same geometry
+                // is drawn as a gravel shoulder and should not.
+                if (track == null || !track.stage) go.layer = RoadLayer;
+                go.AddComponent<MeshCollider>().sharedMesh = mesh;
                 go.isStatic = true;
             }
             Log("Built kerb strips at the tarmac edge.");
@@ -1206,7 +1439,18 @@ namespace PSXRacing.EditorTools
                         // RecalculateNormals sum each face normal with its own
                         // negation, so every vertex normal comes out exactly
                         // zero and the barrier renders with ambient light only.
-                        tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
+                        //
+                        // "Facing the road" is two different windings, because
+                        // the road is on the other side of the wall on the
+                        // other side of the track. One winding for both meant
+                        // the LEFT-HAND BARRIER OF EVERY CIRCUIT faced out over
+                        // the scenery and was invisible from the car — you
+                        // looked straight through it to the ground beyond, and
+                        // only its collider stopped you. The stage walls have
+                        // always branched here (BuildOneStageWall); the
+                        // circuits' never did.
+                        if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
+                        else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
                     }
 
                     // One collider per drawn segment. Emitting them every other
@@ -1630,6 +1874,11 @@ namespace PSXRacing.EditorTools
         /// a 9.5 m parkway would read as an aircraft carrier.</summary>
         static float DeckHalfWidth => track != null && track.stage
             ? StageWallOffset + 1.2f : WallOffset + 1.4f;
+
+        /// <summary>Metres of structure per concrete texture repeat. One number
+        /// for both axes, or the noise smears along whichever one is longer.
+        /// </summary>
+        const float ConcreteTile = 4f;
         /// <summary>Depth of the deck box under the tarmac.</summary>
         const float DeckThick = 1.3f;
         /// <summary>Metres between piers. Real short-span viaducts sit around
@@ -1663,8 +1912,15 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < n; i++)
                 blend[i] = TrackCatalog.BridgeBlend(track, Mathf.Repeat(i * Spacing, lap));
 
-            var deckMat = MakeMat(MeshPrefix + "Deck", theme.wall, affine: 0f);
-            var pierMat = MakeMat(MeshPrefix + "Pier", theme.wall, affine: 0f);
+            // CONCRETE, not the barrier texture. A deck and its piers are the
+            // one structure on a circuit that is unambiguously poured — they
+            // were wearing whatever the venue's walls are made of, so a viaduct
+            // over a gorge came out looking like a very long fence, and the
+            // bridges in the city (which have always been concrete) and the
+            // bridges on the circuits did not read as the same kind of thing.
+            string concrete = EnsureConcreteTex();
+            var deckMat = MakeMat(MeshPrefix + "Deck", concrete, affine: 0f);
+            var pierMat = MakeMat(MeshPrefix + "Pier", concrete, affine: 0f);
             var physMat = GetOrCreatePhysMat("DeckPhys", 0.8f, 0f);
 
             var root = new GameObject("Bridges");
@@ -1803,10 +2059,19 @@ namespace PSXRacing.EditorTools
                 Vector3 c = pts[i] + Vector3.up * 0.08f;
                 Vector3 under = pts[i] + Vector3.up * (0.08f - DeckThick);
 
-                top[k * 2] = verts.Count; verts.Add(c - right * hw); uvs.Add(new Vector2(dist / 10f, 0f));
-                top[k * 2 + 1] = verts.Count; verts.Add(c + right * hw); uvs.Add(new Vector2(dist / 10f, 1f));
-                bot[k * 2] = verts.Count; verts.Add(under - right * hw); uvs.Add(new Vector2(dist / 10f, 0.3f));
-                bot[k * 2 + 1] = verts.Count; verts.Add(under + right * hw); uvs.Add(new Vector2(dist / 10f, 0.7f));
+                // Concrete tiles by the METRE in both directions. The old UVs
+                // ran 0..1 across the deck whatever its width, which on a 23 m
+                // deck stretched one texture repeat over more than twice the
+                // distance it covered along the span — a visible smear on the
+                // soffit from the gorge floor. The fascia strips take their
+                // height from DeckThick for the same reason.
+                float v = dist / ConcreteTile;
+                float uOut = hw * 2f / ConcreteTile;
+                float uLip = DeckThick / ConcreteTile;
+                top[k * 2] = verts.Count; verts.Add(c - right * hw); uvs.Add(new Vector2(v, 0f));
+                top[k * 2 + 1] = verts.Count; verts.Add(c + right * hw); uvs.Add(new Vector2(v, uOut));
+                bot[k * 2] = verts.Count; verts.Add(under - right * hw); uvs.Add(new Vector2(v, -uLip));
+                bot[k * 2 + 1] = verts.Count; verts.Add(under + right * hw); uvs.Add(new Vector2(v, uOut + uLip));
                 dist += Spacing;
             }
 

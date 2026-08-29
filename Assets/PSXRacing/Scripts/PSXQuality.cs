@@ -15,10 +15,14 @@ namespace PSXRacing
     /// "resolution is very low and unnecessarily grainy".
     ///
     /// What actually makes this game look like a PS1 is elsewhere and is not
-    /// touched by any of this — affine texture mapping, vertex snapping, no
-    /// z-buffer gradient in the fog, 300-triangle cars. Those stay at every
-    /// level. This only decides how coarse the OUTPUT is, and the default is
-    /// now the sharp end.
+    /// touched by any of this — the flat vertex lighting, no z-buffer gradient
+    /// in the fog, 300-triangle cars. Those stay at every level. This only
+    /// decides how coarse the OUTPUT is, and the default is now the sharp end.
+    ///
+    /// Affine texture mapping and vertex snapping USED to be on that list. Both
+    /// are off now, on the owner's call, and for the same reason: each one is
+    /// only correct on small triangles and wrecks large ones. See _Affine in
+    /// PSXLit.shader and PSXGlobals.vertexSnap.
     /// </summary>
     public enum PSXPixels { Sharp = 0, Classic = 1, Retro = 2 }
 

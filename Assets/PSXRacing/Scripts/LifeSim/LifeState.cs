@@ -26,8 +26,10 @@ namespace PSXRacing.LifeSim
         /// v4: blacklist ladder + at-fault incident record.
         /// v5: toolbox + per-car inspection latches; hidden faults are real.
         /// v6: housing keys renamed apartment→house (start = 1-car-garage house).
+        /// v7: faults rolled before the hidden layer landed are re-hidden on
+        ///     cars nobody has inspected; OwnedCar gained proInspectDay.
         /// </summary>
-        public int saveVersion = 6;
+        public int saveVersion = 7;
 
         // === Core economy / clock ===
         public int money;
@@ -183,6 +185,13 @@ namespace PSXRacing.LifeSim
         public List<string> inspectedSubs = new List<string>();
         /// <summary>Day the free look at the garage floor was taken.</summary>
         public int floorCheckedDay = -1;
+        /// <summary>Day a mechanic or dealer last inspected this car. Paid
+        /// inspections used to reveal faults without leaving any mark on the
+        /// car, which meant the save had no record that anyone had ever looked
+        /// - and a migration that has to reconstruct what the player knows has
+        /// nothing to reconstruct it from. An ADDED field, so existing saves
+        /// read back as 0; the v7 migration is what turns those into -1.</summary>
+        public int proInspectDay = -1;
         /// <summary>How the car is standing right now: 0 on its wheels,
         /// 1 on jack stands, 2 on the two-post lift (see Toolbox.Raise). An
         /// ADDED field, so every existing save reads back as ON ITS WHEELS —

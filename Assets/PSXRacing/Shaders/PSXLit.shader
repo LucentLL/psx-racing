@@ -14,9 +14,20 @@ Shader "PSX/Lit"
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
-        // Warping scales with triangle size, so huge surfaces like the ground
-        // plane need to opt out or the texture visibly swims near the camera.
-        _Affine ("Affine Warping", Range(0,1)) = 1
+        //
+        // DEFAULTS TO ZERO, on the owner's instruction: "textures stretch and
+        // transform depending on the camera angle. this should not happen in
+        // any part of the game." The warp is only ever right on small
+        // triangles, and almost nothing in this game is made of small
+        // triangles — a door leaf, a wall, a road ribbon and a building facade
+        // are all one or two quads each, and on those it reads as a bug rather
+        // than as a PlayStation. The look survives without it: the vertex
+        // snapping below and the low-resolution framebuffer are what actually
+        // carry it.
+        //
+        // The property stays so a specific mesh can opt back IN deliberately,
+        // but nothing does today and nothing should without a reason.
+        _Affine ("Affine Warping", Range(0,1)) = 0
     }
     SubShader
     {

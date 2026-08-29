@@ -57,7 +57,11 @@ namespace PSXRacing.LifeSim
         // wizard state
         bool wizard;
         int wizAge = 25;
-        int wizJob;
+        /// <summary>Pre-selected job in the new-game wizard. Pizza delivery,
+        /// because it is the only job with a game attached to it — see
+        /// LifeRules.DefaultJobIndex. The player can still pick any of the
+        /// others; this is the one they start on.</summary>
+        int wizJob = LifeRules.DefaultJobIndex;
         InputField wizNameField;
 
         LifeState S => LifeSimManager.State;
@@ -107,6 +111,15 @@ namespace PSXRacing.LifeSim
                 {
                     raceSummary += "  ·  DIAGNOSED: " + LifeRules.lastDiagnosed;
                     LifeRules.lastDiagnosed = null;
+                }
+                // A fault nobody has looked at yet says how the car FEELS and
+                // stops there. It is still the headline — it is the reason to
+                // go and inspect — but it does not name the part.
+                else if (!string.IsNullOrEmpty(LifeRules.lastSymptom))
+                {
+                    raceSummary += "  ·  " + LifeRules.lastSymptom.ToUpper() +
+                                   " — WORTH AN INSPECTION";
+                    LifeRules.lastSymptom = null;
                 }
                 Toast("RACE RESULT: " + raceSummary);
             }
@@ -220,9 +233,13 @@ namespace PSXRacing.LifeSim
                 brt.offsetMin = new Vector2(0f, 3f);
                 brt.offsetMax = new Vector2(0f, -3f);
 
+                // Highlight the PRE-SELECTED row, not row zero. They were the
+                // same thing until the default moved, and a wizard that starts
+                // you on one job while pointing at another is how a player ends
+                // up in a career they did not choose.
                 jobLabels[i] = MenuKit.Label(btn.transform, job.name + "   —   $" + job.dailyPay + "/day",
                     MenuKit.Small, new Vector2(0f, 0.5f), new Vector2(20f, 0f),
-                    TextAnchor.MiddleLeft, i == 0 ? MenuKit.Accent : Color.white, 700f);
+                    TextAnchor.MiddleLeft, i == wizJob ? MenuKit.Accent : Color.white, 700f);
                 jobLabels[i].raycastTarget = false;
             }
 
@@ -261,7 +278,10 @@ namespace PSXRacing.LifeSim
             foreach (var s in items) if (s is Button) { first = s; break; }
             if (first == null && items.Count > 0) first = items[0];
             MenuNav.Select(first);
-            MenuNav.Watch(gameObject, first);
+            var watch = MenuNav.Watch(gameObject, first);
+            // The wizard's age stepper is a row (- 25 +) and its job list is a
+            // column; only the resolved rects know which is which.
+            MenuNav.Defer(watch, null, items, null);
         }
 
         /// <summary>
@@ -422,6 +442,13 @@ namespace PSXRacing.LifeSim
 
         void Rebuild()
         {
+            // Before the page it points at stops existing. Every button on
+            // these screens ends in a Rebuild, so without this the cursor was
+            // thrown back to the top of the page on every single press — which
+            // is what "I select the button, and it places me back to the top"
+            // was, and what made erasing a save ten presses down and then ten
+            // presses down again.
+            CaptureNavCursor();
             if (bodyViewport != null) Destroy(bodyViewport.gameObject);
             // Fill everything below the tab bar. The old fixed 560-tall panel
             // anchored to the bottom overlapped the tabs on any canvas shorter
@@ -476,6 +503,10 @@ namespace PSXRacing.LifeSim
         void WireNavigation()
         {
             var rows = MenuNav.Collect(body);
+            // Creation order first, so the page is navigable on the frame it
+            // appears; the watchdog swaps in a graph built from the resolved
+            // rects one frame later, which is the only way a row of three
+            // repair buttons gets left/right instead of up/down.
             MenuNav.Column(rows);
 
             var tabSel = tabButtons.ConvertAll(b => (Selectable)b);
@@ -485,12 +516,69 @@ namespace PSXRacing.LifeSim
             Selectable active = idx >= 0 && idx < tabSel.Count ? tabSel[idx] : OwningTabButton();
             MenuNav.Join(tabSel, rows, active);
 
-            // The first row of content, not the tab bar: the player is already
-            // on the tab they asked for, and starting on it would mean pressing
-            // down before anything they came here to do is reachable.
-            Selectable first = rows.Count > 0 ? rows[0] : active;
+            // Where the player left off, or the first row of content — not the
+            // tab bar: the player is already on the tab they asked for, and
+            // starting on it would mean pressing down before anything they came
+            // here to do is reachable.
+            Selectable first = RestoreNavCursor(rows) ?? (rows.Count > 0 ? rows[0] : active);
             MenuNav.Select(first);
-            MenuNav.Watch(gameObject, first);
+            var watch = MenuNav.Watch(gameObject, first);
+            MenuNav.Defer(watch, tabSel, rows, active);
+        }
+
+        // ---------------- cursor continuity across a rebuild ----------------
+        //
+        // Every action on these screens rebuilds the page, so a cursor that is
+        // not carried across is a cursor that resets on every press. Three
+        // signals, in order of confidence:
+        //
+        //   focusAfterRebuild — a call site naming the control it is handing
+        //     the player to. The only way to get a two-step confirm right: the
+        //     YES button does not exist until the rebuild that arms it, so no
+        //     amount of remembering where the cursor WAS can find it.
+        //   the control's name — MenuKit names a button after its caption, so
+        //     this survives a rebuild that reorders the page.
+        //   its index — the backstop for a caption that changed with the state
+        //     it reports (a price, a day count, ON becoming OFF).
+
+        /// <summary>Control to put the cursor on after the next rebuild, by
+        /// button caption. Cleared once used.</summary>
+        string focusAfterRebuild;
+        string navName;
+        int navIndex = -1;
+        /// <summary>The page the remembered cursor belongs to. Position only
+        /// means anything on the page it was measured on: carrying index 7 from
+        /// the garage into MECHANIC SERVICES would drop the player in the middle
+        /// of a page they have just opened.</summary>
+        string navTab;
+
+        void CaptureNavCursor()
+        {
+            navName = null;
+            navIndex = -1;
+            navTab = null;
+            if (body == null) return;
+            var cur = MenuNav.Selected(body);
+            if (cur == null) return;      // on a tab, or on nothing
+            navName = cur.gameObject.name;
+            navIndex = MenuNav.Collect(body).IndexOf(cur);
+            navTab = tab;
+        }
+
+        Selectable RestoreNavCursor(System.Collections.Generic.List<Selectable> rows)
+        {
+            string want = focusAfterRebuild;
+            focusAfterRebuild = null;
+            if (!string.IsNullOrEmpty(want))
+            {
+                string target = "Btn_" + want;
+                foreach (var s in rows) if (s.gameObject.name == target) return s;
+            }
+            if (rows.Count == 0 || navTab != tab) return null;
+            if (!string.IsNullOrEmpty(navName))
+                foreach (var s in rows) if (s.gameObject.name == navName) return s;
+            if (navIndex >= 0) return rows[Mathf.Min(navIndex, rows.Count - 1)];
+            return null;
         }
 
         /// <summary>The tab a detail page belongs under, for the UP key and for
@@ -839,7 +927,17 @@ namespace PSXRacing.LifeSim
                 // player is now one stray press from it.
                 MenuKit.Button(body, "NEW GAME (ERASE SAVE)", new Vector2(0.5f, 1f),
                     new Vector2(0f, y), new Vector2(460f, 44f),
-                    () => { confirmNewGame = true; Rebuild(); }, 15, MenuKit.BtnBgDisabled);
+                    () =>
+                    {
+                        confirmNewGame = true;
+                        // Hand the pad the button it just asked for. This row is
+                        // near the bottom of the longest page in the game, and
+                        // the confirm does not exist until this rebuild — so
+                        // without naming it the player walked the whole page
+                        // down twice to erase one save.
+                        focusAfterRebuild = "YES — START OVER";
+                        Rebuild();
+                    }, 15, MenuKit.BtnBgDisabled);
                 y -= 52f;
                 return;
             }
@@ -857,7 +955,12 @@ namespace PSXRacing.LifeSim
                 }, 16, new Color(0.42f, 0.12f, 0.12f, 1f));
             y -= 54f;
             MenuKit.Button(body, "CANCEL", new Vector2(0.5f, 1f), new Vector2(0f, y),
-                new Vector2(460f, 44f), () => { confirmNewGame = false; Rebuild(); }, 15);
+                new Vector2(460f, 44f), () =>
+                {
+                    confirmNewGame = false;
+                    focusAfterRebuild = "NEW GAME (ERASE SAVE)";
+                    Rebuild();
+                }, 15);
             y -= 52f;
         }
 
@@ -1287,7 +1390,10 @@ namespace PSXRacing.LifeSim
             }
             else
             {
-                MenuKit.Label(body, "No faults. Nothing needs fixing.", 15,
+                // Not "no faults" — nothing on this car is ever diagnosed by
+                // driving it, so an empty list means nobody has looked, which
+                // is a different claim and the one the screen can honestly make.
+                MenuKit.Label(body, "Nothing found. Only an inspection says more.", 15,
                     new Vector2(0.5f, 1f), new Vector2(ColL, y),
                     TextAnchor.MiddleLeft, MenuKit.Dim, 700f);
                 y -= 30f;
@@ -2284,6 +2390,38 @@ namespace PSXRacing.LifeSim
                 y -= 52f;
             }
 
+            // The other two people who are allowed to find a fault. Nothing on
+            // this car is ever diagnosed by driving it, so if the player has no
+            // toolbox and no lift these buttons ARE the fault system.
+            y -= 12f;
+            MenuKit.Label(body, "INSPECTIONS", 15, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 400f, bold: true);
+            y -= 30f;
+            MenuKit.Label(body, "They tell you what is wrong. Fixing it is still a bill.",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 32f;
+
+            foreach (var who in new[] { Inspection.Pro.Mechanic, Inspection.Pro.Dealer })
+            {
+                var captured = who;
+                int fee = Inspection.ProCost(car, who);
+                bool canPay = S.money >= fee;
+                string note = who == Inspection.Pro.Dealer
+                    ? "  ·  finds everything" : "  ·  finds most of it";
+                MenuKit.Button(body, Inspection.ProLabel(who) + " — " + MenuKit.Money(fee) + note,
+                    new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, Mathf.Min(560f, ColW)), y),
+                    new Vector2(Mathf.Min(560f, ColW), 44f),
+                    canPay ? (UnityEngine.Events.UnityAction)(() =>
+                    {
+                        string line = Inspection.BookPro(S, car, captured);
+                        LifeSimManager.Save(); Rebuild();
+                        Toast(line);
+                    }) : null, 15, canPay ? (Color?)null : MenuKit.BtnBgDisabled);
+                y -= 52f;
+            }
+
             MenuKit.Button(body, "BACK TO GARAGE", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, 280f), y - 6f), new Vector2(280f, 44f),
                 () => { tab = "garage"; Rebuild(); }, 16);
@@ -2617,7 +2755,12 @@ namespace PSXRacing.LifeSim
         /// getting it off the stands — shared by races and free roam, because
         /// a blown head gasket does not care which of the two you left in.
         /// </summary>
-        void FillCarRequest()
+        void FillCarRequest() => FillCarRequestFor(S);
+
+        /// <summary>The same contract, from anywhere. The pizza shop is a
+        /// separate scene with no menu in it and it still has to hand over a
+        /// car that carries its own parts and its own faults.</summary>
+        public static void FillCarRequestFor(LifeState S)
         {
             // Parts the car is carrying become the advantage it races with.
             var tuned = S.ActiveCar;
@@ -2672,8 +2815,36 @@ namespace PSXRacing.LifeSim
             SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
         }
 
+        /// <summary>
+        /// Clock on.
+        ///
+        /// Every job in the game is a button that adds money — except this one.
+        /// FOOD DELIVERY sends the player to the SHOP: they collect an order at
+        /// the counter, carry it out to their own car and drive it to the door,
+        /// and the tip is paid on arrival rather than here. The activity slot
+        /// and the pay are spent and earned over there (PizzaShift, then the
+        /// delivery branch of ApplyRaceResult), so nothing is charged twice.
+        ///
+        /// It falls back to the old instant shift when the player has no car or
+        /// no fuel, because a job that becomes impossible the moment the tank
+        /// runs dry is a career that cannot recover — and walking to work is a
+        /// perfectly ordinary thing to do.
+        /// </summary>
         void DoWork()
         {
+            if (S.playerJob == LifeRules.DeliveryJobName)
+            {
+                var car = S.ActiveCar;
+                if (car != null && car.fuel > 5f)
+                {
+                    LifeSimManager.Save();
+                    SceneManager.LoadScene(TrackCatalog.PizzeriaSceneIndex);
+                    return;
+                }
+                Toast(car == null ? "no car — taking a walking shift instead"
+                                  : "tank is dry — taking a walking shift instead");
+            }
+
             string msg = LifeRules.WorkOneDay(S);
             LifeRules.SpendActivitySlot(S);
             LifeSimManager.Save();

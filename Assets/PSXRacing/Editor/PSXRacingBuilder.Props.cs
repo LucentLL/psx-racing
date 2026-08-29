@@ -22,6 +22,7 @@ namespace PSXRacing.EditorTools
     {
         const string LifeSimArtDir = Root + "/Art/LifeSim";
         const string CityPropsDir = Root + "/Resources/CityProps";
+        const string SkyscraperDir = LifeSimArtDir + "/Skyscrapers";
 
         static readonly (byte kind, string fbx)[] PropSources =
         {
@@ -39,6 +40,24 @@ namespace PSXRacing.EditorTools
             ((byte)(CityProps.Block0 + 7), LifeSimArtDir + "/Pizzeria/city_building_18.fbx"),
             (CityProps.Burger,     LifeSimArtDir + "/Burger/burger_drive.fbx"),
             (CityProps.Pizzeria,   LifeSimArtDir + "/Pizzeria/pizzeria.fbx"),
+            ((byte)(CityProps.Tower0 +  0), SkyscraperDir + "/building_01.1.fbx"),
+            ((byte)(CityProps.Tower0 +  1), SkyscraperDir + "/building_01.2.fbx"),
+            ((byte)(CityProps.Tower0 +  2), SkyscraperDir + "/building_01.3.fbx"),
+            ((byte)(CityProps.Tower0 +  3), SkyscraperDir + "/building_01.4.fbx"),
+            ((byte)(CityProps.Tower0 +  4), SkyscraperDir + "/building_02.1.fbx"),
+            ((byte)(CityProps.Tower0 +  5), SkyscraperDir + "/building_02.2.fbx"),
+            ((byte)(CityProps.Tower0 +  6), SkyscraperDir + "/building_03.1.fbx"),
+            ((byte)(CityProps.Tower0 +  7), SkyscraperDir + "/building_03.2.fbx"),
+            ((byte)(CityProps.Tower0 +  8), SkyscraperDir + "/building_04.1.fbx"),
+            ((byte)(CityProps.Tower0 +  9), SkyscraperDir + "/building_04.2.fbx"),
+            ((byte)(CityProps.Tower0 + 10), SkyscraperDir + "/building_05.1.fbx"),
+            ((byte)(CityProps.Tower0 + 11), SkyscraperDir + "/building_05.2.fbx"),
+            ((byte)(CityProps.Tower0 + 12), SkyscraperDir + "/building_06.1.fbx"),
+            ((byte)(CityProps.Tower0 + 13), SkyscraperDir + "/building_06.2.fbx"),
+            ((byte)(CityProps.Tower0 + 14), SkyscraperDir + "/building_07.1.fbx"),
+            ((byte)(CityProps.Tower0 + 15), SkyscraperDir + "/building_07.2.fbx"),
+            ((byte)(CityProps.Tower0 + 16), SkyscraperDir + "/building_08.1.fbx"),
+            ((byte)(CityProps.Tower0 + 17), SkyscraperDir + "/building_08.2.fbx"),
         };
 
         [MenuItem("PSX Racing/Bake City Props")]
@@ -78,6 +97,7 @@ namespace PSXRacing.EditorTools
                 else { inst = model; inst.name = name; }
 
                 ConvertToPSXMaterials(inst);
+                ForcePackTexture(inst, fbx);
                 foreach (var t in inst.GetComponentsInChildren<Transform>(true))
                     t.gameObject.isStatic = false;   // streamed tiles move whole objects
 
@@ -97,6 +117,40 @@ namespace PSXRacing.EditorTools
             }
             AssetDatabase.SaveAssets();
             Log("City props baked: " + baked + " prefabs -> " + CityPropsDir);
+        }
+
+        /// <summary>
+        /// Put the skyscraper pack's own texture on a tower.
+        ///
+        /// The pack ships ONE texture per family — building_01.png dressing
+        /// building_01.1 through .4 — in a "textures" subfolder, and its FBXs
+        /// name the material "building_01" with no embedded texture. Unity's
+        /// importer does not make that connection, so every tower came out of
+        /// ConvertToPSXMaterials as flat white: a downtown of blank slabs,
+        /// which looks like a shader problem and is a lookup problem.
+        ///
+        /// Derived from the FBX filename rather than declared per row, because
+        /// the pack's own naming IS the mapping — building_04.2.fbx wears
+        /// building_04.png and there is nothing to decide. A row outside the
+        /// skyscraper folder is left exactly as the model importer found it.
+        /// </summary>
+        static void ForcePackTexture(GameObject inst, string fbx)
+        {
+            if (!fbx.StartsWith(SkyscraperDir)) return;
+            string family = System.IO.Path.GetFileName(fbx);
+            int dot = family.IndexOf('.');
+            if (dot > 0) family = family.Substring(0, dot);
+            string texPath = SkyscraperDir + "/textures/" + family + ".png";
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            if (tex == null) { Log("WARN: no pack texture at " + texPath); return; }
+
+            var mat = PSXMaterialFor(tex, family, Vector2.one, Vector2.zero);
+            foreach (var r in inst.GetComponentsInChildren<Renderer>())
+            {
+                var mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                r.sharedMaterials = mats;
+            }
         }
 
         /// <summary>One solid box over the model's renderer bounds — a house is
@@ -289,8 +343,7 @@ namespace PSXRacing.EditorTools
 
                 int side = rand.Next(2) == 0 ? -1 : 1;
                 Vector3 rightv = RightAt(pts, i);
-                float off = 14f + (float)rand.NextDouble() * 6f;
-                Vector3 at = pts[i] + rightv * (side * off);
+                float wobble = 14f + (float)rand.NextDouble() * 6f;
 
                 // the restaurants: one burger box past the traps, one pizzeria
                 // mid-island, then houses and trailers for everyone else
@@ -310,6 +363,22 @@ namespace PSXRacing.EditorTools
                 var prefab = Prefab(kind);
                 if (prefab == null) continue;
                 var def = CityProps.Defs[kind];
+
+                // Set back by the LOT, not by the lot's centre.
+                //
+                // A fixed 14-20 m offset is a statement about where the middle
+                // of a building goes, and these buildings are not the same
+                // size: the drive-thru is 36 m deep, so its centre at 14 m put
+                // its near wall four metres past the CENTRELINE — an invisible
+                // block of concrete standing across the road, which is exactly
+                // how the obstacle audit found it. The lot faces the road, so
+                // its depth is what reaches toward it; the wider dimension is
+                // taken anyway, because a collider baked from a model's bounds
+                // does not have to agree with the def about which way round it
+                // is.
+                float clear = WallOffsetFor(track) + 3f + Mathf.Max(def.w, def.d) * 0.5f;
+                float off = Mathf.Max(wobble, clear);
+                Vector3 at = pts[i] + rightv * (side * off);
 
                 // Sample the REAL surface under all four corners of the lot and
                 // the middle of it. All five must find ground, or the lot is

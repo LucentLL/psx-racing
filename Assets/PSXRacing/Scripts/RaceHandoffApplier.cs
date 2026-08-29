@@ -127,6 +127,21 @@ namespace PSXRacing
         /// </summary>
         void ApplyField(List<CarController> raceField)
         {
+            // Solo first, and BEFORE the empty-list early-out. An empty
+            // OpponentSpecIds means "the track's own grid stands", so a
+            // delivery run that simply named no opponents would line up against
+            // four street racers on the way to drop off a pizza.
+            if (RaceHandoff.Solo)
+            {
+                foreach (var ai in aiCars)
+                {
+                    if (ai == null) continue;
+                    raceField?.Remove(ai);
+                    ai.gameObject.SetActive(false);
+                }
+                return;
+            }
+
             var ids = Split(RaceHandoff.OpponentSpecIds);
             if (ids.Length == 0) return;
 

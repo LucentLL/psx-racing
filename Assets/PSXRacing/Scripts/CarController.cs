@@ -1483,11 +1483,17 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>How far above the point it is given <see cref="ResetTo"/>
+        /// actually puts the car. Named because the recovery code has to run its
+        /// clearance test at the height the car will END UP at, and two copies
+        /// of this number would drift.</summary>
+        public const float ResetLift = 0.4f;
+
         public void ResetTo(Vector3 position, Quaternion rotation)
         {
             Body.linearVelocity = Vector3.zero;
             Body.angularVelocity = Vector3.zero;
-            transform.SetPositionAndRotation(position + Vector3.up * 0.4f, rotation);
+            transform.SetPositionAndRotation(position + Vector3.up * ResetLift, rotation);
             currentGear = 1;
             currentRPM = idleRPM;
             wheelSpin = 0f;
