@@ -135,10 +135,15 @@
   // menu stays enormous and blurred with no working controls for the rest of
   // the session. Keeping the last good size costs nothing, because a window
   // nobody can see does not need to be the right size.
+  // Tested for being a POSITIVE FINITE NUMBER rather than for being >= 1,
+  // because NaN fails every comparison including "< 1" and would sail through
+  // a one-sided guard — and assigning NaN to canvas.width does not throw, it
+  // silently sets zero, which is the exact state this is here to prevent.
+  function usable(v) { return typeof v === "number" && isFinite(v) && v >= 1; }
   function resize() {
     var w = Math.floor(window.innerWidth);
     var h = Math.floor(window.innerHeight);
-    if (w < 1 || h < 1) return;
+    if (!usable(w) || !usable(h)) return;
     canvas.width = w;
     canvas.height = h;
   }
