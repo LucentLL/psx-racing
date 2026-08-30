@@ -708,9 +708,20 @@ namespace PSXRacing.OnFoot
             };
         }
 
+        /// <summary>The line under a car's name when you walk up to it. Words
+        /// rather than percentages, for the reason LifeHomeScreen.DrawBar gives:
+        /// a driver standing next to their own car can tell it is rough, not
+        /// that it is at 29. Under DEBUG it reads the save out exactly, which is
+        /// what DEBUG is for. FUEL keeps its number in both — a fuel gauge is an
+        /// instrument the driver really has.</summary>
         static string Condition(OwnedCar car) =>
-            "ENG " + Mathf.RoundToInt(car.engine) + "%   TYR " + Mathf.RoundToInt(car.tires) +
-            "%   BODY " + Mathf.RoundToInt(car.carHP) + "%   FUEL " + Mathf.RoundToInt(car.fuel) + "%";
+            (LifeSimManager.State != null && LifeSimManager.State.debugMode
+                ? "ENG " + Mathf.RoundToInt(car.engine) + "%   TYR " + Mathf.RoundToInt(car.tires) +
+                  "%   BODY " + Mathf.RoundToInt(car.carHP) + "%"
+                : "ENG " + LifeRules.ConditionLabel(car.engine) +
+                  "   TYR " + LifeRules.ConditionLabel(car.tires) +
+                  "   BODY " + LifeRules.ConditionLabel(car.carHP))
+            + "   FUEL " + Mathf.RoundToInt(car.fuel) + "%";
 
         string RackLine(OwnedCar car)
         {

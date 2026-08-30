@@ -137,9 +137,14 @@ namespace PSXRacing.EditorTools
             // four bugs found here were on tabs nobody had rendered.
             foreach (var t in new[] { "rivals", "garage", "calendar", "news", "options",
                                       "market", "eat", "bills", "jobs",
-
                                       "inspect", "inspectfocus", "toolbox" })
                 Shoot(outDir, t, t);
+
+            // The condition bars, which are below the fold on the GARAGE tab and
+            // are the whole subject of "condition % should not be shown outside
+            // debug mode". A tab shot from the top of the scroll shows the
+            // turntable and proves nothing about them.
+            Shoot(outDir, "garage_bars", "garage", scrollTo: 0.45f);
 
             LifeSimManager.DeleteSave();
         }

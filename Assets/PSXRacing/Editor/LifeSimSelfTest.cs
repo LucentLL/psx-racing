@@ -1230,9 +1230,43 @@ namespace PSXRacing.EditorTools
             Check(sim.afterRough > 0.90f,
                   "and a hard corner on a ROUGH road still costs nothing",
                   sim.afterRough.ToString("0.000"));
+            // The seat has NOTHING across its front now — friction is the only
+            // thing holding the load in, which is what lets a crash throw it —
+            // so the two cases that used to be answered by a lip have to be
+            // answered here instead.
+            Check(sim.afterBraking > 0.90f,
+                  "an emergency stop does not dump the order in the footwell",
+                  sim.afterBraking.ToString("0.000"));
+            Check(sim.afterKnock > 0.85f,
+                  "and a 3 m/s knock jostles it rather than losing it",
+                  sim.afterKnock.ToString("0.000"));
             Check(sim.afterCrash < sim.afterRough - 0.05f,
                   "but hitting a wall does", sim.afterCrash.ToString("0.000") +
                   " after " + sim.afterRough.ToString("0.000"));
+
+
+            // ---- and it has to MOVE ----------------------------------------
+            //
+            // Every check above is a condition number, and a condition number
+            // cannot see the thing that was actually reported: "I drove into a
+            // wall full speed and the bottom pizza barely moved, even side to
+            // side. I had to flip the car over to get it out of the seat."
+            //
+            // It was true, and every test here passed while it was true. The
+            // bolsters stood 3.5 cm off a box's own edges, so the bottom box was
+            // in a jig — perfectly safe, perfectly still, and reading 1.00
+            // through everything. A cargo simulation whose whole purpose is
+            // being watched has to be asserted on DISPLACEMENT as well as on
+            // damage, or "nothing happens" is indistinguishable from "nothing
+            // went wrong".
+            Check(sim.bottomSlideRough > 0.05f,
+                  "a hard corner on a real road visibly slides the bottom box",
+                  sim.bottomSlideRough.ToString("0.00") + " m");
+
+            Check(sim.bottomSlideCrash > 0.15f,
+                  "and a wall at 80 km/h throws it, not just the top one",
+                  sim.bottomSlideCrash.ToString("0.00") + " m");
+
             Line("  .. " + sim.detail);
         }
 

@@ -24,12 +24,41 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class PizzaCargoSim
     {
+        /// <summary>Run the whole suite and PHOTOGRAPH every case. The self-test
+        /// runs the same six steps with the shutter closed and asserts on the
+        /// numbers; this is for when a number has changed and the question is
+        /// what it looks like. Six pictures beat six floats for "is the load
+        /// where I would expect it".</summary>
+        [MenuItem("PSX Racing/Preview Pizza Cargo Sim")]
+        public static void Shoot() => Run(shoot: true);
+
+
         public struct Reading
         {
             public float atRest;      // condition after two seconds of nothing
             public float afterCorner; // after a sustained 0.9 g left-hander
             public float afterRough;  // the same corner on a real road surface
+            /// <summary>Condition after a heavy stop. This case exists because
+            /// the seat has NOTHING across its front — friction is the only
+            /// thing holding the load in, by design — so "does an ordinary
+            /// emergency stop dump the order in the footwell" is a question the
+            /// geometry can no longer answer on its own.</summary>
+            public float afterBraking;
+            /// <summary>Condition after a LIGHT knock — 3 m/s of closing speed,
+            /// a kerb or a brushed barrier. The jolt channel is proportional, so
+            /// this is the case that proves it is proportional: a scrape has to
+            /// cost something and it must not cost the order.</summary>
+            public float afterKnock;
+
             public float afterCrash;  // after a full-clamp frontal impact
+            /// <summary>How far the BOTTOM box slid on the rough corner and in
+            /// the crash, in metres. Condition alone cannot see the bug this
+            /// exists for: a box wedged between two bolsters 3.5 cm off its own
+            /// edges reads a perfect 1.00 through everything, which is exactly
+            /// what "I drove into a wall full speed and the bottom pizza barely
+            /// moved, even side to side" looked like from in here.</summary>
+            public float bottomSlideRough, bottomSlideCrash;
+
             public bool built;
             public int boxes;
             public string detail;
@@ -134,16 +163,70 @@ namespace PSXRacing.EditorTools
                 }
                 Step(cargo, Vector3.zero, Quaternion.identity, 40);
                 r.afterRough = cargo.Condition;
+                r.bottomSlideRough = cargo.BoxSlide(0);
+
                 if (shoot) Shoot(cargo, dir, "sim_3_rough");
                 Debug.Log("[PizzaSim] rough    " + r.afterRough.ToString("0.00") + "  " + cargo.Describe());
 
-                // 4. INTO A WALL. Full clamp for eight frames, then let it
-                //    settle — the hardest hit the cargo can be given.
-                Step(cargo, new Vector3(0f, 6f, -160f), Quaternion.Euler(-14f, 0f, 6f), 8);
+                // 3b. A HEAVY STOP. 1.0 g on the brakes for a second and a half,
+                //     with the nose-down attitude that comes with it. This is
+                //     the hardest thing a driver can do to the load without
+                //     hitting anything, and with no lip across the front of the
+                //     seat it is friction alone that decides. If an emergency
+                //     stop puts the order in the footwell, the job is unplayable.
+                Step(cargo, new Vector3(0f, 0f, -9.81f), Quaternion.Euler(-4f, 0f, 0f), 75);
+                Step(cargo, Vector3.zero, Quaternion.identity, 60);
+                r.afterBraking = cargo.Condition;
+                if (shoot) Shoot(cargo, dir, "sim_3b_braking");
+
+                Debug.Log("[PizzaSim] braking  " + r.afterBraking.ToString("0.00") + "  " + cargo.Describe());
+
+                // 3c. A LIGHT KNOCK. 3 m/s of closing speed — a kerb, or a
+                //     barrier brushed on the way past. The jolt channel is
+                //     proportional to what the car actually lost, so this is
+                //     where that is checked: with nothing across the front of
+                //     the seat, a scrape must jostle the load and must not tip
+                //     it into the footwell.
+                cargo.Tick(Vector3.zero, Quaternion.identity, Dt, new Vector3(0f, 0f, -3f));
+                Physics.Simulate(Dt);
+                Step(cargo, Vector3.zero, Quaternion.identity, 90);
+                r.afterKnock = cargo.Condition;
+                if (shoot) Shoot(cargo, dir, "sim_3c_knock");
+
+                Debug.Log("[PizzaSim] knock    " + r.afterKnock.ToString("0.00") + "  " + cargo.Describe());
+
+                // 4. INTO A WALL, AT SPEED.
+
+                //
+                // Driven through the JOLT channel, not the acceleration one, and
+                // that is the whole point of this case. It used to feed
+                // (0, 6, -160) as an acceleration for eight frames — which the
+                // clamp turns into four and a half g of shove, because the clamp
+                // is there specifically to stop a kerb reading as a crash. So
+                // the harness was asking "what does a very firm push do" and
+                // getting the answer "not much", while the player asking "what
+                // does a wall at full speed do" got the same answer and reported
+                // it as a bug.
+                //
+                // 22 m/s (80 km/h) into something that does not move: the car
+                // loses the lot in one step and the load keeps it.
+                // 22 m/s (80 km/h) into something that does not move: the car
+                // LOSES that much forward speed in one step — hence the negative
+                // Z — and the load keeps it, so relative to the seat the load
+                // goes forward. Getting that sign backwards shoves the stack
+                // into the backrest, which is 38 cm tall and holds everything,
+                // and the harness reports a crash that did nothing. It did that
+                // on the first run of this case.
+                cargo.Tick(Vector3.zero, Quaternion.Euler(-14f, 0f, 6f), Dt,
+                           new Vector3(0f, 0f, -22f));
+
+                Physics.Simulate(Dt);
                 Step(cargo, Vector3.zero, Quaternion.identity, 150);
                 r.afterCrash = cargo.Condition;
+                r.bottomSlideCrash = cargo.BoxSlide(0);
                 if (shoot) Shoot(cargo, dir, "sim_4_crash");
                 Debug.Log("[PizzaSim] crash    " + r.afterCrash.ToString("0.00") + "  " + cargo.Describe());
+
                 r.detail = cargo.Describe();
 
                 Object.DestroyImmediate(cargo.gameObject);

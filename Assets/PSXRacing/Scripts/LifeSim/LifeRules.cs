@@ -1205,6 +1205,25 @@ namespace PSXRacing.LifeSim
             h >= 85 ? "Excellent" : h >= 65 ? "Good" : h >= 45 ? "Fair" :
             h >= 25 ? "Poor" : h >= 10 ? "Bad" : "Critical";
 
+        /// <summary>
+        /// A car's condition in words, because a percentage is not something a
+        /// driver can see.
+        ///
+        /// The bars used to print "84%" beside them and that was the game
+        /// reading its own save out loud. Nobody looks at an engine and knows it
+        /// is at eighty-four; they know it sounds fine, or that something is
+        /// off. The exact number is still there under DEBUG, where it is a
+        /// developer's readout and not a pretence.
+        ///
+        /// Bands line up with the bar's own colours (60 and 30 are where it
+        /// turns amber and red), so the word and the colour cannot disagree —
+        /// and with FaultCatalog's threshold rolls at 40 and 15, so "WORN" is
+        /// genuinely the band where things start going wrong.
+        /// </summary>
+        public static string ConditionLabel(float pct) =>
+            pct >= 90f ? "MINT" : pct >= 60f ? "GOOD" : pct >= 30f ? "WORN" :
+            pct >= 12f ? "ROUGH" : "SHOT";
+
         // ================= housing & bills (billsCalc.ts / insurance.ts) =================
         // The ladder is HOUSES now, not apartments: the player starts in a
         // small rented house with a one-car garage (the same house the walk-in

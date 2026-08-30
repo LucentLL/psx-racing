@@ -398,12 +398,19 @@ namespace PSXRacing
             // earns a mention once it has stopped being intact — a state line
             // that is showing the good news every second of every clean run is
             // chrome, and it would push the number that matters off the edge.
-            string line = drop.refused
-                ? "REFUSED"
-                : "TIP $" + drop.tip +
-                  (drop.condition >= LifeSim.LifeRules.PizzaPerfectCondition ? ""
-                   : " " + LifeSim.LifeRules.PizzaConditionLabel(drop.condition));
+            //
+            // IT NEVER SAYS "REFUSED" WHILE THE RUN IS GOING. Refusal is the
+            // customer's decision, made at a door the player has not reached
+            // yet: reported as "it says the pizza is refused before I finished
+            // delivery — this is not possible to know until attempting to
+            // deliver". What the driver CAN see is the state of the box, so
+            // that is what this says. The tip beside it already falls to zero,
+            // which is the honest half of the same news.
+            string line = "TIP $" + drop.tip +
+                (drop.condition >= LifeSim.LifeRules.PizzaPerfectCondition ? ""
+                 : "  " + LifeSim.LifeRules.PizzaConditionLabel(drop.condition));
             if (line != lastTipLine) { lastTipLine = line; Set(posText, line); }
+
         }
 
         /// <summary>

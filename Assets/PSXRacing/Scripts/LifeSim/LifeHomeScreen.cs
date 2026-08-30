@@ -1294,14 +1294,17 @@ namespace PSXRacing.LifeSim
                     14, new Vector2(0f, 0.5f), new Vector2(64f, -11f), TextAnchor.MiddleLeft,
                     MenuKit.Dim, ColW * 0.62f, height: 20f);
 
-                // Worst condition stat, right-aligned — the one number that
-                // decides whether this car is the one you should be racing.
+                // Worst condition stat, right-aligned — the one thing that
+                // decides whether this car is the one you should be racing. A
+                // WORD, for the same reason the bars carry words: see DrawBar.
                 float worst = Mathf.Min(Mathf.Min(owned.engine, owned.tires),
                                         Mathf.Min(owned.carHP, owned.paint));
-                MenuKit.Label(rt, Mathf.RoundToInt(worst) + "%",
+                MenuKit.Label(rt, S.debugMode ? Mathf.RoundToInt(worst) + "%"
+                                              : LifeRules.ConditionLabel(worst),
                     16, new Vector2(1f, 0.5f), new Vector2(-24f, 9f), TextAnchor.MiddleRight,
                     worst > 60f ? MenuKit.Good : worst > 30f ? MenuKit.Accent : MenuKit.Bad,
-                    120f, height: 22f);
+                    140f, height: 22f);
+
                 int known = KnownFaults(owned);
                 MenuKit.Label(rt, known > 0
                         ? known + " known fault" + (known == 1 ? "" : "s")
@@ -1445,7 +1448,7 @@ namespace PSXRacing.LifeSim
             DrawBar("TIRES", car.tires, ref y);
             DrawBar("BODY", car.carHP, ref y);
             DrawBar("PAINT", car.paint, ref y);
-            DrawBar("FUEL", car.fuel, ref y);
+            DrawBar("FUEL", car.fuel, ref y, exact: true);
 
             // A percentage on its own does not answer the question the player
             // is actually asking, which is whether this car gets to the end of
@@ -2950,7 +2953,22 @@ namespace PSXRacing.LifeSim
                 () => { tab = "garage"; Rebuild(); }, 16);
         }
 
-        void DrawBar(string label, float value, ref float y)
+        /// <summary>
+        /// One condition bar.
+        ///
+        /// The readout on the right is a WORD, not a percentage. A driver can
+        /// tell that a car is rough; they cannot tell that it is at 29. Printing
+        /// the save's own float was the game showing its working, and it turned
+        /// every repair decision into arithmetic instead of a judgement — which
+        /// is also why the number comes back under DEBUG, where reading the
+        /// state exactly is the entire point.
+        ///
+        /// FUEL keeps its percentage either way: a fuel gauge is an instrument
+        /// the driver really does have, the line under this block already quotes
+        /// gallons and kilometres off it, and "how far can I get" is a question
+        /// with a numeric answer.
+        /// </summary>
+        void DrawBar(string label, float value, ref float y, bool exact = false)
         {
             MenuKit.Label(body, label, 14, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 170f);
@@ -2960,8 +2978,11 @@ namespace PSXRacing.LifeSim
             Color c = value > 60f ? MenuKit.Good : value > 30f ? MenuKit.Accent : MenuKit.Bad;
             MenuKit.Rect(track, "fill", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                 new Vector2(1f, 0f), new Vector2(428f * Mathf.Clamp01(value / 100f), 14f), c);
-            MenuKit.Label(body, Mathf.RoundToInt(value) + "%", 14, new Vector2(0.5f, 1f),
-                new Vector2(226f, y), TextAnchor.MiddleLeft, c, 80f);
+            string read = exact || S.debugMode
+                ? Mathf.RoundToInt(value) + "%"
+                : LifeRules.ConditionLabel(value);
+            MenuKit.Label(body, read, 14, new Vector2(0.5f, 1f),
+                new Vector2(226f, y), TextAnchor.MiddleLeft, c, 150f);
             y -= 38f;
         }
 

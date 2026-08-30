@@ -82,6 +82,42 @@ namespace PSXRacing
         const float TiltTau = 0.04f;
 
         /// <summary>
+        /// An IMPACT is not an acceleration, and treating it as one is why a
+        /// full-speed wall hit did almost nothing to the load.
+        ///
+        /// Everything above filters and clamps on purpose: it has to, or a kerb
+        /// strike reads as a crash and the stack comes apart on a clean lap. But
+        /// the same filter turns a 100 km/h stop into a four-and-a-half-g shove
+        /// spread over a tenth of a second — a firm push, when what happened was
+        /// the car stopping and the cargo not.
+        ///
+        /// So a collision gets its OWN channel. An unrestrained object in a car
+        /// that suddenly loses speed simply keeps the speed it had; relative to
+        /// the seat, it lurches by exactly what the car lost. That is applied as
+        /// a velocity change rather than a force, which is what it physically
+        /// is, and it needs no filter because it is not a continuous quantity.
+        ///
+        /// It is gated on the CollisionResponder reporting real contact rather
+        /// than on the size of the velocity change alone. That distinction is
+        /// the whole reason the filter exists: the suspension working over a
+        /// rough road produces per-step velocity differences of the same order
+        /// as a light collision, and only one of them is something hitting the
+        /// car. The responder already classifies that — it ignores landings,
+        /// where the normal points up — so this asks it instead of guessing.
+        /// </summary>
+        const float JoltMinSpeed = 1.2f;
+        /// <summary>Ceiling on the lurch, in m/s. A car stopping dead from
+        /// 140 km/h would otherwise hand the boxes 39 m/s and fire them through
+        /// their own seat between two physics steps. Seven is still violent —
+        /// it crosses the 60 cm seat in under a tenth of a second — and it is
+        /// survivable by the solver.</summary>
+        const float MaxJolt = 7f;
+        /// <summary>Radians per second of tumble per m/s of lurch. Small: this
+        /// is the difference between a box sliding flat and a box going over,
+        /// not a reason for the load to cartwheel.</summary>
+        const float JoltSpin = 0.9f;
+
+        /// <summary>
         /// Seat geometry, in metres.
         ///
         /// A BENCH, and wide: the pan is what the Pizza Cam sees, and the owner
@@ -93,17 +129,27 @@ namespace PSXRacing
         /// </summary>
         const float SeatW = 0.80f, SeatD = 0.62f;
         /// <summary>
-        /// Bolster height, and it has to stay BELOW the boxes' centre of mass.
+        /// Where the bolsters stand, and how tall they are.
         ///
-        /// This was 9.5 cm — a real seat bolster — and it made everything worse:
-        /// a box sliding into a ridge taller than its own centre of gravity does
-        /// not stop against it, it levers over it. The rough-road case went from
-        /// two boxes open to all three flipped and on the floor. Three
-        /// centimetres catches a sliding box and holds it; anything taller is a
-        /// fulcrum.
+        /// This was 0.26 and it is the bug behind "I drove into a wall full
+        /// speed and the bottom pizza barely moved, even side to side". A box is
+        /// 41 cm across, so its edges are at 0.205 — with the ridges at 0.26 the
+        /// bottom box had THREE AND A HALF CENTIMETRES of travel before it hit a
+        /// wall of its own seat, in a seat 80 cm wide. It was not resisting the
+        /// crash; it was in a jig. The only way out was inverting gravity, which
+        /// is exactly what the player had to do.
+        ///
+        /// Out at 0.335 the ridges sit where a seat's actually do — just inside
+        /// the door card and the tunnel at 0.36 — and a box gets 13 cm of slide
+        /// before anything catches it. That is a slide worth watching, which was
+        /// the whole point of simulating this at all.
+        ///
+        /// The HEIGHT still has to stay below the boxes' centre of mass: a box
+        /// sliding into a ridge taller than its own centre of gravity levers
+        /// over it instead of stopping against it. Three centimetres catches and
+        /// holds; anything taller is a fulcrum.
         /// </summary>
-        const float BolsterHalf = 0.26f, SeatLip = 0.03f;
-
+        const float BolsterHalf = 0.335f, SeatLip = 0.03f;
         CarController car;
         Rigidbody carBody;
         Transform tray;
@@ -144,6 +190,14 @@ namespace PSXRacing
             public bool flipped;           // box went past horizontal at some point
             public bool grounded;          // box left the seat
             public float slideWear;        // accumulated jostling, 0-1
+            /// <summary>Where this box was put, in the seat's own axes. Kept so
+            /// the harness can ask how far it has MOVED — "the bottom pizza
+            /// barely moved" is a displacement complaint and the condition
+            /// number cannot see it. A box pinned in a jig reads a perfect 1.00
+            /// all day, which is exactly how a seat with its bolsters 3.5 cm off
+            /// the cargo passed every test it had.</summary>
+            public Vector3 startLocal;
+
             public float Condition => Mathf.Clamp01(
                 1f - slideWear
                    - (escaped ? 0.45f : 0f)
@@ -171,6 +225,22 @@ namespace PSXRacing
         public int BoxCount => slots.Count;
         /// <summary>Where the cargo camera should look.</summary>
         public Transform Tray => tray;
+
+        /// <summary>How far box <paramref name="i"/> has moved from where it was
+        /// put, in metres, measured in the SEAT's axes so the car's own motion
+        /// does not count. Zero means it has not moved at all — which is a
+        /// failure, not a success, for anything short of a parked car.</summary>
+        public float BoxSlide(int i) => BoxOffset(i).magnitude;
+
+        /// <summary>The same displacement, per axis: +x toward the tunnel, +y up
+        /// off the seat, +z forward into the footwell. A single magnitude cannot
+        /// tell "slid across the seat" from "went out the front", and those are
+        /// different bugs.</summary>
+        public Vector3 BoxOffset(int i)
+        {
+            if (i < 0 || i >= slots.Count || slots[i].box == null || tray == null) return Vector3.zero;
+            return tray.InverseTransformPoint(slots[i].box.position) - slots[i].startLocal;
+        }
 
         // ------------------------------------------------------------------
         /// <summary>
@@ -283,8 +353,23 @@ namespace PSXRacing
             // a top box lost on the first corner of a clean lap, and a seat
             // walled on all four sides fixes that by making a crash harmless
             // too, which is the same bug wearing the other hat.
-            Slab(tray, "Front", new Vector3(0f, SeatLip * 0.5f, SeatD * 0.5f - 0.03f),
-                 new Vector3(SeatW, SeatLip, 0.05f), visible: false);
+            // NOTHING ACROSS THE FRONT AT ALL. The seat pan simply ends, and
+            // that asymmetry is the mechanic.
+            //
+            // Sideways there is a door one side and the transmission tunnel the
+            // other, so a corner — however hard — slides the load across the
+            // seat and stops it. Forward there is a FOOTWELL.
+            //
+            // Two goes at putting an edge here both failed, and they failed in
+            // the same way: a flat 1.5 cm lip stood exactly at a box's centre of
+            // mass, so a box hit it square with no tipping moment and parked
+            // against it at 80 km/h; pitching that lip into a ramp only made it
+            // a 5 cm wall, and then even the middle box stayed put. What holds
+            // the load under braking is not a kerb, it is FRICTION — cardboard
+            // on seat cloth is 0.95, so it takes most of a g to start a box
+            // moving forward at all, and most of a g is heavy braking, which is
+            // exactly when a pizza does slide forward. That rule needs no
+            // geometry and has no threshold to get wrong.
 
             // NOTHING BEHIND THE SEAT. The Pizza Cam clears to transparent and
             // the game shows through — "just have transparency around the pizza
@@ -297,8 +382,17 @@ namespace PSXRacing
             // and stop. Physics only — the renderer is off, because the owner
             // does not want to look at a floorboard, and a box falling forever
             // is not a state the condition can read.
-            Slab(tray, "Footwell", new Vector3(0f, -0.34f, SeatD * 0.5f + 0.30f),
-                 new Vector3(SeatW * 1.4f, 0.04f, 0.7f), visible: false);
+            //
+            // LONG, and walled at the far end. A box thrown by a crash leaves
+            // the seat at several metres a second and covers 70 cm in a tenth of
+            // a second while falling five — so the old footwell was something it
+            // sailed clean over on its way to infinity. Two metres of floor and
+            // a bulkhead catches one and lets it come to rest where the Pizza
+            // Cam can still see what became of it.
+            Slab(tray, "Footwell", new Vector3(0f, -0.34f, SeatD * 0.5f + 0.95f),
+                 new Vector3(SeatW * 1.6f, 0.04f, 2.0f), visible: false);
+            Slab(tray, "Bulkhead", new Vector3(0f, -0.20f, SeatD * 0.5f + 1.93f),
+                 new Vector3(SeatW * 1.6f, 0.32f, 0.06f), visible: false);
 
             var boxPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
             if (boxPrefab == null)
@@ -374,6 +468,23 @@ namespace PSXRacing
             // not bounce like a ball.
             rb.linearDamping = 0.35f;
             rb.angularDamping = 3.0f;
+            // NEVER SLEEPS, and this is the other half of "the bottom pizza
+            // barely moved".
+            //
+            // PhysX puts a body that has been still for a moment to sleep, and a
+            // sleeping body discards forces. The bottom box of a settled stack
+            // is the stillest thing in the game — so it slept, and then the
+            // acceleration channel pushed at it every frame for nothing and the
+            // crash impulse landed on a body that was not listening. The top box
+            // was still jostling, stayed awake, and flew off exactly as
+            // reported. Two boxes, same impulse, opposite outcomes, and the only
+            // difference was which one had gone to sleep.
+            //
+            // A cargo rig is six bodies that exist to be watched. Keeping them
+            // awake costs nothing and removes a whole class of "it only happens
+            // sometimes".
+            rb.sleepThreshold = 0f;
+
             // CENTRE OF MASS ON THE FLOOR OF THE BOX.
             //
             // Unity puts it at the middle of the compound collider, which makes
@@ -384,6 +495,7 @@ namespace PSXRacing
             // rather than tips, and only tipping opens a box.
             rb.centerOfMass = lc + new Vector3(0f, -hy * 0.34f, 0f);
             slot.box = rb;
+            slot.startLocal = tray.InverseTransformPoint(go.transform.position);
 
             // The pizza, inside. Its own body from the start rather than
             // parented and released, because a body that pops into existence
@@ -414,6 +526,8 @@ namespace PSXRacing
                 prb.interpolation = RigidbodyInterpolation.Interpolate;
                 prb.linearDamping = 0.5f;
                 prb.angularDamping = 1.8f;
+                prb.sleepThreshold = 0f;   // see the box above
+
                 slot.pizza = prb;
             }
 
@@ -444,15 +558,32 @@ namespace PSXRacing
 
             var v = carBody.linearVelocity;
             if (!haveLastVel) { lastVel = v; haveLastVel = true; Tick(Vector3.zero, tilt, dt); return; }
-            var accelWorld = (v - lastVel) / dt;
+            var deltaV = v - lastVel;
+            var accelWorld = deltaV / dt;
             lastVel = v;
+
+            // Was that a crash, or was that the road? Only the responder knows,
+            // and it already does the classifying — see JoltMinSpeed. Its window
+            // is a quarter of a second, so the answer does not depend on whether
+            // OnCollisionEnter happened to run before this FixedUpdate.
+            if (!responderChecked)
+            {
+                responder = car.GetComponent<CollisionResponder>();
+                responderChecked = true;
+            }
+            Vector3 jolt = Vector3.zero;
+            if (responder != null && responder.InWallContact && deltaV.magnitude >= JoltMinSpeed)
+                jolt = car.transform.InverseTransformDirection(deltaV);
 
             // Into the car's own axes. The tray holds the same pitch and roll, so
             // pushing the boxes in ITS frame is what makes "the car braked" mean
             // "forward" to a box regardless of which compass direction the car
             // happens to be pointing.
-            Tick(car.transform.InverseTransformDirection(accelWorld), tilt, dt);
+            Tick(car.transform.InverseTransformDirection(accelWorld), tilt, dt, jolt);
         }
+
+        CollisionResponder responder;
+        bool responderChecked;
 
         /// <summary>
         /// One step of the cargo, given the car's acceleration in the car's own
@@ -465,7 +596,12 @@ namespace PSXRacing
         /// a condition that decays while the car is parked) is invisible in a
         /// still and would otherwise only ever be found by playing.
         /// </summary>
-        public void Tick(Vector3 accelCarLocal, Quaternion tilt, float dt)
+        /// <param name="jolt">The velocity the CAR lost to a collision this
+        /// step, in the car's own axes, or zero. Kept separate from the
+        /// acceleration because it is not one: see JoltMinSpeed.</param>
+        public void Tick(Vector3 accelCarLocal, Quaternion tilt, float dt,
+                         Vector3 jolt = default)
+
         {
             if (trayBody == null || dt <= 0f) return;
 
@@ -491,6 +627,44 @@ namespace PSXRacing
                 if (s.pizza != null) s.pizza.AddForce(push, ForceMode.Acceleration);
             }
 
+            // The crash, on its own channel and unfiltered. The car lost this
+            // much speed; the load did not, so relative to the seat it lurches
+            // by the same amount in the opposite direction. VelocityChange
+            // rather than a force because that is literally what it is — no
+            // mass term, no time constant, no clamp except the one that stops
+            // the solver being handed something it cannot integrate.
+            if (jolt.sqrMagnitude > 1e-6f)
+            {
+                var kick = tray.TransformDirection(Vector3.ClampMagnitude(-jolt, MaxJolt));
+                // A little TUMBLE with it. A box thrown across a seat does not
+                // slide flat like a puck — it catches an edge and goes over, and
+                // that is most of what a crash looks like from the Pizza Cam.
+                // It is also what gets a box over the seat's front edge instead
+                // of leaving it parked against it. Cross with the tray's up so
+                // the spin is about a horizontal axis square to the throw, which
+                // is the axis a box actually tips about.
+                var spin = Vector3.Cross(tray.up, kick) * JoltSpin;
+                foreach (var s in slots)
+                {
+                    if (s.box != null)
+                    {
+                        // Belt and braces alongside sleepThreshold: a body that
+                        // is asleep when an impulse arrives silently eats it,
+                        // and that is the failure this whole channel exists to
+                        // fix. Cheap enough to do both.
+                        s.box.WakeUp();
+                        s.box.AddForce(kick, ForceMode.VelocityChange);
+                        s.box.AddTorque(spin, ForceMode.VelocityChange);
+                    }
+                    if (s.pizza != null)
+                    {
+                        s.pizza.WakeUp();
+                        s.pizza.AddForce(kick, ForceMode.VelocityChange);
+                    }
+                }
+
+            }
+
             Assess(dt);
         }
 
@@ -508,6 +682,7 @@ namespace PSXRacing
                   .Append(s.escaped ? " SPILLED" : "")
                   .Append(s.flipped ? " FLIPPED" : "")
                   .Append(s.grounded ? " FLOOR" : "")
+                  .Append(" at ").Append(BoxOffset(i).ToString("F2"))
                   .Append(" wear ").Append(s.slideWear.ToString("0.00"))
                   .Append("; ");
             }
@@ -623,13 +798,15 @@ namespace PSXRacing
         /// it and the game behind it, which is the whole brief.
         /// </summary>
         GameObject Slab(Transform parent, string name, Vector3 localCentre, Vector3 size,
-                        bool visible = true)
+                        bool visible = true, float pitchDeg = 0f)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = name;
             go.transform.SetParent(parent, false);
             go.transform.localPosition = localCentre;
+            go.transform.localRotation = Quaternion.Euler(pitchDeg, 0f, 0f);
             go.transform.localScale = size;
+
             var col = go.GetComponent<Collider>();
             if (col != null && grip != null) col.sharedMaterial = grip;
             var mr = go.GetComponent<MeshRenderer>();
