@@ -55,6 +55,7 @@ namespace PSXRacing.EditorTools
             TestGridStaging();
             TestHomeLot();
             TestMenuNavigation();
+            TestSleepBlocks();
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -196,12 +197,12 @@ namespace PSXRacing.EditorTools
             // Live on its own day, gone the morning after. Driven through Sleep
             // so it is the real rollover doing the sweeping.
             LifeRules.Book(s, today + 1, 3, true);
-            LifeRules.Sleep(s);
+            LifeRules.SleepUntilMorning(s);
             Check(LifeRules.BookingOn(s, s.day) != null,
                   "a booking is still there on the day it is for");
             Check(LifeRules.BookingOn(s, s.day).practice, "and remembers it was a practice lap");
             int logBefore = s.calendarLog.Count;
-            LifeRules.Sleep(s);
+            LifeRules.SleepUntilMorning(s);
             Check(s.bookings.Count == 0, "and is gone the day after", s.bookings.Count);
             Check(s.calendarLog.Count > logBefore, "with a line in the diary saying it was missed");
 
@@ -212,7 +213,7 @@ namespace PSXRacing.EditorTools
             float repBefore = t.streetRep;
             int moneyBefore = t.money;
             LifeRules.Book(t, t.day + 1, 2, false);
-            LifeRules.Sleep(t); LifeRules.Sleep(t);
+            LifeRules.SleepUntilMorning(t); LifeRules.SleepUntilMorning(t);
             Check(Mathf.Approximately(t.streetRep, repBefore) && t.money == moneyBefore,
                   "a missed booking is not a punishment", t.streetRep + " / " + t.money);
 
@@ -269,6 +270,18 @@ namespace PSXRacing.EditorTools
                   "the printed roster names both shifts and seven days",
                   LifeRules.ShiftHours);
 
+            // The short form the half-width columns print has to keep saying
+            // the same thing. Two strings for one rule is two strings that can
+            // drift, and the one nobody looks at is the one that drifts.
+            Check(LifeRules.ShiftHoursShort.ToUpper().Contains("AFTERNOON") &&
+                  LifeRules.ShiftHoursShort.ToUpper().Contains("NIGHT") &&
+                  LifeRules.ShiftHoursShort.ToUpper().Contains("SEVEN"),
+                  "and so does the short form the narrow columns use",
+                  LifeRules.ShiftHoursShort);
+            Check(LifeRules.ShiftHoursShort.Length < LifeRules.ShiftHours.Length,
+                  "which is actually shorter than the long one",
+                  LifeRules.ShiftHoursShort.Length);
+
             // Slot 1 and slot 2 have to LOOK like afternoon and night as well,
             // or the button is open at an hour the sky disagrees with.
             Check(TimeOfDay.At(TimeOfDay.ForSlot(1, 1)).name != "NIGHT",
@@ -283,15 +296,15 @@ namespace PSXRacing.EditorTools
             // player actually experiences and what the old rule lived in.
             var t = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
             float startRep = t.workRep;
-            for (int i = 0; i < LifeRules.FreeDaysOff; i++) LifeRules.Sleep(t);
+            for (int i = 0; i < LifeRules.FreeDaysOff; i++) LifeRules.SleepUntilMorning(t);
             Check(t.workRep == startRep && !string.IsNullOrEmpty(t.playerJob),
                   LifeRules.FreeDaysOff + " days off cost nothing", t.workRep);
 
-            LifeRules.Sleep(t);
+            LifeRules.SleepUntilMorning(t);
             Check(t.workRep < startRep, "the day after the allowance costs rep", t.workRep);
 
             int guard = 0;
-            while (!string.IsNullOrEmpty(t.playerJob) && guard++ < 20) LifeRules.Sleep(t);
+            while (!string.IsNullOrEmpty(t.playerJob) && guard++ < 20) LifeRules.SleepUntilMorning(t);
             Check(string.IsNullOrEmpty(t.playerJob) && t.fired,
                   "a driver who never turns up is fired", guard);
 
@@ -299,9 +312,9 @@ namespace PSXRacing.EditorTools
             // makes the allowance a rolling one rather than a countdown to
             // being sacked.
             var u = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
-            LifeRules.Sleep(u); LifeRules.Sleep(u);
+            LifeRules.SleepUntilMorning(u); LifeRules.SleepUntilMorning(u);
             LifeRules.WorkOneDay(u);
-            LifeRules.Sleep(u);
+            LifeRules.SleepUntilMorning(u);
             Check(u.consecutiveAbsences == 0, "one shift resets the ladder", u.consecutiveAbsences);
 
             // ---- the save migration ----
@@ -1128,6 +1141,94 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// SLEEP is eight hours, not a day.
+        ///
+        /// The button used to skip to tomorrow morning from wherever it was
+        /// pressed, which meant a morning the player did not want to spend cost
+        /// them the afternoon and the night with it. Now it walks the clock one
+        /// band at a time and only the NIGHT sleep turns the calendar over -
+        /// and that distinction is the whole rule, so it is asserted rather
+        /// than eyeballed on a screenshot.
+        /// </summary>
+        static void TestSleepBlocks()
+        {
+            Line("sleep by the block:");
+
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            s.slotIndex = 0;
+            int day = s.day;
+
+            LifeRules.Sleep(s);
+            Check(s.day == day && s.slotIndex == 1,
+                  "sleeping the morning off lands in the afternoon, same day",
+                  LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
+
+            LifeRules.Sleep(s);
+            Check(s.day == day && s.slotIndex == 2,
+                  "and again lands at night, still the same day",
+                  LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
+
+            LifeRules.Sleep(s);
+            Check(s.day == day + 1 && s.slotIndex == 0,
+                  "only the night sleep rolls into tomorrow morning",
+                  LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
+
+            // A nap is rest, not an errand: it must not read as a slot the
+            // player spent DOING something, or the health model would count a
+            // lie-in as a day at work.
+            var n = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            n.slotIndex = 0;
+            int active = n.slotsActiveToday;
+            float napHealth = n.health;
+            LifeRules.Sleep(n);
+            Check(n.slotsActiveToday == active,
+                  "a nap does not count as an active slot", n.slotsActiveToday);
+            // ...and it heals NOTHING, which is the half that is easy to get
+            // wrong generously. Two free points a day against a hunger ladder
+            // that takes twelve is enough to make starving survivable, which is
+            // exactly what a token nap bonus did the first time round.
+            Check(Mathf.Approximately(n.health, napHealth),
+                  "and does not hand back health the food ladder is counting on",
+                  n.health);
+
+            // Three sleeps from the morning is one day, whichever way you get
+            // there - which is what every caller that means "a day passes" is
+            // relying on.
+            var w = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            w.slotIndex = 0;
+            int wday = w.day;
+            LifeRules.SleepUntilMorning(w);
+            Check(w.day == wday + 1 && w.slotIndex == 0,
+                  "SleepUntilMorning from the morning costs exactly one day",
+                  "day " + w.day + " " + LifeRules.SlotNames[w.slotIndex]);
+
+            // ...and from the night it is still one day, not two.
+            w.slotIndex = 2;
+            wday = w.day;
+            LifeRules.SleepUntilMorning(w);
+            Check(w.day == wday + 1 && w.slotIndex == 0,
+                  "and from the night it is still one day", "day " + w.day);
+
+            // The health ladder's rested/all-nighter split has to survive the
+            // change: napping through a whole day and never sleeping at night
+            // is an all-nighter, because it is.
+            var a = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            a.slotIndex = 0;
+            a.daysSinceSleep = 0;
+            LifeRules.Sleep(a); LifeRules.Sleep(a);   // morning + afternoon naps
+            LifeRules.SpendActivitySlot(a);           // worked the night away
+            Check(a.daysSinceSleep == 1,
+                  "napping through the day is still an all-nighter", a.daysSinceSleep);
+
+            // Sleeping at night clears it, which is the other half of the pair.
+            var r = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            r.slotIndex = 2;
+            r.daysSinceSleep = 2;
+            LifeRules.Sleep(r);
+            Check(r.daysSinceSleep == 0, "a night in bed clears it", r.daysSinceSleep);
+        }
+
+        /// <summary>
         /// The cargo: baked parts, the order that fills them, and the grade.
         ///
         /// Everything asserted here fails SILENTLY and looks like something
@@ -1806,7 +1907,7 @@ namespace PSXRacing.EditorTools
                 s.workedToday = true;        // no-show ladder is not under test here
                 s.foodStock = 1;
                 LifeRules.EatMeal(s, "regular");
-                LifeRules.Sleep(s);
+                LifeRules.SleepUntilMorning(s);
                 for (int j = before; j < s.calendarLog.Count; j++)
                 {
                     if (s.calendarLog[j].Contains("PAYDAY")) paydays++;
@@ -1826,7 +1927,7 @@ namespace PSXRacing.EditorTools
             // three-decisions-a-day tension the whole clock exists for is fake.
             var starve = LifeRules.SeedNewGame("TESTER", 25, 3);
             starve.money = 100000;
-            for (int i = 0; i < 20; i++) { starve.workedToday = true; LifeRules.Sleep(starve); }
+            for (int i = 0; i < 20; i++) { starve.workedToday = true; LifeRules.SleepUntilMorning(starve); }
             Check(starve.health <= 0f, "20 days without food is fatal-grade", starve.health);
             // NOTE: nothing currently CONSUMES health at 0 — faithful to RG2,
             // where health only gates gym level 3 and a recovery bonus. If the
@@ -1891,10 +1992,10 @@ namespace PSXRacing.EditorTools
                 var q2 = FaultCatalog.GetQuote(s, car, f2, FaultCatalog.Venue.Mechanic);
                 LifeRules.OrderRepair(s, car, f2, FaultCatalog.Venue.Mechanic);
                 Check(s.pendingParts.Count == 1, "the job is queued", s.pendingParts.Count);
-                LifeRules.Sleep(s);
+                LifeRules.SleepUntilMorning(s);
                 bool stillQueued = s.pendingParts.Count > 0;
                 Check(q2.days <= 1 || stillQueued, "a multi-day job does not finish overnight");
-                for (int i = 0; i < 8; i++) LifeRules.Sleep(s);
+                for (int i = 0; i < 8; i++) LifeRules.SleepUntilMorning(s);
                 Check(s.pendingParts.Count == 0, "the job resolves once its day arrives",
                       s.pendingParts.Count);
             }
@@ -2404,7 +2505,7 @@ namespace PSXRacing.EditorTools
                         // poking s.day is the point: it proves a stage actually
                         // lands through the same rollover the repairs use, which
                         // is where a job with no fault id could have been dropped.
-                        for (int d = 0; d < plan.days; d++) LifeRules.Sleep(s);
+                        for (int d = 0; d < plan.days; d++) LifeRules.SleepUntilMorning(s);
                     }
                     Check(Upgrades.GetStage(car, kind) == CarTune.MaxStage,
                           "four stages of " + kind + " land", Upgrades.GetStage(car, kind));

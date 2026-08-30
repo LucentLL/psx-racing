@@ -59,7 +59,6 @@ namespace PSXRacing.LifeSim
         /// bookings can be three different places, so choosing one here must not
         /// silently repoint the GET IN CAR button on MAIN.</summary>
         int calVenue = -1;
-        bool calPractice;
         CarViewer viewer;
         /// <summary>The turntable, built on first use. Two of the five tabs want
         /// one and the wizard wants none, so a render texture allocated in Start
@@ -502,6 +501,42 @@ namespace PSXRacing.LifeSim
         static float ColR => MenuKit.HalfWidth * 0.95f;
         static float ColW => ColR - ColL;
 
+        /// <summary>
+        /// MAIN's two columns.
+        ///
+        /// The launch screen is a PAGE, not a list. It used to be one 460-wide
+        /// stack the better part of 900 units tall, on a phone column that is
+        /// 437 - so over half of it lived below a fold, and the race button and
+        /// SLEEP could not be looked at in the same glance. Width is the
+        /// resource this menu HAS: the narrowest canvas is 912 units across and
+        /// only 437 tall. So MAIN spends width instead of height - the venue
+        /// and the way out of the door on the left, what today is on the right,
+        /// and nothing off the bottom.
+        ///
+        /// Both derive from ColW rather than from a constant, and the PAIR is
+        /// centred rather than pinned left, so a 16:9 monitor gets two columns
+        /// in the middle of the screen and not two columns hugging one edge.
+        /// </summary>
+        const float MainGutter = 22f;
+        static float MainColW => Mathf.Min(470f, (ColW - MainGutter) * 0.5f);
+        static float MainLeftX => -(MainColW * 2f + MainGutter) * 0.5f;
+        static float MainRightX => MainLeftX + MainColW + MainGutter;
+
+        /// <summary>
+        /// The lowest y a MAIN column may put the BOTTOM of a row at and still
+        /// leave the page un-scrolled.
+        ///
+        /// Both columns carry one block with no fixed size - the fault list on
+        /// the left, the activity log on the right - and both of those are why
+        /// the old page was a tower. Giving them a hard row count means picking
+        /// a number that fits a 562-unit desktop and overflows a 437-unit
+        /// phone, or one that fits the phone and wastes the desktop. Measuring
+        /// against the floor instead means each screen prints as many as it has
+        /// room for and counts the rest, and neither block can push MAIN below
+        /// the fold however long a career runs.
+        /// </summary>
+        static float MainFloor => -(BodyH - MenuKit.ScrollPad);
+
         void Rebuild()
         {
             // Before the page it points at stops existing. Every button on
@@ -689,6 +724,7 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void Update()
         {
+            TickToast();
             if (wizard || tabButtons.Count == 0) return;
 
             var pad = UnityEngine.InputSystem.Gamepad.current;
@@ -726,23 +762,31 @@ namespace PSXRacing.LifeSim
 
         // =================== tabs ===================
         /// <summary>
-        /// The track picker: a map drawn from the circuit's own centreline, its
-        /// numbers, and the hour the next race will run at.
+        /// The venue: a map drawn from the circuit's own centreline, its
+        /// numbers, the hour the next race will run at, and the two pairs of
+        /// arrows that change them.
         ///
-        /// It sits ABOVE the race button rather than on a tab of its own. Where
-        /// you are about to race is part of the decision to race, and a picker
-        /// one tab away is one nobody would find twice.
+        /// It sits directly above the race button rather than on a tab of its
+        /// own. Where you are about to race is part of the decision to race,
+        /// and a picker one tab away is one nobody would find twice.
+        ///
+        /// Laid out ACROSS rather than down: the name, the numbers and the hour
+        /// stack beside the thumbnail instead of under it. Half a column is 445
+        /// units at its narrowest and a 92-unit map leaves 341 of them, which
+        /// is room for a clipped name and two Tiny lines - and it buys back
+        /// about ninety units of height, which is most of what used to push
+        /// SLEEP off the bottom of this screen.
         /// </summary>
-        void BuildTrackBlock(ref float y)
+        void BuildVenueBlock(ref float y, float x, float w)
         {
             var t = TrackCatalog.At(S.trackIndex);
             if (t.city) { S.trackIndex = 0; t = TrackCatalog.At(0); }   // saves never point races at the city
-            const float mapSize = 116f;
+            const float MapSize = 92f;
 
             var mapPanel = MenuKit.Rect(body, "TrackMap",
                 new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, mapSize), y),
-                new Vector2(mapSize, mapSize), new Color(0f, 0f, 0f, 0.55f));
+                new Vector2(MenuKit.ColLeft(x, MapSize), y),
+                new Vector2(MapSize, MapSize), new Color(0f, 0f, 0f, 0.55f));
             var mapGO = new GameObject("Map");
             mapGO.transform.SetParent(mapPanel, false);
             var mapImg = mapGO.AddComponent<RawImage>();
@@ -752,63 +796,68 @@ namespace PSXRacing.LifeSim
             mrt.anchorMin = Vector2.zero; mrt.anchorMax = Vector2.one;
             mrt.offsetMin = new Vector2(4f, 4f); mrt.offsetMax = new Vector2(-4f, -4f);
 
-            float textX = ColL + mapSize + 16f;
-            float textW = Mathf.Max(180f, ColW - mapSize - 16f);
-            MenuKit.Label(body, t.name, 24, new Vector2(0.5f, 1f), new Vector2(textX, y),
-                TextAnchor.MiddleLeft, MenuKit.Accent, textW, height: 30f, bold: true);
-            MenuKit.Label(body,
-                // A drag race is a drag race whether the strip was generated or
-                // surveyed, so this asks IsDragEvent and not where the geometry
-                // came from. And it quotes SHORT runs in metres: the bridges
-                // and the quarter mile all round to "1.4 km" and "0.4 km"
-                // otherwise, which loses the only number that distinguishes
-                // them.
-                t.IsDragEvent
-                    ? (t.RaceMeters < 1000f
-                          ? Mathf.RoundToInt(t.RaceMeters) + " m"
-                          : (t.RaceMeters / 1000f).ToString("0.00") + " km")
-                      + "  ·  " + t.dragLabel + "  ·  standing start"
-                : t.stage
-                    ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " + t.dragLabel +
-                      "  ·  point to point"
-                    : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps  ·  " +
-                      (t.RaceMeters / 1000f).ToString("0.0") + " km",
-                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(textX, y - 32f),
-                TextAnchor.MiddleLeft, Color.white, textW, height: 26f);
-            float navW = Mathf.Min(150f, (textW - 10f) / 2f);
-            MenuKit.Button(body, "< TRACK", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(textX, navW), y - 58f), new Vector2(navW, 34f),
-                () => StepTrack(-1), 15);
-            MenuKit.Button(body, "TRACK >", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(textX + navW + 10f, navW), y - 58f),
-                new Vector2(navW, 34f), () => StepTrack(1), 15);
+            float tx = x + MapSize + 12f;
+            float tw = Mathf.Max(150f, w - MapSize - 12f);
+            MenuKit.Label(body, Clip(t.name, 22), 22, new Vector2(0.5f, 1f),
+                new Vector2(tx, y), TextAnchor.MiddleLeft, MenuKit.Accent, tw,
+                height: 26f, bold: true);
+            MenuKit.Label(body, VenueNumbers(t), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(tx, y - 28f), TextAnchor.MiddleLeft, Color.white, tw, height: 24f);
+            // The hour, said where it is chosen. Half a column will not carry
+            // "FOLLOWING THE CLOCK" spelled out next to a time, so the
+            // follow-the-clock state is a parenthesis instead of a sentence.
+            MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(RaceHour()) +
+                    (S.raceTimeIndex < 0 ? "  (CLOCK)" : ""),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, y - 54f),
+                TextAnchor.MiddleLeft, MenuKit.Accent, tw, height: 24f);
+            y -= MapSize + 8f;
 
-            y -= mapSize + 10f;
-            MenuKit.Label(body, t.blurb, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 26f);
-            y -= 32f;
+            // Four arrows on ONE line - circuit and hour. They were two rows of
+            // two full-width buttons, which is 46 units of height this page no
+            // longer has to give away. The narrowest cell is 107 units, which
+            // is wider than "TRACK >" renders at the type floor.
+            const float Gap = 6f;
+            float qw = (w - Gap * 3f) / 4f;
+            float row = y;
+            void Pick(int i, string label, UnityEngine.Events.UnityAction act) =>
+                MenuKit.Button(body, label, new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(x + i * (qw + Gap), qw), row),
+                    new Vector2(qw, 36f), act, 15);
+            Pick(0, "< TRACK", () => StepTrack(-1));
+            Pick(1, "TRACK >", () => StepTrack(1));
+            Pick(2, "< TIME", () => StepHour(-1));
+            Pick(3, "TIME >", () => StepHour(1));
+            y -= 44f;
 
-            // The hour, and a way to change it. It reads as one wide row rather
-            // than sitting beside the map, because the whole point is that it is
-            // a CHOICE — buried next to the track stats it read as a caption,
-            // which is how a player ends up with seven skies and no idea any of
-            // them can be picked.
-            float half = Mathf.Min(300f, (ColW - 12f) / 2f);
-            MenuKit.Button(body, "< TIME", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, half), y), new Vector2(half, 40f),
-                () => StepHour(-1), 15);
-            MenuKit.Button(body, "TIME >", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL + half + 12f, half), y), new Vector2(half, 40f),
-                () => StepHour(1), 15);
-            y -= 46f;
-            MenuKit.Label(body,
-                S.raceTimeIndex < 0
-                    ? "RACING AT " + TimeOfDay.Label(RaceHour()) + "  ·  FOLLOWING THE CLOCK"
-                    : "RACING AT " + TimeOfDay.Label(RaceHour()),
-                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                TextAnchor.MiddleCenter, MenuKit.Accent, ColW, height: 24f);
-            y -= 34f;
+            MenuKit.Label(body, Clip(t.blurb, 46), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(x, y), TextAnchor.MiddleLeft, MenuKit.Dim, w, height: 24f);
+            y -= 30f;
         }
+
+        /// <summary>
+        /// What the venue measures, short enough for half a column.
+        ///
+        /// The full-width version quoted lap length AND race distance AND the
+        /// sub-name, which is three facts too many for 341 units. A CIRCUIT
+        /// gives up its total distance, because lap length times laps is the
+        /// same claim said twice. The one thing that stays everywhere is
+        /// dragLabel: it is what the HUD will call the run, and "1/4 MILE" is
+        /// the only thing separating the quarter from the eighth once both have
+        /// been rounded into the same units.
+        ///
+        /// Short runs are still quoted in metres, because the bridges and the
+        /// quarter mile all round to "0.4 km" otherwise.
+        /// </summary>
+        static string VenueNumbers(TrackCatalog.TrackDef t) =>
+            t.IsDragEvent
+                ? (t.RaceMeters < 1000f
+                       ? Mathf.RoundToInt(t.RaceMeters) + " m"
+                       : (t.RaceMeters / 1000f).ToString("0.00") + " km")
+                  + "  ·  " + t.dragLabel
+            : t.stage
+                ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " + t.dragLabel +
+                  "  ·  point to point"
+                : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps";
 
         void StepTrack(int step)
         {
@@ -840,30 +889,55 @@ namespace PSXRacing.LifeSim
             : TimeOfDay.ForSlot(S.slotIndex, S.day);
 
         /// <summary>
-        /// What the diary says about TODAY, and the way into the diary itself.
+        /// The launch screen, in the two columns that let all of it be seen at
+        /// once.
         ///
-        /// ABOVE the track picker on the launch screen, which is the whole
-        /// point: a booking made three days ago is worth nothing if the first
-        /// screen the player opens does not mention it. A planner you have to go
-        /// and consult is a planner you forget, and forgetting is exactly what a
-        /// calendar exists to prevent.
+        /// LEFT is the race: today's appointment, the venue, the hour, and the
+        /// door. RIGHT is the day: the diary, the city, the shift, and sleep.
+        /// Nothing here scrolls on any canvas the game runs on - which is the
+        /// whole point of the split, and is what the preview harness checks
+        /// (it prints "fits" or "SCROLLS" for every aspect).
         ///
-        /// It is also why the CALENDAR is a button here rather than a tab. Nine
-        /// captions do not fit the strip — the narrowest canvas is a 4:3 desktop
-        /// at 960 units and a ninth cell takes each one below the width of the
-        /// word OPTIONS — and of the two, the one that wants to sit next to
-        /// "what am I doing today" is this one.
+        /// Three things that used to live on this page are gone from it. The
+        /// PRACTICE LAP button, which was a second race button doing a quieter
+        /// version of the same thing. NEW GAME, which erases the save and had
+        /// no business sitting one press from the button you hit every day - it
+        /// is on OPTIONS now with the rest of the meta. And the DEBUG rung,
+        /// which went with it, because a test switch on the launch screen is
+        /// fifty units of the one axis this page cannot spare.
         /// </summary>
-        void BuildDiaryBlock(ref float y)
+        void BuildMain()
         {
+            float left = -14f, right = -14f;
+            BuildRaceColumn(ref left, MainLeftX, MainColW);
+            BuildDayColumn(ref right, MainRightX, MainColW);
+        }
+
+        /// <summary>Left column: where you are racing, and the button that
+        /// drives there.</summary>
+        void BuildRaceColumn(ref float y, float x, float w)
+        {
+            float cx = MenuKit.ColLeft(x, w);
+
+            // Today's appointment, above the venue it is for. A booking made
+            // three days ago is worth nothing if the first screen the player
+            // opens does not mention it - which is why the diary reports on
+            // MAIN and not only inside the calendar.
             var booked = LifeRules.BookingOn(S, S.day);
             if (booked != null)
             {
                 var bt = TrackCatalog.At(booked.trackIndex);
-                MenuKit.Button(body, "IN THE DIARY TODAY — " +
-                        Clip(bt.name, 20) + (booked.practice ? " (PRACTICE)" : ""),
-                    new Vector2(0.5f, 1f), new Vector2(0f, y),
-                    new Vector2(Mathf.Min(ColW, 460f), 52f), () =>
+                // The practice suffix stays even though practice can no longer
+                // be BOOKED: a career saved before it was removed can still be
+                // carrying one, and a row that lies about what it will start is
+                // worse than a row nobody can create any more.
+                // Clipped as ONE string rather than clipping the name and then
+                // bolting a suffix on: half a column holds about thirty
+                // characters, and a name budgeted for the plain case ran off
+                // the end the moment the legacy PRACTICE tag was appended.
+                MenuKit.Button(body, Clip("IN THE DIARY — " + bt.name +
+                        (booked.practice ? " (PRACTICE)" : ""), 30),
+                    new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 44f), () =>
                     {
                         // Kept, not consumed on arrival: the appointment is over
                         // the moment you set off for it, and a booking that
@@ -874,48 +948,37 @@ namespace PSXRacing.LifeSim
                         LifeRules.Unbook(S, S.day);
                         LifeSimManager.Save();
                         StartRace(prac);
-                    }, 18, new Color(0.62f, 0.48f, 0.12f, 1f));
-                y -= 58f;
+                    }, 17, new Color(0.62f, 0.48f, 0.12f, 1f));
+                y -= 50f;
             }
 
-            int planned = S.bookings != null ? S.bookings.Count : 0;
-            MenuKit.Button(body, "CALENDAR" + (planned > 0 ? "  ·  " + planned + " BOOKED" : ""),
-                new Vector2(0.5f, 1f), new Vector2(0f, y),
-                new Vector2(Mathf.Min(ColW, 460f), 44f),
-                () => { tab = "calendar"; Rebuild(); }, 17);
-            y -= 54f;
-        }
-
-        void BuildMain()
-
-        {
-            float y = -20f;
-            BuildDebugBlock(ref y);
-            BuildDiaryBlock(ref y);
-            BuildTrackBlock(ref y);
+            BuildVenueBlock(ref y, x, w);
 
             var track = TrackCatalog.At(S.trackIndex);
             bool racedToday = LifeRules.RacedToday(S);
             // Pre-race fuel gate, off the circuit the player actually picked: a
             // race on the long one burns half as much again as the short one,
-            // and a fixed 3 x 1168 m estimate would wave a car onto Ridge Pass
-            // with enough fuel for Harbor Point.
+            // and a fixed estimate would wave a car onto Ridge Pass with enough
+            // fuel for Harbor Point.
             //
-            // The bar is much LOWER than it used to be. It used to demand fuel
-            // for the whole race, because the whole race was the only unit fuel
-            // came in; now every circuit has a forecourt on it, so the question
-            // is only whether the car can REACH one. Running a race on a
-            // half-tank and planning a stop is a strategy, not a mistake, and
-            // the gate has no business calling it one.
+            // The bar is deliberately LOW. It used to demand fuel for the whole
+            // race, because the whole race was the only unit fuel came in; now
+            // every circuit has a forecourt on it, so the question is only
+            // whether the car can REACH one. Running a race on a half-tank and
+            // planning a stop is a strategy, not a mistake.
             float burn = LifeRules.RaceFuelBurnPct(track.RaceMeters, S.ActiveCar);
             float need = LifeRules.RequiredFuelPct(track, S.ActiveCar);
             bool lowFuel = S.ActiveCar != null && S.ActiveCar.fuel <= need;
             bool needsStop = !lowFuel && S.ActiveCar != null && S.ActiveCar.fuel <= burn;
-            string raceLabel = racedToday ? "RACED TODAY — SLEEP FIRST"
+            // "SLEEP FIRST" was true while sleep meant "until tomorrow". It is
+            // not any more - a nap through the morning leaves the one-race cap
+            // exactly where it was - so the button names what actually clears
+            // it, which is the calendar turning over.
+            string raceLabel = racedToday ? "RACED TODAY — BACK TOMORROW"
                              : lowFuel ? (track.hasFuelStop ? "TOO LOW TO REACH THE PUMPS"
                                           // A strip, a stage and the city all
                                           // have no forecourt, and only one of
-                                          // them is a strip — the parkway read
+                                          // them is a strip - the parkway read
                                           // "NO PUMPS ON A STRIP" for months.
                                           : track.drag ? "LOW FUEL — NO PUMPS ON A STRIP"
                                                        : "LOW FUEL — NO PUMPS OUT THERE")
@@ -923,127 +986,190 @@ namespace PSXRacing.LifeSim
             bool canRace = !racedToday && !lowFuel;
             int tier = LifeRules.StreetTier(S.streetRep).idx;
             MenuKit.Button(body, raceLabel,
-                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(460f, 72f),
-                canRace ? (UnityEngine.Events.UnityAction)(() => StartRace(false)) : null, 22,
+                new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 64f),
+                canRace ? (UnityEngine.Events.UnityAction)(() => StartRace(false)) : null, 21,
                 canRace ? new Color(1f, 0.84f, 0.4f, 0.28f) : MenuKit.BtnBgDisabled);
-            y -= 78f;
+            y -= 70f;
 
             MenuKit.Label(body, "WIN " + MenuKit.Money(LifeRules.WinPrize[tier]) + " · " +
-                LifeRules.StreetTier(S.streetRep).name + " tier", 14,
-                new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
-                MenuKit.Dim, 460f);
-            y -= 30f;
+                LifeRules.StreetTier(S.streetRep).name + " tier", MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
+                MenuKit.Dim, w, height: 22f);
+            y -= 26f;
 
-            // Told BEFORE the race rather than discovered halfway round it.
-            // The player is allowed to start on a tank that will not finish —
-            // that is the whole point of the forecourt — but only if they know.
+            // Told BEFORE the race rather than discovered halfway round it. The
+            // player is allowed to start on a tank that will not finish - that
+            // is the whole point of the forecourt - but only if they know.
+            // Short sentences: half a column will not hold the long ones, and
+            // an overflowing warning prints straight into the day column.
             if (needsStop || lowFuel)
             {
                 MenuKit.Label(body,
                     lowFuel
                         ? (track.hasFuelStop
-                            ? "Not enough to get to the pumps. Call the truck from the garage."
+                            ? "Not enough to reach the pumps."
                             : track.drag
-                                ? "A strip has no pumps. Fill up before you go."
-                                : "There are no services out on this route. Fill up before you go.")
-                        : "This race burns more than you are carrying — plan a stop at the pumps.",
-                    14, new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
-                    lowFuel ? MenuKit.Bad : MenuKit.Accent, 470f);
-                y -= 28f;
+                                ? "A strip has no pumps. Fill up first."
+                                : "No services out there. Fill up first.")
+                        : "Burns more than you carry — plan a stop.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(cx, y),
+                    TextAnchor.MiddleCenter, lowFuel ? MenuKit.Bad : MenuKit.Accent,
+                    w, height: 22f);
+                y -= 26f;
             }
 
-            // Practice is the pressure valve on the one-paying-race-a-day cap:
-            // it still costs a slot and still wears the car, but pays nothing
-            // and does not stamp lastRaceDay.
-            if (!lowFuel)
+            // Faults are the reason a race can go wrong, so they belong on the
+            // screen you launch from, not buried a tab away. Capped at three:
+            // this column has room for three, and a fourth would push the page
+            // back below the fold it was just lifted out of.
+            var activeCar = S.ActiveCar;
+            var seen = activeCar != null
+                ? activeCar.faults.FindAll(f => !f.hidden)
+                : new System.Collections.Generic.List<CarFault>();
+            const float FaultRow = 22f;
+            int shown = 0;
+            while (shown < seen.Count)
             {
-                MenuKit.Button(body, "PRACTICE LAP (no purse)", new Vector2(0.5f, 1f),
-                    new Vector2(0f, y), new Vector2(460f, 46f),
-                    () => StartRace(true), 16);
-                y -= 62f;
+                // Room for THIS row, and for the "+N more" line it would make
+                // necessary. A fault printed at the cost of the line saying
+                // there are others is the worse trade of the two.
+                bool willTruncate = shown < seen.Count - 1;
+                if (y - (willTruncate ? FaultRow * 2f : FaultRow) < MainFloor) break;
+                var f = seen[shown];
+                string fx = FaultCatalog.EffectSummary(f.id);
+                MenuKit.Label(body,
+                    Clip("! " + f.label + (fx.Length > 0 ? " — " + fx : ""), 42),
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(x, y),
+                    TextAnchor.MiddleLeft, MenuKit.Bad, w, height: FaultRow);
+                y -= FaultRow;
+                shown++;
             }
+            if (shown < seen.Count)
+            {
+                MenuKit.Label(body, "+" + (seen.Count - shown) + " more — see GARAGE",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(x, y),
+                    TextAnchor.MiddleLeft, MenuKit.Bad, w, height: FaultRow);
+                y -= FaultRow;
+            }
+        }
+
+        /// <summary>
+        /// Right column: what today is. The diary, the city, the shift, sleep,
+        /// and the last few days in the log.
+        ///
+        /// The CALENDAR is a button here rather than a ninth tab because nine
+        /// captions do not fit the strip - the narrowest canvas is a 4:3 desktop
+        /// at 960 units and a ninth cell takes each one below the width of the
+        /// word OPTIONS - and of the two candidates, the one that wants to sit
+        /// beside "what am I doing today" is this one.
+        /// </summary>
+        void BuildDayColumn(ref float y, float x, float w)
+        {
+            float cx = MenuKit.ColLeft(x, w);
+
+            int planned = S.bookings != null ? S.bookings.Count : 0;
+            MenuKit.Button(body,
+                "CALENDAR" + (planned > 0 ? "  ·  " + planned + " BOOKED" : ""),
+                new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 40f),
+                () => { tab = "calendar"; Rebuild(); }, 17);
+            y -= 46f;
 
             // Charlotte. A drive costs a slot, burns real fuel and wears real
-            // tyres, pays nothing — and there are no pumps out there yet, so
-            // the door stays shut on a tank that would strand the car two
-            // blocks in. Map data (c) OpenStreetMap contributors.
+            // tyres, pays nothing - and the door stays shut on a tank that would
+            // strand the car two blocks in. Map data (c) OpenStreetMap
+            // contributors.
             bool roamFuel = S.ActiveCar != null && S.ActiveCar.fuel > 10f;
             MenuKit.Button(body,
                 S.ActiveCar == null ? "FREE ROAM — NEEDS A CAR"
                     : roamFuel ? "FREE ROAM — CHARLOTTE" : "FREE ROAM — NEEDS FUEL",
-                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(460f, 52f),
+                new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 44f),
                 roamFuel ? (UnityEngine.Events.UnityAction)StartFreeRoam : null, 17,
                 roamFuel ? new Color(0.45f, 0.75f, 1f, 0.22f) : MenuKit.BtnBgDisabled);
-            y -= 58f;
-            MenuKit.Label(body, "The whole city at 1:1 — no purse, real fuel, real time.", 14,
-                new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
-                MenuKit.Dim, 470f);
-            y -= 30f;
+            y -= 50f;
+            MenuKit.Label(body, "Charlotte at 1:1. Real fuel, no purse.", MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
+                MenuKit.Dim, w, height: 22f);
+            y -= 26f;
 
-            // Faults are the reason a race can go wrong, so they belong on the
-            // screen you launch from, not buried a tab away.
-            var activeCar = S.ActiveCar;
-            if (activeCar != null && KnownFaults(activeCar) > 0)
-            {
-                foreach (var f in activeCar.faults)
-                {
-                    if (f.hidden) continue;
-                    string fx = FaultCatalog.EffectSummary(f.id);
-                    MenuKit.Label(body, "! " + f.label + (fx.Length > 0 ? " — " + fx : ""), 14,
-                        new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                        MenuKit.Bad, 470f);
-                    y -= 22f;
-                }
-                y -= 10f;
-            }
-
-            // The shop is open AFTERNOONS AND NIGHTS, seven days a week — see
+            // The shop is open AFTERNOONS AND NIGHTS, seven days a week - see
             // LifeRules.ShopOpen. There is deliberately no "already worked
-            // today" rung any more: both open slots are runs if the player
-            // wants them, and each one costs the slot it burned. Choosing
-            // between a second run, an inspection, a repair and sleep is the
-            // decision the day is made of.
+            // today" rung: both open slots are runs if the player wants them,
+            // and each one costs the slot it burned. Choosing between a second
+            // run, an inspection, a repair and sleep is the decision the day is
+            // made of.
             bool shopOpen = LifeRules.ShopOpen(S);
             bool canWork = !string.IsNullOrEmpty(S.playerJob) && shopOpen;
             string workLabel = string.IsNullOrEmpty(S.playerJob) ? "NO JOB (SEE JOBS TAB)"
-                : !shopOpen ? "SHOP SHUT — SHIFTS START AT NOON"
-                : S.workedToday ? "TAKE ANOTHER RUN (" + S.playerJob + ")"
-                : "CLOCK ON (" + S.playerJob + ")";
-            MenuKit.Button(body, workLabel, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                new Vector2(460f, 56f), canWork ? DoWork : (UnityEngine.Events.UnityAction)null,
-                18, canWork ? (Color?)null : MenuKit.BtnBgDisabled);
-            y -= 58f;
+                : !shopOpen ? "SHOP SHUT — OPENS AT NOON"
+                : S.workedToday ? "TAKE ANOTHER RUN"
+                : "CLOCK ON (" + Clip(S.playerJob, 14) + ")";
+            MenuKit.Button(body, workLabel, new Vector2(0.5f, 1f), new Vector2(cx, y),
+                new Vector2(w, 46f), canWork ? DoWork : (UnityEngine.Events.UnityAction)null,
+                17, canWork ? (Color?)null : MenuKit.BtnBgDisabled);
+            y -= 52f;
             // The roster, printed under the button that obeys it. A shut shop
-            // with no hours beside it is indistinguishable from a dead button —
-            // which is exactly how "WEEKEND — NO WORK" read. Centred on the
-            // button column like every other caption on this page; left-aligned
-            // it hung out on its own halfway across a phone.
+            // with no hours beside it is indistinguishable from a dead button -
+            // which is exactly how "WEEKEND - NO WORK" read. The SHORT form of
+            // the string: the full one is 46 characters and runs off half a
+            // column into the race column beside it.
             if (!string.IsNullOrEmpty(S.playerJob))
             {
-                MenuKit.Label(body, LifeRules.ShiftHours, 14, new Vector2(0.5f, 1f),
-                    new Vector2(0f, y), TextAnchor.MiddleCenter, MenuKit.Dim, 470f);
-                y -= 30f;
+                MenuKit.Label(body, LifeRules.ShiftHoursShort, MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
+                    MenuKit.Dim, w, height: 22f);
+                y -= 26f;
             }
-            y -= 14f;
-            MenuKit.Button(body, "SLEEP UNTIL TOMORROW", new Vector2(0.5f, 1f),
-                new Vector2(0f, y), new Vector2(460f, 56f), DoSleep, 18);
-            y -= 74f;
 
-            BuildStartOverBlock(ref y);
+            // Just SLEEP. It used to say SLEEP UNTIL TOMORROW, which is what it
+            // used to do; it is eight hours now - see LifeRules.Sleep - and a
+            // button that names a destination it only reaches from the night
+            // slot is a button that lies twice out of every three presses.
+            // Where those eight hours land goes in the caption under it, the
+            // same way the shift button carries its roster.
+            MenuKit.Button(body, "SLEEP", new Vector2(0.5f, 1f), new Vector2(cx, y),
+                new Vector2(w, 46f), DoSleep, 17);
+            y -= 52f;
+            MenuKit.Label(body, "EIGHT HOURS  ·  NEXT: " + NextSlotName(), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
+                MenuKit.Dim, w, height: 22f);
+            y -= 28f;
+
+            // A clear line between the sleep caption and the log. Six units of
+            // gap put RECENTLY through the descenders of the line above it -
+            // the caption box is 22 tall and the step was 28. Paid for out of
+            // the log, which gives way by design.
             y -= 10f;
 
-            MenuKit.Label(body, "RECENTLY", 15, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 460f);
-            y -= 28f;
-            int n = S.calendarLog.Count;
-            for (int i = Mathf.Max(0, n - 6); i < n; i++)
+            // However many lines the column has left, up to five, clipped to
+            // its width. The log ran FULL width and six deep on the old page
+            // and grows by a line a day, which is precisely what made that page
+            // a tower and pushed everything under it below the fold. Here it is
+            // the block that gives way: it takes the room nothing else wanted
+            // and never a unit more.
+            const float LogRow = 21f, LogHead = 26f;
+            int room = Mathf.FloorToInt((y - LogHead - MainFloor) / LogRow);
+            int take = Mathf.Clamp(Mathf.Min(room, 5), 0, S.calendarLog.Count);
+            if (take > 0)
             {
-                MenuKit.Label(body, S.calendarLog[i], 14, new Vector2(0.5f, 1f),
-                    new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, 700f);
-                y -= 24f;
+                MenuKit.Label(body, "RECENTLY", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(x, y), TextAnchor.MiddleLeft, MenuKit.Dim, w, height: 22f);
+                y -= LogHead;
+                for (int i = S.calendarLog.Count - take; i < S.calendarLog.Count; i++)
+                {
+                    MenuKit.Label(body, Clip(S.calendarLog[i], 44), MenuKit.Tiny,
+                        new Vector2(0.5f, 1f), new Vector2(x, y), TextAnchor.MiddleLeft,
+                        Color.white, w, height: LogRow);
+                    y -= LogRow;
+                }
             }
-
         }
+
+        /// <summary>The band SLEEP will hand the player next, for the caption on
+        /// the button. Wraps to MORNING off the night, which is the one sleep
+        /// that also turns the calendar over.</summary>
+        string NextSlotName() =>
+            LifeRules.SlotNames[(Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotNames.Length - 1) + 1)
+                                % LifeRules.SlotNames.Length];
 
         /// <summary>
         /// Start over. <see cref="LifeSimManager.DeleteSave"/> had existed since
@@ -1053,10 +1179,14 @@ namespace PSXRacing.LifeSim
         /// is why "no option to restart game" and "no way to enter a name" are
         /// the same bug.
         ///
-        /// It sits directly under SLEEP rather than at the foot of the page: the
-        /// activity log below it grows by a line a day, so anything after the log
-        /// drifts further below the fold the longer a career runs — which is how
-        /// the first version of this button ended up invisible.
+        /// It lives on OPTIONS. It used to sit directly under SLEEP on the
+        /// launch screen, which was the right answer to the wrong question: the
+        /// problem then was an activity log that grew a line a day and pushed
+        /// everything after it below the fold, so the fix was to put this ABOVE
+        /// the log. The real fix is that a control which erases the career has
+        /// no business one press away from the button the player hits every
+        /// morning. OPTIONS is a tab on the strip, so it is still two presses
+        /// from anywhere, and it is where a player looks for meta.
         /// </summary>
         void BuildStartOverBlock(ref float y)
         {
@@ -1104,17 +1234,20 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>
-        /// Test tools, at the TOP of the first tab.
+        /// Test tools, on OPTIONS with the other meta controls.
         ///
         /// The first cut of this put the debug career behind the new-game wizard
         /// and nothing else, which had two problems reported straight back: the
         /// wizard only appears when there is NO save, so an existing career had
         /// no way in at all short of erasing itself; and the NEW GAME button
-        /// that would have erased it sat at the bottom of a scrolling page under
-        /// an activity log that grows every day, i.e. below the fold. A debug
-        /// switch nobody can find is a debug switch that does not exist — so it
-        /// is the first thing on the page now, and it works on the save you are
-        /// already playing.
+        /// that would have erased it sat below the fold. A debug switch nobody
+        /// can find is a debug switch that does not exist — so it is reachable
+        /// from a tab caption, and it works on the save you are already playing.
+        ///
+        /// It was on MAIN for exactly that findability, and MAIN is the one page
+        /// in this menu that has to fit on a phone without scrolling. A rung the
+        /// player never presses is a poor use of the fifty units it costs there;
+        /// on OPTIONS it costs nothing that matters.
         /// </summary>
         void BuildDebugBlock(ref float y)
         {
@@ -2527,15 +2660,17 @@ namespace PSXRacing.LifeSim
                 () => { StepVenue(1); Rebuild(); }, 17);
             y -= 54f;
 
-            MenuKit.Button(body, calPractice ? "AS: PRACTICE LAP" : "AS: A RACE",
-                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(wide, 44f),
-                () => { calPractice = !calPractice; Rebuild(); }, 17);
-            y -= 54f;
 
             MenuKit.Button(body, "WRITE IT IN", new Vector2(0.5f, 1f),
                 new Vector2(0f, y), new Vector2(wide, 52f), () =>
                 {
-                    if (LifeRules.Book(S, calSelDay, calVenue, calPractice))
+                    // Always a real race. PRACTICE was a second, quieter race
+                    // button - it cost the same slot and the same wear and paid
+                    // nothing - and it is gone from the game. The FLAG survives
+                    // in the save format because a career booked before this
+                    // can still be holding one, and because the delivery job
+                    // rides the same no-purse path.
+                    if (LifeRules.Book(S, calSelDay, calVenue, false))
                     {
                         LifeSimManager.Save(); Rebuild();
                         Toast(Clip(TrackCatalog.At(calVenue).name, 22) + " — " +
@@ -2649,14 +2784,23 @@ namespace PSXRacing.LifeSim
                 "The colour behind the dials after dark.",
                 () => ClusterBulbs.Cycle(1), ref y);
 
-            y -= 10f;
             MenuKit.Label(body, "The pause menu inside a race carries these too,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW);
             y -= 26f;
             MenuKit.Label(body, "plus the camera and RESET CAR.", 17, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 34f;
+
+            // The meta: the career itself, and the test switch. Both were on the
+            // launch screen and neither belonged there — one is pressed once
+            // ever and the other is pressed never, and MAIN is the page that has
+            // to fit a phone without scrolling.
+            MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Line);
             y -= 26f;
+            BuildDebugBlock(ref y);
+            BuildStartOverBlock(ref y);
         }
 
         /// <summary>One setting: a full-width button carrying the name and the
@@ -2671,9 +2815,13 @@ namespace PSXRacing.LifeSim
                 new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 48f),
                 () => { apply(); LifeSimManager.Save(); Rebuild(); }, 18);
             y -= 46f;
+            // Height 24 and a 34-unit step, not the default 40 and 50. OPTIONS
+            // carries the meta controls now as well as the settings, and three
+            // rows paying sixteen units each for whitespace is a fifty-unit
+            // scroll bought for nothing.
             MenuKit.Label(body, blurb, 17, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
-            y -= 50f;
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f);
+            y -= 34f;
 
         }
 
@@ -2923,7 +3071,14 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, "INSPECTIONS", 15, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 400f, bold: true);
             y -= 30f;
-            MenuKit.Label(body, "They tell you what is wrong. Fixing it is still a bill.",
+            // The TIME cost, said out loud. Booking either of these has always
+            // spent an activity slot - the car has to go somewhere and come
+            // back - but only the money was ever printed, so the day quietly
+            // got shorter and the screen took no responsibility for it. The
+            // player's own inspection has advertised its slot for months; these
+            // two are the same errand.
+            MenuKit.Label(body,
+                "Costs a time slot. They tell you what is wrong; fixing it is still a bill.",
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
             y -= 32f;
@@ -3419,15 +3574,34 @@ namespace PSXRacing.LifeSim
 
         void DoSleep()
         {
+            bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
             LifeRules.Sleep(S);
             LifeSimManager.Save();
             tab = "main";
             Rebuild();
-            Toast(LifeRules.DateLabel(S.day).ToUpper());
+            // NOT the date. The header already carries the date and the band,
+            // an arm's length above this, and printing it a second time in a
+            // black bar across the foot of the page put a second, louder copy
+            // of it on top of the menu - which is what made the menu hard to
+            // read. This says what CHANGED instead.
+            Toast(overnight ? "SLEPT THE NIGHT \u2014 " + LifeRules.SlotNames[S.slotIndex]
+                            : "EIGHT HOURS ON \u2014 " + LifeRules.SlotNames[S.slotIndex]);
         }
 
         // =================== toast ===================
         Text statusText;
+        /// <summary>Unscaled time the toast stops being news.
+        ///
+        /// It used to have no expiry at all: a toast was destroyed only by the
+        /// NEXT toast, so the last thing that happened sat in a black bar over
+        /// the foot of the menu for as long as the player stayed on it. After a
+        /// sleep that was the date, printed across the log, over the buttons
+        /// under it - reported as the menu being hard to read, and correctly.
+        /// A toast is a notification; a notification that never leaves is
+        /// furniture.</summary>
+        float toastExpires;
+        const float ToastSeconds = 4.5f;
+
         void Toast(string msg)
         {
             // The pager rides out on whatever toast follows the rollover that
@@ -3447,6 +3621,22 @@ namespace PSXRacing.LifeSim
             statusText = MenuKit.Label(box, msg, 18, new Vector2(0.5f, 0.5f),
                 Vector2.zero, TextAnchor.MiddleCenter, MenuKit.Accent, 760f, bold: true);
             statusText.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            // Unscaled, because these menus run with no expectation about
+            // Time.timeScale and a paused clock would pin the toast forever -
+            // the exact bug being fixed, in a second costume.
+            toastExpires = Time.unscaledTime + ToastSeconds;
+        }
+
+        /// <summary>Take the toast down once it has been read. Called from
+        /// Update BEFORE the wizard/tab guards: the wizard toasts too, and a
+        /// message that only expires on the pages that happen to have a tab bar
+        /// is a message that does not expire.</summary>
+        void TickToast()
+        {
+            if (statusText == null) return;
+            if (Time.unscaledTime < toastExpires) return;
+            Destroy(statusText.transform.parent.gameObject);
+            statusText = null;
         }
     }
 }

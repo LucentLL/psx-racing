@@ -194,6 +194,10 @@ namespace PSXRacing.LifeSim
         /// <summary>The roster in words, for every screen that has to say it.
         /// One string so the home screen and the jobs tab cannot drift.</summary>
         public const string ShiftHours = "AFTERNOON 12PM-8PM  ·  NIGHT 8PM-4AM, SEVEN DAYS";
+        /// <summary>The same roster in half the characters, for the columns
+        /// that are half a screen wide. The long form is 46 characters and runs
+        /// clean off a 445-unit column into whatever is beside it.</summary>
+        public const string ShiftHoursShort = "AFTERNOONS + NIGHTS, SEVEN DAYS";
 
         /// <summary>
         /// Days off the roster allows before the absence ladder starts biting.
@@ -1298,11 +1302,56 @@ namespace PSXRacing.LifeSim
             if (s.slotIndex > 2) Rollover(s, sleptTonight: false);
         }
 
-        /// <summary>Sleep: end the day rested (+5 health, sleepSlot.ts).</summary>
+        /// <summary>
+        /// Sleep: eight hours, one block of the day.
+        ///
+        /// It used to be "sleep until tomorrow" and it threw away everything
+        /// left of the day with it, which made the slot machine a
+        /// one-decision affair: a morning you did not want to spend cost you
+        /// the afternoon and the night as well. Now the button moves the clock
+        /// one band - MORNING to AFTERNOON to NIGHT - and it is the NIGHT
+        /// sleep, and only that one, that turns the calendar over.
+        ///
+        /// Which is also why only the night sleep passes sleptTonight. The
+        /// health model's rested/all-nighter ladder is about what you did with
+        /// the dark hours; a nap in the afternoon is not an answer to it. A nap
+        /// likewise does NOT count towards slotsActiveToday, because rest is
+        /// not activity - it costs the slot and nothing else.
+        /// </summary>
         public static void Sleep(LifeState s)
         {
-            s.health = Mathf.Min(100f, s.health + 5f);
-            Rollover(s, sleptTonight: true);
+            if (s == null) return;
+            if (s.slotIndex >= SlotNames.Length - 1)
+            {
+                s.health = Mathf.Min(100f, s.health + 5f);
+                Rollover(s, sleptTonight: true);
+                return;
+            }
+            // A nap restores NOTHING. It was a token point per nap for about
+            // an hour, until the self-test caught what that is: two free points
+            // a day, every day, against a starvation ladder that takes twelve -
+            // which turned "twenty days without food is fatal-grade" into a
+            // driver sitting at 7 health and stable. Health is settled once a
+            // day, at the rollover, off what you ate and whether you slept at
+            // night; an afternoon lie-in is not an answer to either question.
+            s.slotIndex++;
+        }
+
+        /// <summary>
+        /// Sleep through whatever is left of today and wake up tomorrow
+        /// morning - which is what Sleep itself used to do.
+        ///
+        /// Kept under its own name for the callers that genuinely mean "a day
+        /// passes" (the absence ladder, parts that arrive on a promised day,
+        /// every test that ages a career) rather than "eight hours pass".
+        /// Letting those keep calling Sleep is what would silently divide the
+        /// day count of every one of them by three.
+        /// </summary>
+        public static void SleepUntilMorning(LifeState s)
+        {
+            if (s == null) return;
+            int guard = 0;
+            do { Sleep(s); } while (s.slotIndex != 0 && ++guard < SlotNames.Length);
         }
 
         /// <summary>The single day-rollover pipeline, in the gameLoop's order:

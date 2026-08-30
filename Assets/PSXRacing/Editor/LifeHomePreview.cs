@@ -57,22 +57,21 @@ namespace PSXRacing.EditorTools
 
             Shoot(outDir, "home");
 
-            // The day's actions, which live below the fold on every canvas: the
-            // shift button and SLEEP. Shot TWICE because the shift button says
-            // something different depending on the hour, and the whole point of
-            // the roster is that a morning and an afternoon are not the same
-            // day. Morning first (shut), then afternoon (open).
-            LifeSimManager.State.slotIndex = 0;
-            LifeSimManager.Save();
-            Shoot(outDir, "home_shift_morning", "main", scrollTo: 0f);
-            LifeSimManager.State.slotIndex = 1;
-            LifeSimManager.Save();
-            Shoot(outDir, "home_shift_afternoon", "main", scrollTo: 0f);
-            // The middle of MAIN, where the door into the house, the diary row
-            // and the way into the calendar all live. Top-of-scroll shows the
-            // track picker and bottom-of-scroll shows the day's actions; this
-            // block sits between them and had never been photographed.
-            Shoot(outDir, "home_mid", "main", scrollTo: 0.55f);
+            // MAIN once per BAND of the day. The shift button and the sleep
+            // button both say something different in each one - the shop is
+            // shut before noon, and only the night sleep rolls the calendar -
+            // and a screen shot in one state proves nothing about the other two.
+            //
+            // No scrollTo any more. MAIN is two columns precisely so that all of
+            // it is above the fold on every canvas, so there is no second half
+            // to scroll down to; mustFit below is what holds that to account.
+            for (int slot = 0; slot < LifeRules.SlotNames.Length; slot++)
+            {
+                LifeSimManager.State.slotIndex = slot;
+                LifeSimManager.Save();
+                Shoot(outDir, "home_" + LifeRules.SlotNames[slot].ToLower(), "main",
+                      mustFit: true);
+            }
 
             LifeSimManager.State.slotIndex = 0;
             LifeSimManager.Save();
@@ -140,6 +139,12 @@ namespace PSXRacing.EditorTools
                                       "inspect", "inspectfocus", "toolbox" })
                 Shoot(outDir, t, t);
 
+            // OPTIONS took NEW GAME and the debug rung off the launch screen, so
+            // it is now the tallest of the settings pages and the one where
+            // something can fall off the end. Shot from the bottom of the
+            // scroll, where those two live.
+            Shoot(outDir, "options_meta", "options", scrollTo: 0f);
+
             // The condition bars, which are below the fold on the GARAGE tab and
             // are the whole subject of "condition % should not be shown outside
             // debug mode". A tab shot from the top of the scroll shows the
@@ -150,11 +155,16 @@ namespace PSXRacing.EditorTools
         }
 
         /// <param name="scrollTo">Where to leave the body's scroll before the
-        /// shutter: 1 is the top, 0 the bottom. The MAIN tab's day actions —
-        /// the work button and SLEEP — live below the fold on every canvas, so
-        /// without this the one control this pass changed could not be
-        /// photographed at all.</param>
-        static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f)
+        /// shutter: 1 is the top, 0 the bottom. A page taller than the canvas
+        /// cannot be photographed whole, so the shots that care about what is
+        /// underneath say where to look.</param>
+        /// <param name="mustFit">Assert that this page does NOT scroll on any
+        /// aspect. "All of it on one screen" is a REQUIREMENT of the launch
+        /// screen, not a nicety, and a requirement nothing checks is one that
+        /// decays the next time a line of text is added to the page. A PNG
+        /// cannot show what is below the fold; this can.</param>
+        static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
+                          bool mustFit = false)
         {
             foreach (var size in Sizes)
             {
@@ -241,11 +251,17 @@ namespace PSXRacing.EditorTools
                     float viewH = sr.viewport != null ? sr.viewport.rect.height : 0f;
                     var g = sr.GetComponent<UnityEngine.UI.Graphic>();
                     bool draggable = g != null && g.raycastTarget;
-                    Debug.Log("[HomePreview] " + label + "/" + size.name +
-                              " content " + contentH.ToString("0") + " vs view " +
-                              viewH.ToString("0") +
-                              (contentH > viewH ? "  SCROLLS" : "  fits") +
-                              (draggable ? "  drag-catcher OK" : "  NO DRAG CATCHER"));
+                    // A content rect is never sized SHORTER than its viewport
+                    // (FitScrollContent floors it), so anything past a unit or
+                    // two of slack is real overflow rather than rounding.
+                    bool scrolls = contentH > viewH + 1f;
+                    string line = "[HomePreview] " + label + "/" + size.name +
+                                  " content " + contentH.ToString("0") + " vs view " +
+                                  viewH.ToString("0") + (scrolls ? "  SCROLLS" : "  fits") +
+                                  (draggable ? "  drag-catcher OK" : "  NO DRAG CATCHER");
+                    if (mustFit && scrolls)
+                        Debug.LogError(line + "  <-- MUST FIT ON ONE SCREEN, and does not");
+                    else Debug.Log(line);
                 }
 
                 cam.Render();

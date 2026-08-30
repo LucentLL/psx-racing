@@ -561,6 +561,76 @@ Japanese cherry species from the same pack for a pink-season variant, the
 tree_pack_1.1 bushes as rhododendron understory once its license is known,
 and a proper point-to-point rival duel (the grid already stages 2x2).
 
+## THE LAUNCH SCREEN, AND EIGHT HOURS AT A TIME (2026-08-30)
+
+Asked for, from a screenshot of MAIN scrolled to its bottom: the main menu's
+options should all be on screen at once rather than a vertical tower running off
+it; remove PRACTICE LAP; move NEW GAME to OPTIONS; SLEEP should just be SLEEP
+and move the game on eight hours to the next block of the day rather than to
+tomorrow; inspecting a car -- your own or at a mechanic or dealer -- should cost
+a block; and get the date off the bottom of the menu, where it was making the
+menu hard to read.
+
+**MAIN is two columns now.** It was one 460-wide stack about 900 units tall, on
+a phone body column that is 437 -- so over half of it lived below a fold, which
+is why the reporter's two screenshots were both of the same page. The fix is not
+to shrink anything; it is that width is the resource this menu HAS and height is
+the one it does not. The narrowest canvas the game runs on is a 4:3 desktop at
+912 units across and 562 tall; a wide phone is 1192 across and 437 tall. So the
+page spends width: WHERE YOU RACE on the left (today's booking, the map, the
+name and numbers, the track and hour arrows, GET IN CAR, the purse, the fuel
+warning, the known faults) and WHAT TODAY IS on the right (calendar, free roam,
+the shift, SLEEP, the last five days). Both halves fit above the fold on all
+three aspects with room left for the conditional rows.
+
+Three things came off the page rather than being rearranged. PRACTICE LAP, which
+was a second race button doing a quieter version of the same thing -- gone from
+MAIN and from the calendar's booking form; the `practice` FLAG stays in the save
+format because an old career can still be holding a booking made under it, and
+because the delivery job rides the same no-purse path. NEW GAME, which erases
+the career and had no business one press from the button you hit every morning.
+And the DEBUG rung that sat above it. Both are on OPTIONS.
+
+**SLEEP is eight hours.** `LifeRules.Sleep` used to roll the whole day from
+wherever it was pressed, which made the three-slot clock a one-decision affair:
+a morning you did not want to spend cost you the afternoon and the night with
+it. It now walks one band -- MORNING, AFTERNOON, NIGHT -- and only the night
+sleep turns the calendar over, gives back the +5, and passes `sleptTonight` to
+the health ladder. A daytime nap costs the slot and nothing else: it is not an
+ACTIVE slot, and it restores no health. That last part is not fussiness. A token
+point per nap is two free points a day against a hunger ladder that takes twelve,
+and the self-test caught it immediately -- "twenty days without food is
+fatal-grade" came back with a driver sitting at 7 health and stable.
+
+Everything that genuinely meant "a day passes" -- the absence ladder, parts
+arriving on a promised day, every test that ages a career -- moved to a new
+`SleepUntilMorning`. Left on `Sleep` they would each have silently had their day
+count divided by three.
+
+**Inspection already cost a block** -- `Inspection.Enter` and
+`Inspection.BookPro` have both spent an activity slot since they were written,
+and the self-test has asserted it for both -- but only the player's own
+inspection ever SAID so. The mechanic and dealer buttons quoted the money and
+said nothing about the day, so it quietly got shorter. They say it now.
+
+**The date at the bottom was a toast that never left.** `DoSleep` toasted
+`DateLabel(day)` and `Toast` had no expiry at all: a message was destroyed only
+by the NEXT message, so after a sleep the date sat in a black bar across the
+foot of the page, over the log and the buttons under it, for as long as the
+player stayed there -- and the header was already carrying the same date an
+arm's length above. The sleep toast now names what changed ("EIGHT HOURS ON --
+AFTERNOON") and every toast expires after 4.5 unscaled seconds.
+
+**The preview harness enforces the requirement.** "All of it on one screen" is a
+property of the launch screen, not a nicety, and a PNG cannot show what is below
+the fold -- so `LifeHomePreview.Shoot` gained a `mustFit` flag that logs an
+error when a page's content is taller than its viewport, and MAIN is shot with
+it set, once per band of the day, at all three aspects. `tools\menu-check.ps1`
+runs the scene build, the self-test and the capture in the one order that makes
+the self-test's answer mean anything: the sandbox mirror is a `/MIR`, so it
+deletes the built scenes and baked meshes every run, and skipping the build
+fails nine checks that read exactly like a regression.
+
 ## CHARLOTTE, 1:1 (2026-08-25)
 
 Asked for: base the game on a real city the way Midnight Club used Atlanta and

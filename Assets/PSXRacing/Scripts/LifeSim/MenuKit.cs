@@ -315,8 +315,19 @@ namespace PSXRacing.LifeSim
         /// same stale-rect trap that produced the bunched tab bar and the
         /// overlapping wizard rows.
         /// </summary>
+        /// <summary>
+        /// Slack left under the last row of a scroll page.
+        ///
+        /// Named because a page that has to KNOW whether it fits must subtract
+        /// it: content is sized to (lowest row + this), so a column filled
+        /// exactly to the bottom edge of its viewport still comes out one
+        /// padding taller than the viewport and scrolls. The usable budget is
+        /// viewport MINUS this, not viewport.
+        /// </summary>
+        public const float ScrollPad = 28f;
+
         public static void FitScrollContent(RectTransform content, float viewportHeight,
-                                            float padding = 28f)
+                                            float padding = ScrollPad)
         {
             float lowest = 0f;
             for (int i = 0; i < content.childCount; i++)
