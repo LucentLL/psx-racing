@@ -1038,38 +1038,52 @@ namespace PSXRacing
             const float SubNeedleLen = 0.33f;
             /// <summary>
             /// Half the needle's ROTATION, which is not half the scale it
-            /// sweeps — the pin is off-centre, so 38 degrees of needle moves
-            /// the tip only 13 degrees round the rim. It is the t that solves
+            /// sweeps — the pin is off-centre, so 53.5 degrees of needle moves
+            /// the tip only 18 degrees round the rim. It is the t that solves
             /// tan(SubTickHalfSweep) = L sin t / (SubHubY + L cos t) for
             /// L = <see cref="SubNeedleLen"/>, and it changes if either length
-            /// above does.
+            /// above does — widening the printed scale without re-solving it
+            /// leaves the needle stopping short of its own end marks.
             /// </summary>
-            const float SubNeedleHalfSweep = 38f;
+            const float SubNeedleHalfSweep = 53.5f;
             /// <summary>
             /// Half the printed scale, as a bearing from the dial centre.
             ///
-            /// Thirteen degrees, off the photographs: the E and the F on the
-            /// real speedometer sit barely a needle's width either side of
-            /// straight down, and the marks between them are a thumbnail of a
-            /// scale rather than a scale. Twenty — what this was — spread the
-            /// same five marks across a third of the bottom wedge, at which
-            /// width it stops reading as a small gauge inside the dial and
-            /// starts reading as a second scale arguing with the main one.
+            /// Eighteen degrees. The photographs measure about thirteen, and
+            /// thirteen was tried — it is honest to the reference and slightly
+            /// too tight to read at the size this dial is actually drawn, where
+            /// the whole scale is a couple of dozen pixels wide. Five degrees
+            /// either side buys the needle visible travel without the group
+            /// growing back into the second-scale-arguing-with-the-first
+            /// territory that the old twenty was in.
             /// </summary>
-            const float SubTickHalfSweep = 13f;
-            /// <summary>Radial band the sub ticks occupy — the dial's own minor
-            /// tick band, because that is where they are on the instrument this
-            /// copies. They are not a separate little gauge drawn in the
-            /// bottom of the face; they are marks on the same rim.</summary>
-            const float SubTickOut = 0.95f, SubTickIn = MinorIn;
-            /// <summary>Where the two letters sit: two degrees past the ends of
-            /// the tick group and pulled in off the rim, which is how they are
-            /// arranged on the instrument — the marks run right to the edge and
-            /// the letters sit under them. The radius is the one that matters
-            /// now the group is narrow: at 0.80 a letter spans 0.72 to 0.88 and
-            /// stops just short of the tick band, where at the old 0.86 it
-            /// would have grown up into the marks.</summary>
-            const float SubLabelDeg = 15f, SubLabelR = 0.80f;
+            const float SubTickHalfSweep = 18f;
+            /// <summary>Radial band the sub ticks occupy — near enough the
+            /// dial's own minor tick band, because that is where they are on
+            /// the instrument this copies. They are not a separate little gauge
+            /// drawn in the bottom of the face; they are marks on the same rim.
+            ///
+            /// The inner edge is 0.85 rather than MinorIn's 0.885 for a reason
+            /// that is pure geometry: an off-centre pin swings its tip along an
+            /// arc that dips INWARD toward the ends of the throw, and at full
+            /// deflection the tip sits at 0.858. Leave the band where the main
+            /// dial's minor marks are and the needle spends the ends of its
+            /// travel just inside its own scale.</summary>
+            const float SubTickOut = 0.95f, SubTickIn = 0.85f;
+            /// <summary>The two marks at the ends of the scale run further in
+            /// and are drawn heavier — they are the ones that mean EMPTY and
+            /// FULL, COLD and HOT, and on a group this small the three between
+            /// them are texture rather than information. Every real gauge
+            /// weights its end marks; at five identical ticks the eye has to
+            /// count to find the end of the scale.</summary>
+            const float SubEndTickIn = 0.80f, SubEndTickWiden = 1.7f;
+            /// <summary>Where the two letters sit: six degrees past the ends of
+            /// the tick group, which is what keeps them clear now that those
+            /// end marks reach in to 0.80 and the letters are at the same
+            /// radius. Angular clearance is doing the work here, not radial —
+            /// at 0.80 of the radius six degrees is about two thirds of a
+            /// letter's width of daylight.</summary>
+            const float SubLabelDeg = 24f, SubLabelR = 0.80f;
             /// <summary>
             /// Below this radius the sub-gauge is left off entirely.
             ///
@@ -1450,16 +1464,21 @@ namespace PSXRacing
                         // runs from SweepDeg to 360, and the band this wants is
                         // BottomAlong +/- 13 — well inside that, so no angle
                         // normalising is needed here.
-                        if (subGauge && !onSweep && r >= SubTickIn && r <= SubTickOut)
+                        if (subGauge && !onSweep && r >= SubEndTickIn && r <= SubTickOut)
                         {
                             float rel = along - BottomAlong;
                             if (Mathf.Abs(rel) <= SubTickHalfSweep + 0.5f)
                             {
                                 float step = SubTickHalfSweep * 0.5f;   // five marks
                                 float k = Mathf.Round(rel / step);
+                                // The outermost pair, at +/- 2 steps: longer
+                                // and heavier than the three between them.
+                                bool end = Mathf.Abs(k) >= 1.5f;
+                                float inner = end ? SubEndTickIn : SubTickIn;
+                                float wide = end ? halfPx * SubEndTickWiden : halfPx;
                                 float offPx = Mathf.Abs(rel - k * step)
                                             * Mathf.Deg2Rad * r * radius;
-                                if (offPx <= halfPx) { px[i] = lit; continue; }
+                                if (r >= inner && offPx <= wide) { px[i] = lit; continue; }
                             }
                         }
 

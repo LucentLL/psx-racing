@@ -61,6 +61,15 @@
       background: #000; color: #fff; font-size: 15px; letter-spacing: .12em;
     }
     #rotate svg { margin-bottom: 18px; }
+    /* Shown while the page does not have focus, which is the one state where
+       the game is plainly running and yet ignoring every control. */
+    #unfocused {
+      position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+      z-index: 15; display: none; pointer-events: none;
+      padding: 9px 20px; border: 1px solid #ffffff55; border-radius: 3px;
+      background: #000000c4; color: #ffd766;
+      font-size: 12px; letter-spacing: .18em; white-space: nowrap;
+    }
     /* Only nag about orientation on phone-sized screens */
     @media (orientation: portrait) and (max-width: 900px) {
       #rotate.armed { display: flex; }
@@ -87,6 +96,8 @@
     </svg>
     <div>ROTATE TO LANDSCAPE</div>
   </div>
+
+  <div id="unfocused">CLICK HERE TO RESUME CONTROL</div>
 
 <script src="Build/{{{ LOADER_FILENAME }}}"></script>
 <script>
@@ -217,6 +228,7 @@
     }
     canvas.focus();
     resize();
+    focusState();
   }
 
   // KEEP THE KEYBOARD POINTED AT THE GAME.
@@ -233,10 +245,27 @@
     if (!started) return;
     if (document.activeElement !== canvas) { try { canvas.focus(); } catch (e) {} }
   }
-  window.addEventListener("focus", refocus);
-  document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible") setTimeout(refocus, 0);
-  });
+
+  // AND SAY SO WHEN IT CANNOT BE FIXED FROM HERE.
+  //
+  // An UNFOCUSED DOCUMENT kills the pad as well as the keyboard, and that is
+  // not a Unity quirk — the Gamepad API only reports to a focused document, so
+  // Chrome freezes every axis and button at rest. The game itself carries on:
+  // requestAnimationFrame still runs while the window is merely unfocused, so
+  // the car keeps rolling and answers nothing, which is precisely the state
+  // this was reported in. Nothing in the page can take focus back, because
+  // giving focus to a window is the user's to do — so the least it can do is
+  // stop the failure being silent and name the one action that fixes it.
+  var unfocused = document.querySelector("#unfocused");
+  function focusState() {
+    if (!started) { unfocused.style.display = "none"; return; }
+    var live = document.hasFocus() && document.visibilityState === "visible";
+    unfocused.style.display = live ? "none" : "block";
+    if (live) refocus();
+  }
+  window.addEventListener("focus", focusState);
+  window.addEventListener("blur", focusState);
+  document.addEventListener("visibilitychange", function () { setTimeout(focusState, 0); });
   document.addEventListener("fullscreenchange", function () { setTimeout(refocus, 0); });
   document.addEventListener("pointerdown", refocus, true);
 })();
