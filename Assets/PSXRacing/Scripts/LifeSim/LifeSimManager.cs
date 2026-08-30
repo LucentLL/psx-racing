@@ -189,6 +189,44 @@ namespace PSXRacing.LifeSim
                 }
                 s.saveVersion = 7;
             }
+
+            if (s.saveVersion < 8)
+            {
+                // v8 closed the job book down to the one job the game is about.
+                // A career carried over from the old book is holding a job title
+                // that no longer exists in LifeRules.Jobs — and nothing in the
+                // game can pay, rate or fire a job that is not in the table, so
+                // it would silently become an unpaid title with an attendance
+                // ladder still ticking underneath it.
+                //
+                // Moved across rather than cleared: taking the job away would
+                // drop the player onto the JOBS tab with a 55% roll to get any
+                // work at all, which is a punishment for a change they did not
+                // make. Standing carries too — work rep and attendance are what
+                // the player earned, whoever they earned it from. Only the pay
+                // rate is rewritten, because a tanker driver's $231 salary
+                // against a tip roll is two different economies at once.
+                if (!string.IsNullOrEmpty(s.playerJob))
+                {
+                    bool known = false;
+                    foreach (var j in LifeRules.Jobs) if (j.name == s.playerJob) known = true;
+                    if (!known)
+                    {
+                        s.calendarLog.Add("Day " + s.day + ": the shop took you on — " +
+                                          LifeRules.DeliveryJobName);
+                        s.playerJob = LifeRules.DeliveryJobName;
+                        s.basePay = LifeRules.DeliveryBasePay;
+                    }
+                }
+
+                // The absence counter meant something different yesterday: it
+                // only ever counted weekdays, because the weekend was free. It
+                // now counts every day, so a save that came in mid-weekend with
+                // two strikes on it would be one rollover from being fired by
+                // the rule change alone. Everyone starts the new roster clean.
+                s.consecutiveAbsences = 0;
+                s.saveVersion = 8;
+            }
         }
 
         public static void DeleteSave()

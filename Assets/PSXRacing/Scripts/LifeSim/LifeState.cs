@@ -29,7 +29,7 @@ namespace PSXRacing.LifeSim
         /// v7: faults rolled before the hidden layer landed are re-hidden on
         ///     cars nobody has inspected; OwnedCar gained proInspectDay.
         /// </summary>
-        public int saveVersion = 7;
+        public int saveVersion = 8;
 
         // === Core economy / clock ===
         public int money;

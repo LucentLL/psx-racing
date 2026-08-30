@@ -151,8 +151,18 @@ namespace PSXRacing.OnFoot
                 hook.range = 4.6f;
                 st.hook = hook;
 
-                if (car == null) continue;
+                // Every bay gets an aim point off the floor, INCLUDING an empty
+                // one. A bay marks a parking spot, so its transform sits on the
+                // tarmac — and a hook that aims at the tarmac is a hook the
+                // ground itself stands between you and, which is a sight test
+                // that hides the EMPTY BAY prompt from every position on Earth.
+                // An occupied bay overwrites this with its own roof line below.
+                var floorFocus = new GameObject("Focus");
+                floorFocus.transform.SetParent(bay, false);
+                floorFocus.transform.localPosition = new Vector3(0f, 1.0f, 0f);
+                hook.focus = floorFocus.transform;
 
+                if (car == null) continue;
                 var spec = CarCatalog.Get(car.specId);
                 var def = spec != null ? CarModelLibrary.LoadFor(spec)
                                        : CarModelLibrary.Load(CarModelLibrary.Default);
@@ -179,10 +189,7 @@ namespace PSXRacing.OnFoot
                 // lift keeps a focus point at head height. Aiming at the roof of
                 // a car two metres in the air means looking at the ceiling to
                 // select the thing you are standing under.
-                var focusGO = new GameObject("Focus");
-                focusGO.transform.SetParent(bay, false);
-                focusGO.transform.localPosition = roofPoint;
-                hook.focus = focusGO.transform;
+                hook.focus.localPosition = roofPoint;
             }
         }
 

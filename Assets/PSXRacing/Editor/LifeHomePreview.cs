@@ -43,10 +43,24 @@ namespace PSXRacing.EditorTools
 
             // Then seed a running game and capture the screens that actually get
             // used day to day — the home hub was where the overlap was reported.
-            LifeSimManager.StartNewGame("VINCE", 25, 3);
+            LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
             LifeRules.SeedFallbackCar(LifeSimManager.State);
             LifeSimManager.Save();
             Shoot(outDir, "home");
+
+            // The day's actions, which live below the fold on every canvas: the
+            // shift button and SLEEP. Shot TWICE because the shift button says
+            // something different depending on the hour, and the whole point of
+            // the roster is that a morning and an afternoon are not the same
+            // day. Morning first (shut), then afternoon (open).
+            LifeSimManager.State.slotIndex = 0;
+            LifeSimManager.Save();
+            Shoot(outDir, "home_shift_morning", "main", scrollTo: 0f);
+            LifeSimManager.State.slotIndex = 1;
+            LifeSimManager.Save();
+            Shoot(outDir, "home_shift_afternoon", "main", scrollTo: 0f);
+            LifeSimManager.State.slotIndex = 0;
+            LifeSimManager.Save();
 
             // Debug mode replaces the top of MAIN with a three-across tool row.
             // That row is positioned from ColL/ColW arithmetic rather than by
@@ -112,7 +126,12 @@ namespace PSXRacing.EditorTools
             LifeSimManager.DeleteSave();
         }
 
-        static void Shoot(string outDir, string label, string tab = null)
+        /// <param name="scrollTo">Where to leave the body's scroll before the
+        /// shutter: 1 is the top, 0 the bottom. The MAIN tab's day actions —
+        /// the work button and SLEEP — live below the fold on every canvas, so
+        /// without this the one control this pass changed could not be
+        /// photographed at all.</param>
+        static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f)
         {
             foreach (var size in Sizes)
             {
@@ -188,6 +207,11 @@ namespace PSXRacing.EditorTools
                 // off screen" turned out to be a scroll that received no drag
                 // events rather than a layout that was too tall.
                 var sr = Object.FindFirstObjectByType<UnityEngine.UI.ScrollRect>();
+                if (sr != null && scrollTo < 1f)
+                {
+                    sr.verticalNormalizedPosition = Mathf.Clamp01(scrollTo);
+                    Canvas.ForceUpdateCanvases();
+                }
                 if (sr != null && tab != null)
                 {
                     float contentH = sr.content != null ? sr.content.sizeDelta.y : 0f;

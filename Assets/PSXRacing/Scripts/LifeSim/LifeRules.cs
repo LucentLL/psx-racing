@@ -29,20 +29,68 @@ namespace PSXRacing.LifeSim
 
         // ================= jobs (config/jobs.ts via jobs extraction) =================
         // name, daily salary, starting-savings band (applyStartingConditions)
+        //
+        // ONE JOB, on purpose. The eight-job book came across from RG2 whole,
+        // where a job was a button that added money — and seven of those eight
+        // still are. The game the owner is building is the one job you actually
+        // DRIVE: collect an order, walk out, and run it across town against the
+        // clock. Every other career is a menu that pays better for doing less,
+        // which is a straight argument against the only content in the game.
+        //
+        // They are COMMENTED rather than deleted. Everything that reads this
+        // table reads it by name or by index into it, so parking the rows keeps
+        // the whole shape intact — StartingCredit still carries their credit
+        // adjustments below — and restoring one is uncommenting a line.
         public static readonly (string name, int dailyPay, int saveMin, int saveMax)[] Jobs =
         {
-            ("AUTO PARTS RUN",   77,  400, 2000),
-            ("TOW TRUCK",       115,  700, 3000),
-            ("PARAMEDIC",       135, 1500, 5000),
-            ("OFFICE JOB",      154, 2000, 8000),
-            ("TRUCK DRIVER",    154, 1200, 4500),
-            ("PACKAGE COURIER", 192,  800, 4000),
-            ("FUEL TANKER",     231, 1500, 6000),
-            // RG2's ninth job, restored now the game has restaurants to deliver
-            // for: $0 salary + tips, and you eat on shift. Appended LAST so the
-            // wizard's job indices keep meaning what they always did.
+            // ("AUTO PARTS RUN",   77,  400, 2000),
+            // ("TOW TRUCK",       115,  700, 3000),
+            // ("PARAMEDIC",       135, 1500, 5000),
+            // ("OFFICE JOB",      154, 2000, 8000),
+            // ("TRUCK DRIVER",    154, 1200, 4500),
+            // ("PACKAGE COURIER", 192,  800, 4000),
+            // ("FUEL TANKER",     231, 1500, 6000),
+            // $0 salary + tips, and you eat on shift.
             ("FOOD DELIVERY",    96,  300, 1500),
         };
+
+        // ================= the shift roster =================
+        /// <summary>
+        /// When the shop takes drivers: AFTERNOON and NIGHT, seven days a week.
+        ///
+        /// The old rule was every job's rule — weekdays only — and it printed
+        /// "WEEKEND — NO WORK" across the two days a pizza shop is busiest. A
+        /// delivery roster is the opposite shape: nothing before noon, and
+        /// Friday and Saturday nights ARE the job.
+        ///
+        /// The slots are the hours. <see cref="TimeOfDay.ForSlot"/> puts slot 1
+        /// between 12:30 and 16:10 and slot 2 between sunset and the small
+        /// hours, so afternoon reads as 12pm-8pm and night as 8pm-4am without
+        /// the clock needing a second representation to disagree with.
+        ///
+        /// Two open slots means a player CAN take two runs in a day — and doing
+        /// it costs them the whole day. That is the trade the game is made of:
+        /// those same two slots are the inspection, the repair and the sleep,
+        /// and nothing hands them back.
+        /// </summary>
+        public const int FirstShiftSlot = 1;
+        public static bool ShiftSlot(int slot) => slot >= FirstShiftSlot;
+        public static bool ShopOpen(LifeState s) => s != null && ShiftSlot(s.slotIndex);
+        /// <summary>The roster in words, for every screen that has to say it.
+        /// One string so the home screen and the jobs tab cannot drift.</summary>
+        public const string ShiftHours = "AFTERNOON 12PM-8PM  ·  NIGHT 8PM-4AM, SEVEN DAYS";
+
+        /// <summary>
+        /// Days off the roster allows before the absence ladder starts biting.
+        ///
+        /// The weekday-only rule used to hand out two free days a week and pick
+        /// which two for you. Now the shop is open every day, so the allowance
+        /// has to be carried explicitly — otherwise a driver is fired for taking
+        /// a Tuesday off to put their car back together, which is the exact
+        /// decision this whole pass exists to make interesting.
+        /// </summary>
+        public const int FreeDaysOff = 2;
+
         /// <summary>The delivery job's advertised $96/day is an AVERAGE of the
         /// tip roll below, not a salary — WorkOneDay branches on the name.</summary>
         public const string DeliveryJobName = "FOOD DELIVERY";
@@ -345,6 +393,32 @@ namespace PSXRacing.LifeSim
             };
         }
 
+        /// <summary>
+        /// Turning up: the day's attendance latch and the end of the absence
+        /// ladder. Called when the player CLOCKS ON, not when they arrive.
+        ///
+        /// The distinction is the entire night shift. A shift taken in the last
+        /// slot rolls the day the moment it is taken, and the rollover reads
+        /// workedToday to decide whether the player skived — so crediting the
+        /// shift on arrival credited it to TOMORROW and booked an absence for
+        /// the night the player actually worked. A driver who has picked an
+        /// order up and driven off has turned up, whatever becomes of the pizza.
+        ///
+        /// Idempotent within a day, because both open slots can be worked and
+        /// attendance counts DAYS. Two runs on a Tuesday is one Tuesday.
+        /// </summary>
+        public static void ClockOnShift(LifeState s)
+        {
+            if (s == null) return;
+            if (!s.workedToday)
+            {
+                s.workDaysTotal++;
+                s.workDaysPresent++;
+                s.workedToday = true;
+            }
+            s.consecutiveAbsences = 0;
+        }
+
         /// <summary>One worked day: accumulate pay into pendingSalary with the
         /// perf buckets (>=0.8 → 1.0x +3 rep; >=0.5 → 0.9x +1; else 0.75x and
         /// a coin-flip rep loss). Paid out on Friday.</summary>
@@ -375,9 +449,7 @@ namespace PSXRacing.LifeSim
 
             s.pendingSalary += earned;
             s.workRep = Mathf.Clamp(s.workRep + rep, 0f, 100f);
-            s.workDaysTotal++; s.workDaysPresent++;
-            s.consecutiveAbsences = 0;
-            s.workedToday = true;
+            ClockOnShift(s);
             string meal = delivery ? "  Ate on shift." : "";
             return perf >= 0.8f ? "A solid shift. +$" + earned + meal
                  : perf >= 0.5f ? "A rough shift (tired). +$" + earned + meal
@@ -567,7 +639,15 @@ namespace PSXRacing.LifeSim
             var car = s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;
 
             // 1. the race consumed a slot (may roll the day)
-            SpendActivitySlot(s);
+            //
+            // EXCEPT a delivery, which already paid for its slot at the counter.
+            // PizzaShift spends it the moment the player drives off, on purpose:
+            // the shift costs the evening whether or not the box arrives. Doing
+            // it again here charged a single drop TWO of the three slots in a
+            // day, so one afternoon run ate the afternoon, the night and any
+            // chance of sleeping — most of the day the inspect-repair-work-sleep
+            // decision is supposed to be spent making.
+            if (!RaceHandoff.Delivery) SpendActivitySlot(s);
 
             if (car != null)
             {
@@ -653,9 +733,11 @@ namespace PSXRacing.LifeSim
                                          cargoCondition: RaceHandoff.CargoReported
                                              ? RaceHandoff.CargoCondition : (float?)null);
                 s.money += drop.tip;
-                s.workedToday = true;
-                s.workDaysTotal++; s.workDaysPresent++;
-                s.consecutiveAbsences = 0;
+                // Attendance was banked at the counter (ClockOnShift, from
+                // PizzaShift) — turning up is what the shop counts, and a night
+                // run has already rolled the day by the time this runs. What is
+                // still owed here is what the DROP was worth.
+
                 // The shop hears about a refused order. A turned-away box costs
                 // standing rather than money — the money is already gone — and
                 // it is the only way the job can go backwards, which is what
@@ -1094,19 +1176,30 @@ namespace PSXRacing.LifeSim
         /// Everything funnels through here so nothing double-fires.</summary>
         static void Rollover(LifeState s, bool sleptTonight)
         {
-            // 1. no-show: employed, weekday, didn't work (noShowAbsence.ts ladder)
-            if (!string.IsNullOrEmpty(s.playerJob) && !IsWeekend(s.day) && !s.workedToday)
+            // 1. no-show: employed, the shop was open, no run taken
+            //    (noShowAbsence.ts ladder, re-cut for the delivery roster).
+            //
+            // The shop is open seven days now, so "did not work today" has
+            // stopped meaning "skived": it is also the day the gearbox came out.
+            // The ladder therefore counts consecutive days off and only starts
+            // charging PAST the allowance — two free days, the same two the old
+            // weekend handed out, except the player chooses which two they are.
+            if (!string.IsNullOrEmpty(s.playerJob) && !s.workedToday)
             {
                 s.consecutiveAbsences++;
-                float loss = s.consecutiveAbsences switch { 1 => 5f, 2 => 15f, _ => 30f };
-                s.workRep = Mathf.Max(0f, s.workRep - loss);
-                s.workDaysTotal++;
-                s.calendarLog.Add("Day " + s.day + ": missed work (−" + loss + " rep)");
-                if (s.consecutiveAbsences >= 3 || s.workRep <= 0f)
+                int over = s.consecutiveAbsences - FreeDaysOff;
+                if (over > 0)
                 {
-                    s.calendarLog.Add("Day " + s.day + ": FIRED from " + s.playerJob);
-                    s.playerJob = ""; s.basePay = 0; s.fired = true;
-                    s.creditScore = Mathf.Max(300, s.creditScore - 25);
+                    float loss = over switch { 1 => 5f, 2 => 15f, _ => 30f };
+                    s.workRep = Mathf.Max(0f, s.workRep - loss);
+                    s.workDaysTotal++;
+                    s.calendarLog.Add("Day " + s.day + ": missed a shift (−" + loss + " rep)");
+                    if (over >= 3 || s.workRep <= 0f)
+                    {
+                        s.calendarLog.Add("Day " + s.day + ": FIRED from " + s.playerJob);
+                        s.playerJob = ""; s.basePay = 0; s.fired = true;
+                        s.creditScore = Mathf.Max(300, s.creditScore - 25);
+                    }
                 }
             }
 

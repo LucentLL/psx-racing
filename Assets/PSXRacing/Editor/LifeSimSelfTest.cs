@@ -48,6 +48,7 @@ namespace PSXRacing.EditorTools
             TestInspection();
             TestCarXray();
             TestHousingAndJobs();
+            TestShiftRoster();
             TestCityProps();
             TestGridStaging();
             TestHomeLot();
@@ -95,6 +96,110 @@ namespace PSXRacing.EditorTools
             LifeRules.WorkOneDay(s);
             Check(s.ateToday && s.daysSinceEat == 0, "a delivery shift feeds the driver");
             Check(s.pendingSalary > 0, "tips accrue into pendingSalary", s.pendingSalary);
+        }
+
+        // ---------------------------------------------------------------
+        //  The delivery roster
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// The job book is ONE job, and its hours are afternoons and nights,
+        /// seven days a week.
+        ///
+        /// Pinned rather than assumed because every one of these rules is a
+        /// number or a boolean that reads fine at the call site and is invisible
+        /// on screen until a player loses a day to it. The weekday rule shipped
+        /// and printed "WEEKEND — NO WORK" over a pizza shop's two busiest
+        /// nights; nothing in the game said otherwise until somebody played it.
+        /// </summary>
+        static void TestShiftRoster()
+        {
+            Line("shift roster:");
+
+            Check(LifeRules.Jobs.Length == 1 && LifeRules.Jobs[0].name == LifeRules.DeliveryJobName,
+                  "the job book is delivery and nothing else",
+                  LifeRules.Jobs.Length + " job(s)");
+
+            var s = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
+
+            // Every slot of a weekday and of a weekend day. Day 2 is a Saturday
+            // and day 3 a Sunday (day 1 is Friday), so this covers the exact
+            // days the old rule refused.
+            bool morningShut = true, afternoonOpen = true, nightOpen = true;
+            for (int day = 1; day <= 7; day++)
+            {
+                s.day = day;
+                s.slotIndex = 0; if (LifeRules.ShopOpen(s)) morningShut = false;
+                s.slotIndex = 1; if (!LifeRules.ShopOpen(s)) afternoonOpen = false;
+                s.slotIndex = 2; if (!LifeRules.ShopOpen(s)) nightOpen = false;
+            }
+            Check(morningShut, "the shop is shut every morning");
+            Check(afternoonOpen, "and open every afternoon, weekends included");
+            Check(nightOpen, "and open every night, weekends included");
+            Check(LifeRules.IsWeekend(2) && LifeRules.IsWeekend(3),
+                  "day 2 and day 3 really are the weekend this proves");
+
+            // The hours the screens print have to be the hours the rule keeps.
+            Check(LifeRules.ShiftHours.Contains("AFTERNOON") &&
+                  LifeRules.ShiftHours.Contains("NIGHT") &&
+                  LifeRules.ShiftHours.ToUpper().Contains("SEVEN"),
+                  "the printed roster names both shifts and seven days",
+                  LifeRules.ShiftHours);
+
+            // Slot 1 and slot 2 have to LOOK like afternoon and night as well,
+            // or the button is open at an hour the sky disagrees with.
+            Check(TimeOfDay.At(TimeOfDay.ForSlot(1, 1)).name != "NIGHT",
+                  "slot 1 reads as daylight", TimeOfDay.At(TimeOfDay.ForSlot(1, 1)).name);
+            Check(TimeOfDay.At(TimeOfDay.ForSlot(2, 1)).lightsOn,
+                  "slot 2 is dark enough for headlights");
+
+            // ---- the absence ladder ----
+            // Two days off cost nothing; the third starts the ladder and the
+            // fifth ends the job. Driven through the real rollover rather than
+            // by poking consecutiveAbsences, because the rollover is what a
+            // player actually experiences and what the old rule lived in.
+            var t = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
+            float startRep = t.workRep;
+            for (int i = 0; i < LifeRules.FreeDaysOff; i++) LifeRules.Sleep(t);
+            Check(t.workRep == startRep && !string.IsNullOrEmpty(t.playerJob),
+                  LifeRules.FreeDaysOff + " days off cost nothing", t.workRep);
+
+            LifeRules.Sleep(t);
+            Check(t.workRep < startRep, "the day after the allowance costs rep", t.workRep);
+
+            int guard = 0;
+            while (!string.IsNullOrEmpty(t.playerJob) && guard++ < 20) LifeRules.Sleep(t);
+            Check(string.IsNullOrEmpty(t.playerJob) && t.fired,
+                  "a driver who never turns up is fired", guard);
+
+            // And a single shift clears the counter, which is the half that
+            // makes the allowance a rolling one rather than a countdown to
+            // being sacked.
+            var u = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
+            LifeRules.Sleep(u); LifeRules.Sleep(u);
+            LifeRules.WorkOneDay(u);
+            LifeRules.Sleep(u);
+            Check(u.consecutiveAbsences == 0, "one shift resets the ladder", u.consecutiveAbsences);
+
+            // ---- the save migration ----
+            // An old career is holding a job title the table no longer has. It
+            // has to come across, keep its standing, and be paid on the tip
+            // roll rather than on a tanker driver's salary.
+            var old = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
+            old.saveVersion = 7;
+            old.playerJob = "FUEL TANKER";
+            old.basePay = 231;
+            old.workRep = 61f;
+            old.consecutiveAbsences = 2;
+            LifeSimManager.Migrate(old);
+            Check(old.playerJob == LifeRules.DeliveryJobName,
+                  "an old career is moved onto the delivery job", old.playerJob);
+            Check(old.basePay == LifeRules.DeliveryBasePay,
+                  "and paid on the tip roll, not the old salary", old.basePay);
+            Check(Mathf.Approximately(old.workRep, 61f),
+                  "and keeps the standing it earned", old.workRep);
+            Check(old.consecutiveAbsences == 0,
+                  "and is not fired by the rule change on its first rollover",
+                  old.consecutiveAbsences);
         }
 
         static void TestCityProps()
@@ -544,6 +649,7 @@ namespace PSXRacing.EditorTools
             Check(sameOrder, "...and the same scenes in the same ORDER");
 
             TestDeliveryJob();
+            TestDeliverySlotCost();
             TestPizzaCargo();
             TestVertexSnapOff();
             TestWalkInScenesRender();
@@ -810,6 +916,91 @@ namespace PSXRacing.EditorTools
                 { inBand = false; bad = o.tip.ToString(); break; }
             }
             Check(inBand, "no roll pays outside the quoted band", bad);
+        }
+
+        /// <summary>
+        /// What a delivery COSTS: exactly one slot, and never an absence on the
+        /// day it was worked.
+        ///
+        /// Both halves shipped wrong and neither was visible. The slot was spent
+        /// twice — once when the player drove off and again when the result was
+        /// banked — so one drop consumed two thirds of the day, and there is
+        /// nothing on any screen that counts slots for a player to notice. And
+        /// the attendance latch was set AFTER the spend, so a shift taken in the
+        /// last slot rolled the day first, read "did not work today", and booked
+        /// an absence for the night the player had just driven.
+        ///
+        /// A player would have felt both as "this job fires me for no reason"
+        /// several in-game weeks later, which is the sort of thing that gets
+        /// reported as a balance complaint and is not one.
+        ///
+        /// Driven through the real handoff rather than the pieces: the bug lived
+        /// in the ORDER two correct-looking functions were called in.
+        /// </summary>
+        static void TestDeliverySlotCost()
+        {
+            Line("delivery slot cost:");
+
+            // An afternoon run, start to finish. PizzaShift's half is inlined
+            // (it is a MonoBehaviour in a scene) but in the same order.
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            s.slotIndex = LifeRules.FirstShiftSlot;
+            int dayBefore = s.day;
+
+            LifeRules.ClockOnShift(s);
+            LifeRules.SpendActivitySlot(s);
+            Check(s.workedToday, "clocking on counts as having worked today");
+            Check(s.slotIndex == LifeRules.FirstShiftSlot + 1,
+                  "driving off costs exactly one slot", s.slotIndex);
+
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.Delivery = true;
+            RaceHandoff.Solo = true;
+            RaceHandoff.IsPractice = true;
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.DeliveryPay = 40;
+            RaceHandoff.TrackIndex = LifeRules.DeliveryTrackIndex(s);
+            RaceHandoff.MetersDriven = 1200f;
+            RaceHandoff.RaceTimeSeconds = LifeRules.DeliveryParSeconds(RaceHandoff.TrackIndex);
+            LifeRules.ApplyRaceResult(s);
+
+            Check(s.day == dayBefore, "arriving does not roll the day as well", s.day);
+            Check(s.slotIndex == LifeRules.FirstShiftSlot + 1,
+                  "and does not spend a second slot", s.slotIndex);
+            Check(s.workDaysPresent == 1 && s.workDaysTotal == 1,
+                  "one run is one day of attendance",
+                  s.workDaysPresent + "/" + s.workDaysTotal);
+            RaceHandoff.ClearAll();
+
+            // The NIGHT shift, which is the case the ordering bug was invisible
+            // in: spending the last slot rolls the day inside the shift itself,
+            // so everything the rollover reads has to already be true.
+            var n = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(n);
+            n.slotIndex = 2;
+            int nightDay = n.day;
+            float repBefore = n.workRep;
+
+            LifeRules.ClockOnShift(n);
+            LifeRules.SpendActivitySlot(n);
+
+            Check(n.day == nightDay + 1, "a night shift rolls into the next day", n.day);
+            Check(n.consecutiveAbsences == 0,
+                  "and is NOT recorded as a night the driver skipped", n.consecutiveAbsences);
+            Check(n.workRep >= repBefore, "so it costs no work rep", n.workRep);
+            Check(n.workDaysPresent == 1, "and is banked as a day worked", n.workDaysPresent);
+
+            // Two runs in one day is still one day of attendance — the shop
+            // counts days, and both open slots are workable on purpose.
+            var d = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            d.slotIndex = LifeRules.FirstShiftSlot;
+            LifeRules.ClockOnShift(d); LifeRules.SpendActivitySlot(d);
+            LifeRules.ClockOnShift(d); LifeRules.SpendActivitySlot(d);
+            Check(d.workDaysPresent == 1 && d.workDaysTotal == 1,
+                  "two runs in a day is one day worked",
+                  d.workDaysPresent + "/" + d.workDaysTotal);
         }
 
         /// <summary>

@@ -636,11 +636,18 @@ namespace PSXRacing.EditorTools
             // Just inside the door on the left, where a garage fridge lives and
             // where it is clear of both the car and the model's own shelving.
             float x = garX - 1.22f, z = garZ + 0.85f;
-            Slab(parent, "GarageFridge", new Vector3(x, 0.44f, z),
-                 new Vector3(0.58f, 0.88f, 0.58f), fridgeMat, true);
-            var root = new GameObject("FridgeAnchor");
+
+            // The BOX goes UNDER the anchor rather than beside it, and that is
+            // load-bearing now that FootInteractor tests line of sight. The test
+            // forgives whatever sits under the hook's own root and nothing else,
+            // so a fridge that is the anchor's SIBLING is a solid 0.58 m cube
+            // the player can stand behind — and the prompt for the thing they
+            // are looking straight at disappears.
+            var root = new GameObject("GarageFridge");
             root.transform.SetParent(parent, false);
             root.transform.position = new Vector3(x, 0.9f, z + 0.45f);
+            Slab(root.transform, "FridgeBody", new Vector3(x, 0.44f, z),
+                 new Vector3(0.58f, 0.88f, 0.58f), fridgeMat, true);
             return root.transform;
         }
 

@@ -255,6 +255,13 @@ namespace PSXRacing.OnFoot
 
             LifeHomeScreen.FillCarRequestFor(S);
 
+            // Clocking on is banked HERE, before the slot is spent, because
+            // spending the last slot of the day rolls it — and the rollover
+            // decides whether the player skived by reading the very latch this
+            // sets. Crediting the shift on arrival instead booked an absence for
+            // the night shift and credited the work to the following morning,
+            // which on a seven-day roster is most of the job.
+            LifeRules.ClockOnShift(S);
             LifeRules.SpendActivitySlot(S);
             LifeSimManager.Save();
             SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));

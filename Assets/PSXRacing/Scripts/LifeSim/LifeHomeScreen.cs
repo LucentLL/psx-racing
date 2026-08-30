@@ -189,8 +189,11 @@ namespace PSXRacing.LifeSim
                 new Vector2(60f, 58f), () =>
                 { wizAge = Mathf.Min(60, wizAge + 1); ageLabel.text = wizAge.ToString(); }, MenuKit.Head);
 
-            // --- job list: fills the gap between the identity row and the button
-            MenuKit.Label(root, "PICK A DAY JOB  (pays weekly, on Fridays)", MenuKit.Small,
+            // --- the job: one card, or a picker if the book is ever reopened
+            MenuKit.Label(root, LifeRules.Jobs.Length > 1
+                    ? "PICK A DAY JOB  (pays weekly, on Fridays)"
+                    : "YOUR JOB",
+                MenuKit.Small,
                 new Vector2(0f, 1f), new Vector2(40f, -180f), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 700f);
 
@@ -212,35 +215,65 @@ namespace PSXRacing.LifeSim
                 Vector2.zero, Vector2.one, 40f, 40f, 100f, -212f);
 
             int n = LifeRules.Jobs.Length;
-            var jobLabels = new Text[n];
-            for (int i = 0; i < n; i++)
-            {
-                int idx = i;
-                var job = LifeRules.Jobs[i];
-                // Row i claims the i-th horizontal band of the list container.
-                // Rows therefore always fit, whatever the container ends up being.
-                var btn = MenuKit.Button(list, "", new Vector2(0f, 1f), Vector2.zero, Vector2.zero,
-                    () =>
-                    {
-                        wizJob = idx;
-                        for (int j = 0; j < jobLabels.Length; j++)
-                            jobLabels[j].color = j == idx ? MenuKit.Accent : Color.white;
-                    }, MenuKit.Small);
-                var brt = btn.GetComponent<RectTransform>();
-                brt.anchorMin = new Vector2(0f, 1f - (i + 1) / (float)n);
-                brt.anchorMax = new Vector2(1f, 1f - i / (float)n);
-                brt.pivot = new Vector2(0.5f, 0.5f);
-                brt.offsetMin = new Vector2(0f, 3f);
-                brt.offsetMax = new Vector2(0f, -3f);
 
-                // Highlight the PRE-SELECTED row, not row zero. They were the
-                // same thing until the default moved, and a wizard that starts
-                // you on one job while pointing at another is how a player ends
-                // up in a career they did not choose.
-                jobLabels[i] = MenuKit.Label(btn.transform, job.name + "   —   $" + job.dailyPay + "/day",
-                    MenuKit.Small, new Vector2(0f, 0.5f), new Vector2(20f, 0f),
-                    TextAnchor.MiddleLeft, i == wizJob ? MenuKit.Accent : Color.white, 700f);
-                jobLabels[i].raycastTarget = false;
+            // ONE JOB means there is nothing to pick, and a picker with a single
+            // full-height row in it reads as a list that failed to load. Say what
+            // the job IS instead — it is the whole premise of the career the
+            // player is about to start, and this is the only screen with room to
+            // state it. The picker below is kept intact for the day the job book
+            // reopens (LifeRules.Jobs), which is one uncommented line away.
+            if (n == 1)
+            {
+                wizJob = 0;
+                var only = LifeRules.Jobs[0];
+                float cy = -14f;
+                MenuKit.Label(list, only.name, MenuKit.Head, new Vector2(0f, 1f),
+                    new Vector2(20f, cy), TextAnchor.MiddleLeft, MenuKit.Accent, 700f, bold: true);
+                cy -= 44f;
+                foreach (string line in new[]
+                {
+                    LifeRules.ShiftHours,
+                    "No salary. Tips at the door, paid per drop.",
+                    "You eat on shift, and the car is yours to keep running.",
+                })
+                {
+                    MenuKit.Label(list, line, MenuKit.Small, new Vector2(0f, 1f),
+                        new Vector2(20f, cy), TextAnchor.MiddleLeft, MenuKit.Dim, 760f);
+                    cy -= 30f;
+                }
+            }
+            else
+            {
+                var jobLabels = new Text[n];
+                for (int i = 0; i < n; i++)
+                {
+                    int idx = i;
+                    var job = LifeRules.Jobs[i];
+                    // Row i claims the i-th horizontal band of the list container.
+                    // Rows therefore always fit, whatever the container ends up being.
+                    var btn = MenuKit.Button(list, "", new Vector2(0f, 1f), Vector2.zero, Vector2.zero,
+                        () =>
+                        {
+                            wizJob = idx;
+                            for (int j = 0; j < jobLabels.Length; j++)
+                                jobLabels[j].color = j == idx ? MenuKit.Accent : Color.white;
+                        }, MenuKit.Small);
+                    var brt = btn.GetComponent<RectTransform>();
+                    brt.anchorMin = new Vector2(0f, 1f - (i + 1) / (float)n);
+                    brt.anchorMax = new Vector2(1f, 1f - i / (float)n);
+                    brt.pivot = new Vector2(0.5f, 0.5f);
+                    brt.offsetMin = new Vector2(0f, 3f);
+                    brt.offsetMax = new Vector2(0f, -3f);
+
+                    // Highlight the PRE-SELECTED row, not row zero. They were the
+                    // same thing until the default moved, and a wizard that starts
+                    // you on one job while pointing at another is how a player ends
+                    // up in a career they did not choose.
+                    jobLabels[i] = MenuKit.Label(btn.transform, job.name + "   —   $" + job.dailyPay + "/day",
+                        MenuKit.Small, new Vector2(0f, 0.5f), new Vector2(20f, 0f),
+                        TextAnchor.MiddleLeft, i == wizJob ? MenuKit.Accent : Color.white, 700f);
+                    jobLabels[i].raycastTarget = false;
+                }
             }
 
             MenuKit.Button(root, "NEXT: PICK A CAR", new Vector2(0.5f, 0f), new Vector2(0f, 20f),
@@ -875,17 +908,34 @@ namespace PSXRacing.LifeSim
                 y -= 10f;
             }
 
-            bool canWork = !string.IsNullOrEmpty(S.playerJob) &&
-                           !LifeRules.IsWeekend(S.day) && !S.workedToday;
+            // The shop is open AFTERNOONS AND NIGHTS, seven days a week — see
+            // LifeRules.ShopOpen. There is deliberately no "already worked
+            // today" rung any more: both open slots are runs if the player
+            // wants them, and each one costs the slot it burned. Choosing
+            // between a second run, an inspection, a repair and sleep is the
+            // decision the day is made of.
+            bool shopOpen = LifeRules.ShopOpen(S);
+            bool canWork = !string.IsNullOrEmpty(S.playerJob) && shopOpen;
             string workLabel = string.IsNullOrEmpty(S.playerJob) ? "NO JOB (SEE JOBS TAB)"
-                : LifeRules.IsWeekend(S.day) ? "WEEKEND — NO WORK"
-                : S.workedToday ? "ALREADY WORKED TODAY"
-                : "GO TO WORK (" + S.playerJob + ")";
+                : !shopOpen ? "SHOP SHUT — SHIFTS START AT NOON"
+                : S.workedToday ? "TAKE ANOTHER RUN (" + S.playerJob + ")"
+                : "CLOCK ON (" + S.playerJob + ")";
             MenuKit.Button(body, workLabel, new Vector2(0.5f, 1f), new Vector2(0f, y),
                 new Vector2(460f, 56f), canWork ? DoWork : (UnityEngine.Events.UnityAction)null,
                 18, canWork ? (Color?)null : MenuKit.BtnBgDisabled);
-            y -= 74f;
-
+            y -= 58f;
+            // The roster, printed under the button that obeys it. A shut shop
+            // with no hours beside it is indistinguishable from a dead button —
+            // which is exactly how "WEEKEND — NO WORK" read. Centred on the
+            // button column like every other caption on this page; left-aligned
+            // it hung out on its own halfway across a phone.
+            if (!string.IsNullOrEmpty(S.playerJob))
+            {
+                MenuKit.Label(body, LifeRules.ShiftHours, 14, new Vector2(0.5f, 1f),
+                    new Vector2(0f, y), TextAnchor.MiddleCenter, MenuKit.Dim, 470f);
+                y -= 30f;
+            }
+            y -= 14f;
             MenuKit.Button(body, "SLEEP UNTIL TOMORROW", new Vector2(0.5f, 1f),
                 new Vector2(0f, y), new Vector2(460f, 56f), DoSleep, 18);
             y -= 74f;
@@ -2672,24 +2722,45 @@ namespace PSXRacing.LifeSim
             if (!string.IsNullOrEmpty(S.playerJob))
             {
                 Row("CURRENT JOB", S.playerJob, ref y, MenuKit.Accent);
-                Row("DAILY PAY", MenuKit.Money(Mathf.RoundToInt(S.basePay * S.payMultiplier)), ref y);
+                Row("ROSTER", "AFTERNOON + NIGHT", ref y,
+                    LifeRules.ShopOpen(S) ? MenuKit.Good : MenuKit.Dim);
+                Row("OPEN", "SEVEN DAYS", ref y);
+                Row("TYPICAL DAY", MenuKit.Money(Mathf.RoundToInt(S.basePay * S.payMultiplier)), ref y);
                 Row("WORK REP", Mathf.RoundToInt(S.workRep) + "/100", ref y,
                     S.workRep >= 50 ? MenuKit.Good : MenuKit.Bad);
                 Row("ATTENDANCE", S.workDaysPresent + "/" + S.workDaysTotal, ref y);
                 y -= 16f;
-                MenuKit.Label(body, "Miss weekday shifts and the rep ladder bites: −5, then −15, then −30 and fired.",
-                    14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 760f);
+                // Broken into short lines on purpose: MenuKit.Label overflows
+                // rather than wrapping, so one long sentence runs off the right
+                // of a 4:3 canvas instead of folding onto a second row.
+                foreach (string line in new[]
+                {
+                    "Shifts run noon to four in the morning, weekends included.",
+                    "Tips are paid at the door, per drop — there is no salary.",
+                    LifeRules.FreeDaysOff + " days off in a row are yours to take. Past that the",
+                    "ladder bites: −5 rep, then −15, then −30 and fired.",
+                })
+                {
+                    MenuKit.Label(body, line, 17, new Vector2(0.5f, 1f),
+                        new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+                    y -= 26f;
+                }
                 return;
             }
-
             MenuKit.Label(body, (S.fired ? "You were FIRED. " : "") + "Apply for work (55% hire odds per try):",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                S.fired ? MenuKit.Bad : Color.white, 740f);
-            y -= 44f;
+                S.fired ? MenuKit.Bad : Color.white, ColW);
+            y -= 30f;
+            MenuKit.Label(body, LifeRules.ShiftHours, 17, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 40f;
             foreach (var (name, dailyPay, _, _) in LifeRules.Jobs)
             {
                 string jn = name; int jp = dailyPay;
-                MenuKit.Button(body, name + "  —  $" + dailyPay + "/day",
+                // "a day IN TIPS" rather than "/day": the delivery job has no
+                // salary at all, and a job book that quotes it the way it quoted
+                // the tanker driver's $231 is promising a wage nobody pays.
+                MenuKit.Button(body, name + "  —  ~$" + dailyPay + " a day in tips",
                     new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(460f, 46f), () =>
                     {
                         if (Random.value < LifeRules.ApplyHireChance)

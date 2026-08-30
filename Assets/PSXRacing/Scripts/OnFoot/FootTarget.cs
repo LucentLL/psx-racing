@@ -53,6 +53,29 @@ namespace PSXRacing.OnFoot
         public string action2 = "";
         public System.Action onUse2;
 
+        /// <summary>
+        /// What the LINE-OF-SIGHT test is allowed to see through on its way to
+        /// this target. Defaults to the object the hook hangs off.
+        ///
+        /// Every hook in the game is a child of the thing it describes, and most
+        /// of those things are solid: a car carries a box collider you walk
+        /// around, the pizza on the counter is a primitive with its own, a
+        /// petrol pump is a prop with a mesh. A ray cast at a car's roof from
+        /// beside the car hits the car — so without this the sight test would
+        /// answer "no" for precisely the objects the player is standing in
+        /// front of, which is the opposite of the bug it exists to fix.
+        /// </summary>
+        public Transform ignoreRoot;
+        public Transform IgnoreRoot =>
+            ignoreRoot != null ? ignoreRoot :
+            transform.parent != null ? transform.parent : transform;
+
+        /// <summary>Clear this for something meant to be reachable through
+        /// geometry — a hatch you reach through, a prompt behind glass. Nothing
+        /// sets it today; it is here so the next such case does not have to
+        /// switch the whole test off to get itself working.</summary>
+        public bool requireLineOfSight = true;
+
         public static readonly List<FootTarget> All = new List<FootTarget>();
 
         public Vector3 FocusPoint => focus != null ? focus.position : transform.position;
