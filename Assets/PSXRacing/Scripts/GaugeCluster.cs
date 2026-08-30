@@ -218,7 +218,7 @@ namespace PSXRacing
         GameObject cockpitRoot;
         int builtBulb = -1;
         float builtRedline = -1f, builtSpeedMax = -1f;
-        int builtHeight = -1;
+        int builtHeight = -1, builtUnits = -1;
         bool builtTouch;
         bool builtCockpit;
         Vector2 builtWheelCentre = new Vector2(float.NaN, float.NaN);
@@ -226,6 +226,44 @@ namespace PSXRacing
         float flutter;
 
         static readonly string[] GearNames = { "R", "N", "1", "2", "3", "4", "5", "6" };
+
+        /// <summary>
+        /// What the two small gauges read.
+        ///
+        /// Found off the car rather than wired by the builder, and cached the
+        /// first time they are asked for, because neither exists on an opponent
+        /// and only the player ever has a cluster. A null answer means the
+        /// needle sits on the empty end, which for a scene with no tank in it
+        /// (a preview, the screenshot tool) is the honest reading.
+        /// </summary>
+        FuelTank tank; EngineTemp temp;
+        bool subsFound;
+
+        FuelTank Tank { get { FindSubs(); return tank; } }
+        EngineTemp Temp { get { FindSubs(); return temp; } }
+
+        void FindSubs()
+        {
+            if (subsFound || car == null) return;
+            subsFound = true;
+            tank = car.GetComponent<FuelTank>();
+            temp = car.GetComponent<EngineTemp>();
+        }
+
+        /// <summary>
+        /// Park the two small needles at fixed readings.
+        ///
+        /// For the preview tool, and it exists for one reason: a needle
+        /// sweeping an arc has a left and a right, and HALF SCALE is the single
+        /// position that cannot tell you whether it has them the right way
+        /// round. A mirrored sub-gauge points straight down at 0.5 exactly like
+        /// a correct one, and every still of a cluster at rest shows it there.
+        /// </summary>
+        public void PoseSubGauges(float coolant, float fuel)
+        {
+            if (tach != null) tach.SetSub(coolant);
+            if (speedo != null) speedo.SetSub(fuel);
+        }
 
         void Start() => Build();
 
@@ -238,7 +276,8 @@ namespace PSXRacing
         public void Build()
         {
             float redline = car != null ? car.revLimitRPM : 8000f;
-            float speedMax = SpeedScale(car != null ? car.topSpeedMps * 3.6f : 240f);
+            float speedMax = SpeedScale(
+                SpeedUnits.FromKmh(car != null ? car.topSpeedMps * 3.6f : 240f));
             int bulb = ClusterBulbs.Revision;
             // The canvas is ConstantPixelSize on the PSX camera, so its height
             // IS the framebuffer line count -- which the player can change.
@@ -259,13 +298,19 @@ namespace PSXRacing
             Vector2 wheelC = CockpitView.WheelCentre;
             float wheelR = CockpitView.WheelRadius;
 
+            // The unit is part of the token in its own right, not just via
+            // speedMax: two scales can round to the same number and the CAP
+            // under the needle would still be wrong.
+            int units = SpeedUnits.Changed * 2 + (SpeedUnits.Mph ? 1 : 0);
+
             if (tach != null && bulb == builtBulb && frame == builtHeight && touch == builtTouch
-                && cockpit == builtCockpit
+                && cockpit == builtCockpit && units == builtUnits
                 && wheelC == builtWheelCentre && Mathf.Approximately(wheelR, builtWheelRadius)
                 && Mathf.Approximately(redline, builtRedline)
                 && Mathf.Approximately(speedMax, builtSpeedMax)) return;
 
             builtBulb = bulb; builtRedline = redline; builtSpeedMax = speedMax;
+            builtUnits = units;
             builtHeight = frame; builtTouch = touch; builtCockpit = cockpit;
             builtWheelCentre = wheelC; builtWheelRadius = wheelR;
             if (tach != null) { tach.Destroy(); tach = null; }
@@ -346,14 +391,24 @@ namespace PSXRacing
                             redFrac);
             float sTick = SpeedTick(speedMax);
             speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
-                              speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f, "KM/H", -1f);
+                              speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
+                              SpeedUnits.Label, -1f);
+
+            // Coolant under the revs, fuel under the speed — the pairing on the
+            // cluster this is modelled on, and on most twin-dial cars: the
+            // gauge that says something about the ENGINE goes in the engine's
+            // dial. Both may decline on a small dial, and the readout below
+            // moves up to suit whichever answer they gave.
+            bool subs = tach.MakeSubGauge(font, radius, "C", "H");
+            subs &= speedo.MakeSubGauge(font, radius, "E", "F");
 
             // The gear lives in the tach and the speed in the speedo, which is
             // where a cluster with a digital readout always puts them: under the
             // needle of the dial the number belongs to.
-            int digits = Mathf.Max(10, Mathf.RoundToInt(radius * 0.30f));
-            gearText = tach.MakeReadout(font, digits, ClusterBulbs.Text);
-            speedText = speedo.MakeReadout(font, digits, ClusterBulbs.Text);
+            int digits = Mathf.Max(10, Mathf.RoundToInt(radius * (subs ? 0.25f : 0.30f)));
+            float readoutY = subs ? Dial.ReadoutYWithSub : Dial.ReadoutY;
+            gearText = tach.MakeReadout(font, digits, ClusterBulbs.Text, readoutY);
+            speedText = speedo.MakeReadout(font, digits, ClusterBulbs.Text, readoutY);
 
             // Everything above was created just now, so it is wearing the stock
             // depth-tested UI material and would vanish behind the bonnet in the
@@ -464,6 +519,12 @@ namespace PSXRacing
                             new Vector2(tachCx, groupCy), radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
                             1f / 1000f, "x1000", redFrac);
+            // Coolant, in the bottom of the binnacle's one dial — the same
+            // place the twin-dial layout puts it, and the same place the
+            // cockpit this copies has it. There is no speedometer dial here to
+            // hang a fuel gauge under, and fuel is already printed over the
+            // world by the HUD's bar, so the driver's seat loses nothing.
+            tach.MakeSubGauge(font, radius, "C", "H");
 
             // Speed: a light LCD with dark digits, zero-padded to three, and
             // the unit under it. The padding is not decoration — a readout that
@@ -477,7 +538,7 @@ namespace PSXRacing
                             Mathf.Max(9, Mathf.RoundToInt(frame * 0.026f * s)),
                             ClusterBulbs.Lit, anchor,
                             new Vector2(speedCx, groupCy - speedH * 0.5f));
-            cap.text = "KM/H";
+            cap.text = SpeedUnits.Label;
 
             // Gear, in its own box with the transmission type over it. AT or MT
             // from the car itself: the game has both, and which one you are
@@ -659,15 +720,26 @@ namespace PSXRacing
         /// put the last numeral hard against the end stop, and pinning every car
         /// to one scale would give a 380 km/h supercar and a 130 km/h hatchback
         /// the same needle sweep for completely different speeds.
+        ///
+        /// Works in whatever unit the player reads, so a dial in MPH is a real
+        /// MPH dial — ticks every 20, numerals on round numbers — rather than a
+        /// km/h dial with converted labels. Its bounds are the same two speeds
+        /// either way, just expressed in the current unit.
         /// </summary>
-        static float SpeedScale(float topKmh)
+        static float SpeedScale(float top)
         {
-            float want = Mathf.Clamp(topKmh * 1.08f, 140f, 440f);
+            float want = Mathf.Clamp(top * 1.08f,
+                                     SpeedUnits.FromKmh(140f), SpeedUnits.FromKmh(440f));
             float step = SpeedTick(want);
             return Mathf.Ceil(want / step) * step;
         }
 
-        static float SpeedTick(float max) => max <= 280f ? 20f : max <= 360f ? 40f : 50f;
+        /// <summary>Tick spacing. Twenty is the step a road-car speedometer is
+        /// marked in in both units; the coarser rungs are for the top of the
+        /// catalog, where a 20 unit tick would ring the dial in hairs.</summary>
+        static float SpeedTick(float max) => SpeedUnits.Mph
+            ? (max <= 180f ? 20f : max <= 240f ? 30f : 40f)
+            : (max <= 280f ? 20f : max <= 360f ? 40f : 50f);
 
         /// <summary>
         /// Double the tick step until the numerals fit round the dial.
@@ -738,22 +810,32 @@ namespace PSXRacing
                 flutter += Time.deltaTime;
                 rpm *= 0.55f + Mathf.PerlinNoise(flutter * 2.3f, 0f) * 0.9f;
             }
+            float shown = SpeedUnits.FromKmh(Mathf.Abs(car.speedKmh));
+
             if (tach != null) tach.SetValue(hideGauges ? 0f : rpm);
             // No speedometer dial in the cockpit — the LCD below is the
             // speedometer there.
-            if (speedo != null) speedo.SetValue(hideGauges ? 0f : Mathf.Abs(car.speedKmh));
+            if (speedo != null) speedo.SetValue(hideGauges ? 0f : shown);
+
+            // The two small gauges. A dead cluster parks these as well: they
+            // are on the same loom as the dials they sit in, so a fault that
+            // takes the instruments takes all four needles, not two.
+            if (tach != null)
+                tach.SetSub(hideGauges || Temp == null ? 0f : Temp.Gauge);
+            if (speedo != null)
+                speedo.SetSub(hideGauges || Tank == null ? 0f : Tank.percent * 0.01f);
 
             int gear = Mathf.Clamp(car.currentGear + 1, 0, GearNames.Length - 1);
             string g = hideGauges ? "-" : GearNames[gear];
             if (gearText != null && gearText.text != g) gearText.text = g;
 
-            int kmh = Mathf.RoundToInt(Mathf.Abs(car.speedKmh));
+            int speed = Mathf.RoundToInt(shown);
             // Zero-padded in the cockpit and plain under the needle. A readout
             // in a fixed box has to be a fixed width or its digits shuffle
             // sideways every time the speed crosses a hundred; a number under a
             // needle has the needle to be read against and looks wrong padded.
             string s = hideGauges ? "---"
-                     : builtCockpit ? Mathf.Min(kmh, 999).ToString("000") : kmh.ToString();
+                     : builtCockpit ? Mathf.Min(speed, 999).ToString("000") : speed.ToString();
             if (speedText != null && speedText.text != s) speedText.text = s;
         }
 
@@ -766,6 +848,12 @@ namespace PSXRacing
             readonly RectTransform needle;
             readonly float max;
             float lastDeg = float.NaN;
+
+            /// <summary>The little gauge in the bottom of the face — fuel under
+            /// the speedometer, coolant under the tachometer. Null on a dial too
+            /// small to carry one.</summary>
+            RectTransform subNeedle;
+            float lastSubDeg = float.NaN;
 
             /// <summary>Sweep, in the SVG convention the source cluster uses:
             /// angles measured clockwise from east with the dial starting at
@@ -782,6 +870,51 @@ namespace PSXRacing
             const float RedIn = 0.905f, RedOut = 0.95f;
             const float NeedleLen = 0.90f, NeedleTail = 0.17f, NeedleHalf = 0.05f;
             const float HubR = 0.10f;
+
+            // ---- the sub-gauge in the bottom of the face -------------------
+            //
+            // The 270 degree sweep leaves a 90 degree wedge across the bottom
+            // of every dial with nothing in it but the digital readout, and
+            // that wedge is where a real cluster puts its fuel and temperature
+            // gauges: a second, much smaller needle on its own hub below the
+            // main one, sweeping an arc between two letters. The cluster in the
+            // reference photograph does exactly this — E and F under the
+            // speedometer, C and H under the tachometer.
+            /// <summary>Where the sub-hub sits below the dial centre. Low
+            /// enough to clear the digital readout above it, high enough that
+            /// the arc below it stays well inside the bezel.</summary>
+            const float SubHubY = -0.44f;
+            /// <summary>Sub-needle length, from that hub. Long enough that its
+            /// tip nearly touches the arc — a needle that stops well short of
+            /// its own scale reads as a stalk, not as a pointer.</summary>
+            const float SubLen = 0.34f;
+            /// <summary>Half the sub-gauge's sweep, measured from straight down.
+            /// </summary>
+            const float SubHalfSweep = 44f;
+            /// <summary>Radius of the tick arc, from the sub-hub.</summary>
+            const float SubArcR = 0.38f;
+            /// <summary>
+            /// How far PAST the ends of the sweep the two letters sit, in
+            /// degrees, at the arc's own radius.
+            ///
+            /// Beside the arc rather than beyond it, which is where the cluster
+            /// this copies puts them and, more usefully, the only place they
+            /// fit: pushing them outward along the radius instead walks them
+            /// into the bezel, because the sub-hub has already been pushed down
+            /// to clear the digital readout above it.
+            /// </summary>
+            const float SubLabelOutDeg = 15f;
+            /// <summary>
+            /// Below this radius the sub-gauge is left off entirely.
+            ///
+            /// A dial of 40 units carries a 12-unit needle and 5-unit letters,
+            /// which is not a gauge, it is grit — and the touch layout clamps
+            /// the radius to whatever band the wheel and pedals leave, so on a
+            /// narrow phone it really does get that small. The same discipline
+            /// LabelStep applies to the numerals: drop what cannot be read
+            /// rather than draw it anyway.
+            /// </summary>
+            const int SubMinRadius = 46;
 
             public Dial(Transform parent, Font font, string name, Vector2 anchor, Vector2 centre,
                         int radius, float max, float tickStep, float labelStep, float labelScale,
@@ -856,14 +989,118 @@ namespace PSXRacing
                 SetValue(0f);
             }
 
-            /// <summary>The digital number under the needle. Held at 0.30 of
-            /// the radius: further down and a three-digit speed runs into the
-            /// two numerals that sit at the bottom of the sweep, which on a
-            /// speedometer are the 0 and the top of the scale.</summary>
-            public Text MakeReadout(Font font, int size, Color colour)
+            /// <summary>
+            /// Fit the small gauge into the bottom of this face: an arc of five
+            /// ticks between two letters, with a stubby needle on its own hub.
+            ///
+            /// Baked the same way everything else static here is — the arc and
+            /// its ticks go into one sprite rather than becoming a dozen rotated
+            /// Images — so the only thing this adds to a frame is one more
+            /// transform to rotate.
+            ///
+            /// Returns false and builds nothing when the dial is too small, and
+            /// the caller uses that to decide whether to move its digital
+            /// readout out of the way. Silent on a small dial rather than
+            /// cluttered.
+            /// </summary>
+            public bool MakeSubGauge(Font font, int radius, string lowLabel, string highLabel)
+            {
+                if (radius < SubMinRadius) return false;
+
+                var centre = new Vector2(0f, radius * SubHubY);
+
+                var arcGO = new GameObject("SubArc");
+                arcGO.transform.SetParent(root.transform, false);
+                var arc = arcGO.AddComponent<Image>();
+                int arcR = Mathf.RoundToInt(radius * SubArcR);
+                arc.sprite = BakeSubArc(arcR);
+                arc.rectTransform.anchorMin = arc.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                arc.rectTransform.anchoredPosition = centre;
+                arc.rectTransform.sizeDelta = new Vector2(arcR * 2f, arcR * 2f);
+
+                // The letters sit just off each end of the arc, at its radius.
+                int letter = Mathf.Max(8, Mathf.RoundToInt(radius * 0.15f));
+                foreach (var end in new[] { (-1f, lowLabel), (1f, highLabel) })
+                {
+                    Vector2 dir = SubDirection(end.Item1 * (SubHalfSweep + SubLabelOutDeg));
+                    var t = Label(font, letter, ClusterBulbs.Lit,
+                                  centre + dir * (radius * SubArcR));
+                    t.text = end.Item2;
+                }
+
+                int len = Mathf.Max(3, Mathf.RoundToInt(radius * SubLen));
+                int tail = Mathf.Max(1, Mathf.RoundToInt(radius * SubLen * 0.10f));
+                int wide = Mathf.Max(3, Mathf.RoundToInt(radius * 0.045f));
+
+                var nGO = new GameObject("SubNeedle");
+                nGO.transform.SetParent(root.transform, false);
+                var img = nGO.AddComponent<Image>();
+                img.sprite = BakeNeedle(len, tail, wide);
+                // WHITE, not the red of the main needle. On a real cluster the
+                // sub-gauges are the one pair of needles that are not warning
+                // you about anything, and the red belongs to the two that are.
+                img.color = ClusterBulbs.Lit;
+                subNeedle = img.rectTransform;
+                subNeedle.anchorMin = subNeedle.anchorMax = new Vector2(0.5f, 0.5f);
+                subNeedle.pivot = new Vector2(0.5f, tail / (float)(len + tail));
+                subNeedle.anchoredPosition = centre;
+                subNeedle.sizeDelta = new Vector2(wide, len + tail);
+
+                var hubGO = new GameObject("SubHub");
+                hubGO.transform.SetParent(root.transform, false);
+                var hub = hubGO.AddComponent<Image>();
+                int hubR = Mathf.Max(2, Mathf.RoundToInt(radius * 0.05f));
+                // SOLID, not the main hub's ring-over-face. At five pixels
+                // across a ring is not a hub cap, it is a hole in the needle.
+                hub.sprite = BakeDisc(hubR, ClusterBulbs.Lit, ClusterBulbs.Lit);
+                hub.rectTransform.anchorMin = hub.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                hub.rectTransform.anchoredPosition = centre;
+                hub.rectTransform.sizeDelta = new Vector2(hubR * 2f, hubR * 2f);
+
+                SetSub(0.5f);
+                return true;
+            }
+
+            /// <summary>Move the sub-needle. 0 is the left-hand letter (empty,
+            /// cold), 1 the right-hand one (full, hot).</summary>
+            public void SetSub(float f)
+            {
+                if (subNeedle == null) return;
+                float deg = Mathf.Lerp(-SubHalfSweep, SubHalfSweep, Mathf.Clamp01(f));
+                if (Mathf.Abs(deg - lastSubDeg) < 0.2f) return;
+                lastSubDeg = deg;
+                // The sprite points along its own +Y, which a rotation of theta
+                // sends to (-sin, cos); the sweep wants (sin deg, -cos deg),
+                // measured from straight down and positive to the right. Those
+                // two agree at theta = 180 + deg and at NO other sign
+                // convention — 180 - deg also puts the needle straight down at
+                // half scale and sweeps it the wrong way from there, which is
+                // invisible in any still of a gauge sitting at rest.
+                subNeedle.localRotation = Quaternion.Euler(0f, 0f, 180f + deg);
+            }
+
+            /// <summary>Unit vector for a sub-gauge angle, measured from
+            /// straight down and positive toward the right-hand letter.</summary>
+            static Vector2 SubDirection(float deg)
+            {
+                float r = deg * Mathf.Deg2Rad;
+                return new Vector2(Mathf.Sin(r), -Mathf.Cos(r));
+            }
+
+            /// <summary>How far below the hub the digital number sits, as a
+            /// fraction of the radius. Any further down and a three-digit speed
+            /// runs into the two numerals at the bottom of the sweep, which on
+            /// a speedometer are the 0 and the top of the scale.</summary>
+            public const float ReadoutY = 0.30f;
+            /// <summary>The same, on a dial carrying a sub-gauge: up out of the
+            /// way of the little hub, which sits at 0.44.</summary>
+            public const float ReadoutYWithSub = 0.18f;
+
+            /// <summary>The digital number under the needle.</summary>
+            public Text MakeReadout(Font font, int size, Color colour, float yFrac = ReadoutY)
             {
                 float r = root.GetComponent<RectTransform>().sizeDelta.y * 0.5f;
-                var t = Label(font, size, colour, new Vector2(0f, -r * 0.30f));
+                var t = Label(font, size, colour, new Vector2(0f, -r * yFrac));
                 t.text = "0";
                 return t;
             }
@@ -1060,6 +1297,69 @@ namespace PSXRacing
                 tex.SetPixels32(px);
                 tex.Apply();
                 return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
+            }
+
+            /// <summary>
+            /// The sub-gauge's scale: a thin arc across the bottom of the dial
+            /// with five marks on it, the two ends longer.
+            ///
+            /// Transparent everywhere else, so it drops straight onto the face
+            /// that is already there rather than needing the face rebaked with
+            /// a second gauge in it — which would mean two rasterisers that had
+            /// to agree about where the sub-hub was.
+            /// </summary>
+            static Sprite BakeSubArc(int radius)
+            {
+                const int SS = 2;
+                int r = Mathf.Max(6, radius) * SS;
+                int size = r * 2;
+                var tex = new Texture2D(size, size, TextureFormat.RGBA32, true)
+                {
+                    filterMode = FilterMode.Trilinear,
+                    wrapMode = TextureWrapMode.Clamp,
+                };
+                var px = new Color32[size * size];
+                var clear = new Color32(0, 0, 0, 0);
+                Color32 lit = ClusterBulbs.Lit, dim = ClusterBulbs.Dim;
+
+                // Band inside the sprite edge, and the ticks reaching in from it.
+                const float BandOut = 0.99f, BandIn = 0.90f;
+                const float TickIn = 0.74f, EndTickIn = 0.66f;
+                float halfPx = 1.0f * SS;
+
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        // UI space directly: x right, y UP, angle measured from
+                        // straight down so it matches SubDirection and the
+                        // needle rotation. The main face bakes in the source
+                        // SVG's y-down convention; this one does not, and
+                        // saying so is the whole reason the two are separate.
+                        float dx = x + 0.5f - r, dy = y + 0.5f - r;
+                        float rad = Mathf.Sqrt(dx * dx + dy * dy);
+                        int i = y * size + x;
+                        px[i] = clear;
+                        if (rad > r || rad < r * EndTickIn) continue;
+
+                        float deg = Mathf.Atan2(dx, -dy) * Mathf.Rad2Deg;
+                        if (Mathf.Abs(deg) > SubHalfSweep) continue;
+                        float rn = rad / r;
+
+                        // Five marks: both ends, both quarters, and the middle.
+                        float k = Mathf.Round((deg + SubHalfSweep) / (SubHalfSweep * 0.5f));
+                        float offDeg = Mathf.Abs(deg + SubHalfSweep - k * SubHalfSweep * 0.5f);
+                        float offPx = offDeg * Mathf.Deg2Rad * rad;
+                        bool isEnd = k <= 0.01f || k >= 3.99f;
+                        if (offPx <= halfPx && rn >= (isEnd ? EndTickIn : TickIn))
+                        { px[i] = lit; continue; }
+
+                        if (rn >= BandIn && rn <= BandOut) px[i] = dim;
+                    }
+                }
+                tex.SetPixels32(px);
+                tex.Apply();
+                return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
             }
 
             /// <summary>Hub cap: a filled disc with a rim.</summary>

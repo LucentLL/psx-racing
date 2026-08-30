@@ -3820,6 +3820,10 @@ namespace PSXRacing.EditorTools
                     // RaceHandoffApplier fills it from the save; standalone it
                     // starts full and the pumps are free.
                     root.AddComponent<FuelTank>();
+                    // And the temperature behind the coolant gauge, for the
+                    // same reason and on the same terms: nothing reads an
+                    // opponent's.
+                    root.AddComponent<EngineTemp>();
                     // Player-only: the AI has had its own stuck/pinned recovery
                     // since P2, and until now the human was the only driver on
                     // the grid who could be left beached against a barrier with

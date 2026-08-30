@@ -244,6 +244,26 @@ namespace PSXRacing
             if (pixelLabel != null) pixelLabel.text = PixelLabel();
         }
 
+        Text unitLabel;
+
+        static string UnitLabel() => "SPEED: " + SpeedUnits.Label;
+
+        /// <summary>
+        /// Swap the speedometer between miles and kilometres.
+        ///
+        /// Here as well as on the front end's OPTIONS page because this is the
+        /// one setting a player discovers while looking at the wrong number —
+        /// mid-race, at the dial. The cluster rebuilds itself on the next frame
+        /// off the same kind of counter the bulb uses, so the scale, the ticks,
+        /// the numerals and the legend all change together rather than leaving
+        /// an MPH needle on a km/h face.
+        /// </summary>
+        void CycleUnits()
+        {
+            SpeedUnits.Toggle();
+            if (unitLabel != null) unitLabel.text = UnitLabel();
+        }
+
         Text lookLabel;
 
         static string LookLabel() => "LOOK Y: " + LookPrefs.Label;
@@ -302,7 +322,8 @@ namespace PSXRacing
             sb.Append("FAULT SYSTEM: none installed\n");
             sb.Append("surface   : ").Append(car.onRoad ? "ROAD" : "OFF-ROAD (low grip)").Append('\n');
             sb.Append("grounded  : ").Append(car.anyWheelGrounded ? "yes" : "NO (airborne)").Append('\n');
-            sb.Append("speed     : ").Append(Mathf.RoundToInt(car.speedKmh)).Append(" km/h  gear ")
+            sb.Append("speed     : ").Append(Mathf.RoundToInt(SpeedUnits.FromKmh(car.speedKmh)))
+              .Append(SpeedUnits.Suffix).Append("  gear ")
               .Append(car.currentGear).Append("  rpm ").Append(Mathf.RoundToInt(car.currentRPM)).Append('\n');
             sb.Append("drifting  : ").Append(car.Drifting ? "YES" : "no")
               .Append("   ebrakeTimer ").Append(car.EbrakeTimer.ToString("0.00")).Append('\n');
@@ -360,46 +381,60 @@ namespace PSXRacing
                                  new Vector2(0.5f, 1f), new Vector2(0f, -70f));
             title.fontStyle = FontStyle.Bold;
 
-            float y = -112f;
+            // Eleven rows in the height ten used to take. The panel already
+            // reached the bottom of a 16:9 canvas at ten, and on a 20:9 phone
+            // the scaler leaves under 650 units of height to put them in — so a
+            // new row has to come out of the pitch rather than out of the
+            // screen. 44 in a 49 step still reads as separate buttons and is
+            // still a comfortable thumb target.
+            const float RowH = 44f, RowStep = 49f;
+            var rowSize = new Vector2(360f, RowH);
+            float y = -108f;
             menuItems.Clear();
             // Order matters twice over: it is the reading order AND the pad's
             // navigation order, because the graph below is built from it.
             menuItems.Add(MakeButton(panel.transform, "RESUME", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 22, Resume)); y -= 54f;
+                       new Vector2(0f, y), rowSize, 22, Resume)); y -= RowStep;
             // The camera cycle lives here as well as on C / triangle / the CAM
             // pad button, because a menu row is the only one of the four that
             // says out loud that there are six views.
             var camBtn = MakeButton(panel.transform, CameraLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, CycleCamera);
+                       new Vector2(0f, y), rowSize, 20, CycleCamera);
             camLabel = camBtn.GetComponentInChildren<Text>();
-            menuItems.Add(camBtn); y -= 54f;
+            menuItems.Add(camBtn); y -= RowStep;
             var pixelBtn = MakeButton(panel.transform, PixelLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, CyclePixels);
+                       new Vector2(0f, y), rowSize, 20, CyclePixels);
             pixelLabel = pixelBtn.GetComponentInChildren<Text>();
-            menuItems.Add(pixelBtn); y -= 54f;
+            menuItems.Add(pixelBtn); y -= RowStep;
             var bulbBtn = MakeButton(panel.transform, BulbLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, CycleBulb);
+                       new Vector2(0f, y), rowSize, 20, CycleBulb);
             bulbLabel = bulbBtn.GetComponentInChildren<Text>();
-            menuItems.Add(bulbBtn); y -= 54f;
+            menuItems.Add(bulbBtn); y -= RowStep;
+            // Next to the other two things about how the picture reads, and
+            // above LOOK Y, which is about walking rather than driving.
+            var unitBtn = MakeButton(panel.transform, UnitLabel(), font, new Vector2(0.5f, 1f),
+                       new Vector2(0f, y), rowSize, 20, CycleUnits);
+            unitLabel = unitBtn.GetComponentInChildren<Text>();
+            menuItems.Add(unitBtn); y -= RowStep;
             var lookBtn = MakeButton(panel.transform, LookLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, ToggleLook);
+                       new Vector2(0f, y), rowSize, 20, ToggleLook);
             lookLabel = lookBtn.GetComponentInChildren<Text>();
-            menuItems.Add(lookBtn); y -= 54f;
+            menuItems.Add(lookBtn); y -= RowStep;
             menuItems.Add(MakeButton(panel.transform, "RESET CAR (UNSTICK)", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, ResetCar)); y -= 54f;
+                       new Vector2(0f, y), rowSize, 20, ResetCar)); y -= RowStep;
             // Above RESTART rather than below it: a player opening this menu
             // with a dead engine is here for one of these two rows, and the
             // cheap one should be the one they reach first.
             var fuelBtn = MakeButton(panel.transform, FuelLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, CallFuelTruck);
+                       new Vector2(0f, y), rowSize, 20, CallFuelTruck);
             fuelLabel = fuelBtn.GetComponentInChildren<Text>();
-            menuItems.Add(fuelBtn); y -= 54f;
+            menuItems.Add(fuelBtn); y -= RowStep;
             menuItems.Add(MakeButton(panel.transform, "RESTART RACE", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 22, RestartRace)); y -= 54f;
+                       new Vector2(0f, y), rowSize, 22, RestartRace)); y -= RowStep;
             menuItems.Add(MakeButton(panel.transform, "EXIT TO MENU", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 22, ExitToMenu)); y -= 54f;
+                       new Vector2(0f, y), rowSize, 22, ExitToMenu)); y -= RowStep;
             menuItems.Add(MakeButton(panel.transform, "TOGGLE DEBUG INFO", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), new Vector2(360f, 48f), 20, ToggleDebug)); y -= 60f;
+                       new Vector2(0f, y), rowSize, 20, ToggleDebug)); y -= 54f;
 
             MakeText(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT", font, 15,
                      new Vector2(0.5f, 1f), new Vector2(0f, y)).color = new Color(0.72f, 0.74f, 0.85f);

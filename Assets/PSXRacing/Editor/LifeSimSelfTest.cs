@@ -2425,6 +2425,73 @@ namespace PSXRacing.EditorTools
                  (CarCatalog.All.Count - turbo - sc) + " NA");
             Check(turbo > 0 && sc > 0 && turbo + sc < CarCatalog.All.Count,
                   "aspiration actually varies across the catalog");
+
+            CheckLoopSeams();
+        }
+
+        /// <summary>
+        /// The loop-seam repair, on real takes.
+        ///
+        /// Two things are worth asserting and neither is audible from here. The
+        /// first is that it CANNOT return silence: every failure path in
+        /// LoopSeam is meant to hand back the original clip, and the one way
+        /// this fix could be much worse than the tick it removes is by quietly
+        /// replacing the engine with an empty buffer. The second is that the
+        /// seam it produces really is continuous — the repaired clip's last
+        /// sample and its first have to be neighbours in the recording, which
+        /// is checkable by walking the source and finding them.
+        /// </summary>
+        static void CheckLoopSeams()
+        {
+            string fam = EngineVoiceLibrary.DefaultFamily;
+            int checkedClips = 0, silent = 0, unshortened = 0, discontinuous = 0, decoded = 0;
+            float worstSeam = 0f, worstInterior = 0f;
+
+            foreach (var name in new[] { "low_on", "med_high_off", "very_high_on",
+                                         "intake_off", "idle" })
+            {
+                var src = EngineVoiceLibrary.Clip(fam, name);
+                if (src == null || src.loadState != AudioDataLoadState.Loaded) continue;
+                decoded++;
+                var fixedClip = LoopSeam.Seamless(src);
+                if (fixedClip == null || fixedClip == src) { unshortened++; continue; }
+                checkedClips++;
+
+                var d = new float[fixedClip.samples * fixedClip.channels];
+                if (!fixedClip.GetData(d, 0)) { silent++; continue; }
+                float energy = 0f;
+                for (int i = 0; i < d.Length; i += 41) energy += d[i] * d[i];
+                if (energy <= 1e-9f) { silent++; continue; }
+
+                // The step across the loop point, against what the clip's own
+                // waveform does everywhere else. A repaired seam is ordinary
+                // waveform; the raw takes jump several times their own p99.
+                int ch = fixedClip.channels, n = fixedClip.samples;
+                float seam = Mathf.Abs(d[0] - d[(n - 1) * ch]);
+                float interior = 0f;
+                for (int i = 1; i < n; i++)
+                    interior = Mathf.Max(interior, Mathf.Abs(d[i * ch] - d[(i - 1) * ch]));
+                if (seam > interior) discontinuous++;
+                worstSeam = Mathf.Max(worstSeam, seam);
+                worstInterior = Mathf.Max(worstInterior, interior);
+            }
+
+            // A batchmode editor may decline to decode audio at all, and a
+            // check that fails for that reason is a check that gets ignored.
+            // Say so instead.
+            if (decoded == 0)
+            {
+                Line("  ..   loop-seam repair not checked: this editor decoded no audio");
+                return;
+            }
+            Check(checkedClips > 0, "loop-seam repair produced shortened clips",
+                  checkedClips + " of " + decoded + " (" + unshortened + " refused)");
+            Check(silent == 0, "no repaired loop came back silent", silent + " silent");
+            Check(discontinuous == 0,
+                  "every repaired seam is smaller than the clip's own biggest step",
+                  discontinuous + " discontinuous");
+            Line("  ..   worst seam step " + worstSeam.ToString("0.0000") +
+                 " against an interior max of " + worstInterior.ToString("0.0000"));
         }
 
         static bool ClipExists(string family, string clip) =>

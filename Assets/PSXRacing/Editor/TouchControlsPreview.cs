@@ -101,6 +101,12 @@ namespace PSXRacing.EditorTools
                 // need a rigidbody to exist.
                 Canvas.ForceUpdateCanvases();
                 cluster.Build();
+                // Off half scale on purpose, and in opposite directions: a
+                // sub-gauge needle points straight down whether or not its
+                // sweep is mirrored, so a picture of one at rest proves
+                // nothing. Cool-ish coolant leans LEFT, three-quarters of a
+                // tank leans RIGHT.
+                cluster.PoseSubGauges(0.30f, 0.75f);
 
                 foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
                 {

@@ -2783,6 +2783,9 @@ namespace PSXRacing.LifeSim
             OptionRow("CLUSTER BULB", ClusterBulbs.Name,
                 "The colour behind the dials after dark.",
                 () => ClusterBulbs.Cycle(1), ref y);
+            OptionRow("SPEED", SpeedUnits.Label,
+                "What the speedometer counts in. MPH by default — it is 1999 in North Carolina.",
+                () => SpeedUnits.Toggle(), ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries these too,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
@@ -2967,7 +2970,8 @@ namespace PSXRacing.LifeSim
             {
                 MenuKit.Label(body, spec.hp + " hp  ·  " + spec.kg + " kg  ·  " + spec.drv +
                         "  ·  " + spec.gears + "-speed  ·  " + spec.modelYear +
-                        "  ·  " + Mathf.RoundToInt(spec.topSpeedMps * 3.6f) + " km/h",
+                        "  ·  " + Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f)) +
+                            SpeedUnits.Suffix,
                     16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     Color.white, 820f);
                 y -= 26f;
@@ -3503,6 +3507,12 @@ namespace PSXRacing.LifeSim
             RaceHandoff.SteerPull = agg.steerPull;
             RaceHandoff.ShiftMult = agg.shiftMult;
             RaceHandoff.FuelMult = agg.fuelMult;
+            // The coolant gauge's handicap. engineWearMult is the field the
+            // catalog already uses to mark a fault as one that cooks the
+            // engine — cooling_fail is 3, a weeping oil pan is 2, everything
+            // else is 1 — so the cooling system is what is left after it,
+            // floored so no combination of faults can divide by nothing.
+            RaceHandoff.CoolMult = Mathf.Clamp(1f / Mathf.Max(1f, agg.engineWearMult), 0.3f, 1f);
             RaceHandoff.HideGauges = agg.hideGauges;
             RaceHandoff.RpmFlutter = agg.rpmFlutter;
 

@@ -101,6 +101,9 @@ namespace PSXRacing
                     tank.burnMult = RaceHandoff.FuelMult;
                 }
 
+                var temp = playerCar.GetComponent<EngineTemp>();
+                if (temp != null) temp.coolMult = RaceHandoff.CoolMult;
+
                 playerCar.faultAccelMult = RaceHandoff.AccelMult;
                 playerCar.faultGripMult = RaceHandoff.GripMult;
                 playerCar.faultBrakeMult = RaceHandoff.BrakeMult;

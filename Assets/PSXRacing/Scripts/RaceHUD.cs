@@ -338,7 +338,8 @@ namespace PSXRacing
                     // drag talk, so the stage sheet is the time alone.
                     string sheet = ends
                         ? "\nET " + FormatTime(p != null ? p.finishTime : 0f) +
-                          (drag ? "   TRAP " + Mathf.RoundToInt(p != null ? p.trapSpeedKmh : 0f) + " km/h" : "")
+                          (drag ? "   TRAP " + Mathf.RoundToInt(SpeedUnits.FromKmh(
+                                      p != null ? p.trapSpeedKmh : 0f)) + SpeedUnits.Suffix : "")
                         : "\nBEST " + FormatTime(p != null ? p.bestLapTime : 0f);
                     // A delivery is not a race result. Reporting "FINISH! P1" for
                     // a solo run to a customer's door would be the circuit's

@@ -126,8 +126,20 @@ namespace PSXRacing.EditorTools
             {
                 Vector3 wp = path.GetPoint(i);
                 lowY = Mathf.Min(lowY, wp.y); highY = Mathf.Max(highY, wp.y);
-                // Skip the spans that are SUPPOSED to have nothing under them.
-                if (BlendAt(def, i, path.spacing) > 0.02f) continue;
+                // Skip the spans that are SUPPOSED to have nothing under them —
+                // but ONLY the full-depth ones.
+                //
+                // This used to exempt every station with any bridge blend at
+                // all, which is the whole approach ramp at both ends of every
+                // span, and that is exactly where the ground came through: the
+                // release toward the real slope was free to raise the hillside
+                // over the road as well as drop it away, and it did so at all
+                // eight parkway abutments while this audit reported 4482 clean
+                // probes. The exemption was never needed to pass, either — a
+                // station under an open span finds its ground fifteen metres
+                // down and clears by fifteen metres. What it bought was
+                // silence.
+                if (BlendAt(def, i, path.spacing) > 0.98f) continue;
                 Vector3 right = RightAt(path, i);
                 foreach (float off in new[] { -half, 0f, half })
                 {

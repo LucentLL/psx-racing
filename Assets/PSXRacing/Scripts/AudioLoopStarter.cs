@@ -100,8 +100,25 @@ namespace PSXRacing
         public static void PlayLoop(AudioSource src)
         {
             if (src == null) return;
-            if (Immediate || Ready(src.clip)) { src.Play(); return; }
+            if (Immediate || Ready(src.clip)) { StartLoop(src); return; }
             Instance.Watch(src);
+        }
+
+        /// <summary>
+        /// Repair the seam, then start.
+        ///
+        /// The takes in the engine pack are not cut on a zero crossing, and at
+        /// roughly a second each that is a click a second — see
+        /// <see cref="LoopSeam"/>. This is the one place in the game where a
+        /// loop is known to have its samples AND to be about to play, which
+        /// makes it the only place the repair can happen without every caller
+        /// having to remember. Seamless() hands back the original clip whenever
+        /// it cannot do better, so nothing here can lose a voice.
+        /// </summary>
+        static void StartLoop(AudioSource src)
+        {
+            src.clip = LoopSeam.Seamless(src.clip);
+            src.Play();
         }
 
         /// <summary>
@@ -187,7 +204,7 @@ namespace PSXRacing
                 // comes back with the scene, not with the decoder).
                 if (!expired && (!Ready(src.clip) || !src.isActiveAndEnabled)) continue;
 
-                if (src.isActiveAndEnabled) src.Play();
+                if (src.isActiveAndEnabled) StartLoop(src);
                 loops.RemoveAt(i); loopGiveUp.RemoveAt(i);
             }
 

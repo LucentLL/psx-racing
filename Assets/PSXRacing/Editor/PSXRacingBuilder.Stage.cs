@@ -336,7 +336,25 @@ namespace PSXRacing.EditorTools
                 float cap = roadY - DeckThick - 0.4f;
                 released = Mathf.Lerp(released, Mathf.Min(released, cap), f);
             }
-            return released;
+            // A SPAN ONLY EVER DIGS.
+            //
+            // Without this line the release is free to lift the ground as well
+            // as drop it, and on the uphill side of a cut it does: the abutment
+            // approaches sit in rock 5-7 m above the tarmac, and blending
+            // toward that raises a hump of (delta - 1.6)^2 / (4 * delta) metres
+            // over the road, peaking around f = 0.4 and therefore always at the
+            // approach rather than out over the gorge. Measured: 1.0 m of
+            // hillside standing at the edge of the tarmac at all eight parkway
+            // spans, which is what "mountains clipping through that launch cars
+            // into the air" was. The soffit cap above could not catch it — it
+            // is itself faded by f, so at f = 0.4 it only takes back 40% of a
+            // hump the same f put there.
+            //
+            // Clamping to the pin rather than to the road keeps the embankment
+            // honest: `pinned` has already blended most of the way to the DEM
+            // by the outer edge of the corridor, so this binds where the
+            // corridor is actually holding the road up and nowhere else.
+            return Mathf.Min(released, pinned);
         }
 
         // ------------------------------------------------------------------

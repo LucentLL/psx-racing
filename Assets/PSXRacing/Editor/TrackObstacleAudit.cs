@@ -116,6 +116,7 @@ namespace PSXRacing.EditorTools
             AuditForecourt(path, colliders, log);
             AuditFacing(path, log);
             AuditVerge(def, path, trackHalf, reachHalf, log);
+            AuditSurface(path, trackHalf, log);
 
             foreach (var col in colliders)
             {
@@ -336,10 +337,13 @@ namespace PSXRacing.EditorTools
         /// forecourt, kerb, verge), and everything solid enough to be an
         /// obstacle is a box, a capsule or a convex hull.
         /// </summary>
-        static bool SurfaceUnder(Vector3 from, out float y)
+        static bool SurfaceUnder(Vector3 from, out float y) =>
+            SurfaceUnder(from, 12f, out y, out _);
+
+        static bool SurfaceUnder(Vector3 from, float reach, out float y, out Collider on)
         {
-            y = 0f;
-            var hits = Physics.RaycastAll(from, Vector3.down, 12f, ~0,
+            y = 0f; on = null;
+            var hits = Physics.RaycastAll(from, Vector3.down, reach, ~0,
                                           QueryTriggerInteraction.Ignore);
             bool found = false;
             foreach (var h in hits)
@@ -347,7 +351,7 @@ namespace PSXRacing.EditorTools
                 var mc = h.collider as MeshCollider;
                 if (mc == null || mc.convex) continue;
                 // Highest surface wins: that is the one the car stands on.
-                if (!found || h.point.y > y) { y = h.point.y; found = true; }
+                if (!found || h.point.y > y) { y = h.point.y; on = h.collider; found = true; }
             }
             return found;
         }
@@ -429,6 +433,135 @@ namespace PSXRacing.EditorTools
                 : "  RE-ENTRY BLOCKED on " + bad + " of " + (profiles * 2) +
                   " half-sections — a car that runs wide there cannot climb back on");
         }
+
+        // ==================================================================
+        //  Is the racing surface itself smooth?
+        // ==================================================================
+        /// <summary>Sample pitch ALONG the road. A wheel is 0.666 m across, so
+        /// anything shorter than this is a bump the tyre rolls over rather than
+        /// a face it hits.</summary>
+        const float SurfStep = 0.35f;
+        /// <summary>
+        /// Biggest rise per <see cref="SurfStep"/> that is still road.
+        ///
+        /// The steepest grade any of these routes is allowed is 8.5%, which is
+        /// 3 cm over this pitch. 12 cm is four times that: a face a car meets
+        /// at speed rather than a slope it climbs, and at 140 km/h a 12 cm ramp
+        /// in 35 cm is a 19-degree launch pad.
+        /// </summary>
+        const float SurfMaxStep = 0.12f;
+        /// <summary>How many distinct launch sites to name before summarising.
+        /// One line per fault, not one per sample: a single crest of hillside
+        /// through the tarmac is twenty consecutive samples.</summary>
+        const int SurfReportMax = 12;
+        /// <summary>Samples that have to come back clean before the next bad one
+        /// counts as a NEW site rather than more of the same.</summary>
+        const int SurfSiteGap = 6;
+
+        /// <summary>
+        /// Walk the driving surface in the direction of travel and find the
+        /// steps a car would be launched off.
+        ///
+        /// <see cref="AuditVerge"/> asks this question ACROSS the run-off, and
+        /// TerrainAudit asks whether the ground is above the tarmac at three
+        /// points per waypoint. Neither is this. The stage has no run-off at all
+        /// — its barrier stands on the kerb, so AuditVerge prints "nothing to
+        /// profile" and returns — and three probes every 4.7 m cannot see a
+        /// ridge of hillside that surfaces between two of them. The report was
+        /// "sections of the parkway have mountains clipping through that launch
+        /// cars into the air", on a track both of those audits called clean.
+        ///
+        /// So this one walks where the WHEELS go, at a third of a metre, over
+        /// bridges as well (a step at a deck joint launches a car exactly as
+        /// well as a step in the dirt), and names the collider it is standing on
+        /// at the moment it climbs — which is the difference between a ground
+        /// chunk through the road and a road that is genuinely that steep.
+        /// </summary>
+        static void AuditSurface(TrackPath path, float trackHalf, StringBuilder log)
+        {
+            // Five lanes: the centre, both wheel tracks, and both edges pulled
+            // in far enough not to ride the kerb face. A ridge that surfaces on
+            // the outside of a corner leaves the middle of the lane perfectly
+            // clean — the same reason TerrainAudit samples across the width.
+            float edge = Mathf.Max(0.5f, trackHalf - 0.5f);
+            float[] lanes = { 0f, -edge * 0.55f, edge * 0.55f, -edge, edge };
+
+            float worst = 0f;
+            Vector3 worstAt = Vector3.zero;
+            string worstOn = null;
+            int bad = 0, samples = 0, sites = 0;
+            var named = new List<string>();
+
+            foreach (float lane in lanes)
+            {
+                float prevY = 0f;
+                bool havePrev = false;
+                int clean = SurfSiteGap;      // start a fresh site on the first fault
+                float total = path.TotalLength;
+                for (float s = 0f; s < total; s += SurfStep)
+                {
+                    float fi = s / path.spacing;
+                    int i = Mathf.FloorToInt(fi);
+                    float t = fi - i;
+                    Vector3 c = Vector3.Lerp(path.GetPoint(i), path.GetPoint(i + 1), t);
+                    Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+                    Vector3 at = c + right * lane;
+
+                    // From only just above the road: a ray dropped from 4 m up
+                    // finds the underside of a bridge deck the road passes
+                    // beneath and calls it a two-metre step.
+                    if (!SurfaceUnder(at + Vector3.up * 1.2f, 3f, out float y, out var on))
+                    { havePrev = false; clean = SurfSiteGap; continue; }
+                    samples++;
+
+                    if (havePrev)
+                    {
+                        float step = y - prevY;
+                        if (step > worst) { worst = step; worstAt = at; worstOn = Name(on); }
+                        if (step > SurfMaxStep)
+                        {
+                            bad++;
+                            if (clean >= SurfSiteGap)
+                            {
+                                sites++;
+                                if (named.Count < SurfReportMax)
+                                    named.Add(string.Format(
+                                        "    LAUNCH  {0:0.00} m rise in {1:0.00} m at wp {2} " +
+                                        "({3:0.0} m {4} of the centreline), standing on {5}  " +
+                                        "[{6:0.0}, {7:0.0}, {8:0.0}]",
+                                        step, SurfStep, i, Mathf.Abs(lane),
+                                        lane < 0f ? "left" : "right", Name(on),
+                                        at.x, y, at.z));
+                            }
+                            clean = 0;
+                        }
+                        else clean++;
+                    }
+                    prevY = y;
+                    havePrev = true;
+                }
+            }
+
+            log.AppendLine("  surface profile: " + samples + " probes in " + lanes.Length +
+                           " lanes, worst rise " + worst.ToString("0.00") + " m per " +
+                           SurfStep.ToString("0.00") + " m" +
+                           (worstOn != null ? " on " + worstOn : "") +
+                           (worst > SurfMaxStep
+                              ? string.Format(" [{0:0.0}, {1:0.0}]", worstAt.x, worstAt.z) : ""));
+            if (bad == 0)
+            {
+                log.AppendLine("  SURFACE OK — nothing on the driving line rises more than " +
+                               SurfMaxStep.ToString("0.00") + " m in " + SurfStep.ToString("0.00") + " m");
+                return;
+            }
+            log.AppendLine("  SURFACE: " + sites + " launch site(s), " + bad + " of " + samples +
+                           " probes climb a face");
+            foreach (var line in named) log.AppendLine(line);
+            if (sites > named.Count)
+                log.AppendLine("    ... and " + (sites - named.Count) + " more not listed");
+        }
+
+        static string Name(Collider c) => c == null ? "?" : Key(c.transform);
 
         /// <summary>Half a car, and then some. The corridor a driver needs to
         /// get through an opening without scraping down one side of it.</summary>

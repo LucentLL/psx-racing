@@ -115,6 +115,12 @@ namespace PSXRacing
         public static float SteerPull;         // signed
         public static float ShiftMult = 1f;
         public static float FuelMult = 1f;
+        /// <summary>How much of the cooling system still works, 0-1. Derived
+        /// from the fault aggregate's engineWearMult: a fault that eats an
+        /// engine is a fault that runs it hot, and cooling_fail — whose entry
+        /// in the catalog reads "Overheating risk" — is the worst of them. Read
+        /// by <see cref="EngineTemp"/>.</summary>
+        public static float CoolMult = 1f;
         public static bool HideGauges;
         public static bool RpmFlutter;
 
@@ -202,7 +208,7 @@ namespace PSXRacing
             RivalRank = 0; RivalAlias = null;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = 0;
             Welded = Supercharged = false;
-            AccelMult = GripMult = BrakeMult = ShiftMult = FuelMult = 1f;
+            AccelMult = GripMult = BrakeMult = ShiftMult = FuelMult = CoolMult = 1f;
             SteerPull = 0f; HideGauges = false; RpmFlutter = false;
             ClearResult();
         }
