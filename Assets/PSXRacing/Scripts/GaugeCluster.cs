@@ -385,22 +385,20 @@ namespace PSXRacing
             // wide with the needle jammed against the end stop every upshift.
             // A real tacho leaves the last segment empty so the red one has
             // room to mean something.
-            float tachMax = tachMaxRPM;
-            tach = new Dial(transform, font, "Tach", tachAnchor, tachPos, radius,
-                            tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f), 1f / 1000f, "x1000",
-                            redFrac);
-            float sTick = SpeedTick(speedMax);
-            speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
-                              speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
-                              SpeedUnits.Label, -1f);
-
             // Coolant under the revs, fuel under the speed — the pairing on the
             // cluster this is modelled on, and on most twin-dial cars: the
             // gauge that says something about the ENGINE goes in the engine's
-            // dial. Both may decline on a small dial, and the readout below
-            // moves up to suit whichever answer they gave.
-            bool subs = tach.MakeSubGauge(font, radius, "C", "H");
-            subs &= speedo.MakeSubGauge(font, radius, "E", "F");
+            // dial. Asked for in the constructor because the scale is baked
+            // into the face; a dial too small to carry one says so afterwards.
+            float tachMax = tachMaxRPM;
+            tach = new Dial(transform, font, "Tach", tachAnchor, tachPos, radius,
+                            tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f), 1f / 1000f, "x1000",
+                            redFrac, "C", "H");
+            float sTick = SpeedTick(speedMax);
+            speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
+                              speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
+                              SpeedUnits.Label, -1f, "E", "F");
+            bool subs = tach.HasSub && speedo.HasSub;
 
             // The gear lives in the tach and the speed in the speedo, which is
             // where a cluster with a digital readout always puts them: under the
@@ -515,16 +513,15 @@ namespace PSXRacing
             // off the bottom of the frame — which is the same thing only while
             // the group is sitting on the bottom of the frame, and it is not
             // once it moves up behind a steering wheel.
-            tach = new Dial(cockpitRoot.transform, font, "Tach", anchor,
-                            new Vector2(tachCx, groupCy), radius,
-                            tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
-                            1f / 1000f, "x1000", redFrac);
             // Coolant, in the bottom of the binnacle's one dial — the same
             // place the twin-dial layout puts it, and the same place the
             // cockpit this copies has it. There is no speedometer dial here to
             // hang a fuel gauge under, and fuel is already printed over the
             // world by the HUD's bar, so the driver's seat loses nothing.
-            tach.MakeSubGauge(font, radius, "C", "H");
+            tach = new Dial(cockpitRoot.transform, font, "Tach", anchor,
+                            new Vector2(tachCx, groupCy), radius,
+                            tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
+                            1f / 1000f, "x1000", redFrac, "C", "H");
 
             // Speed: a light LCD with dark digits, zero-padded to three, and
             // the unit under it. The padding is not decoration — a readout that
@@ -876,34 +873,54 @@ namespace PSXRacing
             // The 270 degree sweep leaves a 90 degree wedge across the bottom
             // of every dial with nothing in it but the digital readout, and
             // that wedge is where a real cluster puts its fuel and temperature
-            // gauges: a second, much smaller needle on its own hub below the
-            // main one, sweeping an arc between two letters. The cluster in the
-            // reference photograph does exactly this — E and F under the
-            // speedometer, C and H under the tachometer.
-            /// <summary>Where the sub-hub sits below the dial centre. Low
-            /// enough to clear the digital readout above it, high enough that
-            /// the arc below it stays well inside the bezel.</summary>
-            const float SubHubY = -0.44f;
-            /// <summary>Sub-needle length, from that hub. Long enough that its
-            /// tip nearly touches the arc — a needle that stops well short of
-            /// its own scale reads as a stalk, not as a pointer.</summary>
-            const float SubLen = 0.34f;
-            /// <summary>Half the sub-gauge's sweep, measured from straight down.
-            /// </summary>
-            const float SubHalfSweep = 44f;
-            /// <summary>Radius of the tick arc, from the sub-hub.</summary>
-            const float SubArcR = 0.38f;
+            // gauges — E and F under the speedometer, C and H under the
+            // tachometer.
+            //
+            // THE SCALE IS ON THE DIAL'S OWN CIRCUMFERENCE. The first version
+            // drew a little arc of its own around the sub-hub, floating in the
+            // middle of the wedge, and it read as a bracket rather than as part
+            // of the instrument. On the cluster in the photograph the marks sit
+            // out on the rim in the same band as the main dial's ticks, and
+            // only the hub and needle are down in the middle. Getting that
+            // right is what the equal hub-depth-and-needle-length below buys.
             /// <summary>
-            /// How far PAST the ends of the sweep the two letters sit, in
-            /// degrees, at the arc's own radius.
+            /// Depth of the sub-hub below the dial centre, and — deliberately
+            /// the same number — the length of the sub-needle.
             ///
-            /// Beside the arc rather than beyond it, which is where the cluster
-            /// this copies puts them and, more usefully, the only place they
-            /// fit: pushing them outward along the radius instead walks them
-            /// into the bezel, because the sub-hub has already been pushed down
-            /// to clear the digital readout above it.
+            /// Equal is not a coincidence, it is the whole geometry. With the
+            /// hub at depth d and a needle of length d, a needle rotated by
+            /// theta puts its tip at (d sin, -d(1+cos)), whose bearing from the
+            /// DIAL centre is exactly theta/2 and whose radius is 2d cos(theta/2).
+            /// So a scale printed on the dial's own rim is swept by a needle
+            /// turning through twice its angle, and the tip stays in the tick
+            /// band the whole way. That is why the marks on a real cluster can
+            /// sit out on the circumference with the main dial's own ticks
+            /// while the needle pivots from a little hub below the middle.
             /// </summary>
-            const float SubLabelOutDeg = 15f;
+            const float SubHubY = 0.47f;
+            /// <summary>Half the needle's rotation. Twice
+            /// <see cref="SubTickHalfSweep"/>, per the note above.</summary>
+            const float SubNeedleHalfSweep = 40f;
+            /// <summary>
+            /// Half the printed scale, as a bearing from the dial centre.
+            ///
+            /// The whole thing has to live in the 90-degree wedge between the
+            /// main sweep's two ends, sharing it with the first and last
+            /// numeral (at 45 degrees) and the two letters. Twenty leaves the
+            /// letters ten degrees of clear rim either side, which at this
+            /// radius is about a letter and a half of space.
+            /// </summary>
+            const float SubTickHalfSweep = 20f;
+            /// <summary>Radial band the sub ticks occupy — the dial's own minor
+            /// tick band, because that is where they are on the instrument this
+            /// copies. They are not a separate little gauge drawn in the
+            /// bottom of the face; they are marks on the same rim.</summary>
+            const float SubTickOut = 0.95f, SubTickIn = MinorIn;
+            /// <summary>Where the two letters sit: BESIDE the ends of the tick
+            /// group at very nearly its own radius, not tucked inside it. Far
+            /// enough round to read as bracketing the marks, far enough in that
+            /// their tops clear the bezel.</summary>
+            const float SubLabelDeg = 31f, SubLabelR = 0.86f;
             /// <summary>
             /// Below this radius the sub-gauge is left off entirely.
             ///
@@ -916,11 +933,24 @@ namespace PSXRacing
             /// </summary>
             const int SubMinRadius = 46;
 
+            /// <summary>True when this dial actually got its sub-gauge. The
+            /// layout above uses it to decide where the digital readout goes,
+            /// which is a different answer on a dial too small to carry one.
+            /// </summary>
+            public bool HasSub { get; private set; }
+
             public Dial(Transform parent, Font font, string name, Vector2 anchor, Vector2 centre,
                         int radius, float max, float tickStep, float labelStep, float labelScale,
-                        string unit, float redlineFrac)
+                        string unit, float redlineFrac,
+                        string subLow = null, string subHigh = null)
             {
                 this.max = max;
+                // Decided BEFORE the face is baked, because the sub-gauge's
+                // scale is part of that texture rather than a sprite laid over
+                // it. Two rasterisers that both had to agree about where the
+                // marks went would only ever have agreed on the day they were
+                // written.
+                HasSub = subLow != null && subHigh != null && radius >= SubMinRadius;
 
                 root = new GameObject(name, typeof(RectTransform));
                 root.transform.SetParent(parent, false);
@@ -933,7 +963,7 @@ namespace PSXRacing
                 var faceGO = new GameObject("Face");
                 faceGO.transform.SetParent(root.transform, false);
                 var face = faceGO.AddComponent<Image>();
-                face.sprite = BakeFace(radius, max, tickStep, redlineFrac);
+                face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub);
                 var frt = face.rectTransform;
                 frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
                 frt.offsetMin = Vector2.zero; frt.offsetMax = Vector2.zero;
@@ -986,6 +1016,8 @@ namespace PSXRacing
                 hub.rectTransform.anchoredPosition = Vector2.zero;
                 hub.rectTransform.sizeDelta = new Vector2(radius * HubR * 2f, radius * HubR * 2f);
 
+                if (HasSub) MakeSubGauge(font, radius, subLow, subHigh);
+
                 SetValue(0f);
             }
 
@@ -1003,34 +1035,27 @@ namespace PSXRacing
             /// readout out of the way. Silent on a small dial rather than
             /// cluttered.
             /// </summary>
-            public bool MakeSubGauge(Font font, int radius, string lowLabel, string highLabel)
+            void MakeSubGauge(Font font, int radius, string lowLabel, string highLabel)
             {
-                if (radius < SubMinRadius) return false;
+                // The hub hangs BELOW the dial centre; everything else about
+                // this gauge is printed on the dial's own rim and was baked
+                // into the face above.
+                var centre = new Vector2(0f, -radius * SubHubY);
 
-                var centre = new Vector2(0f, radius * SubHubY);
-
-                var arcGO = new GameObject("SubArc");
-                arcGO.transform.SetParent(root.transform, false);
-                var arc = arcGO.AddComponent<Image>();
-                int arcR = Mathf.RoundToInt(radius * SubArcR);
-                arc.sprite = BakeSubArc(arcR);
-                arc.rectTransform.anchorMin = arc.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-                arc.rectTransform.anchoredPosition = centre;
-                arc.rectTransform.sizeDelta = new Vector2(arcR * 2f, arcR * 2f);
-
-                // The letters sit just off each end of the arc, at its radius.
+                // The letters are placed from the DIAL centre, not from the
+                // sub-hub — they belong to the ring of marks out on the rim,
+                // and they bracket the ends of that group.
                 int letter = Mathf.Max(8, Mathf.RoundToInt(radius * 0.15f));
                 foreach (var end in new[] { (-1f, lowLabel), (1f, highLabel) })
                 {
-                    Vector2 dir = SubDirection(end.Item1 * (SubHalfSweep + SubLabelOutDeg));
-                    var t = Label(font, letter, ClusterBulbs.Lit,
-                                  centre + dir * (radius * SubArcR));
+                    Vector2 dir = SubDirection(end.Item1 * SubLabelDeg);
+                    var t = Label(font, letter, ClusterBulbs.Lit, dir * (radius * SubLabelR));
                     t.text = end.Item2;
                 }
 
-                int len = Mathf.Max(3, Mathf.RoundToInt(radius * SubLen));
-                int tail = Mathf.Max(1, Mathf.RoundToInt(radius * SubLen * 0.10f));
-                int wide = Mathf.Max(3, Mathf.RoundToInt(radius * 0.045f));
+                int len = Mathf.Max(3, Mathf.RoundToInt(radius * SubHubY));
+                int tail = Mathf.Max(1, Mathf.RoundToInt(radius * SubHubY * 0.09f));
+                int wide = Mathf.Max(3, Mathf.RoundToInt(radius * 0.042f));
 
                 var nGO = new GameObject("SubNeedle");
                 nGO.transform.SetParent(root.transform, false);
@@ -1058,7 +1083,6 @@ namespace PSXRacing
                 hub.rectTransform.sizeDelta = new Vector2(hubR * 2f, hubR * 2f);
 
                 SetSub(0.5f);
-                return true;
             }
 
             /// <summary>Move the sub-needle. 0 is the left-hand letter (empty,
@@ -1066,7 +1090,7 @@ namespace PSXRacing
             public void SetSub(float f)
             {
                 if (subNeedle == null) return;
-                float deg = Mathf.Lerp(-SubHalfSweep, SubHalfSweep, Mathf.Clamp01(f));
+                float deg = Mathf.Lerp(-SubNeedleHalfSweep, SubNeedleHalfSweep, Mathf.Clamp01(f));
                 if (Mathf.Abs(deg - lastSubDeg) < 0.2f) return;
                 lastSubDeg = deg;
                 // The sprite points along its own +Y, which a rotation of theta
@@ -1195,7 +1219,8 @@ namespace PSXRacing
             /// so a texture baked at the layout size always resamples — the only
             /// choice is whether it does so raggedly or cleanly.
             /// </summary>
-            static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac)
+            static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
+                                   bool subGauge)
             {
                 const int SS = 2;
                 radius *= SS;
@@ -1259,6 +1284,24 @@ namespace PSXRacing
                             if (minor) { px[i] = dim; continue; }
                         }
 
+                        // The sub-gauge's scale, in the empty wedge the main
+                        // sweep leaves across the bottom. Bottom-dead-centre is
+                        // 315 along the sweep (the sweep starts at 135 and runs
+                        // 270), and 315 +/- 26 is 289 to 341 — no wrap, so this
+                        // needs no angle normalising.
+                        if (subGauge && !onSweep && r >= SubTickIn && r <= SubTickOut)
+                        {
+                            float rel = along - 315f;
+                            if (Mathf.Abs(rel) <= SubTickHalfSweep + 0.5f)
+                            {
+                                float step = SubTickHalfSweep * 0.5f;   // five marks
+                                float k = Mathf.Round(rel / step);
+                                float offPx = Mathf.Abs(rel - k * step)
+                                            * Mathf.Deg2Rad * r * radius;
+                                if (offPx <= halfPx) { px[i] = lit; continue; }
+                            }
+                        }
+
                         px[i] = face;
                     }
                 }
@@ -1297,69 +1340,6 @@ namespace PSXRacing
                 tex.SetPixels32(px);
                 tex.Apply();
                 return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
-            }
-
-            /// <summary>
-            /// The sub-gauge's scale: a thin arc across the bottom of the dial
-            /// with five marks on it, the two ends longer.
-            ///
-            /// Transparent everywhere else, so it drops straight onto the face
-            /// that is already there rather than needing the face rebaked with
-            /// a second gauge in it — which would mean two rasterisers that had
-            /// to agree about where the sub-hub was.
-            /// </summary>
-            static Sprite BakeSubArc(int radius)
-            {
-                const int SS = 2;
-                int r = Mathf.Max(6, radius) * SS;
-                int size = r * 2;
-                var tex = new Texture2D(size, size, TextureFormat.RGBA32, true)
-                {
-                    filterMode = FilterMode.Trilinear,
-                    wrapMode = TextureWrapMode.Clamp,
-                };
-                var px = new Color32[size * size];
-                var clear = new Color32(0, 0, 0, 0);
-                Color32 lit = ClusterBulbs.Lit, dim = ClusterBulbs.Dim;
-
-                // Band inside the sprite edge, and the ticks reaching in from it.
-                const float BandOut = 0.99f, BandIn = 0.90f;
-                const float TickIn = 0.74f, EndTickIn = 0.66f;
-                float halfPx = 1.0f * SS;
-
-                for (int y = 0; y < size; y++)
-                {
-                    for (int x = 0; x < size; x++)
-                    {
-                        // UI space directly: x right, y UP, angle measured from
-                        // straight down so it matches SubDirection and the
-                        // needle rotation. The main face bakes in the source
-                        // SVG's y-down convention; this one does not, and
-                        // saying so is the whole reason the two are separate.
-                        float dx = x + 0.5f - r, dy = y + 0.5f - r;
-                        float rad = Mathf.Sqrt(dx * dx + dy * dy);
-                        int i = y * size + x;
-                        px[i] = clear;
-                        if (rad > r || rad < r * EndTickIn) continue;
-
-                        float deg = Mathf.Atan2(dx, -dy) * Mathf.Rad2Deg;
-                        if (Mathf.Abs(deg) > SubHalfSweep) continue;
-                        float rn = rad / r;
-
-                        // Five marks: both ends, both quarters, and the middle.
-                        float k = Mathf.Round((deg + SubHalfSweep) / (SubHalfSweep * 0.5f));
-                        float offDeg = Mathf.Abs(deg + SubHalfSweep - k * SubHalfSweep * 0.5f);
-                        float offPx = offDeg * Mathf.Deg2Rad * rad;
-                        bool isEnd = k <= 0.01f || k >= 3.99f;
-                        if (offPx <= halfPx && rn >= (isEnd ? EndTickIn : TickIn))
-                        { px[i] = lit; continue; }
-
-                        if (rn >= BandIn && rn <= BandOut) px[i] = dim;
-                    }
-                }
-                tex.SetPixels32(px);
-                tex.Apply();
-                return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
             }
 
             /// <summary>Hub cap: a filled disc with a rim.</summary>
