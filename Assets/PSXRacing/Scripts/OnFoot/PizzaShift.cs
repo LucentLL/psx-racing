@@ -35,10 +35,17 @@ namespace PSXRacing.OnFoot
     {
         [Header("Wired by the scene builder")]
         public FootScreen screen;
-        /// <summary>The stack on the counter. Hidden once it is in your hands.</summary>
+        /// <summary>The top box on the counter. Hidden once it is in your
+        /// hands.</summary>
         public Transform counterOrder;
-        /// <summary>The box parented to the camera while carried.</summary>
+        /// <summary>The whole pile the pack stacks there, top first. An order of
+        /// three visibly takes three off the counter.</summary>
+        public Transform[] counterStack;
+        /// <summary>The stack parented to the camera while carried.</summary>
         public Transform carriedOrder;
+        /// <summary>Its individual boxes, bottom first. Built at max size and
+        /// revealed to the size of the order actually rolled.</summary>
+        public Transform[] carriedBoxes;
         public FootTarget counterHook;
         /// <summary>The stand-in car out on the street. Scenery and a second way
         /// to start the run for anyone who can reach it; the door is the one
@@ -61,10 +68,16 @@ namespace PSXRacing.OnFoot
         /// the time it is graded against.</summary>
         int trackIndex = -1;
         float parSeconds;
+        /// <summary>One topping index per box, bottom of the stack first. This
+        /// IS the order — it crosses into the race scene and becomes the boxes
+        /// on the passenger seat.</summary>
+        int[] toppings;
 
         void Start()
         {
             if (carriedOrder != null) carriedOrder.gameObject.SetActive(false);
+            if (carriedBoxes != null)
+                foreach (var b in carriedBoxes) if (b != null) b.gameObject.SetActive(false);
 
             if (counterHook != null) counterHook.onUse = UseCounter;
             if (carHook != null) carHook.onUse = Drive;
@@ -91,7 +104,7 @@ namespace PSXRacing.OnFoot
             {
                 counterHook.title = "PIZZA COUNTER";
                 counterHook.detail = carrying
-                    ? (venue.Length > 0 ? "going to " + venue : "that one is yours")
+                    ? (venue.Length > 0 ? Boxes + " for " + venue : "those are yours")
                     : "an order is up";
                 // Putting it back is the ESCAPE HATCH, and it is the reason this
                 // is a two-way control rather than a one-shot pickup. The door
@@ -121,7 +134,7 @@ namespace PSXRacing.OnFoot
                 // shop, not discovering it on a loading screen.
                 doorHook.title = "FRONT DOOR";
                 doorHook.detail = carrying
-                    ? venue + "  ·  $" + pay + ", more under " +
+                    ? venue + "  ·  " + Boxes + ", $" + pay + ", more under " +
                       LifeRules.DeliveryClock(parSeconds)
                     : "nothing waiting on you";
                 doorHook.action = carrying ? "OUT TO THE CAR — START THE RUN"
@@ -144,7 +157,9 @@ namespace PSXRacing.OnFoot
         {
             if (!carrying) return;
             carrying = false;
-            if (counterOrder != null) counterOrder.gameObject.SetActive(true);
+            if (counterStack != null)
+                foreach (var t in counterStack) if (t != null) t.gameObject.SetActive(true);
+            else if (counterOrder != null) counterOrder.gameObject.SetActive(true);
             if (carriedOrder != null) carriedOrder.gameObject.SetActive(false);
             RefreshLabels();
             screen?.Toast("order back on the counter — it will keep");
@@ -159,13 +174,24 @@ namespace PSXRacing.OnFoot
             // shop's decision rather than something to shop around for.
             if (trackIndex < 0)
             {
-                pay = LifeRules.RollDeliveryPay(S);
+                toppings = LifeRules.RollOrderToppings(MaxBoxes);
+                pay = LifeRules.RollDeliveryPay(S) * toppings.Length;
                 trackIndex = LifeRules.DeliveryTrackIndex(S);
                 parSeconds = LifeRules.DeliveryParSeconds(trackIndex);
             }
 
-            if (counterOrder != null) counterOrder.gameObject.SetActive(false);
+            // The counter loses exactly what the player picked up.
+            if (counterStack != null)
+                for (int i = 0; i < counterStack.Length; i++)
+                    if (counterStack[i] != null)
+                        counterStack[i].gameObject.SetActive(i >= toppings.Length);
+            else if (counterOrder != null) counterOrder.gameObject.SetActive(false);
+
             if (carriedOrder != null) carriedOrder.gameObject.SetActive(true);
+            if (carriedBoxes != null)
+                for (int i = 0; i < carriedBoxes.Length; i++)
+                    if (carriedBoxes[i] != null)
+                        carriedBoxes[i].gameObject.SetActive(i < toppings.Length);
 
             RefreshLabels();
             string venue = trackIndex >= 0 && trackIndex < TrackCatalog.All.Length
@@ -176,9 +202,9 @@ namespace PSXRacing.OnFoot
             // corner is the same ScoreDelivery call saying so live. Promising
             // "$41 if it's there in 2:30" and then showing $51 on the grid
             // would read as the game inflating a number to take it back.
-            screen?.Toast("ORDER UP — " + venue + ", $" + pay + " on the door. " +
-                          "Beat " + LifeRules.DeliveryClock(parSeconds) +
-                          " for more; don't shake it. Out the front.");
+            screen?.Toast("ORDER UP — " + Boxes + " to " + venue + ", $" + pay +
+                          " on the door. Beat " + LifeRules.DeliveryClock(parSeconds) +
+                          " for more; keep them flat. Out the front.");
         }
 
         /// <summary>The door does whichever of the two things the player is
@@ -219,6 +245,8 @@ namespace PSXRacing.OnFoot
             RaceHandoff.Solo = true;
             RaceHandoff.IsPractice = true;   // no purse, no rep, no rival ladder
             RaceHandoff.DeliveryPay = pay;
+            RaceHandoff.OrderToppings = toppings;
+            RaceHandoff.OrderBoxes = toppings != null ? toppings.Length : 1;
             RaceHandoff.CarId = S.activeCar;
             RaceHandoff.CarSpecId = car.specId;
             RaceHandoff.TrackIndex = trackIndex;
@@ -231,6 +259,16 @@ namespace PSXRacing.OnFoot
             LifeSimManager.Save();
             SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
         }
+
+        /// <summary>Biggest order the shop hands out. Aliases the rule in
+        /// LifeRules so the scene builder (which builds the carried stack that
+        /// tall) and this (which rolls the order) cannot disagree — a stack
+        /// built three tall against an order rolled four long is two boxes the
+        /// player is paid for and never sees.</summary>
+        public const int MaxBoxes = LifeRules.MaxOrderBoxes;
+
+        int BoxCount => toppings != null ? toppings.Length : 0;
+        string Boxes => BoxCount == 1 ? "one box" : BoxCount + " boxes";
 
         /// <summary>Leave without taking a run. Costs nothing — the player has
         /// not started the shift, and a job you cannot walk out of before it

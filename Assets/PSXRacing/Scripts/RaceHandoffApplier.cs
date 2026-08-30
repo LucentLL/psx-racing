@@ -106,6 +106,20 @@ namespace PSXRacing
                 playerCar.faultBrakeMult = RaceHandoff.BrakeMult;
                 playerCar.faultShiftMult = RaceHandoff.ShiftMult;
                 playerCar.faultSteerPull = RaceHandoff.SteerPull;
+
+                // The cargo, and the little window onto it. Spawned HERE rather
+                // than baked into every circuit: a delivery is the only run that
+                // has any, this is the one place that already knows the run is a
+                // delivery and which car is the player's, and a scene that bakes
+                // an empty pizza rig into all eleven circuits is eleven things
+                // to keep in step for no gain.
+                if (RaceHandoff.Delivery)
+                {
+                    var order = RaceHandoff.OrderToppings;
+                    if (order == null || order.Length == 0) order = new[] { 0 };
+                    var cargo = PizzaCargo.Spawn(playerCar, order);
+                    if (cargo != null) PizzaCam.Spawn(cargo);
+                }
             }
 
             ApplyField(raceField);

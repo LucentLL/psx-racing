@@ -29,6 +29,8 @@ Get-Content "$proj\PSXRacing_build_log.txt" -Tail 12
 # The previews render, so NO -nographics here. A headless editor returns black
 # frames from cam.Render() and the pass certifies nothing.
 $jobs = @(
+    @{ Name = "cargo preview"; Method = "PSXRacing.EditorTools.PizzaCargoPreview.Run"; Out = $null },
+    @{ Name = "cargo physics"; Method = "PSXRacing.EditorTools.PizzaCargoSimShots.Run"; Out = $null },
     @{ Name = "pizzeria preview"; Method = "PSXRacing.EditorTools.PizzeriaPreview.Run"; Out = $null },
     @{ Name = "self-test"; Method = "PSXRacing.EditorTools.LifeSimSelfTest.Run"; Out = "PSXRacing_selftest_log.txt" }
 )
@@ -48,8 +50,8 @@ foreach ($job in $jobs) {
     if (-not $ok) { Write-Host "job did not finish" -ForegroundColor Red }
     $cs = Select-String -Path "$proj\deliveryjob.log" -Pattern "error CS" | Select-Object -First 10
     if ($cs) { $cs | ForEach-Object { $_.Line } }
-    $notes = Select-String -Path "$proj\deliveryjob.log" -Pattern "\[PizzaShot\]|\[Pizzeria\]" |
-             Select-Object -First 14
+    $notes = Select-String -Path "$proj\deliveryjob.log" -Pattern "\[PizzaShot\]|\[Pizzeria\]|\[PizzaCargo\]|\[PizzaSim\]" |
+             Select-Object -First 40
     if ($notes) { $notes | ForEach-Object { $_.Line } }
     if ($job.Out) {
         $outFile = Join-Path $proj $job.Out
@@ -62,6 +64,7 @@ foreach ($job in $jobs) {
 }
 
 Write-Host "--- shots ---" -ForegroundColor Cyan
-Get-ChildItem "$proj\Screenshots\Pizzeria" -Filter *.png -ErrorAction SilentlyContinue |
+Get-ChildItem "$proj\Screenshots" -Recurse -Filter *.png -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "Pizza" } |
     Sort-Object LastWriteTime -Descending |
     ForEach-Object { "{0}  {1}" -f $_.LastWriteTime.ToString("HH:mm"), $_.FullName }

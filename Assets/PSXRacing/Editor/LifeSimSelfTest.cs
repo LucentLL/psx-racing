@@ -544,6 +544,7 @@ namespace PSXRacing.EditorTools
             Check(sameOrder, "...and the same scenes in the same ORDER");
 
             TestDeliveryJob();
+            TestPizzaCargo();
             TestVertexSnapOff();
             TestWalkInScenesRender();
         }
@@ -809,6 +810,118 @@ namespace PSXRacing.EditorTools
                 { inBand = false; bad = o.tip.ToString(); break; }
             }
             Check(inBand, "no roll pays outside the quoted band", bad);
+        }
+
+        /// <summary>
+        /// The cargo: baked parts, the order that fills them, and the grade.
+        ///
+        /// Everything asserted here fails SILENTLY and looks like something
+        /// else. A box baked on its edge still instantiates and still pays a
+        /// tip — it is just carried like a briefcase, which is the bug this
+        /// whole pass came from. A pizza wider than its box sits proud of it and
+        /// reads as a missing lid. An order rolled longer than the carried stack
+        /// is boxes the player is charged for and never sees.
+        /// </summary>
+        static void TestPizzaCargo()
+        {
+            Line("pizza cargo:");
+            const string dir = "Assets/PSXRacing/Resources/PizzaCargo/";
+
+            var box = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "pizza_box.prefab");
+            Check(box != null, "the box is baked (run the scene build)");
+            if (box == null) return;
+
+            Vector3 bs = PrefabSize(box);
+            Check(bs.y <= bs.x && bs.y <= bs.z,
+                  "the box is FLAT, not on its edge", bs.ToString("0.000"));
+            float w = Mathf.Max(bs.x, bs.z);
+            Check(Mathf.Abs(w - PizzaCargoBaker.BoxWidthM) < 0.02f,
+                  "and it is a pizza box rather than a coffee table",
+                  w.ToString("0.000") + " m");
+            Check(bs.y > 0.01f && bs.y < 0.12f, "with a box's thickness", bs.y.ToString("0.000"));
+
+            // Every topping the order can roll has to exist, or a delivery
+            // hands the player an empty box and nothing says why.
+            int missing = 0; string firstMissing = "";
+            for (int i = 0; i < PSXRacing.PizzaCargoBakerNames.ToppingCount; i++)
+            {
+                var t = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "pizza_top_" + i + ".prefab");
+                if (t == null) { missing++; if (firstMissing.Length == 0) firstMissing = "pizza_top_" + i; }
+            }
+            Check(missing == 0, "every topping an order can roll is baked",
+                  missing == 0 ? PSXRacing.PizzaCargoBakerNames.ToppingCount + " toppings" : firstMissing);
+
+            var pizza = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "pizza_top_0.prefab");
+            if (pizza != null)
+            {
+                Vector3 ps = PrefabSize(pizza);
+                Check(ps.y <= ps.x && ps.y <= ps.z, "the pizza is flat too", ps.ToString("0.000"));
+                Check(Mathf.Max(ps.x, ps.z) < w,
+                      "and it FITS IN THE BOX",
+                      Mathf.Max(ps.x, ps.z).ToString("0.000") + " in " + w.ToString("0.000"));
+            }
+
+            // The order. Never empty, never longer than the stack the pizzeria
+            // scene actually builds, and never naming a topping that was not
+            // baked.
+            int lo = int.MaxValue, hi = 0; bool badIndex = false;
+            for (int i = 0; i < 400; i++)
+            {
+                var o = LifeRules.RollOrderToppings(LifeRules.MaxOrderBoxes);
+                lo = Mathf.Min(lo, o.Length); hi = Mathf.Max(hi, o.Length);
+                foreach (int t in o)
+                    if (t < 0 || t >= PSXRacing.PizzaCargoBakerNames.ToppingCount) badIndex = true;
+            }
+            Check(lo >= 1, "an order is never empty", lo);
+            Check(hi <= LifeRules.MaxOrderBoxes, "and never taller than the carried stack", hi);
+            Check(hi > lo, "and the size varies", lo + ".." + hi);
+            Check(!badIndex, "every box names a topping that exists");
+
+            // The grade runs off the SIMULATION when there is one, and the
+            // override has to actually override — the damage tally passed in
+            // here says "spotless" while the cargo says "ruined", and the cargo
+            // is the one that must win.
+            int venue = 0;
+            for (int t = 0; t < TrackCatalog.Count; t++)
+                if (!TrackCatalog.At(t).city) { venue = t; break; }
+            float par = LifeRules.DeliveryParSeconds(venue);
+            var byDamage = LifeRules.ScoreDelivery(100, venue, par, 0f, 0);
+            var bySim = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 0.1f);
+            Check(byDamage.tip > 0 && bySim.refused,
+                  "a ruined cargo overrides a clean damage score",
+                  byDamage.tip + " vs refused=" + bySim.refused);
+            var simFine = LifeRules.ScoreDelivery(100, venue, par, 90f, 4, cargoCondition: 1f);
+            Check(!simFine.refused && simFine.tip == byDamage.tip,
+                  "and an intact cargo survives a wrecked car", simFine.tip);
+
+            // ---- the simulation itself, driven ---------------------------
+            //
+            // Three questions in order: does it sit still, does it survive a
+            // corner, does a crash actually hurt it. All three fail silently and
+            // catastrophically — a stack that explodes at rest refuses every
+            // delivery in the game and nothing in the log says why.
+            var sim = PizzaCargoSim.Run(shoot: false);
+            Check(sim.built && sim.boxes == 3, "a three-box cargo stands up", sim.boxes);
+            if (!sim.built) return;
+            Check(sim.atRest > 0.995f,
+                  "a parked car does not damage its own cargo", sim.atRest.ToString("0.000"));
+            Check(sim.afterCorner > LifeRules.PizzaRuinedCondition,
+                  "and one hard corner does not ruin it", sim.afterCorner.ToString("0.000"));
+            Check(sim.afterCrash < sim.afterCorner,
+                  "but hitting a wall does", sim.afterCrash.ToString("0.000") +
+                  " after " + sim.afterCorner.ToString("0.000"));
+            Line("  .. " + sim.detail);
+        }
+
+        static Vector3 PrefabSize(GameObject prefab)
+        {
+            var probe = (GameObject)Object.Instantiate(prefab);
+            probe.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            var rs = probe.GetComponentsInChildren<MeshRenderer>(true);
+            var b = rs.Length > 0 ? rs[0].bounds : new Bounds(Vector3.zero, Vector3.zero);
+            foreach (var r in rs) b.Encapsulate(r.bounds);
+            Object.DestroyImmediate(probe);
+            return b.size;
         }
 
         /// <summary>

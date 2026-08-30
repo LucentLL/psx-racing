@@ -5,6 +5,118 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE PIZZA IS THE SCORE (2026-08-29, second pass)
+
+**The pitch, from the owner, and it settles what this game is:** *"like Initial
+D, you're a delivery driver. But for Pizza."*
+
+That is not a theme, it is a mechanic. Initial D's tofu is a cup of water in the
+cup holder, and the whole discipline of the driving is not spilling it. So the
+cargo stops being a number derived from an impact tally and becomes **an object
+on the passenger seat**, with its own physics, its own camera, and the tip
+graded off what is left of it.
+
+Asked for: boxes carried HORIZONTALLY with real pizzas in them; a Pizza Cam
+showing the box slide around the seat, bounce and flip in a crash, and the pizza
+fall or slip out; on mobile that cam sits above the steering wheel; multiple
+pizzas per run, stacked, moving independently, top one most at risk.
+
+### How the cargo is simulated, and why it is not parented to the car
+
+A rigidbody does not inherit its parent's motion. A box made a child of a moving
+car falls straight out of the back of it, and a box made kinematic is not a
+simulation at all. So the cargo lives in its **own place** — a tray four
+kilometres under the track, where nothing exists to collide with, nothing casts
+rays, and the cargo camera's 2.2 m far plane could not see the world even if
+there were — and the car is brought to the cargo:
+
+- the tray takes the car's rotation **with the yaw removed**, so it pitches under
+  braking and rolls in a corner (and tips right over when the car does) without
+  spinning on its own axis every time the player turns the wheel;
+- every loose body gets the car's own measured acceleration applied backwards,
+  which IS the pseudo-force a passenger feels. Clamped to 12 g, because a
+  finite-difference acceleration through a wall impact is one frame of an
+  enormous number and it tunnels a box straight out of the tray.
+
+Everything good falls out of that arithmetic rather than being special-cased. A
+car in free fall accelerates at g, so the boxes get −g, cancel gravity and float
+— which is what happens to a pizza over a crest. And **"the top one is most at
+risk" needs no rule at all**: it is the box with nothing on top of it holding it
+down, so it is the one that goes.
+
+The box is a CONTAINER, not a block: floor, four walls, and a ceiling collider
+that exists only while the lid is on. Opening the box destroys the ceiling and
+cuts the lid loose as its own body — until that moment the pizza rides out every
+bump, and after it, physics decides. A box tipped past ~51°, or one that ends up
+in the footwell, opens.
+
+Condition per box: jostling (the pizza's motion RELATIVE to its box — the whole
+car is moving and none of that matters to the cheese), −0.45 if the pizza leaves
+its box, −0.30 if the box went past horizontal, −0.22 if it left the seat. The
+ORDER is graded on the mean, because the customer opens every box: one ruined
+pizza in three is a third of an order ruined.
+
+`RaceHandoff.CargoCondition` overrides the old `PizzaCondition(damage, hardHits)`
+estimate whenever a cargo rig actually ran, and that is the point — a driver who
+clouts a wall dead square can keep every box flat, and one who never touches
+anything can throw the lot into the footwell on a crest taken too fast. The
+impact tally was always a stand-in for this. It stays as the fallback for a
+scene with no rig, and for the self-test, which has no scene at all.
+
+### The Pizza Cam
+
+A second camera on four rigidbodies rendering 160x108 point-filtered — roughly
+the resolution of the rest of the game, and it costs nothing. Above the steering
+wheel on mobile, at the wheel's own reported box (`TouchControls.WheelInset`,
+which exists because a fraction of the screen that clears the wheel is a
+different fraction every time the panel is retuned); bottom-left without one.
+
+**The camera does not tilt with the car.** It is fixed relative to gravity, so
+what the player watches is the SEAT rolling and pitching under the boxes. A
+camera bolted to the car would hold the seat still and tilt a background that
+isn't there — the attitude is the information.
+
+It exists so the tip is not a punishment. A number that drains for reasons the
+player cannot see is a tax; a box visibly walking toward the footwell on the
+approach to a corner is a reason to lift.
+
+### Carried horizontally, and the bug that caused it
+
+`Instantiate` + `SetParent(cam, false)` **discards the local rotation chain**,
+and the pack's box only lies flat because of the transform it sits under on its
+shelf. So the player was handed a 70 cm box stood on its edge like a briefcase.
+
+Fixed at the source: `PizzaCargoBaker` cuts the box, its lid, ten toppings and
+ten loose slices out of `Pizzeria_Props.fbx`, **measures** each one's thinnest
+axis and turns it up if it is not already, seats it on its base, and scales the
+whole family off the box — a real 16-inch box is 41 cm, and the pack's is 70. The
+prefabs land in `Resources/PizzaCargo` because a race scene cannot
+AssetDatabase-load an FBX, the same reason CityProps exists. The carried stack in
+the shop and the cargo on the seat are now built from the same parts, so the
+boxes the player picks up ARE the boxes that ride to the drop.
+
+### Multiple pizzas
+
+`LifeRules.RollOrderToppings` rolls 1-3 boxes, weighted toward the small orders
+(52/33/15) because every extra box is another independent thing sliding around a
+seat — a three-box run should be the night you remember, not the default. Pay is
+per box. The counter visibly loses exactly what the player picked up, and the
+carried stack is built to `LifeRules.MaxOrderBoxes` and revealed a box at a time,
+because the scene is baked once and the order is not rolled until the player is
+standing at the counter.
+
+### Verification
+
+`PizzaCargoPreview` photographs the baked parts — one box shut, one open with its
+pizza showing, and the three-box order — and LOGS whether each part came out flat
+or on its edge. `PizzeriaPreview` now turns the carried stack ON before it
+shoots, because it is built disabled and a preview of the scene as saved is a
+preview of a player holding nothing: the exact frame the vertical-box bug lived
+in. The self-test asserts the box is flat, is 41 cm, is box-thick, that every
+topping an order can roll exists, that the pizza FITS IN THE BOX, that an order
+is never empty nor taller than the carried stack, and that a ruined cargo
+overrides a clean damage score in both directions.
+
 ## THE DELIVERY RUN, AND THE JITTER NOBODY COULD SEE (2026-08-29)
 
 Asked for, from a phone playtest of the pizza shop: (1) "many textures are

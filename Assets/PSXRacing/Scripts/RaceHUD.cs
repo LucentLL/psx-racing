@@ -420,13 +420,22 @@ namespace PSXRacing
         LifeSim.LifeRules.DeliveryOutcome LiveDrop(float seconds)
         {
             bool stamped = RaceHandoff.ResultReady;
+            // The live cargo while the run is going, the stamped value after —
+            // same rule as the damage tally below it, and for the same reason:
+            // input dies at the line but the car keeps rolling, and a box that
+            // slid off on the slowing-down lap must not make the results screen
+            // read worse than the wallet.
+            float? cargo = stamped
+                ? (RaceHandoff.CargoReported ? RaceHandoff.CargoCondition : (float?)null)
+                : (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0
+                       ? PizzaCargo.Instance.Condition : (float?)null);
             return LifeSim.LifeRules.ScoreDelivery(
                 RaceHandoff.DeliveryPay, RaceHandoff.TrackIndex, seconds,
                 stamped ? RaceHandoff.DamageScore
                         : (responder != null ? responder.DamageScore : 0f),
                 stamped ? RaceHandoff.HardHits
                         : (responder != null ? responder.HardHits : 0),
-                inProgress: !stamped);
+                inProgress: !stamped, cargoCondition: cargo);
         }
 
         string DeliverySheet(float finishTime)

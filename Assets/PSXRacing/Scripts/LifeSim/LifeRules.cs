@@ -160,6 +160,37 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public const float DeliveryLaunchAllowance = 6f;
 
+        /// <summary>
+        /// Biggest order the shop hands out.
+        ///
+        /// THE one place this number lives. The pizzeria scene builds its
+        /// carried stack this tall and PizzaShift rolls the order against it; a
+        /// stack built three tall against an order rolled four long is two boxes
+        /// the player is paid for and never sees, and neither half would throw.
+        /// </summary>
+        public const int MaxOrderBoxes = 3;
+
+        /// <summary>
+        /// Tonight's order: one topping per box, bottom of the stack first.
+        ///
+        /// Weighted toward the small orders. Every extra box is another
+        /// independent thing sliding around a car seat and the top one has
+        /// nothing holding it down, so a three-box run is genuinely harder as
+        /// well as worth three times as much — it should be the night you
+        /// remember, not the default.
+        /// </summary>
+        public static int[] RollOrderToppings(int maxBoxes)
+        {
+            int cap = Mathf.Clamp(maxBoxes, 1, MaxOrderBoxes);
+            float r = Random.value;
+            int n = r < 0.52f ? 1 : r < 0.85f ? 2 : 3;
+            n = Mathf.Min(n, cap);
+            var order = new int[n];
+            for (int i = 0; i < n; i++)
+                order[i] = Random.Range(0, PizzaCargoBakerNames.ToppingCount);
+            return order;
+        }
+
         /// <summary>Impact energy a delivery gets for free. Kerbs, rubs and a
         /// clipped wall happen on any real drive, and a job that punished the
         /// first bump would be graded on luck.</summary>
@@ -237,14 +268,21 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static DeliveryOutcome ScoreDelivery(int quoted, int trackIndex,
                                                     float seconds, float damage,
-                                                    int hardHits, bool inProgress = false)
+                                                    int hardHits, bool inProgress = false,
+                                                    float? cargoCondition = null)
         {
             var o = new DeliveryOutcome
             {
                 quoted = Mathf.Max(0, quoted),
                 parSeconds = DeliveryParSeconds(trackIndex),
                 seconds = seconds,
-                condition = PizzaCondition(damage, hardHits),
+                // The SIMULATION wins when there is one. PizzaCondition is an
+                // estimate off the impact tally, written when the cargo was a
+                // number; now that the boxes are objects on a seat, what
+                // happened to them is not a thing to infer. The estimate stays
+                // as the fallback for a scene with no cargo rig — and for the
+                // self-test, which has no scene at all.
+                condition = cargoCondition ?? PizzaCondition(damage, hardHits),
                 inProgress = inProgress,
             };
 
@@ -611,7 +649,9 @@ namespace PSXRacing.LifeSim
                 // version has always granted, for the same reason.
                 var drop = ScoreDelivery(RaceHandoff.DeliveryPay, RaceHandoff.TrackIndex,
                                          RaceHandoff.RaceTimeSeconds,
-                                         RaceHandoff.DamageScore, RaceHandoff.HardHits);
+                                         RaceHandoff.DamageScore, RaceHandoff.HardHits,
+                                         cargoCondition: RaceHandoff.CargoReported
+                                             ? RaceHandoff.CargoCondition : (float?)null);
                 s.money += drop.tip;
                 s.workedToday = true;
                 s.workDaysTotal++; s.workDaysPresent++;

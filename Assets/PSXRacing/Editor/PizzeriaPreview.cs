@@ -70,6 +70,27 @@ namespace PSXRacing.EditorTools
                                    : player.transform.position + Vector3.up * FootRig.EyeH;
             var fwd = player.transform.forward;
 
+            // Turn the carried order ON for the shots.
+            //
+            // It is built disabled — PizzaShift reveals it a box at a time when
+            // the player picks the order up — so a preview that photographs the
+            // scene as saved photographs a player holding nothing, which is
+            // precisely the frame the "carried vertically" bug lived in. The
+            // whole point of these shots is what is in the player's hands.
+            if (shift != null && shift.carriedOrder != null)
+            {
+                shift.carriedOrder.gameObject.SetActive(true);
+                if (shift.carriedBoxes != null)
+                    foreach (var b in shift.carriedBoxes)
+                        if (b != null) b.gameObject.SetActive(true);
+                Debug.Log("[PizzaShot] carried stack shown: " +
+                          (shift.carriedBoxes != null ? shift.carriedBoxes.Length : 0) + " boxes at " +
+                          shift.carriedOrder.localPosition.ToString("0.00") +
+                          " rot " + shift.carriedOrder.localEulerAngles.ToString("0"));
+            }
+            else Debug.LogError("[PizzaShot] no carried order on the shift — the player " +
+                                "walks out of this shop empty-handed");
+
             // 1. what the player sees the instant the shift starts
             Shoot(dir, "shift_1_spawn", eye, Quaternion.LookRotation(fwd, Vector3.up));
 

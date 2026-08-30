@@ -202,6 +202,22 @@ namespace PSXRacing
                 RaceHandoff.DamageScore = responder != null ? responder.DamageScore : 0f;
                 RaceHandoff.HardHits = responder != null ? responder.HardHits : 0;
 
+                // What the customer is about to open. Stamped like the tank is
+                // stamped, and for the same reason: the cargo is the only thing
+                // that actually knows, and re-deriving it from the impact tally
+                // back in the menu would be answering a question the simulation
+                // already answered.
+                // BoxCount, not just the instance. A cargo whose prefabs
+                // failed to load is a component with no boxes in it, and its
+                // Condition is a truthful 1.0 about nothing — stamping that
+                // would override the damage model with "perfect" and make every
+                // delivery in a broken build pay full whack.
+                if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
+                {
+                    RaceHandoff.CargoCondition = PizzaCargo.Instance.Condition;
+                    RaceHandoff.CargoReported = true;
+                }
+
                 // The tank is MEASURED, not re-derived. A car that pulled into
                 // the forecourt on lap two covered the same distance as one that
                 // did not and is carrying a completely different amount of fuel,

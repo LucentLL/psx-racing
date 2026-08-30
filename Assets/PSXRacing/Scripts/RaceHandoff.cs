@@ -52,6 +52,21 @@ namespace PSXRacing
         /// <summary>What the drop is worth, rolled at the shop so the player
         /// can be told before they set off. Tips, so it swings.</summary>
         public static int DeliveryPay;
+        /// <summary>
+        /// The order itself: one topping index per BOX, in stacking order,
+        /// bottom first. Indexes into PizzaCargoBaker.Toppings, so the array is
+        /// append-only.
+        ///
+        /// It has to cross the scene load because the cargo is a real object
+        /// now — the boxes the player picked up at the counter are the boxes
+        /// that ride on the passenger seat, and "three, and the top one is
+        /// pepperoni" is not something the race scene can re-derive.
+        /// </summary>
+        public static int[] OrderToppings;
+        /// <summary>How many boxes are in the order. Kept beside the array
+        /// rather than read off its length so a handoff with no array (a scene
+        /// played standalone) still says one.</summary>
+        public static int OrderBoxes = 1;
         /// <summary>Retire the whole AI field. An EMPTY OpponentSpecIds does
         /// NOT mean this — ApplyField reads an empty list as "leave the grid as
         /// the track authored it", which is four cars. Solo has to be asked for
@@ -135,6 +150,24 @@ namespace PSXRacing
         /// incidents) rather than the repair bill, which DamageScore covers.</summary>
         public static int HardHits;
 
+        /// <summary>
+        /// What is left of the pizza, 0-1, as the SIMULATION saw it — boxes
+        /// tipped, lids off, slices on the floor.
+        ///
+        /// Authoritative over the damage-score estimate when
+        /// <see cref="CargoReported"/> is set, and that is the point: a driver
+        /// who clouts a wall dead square may keep every box flat on the seat,
+        /// and one who never touches anything can still throw the lot into the
+        /// footwell on a crest taken too fast. The impact tally was always a
+        /// stand-in for this.
+        /// </summary>
+        public static float CargoCondition = 1f;
+        /// <summary>Whether a PizzaCargo actually ran. False on an old scene,
+        /// on a race that is not a delivery, and if the cargo prefabs are
+        /// missing — where the DamageScore model is still the only answer
+        /// available.</summary>
+        public static bool CargoReported;
+
         public static void ClearResult()
         {
             ResultReady = false;
@@ -150,6 +183,8 @@ namespace PSXRacing
             FuelSpent = 0;
             DamageScore = 0f;
             HardHits = 0;
+            CargoCondition = 1f;
+            CargoReported = false;
         }
 
         public static void ClearAll()
@@ -161,6 +196,7 @@ namespace PSXRacing
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             FreeRoam = false;
             Delivery = false; DeliveryPay = 0; Solo = false;
+            OrderToppings = null; OrderBoxes = 1;
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null;

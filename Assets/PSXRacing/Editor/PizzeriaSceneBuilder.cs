@@ -32,6 +32,12 @@ namespace PSXRacing.EditorTools
         const string Root = "Assets/PSXRacing";
         const string MatDir = Root + "/Materials";
         const string PackDir = Root + "/Art/LifeSim/PizzeriaScene";
+        const string CargoDir = Root + "/Resources/PizzaCargo";
+        /// <summary>Most boxes one order can be. The stack is built this tall
+        /// and revealed a box at a time — the scene is baked once and the order
+        /// is not rolled until the player is at the counter. The NUMBER lives in
+        /// LifeRules, with the rule that rolls against it.</summary>
+        const int MaxCarriedBoxes = PSXRacing.LifeSim.LifeRules.MaxOrderBoxes;
 
         static Shader psxLit;
 
@@ -80,16 +86,24 @@ namespace PSXRacing.EditorTools
                       "  interior floor y " + insideY.ToString("0.00") +
                       "  (" + cols + " colliders)");
 
-            // ---- the order: one of the pack's own boxes ----
-            var order = FindOrderBox(shop, doorPos, inward);
+            // ---- the order: the pack's own stack of boxes ----
+            var counterStack = FindOrderStack(shop, doorPos, inward);
+            var order = counterStack.Length > 0 ? counterStack[0] : null;
             if (order == null) Debug.LogWarning("[Pizzeria] no Pizza_box found — the counter will have no order on it");
+            else Debug.Log("[Pizzeria] counter stack of " + counterStack.Length + ", top " + order.name);
 
             // ---- player ----
             var player = FootRig.Build(spawn, yaw, out Camera cam);
 
-            // The carried order is a COPY of the box on the counter, so what the
-            // player walks out with is visibly the thing they picked up.
-            Transform carried = order != null ? BuildCarriedBox(cam.transform, order) : null;
+            // The carried order is built from the BAKED CARGO parts — the same
+            // box, lid and pizza prefabs that ride on the passenger seat during
+            // the run. Not a copy of the counter prop any more, and that is the
+            // fix: Instantiate + SetParent(cam, false) throws away the local
+            // rotation chain that made the pack's box lie flat on its shelf, so
+            // what the player was handed was a 70 cm box held on its edge like a
+            // briefcase. The baked prefabs are measured flat at bake time, so
+            // there is no chain left to lose.
+            var carriedStack = BuildCarriedStack(cam.transform, out Transform[] carriedBoxes);
 
             // ---- the car, out on the street ----
             var carGO = BuildParkedCar(doorPos, inward, out Vector3 carAt);
@@ -131,7 +145,9 @@ namespace PSXRacing.EditorTools
             var shift = systems.AddComponent<PizzaShift>();
             shift.screen = screen;
             shift.counterOrder = order;
-            shift.carriedOrder = carried;
+            shift.counterStack = counterStack;
+            shift.carriedOrder = carriedStack;
+            shift.carriedBoxes = carriedBoxes;
             // Generous reach, because the order sits BEHIND the counter — which
             // is where an order sits in a pizza shop. The player stands on the
             // customer side and reaches over; a range that only worked from
@@ -225,44 +241,135 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// The order on the counter: the pack's own top pizza box, nearest the
-        /// dining room rather than nearest the oven — that is the one a
-        /// customer's order would be waiting on, and the one the player walks
-        /// past on the way in.
+        /// The order on the counter: the pack's own stack of pizza boxes,
+        /// nearest the dining room rather than nearest the oven — that is where
+        /// a customer's order waits, and it is the one the player walks past on
+        /// the way in.
+        ///
+        /// The whole STACK now, top box first, because an order can be up to
+        /// three boxes and the shop should visibly lose the ones the player
+        /// walks out with. The pack stacks four of them in one place, which is
+        /// more than enough.
         /// </summary>
-        static Transform FindOrderBox(GameObject root, Vector3 doorPos, float inward)
+        static Transform[] FindOrderStack(GameObject root, Vector3 doorPos, float inward)
         {
-            Transform best = null;
-            float bestScore = float.MaxValue;
+            // Group the pack's boxes by where they stand, then take the pile
+            // nearest the door: they are stacked, so grouping by plan position
+            // is what separates one pile from another.
+            var piles = new List<List<Renderer>>();
             foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
             {
                 if (!r.name.StartsWith("Pizza_box")) continue;
-                // Closest to the door along the shop's length, and highest in
-                // its stack: a box under four others cannot be lifted off.
-                float along = (r.bounds.center.x - doorPos.x) * inward;
-                float score = along - r.bounds.center.y * 2f;
-                if (score < bestScore) { bestScore = score; best = r.transform; }
+                List<Renderer> pile = null;
+                foreach (var p in piles)
+                {
+                    var c = p[0].bounds.center;
+                    if (Mathf.Abs(c.x - r.bounds.center.x) < 0.4f &&
+                        Mathf.Abs(c.z - r.bounds.center.z) < 0.4f) { pile = p; break; }
+                }
+                if (pile == null) { pile = new List<Renderer>(); piles.Add(pile); }
+                pile.Add(r);
             }
-            return best;
+            if (piles.Count == 0) return new Transform[0];
+
+            List<Renderer> best = null;
+            float bestAlong = float.MaxValue;
+            foreach (var p in piles)
+            {
+                float along = (p[0].bounds.center.x - doorPos.x) * inward;
+                if (along < bestAlong) { bestAlong = along; best = p; }
+            }
+            // Top first: a box under four others cannot be lifted off, so the
+            // one the player takes is the highest.
+            best.Sort((a, b) => b.bounds.center.y.CompareTo(a.bounds.center.y));
+            var outp = new Transform[best.Count];
+            for (int i = 0; i < best.Count; i++) outp[i] = best[i].transform;
+            return outp;
         }
 
-        static Transform BuildCarriedBox(Transform cam, Transform source)
+        /// <summary>
+        /// What the player walks out holding: a stack of up to three real pizza
+        /// boxes, FLAT, each with a pizza in it and a lid on top.
+        ///
+        /// Horizontal is the whole point of this rebuild. A pizza box is carried
+        /// flat because the thing in it is a disc of molten cheese, and the
+        /// previous version held it on its edge — not by choice but because
+        /// Instantiate + SetParent(cam, false) discards the local rotation, and
+        /// the pack's box only lies flat because of the transform chain it sits
+        /// under on its shelf. The baked cargo prefabs are measured flat at bake
+        /// time (see PizzaCargoBaker.SaveFlat), so there is nothing left to
+        /// lose.
+        ///
+        /// Built at MAX SIZE and revealed a box at a time: the scene is baked
+        /// once and the order is rolled at the counter, so the stack cannot know
+        /// how tall it is until the player is standing in front of it.
+        /// </summary>
+        static Transform BuildCarriedStack(Transform cam, out Transform[] boxes)
         {
-            var copy = Object.Instantiate(source.gameObject);
-            copy.name = "CarriedOrder";
-            foreach (var c in copy.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
-            copy.transform.SetParent(cam, false);
-            // The box rides low and right, the way one does on a flat hand, and
-            // is scaled to the size it looks in the shop rather than the size it
-            // is: the pack's boxes are generous, and one at arm's length fills
-            // half the screen.
-            copy.transform.localScale = source.lossyScale * 0.5f;
-            // Further out and lower than a first guess put it: the pack's boxes
-            // are a generous 0.69 m, and one held at 55 cm filled the bottom
-            // corner of the screen and hid the counter you are walking to.
-            copy.transform.localPosition = new Vector3(0.30f, -0.40f, 0.86f);
-            copy.transform.localRotation = Quaternion.Euler(8f, -16f, 5f);
-            return copy.transform;
+            boxes = new Transform[MaxCarriedBoxes];
+            var root = new GameObject("CarriedOrder");
+            root.transform.SetParent(cam, false);
+            // Low and to the right, tilted so the player is looking down onto
+            // the lids rather than at the front edge of the bottom one. Out at
+            // 85 cm because these are 41 cm boxes and one held at arm's length
+            // is a wall.
+            // Down and right, out of the way of the counter you are walking to.
+            // The first cut sat it at (0.14, -0.30, 0.85) and a 41 cm box at
+            // that distance covers the middle of the room — which is where the
+            // order, the till and the way out all are.
+            root.transform.localPosition = new Vector3(0.24f, -0.40f, 0.95f);
+            root.transform.localRotation = Quaternion.Euler(-20f, -14f, 3f);
+
+            var boxPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CargoDir + "/pizza_box.prefab");
+            var pizzaPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CargoDir + "/pizza_top_0.prefab");
+            if (boxPrefab == null)
+            {
+                Debug.LogError("[Pizzeria] no baked pizza box at " + CargoDir +
+                               " — run PSX Racing/Bake Pizza Cargo first");
+                return root.transform;
+            }
+
+            float step = 0.075f;
+            var bb = MeshBounds(boxPrefab);
+            if (bb.size.y > 0.005f) step = bb.size.y + 0.004f;
+
+            for (int i = 0; i < MaxCarriedBoxes; i++)
+            {
+                var box = (GameObject)Object.Instantiate(boxPrefab);
+                box.name = "Box" + i;
+                box.transform.SetParent(root.transform, false);
+                box.transform.localPosition = new Vector3(0f, i * step, 0f);
+
+                // A REAL PIZZA IN IT. Invisible under a closed lid, and that is
+                // fine — it is the same object that is in there when the box
+                // comes open on the passenger seat, and the owner asked for
+                // boxes that actually contain pizzas rather than props that
+                // imply one.
+                if (pizzaPrefab != null)
+                {
+                    var pz = (GameObject)Object.Instantiate(pizzaPrefab);
+                    pz.name = "Pizza";
+                    pz.transform.SetParent(box.transform, false);
+                    pz.transform.localPosition = new Vector3(0f, step * 0.22f, 0f);
+                }
+                foreach (var c in box.GetComponentsInChildren<Collider>(true))
+                    Object.DestroyImmediate(c);
+                boxes[i] = box.transform;
+            }
+            Debug.Log("[Pizzeria] carried stack of " + MaxCarriedBoxes +
+                      " boxes, " + step.ToString("0.000") + " m pitch");
+            return root.transform;
+        }
+
+        static Bounds MeshBounds(GameObject prefab)
+        {
+            var probe = (GameObject)Object.Instantiate(prefab);
+            probe.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            var rs = probe.GetComponentsInChildren<MeshRenderer>(true);
+            var b = rs.Length > 0 ? rs[0].bounds : new Bounds(Vector3.zero, Vector3.zero);
+            foreach (var r in rs) b.Encapsulate(r.bounds);
+            Object.DestroyImmediate(probe);
+            return b;
         }
 
         /// <summary>

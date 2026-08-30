@@ -117,6 +117,11 @@ namespace PSXRacing.EditorTools
             }
             AssetDatabase.SaveAssets();
             Log("City props baked: " + baked + " prefabs -> " + CityPropsDir);
+
+            // The cargo rides along with the props for the same reason it is a
+            // prefab at all: a race scene cannot AssetDatabase-load an FBX, and
+            // a bake nobody remembers to run is a delivery with no pizza in it.
+            PizzaCargoBaker.Bake();
         }
 
         /// <summary>
