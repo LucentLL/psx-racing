@@ -20,6 +20,25 @@ $repo  = "https://github.com/LucentLL/psx-racing.git"
 
 # Unity.exe is a launcher: it spawns the real editor and returns immediately, so
 # waiting on the call itself reads stale logs. Wait on the actual child PIDs.
+# Run git and judge it by its EXIT CODE.
+#
+# See the note at the deploy stage: PowerShell treats a native command's stderr
+# as errors, so git's routine chatter — line-ending warnings, "Everything
+# up-to-date", push progress — reads as a failure and stops the script. Calling
+# through cmd folds stderr into stdout before PowerShell can see a separate
+# stream to be upset about.
+function Invoke-Git([string[]]$GitArgs) {
+    $line = ($GitArgs | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    }) -join ' '
+    $out = & cmd /c "git $line 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "git $line failed ($LASTEXITCODE):" -ForegroundColor Red
+        $out | ForEach-Object { Write-Host "  $_" }
+        exit 1
+    }
+}
+
 function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 40) {
     $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
     Start-Process -FilePath $unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
@@ -168,13 +187,23 @@ if (-not $SkipDeploy) {
     Push-Location $pages
     # Orphan branch, force-pushed: the build is ~51 MB and committing each
     # iteration onto a normal branch would grow history by that much every time.
-    git init -q -b gh-pages
-    git config user.name "LucentLL"
-    git config user.email "mcgeevarnell@gmail.com"
-    git add -A
-    git commit -q -m "Deploy PSX Racing WebGL build"
-    git remote add origin $repo
-    git push -q -f origin gh-pages
+    #
+    # Every git call goes through Invoke-Git, and that is not tidiness. Windows
+    # PowerShell wraps ANY line a native exe writes to stderr in an ErrorRecord,
+    # and with $ErrorActionPreference = "Stop" that terminates the script — so
+    # `git add -A` printing "LF will be replaced by CRLF" killed a deploy on
+    # 2026-08-30 AFTER a successful 40-minute build, with the files staged and
+    # nothing committed. Exit codes are the only thing git says about failure
+    # that is actually about failure.
+    Invoke-Git @("init", "-q", "-b", "gh-pages")
+    Invoke-Git @("config", "user.name", "LucentLL")
+    Invoke-Git @("config", "user.email", "mcgeevarnell@gmail.com")
+    Invoke-Git @("add", "-A")
+    Invoke-Git @("commit", "-q", "-m", "Deploy PSX Racing WebGL build")
+    # The remote survives a re-run of this script; adding it twice is an error
+    # and not an interesting one.
+    git remote add origin $repo 2>&1 | Out-Null
+    Invoke-Git @("push", "-q", "-f", "origin", "gh-pages")
     Pop-Location
 
     Write-Host "`nLive: https://lucentll.github.io/psx-racing/" -ForegroundColor Green
