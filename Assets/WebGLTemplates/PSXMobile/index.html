@@ -90,10 +90,19 @@
 
 <script src="Build/{{{ LOADER_FILENAME }}}"></script>
 <script>
+// Everything below is scoped. A `var` at the top level of a classic script
+// becomes a property of `window`, and `window` already owns some of these
+// names — which is not a style point: `var status = ...` landed on
+// `window.status`, a legacy SETTABLE STRING property, so the element was
+// coerced to "[object HTMLDivElement]" and every `status.textContent = ...`
+// after it was a silent no-op. The loading percentage never moved off
+// "LOADING…", and neither did "FAILED: " + err — the one message that exists
+// to say why nothing is happening.
+(function () {
   var canvas = document.querySelector("#unity-canvas");
   var splash = document.querySelector("#splash");
   var fill = document.querySelector("#fill");
-  var status = document.querySelector("#status");
+  var statusEl = document.querySelector("#status");
   var playBtn = document.querySelector("#play");
   var rotate = document.querySelector("#rotate");
   var unityInstance = null;
@@ -114,13 +123,32 @@
 
   // Render at CSS pixels, not retina pixels. The game is a 320x240 buffer
   // upscaled anyway, so a 3x device pixel ratio would cost fill rate for nothing.
+  //
+  // A WINDOW REPORTING NOTHING IS NOT A WINDOW OF SIZE ZERO. Minimising, an
+  // occluded window, a background tab and a hidden embedded frame all fire
+  // resize with innerWidth/innerHeight of 0, and this used to write that
+  // straight through to the canvas. Unity follows the canvas
+  // (matchWebGLToCanvasSize), so Screen.width becomes 0, every CanvasScaler
+  // divides by it, and the UI is rebuilt at a scale factor with no meaning —
+  // and it does NOT come back when the window does. Confirmed by hand on the
+  // live build: force the canvas to 0x0 for a second and restore it, and the
+  // menu stays enormous and blurred with no working controls for the rest of
+  // the session. Keeping the last good size costs nothing, because a window
+  // nobody can see does not need to be the right size.
   function resize() {
-    var dpr = 1;
-    canvas.width = Math.floor(window.innerWidth * dpr);
-    canvas.height = Math.floor(window.innerHeight * dpr);
+    var w = Math.floor(window.innerWidth);
+    var h = Math.floor(window.innerHeight);
+    if (w < 1 || h < 1) return;
+    canvas.width = w;
+    canvas.height = h;
   }
   window.addEventListener("resize", resize);
   window.addEventListener("orientationchange", function () { setTimeout(resize, 250); });
+  // Coming back into view is the moment the real size is knowable again, and
+  // the resize that arrives with it often still reports the old figures.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") setTimeout(resize, 0);
+  });
   resize();
 
   // Block pinch-zoom and double-tap-zoom so driving gestures stay in the canvas
@@ -131,10 +159,10 @@
 
   createUnityInstance(canvas, config, function (p) {
     fill.style.width = (p * 100) + "%";
-    status.textContent = "LOADING " + Math.round(p * 100) + "%";
+    statusEl.textContent = "LOADING " + Math.round(p * 100) + "%";
   }).then(function (inst) {
     unityInstance = inst;
-    status.textContent = "READY";
+    statusEl.textContent = "READY";
     playBtn.style.display = "block";
     document.querySelector("#hint").style.display = "block";
     rotate.classList.add("armed");
@@ -146,7 +174,7 @@
     // pad still has to touch a key or the mouse exactly once to get in.
     try { playBtn.focus(); } catch (e) {}
   }).catch(function (err) {
-    status.textContent = "FAILED: " + err;
+    statusEl.textContent = "FAILED: " + err;
   });
 
   document.addEventListener("keydown", function (e) {
@@ -185,6 +213,28 @@
     canvas.focus();
     resize();
   }
+
+  // KEEP THE KEYBOARD POINTED AT THE GAME.
+  //
+  // Unity's WebGL input listens on the canvas, so anything that takes focus off
+  // it — clicking the page margin, a browser overlay, alt-tabbing away and back,
+  // leaving fullscreen with Escape — stops the keyboard reaching the game while
+  // the pad, which the browser routes by page rather than by element, carries on
+  // working. It reads as the controls dropping out at random.
+  //
+  // Handing focus back on the first click or key is not the same as stealing it:
+  // there is nothing else on this page to type into once the splash is gone.
+  function refocus() {
+    if (!started) return;
+    if (document.activeElement !== canvas) { try { canvas.focus(); } catch (e) {} }
+  }
+  window.addEventListener("focus", refocus);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") setTimeout(refocus, 0);
+  });
+  document.addEventListener("fullscreenchange", function () { setTimeout(refocus, 0); });
+  document.addEventListener("pointerdown", refocus, true);
+})();
 </script>
 </body>
 </html>
