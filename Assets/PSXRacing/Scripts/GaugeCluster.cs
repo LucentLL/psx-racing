@@ -1053,18 +1053,30 @@ namespace PSXRacing
                     t.text = end.Item2;
                 }
 
-                int len = Mathf.Max(3, Mathf.RoundToInt(radius * SubHubY));
-                int tail = Mathf.Max(1, Mathf.RoundToInt(radius * SubHubY * 0.09f));
-                int wide = Mathf.Max(3, Mathf.RoundToInt(radius * 0.042f));
+                // THE SAME NEEDLE, SMALLER. Every dimension comes from the main
+                // needle's own constants through one scale factor, so the kite
+                // keeps its proportions — the taper, the counterweight tail
+                // behind the pivot, and the width at the hub relative to the
+                // hub cap. Writing this one its own numbers is what made it a
+                // different needle that merely had the same parts: a stub with
+                // almost no tail, thinner than the big one, on a solid blob
+                // instead of a hub cap.
+                //
+                // The factor is fixed by the geometry, not chosen: the
+                // sub-needle's length HAS to equal the hub's depth below the
+                // dial centre (see SubHubY) for the tip to track the rim scale,
+                // so the scale is that depth over the main needle's length and
+                // everything else follows.
+                float s = SubHubY / NeedleLen;
+                int len = Mathf.Max(3, Mathf.RoundToInt(radius * NeedleLen * s));
+                int tail = Mathf.Max(1, Mathf.RoundToInt(radius * NeedleTail * s));
+                int wide = Mathf.Max(3, Mathf.RoundToInt(radius * NeedleHalf * 2f * s));
 
                 var nGO = new GameObject("SubNeedle");
                 nGO.transform.SetParent(root.transform, false);
                 var img = nGO.AddComponent<Image>();
                 img.sprite = BakeNeedle(len, tail, wide);
-                // WHITE, not the red of the main needle. On a real cluster the
-                // sub-gauges are the one pair of needles that are not warning
-                // you about anything, and the red belongs to the two that are.
-                img.color = ClusterBulbs.Lit;
+                img.color = ClusterBulbs.Needle;
                 subNeedle = img.rectTransform;
                 subNeedle.anchorMin = subNeedle.anchorMax = new Vector2(0.5f, 0.5f);
                 subNeedle.pivot = new Vector2(0.5f, tail / (float)(len + tail));
@@ -1074,10 +1086,14 @@ namespace PSXRacing
                 var hubGO = new GameObject("SubHub");
                 hubGO.transform.SetParent(root.transform, false);
                 var hub = hubGO.AddComponent<Image>();
-                int hubR = Mathf.Max(2, Mathf.RoundToInt(radius * 0.05f));
-                // SOLID, not the main hub's ring-over-face. At five pixels
-                // across a ring is not a hub cap, it is a hole in the needle.
-                hub.sprite = BakeDisc(hubR, ClusterBulbs.Lit, ClusterBulbs.Lit);
+                // The same hub cap on the same scale, and built AFTER the
+                // needle for the same reason the big one is: the cap is what
+                // the needle passes THROUGH. Drawn over the top it swallows the
+                // counterweight tail and leaves a blade emerging from a rim,
+                // which is the whole look. A solid dot instead — which this had
+                // — is a needle stuck ONTO a bead.
+                float hubR = radius * HubR * s;
+                hub.sprite = BakeDisc(Mathf.RoundToInt(hubR), ClusterBulbs.Dim, ClusterBulbs.Face);
                 hub.rectTransform.anchorMin = hub.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
                 hub.rectTransform.anchoredPosition = centre;
                 hub.rectTransform.sizeDelta = new Vector2(hubR * 2f, hubR * 2f);
