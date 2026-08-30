@@ -443,22 +443,25 @@ namespace PSXRacing
         /// the point of a close chase is that the car fills more of the frame
         /// and the road comes at you faster, and the FOV opens up to match.
         ///
-        /// 0.75 rather than the 0.62 this started at. The camera sits at the
-        /// car's ORIGIN plus the distance, and the tail is already 2 m behind
-        /// that origin — at 0.62 the lens ended up 1.3 m off the rear bumper,
-        /// with the car filling half the screen and nothing of the road ahead
-        /// left to drive by.
+        /// The camera sits at the car's ORIGIN plus the distance and the tail is
+        /// already 2 m behind that origin, so the multiplier is a much bigger
+        /// lever than it looks: 0.62 of 5.4 m is 3.35 m back, which is 1.35 m
+        /// off the rear bumper.
         ///
-        /// The height went the other way. Dropping it to 0.82 (1.48 m) put the
-        /// lens level with the roofline of the car it was following, so the
-        /// close view could not see PAST the car — reported as "too low to the
-        /// ground making it hard to see in front". Above the roof at 1.15 the
-        /// car still fills the frame and the road ahead comes back.
+        /// This has been round the loop twice. 0.62 was tried, reported as
+        /// filling half the screen with nothing of the road left to drive by,
+        /// and backed off to 0.75 — but the SAME pass dropped the height to
+        /// 0.82, which put the lens level with the roofline, and that is what
+        /// was actually blocking the view forward. With the height fixed at
+        /// 1.15 (2.07 m, comfortably above the roof) the lens looks down over
+        /// the car rather than at the back of it, and 0.75 simply reads as the
+        /// normal chase view moved a little. Back to 0.62, height held, because
+        /// close is the whole point of this view.
         /// </summary>
         public static void ChaseParams(View v, out float dist, out float height, out float look)
         {
             bool close = v == View.Close;
-            dist = close ? 0.75f : 1f;
+            dist = close ? 0.62f : 1f;
             height = close ? 1.15f : 1f;
             look = close ? 0.85f : 1f;
         }

@@ -162,6 +162,107 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// The instrument cluster ON ITS OWN, with no touch panel in the scene.
+        ///
+        /// That is a different layout, not the same one with the controls
+        /// hidden: with no wheel and no pedals the dials go to the bottom
+        /// CORNERS instead of into the band between them, and the gear gets a
+        /// panel of its own because there is no shifter knob carrying it. It is
+        /// what a PC player looks at, and DumpPanel — which forces the touch
+        /// controls on — can never show it.
+        /// </summary>
+        [MenuItem("PSX Racing/Preview Gauge Cluster")]
+        public static void DumpCluster()
+        {
+            string outDir = Path.Combine(
+                Directory.GetParent(Application.dataPath).FullName, "Screenshots");
+            Directory.CreateDirectory(outDir);
+
+            // (label, rpm, speed, coolant, fuel). Two readings rather than one,
+            // and both off the ends and off half scale: an end stop shows how
+            // far the sweep runs but not which way round it goes, and half
+            // scale shows neither.
+            var states = new[]
+            {
+                ("idle", 900f, 0f, 0.12f, 0.92f),
+                ("drive", 5200f, 84f, 0.46f, 0.28f),
+            };
+
+            foreach (var (label, rpm, speed, coolant, fuel) in states)
+            {
+                UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+                    UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+                    UnityEditor.SceneManagement.NewSceneMode.Single);
+
+                const int W = 1280, H = 720;
+                var camGO = new GameObject("PreviewCam");
+                var cam = camGO.AddComponent<Camera>();
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = new Color(0.10f, 0.10f, 0.12f);
+                cam.orthographic = true;
+                var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+                cam.targetTexture = rt;
+
+                var clusterCanvasGO = new GameObject("ClusterCanvas");
+                var cc = clusterCanvasGO.AddComponent<Canvas>();
+                cc.renderMode = RenderMode.ScreenSpaceOverlay;
+                cc.sortingOrder = 90;
+                var cs = clusterCanvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
+                cs.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                cs.referenceResolution = new Vector2(1280f, 720f);
+                cs.screenMatchMode = UnityEngine.UI.CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+                cs.matchWidthOrHeight = 0.5f;
+                var clusterGO = new GameObject("Cluster", typeof(RectTransform));
+                clusterGO.transform.SetParent(clusterCanvasGO.transform, false);
+                var crt = (RectTransform)clusterGO.transform;
+                crt.anchorMin = Vector2.zero; crt.anchorMax = Vector2.one;
+                crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
+                var cluster = clusterGO.AddComponent<GaugeCluster>();
+                Canvas.ForceUpdateCanvases();
+                cluster.Build();
+                cluster.PoseNeedles(rpm, speed);
+                cluster.PoseSubGauges(coolant, fuel);
+
+                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                {
+                    if (c.renderMode != RenderMode.ScreenSpaceOverlay) continue;
+                    c.renderMode = RenderMode.ScreenSpaceCamera;
+                    c.worldCamera = cam;
+                    c.planeDistance = 10f;
+                }
+                Canvas.ForceUpdateCanvases();
+
+                int texts = 0, blank = 0;
+                foreach (var t in Object.FindObjectsByType<UnityEngine.UI.Text>(FindObjectsSortMode.None))
+                {
+                    texts++;
+                    if (t.font == null || string.IsNullOrEmpty(t.text) || t.color.a < 0.05f) blank++;
+                }
+                if (blank > 0)
+                    Debug.LogError($"[Preview] BLANK LABELS: {blank} of {texts}");
+                else
+                    Debug.Log($"[Preview] labels: {texts} total, all captioned and visible");
+
+                cam.Render();
+                var prev = RenderTexture.active;
+                RenderTexture.active = rt;
+                var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev;
+
+                string path = Path.Combine(outDir, "cluster_" + label + ".png");
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                Debug.Log("[Preview] wrote " + path);
+
+                Object.DestroyImmediate(tex);
+                cam.targetTexture = null;
+                rt.Release();
+                Object.DestroyImmediate(rt);
+            }
+        }
+
         static void SetPedal(TouchControls tc, string field, float amount)
         {
             var pedal = Field<TouchPedal>(tc, field);

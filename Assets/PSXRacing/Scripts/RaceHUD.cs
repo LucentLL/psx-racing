@@ -16,10 +16,13 @@ namespace PSXRacing
     public class RaceHUD : MonoBehaviour
     {
         public CarController car;
-        /// <summary>The analog dials. Speed and gear moved INTO them — a
-        /// number in the corner and a number under a needle are the same
-        /// number, and printing it twice is how a HUD ends up with a readout
-        /// that disagrees with its own instrument.</summary>
+        /// <summary>The analog dials, which own the speed and the gear. The
+        /// HUD used to print both in a corner as well, and a number in the
+        /// corner and a number on the instrument are the same number — printing
+        /// it twice is how a HUD ends up with a readout that disagrees with its
+        /// own gauge. The dials themselves no longer print either: the needle
+        /// IS the speedometer, and the gear has its own small panel beside the
+        /// tach when nothing else on screen is showing it.</summary>
         public GaugeCluster cluster;
         public Text lapText;
         public Text timeText;

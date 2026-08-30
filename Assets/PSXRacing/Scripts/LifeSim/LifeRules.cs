@@ -1224,9 +1224,25 @@ namespace PSXRacing.LifeSim
         /// and with FaultCatalog's threshold rolls at 40 and 15, so "WORN" is
         /// genuinely the band where things start going wrong.
         /// </summary>
-        public static string ConditionLabel(float pct) =>
-            pct >= 90f ? "MINT" : pct >= 60f ? "GOOD" : pct >= 30f ? "WORN" :
-            pct >= 12f ? "ROUGH" : "SHOT";
+        public static string ConditionLabel(float pct) => ConditionNames[ConditionBand(pct)];
+
+        /// <summary>
+        /// The same five bands as an index, 0 for SHOT up to 4 for MINT.
+        ///
+        /// It exists because the WORD was not the only thing printing the exact
+        /// number. The bar beside it filled to value/100, so a player who could
+        /// not read "84%" could still read a bar that was fourteen twenty-fifths
+        /// of the way along and count pixels — which is the same readout with an
+        /// extra step, and defeats the point of hiding the figure at all. The
+        /// bar draws five segments off this instead, so the picture says exactly
+        /// what the word says and no more.
+        /// </summary>
+        public static int ConditionBand(float pct) =>
+            pct >= 90f ? 4 : pct >= 60f ? 3 : pct >= 30f ? 2 : pct >= 12f ? 1 : 0;
+
+        /// <summary>Indexed by <see cref="ConditionBand"/>.</summary>
+        public static readonly string[] ConditionNames =
+            { "SHOT", "ROUGH", "WORN", "GOOD", "MINT" };
 
         // ================= housing & bills (billsCalc.ts / insurance.ts) =================
         // The ladder is HOUSES now, not apartments: the player starts in a

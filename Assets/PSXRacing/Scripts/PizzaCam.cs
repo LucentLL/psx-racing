@@ -38,10 +38,12 @@ namespace PSXRacing
         /// against the steering wheel's reported box.</summary>
         const float PanelW = 236f, PanelH = 159f;
 
-        /// <summary>Clearance above the wheel. The wheel's box is 300 units tall
-        /// sitting 18 off the bottom; the owner asked for the cam ABOVE it on
-        /// mobile, and a gap is what keeps a thumb resting on the rim from
-        /// covering the picture.</summary>
+        /// <summary>Clearance above whatever is in the bottom-left corner. The
+        /// wheel's box is 300 units tall sitting 18 off the bottom; the owner
+        /// asked for the cam ABOVE it on mobile, and a gap is what keeps a thumb
+        /// resting on the rim from covering the picture. The same gap does for
+        /// the tachometer on a PC — there it is only keeping the caption off the
+        /// bezel.</summary>
         const float AboveWheelGap = 14f;
 
         PizzaCargo cargo;
@@ -51,6 +53,9 @@ namespace PSXRacing
         Text caption;
         RectTransform panelRT;
         bool builtTouch;
+        /// <summary>The corner height this panel was last placed against, so a
+        /// cluster rebuild that moves the dials moves this too.</summary>
+        float builtCornerTop = -1f;
 
         /// <summary>
         /// Where the lens goes, in the cargo island's frame.
@@ -199,31 +204,41 @@ namespace PSXRacing
         }
 
         /// <summary>
-        /// Where the panel sits: above the steering wheel when the player has
-        /// one, bottom-left when they do not.
+        /// Where the panel sits: in the bottom-left corner, above whatever else
+        /// is already in it.
         ///
-        /// The wheel's box is asked for rather than guessed —
-        /// TouchControls.WheelInset is published for exactly this, because a
-        /// fraction of the screen that clears the wheel is a different fraction
-        /// every time the panel is retuned, and the cluster has already been
-        /// caught out by that once.
+        /// On a phone that is the steering wheel. On a PC it is the TACHOMETER,
+        /// which this used to sit straight on top of — the corner reads as
+        /// empty until you remember the cluster puts its dials there when there
+        /// is no touch panel to push them into the middle.
+        ///
+        /// Both boxes are asked for rather than guessed, TouchControls.
+        /// WheelInset and GaugeCluster.CornerTop being published for exactly
+        /// this: a fraction of the screen that clears a wheel or a dial is a
+        /// different fraction every time either is retuned. All three canvases
+        /// scale off the same 1280x720 reference, so the numbers are directly
+        /// comparable.
         /// </summary>
         void Place()
         {
             if (panelRT == null) return;
             bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
             builtTouch = touch;
-            panelRT.anchoredPosition = touch
-                ? new Vector2(18f, 18f + 300f + AboveWheelGap)
-                : new Vector2(18f, 18f);
+            builtCornerTop = GaugeCluster.CornerTop;
+            float below = touch ? 18f + 300f : builtCornerTop;
+            panelRT.anchoredPosition = new Vector2(18f, below + AboveWheelGap);
         }
 
         void LateUpdate()
         {
             // The panel moves if the player plugs in a pad mid-race and the
-            // touch controls hide themselves; nothing else changes.
+            // touch controls hide themselves — and with them, on the same frame,
+            // the dials move into the corner this is standing in. The cluster
+            // rebuilds on its own schedule, so the corner is re-read rather than
+            // assumed to have settled by the time the touch flag flips.
             bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
-            if (touch != builtTouch) Place();
+            if (touch != builtTouch
+                || !Mathf.Approximately(GaugeCluster.CornerTop, builtCornerTop)) Place();
 
             if (caption == null || cargo == null) return;
             float c = cargo.Condition;

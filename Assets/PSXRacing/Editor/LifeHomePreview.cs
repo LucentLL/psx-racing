@@ -136,8 +136,32 @@ namespace PSXRacing.EditorTools
             // four bugs found here were on tabs nobody had rendered.
             foreach (var t in new[] { "rivals", "garage", "calendar", "news", "options",
                                       "market", "eat", "bills", "jobs",
-                                      "inspect", "inspectfocus", "toolbox" })
+                                      "inspect", "inspectfocus", "toolbox",
+                                      // The garage is a LIST now and the car page is where
+                                      // everything you can do to a car lives, so the tab shot
+                                      // no longer covers either of them.
+                                      "carmenu", "specs" })
                 Shoot(outDir, t, t);
+
+            // SPECS and the car page again, on a car that HAS a catalog entry.
+            // The seeded starter RX-7 deliberately has none — it is the one car
+            // in the game written by hand rather than baked from the catalog —
+            // so shooting these off it renders the "nothing on paper" fallback
+            // and proves nothing about the table that is the point of the page.
+            if (CarCatalog.Ready && CarCatalog.All.Count > 1)
+            {
+                string wasActive = s.activeCar;
+                s.garageSlots = Mathf.Max(s.garageSlots, s.cars.Count + 1);
+                var speccd = CarMarket.MakeOwnedCar(s, CarCatalog.All[1], 74, 22000f, 18400);
+                s.activeCar = speccd.id;
+                LifeSimManager.Save();
+                Shoot(outDir, "specs_catalog", "specs");
+                Shoot(outDir, "carmenu_catalog", "carmenu");
+                s.cars.Remove(speccd);
+                s.activeCar = wasActive;
+                s.garageSlots = 1;
+                LifeSimManager.Save();
+            }
 
             // OPTIONS took NEW GAME and the debug rung off the launch screen, so
             // it is now the tallest of the settings pages and the one where
@@ -145,11 +169,11 @@ namespace PSXRacing.EditorTools
             // scroll, where those two live.
             Shoot(outDir, "options_meta", "options", scrollTo: 0f);
 
-            // The condition bars, which are below the fold on the GARAGE tab and
+            // The condition bars, which are below the fold on the CAR page and
             // are the whole subject of "condition % should not be shown outside
-            // debug mode". A tab shot from the top of the scroll shows the
+            // debug mode". A shot from the top of the scroll shows the
             // turntable and proves nothing about them.
-            Shoot(outDir, "garage_bars", "garage", scrollTo: 0.45f);
+            Shoot(outDir, "carmenu_bars", "carmenu", scrollTo: 0.45f);
 
             LifeSimManager.DeleteSave();
         }
@@ -264,6 +288,8 @@ namespace PSXRacing.EditorTools
                     else Debug.Log(line);
                 }
 
+                CheckNavReach(screen, label + "/" + size.name);
+
                 cam.Render();
                 var prev = RenderTexture.active;
                 RenderTexture.active = rt;
@@ -283,5 +309,71 @@ namespace PSXRacing.EditorTools
                 MenuKit.ScreenSizeOverride = Vector2.zero;
             }
         }
+
+        /// <summary>
+        /// Can a pad actually REACH every control on this page?
+        ///
+        /// A picture cannot answer that, and it is where the last two menu bugs
+        /// have been: not a missing button but a button with nothing pointing at
+        /// it. "Unable to access SLEEP with a controller when the shop is shut"
+        /// is the shape of it — one control on the page turns non-interactable,
+        /// the graph is rebuilt around the hole, and something below it is left
+        /// with no arrow leading in.
+        ///
+        /// The graph tested is the GEOMETRIC one, because that is the one the
+        /// player uses: MenuNavWatch swaps the creation-order chain out for it a
+        /// frame after the page appears, and edit mode runs no LateUpdate, so it
+        /// has to be applied here by hand exactly as the watchdog would.
+        /// </summary>
+        static void CheckNavReach(LifeHomeScreen screen, string where)
+        {
+            var body = Field<RectTransform>(screen, "body");
+            var tabs = Field<System.Collections.Generic.List<UnityEngine.UI.Button>>(
+                screen, "tabButtons");
+            if (body == null) return;
+
+            var rows = MenuNav.Collect(body);
+            if (rows.Count == 0) return;
+            var tabSel = tabs != null
+                ? tabs.ConvertAll(b => (UnityEngine.UI.Selectable)b)
+                : new System.Collections.Generic.List<UnityEngine.UI.Selectable>();
+
+            if (!MenuNav.RectsResolved(rows))
+            {
+                Debug.Log("[HomePreview] " + where + " nav: rects unresolved, not checked");
+                return;
+            }
+            MenuNav.Grid(rows);
+            if (tabSel.Count > 0) MenuNav.JoinLines(tabSel, rows, null);
+
+            // Flood fill from the tab bar, which is where a pad always starts.
+            var all = new System.Collections.Generic.List<UnityEngine.UI.Selectable>(tabSel);
+            all.AddRange(rows);
+            var seen = new System.Collections.Generic.HashSet<UnityEngine.UI.Selectable>();
+            var queue = new System.Collections.Generic.Queue<UnityEngine.UI.Selectable>();
+            var start = tabSel.Count > 0 ? tabSel[0] : rows[0];
+            seen.Add(start); queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                var nav = queue.Dequeue().navigation;
+                foreach (var next in new[] { nav.selectOnUp, nav.selectOnDown,
+                                             nav.selectOnLeft, nav.selectOnRight })
+                    if (next != null && seen.Add(next)) queue.Enqueue(next);
+            }
+
+            var lost = new System.Collections.Generic.List<string>();
+            foreach (var s in all)
+                if (s != null && !seen.Contains(s)) lost.Add(s.name);
+            if (lost.Count > 0)
+                Debug.LogError("[HomePreview] " + where + " nav: UNREACHABLE BY PAD — " +
+                               string.Join(", ", lost));
+            else
+                Debug.Log("[HomePreview] " + where + " nav: all " + all.Count +
+                          " controls reachable");
+        }
+
+        static T Field<T>(object obj, string name) where T : class =>
+            obj.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)
+               ?.GetValue(obj) as T;
     }
 }

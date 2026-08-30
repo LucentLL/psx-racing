@@ -165,8 +165,23 @@ namespace PSXRacing
 
         /// <summary>
         /// Wire a page as the two-dimensional thing it is: left/right walk the
-        /// controls on one line, up/down step between lines and land on the
-        /// control nearest the column you left from.
+        /// controls on one line, up/down walk the COLUMN the cursor is in.
+        ///
+        /// Down is not "the next line", it is "the next line THIS column appears
+        /// on", and the difference is the whole point. MAIN is two columns: the
+        /// race on the left, the day on the right. Stepping to the next line
+        /// regardless of column meant pressing down on FREE ROAM — with SLEEP
+        /// sitting directly under it on screen, one greyed-out shift button
+        /// between — threw the cursor across the page to "TIME >" in the left
+        /// column, because that row happens to be the next thing down in Y.
+        /// SLEEP was still reachable, one more press later, but not by any route
+        /// a player would find: reported as being unable to get to it at all.
+        /// Lines with nothing in this column are skipped, so a column reads as
+        /// the list it looks like.
+        ///
+        /// A column that runs out wraps to its own top rather than spilling into
+        /// the neighbouring one, for the same reason: crossing columns is what
+        /// left/right is for.
         ///
         /// Left/right deliberately do NOT wrap. Wrapping a three-button repair
         /// row means pressing left on DIY throws the cursor to DLR at the far
@@ -181,17 +196,74 @@ namespace PSXRacing
                 var line = lines[r];
                 for (int c = 0; c < line.Count; c++)
                 {
-                    float x = CentreX(line[c]);
                     var nav = new Navigation { mode = Navigation.Mode.Explicit };
                     if (c > 0) nav.selectOnLeft = line[c - 1];
                     if (c < line.Count - 1) nav.selectOnRight = line[c + 1];
-                    if (r > 0) nav.selectOnUp = NearestInLine(lines[r - 1], x);
-                    else if (lines.Count > 1) nav.selectOnUp = NearestInLine(lines[lines.Count - 1], x);
-                    if (r < lines.Count - 1) nav.selectOnDown = NearestInLine(lines[r + 1], x);
-                    else if (lines.Count > 1) nav.selectOnDown = NearestInLine(lines[0], x);
+                    nav.selectOnUp = StepColumn(lines, r, -1, line[c]);
+                    nav.selectOnDown = StepColumn(lines, r, 1, line[c]);
                     line[c].navigation = nav;
                 }
             }
+        }
+
+        /// <summary>
+        /// The control one step up or down IN THE SAME COLUMN as
+        /// <paramref name="from"/>: the first line that way carrying anything
+        /// horizontally overlapping it, wrapping round the page once before
+        /// giving up.
+        ///
+        /// The fallback matters as much as the rule. A control that overlaps
+        /// nothing anywhere — a lone wide banner, a button in a column of one —
+        /// takes the old nearest-in-the-adjacent-line answer rather than
+        /// becoming a vertical dead end, because a dead end is the bug this is
+        /// fixing and it would be perverse to introduce a new one.
+        /// </summary>
+        static Selectable StepColumn(List<List<Selectable>> lines, int row, int step, Selectable from)
+        {
+            for (int i = 1; i <= lines.Count; i++)
+            {
+                int r = row + step * i;
+                // One wrap, and never back onto the line we started from.
+                r = ((r % lines.Count) + lines.Count) % lines.Count;
+                if (r == row) break;
+                var hit = OverlappingInLine(lines[r], from);
+                if (hit != null) return hit;
+            }
+            int adj = row + step;
+            if (adj >= 0 && adj < lines.Count) return NearestInLine(lines[adj], CentreX(from));
+            if (lines.Count > 1)
+                return NearestInLine(lines[step > 0 ? 0 : lines.Count - 1], CentreX(from));
+            return null;
+        }
+
+        /// <summary>The control on <paramref name="line"/> whose horizontal
+        /// extent overlaps <paramref name="from"/>'s, nearest first when several
+        /// do — which is what a row of three repair buttons under one wide
+        /// caption needs.</summary>
+        static Selectable OverlappingInLine(List<Selectable> line, Selectable from)
+        {
+            float aMin = MinX(from), aMax = MaxX(from), x = CentreX(from);
+            Selectable best = null;
+            float bestD = float.MaxValue;
+            foreach (var s in line)
+            {
+                if (MaxX(s) <= aMin || MinX(s) >= aMax) continue;
+                float d = Mathf.Abs(CentreX(s) - x);
+                if (d < bestD) { bestD = d; best = s; }
+            }
+            return best;
+        }
+
+        static float MinX(Selectable s)
+        {
+            var rt = (RectTransform)s.transform;
+            return CentreX(s) - Mathf.Abs(rt.rect.width * rt.lossyScale.x) * 0.5f;
+        }
+
+        static float MaxX(Selectable s)
+        {
+            var rt = (RectTransform)s.transform;
+            return CentreX(s) + Mathf.Abs(rt.rect.width * rt.lossyScale.x) * 0.5f;
         }
 
         static Selectable NearestInLine(List<Selectable> line, float x)

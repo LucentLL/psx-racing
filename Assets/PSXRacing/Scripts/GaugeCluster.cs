@@ -145,10 +145,10 @@ namespace PSXRacing
     ///
     /// Geometry is lifted from the HTML cluster this is modelled on, as
     /// fractions of the dial radius, so both instruments are the same
-    /// instrument at two sizes: sweep 270 degrees from 8 o clock through 12 to
-    /// 4, ticks in a band just inside the bezel, numerals inside those, a
-    /// redline arc on the outer band of the tach, and a kite needle pivoting on
-    /// a hub cap.
+    /// instrument at two sizes: sweep 250 degrees from just below 8 o clock
+    /// through 12 to just below 4, ticks in a band just inside the bezel,
+    /// numerals inside those, a redline arc on the outer band of the tach, and
+    /// a kite needle pivoting on a hub cap.
     ///
     /// Everything static — face, bezel, ticks, redline — is baked into ONE
     /// texture per dial. The alternative is forty rotated Image components per
@@ -213,9 +213,30 @@ namespace PSXRacing
 
         Dial tach, speedo;
         Text gearText, speedText;
+        /// <summary>
+        /// How far up the BOTTOM-LEFT CORNER this cluster reaches, in its own
+        /// canvas units — the top of the tach when the dials are in the
+        /// corners, and zero in every other layout, because in those the corner
+        /// belongs to the steering wheel or to nothing.
+        ///
+        /// Published for the same reason TouchControls.WheelInset is: the pizza
+        /// cam has to sit clear of whatever is in that corner, and a fraction of
+        /// the frame that clears a dial is a different fraction every time the
+        /// dial is retuned. Both this and the wheel's box are on the same 1280
+        /// by 720 reference, so the number means the same thing to a reader as
+        /// it does here.
+        /// </summary>
+        public static float CornerTop { get; private set; }
+
         /// <summary>Everything the cockpit layout adds, under one parent so a
         /// rebuild is one Destroy rather than a hunt for stragglers.</summary>
         GameObject cockpitRoot;
+        /// <summary>The same, for what the twin-dial layout adds beside its
+        /// dials — today just the gear panel. It needs a root of its own
+        /// because <see cref="Dial.Destroy"/> only tears down dials, and a
+        /// rebuild that leaves the panel behind stacks the next one on top of
+        /// it.</summary>
+        GameObject panelRoot;
         int builtBulb = -1;
         float builtRedline = -1f, builtSpeedMax = -1f;
         int builtHeight = -1, builtUnits = -1;
@@ -263,6 +284,21 @@ namespace PSXRacing
         {
             if (tach != null) tach.SetSub(coolant);
             if (speedo != null) speedo.SetSub(fuel);
+        }
+
+        /// <summary>
+        /// Park the two big needles, in their own units — revs and whatever the
+        /// player reads speed in.
+        ///
+        /// Same job as <see cref="PoseSubGauges"/> and the same reason: with no
+        /// car in the scene both needles sit on their end stop, which is the
+        /// one position that shows neither how far the sweep runs nor which way
+        /// round it goes.
+        /// </summary>
+        public void PoseNeedles(float rpm, float speed)
+        {
+            if (tach != null) tach.SetValue(rpm);
+            if (speedo != null) speedo.SetValue(speed);
         }
 
         void Start() => Build();
@@ -316,7 +352,13 @@ namespace PSXRacing
             if (tach != null) { tach.Destroy(); tach = null; }
             if (speedo != null) { speedo.Destroy(); speedo = null; }
             if (cockpitRoot != null) { KillTree(cockpitRoot); cockpitRoot = null; }
+            if (panelRoot != null) { KillTree(panelRoot); panelRoot = null; }
             gearText = null; speedText = null;
+            // Cleared before the layout runs, not after: only one branch below
+            // puts anything in that corner, and a stale number left over from
+            // the last one is worse than none — it would push the pizza cam up
+            // the screen to clear a dial that has moved.
+            CornerTop = 0f;
 
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
@@ -398,20 +440,72 @@ namespace PSXRacing
             speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
                               speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
                               SpeedUnits.Label, -1f, "E", "F");
-            bool subs = tach.HasSub && speedo.HasSub;
-
-            // The gear lives in the tach and the speed in the speedo, which is
-            // where a cluster with a digital readout always puts them: under the
-            // needle of the dial the number belongs to.
-            int digits = Mathf.Max(10, Mathf.RoundToInt(radius * (subs ? 0.25f : 0.30f)));
-            float readoutY = subs ? Dial.ReadoutYWithSub : Dial.ReadoutY;
-            gearText = tach.MakeReadout(font, digits, ClusterBulbs.Text, readoutY);
-            speedText = speedo.MakeReadout(font, digits, ClusterBulbs.Text, readoutY);
+            // NOTHING IS PRINTED ON THE FACES. The speed and the gear used to
+            // sit under their own needles, on the reasoning that a cluster with
+            // a digital readout puts each number in the dial it belongs to.
+            // Some do — but the face of the instrument this copies carries
+            // nothing but its scale, and once the fuel and coolant gauges took
+            // the bottom of the wedge the digits were a third thing crowding a
+            // face that has room for two. A speedometer that also prints the
+            // speed is also telling you its needle is not worth reading.
+            //
+            // The speed loses nothing by going: that is what the right-hand
+            // dial is for. The gear does — a needle cannot show it — so it
+            // moves OFF the face into its own small panel, the same one the
+            // cockpit binnacle has always used, and only when nothing else on
+            // screen is already showing it.
+            if (!touch)
+            {
+                MakeGearPanel(font, radius, margin, tachAnchor, tachPos);
+                CornerTop = tachPos.y + radius;
+            }
 
             // Everything above was created just now, so it is wearing the stock
             // depth-tested UI material and would vanish behind the bonnet in the
             // one view that most needs a rev counter.
             HudOnTop.Apply(gameObject);
+        }
+
+        /// <summary>
+        /// The gear, in its own little LCD panel beside the rev counter.
+        ///
+        /// Deliberately NOT a fourth thing printed on a dial face: it is the
+        /// cockpit binnacle's gear box, at the twin-dial layout's size, on the
+        /// same bottom margin the dials sit on and hard against the tach's
+        /// inboard edge so it reads as part of that instrument's group rather
+        /// than as a stray label in the middle of the screen.
+        ///
+        /// Built only when the touch panel is hidden, because the shifter knob
+        /// carries the gear when it is not — two of them on screen is how a HUD
+        /// ends up with a readout that disagrees with itself.
+        /// </summary>
+        void MakeGearPanel(Font font, int radius, int margin, Vector2 anchor, Vector2 tachPos)
+        {
+            panelRoot = new GameObject("Panel", typeof(RectTransform));
+            panelRoot.transform.SetParent(transform, false);
+            var prt = (RectTransform)panelRoot.transform;
+            prt.anchorMin = Vector2.zero; prt.anchorMax = Vector2.one;
+            prt.offsetMin = Vector2.zero; prt.offsetMax = Vector2.zero;
+
+            float w = radius * 0.52f, h = radius * 0.68f;
+            float gap = radius * 0.14f;
+            // Inboard of the tach and standing on the dials' own bottom margin,
+            // which is not the dial's centre line — the box is a third of the
+            // dial's height, so hanging it off that line would float it halfway
+            // up the screen.
+            float x = tachPos.x + radius + gap + w * 0.5f;
+            float y = margin + h * 0.5f;
+
+            var box = Box(panelRoot.transform, "Gear", anchor, new Vector2(x, y),
+                          new Vector2(w, h), LcdFace, GearHead);
+            var mode = Label(box, font, Mathf.Max(8, Mathf.RoundToInt(h * 0.22f)),
+                             Color.white, new Vector2(0.5f, 1f),
+                             new Vector2(0f, -h * GearHeadFrac * 0.5f));
+            mode.text = car != null && car.manualMode ? "MT" : "AT";
+            gearText = Label(box, font, Mathf.Max(12, Mathf.RoundToInt(h * 0.46f)),
+                             LcdInk, new Vector2(0.5f, 0f),
+                             new Vector2(0f, h * (1f - GearHeadFrac) * 0.5f));
+            gearText.text = "1";
         }
 
         // ------------------------------------------------------------------
@@ -826,14 +920,20 @@ namespace PSXRacing
             string g = hideGauges ? "-" : GearNames[gear];
             if (gearText != null && gearText.text != g) gearText.text = g;
 
+            // Only the cockpit binnacle prints a speed now; the twin dials have
+            // a needle for it. Guarded rather than left to the change-gate
+            // below, because ToString on an int allocates before anything can
+            // compare it and this runs every frame of every race.
+            if (speedText == null) return;
+
             int speed = Mathf.RoundToInt(shown);
-            // Zero-padded in the cockpit and plain under the needle. A readout
-            // in a fixed box has to be a fixed width or its digits shuffle
-            // sideways every time the speed crosses a hundred; a number under a
-            // needle has the needle to be read against and looks wrong padded.
-            string s = hideGauges ? "---"
-                     : builtCockpit ? Mathf.Min(speed, 999).ToString("000") : speed.ToString();
-            if (speedText != null && speedText.text != s) speedText.text = s;
+            // Zero-padded, always: this readout is a fixed box on the binnacle
+            // and a number in a fixed box has to be a fixed width, or its digits
+            // shuffle sideways every time the speed crosses a hundred. The
+            // unpadded form was for the one under the needle, which had the
+            // needle beside it to be read against — and which is gone.
+            string s = hideGauges ? "---" : Mathf.Min(speed, 999).ToString("000");
+            if (speedText.text != s) speedText.text = s;
         }
 
         // ------------------------------------------------------------------
@@ -852,12 +952,31 @@ namespace PSXRacing
             RectTransform subNeedle;
             float lastSubDeg = float.NaN;
 
-            /// <summary>Sweep, in the SVG convention the source cluster uses:
-            /// angles measured clockwise from east with the dial starting at
-            /// 135 (lower left), passing through 270 (straight up) and ending at
-            /// 405 (lower right).</summary>
-            public const float StartDeg = 135f;
-            public const float SweepDeg = 270f;
+            /// <summary>
+            /// Sweep, in the SVG convention the source cluster uses: angles
+            /// measured clockwise from east, starting at 145 (lower left),
+            /// passing through 270 (straight up) and ending at 395 (lower
+            /// right).
+            ///
+            /// 250 degrees, not the 270 this started with, and the difference
+            /// is measured rather than chosen. On the cluster photographed for
+            /// this the speedometer's 0 sits about 35 degrees below the
+            /// horizontal and its 160 mirrors it, which is a shade over 250
+            /// between them; a 270 sweep runs both ends another ten degrees
+            /// down the face, where the first and last numeral tuck under the
+            /// hub and stop being read.
+            ///
+            /// It also widens the empty wedge across the bottom from 90 degrees
+            /// to 110, and that wedge is where the fuel and temperature gauges
+            /// live.
+            /// </summary>
+            public const float StartDeg = 145f;
+            public const float SweepDeg = 250f;
+            /// <summary>Bottom dead centre, measured ALONG the sweep from its
+            /// start, which is where the sub-gauge is centred. Straight down is
+            /// 90 in the convention above; the +360 keeps the result positive so
+            /// the sub-gauge's band never has to wrap.</summary>
+            const float BottomAlong = 90f - StartDeg + 360f;
 
             // Everything below is a fraction of the dial radius, so the two
             // instruments stay the same instrument at different sizes.
@@ -870,57 +989,87 @@ namespace PSXRacing
 
             // ---- the sub-gauge in the bottom of the face -------------------
             //
-            // The 270 degree sweep leaves a 90 degree wedge across the bottom
-            // of every dial with nothing in it but the digital readout, and
-            // that wedge is where a real cluster puts its fuel and temperature
-            // gauges — E and F under the speedometer, C and H under the
-            // tachometer.
+            // The 250 degree sweep leaves a 110 degree wedge across the bottom
+            // of every dial with nothing in it, and that wedge is where a real
+            // cluster puts its fuel and temperature gauges — E and F under the
+            // speedometer, C and H under the tachometer.
             //
             // THE SCALE IS ON THE DIAL'S OWN CIRCUMFERENCE. The first version
             // drew a little arc of its own around the sub-hub, floating in the
             // middle of the wedge, and it read as a bracket rather than as part
             // of the instrument. On the cluster in the photograph the marks sit
             // out on the rim in the same band as the main dial's ticks, and
-            // only the hub and needle are down in the middle. Getting that
-            // right is what the equal hub-depth-and-needle-length below buys.
+            // only the hub and needle are down in the middle.
+            //
+            // Which leaves three numbers to fix, and they are not independent:
+            // how deep the pin sits, how long the needle is, and how wide the
+            // printed scale is. Pick the first two and the third follows, since
+            // the tip has to land in the tick band across the whole throw —
+            // see the notes on each below.
             /// <summary>
-            /// Depth of the sub-hub below the dial centre, and — deliberately
-            /// the same number — the length of the sub-needle.
+            /// Depth of the sub-hub below the dial centre.
             ///
-            /// Equal is not a coincidence, it is the whole geometry. With the
-            /// hub at depth d and a needle of length d, a needle rotated by
-            /// theta puts its tip at (d sin, -d(1+cos)), whose bearing from the
-            /// DIAL centre is exactly theta/2 and whose radius is 2d cos(theta/2).
-            /// So a scale printed on the dial's own rim is swept by a needle
-            /// turning through twice its angle, and the tip stays in the tick
-            /// band the whole way. That is why the marks on a real cluster can
-            /// sit out on the circumference with the main dial's own ticks
-            /// while the needle pivots from a little hub below the middle.
+            /// It sits LOW — most of the way down the face rather than halfway
+            /// — and that is off the photographs: the fuel needle pivots about
+            /// two thirds of the radius below the speedometer's own hub, which
+            /// is what makes it read as a small instrument tucked into the
+            /// bottom of a big one. At the 0.47 this used to be, the pin was in
+            /// the same part of the face as the main hub and the two competed
+            /// for the middle of the dial.
             /// </summary>
-            const float SubHubY = 0.47f;
-            /// <summary>Half the needle's rotation. Twice
-            /// <see cref="SubTickHalfSweep"/>, per the note above.</summary>
-            const float SubNeedleHalfSweep = 40f;
+            const float SubHubY = 0.62f;
+            /// <summary>
+            /// The sub-needle's length, as a fraction of the dial radius. Hub
+            /// depth plus needle length is where the tip sits at bottom dead
+            /// centre, so this number is fixed by wanting the tip in the tick
+            /// band once <see cref="SubHubY"/> is chosen.
+            ///
+            /// It used to BE the hub depth, and equal was not a style choice
+            /// but a trick: with length exactly equal to depth the tip traces a
+            /// circle through the dial centre, so a scale printed on the dial's
+            /// own RIM is swept by a needle turning through twice its bearing
+            /// and the tip rides that rim exactly. Very tidy — and it welds the
+            /// pin to the middle of the face, so the moment the pin wants to be
+            /// lower the identity has to go. Dropping it costs almost nothing:
+            /// the tip is 0.95 out at the centre of the scale and 0.90 at its
+            /// ends, so it still never leaves the tick band, it just crosses it
+            /// on a shallow arc instead of following it.
+            /// </summary>
+            const float SubNeedleLen = 0.33f;
+            /// <summary>
+            /// Half the needle's ROTATION, which is not half the scale it
+            /// sweeps — the pin is off-centre, so 38 degrees of needle moves
+            /// the tip only 13 degrees round the rim. It is the t that solves
+            /// tan(SubTickHalfSweep) = L sin t / (SubHubY + L cos t) for
+            /// L = <see cref="SubNeedleLen"/>, and it changes if either length
+            /// above does.
+            /// </summary>
+            const float SubNeedleHalfSweep = 38f;
             /// <summary>
             /// Half the printed scale, as a bearing from the dial centre.
             ///
-            /// The whole thing has to live in the 90-degree wedge between the
-            /// main sweep's two ends, sharing it with the first and last
-            /// numeral (at 45 degrees) and the two letters. Twenty leaves the
-            /// letters ten degrees of clear rim either side, which at this
-            /// radius is about a letter and a half of space.
+            /// Thirteen degrees, off the photographs: the E and the F on the
+            /// real speedometer sit barely a needle's width either side of
+            /// straight down, and the marks between them are a thumbnail of a
+            /// scale rather than a scale. Twenty — what this was — spread the
+            /// same five marks across a third of the bottom wedge, at which
+            /// width it stops reading as a small gauge inside the dial and
+            /// starts reading as a second scale arguing with the main one.
             /// </summary>
-            const float SubTickHalfSweep = 20f;
+            const float SubTickHalfSweep = 13f;
             /// <summary>Radial band the sub ticks occupy — the dial's own minor
             /// tick band, because that is where they are on the instrument this
             /// copies. They are not a separate little gauge drawn in the
             /// bottom of the face; they are marks on the same rim.</summary>
             const float SubTickOut = 0.95f, SubTickIn = MinorIn;
-            /// <summary>Where the two letters sit: BESIDE the ends of the tick
-            /// group at very nearly its own radius, not tucked inside it. Far
-            /// enough round to read as bracketing the marks, far enough in that
-            /// their tops clear the bezel.</summary>
-            const float SubLabelDeg = 31f, SubLabelR = 0.86f;
+            /// <summary>Where the two letters sit: two degrees past the ends of
+            /// the tick group and pulled in off the rim, which is how they are
+            /// arranged on the instrument — the marks run right to the edge and
+            /// the letters sit under them. The radius is the one that matters
+            /// now the group is narrow: at 0.80 a letter spans 0.72 to 0.88 and
+            /// stops just short of the tick band, where at the old 0.86 it
+            /// would have grown up into the marks.</summary>
+            const float SubLabelDeg = 15f, SubLabelR = 0.80f;
             /// <summary>
             /// Below this radius the sub-gauge is left off entirely.
             ///
@@ -933,10 +1082,10 @@ namespace PSXRacing
             /// </summary>
             const int SubMinRadius = 46;
 
-            /// <summary>True when this dial actually got its sub-gauge. The
-            /// layout above uses it to decide where the digital readout goes,
-            /// which is a different answer on a dial too small to carry one.
-            /// </summary>
+            /// <summary>True when this dial actually got its sub-gauge — false
+            /// on one too small to carry one, see <see cref="SubMinRadius"/>.
+            /// Read by the constructor before the face is baked, because the
+            /// sub-gauge's scale is part of that texture.</summary>
             public bool HasSub { get; private set; }
 
             public Dial(Transform parent, Font font, string name, Vector2 anchor, Vector2 centre,
@@ -1062,12 +1211,13 @@ namespace PSXRacing
                 // almost no tail, thinner than the big one, on a solid blob
                 // instead of a hub cap.
                 //
-                // The factor is fixed by the geometry, not chosen: the
-                // sub-needle's length HAS to equal the hub's depth below the
-                // dial centre (see SubHubY) for the tip to track the rim scale,
-                // so the scale is that depth over the main needle's length and
-                // everything else follows.
-                float s = SubHubY / NeedleLen;
+                // The factor is the two needles' lengths, and everything else —
+                // taper, tail, hub cap — follows from it. It used to read
+                // SubHubY / NeedleLen, which was the same number only while the
+                // sub-needle was as long as its hub was deep; now that the pin
+                // has dropped and the blade has not, the length is its own
+                // constant and this has to ask for it by name.
+                float s = SubNeedleLen / NeedleLen;
                 int len = Mathf.Max(3, Mathf.RoundToInt(radius * NeedleLen * s));
                 int tail = Mathf.Max(1, Mathf.RoundToInt(radius * NeedleTail * s));
                 int wide = Mathf.Max(3, Mathf.RoundToInt(radius * NeedleHalf * 2f * s));
@@ -1127,23 +1277,13 @@ namespace PSXRacing
                 return new Vector2(Mathf.Sin(r), -Mathf.Cos(r));
             }
 
-            /// <summary>How far below the hub the digital number sits, as a
-            /// fraction of the radius. Any further down and a three-digit speed
-            /// runs into the two numerals at the bottom of the sweep, which on
-            /// a speedometer are the 0 and the top of the scale.</summary>
-            public const float ReadoutY = 0.30f;
-            /// <summary>The same, on a dial carrying a sub-gauge: up out of the
-            /// way of the little hub, which sits at 0.44.</summary>
-            public const float ReadoutYWithSub = 0.18f;
-
-            /// <summary>The digital number under the needle.</summary>
-            public Text MakeReadout(Font font, int size, Color colour, float yFrac = ReadoutY)
-            {
-                float r = root.GetComponent<RectTransform>().sizeDelta.y * 0.5f;
-                var t = Label(font, size, colour, new Vector2(0f, -r * yFrac));
-                t.text = "0";
-                return t;
-            }
+            // A dial used to be able to carry a digital number under its needle,
+            // and both of the ones here did — the gear in the tach and the
+            // speed in the speedo. Gone, with the two constants that placed it:
+            // the face has its scale, its unit and its little gauge, and a
+            // fourth thing on it is what made the wedge at the bottom look
+            // full. The gear moved to a panel of its own beside the tach; the
+            // speed did not move anywhere, because the needle is the readout.
 
             Text Label(Font font, int size, Color colour, Vector2 pos)
             {
@@ -1173,7 +1313,12 @@ namespace PSXRacing
                 // Y that points UP. Both flips together are this one line, and
                 // getting it wrong gives a needle that sweeps the right arc
                 // backwards — which looks almost right until you accelerate.
-                float deg = 135f - SweepDeg * f;
+                //
+                // The constant is 270 - StartDeg and it was written out as 135
+                // while StartDeg was 135, which is the same number for two
+                // unrelated reasons: the sprite points up, and the sweep starts
+                // at lower left. Spelled out, it moves with the sweep.
+                float deg = 270f - StartDeg - SweepDeg * f;
                 if (Mathf.Abs(deg - lastDeg) < 0.1f) return;
                 lastDeg = deg;
                 needle.localRotation = Quaternion.Euler(0f, 0f, deg);
@@ -1301,13 +1446,13 @@ namespace PSXRacing
                         }
 
                         // The sub-gauge's scale, in the empty wedge the main
-                        // sweep leaves across the bottom. Bottom-dead-centre is
-                        // 315 along the sweep (the sweep starts at 135 and runs
-                        // 270), and 315 +/- 26 is 289 to 341 — no wrap, so this
-                        // needs no angle normalising.
+                        // sweep leaves across the bottom. Off the sweep `along`
+                        // runs from SweepDeg to 360, and the band this wants is
+                        // BottomAlong +/- 13 — well inside that, so no angle
+                        // normalising is needed here.
                         if (subGauge && !onSweep && r >= SubTickIn && r <= SubTickOut)
                         {
-                            float rel = along - 315f;
+                            float rel = along - BottomAlong;
                             if (Mathf.Abs(rel) <= SubTickHalfSweep + 0.5f)
                             {
                                 float step = SubTickHalfSweep * 0.5f;   // five marks

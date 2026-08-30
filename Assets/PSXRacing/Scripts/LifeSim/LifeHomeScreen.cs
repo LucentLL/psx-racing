@@ -572,6 +572,8 @@ namespace PSXRacing.LifeSim
             {
                 case "main": BuildMain(); break;
                 case "garage": BuildGarage(); break;
+                case "carmenu": BuildCarMenu(); break;
+                case "specs": BuildSpecs(); break;
                 case "calendar": BuildCalendar(); break;
                 case "rivals": BuildRivals(); break;
                 case "news": BuildNews(); break;
@@ -685,13 +687,40 @@ namespace PSXRacing.LifeSim
         /// CANCEL.</summary>
         Selectable OwningTabButton()
         {
-            string owner = ParentTab();
-            int i = System.Array.IndexOf(tabIds, owner);
+            int i = System.Array.IndexOf(tabIds, RootTab());
             return i >= 0 && i < tabButtons.Count ? tabButtons[i] : null;
         }
 
+        /// <summary>
+        /// The TAB a page ultimately lives under, walking the BACK chain until
+        /// it reaches one that is actually on the strip.
+        ///
+        /// Detail pages are two deep now — the garage list opens a car, and the
+        /// car opens its specs or its mechanic — so a single step up no longer
+        /// necessarily lands on a tab. Asking IndexOf about "carmenu" returns
+        /// -1, and callers reading that as "not found" quietly fell back to
+        /// MAIN: the tab strip would light the wrong cell and a shoulder press
+        /// from the specs page would jump to GARAGE's neighbour rather than to
+        /// GARAGE's. The step count is bounded by the chain's own length so a
+        /// mis-typed parent cannot spin here.
+        /// </summary>
+        string RootTab()
+        {
+            string t = tab;
+            for (int guard = 0; guard < 8; guard++)
+            {
+                if (System.Array.IndexOf(tabIds, t) >= 0) return t;
+                string next = ParentTabOf(t);
+                if (next == t) break;
+                t = next;
+            }
+            return "main";
+        }
+
         /// <summary>Where BACK goes from the current page.</summary>
-        string ParentTab()
+        string ParentTab() => ParentTabOf(tab);
+
+        static string ParentTabOf(string tab)
         {
             switch (tab)
             {
@@ -708,10 +737,15 @@ namespace PSXRacing.LifeSim
                 // an inspection is a place you are IN, and BACK should walk you
                 // out of it a room at a time.
                 case "inspectfocus": return "inspect";
+                // Everything you can do to ONE car backs out to that car's page,
+                // not to the list: the player picked a car and then picked an
+                // action, so BACK should undo one of those, not both.
                 case "service":
                 case "tune":
+                case "specs":
                 case "inspect":
-                case "toolbox":
+                case "toolbox": return "carmenu";
+                case "carmenu":
                 case "debugcars": return "garage";
                 default: return "main";
             }
@@ -743,8 +777,7 @@ namespace PSXRacing.LifeSim
             }
             if (step != 0)
             {
-                int i = System.Array.IndexOf(tabIds, tab);
-                if (i < 0) i = System.Array.IndexOf(tabIds, ParentTab());
+                int i = System.Array.IndexOf(tabIds, RootTab());
                 if (i < 0) i = 0;
                 tab = tabIds[(i + step + tabIds.Length) % tabIds.Length];
                 buyTarget = null;
@@ -1383,7 +1416,13 @@ namespace PSXRacing.LifeSim
             // there was nothing to choose between, which is exactly backwards:
             // "your cars" is the heading of the whole screen, and a garage that
             // shows no cars at all reads as broken rather than as uncluttered.
-            MenuKit.Label(body, "YOUR CARS (" + S.cars.Count + ")   ·   TAP TO SWITCH", 16,
+            //
+            // A row OPENS the car now rather than taking its keys. Switching was
+            // all a row could do while the page below it was about the active
+            // car; with a page per car, "which one am I driving" is one of the
+            // things you decide once you are looking at it, and it is the first
+            // button there.
+            MenuKit.Label(body, "YOUR CARS (" + S.cars.Count + ")   ·   TAP A CAR", 16,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW, height: 24f);
             y -= 30f;
@@ -1397,15 +1436,12 @@ namespace PSXRacing.LifeSim
 
                 var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL, ColW), y), new Vector2(ColW, rowH),
-                    active
-                        ? (UnityEngine.Events.UnityAction)(() =>
-                            Toast("already driving " + captured.displayName))
-                        : () =>
-                        {
-                            S.activeCar = captured.id;
-                            LifeSimManager.Save(); Rebuild();
-                            Toast("now driving " + captured.displayName);
-                        },
+                    () =>
+                    {
+                        garageCarId = captured.id;
+                        tab = "carmenu";
+                        Rebuild();
+                    },
                     14, active ? new Color(0.42f, 0.34f, 0.10f, 1f) : (Color?)null);
 
                 // The button's own caption is left empty and the row is drawn
@@ -1538,6 +1574,42 @@ namespace PSXRacing.LifeSim
             y -= 32f;
         }
 
+        /// <summary>
+        /// Which car the garage's detail pages are about.
+        ///
+        /// NOT necessarily the active one, and that is the point of the split:
+        /// the garage is a list of everything you own, and a player looking at
+        /// the specs of the car in the next bay should not have to take its keys
+        /// first. Empty falls back to the active car, which covers every entry
+        /// that arrived from somewhere other than the list — the walk-in garage,
+        /// a tab-strip press, a save resumed onto this page.
+        /// </summary>
+        string garageCarId = "";
+
+        OwnedCar GarageCar
+        {
+            get
+            {
+                var c = string.IsNullOrEmpty(garageCarId) ? null : S.FindCar(garageCarId);
+                return c ?? S.ActiveCar;
+            }
+        }
+
+        /// <summary>
+        /// The garage: the door into the house, and the list of what is in it.
+        ///
+        /// It used to be one page per ACTIVE car — turntable, condition bars,
+        /// fuel, faults, and then the four things you can actually do to a car
+        /// stacked at the very bottom, below all of it. Reported, correctly, as
+        /// those options being hidden: a phone column runs out long before
+        /// MECHANIC SERVICES, and the list of your other cars only switched
+        /// which car the wall of readouts was about.
+        ///
+        /// So the shape the HTML game had comes back. The list IS the garage;
+        /// picking a car opens a page about that car with everything you can do
+        /// to it on one screen. The readouts moved there with them, because they
+        /// are what you consult before choosing one of those actions.
+        /// </summary>
         void BuildGarage()
         {
             // Standing at the garage screen spends the walk-in hand-off: an
@@ -1546,28 +1618,11 @@ namespace PSXRacing.LifeSim
             InspectFromGarage = false;
             inspectCarId = "";
 
-            var car = S.ActiveCar;
-            if (car == null)
-            {
-                MenuKit.Label(body, "No car.", 20, new Vector2(0.5f, 1f), new Vector2(ColL, -40f));
-                return;
-            }
             float y = -20f;
-            DrawCarView(CarCatalog.Get(car.specId), ref y,
-                        fallbackKey: CarModelLibrary.Default);
-            BuildGarageSwitcher(ref y);
-            MenuKit.Label(body, car.displayName, 23, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, bold: true);
-            y -= 38f;
-            MenuKit.Label(body, "Odometer " + car.odoMiles.ToString("N0") + " mi   ·   paid " +
-                MenuKit.Money(car.paidPrice), 16, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 800f);
-            y -= 44f;
 
-            // The garage is a PLACE now, and this is the door. High on the tab
-            // rather than under the condition bars: on a phone column the bars,
-            // the fuel row and the fault list push anything below them off the
-            // first screen, and a feature nobody scrolls to is one nobody finds.
+            // The garage is a PLACE, and this is the door. Top of the page: on a
+            // phone column anything under a car list of any length is a feature
+            // nobody scrolls to, which is the whole lesson of this rebuild.
             MenuKit.Button(body, "WALK INTO YOUR HOUSE  >>",
                 new Vector2(0.5f, 1f), new Vector2(0f, y),
                 new Vector2(Mathf.Min(ColW, 460f), 52f), () =>
@@ -1575,7 +1630,46 @@ namespace PSXRacing.LifeSim
                     LifeSimManager.Save();
                     SceneManager.LoadScene(TrackCatalog.GarageSceneIndex);
                 }, 18, new Color(0.20f, 0.30f, 0.24f, 1f));
-            y -= 58f;
+            y -= 62f;
+
+            if (S.cars.Count == 0)
+            {
+                MenuKit.Label(body, "No cars. The classifieds are in the paper.", 20,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, 800f);
+                return;
+            }
+
+            BuildGarageSwitcher(ref y);
+        }
+
+        /// <summary>
+        /// One car, and everything you can do to it.
+        ///
+        /// The order is the order the HTML game had, and it is not arbitrary:
+        /// what the car IS at the top (picture, name, odometer), what state it
+        /// is IN next (condition, fuel, faults), and what you can DO about it at
+        /// the bottom — because every one of those actions is a decision taken
+        /// on the strength of the block above it.
+        /// </summary>
+        void BuildCarMenu()
+        {
+            var car = GarageCar;
+            if (car == null) { tab = "garage"; Rebuild(); return; }
+            bool driving = car.id == S.activeCar;
+
+            float y = -20f;
+            DrawCarView(CarCatalog.Get(car.specId), ref y,
+                        fallbackKey: CarModelLibrary.Default);
+            MenuKit.Label(body, car.displayName, 23, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, bold: true);
+            y -= 38f;
+            MenuKit.Label(body, (driving ? "DRIVING THIS ONE   ·   " : "PARKED   ·   ") +
+                "Odometer " + car.odoMiles.ToString("N0") + " mi   ·   paid " +
+                MenuKit.Money(car.paidPrice), 16, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                driving ? MenuKit.Good : MenuKit.Dim, 800f);
+            y -= 44f;
 
             DrawBar("ENGINE", car.engine, ref y);
             DrawBar("TIRES", car.tires, ref y);
@@ -1663,11 +1757,36 @@ namespace PSXRacing.LifeSim
 
             y -= 10f;
             float gBtnW = Mathf.Min(300f, (ColW - 12f) / 2f);
+            float gRight = ColL + gBtnW + 12f;
+
+            // GET IN is the top-left of the grid because it is the one action
+            // that changes which car the rest of the game is about. It is a
+            // no-op on the car you are already in, and says so rather than
+            // being greyed out — a disabled primary action reads as broken.
+            MenuKit.Button(body, driving ? "IN THIS CAR" : "GET IN  ·  switch",
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, gBtnW), y),
+                new Vector2(gBtnW, 44f),
+                driving
+                    ? (UnityEngine.Events.UnityAction)(() =>
+                        Toast("already driving " + Clip(car.displayName, 30)))
+                    : () =>
+                    {
+                        S.activeCar = car.id;
+                        LifeSimManager.Save(); Rebuild();
+                        Toast("now driving " + Clip(car.displayName, 30));
+                    },
+                16, driving ? new Color(0.42f, 0.34f, 0.10f, 1f)
+                            : new Color(0.20f, 0.30f, 0.24f, 1f));
+            MenuKit.Button(body, "SPECS", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 44f),
+                () => { tab = "specs"; Rebuild(); }, 16);
+            y -= 54f;
+
             MenuKit.Button(body, "MECHANIC SERVICES", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 44f),
                 () => { tab = "service"; Rebuild(); }, 16);
             MenuKit.Button(body, "PARTS + TUNING", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL + gBtnW + 12f, gBtnW), y), new Vector2(gBtnW, 44f),
+                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 44f),
                 () => { tab = "tune"; Rebuild(); }, 16);
             y -= 54f;
 
@@ -1701,9 +1820,124 @@ namespace PSXRacing.LifeSim
             y -= 60f;
 
             MenuKit.Button(body, "TOOLBOX", new Vector2(0.5f, 1f),
-                new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 42f),
+                new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
                 () => { tab = "toolbox"; Rebuild(); }, 16);
+            // Advertising a car is a MARKET action — the classifieds are where
+            // the ad runs and where the buyer answers it — so this is a door to
+            // that page rather than a second copy of it. Not shown on the last
+            // car in the garage: CarMarket refuses that sale, and a button whose
+            // only outcome is a refusal is worse than no button.
+            if (S.cars.Count > 1)
+                MenuKit.Button(body, "SELL / LIST AD", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
+                    () => { tab = "market"; Rebuild(); }, 16);
             y -= 52f;
+
+            y -= 6f;
+            MenuKit.Button(body, "< BACK TO GARAGE", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                () => { tab = "garage"; Rebuild(); }, 16);
+            y -= 54f;
+        }
+
+        /// <summary>
+        /// SPECS: what this car is on paper, and how it compares.
+        ///
+        /// Everything here is already in the catalog and most of it was already
+        /// being printed — in the classifieds, on the tuning page, in the
+        /// inspection's X-ray. What it did not have was a page of its own for a
+        /// car you already OWN, which is the one place the question "is this the
+        /// car for that race" gets asked. The built figures sit beside the
+        /// factory ones for the same reason the tuning page leads with them: on
+        /// a modified car the factory number is history, not a spec.
+        /// </summary>
+        void BuildSpecs()
+        {
+            var car = GarageCar;
+            if (car == null) { tab = "garage"; Rebuild(); return; }
+            var spec = CarCatalog.Get(car.specId);
+
+            float y = -20f;
+            MenuKit.Label(body, "SPECS — " + Clip(car.displayName, 34), 22,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, 820f, bold: true);
+            y -= 36f;
+
+            if (spec == null)
+            {
+                MenuKit.Label(body, "This car has no catalog entry, so there is nothing " +
+                    "on paper to show.", 16, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                y -= 44f;
+                MenuKit.Button(body, "< BACK", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    () => { tab = "carmenu"; Rebuild(); }, 16);
+                return;
+            }
+
+            int effHp = Upgrades.EffectiveHp(car, spec);
+            int effKg = Upgrades.EffectiveKg(car, spec);
+
+            MenuKit.Label(body, "PERFORMANCE", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
+            y -= 28f;
+            SpecRow("TOP SPEED", Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f)) +
+                    " " + SpeedUnits.Label, ref y);
+            SpecRow("POWER", effHp == spec.hp ? spec.hp + " hp"
+                                              : spec.hp + " → " + effHp + " hp", ref y,
+                    effHp != spec.hp);
+            SpecRow("MASS", effKg == spec.kg ? spec.kg + " kg"
+                                             : spec.kg + " → " + effKg + " kg", ref y,
+                    effKg != spec.kg);
+            SpecRow("POWER TO WEIGHT", effKg > 0
+                    ? (effHp / (float)effKg * 1000f).ToString("0") + " hp/tonne" : "—", ref y);
+
+            y -= 12f;
+            MenuKit.Label(body, "DETAILS", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
+            y -= 28f;
+            SpecRow("DRIVETRAIN", spec.drv, ref y);
+            string boost = spec.IsTurbo ? "turbocharged"
+                         : spec.IsSupercharged ? "supercharged" : "naturally aspirated";
+            SpecRow("ENGINE", (spec.dispCc > 0 ? spec.dispCc + "cc  " : "") +
+                    (string.IsNullOrEmpty(spec.eType) ? "" : spec.eType), ref y);
+            SpecRow("ASPIRATION", boost, ref y);
+            SpecRow("REDLINE", spec.redline.ToString("N0") + " rpm", ref y);
+            SpecRow("GEARS", spec.gears.ToString(), ref y);
+            SpecRow("YEAR", spec.modelYear.ToString(), ref y);
+            SpecRow("BUILD CEILING", spec.builtHp + " hp at stage 4", ref y);
+
+            y -= 14f;
+            float sBtnW = Mathf.Min(300f, (ColW - 12f) / 2f);
+            // The X-ray is the same diagram the inspection draws, and it belongs
+            // beside the paper figures: this page is what the car IS, and the
+            // layout of its drivetrain is as much a spec as its power.
+            MenuKit.Button(body, "X-RAY VIEW", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, sBtnW), y), new Vector2(sBtnW, 44f),
+                () =>
+                {
+                    inspectCarId = car.id;
+                    InspectFromGarage = false;
+                    tab = "inspect";
+                    Rebuild();
+                }, 16);
+            MenuKit.Button(body, "< BACK", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL + sBtnW + 12f, sBtnW), y),
+                new Vector2(sBtnW, 44f), () => { tab = "carmenu"; Rebuild(); }, 16);
+            y -= 54f;
+        }
+
+        /// <summary>One label-and-value line on the specs page. Right-aligned
+        /// values so a column of figures reads as a column.</summary>
+        void SpecRow(string label, string value, ref float y, bool changed = false)
+        {
+            float w = Mathf.Min(700f, ColW);
+            MenuKit.Label(body, label, 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, w * 0.55f);
+            MenuKit.Label(body, value, 16, new Vector2(0.5f, 1f),
+                new Vector2(ColL + w, y), TextAnchor.MiddleRight,
+                changed ? MenuKit.Good : Color.white, w * 0.55f);
+            y -= 28f;
         }
 
         // =================== inspection ===================
@@ -1854,7 +2088,13 @@ namespace PSXRacing.LifeSim
                         : "INSPECTION: " + string.Join(", ", inspectFound.ToArray());
                     inspectFound.Clear();
                     inspectLine = null;
-                    tab = "garage";
+                    // Back to THIS car's page, not to whichever one the garage
+                    // list last opened: an inspection started from the walk-in
+                    // bays is about the car the player was standing at, and it
+                    // is the only entry point that does not come through that
+                    // list in the first place.
+                    garageCarId = inspectCarId;
+                    tab = "carmenu";
                     LifeSimManager.Save();
                     // Walked in here from the bays? Then FINISHING is putting
                     // your tools down and standing up, not leaving the
@@ -2064,9 +2304,9 @@ namespace PSXRacing.LifeSim
                 y -= 30f;
             }
 
-            MenuKit.Button(body, "< BACK TO GARAGE", new Vector2(0.5f, 1f),
+            MenuKit.Button(body, "< BACK TO THE CAR", new Vector2(0.5f, 1f),
                 new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 44f),
-                () => { tab = "garage"; Rebuild(); }, 16);
+                () => { tab = "carmenu"; Rebuild(); }, 16);
             y -= 54f;
         }
 
@@ -2198,7 +2438,9 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void BuildTune()
         {
-            var car = S.ActiveCar;
+            // The car the garage list opened, not whichever one has the keys:
+            // every one of these pages is reached from that car's own menu.
+            var car = GarageCar;
             if (car == null) { tab = "garage"; Rebuild(); return; }
             var spec = CarCatalog.Get(car.specId);
 
@@ -2213,9 +2455,9 @@ namespace PSXRacing.LifeSim
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);
                 y -= 40f;
-                MenuKit.Button(body, "BACK TO GARAGE", new Vector2(0.5f, 1f),
+                MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                    () => { tab = "garage"; Rebuild(); }, 16);
+                    () => { tab = "carmenu"; Rebuild(); }, 16);
                 return;
             }
 
@@ -2248,9 +2490,9 @@ namespace PSXRacing.LifeSim
                 DrawModRow(car, spec, (Upgrades.Mod)i, ref y);
 
             y -= 8f;
-            MenuKit.Button(body, "BACK TO GARAGE", new Vector2(0.5f, 1f),
+            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                () => { tab = "garage"; Rebuild(); }, 16);
+                () => { tab = "carmenu"; Rebuild(); }, 16);
         }
 
         /// <summary>A one-off bolt-on: fitted, buyable, or refused with the
@@ -3043,7 +3285,7 @@ namespace PSXRacing.LifeSim
         /// waiting, and it clears the fault lane it touches.</summary>
         void BuildService()
         {
-            var car = S.ActiveCar;
+            var car = GarageCar;
             if (car == null) return;
             float y = -20f;
             MenuKit.Label(body, "MECHANIC — " + car.displayName, 20, new Vector2(0.5f, 1f),
@@ -3107,9 +3349,9 @@ namespace PSXRacing.LifeSim
                 y -= 52f;
             }
 
-            MenuKit.Button(body, "BACK TO GARAGE", new Vector2(0.5f, 1f),
+            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, 280f), y - 6f), new Vector2(280f, 44f),
-                () => { tab = "garage"; Rebuild(); }, 16);
+                () => { tab = "carmenu"; Rebuild(); }, 16);
         }
 
         /// <summary>
@@ -3126,6 +3368,14 @@ namespace PSXRacing.LifeSim
         /// the driver really does have, the line under this block already quotes
         /// gallons and kilometres off it, and "how far can I get" is a question
         /// with a numeric answer.
+        ///
+        /// AND SO DOES THE BAR. Hiding the figure and then drawing a bar filled
+        /// to value/100 beside it was the number printed twice, once in digits
+        /// and once in pixels — a player counting how far along the fill sits is
+        /// reading the save just as exactly, only slower. A condition bar is
+        /// five segments with as many lit as the word has bands, so the picture
+        /// and the word carry identical information. Fuel and DEBUG keep the
+        /// continuous fill, because there the exact figure is the point.
         /// </summary>
         void DrawBar(string label, float value, ref float y, bool exact = false)
         {
@@ -3135,9 +3385,27 @@ namespace PSXRacing.LifeSim
                 new Vector2(0f, 1f), new Vector2(-220f, y - 4f),
                 new Vector2(430f, 16f), new Color(0f, 0f, 0f, 0.5f));
             Color c = value > 60f ? MenuKit.Good : value > 30f ? MenuKit.Accent : MenuKit.Bad;
-            MenuKit.Rect(track, "fill", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
-                new Vector2(1f, 0f), new Vector2(428f * Mathf.Clamp01(value / 100f), 14f), c);
-            string read = exact || S.debugMode
+            bool figures = exact || S.debugMode;
+            if (figures)
+            {
+                MenuKit.Rect(track, "fill", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                    new Vector2(1f, 0f), new Vector2(428f * Mathf.Clamp01(value / 100f), 14f), c);
+            }
+            else
+            {
+                // Five segments, the lit ones counted off ConditionBand so the
+                // bar can never say something the word does not. The gap is a
+                // gap in the TRACK, which is already dark, rather than a drawn
+                // divider — one rect per segment and nothing else.
+                const int Segments = 5;
+                const float Gap = 3f;
+                float seg = (428f - Gap * (Segments - 1)) / Segments;
+                int lit = LifeRules.ConditionBand(value) + 1;
+                for (int i = 0; i < lit; i++)
+                    MenuKit.Rect(track, "seg", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                        new Vector2(1f + i * (seg + Gap), 0f), new Vector2(seg, 14f), c);
+            }
+            string read = figures
                 ? Mathf.RoundToInt(value) + "%"
                 : LifeRules.ConditionLabel(value);
             MenuKit.Label(body, read, 14, new Vector2(0.5f, 1f),
