@@ -157,7 +157,9 @@ namespace PSXRacing
 
             var kb = Keyboard.current;
             var pad = Gamepad.current;
-            bool touchContinue = TouchControls.Instance != null && TouchControls.Instance.RestartPressed;
+            bool touchContinue = TouchControls.Instance != null &&
+                                 TouchControls.Instance.ContinuePressed;
+
             // A pad had no way off the results screen at all: R and the touch
             // RESET button were the only two continues, so a controller player
             // who finished a race was simply stranded there.

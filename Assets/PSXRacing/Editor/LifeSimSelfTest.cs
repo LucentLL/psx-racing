@@ -49,6 +49,8 @@ namespace PSXRacing.EditorTools
             TestCarXray();
             TestHousingAndJobs();
             TestShiftRoster();
+            TestCalendar();
+            TestDiary();
             TestCityProps();
             TestGridStaging();
             TestHomeLot();
@@ -96,6 +98,128 @@ namespace PSXRacing.EditorTools
             LifeRules.WorkOneDay(s);
             Check(s.ateToday && s.daysSinceEat == 0, "a delivery shift feeds the driver");
             Check(s.pendingSalary > 0, "tips accrue into pendingSalary", s.pendingSalary);
+        }
+
+        /// <summary>
+        /// The 1999 calendar, and the diary written on it.
+        ///
+        /// The whole date system rests on one coincidence that has to be true
+        /// and would be silent if it were not: the game's week has always run
+        /// FRI-SAT-SUN-MON..THU from day 1, and 1 January 1999 was a Friday. If
+        /// that ever stopped agreeing, every screen would keep rendering
+        /// perfectly and every day of the week would be wrong — a bug with no
+        /// symptom except a player noticing that payday fell on a Tuesday.
+        /// </summary>
+        static void TestCalendar()
+        {
+            Line("calendar:");
+
+            Check(LifeRules.Epoch.Year == 1999 && LifeRules.Epoch.Month == 1 &&
+                  LifeRules.Epoch.Day == 1,
+                  "a career starts on 1 January 1999", LifeRules.Epoch.ToString("yyyy-MM-dd"));
+            Check(LifeRules.Epoch.DayOfWeek == System.DayOfWeek.Friday,
+                  "which really was a Friday", LifeRules.Epoch.DayOfWeek);
+
+            // Two years of it, so a leap year and every month length is covered.
+            bool dowAgrees = true, roundTrips = true, monthLenOk = true;
+            string firstBad = "";
+            for (int day = 1; day <= 730; day++)
+            {
+                var real = LifeRules.DateOf(day);
+                // DowNames is FRI-first, so index 0 is Friday and the real
+                // DayOfWeek (Sunday-first) has to be shifted by five to compare.
+                int realIdx = ((int)real.DayOfWeek - (int)System.DayOfWeek.Friday + 7) % 7;
+                if (realIdx != LifeRules.Dow(day) && dowAgrees)
+                { dowAgrees = false; firstBad = "day " + day + " " + real.ToString("yyyy-MM-dd"); }
+                if (LifeRules.DayNumber(real) != day) roundTrips = false;
+                if (LifeRules.DaysInMonth(day) !=
+                    System.DateTime.DaysInMonth(real.Year, real.Month)) monthLenOk = false;
+            }
+            Check(dowAgrees, "the game's own FRI-first week IS the real 1999 week", firstBad);
+            Check(roundTrips, "DayNumber and DateOf are inverses");
+            Check(monthLenOk, "months are their real length");
+
+            // The flat-30 counter this replaced said February had 30 days, and
+            // the BILLS tab counts down to the 1st with that number.
+            int feb1 = LifeRules.DayNumber(new System.DateTime(1999, 2, 1));
+            Check(LifeRules.DaysInMonth(feb1) == 28, "February 1999 is 28 days",
+                  LifeRules.DaysInMonth(feb1));
+            Check(LifeRules.DayOfMonth(feb1) == 1 && LifeRules.MonthOf(feb1) == 2,
+                  "and starts on its own 1st", LifeRules.DateLabel(feb1));
+
+            // Bills fire on the 1st and nothing else. Counted over a year rather
+            // than asserted at one date, because the failure mode of a calendar
+            // change is a month that fires twice or not at all.
+            int firsts = 0;
+            for (int day = 1; day <= 365; day++) if (LifeRules.DayOfMonth(day) == 1) firsts++;
+            Check(firsts == 12, "exactly twelve bill days in a year", firsts);
+
+            int paydays = 0;
+            for (int day = 1; day <= 364; day++) if (LifeRules.IsPayday(day)) paydays++;
+            Check(paydays == 52, "and fifty-two paydays", paydays);
+
+            Check(LifeRules.DateLabel(1).Contains("1999") && LifeRules.DateLabel(1).StartsWith("FRI"),
+                  "the header prints the year", LifeRules.DateLabel(1));
+            Check(LifeRules.MonthLabel(1) == "JANUARY 1999",
+                  "and the calendar prints its month", LifeRules.MonthLabel(1));
+        }
+
+        /// <summary>
+        /// The diary: booking a race on a future day, and what happens to a
+        /// booking nobody keeps.
+        ///
+        /// A booking is the only thing in the save that points FORWARD, so it is
+        /// the only thing a rollover can silently lose or silently keep forever.
+        /// Both were worth pinning: a booking that survives its own day sits on
+        /// the home screen offering a race that was due last week, and one swept
+        /// a day early vanishes the morning the player meant to drive it.
+        /// </summary>
+        static void TestDiary()
+        {
+            Line("diary:");
+
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            int today = s.day;
+
+            Check(!LifeRules.Book(s, today - 1, 0, false), "you cannot book yesterday");
+            Check(LifeRules.Book(s, today + 3, 1, false), "you can book three days out");
+            Check(!LifeRules.Book(s, today + 3, 2, false), "but only one race a day");
+            Check(LifeRules.BookingOn(s, today + 3) != null &&
+                  LifeRules.BookingOn(s, today + 3).trackIndex == 1,
+                  "and the booking keeps its OWN venue",
+                  LifeRules.BookingOn(s, today + 3)?.trackIndex);
+            Check(LifeRules.BookingOn(s, today + 2) == null, "neighbouring days stay empty");
+
+            LifeRules.Unbook(s, today + 3);
+            Check(LifeRules.BookingOn(s, today + 3) == null, "cancelling clears it");
+
+            // Live on its own day, gone the morning after. Driven through Sleep
+            // so it is the real rollover doing the sweeping.
+            LifeRules.Book(s, today + 1, 3, true);
+            LifeRules.Sleep(s);
+            Check(LifeRules.BookingOn(s, s.day) != null,
+                  "a booking is still there on the day it is for");
+            Check(LifeRules.BookingOn(s, s.day).practice, "and remembers it was a practice lap");
+            int logBefore = s.calendarLog.Count;
+            LifeRules.Sleep(s);
+            Check(s.bookings.Count == 0, "and is gone the day after", s.bookings.Count);
+            Check(s.calendarLog.Count > logBefore, "with a line in the diary saying it was missed");
+
+            // Missing one costs nothing but the slot the player spent elsewhere.
+            // Asserted because the absence ladder next door DOES bite, and the
+            // two are easy to confuse into one rule.
+            var t = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            float repBefore = t.streetRep;
+            int moneyBefore = t.money;
+            LifeRules.Book(t, t.day + 1, 2, false);
+            LifeRules.Sleep(t); LifeRules.Sleep(t);
+            Check(Mathf.Approximately(t.streetRep, repBefore) && t.money == moneyBefore,
+                  "a missed booking is not a punishment", t.streetRep + " / " + t.money);
+
+            // An old save has no bookings list in its JSON at all.
+            var old = new LifeState();
+            Check(old.bookings != null && old.bookings.Count == 0,
+                  "a save with no diary reads back as an empty one");
         }
 
         // ---------------------------------------------------------------

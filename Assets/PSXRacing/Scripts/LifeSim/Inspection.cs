@@ -549,7 +549,7 @@ namespace PSXRacing.LifeSim
             string what = found.Count == 0
                 ? "nothing they could find"
                 : string.Join(", ", found);
-            s.calendarLog.Add("Day " + s.day + ": " + ProLabel(who) + " on " +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + ProLabel(who) + " on " +
                               car.displayName + " — " + what);
             // Deliberately does NOT say how many are left. A clean bill from the
             // mechanic has to be able to be wrong, or paying the dealer never

@@ -14,9 +14,12 @@ namespace PSXRacing
     /// supermini. Reading the box is also the only version that stays correct
     /// when the LifeSim hands over a different car mid-Start.
     ///
-    /// Cycled with C, gamepad north, or the CAM button on the touch pad — that
-    /// button existed and was wired to nothing, so on a phone there was no way
-    /// to change view at all. The choice is remembered across races.
+    /// Cycled with C, gamepad north, or the CAMERA row in the pause menu. On a
+    /// phone the pause menu is the only one of those that exists, which is why
+    /// that row is where the choice lives now: the permanent CAM button this
+    /// used to read was two thumb-widths of screen spent on something a player
+    /// touches once a race. The choice is remembered across races.
+
     /// </summary>
     public class ChaseCamera : MonoBehaviour
     {
@@ -214,18 +217,7 @@ namespace PSXRacing
             // line. The reset lives on X/Square and Back/Share now.
             var pad = Gamepad.current;
             if (pad != null && pad.buttonNorth.wasPressedThisFrame) CycleView(1);
-
-            // Rising edge, not the flag itself. TouchButton holds
-            // PressedThisFrame for TWO frames deliberately, so that a consumer
-            // whose Update runs before the event module still sees the press —
-            // read raw, one tap would step the camera on twice.
-            var touch = TouchControls.Instance;
-            bool camDown = touch != null && touch.CameraPressed;
-            if (camDown && !camWasDown) CycleView(1);
-            camWasDown = camDown;
         }
-
-        bool camWasDown;
 
         const Key FirstDigit = Key.Digit1;
 

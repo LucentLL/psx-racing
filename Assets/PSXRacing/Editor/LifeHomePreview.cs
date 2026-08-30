@@ -45,7 +45,16 @@ namespace PSXRacing.EditorTools
             // used day to day — the home hub was where the overlap was reported.
             LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
             LifeRules.SeedFallbackCar(LifeSimManager.State);
+            // Something in the diary before anything is photographed. Without it
+            // the calendar renders a month of empty cells and proves nothing
+            // about the marker row or the day panel — and the gold "IN THE DIARY
+            // TODAY" row on MAIN only exists on a day that has a booking, so it
+            // is otherwise a piece of layout nobody has ever seen.
+            LifeRules.Book(LifeSimManager.State, LifeSimManager.State.day, 1, false);
+            LifeRules.Book(LifeSimManager.State, LifeSimManager.State.day + 2, 3, false);
+            LifeRules.Book(LifeSimManager.State, LifeSimManager.State.day + 9, 4, true);
             LifeSimManager.Save();
+
             Shoot(outDir, "home");
 
             // The day's actions, which live below the fold on every canvas: the
@@ -59,6 +68,12 @@ namespace PSXRacing.EditorTools
             LifeSimManager.State.slotIndex = 1;
             LifeSimManager.Save();
             Shoot(outDir, "home_shift_afternoon", "main", scrollTo: 0f);
+            // The middle of MAIN, where the door into the house, the diary row
+            // and the way into the calendar all live. Top-of-scroll shows the
+            // track picker and bottom-of-scroll shows the day's actions; this
+            // block sits between them and had never been photographed.
+            Shoot(outDir, "home_mid", "main", scrollTo: 0.55f);
+
             LifeSimManager.State.slotIndex = 0;
             LifeSimManager.Save();
 
@@ -115,11 +130,14 @@ namespace PSXRacing.EditorTools
                 }
             }
             s.money = 4841;
+
             LifeSimManager.Save();
 
             // Every tab, not just the two that had been looked at. Three of the
             // four bugs found here were on tabs nobody had rendered.
-            foreach (var t in new[] { "rivals", "garage", "market", "eat", "bills", "jobs",
+            foreach (var t in new[] { "rivals", "garage", "calendar", "news", "options",
+                                      "market", "eat", "bills", "jobs",
+
                                       "inspect", "inspectfocus", "toolbox" })
                 Shoot(outDir, t, t);
 

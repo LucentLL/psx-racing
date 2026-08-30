@@ -300,7 +300,7 @@ namespace PSXRacing.LifeSim
                 upgradeKind = UpgradeKindKey(kind),
                 upgradeStage = plan.toStage,
             });
-            s.calendarLog.Add("Day " + s.day + ": booked " + KindLabels[(int)kind] +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": booked " + KindLabels[(int)kind] +
                               " stage " + plan.toStage + " (" + MenuKit.Money(price) + ", " +
                               plan.days + "d)");
             return null;
@@ -376,7 +376,7 @@ namespace PSXRacing.LifeSim
             s.mechSkill = Mathf.Min(100f, s.mechSkill +
                                     FaultCatalog.DiySkillGain(s.mechSkill, o.skillReq));
             if (mod == Mod.WeldedDiff) car.welded = true; else car.supercharged = true;
-            s.calendarLog.Add("Day " + s.day + ": fitted " + o.name + " (" +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": fitted " + o.name + " (" +
                               MenuKit.Money(o.price) + ")");
             return null;
         }

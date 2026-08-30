@@ -121,7 +121,10 @@ namespace PSXRacing
                 throttle = Mathf.Max(throttle, touch.Throttle);
                 brake = Mathf.Max(brake, touch.Brake);
                 handbrake |= touch.Handbrake;
-                if (touch.RestartPressed) DriveSession.Respawn(car);
+                // No touch RESET any more — it was a permanent button for a
+                // once-a-race action, and it is a pause-menu row. A beached
+                // phone player is not stranded: StuckRecovery auto-resets on its
+                // own timer, and RESET CAR (UNSTICK) is one tap behind MENU.
             }
 
             if (!inputEnabled) { kbSteer = 0f; analogSteer = null; throttle = 0f; brake = 0.3f; handbrake = false; }

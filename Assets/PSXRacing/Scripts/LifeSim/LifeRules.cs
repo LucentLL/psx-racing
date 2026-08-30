@@ -9,23 +9,138 @@ namespace PSXRacing.LifeSim
     ///
     /// The clock is SLOT-BASED, exactly as RG2 (sim/sleepSlot.ts): a day is
     /// three activity slots (morning/afternoon/night) and time only moves when
-    /// the player spends one. Day 1 is a FRIDAY; weeks run FRI-SAT-SUN-MON..THU
-    /// (dow = (day-1) % 7, 0 = FRI); months are a flat 30 days. Payday is
-    /// Friday; bills land on the 1st.
+    /// the player spends one. Day 1 is FRIDAY 1 JANUARY 1999 — a real date on a
+    /// real calendar, and a Friday, which is why the game's own FRI-first week
+    /// (dow = (day-1) % 7, 0 = FRI) is also the true day of the week for every
+    /// day of a career. Payday is Friday; bills land on the 1st.
     /// </summary>
     public static class LifeRules
     {
         // ================= calendar (config/calendar.ts) =================
+        //
+        // The game is set in 1999, like the original — and the calendar is a
+        // REAL one rather than the flat 30-day counter this shipped with. Two
+        // reasons, and the second is what decided it: a screen that lets you
+        // plan around paydays and bills has to agree with the month it is
+        // printing, and "day 14 of month 1" is not a date anybody plans around.
+        //
+        // The anchor is a gift. Day 1 was already a FRIDAY, dow already ran
+        // FRI-SAT-SUN-MON..THU, and **1 January 1999 was a Friday** — so the
+        // existing (day-1)%7 convention IS the real day of the week for every
+        // day of the career, with nothing to reconcile and no save to migrate.
+        // The calendar grid starts weeks on Friday for the same reason it always
+        // has: payday is a column, and January 1999 happens to fill the top-left
+        // cell exactly.
         public static readonly string[] DowNames = { "FRI", "SAT", "SUN", "MON", "TUE", "WED", "THU" };
         public static readonly string[] SlotNames = { "MORNING", "AFTERNOON", "NIGHT" };
-        public const int DaysPerMonth = 30;
+        /// <summary>Month names spelled out here rather than taken from the
+        /// culture. WebGL ships an invariant-ish culture set and a menu that
+        /// renders "janv." on somebody's phone is a bug nobody can reproduce.
+        /// </summary>
+        public static readonly string[] MonthNames =
+        {
+            "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+            "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+        };
+        public static readonly string[] MonthShort =
+        {
+            "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+        };
+
+        /// <summary>Day 1 of a career. A Friday, which is what makes the whole
+        /// existing week convention line up with the real 1999.</summary>
+        public static readonly System.DateTime Epoch = new System.DateTime(1999, 1, 1);
+
+        /// <summary>The real date an absolute day number lands on.</summary>
+        public static System.DateTime DateOf(int day) => Epoch.AddDays(Mathf.Max(1, day) - 1);
+
+        /// <summary>Absolute day number for a real date — the inverse of
+        /// <see cref="DateOf"/>, for a calendar grid that walks months rather
+        /// than days.</summary>
+        public static int DayNumber(System.DateTime d) =>
+            (int)(d.Date - Epoch).TotalDays + 1;
 
         public static int Dow(int day) => ((day - 1) % 7 + 7) % 7;
         public static bool IsWeekend(int day) => Dow(day) == 1 || Dow(day) == 2;
         public static bool IsPayday(int day) => Dow(day) == 0;          // Friday
-        public static int DayOfMonth(int day) => (day - 1) % DaysPerMonth + 1;
-        public static string DateLabel(int day) =>
-            DowNames[Dow(day)] + ", day " + DayOfMonth(day) + " of month " + ((day - 1) / DaysPerMonth + 1);
+        public static int DayOfMonth(int day) => DateOf(day).Day;
+        public static int MonthOf(int day) => DateOf(day).Month;
+        public static int YearOf(int day) => DateOf(day).Year;
+        /// <summary>Length of the month a day falls in. Was a flat 30 for the
+        /// whole game; the bills tab counts down to the 1st with it, so a
+        /// February that claimed 30 days would have been counting to a date
+        /// that does not exist.</summary>
+        public static int DaysInMonth(int day)
+        {
+            var d = DateOf(day);
+            return System.DateTime.DaysInMonth(d.Year, d.Month);
+        }
+
+        /// <summary>"FRI 1 JAN 1999" — short enough for the header line, which
+        /// also carries the slot and the debug flag.</summary>
+        public static string DateLabel(int day)
+        {
+            var d = DateOf(day);
+            return DowNames[Dow(day)] + " " + d.Day + " " + MonthShort[d.Month - 1] + " " + d.Year;
+        }
+
+        /// <summary>"JANUARY 1999", for the calendar's own header.</summary>
+        public static string MonthLabel(int day)
+        {
+            var d = DateOf(day);
+            return MonthNames[d.Month - 1] + " " + d.Year;
+        }
+
+        /// <summary>Date stamp for a diary line: "1 JAN". Deliberately as short
+        /// as the "Day 1" it replaces — the RECENTLY list on MAIN is one line
+        /// per entry with no room to spare, and the entry itself is the
+        /// interesting half. The year is said once, in the header.</summary>
+        public static string LogDate(int day)
+        {
+            var d = DateOf(day);
+            return d.Day + " " + MonthShort[d.Month - 1];
+        }
+
+        // ================= the diary =================
+        /// <summary>
+        /// Races the player has planned, and the rules around planning them.
+        ///
+        /// A booking is a note to yourself, not a contract: nothing is charged
+        /// for making one and nothing is taken away for missing one. That is
+        /// deliberate. The ask was for a way to PLAN — and the scarce thing in
+        /// this game is already the three slots in a day, so a diary that also
+        /// fined you would be charging twice for the same decision. What a
+        /// booking buys is the ability to look at a month and see the night you
+        /// meant to race sitting next to the day the bills land.
+        /// </summary>
+        public static RaceBooking BookingOn(LifeState s, int day) =>
+            s == null || s.bookings == null ? null : s.bookings.Find(b => b != null && b.day == day);
+
+        /// <summary>One race a day, because a race costs a slot and there are
+        /// three of those — a day with two bookings on it is a day the player
+        /// has already lost by lunchtime.</summary>
+        public static bool Book(LifeState s, int day, int trackIndex, bool practice)
+        {
+            if (s == null || day < s.day) return false;
+            if (s.bookings == null) s.bookings = new System.Collections.Generic.List<RaceBooking>();
+            if (BookingOn(s, day) != null) return false;
+            s.bookings.Add(new RaceBooking { day = day, trackIndex = trackIndex, practice = practice });
+            return true;
+        }
+
+        public static void Unbook(LifeState s, int day)
+        {
+            if (s == null || s.bookings == null) return;
+            s.bookings.RemoveAll(b => b == null || b.day == day);
+        }
+
+        /// <summary>How far ahead the diary lets you write. Four weeks is more
+        /// than anything in this game has a horizon for — the longest repair is
+        /// days and the rent is monthly — so it is a limit that exists to stop
+        /// the calendar becoming a list of a hundred stale intentions rather
+        /// than to stop the player doing anything they wanted to.</summary>
+        public const int BookingHorizonDays = 28;
 
         // ================= jobs (config/jobs.ts via jobs extraction) =================
         // name, daily salary, starting-savings band (applyStartingConditions)
@@ -821,7 +936,7 @@ namespace PSXRacing.LifeSim
                 summary += "  ·  fuel " + MenuKit.Money(RaceHandoff.FuelSpent);
 
             // 7. log + clear
-            s.calendarLog.Add("Day " + s.day + ": race " + summary);
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": race " + summary);
             RaceHandoff.ClearResult();
             return summary;
         }
@@ -846,12 +961,12 @@ namespace PSXRacing.LifeSim
                 // over the answer an inspection exists to find — so the log and
                 // the result screen report the SYMPTOM, which is all a driver
                 // gets from the seat.
-                s.calendarLog.Add("Day " + s.day + ": " + car.displayName +
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + car.displayName +
                                   " is not running right");
                 lastSymptom = SymptomFor(f.stat);
                 return;
             }
-            s.calendarLog.Add("Day " + s.day + ": DIAGNOSED — " + f.label +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": DIAGNOSED — " + f.label +
                               " ($" + f.cost + ")");
             lastDiagnosed = f.label;
         }
@@ -919,7 +1034,7 @@ namespace PSXRacing.LifeSim
             if (q.days <= 0)
             {
                 ApplyRepair(s, car, f);
-                s.calendarLog.Add("Day " + s.day + ": fixed " + f.label +
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": fixed " + f.label +
                                   " (" + MenuKit.Money(q.price) + ", dealer)");
                 return null;
             }
@@ -934,7 +1049,7 @@ namespace PSXRacing.LifeSim
                 readyDay = s.day + q.days,
                 venue = (int)venue,
             });
-            s.calendarLog.Add("Day " + s.day + ": booked " + f.label +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": booked " + f.label +
                               " (" + MenuKit.Money(q.price) + ", " + q.days + "d)");
             return null;
         }
@@ -976,13 +1091,13 @@ namespace PSXRacing.LifeSim
                         var kind = Upgrades.KindFromKey(p.upgradeKind);
                         Upgrades.SetStage(car, kind,
                             Mathf.Max(Upgrades.GetStage(car, kind), p.upgradeStage));
-                        s.calendarLog.Add("Day " + s.day + ": " + p.label + " installed");
+                        s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " installed");
                     }
                     else
                     {
                         AddToStat(car, p.stat, p.add);
                         car.faults.RemoveAll(x => x.id == p.faultId);
-                        s.calendarLog.Add("Day " + s.day + ": " + p.label + " repaired");
+                        s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " repaired");
                     }
                 }
                 s.pendingParts.RemoveAt(i);
@@ -1028,7 +1143,7 @@ namespace PSXRacing.LifeSim
             // want of a better lane, and an oil change must not cancel a
             // paid-for turbo build.
             s.pendingParts.RemoveAll(p => p.carId == car.id && p.stat == svc.stat && !p.IsUpgrade);
-            s.calendarLog.Add("Day " + s.day + ": " + svc.name + " " + MenuKit.Money(price));
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + svc.name + " " + MenuKit.Money(price));
             return null;
         }
 
@@ -1141,13 +1256,13 @@ namespace PSXRacing.LifeSim
             {
                 s.money -= due;
                 s.creditScore = Mathf.Min(850, s.creditScore + 2);   // on-time (+2, credit.ts)
-                s.calendarLog.Add("Day " + s.day + ": bills paid — " + MenuKit.Money(due));
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": bills paid — " + MenuKit.Money(due));
             }
             else
             {
                 s.missedPayments++;
                 s.creditScore = Mathf.Max(300, s.creditScore - 40);  // missed (−40)
-                s.calendarLog.Add("Day " + s.day + ": MISSED BILLS (" + MenuKit.Money(due) +
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": MISSED BILLS (" + MenuKit.Money(due) +
                                   ") — strike " + s.missedPayments);
             }
             foreach (var l in s.carLoans) if (l.monthsRemaining > 0) l.monthsRemaining--;
@@ -1193,10 +1308,10 @@ namespace PSXRacing.LifeSim
                     float loss = over switch { 1 => 5f, 2 => 15f, _ => 30f };
                     s.workRep = Mathf.Max(0f, s.workRep - loss);
                     s.workDaysTotal++;
-                    s.calendarLog.Add("Day " + s.day + ": missed a shift (−" + loss + " rep)");
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": missed a shift (−" + loss + " rep)");
                     if (over >= 3 || s.workRep <= 0f)
                     {
-                        s.calendarLog.Add("Day " + s.day + ": FIRED from " + s.playerJob);
+                        s.calendarLog.Add(LifeRules.LogDate(s.day) + ": FIRED from " + s.playerJob);
                         s.playerJob = ""; s.basePay = 0; s.fired = true;
                         s.creditScore = Mathf.Max(300, s.creditScore - 25);
                     }
@@ -1221,7 +1336,7 @@ namespace PSXRacing.LifeSim
             {
                 int net = Mathf.RoundToInt(s.pendingSalary * (1f - PaycheckTaxRate));
                 s.money += net;
-                s.calendarLog.Add("Day " + (s.day - 1) + ": PAYDAY +" + MenuKit.Money(net));
+                s.calendarLog.Add(LifeRules.LogDate((s.day - 1)) + ": PAYDAY +" + MenuKit.Money(net));
                 s.pendingSalary = 0;
             }
 
@@ -1241,6 +1356,21 @@ namespace PSXRacing.LifeSim
             // page written this morning being swept the same morning.
             s.mail.RemoveAll(m => m.expiresDay > 0 && s.day > m.expiresDay);
             lastPage = Blacklist.TickPager(s);
+
+            // 9b. the diary: yesterday's booking, if it went unraced, is gone.
+            // Swept AFTER the day advances so a booking is live for the whole of
+            // its own day and stale the moment that day is over. Logged rather
+            // than punished — see BookingOn: the slot the player spent on
+            // something else was the cost.
+            if (s.bookings != null && s.bookings.Count > 0)
+            {
+                var missed = s.bookings.FindAll(b => b == null || b.day < s.day);
+                foreach (var b in missed)
+                    if (b != null)
+                        s.calendarLog.Add(LifeRules.LogDate(b.day) + ": missed the booked race at " +
+                                          TrackCatalog.At(b.trackIndex).name);
+                s.bookings.RemoveAll(b => b == null || b.day < s.day);
+            }
 
             // 10. daily latches
             s.ateToday = false;
@@ -1332,7 +1462,7 @@ namespace PSXRacing.LifeSim
             // Same switch the in-career button uses, so the two entry points
             // cannot drift into granting different things.
             if (debug) EnableDebug(s);
-            s.calendarLog.Add("Day 1 (FRI): moved in. " + job.name + ", " +
+            s.calendarLog.Add(LogDate(1) + ": moved in. " + job.name + ", " +
                               MenuKit.Money(s.money) + " saved." +
                               (debug ? "  [DEBUG CAREER]" : ""));
             CarMarket.RefreshListings(s);

@@ -187,7 +187,7 @@ namespace PSXRacing.OnFoot
                 s.lastMealTier = it.tier;
                 toast = it.name + " — HEALTH " + Mathf.RoundToInt(s.health);
             }
-            s.calendarLog.Add("Day " + s.day + ": " + it.name.ToLowerInvariant() +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + it.name.ToLowerInvariant() +
                               " at " + logPlace + " — " + MenuKit.Money(it.price));
             LifeSimManager.Save();
 

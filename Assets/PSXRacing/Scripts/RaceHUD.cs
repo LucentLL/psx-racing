@@ -204,7 +204,7 @@ namespace PSXRacing
         static string CameraHowTo()
         {
             if (TouchControls.Instance != null && TouchControls.Instance.Visible)
-                return "(CAM, TOP RIGHT)";
+                return "(MENU → CAMERA)";
             return UnityEngine.InputSystem.Gamepad.current != null
                 ? "(TRIANGLE / Y)" : "(PRESS C)";
         }
@@ -324,10 +324,11 @@ namespace PSXRacing
                     // Name the control the player actually HAS. On a phone there
                     // is no R key, and telling someone to press one on a device
                     // without a keyboard reads as the game not knowing what it
-                    // is running on. The touch RESET button already drives this
-                    // same action; it just was not what the text said.
+                    // is running on. The CONTINUE button appears at the bottom of
+                    // a touch screen for exactly this moment.
                     bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
-                    string how = touch ? "TAP RESET (TOP RIGHT)"
+                    string how = touch ? "TAP CONTINUE"
+
                                : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS A / CROSS"
                                : "PRESS R";
                     // A drag result is an ET and a trap speed. Reporting a "best
@@ -503,9 +504,17 @@ namespace PSXRacing
                 }
             }
 
-            // The FUEL button only exists while a nozzle is offering itself.
+            // The FUEL button only exists while a nozzle is offering itself, and
+            // CONTINUE only once the race is over — the two contextual controls
+            // that replaced the permanent CAM and RESET pair.
             var touch = TouchControls.Instance;
-            if (touch != null) touch.SetAction(GasPump.AtPump && GasPump.Prompt != null, "FUEL");
+            if (touch != null)
+            {
+                bool over = RaceManager.Instance != null &&
+                            RaceManager.Instance.State == RaceManager.RaceState.Finished;
+                touch.SetAction(!over && GasPump.AtPump && GasPump.Prompt != null, "FUEL");
+                touch.SetContinue(over);
+            }
         }
 
         /// <summary>

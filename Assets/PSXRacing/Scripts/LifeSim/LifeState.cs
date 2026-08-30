@@ -140,6 +140,11 @@ namespace PSXRacing.LifeSim
         public List<MailItem> mail = new List<MailItem>();
         public List<string> calendarLog = new List<string>();
 
+        /// <summary>Races the player has put in the diary. Bookings are the
+        /// only thing in this save that points at a FUTURE day — everything else
+        /// records what happened — which is what makes the calendar a planner
+        /// rather than a history.</summary>
+        public List<RaceBooking> bookings = new List<RaceBooking>();
         public OwnedCar FindCar(string id) =>
             cars.Find(c => c.id == id);
 
@@ -322,5 +327,22 @@ namespace PSXRacing.LifeSim
         /// <summary>0 = keeps forever. A blacklist call-out expires; a purchase
         /// offer does not.</summary>
         public int expiresDay;
+    }
+
+    /// <summary>
+    /// A race the player has written into the diary for a future day.
+    ///
+    /// Carries its own venue rather than reading the MAIN screen's picker,
+    /// because the point of a diary is that three bookings on three days can be
+    /// three different places. Practice is stored too: a booked practice lap is
+    /// a legitimate plan — you can commit an afternoon to learning a circuit
+    /// before the night you have to win on it.
+    /// </summary>
+    [Serializable]
+    public class RaceBooking
+    {
+        public int day;
+        public int trackIndex;
+        public bool practice;
     }
 }

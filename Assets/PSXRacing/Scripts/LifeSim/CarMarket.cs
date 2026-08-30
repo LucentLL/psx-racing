@@ -247,7 +247,7 @@ namespace PSXRacing.LifeSim
             Inspection.SeedHidden(s, car, spec, listing.cond);
 
             s.newspaper.Remove(listing);
-            s.calendarLog.Add("Day " + s.day + ": bought " + spec.name + " " +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": bought " + spec.name + " " +
                               MenuKit.Money(opt.downPayment) + " down");
             return null;
         }
@@ -295,7 +295,7 @@ namespace PSXRacing.LifeSim
             s.carAds.RemoveAll(a => a.carId == car.id);
             s.cars.Remove(car);
             if (s.activeCar == car.id) s.activeCar = s.cars[0].id;
-            s.calendarLog.Add("Day " + s.day + ": sold " + car.displayName + " " +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": sold " + car.displayName + " " +
                               MenuKit.Money(net));
             return null;
         }
@@ -357,7 +357,7 @@ namespace PSXRacing.LifeSim
             s.cars.Remove(car);
             s.carAds.Remove(ad);
             if (s.activeCar == car.id) s.activeCar = s.cars[0].id;
-            s.calendarLog.Add("Day " + s.day + ": sold " + car.displayName + " " +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": sold " + car.displayName + " " +
                               MenuKit.Money(net));
             return null;
         }
@@ -477,7 +477,7 @@ namespace PSXRacing.LifeSim
                 if (f != null)
                 {
                     car.faults.Add(f);
-                    s.calendarLog.Add("Day " + s.day + ": the " + car.displayName +
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the " + car.displayName +
                                       " has a noise you cannot place — worth an inspection");
                 }
             }

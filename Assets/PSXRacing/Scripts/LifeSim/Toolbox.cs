@@ -76,7 +76,7 @@ namespace PSXRacing.LifeSim
             if (s.money < t.price) return "need " + MenuKit.Money(t.price);
             s.money -= t.price;
             s.tools.Add(id);
-            s.calendarLog.Add("Day " + s.day + ": bought " + t.name);
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": bought " + t.name);
             return null;
         }
 

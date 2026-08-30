@@ -586,7 +586,7 @@ namespace PSXRacing.OnFoot
                     : () =>
                     {
                         S.activeCar = target.id;
-                        S.calendarLog.Add("Day " + S.day + ": took the keys to " + target.displayName);
+                        S.calendarLog.Add(LifeRules.LogDate(S.day) + ": took the keys to " + target.displayName);
                         LifeSimManager.Save();
                         RefreshLabels();
                         screen?.Toast("NOW DRIVING: " + target.displayName.ToUpperInvariant());

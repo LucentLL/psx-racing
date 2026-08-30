@@ -198,7 +198,7 @@ namespace PSXRacing
                 // And the restart must not hand this tank back, for the same
                 // reason it must not hand back a tank bought at the pumps.
                 RaceHandoff.StartFuelPct = 100f;
-                s.calendarLog.Add("Day " + s.day + ": fuel truck call-out — " +
+                s.calendarLog.Add(LifeSim.LifeRules.LogDate(s.day) + ": fuel truck call-out — " +
                                   LifeSim.MenuKit.Money(cost));
                 LifeSim.LifeSimManager.Save();
             }

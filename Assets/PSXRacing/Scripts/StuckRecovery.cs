@@ -191,7 +191,7 @@ namespace PSXRacing
         static string ResetControlName()
         {
             if (TouchControls.Instance != null && TouchControls.Instance.Visible)
-                return "TAP RESET (TOP RIGHT)";
+                return "OPEN MENU — RESET CAR";
             if (Gamepad.current != null) return "PRESS X / SQUARE TO RESET";
             return "PRESS R TO RESET";
         }

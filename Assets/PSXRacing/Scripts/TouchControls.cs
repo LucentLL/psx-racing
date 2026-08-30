@@ -35,8 +35,21 @@ namespace PSXRacing
         public float Brake => brakePedal != null ? brakePedal.Amount : 0f;
         public float HandbrakeAmount => ebrakePedal != null ? ebrakePedal.Amount : 0f;
         public bool Handbrake => HandbrakeAmount > 0.02f;
-        public bool RestartPressed => restartBtn != null && restartBtn.PressedThisFrame;
-        public bool CameraPressed => camBtn != null && camBtn.PressedThisFrame;
+        /// <summary>
+        /// The results screen's CONTINUE, and the only button this panel shows
+        /// that is not a control for driving.
+        ///
+        /// RESET and CAM used to sit in this corner for the whole race. They are
+        /// gone at the owner's ask — both are rows in the pause menu, which is
+        /// one tap away behind MENU, and two permanent buttons for things you do
+        /// once a race is two thumb-sized pieces of a phone screen spent on
+        /// nothing. But RESET was also the ONLY way a touch player got off the
+        /// results screen, so the escape had to survive the button: this appears
+        /// when the race ends and nowhere else.
+        /// </summary>
+        public bool ContinuePressed => continueBtn != null &&
+                                       continueBtn.gameObject.activeSelf &&
+                                       continueBtn.PressedThisFrame;
         /// <summary>The contextual button, HELD. Only ever on screen while
         /// something in the world is offering an action — the fuel nozzle is
         /// the only one so far — because a button that does nothing for 99% of
@@ -54,7 +67,7 @@ namespace PSXRacing
         TouchWheel wheel;
         TouchPedal gasPedal, brakePedal, ebrakePedal;
         TouchShifter shifter;
-        TouchButton restartBtn, camBtn, actionBtn;
+        TouchButton continueBtn, actionBtn;
         Canvas canvas;
 
         // Palette, carried over from the source's control colours.
@@ -79,20 +92,7 @@ namespace PSXRacing
             if (!Visible && Touchscreen.current != null &&
                 Touchscreen.current.primaryTouch.press.isPressed)
                 SetVisible(true);
-
-            // The CAM button names the view it will take you OUT of. A button
-            // labelled only "CAM" is a button whose job you have to guess at,
-            // and the six views were reported as "I don't see an option to
-            // change camera angle" by a player who had one on screen the whole
-            // time.
-            if (camViewLabel != null)
-            {
-                string v = ChaseCamera.ShortNames[(int)ChaseCamera.Current];
-                if (camViewLabel.text != v) camViewLabel.text = v;
-            }
         }
-
-        Text camViewLabel;
 
         /// <summary>Show or hide the driving panel. Public because the
         /// forecourt takes it away while the player is out of the car — a
@@ -156,36 +156,41 @@ namespace PSXRacing
             BuildWheel(canvasGO.transform);
             BuildPedals(canvasGO.transform, font);
 
-            // Legible enough to be an instruction. At 16% white on a bright
-            // outdoor scene these read as two blank grey slabs — and the finish
-            // screen now tells the player to TAP RESET, which is no help if
-            // RESET cannot be read. A darker ground and solid type fix both.
-            var btnBg = new Color(0f, 0f, 0f, 0.55f);
-            camBtn = MakeButton(canvasGO.transform, "Cam", "CAM", font,
-                                new Vector2(1f, 1f), new Vector2(-30f, -30f),
-                                new Vector2(120f, 74f), btnBg, 20);
-            // "CAM" rides high in the button and the current view sits under it,
-            // so the control says both what it does and where you are.
-            foreach (Transform child in camBtn.transform)
-                if (child.name == "Label")
-                    child.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 15f);
-            camViewLabel = MakeLabel(camBtn.transform, "CHASE", font, 16,
-                                     new Vector2(0.5f, 0.5f), new Vector2(0f, -14f), 1f);
-            camViewLabel.color = new Color(1f, 0.85f, 0.35f);
-            restartBtn = MakeButton(canvasGO.transform, "Restart", "RESET", font,
-                                    new Vector2(1f, 1f), new Vector2(-162f, -30f),
-                                    new Vector2(120f, 74f), btnBg, 22);
-
-            // Directly under RESET, in the same column, and amber rather than
-            // black so it reads as something that just appeared rather than as
-            // a control that was always there and is only now being noticed.
+            // The top-right corner is EMPTY while driving now. It carried CAM
+            // and RESET permanently; both are pause-menu rows and MENU is one
+            // tap away, and the corner they were sitting in is the corner a
+            // phone player's thumb crosses to reach the shifter.
+            //
+            // The contextual pair that remain both appear only when something
+            // is offering them: FUEL when the nozzle is in reach, CONTINUE when
+            // the race is over. Amber rather than black so each reads as
+            // something that has just appeared rather than as a control that was
+            // always there and is only now being noticed.
             actionBtn = MakeButton(canvasGO.transform, "Action", "FUEL", font,
-                                   new Vector2(1f, 1f), new Vector2(-30f, -114f),
+                                   new Vector2(1f, 1f), new Vector2(-30f, -30f),
                                    new Vector2(252f, 74f),
                                    new Color(0.55f, 0.36f, 0.02f, 0.82f), 24);
             actionBtn.gameObject.SetActive(false);
+
+            // Bottom centre, wide, and clear of the wheel and the pedals: a
+            // results screen is the one moment nothing else on this panel does
+            // anything, so the button that leaves it can have the middle of the
+            // screen and be impossible to miss.
+            continueBtn = MakeButton(canvasGO.transform, "Continue", "CONTINUE", font,
+                                     new Vector2(0.5f, 0f), new Vector2(0f, 96f),
+                                     new Vector2(340f, 78f),
+                                     new Color(0.16f, 0.42f, 0.24f, 0.92f), 26);
+            continueBtn.gameObject.SetActive(false);
         }
 
+        /// <summary>Show or hide the results-screen CONTINUE. Driven by the HUD,
+        /// which is the component that already ticks every frame and already
+        /// knows what state the race is in.</summary>
+        public void SetContinue(bool show)
+        {
+            if (continueBtn != null && continueBtn.gameObject.activeSelf != show)
+                continueBtn.gameObject.SetActive(show);
+        }
         /// <summary>Show or hide the contextual button, and say what it does.
         /// Driven from the HUD, which is the one component that already ticks
         /// every frame and already knows what the world is offering.</summary>

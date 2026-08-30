@@ -212,7 +212,7 @@ namespace PSXRacing.LifeSim
                     foreach (var j in LifeRules.Jobs) if (j.name == s.playerJob) known = true;
                     if (!known)
                     {
-                        s.calendarLog.Add("Day " + s.day + ": the shop took you on — " +
+                        s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the shop took you on — " +
                                           LifeRules.DeliveryJobName);
                         s.playerJob = LifeRules.DeliveryJobName;
                         s.basePay = LifeRules.DeliveryBasePay;

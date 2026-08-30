@@ -304,7 +304,7 @@ namespace PSXRacing
                 var owned = OwnedCar(s);
                 if (owned != null && tank != null) owned.fuel = tank.percent;
                 if (visitPct > 0.01f)
-                    s.calendarLog.Add("Day " + s.day + ": " + Mathf.RoundToInt(visitPct) +
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + Mathf.RoundToInt(visitPct) +
                                       "% of fuel at the pumps — " + MenuKit.Money(visitSpent));
                 LifeSimManager.Save();
             }

@@ -47,6 +47,19 @@ namespace PSXRacing.LifeSim
         /// <summary>Second-press arming for the erase-save button.</summary>
         bool confirmNewGame;
 
+        // ---- calendar state ----
+        /// <summary>Which day the grid is showing a month around, and which cell
+        /// is selected. Both are ABSOLUTE day numbers, not (month, day) pairs —
+        /// paging a month is then adding the length of one, and nothing has to
+        /// carry a year around to know what it is looking at. Zero means "not
+        /// opened yet"; BuildCalendar seeds them from today.</summary>
+        int calMonthDay, calSelDay;
+        /// <summary>The venue a new booking would name. Separate from
+        /// S.trackIndex on purpose: the diary's whole point is that three
+        /// bookings can be three different places, so choosing one here must not
+        /// silently repoint the GET IN CAR button on MAIN.</summary>
+        int calVenue = -1;
+        bool calPractice;
         CarViewer viewer;
         /// <summary>The turntable, built on first use. Two of the five tabs want
         /// one and the wizard wants none, so a render texture allocated in Start
@@ -409,7 +422,18 @@ namespace PSXRacing.LifeSim
             var bar = MenuKit.Stretch(canvas.transform, "Tabs",
                 new Vector2(0f, 1f), new Vector2(1f, 1f), 0f, 0f,
                 -(HeaderH + TabH), -HeaderH, new Color(0.07f, 0.06f, 0.12f, 1f));
-            tabIds = new[] { "main", "garage", "rivals", "market", "eat", "bills", "jobs" };
+            // EIGHT tabs, which is what this strip holds and no more. MARKET
+            // left it — the classifieds are inside the NEWSPAPER now, which is
+            // where you read them in 1999 — and OPTIONS took the place.
+            //
+            // The CALENDAR is deliberately NOT here. Nine captions do not fit:
+            // the narrowest canvas is a 4:3 desktop at 960 units, a ninth cell
+            // takes each one down to 95 usable units, and "OPTIONS" alone is
+            // about 102 at the smallest type this menu is allowed to use. It is
+            // one button at the top of MAIN instead, beside the row that already
+            // reports what the diary says about today.
+            tabIds = new[] { "main", "garage", "rivals", "news", "eat", "bills", "jobs", "options" };
+
             string[] tabs = tabIds;
             tabButtons.Clear();
             // Each tab claims its share of the bar by ANCHOR, not by a width
@@ -424,7 +448,12 @@ namespace PSXRacing.LifeSim
                 var btn = MenuKit.Button(bar, tabs[i].ToUpper(), new Vector2(0f, 0.5f),
                     Vector2.zero, Vector2.zero,
                     () => { tab = captured; buyTarget = null; confirmNewGame = false; Rebuild(); },
-                    MenuKit.Small);
+                    // MinLabelSize, not Small. The strip is the one place in
+                    // this menu where the type has to go to the floor: eight
+                    // captions share 960 units on a 4:3 desktop and "OPTIONS"
+                    // at Small (22) is wider than the cell it has to sit in.
+                    MenuKit.MinLabelSize);
+
                 var rt = btn.GetComponent<RectTransform>();
                 rt.anchorMin = new Vector2(i / (float)tabs.Length, 0f);
                 rt.anchorMax = new Vector2((i + 1) / (float)tabs.Length, 1f);
@@ -508,7 +537,10 @@ namespace PSXRacing.LifeSim
             {
                 case "main": BuildMain(); break;
                 case "garage": BuildGarage(); break;
+                case "calendar": BuildCalendar(); break;
                 case "rivals": BuildRivals(); break;
+                case "news": BuildNews(); break;
+                case "options": BuildOptions(); break;
                 case "service": BuildService(); break;
                 case "tune": BuildTune(); break;
                 case "market": BuildMarket(); break;
@@ -629,6 +661,14 @@ namespace PSXRacing.LifeSim
             switch (tab)
             {
                 case "buy": return "market";
+                // The calendar is opened from MAIN rather than from the strip,
+                // so that is where BACK puts you down.
+                case "calendar": return "main";
+
+                // The classifieds are a page OF the paper, so backing out of
+                // them puts the paper back in your hands rather than dropping
+                // you on the home screen holding nothing.
+                case "market": return "news";
                 // The focus view backs out to the car map, not to the garage —
                 // an inspection is a place you are IN, and BACK should walk you
                 // out of it a room at a time.
@@ -799,10 +839,59 @@ namespace PSXRacing.LifeSim
             ? Mathf.Clamp(S.raceTimeIndex, 0, TimeOfDay.Count - 1)
             : TimeOfDay.ForSlot(S.slotIndex, S.day);
 
+        /// <summary>
+        /// What the diary says about TODAY, and the way into the diary itself.
+        ///
+        /// ABOVE the track picker on the launch screen, which is the whole
+        /// point: a booking made three days ago is worth nothing if the first
+        /// screen the player opens does not mention it. A planner you have to go
+        /// and consult is a planner you forget, and forgetting is exactly what a
+        /// calendar exists to prevent.
+        ///
+        /// It is also why the CALENDAR is a button here rather than a tab. Nine
+        /// captions do not fit the strip — the narrowest canvas is a 4:3 desktop
+        /// at 960 units and a ninth cell takes each one below the width of the
+        /// word OPTIONS — and of the two, the one that wants to sit next to
+        /// "what am I doing today" is this one.
+        /// </summary>
+        void BuildDiaryBlock(ref float y)
+        {
+            var booked = LifeRules.BookingOn(S, S.day);
+            if (booked != null)
+            {
+                var bt = TrackCatalog.At(booked.trackIndex);
+                MenuKit.Button(body, "IN THE DIARY TODAY — " +
+                        Clip(bt.name, 20) + (booked.practice ? " (PRACTICE)" : ""),
+                    new Vector2(0.5f, 1f), new Vector2(0f, y),
+                    new Vector2(Mathf.Min(ColW, 460f), 52f), () =>
+                    {
+                        // Kept, not consumed on arrival: the appointment is over
+                        // the moment you set off for it, and a booking that
+                        // survived a race the player quit out of would sit there
+                        // claiming to still be due.
+                        S.trackIndex = booked.trackIndex;
+                        bool prac = booked.practice;
+                        LifeRules.Unbook(S, S.day);
+                        LifeSimManager.Save();
+                        StartRace(prac);
+                    }, 18, new Color(0.62f, 0.48f, 0.12f, 1f));
+                y -= 58f;
+            }
+
+            int planned = S.bookings != null ? S.bookings.Count : 0;
+            MenuKit.Button(body, "CALENDAR" + (planned > 0 ? "  ·  " + planned + " BOOKED" : ""),
+                new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 460f), 44f),
+                () => { tab = "calendar"; Rebuild(); }, 17);
+            y -= 54f;
+        }
+
         void BuildMain()
+
         {
             float y = -20f;
             BuildDebugBlock(ref y);
+            BuildDiaryBlock(ref y);
             BuildTrackBlock(ref y);
 
             var track = TrackCatalog.At(S.trackIndex);
@@ -1352,19 +1441,6 @@ namespace PSXRacing.LifeSim
                 }, 18, new Color(0.20f, 0.30f, 0.24f, 1f));
             y -= 58f;
 
-            // Next to the door it applies to. On a phone there is no I key and
-            // no pause menu in the house, so this row is the ONLY way a touch
-            // player can flip the look axis — which makes it the one that has
-            // to be here rather than in a settings screen this game does not
-            // have.
-            MenuKit.Button(body, "LOOK Y: " + LookPrefs.Label,
-                new Vector2(0.5f, 1f), new Vector2(0f, y),
-                new Vector2(Mathf.Min(ColW, 460f), 40f), () =>
-                {
-                    LookPrefs.Toggle();
-                    Rebuild();
-                }, 15);
-            y -= 54f;
             DrawBar("ENGINE", car.engine, ref y);
             DrawBar("TIRES", car.tires, ref y);
             DrawBar("BODY", car.carHP, ref y);
@@ -1400,7 +1476,7 @@ namespace PSXRacing.LifeSim
                 {
                     S.money -= cost;
                     car.fuel = 100f;
-                    S.calendarLog.Add("Day " + S.day + ": fuel truck call-out — " +
+                    S.calendarLog.Add(LifeRules.LogDate(S.day) + ": fuel truck call-out — " +
                                       MenuKit.Money(cost));
                     LifeSimManager.Save(); Rebuild();
                     Toast("TANK FILLED — " + MenuKit.Money(cost));
@@ -2202,8 +2278,405 @@ namespace PSXRacing.LifeSim
             y -= 50f;
         }
 
+        // =================== calendar ===================
+        /// <summary>
+        /// A 1999 wall calendar you can write races into.
+        ///
+        /// The grid starts weeks on FRIDAY, which looks wrong for about two
+        /// seconds and is then obviously right: this game's week has always run
+        /// FRI-SAT-SUN-MON..THU because payday is Friday, so column 0 is payday
+        /// on every single row. And because 1 January 1999 really was a Friday,
+        /// the first month of a career fills the top-left cell exactly with no
+        /// blank run in front of it.
+        ///
+        /// Cells are laid out by fractional ANCHOR inside one container, seven
+        /// across and six down, so nothing measures a rect that has not resolved
+        /// yet — the trap that produced a bunched tab bar and an overlapping job
+        /// list before it.
+        /// </summary>
+        void BuildCalendar()
+        {
+            if (calMonthDay <= 0) calMonthDay = S.day;
+            if (calSelDay <= 0) calSelDay = S.day;
+            if (calVenue < 0) calVenue = Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
+
+            float y = -14f;
+
+            // ---- month header, with the pager either side of it ----
+            MenuKit.Label(body, LifeRules.MonthLabel(calMonthDay), MenuKit.Head,
+                new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
+                MenuKit.Accent, ColW, bold: true);
+            MenuKit.Button(body, "<", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, 64f), y), new Vector2(64f, 40f),
+                () => { StepMonth(-1); Rebuild(); }, 20);
+            MenuKit.Button(body, ">", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColRight(ColR, 64f), y), new Vector2(64f, 40f),
+                () => { StepMonth(1); Rebuild(); }, 20);
+            y -= 40f;
+
+            // ---- the grid ----
+            const int Cols = 7, Rows = 6;
+            // Two stacked labels at the type floor (20) need 40 units before any
+            // gap, so a cell is 54. The body scrolls, so height here is cheap and
+            // a date printed through its own marker is not.
+            const float HeadH = 24f, CellH = 54f;
+
+            float gridH = Rows * CellH + HeadH;
+            var grid = MenuKit.Rect(body, "Grid", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 720f), gridH));
+
+            for (int c = 0; c < Cols; c++)
+            {
+                var head = MenuKit.Label(grid, LifeRules.DowNames[c], MenuKit.Tiny,
+                    new Vector2((c + 0.5f) / Cols, 1f), Vector2.zero, TextAnchor.MiddleCenter,
+                    MenuKit.Dim, 90f, height: HeadH);
+                head.rectTransform.pivot = new Vector2(0.5f, 1f);
+            }
+
+            // The first cell of the grid is the 1st of this month, and a month
+            // always starts in the column its own day-of-week names.
+            var first = LifeRules.DateOf(calMonthDay);
+            int firstDay = LifeRules.DayNumber(new System.DateTime(first.Year, first.Month, 1));
+            int lead = LifeRules.Dow(firstDay);
+            int len = System.DateTime.DaysInMonth(first.Year, first.Month);
+
+            for (int i = 0; i < len; i++)
+            {
+                int dayNum = firstDay + i;
+                int cell = lead + i;
+                int col = cell % Cols, row = cell / Cols;
+                if (row >= Rows) break;   // no month reaches a seventh row
+
+                bool today = dayNum == S.day;
+                bool past = dayNum < S.day;
+                bool sel = dayNum == calSelDay;
+                string marks = DayMarks(dayNum);
+
+                int captured = dayNum;
+                var btn = MenuKit.Button(grid, "", new Vector2(0f, 1f), Vector2.zero, Vector2.zero,
+                    () => { calSelDay = captured; Rebuild(); }, MenuKit.Tiny,
+                    today ? new Color(0.62f, 0.48f, 0.12f, 1f)
+                    : sel ? new Color(0.24f, 0.30f, 0.45f, 1f)
+                    : past ? new Color(0.10f, 0.10f, 0.14f, 1f) : (Color?)null);
+                var rt = btn.GetComponent<RectTransform>();
+                float top = 1f - (HeadH + row * CellH) / gridH;
+                float bottom = 1f - (HeadH + (row + 1) * CellH) / gridH;
+                rt.anchorMin = new Vector2(col / (float)Cols, bottom);
+                rt.anchorMax = new Vector2((col + 1) / (float)Cols, top);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.offsetMin = new Vector2(2f, 2f);
+                rt.offsetMax = new Vector2(-2f, -2f);
+
+                // Date in the TOP half of the cell, marker in the bottom half,
+                // each centred in its own half. Two labels rather than one
+                // string because a marker the same colour as the date is not a
+                // marker — and two labels that share a box print through each
+                // other, which is what a 46-unit cell did.
+                var num = MenuKit.Label(btn.transform, LifeRules.DayOfMonth(dayNum).ToString(),
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, -1f),
+                    TextAnchor.MiddleCenter, past ? MenuKit.Dim : Color.white, 60f, height: 24f);
+                num.raycastTarget = false;
+                if (marks.Length > 0)
+                {
+                    var mk = MenuKit.Label(btn.transform, marks, MenuKit.Tiny,
+                        new Vector2(0.5f, 0f), new Vector2(0f, 1f), TextAnchor.MiddleCenter,
+                        MenuKit.Accent, 60f, height: 24f);
+                    mk.raycastTarget = false;
+                }
+
+            }
+            y -= gridH + 14f;
+
+            MenuKit.Label(body, "R race   $ payday   ! bills   P part due   > call-out ends",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 34f;
+
+            BuildCalendarDay(ref y);
+        }
+
+        void StepMonth(int step)
+        {
+            var d = LifeRules.DateOf(calMonthDay);
+            var m = new System.DateTime(d.Year, d.Month, 1).AddMonths(step);
+            // Never before the career started. A 1998 page of an empty calendar
+            // is somewhere a player can get lost with nothing on screen telling
+            // them how far back they have paged.
+            if (LifeRules.DayNumber(m) < 1) return;
+            calMonthDay = LifeRules.DayNumber(m);
+        }
+
+        /// <summary>What is on a day, as one or two characters. Compact because
+        /// a cell is about 90 units wide on the narrowest canvas and the date is
+        /// already using half of it.</summary>
+        string DayMarks(int day)
+        {
+            string m = "";
+            if (LifeRules.BookingOn(S, day) != null) m += "R";
+            if (LifeRules.DayOfMonth(day) == 1) m += "!";
+            else if (LifeRules.IsPayday(day)) m += "$";
+            if (S.pendingParts != null &&
+                S.pendingParts.Exists(p => p != null && p.readyDay == day)) m += "P";
+            if (S.mail != null &&
+                S.mail.Exists(x => x != null && x.expiresDay == day)) m += ">";
+            return m;
+        }
+
+        /// <summary>
+        /// The selected day written out, plus the one thing you can DO to a day:
+        /// put a race in it.
+        ///
+        /// Booking is refused for the past and for a day that already holds one.
+        /// A race costs a slot and there are three in a day, so two bookings on
+        /// one day is a day already lost by lunchtime.
+        /// </summary>
+        void BuildCalendarDay(ref float y)
+        {
+            MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Accent);
+            y -= 22f;
+
+            MenuKit.Label(body, LifeRules.DateLabel(calSelDay) +
+                    (calSelDay == S.day ? "   ·   TODAY" : ""),
+                20, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                calSelDay == S.day ? MenuKit.Accent : Color.white, ColW, bold: true);
+            y -= 32f;
+
+            int lines = 0;
+            float ny = y;
+            void Note(string s, Color c)
+            {
+                MenuKit.Label(body, s, 17, new Vector2(0.5f, 1f), new Vector2(ColL, ny),
+                    TextAnchor.MiddleLeft, c, ColW);
+                ny -= 24f; lines++;
+            }
+
+            var bk = LifeRules.BookingOn(S, calSelDay);
+            if (bk != null)
+                Note("RACE — " + Clip(TrackCatalog.At(bk.trackIndex).name, 30) +
+                     (bk.practice ? " (practice)" : ""), MenuKit.Good);
+            if (LifeRules.DayOfMonth(calSelDay) == 1)
+                Note("BILLS DUE", MenuKit.Bad);
+            else if (LifeRules.IsPayday(calSelDay))
+                Note("PAYDAY — whatever the week banked", MenuKit.Good);
+            if (S.pendingParts != null)
+                foreach (var p in S.pendingParts)
+                    if (p != null && p.readyDay == calSelDay)
+                        Note("SHOP — " + Clip(p.label, 30) + " ready", MenuKit.Good);
+            if (S.mail != null)
+                foreach (var m in S.mail)
+                    if (m != null && m.expiresDay == calSelDay)
+                        Note("LAST DAY — " + Clip(m.subject, 30), MenuKit.Bad);
+            if (lines == 0) Note("Nothing in the diary.", MenuKit.Dim);
+            y = ny - 12f;
+
+            if (calSelDay < S.day)
+            {
+                MenuKit.Label(body, "A day you cannot get back.", 17, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+                y -= 32f;
+                return;
+            }
+            if (calSelDay > S.day + LifeRules.BookingHorizonDays)
+            {
+                MenuKit.Label(body, "Too far out — the diary reaches " +
+                    LifeRules.BookingHorizonDays + " days.", 17, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+                y -= 32f;
+                return;
+            }
+
+            if (bk != null)
+            {
+                MenuKit.Button(body, "CANCEL THIS RACE", new Vector2(0.5f, 1f),
+                    new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 46f), () =>
+                    {
+                        LifeRules.Unbook(S, calSelDay);
+                        LifeSimManager.Save(); Rebuild();
+                        Toast("cleared " + LifeRules.DateLabel(calSelDay));
+                    }, 17);
+                y -= 56f;
+                return;
+            }
+
+            // The venue picker lives HERE rather than borrowing the MAIN
+            // screen's, for the reason calVenue exists at all: a diary holding
+            // three races at three circuits cannot be written with one shared
+            // index, and choosing a venue to book must not quietly re-point the
+            // GET IN CAR button on the home screen.
+            var t = TrackCatalog.At(calVenue);
+            MenuKit.Label(body, "BOOK: " + Clip(t.name, 32), 20, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, ColW, bold: true);
+            y -= 30f;
+            MenuKit.Label(body, VenueSummary(t), 17,
+
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW);
+            y -= 34f;
+
+            float wide = Mathf.Min(ColW, 460f);
+            float half = wide * 0.5f - 6f;
+            MenuKit.Button(body, "< VENUE", new Vector2(0.5f, 1f),
+                new Vector2(-(half * 0.5f + 6f), y), new Vector2(half, 44f),
+                () => { StepVenue(-1); Rebuild(); }, 17);
+            MenuKit.Button(body, "VENUE >", new Vector2(0.5f, 1f),
+                new Vector2(half * 0.5f + 6f, y), new Vector2(half, 44f),
+                () => { StepVenue(1); Rebuild(); }, 17);
+            y -= 54f;
+
+            MenuKit.Button(body, calPractice ? "AS: PRACTICE LAP" : "AS: A RACE",
+                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(wide, 44f),
+                () => { calPractice = !calPractice; Rebuild(); }, 17);
+            y -= 54f;
+
+            MenuKit.Button(body, "WRITE IT IN", new Vector2(0.5f, 1f),
+                new Vector2(0f, y), new Vector2(wide, 52f), () =>
+                {
+                    if (LifeRules.Book(S, calSelDay, calVenue, calPractice))
+                    {
+                        LifeSimManager.Save(); Rebuild();
+                        Toast(Clip(TrackCatalog.At(calVenue).name, 22) + " — " +
+                              LifeRules.DateLabel(calSelDay));
+                    }
+                }, 18, new Color(0.20f, 0.30f, 0.24f, 1f));
+            y -= 62f;
+        }
+
+        /// <summary>A venue in one line — the same three shapes the MAIN screen
+        /// quotes (strip, stage, circuit), because a booking is a commitment to
+        /// drive the thing and the diary should describe it the way the launch
+        /// screen does.</summary>
+        static string VenueSummary(TrackCatalog.TrackDef t) =>
+            t.IsDragEvent
+                ? (t.RaceMeters < 1000f
+                      ? Mathf.RoundToInt(t.RaceMeters) + " m"
+                      : (t.RaceMeters / 1000f).ToString("0.00") + " km")
+                  + "  ·  " + t.dragLabel
+            : t.stage
+                ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  point to point"
+                : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps";
+
+        /// <summary>Step the diary's venue, skipping the open city. Charlotte
+
+        /// has no finish line, so a race booked there is an appointment that
+        /// could never end — the same rule the delivery router keeps.</summary>
+        void StepVenue(int step)
+        {
+            int n = TrackCatalog.Count;
+            for (int i = 0; i < n; i++)
+            {
+                calVenue = ((calVenue + step) % n + n) % n;
+                if (!TrackCatalog.At(calVenue).city) return;
+            }
+        }
+
+        /// <summary>
+        /// The evening paper.
+        /// A shell around the classifieds, and it is a shell on purpose. The
+        /// owner asked for the market to be reached "from Newspaper or Computer"
+        /// rather than from a tab of its own, and they are right: a MARKET tab
+        /// is a shop menu, whereas a used car in 1999 was something you found in
+        /// a paper on a Saturday morning. It costs no slot to read — picking up
+        /// the paper is not an activity — and there is nothing else in it yet.
+        /// The other sections are named rather than hidden so the page reads as
+        /// a paper with more to come rather than as one button in a frame.
+        /// </summary>
+        void BuildNews()
+        {
+            float y = -16f;
+            MenuKit.Label(body, "THE CHARLOTTE HERALD", MenuKit.Head, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, ColW, bold: true);
+            y -= 34f;
+            MenuKit.Label(body, LifeRules.DateLabel(S.day) + "   ·   50c", 17,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW, height: 24f);
+            // A label's box hangs its full HEIGHT below the y it is given, so a
+            // rule drawn 22 units under this one was drawn straight through it.
+            // The masthead line is the only piece of chrome on this page; it has
+            // to clear the type it underlines.
+            y -= 34f;
+            MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Accent);
+            y -= 28f;
+
+            int forSale = S.newspaper != null ? S.newspaper.Count : 0;
+            MenuKit.Button(body, "CLASSIFIEDS — CARS FOR SALE (" + forSale + ")",
+                new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 460f), 52f),
+                () => { tab = "market"; Rebuild(); }, 18);
+            y -= 64f;
+
+            foreach (string line in new[]
+            {
+                "MOTORING — nothing filed this week.",
+                "SPORT — see the board at the meet.",
+                "WEATHER — clear, cold, dry roads after dark.",
+            })
+            {
+                MenuKit.Label(body, line, 17, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+                y -= 26f;
+            }
+        }
+
+        /// <summary>
+        /// Settings, in the one place a player can reach without being in a car.
+        ///
+        /// Every row here is also a row in the pause menu and drives the same
+        /// PlayerPrefs-backed static, so the two cannot disagree — but the pause
+        /// menu only exists inside a race, and the walk-in scenes have no menu
+        /// at all. LOOK Y in particular had been a button on the MAIN screen for
+        /// exactly that reason; it belongs here, and NORMAL is the default it
+        /// always was.
+        /// </summary>
+        void BuildOptions()
+        {
+            float y = -20f;
+            MenuKit.Label(body, "OPTIONS", MenuKit.Head, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, ColW, bold: true);
+            y -= 44f;
+
+            OptionRow("LOOK Y", LookPrefs.Label,
+                "Which way the view pitches on foot. NORMAL unless you fly.",
+                () => LookPrefs.Toggle(), ref y);
+            OptionRow("PICTURE", PSXQuality.Name,
+                "How coarse the picture is. SHARP is 480 lines; RETRO is a PlayStation.",
+                () => PSXQuality.Cycle(1), ref y);
+            OptionRow("CLUSTER BULB", ClusterBulbs.Name,
+                "The colour behind the dials after dark.",
+                () => ClusterBulbs.Cycle(1), ref y);
+
+            y -= 10f;
+            MenuKit.Label(body, "The pause menu inside a race carries these too,",
+                17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW);
+            y -= 26f;
+            MenuKit.Label(body, "plus the camera and RESET CAR.", 17, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 26f;
+        }
+
+        /// <summary>One setting: a full-width button carrying the name and the
+        /// current value, with the explanation under it. A settings row has to
+        /// say what it DOES — three of these are invisible until you are
+        /// somewhere else in the game, and a player is not going to drive to a
+        /// forecourt to find out what LOOK Y meant.</summary>
+        void OptionRow(string name, string value, string blurb,
+                       System.Action apply, ref float y)
+        {
+            MenuKit.Button(body, name + ":  " + value, new Vector2(0.5f, 1f),
+                new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 48f),
+                () => { apply(); LifeSimManager.Save(); Rebuild(); }, 18);
+            y -= 46f;
+            MenuKit.Label(body, blurb, 17, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 50f;
+
+        }
+
         /// <summary>
         /// The classifieds, plus your own garage as a sell list. Listings expire
+
         /// after a few days, so this is a page worth checking rather than a shop
         /// that is always the same.
         /// </summary>
@@ -2687,7 +3160,7 @@ namespace PSXRacing.LifeSim
             int insurance = LifeRules.MonthlyInsurance(S);
             int loans = LifeRules.MonthlyLoanPayments(S);
             int due = housing + insurance + loans;
-            int daysLeft = LifeRules.DaysPerMonth - LifeRules.DayOfMonth(S.day) + 1;
+            int daysLeft = LifeRules.DaysInMonth(S.day) - LifeRules.DayOfMonth(S.day) + 1;
 
             Row(LifeRules.HousingLabel(S.housingType), MenuKit.Money(housing), ref y);
             Row("INSURANCE", MenuKit.Money(insurance), ref y);
@@ -2768,7 +3241,7 @@ namespace PSXRacing.LifeSim
                             S.playerJob = jn; S.basePay = jp;
                             S.workRep = LifeRules.NewHireWorkRep;
                             S.consecutiveAbsences = 0; S.fired = false;
-                            S.calendarLog.Add("Day " + S.day + ": hired — " + jn);
+                            S.calendarLog.Add(LifeRules.LogDate(S.day) + ": hired — " + jn);
                             Toast("HIRED: " + jn);
                         }
                         else Toast("No luck at " + jn + ". Try again.");

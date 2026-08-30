@@ -212,7 +212,7 @@ namespace PSXRacing.LifeSim
                        ". Find them on the RIVALS board.",
                 expiresDay = s.day + PageDays,
             });
-            s.calendarLog.Add("Day " + s.day + ": PAGE — " + headline);
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": PAGE — " + headline);
             return headline;
         }
 
@@ -241,7 +241,7 @@ namespace PSXRacing.LifeSim
 
             if (!won)
             {
-                s.calendarLog.Add("Day " + s.day + ": #" + rank + " " + rival.alias +
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": #" + rank + " " + rival.alias +
                                   " keeps the spot");
                 return "#" + rank + " " + rival.alias + " KEEPS THE SPOT";
             }
@@ -251,7 +251,7 @@ namespace PSXRacing.LifeSim
 
             string headline = "#" + rank + " " + rival.alias + " IS DOWN. LADDER MOVES.";
             s.mail.Add(new MailItem { day = s.day, subject = headline, body = "The board updates." });
-            s.calendarLog.Add("Day " + s.day + ": " + headline);
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + headline);
             return headline;
         }
     }
