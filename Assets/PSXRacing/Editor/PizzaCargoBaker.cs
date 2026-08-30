@@ -115,16 +115,30 @@ namespace PSXRacing.EditorTools
             // places measuring the tray alone and stacking boxes 6 mm into each
             // other's lids, which the solver resolves by firing the top one
             // across the car on frame one.
+            // WHICH PART IS THE LID: the one with the bigger FOOTPRINT, because
+            // a lid slips over a tray. It is not the one that sits higher.
+            //
+            // Splitting by height was wrong and the numbers said so out loud:
+            // the tray measures 0.047 tall, the lid 0.055, and the pack's own
+            // assembly of the two is 0.053. A pair that overlaps almost
+            // completely is not a base and a lid stacked on it — it is an OUTER
+            // SHELL with a liner nested inside. Treating them as stacked, and
+            // then "correcting" the lid up onto the rim, made a closed pizza box
+            // 8.8 cm tall: three and a half inches, which is what the owner saw
+            // ("the pizza boxes seem very tall when closed"). The pack had it
+            // right all along; both parts keep the positions it gave them.
             int baked = 0;
             var trayParts = new List<Renderer>(parts);
             var lidParts = new List<Renderer>();
             if (parts.Count >= 2)
             {
-                float mid = raw.center.y;
+                Renderer widest = parts[0];
+                foreach (var r in parts)
+                    if (Foot(r) > Foot(widest)) widest = r;
                 trayParts.Clear();
-                foreach (var r in parts) (r.bounds.center.y >= mid ? lidParts : trayParts).Add(r);
-                if (trayParts.Count == 0 || lidParts.Count == 0)
-                { trayParts = new List<Renderer>(parts); lidParts.Clear(); }
+                foreach (var r in parts) (r == widest ? lidParts : trayParts).Add(r);
+                Debug.Log("[PizzaCargo] lid is '" + widest.name + "' (" +
+                          Foot(widest).ToString("0.000") + " m across)");
             }
             if (SaveBox(trayParts, lidParts, scale)) baked++;
 
@@ -165,6 +179,19 @@ namespace PSXRacing.EditorTools
         /// tray. A deliberate correction to the pack, written down because it is
         /// the one place here that does not simply take the model's word.
         /// </summary>
+        /// <summary>Plan footprint of one renderer, for telling a lid from the
+        /// tray it slips over.</summary>
+        static float Foot(Renderer r) => Mathf.Max(r.bounds.size.x, r.bounds.size.z);
+
+        /// <summary>Bounds of a set of renderers where they stand in the pack,
+        /// without moving anything.</summary>
+        static Bounds Peek(List<Renderer> parts)
+        {
+            var b = parts[0].bounds;
+            foreach (var r in parts) b.Encapsulate(r.bounds);
+            return b;
+        }
+
         static bool SaveBox(List<Renderer> trayParts, List<Renderer> lidParts, float scale)
         {
             if (trayParts == null || trayParts.Count == 0) return false;
@@ -173,17 +200,21 @@ namespace PSXRacing.EditorTools
             var tray = Assemble(trayParts, "Tray");
             tray.transform.SetParent(holder.transform, true);
             var tb = WorldBounds(tray.transform);
-            tray.transform.position += new Vector3(-tb.center.x, -tb.min.y, -tb.center.z);
-            tb = WorldBounds(tray.transform);
+            // Seat the whole assembly on the BOX's base, not the tray's — the
+            // lid is an outer shell and may reach below the liner.
+            float trayShift = lidParts.Count > 0
+                             ? Mathf.Min(tb.min.y, Peek(lidParts).min.y) : tb.min.y;
+            tray.transform.position += new Vector3(-tb.center.x, -trayShift, -tb.center.z);
 
             if (lidParts.Count > 0)
             {
+                // The lid keeps the pack's own vertical placement — only the
+                // plan position is recentred, by the SAME shift the tray got, so
+                // the two stay assembled exactly as the artist made them.
                 var lid = Assemble(lidParts, "Lid");
                 lid.transform.SetParent(holder.transform, true);
                 var lb = WorldBounds(lid.transform);
-                float skirt = lb.size.y * 0.25f;
-                lid.transform.position += new Vector3(
-                    -lb.center.x, tb.max.y - skirt - lb.min.y, -lb.center.z);
+                lid.transform.position += new Vector3(-lb.center.x, -trayShift, -lb.center.z);
             }
 
             PSXRacingBuilder.ConvertToPSXMaterials(holder);

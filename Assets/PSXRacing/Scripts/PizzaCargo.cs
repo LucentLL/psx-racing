@@ -44,22 +44,65 @@ namespace PSXRacing
         /// from here even if there were.</summary>
         const float IslandY = -4000f;
 
-        /// <summary>How hard an impact is allowed to hit the cargo, in m/s².
-        /// A finite-difference acceleration through a wall impact is a single
-        /// frame of an enormous number and it will tunnel a box straight out of
-        /// the tray. Twelve g is still a violent throw and is survivable by the
-        /// solver.</summary>
-        const float MaxAccel = 120f;
+        /// <summary>
+        /// How hard the cargo can be pushed, in m/s². FOUR AND A HALF g.
+        ///
+        /// This was twelve, and twelve was measured against a harness feeding a
+        /// smooth step. A real car's per-frame velocity difference is nothing
+        /// like smooth: it carries the suspension working, every kerb, and the
+        /// solver's own contact impulses, and on a mountain stage those
+        /// transients threw the top box off the stack on the first corner of a
+        /// clean lap. Reported exactly that way.
+        ///
+        /// Four and a half g is still far more than any corner can produce
+        /// (a g is a very good corner) so an impact still throws the load — it
+        /// just no longer does it because a wheel found a bump.
+        /// </summary>
+        const float MaxAccel = 45f;
 
-        /// <summary>Seat geometry, in metres, measured off a real passenger
-        /// seat rather than off the box: the cargo has to fit the car, not the
-        /// other way round.</summary>
-        /// A bench rather than a bucket, and the width is the point: a 41 cm box
-        /// on a 52 cm seat has five centimetres of travel and nothing to watch.
-        /// Sixty-four gives it a hand's width either way, which is what makes
-        /// the Pizza Cam worth looking at.
-        const float SeatW = 0.64f, SeatD = 0.56f, SeatLip = 0.045f;
-        const float FootwellDrop = 0.26f;
+        /// <summary>
+        /// Time constant for the acceleration filter, seconds.
+        ///
+        /// The clamp alone was not enough: a single frame at the ceiling is
+        /// still a kick, and there are several of those a second on a rough
+        /// road. A tenth of a second is about the length of an impact, so a
+        /// crash still climbs most of the way to the ceiling while per-frame
+        /// road noise flattens into the sustained number a passenger would
+        /// actually feel.
+        ///
+        /// Fifty milliseconds was the first attempt and it was not enough: the
+        /// rough-road case still opened two boxes out of three. What made the
+        /// difference alongside it was giving the boxes a floor-level centre of
+        /// mass — see BuildBox.
+        /// </summary>
+        const float AccelTau = 0.10f;
+        /// <summary>Same idea for attitude. The car's body pitches and rolls on
+        /// its springs over every ripple; a seat does too, but not at fifty
+        /// hertz.</summary>
+        const float TiltTau = 0.04f;
+
+        /// <summary>
+        /// Seat geometry, in metres.
+        ///
+        /// A BENCH, and wide: the pan is what the Pizza Cam sees, and the owner
+        /// asked for "just the car seat and pizzas" — no floorboard and no black
+        /// background. A pan sized to a bucket seat left two thirds of the frame
+        /// as void. This one fills it, while the BOLSTERS still stand at a real
+        /// seat's width so the cargo is confined by the same geometry it always
+        /// was.
+        /// </summary>
+        const float SeatW = 0.80f, SeatD = 0.62f;
+        /// <summary>
+        /// Bolster height, and it has to stay BELOW the boxes' centre of mass.
+        ///
+        /// This was 9.5 cm — a real seat bolster — and it made everything worse:
+        /// a box sliding into a ridge taller than its own centre of gravity does
+        /// not stop against it, it levers over it. The rough-road case went from
+        /// two boxes open to all three flipped and on the floor. Three
+        /// centimetres catches a sliding box and holds it; anything taller is a
+        /// fulcrum.
+        /// </summary>
+        const float BolsterHalf = 0.26f, SeatLip = 0.03f;
 
         CarController car;
         Rigidbody carBody;
@@ -68,6 +111,17 @@ namespace PSXRacing
 
         Vector3 lastVel;
         bool haveLastVel;
+        /// <summary>How many boxes this order is, known before any of them are
+        /// built — the seat's walls have to be tall enough for the whole stack
+        /// and they are put up first.</summary>
+        int boxesOrdered = 1;
+        Vector3 smoothAccel;
+        Quaternion smoothTilt = Quaternion.identity;
+        bool haveTilt;
+        /// <summary>Cardboard on seat cloth. Unity's default is 0.6, which is
+        /// less than a hard corner produces — so on the default every box slid
+        /// on every bend, which is not what a pizza box on a seat does.</summary>
+        PhysicsMaterial grip;
 
         /// <summary>One box and its contents.</summary>
         class Slot
@@ -145,6 +199,7 @@ namespace PSXRacing
 
         void BuildIsland(int[] toppings)
         {
+            boxesOrdered = toppings != null ? toppings.Length : 1;
             var origin = new Vector3(0f, IslandY, 0f);
             transform.position = origin;
 
@@ -159,22 +214,91 @@ namespace PSXRacing
             // own floor.
             trayBody.interpolation = RigidbodyInterpolation.None;
 
-            // The seat pan, its two bolsters, the backrest — and a footwell
-            // floor in front of and below it, because a box that slides off the
-            // seat under braking has somewhere real to land. "On the floor" is a
-            // state the player can see and understand, and it is much better
-            // than a box that falls forever.
+            grip = new PhysicsMaterial("PizzaGrip")
+            {
+                staticFriction = 0.95f,
+                dynamicFriction = 0.85f,
+                bounciness = 0f,
+                frictionCombine = PhysicsMaterialCombine.Maximum,
+                bounceCombine = PhysicsMaterialCombine.Minimum,
+                hideFlags = HideFlags.DontSave,
+            };
+
+            // The pan and the backrest are what the camera sees, and they are
+            // sized to FILL it — the owner's note was "no black background, just
+            // the car seat and pizzas", and a seat that does not reach the edges
+            // of the frame is a black background by another name.
+            // The two pieces that ARE drawn: the cushion and the squab. Sized to
+            // a seat rather than to the frame, because the frame is transparent
+            // now and does not need filling.
+            // The two pieces that ARE drawn: the cushion and the squab, at the
+            // FULL seat width — the same width the door card and the tunnel
+            // stand at. A visible pan narrower than the walls that confine the
+            // cargo would show a box pressed against the door apparently
+            // floating off the edge of the seat.
             Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f), new Vector3(SeatW, 0.04f, SeatD));
-            Slab(tray, "BolsterL", new Vector3(-SeatW * 0.5f, SeatLip * 0.5f, 0f),
-                 new Vector3(0.03f, SeatLip, SeatD));
-            Slab(tray, "BolsterR", new Vector3(SeatW * 0.5f, SeatLip * 0.5f, 0f),
-                 new Vector3(0.03f, SeatLip, SeatD));
-            Slab(tray, "Back", new Vector3(0f, 0.16f, -SeatD * 0.5f),
-                 new Vector3(SeatW, 0.36f, 0.04f));
-            Slab(tray, "Footwell", new Vector3(0f, -FootwellDrop, SeatD * 0.5f + 0.22f),
-                 new Vector3(SeatW, 0.04f, 0.44f));
-            Slab(tray, "Bulkhead", new Vector3(0f, -FootwellDrop + 0.18f, SeatD * 0.5f + 0.44f),
-                 new Vector3(SeatW, 0.36f, 0.04f));
+            Slab(tray, "Back", new Vector3(0f, 0.17f, -SeatD * 0.5f + 0.02f),
+                 new Vector3(SeatW, 0.38f, 0.05f));
+
+            // The bolsters stay where a real seat's are, INSIDE the visible pan,
+            // so the cargo is still confined by seat-sized geometry. A box that
+            // gets over one is out of its seat and on the bench, which the player
+            // can see happen — better than the old footwell, which caught it out
+            // of frame and told them nothing.
+            Slab(tray, "BolsterL", new Vector3(-BolsterHalf, SeatLip * 0.5f, 0f),
+                 new Vector3(0.04f, SeatLip, SeatD * 0.8f), visible: false);
+            Slab(tray, "BolsterR", new Vector3(BolsterHalf, SeatLip * 0.5f, 0f),
+                 new Vector3(0.04f, SeatLip, SeatD * 0.8f), visible: false);
+            // THE CAR AROUND THE SEAT: door card one side, transmission tunnel
+            // the other, and the dash ahead.
+            //
+            // Without them the low bolsters merely slowed a sliding box down and
+            // it carried on off the edge of the bench — all three boxes read
+            // "FLOOR" on a rough corner of a clean lap, which is the bug being
+            // fixed. A pizza does not end up in the footwell because you took a
+            // bend quickly; it ends up wedged against the door. Far enough out
+            // (27 cm of travel from the middle) that the slide is worth
+            // watching, and tall enough to hold — while a real impact still
+            // throws a box clean over, which is where the damage should come
+            // from and nowhere else.
+            // TALL ENOUGH FOR THE WHOLE STACK. Fourteen centimetres held the
+            // bottom box and nothing else: three 8.8 cm boxes reach 28 cm, so
+            // the top two sat clear above the walls and slid off a seat that was
+            //, as far as they were concerned, open on both sides. That is the
+            // last of "the top pizza fell off on the first turn". A real door
+            // card is about this high above a seat base anyway.
+            float wallH = Mathf.Max(0.34f, 0.02f + boxesOrdered * 0.1f);
+            Slab(tray, "DoorCard", new Vector3(-SeatW * 0.5f + 0.02f, wallH * 0.5f, 0f),
+                 new Vector3(0.04f, wallH, SeatD), visible: false);
+            Slab(tray, "Tunnel", new Vector3(SeatW * 0.5f - 0.02f, wallH * 0.5f, 0f),
+                 new Vector3(0.04f, wallH, SeatD), visible: false);
+
+            // NOTHING TALL ACROSS THE FRONT, and that asymmetry is the mechanic.
+            //
+            // Sideways there is a door one side and the transmission tunnel the
+            // other, so a corner — however hard — slides the load across the seat
+            // and stops it. Forward there is a FOOTWELL, so braking and crashing
+            // throw it off the seat and onto the floor. That is where the damage
+            // comes from and it should be the only place: the owner's report was
+            // a top box lost on the first corner of a clean lap, and a seat
+            // walled on all four sides fixes that by making a crash harmless
+            // too, which is the same bug wearing the other hat.
+            Slab(tray, "Front", new Vector3(0f, SeatLip * 0.5f, SeatD * 0.5f - 0.03f),
+                 new Vector3(SeatW, SeatLip, 0.05f), visible: false);
+
+            // NOTHING BEHIND THE SEAT. The Pizza Cam clears to transparent and
+            // the game shows through — "just have transparency around the pizza
+            // boxes and seat, no black, no void". A backdrop slab was the first
+            // answer to that and it was the wrong one: it is still a void, just
+            // a grey one, and it has to be lit, sized and kept square to a lens
+            // it knows nothing about.
+            //
+            // Out of shot: somewhere for a box that DOES clear the seat to land
+            // and stop. Physics only — the renderer is off, because the owner
+            // does not want to look at a floorboard, and a box falling forever
+            // is not a state the condition can read.
+            Slab(tray, "Footwell", new Vector3(0f, -0.34f, SeatD * 0.5f + 0.30f),
+                 new Vector3(SeatW * 1.4f, 0.04f, 0.7f), visible: false);
 
             var boxPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
             if (boxPrefab == null)
@@ -239,16 +363,26 @@ namespace PSXRacing
                  new Vector3(local.x, hy, side));
             slot.ceiling = Wall(go, "Ceiling", lc + new Vector3(0f, hy * 0.5f - wall * 0.5f, 0f),
                                 new Vector3(local.x, wall, local.z));
+            foreach (var c in go.GetComponentsInChildren<Collider>(true)) c.sharedMaterial = grip;
             slot.escapeRadius = Mathf.Max(local.x, local.z) * 0.42f;
 
             var rb = go.AddComponent<Rigidbody>();
-            rb.mass = 0.9f;
+            rb.mass = 1.2f;
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.interpolation = RigidbodyInterpolation.Interpolate;
             // A cardboard box on cloth: it slides before it rolls, and it does
             // not bounce like a ball.
             rb.linearDamping = 0.35f;
-            rb.angularDamping = 1.4f;
+            rb.angularDamping = 3.0f;
+            // CENTRE OF MASS ON THE FLOOR OF THE BOX.
+            //
+            // Unity puts it at the middle of the compound collider, which makes
+            // a 41 x 9 cm box behave like a block that is happy to topple. It is
+            // not: it is a flat tray with a pizza lying in the bottom of it, and
+            // the mass is all in that bottom. This is most of why the load stops
+            // opening itself on a rough road — a slab with a low centre slides
+            // rather than tips, and only tipping opens a box.
+            rb.centerOfMass = lc + new Vector3(0f, -hy * 0.34f, 0f);
             slot.box = rb;
 
             // The pizza, inside. Its own body from the start rather than
@@ -273,6 +407,7 @@ namespace PSXRacing
                 pc.size = new Vector3(pb.size.x / Mathf.Max(1e-4f, pls.x) * 0.92f,
                                       Mathf.Max(pb.size.y / Mathf.Max(1e-4f, pls.y), 0.02f),
                                       pb.size.z / Mathf.Max(1e-4f, pls.z) * 0.92f);
+                pc.sharedMaterial = grip;
                 var prb = pz.AddComponent<Rigidbody>();
                 prb.mass = 0.45f;
                 prb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
@@ -333,8 +468,22 @@ namespace PSXRacing
         public void Tick(Vector3 accelCarLocal, Quaternion tilt, float dt)
         {
             if (trayBody == null || dt <= 0f) return;
-            trayBody.MoveRotation(tilt);
-            var push = tray.TransformDirection(-Vector3.ClampMagnitude(accelCarLocal, MaxAccel));
+
+            // FILTERED HERE, not in the caller.
+            //
+            // Both filters belong to the simulation, and they were in
+            // FixedUpdate until the harness — which calls this directly —
+            // reported all three boxes on the floor after a rough corner. It was
+            // shaking the tray by up to five degrees PER FRAME, because the tilt
+            // smoothing was on the other side of the door: the test was
+            // measuring a car that whips its own seat about at fifty hertz.
+            // A filter that only some callers get is not part of the model.
+            smoothAccel = Vector3.Lerp(smoothAccel, accelCarLocal, dt / (AccelTau + dt));
+            if (!haveTilt) { smoothTilt = tilt; haveTilt = true; }
+            else smoothTilt = Quaternion.Slerp(smoothTilt, tilt, dt / (TiltTau + dt));
+
+            trayBody.MoveRotation(smoothTilt);
+            var push = tray.TransformDirection(-Vector3.ClampMagnitude(smoothAccel, MaxAccel));
 
             foreach (var s in slots)
             {
@@ -382,9 +531,13 @@ namespace PSXRacing
                 if (!s.open && upness < 0.62f) Open(s);
                 if (upness < -0.1f) s.flipped = true;
 
-                // Off the seat: below the seat pan means it is in the footwell.
+                // OFF THE SEAT means below the pan — on the floor, out of shot.
+                // Merely climbing over a bolster onto the rest of the bench is
+                // not that: it is a box sliding about on a seat, which is the
+                // thing the player is supposed to watch and worry about rather
+                // than be charged for.
                 float height = tray.InverseTransformPoint(s.box.position).y;
-                if (height < -0.08f) { s.grounded = true; Open(s); }
+                if (height < -0.12f) { s.grounded = true; Open(s); }
 
                 if (s.pizza == null) continue;
 
@@ -458,13 +611,27 @@ namespace PSXRacing
             return c;
         }
 
-        static void Slab(Transform parent, string name, Vector3 localCentre, Vector3 size)
+        /// <summary>
+        /// One piece of the seat. `visible` false leaves the collider and turns
+        /// the renderer off.
+        ///
+        /// Most of this rig is invisible on purpose. The owner asked for "just
+        /// the car seat and pizzas" with transparency around them, and said of
+        /// the door specifically that it is "not shown" — so the door card, the
+        /// tunnel, the bolsters and the footwell all still confine the cargo and
+        /// none of them are drawn. What is left in frame is a seat with pizza on
+        /// it and the game behind it, which is the whole brief.
+        /// </summary>
+        GameObject Slab(Transform parent, string name, Vector3 localCentre, Vector3 size,
+                        bool visible = true)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = name;
             go.transform.SetParent(parent, false);
             go.transform.localPosition = localCentre;
             go.transform.localScale = size;
+            var col = go.GetComponent<Collider>();
+            if (col != null && grip != null) col.sharedMaterial = grip;
             var mr = go.GetComponent<MeshRenderer>();
             var shader = Shader.Find("PSX/Lit");
             if (shader != null)
@@ -472,13 +639,14 @@ namespace PSXRacing
                 var m = new Material(shader) { hideFlags = HideFlags.DontSave };
                 // Seat-cloth grey. Deliberately drab: the cargo is the subject
                 // of this picture and the seat is the thing it is on.
-                m.color = name == "Footwell" || name == "Bulkhead"
-                        ? new Color(0.20f, 0.20f, 0.22f)
-                        : new Color(0.32f, 0.31f, 0.34f);
+                m.color = name == "Footwell" ? new Color(0.20f, 0.20f, 0.22f)
+                                             : new Color(0.34f, 0.33f, 0.36f);
                 mr.sharedMaterial = m;
             }
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
+            mr.enabled = visible;
+            return go;
         }
     }
 

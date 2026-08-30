@@ -905,11 +905,19 @@ namespace PSXRacing.EditorTools
             if (!sim.built) return;
             Check(sim.atRest > 0.995f,
                   "a parked car does not damage its own cargo", sim.atRest.ToString("0.000"));
-            Check(sim.afterCorner > LifeRules.PizzaRuinedCondition,
-                  "and one hard corner does not ruin it", sim.afterCorner.ToString("0.000"));
-            Check(sim.afterCrash < sim.afterCorner,
+            Check(sim.afterCorner > 0.98f,
+                  "and one hard corner costs nothing", sim.afterCorner.ToString("0.000"));
+            // The case that was actually reported: "the top pizza fell off on the
+            // first turn even though I didn't wreck". The smooth corner above
+            // passed the whole time — the difference is the SIGNAL, so this one
+            // is the same corner with a real road's noise on it. A clean lap must
+            // arrive with a clean load.
+            Check(sim.afterRough > 0.90f,
+                  "and a hard corner on a ROUGH road still costs nothing",
+                  sim.afterRough.ToString("0.000"));
+            Check(sim.afterCrash < sim.afterRough - 0.05f,
                   "but hitting a wall does", sim.afterCrash.ToString("0.000") +
-                  " after " + sim.afterCorner.ToString("0.000"));
+                  " after " + sim.afterRough.ToString("0.000"));
             Line("  .. " + sim.detail);
         }
 

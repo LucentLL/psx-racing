@@ -65,9 +65,15 @@ namespace PSXRacing
         /// </summary>
         public static void Framing(Vector3 origin, out Vector3 eye, out Vector3 look, out float fov)
         {
-            eye = origin + new Vector3(0.62f, 0.60f, 1.06f);
-            look = origin + new Vector3(0f, -0.06f, 0.22f);
-            fov = 50f;
+            // TIGHT ON THE SEAT. Two notes from the owner, and they are the same
+            // note: "no need to show the floorboard" and "no black background,
+            // just the car seat and pizzas". The wide framing was mostly void
+            // with a bench in the middle of it, so this comes in close enough
+            // that the pan and the backrest run off every edge and there IS no
+            // background left to be black.
+            eye = origin + new Vector3(0.40f, 0.40f, 0.62f);
+            look = origin + new Vector3(0f, 0.03f, -0.02f);
+            fov = 52f;
         }
 
         public static PizzaCam Spawn(PizzaCargo forCargo)
@@ -95,7 +101,11 @@ namespace PSXRacing
             if (seat == null) return;
             Vector3 origin = cargo.transform.position;
 
-            rt = new RenderTexture(ViewW, ViewH, 24, RenderTextureFormat.Default)
+            // ARGB32, not Default: this buffer's ALPHA is the whole point. The
+            // camera clears it to nothing and only the seat and the boxes write
+            // to it, so the panel is a cutout of cargo over the game rather than
+            // a black television in the corner of the screen.
+            rt = new RenderTexture(ViewW, ViewH, 24, RenderTextureFormat.ARGB32)
             {
                 filterMode = FilterMode.Point,
                 antiAliasing = 1,
@@ -111,11 +121,16 @@ namespace PSXRacing
                 eye, Quaternion.LookRotation(look - eye, Vector3.up));
             cam.fieldOfView = fov;
             cam.nearClipPlane = 0.05f;
-            // Two metres. The world is four kilometres up and this is the
-            // cheapest possible guarantee that none of it is ever in frame.
-            cam.farClipPlane = 2.2f;
+            // Six metres. The world is four kilometres up, so anything under a
+            // kilometre is a free guarantee that none of it is ever in frame —
+            // and the first value, 2.2, was clipping the cargo's own cabin
+            // backdrop, which sits two metres out. A far plane tight enough to
+            // cut the set is not a safety margin, it is a bug.
+            cam.farClipPlane = 6f;
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.07f, 0.07f, 0.09f);
+            // TRANSPARENT. Alpha zero, so everything the seat does not cover is
+            // the game behind it.
+            cam.backgroundColor = new Color(0f, 0f, 0f, 0f);
             cam.allowMSAA = false;
             cam.allowHDR = false;
             cam.targetTexture = rt;
@@ -143,8 +158,10 @@ namespace PSXRacing
             panelRT.anchorMin = panelRT.anchorMax = new Vector2(0f, 0f);
             panelRT.pivot = new Vector2(0f, 0f);
             panelRT.sizeDelta = new Vector2(PanelW, PanelH);
+            // No panel behind the picture either — the frame exists only to give
+            // the caption and the view something to lay out against.
             var frame = panel.AddComponent<Image>();
-            frame.color = new Color(0f, 0f, 0f, 0.72f);
+            frame.color = new Color(0f, 0f, 0f, 0f);
             frame.raycastTarget = false;
 
             var viewGO = new GameObject("View", typeof(RectTransform));
@@ -154,8 +171,8 @@ namespace PSXRacing
             view.raycastTarget = false;
             var vrt = view.rectTransform;
             vrt.anchorMin = Vector2.zero; vrt.anchorMax = Vector2.one;
-            vrt.offsetMin = new Vector2(3f, 3f);
-            vrt.offsetMax = new Vector2(-3f, -20f);
+            vrt.offsetMin = Vector2.zero;
+            vrt.offsetMax = new Vector2(0f, -18f);
 
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             var capGO = new GameObject("Caption", typeof(RectTransform));
@@ -166,6 +183,12 @@ namespace PSXRacing
             caption.alignment = TextAnchor.MiddleLeft;
             caption.raycastTarget = false;
             caption.horizontalOverflow = HorizontalWrapMode.Overflow;
+            // The caption now sits over the world rather than over a black
+            // panel, so it carries its own shadow — the same one every readout
+            // on the race HUD uses, for the same reason.
+            var capShadow = capGO.AddComponent<UnityEngine.UI.Shadow>();
+            capShadow.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            capShadow.effectDistance = new Vector2(1f, -1f);
             var crt = caption.rectTransform;
             crt.anchorMin = new Vector2(0f, 1f); crt.anchorMax = new Vector2(1f, 1f);
             crt.pivot = new Vector2(0f, 1f);
