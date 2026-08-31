@@ -43,6 +43,11 @@ namespace PSXRacing
         /// apply-back banks metres/fuel/wear but pays no purse and moves no
         /// rep — a drive is not a result.</summary>
         public static bool FreeRoam;
+        /// <summary>What the free-roam session calls the place it happened in,
+        /// for the line the apply-back writes into the diary. Stamped by
+        /// CityMode on the way out — the town is not a TrackCatalog entry, so
+        /// there is no index to look a name up from.</summary>
+        public static string FreeRoamPlace;
 
         /// <summary>This run is a paid delivery, not a race: the player picked
         /// an order up at the shop and the finish line is the customer's door.
@@ -52,6 +57,23 @@ namespace PSXRacing
         /// <summary>What the drop is worth, rolled at the shop so the player
         /// can be told before they set off. Tips, so it swings.</summary>
         public static int DeliveryPay;
+
+        /// <summary>
+        /// This run is a TEST DRIVE of a car the player does not own.
+        ///
+        /// The whole point of it is that the drive tells you something an
+        /// inspection cannot — 21 of the 36 used-car faults are only findable
+        /// at speed — so the car really is the seller's car, with the seller's
+        /// problems on it. Nothing is banked on the way back: no odometer, no
+        /// wear, no fuel, no purse, no rep. What comes back is what the drive
+        /// revealed, and that lives on the visit rather than on any owned car.
+        /// </summary>
+        public static bool TestDrive;
+        /// <summary>Which visit this drive belongs to
+        /// (<see cref="LifeSim.Viewings.KeyOf"/>). A test drive is a scene
+        /// round trip, so the return path has to be able to find its way back
+        /// to the car it was about.</summary>
+        public static string TestDriveKey;
         /// <summary>
         /// The order itself: one topping index per BOX, in stacking order,
         /// bottom first. Indexes into PizzaCargoBaker.Toppings, so the array is
@@ -211,8 +233,9 @@ namespace PSXRacing
             CarSpecId = null;
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
-            FreeRoam = false;
+            FreeRoam = false; FreeRoamPlace = null;
             Delivery = false; DeliveryPay = 0; Solo = false;
+            TestDrive = false; TestDriveKey = null;
             OrderToppings = null; OrderBoxes = 1;
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;

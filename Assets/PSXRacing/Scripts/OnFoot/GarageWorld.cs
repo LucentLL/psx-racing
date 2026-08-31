@@ -199,61 +199,15 @@ namespace PSXRacing.OnFoot
         /// measured off the mesh at bake time, so re-deriving them here would be
         /// a third opinion about where a Charger's wheels go.
         /// </summary>
-        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint)
-        {
-            var mat = def.SkinCount > 0
-                ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)] : null;
-            var wheelMat = def.wheelMaterial != null ? def.wheelMaterial : mat;
-
-            // The bay marks where the car's MIDDLE is, so the same offset the
-            // turntable applies puts a long car and a short one both centred in
-            // their bay instead of both hanging out of the front of it.
-            float centre = def.colliderCenter.z;
-
-            // Everything that IS the car hangs off this one transform, whose
-            // only job is to be the thing a jack lifts.
-            var shellGO = new GameObject("Shell");
-            shellGO.transform.SetParent(bay, false);
-            var shell = shellGO.transform;
-
-            var body = new GameObject("Body");
-            body.transform.SetParent(shell, false);
-            body.transform.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset - centre);
-            body.transform.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
-            body.AddComponent<MeshFilter>().sharedMesh = def.bodyMesh;
-            var br = body.AddComponent<MeshRenderer>();
-            if (mat != null) br.sharedMaterial = mat;
-
-            for (int i = 0; i < 4; i++)
-            {
-                bool left = i % 2 == 0;
-                var w = new GameObject("Wheel" + i);
-                w.transform.SetParent(shell, false);
-                w.transform.localPosition = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth,
-                    def.wheelRadius,
-                    (i < 2 ? 0.5f : -0.5f) * def.wheelbase - centre);
-                w.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
-                w.transform.localScale = Vector3.one * def.wheelMeshScale;
-                w.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
-                var wr = w.AddComponent<MeshRenderer>();
-                if (wheelMat != null) wr.sharedMaterial = wheelMat;
-            }
-
-            // Solid enough to walk around rather than through. One box per car,
-            // sized off the same measured collider the physics uses. Inside the
-            // shell, so a car on the lift takes its solidity up with it and the
-            // player can walk underneath — which is the entire point of paying
-            // two thousand dollars for a lift.
-            var col = new GameObject("Solid");
-            col.transform.SetParent(shell, false);
-            col.transform.localPosition = new Vector3(0f, def.colliderCenter.y, 0f);
-            var box = col.AddComponent<BoxCollider>();
-            box.size = def.colliderSize;
-
-            roofPoint = new Vector3(0f, Mathf.Max(def.roofY, 1.1f) * 0.82f, 0f);
-            return shell;
-        }
+        /// <summary>Straight through to <see cref="CarShell.Spawn"/>, which is
+        /// where this used to live. It moved out when the town and the seller's
+        /// driveway wanted parked cars too — three copies of the wheel geometry
+        /// would be three opinions about where a Charger's wheels go. The
+        /// SOLIDITY is the one thing the garage cares about specially: the box
+        /// is inside the shell, so a car on the lift takes it up and the player
+        /// can walk underneath, which is the whole point of the lift.</summary>
+        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint) =>
+            CarShell.Spawn(bay, def, skin, out roofPoint);
 
         // ------------------------------------------------------------------
         //  getting the car in the air
@@ -578,11 +532,17 @@ namespace PSXRacing.OnFoot
                 hook.title = car.displayName.ToUpperInvariant() + (active ? "   ·   YOURS" : "");
                 hook.detail = Condition(car) + "   ·   " + car.odoMiles.ToString("N0") + " mi" +
                               (spec != null ? "   ·   " + spec.name : "");
-                hook.action = active ? "OPEN THE GARAGE MENU" : "TAKE THE KEYS TO THIS ONE";
+                // The car you have the keys to gets the verb a car deserves.
+                // Both of its old verbs survive elsewhere: the garage menu is
+                // one press away on the parts rack and the workbench, and
+                // INSPECT is the second verb below. This is the walk-in
+                // scene's only door out into the town, and it has to be the
+                // obvious thing to press when you are stood at your own car.
+                hook.action = active ? "GET IN AND DRIVE" : "TAKE THE KEYS TO THIS ONE";
 
                 var target = car;
                 hook.onUse = active
-                    ? (System.Action)(() => GoHome("garage"))
+                    ? (System.Action)DriveOut
                     : () =>
                     {
                         S.activeCar = target.id;
@@ -797,7 +757,7 @@ namespace PSXRacing.OnFoot
             LifeHomeScreen.PendingInspectCar = car.id;
             // FINISH INSPECTION walks back in here rather than dropping the
             // player in a menu they never opened.
-            LifeHomeScreen.InspectFromGarage = true;
+            LifeHomeScreen.InspectReturnScene = TrackCatalog.GarageSceneIndex;
             screen?.Toast(wasOpen ? "BACK UNDER " + car.displayName.ToUpperInvariant()
                                   : "INSPECTING " + car.displayName.ToUpperInvariant());
             GoHome("inspect");
@@ -812,6 +772,54 @@ namespace PSXRacing.OnFoot
         /// a menu they cannot click on and no cursor to see where they are
         /// clicking — which reads as the menu being broken.
         /// </summary>
+        /// <summary>
+        /// Get in and drive off the lot.
+        ///
+        /// The town scene contains this house — the player arrives standing in
+        /// their own driveway with the engine running — so this is a real
+        /// journey and not a menu jump, and it is stamped like one: the same
+        /// canonical order every scene load in this game uses, ending in
+        /// FillCarRequestFor so the car out there carries the parts and the
+        /// faults the car in here has.
+        ///
+        /// Refused on an empty tank, the same guard PizzaShift carries. A
+        /// career that can strand itself on the far side of a scene load is a
+        /// career that cannot recover.
+        /// </summary>
+        void DriveOut()
+        {
+            var car = S.ActiveCar;
+            if (car == null) { GoHome("garage"); return; }
+            if (car.fuel <= 5f)
+            {
+                screen?.Toast("THE TANK IS DRY — FUEL IT ON THE BILLS PAGE FIRST");
+                return;
+            }
+
+            int idx = TrackCatalog.TownSceneIndex;
+            if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
+            {
+                // A bad index reaching LoadScene is a black screen with no
+                // error at all. Falling back to the menu at least leaves the
+                // player somewhere they can act.
+                GoHome("main");
+                return;
+            }
+
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.CarId = car.id;
+            RaceHandoff.CarSpecId = car.specId;
+            RaceHandoff.TimeOfDayIndex = TimeOfDay.ForSlot(S.slotIndex, S.day);
+            RaceHandoff.StartFuelPct = car.fuel;
+            LifeHomeScreen.FillCarRequestFor(S, car);
+            LifeSimManager.Save();
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            SceneManager.LoadScene(idx);
+        }
+
         void GoHome(string tab)
         {
             LifeHomeScreen.PendingTab = tab;

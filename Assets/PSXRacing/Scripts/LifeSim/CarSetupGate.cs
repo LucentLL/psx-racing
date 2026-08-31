@@ -103,6 +103,61 @@ namespace PSXRacing.LifeSim
             string.IsNullOrEmpty(BlockedReason(car, spec, p));
 
         /// <summary>
+        /// True when the car does not HAVE this thing at all — as opposed to
+        /// not having bought one yet. Such a row is not drawn.
+        ///
+        /// Only the gears qualify, and the line has to be drawn somewhere:
+        /// "NEEDS CLOSE-RATIO GEAR SET" is a shopping list and belongs on
+        /// screen, while "7TH GEAR — NO SUCH GEAR" on a six-speed is a row
+        /// that can never become anything, printed twice on most cars. The
+        /// reference screens keep row POSITIONS stable across a car's own
+        /// build states, which this still does: a gear cannot appear or
+        /// disappear while you own the car.
+        ///
+        /// CENTRE SPLIT on a two-wheel-drive car is deliberately NOT absent.
+        /// It is one row on a page of four, and "NO CENTRE DIFF" is a fact
+        /// about the car that a player comparing an Evo with a Supra wants
+        /// stated rather than silently omitted.
+        /// </summary>
+        public static bool Absent(OwnedCar car, CarSpec spec, SetupParam p)
+        {
+            int g = CarSetupTable.GearIndex(p);
+            // The same clamp BlockedReason uses, so the two cannot disagree
+            // about where the gearbox ends.
+            return g >= 0 && spec != null &&
+                   g >= Mathf.Clamp(spec.gears, 3, CarSetup.MaxGears);
+        }
+
+        /// <summary>
+        /// Why this MODEL of car can never adjust this parameter, whatever is
+        /// bolted to the particular one in the garage — or null when it can.
+        ///
+        /// Split out because two callers need the same answer and used to
+        /// carry two copies of it: <see cref="BlockedReason"/>, which prints
+        /// it, and <see cref="AdjustableCount"/>, which has to subtract
+        /// exactly these rows from "every row the car physically has". The
+        /// self-test asserts a fully-built car opens every row that is not one
+        /// of these, so a fact added to one and not the other fails the build
+        /// — which is the intent.
+        /// </summary>
+        static string CarFact(CarSpec spec, SetupParam p)
+        {
+            if (p == SetupParam.DriveSplit && (spec == null || spec.drv != "4WD"))
+                return "NO CENTRE DIFF";
+            int g = CarSetupTable.GearIndex(p);
+            if (g >= 0 && spec != null && g >= Mathf.Clamp(spec.gears, 3, CarSetup.MaxGears))
+                return "NO SUCH GEAR";
+            // A road car has no adjustable wing and, in 1999, no way to buy
+            // one. Phrased as a fact rather than as a shopping list, because
+            // the parts page will not sell it either — see
+            // Upgrades.AeroKitAllowed.
+            if ((p == SetupParam.AeroLevel || p == SetupParam.AeroBalance) &&
+                !Upgrades.AeroKitAllowed(spec))
+                return "NOT A RACE CAR";
+            return null;
+        }
+
+        /// <summary>
         /// Empty when the parameter is adjustable; otherwise the reason, ready
         /// to print. Every refusal that CAN be fixed names the part that fixes
         /// it — a padlock that does not say what opens it is just a dead row —
@@ -114,14 +169,13 @@ namespace PSXRacing.LifeSim
         {
             if (car == null) return "NO CAR";
 
-            // Two hard facts about the CAR come before any part it might carry.
-            if (p == SetupParam.DriveSplit && (spec == null || spec.drv != "4WD"))
-                return "NO CENTRE DIFF";
-            int g = CarSetupTable.GearIndex(p);
-            if (g >= 0 && spec != null && g >= Mathf.Clamp(spec.gears, 3, CarSetup.MaxGears))
-                return "NO SUCH GEAR";
+            // Facts about the CAR come before any part it might carry.
+            string fact = CarFact(spec, p);
+            if (fact != null) return fact;
             // A welded diff has nothing left to adjust. Saying so is more use
-            // than showing three sliders that do nothing.
+            // than showing three sliders that do nothing. Not a CarFact: it is
+            // a fact about a part that was FITTED, so it can be true of one
+            // owned car and false of the identical model beside it.
             if (car.welded && (p == SetupParam.DiffAccel || p == SetupParam.DiffDecel ||
                                p == SetupParam.DiffPreload))
                 return "DIFF IS WELDED";
@@ -179,14 +233,7 @@ namespace PSXRacing.LifeSim
         {
             int n = 0;
             for (int i = 0; i < CarSetupTable.Count; i++)
-            {
-                var p = (SetupParam)i;
-                if (p == SetupParam.DriveSplit && (spec == null || spec.drv != "4WD")) continue;
-                int g = CarSetupTable.GearIndex(p);
-                if (g >= 0 && spec != null && g >= Mathf.Clamp(spec.gears, 3, CarSetup.MaxGears))
-                    continue;
-                n++;
-            }
+                if (CarFact(spec, (SetupParam)i) == null) n++;
             return n;
         }
     }

@@ -79,6 +79,18 @@ namespace PSXRacing.OnFoot
             if (head != null) pitch = 0f;
         }
 
+        /// <summary>
+        /// Re-read the heading off the transform.
+        ///
+        /// Awake caches yaw and Look() then WRITES the rotation from it every
+        /// frame, so anything that turns the player after Awake is undone on
+        /// the next frame with nothing to say so. That is not hypothetical:
+        /// the seller's street picks which driveway the player is standing on
+        /// at runtime and turns them to face the car, and script execution
+        /// order decides whether Awake ran first.
+        /// </summary>
+        public void SnapYawToTransform() => yaw = transform.eulerAngles.y;
+
         void OnDisable() => SetCapture(false);
 
         void Update()

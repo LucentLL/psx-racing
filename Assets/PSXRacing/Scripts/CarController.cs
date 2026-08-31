@@ -962,9 +962,44 @@ namespace PSXRacing
         void CaptureSetupBaseline()
         {
             if (setupBaselineCaptured) setupBaseline.RestoreOwned(this);
+            ApplyStageRide();
             setupBaseline.Capture(this);
             setupBaselineCaptured = true;
         }
+
+        /// <summary>
+        /// The part of a suspension build that is NOT a slider: how far the
+        /// stage sits the car down. See CarTune.RideDropAtStage.
+        ///
+        /// Here rather than in <see cref="ApplyTuneHandling"/>, and the reason
+        /// is the whole subtlety of this file. restLength and cgHeight are two
+        /// of the fields ApplySetup OWNS, so <see cref="CaptureSetupBaseline"/>
+        /// restores them from the previous snapshot before it captures. Written
+        /// any earlier, a build bought between two races would be put straight
+        /// back to the OLD stage's ride height and that would become the new
+        /// baseline — the car would keep the height it had when the parts were
+        /// fitted, for ever, with nothing on screen to say so.
+        ///
+        /// Latches its own stock pair for the same reason ApplyTuneHandling
+        /// latches: it writes the fields it reads, and ApplySpec runs on every
+        /// race load.
+        /// </summary>
+        void ApplyStageRide()
+        {
+            if (!stageRideCaptured)
+            {
+                stockRestLength = restLength;
+                stockCgHeight = cgHeight;
+                stageRideCaptured = true;
+            }
+            restLength = CarTune.RestLengthAtStage(stockRestLength, activeTune.suspension);
+            cgHeight = CarTune.CgHeightAtStage(stockCgHeight, stockRestLength,
+                                               activeTune.suspension);
+            if (Body != null) Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+        }
+
+        bool stageRideCaptured;
+        float stockRestLength, stockCgHeight;
 
         /// <summary>
         /// Write the setup onto the physics. Everything here is either a direct

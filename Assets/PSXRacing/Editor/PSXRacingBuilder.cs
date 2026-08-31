@@ -370,6 +370,8 @@ namespace PSXRacing.EditorTools
                 // that contract.
                 GarageSceneBuilder.Build();
                 PizzeriaSceneBuilder.Build();
+                BuildTownScene();
+                SellerLotSceneBuilder.Build();
 
                 // Written from SceneOrder rather than from the list assembled
                 // as we went, so the build settings and the WebGL player are the
@@ -380,7 +382,7 @@ namespace PSXRacing.EditorTools
                 foreach (var p in SceneOrder())
                     scenes.Add(new EditorBuildSettingsScene(p, true));
                 EditorBuildSettings.scenes = scenes.ToArray();
-                Log($"BUILD OK — {TrackCatalog.Count} circuits + home + garage.");
+                Log($"BUILD OK — {TrackCatalog.Count} circuits + home + garage + shop + town + street.");
             }
             catch (Exception e)
             {
@@ -862,6 +864,8 @@ namespace PSXRacing.EditorTools
                 list.Add("Assets/PSXRacing/Scenes/" + t.id + ".unity");
             list.Add(GarageSceneBuilder.ScenePath);
             list.Add(PizzeriaSceneBuilder.ScenePath);
+            list.Add(TownScenePath);
+            list.Add(SellerLotSceneBuilder.ScenePath);
             return list.ToArray();
         }
 
@@ -906,17 +910,64 @@ namespace PSXRacing.EditorTools
         static string Sig(float v) =>
             Mathf.RoundToInt(v * 1000f).ToString().Replace("-", "n");
 
-        static Material PSXMaterialFor(Texture tex, string fallbackName, Vector2 scale, Vector2 offset)
+        /// <summary>
+        /// Is this the pack's window glass?
+        ///
+        /// The material NAME is the whole signal, and it is enough. Every pack
+        /// in this project that has glass at all calls it one thing: the gas
+        /// station, the pizzeria block, the burger drive-thru, the hero house
+        /// and the standalone pizzeria each carry exactly ONE material called
+        /// "Glass"; house_simple.fbx alone says "Windows". Nothing else in the
+        /// ~250 material names across those packs contains either token, and
+        /// no TEXTURE in any of their Textures folders does — which is why the
+        /// question cannot be put to the importer the way the cutout one is.
+        ///
+        /// Whole-token, not Contains(): "Window_frame" is a real mesh sitting
+        /// right beside the four Glass_00N panes in Gas_station.fbx, and it is
+        /// aluminium.
+        /// </summary>
+        static bool IsGlassName(string n)
+        {
+            if (string.IsNullOrEmpty(n)) return false;
+            // "Glass", "Glass_001", "Windows", "Glass.001" — a dot or an
+            // underscore and digits is the only suffix these packs use.
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                n, @"^(glass|windows?)([._]\d+)?$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        static Shader psxGlass;
+
+        /// <param name="glass">Draw this one blended instead of opaque. See
+        /// <see cref="ConvertToPSXMaterials"/> for why it is opt-in.</param>
+        static Material PSXMaterialFor(Texture tex, string fallbackName, Vector2 scale,
+                                       Vector2 offset, bool glass = false)
         {
             // Reachable from OTHER builders (the home scene, the prop baker)
             // outside a full Build() — without this, a standalone run created
             // every scenery material with a NULL shader and saved the magenta
             // to disk.
             if (psxLit == null) psxLit = Shader.Find("PSX/Lit");
+            if (glass && psxGlass == null) psxGlass = Shader.Find("PSX/LitTransparent");
+            if (glass && psxGlass == null)
+            {
+                // Loudly, never silently: writing a null shader onto a SAVED
+                // asset is the magenta-and-corrupted-.mat failure MakeMat's
+                // header records, and it survives the run that caused it.
+                Log("WARN: PSX/LitTransparent missing — glass stays opaque");
+                glass = false;
+            }
             if (tex == null) tex = Texture2D.whiteTexture;
             string texKey = AssetDatabase.GetAssetPath(tex);
             if (string.IsNullOrEmpty(texKey)) texKey = tex.name;
-            string key = texKey + "|" + scale + "|" + offset;
+            // GLASS IS PART OF THE KEY, and this is the load-bearing half of
+            // the change. The pack's Glass material carries NO texture, so it
+            // resolves to Texture2D.whiteTexture and keys as
+            // "UnityWhite|(1,1)|(0,0)" — the same slot every other untextured
+            // material in every pack gets. The house's White, Blu and
+            // Fabric_15 are all wearing that one asset today. Mutating it into
+            // glass would turn a chunk of the house transparent.
+            string key = texKey + "|" + scale + "|" + offset + (glass ? "|glass" : "");
             if (matByKey.TryGetValue(key, out var cached)) return cached;
             string safe = string.Join("_", (tex.name + "_" + fallbackName).Split(Path.GetInvalidFileNameChars()));
             // The FILE has to be keyed by everything the cache is keyed by.
@@ -937,14 +988,18 @@ namespace PSXRacing.EditorTools
             if (scale != Vector2.one || offset != Vector2.zero)
                 safe += "_uv" + Sig(scale.x) + "x" + Sig(scale.y) +
                         "o" + Sig(offset.x) + "x" + Sig(offset.y);
+            // Same reason the key carries it: a new FILE, so the opaque asset
+            // the house is already wearing is never opened, let alone rewritten.
+            if (glass) safe += "_glass";
             string assetPath = MatDir + "/scenery_" + safe + ".mat";
+            var shader = glass ? psxGlass : psxLit;
             var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             if (mat == null)
             {
-                mat = new Material(psxLit);
+                mat = new Material(shader);
                 AssetDatabase.CreateAsset(mat, assetPath);
             }
-            mat.shader = psxLit;
+            mat.shader = shader;
             mat.mainTexture = tex;
             mat.mainTextureScale = scale;     // keep the source material's tiling
             mat.mainTextureOffset = offset;
@@ -966,18 +1021,45 @@ namespace PSXRacing.EditorTools
             // a barrier nobody could cross. Asked of the importer rather than
             // guessed from the file extension: what matters is whether the
             // source carries alpha, and a PNG without any is common.
-            bool cutout = false;
-            if (AssetImporter.GetAtPath(texKey) is TextureImporter imp)
-                cutout = imp.DoesSourceTextureHaveAlpha();
-            mat.SetFloat("_Cutoff", cutout ? 0.5f : 0f);
-            mat.renderQueue = cutout ? 2450 : -1;
+            if (glass)
+            {
+                // A pane is a TINT, not a texture: the pack's glass material
+                // has no map at all. _Color.a is the opacity, and PSX/Lit
+                // already multiplied _Color in and returned its alpha, so the
+                // blended sibling needed no property PSX/Lit lacks.
+                mat.color = GlassTint;
+                mat.SetFloat("_Cutoff", 0f);
+                mat.renderQueue = -1;   // the shader's own Transparent queue
+            }
+            else
+            {
+                bool cutout = false;
+                if (AssetImporter.GetAtPath(texKey) is TextureImporter imp)
+                    cutout = imp.DoesSourceTextureHaveAlpha();
+                mat.SetFloat("_Cutoff", cutout ? 0.5f : 0f);
+                mat.renderQueue = cutout ? 2450 : -1;
+            }
 
             EditorUtility.SetDirty(mat);
             matByKey[key] = mat;
             return mat;
         }
 
-        internal static void ConvertToPSXMaterials(GameObject go)
+        /// <summary>Shop glass: a cold pale tint at a third opacity. Dark
+        /// enough to read as glazing from outside on a sunlit street, open
+        /// enough that the counter and the booths behind it are legible —
+        /// which is the whole point of asking for it.</summary>
+        static readonly Color GlassTint = new Color(0.80f, 0.87f, 0.90f, 0.34f);
+
+        /// <param name="glass">Let this model's WINDOW panes come through
+        /// blended. OFF by default, which is byte-for-byte the behaviour every
+        /// existing caller had: the city props, the track-side buildings, the
+        /// house and the pizza cargo keep getting one opaque PSX/Lit material
+        /// per texture and no scene they bake changes. Only a builder that
+        /// asks gets glass, and only on materials <see cref="IsGlassName"/>
+        /// recognises — the shared cache and the shared .mat file made this
+        /// the one change here that could not safely be made globally.</param>
+        internal static void ConvertToPSXMaterials(GameObject go, bool glass = false)
         {
             if (psxLit == null) psxLit = Shader.Find("PSX/Lit");
             foreach (var r in go.GetComponentsInChildren<Renderer>())
@@ -992,7 +1074,8 @@ namespace PSXRacing.EditorTools
                     else if (src != null && src.HasProperty("_MainTex"))
                     { scale = src.mainTextureScale; offset = src.mainTextureOffset; }
                     mats[i] = PSXMaterialFor(src != null ? src.mainTexture : null,
-                                             src != null ? src.name : "none", scale, offset);
+                                             src != null ? src.name : "none", scale, offset,
+                                             glass && IsGlassName(src != null ? src.name : null));
                 }
                 r.sharedMaterials = mats;
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;

@@ -143,12 +143,28 @@ namespace PSXRacing.LifeSim
         /// non-interactable and MenuNav then drops from the pad graph entirely.
         /// So the cursor steps straight over a locked row for free.
         /// </summary>
+        /// <param name="value">What the car is sitting at RIGHT NOW, already
+        /// formatted. Optional, and the reason it exists: a part changes the
+        /// car whether or not it unlocked a slider, and a padlocked RIDE
+        /// HEIGHT row on a car with lowering springs fitted has to be able to
+        /// say 270 mm. Without it the screen reads as the part not being
+        /// fitted — which is exactly how it was reported.</param>
         public static void DrawLocked(RectTransform parent, float colL, float y,
-                                      SetupParam p, string reason)
+                                      SetupParam p, string reason, string value = null)
         {
             MenuKit.Label(parent, "[-] " + CarSetupTable.Label(p), MenuKit.Body,
                 new Vector2(0.5f, 1f), new Vector2(colL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, LabelW + ArrowW + Gap * 2f, RowH);
+
+            // Left-aligned where the slider track would start, so it cannot
+            // collide with the reason: the reason is right-aligned and grows
+            // LEFTWARD from the far edge, and the longest of them ("NEEDS
+            // CLOSE-RATIO GEAR SET") still stops well short of here.
+            if (!string.IsNullOrEmpty(value))
+                MenuKit.Label(parent, value, MenuKit.Small,
+                    new Vector2(0.5f, 1f),
+                    new Vector2(colL + LabelW + Gap + ArrowW + Gap, y),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, 170f, RowH);
 
             // No padlock glyph: the menu font is LegacyRuntime.ttf and anything
             // it does not have renders as a box. "[-]" extends the "#"/"-" the

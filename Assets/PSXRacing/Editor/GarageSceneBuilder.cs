@@ -91,7 +91,12 @@ namespace PSXRacing.EditorTools
 
             var grassMat = Mat("HomeGrass", "Grass.jpg", new Vector2(14f, 11f), texDir: HouseDir + "/Textures");
             var driveMat = Mat("HomeDrive", "ConcreteBare.jpg", new Vector2(2f, 8f), texDir: HouseDir + "/Textures");
-            var roadMat = Mat("HomeRoad", "Asphalt.jpg", new Vector2(10f, 2f), texDir: HouseDir + "/Textures");
+            // AsphaltDamaged, from the station pack. The house pack's own
+            // "Asphalt.jpg" is a concrete path with a strip of grass through
+            // the middle of it, so the street outside this house has had a
+            // green band lying across it since the lot was built — see the
+            // note on PSXRacingBuilder.Town's TownRoad.
+            var roadMat = Mat("HomeRoad", "AsphaltDamaged.jpg", new Vector2(10f, 2f));
             var kerbMat = Mat("HomeKerb", null, Vector2.one, new Color(0.62f, 0.60f, 0.57f));
             var shelfMat = Mat("GarageShelf", "Metal_02.jpg", new Vector2(3f, 1f));
             var benchMat = Mat("GarageBench", "Wood.jpg", new Vector2(2f, 1f));

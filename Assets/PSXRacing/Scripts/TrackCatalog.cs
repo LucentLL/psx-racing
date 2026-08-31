@@ -487,6 +487,26 @@ namespace PSXRacing
         /// only ever go on the END.</summary>
         public static int PizzeriaSceneIndex => 2 + All.Length;
 
+        /// <summary>
+        /// The drivable town: your street, the forecourt, the shop, the
+        /// dealership lot and the salvage yard, all in one small map with the
+        /// home lot at the south end of it.
+        ///
+        /// NOT a TrackDef, deliberately. Entering it in <see cref="All"/> would
+        /// buy the free-roam behaviours (skipped by the race picker, skipped by
+        /// delivery routing) at the cost of every circuit assertion having to
+        /// be short-circuited for it — and of <see cref="Thumbnail"/>, which
+        /// loads "charlotte_thumb" by name and would draw Charlotte's street
+        /// map in the town's venue block. A scene on the end of the list needs
+        /// none of that, and the town is never a race venue.
+        /// </summary>
+        public static int TownSceneIndex => 3 + All.Length;
+
+        /// <summary>The seller's driveway: a stranger's house with a car for
+        /// sale on it. One baked scene, dressed at runtime per listing — see
+        /// SellerLotWorld.</summary>
+        public static int SellerLotSceneIndex => 4 + All.Length;
+
         // ------------------------------------------------------------------
         //  Stage bake loading
         // ------------------------------------------------------------------

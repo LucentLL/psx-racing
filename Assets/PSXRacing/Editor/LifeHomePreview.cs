@@ -135,7 +135,7 @@ namespace PSXRacing.EditorTools
             // Every tab, not just the two that had been looked at. Three of the
             // four bugs found here were on tabs nobody had rendered.
             foreach (var t in new[] { "rivals", "garage", "calendar", "news", "options",
-                                      "market", "junkyard", "eat", "bills", "jobs",
+                                      "market", "junkyard", "dealer", "eat", "bills", "jobs",
                                       "inspect", "inspectfocus", "toolbox",
                                       // The garage is a LIST now and the car page is where
                                       // everything you can do to a car lives, so the tab shot
@@ -190,6 +190,25 @@ namespace PSXRacing.EditorTools
                 s.cars.Remove(speccd);
                 s.activeCar = wasActive;
                 s.garageSlots = 1;
+                LifeSimManager.Save();
+            }
+
+            // The seller's conversation. It cannot be shot by naming the tab —
+            // BuildViewing bounces straight back to the classifieds without a
+            // visit open — so one is opened here first, on the roughest car in
+            // the paper, with the walk-round already done so the page has some
+            // findings to lay out. That is the state the layout can go wrong in.
+            if (CarCatalog.Ready && s.newspaper.Count > 0)
+            {
+                CarListing worst = s.newspaper[0];
+                foreach (var l in s.newspaper) if (l.cond < worst.cond) worst = l;
+                var visit = Viewings.Open(s, worst, "paper");
+                Viewings.LookOver(s, visit);
+                s.activeViewing = visit.key;
+                LifeSimManager.Save();
+                Shoot(outDir, "viewing", "viewing");
+                s.activeViewing = "";
+                s.viewings.Remove(visit);
                 LifeSimManager.Save();
             }
 

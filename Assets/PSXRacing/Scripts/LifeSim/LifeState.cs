@@ -32,8 +32,14 @@ namespace PSXRacing.LifeSim
         /// v9: the salvage yard — LifeState gained junkyard, PendingPart gained
         ///     junkRisk. Both are ADDED, so the migration only exists to stock
         ///     the shelves an old career would otherwise open onto empty.
+        /// v10: the town — LifeState gained dealerLot and viewings, both ADDED.
+        ///     The migration exists for one thing that is NOT free: adjustable
+        ///     aero became a race-car-only part, so a road car in an old save
+        ///     can be carrying a kit it could no longer buy and can no longer
+        ///     use. It is unfitted and refunded rather than left as a padlocked
+        ///     row the player paid for.
         /// </summary>
-        public int saveVersion = 9;
+        public int saveVersion = 10;
 
         // === Core economy / clock ===
         public int money;
@@ -139,6 +145,40 @@ namespace PSXRacing.LifeSim
         // === Used-car market ===
         public List<CarListing> newspaper = new List<CarListing>();
         public List<CarAd> carAds = new List<CarAd>();
+
+        /// <summary>
+        /// The dealership's own stock, out on the lot in town.
+        ///
+        /// A SECOND list rather than a filter on the paper, because the two
+        /// markets behave differently and are supposed to: the lot never
+        /// expires, discloses nothing, and will not hand you the keys, while
+        /// the classifieds turn over every few days, admit to one problem in
+        /// three and let you drive it. RG2 keeps them as two generators for the
+        /// same reason (generateNewspaper vs generateCarLot).
+        /// </summary>
+        public List<CarListing> dealerLot = new List<CarListing>();
+
+        /// <summary>
+        /// Cars the player has gone to LOOK at but does not own.
+        ///
+        /// Each one carries a phantom <see cref="OwnedCar"/> with the faults
+        /// that car really has — rolled the day you turned up, not the day you
+        /// pay — so the inspection map, the X-ray and the fault list all work
+        /// on a stranger's car with no second implementation, and buying is a
+        /// MOVE rather than a copy. See <see cref="Viewings"/>.
+        /// </summary>
+        public List<Viewing> viewings = new List<Viewing>();
+
+        /// <summary>
+        /// Which visit the player is currently in the middle of
+        /// (<see cref="Viewings.KeyOf"/>), or empty.
+        ///
+        /// In the SAVE rather than in a static, because a test drive is a
+        /// scene round trip and a static does not survive one reliably — the
+        /// same reason RaceHandoff exists at all. It is also what the seller's
+        /// driveway reads to know which car to park on it.
+        /// </summary>
+        public string activeViewing = "";
 
         /// <summary>What is on the salvage yard's shelves. One flat list rather
         /// than three, because JsonUtility serialises a list of one type and not

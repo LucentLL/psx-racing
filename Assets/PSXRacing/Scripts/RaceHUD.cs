@@ -138,8 +138,11 @@ namespace PSXRacing
             }
             if (cam != lastCam) { lastCam = cam; Set(camText, cam); }
 
-            string center = !city.Live ? "CHARLOTTE"
+            string center = !city.Live ? city.VenueName
                 : (stuck != null ? stuck.Prompt : null)
+                  ?? GasPump.Prompt
+                  ?? OnFoot.ForecourtMode.Prompt
+                  ?? Town.TownVenue.Prompt
                   ?? DriveThru.Prompt
                   ?? DryTankPrompt()
                   ?? "";
@@ -149,6 +152,10 @@ namespace PSXRacing
             // does not exist out here; the order window takes it back.
             var cityTouch = TouchControls.Instance;
             if (cityTouch != null && DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
+            // Same reclaim for the town's own venues, which are the only
+            // ACTION a touch player has out there.
+            else if (cityTouch != null && Town.TownVenue.AtVenue)
+                cityTouch.SetAction(true, "OPEN");
         }
 
 
@@ -313,6 +320,7 @@ namespace PSXRacing
                            : (stuck != null ? stuck.Prompt : null)
                              ?? GasPump.Prompt
                              ?? OnFoot.ForecourtMode.Prompt
+                             ?? Town.TownVenue.Prompt
                              ?? DriveThru.Prompt
                              ?? DryTankPrompt()
                              ?? "";

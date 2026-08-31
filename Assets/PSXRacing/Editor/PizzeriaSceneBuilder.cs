@@ -58,7 +58,14 @@ namespace PSXRacing.EditorTools
 
             var shop = (GameObject)Object.Instantiate(prefab);
             shop.name = "PizzeriaScene";
-            PSXRacingBuilder.ConvertToPSXMaterials(shop);
+            // glass: true — the pack's storefront panes come through BLENDED.
+            // The shop shipped visually sealed: the material factory keeps
+            // only mainTexture, and this model's one Glass material has none,
+            // so it resolved to opaque white and the windows read as a pale
+            // wall. The flag is opt-in precisely so turning it on here cannot
+            // touch the city, the house or the cargo — see
+            // PSXRacingBuilder.ConvertToPSXMaterials.
+            PSXRacingBuilder.ConvertToPSXMaterials(shop, glass: true);
             int cols = AddColliders(shop);
 
             // ---- measure ----

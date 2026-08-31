@@ -827,7 +827,9 @@ namespace PSXRacing.LifeSim
                 // A drive is not a result: no purse, no rep, and no rep-decay
                 // reset — cruising Charlotte is not showing up on the street.
                 // The metres, fuel and wear above are already banked.
-                summary = "free roam — " + (RaceHandoff.MetersDriven / 1000f).ToString("0.0") + " km in Charlotte";
+                summary = "free roam — " + (RaceHandoff.MetersDriven / 1000f).ToString("0.0") +
+                          " km in " + (string.IsNullOrEmpty(RaceHandoff.FreeRoamPlace)
+                              ? "Charlotte" : RaceHandoff.FreeRoamPlace.ToLowerInvariant());
             }
             else if (RaceHandoff.Delivery)
             {
@@ -1458,7 +1460,12 @@ namespace PSXRacing.LifeSim
             // turns over beside it, on its own three clocks.
             CarMarket.RefreshListings(s);
             CarMarket.GenerateOffers(s);
+            CarMarket.RefreshLot(s);
             Junkyard.RefreshStock(s);
+            // A visit outlives the advert it was about unless something reaps
+            // it — and a visit carries a whole phantom car, so an unswept one
+            // is a car the save keeps for the rest of the career.
+            Viewings.Sweep(s);
 
             // 9. the ladder: expired call-outs go cold, and a gate that has just
             // cleared pages the player. Order matters — pruning first stops a
@@ -1575,6 +1582,7 @@ namespace PSXRacing.LifeSim
                               MenuKit.Money(s.money) + " saved." +
                               (debug ? "  [DEBUG CAREER]" : ""));
             CarMarket.RefreshListings(s);
+            CarMarket.RefreshLot(s);
             Junkyard.RefreshStock(s);
             return s;
         }

@@ -174,6 +174,135 @@ namespace PSXRacing.LifeSim
             };
         }
 
+        // ------------------------------------------------------------------
+        //  The USED-CAR pool — what a stranger's car has wrong with it
+        // ------------------------------------------------------------------
+        //
+        // A SECOND pool, beside the wear pool above, and it was baked into
+        // Resources with the rest of this file and then never read by anything.
+        // It exists because a car you are being SOLD fails differently from one
+        // you have been running: 21 of its 36 rows are `testDriveOnly`, which
+        // is the single most interesting thing in RG2's used-car layer —
+        // alignment, slipping gearboxes, warped rotors, sensors and bushings
+        // are all invisible standing in a driveway and obvious in the first
+        // hundred metres. That split is what makes a test drive worth asking
+        // the seller for, and it is what makes an inspection NOT the whole
+        // answer.
+
+        /// <summary>
+        /// How likely each repair tier is to give itself away to somebody
+        /// looking, before any skill or tooling.
+        ///
+        /// From the monolith's REPAIR_TIERS. Note it is NOT monotonic —
+        /// catastrophic sits BELOW extensive — and that is the source's
+        /// number, not a slip: an extensive fault is a car that runs badly and
+        /// announces it, while the catastrophic ones in these pools are things
+        /// like a stretched timing chain, which is quiet right up until it is
+        /// not. The bake carried the priceMult column and dropped this one, so
+        /// it is spelled out here with its source rather than re-derived.
+        /// </summary>
+        public static float TierDetect(string tier) =>
+            tier == "cheap" ? 0.30f :
+            tier == "moderate" ? 0.50f :
+            tier == "extensive" ? 0.70f : 0.60f;
+
+        /// <summary>What one fault of this tier knocks off an asking price.
+        /// From the bake's own repairTiers rows.</summary>
+        public static float TierPriceMult(string tier)
+        {
+            Load();
+            foreach (var t in data.repairTiers) if (t.tier == tier) return t.priceMult;
+            return 0.9f;
+        }
+
+        /// <summary>Is this fault one only a DRIVE can surface? Looked up by id
+        /// across the used pool, because a fault, once on a car, is just a
+        /// CarFault and has forgotten which pool it came from.</summary>
+        public static bool IsTestDriveOnly(string faultId)
+        {
+            Load();
+            foreach (var u in data.used) if (u.id == faultId) return u.testDriveOnly;
+            return false;
+        }
+
+        /// <summary>The repair tier of a fault id, or "moderate" when it is not
+        /// a used-pool fault — every wear fault behaves like the middle of the
+        /// range for pricing and detection.</summary>
+        public static string TierOf(string faultId)
+        {
+            Load();
+            foreach (var u in data.used) if (u.id == faultId) return u.tier;
+            return "moderate";
+        }
+
+        /// <summary>
+        /// Roll the problems a used car is carrying when you go to look at it.
+        ///
+        /// Port of generateUsedCarFaults. COUNT comes from condition and
+        /// SEVERITY from mileage, which is the pairing that makes a tidy
+        /// high-mileage car and a rough low-mileage one fail in different ways.
+        /// Catastrophic rows are gated out under 60k miles and extensive under
+        /// 30k — a nearly-new car can be neglected but it cannot be worn out.
+        /// </summary>
+        public static List<CarFault> RollUsedFaults(int cond, float odoMiles, string origin)
+        {
+            Load();
+            var outv = new List<CarFault>();
+            if (data.used.Count == 0) return outv;
+            if (!originCostMult.ContainsKey(origin)) origin = "jpn";
+
+            int count;
+            float r = UnityEngine.Random.value;
+            if (cond > 85) count = r < 0.30f ? 1 : 0;
+            else if (cond > 60) count = 1 + (r < 0.5f ? 1 : 0);
+            else if (cond > 40) count = 2 + (r < 0.5f ? 1 : 0);
+            else count = 2 + UnityEngine.Random.Range(0, 3);
+
+            float severeBias = odoMiles > 150000f ? 0.40f : odoMiles > 80000f ? 0.20f : 0.05f;
+
+            var pool = new List<UsedEntry>();
+            foreach (var u in data.used)
+            {
+                if (u.origin != origin) continue;
+                if (u.tier == "catastrophic" && odoMiles < 60000f) continue;
+                if (u.tier == "extensive" && odoMiles < 30000f) continue;
+                pool.Add(u);
+            }
+            if (pool.Count == 0) return outv;
+
+            var taken = new HashSet<string>();
+            float mult = originCostMult.TryGetValue(origin, out float om) ? om : 1f;
+            for (int i = 0; i < count && pool.Count > 0; i++)
+            {
+                // Bias toward the expensive half on a tired car. Two draws and
+                // keep the worse is the cheapest honest way to skew a pick, and
+                // it degrades gracefully when the pool is small.
+                var a = pool[UnityEngine.Random.Range(0, pool.Count)];
+                var b = pool[UnityEngine.Random.Range(0, pool.Count)];
+                var pick = UnityEngine.Random.value < severeBias
+                    ? (a.cost >= b.cost ? a : b) : a;
+                if (!taken.Add(pick.id)) continue;
+                outv.Add(new CarFault
+                {
+                    id = pick.id,
+                    label = pick.name,
+                    stat = pick.stat,
+                    cost = Mathf.RoundToInt(pick.cost * mult),
+                    days = pick.days,
+                    add = pick.add,
+                    repairType = pick.type,
+                    // Hidden, like everything else in this game. What separates
+                    // these from wear faults is HOW they come out: the walk-round
+                    // finds the stationary ones and only a drive finds the rest.
+                    hidden = true,
+                    diagnosed = false,
+                    severity = pick.tier == "catastrophic" || pick.tier == "extensive" ? 2f : 1f,
+                    pullDir = UnityEngine.Random.value < 0.5f ? -1 : 1,
+                });
+            }
+            return outv;
+        }
+
         public static EffectEntry Effect(string faultId)
         {
             Load();

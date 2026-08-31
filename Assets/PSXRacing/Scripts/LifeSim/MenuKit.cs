@@ -29,6 +29,12 @@ namespace PSXRacing.LifeSim
         /// CONTRAST by being cooler and slightly darker, not by fading out.</summary>
         public static readonly Color Dim = new Color(0.72f, 0.74f, 0.85f, 1f);
         public static readonly Color Line = new Color(1f, 0.80f, 0.25f, 0.55f);
+        /// <summary>
+        /// The panel behind the tab you are ON. A gold-TINTED dark panel, not a
+        /// gold FILL, and the difference is the whole reason this constant
+        /// exists — see <see cref="MarkTab"/>.
+        /// </summary>
+        public static readonly Color TabOnBg = new Color(0.30f, 0.25f, 0.12f, 1f);
 
         // ---- type scale -------------------------------------------------
         // PS1-era menus used few sizes, all generous. These are the only sizes
@@ -444,6 +450,85 @@ namespace PSXRacing.LifeSim
             lrt.offsetMin = new Vector2(6f, 0f);
             lrt.offsetMax = new Vector2(-6f, 0f);
             return btn;
+        }
+
+        /// <summary>
+        /// Mark a tab button as the one the player is looking at.
+        ///
+        /// The first version of this was `bg = Accent` plus `text = black`, and
+        /// it was reported as unreadable. Three separate things were fighting:
+        ///
+        ///   * Every <see cref="Label"/> carries a hard black Outline on all
+        ///     four sides. Black type wearing a black outline is drawn four
+        ///     times around glyphs the same colour as the outline, so the
+        ///     strokes thicken and the counters fill in — the "smudged" look.
+        ///   * A Button MULTIPLIES its image by the ColorBlock, and the pad
+        ///     cursor's tint is (1.60, 1.30, 0.60). Against a gold fill that
+        ///     clips to pure saturated yellow, so the selected tab lost its
+        ///     shading the moment the cursor touched it.
+        ///   * A solid gold block next to seven dark ones is the loudest thing
+        ///     on a screen whose accent colour also means "this is the value
+        ///     that changed".
+        ///
+        /// So the selection is carried by a DARK gold-tinted panel, gold bold
+        /// type, and a hard rule along the bottom edge. The rule is the part
+        /// that cannot be washed out by any colour multiplier, which is what
+        /// makes it the signal rather than the decoration.
+        /// </summary>
+        public static void MarkTab(Button b, bool on)
+        {
+            if (b == null) return;
+
+            if (b.targetGraphic is Image img) img.color = on ? TabOnBg : BtnBg;
+
+            var c = b.colors;
+            // Gentler tints on the selected tab: it starts brighter, so the
+            // same multipliers that read as "the cursor is here" on a dark cell
+            // read as "this cell is on fire" on this one.
+            c.highlightedColor = on ? new Color(1.20f, 1.18f, 1.12f)
+                                    : new Color(1.35f, 1.35f, 1.45f);
+            c.selectedColor = on ? new Color(1.34f, 1.24f, 1.00f)
+                                 : new Color(1.60f, 1.30f, 0.60f);
+            b.colors = c;
+
+            var t = b.GetComponentInChildren<Text>();
+            if (t != null)
+            {
+                t.color = on ? Accent : Color.white;
+                var ol = t.GetComponent<Outline>();
+                if (ol != null)
+                    ol.effectColor = new Color(0f, 0f, 0f, on ? 0.75f : 0.95f);
+            }
+
+            // Found by name rather than kept in a field: these buttons are
+            // rebuilt by the page that owns them and a cached reference would
+            // outlive the object it points at.
+            var mark = b.transform.Find("TabMark");
+            if (!on)
+            {
+                if (mark != null) mark.gameObject.SetActive(false);
+                return;
+            }
+            if (mark == null)
+            {
+                var go = new GameObject("TabMark");
+                go.transform.SetParent(b.transform, false);
+                var mi = go.AddComponent<Image>();
+                mi.color = Accent;
+                mi.raycastTarget = false;
+                var mrt = mi.rectTransform;
+                mrt.anchorMin = new Vector2(0f, 0f);
+                mrt.anchorMax = new Vector2(1f, 0f);
+                mrt.pivot = new Vector2(0.5f, 0f);
+                mrt.offsetMin = Vector2.zero;
+                mrt.offsetMax = new Vector2(0f, 4f);
+                mark = go.transform;
+            }
+            mark.gameObject.SetActive(true);
+            // Under the caption, which is stretched over the whole button: a
+            // 4-unit rule drawn first would be hidden by the label's own
+            // (transparent) rect only if the label came later, so pin the order.
+            mark.SetAsLastSibling();
         }
 
         /// <summary>

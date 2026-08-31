@@ -40,6 +40,7 @@ namespace PSXRacing.EditorTools
             TestUpgrades();
             TestAdvancedTuning();
             TestMarket();
+            TestViewings();
             TestJunkyard();
             TestRaceField();
             TestBlacklist();
@@ -741,8 +742,9 @@ namespace PSXRacing.EditorTools
             // to the catalog and not to the scene list sends the player to the
             // wrong circuit, or to no scene at all.
             var scenes = EditorBuildSettings.scenes;
-            Check(scenes.Length == TrackCatalog.Count + 3,
-                  "build settings hold home + every circuit + garage + pizzeria", scenes.Length);
+            Check(scenes.Length == TrackCatalog.Count + 5,
+                  "build settings hold home + every circuit + garage + pizzeria + town + "
+                  + "seller lot", scenes.Length);
             for (int i = 0; i < TrackCatalog.Count && i + 1 < scenes.Length; i++)
                 Check(scenes[i + 1].path.EndsWith("/" + TrackCatalog.At(i).id + ".unity"),
                       "build index " + (i + 1) + " is " + TrackCatalog.At(i).id, scenes[i + 1].path);
@@ -769,6 +771,25 @@ namespace PSXRacing.EditorTools
                   TrackCatalog.PizzeriaSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.PizzeriaSceneIndex].path : "missing");
 
+            // The town and the seller's street, on the end after it. Same
+            // formula, same failure mode — and the town's is the worse of the
+            // two, because it is what the walk-in garage's GET IN AND DRIVE
+            // loads and a wrong index there is a black screen with no error.
+            Check(TrackCatalog.TownSceneIndex == TrackCatalog.PizzeriaSceneIndex + 1,
+                  "town scene index sits after the pizzeria", TrackCatalog.TownSceneIndex);
+            Check(TrackCatalog.TownSceneIndex < scenes.Length &&
+                  scenes[TrackCatalog.TownSceneIndex].path.EndsWith("/Town.unity"),
+                  "build index " + TrackCatalog.TownSceneIndex + " is the town",
+                  TrackCatalog.TownSceneIndex < scenes.Length
+                      ? scenes[TrackCatalog.TownSceneIndex].path : "missing");
+            Check(TrackCatalog.SellerLotSceneIndex == TrackCatalog.TownSceneIndex + 1,
+                  "the seller's street sits after the town", TrackCatalog.SellerLotSceneIndex);
+            Check(TrackCatalog.SellerLotSceneIndex < scenes.Length &&
+                  scenes[TrackCatalog.SellerLotSceneIndex].path.EndsWith("/SellerLot.unity"),
+                  "build index " + TrackCatalog.SellerLotSceneIndex + " is the seller's street",
+                  TrackCatalog.SellerLotSceneIndex < scenes.Length
+                      ? scenes[TrackCatalog.SellerLotSceneIndex].path : "missing");
+
             // THE PLAYER'S list, not the editor's.
             //
             // Everything above reads EditorBuildSettings, and every assertion
@@ -792,6 +813,219 @@ namespace PSXRacing.EditorTools
             TestPizzaCargo();
             TestVertexSnapOff();
             TestWalkInScenesRender();
+            TestTownScene();
+        }
+
+        /// <summary>
+        /// Going to look at somebody else's car.
+        ///
+        /// Three things here are silent when they break, and all three would
+        /// make the whole private-sale loop decorative rather than broken:
+        /// a phantom that leaks into the garage, a purchase that re-rolls the
+        /// faults the player spent an afternoon finding, and a walk-round that
+        /// gives away the things only a drive is supposed to reveal.
+        /// </summary>
+        static void TestViewings()
+        {
+            Line("viewings:");
+            if (!CarCatalog.Ready) { Check(false, "catalog loaded for the viewing sweep"); return; }
+
+            var s = LifeRules.SeedNewGame("VIEWER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            s.garageSlots = 4;
+            s.money = 500000;
+            int ownedBefore = s.cars.Count;
+
+            // A tired, cheap car, so the fault roll has something to say.
+            var spec = CarCatalog.All[0];
+            var listing = new CarListing
+            {
+                specId = spec.id, displayName = spec.name, price = 6000,
+                cond = 45, odoMiles = 140000f, expiresDay = s.day + 4, problem = "",
+            };
+            s.newspaper.Add(listing);
+
+            var v = Viewings.Open(s, listing, "paper");
+            Check(v != null && v.car != null, "turning up gives you a car to look at");
+            Check(s.cars.Count == ownedBefore,
+                  "and it is NOT in your garage — a phantom that leaks into LifeState.cars "
+                  + "is a car you own the moment you walk up to it", s.cars.Count);
+            Check(v.car.id.StartsWith("view#"),
+                  "and its id says so, so nothing downstream can mistake it for yours",
+                  v.car.id);
+            Check(Viewings.Open(s, listing, "paper") == v,
+                  "coming back finds the SAME visit — a second roll would give the car "
+                  + "different problems every time you looked at it");
+
+            int total = v.car.faults.Count;
+            Check(total > 0, "a 140k-mile car at 45% has something wrong with it", total);
+            int hiddenAtStart = 0;
+            foreach (var f in v.car.faults) if (f.hidden) hiddenAtStart++;
+            Check(hiddenAtStart == total,
+                  "and every one of them is hidden until somebody looks", hiddenAtStart);
+
+            // The walk-round finds stationary faults and NEVER a drive-only one.
+            // That split is the entire reason a test drive is worth asking for.
+            Viewings.LookOver(s, v);
+            int driveOnlyGivenAway = 0;
+            foreach (var f in v.car.faults)
+                if (!f.hidden && FaultCatalog.IsTestDriveOnly(f.id)) driveOnlyGivenAway++;
+            Check(driveOnlyGivenAway == 0,
+                  "the walk-round never gives away a fault only a DRIVE can find",
+                  driveOnlyGivenAway);
+            Check(v.lookedOver && Viewings.LookOver(s, v) == 0,
+                  "and it is once per visit");
+
+            // The price only ever answers to what is OUT IN THE OPEN. A problem
+            // nobody has found is a problem you are paying full price for, and
+            // that asymmetry is what the whole visit is about.
+            v.offerPrice = v.askPrice;
+            foreach (var f in v.car.faults) { f.hidden = true; f.diagnosed = false; }
+            Check(Viewings.Reprice(v) == v.askPrice,
+                  "an undiscovered fault costs the seller nothing", Viewings.Reprice(v));
+            v.car.faults[0].hidden = false;
+            Check(Viewings.Reprice(v) < v.askPrice,
+                  "and a discovered one does", Viewings.Reprice(v));
+
+            // Buying MOVES the car. Everything found and everything missed comes
+            // home with it — CarMarket.Buy used to build a fresh one and re-roll
+            // the lot at the till.
+            var kept = new List<string>();
+            foreach (var f in v.car.faults) kept.Add(f.id);
+            string phantomId = v.car.id;
+            var opts = Viewings.FinanceFor(s, v);
+            string err = CarMarket.Buy(s, listing, opts[0]);
+            Check(err == null, "you can buy the car you went to see", err);
+            Check(s.cars.Count == ownedBefore + 1, "and it lands in the garage once",
+                  s.cars.Count);
+            var bought = s.cars[s.cars.Count - 1];
+            Check(bought.id != phantomId && !bought.id.StartsWith("view#"),
+                  "with a real instance id, because every loan and repair keys off it",
+                  bought.id);
+            Check(bought.faults.Count == kept.Count,
+                  "and the SAME problems it had on the driveway — not a fresh roll",
+                  bought.faults.Count + " vs " + kept.Count);
+            bool same = bought.faults.Count == kept.Count;
+            for (int i = 0; same && i < kept.Count; i++)
+                if (bought.faults[i].id != kept[i]) same = false;
+            Check(same, "...the same ones, in the same order");
+            Check(bought.inspectDay < 0 && bought.proInspectDay < 0,
+                  "and its inspection latches are cleared, or the garage would say "
+                  + "today's inspection was already open on a car just bought");
+            Check(Viewings.ByKey(s, v.key) == null && !s.newspaper.Contains(listing),
+                  "the visit and the advert are both gone");
+
+            // The dealership is a second market, not a second page onto the paper.
+            CarMarket.RefreshLot(s);
+            Check(s.dealerLot.Count == CarMarket.LotSlots,
+                  "the lot stands full", s.dealerLot.Count);
+            int disclosed = 0, race = 0;
+            foreach (var l in s.dealerLot)
+            {
+                if (!string.IsNullOrEmpty(l.problem)) disclosed++;
+                var sp = CarCatalog.Get(l.specId);
+                if (sp != null && sp.IsRaceCar) race++;
+            }
+            Check(disclosed == 0, "and discloses nothing — a dealer's silence is the point",
+                  disclosed);
+            Check(race == 0, "and does not have a Group C car out front", race);
+        }
+
+        /// <summary>
+        /// The town has to be DRIVABLE, and every way it can fail to be is
+        /// silent.
+        ///
+        /// A missing CityMode is a session DriveSession reports as dead, so the
+        /// stuck watchdog never acts and the respawn key does nothing. Tarmac
+        /// left on layer 0 is tarmac the car drives on with off-road grip for
+        /// the whole session. A venue with no trigger is a shop with no door.
+        /// None of the three throws, logs, or looks wrong in a screenshot.
+        /// </summary>
+        static void TestTownScene()
+        {
+            Line("town:");
+            string path = PSXRacingBuilder.TownScenePath;
+            if (!System.IO.File.Exists(path))
+            {
+                Check(false, "the town scene exists (run the scene build)");
+                return;
+            }
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                path, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+
+            PSXRacing.CarController player = null;
+            PSXRacing.City.CityMode mode = null;
+            PSXRacing.PauseMenu pause = null;
+            PSXRacing.PSXCameraOutput output = null;
+            PSXRacing.PSXGlobals globals = null;
+            PSXRacing.OnFoot.ForecourtMode forecourt = null;
+            PSXRacing.Town.TownWorld world = null;
+            var venues = new List<PSXRacing.Town.TownVenue>();
+            var pumps = new List<PSXRacing.GasPump>();
+            var roadCols = new List<Collider>();
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                player = player ?? go.GetComponentInChildren<PSXRacing.CarController>(true);
+                mode = mode ?? go.GetComponentInChildren<PSXRacing.City.CityMode>(true);
+                pause = pause ?? go.GetComponentInChildren<PSXRacing.PauseMenu>(true);
+                output = output ?? go.GetComponentInChildren<PSXRacing.PSXCameraOutput>(true);
+                globals = globals ?? go.GetComponentInChildren<PSXRacing.PSXGlobals>(true);
+                forecourt = forecourt ?? go.GetComponentInChildren<PSXRacing.OnFoot.ForecourtMode>(true);
+                world = world ?? go.GetComponentInChildren<PSXRacing.Town.TownWorld>(true);
+                venues.AddRange(go.GetComponentsInChildren<PSXRacing.Town.TownVenue>(true));
+                pumps.AddRange(go.GetComponentsInChildren<PSXRacing.GasPump>(true));
+                foreach (var c in go.GetComponentsInChildren<Collider>(true))
+                    if (c.gameObject.layer == 8) roadCols.Add(c);
+            }
+
+            Check(player != null && player.GetComponent<PlayerCarInput>() != null,
+                  "the town has a car the player can drive");
+            Check(output != null && output.display != null,
+                  "and it blits its picture back to the screen");
+            Check(globals != null && globals.sun != null,
+                  "and PSX/Lit has the globals it reads instead of Unity's lights");
+            Check(pause != null, "and a pause menu, which is the only way out mid-drive");
+
+            // The session. DriveSession resolves to RaceManager OR CityMode and
+            // nothing else; with neither, StuckRecovery never fires and the
+            // respawn key is dead, with no error anywhere.
+            Check(mode != null && mode.player != null,
+                  "a CityMode owns the session, so DriveSession is live");
+            Check(mode == null || mode.world == null,
+                  "and it has no street graph — the town is baked, not streamed");
+            Check(mode != null && mode.respawnPoints != null && mode.respawnPoints.Length > 0,
+                  "and it has somewhere to put a stuck car back",
+                  mode != null ? mode.respawnPoints.Length : 0);
+
+            // Every venue the owner asked for, each with a way in.
+            foreach (PSXRacing.Town.TownVenue.Kind k in
+                     System.Enum.GetValues(typeof(PSXRacing.Town.TownVenue.Kind)))
+            {
+                bool found = false;
+                foreach (var v in venues) if (v.kind == k) { found = true; break; }
+                Check(found, "the town has a " + k + " you can stop at");
+            }
+            foreach (var v in venues)
+            {
+                var col = v.GetComponent<Collider>();
+                Check(col != null && col.isTrigger,
+                      v.kind + " claims a car with a TRIGGER volume", v.name);
+            }
+            Check(pumps.Count > 0, "the forecourt has pumps", pumps.Count);
+            Check(forecourt != null,
+                  "and a ForecourtMode, so the player can get out and fill it");
+            Check(world != null && world.dealerSpots.Length > 0 && world.yardSpots.Length > 0,
+                  "the lot has bays and the yard has wrecks",
+                  world != null ? world.dealerSpots.Length + " bays / " +
+                                  world.yardSpots.Length + " wrecks" : "no TownWorld");
+
+            // Layer 8 or off-road grip, everywhere, for ever.
+            Check(roadCols.Count > 0,
+                  "the driving surfaces are on the ROAD layer — CarController.onRoad "
+                  + "compares layer numbers, and layer-0 tarmac is off-road tarmac",
+                  roadCols.Count + " road colliders");
+
+            UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
         }
 
         /// <summary>
@@ -814,7 +1048,8 @@ namespace PSXRacing.EditorTools
         {
             Line("walk-in scenes render:");
             foreach (var path in new[] { GarageSceneBuilder.ScenePath,
-                                         PizzeriaSceneBuilder.ScenePath })
+                                         PizzeriaSceneBuilder.ScenePath,
+                                         SellerLotSceneBuilder.ScenePath })
             {
                 string name = System.IO.Path.GetFileNameWithoutExtension(path);
                 if (!System.IO.File.Exists(path))
@@ -2732,6 +2967,90 @@ namespace PSXRacing.EditorTools
                   "a fully-built car can adjust every row the car physically has",
                   CarSetupGate.UnlockedCount(builtCar, gateSpec) + " of " +
                   CarSetupGate.AdjustableCount(builtCar, gateSpec));
+
+            // ---- adjustable aero is a RACE part ------------------------
+            // gateSpec is a road car, and builtCar has the aero kit "fitted"
+            // above — which the shop will no longer sell it and the gate no
+            // longer honours. Both halves are asserted, because a padlock
+            // reading NEEDS ADJUSTABLE AERO beside a shop that refuses to sell
+            // one is worse than either rule on its own.
+            Check(!Upgrades.AeroKitAllowed(gateSpec),
+                  "a road car cannot have adjustable aero — it was not a thing you could "
+                  + "buy in 1999", gateSpec.name);
+            Check(CarSetupGate.BlockedReason(builtCar, gateSpec, SetupParam.AeroLevel)
+                  == "NOT A RACE CAR",
+                  "and the tuning row says so as a fact rather than as a shopping list",
+                  CarSetupGate.BlockedReason(builtCar, gateSpec, SetupParam.AeroLevel));
+            // stockCar, not builtCar: builtCar has the kit flag set by hand
+            // above, and OfferFor answers FITTED before it looks at anything
+            // else — so the shop refusal would pass for the wrong reason.
+            var aeroOffer = Upgrades.OfferFor(null, stockCar, gateSpec, Upgrades.Mod.AeroKit);
+            Check(!aeroOffer.available && aeroOffer.blockedReason == "RACE CARS ONLY",
+                  "and the parts shop will not sell one either", aeroOffer.blockedReason);
+            CarSpec raceSpec = null;
+            foreach (var sp in CarCatalog.All) if (sp.IsRaceCar) { raceSpec = sp; break; }
+            Check(raceSpec != null && Upgrades.AeroKitAllowed(raceSpec),
+                  "a real race car still can", raceSpec != null ? raceSpec.name : "none in catalog");
+
+            // ---- a part changes the car even when it unlocks no slider ----
+            // The whole point of the ride-height pass: LOWERING SPRINGS lower
+            // the car, and the RIDE HEIGHT row stays padlocked until coilovers.
+            {
+                var sprung = new OwnedCar { id = "tune_springs", specId = gateSpec.id,
+                                            displayName = gateSpec.name };
+                Upgrades.SetStage(sprung, Upgrades.Kind.Suspension, 1);
+                var stockBasis = CarSetupGate.BasisFor(stockCar, gateSpec);
+                var lowBasis = CarSetupGate.BasisFor(sprung, gateSpec);
+                Check(lowBasis.restLength < stockBasis.restLength - 1e-4f,
+                      "lowering springs actually lower the car",
+                      Mathf.RoundToInt((stockBasis.restLength - lowBasis.restLength) * 1000f)
+                      + " mm");
+                Check(lowBasis.cgHeight < stockBasis.cgHeight - 1e-4f,
+                      "and the centre of gravity comes down with it — a ride height that moves "
+                      + "nothing but the drawing is a part that does nothing");
+                Check(!string.IsNullOrEmpty(
+                          CarSetupGate.BlockedReason(sprung, gateSpec, SetupParam.RideHeight)),
+                      "and the height is still not ADJUSTABLE — a 1999 lowering spring is a "
+                      + "height you chose in the catalogue, not one you set with a spanner");
+                var coil = new OwnedCar { id = "tune_coil", specId = gateSpec.id,
+                                          displayName = gateSpec.name };
+                Upgrades.SetStage(coil, Upgrades.Kind.Suspension, 3);
+                Check(CarSetupGate.Unlocked(coil, gateSpec, SetupParam.RideHeight),
+                      "coilovers are where it becomes yours");
+                var coilRange = CarSetupRanges.Of(CarSetupGate.BasisFor(coil, gateSpec),
+                                                  SetupParam.RideHeight);
+                Check(coilRange.min >= 0.20f - 1e-4f && coilRange.def <= coilRange.max,
+                      "and its slider is still a sane span around the height the coilovers "
+                      + "put it at",
+                      Mathf.RoundToInt(coilRange.min * 1000f) + ".." +
+                      Mathf.RoundToInt(coilRange.max * 1000f) + " mm");
+            }
+
+            // ---- a gear the car does not have is not drawn at all ---------
+            {
+                int gears = Mathf.Clamp(gateSpec.gears, 3, CarSetup.MaxGears);
+                int hidden = 0;
+                for (int g = 0; g < CarSetup.MaxGears; g++)
+                    if (CarSetupGate.Absent(builtCar, gateSpec, CarSetupTable.GearParam(g)))
+                        hidden++;
+                Check(hidden == CarSetup.MaxGears - gears,
+                      "every gear the car does not have is hidden, and every one it does have "
+                      + "is drawn", hidden + " hidden on a " + gears + "-speed");
+                // Hiding is for GEARS and nothing else: a row the car can never
+                // adjust is still worth printing when the reason is a fact
+                // about the car the player is shopping against ("NO CENTRE
+                // DIFF", "NOT A RACE CAR").
+                int hiddenNonGear = 0;
+                for (int i = 0; i < CarSetupTable.Count; i++)
+                {
+                    var p = (SetupParam)i;
+                    if (CarSetupTable.GearIndex(p) < 0 &&
+                        CarSetupGate.Absent(builtCar, gateSpec, p)) hiddenNonGear++;
+                }
+                Check(hiddenNonGear == 0,
+                      "and nothing BUT a gear is ever hidden — CENTRE SPLIT and DOWNFORCE stay "
+                      + "on screen saying why", hiddenNonGear + " hidden");
+            }
 
             builtCar.welded = true;
             Check(CarSetupGate.BlockedReason(builtCar, gateSpec, SetupParam.DiffAccel)

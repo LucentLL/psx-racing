@@ -15,7 +15,29 @@ namespace PSXRacing.City
         public static CityMode Instance { get; private set; }
 
         public CarController player;
+        /// <summary>The streamed city, when there is one. NULL in the town,
+        /// which is a small baked map with no road graph — see
+        /// <see cref="respawnPoints"/>.</summary>
         public CityWorld world;
+
+        /// <summary>
+        /// Where to put a stuck car back, on a map with no road graph.
+        ///
+        /// This exists because <see cref="DriveSession"/> resolves "the
+        /// session" to RaceManager OR CityMode and nothing else, so a small
+        /// free-roam scene has to BE a CityMode to have a live session at all
+        /// — and a CityMode with no world used to have a live session and a
+        /// dead respawn, which is worse than no session because
+        /// <see cref="StuckRecovery"/> then fires forever and nothing happens.
+        /// Empty is fine: the spawn point is always the last resort.
+        /// </summary>
+        public Transform[] respawnPoints = new Transform[0];
+
+        /// <summary>What the HUD calls this place during the rolling start.
+        /// Was the literal "CHARLOTTE" in RaceHUD, which is the wrong name for
+        /// every free-roam map that is not Charlotte.</summary>
+        public string venueName = "CHARLOTTE";
+        public string VenueName => string.IsNullOrEmpty(venueName) ? "CHARLOTTE" : venueName;
 
         /// <summary>Session control is live (car responds). Read by
         /// StuckRecovery through DriveSession.</summary>
@@ -95,7 +117,8 @@ namespace PSXRacing.City
         /// </summary>
         public void Respawn(CarController car)
         {
-            if (car == null || world == null || world.Map == null) return;
+            if (car == null) return;
+            if (world == null || world.Map == null) { RespawnOffGraph(car); return; }
             var map = world.Map;
             var p = car.transform.position;
 
@@ -137,6 +160,28 @@ namespace PSXRacing.City
         }
 
         /// <summary>
+        /// Put a car back with no road graph to put it back ONTO.
+        ///
+        /// The nearest authored respawn point that the car will actually FIT
+        /// in, tried in order of distance, falling back to the spawn. Keeps
+        /// the car's own heading where it can — a recovery that spins you
+        /// round is a recovery that then drives you the wrong way up the
+        /// street you were on.
+        /// </summary>
+        void RespawnOffGraph(CarController car)
+        {
+            var from = car.transform.position;
+            var best = new System.Collections.Generic.List<Transform>();
+            foreach (var t in respawnPoints) if (t != null) best.Add(t);
+            best.Sort((a, b) => (a.position - from).sqrMagnitude
+                                .CompareTo((b.position - from).sqrMagnitude));
+            foreach (var t in best)
+                if (DriveSession.TryPlace(car, t.position + Vector3.up * 0.2f, t.rotation))
+                    return;
+            car.ResetTo(spawnPos, spawnRot);
+        }
+
+        /// <summary>
         /// Bank the session into the handoff on the way out (called by the
         /// pause menu's EXIT). Free roam has no finish line, so this is the
         /// one moment the LifeSim hears what the drive cost: real metres,
@@ -148,6 +193,7 @@ namespace PSXRacing.City
             stamped = true;
 
             RaceHandoff.FreeRoam = true;
+            RaceHandoff.FreeRoamPlace = VenueName;
             RaceHandoff.ResultReady = true;
             RaceHandoff.FinishPos = 0;
             RaceHandoff.FieldSize = 0;

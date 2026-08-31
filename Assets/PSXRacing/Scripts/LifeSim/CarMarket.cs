@@ -168,6 +168,77 @@ namespace PSXRacing.LifeSim
             }
         }
 
+        // ================= the dealership lot =================
+        /// <summary>
+        /// How many cars stand on the lot in town. RG2's generateCarLot, which
+        /// keeps eight against the paper's five.
+        /// </summary>
+        public const int LotSlots = 8;
+        /// <summary>New cars are rarer on a used lot than in the paper — a
+        /// dealer's forecourt is mostly trade-ins. RG2: 0.15 against 0.25.</summary>
+        public const float LotNewChance = 0.15f;
+
+        /// <summary>
+        /// Restock the dealership.
+        ///
+        /// Three deliberate differences from <see cref="RefreshListings"/>, and
+        /// they are what make the two markets worth having both of:
+        ///   * condition is a FLAT 40-90 roll rather than derived from mileage,
+        ///     so a lot car's odometer tells you much less than a private
+        ///     seller's does;
+        ///   * nothing is disclosed — no `problem` string, ever. A dealer's
+        ///     silence is not the same as a private seller admitting to a
+        ///     knock, and the price does not carry the 45% discount either;
+        ///   * nothing expires. The lot is a place, and a place is still there
+        ///     tomorrow. It reshuffles slowly instead (one car a week).
+        /// </summary>
+        public static void RefreshLot(LifeState s)
+        {
+            if (!CarCatalog.Ready) return;
+            if (s.dealerLot == null) s.dealerLot = new List<CarListing>();
+
+            // A slow turnover rather than an expiry sweep: one car goes on a
+            // Friday, which is enough to make coming back worth it and little
+            // enough that a car you are saving for is still there next week.
+            if (s.dealerLot.Count >= LotSlots && LifeRules.Dow(s.day) == 0)
+                s.dealerLot.RemoveAt(Random.Range(0, s.dealerLot.Count));
+
+            var seen = new HashSet<string>();
+            foreach (var c in s.cars) seen.Add(c.specId);
+            foreach (var l in s.dealerLot) seen.Add(l.specId);
+
+            int gameYear = GameYear(s.day);
+            int guard = 0;
+            while (s.dealerLot.Count < LotSlots && guard++ < 90)
+            {
+                var spec = CarCatalog.All[Random.Range(0, CarCatalog.All.Count)];
+                if (seen.Contains(spec.id)) continue;
+                // A dealer does not have a Group C car out front. The race cars
+                // are 23 of the 317 and they belong in the paper, where somebody
+                // is selling one specific thing to somebody who came looking.
+                if (spec.IsRaceCar) continue;
+
+                bool isNew = Random.value < LotNewChance && gameYear - spec.modelYear <= 2;
+                float odo = isNew ? RollDeliveryMiles() : RollOdometer(spec.modelYear, gameYear);
+                int cond = isNew ? 100 : 40 + Mathf.FloorToInt(Random.value * 50f);
+
+                s.dealerLot.Add(new CarListing
+                {
+                    specId = spec.id,
+                    displayName = spec.name,
+                    price = isNew ? spec.price : ListingPrice(spec.price, cond, false),
+                    cond = cond,
+                    odoMiles = odo,
+                    isNew = isNew,
+                    problem = "",
+                    // Never read on the lot, but a listing with an expiry in the
+                    // past would be swept by anything that iterates both lists.
+                    expiresDay = int.MaxValue,
+                });
+                seen.Add(spec.id);
+            }
+        }
+
         // ================= buying =================
 
         public struct FinanceOption
@@ -205,6 +276,18 @@ namespace PSXRacing.LifeSim
         /// <summary>Returns null on success, or the reason it was refused.</summary>
         public static string Buy(LifeState s, CarListing listing, FinanceOption opt)
         {
+            // ALREADY BEEN TO SEE IT? Then that car — the one with the faults
+            // rolled the day the player turned up, some of which they have
+            // since found — is the car they are buying.
+            //
+            // Without this, an afternoon of inspecting and test-driving is
+            // thrown away at the till: MakeOwnedCar builds a fresh car and
+            // SeedHidden re-rolls its problems from scratch, so the thing the
+            // player drove home is not the thing they looked at. Nothing
+            // errors and nothing on screen says so.
+            var seen = Viewings.Find(s, listing);
+            if (seen != null) return Viewings.Adopt(s, seen, opt);
+
             if (s.cars.Count >= s.garageSlots)
                 return "garage full (" + s.garageSlots + ")";
             if (s.money < opt.downPayment) return "need " + MenuKit.Money(opt.downPayment);

@@ -143,8 +143,15 @@ namespace PSXRacing
             b.brakeFrontShare = CarController.DefaultBrakeFrontShare;
             b.tireMuFront = CarController.DefaultTireMuFront;
             b.tireMuRear = CarController.DefaultTireMuRear;
-            b.restLength = CarController.DefaultRestLength;
-            b.cgHeight = CarController.DefaultCgHeight;
+            // NOT the prefab constants any more: a suspension stage lowers the
+            // car whether or not it unlocked the slider, and the race side does
+            // the same through CarController.ApplyStageRide. Both call the same
+            // CarTune function, which is what the self-test's field-by-field
+            // "rest length" / "cg height" comparison is protecting.
+            b.restLength = CarTune.RestLengthAtStage(
+                CarController.DefaultRestLength, tune.suspension);
+            b.cgHeight = CarTune.CgHeightAtStage(
+                CarController.DefaultCgHeight, CarController.DefaultRestLength, tune.suspension);
             b.maxSteerLowSpeedDeg = CarController.DefaultMaxSteerLowSpeedDeg;
             b.maxSteerHighSpeedDeg = CarController.DefaultMaxSteerHighSpeedDeg;
             b.maxSteerDriftDeg = CarController.DefaultMaxSteerDriftDeg;

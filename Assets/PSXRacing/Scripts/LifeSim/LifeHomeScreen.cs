@@ -95,6 +95,32 @@ namespace PSXRacing.LifeSim
             // Resume them at the step they left rather than at a broken home.
             if (S.cars.Count == 0) { BuildCarPick(); return; }
 
+            // Back from a TEST DRIVE, which is not a race and must not be
+            // banked as one.
+            //
+            // BEFORE the race branch below, deliberately: ApplyRaceResult would
+            // otherwise put the seller's kilometres, fuel and paintwork onto
+            // whichever car the player owns, spend a slot for it, and quite
+            // possibly pay a purse for a practice lap in somebody else's Civic.
+            // What a test drive banks is INFORMATION, and it lives on the visit.
+            string driveSummary = null;
+            if (RaceHandoff.TestDrive)
+            {
+                var v = Viewings.ByKey(S, RaceHandoff.TestDriveKey);
+                int found = Viewings.AfterDrive(S, v);
+                driveSummary = v == null ? "the drive told you nothing"
+                    : found == 0
+                        ? "DROVE IT — nothing showed up that was not already showing"
+                        : "DROVE IT — " + found + (found == 1 ? " problem" : " problems") +
+                          " you could not have seen standing still";
+                if (v != null) S.activeViewing = v.key;
+                RaceHandoff.ClearAll();
+                LifeSimManager.Save();
+                // Straight back to the conversation. The driveway is a nice
+                // picture and the player is mid-negotiation.
+                tab = "viewing";
+            }
+
             // Returning from a race? Bank the result, then the race burns a slot.
             string raceSummary = null;
             if (RaceHandoff.ResultReady)
@@ -111,6 +137,30 @@ namespace PSXRacing.LifeSim
             {
                 inspectCarId = PendingInspectCar;
                 PendingInspectCar = null;
+            }
+
+            // "work" is not a page — it is a HOP. The town's pizzeria door
+            // routes through here so the drive across town is banked by the
+            // block above (PizzaShift.Drive opens with ClearAll and would
+            // otherwise erase it), and then carries straight on to the shift.
+            // Refused rather than forced when the shop is shut or there is no
+            // job, because DoWork would spend a slot working one that does not
+            // exist.
+            if (tab == "work")
+            {
+                tab = "main";
+                if (!string.IsNullOrEmpty(S.playerJob) && LifeRules.ShopOpen(S))
+                {
+                    BuildChrome();
+                    DoWork();
+                    return;
+                }
+                BuildChrome();
+                Rebuild();
+                Toast(string.IsNullOrEmpty(S.playerJob)
+                    ? "you have no job to clock on to"
+                    : "the shop is shut — it opens at noon");
+                return;
             }
 
             BuildChrome();
@@ -135,6 +185,7 @@ namespace PSXRacing.LifeSim
                 }
                 Toast("RACE RESULT: " + raceSummary);
             }
+            else if (driveSummary != null) Toast(driveSummary);
         }
 
         // =================== new-game wizard ===================
@@ -582,6 +633,8 @@ namespace PSXRacing.LifeSim
                 case "tune": BuildTune(); break;
                 case "setup": BuildSetup(); break;
                 case "market": BuildMarket(); break;
+                case "dealer": BuildDealer(); break;
+                case "viewing": BuildViewing(); break;
                 case "junkyard": BuildJunkyard(); break;
                 case "buy": BuildBuyDetail(); break;
                 case "debugcars": BuildDebugCars(); break;
@@ -594,7 +647,25 @@ namespace PSXRacing.LifeSim
             }
 
             MenuKit.FitScrollContent(body, BodyH);
+            MarkActiveTab();
             WireNavigation();
+        }
+
+        /// <summary>
+        /// Light the strip cell the current page belongs under.
+        ///
+        /// Here rather than in <see cref="BuildChrome"/> because the strip is
+        /// built ONCE and the page changes underneath it — and it uses
+        /// <see cref="RootTab"/> rather than <c>tab</c> so a detail page two
+        /// levels down (specs, advanced tuning) still lights GARAGE instead of
+        /// lighting nothing, which is what the strip did before: eight
+        /// identical cells and no way to tell where you were.
+        /// </summary>
+        void MarkActiveTab()
+        {
+            string root = RootTab();
+            for (int i = 0; i < tabButtons.Count && i < tabIds.Length; i++)
+                MenuKit.MarkTab(tabButtons[i], tabIds[i] == root);
         }
 
         /// <summary>
@@ -737,6 +808,13 @@ namespace PSXRacing.LifeSim
                 // which you got to through its advert in the same paper.
                 case "market":
                 case "junkyard": return "news";
+                // The lot and the yard are PLACES you drive to, so backing out
+                // of one lands on the home screen rather than in a newspaper
+                // you were not reading. The seller conversation backs out to
+                // whichever list the car was in, and picks the paper because
+                // that is where four of every five viewings come from.
+                case "dealer": return "main";
+                case "viewing": return "market";
                 // The focus view backs out to the car map, not to the garage —
                 // an inspection is a place you are IN, and BACK should walk you
                 // out of it a room at a time.
@@ -1134,6 +1212,28 @@ namespace PSXRacing.LifeSim
                 roamFuel ? new Color(0.45f, 0.75f, 1f, 0.22f) : MenuKit.BtnBgDisabled);
             y -= 50f;
             MenuKit.Label(body, "Charlotte at 1:1. Real fuel, no purse.", MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
+                MenuKit.Dim, w, height: 22f);
+            y -= 26f;
+
+            // Town. The errand map — your own street, the shop, the pumps, the
+            // lot and the yard — and the reason it sits beside Charlotte rather
+            // than inside it is that Charlotte is 1:1 and the nearest
+            // restaurant to the uptown spawn is a kilometre and a half behind a
+            // fog wall. This one is small on purpose.
+            //
+            // Also reachable by walking out to the car in the garage, which is
+            // the door that reads as driving. This is the door for a player who
+            // is already in a menu.
+            bool townFuel = S.ActiveCar != null && S.ActiveCar.fuel > 5f;
+            MenuKit.Button(body,
+                S.ActiveCar == null ? "DRIVE INTO TOWN — NEEDS A CAR"
+                    : townFuel ? "DRIVE INTO TOWN" : "DRIVE INTO TOWN — NEEDS FUEL",
+                new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 44f),
+                townFuel ? (UnityEngine.Events.UnityAction)StartTown : null, 17,
+                townFuel ? new Color(0.45f, 0.75f, 1f, 0.22f) : MenuKit.BtnBgDisabled);
+            y -= 50f;
+            MenuKit.Label(body, "The shop, the pumps, the lot and the yard.", MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
                 MenuKit.Dim, w, height: 22f);
             y -= 26f;
@@ -1629,7 +1729,7 @@ namespace PSXRacing.LifeSim
             // Standing at the garage screen spends the walk-in hand-off: an
             // inspection backed out of rather than finished must not leave a
             // flag behind that teleports a LATER inspection into the bays.
-            InspectFromGarage = false;
+            InspectReturnScene = -1;
             inspectCarId = "";
 
             float y = -20f;
@@ -1821,7 +1921,7 @@ namespace PSXRacing.LifeSim
                     inspectLine = null;
                     // Opened from the menu, so FINISH goes back to the menu.
                     inspectCarId = car.id;
-                    InspectFromGarage = false;
+                    InspectReturnScene = -1;
                     tab = "inspect";
                     LifeSimManager.Save();
                     Rebuild();
@@ -1931,7 +2031,7 @@ namespace PSXRacing.LifeSim
                 () =>
                 {
                     inspectCarId = car.id;
-                    InspectFromGarage = false;
+                    InspectReturnScene = -1;
                     tab = "inspect";
                     Rebuild();
                 }, 16);
@@ -1966,19 +2066,42 @@ namespace PSXRacing.LifeSim
         /// <summary>Set by the garage world on its way out, read once. Same
         /// hand-off contract as <see cref="PendingTab"/>.</summary>
         public static string PendingInspectCar;
-        /// <summary>The inspection was opened from inside the walk-in garage,
-        /// so FINISH INSPECTION should put the player back where they were
-        /// standing rather than in a menu they never opened.</summary>
-        public static bool InspectFromGarage;
+        /// <summary>
+        /// Build index FINISH INSPECTION should return to, or -1 to stay in
+        /// the menu.
+        ///
+        /// Was a bool meaning "the garage". There are two rooms a player can
+        /// be standing in when they get under a car now — their own bay and a
+        /// stranger's driveway — and a second bool would have been a second
+        /// chance for the two to disagree about which one they were in.
+        /// </summary>
+        public static int InspectReturnScene = -1;
 
+        /// <summary>
+        /// The car the inspection screens are about.
+        ///
+        /// Looks in the VIEWINGS as well as the garage, and the order matters:
+        /// FindCar only walks the cars the player owns, so a phantom fell
+        /// through to "?? S.ActiveCar" and the screen quietly inspected the
+        /// player's own car while printing a stranger's name over it.
+        /// </summary>
         OwnedCar InspectTarget
         {
             get
             {
-                var c = string.IsNullOrEmpty(inspectCarId) ? null : S.FindCar(inspectCarId);
-                return c ?? S.ActiveCar;
+                if (string.IsNullOrEmpty(inspectCarId)) return S.ActiveCar;
+                var c = S.FindCar(inspectCarId);
+                if (c != null) return c;
+                foreach (var v in S.viewings)
+                    if (v.car != null && v.car.id == inspectCarId) return v.car;
+                return S.ActiveCar;
             }
         }
+
+        /// <summary>True when the inspection is running on a car the player
+        /// does not own — which changes where FINISHING puts them.</summary>
+        bool InspectingAVisit =>
+            !string.IsNullOrEmpty(inspectCarId) && S.FindCar(inspectCarId) == null;
 
         Inspection.Comp inspectComp = Inspection.Comp.Engine;
         /// <summary>Prose from the last sub-check, printed under the diagram.
@@ -2107,18 +2230,22 @@ namespace PSXRacing.LifeSim
                     // bays is about the car the player was standing at, and it
                     // is the only entry point that does not come through that
                     // list in the first place.
-                    garageCarId = inspectCarId;
-                    tab = "carmenu";
+                    // A car you do not own has no garage page to back out to.
+                    if (InspectingAVisit) tab = "viewing";
+                    else { garageCarId = inspectCarId; tab = "carmenu"; }
                     LifeSimManager.Save();
-                    // Walked in here from the bays? Then FINISHING is putting
+                    // Walked in here from a room? Then FINISHING is putting
                     // your tools down and standing up, not leaving the
                     // building — go back to where the player was stood.
-                    if (InspectFromGarage)
+                    if (InspectReturnScene >= 0 &&
+                        InspectReturnScene < SceneManager.sceneCountInBuildSettings)
                     {
-                        InspectFromGarage = false;
-                        SceneManager.LoadScene(TrackCatalog.GarageSceneIndex);
+                        int back = InspectReturnScene;
+                        InspectReturnScene = -1;
+                        SceneManager.LoadScene(back);
                         return;
                     }
+                    InspectReturnScene = -1;
                     Rebuild();
                     Toast(msg);
                 }, 17, new Color(0.16f, 0.30f, 0.34f, 1f));
@@ -2629,10 +2756,21 @@ namespace PSXRacing.LifeSim
 
             foreach (var p in pageRows)
             {
+                // A gear this car does not have is not drawn at all — see
+                // CarSetupGate.Absent. Row order is unaffected: the missing
+                // gears are always the LAST rows on the page.
+                if (CarSetupGate.Absent(car, spec, p)) continue;
                 string blocked = CarSetupGate.BlockedReason(car, spec, p);
                 if (!string.IsNullOrEmpty(blocked))
                 {
-                    SetupRow.DrawLocked(body, ColL, y, p, blocked);
+                    // A locked row still says what the car is AT. The parts you
+                    // have already bought moved several of these — a suspension
+                    // stage lowers the car, a weight stage rewrites every spring
+                    // rate — and a screen that shows only a padlock reads as the
+                    // parts having done nothing.
+                    var lr = CarSetupRanges.Of(basis, p);
+                    SetupRow.DrawLocked(body, ColL, y, p, blocked,
+                                        lr.absent ? null : lr.Text(0f));
                     y -= SetupRow.RowH + 8f;
                     continue;
                 }
@@ -2702,10 +2840,9 @@ namespace PSXRacing.LifeSim
                         if (rows.Length > 0) setupSel = rows[0];
                         Rebuild();
                     },
-                    MenuKit.Body, on ? MenuKit.Accent : (Color?)null);
+                    MenuKit.Body);
                 b.gameObject.name = "Btn_setuppage" + i;
-                var txt = b.GetComponentInChildren<UnityEngine.UI.Text>();
-                if (txt != null && on) txt.color = Color.black;
+                MenuKit.MarkTab(b, on);
             }
             y -= 46f;
         }
@@ -2785,10 +2922,18 @@ namespace PSXRacing.LifeSim
                     float hzR = Mathf.Sqrt(kR / mCorner) / (2f * Mathf.PI);
                     float zF = cF / (2f * Mathf.Sqrt(Mathf.Max(1f, kF * mCorner)));
                     float zR = cR / (2f * Mathf.Sqrt(Mathf.Max(1f, kR * mCorner)));
-                    float drop = (V(SetupParam.RideHeight) - b.restLength) * 1000f;
+                    // Ride height, ABSOLUTE, with the change measured against
+                    // the FACTORY figure rather than against this build's own
+                    // baseline. A stage-3 car whose slider is centred is 50 mm
+                    // lower than it left the showroom, and quoting that as
+                    // "+0 mm" was the screen hiding the part the player bought.
+                    float rideM = V(SetupParam.RideHeight);
+                    float fromStock = (rideM - CarController.DefaultRestLength) * 1000f;
                     return hzF.ToString("0.00") + " Hz  d " + zF.ToString("0.00") + " front   ·   " +
                            hzR.ToString("0.00") + " Hz  d " + zR.ToString("0.00") + " rear   ·   ride " +
-                           (drop >= 0f ? "+" : "") + drop.ToString("0") + " mm";
+                           (rideM * 1000f).ToString("0") + " mm (" +
+                           (fromStock >= 0f ? "+" : "") + fromStock.ToString("0") +
+                           " from stock)";
                 }
                 case SetupPage.Differential:
                 {
@@ -2906,6 +3051,12 @@ namespace PSXRacing.LifeSim
                 plan.days + "d", 14, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
             y -= 28f;
+            if (!string.IsNullOrEmpty(plan.sideEffect))
+            {
+                MenuKit.Label(body, "  " + plan.sideEffect, 14, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                y -= 24f;
+            }
 
             float btnW = Mathf.Min(280f, (ColW - 12f) / 2f);
             float x = MenuKit.ColLeft(ColL, btnW);
@@ -3584,7 +3735,8 @@ namespace PSXRacing.LifeSim
                 int daysLeft = Mathf.Max(0, listing.expiresDay - S.day);
                 MenuKit.Button(body, "", new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL, ColW), y),
-                    new Vector2(ColW, 54f), () => { buyTarget = captured; tab = "buy"; Rebuild(); }, 14);
+                    new Vector2(ColW, 54f),
+                    () => { buyTarget = captured; buyFrom = "market"; tab = "buy"; Rebuild(); }, 14);
                 MenuKit.Label(body, (listing.isNew ? "NEW  " : "") + listing.displayName, 16,
                     new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 8f), TextAnchor.MiddleLeft,
                     listing.isNew ? MenuKit.Good : Color.white, ColW - 28f).raycastTarget = false;
@@ -3727,7 +3879,13 @@ namespace PSXRacing.LifeSim
             }
             y -= 12f;
 
-            foreach (var opt in CarMarket.FinanceOptions(S, listing))
+            // Quoted against the NEGOTIATED price when the player has already
+            // been to see it. Otherwise a deal talked down on the driveway
+            // would be a smaller cash payment and the same monthly one, which
+            // is a loan against a price nobody agreed to.
+            var visit = Viewings.Find(S, listing);
+            foreach (var opt in visit != null ? Viewings.FinanceFor(S, visit)
+                                              : CarMarket.FinanceOptions(S, listing))
             {
                 var captured = opt;
                 bool afford = S.money >= opt.downPayment && S.cars.Count < S.garageSlots;
@@ -3758,9 +3916,347 @@ namespace PSXRacing.LifeSim
                 y -= 30f;
             }
 
+            // ---- go and look at it ----
+            //
+            // The advert is a photograph and a phone number. Everything that
+            // separates a good used car from a bad one is a thing you find
+            // standing next to it, so this is the row that matters on this
+            // page: it drives you over there, spends the afternoon, and hands
+            // you the walk-round, the keys and the conversation.
+            //
+            // Lot cars are excluded on purpose — the dealership is a PLACE in
+            // town and you go and see those by driving to it.
+            bool paper = S.newspaper.Contains(listing);
+            if (paper)
+            {
+                var target = listing;
+                MenuKit.Button(body, "GO AND SEE IT  (an afternoon)", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, Mathf.Min(660f, ColW)), y),
+                    new Vector2(Mathf.Min(660f, ColW), 48f),
+                    () => DriveToSeller(target), 16);
+                y -= 58f;
+            }
+
             MenuKit.Button(body, "BACK", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, 200f), y - 8f),
-                new Vector2(200f, 44f), () => { buyTarget = null; tab = "market"; Rebuild(); }, 16);
+                new Vector2(200f, 44f),
+                () => { buyTarget = null; tab = buyFrom; Rebuild(); }, 16);
+        }
+
+        /// <summary>Which list the open listing came out of, so BACK from the
+        /// detail page returns to the page the player was reading.</summary>
+        string buyFrom = "market";
+
+        /// <summary>
+        /// Drive over and look at it. Opens the visit (which is where the car's
+        /// real faults are rolled), spends the afternoon, and loads the
+        /// seller's driveway.
+        /// </summary>
+        void DriveToSeller(CarListing listing)
+        {
+            var v = Viewings.Open(S, listing, "paper");
+            string err = Viewings.Arrive(S, v);
+            if (err != null) { Toast(err); return; }
+            // Arriving spends a slot, and spending the last slot of the night
+            // rolls the calendar — which sweeps expired adverts. Turning up on
+            // the day a listing dies is a real outcome and worth saying out
+            // loud, but it is not a reason to load a scene with nothing in it.
+            if (Viewings.ListingFor(S, v) == null)
+            {
+                S.activeViewing = "";
+                LifeSimManager.Save();
+                Rebuild();
+                Toast("you got there and it had already gone");
+                return;
+            }
+            S.activeViewing = v.key;
+            buyTarget = null;
+            LifeSimManager.Save();
+
+            // Clamped, because a bad index reaching LoadScene is a black screen
+            // with no error at all — the guard PizzaShift carries for the same
+            // reason. Falling back to the menu page means a build without the
+            // scene still lets the player do the deal, just without the drive.
+            int idx = TrackCatalog.SellerLotSceneIndex;
+            if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
+            {
+                tab = "viewing"; Rebuild();
+                return;
+            }
+            SceneManager.LoadScene(idx);
+        }
+
+        // =================== looking at somebody else's car ===================
+        /// <summary>
+        /// The seller's driveway, as a screen: what you can see, what you have
+        /// found, and the five things you can do about it.
+        ///
+        /// The five rows are RG2's private-seller overlay, in its order —
+        /// PURCHASE, HAGGLE, INSPECT, TEST DRIVE, WALK AWAY — because that
+        /// order is what makes the screen readable: the thing you came to do
+        /// first, then the two ways to pay less for it, then the way out.
+        /// </summary>
+        void BuildViewing()
+        {
+            var v = Viewings.ByKey(S, S.activeViewing);
+            if (v == null || v.car == null)
+            {
+                tab = "market"; Rebuild(); return;
+            }
+            var listing = Viewings.ListingFor(S, v);
+            var spec = CarCatalog.Get(v.car.specId);
+            bool lot = v.source == "lot";
+
+            float y = -16f;
+            MenuKit.Label(body, (lot ? "ON THE LOT — " : "PRIVATE SELLER — ") +
+                v.car.displayName, 20, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Accent, 820f, bold: true);
+            y -= 34f;
+
+            if (listing == null)
+            {
+                MenuKit.Label(body, "The advert has gone. Somebody else got there first.",
+                    16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Bad, 820f);
+                y -= 40f;
+                MenuKit.Button(body, "BACK TO THE PAPER", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 320f), y), new Vector2(320f, 46f),
+                    () => { S.activeViewing = ""; tab = "market"; Rebuild(); }, 16);
+                return;
+            }
+
+            DrawCarView(spec, ref y, 160f);
+
+            MenuKit.Label(body, v.car.odoMiles.ToString("N0") + " miles   ·   condition " +
+                    listing.cond + "   ·   asking " + MenuKit.Money(v.askPrice),
+                16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, 820f);
+            y -= 28f;
+
+            // The one number the whole page is about. Green when it has moved,
+            // because a price that has come down is the reward for the work.
+            MenuKit.Label(body, "THEY WILL TAKE " + MenuKit.Money(v.offerPrice) +
+                    (v.offerPrice < v.askPrice
+                        ? "   (" + MenuKit.Money(v.askPrice - v.offerPrice) + " under the ad)"
+                        : ""),
+                18, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                v.offerPrice < v.askPrice ? MenuKit.Good : Color.white, 820f, bold: true);
+            y -= 32f;
+
+            int known = Viewings.KnownFaults(v);
+            MenuKit.Label(body, known == 0
+                    ? (v.lookedOver || v.testDrove
+                        ? "Nothing wrong that you have found."
+                        : "You have not looked at it yet.")
+                    : known + (known == 1 ? " problem" : " problems") + " out in the open:",
+                15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                known == 0 ? MenuKit.Dim : MenuKit.Bad, 820f);
+            y -= 26f;
+            foreach (var f in v.car.faults)
+            {
+                if (f.hidden) continue;
+                string fx = FaultCatalog.EffectSummary(f.id);
+                MenuKit.Label(body, "  - " + f.label + "   " + MenuKit.Money(f.cost) +
+                        " to put right" + (fx.Length > 0 ? "   ·   " + fx : ""),
+                    14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, 820f);
+                y -= 24f;
+            }
+            y -= 10f;
+
+            float bw = Mathf.Min(660f, ColW);
+            float bx = MenuKit.ColLeft(ColL, bw);
+
+            // ---- buy ----
+            foreach (var opt in Viewings.FinanceFor(S, v))
+            {
+                var captured = opt;
+                bool afford = S.money >= opt.downPayment && S.cars.Count < S.garageSlots;
+                string label = opt.isCash
+                    ? "BUY IT — " + MenuKit.Money(v.offerPrice) + " CASH"
+                    : opt.label + " — " + MenuKit.Money(opt.downPayment) + " down, " +
+                      MenuKit.Money(opt.monthlyPayment) + "/mo";
+                MenuKit.Button(body, label, new Vector2(0.5f, 1f), new Vector2(bx, y),
+                    new Vector2(bw, 46f),
+                    afford ? (UnityEngine.Events.UnityAction)(() =>
+                    {
+                        string err = Viewings.Adopt(S, v, captured);
+                        LifeSimManager.Save();
+                        if (err == null) { S.activeViewing = ""; tab = "garage"; }
+                        Rebuild();
+                        Toast(err ?? ("bought the " + v.car.displayName));
+                    }) : null, 16, afford ? (Color?)null : MenuKit.BtnBgDisabled);
+                y -= 52f;
+            }
+
+            // ---- haggle ----
+            MenuKit.Button(body, v.haggled ? "THEY HAVE SAID THEIR PIECE TODAY" : "HAGGLE",
+                new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 44f),
+                v.haggled ? null : (UnityEngine.Events.UnityAction)(() =>
+                {
+                    string msg = Viewings.Haggle(S, v);
+                    LifeSimManager.Save(); Rebuild(); Toast(msg);
+                }), 16, v.haggled ? MenuKit.BtnBgDisabled : (Color?)null);
+            y -= 50f;
+
+            // ---- the walk-round ----
+            MenuKit.Button(body, v.lookedOver ? "YOU HAVE LOOKED IT OVER" : "LOOK IT OVER",
+                new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 44f),
+                v.lookedOver ? null : (UnityEngine.Events.UnityAction)(() =>
+                {
+                    int n = Viewings.LookOver(S, v);
+                    LifeSimManager.Save(); Rebuild();
+                    Toast(n == 0 ? "looks clean from the outside"
+                                 : n + (n == 1 ? " problem found" : " problems found"));
+                }), 16, v.lookedOver ? MenuKit.BtnBgDisabled : (Color?)null);
+            y -= 50f;
+
+            // ---- under it properly ----
+            // The full component map, on somebody else's car. It works because
+            // the visit carries a real OwnedCar — which is the entire reason
+            // the phantom exists rather than a handful of fields on a listing.
+            MenuKit.Button(body, "GET UNDER IT  (the full inspection)",
+                new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 44f),
+                () =>
+                {
+                    Inspection.Enter(S, v.car);
+                    inspectCarId = v.car.id;
+                    LifeSimManager.Save();
+                    tab = "inspect"; Rebuild();
+                }, 16);
+            y -= 50f;
+
+            // ---- the keys ----
+            // A dealer in 1999 does not hand a stranger the keys to drive off
+            // alone, and RG2's lot does not offer one either. That asymmetry is
+            // the reason to buy privately: 21 of the 36 used-car faults are
+            // only findable at speed.
+            if (lot)
+            {
+                MenuKit.Label(body, "The salesman will not let it off the lot.",
+                    15, new Vector2(0.5f, 1f), new Vector2(ColL, y + 8f),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                y -= 34f;
+            }
+            else
+            {
+                bool canDrive = v.car.fuel > 5f;
+                MenuKit.Button(body,
+                    v.testDrove ? "TEST DRIVE IT AGAIN" : "TEST DRIVE IT",
+                    new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 46f),
+                    canDrive ? (UnityEngine.Events.UnityAction)(() => StartTestDrive(v)) : null,
+                    16, canDrive ? (Color?)null : MenuKit.BtnBgDisabled);
+                y -= 52f;
+                MenuKit.Label(body, canDrive
+                        ? "Some things only show up at speed. Nothing you do out there is banked."
+                        : "There is not enough fuel in it to go anywhere.",
+                    14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, 820f);
+                y -= 30f;
+            }
+
+            MenuKit.Button(body, "WALK AWAY", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                () =>
+                {
+                    // The visit STAYS in the save. Everything found on it is
+                    // knowledge the player paid an afternoon for, and coming
+                    // back tomorrow to a car whose problems had been forgotten
+                    // would make going the first time pointless.
+                    S.activeViewing = "";
+                    LifeSimManager.Save();
+                    tab = lot ? "dealer" : "market"; Rebuild();
+                }, 16);
+        }
+
+        /// <summary>
+        /// Take it out. A SOLO PRACTICE run in the seller's car, on the
+        /// seller's problems, banking nothing.
+        ///
+        /// Solo has to be asked for out loud: an empty opponent list means
+        /// "leave the track's own grid standing", which is four cars, and
+        /// racing three strangers to evaluate a used Civic is not the errand.
+        /// </summary>
+        void StartTestDrive(Viewing v)
+        {
+            if (v == null || v.car == null) return;
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.TestDrive = true;
+            RaceHandoff.TestDriveKey = v.key;
+            RaceHandoff.Solo = true;
+            RaceHandoff.IsPractice = true;
+            RaceHandoff.CarId = v.car.id;
+            RaceHandoff.CarSpecId = v.car.specId;
+            // The same shortlist the delivery job rolls from: venues this car
+            // can actually finish on the fuel it has. A test drive that runs
+            // dry halfway round a mountain is a bug, not a discovery.
+            RaceHandoff.TrackIndex = Mathf.Clamp(LifeRules.DeliveryTrackIndex(S),
+                                                 0, TrackCatalog.Count - 1);
+            RaceHandoff.TimeOfDayIndex = RaceHour();
+            RaceHandoff.StartFuelPct = v.car.fuel;
+            // THE OVERLOAD. The one-argument version reads S.ActiveCar
+            // throughout and ends by dropping it off its jack stands — routed
+            // through that, the seller's car would carry the player's parts,
+            // the player's tune and the player's faults, and the player's own
+            // car would come off the lift in a garage they are not in.
+            FillCarRequestFor(S, v.car);
+            LifeSimManager.Save();
+            SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+        }
+
+        // =================== the dealership lot ===================
+        /// <summary>
+        /// Crestline Motors. Eight cars, no expiry, nothing disclosed and no
+        /// keys — see <see cref="CarMarket.RefreshLot"/> for why it is a
+        /// second market rather than a second page onto the same one.
+        /// </summary>
+        void BuildDealer()
+        {
+            float y = -16f;
+            MenuKit.Label(body, "CRESTLINE MOTORS — USED CARS", 20,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, 600f, bold: true);
+            MenuKit.Label(body, "CREDIT " + S.creditScore + " (" +
+                    CarMarket.CreditTier(S.creditScore).name + ")   ·   GARAGE " +
+                    S.cars.Count + "/" + S.garageSlots,
+                15, new Vector2(0.5f, 1f), new Vector2(ColR, y), TextAnchor.MiddleRight,
+                MenuKit.Dim, ColW * 0.55f);
+            y -= 34f;
+
+            MenuKit.Label(body,
+                "Sold as seen. The salesman answers questions and hands over nothing else.",
+                15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, 820f);
+            y -= 30f;
+
+            if (S.dealerLot.Count == 0) CarMarket.RefreshLot(S);
+            foreach (var listing in S.dealerLot)
+            {
+                var captured = listing;
+                var seen = Viewings.Find(S, listing);
+                MenuKit.Button(body, "", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, ColW), y), new Vector2(ColW, 54f),
+                    () =>
+                    {
+                        var v = Viewings.Open(S, captured, "lot");
+                        // Walking the lot is free — you drove here, and the
+                        // slot went on the journey. Only a PRIVATE viewing
+                        // costs an afternoon, because that one is a journey.
+                        S.activeViewing = v.key;
+                        LifeSimManager.Save();
+                        tab = "viewing"; Rebuild();
+                    }, 14);
+                MenuKit.Label(body, (listing.isNew ? "NEW  " : "") + listing.displayName, 16,
+                    new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 8f), TextAnchor.MiddleLeft,
+                    listing.isNew ? MenuKit.Good : Color.white, ColW - 28f).raycastTarget = false;
+                MenuKit.Label(body, MenuKit.Money(seen != null ? seen.offerPrice : listing.price) +
+                        "  ·  " + listing.odoMiles.ToString("N0") + " mi  ·  cond " + listing.cond +
+                        (seen != null ? "  ·  you have looked at this one" : ""),
+                    13, new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 32f),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, ColW - 28f).raycastTarget = false;
+                y -= 62f;
+            }
         }
 
         /// <summary>The flat-rate counterpart to fault repair: no skill gate, no
@@ -4234,10 +4730,22 @@ namespace PSXRacing.LifeSim
         /// <summary>The same contract, from anywhere. The pizza shop is a
         /// separate scene with no menu in it and it still has to hand over a
         /// car that carries its own parts and its own faults.</summary>
-        public static void FillCarRequestFor(LifeState S)
+        public static void FillCarRequestFor(LifeState S) => FillCarRequestFor(S, S.ActiveCar);
+
+        /// <summary>
+        /// The same contract for a car that is NOT the player's.
+        ///
+        /// A test drive is the only caller and it is the reason the overload
+        /// exists: routed through the one-argument version, a seller's car
+        /// would race carrying the PLAYER'S upgrades, the player's tune and
+        /// the player's faults — and the last line would drop the player's own
+        /// car off its jack stands in a garage they are not standing in. Every
+        /// S.ActiveCar in here was that bug waiting to happen.
+        /// </summary>
+        public static void FillCarRequestFor(LifeState S, OwnedCar car)
         {
             // Parts the car is carrying become the advantage it races with.
-            var tuned = S.ActiveCar;
+            var tuned = car;
             if (tuned != null)
             {
                 RaceHandoff.UpPower = tuned.upPower;
@@ -4256,7 +4764,7 @@ namespace PSXRacing.LifeSim
             }
 
             // Faults the car is carrying become the handicap it races under.
-            var agg = FaultCatalog.Aggregate_(S.ActiveCar);
+            var agg = FaultCatalog.Aggregate_(car);
             RaceHandoff.AccelMult = agg.accelMult;
             RaceHandoff.GripMult = agg.gripMult;
             RaceHandoff.BrakeMult = agg.brakeMult;
@@ -4276,7 +4784,7 @@ namespace PSXRacing.LifeSim
             // garage would happily draw it hovering over four of them for the
             // rest of the career otherwise, since raising it is a state and not
             // an errand.
-            Toolbox.SetRaise(S, S.ActiveCar, Toolbox.Raise.Ground);
+            Toolbox.SetRaise(S, car, Toolbox.Raise.Ground);
         }
 
         /// <summary>
@@ -4284,6 +4792,34 @@ namespace PSXRacing.LifeSim
         /// no purse, no field, no lap count — the exit stamps the session via
         /// CityMode and the apply-back banks metres, fuel and wear.
         /// </summary>
+        /// <summary>
+        /// Out to the town, which starts on your own driveway.
+        ///
+        /// Free roam like Charlotte — the exit stamps the session through
+        /// CityMode and the apply-back banks metres, fuel and wear — but with
+        /// no TrackIndex, because the town is not a venue in the catalog. See
+        /// TrackCatalog.TownSceneIndex for why it stayed out of it.
+        /// </summary>
+        void StartTown()
+        {
+            int idx = TrackCatalog.TownSceneIndex;
+            if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
+            {
+                Toast("the town is not in this build");
+                return;
+            }
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.CarId = S.activeCar;
+            RaceHandoff.CarSpecId = S.ActiveCar != null ? S.ActiveCar.specId : "";
+            RaceHandoff.TimeOfDayIndex = RaceHour();
+            RaceHandoff.StartFuelPct = S.ActiveCar != null ? S.ActiveCar.fuel : 100f;
+            FillCarRequest();
+            LifeSimManager.Save();
+            SceneManager.LoadScene(idx);
+        }
+
         void StartFreeRoam()
         {
             RaceHandoff.ClearAll();

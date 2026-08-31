@@ -242,6 +242,53 @@ namespace PSXRacing.LifeSim
                 Junkyard.RefreshStock(s);
                 s.saveVersion = 9;
             }
+
+            if (s.saveVersion < 10)
+            {
+                // v10 added the town: dealerLot and viewings are both ADDED
+                // fields and need nothing. The lot is stocked here for the same
+                // reason the yard was — a forecourt you drive to should have
+                // cars on it the first time you arrive, not after a sleep.
+                if (s.dealerLot == null)
+                    s.dealerLot = new System.Collections.Generic.List<CarListing>();
+                if (s.viewings == null)
+                    s.viewings = new System.Collections.Generic.List<Viewing>();
+                CarMarket.RefreshLot(s);
+
+                // The one thing in this version that is NOT free.
+                //
+                // ADJUSTABLE AERO became a race-car-only part. A road car in an
+                // existing save can therefore be carrying a kit that the shop
+                // will no longer sell and the gate will no longer honour: two
+                // padlocked rows where two sliders used to be, and money spent
+                // on nothing. Unfit it and hand the money back, at the price
+                // the part would cost on THAT car — the kit is priced per car,
+                // so a flat refund would be wrong in both directions.
+                int refunded = 0, cars = 0;
+                foreach (var car in s.cars)
+                {
+                    if (!car.aeroKit) continue;
+                    var spec = CarCatalog.Get(car.specId);
+                    if (Upgrades.AeroKitAllowed(spec)) continue;
+                    car.aeroKit = false;
+                    var setup = car.setup;
+                    if (setup != null)
+                    {
+                        setup.Set(SetupParam.AeroLevel, 0f);
+                        setup.Set(SetupParam.AeroBalance, 0f);
+                    }
+                    int back = Upgrades.OfferFor(s, car, spec, Upgrades.Mod.AeroKit).price;
+                    s.money += back;
+                    refunded += back;
+                    cars++;
+                }
+                if (cars > 0)
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) +
+                        ": returned the adjustable aero on " + cars +
+                        (cars == 1 ? " car" : " cars") + " — race parts only (" +
+                        MenuKit.Money(refunded) + " back)");
+                s.saveVersion = 10;
+            }
         }
 
         public static void DeleteSave()

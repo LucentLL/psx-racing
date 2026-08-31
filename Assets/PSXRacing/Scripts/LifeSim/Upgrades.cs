@@ -167,6 +167,12 @@ namespace PSXRacing.LifeSim
             public int diyPrice, shopPrice, days, skillReq;
             public bool canDiy;
             public string stageName;
+            /// <summary>What this stage changes about the car BESIDES the one
+            /// number in <see cref="delta"/>, in words. Empty on most stages.
+            /// It exists because the suspension ladder lowers the car, and a
+            /// change to the car that no row on the shop screen mentions is a
+            /// change the player finds out about by noticing it.</summary>
+            public string sideEffect;
             public bool valid;
         }
 
@@ -217,6 +223,15 @@ namespace PSXRacing.LifeSim
                     p.delta = Mathf.Max(0, p.toVal - p.fromVal);
                     p.unit = "%";
                     basePrice = BaseSusp;
+                    {
+                        // The height is the part's decision until stage 3, so
+                        // say what the part decides. From stage 3 it becomes
+                        // the driver's, and the wording changes to match.
+                        int mm = Mathf.RoundToInt(CarTune.RideDropAtStage(to) * 1000f);
+                        p.sideEffect = to >= 3
+                            ? "sits " + mm + " mm low, and the height is yours to set"
+                            : "sits the car " + mm + " mm lower";
+                    }
                     break;
                 default:
                     p.fromVal = Mathf.RoundToInt((CarTune.GripStageMult(from) - 1f) * 100f);
@@ -441,6 +456,26 @@ namespace PSXRacing.LifeSim
         public static void ModName(Mod mod, out string name) =>
             ModSpec(mod, out name, out _, out _, out _, out _);
 
+        /// <summary>
+        /// Whether ADJUSTABLE AERO can go on this car at all: race cars only,
+        /// 23 of the catalog's 317 (prototypes, GT1, JGTC — everything whose
+        /// name carries "Race Car").
+        ///
+        /// A wing whose angle you can dial in is a racing part. In 1999 a road
+        /// car did not have one and the aftermarket did not sell one that did
+        /// anything: a bolt-on spoiler is styling, and calling it two sliders
+        /// of downforce made every hatchback in the game a candidate for 35%
+        /// of its weight in aero. Same shape as the supercharger gate above —
+        /// a fact about the car, checked before the wallet.
+        ///
+        /// Deliberately a FUNCTION rather than a check written out twice: the
+        /// parts shop refuses to sell it here and
+        /// <see cref="CarSetupGate.BlockedReason"/> has to say the same thing
+        /// on the tuning row, and a padlock reading "NEEDS ADJUSTABLE AERO"
+        /// beside a shop that will never sell one is the worst of both.
+        /// </summary>
+        public static bool AeroKitAllowed(CarSpec spec) => spec != null && spec.IsRaceCar;
+
         public static ModOffer OfferFor(LifeState s, OwnedCar car, CarSpec spec, Mod mod)
         {
             var o = new ModOffer { mod = mod };
@@ -454,6 +489,8 @@ namespace PSXRacing.LifeSim
             o.owned = HasMod(car, mod);
 
             if (o.owned) { o.blockedReason = "FITTED"; return o; }
+            if (mod == Mod.AeroKit && !AeroKitAllowed(spec))
+            { o.blockedReason = "RACE CARS ONLY"; return o; }
             if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
             {
                 o.blockedReason = spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
