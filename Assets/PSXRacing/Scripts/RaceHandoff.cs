@@ -106,6 +106,17 @@ namespace PSXRacing
         public static int UpPower, UpWeight, UpBrakes, UpSuspension, UpTires;
         /// <summary>One-off bolt-ons: welded rear diff, Roots blower.</summary>
         public static bool Welded, Supercharged;
+        /// <summary>
+        /// The driver's advanced tune, ALREADY GATED. The menu sanitizes it
+        /// against the parts this car actually carries before it crosses, so the
+        /// race scene applies it blindly and the unlock rule lives in exactly one
+        /// place. Null on a standalone editor race and on a car with nothing
+        /// fitted — which is a car that drives as it always did.
+        ///
+        /// One field rather than thirty statics, for the reason at the top of
+        /// this file: one field is one thing to remember to clear.
+        /// </summary>
+        public static CarSetup Setup;
         // Fault-effect handicaps the race scene applies to the player car
         // (ComputeFaultEffects). All neutral by default so the standalone
         // race is untouched.
@@ -207,6 +218,10 @@ namespace PSXRacing
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = 0;
+            // A payload left out of here does not go stale, it goes to the NEXT
+            // car: these statics survive a scene load by design, so the tune the
+            // player set on one car would silently be applied to another.
+            Setup = null;
             Welded = Supercharged = false;
             AccelMult = GripMult = BrakeMult = ShiftMult = FuelMult = CoolMult = 1f;
             SteerPull = 0f; HideGauges = false; RpmFlutter = false;

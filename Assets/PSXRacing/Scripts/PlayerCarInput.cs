@@ -22,8 +22,15 @@ namespace PSXRacing
         /// released (RG2's STEER_RELEASE_RATE). Attack and direction changes are
         /// instant; only the return is rate-limited, which is what a real
         /// caster does — and a one-frame snap to zero was an unwind rate an
-        /// order of magnitude past anything physical.</summary>
-        const float SteerReleaseRate = 3.0f;
+        /// order of magnitude past anything physical.
+        ///
+        /// A field rather than a const since the advanced-tuning screen sells it
+        /// as SELF-CENTRING: nothing in this model produces a self-aligning
+        /// torque, so the input-side unwind rate is the honest home for "caster
+        /// feel". A slider captioned in degrees of caster that secretly drove
+        /// this would be a fake unit; this one is real.</summary>
+        public float steerReleaseRate = DefaultSteerReleaseRate;
+        public const float DefaultSteerReleaseRate = 3.0f;
 
         CarController car;
         float steerAxis;
@@ -166,13 +173,13 @@ namespace PSXRacing
         /// Instant to add lock, instant to change direction, rate-limited only
         /// while unwinding toward centre.
         /// </summary>
-        static float SlewRelease(float current, float target, float dt)
+        float SlewRelease(float current, float target, float dt)
         {
             bool addingLock = Mathf.Abs(target) >= Mathf.Abs(current);
             bool flipping = target != 0f && current != 0f &&
                             Mathf.Sign(target) != Mathf.Sign(current);
             if (addingLock || flipping) return target;
-            return Mathf.MoveTowards(current, target, SteerReleaseRate * dt);
+            return Mathf.MoveTowards(current, target, steerReleaseRate * dt);
         }
     }
 }

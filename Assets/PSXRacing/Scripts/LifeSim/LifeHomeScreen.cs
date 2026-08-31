@@ -580,6 +580,7 @@ namespace PSXRacing.LifeSim
                 case "options": BuildOptions(); break;
                 case "service": BuildService(); break;
                 case "tune": BuildTune(); break;
+                case "setup": BuildSetup(); break;
                 case "market": BuildMarket(); break;
                 case "junkyard": BuildJunkyard(); break;
                 case "buy": BuildBuyDetail(); break;
@@ -740,6 +741,10 @@ namespace PSXRacing.LifeSim
                 // an inspection is a place you are IN, and BACK should walk you
                 // out of it a room at a time.
                 case "inspectfocus": return "inspect";
+                // The adjustable parts are bought on the parts page, so backing
+                // out of the setup screen lands where the fix for a padlocked
+                // row is — the two screens are one errand.
+                case "setup": return "tune";
                 // Everything you can do to ONE car backs out to that car's page,
                 // not to the list: the player picked a car and then picked an
                 // action, so BACK should undo one of those, not both.
@@ -762,6 +767,11 @@ namespace PSXRacing.LifeSim
         void Update()
         {
             TickToast();
+            // The setup screen's steppers do not rebuild the page, so they have
+            // no natural place to save from. Flush after a short quiet spell
+            // instead — a save per keypress writes PlayerPrefs thirty times
+            // while somebody walks a slider from one end to the other.
+            if (setupDirty && Time.unscaledTime >= setupSaveAt) FlushSetup();
             if (wizard || tabButtons.Count == 0) return;
 
             var pad = UnityEngine.InputSystem.Gamepad.current;
@@ -780,6 +790,7 @@ namespace PSXRacing.LifeSim
             }
             if (step != 0)
             {
+                FlushSetup();
                 int i = System.Array.IndexOf(tabIds, RootTab());
                 if (i < 0) i = 0;
                 tab = tabIds[(i + step + tabIds.Length) % tabIds.Length];
@@ -793,7 +804,7 @@ namespace PSXRacing.LifeSim
                           (kb != null && kb.escapeKey.wasPressedThisFrame);
             if (!cancel) return;
             if (confirmNewGame) { confirmNewGame = false; Rebuild(); }
-            else if (tab != "main") { tab = ParentTab(); buyTarget = null; Rebuild(); }
+            else if (tab != "main") { FlushSetup(); tab = ParentTab(); buyTarget = null; Rebuild(); }
         }
 
         // =================== tabs ===================
@@ -2489,13 +2500,331 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, "MODS", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
             y -= 28f;
-            for (int i = 0; i <= (int)Upgrades.Mod.Supercharger; i++)
-                DrawModRow(car, spec, (Upgrades.Mod)i, ref y);
+            foreach (var mod in Upgrades.AllMods) DrawModRow(car, spec, mod, ref y);
+
+            // How much of the setup screen this car has actually earned. It is
+            // the reason every one of those parts is worth buying, so it goes
+            // right underneath them.
+            y -= 6f;
+            int open = CarSetupGate.UnlockedCount(car, spec);
+            int all = CarSetupGate.AdjustableCount(car, spec);
+            MenuKit.Label(body, "TUNING UNLOCKED: " + open + " of " + all + " adjustments", 15,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                open > 0 ? MenuKit.Good : MenuKit.Dim, 560f);
+            y -= 34f;
+
+            // Always enabled, even on a bone-stock car: a dead primary action
+            // reads as broken, and the screen behind it — thirty padlocked rows,
+            // each naming the part that opens it — explains the situation far
+            // better than a greyed-out button ever could. It is also the best
+            // advertisement the parts list above has.
+            float bw = Mathf.Min(280f, (ColW - 12f) / 2f);
+            MenuKit.Button(body, "ADVANCED TUNING", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, bw), y), new Vector2(bw, 44f),
+                () => { tab = "setup"; Rebuild(); }, 16);
+            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL + bw + 12f, bw), y), new Vector2(bw, 44f),
+                () => { tab = "carmenu"; Rebuild(); }, 16);
+        }
+
+        // =================== advanced tuning ===================
+
+        /// <summary>Which of the six sub-pages the setup screen is showing.
+        /// Sticky across a rebuild, so nudging a value does not throw the
+        /// player back to the tyres page.</summary>
+        SetupPage setupPage;
+        /// <summary>The row the help line is describing. Moves when a value is
+        /// nudged rather than on focus, because the pad graph gives no focus
+        /// callback and the row you just changed is the one you want explained.
+        /// </summary>
+        SetupParam setupSel;
+        /// <summary>Set when a value changes; flushed to disk by Update after a
+        /// short quiet period and unconditionally on the way out. A save per
+        /// keypress writes PlayerPrefs thirty times while somebody walks a
+        /// slider across, which is far too heavy for what it buys.</summary>
+        bool setupDirty;
+        float setupSaveAt;
+
+        void SetupTouched()
+        {
+            setupDirty = true;
+            setupSaveAt = Time.unscaledTime + 0.4f;
+        }
+
+        /// <summary>Write the setup out now. Called on the way off the screen —
+        /// leaving is the one moment a pending save absolutely must not still be
+        /// pending.</summary>
+        void FlushSetup()
+        {
+            if (!setupDirty) return;
+            setupDirty = false;
+            LifeSimManager.Save();
+        }
+
+        void BuildSetup()
+        {
+            var car = GarageCar;
+            if (car == null) { tab = "garage"; Rebuild(); return; }
+            var spec = CarCatalog.Get(car.specId);
+
+            float y = -16f;
+            MenuKit.Label(body, "ADVANCED TUNING — " + car.displayName, 20,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, 820f, bold: true);
+            y -= 30f;
+
+            // The same fallback the parts page uses. It is not a corner case:
+            // the preview tool's seeded car has no catalog entry, and so does a
+            // pre-v3 save, and every per-vehicle range starts from the spec.
+            if (spec == null)
+            {
+                MenuKit.Label(body, "This car has no catalog entry, so it cannot be tuned.", 16,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, 820f);
+                y -= 40f;
+                MenuKit.Button(body, "BACK TO PARTS", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    () => { tab = "tune"; Rebuild(); }, 16);
+                return;
+            }
+
+            var setup = CarSetupGate.SetupOf(car);
+            var basis = CarSetupGate.BasisFor(car, spec);
+            setup.EnsureGears(basis.GearCount);
+
+            int open = CarSetupGate.UnlockedCount(car, spec);
+            MenuKit.Label(body, spec.name + "   ·   " + Upgrades.EffectiveHp(car, spec) + " hp   ·   " +
+                Upgrades.EffectiveKg(car, spec) + " kg   ·   " + open + " adjustments unlocked",
+                MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+            y -= 34f;
+
+            DrawSetupStrip(ref y);
+            y -= 8f;
+
+            // Keep the help line talking about a row that is actually on this
+            // page. The strip's own handler moves the selection, but the page
+            // can also be entered with it already set — a resumed save, or the
+            // preview tool setting it directly — and a gearing page explaining
+            // tyre pressure is worse than no help at all.
+            var pageRows = CarSetupTable.Page(setupPage);
+            if (pageRows.Length > 0 &&
+                System.Array.IndexOf(pageRows, setupSel) < 0) setupSel = pageRows[0];
+
+            MenuKit.Label(body, SetupReadout(car, spec, setup, basis), MenuKit.Small,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Good, 900f);
+            y -= 28f;
+            MenuKit.Label(body, CarSetupTable.Help(setupSel), MenuKit.Small,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, 900f);
+            y -= 30f;
+
+            // The gearbox as it will actually be built. A gear row must show the
+            // ratio the car ends up with, not the one the slider asked for: the
+            // descending-order clamp bites on the top pair of every gear shape,
+            // so the most obvious edit on the page is also the one that would
+            // silently disagree with the car.
+            var built = setupPage == SetupPage.Gearing ? TunedRatios(setup, basis) : null;
+
+            foreach (var p in pageRows)
+            {
+                string blocked = CarSetupGate.BlockedReason(car, spec, p);
+                if (!string.IsNullOrEmpty(blocked))
+                {
+                    SetupRow.DrawLocked(body, ColL, y, p, blocked);
+                    y -= SetupRow.RowH + 8f;
+                    continue;
+                }
+                var range = CarSetupRanges.Of(basis, p);
+                var captured = p;
+                int gi = CarSetupTable.GearIndex(p);
+                float? shown = built != null && gi >= 0 && gi < built.Length
+                    ? built[gi] : (float?)null;
+                SetupRow.Draw(body, ColL, y, p, range, setup.Get(p), p == setupSel,
+                    t =>
+                    {
+                        setup.Set(captured, t);
+                        setupSel = captured;
+                        SetupTouched();
+                    }, shown);
+                y -= SetupRow.RowStep;
+            }
+
+            if (setupPage == SetupPage.Gearing)
+            {
+                y -= 4f;
+                float gw = Mathf.Min(ColW, 820f);
+                SetupGraph.Draw(body, ColL, y, gw, 190f, basis,
+                                TunedRatios(setup, basis), basis.finalDrive);
+                y -= 200f;
+            }
 
             y -= 8f;
-            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                () => { tab = "carmenu"; Rebuild(); }, 16);
+            float bw = Mathf.Min(280f, (ColW - 12f) / 2f);
+            MenuKit.Button(body, "RESET THIS PAGE", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, bw), y), new Vector2(bw, 44f),
+                () =>
+                {
+                    foreach (var p in CarSetupTable.Page(setupPage)) setup.Set(p, 0f);
+                    SetupTouched();
+                    Rebuild();
+                    Toast("back to factory");
+                }, 16);
+            MenuKit.Button(body, "BACK TO PARTS", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL + bw + 12f, bw), y), new Vector2(bw, 44f),
+                () => { FlushSetup(); tab = "tune"; Rebuild(); }, 16);
+        }
+
+        /// <summary>The six-cell page selector. One press per screen, rather
+        /// than a &lt; / &gt; pager that costs up to three — and it fits, because
+        /// the captions are four to seven characters.</summary>
+        void DrawSetupStrip(ref float y)
+        {
+            int n = CarSetupTable.PageNames.Length;
+            float gap = 6f;
+            float cw = (ColW - gap * (n - 1)) / n;
+            for (int i = 0; i < n; i++)
+            {
+                bool on = (int)setupPage == i;
+                int captured = i;
+                var b = MenuKit.Button(body, CarSetupTable.PageNames[i], new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + (cw + gap) * i, cw), y - 19f),
+                    new Vector2(cw, 38f),
+                    () =>
+                    {
+                        // Leaving a page is a commit point: the value the player
+                        // just set must be on disk before the page it lives on
+                        // is torn down.
+                        FlushSetup();
+                        setupPage = (SetupPage)captured;
+                        var rows = CarSetupTable.Page(setupPage);
+                        if (rows.Length > 0) setupSel = rows[0];
+                        Rebuild();
+                    },
+                    MenuKit.Body, on ? MenuKit.Accent : (Color?)null);
+                b.gameObject.name = "Btn_setuppage" + i;
+                var txt = b.GetComponentInChildren<UnityEngine.UI.Text>();
+                if (txt != null && on) txt.color = Color.black;
+            }
+            y -= 46f;
+        }
+
+        /// <summary>The gearbox as tuned, for the plot, the readout and the row
+        /// values. Straight through to the physics' own function rather than a
+        /// second copy of it: this has to agree with what the car will actually
+        /// be built with, down to the descending-order clamp, or the screen is
+        /// quoting a gearbox nobody drives.</summary>
+        static float[] TunedRatios(CarSetup s, in CarSetupBasis basis) =>
+            CarController.TunedRatios(basis, s);
+
+        /// <summary>
+        /// The derived numbers for the current page — what the settings above
+        /// actually add up to. This is the line that turns a screen of sliders
+        /// into a screen you can reason about: "22 deg of lock at 108 km/h, and
+        /// the front tyres saturate at 6.6" is the difference between guessing
+        /// and tuning.
+        /// </summary>
+        // Taken BY VALUE, not `in`: the local function below closes over it, and
+        // C# forbids capturing a by-reference parameter. CarSetupBasis is a
+        // handful of floats, so the copy is free.
+        string SetupReadout(OwnedCar car, CarSpec spec, CarSetup s, CarSetupBasis basis)
+        {
+            var b = basis;
+            float V(SetupParam p) => CarSetupRanges.Of(basis, p).Value(s.Get(p));
+            float load = Mathf.Max(1f, b.staticWheelLoad);
+            float mass = Mathf.Max(1f, b.massKg);
+
+            switch (setupPage)
+            {
+                case SetupPage.TiresBrakes:
+                {
+                    // The pressure penalty, exactly as ApplySetup computes it.
+                    float nF = (V(SetupParam.TyrePressureFront) -
+                                CarSetupRanges.Of(basis, SetupParam.TyrePressureFront).def)
+                               / CarSetupRanges.PressureDownPsi;
+                    float nR = (V(SetupParam.TyrePressureRear) -
+                                CarSetupRanges.Of(basis, SetupParam.TyrePressureRear).def)
+                               / CarSetupRanges.PressureDownPsi;
+                    float muF = b.tireMuFront * (1f - 0.08f * nF * nF);
+                    float muR = b.tireMuRear * (1f - 0.08f * nR * nR);
+                    float stop = b.brakeDemandG * V(SetupParam.BrakePressure);
+                    return "grip " + (muF * 1.25f).ToString("0.00") + " g front · " +
+                           (muR * 1.25f).ToString("0.00") + " g rear   ·   stops at " +
+                           stop.ToString("0.00") + " g   ·   " +
+                           Mathf.RoundToInt(V(SetupParam.BrakeBalance) * 100f) + "% front brake";
+                }
+                case SetupPage.Alignment:
+                {
+                    // How much of the lock the tyres can actually use. This is
+                    // the single most useful number on the whole screen: past
+                    // the saturation angle the front axle makes no more grip, so
+                    // everything beyond it is dead travel.
+                    float lock0 = V(SetupParam.SteerLock);
+                    float lockHi = Mathf.Lerp(lock0, b.maxSteerHighSpeedDeg,
+                                              Mathf.Clamp01(30f / 55f));
+                    float circle = 1.25f * b.tireMuFront * load;
+                    float satDeg = circle / Mathf.Max(1f, b.corneringStiffness * load) *
+                                   Mathf.Rad2Deg;
+                    return "lock " + lock0.ToString("0") + " deg at rest, " +
+                           lockHi.ToString("0") + " at 108 km/h   ·   front saturates at " +
+                           satDeg.ToString("0.0") + " deg   ·   " +
+                           (lock0 / Mathf.Max(0.1f, V(SetupParam.SteerRate))).ToString("0.00") +
+                           " s lock to lock";
+                }
+                case SetupPage.Springs:
+                {
+                    // Ride frequency and damping ratio, which is how anybody who
+                    // tunes suspension for real actually reads a spring change —
+                    // and it is what shows the player that stiffening springs
+                    // without touching dampers drops the ratio.
+                    float kF = V(SetupParam.SpringFront), kR = V(SetupParam.SpringRear);
+                    float cF = V(SetupParam.DamperFront), cR = V(SetupParam.DamperRear);
+                    float mCorner = mass * 0.25f;
+                    float hzF = Mathf.Sqrt(kF / mCorner) / (2f * Mathf.PI);
+                    float hzR = Mathf.Sqrt(kR / mCorner) / (2f * Mathf.PI);
+                    float zF = cF / (2f * Mathf.Sqrt(Mathf.Max(1f, kF * mCorner)));
+                    float zR = cR / (2f * Mathf.Sqrt(Mathf.Max(1f, kR * mCorner)));
+                    float drop = (V(SetupParam.RideHeight) - b.restLength) * 1000f;
+                    return hzF.ToString("0.00") + " Hz  d " + zF.ToString("0.00") + " front   ·   " +
+                           hzR.ToString("0.00") + " Hz  d " + zR.ToString("0.00") + " rear   ·   ride " +
+                           (drop >= 0f ? "+" : "") + drop.ToString("0") + " mm";
+                }
+                case SetupPage.Differential:
+                {
+                    string drv = spec != null && !string.IsNullOrEmpty(spec.drv) ? spec.drv : "FR";
+                    if (car != null && car.welded) return "diff is welded — fully locked, both ways   ·   " + drv;
+                    float pre = V(SetupParam.DiffPreload);
+                    return "accel " + Mathf.RoundToInt(V(SetupParam.DiffAccel) * 100f) +
+                           "% · decel " + Mathf.RoundToInt(V(SetupParam.DiffDecel) * 100f) +
+                           "% locked   ·   preload " + pre.ToString("0") + " N of " +
+                           Mathf.RoundToInt(b.firstGearForceN) + " N in first   ·   " + drv;
+                }
+                case SetupPage.Gearing:
+                {
+                    var r = TunedRatios(s, basis);
+                    if (r == null || r.Length == 0) return "no gearbox data for this car";
+                    float circ = 2f * Mathf.PI * b.wheelRadius;
+                    float Kmh(int g) => b.redlineRPM / Mathf.Max(1e-3f, r[g] * b.finalDrive)
+                                        * circ / 60f * 3.6f;
+                    var rFd = CarSetupRanges.Of(basis, SetupParam.FinalDrive);
+                    return "1st runs to " + Kmh(0).ToString("0") + " km/h   ·   top gear " +
+                           Kmh(r.Length - 1).ToString("0") + " km/h at redline   ·   final drive " +
+                           rFd.Value(s.finalDriveScale).ToString("0.00");
+                }
+                default:
+                {
+                    // Downforce as a real force at this car's own top speed, and
+                    // as a fraction of its weight, because 4400 N means nothing
+                    // on its own.
+                    float frac = V(SetupParam.AeroLevel);
+                    float n = frac * mass * 9.81f;
+                    return "at " + (b.topSpeedMps * 3.6f).ToString("0") + " km/h: " +
+                           n.ToString("0") + " N, " + Mathf.RoundToInt(frac * 100f) +
+                           "% of the car's weight   ·   " +
+                           Mathf.RoundToInt(V(SetupParam.AeroBalance) * 100f) + "% front";
+                }
+            }
         }
 
         /// <summary>A one-off bolt-on: fitted, buyable, or refused with the
@@ -3918,6 +4247,12 @@ namespace PSXRacing.LifeSim
                 RaceHandoff.UpTires = tuned.upTires;
                 RaceHandoff.Welded = tuned.welded;
                 RaceHandoff.Supercharged = tuned.supercharged;
+                // The advanced tune, gated HERE rather than in the race scene.
+                // This is already the one place that knows which parts this car
+                // carries, so it is the one place the unlock rule belongs;
+                // everything downstream can then apply a setup without asking
+                // whether it was allowed.
+                RaceHandoff.Setup = CarSetupGate.Sanitize(tuned, CarCatalog.Get(tuned.specId));
             }
 
             // Faults the car is carrying become the handicap it races under.

@@ -38,6 +38,7 @@ namespace PSXRacing.EditorTools
             TestEngineVoices();
             TestCarModels();
             TestUpgrades();
+            TestAdvancedTuning();
             TestMarket();
             TestJunkyard();
             TestRaceField();
@@ -2619,6 +2620,821 @@ namespace PSXRacing.EditorTools
                 Check(naCar.supercharged, "and it lands on the car");
                 Check(!Upgrades.OfferFor(s, naCar, na, Upgrades.Mod.Supercharger).available,
                       "and cannot be bought twice");
+            }
+        }
+
+        /// <summary>
+        /// Advanced tuning: the parts that unlock the sliders, the ranges the
+        /// garage quotes for one particular car, and what the race scene
+        /// actually does with the numbers.
+        ///
+        /// Almost everything this system can get wrong is silent. A range whose
+        /// default does not sit at t=0 hands the player a car that is already
+        /// tuned before they touch anything; a setting applied twice compounds
+        /// and only shows up as "the car feels different the second time I load
+        /// this race"; a Default* constant that drifts from its field
+        /// initialiser makes the garage quote a spring rate the stopwatch will
+        /// not honour. None of it throws, and none of it is visible in a
+        /// screenshot — so it is asserted here instead.
+        ///
+        /// The per-car invariants are swept over the WHOLE catalog. A range that
+        /// inverts on one kei car out of 317 is exactly the kind of thing a
+        /// spot-check on the FD would never find, and the failure message names
+        /// the worst offender so a failure is a car to go and look at rather
+        /// than a number to stare at.
+        /// </summary>
+        static void TestAdvancedTuning()
+        {
+            Line("advanced tuning:");
+            if (!CarCatalog.Ready) { Check(false, "catalog loaded for the tuning sweep"); return; }
+
+            // ---- the parameter table -----------------------------------
+            // Adding a parameter is one enum entry and two switch arms. These
+            // are the checks that say whether all three actually happened.
+            int paged = 0;
+            for (int pg = 0; pg < CarSetupTable.PageNames.Length; pg++)
+                paged += CarSetupTable.Page((SetupPage)pg).Length;
+            Check(paged == CarSetupTable.Count,
+                  "every parameter lives on exactly one page — a row with no page is a row "
+                  + "the player can never reach", paged + " of " + CarSetupTable.Count);
+            Check(CarSetupTable.PageNames.Length == CarSetupTable.PageTitles.Length &&
+                  CarSetupTable.PageNames.Length == System.Enum.GetValues(typeof(SetupPage)).Length,
+                  "and every page has both a tab and a title");
+
+            int unnamed = 0;
+            for (int i = 0; i < CarSetupTable.Count; i++)
+            {
+                var p = (SetupParam)i;
+                CarSetupTable.EndLabels(p, out string lo, out string hi);
+                if (string.IsNullOrEmpty(CarSetupTable.Label(p)) || string.IsNullOrEmpty(lo) ||
+                    string.IsNullOrEmpty(hi) || string.IsNullOrEmpty(CarSetupTable.Help(p))) unnamed++;
+            }
+            Check(unnamed == 0, "every row is captioned at both ends and explained",
+                  unnamed + " blank");
+            Check(CarSetupTable.GearIndex(SetupParam.Gear1) == 0 &&
+                  CarSetupTable.GearIndex(SetupParam.Gear8) == CarSetup.MaxGears - 1 &&
+                  CarSetupTable.GearIndex(SetupParam.FinalDrive) < 0,
+                  "the gear rows map onto gear indices, and the final drive is not one of them");
+
+            // A missing switch arm in Get or Set is a slider that moves on the
+            // screen and changes nothing on the car.
+            var probe = new CarSetup();
+            int dropped = 0;
+            for (int i = 0; i < CarSetupTable.Count; i++)
+            {
+                probe.Set((SetupParam)i, 0.4f);
+                if (Mathf.Abs(probe.Get((SetupParam)i) - 0.4f) > 1e-5f) dropped++;
+            }
+            Check(dropped == 0, "every parameter stores what it is set to", dropped + " dropped");
+            Check(!probe.IsFactory, "a setup with every row moved does not read as factory");
+            Check(new CarSetup().IsFactory, "and a fresh one does");
+            probe.Set(SetupParam.SpringFront, 5f);
+            Check(probe.Get(SetupParam.SpringFront) == 1f,
+                  "a setting cannot be pushed past the end of its own slider",
+                  probe.Get(SetupParam.SpringFront));
+            var twin = probe.Clone();
+            twin.Set(SetupParam.Gear1, -1f);
+            Check(probe.Get(SetupParam.Gear1) != twin.Get(SetupParam.Gear1),
+                  "a cloned setup owns its own gear array — Sanitize hands out copies, and a "
+                  + "shared array would let a race edit the save");
+
+            // ---- the gate: what a car has bought ------------------------
+            var awdSpec = FindDrv("4WD");
+            var gateSpec = awdSpec != null ? awdSpec : CarCatalog.All[0];
+
+            var stockCar = new OwnedCar { id = "tune_stock", specId = gateSpec.id,
+                                          displayName = gateSpec.name };
+            int mute = 0; string firstMute = null;
+            for (int i = 0; i < CarSetupTable.Count; i++)
+            {
+                var p = (SetupParam)i;
+                string why = CarSetupGate.BlockedReason(stockCar, gateSpec, p);
+                if (!string.IsNullOrEmpty(why)) continue;
+                mute++;
+                if (firstMute == null) firstMute = CarSetupTable.Label(p);
+            }
+            Check(CarSetupGate.UnlockedCount(stockCar, gateSpec) == 0,
+                  "a stock car can adjust nothing at all — the setup screen is the parts shop's "
+                  + "best advertisement", CarSetupGate.UnlockedCount(stockCar, gateSpec));
+            Check(mute == 0, "and every padlock names the part that opens it", firstMute);
+
+            var builtCar = new OwnedCar { id = "tune_built", specId = gateSpec.id,
+                                          displayName = gateSpec.name };
+            Upgrades.SetStage(builtCar, Upgrades.Kind.Power, 4);
+            Upgrades.SetStage(builtCar, Upgrades.Kind.Weight, 4);
+            Upgrades.SetStage(builtCar, Upgrades.Kind.Brakes, 4);
+            Upgrades.SetStage(builtCar, Upgrades.Kind.Suspension, 4);
+            Upgrades.SetStage(builtCar, Upgrades.Kind.Tires, 4);
+            builtCar.swayBars = builtCar.steeringRack = builtCar.lsd = true;
+            builtCar.finalDriveSet = builtCar.gearSet = builtCar.aeroKit = true;
+            Check(CarSetupGate.UnlockedCount(builtCar, gateSpec) ==
+                  CarSetupGate.AdjustableCount(builtCar, gateSpec),
+                  "a fully-built car can adjust every row the car physically has",
+                  CarSetupGate.UnlockedCount(builtCar, gateSpec) + " of " +
+                  CarSetupGate.AdjustableCount(builtCar, gateSpec));
+
+            builtCar.welded = true;
+            Check(CarSetupGate.BlockedReason(builtCar, gateSpec, SetupParam.DiffAccel)
+                  == "DIFF IS WELDED",
+                  "a welded diff has nothing left to adjust, and says so rather than showing "
+                  + "three sliders that do nothing",
+                  CarSetupGate.BlockedReason(builtCar, gateSpec, SetupParam.DiffAccel));
+            builtCar.welded = false;
+
+            // The gate is ENFORCED, not advisory: a hand-edited save must not be
+            // able to race a tune it never bought.
+            var hacked = CarSetupGate.SetupOf(stockCar);
+            for (int i = 0; i < CarSetupTable.Count; i++) hacked.Set((SetupParam)i, 0.7f);
+            var sanitized = CarSetupGate.Sanitize(stockCar, gateSpec);
+            Check(sanitized != null && sanitized.IsFactory,
+                  "a stock car sanitizes back to factory whatever the save says");
+            Check(!CarSetupGate.SetupOf(stockCar).IsFactory,
+                  "and sanitizing does not wipe the player's own numbers — it hands back a copy");
+            Check(CarSetupGate.Sanitize(null, null) != null,
+                  "even a null car yields a setup, so the race scene has one shape to handle");
+
+            var keptSetup = CarSetupGate.SetupOf(builtCar);
+            keptSetup.Set(SetupParam.SpringFront, 0.5f);
+            Check(CarSetupGate.Sanitize(builtCar, gateSpec).Get(SetupParam.SpringFront) == 0.5f,
+                  "a car that owns the coilovers keeps the spring rate it chose");
+
+            // ---- the ranges, over the whole catalog ---------------------
+            // Two builds per car: stock, and everything bolted on. The mass
+            // moves between them, and every spring, damper and bar range is
+            // derived from mass.
+            var tunes = new[]
+            {
+                default(CarTune.Stages),
+                new CarTune.Stages { power = 4, weight = 4, brakes = 4, suspension = 4, tires = 4 },
+            };
+
+            int inverted = 0, offDefault = 0, unphysical = 0, endsWrong = 0;
+            string worstInverted = null, worstDefault = null, worstUnphysical = null;
+            float worstDefaultErr = 0f;
+
+            foreach (var spec in CarCatalog.All)
+            {
+                foreach (var tune in tunes)
+                {
+                    var basis = CarSetupBasis.FromSpec(spec, tune, false);
+                    for (int i = 0; i < CarSetupTable.Count; i++)
+                    {
+                        var p = (SetupParam)i;
+                        var r = CarSetupRanges.Of(basis, p);
+
+                        if (!(r.min <= r.def + 1e-6f && r.def <= r.max + 1e-6f))
+                        {
+                            inverted++;
+                            if (worstInverted == null)
+                                worstInverted = spec.name + " " + CarSetupTable.Label(p) + " " +
+                                    r.min.ToString("0.###") + " / " + r.def.ToString("0.###") +
+                                    " / " + r.max.ToString("0.###");
+                        }
+
+                        // t = 0 IS the factory value. If it is not, the player
+                        // opens the screen onto a car that is already tuned.
+                        float err = Mathf.Abs(r.Value(0f) - r.def);
+                        if (err > worstDefaultErr)
+                        {
+                            worstDefaultErr = err;
+                            worstDefault = spec.name + " " + CarSetupTable.Label(p);
+                        }
+                        if (r.Value(0f) != r.def) offDefault++;
+                        // The ends are lerped rather than assigned, so they get a
+                        // tolerance; the DEFAULT above does not, because t=0
+                        // returns the stored number untouched and anything else
+                        // is a real bug.
+                        float span = Mathf.Max(1e-6f, r.max - r.min);
+                        if (Mathf.Abs(r.Value(-1f) - r.min) > span * 1e-4f ||
+                            Mathf.Abs(r.Value(1f) - r.max) > span * 1e-4f) endsWrong++;
+
+                        string bad = TuneUnphysical(basis, p, r);
+                        if (bad != null)
+                        {
+                            unphysical++;
+                            if (worstUnphysical == null)
+                                worstUnphysical = spec.name + ": " + bad;
+                        }
+                    }
+
+                    // Every gear the car has is offered, and no gear it does not.
+                    int gears = Mathf.Clamp(spec.gears, 3, CarSetup.MaxGears);
+                    for (int g = 0; g < CarSetup.MaxGears; g++)
+                    {
+                        var rg = CarSetupRanges.Of(basis, CarSetupTable.GearParam(g));
+                        bool shouldExist = g < gears;
+                        if (rg.absent == shouldExist && worstUnphysical == null)
+                            worstUnphysical = spec.name + " " + spec.gears + "-speed: " +
+                                CarSetupTable.Label(CarSetupTable.GearParam(g)) +
+                                (shouldExist ? " missing" : " invented");
+                        if (rg.absent == shouldExist) unphysical++;
+                    }
+                }
+            }
+
+            Check(inverted == 0, "no slider on any car in the catalog reads min > def or def > max",
+                  inverted + " inverted, worst " + worstInverted);
+            Check(offDefault == 0,
+                  "the middle of every slider IS that car's own factory value — a screen that "
+                  + "opens onto a car already tuned is one nobody can tune from",
+                  offDefault + " off, worst " + worstDefault);
+            Check(endsWrong == 0, "and the two ends of every slider are the two ends of its range",
+                  endsWrong + " wrong");
+            Check(unphysical == 0,
+                  "no car is offered a setting it cannot physically hold",
+                  unphysical + " offered, worst " + worstUnphysical);
+
+            // ---- the physics: one bare car on a bench -------------------
+            // Edit mode runs no lifecycle callbacks, so Awake goes in by
+            // reflection the same way the controls test and the preview tools
+            // do it. Everything below is the real ApplySpec / ApplySetup path.
+            var benchSpec = FindSpec("RX-7 Type RS") ?? CarCatalog.All[0];
+            var benchTune = new CarTune.Stages { power = 2, weight = 1, brakes = 3,
+                                                 suspension = 2, tires = 2 };
+
+            var car = TuneBenchCar(benchSpec);
+            Check(car != null && car.Body != null,
+                  "a CarController stands up headlessly, Rigidbody and all");
+            car.ApplySpec(benchSpec, benchTune);
+
+            float baseSpringF = car.springRateFront, baseSpringR = car.springRateRear;
+            float baseBrakeShare = car.brakeFrontShare, baseBrakeG = car.brakeDemandG;
+            float baseSteerLock = car.maxSteerLowSpeedDeg, baseSteerRate = car.steerRateDeg;
+            float baseMuF = car.tireMuFront, baseMuR = car.tireMuRear;
+            float baseStiff = car.corneringStiffness, baseRest = car.restLength;
+            float baseCg = car.cgHeight, baseDf = car.downforceWeightFractionAtVmax;
+            float baseSplit = car.frontDriveShare;
+            var baseRatios = (float[])car.gearRatios.Clone();
+            float baseAccelLock = car.diffAccelLock, baseDecelLock = car.diffDecelLock;
+            float basePreload = car.diffPreloadN;
+
+            Check(car.activeSetup == null,
+                  "a car nobody has tuned races with no setup at all");
+            Check(baseAccelLock == 0f && baseDecelLock == 0f && basePreload == 0f,
+                  "and an OPEN differential — DiffShare then reduces to the even split, which "
+                  + "is the line this replaced, bit-for-bit",
+                  baseAccelLock + " / " + baseDecelLock + " / " + basePreload);
+
+            // A factory setup is not the same object as no setup, but it must be
+            // the same car. This is the guarantee that the player who never opens
+            // the screen is driving what they always drove.
+            car.SetSetup(new CarSetup());
+            bool chassisSame =
+                car.springRateFront == baseSpringF && car.springRateRear == baseSpringR &&
+                car.brakeFrontShare == baseBrakeShare && car.brakeDemandG == baseBrakeG &&
+                car.maxSteerLowSpeedDeg == baseSteerLock && car.steerRateDeg == baseSteerRate &&
+                car.tireMuFront == baseMuF && car.tireMuRear == baseMuR &&
+                car.corneringStiffness == baseStiff && car.restLength == baseRest &&
+                car.cgHeight == baseCg && car.downforceWeightFractionAtVmax == baseDf &&
+                car.frontDriveShare == baseSplit && TuneSameRatios(car.gearRatios, baseRatios);
+            Check(chassisSame,
+                  "a factory setup leaves the chassis bit-for-bit as the derivations left it");
+            Check(car.diffAccelLock == baseAccelLock && car.diffDecelLock == baseDecelLock &&
+                  car.diffPreloadN == basePreload,
+                  "and leaves the differential open — every player car is handed a sanitized "
+                  + "setup, so a range default above zero fits the whole catalog an LSD "
+                  + "nobody bought",
+                  car.diffAccelLock + " / " + car.diffDecelLock + " / " +
+                  car.diffPreloadN.ToString("0"));
+
+            // Alignment and camber are ADDED fields, zero before this feature.
+            Check(car.camberFrontDeg == 0f && car.camberRearDeg == 0f &&
+                  car.toeFrontDeg == 0f && car.toeRearDeg == 0f,
+                  "and the wheels pointing straight ahead with no camber on them");
+
+            // THE test. ApplySpec ends with CaptureSetupBaseline(); ApplySetup(),
+            // and the baseline is restored before it is re-captured — so the
+            // fourth race of the evening must load the same car as the first.
+            // Without the restore each pass would tune the previous pass's
+            // result and the car would drift a little stiffer, a little more
+            // front-braked and a little shorter-geared every time.
+            var tuned = TuneNonTrivialSetup();
+            car.SetSetup(tuned);
+            float s1 = 0f, b1 = 0f, k1 = 0f, g1 = 0f;
+            bool identical = true;
+            for (int pass = 0; pass < 3; pass++)
+            {
+                car.ApplySpec(benchSpec, benchTune);
+                if (pass == 0)
+                {
+                    s1 = car.springRateFront; b1 = car.brakeFrontShare;
+                    k1 = car.maxSteerLowSpeedDeg; g1 = car.gearRatios[0];
+                }
+                else if (car.springRateFront != s1 || car.brakeFrontShare != b1 ||
+                         car.maxSteerLowSpeedDeg != k1 || car.gearRatios[0] != g1)
+                    identical = false;
+            }
+            Check(identical,
+                  "applying the same setup three times is applying it once — a race loaded "
+                  + "twice is the same car twice",
+                  car.springRateFront.ToString("0.0") + " vs " + s1.ToString("0.0"));
+
+            // And ten SetSetup calls, which is the path the garage takes when a
+            // player nudges one slider ten times.
+            for (int i = 0; i < 10; i++) car.SetSetup(tuned);
+            Check(car.springRateFront == s1 && car.brakeFrontShare == b1 &&
+                  car.maxSteerLowSpeedDeg == k1 && car.gearRatios[0] == g1,
+                  "and re-handing the car the same setup ten times cannot compound either",
+                  car.springRateFront.ToString("0.0"));
+
+            // The setup is not inert: it must actually move the numbers.
+            Check(car.springRateFront != baseSpringF && car.brakeFrontShare != baseBrakeShare &&
+                  car.maxSteerLowSpeedDeg != baseSteerLock,
+                  "a real setup moves springs, brake balance and steering lock off factory");
+
+            // Handing the setup back is the undo the garage's RESET button is.
+            car.SetSetup(null);
+            Check(car.springRateFront == baseSpringF && car.brakeFrontShare == baseBrakeShare &&
+                  car.maxSteerLowSpeedDeg == baseSteerLock && car.diffAccelLock == 0f &&
+                  TuneSameRatios(car.gearRatios, baseRatios),
+                  "and taking the setup away puts the car back exactly where it started");
+            TuneDrop(car);
+
+            // ---- the final drive is applied by scaling the gears ---------
+            // BuildGearRatios solves for the PRODUCT ratio*finalDrive, so the
+            // field cancels out of its own definition and writing it does
+            // precisely nothing. Proven here rather than argued, because a
+            // future edit that "fixes" ApplySetup to write finalDrive would look
+            // more correct and would silently do nothing at all.
+            var fdRatiosA = benchSpec.BuildGearRatios(0.31f, 4.10f);
+            var fdRatiosB = benchSpec.BuildGearRatios(0.31f, 8.20f);
+            Check(Mathf.Abs(fdRatiosA[0] * 4.10f - fdRatiosB[0] * 8.20f) < 1e-3f,
+                  "doubling the final drive halves every ratio — the field cancels out, so "
+                  + "writing it would be a setting that does nothing",
+                  (fdRatiosA[0] * 4.10f).ToString("0.000") + " vs " +
+                  (fdRatiosB[0] * 8.20f).ToString("0.000"));
+
+            var fdCar = TuneBenchCar(benchSpec);
+            fdCar.ApplySpec(benchSpec, benchTune);
+            float fdField = fdCar.finalDrive;
+            var fdStock = (float[])fdCar.gearRatios.Clone();
+
+            var shortFd = new CarSetup();
+            shortFd.Set(SetupParam.FinalDrive, 1f);
+            fdCar.SetSetup(shortFd);
+            float shortest = fdCar.gearRatios[0] / fdStock[0];
+            bool uniform = true;
+            for (int g = 0; g < fdStock.Length; g++)
+                if (Mathf.Abs(fdCar.gearRatios[g] / fdStock[g] - shortest) > 1e-3f) uniform = false;
+            Check(fdCar.finalDrive == fdField,
+                  "a final-drive setting never writes the finalDrive field", fdCar.finalDrive);
+            Check(Mathf.Abs(shortest - 1.30f) < 0.01f,
+                  "it scales the whole gearbox instead, and the shortest setting is a real 30% "
+                  + "— the setting is not inert", shortest.ToString("0.000"));
+            Check(uniform,
+                  "and it moves every gear by the same amount — a final drive is not a gear set");
+
+            shortFd.Set(SetupParam.FinalDrive, -1f);
+            fdCar.SetSetup(shortFd);
+            Check(Mathf.Abs(fdCar.gearRatios[0] / fdStock[0] - 0.80f) < 0.01f,
+                  "and the longest setting is a real 20% the other way",
+                  (fdCar.gearRatios[0] / fdStock[0]).ToString("0.000"));
+            TuneDrop(fdCar);
+
+            // ---- the differential ---------------------------------------
+            Check(CarController.DiffShare(0.72f, 0.5f, 0f) == 0.5f,
+                  "an open differential splits exactly evenly — not nearly evenly",
+                  CarController.DiffShare(0.72f, 0.5f, 0f));
+            Check(CarController.DiffShare(0.72f, 0.5f, 1f) == 0.72f,
+                  "a solid one feeds the loaded wheel entirely");
+            Check(CarController.DiffShare(0.72f, 0.5f, -3f) == 0.5f &&
+                  CarController.DiffShare(0.72f, 0.5f, 9f) == 0.72f,
+                  "and the lock clamps at both ends rather than extrapolating");
+
+            var weldCar = TuneBenchCar(benchSpec);
+            weldCar.weldedDiff = true;
+            weldCar.SetSetup(TuneNonTrivialSetup());
+            weldCar.ApplySpec(benchSpec, benchTune);
+            Check(weldCar.diffAccelLock == 1f && weldCar.diffDecelLock == 1f &&
+                  weldCar.diffPreloadN == 0f,
+                  "a weld is not a setting: it is locked both ways whatever the sliders say",
+                  weldCar.diffAccelLock + " / " + weldCar.diffDecelLock);
+            TuneDrop(weldCar);
+
+            // The weld must survive being fitted in EITHER order. It once did
+            // not: the race scene set weldedDiff after ApplySpec, ApplySpec is
+            // what applies the setup, and the setup is what reads weldedDiff —
+            // so the one mod in the shop with no slider was also the one that
+            // did nothing at all, keeping the weld's wheelspin penalty and none
+            // of its lock. The call site was fixed AND weldedDiff became a
+            // self-applying property; this is the assertion that says the
+            // ordering can no longer matter.
+            var lateWeld = TuneBenchCar(benchSpec);
+            lateWeld.SetSetup(TuneNonTrivialSetup());
+            lateWeld.ApplySpec(benchSpec, benchTune);
+            lateWeld.weldedDiff = true;
+            Check(lateWeld.diffAccelLock == 1f,
+                  "and a weld fitted AFTER the spec still locks the diff — no call site can put "
+                  + "this back by getting the order wrong", lateWeld.diffAccelLock);
+            TuneDrop(lateWeld);
+
+            // ---- the fence: the garage and the stopwatch agree ----------
+            // FromSpec reproduces what ApplySpec computes, with no CarController
+            // anywhere. It is a deliberate duplication, and this is what stops
+            // it rotting: quote a range in the menu that the race will not
+            // honour and the player tunes one car and drives another.
+            int basisBad = 0; string basisWorst = null; float basisWorstRel = 0f;
+            void Agree(string who, string field, float onTrack, float inMenu)
+            {
+                float scale = Mathf.Max(Mathf.Abs(onTrack), Mathf.Abs(inMenu), 1e-3f);
+                float rel = Mathf.Abs(onTrack - inMenu) / scale;
+                if (rel <= 1e-3f) return;
+                basisBad++;
+                if (rel <= basisWorstRel) return;
+                basisWorstRel = rel;
+                basisWorst = who + " " + field + " " + onTrack.ToString("0.####") +
+                             " vs " + inMenu.ToString("0.####");
+            }
+
+            int gearboxBad = 0; string gearboxWorst = null;
+            int gateBad = 0; string gateWorst = null;
+            var sweepTune = new CarTune.Stages { power = 2, weight = 1, brakes = 3,
+                                                 suspension = 2, tires = 2 };
+            var trims = TuneExtremeSetups();
+
+            foreach (var spec in CarCatalog.All)
+            {
+                var c = TuneBenchCar(spec);
+                c.ApplySpec(spec, sweepTune);
+
+                var fromCar = CarSetupBasis.FromController(c);
+                var fromSpec = CarSetupBasis.FromSpec(spec, sweepTune, false);
+                Agree(spec.name, "mass", fromCar.massKg, fromSpec.massKg);
+                Agree(spec.name, "wheel radius", fromCar.wheelRadius, fromSpec.wheelRadius);
+                Agree(spec.name, "static load", fromCar.staticWheelLoad, fromSpec.staticWheelLoad);
+                Agree(spec.name, "brake demand", fromCar.brakeDemandG, fromSpec.brakeDemandG);
+                Agree(spec.name, "brake share", fromCar.brakeFrontShare, fromSpec.brakeFrontShare);
+                Agree(spec.name, "mu front", fromCar.tireMuFront, fromSpec.tireMuFront);
+                Agree(spec.name, "mu rear", fromCar.tireMuRear, fromSpec.tireMuRear);
+                Agree(spec.name, "cornering stiffness",
+                      fromCar.corneringStiffness, fromSpec.corneringStiffness);
+                Agree(spec.name, "steer lock",
+                      fromCar.maxSteerLowSpeedDeg, fromSpec.maxSteerLowSpeedDeg);
+                Agree(spec.name, "steer lock (high)",
+                      fromCar.maxSteerHighSpeedDeg, fromSpec.maxSteerHighSpeedDeg);
+                Agree(spec.name, "steer lock (drift)",
+                      fromCar.maxSteerDriftDeg, fromSpec.maxSteerDriftDeg);
+                Agree(spec.name, "steer rate", fromCar.steerRateDeg, fromSpec.steerRateDeg);
+                Agree(spec.name, "steer rate (drift)",
+                      fromCar.steerRateDriftDeg, fromSpec.steerRateDriftDeg);
+                Agree(spec.name, "spring front", fromCar.springRateFront, fromSpec.springRateFront);
+                Agree(spec.name, "spring rear", fromCar.springRateRear, fromSpec.springRateRear);
+                Agree(spec.name, "damper front", fromCar.damperFront, fromSpec.damperFront);
+                Agree(spec.name, "damper rear", fromCar.damperRear, fromSpec.damperRear);
+                Agree(spec.name, "bar front", fromCar.antiRollFront, fromSpec.antiRollFront);
+                Agree(spec.name, "bar rear", fromCar.antiRollRear, fromSpec.antiRollRear);
+                Agree(spec.name, "rest length", fromCar.restLength, fromSpec.restLength);
+                Agree(spec.name, "cg height", fromCar.cgHeight, fromSpec.cgHeight);
+                Agree(spec.name, "drive split", fromCar.frontDriveShare, fromSpec.frontDriveShare);
+                Agree(spec.name, "downforce",
+                      fromCar.downforceWeightFractionAtVmax,
+                      fromSpec.downforceWeightFractionAtVmax);
+                Agree(spec.name, "aero balance",
+                      fromCar.downforceBalanceFront, fromSpec.downforceBalanceFront);
+                Agree(spec.name, "final drive", fromCar.finalDrive, fromSpec.finalDrive);
+                Agree(spec.name, "top speed", fromCar.topSpeedMps, fromSpec.topSpeedMps);
+                Agree(spec.name, "redline", fromCar.redlineRPM, fromSpec.redlineRPM);
+                Agree(spec.name, "efficiency",
+                      fromCar.drivetrainEfficiency, fromSpec.drivetrainEfficiency);
+                Agree(spec.name, "first-gear force",
+                      fromCar.firstGearForceN, fromSpec.firstGearForceN);
+                if (fromCar.GearCount != fromSpec.GearCount)
+                    Agree(spec.name, "gear count", fromCar.GearCount, fromSpec.GearCount);
+                else
+                    for (int g = 0; g < fromCar.GearCount; g++)
+                        Agree(spec.name, "gear " + (g + 1),
+                              fromCar.gearRatios[g], fromSpec.gearRatios[g]);
+                if (fromCar.fourWheelDrive != fromSpec.fourWheelDrive)
+                    Agree(spec.name, "4wd", fromCar.fourWheelDrive ? 1f : 0f,
+                          fromSpec.fourWheelDrive ? 1f : 0f);
+
+                // The gearbox has to stay a gearbox under any trim the sliders
+                // can reach. A second gear taller than first is a car that
+                // cannot pull away, and the shift logic assumes the order.
+                foreach (var trim in trims)
+                {
+                    c.SetSetup(trim);
+                    var r = c.gearRatios;
+                    if (r == null || r.Length != fromSpec.GearCount)
+                    {
+                        gearboxBad++;
+                        if (gearboxWorst == null) gearboxWorst = spec.name + " lost a gear";
+                        continue;
+                    }
+                    for (int g = 0; g < r.Length; g++)
+                    {
+                        if (r[g] > 0f && (g == 0 || r[g] < r[g - 1])) continue;
+                        gearboxBad++;
+                        if (gearboxWorst == null)
+                            gearboxWorst = spec.name + " gear " + (g + 1) + " = " +
+                                r[g].ToString("0.000") +
+                                (g == 0 ? "" : " against " + r[g - 1].ToString("0.000"));
+                        break;
+                    }
+                }
+                TuneDrop(c);
+
+                // Per-car gate facts: no car is offered a gear it does not have,
+                // and every gear it does have is offered once the set is bought.
+                var gearCar = new OwnedCar { id = "g_" + spec.id, specId = spec.id,
+                                             displayName = spec.name, gearSet = true };
+                int gears = Mathf.Clamp(spec.gears, 3, CarSetup.MaxGears);
+                for (int g = 0; g < CarSetup.MaxGears; g++)
+                {
+                    bool open = CarSetupGate.Unlocked(gearCar, spec, CarSetupTable.GearParam(g));
+                    if (open == (g < gears)) continue;
+                    gateBad++;
+                    if (gateWorst == null)
+                        gateWorst = spec.name + " (" + spec.gears + "-speed) " +
+                                    CarSetupTable.Label(CarSetupTable.GearParam(g)) +
+                                    (open ? " offered" : " locked");
+                }
+            }
+
+            Check(basisBad == 0,
+                  "the garage and the race scene derive the same car — FromSpec still mirrors "
+                  + "ApplySpec on all " + CarCatalog.All.Count + " cars",
+                  basisBad + " fields apart, worst " + basisWorst);
+            Check(gearboxBad == 0,
+                  "every gearbox in the catalog stays strictly descending under any legal trim",
+                  gearboxBad + " inverted, worst " + gearboxWorst);
+            Check(gateBad == 0, "and no car is offered a gear it does not have",
+                  gateBad + " wrong, worst " + gateWorst);
+
+            // ---- the constants fence ------------------------------------
+            // The garage quotes ranges off these consts for a car that has no
+            // CarController in the scene. If one drifts from the field
+            // initialiser it is quoting a car nobody will ever drive.
+            var refCarGO = new GameObject("SetupConstProbe")
+                { hideFlags = HideFlags.HideAndDontSave };
+            var refCar = refCarGO.AddComponent<CarController>();
+            var constPairs = new[]
+            {
+                new[] { "brakeDemandG", "DefaultBrakeDemandG" },
+                new[] { "brakeFrontShare", "DefaultBrakeFrontShare" },
+                new[] { "tireMuFront", "DefaultTireMuFront" },
+                new[] { "tireMuRear", "DefaultTireMuRear" },
+                new[] { "corneringStiffness", "DefaultCorneringStiffness" },
+                new[] { "restLength", "DefaultRestLength" },
+                new[] { "cgHeight", "DefaultCgHeight" },
+                new[] { "maxSteerLowSpeedDeg", "DefaultMaxSteerLowSpeedDeg" },
+                new[] { "maxSteerHighSpeedDeg", "DefaultMaxSteerHighSpeedDeg" },
+                new[] { "maxSteerDriftDeg", "DefaultMaxSteerDriftDeg" },
+                new[] { "steerRateDeg", "DefaultSteerRateDeg" },
+                new[] { "steerRateDriftDeg", "DefaultSteerRateDriftDeg" },
+                new[] { "downforceWeightFractionAtVmax", "DefaultDownforceWeightFraction" },
+                new[] { "drivetrainEfficiency", "DefaultDrivetrainEfficiency" },
+                new[] { "finalDrive", "DefaultFinalDrive" },
+                new[] { "massKg", "ChassisRefMass" },
+                new[] { "springRateFront", "SpringFrontRef" },
+                new[] { "springRateRear", "SpringRearRef" },
+                new[] { "damperFront", "DamperFrontRef" },
+                new[] { "damperRear", "DamperRearRef" },
+                new[] { "antiRollFront", "AntiRollFrontRef" },
+                new[] { "antiRollRear", "AntiRollRearRef" },
+            };
+            int drifted = 0; string driftWorst = null;
+            foreach (var pair in constPairs)
+            {
+                var field = typeof(CarController).GetField(pair[0],
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                var konst = typeof(CarController).GetField(pair[1],
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (field == null || konst == null)
+                {
+                    drifted++;
+                    if (driftWorst == null)
+                        driftWorst = pair[0] + " / " + pair[1] + " no longer exist as a pair";
+                    continue;
+                }
+                float fv = (float)field.GetValue(refCar), kv = (float)konst.GetValue(null);
+                if (fv == kv) continue;
+                drifted++;
+                if (driftWorst == null)
+                    driftWorst = pair[1] + " = " + kv + " but " + pair[0] + " = " + fv;
+            }
+            UnityEngine.Object.DestroyImmediate(refCarGO);
+            Check(drifted == 0,
+                  "every constant the garage quotes from IS the number the car starts life with",
+                  drifted + " drifted, first " + driftWorst);
+            Check(PlayerCarInput.DefaultSteerReleaseRate > 0f &&
+                  CarSetupRanges.PressureDownPsi > 0f && CarSetupRanges.PressureUpPsi > 0f,
+                  "and the self-centring and pressure spans are real spans");
+
+            // ---- the save ------------------------------------------------
+            // Zero is the C# default AND the factory value, so a save written
+            // before this feature existed has to load as a factory tune with no
+            // migration step at all. That is the whole reason the setup is
+            // stored as normalized offsets; this is the assertion that says so.
+            var saveState = LifeRules.SeedNewGame("TUNER", 25, LifeRules.DefaultJobIndex);
+            int stampedVersion = saveState.saveVersion;
+            var savedCar = new OwnedCar { id = "save1", specId = benchSpec.id,
+                                          displayName = benchSpec.name, gearSet = true };
+            var savedSetup = CarSetupGate.SetupOf(savedCar);
+            savedSetup.Set(SetupParam.SpringFront, 0.4f);
+            savedSetup.Set(SetupParam.BrakeBalance, -0.6f);
+            savedSetup.Set(SetupParam.Gear2, -0.3f);
+            saveState.cars.Add(savedCar);
+
+            string json = JsonUtility.ToJson(saveState);
+            Check(json.Contains("\"setup\""), "a setup is written into the save at all");
+            var reloaded = JsonUtility.FromJson<LifeState>(json);
+            var reloadedSetup = CarSetupGate.SetupOf(reloaded.cars[0]);
+            Check(Mathf.Abs(reloadedSetup.Get(SetupParam.SpringFront) - 0.4f) < 1e-4f &&
+                  Mathf.Abs(reloadedSetup.Get(SetupParam.BrakeBalance) + 0.6f) < 1e-4f,
+                  "and comes back off disk with the same numbers on it",
+                  reloadedSetup.Get(SetupParam.SpringFront));
+            Check(Mathf.Abs(reloadedSetup.Get(SetupParam.Gear2) + 0.3f) < 1e-4f,
+                  "including the per-gear trims, which travel as an array",
+                  reloadedSetup.Get(SetupParam.Gear2));
+
+            // An old save: the same JSON with the setup block cut out. No braces
+            // nest inside it (the gear trims are an array), so the cut is exact.
+            string oldJson = System.Text.RegularExpressions.Regex.Replace(
+                json, "\"setup\":\\{[^{}]*\\}", "");
+            oldJson = oldJson.Replace(",}", "}").Replace("{,", "{").Replace(",,", ",");
+            Check(oldJson.IndexOf("\"setup\"") < 0, "the old-save fixture really has no setup block");
+
+            LifeState old = null; string loadErr = null;
+            try { old = JsonUtility.FromJson<LifeState>(oldJson); }
+            catch (System.Exception e) { loadErr = e.GetType().Name + ": " + e.Message; }
+            Check(loadErr == null, "a save written before advanced tuning existed still loads",
+                  loadErr);
+            Check(old != null && old.cars.Count == 1, "with its garage intact",
+                  old == null ? "null" : old.cars.Count.ToString());
+            if (old != null && old.cars.Count == 1)
+            {
+                Check(old.cars[0].setup == null || old.cars[0].setup.IsFactory,
+                      "and the car reads as factory — no sentinel, no migration step");
+                Check(CarSetupGate.SetupOf(old.cars[0]).IsFactory,
+                      "the setup the garage builds on demand for it is a factory one");
+                Check(old.saveVersion == stampedVersion,
+                      "and the save format did not have to be bumped to say so",
+                      old.saveVersion);
+            }
+
+            // The handoff must not leak one car's tune into the next race.
+            RaceHandoff.Setup = TuneNonTrivialSetup();
+            RaceHandoff.ClearAll();
+            Check(RaceHandoff.Setup == null,
+                  "clearing the handoff drops the setup with it — a tune left behind would be "
+                  + "applied to whatever car raced next");
+        }
+
+        /// <summary>A bare CarController on a bench: a GameObject, a Rigidbody,
+        /// and Awake invoked by reflection the way edit mode never does. The
+        /// wheel radius comes off the same shell resolver CarBody uses, because
+        /// ApplySpec builds the gearbox from it.</summary>
+        static CarController TuneBenchCar(CarSpec spec)
+        {
+            var go = new GameObject("SetupTestCar") { hideFlags = HideFlags.HideAndDontSave };
+            go.AddComponent<Rigidbody>();
+            var car = go.AddComponent<CarController>();
+            typeof(CarController).GetMethod("Awake",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(car, null);
+            var def = CarModelLibrary.LoadFor(spec);
+            if (def != null && def.wheelRadius > 0.05f) car.wheelRadius = def.wheelRadius;
+            return car;
+        }
+
+        static void TuneDrop(CarController car)
+        {
+            if (car != null) UnityEngine.Object.DestroyImmediate(car.gameObject);
+        }
+
+        static bool TuneSameRatios(float[] a, float[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        /// <summary>A setup with something on every page, none of it at factory.
+        /// Deliberately asymmetric — a symmetric one can hide a sign error.
+        /// </summary>
+        static CarSetup TuneNonTrivialSetup()
+        {
+            var s = new CarSetup();
+            s.Set(SetupParam.TyrePressureFront, -0.6f);
+            s.Set(SetupParam.TyrePressureRear, 0.3f);
+            s.Set(SetupParam.BrakePressure, -0.4f);
+            s.Set(SetupParam.BrakeBalance, 0.5f);
+            s.Set(SetupParam.SteerLock, 0.8f);
+            s.Set(SetupParam.SteerRate, -0.2f);
+            s.Set(SetupParam.SelfCentre, 0.4f);
+            s.Set(SetupParam.CamberFront, -0.7f);
+            s.Set(SetupParam.CamberRear, -0.3f);
+            s.Set(SetupParam.ToeFront, 0.25f);
+            s.Set(SetupParam.ToeRear, -0.25f);
+            s.Set(SetupParam.SpringFront, 0.6f);
+            s.Set(SetupParam.SpringRear, -0.5f);
+            s.Set(SetupParam.DamperFront, 0.35f);
+            s.Set(SetupParam.DamperRear, -0.15f);
+            s.Set(SetupParam.ArbFront, -0.9f);
+            s.Set(SetupParam.ArbRear, 0.7f);
+            s.Set(SetupParam.RideHeight, -0.8f);
+            s.Set(SetupParam.DiffAccel, 0.6f);
+            s.Set(SetupParam.DiffDecel, 0.2f);
+            s.Set(SetupParam.DiffPreload, 0.5f);
+            s.Set(SetupParam.DriveSplit, -0.4f);
+            s.Set(SetupParam.FinalDrive, 0.3f);
+            s.Set(SetupParam.AeroLevel, 0.45f);
+            s.Set(SetupParam.AeroBalance, -0.35f);
+            for (int g = 0; g < CarSetup.MaxGears; g++)
+                s.Set(CarSetupTable.GearParam(g), g % 2 == 0 ? 0.4f : -0.4f);
+            return s;
+        }
+
+        /// <summary>The four corners of the gearing screen: both ends of every
+        /// gear against both ends of the final drive. The alternating pairs are
+        /// the ones that matter — a long third against a short fourth is how two
+        /// gears cross over.</summary>
+        static CarSetup[] TuneExtremeSetups()
+        {
+            var all = new CarSetup[4];
+            for (int k = 0; k < 4; k++)
+            {
+                var s = new CarSetup();
+                s.Set(SetupParam.FinalDrive, (k % 2 == 0) ? -1f : 1f);
+                for (int g = 0; g < CarSetup.MaxGears; g++)
+                {
+                    float t = k < 2 ? (g % 2 == 0 ? -1f : 1f)
+                                    : (g % 2 == 0 ? 1f : -1f);
+                    s.Set(CarSetupTable.GearParam(g), t);
+                }
+                all[k] = s;
+            }
+            return all;
+        }
+
+        /// <summary>Settings a car cannot physically hold, as one string naming
+        /// the offence, or null when the range is honest. These are the ends
+        /// that are not just "a bit much" — they invert a blend, unload a
+        /// spring, or ask for a share outside 0..1.</summary>
+        static string TuneUnphysical(in CarSetupBasis b, SetupParam p, in CarSetupRange r)
+        {
+            switch (p)
+            {
+                case SetupParam.TyrePressureFront:
+                case SetupParam.TyrePressureRear:
+                    return r.min < 15f ? "tire pressure down to " + r.min.ToString("0") + " psi"
+                                       : null;
+                case SetupParam.BrakePressure:
+                    // The tires cap the brakes (CarTune.BrakeDemandG). A slider
+                    // that raised the demand would breach the ceiling the whole
+                    // upgrade ladder was built around.
+                    return r.max > 1f + 1e-4f
+                        ? "brake pressure above 100% (" + r.max.ToString("0.00") + ")" : null;
+                case SetupParam.BrakeBalance:
+                    return (r.min < 0.05f || r.max > 0.95f)
+                        ? "brake balance out at " + r.min.ToString("0.00") + ".." +
+                          r.max.ToString("0.00") : null;
+                case SetupParam.SteerLock:
+                    // maxSteerDriftDeg is blended TO while sliding, so a lock set
+                    // above it makes the drift blend a REDUCTION and inverts the
+                    // whole thing.
+                    return r.max >= b.maxSteerDriftDeg
+                        ? "steering lock " + r.max.ToString("0.0") + " deg at or above the " +
+                          b.maxSteerDriftDeg.ToString("0.0") + " drift lock" : null;
+                case SetupParam.SteerRate:
+                    return r.max >= b.steerRateDriftDeg
+                        ? "steering rate " + r.max.ToString("0") + " d/s at or above the drift rate"
+                        : null;
+                case SetupParam.SpringFront:
+                case SetupParam.SpringRear:
+                case SetupParam.DamperFront:
+                case SetupParam.DamperRear:
+                case SetupParam.ArbFront:
+                case SetupParam.ArbRear:
+                    return r.min <= 0f
+                        ? CarSetupTable.Label(p) + " down to " + r.min.ToString("0") : null;
+                case SetupParam.RideHeight:
+                    // Floored so the spring still carries the car statically.
+                    return r.min < 0.20f - 1e-4f
+                        ? "ride height " + (r.min * 1000f).ToString("0") + " mm" : null;
+                case SetupParam.DiffAccel:
+                case SetupParam.DiffDecel:
+                    return (r.min < 0f || r.max > 1f)
+                        ? CarSetupTable.Label(p) + " outside 0..1" : null;
+                case SetupParam.DiffPreload:
+                    return r.min < 0f ? "negative preload" : null;
+                case SetupParam.DriveSplit:
+                    if (!b.fourWheelDrive)
+                        return r.absent ? null : "a centre split on a two-wheel-drive car";
+                    return (r.min < 0f || r.max > 1f) ? "centre split outside 0..1" : null;
+                case SetupParam.AeroLevel:
+                    return (r.min <= 0f || r.max > 1.5f)
+                        ? "downforce " + (r.min * 100f).ToString("0") + ".." +
+                          (r.max * 100f).ToString("0") + "% of weight" : null;
+                case SetupParam.AeroBalance:
+                    return (r.min < 0f || r.max > 1f) ? "aero balance outside 0..1" : null;
+                default:
+                    int g = CarSetupTable.GearIndex(p);
+                    if (g < 0) return null;
+                    if (r.absent) return null;
+                    return r.min <= 0f
+                        ? CarSetupTable.Label(p) + " down to " + r.min.ToString("0.00") : null;
             }
         }
 

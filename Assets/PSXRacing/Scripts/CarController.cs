@@ -84,12 +84,24 @@ namespace PSXRacing
         /// biggest difference between a sim and an NFS-style arcade car: the game
         /// actively deletes lateral velocity so the car feels bolted to the road,
         /// then relaxes it while drifting so slides still work. It deliberately
-        /// fights the tire model — that is the point.</summary>
-        public float lateralDampGrip = 4.5f;
+        /// fights the tire model — that is the point.
+        ///
+        /// 4.5 was too much of a good thing. Paired with the 0.7 g cap it bound
+        /// at 1.53 m/s of lateral velocity — 2.9 deg of body slip at 30 m/s —
+        /// and above that supplied a flat 0.7 g against a total tire budget of
+        /// 1.275 g, so 55% of the car's whole lateral capacity came from
+        /// something that was not a tire. That is what "arcade-like" means when
+        /// a player says it: past about 7 deg of lock the car is already being
+        /// dragged onto its nose vector and more steering does nothing. 3.6 with
+        /// a 0.45 g cap binds at 2.34 deg and is 35% of the budget — still
+        /// planted under 2.3 deg, which is where the Underground/MW05 feel
+        /// actually lives, but a real slide is no longer half-deleted before it
+        /// begins.</summary>
+        public float lateralDampGrip = 3.6f;
         public float lateralDampDrift = 0.6f;
         /// <summary>Ceiling on the stabilizer in g, so it assists rather than
         /// teleports the car sideways.</summary>
-        public float lateralDampMaxG = 0.7f;
+        public float lateralDampMaxG = 0.45f;
         /// <summary>Speed (m/s) below which the yaw injector is fully suppressed.
         /// Without this, full throttle at walking pace spins the car on the spot.</summary>
         public float yawInjectorMinSpeed = 4f;
@@ -101,6 +113,26 @@ namespace PSXRacing
         /// a fully unassisted car after a heavy hit is unrecoverable, and the
         /// target is "knocked off line", not "spun out and beached".</summary>
         [Range(0f, 1f)] public float impactStabilizerCut = 0.85f;
+
+        [Header("Advanced tune (written by ApplySetup — all default to no effect)")]
+        /// <summary>Static camber, degrees. Negative is the useful direction.</summary>
+        public float camberFrontDeg, camberRearDeg;
+        /// <summary>Static toe, degrees. POSITIVE IS TOE-IN.</summary>
+        public float toeFrontDeg, toeRearDeg;
+        /// <summary>How hard the differential ties the two wheels of the driven
+        /// axle together, 0 = open, 1 = solid. Split on/off throttle because
+        /// that is the distinction a plate pack actually makes.</summary>
+        [Range(0f, 1f)] public float diffAccelLock;
+        [Range(0f, 1f)] public float diffDecelLock;
+        /// <summary>Standing clamp force in the plate pack, N. It dominates when
+        /// there is little torque about and is irrelevant when there is a lot,
+        /// which is what makes an LSD felt on corner ENTRY and not only on exit.
+        /// </summary>
+        public float diffPreloadN;
+        /// <summary>Share of downforce carried by the front axle. At 0.5 with the
+        /// CG at the geometric midpoint this is identical to applying the whole
+        /// force at the CG, which is what the car did before.</summary>
+        [Range(0f, 1f)] public float downforceBalanceFront = 0.5f;
 
         [Header("Fault handicaps (set by RaceHandoffApplier from the LifeSim)")]
         /// <summary>All neutral by default, so a race played standalone in the
@@ -198,13 +230,40 @@ namespace PSXRacing
         /// cheat — the friction circle still bounds lateral force.</summary>
         public float maxSteerDriftDeg = 45f;
         public float steerSpeedFalloff = 55f;
-        public float steerRateDeg = 220f;
+        /// <summary>Steering actuator rate, deg/s. 220 -> 260: at 30 m/s the
+        /// front axle saturates at only 6.6 deg of the 22 deg available (the
+        /// rest is dead travel), so this is 30 ms to saturation rather than 25 —
+        /// below the perceptual floor on its own, and not the fix for a car that
+        /// feels late (see <see cref="yawDampGrip"/>). Worth having anyway for
+        /// hairpins, and 260 stays well under steerRateDriftDeg so the grip ->
+        /// drift blend below keeps its shape.</summary>
+        public float steerRateDeg = 260f;
         public float steerRateDriftDeg = 400f;   // lock-to-lock in 0.3 s
         public float gripBonus = 1f;
 
         // ---- bolt-on mods (LifeSim parts shop) ----
-        /// <summary>Welded rear diff. Set from the owned car's mods.</summary>
-        public bool weldedDiff;
+        /// <summary>
+        /// Welded rear diff. Set from the owned car's mods.
+        ///
+        /// A property rather than a plain field because the SETUP reads it to
+        /// decide the differential, and the setup is applied at the end of
+        /// ApplySpec — so assigning this afterwards silently did nothing, and a
+        /// welded car raced with an open diff while keeping the weld's wheelspin
+        /// penalty. The call site is fixed; this makes the ordering stop
+        /// mattering, which is the difference between a bug that was fixed and a
+        /// bug that cannot come back.
+        /// </summary>
+        public bool weldedDiff
+        {
+            get => weldedDiffFitted;
+            set
+            {
+                if (weldedDiffFitted == value) return;
+                weldedDiffFitted = value;
+                if (setupBaselineCaptured) ApplySetup();
+            }
+        }
+        [SerializeField] bool weldedDiffFitted;
         const float WeldedSpinGain = 1.3f;
         /// <summary>Roots blower fitted. Multiplies engine torque on the curve
         /// below, NOT the drive force — so gearing, wheelspin and the yaw
@@ -312,7 +371,39 @@ namespace PSXRacing
         const float YawDampNeutralMax = 4.0f;
         const float YawDampCounter = 2.2f;
         const float YawDampCommitted = 0.45f;
-        const float YawDampGrip = 1.6f;
+
+        /// <summary>
+        /// Yaw damping while GRIPPING — a field, not a const, because it is the
+        /// one number in this table that decides how late the car feels and it
+        /// wants to be reachable from the inspector.
+        ///
+        /// It was 1.6, and 1.6 was the "too late" the player was feeling. As a
+        /// torque it is I*1.6 = 2868 N.m per rad/s on a 1280 kg car; the rear
+        /// axle's own natural yaw damping at 30 m/s is 2*C*Fz*(b/v)*b = 3383,
+        /// so the artificial term added 85% on top of the entire rear axle and
+        /// cut steady-state yaw gain to 0.54 of what the tires asked for. Worse,
+        /// the natural term falls off as 1/v and this one does not, so by 60 m/s
+        /// it was 1.7x the real one — which is exactly the "I need more lock
+        /// than I expected, and more of it the faster I go" signature.
+        ///
+        /// 0.9 puts the gain at 0.68 — about +25% yaw response — and it is a
+        /// reduction rather than a removal, because the comment above is right
+        /// that a Rigidbody has no synthetic heading integrator and the 2D
+        /// source's numbers leave the car rotating after the driver stopped
+        /// asking.
+        ///
+        /// Lower damping lengthens the time constant, so the obvious objection
+        /// is that the car gets SLOWER to respond. It does not: for w' = (T -
+        /// D*w)/I the initial slope T/I is independent of D, and w(t) is
+        /// monotonically decreasing in D at every t > 0. At every instant after
+        /// the input the less-damped car has more yaw rate, not less.
+        ///
+        /// This is the arcade STABILITY layer, not a steering-system parameter.
+        /// The advanced-tuning screen deliberately does not expose it — a slider
+        /// on this is a cheat slider. What that screen exposes is the rack:
+        /// steering lock, rate, and the input-side self-centring.
+        /// </summary>
+        public float yawDampGrip = 0.9f;
 
         /// <summary>Assist torque per radian of body slip past the deadzone.</summary>
         const float CountersteerGain = 15f;
@@ -525,6 +616,13 @@ namespace PSXRacing
             return SuperchargerPeak - (SuperchargerPeak - SuperchargerTop) * taper;
         }
 
+        /// <summary>Torque off the curve with no forced-induction layer on top.
+        /// The setup ranges derive from this rather than from
+        /// <see cref="GetTorqueAtRPM"/>, so that bolting on a blower does not
+        /// move where a slider's ends sit — the garage cannot see the blower at
+        /// the moment it draws the row, and the two must agree.</summary>
+        public float StockTorqueAtRPM(float rpm) => RawTorqueAtRPM(rpm);
+
         float RawTorqueAtRPM(float rpm)
         {
             if (curveRPM == null || curveRPM.Length < 2)
@@ -618,6 +716,13 @@ namespace PSXRacing
                 Body.mass = massKg;
                 ApplyInertiaTensor();
             }
+
+            // LAST, and in this order. Everything above re-derives a chassis
+            // from the spec and the parts; the driver's own setup is a decision
+            // ON TOP of that result, so it has to be the thing that gets the
+            // final word or half of it would be silently overwritten.
+            CaptureSetupBaseline();
+            ApplySetup();
         }
 
         /// <summary>The parts fitted to this car. Read by the HUD and by
@@ -654,15 +759,488 @@ namespace PSXRacing
             // turn-in" physically is. Hard-capped at 13, the ceiling the drift
             // tuning was established against — above it the rear steps out
             // before the front loads and the car darts.
-            corneringStiffness = Mathf.Min(
-                stockCorneringStiffness * CarTune.SuspStageMult(activeTune.suspension), 13f);
+            // Kept UNCLAMPED as well. The setup's tyre-pressure term multiplies
+            // this and then clamps once, so that a car on stage-3 suspension —
+            // where the stage alone already asks for 13.42 and is cut to 13 —
+            // still gets something back for raising its pressures. Clamping
+            // twice made the whole upper half of that slider pure downside on
+            // exactly the cars the player had spent the most on.
+            rawCorneringStiffness =
+                stockCorneringStiffness * CarTune.SuspStageMult(activeTune.suspension);
+            corneringStiffness = Mathf.Min(rawCorneringStiffness, CorneringStiffnessCap);
         }
+
+        /// <summary>Cornering stiffness before the ceiling. See ApplySetup.
+        /// Not [SerializeField] — it is derived, and the inspector showing a
+        /// second stiffness would invite somebody to edit the wrong one.
+        /// </summary>
+        [System.NonSerialized] public float rawCorneringStiffness = DefaultCorneringStiffness;
+        /// <summary>The ceiling the drift tuning was established against — above
+        /// it the rear steps out before the front loads and the car darts.
+        /// </summary>
+        public const float CorneringStiffnessCap = 13f;
 
         bool tuneBaselineCaptured;
         float stockBrakeDemandG, stockCorneringStiffness, stockGripBonus;
         /// <summary>How much the POWER stage scaled the torque curve by. Held so
         /// DeriveDrag can take it back out — see the note there.</summary>
         float powerScale = 1f;
+
+        // ================= advanced tuning (the driver's own setup) =========
+
+        /// <summary>
+        /// Everything <see cref="ApplySetup"/> writes, as it stood before it
+        /// wrote anything. Not the same job as the stock* fields above: those
+        /// exist because ApplyTuneHandling reads the fields it writes, and this
+        /// exists because ApplySetup runs AFTER every derivation and so has to
+        /// know what the derivations produced.
+        /// </summary>
+        struct SetupBaseline
+        {
+            public float brakeDemandG, brakeFrontShare;
+            public float tireMuFront, tireMuRear, corneringStiffness, rawCorneringStiffness;
+            public float maxSteerLowSpeedDeg, steerRateDeg;
+            public float springRateFront, springRateRear, damperFront, damperRear;
+            public float antiRollFront, antiRollRear, antiRollMaxForce;
+            public float restLength, cgHeight;
+            public float frontDriveShare;
+            public float downforceWeightFractionAtVmax, downforceBalanceFront;
+            public float[] gearRatios;
+
+            public void Capture(CarController c)
+            {
+                brakeDemandG = c.brakeDemandG; brakeFrontShare = c.brakeFrontShare;
+                tireMuFront = c.tireMuFront; tireMuRear = c.tireMuRear;
+                corneringStiffness = c.corneringStiffness;
+                rawCorneringStiffness = c.rawCorneringStiffness;
+                maxSteerLowSpeedDeg = c.maxSteerLowSpeedDeg; steerRateDeg = c.steerRateDeg;
+                springRateFront = c.springRateFront; springRateRear = c.springRateRear;
+                damperFront = c.damperFront; damperRear = c.damperRear;
+                antiRollFront = c.antiRollFront; antiRollRear = c.antiRollRear;
+                antiRollMaxForce = c.antiRollMaxForce;
+                restLength = c.restLength; cgHeight = c.cgHeight;
+                frontDriveShare = c.frontDriveShare;
+                downforceWeightFractionAtVmax = c.downforceWeightFractionAtVmax;
+                downforceBalanceFront = c.downforceBalanceFront;
+                gearRatios = c.gearRatios == null ? null : (float[])c.gearRatios.Clone();
+            }
+
+            /// <summary>Put everything back. Used when a car is handed a NULL
+            /// setup — it must end up exactly where the derivations left it.
+            /// </summary>
+            public void Restore(CarController c)
+            {
+                RestoreOwned(c);
+                c.brakeDemandG = brakeDemandG;
+                c.corneringStiffness = corneringStiffness;
+                c.rawCorneringStiffness = rawCorneringStiffness;
+                c.springRateFront = springRateFront; c.springRateRear = springRateRear;
+                c.damperFront = damperFront; c.damperRear = damperRear;
+                c.antiRollFront = antiRollFront; c.antiRollRear = antiRollRear;
+                c.antiRollMaxForce = antiRollMaxForce;
+                c.frontDriveShare = frontDriveShare;
+                if (gearRatios != null) c.gearRatios = (float[])gearRatios.Clone();
+            }
+
+            /// <summary>
+            /// Put back only the fields ApplySetup OWNS — the ones no derivation
+            /// ever rewrites, so whatever is sitting in them is last race's tune
+            /// and nothing else.
+            ///
+            /// The split matters and getting it backwards is silent. Restoring
+            /// the whole struct before a re-capture would undo ScaleChassisToMass:
+            /// buy a weight stage, and the freshly derived 40477 N/m spring gets
+            /// overwritten by the 47100 the heavier car had, and that wrong
+            /// number becomes the new baseline. Restoring NOTHING is the mirror
+            /// failure: brakeFrontShare would snapshot last race's 65% as this
+            /// race's "stock", and a +15% front bias would creep another 15%
+            /// every time the player lined up.
+            /// </summary>
+            public void RestoreOwned(CarController c)
+            {
+                c.brakeFrontShare = brakeFrontShare;
+                c.tireMuFront = tireMuFront; c.tireMuRear = tireMuRear;
+                c.maxSteerLowSpeedDeg = maxSteerLowSpeedDeg; c.steerRateDeg = steerRateDeg;
+                c.restLength = restLength; c.cgHeight = cgHeight;
+                c.downforceWeightFractionAtVmax = downforceWeightFractionAtVmax;
+                c.downforceBalanceFront = downforceBalanceFront;
+            }
+
+            /// <summary>
+            /// The range basis, built from the SNAPSHOT rather than from the
+            /// live car.
+            ///
+            /// CarSetupBasis.FromController reads whatever is in the fields right
+            /// now, and after one ApplySetup that is a tuned car — so deriving
+            /// ranges from it would compound every setting on the second call.
+            /// SetSetup after ApplySpec is exactly that second call, and it is on
+            /// the normal path.
+            /// </summary>
+            public CarSetupBasis BasisFor(CarController c)
+            {
+                var b = CarSetupBasis.FromController(c);
+                b.brakeDemandG = brakeDemandG; b.brakeFrontShare = brakeFrontShare;
+                b.tireMuFront = tireMuFront; b.tireMuRear = tireMuRear;
+                b.corneringStiffness = corneringStiffness;
+                b.rawCorneringStiffness = rawCorneringStiffness;
+                b.maxSteerLowSpeedDeg = maxSteerLowSpeedDeg; b.steerRateDeg = steerRateDeg;
+                b.springRateFront = springRateFront; b.springRateRear = springRateRear;
+                b.damperFront = damperFront; b.damperRear = damperRear;
+                b.antiRollFront = antiRollFront; b.antiRollRear = antiRollRear;
+                b.restLength = restLength; b.cgHeight = cgHeight;
+                b.frontDriveShare = frontDriveShare;
+                b.downforceWeightFractionAtVmax = downforceWeightFractionAtVmax;
+                b.downforceBalanceFront = downforceBalanceFront;
+                if (gearRatios != null) b.gearRatios = gearRatios;
+                // The two DERIVED fields, recomputed from the snapshot. Missing
+                // these is the whole hole this method exists to plug and it is
+                // easy to miss twice: FromController computed firstGearForceN
+                // from the LIVE gearbox, so putting the baseline array back
+                // above does not put the force back. A car on a short final
+                // drive would then quote a preload range 30% too wide on the
+                // second apply, and applying a setup twice would not equal
+                // applying it once.
+                b.fourWheelDrive = b.frontDriveShare > 0.01f && b.frontDriveShare < 0.99f;
+                b.firstGearForceN = CarSetupBasis.FirstGearForceFor(
+                    c.StockTorqueAtRPM(0.6f * c.redlineRPM), b.gearRatios,
+                    b.finalDrive, b.drivetrainEfficiency, b.wheelRadius);
+                return b;
+            }
+        }
+
+        SetupBaseline setupBaseline;
+        bool setupBaselineCaptured;
+
+        /// <summary>The driver's own tune, already gated by the garage against
+        /// the parts this car actually carries. Null on a standalone editor
+        /// race, on every AI car, and on a stock car — and a null setup means
+        /// the car behaves exactly as it did before this feature existed.
+        /// </summary>
+        public CarSetup activeSetup { get; private set; }
+
+        /// <summary>
+        /// Hand the car its setup. Safe either side of <see cref="ApplySpec"/>:
+        /// before, it is stored and ApplySpec applies it at the end; after, it
+        /// is applied immediately. Either way ApplySetup reads only the
+        /// baseline, so calling this ten times cannot compound.
+        /// </summary>
+        public void SetSetup(CarSetup s)
+        {
+            activeSetup = s;
+            if (setupBaselineCaptured) ApplySetup();
+        }
+
+        /// <summary>The basis this car's setup ranges are derived from. Anything
+        /// outside this class that needs to evaluate a range against this car
+        /// must use THIS and never CarSetupBasis.FromController — the live
+        /// fields are a tuned car the moment ApplySetup has run once.</summary>
+        public CarSetupBasis SetupRangeBasis => setupBaselineCaptured
+            ? setupBaseline.BasisFor(this)
+            : CarSetupBasis.FromController(this);
+
+        /// <summary>
+        /// Snapshot what the derivations produced, so ApplySetup has something
+        /// honest to work from.
+        ///
+        /// NOT latched-once, unlike <see cref="tuneBaselineCaptured"/>, and the
+        /// difference is the single easiest thing in this file to "fix" into a
+        /// bug. ApplyTuneHandling latches because it writes the same fields it
+        /// reads. This runs after ScaleChassisToMass, which re-derives every
+        /// spring and bar from mass on every single ApplySpec — so a latched
+        /// baseline would leave a lightened car's setup sitting on the heavy
+        /// car's numbers.
+        ///
+        /// And the subtle half: restore the OWNED fields before capturing, and
+        /// only those. Nothing upstream re-derives brakeFrontShare,
+        /// maxSteerLowSpeedDeg, restLength, the tyre mus or the downforce
+        /// fraction — ApplySetup wrote those itself last time round, so
+        /// capturing them where they stand would snapshot the previous TUNE as
+        /// the new "stock" and every setting would creep a little further every
+        /// time a race loaded. See RestoreOwned for why the other half must NOT
+        /// be restored.
+        /// </summary>
+        void CaptureSetupBaseline()
+        {
+            if (setupBaselineCaptured) setupBaseline.RestoreOwned(this);
+            setupBaseline.Capture(this);
+            setupBaselineCaptured = true;
+        }
+
+        /// <summary>
+        /// Write the setup onto the physics. Everything here is either a direct
+        /// assignment onto a knob the model already had, or one of the four
+        /// small new models in the region below — nothing rewrites an equation.
+        /// </summary>
+        void ApplySetup()
+        {
+            if (!setupBaselineCaptured) return;
+            var b = setupBaseline;
+            var s = activeSetup;
+
+            // A car with no setup — or with one that is still entirely at
+            // factory — is restored to exactly what the derivations produced and
+            // then left alone. This is the guarantee that every AI car, every
+            // standalone editor race and every stock car drives bit-for-bit as
+            // it did before advanced tuning existed.
+            //
+            // The IsFactory half matters as much as the null half: the garage
+            // sanitizes a setup on the way to EVERY race and never hands over
+            // null, so a stock player car arrives here with an all-zero object,
+            // not with nothing. Without this test the "no setup" path would be
+            // the one path no player ever took.
+            if (s == null || s.IsFactory)
+            {
+                b.Restore(this);
+                camberFrontDeg = camberRearDeg = toeFrontDeg = toeRearDeg = 0f;
+                diffAccelLock = diffDecelLock = diffPreloadN = 0f;
+                if (weldedDiff) { diffAccelLock = 1f; diffDecelLock = 1f; }
+                DeriveDownforce();
+                if (Body != null) Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+                return;
+            }
+
+            // The ranges are derived from the SNAPSHOT, never from the live car.
+            // Reading the live fields here is what makes a setting compound on
+            // the second call — and SetSetup after ApplySpec is a second call on
+            // the ordinary path, not an edge case.
+            var basis = b.BasisFor(this);
+
+            // ---- tires and brakes ----
+            var rPf = CarSetupRanges.Of(basis, SetupParam.TyrePressureFront);
+            var rPr = CarSetupRanges.Of(basis, SetupParam.TyrePressureRear);
+            float nF = CarSetupRanges.PressureNorm(rPf, s.tyrePressureFront);
+            float nR = CarSetupRanges.PressureNorm(rPr, s.tyrePressureRear);
+
+            // Peak grip is best AT the recommended pressure and falls off either
+            // side of it — a crowned patch under-inflated, a rolled-under one
+            // over. A parabola is the cheapest shape that is still honest, and
+            // it makes the factory setting a real choice rather than a floor.
+            tireMuFront = b.tireMuFront * (1f - PressureMuLoss * nF * nF);
+            tireMuRear = b.tireMuRear * (1f - PressureMuLoss * nR * nR);
+            // Carcass stiffness rises with pressure, and that IS the trade: a
+            // harder tyre turns in sharper and holds less. Cornering stiffness
+            // is per-car rather than per-axle, so it takes the mean — and the 13
+            // ceiling is re-applied so no setup can breach the limit the whole
+            // drift layer was established against.
+            // Off the UNCLAMPED figure, clamped once here — see
+            // ApplyTuneHandling. Clamping the stage first and then multiplying
+            // meant a stage-3 car got the pressure penalty and none of the gain.
+            corneringStiffness = Mathf.Min(
+                b.rawCorneringStiffness * (1f + PressureStiffGain * (nF + nR)),
+                CorneringStiffnessCap);
+
+            brakeDemandG = b.brakeDemandG *
+                CarSetupRanges.Of(basis, SetupParam.BrakePressure).Value(s.brakePressure);
+            brakeFrontShare = CarSetupRanges.Of(basis, SetupParam.BrakeBalance).Value(s.brakeBalance);
+
+            // ---- alignment ----
+            maxSteerLowSpeedDeg = CarSetupRanges.Of(basis, SetupParam.SteerLock).Value(s.steerLock);
+            steerRateDeg = CarSetupRanges.Of(basis, SetupParam.SteerRate).Value(s.steerRate);
+            camberFrontDeg = CarSetupRanges.Of(basis, SetupParam.CamberFront).Value(s.camberFront);
+            camberRearDeg = CarSetupRanges.Of(basis, SetupParam.CamberRear).Value(s.camberRear);
+            toeFrontDeg = CarSetupRanges.Of(basis, SetupParam.ToeFront).Value(s.toeFront);
+            toeRearDeg = CarSetupRanges.Of(basis, SetupParam.ToeRear).Value(s.toeRear);
+
+            // ---- springs and dampers ----
+            springRateFront = CarSetupRanges.Of(basis, SetupParam.SpringFront).Value(s.springFront);
+            springRateRear = CarSetupRanges.Of(basis, SetupParam.SpringRear).Value(s.springRear);
+            damperFront = CarSetupRanges.Of(basis, SetupParam.DamperFront).Value(s.damperFront);
+            damperRear = CarSetupRanges.Of(basis, SetupParam.DamperRear).Value(s.damperRear);
+            antiRollFront = CarSetupRanges.Of(basis, SetupParam.ArbFront).Value(s.arbFront);
+            antiRollRear = CarSetupRanges.Of(basis, SetupParam.ArbRear).Value(s.arbRear);
+
+            // Ride height has to move the CENTRE OF GRAVITY or it means nothing:
+            // rest length alone changes only available travel and where the
+            // wheel is drawn, because static compression is mg/4k either way.
+            // Moving the CG makes the lower car transfer less weight through the
+            // AddForceAtPosition physics that is already there — real physics for
+            // one line, and no new equation anywhere.
+            restLength = CarSetupRanges.Of(basis, SetupParam.RideHeight).Value(s.rideHeight);
+            cgHeight = Mathf.Max(0.30f, b.cgHeight + (restLength - b.restLength));
+            if (Body != null) Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+
+            // ---- differential ----
+            if (weldedDiff)
+            {
+                // A weld is not a setting. It is fully locked both ways, and it
+                // KEEPS its separate wheelspin gain: a weld also drags the inside
+                // wheel round a corner, which a plate pack does not do.
+                diffAccelLock = 1f; diffDecelLock = 1f; diffPreloadN = 0f;
+            }
+            else
+            {
+                diffAccelLock = CarSetupRanges.Of(basis, SetupParam.DiffAccel).Value(s.diffAccel);
+                diffDecelLock = CarSetupRanges.Of(basis, SetupParam.DiffDecel).Value(s.diffDecel);
+                diffPreloadN = CarSetupRanges.Of(basis, SetupParam.DiffPreload).Value(s.diffPreload);
+            }
+            if (basis.fourWheelDrive)
+                frontDriveShare = CarSetupRanges.Of(basis, SetupParam.DriveSplit).Value(s.driveSplit);
+
+            // ---- gearing ----
+            ApplyGearing(b, basis, s);
+
+            // ---- aero ----
+            downforceWeightFractionAtVmax =
+                CarSetupRanges.Of(basis, SetupParam.AeroLevel).Value(s.aeroLevel);
+            downforceBalanceFront =
+                CarSetupRanges.Of(basis, SetupParam.AeroBalance).Value(s.aeroBalance);
+            DeriveDownforce();
+            // NOT DeriveDrag(). Drag is solved from the STOCK torque so it stays
+            // a property of the body — re-solving it after a short final drive
+            // would quietly hand the car back the top speed the short gearing was
+            // supposed to cost it. A short final drive should hit the limiter
+            // below vmax. That is what a short final drive IS.
+        }
+
+        void ApplyGearing(in SetupBaseline b, in CarSetupBasis basis, CarSetup s)
+        {
+            if (b.gearRatios == null || b.gearRatios.Length == 0) return;
+            int n = b.gearRatios.Length;
+            // Read the caller's array, never grow it. SetSetup takes no
+            // ownership of the object it is handed, and today it happens to be
+            // a Sanitize clone — but a caller that passed the SAVE's own setup
+            // would have the race scene writing into the player's file.
+
+            // The final drive is applied as a SCALE on every gear, never by
+            // writing finalDrive. BuildGearRatios solves for the PRODUCT
+            // ratio*finalDrive and every consumer uses that product, so the
+            // field cancels out of its own definition — writing it does exactly
+            // nothing, in either order. LifeSimSelfTest asserts that a final
+            // drive setting actually moves first gear, which is the only thing
+            // standing between this screen and a slider that does nothing.
+            var rFd = CarSetupRanges.Of(basis, SetupParam.FinalDrive);
+            float fdScale = rFd.def > 1e-3f ? rFd.Value(s.finalDriveScale) / rFd.def : 1f;
+
+            var outv = new float[n];
+            for (int g = 0; g < n; g++)
+            {
+                var rg = CarSetupRanges.Of(basis, CarSetupTable.GearParam(g));
+                float t = s.gear != null && g < s.gear.Length ? s.gear[g] : 0f;
+                outv[g] = rg.Value(t) * fdScale;
+            }
+            // Keep the box strictly descending whatever the player asked for. A
+            // second gear taller than first is a car that cannot pull away, and
+            // the gearbox's upshift logic assumes the order.
+            for (int g = 1; g < n; g++)
+                outv[g] = Mathf.Min(outv[g], outv[g - 1] * GearMinStep);
+            gearRatios = outv;
+        }
+
+        /// <summary>
+        /// The gearbox a setup actually produces, without applying it. The setup
+        /// screen needs this because the clamp above is REACHABLE by the most
+        /// obvious edit on the page — every gear shape has a top pair close
+        /// enough together that a +20% trim on the taller one gets cut — and a
+        /// row that prints a ratio the car will not use is a lying row.
+        /// </summary>
+        public static float[] TunedRatios(in CarSetupBasis basis, CarSetup s)
+        {
+            if (basis.gearRatios == null || basis.gearRatios.Length == 0 || s == null)
+                return basis.gearRatios;
+            int n = basis.gearRatios.Length;
+            var rFd = CarSetupRanges.Of(basis, SetupParam.FinalDrive);
+            float fdScale = rFd.def > 1e-3f ? rFd.Value(s.finalDriveScale) / rFd.def : 1f;
+            var outv = new float[n];
+            for (int g = 0; g < n; g++)
+            {
+                var p = CarSetupTable.GearParam(g);
+                outv[g] = CarSetupRanges.Of(basis, p).Value(s.Get(p)) * fdScale;
+            }
+            for (int g = 1; g < n; g++)
+                outv[g] = Mathf.Min(outv[g], outv[g - 1] * GearMinStep);
+            return outv;
+        }
+
+        /// <summary>
+        /// The steer rotation for wheel <paramref name="i"/>, static toe
+        /// included.
+        ///
+        /// Extracted because there were two copies of this line — one in
+        /// RefreshSlipAngles and one in TireForces — and toe would have had to
+        /// be added to both. Two expressions that must stay identical, will not.
+        ///
+        /// Mount order is FL, FR, RL, RR and the LEFT wheels are the -halfTrack
+        /// ones, so left takes +toe to point its nose at the centreline.
+        /// POSITIVE IS TOE-IN.
+        /// </summary>
+        Quaternion SteerRotFor(int i)
+        {
+            float a = SteerDegFor(i);
+            return a == 0f ? Quaternion.identity : Quaternion.AngleAxis(a, transform.up);
+        }
+
+        /// <summary>The angle behind <see cref="SteerRotFor"/>, so the wheel
+        /// VISUAL can use the same number without building a world-space
+        /// quaternion and unpicking it again.</summary>
+        float SteerDegFor(int i)
+        {
+            bool front = i < 2;
+            float toe = (front ? toeFrontDeg : toeRearDeg) * ((i == 0 || i == 2) ? 1f : -1f);
+            return (front ? steerAngleDeg : 0f) + toe;
+        }
+
+        /// <summary>
+        /// Static camber, as an axle grip multiplier that flips sign with roll.
+        ///
+        /// Nothing in this model carries a wheel roll angle, and inventing one
+        /// would mean a real tyre model — which this game is explicitly not.
+        /// What a camber setting DOES is trade straight-line contact patch for
+        /// cornering contact patch, and the roll that makes that trade pay is
+        /// already being measured one function upstream for the anti-roll bars.
+        /// So: cost it always, pay it back in proportion to how hard this axle
+        /// is actually rolled.
+        ///
+        /// At -2.0 deg that is -2.4% of grip on a straight and +3.2% net at the
+        /// limit, breaking even around 0.4 g. The whole span stays inside +-5%,
+        /// which keeps camber a setup decision and not a power-up. Positive
+        /// camber is offered and is simply worse everywhere, as it should be.
+        /// </summary>
+        float CamberMu(bool front)
+        {
+            float camDeg = front ? camberFrontDeg : camberRearDeg;
+            if (camDeg > -1e-4f && camDeg < 1e-4f) return 1f;
+            int l = front ? 0 : 2, r = front ? 1 : 3;
+            float roll = Mathf.Clamp01(
+                Mathf.Abs(suspensionCompression[l] - suspensionCompression[r]) / CamberRollRef);
+            float c = -camDeg;
+            // The straight-line term is a LOSS only. Without the Max, positive
+            // camber came out as a small free grip bonus on a flat car — which
+            // is a slider documented as pure downside quietly paying out for the
+            // whole of a drag run.
+            return Mathf.Max(0.85f,
+                1f - CamberStraightLoss * Mathf.Max(0f, c) + CamberRollGain * c * roll);
+        }
+        /// <summary>Compression difference the camber trade is measured against.
+        /// At the reference chassis 1.0 g of lateral puts about 42 mm across the
+        /// front axle, so the full camber benefit arrives right at the limit.
+        /// </summary>
+        const float CamberRollRef = 0.040f;
+        const float CamberStraightLoss = 0.012f;   // per degree, going straight
+        const float CamberRollGain = 0.028f;       // per degree, at full roll
+
+        /// <summary>
+        /// How one wheel's share of its axle's drive torque is decided.
+        ///
+        /// An open differential splits evenly whatever the wheels are doing; a
+        /// locked one feeds the wheel with the load on it, which is the whole
+        /// reason to fit one. Pure function of three numbers so the self-test
+        /// can pin it without a physics step — and so the "an open diff is
+        /// bit-for-bit the car we shipped" guarantee is checkable rather than
+        /// argued.
+        /// </summary>
+        public static float DiffShare(float loadShare, float evenShare, float lockT) =>
+            Mathf.Lerp(evenShare, loadShare, Mathf.Clamp01(lockT));
+
+        /// <summary>Peak grip lost at the far end of the pressure range. A real
+        /// pressure sweep moves peak mu 5-10% over 10 psi; 8% over the full
+        /// span keeps setup as fine-tuning and never a power-up.</summary>
+        const float PressureMuLoss = 0.08f;
+        /// <summary>Cornering stiffness gained per unit of normalised pressure,
+        /// per axle. About +-10% across the full span.</summary>
+        const float PressureStiffGain = 0.05f;
+        /// <summary>The most two adjacent gears may be squeezed together before
+        /// the clamp bites. Anything closer is not a gearbox.</summary>
+        public const float GearMinStep = 0.97f;
 
         /// <summary>
         /// Re-scale every load-bearing suspension figure to the new mass.
@@ -677,20 +1255,60 @@ namespace PSXRacing
         /// Ratios are held to the reference car, so this is a scale, not a
         /// retune: the FD still gets exactly the numbers it was tuned with.
         /// </summary>
+        /// <summary>
+        /// The reference chassis every car's rates are scaled from: the RX-7 FD
+        /// this project's handling was established against.
+        ///
+        /// Public because the garage has to quote a spring rate for a car that
+        /// has no CarController in the scene — the menu lives two scene loads
+        /// away from the physics. Same rule <see cref="CarTune"/> opens with: if
+        /// the shop screen and the stopwatch keep two copies of what a number
+        /// is, they will disagree, and nobody will find it for weeks.
+        /// </summary>
+        public const float ChassisRefMass = 1280f;
+        public const float SpringFrontRef = 47100f;
+        public const float SpringRearRef = 35300f;
+        public const float DamperFrontRef = 4000f;
+        public const float DamperRearRef = 3400f;
+        public const float AntiRollFrontRef = 16000f;
+        public const float AntiRollRearRef = 12000f;
+
+        /// <summary>
+        /// The fields ApplySpec does NOT rewrite, as constants the garage can
+        /// read. Each one must stay equal to the field initialiser above it — a
+        /// value that drifts here quotes a range the race scene will not honour,
+        /// which is the exact failure mode the fence exists to prevent. Pinned
+        /// by the self-test rather than by hoping.
+        /// </summary>
+        public const float DefaultBrakeDemandG = 0.9f;
+        public const float DefaultBrakeFrontShare = 0.6f;
+        public const float DefaultTireMuFront = 1.010f;
+        public const float DefaultTireMuRear = 1.030f;
+        public const float DefaultCorneringStiffness = 11.0f;
+        public const float DefaultRestLength = 0.30f;
+        public const float DefaultCgHeight = 0.465f;
+        public const float DefaultMaxSteerLowSpeedDeg = 34f;
+        public const float DefaultMaxSteerHighSpeedDeg = 12f;
+        public const float DefaultMaxSteerDriftDeg = 45f;
+        public const float DefaultSteerRateDeg = 260f;
+        public const float DefaultSteerRateDriftDeg = 400f;
+        public const float DefaultDownforceWeightFraction = 0.35f;
+        public const float DefaultDrivetrainEfficiency = 0.88f;
+        public const float DefaultFinalDrive = 4.10f;
+
         void ScaleChassisToMass()
         {
-            const float refMass = 1280f;
-            float k = massKg / refMass;
+            float k = massKg / ChassisRefMass;
 
-            springRateFront = 47100f * k;
-            springRateRear = 35300f * k;
+            springRateFront = SpringFrontRef * k;
+            springRateRear = SpringRearRef * k;
             // Critical damping goes with sqrt(k*m), and k itself scales with
             // mass here, so the damper scales linearly too — keeping the damping
             // RATIO constant is the part that matters for how settled it feels.
-            damperFront = 4000f * k;
-            damperRear = 3400f * k;
-            antiRollFront = 16000f * k;
-            antiRollRear = 12000f * k;
+            damperFront = DamperFrontRef * k;
+            damperRear = DamperRearRef * k;
+            antiRollFront = AntiRollFrontRef * k;
+            antiRollRear = AntiRollRearRef * k;
 
             staticWheelLoad = massKg * 9.81f * 0.25f;
             // Half the static axle load, same relationship the reference used.
@@ -741,7 +1359,13 @@ namespace PSXRacing
         {
             float vmax = Mathf.Max(topSpeedMps, 10f);
             downforceCoefficient = downforceWeightFractionAtVmax * massKg * 9.81f / (vmax * vmax);
+            // Split per axle so an aero balance means something. Kept as two
+            // derived coefficients rather than a runtime multiply, because
+            // AeroForces runs every tick and this runs once per spec.
+            downforceFrontCoef = downforceCoefficient * downforceBalanceFront;
+            downforceRearCoef = downforceCoefficient * (1f - downforceBalanceFront);
         }
+        float downforceFrontCoef, downforceRearCoef;
 
         /// <summary>Lateral tire force. Ported 1:1 from tire.ts tireCurve().</summary>
         static float TireCurve(float slip, float C)
@@ -825,9 +1449,7 @@ namespace PSXRacing
                 Vector3 contact = mount - transform.up *
                                   (restLength + wheelRadius - suspensionCompression[i]);
 
-                Quaternion steerRot = front
-                    ? Quaternion.AngleAxis(steerAngleDeg, transform.up)
-                    : Quaternion.identity;
+                Quaternion steerRot = SteerRotFor(i);
                 Vector3 contactVel = Body.GetPointVelocity(contact);
                 float vLong = Vector3.Dot(contactVel, steerRot * transform.forward);
                 float vLat = Vector3.Dot(contactVel, steerRot * transform.right);
@@ -1165,6 +1787,17 @@ namespace PSXRacing
             float frontShare = frontDriveShare;
             float rearShare = 1f - frontDriveShare;
 
+            // Axle loads for the differential. wheelLoad[] is a COMPLETED pass
+            // by now — SuspensionAndLoads runs one call earlier in FixedUpdate —
+            // so a load-biased diff needs no restructuring of the loop below,
+            // only a different share going into it.
+            float frontAxleLoad = 0f, rearAxleLoad = 0f;
+            for (int i = 0; i < 4; i++)
+            {
+                if (!wheelGrounded[i]) continue;
+                if (i < 2) frontAxleLoad += wheelLoad[i]; else rearAxleLoad += wheelLoad[i];
+            }
+
             for (int i = 0; i < 4; i++)
             {
                 if (!wheelGrounded[i]) continue;
@@ -1172,7 +1805,7 @@ namespace PSXRacing
                 Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
                 Vector3 contact = mount - transform.up * (restLength + wheelRadius - suspensionCompression[i]);
 
-                Quaternion steerRot = front ? Quaternion.AngleAxis(steerAngleDeg, transform.up) : Quaternion.identity;
+                Quaternion steerRot = SteerRotFor(i);
                 Vector3 wheelForward = steerRot * transform.forward;
                 Vector3 wheelRight = steerRot * transform.right;
 
@@ -1186,7 +1819,7 @@ namespace PSXRacing
 
                 float Fz = wheelLoad[i];
                 float mu = wheelGrip[i] * gripBonus * faultGripMult *
-                           (front ? tireMuFront : tireMuRear);
+                           (front ? tireMuFront : tireMuRear) * CamberMu(front);
                 if (!front) mu *= rearMuMult;
                 float circle = mu * Fz;
                 // FULL circle, not the combined-slip reduced cap: using the
@@ -1211,7 +1844,30 @@ namespace PSXRacing
                 int axleWheels = front ? groundedFront : groundedRear;
                 if (axleShare > 0f && axleWheels > 0)
                 {
-                    driveDemand = driveForce * axleShare / axleWheels;
+                    // THE DIFFERENTIAL. An open one splits evenly; a locked one
+                    // feeds the loaded wheel, whose friction circle is bigger by
+                    // exactly the same ratio, which is why locking buys traction
+                    // rather than just moving the problem.
+                    //
+                    // With every lock at zero this reduces to
+                    // driveForce * axleShare / axleWheels — bit-for-bit the line
+                    // it replaced. That is what keeps every AI car and every car
+                    // without an LSD driving exactly as it did.
+                    float even = 1f / axleWheels;
+                    float axleLoad = front ? frontAxleLoad : rearAxleLoad;
+                    float loadShare = (axleWheels > 1 && axleLoad > 1f) ? Fz / axleLoad : even;
+
+                    // Preload is a fixed clamping force in the plate pack: it
+                    // dominates when there is little torque about and washes out
+                    // when there is a lot. That is what makes an LSD felt on
+                    // corner ENTRY and not only on the way out.
+                    float axleDemandN = Mathf.Abs(driveForce * axleShare);
+                    float preloadT = axleDemandN > 1f
+                        ? Mathf.Clamp01(diffPreloadN / axleDemandN) : 0f;
+                    float lockT = Mathf.Max(preloadT,
+                        driveForce >= 0f ? diffAccelLock : diffDecelLock);
+
+                    driveDemand = driveForce * axleShare * DiffShare(loadShare, even, lockT);
                     fLong = Mathf.Clamp(driveDemand, -longCap, longCap);
                 }
 
@@ -1292,10 +1948,11 @@ namespace PSXRacing
             wheelspinRatio = Mathf.Max(
                 AxleSpin(totalDriveDemand * frontShare, frontCircleTotal),
                 AxleSpin(totalDriveDemand * rearShare, rearCircleTotal));
-            // WELDED DIFF. There is no left/right differential in this model —
-            // drive splits front/rear and the tyre model handles the rest — so
-            // there is nothing to lock. What a welded diff DOES, and the reason
-            // people weld them, is that the driven wheels break away together
+            // WELDED DIFF, the half of it the lock cannot express. There IS a
+            // left/right differential now (see DiffShare in TireForces), and a
+            // weld drives it fully locked both ways — but locking only decides
+            // where the torque goes. The other reason people weld a diff is that
+            // the driven wheels break away together
             // instead of the open diff dumping torque into whichever one gave up
             // first. Scaling the spin ratio is the honest single-knob version of
             // that: it is the input to the yaw injector, so the car lights up its
@@ -1414,7 +2071,7 @@ namespace PSXRacing
                 else if (counterSteering) yawDamp = YawDampCounter;
                 else yawDamp = YawDampCommitted;   // committed slide still feels loose
             }
-            else yawDamp = YawDampGrip;
+            else yawDamp = yawDampGrip;
 
             // Damp only the yaw component, in the body frame — leave roll/pitch alone.
             Vector3 w = Body.angularVelocity;
@@ -1427,11 +2084,16 @@ namespace PSXRacing
                 forwardSpeed > CountersteerMinSpeed)
             {
                 float excess = Mathf.Abs(chassisSlipAngle) - CountersteerDeadzone;
-                float steerRelease = 1f - Mathf.Min(1f, steerMag / 0.55f);
+                // Both of these were declared as named constants above and then
+                // shadowed by identical inline literals, so editing the constant
+                // did nothing at all. Wired up, so the next tuning pass changes
+                // what it thinks it is changing.
+                float steerRelease = 1f - Mathf.Min(1f, steerMag / CountersteerReleaseSpan);
                 if (excess > 0f && steerRelease > 0f)
                 {
-                    float accel = Mathf.Min(excess * 15f * countersteerAssist * steerRelease,
-                                            CountersteerMaxAccel);
+                    float accel = Mathf.Min(
+                        excess * CountersteerGain * countersteerAssist * steerRelease,
+                        CountersteerMaxAccel);
                     // Fully off at the moment of impact: this assist reads the
                     // hit as a slide to be caught, and catching it is precisely
                     // what makes barriers feel like they are not there.
@@ -1450,7 +2112,19 @@ namespace PSXRacing
             Body.AddForce(-vel.normalized * (dragCoefficient * v2));
             if (anyWheelGrounded)
             {
-                Body.AddForce(-transform.up * (downforceCoefficient * v2));
+                // Applied at the two axle midpoints rather than at the CG, so an
+                // aero balance produces a real pitch couple and loads the axle
+                // it is dialled toward. With balance at 0.5 and the CG at the
+                // geometric centre these two sum to exactly the single CG force
+                // this used to be — an un-setup car is untouched.
+                Vector3 fMid = transform.TransformPoint(
+                    (wheelLocalPos[0] + wheelLocalPos[1]) * 0.5f);
+                Vector3 rMid = transform.TransformPoint(
+                    (wheelLocalPos[2] + wheelLocalPos[3]) * 0.5f);
+                Body.AddForceAtPosition(-transform.up * (downforceFrontCoef * v2), fMid);
+                Body.AddForceAtPosition(-transform.up * (downforceRearCoef * v2), rMid);
+                // Drag and rolling resistance stay at the CG: they make no pitch
+                // couple today and should not start making one.
                 Body.AddForce(-vel.normalized * rollingResistance * Mathf.Clamp01(vel.magnitude));
             }
         }
@@ -1470,8 +2144,12 @@ namespace PSXRacing
                     ? mountHeight - restLength + suspensionCompression[i]
                     : mountHeight - restLength;
                 wheelHubs[i].localPosition = local;
-                wheelHubs[i].localRotation = front
-                    ? Quaternion.Euler(0f, steerAngleDeg, 0f)
+                // Through SteerDegFor, so the visible wheel carries the toe the
+                // physics is using. This was the THIRD copy of the steer
+                // expression — the extraction note on SteerRotFor says there
+                // were two, and it was wrong when it was written.
+                wheelHubs[i].localRotation = front || toeRearDeg != 0f
+                    ? Quaternion.Euler(0f, SteerDegFor(i), 0f)
                     : Quaternion.identity;
 
                 if (wheelMeshes[i] != null)

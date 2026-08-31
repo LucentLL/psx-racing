@@ -140,7 +140,13 @@ namespace PSXRacing.EditorTools
                                       // The garage is a LIST now and the car page is where
                                       // everything you can do to a car lives, so the tab shot
                                       // no longer covers either of them.
-                                      "carmenu", "specs" })
+                                      "carmenu", "specs",
+                                      // The setup screen on a car with nothing
+                                      // fitted: every row padlocked. That is the
+                                      // state most players see first, and the
+                                      // one where "does every padlock name its
+                                      // part" is actually checkable.
+                                      "setup" })
                 Shoot(outDir, t, t);
 
             // SPECS and the car page again, on a car that HAS a catalog entry.
@@ -157,6 +163,30 @@ namespace PSXRacing.EditorTools
                 LifeSimManager.Save();
                 Shoot(outDir, "specs_catalog", "specs");
                 Shoot(outDir, "carmenu_catalog", "carmenu");
+                Shoot(outDir, "tune_catalog", "tune");
+                // The setup screen on a car with NOTHING fitted: every row
+                // padlocked, each naming the part that opens it. That is the
+                // first thing a player sees and the whole unlock story, and the
+                // bare "setup" shot cannot cover it — the seeded starter car has
+                // no catalog entry and renders the fallback instead.
+                Shoot(outDir, "setup_stock", "setup");
+
+                // The setup screen with the parts actually fitted, which is the
+                // only state that photographs a live stepper row — the bare
+                // "setup" shot above is all padlocks by design. Every stage
+                // maxed and every mod bolted on, so all six pages have
+                // something to draw and nothing is hiding behind a gate.
+                speccd.upPower = speccd.upWeight = speccd.upBrakes = 4;
+                speccd.upSuspension = speccd.upTires = 4;
+                speccd.swayBars = speccd.steeringRack = speccd.lsd = true;
+                speccd.finalDriveSet = speccd.gearSet = speccd.aeroKit = true;
+                LifeSimManager.Save();
+                Shoot(outDir, "setup_tires", "setup");
+                foreach (var pg in new[] { SetupPage.Alignment, SetupPage.Springs,
+                                           SetupPage.Differential, SetupPage.Gearing,
+                                           SetupPage.Aero })
+                    ShootSetupPage(outDir, "setup_" + pg.ToString().ToLower(), pg);
+
                 s.cars.Remove(speccd);
                 s.activeCar = wasActive;
                 s.garageSlots = 1;
@@ -187,8 +217,14 @@ namespace PSXRacing.EditorTools
         /// screen, not a nicety, and a requirement nothing checks is one that
         /// decays the next time a line of text is added to the page. A PNG
         /// cannot show what is below the fold; this can.</param>
+        /// <summary>One of the setup screen's six sub-pages. Six shots off one
+        /// tab, because the sub-strip is inside the page rather than on the tab
+        /// bar and the shot list only knows about tabs.</summary>
+        static void ShootSetupPage(string outDir, string label, SetupPage page) =>
+            Shoot(outDir, label, "setup", setupPage: page);
+
         static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
-                          bool mustFit = false)
+                          bool mustFit = false, SetupPage? setupPage = null)
         {
             foreach (var size in Sizes)
             {
@@ -226,6 +262,17 @@ namespace PSXRacing.EditorTools
                         BindingFlags.NonPublic | BindingFlags.Instance);
                     if (tabField == null) Debug.LogError("[HomePreview] no tab field");
                     else tabField.SetValue(screen, tab);
+                }
+
+                // Same trick, one level down: the setup screen's sub-page is
+                // internal state, and switching it after Start would stack two
+                // pages on top of each other for exactly the reason above.
+                if (setupPage.HasValue)
+                {
+                    var pageField = typeof(LifeHomeScreen).GetField("setupPage",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (pageField == null) Debug.LogError("[HomePreview] no setupPage field");
+                    else pageField.SetValue(screen, setupPage.Value);
                 }
 
                 // Start() is where the whole UI is constructed. Editor scripts do

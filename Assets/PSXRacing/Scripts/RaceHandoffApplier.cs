@@ -67,6 +67,22 @@ namespace PSXRacing
                     // Shell BEFORE spec: fitting a body writes wheel radius, and
                     // ApplySpec builds the gearbox off it.
                     ApplyShell(playerCar, spec);
+                    // MODS BEFORE THE SPEC, not after. ApplySpec ends by
+                    // capturing a baseline and applying the setup, and the
+                    // setup READS weldedDiff to decide the differential — so
+                    // assigning it afterwards meant the weld branch was
+                    // evaluated with a false it had not been given yet. A
+                    // welded car raced with an open diff and kept only the
+                    // weld's drawback: all of the wheelspin, none of the lock.
+                    // The blower has the same dependency through the torque
+                    // curve the preload range is scaled from.
+                    playerCar.weldedDiff = RaceHandoff.Welded;
+                    playerCar.supercharged = RaceHandoff.Supercharged;
+                    // The driver's own tune goes on before the spec too.
+                    // ApplySpec applies it at the end whichever order this is
+                    // written in, but handing it over here says plainly that it
+                    // is part of specing the car rather than a later bolt-on.
+                    playerCar.SetSetup(RaceHandoff.Setup);
                     // Spec first: ApplySpec rewrites mass, torque curve, gearing
                     // and drag from the catalog entry AND the parts bolted to
                     // this particular car; the fault handicaps below multiply on
@@ -79,10 +95,9 @@ namespace PSXRacing
                         suspension = RaceHandoff.UpSuspension,
                         tires = RaceHandoff.UpTires,
                     });
-                    // Mods go on BEFORE the voice: a blower changes what the car
-                    // sounds like as well as what it makes.
-                    playerCar.weldedDiff = RaceHandoff.Welded;
-                    playerCar.supercharged = RaceHandoff.Supercharged;
+                    // The voice comes after the spec, and reads the mods set
+                    // above it: a blower changes what the car sounds like as
+                    // well as what it makes.
                     ApplyVoice(playerCar, spec, RaceHandoff.Supercharged, isPlayer: true);
                 }
 
@@ -103,6 +118,21 @@ namespace PSXRacing
 
                 var temp = playerCar.GetComponent<EngineTemp>();
                 if (temp != null) temp.coolMult = RaceHandoff.CoolMult;
+
+                // Self-centring is the one setup value that is not a physics
+                // field: nothing in the model makes a self-aligning torque, so
+                // the honest home for "caster feel" is the input-side unwind
+                // rate, which lives on PlayerCarInput and not on the car.
+                var pin = playerCar.GetComponent<PlayerCarInput>();
+                if (pin != null && RaceHandoff.Setup != null)
+                    // The car's own SNAPSHOT basis, not FromController on a car
+                    // ApplySpec has already tuned. It makes no difference to
+                    // this particular range today, and it is still the rule —
+                    // deriving a range from a tuned car is how the next setting
+                    // starts compounding.
+                    pin.steerReleaseRate = CarSetupRanges
+                        .Of(playerCar.SetupRangeBasis, SetupParam.SelfCentre)
+                        .Value(RaceHandoff.Setup.selfCentre);
 
                 playerCar.faultAccelMult = RaceHandoff.AccelMult;
                 playerCar.faultGripMult = RaceHandoff.GripMult;

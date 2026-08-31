@@ -70,3 +70,9 @@ if ($bad) { $bad | ForEach-Object { $_.Line } } else { Write-Host "  all clear" 
 Write-Host "=== LAYOUT (content height vs viewport) ==="
 Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] (home|options)" |
     ForEach-Object { $_.Line }
+
+# Say so explicitly. robocopy returns 1 for "files were copied" -- success -- and
+# that is the last $LASTEXITCODE the mirror leaves lying around, so without this
+# every clean run of this script reported failure to whatever launched it. Every
+# real failure above exits 1 on its own.
+exit 0

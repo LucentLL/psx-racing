@@ -227,6 +227,33 @@ namespace PSXRacing.LifeSim
         public bool welded;
         /// <summary>Roots blower. Offered on naturally-aspirated cars only.</summary>
         public bool supercharged;
+
+        // The six adjustable parts. Each one exists to UNLOCK a group of
+        // sliders on the advanced-tuning screen rather than to change the car
+        // by itself: fitting a coilover does nothing until you turn it. An
+        // ADDED field is false on every existing save, which is exactly right —
+        // nobody has fitted any of these yet.
+        /// <summary>Adjustable anti-roll bars, front and rear.</summary>
+        public bool swayBars;
+        /// <summary>Quick rack: steering lock, rate and self-centring.</summary>
+        public bool steeringRack;
+        /// <summary>Plate-type limited-slip differential.</summary>
+        public bool lsd;
+        /// <summary>A crown wheel and pinion set — the final drive alone.</summary>
+        public bool finalDriveSet;
+        /// <summary>Close-ratio gear set — every individual ratio.</summary>
+        public bool gearSet;
+        /// <summary>Adjustable wing and splitter: downforce level and balance.</summary>
+        public bool aeroKit;
+
+        /// <summary>
+        /// The driver's own advanced tune. Null until the player opens the
+        /// setup screen, and null is a FACTORY setup — see <see cref="CarSetup"/>
+        /// for why that is by construction rather than by a migration. Never
+        /// read this directly; go through <see cref="CarSetupGate.SetupOf"/>,
+        /// which builds one on demand.
+        /// </summary>
+        public CarSetup setup;
     }
 
     [Serializable]

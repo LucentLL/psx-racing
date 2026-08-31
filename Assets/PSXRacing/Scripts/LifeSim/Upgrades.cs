@@ -319,7 +319,65 @@ namespace PSXRacing.LifeSim
         /// to honour. It is also what keeps the blower whine on cars that should
         /// have one.
         /// </summary>
-        public enum Mod { WeldedDiff = 0, Supercharger = 1 }
+        /// <summary>
+        /// Append-only. The ordinal is not persisted — OwnedCar holds one bool
+        /// per mod — but it IS the row order on the parts page, and the six
+        /// after the original two are the ADJUSTABLE parts: none of them changes
+        /// the car on its own, each unlocks a group of sliders on the advanced-
+        /// tuning screen. That is the point. Buying a coilover and being handed
+        /// a car that drives itself differently is an upgrade; buying one and
+        /// being handed a spring rate to choose is tuning.
+        /// </summary>
+        public enum Mod
+        {
+            WeldedDiff = 0, Supercharger = 1,
+            SwayBars = 2, SteeringRack = 3, AeroKit = 4,
+            FinalDrive = 5, LimitedSlip = 6, GearSet = 7,
+        }
+
+        public static bool HasMod(OwnedCar car, Mod mod)
+        {
+            if (car == null) return false;
+            switch (mod)
+            {
+                case Mod.WeldedDiff: return car.welded;
+                case Mod.Supercharger: return car.supercharged;
+                case Mod.SwayBars: return car.swayBars;
+                case Mod.SteeringRack: return car.steeringRack;
+                case Mod.AeroKit: return car.aeroKit;
+                case Mod.FinalDrive: return car.finalDriveSet;
+                case Mod.LimitedSlip: return car.lsd;
+                case Mod.GearSet: return car.gearSet;
+                // Explicit, so appending a ninth mod is a visible error rather
+                // than a second row silently selling the gear set's bool.
+                default:
+                    Debug.LogError("Upgrades.HasMod: unhandled mod " + mod);
+                    return false;
+            }
+        }
+
+        static void SetMod(OwnedCar car, Mod mod, bool on)
+        {
+            switch (mod)
+            {
+                case Mod.WeldedDiff: car.welded = on; break;
+                case Mod.Supercharger: car.supercharged = on; break;
+                case Mod.SwayBars: car.swayBars = on; break;
+                case Mod.SteeringRack: car.steeringRack = on; break;
+                case Mod.AeroKit: car.aeroKit = on; break;
+                case Mod.FinalDrive: car.finalDriveSet = on; break;
+                case Mod.LimitedSlip: car.lsd = on; break;
+                case Mod.GearSet: car.gearSet = on; break;
+                default: Debug.LogError("Upgrades.SetMod: unhandled mod " + mod); break;
+            }
+        }
+
+        /// <summary>Every mod, for the parts page to iterate.</summary>
+        public static readonly Mod[] AllMods =
+        {
+            Mod.WeldedDiff, Mod.Supercharger, Mod.SwayBars, Mod.SteeringRack,
+            Mod.AeroKit, Mod.FinalDrive, Mod.LimitedSlip, Mod.GearSet,
+        };
 
         public struct ModOffer
         {
@@ -337,28 +395,76 @@ namespace PSXRacing.LifeSim
         /// actually paces the blower, and that survives intact.
         /// </summary>
 
+        /// <summary>Name, effect line, base price and base skill for each mod.
+        /// The cheap ones price off <see cref="EffCostMult"/> (a bar is mostly
+        /// labour and barely tracks car value); the rest off
+        /// <see cref="CarCostMult"/>, because a gear set for an exotic really
+        /// does cost what an exotic costs.</summary>
+        static void ModSpec(Mod mod, out string name, out string effect,
+                            out int baseCost, out int baseSkill, out bool cheapMult)
+        {
+            switch (mod)
+            {
+                case Mod.WeldedDiff:
+                    name = "WELD DIFF"; effect = "both driven wheels break away together";
+                    baseCost = 150; baseSkill = 35; cheapMult = true; return;
+                case Mod.Supercharger:
+                    name = "SUPERCHARGER"; effect = "+30% torque, tapering to +15% at redline";
+                    baseCost = 3000; baseSkill = 85; cheapMult = false; return;
+                case Mod.SwayBars:
+                    name = "ADJUSTABLE SWAY BARS"; effect = "unlocks roll stiffness, front and rear";
+                    baseCost = 400; baseSkill = 30; cheapMult = true; return;
+                case Mod.SteeringRack:
+                    name = "QUICK STEERING RACK"; effect = "unlocks lock, rate and self-centring";
+                    baseCost = 700; baseSkill = 55; cheapMult = false; return;
+                case Mod.AeroKit:
+                    name = "ADJUSTABLE AERO"; effect = "unlocks downforce level and balance";
+                    baseCost = 800; baseSkill = 40; cheapMult = false; return;
+                case Mod.FinalDrive:
+                    name = "FINAL DRIVE SET"; effect = "unlocks the final drive ratio";
+                    baseCost = 900; baseSkill = 65; cheapMult = false; return;
+                case Mod.LimitedSlip:
+                    name = "LIMITED-SLIP DIFF"; effect = "unlocks accel, decel and preload lock";
+                    baseCost = 1400; baseSkill = 70; cheapMult = false; return;
+                case Mod.GearSet:
+                    name = "CLOSE-RATIO GEAR SET"; effect = "unlocks every individual ratio";
+                    baseCost = 2600; baseSkill = 80; cheapMult = false; return;
+                default:
+                    Debug.LogError("Upgrades.ModSpec: unhandled mod " + mod);
+                    name = "?"; effect = ""; baseCost = 0; baseSkill = 99;
+                    cheapMult = true; return;
+            }
+        }
+
+        /// <summary>Just the display name, for a padlock that has to say what
+        /// would open it without pricing the part.</summary>
+        public static void ModName(Mod mod, out string name) =>
+            ModSpec(mod, out name, out _, out _, out _, out _);
+
         public static ModOffer OfferFor(LifeState s, OwnedCar car, CarSpec spec, Mod mod)
         {
             var o = new ModOffer { mod = mod };
-            bool weld = mod == Mod.WeldedDiff;
-            o.name = weld ? "WELD DIFF" : "SUPERCHARGER";
-            o.effect = weld ? "both driven wheels break away together"
-                            : "+30% torque, tapering to +15% at redline";
-            int baseCost = weld ? 150 : 3000;
-            int baseSkill = weld ? 35 : 85;
+            ModSpec(mod, out o.name, out o.effect, out int baseCost, out int baseSkill,
+                    out bool cheapMult);
 
-            o.price = Mathf.RoundToInt(baseCost * (weld ? EffCostMult(spec, baseCost)
-                                                        : CarCostMult(spec)));
+            o.price = Mathf.RoundToInt(baseCost * (cheapMult ? EffCostMult(spec, baseCost)
+                                                             : CarCostMult(spec)));
             o.skillReq = Mathf.Min(95, baseSkill + CarSkillBoost(spec));
             o.canDiy = s != null && s.mechSkill >= o.skillReq;
-            o.owned = car != null && (weld ? car.welded : car.supercharged);
+            o.owned = HasMod(car, mod);
 
             if (o.owned) { o.blockedReason = "FITTED"; return o; }
-            if (!weld && spec != null && spec.IsForcedInduction)
+            if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
             {
                 o.blockedReason = spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
                 return o;
             }
+            // A weld and a plate pack are the same hole in the car. Whichever
+            // went in first blocks the other, and says which.
+            if (mod == Mod.LimitedSlip && car != null && car.welded)
+            { o.blockedReason = "DIFF IS WELDED"; return o; }
+            if (mod == Mod.WeldedDiff && car != null && car.lsd)
+            { o.blockedReason = "LSD FITTED"; return o; }
             o.available = true;
             return o;
         }
@@ -367,6 +473,11 @@ namespace PSXRacing.LifeSim
         /// day; the blower goes to a shop and takes one.</summary>
         public static string OrderMod(LifeState s, OwnedCar car, CarSpec spec, Mod mod)
         {
+            // OfferFor tolerates a null car — HasMod returns false and both
+            // exclusion checks guard — so it would happily report a null car's
+            // weld as available and this would then null-ref on the fitting.
+            // Order has the same guard for the same reason.
+            if (s == null || car == null) return "no car";
             var o = OfferFor(s, car, spec, mod);
             if (!o.available) return o.blockedReason ?? "unavailable";
             if (!o.canDiy) return "needs skill " + o.skillReq;
@@ -375,7 +486,7 @@ namespace PSXRacing.LifeSim
             s.money -= o.price;
             s.mechSkill = Mathf.Min(100f, s.mechSkill +
                                     FaultCatalog.DiySkillGain(s.mechSkill, o.skillReq));
-            if (mod == Mod.WeldedDiff) car.welded = true; else car.supercharged = true;
+            SetMod(car, mod, true);
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": fitted " + o.name + " (" +
                               MenuKit.Money(o.price) + ")");
             return null;
