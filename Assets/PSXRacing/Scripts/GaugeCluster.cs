@@ -884,8 +884,25 @@ namespace PSXRacing
             return w < 32f ? FrameHeight() * 16f / 9f : w;
         }
 
+        /// <summary>Whether the dials were switched off for a driver who got
+        /// out. Nobody reads a rev counter from the pavement, and the cluster
+        /// over the walk-around view was half of "while walking, I still see
+        /// race car UI on screen".</summary>
+        bool wasOnFoot;
+
         void Update()
         {
+            bool foot = OnFoot.ForecourtMode.OnFoot;
+            if (foot != wasOnFoot)
+            {
+                wasOnFoot = foot;
+                // Everything this component draws — both dials, the gear panel,
+                // the cockpit binnacle — is a direct child of its own transform,
+                // so the toggle catches whatever layout happens to be built.
+                foreach (Transform child in transform) child.gameObject.SetActive(!foot);
+            }
+            if (foot) return;
+
             // Cheap every frame — three float compares when nothing changed —
             // and the only way either a bulb picked from the pause menu or the
             // car spec RaceHandoffApplier lands during Start reaches a cluster

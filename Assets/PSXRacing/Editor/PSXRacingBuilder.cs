@@ -3483,6 +3483,11 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static Bounds AddStationPieceColliders(GameObject root, List<Transform> pumps)
         {
+            // Leaves open first, so the piece pass below never sees them: the
+            // 6TWELVE models real doors on a real interior, and an open shop
+            // is the whole reason the colliders went piece-by-piece.
+            WorldKit.OpenDoors(root);
+
             var lotBounds = CombinedBounds(root);
             float floorY = pumps.Count > 0 ? PumpBounds(pumps).min.y : lotBounds.min.y;
 
@@ -3494,14 +3499,6 @@ namespace PSXRacing.EditorTools
                 if (r == null) continue;
                 if (r.GetComponentsInChildren<Renderer>().Length > 1) continue;   // a group
 
-                // The pumps already get bespoke islands from the caller — a
-                // second box on the mesh would double-collide every one.
-                bool isPump = false;
-                for (var p = r.transform; p != null && p != root.transform; p = p.parent)
-                    if (p.name.StartsWith("Fuel_pump", StringComparison.OrdinalIgnoreCase))
-                    { isPump = true; break; }
-                if (isPump) continue;
-
                 var b = r.bounds;
                 // Ground clutter you can step over, and the canopy overhead
                 // you drive under. The 2.05 m headroom line is above the
@@ -3511,10 +3508,23 @@ namespace PSXRacing.EditorTools
 
                 if (r.GetComponent<Collider>() == null)
                 {
-                    // On the renderer's own object, so the box is fitted in
-                    // LOCAL space — a world-axis box around a yawed building
-                    // is its diagonal, which is a wall standing in fresh air.
-                    r.gameObject.AddComponent<BoxCollider>();
+                    // The MESH, not a box. A box was right until somebody
+                    // walked here: this pack draws a pump island's two canopy
+                    // legs as ONE object eleven metres long, so its box was an
+                    // eleven-metre invisible wall straight through the pump
+                    // line — and the shop is one mesh whose box filled the
+                    // whole store, doorway, aisles and all. These are 8-500
+                    // vert meshes; a static MeshCollider each is nothing, and
+                    // it is the difference between colliding with the model
+                    // and colliding with a rumour of it. (This also covers
+                    // the pumps themselves, which used to get bespoke
+                    // world-axis island boxes from the caller — a yawed
+                    // forecourt inflated those into their own diagonals.)
+                    var mf = r.GetComponent<MeshFilter>();
+                    if (mf != null && mf.sharedMesh != null)
+                        r.gameObject.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
+                    else
+                        r.gameObject.AddComponent<BoxCollider>();
                 }
                 r.gameObject.layer = SolidLayer;
 
@@ -3551,25 +3561,16 @@ namespace PSXRacing.EditorTools
             storeDoor.transform.position = doorAt;
         }
 
-        /// <summary>The circuit wiring: piece colliders, the shop door, and a
-        /// bespoke island per pump — a pump is a bollard-sized thing and its
-        /// own bounds are the right box for it.</summary>
+        /// <summary>The circuit wiring: piece colliders and the shop door.
+        /// The pumps are collided by their own meshes inside the piece pass
+        /// now — the old world-axis island boxes inflated into their diagonals
+        /// on any forecourt that faced a yawed road, and stood invisible walls
+        /// where a person plainly fits.</summary>
         static void BuildStationColliders(GameObject root, List<Transform> pumps)
         {
             var shop = AddStationPieceColliders(root, pumps);
             PlaceStoreDoor(root.transform.parent, shop, pumps,
                 GroundHeightAt(shop.center.x, shop.center.z) + 1.2f);
-
-            foreach (var pump in pumps)
-            {
-                var pb = CombinedBounds(pump.gameObject);
-                var go = new GameObject("PumpIsland");
-                go.transform.SetParent(root.transform.parent, false);
-                go.layer = SolidLayer;
-                go.transform.position = pb.center;
-                var pcol = go.AddComponent<BoxCollider>();
-                pcol.size = pb.size;
-            }
         }
 
         /// <summary>

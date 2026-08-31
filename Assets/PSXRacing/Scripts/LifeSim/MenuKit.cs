@@ -16,25 +16,40 @@ namespace PSXRacing.LifeSim
     /// </summary>
     public static class MenuKit
     {
-        public static readonly Color Bg = new Color(0.05f, 0.04f, 0.09f, 1f);
-        public static readonly Color PanelBg = new Color(0.11f, 0.10f, 0.17f, 0.98f);
-        public static readonly Color BtnBg = new Color(0.20f, 0.19f, 0.30f, 1f);
-        public static readonly Color BtnBgDisabled = new Color(0.13f, 0.12f, 0.17f, 1f);
-        public static readonly Color Accent = new Color(1f, 0.80f, 0.25f);   // sunset gold
+        // ---- palette ----------------------------------------------------
+        // GRAN TURISMO 2's amber-on-charcoal, lifted straight from the owner's
+        // own HTML game (Racing-Game-2, src/ui/gt2Chrome.ts GT2_COLORS): the
+        // menus were asked to read as THAT game — charcoal #1c1c1c ground,
+        // #262626 panels, amber #f7a623 accents, #ff7a18 for the thing that is
+        // live right now. The old blue-violet night palette is gone; what
+        // stays is every hard-won legibility rule these constants carry.
+        public static readonly Color Bg = new Color(0.110f, 0.110f, 0.110f, 1f);        // #1c1c1c
+        // Slightly translucent so the blueprint grid beneath ghosts through
+        // the body panel the way GT2's does — the buttons stay opaque, so
+        // nothing a player reads sits on the pattern.
+        public static readonly Color PanelBg = new Color(0.149f, 0.149f, 0.149f, 0.90f); // #262626
+        public static readonly Color BtnBg = new Color(0.196f, 0.196f, 0.196f, 1f);      // #323232
+        public static readonly Color BtnBgDisabled = new Color(0.125f, 0.125f, 0.125f, 1f);
+        public static readonly Color Accent = new Color(0.969f, 0.651f, 0.137f);   // GT2 amber #f7a623
+        /// <summary>The brighter orange GT2 reserves for the ACTIVE thing —
+        /// the selected tab's rule, the row the cursor is on.</summary>
+        public static readonly Color Active = new Color(1f, 0.478f, 0.094f);       // #ff7a18
         public static readonly Color Good = new Color(0.45f, 1f, 0.55f);
         public static readonly Color Bad = new Color(1f, 0.40f, 0.36f);
         /// <summary>"Dim" is secondary, not faint. It was 55% white on a dark
         /// ground, which on a phone in daylight is simply not readable — the
         /// whole menu was reported as illegible. Secondary text earns lower
-        /// CONTRAST by being cooler and slightly darker, not by fading out.</summary>
-        public static readonly Color Dim = new Color(0.72f, 0.74f, 0.85f, 1f);
-        public static readonly Color Line = new Color(1f, 0.80f, 0.25f, 0.55f);
+        /// CONTRAST by being neutral and slightly darker, not by fading out.
+        /// GT2's own textMute is #9a9a9a; this sits a shade above it for the
+        /// phone-in-daylight case that got the first version reported.</summary>
+        public static readonly Color Dim = new Color(0.68f, 0.68f, 0.68f, 1f);
+        public static readonly Color Line = new Color(0.969f, 0.651f, 0.137f, 0.55f);
         /// <summary>
-        /// The panel behind the tab you are ON. A gold-TINTED dark panel, not a
-        /// gold FILL, and the difference is the whole reason this constant
-        /// exists — see <see cref="MarkTab"/>.
+        /// The panel behind the tab you are ON. An amber-TINTED dark panel,
+        /// not an amber FILL, and the difference is the whole reason this
+        /// constant exists — see <see cref="MarkTab"/>.
         /// </summary>
-        public static readonly Color TabOnBg = new Color(0.30f, 0.25f, 0.12f, 1f);
+        public static readonly Color TabOnBg = new Color(0.30f, 0.23f, 0.09f, 1f);
 
         // ---- type scale -------------------------------------------------
         // PS1-era menus used few sizes, all generous. These are the only sizes
@@ -529,6 +544,85 @@ namespace PSXRacing.LifeSim
             // 4-unit rule drawn first would be hidden by the label's own
             // (transparent) rect only if the label came later, so pin the order.
             mark.SetAsLastSibling();
+        }
+
+        /// <summary>
+        /// The GT2 blueprint grid: faint steel-blue lines over the charcoal,
+        /// exactly the backdrop the HTML game draws behind its Parts Lineup
+        /// and pause screens (gt2Chrome.drawGt2Backdrop — line colour
+        /// rgba(120,140,170,0.07) on a 16 px cell). "Especially the racing
+        /// grid background" is the owner's own words for what these menus
+        /// were missing. Non-interactive, tiled from a 32 px texture, and
+        /// pitched against CANVAS units so the cells stay square at any
+        /// resolution — the same lesson the scanlines learned.
+        /// </summary>
+        /// <summary>Default alpha is DOUBLE the HTML game's 0.07: at GT2's own
+        /// strength the lines measured under 4% luminance delta here and
+        /// vanished beneath the scanline overlay — the first preview render
+        /// showed charcoal and no grid at all. The owner asked for this
+        /// pattern by name; it has to be visible to be an answer.</summary>
+        public static void GridBackdrop(Transform parent, float alpha = 0.17f)
+        {
+            var go = new GameObject("GridBackdrop");
+            go.transform.SetParent(parent, false);
+            var img = go.AddComponent<RawImage>();
+            img.raycastTarget = false;
+            img.texture = GridTex();
+            img.color = new Color(0.47f, 0.55f, 0.67f, alpha);
+            var rt = img.rectTransform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            go.AddComponent<GridTiler>();
+        }
+
+        /// <summary>One grid cell per 26 canvas units, whatever the rect
+        /// resolves to. Same contract as <see cref="ScanlineTiler"/>: uvRect
+        /// off the canvas-unit size, never off Screen pixels.
+        ///
+        /// ExecuteAlways + the dimensions-change callback, NOT just LateUpdate:
+        /// edit mode runs no LateUpdate at all, so the preview tool rendered
+        /// the texture stretched to ONE cell — a single faint line up the left
+        /// of every screenshot, indistinguishable from the grid not existing.
+        /// The callback also beats LateUpdate to the first live frame, so the
+        /// menu never flashes untiled while the layout resolves.</summary>
+        [ExecuteAlways]
+        class GridTiler : MonoBehaviour
+        {
+            const float Cell = 26f;
+
+            void OnEnable() => Apply();
+            void OnRectTransformDimensionsChange() => Apply();
+            void LateUpdate() => Apply();
+
+            void Apply()
+            {
+                var img = GetComponent<RawImage>();
+                var rt = transform as RectTransform;
+                if (img == null || rt == null) return;
+                var size = rt.rect.size;
+                if (size.x <= 0f || size.y <= 0f) return;
+                var want = new Rect(0f, 0f, size.x / Cell, size.y / Cell);
+                if (img.uvRect != want) img.uvRect = want;
+            }
+        }
+
+        static Texture2D gridTex;
+        static Texture2D GridTex()
+        {
+            if (gridTex != null) return gridTex;
+            const int n = 32;
+            gridTex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Repeat,
+            };
+            var clear = new Color(0f, 0f, 0f, 0f);
+            var line = Color.white;   // tinted by the RawImage colour
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                    gridTex.SetPixel(x, y, x == 0 || y == 0 ? line : clear);
+            gridTex.Apply();
+            return gridTex;
         }
 
         /// <summary>

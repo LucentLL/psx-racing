@@ -186,6 +186,12 @@ namespace PSXRacing.LifeSim
         /// (<see cref="YardPart.shelf"/>) and the page groups them.</summary>
         public List<YardPart> junkyard = new List<YardPart>();
 
+        /// <summary>Wrecks already stripped by hand this week, as
+        /// "week:index" keys (see <see cref="Junkyard.WreckPulled"/>). A pull
+        /// that respawned on the next visit would be a free-parts fountain.
+        /// ADDED field: an old save simply starts with every wreck intact.</summary>
+        public List<string> yardPulls = new List<string>();
+
         // === Mail / log ===
         public List<MailItem> mail = new List<MailItem>();
         public List<string> calendarLog = new List<string>();

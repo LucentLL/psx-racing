@@ -176,21 +176,24 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// The burger lot: solid over the BUILDING only (the drive lane and
-        /// parking must stay drivable), an order-window trigger by the menu
-        /// board, and the DriveThru brain on the trigger.
+        /// The burger lot: the building and its furniture collided piece by
+        /// piece (the drive lane and parking stay drivable — flat pieces fail
+        /// the size filter), an order-window trigger by the menu board, and
+        /// the DriveThru brain on the trigger.
+        ///
+        /// It USED to be one box over the building shell, which sealed the
+        /// modelled dining room behind an invisible wall. The restaurants are
+        /// the two props in the set with real interiors, and "I am unable to
+        /// go inside" is the bug one box per building is.
         /// </summary>
         static void DressBurger(GameObject inst, CityProps.Def def)
         {
+            WorldKit.OpenDoors(inst);
+            WorldKit.AddColliders(inst, SolidLayer);
             AddApron(inst, def.w + 5f, def.d + 5f);
             Transform shell = FindDeep(inst.transform, "BurgerPiz");
             var shellBounds = shell != null
                 ? RendererBounds(shell.gameObject) : RendererBounds(inst);
-            var solid = new GameObject("Solid");
-            solid.transform.SetParent(inst.transform, false);
-            solid.transform.position = shellBounds.center;
-            solid.layer = SolidLayer;
-            solid.AddComponent<BoxCollider>().size = shellBounds.size;
 
             // The freestanding menu board marks the order lane: among the Menu
             // meshes the TALL one stands in the lot; the wide flat one hangs
@@ -213,11 +216,15 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The pizzeria is a corner shop: no lane, so the order bay is
         /// the kerb — a stopped car anywhere along either face is "parked
-        /// outside", which is what curbside pickup is.</summary>
+        /// outside", which is what curbside pickup is. Collided piece by piece
+        /// with its double doors standing open, for the same reason as the
+        /// burger box above: the dining room is modelled, and it is for
+        /// walking into.</summary>
         static void DressPizzeria(GameObject inst, CityProps.Def def)
         {
+            WorldKit.OpenDoors(inst);
+            WorldKit.AddColliders(inst, SolidLayer);
             AddApron(inst, def.w + 4f, def.d + 8f);
-            AddSolidBox(inst, def);
             var b = RendererBounds(inst);
             AddOrderBay(inst, new Vector3(b.center.x, b.min.y + 1.4f, b.center.z),
                         new Vector3(b.size.x + 5f, 3f, b.size.z + 11f),

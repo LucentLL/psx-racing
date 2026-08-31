@@ -65,7 +65,10 @@ namespace PSXRacing.Town
         {
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "DepartCanvas", 140);
-            MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.03f, 0.03f, 0.05f, 0.88f));
+            // GT2 charcoal + blueprint grid, matching the home screen: the
+            // junction question is a menu and should read as one of the family.
+            MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.10f, 0.10f, 0.10f, 0.90f));
+            MenuKit.GridBackdrop(canvas.transform);
             MenuKit.Scanlines(canvas.transform);
 
             var panel = MenuKit.Stretch(canvas.transform, "Depart",

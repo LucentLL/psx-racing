@@ -113,8 +113,11 @@ namespace PSXRacing
                 cluster.rpmFlutter = rpmFlutter;
             }
 
+            // The venue's own name, not a literal: this same HUD serves the
+            // town, and a street called CHARLOTTE two hundred miles from
+            // Charlotte was in the first screenshot the owner sent back.
             string street = city.CurrentStreet;
-            Set(lapText, string.IsNullOrEmpty(street) ? "CHARLOTTE" : street);
+            Set(lapText, string.IsNullOrEmpty(street) ? city.VenueName : street);
 
             int centis = Mathf.FloorToInt(city.SessionSeconds * 100f);
             if (centis != lastTimeCentis) { lastTimeCentis = centis; Set(timeText, FormatTime(city.SessionSeconds)); }
@@ -230,10 +233,51 @@ namespace PSXRacing
 
         void Awake() => HudOnTop.Apply(gameObject);
 
+        /// <summary>Whether the last frame was drawn for somebody on foot.
+        /// Drives the one-shot blank/restore below.</summary>
+        bool lastFoot;
+
+        /// <summary>
+        /// A driver's HUD for a player who is not driving is noise — the lap
+        /// clock, the fuel bar and the mode banner were all still printing over
+        /// the walk-around view, reported as "while walking, I still see race
+        /// car UI on screen". Blank the lot on the way out of the car and
+        /// reset every change-gate on the way back in, so the fields repaint
+        /// with live values rather than trusting stale ones.
+        /// </summary>
+        bool OnFootNow()
+        {
+            bool foot = OnFoot.ForecourtMode.OnFoot;
+            if (foot == lastFoot) return foot;
+            lastFoot = foot;
+            if (foot)
+            {
+                Set(lapText, ""); Set(timeText, ""); Set(lastLapText, "");
+                Set(posText, ""); Set(centerText, ""); Set(camText, "");
+                Set(fuelText, "");
+                if (fuelFill != null && fuelFill.parent != null)
+                    fuelFill.parent.gameObject.SetActive(false);
+                var touch = TouchControls.Instance;
+                if (touch != null) { touch.SetAction(false, ""); touch.SetContinue(false); }
+            }
+            else
+            {
+                if (fuelFill != null && fuelFill.parent != null)
+                    fuelFill.parent.gameObject.SetActive(true);
+                lastLap = int.MinValue; lastPos = int.MinValue;
+                lastTimeCentis = int.MinValue; lastBest = -1f;
+                lastCenter = null; lastCam = null; lastTipLine = null;
+                lastFuelPct = int.MinValue;
+                lastFuelColor = new Color(-1f, -1f, -1f, -1f);
+            }
+            return foot;
+        }
+
         void Update()
         {
             var rm = RaceManager.Instance;
             if (car == null) return;
+            if (OnFootNow()) return;
             if (rm == null)
             {
                 // No RaceManager means Charlotte: same canvas, no laps to count.

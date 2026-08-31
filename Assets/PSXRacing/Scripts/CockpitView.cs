@@ -345,7 +345,11 @@ namespace PSXRacing
         {
             Build();
 
-            bool want = ChaseCamera.Current == ChaseCamera.View.Cockpit;
+            // Not while the driver is standing on the forecourt: ChaseCamera is
+            // merely disabled out there, so Current still says Cockpit, and the
+            // cabin PNG would ride the walk-around view like a mask.
+            bool want = ChaseCamera.Current == ChaseCamera.View.Cockpit &&
+                        !OnFoot.ForecourtMode.OnFoot;
             if (want != shown)
             {
                 shown = want;

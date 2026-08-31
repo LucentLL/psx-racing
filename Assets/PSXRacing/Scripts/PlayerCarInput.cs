@@ -86,7 +86,13 @@ namespace PSXRacing
                 if (kb.eKey.wasPressedThisFrame) ShiftBy(1);
                 if (kb.qKey.wasPressedThisFrame) ShiftBy(-1);
                 if (kb.mKey.wasPressedThisFrame) car.manualMode = false;
-                if (kb.rKey.wasPressedThisFrame) DriveSession.Respawn(car);
+                // Only while the player HAS the car. inputEnabled is false on
+                // the grid, after the flag, and — the case that got reported —
+                // while the driver is standing on the pavement: the walk-in
+                // scenes read this same key as their second verb, so one press
+                // of X beside a parked car was also a respawn order, and the
+                // car teleported away from the person walking up to it.
+                if (kb.rKey.wasPressedThisFrame && inputEnabled) DriveSession.Respawn(car);
             }
 
             if (pad != null)
@@ -115,7 +121,18 @@ namespace PSXRacing
                 // teleported the car back to the racing line and stopped it
                 // dead. Two features, one button, and the destructive one wins
                 // — reported as changing view respawning the car.
-                if (pad.selectButton.wasPressedThisFrame || pad.buttonWest.wasPressedThisFrame)
+                // Same inputEnabled gate as R above, and it matters MORE here:
+                // pad-west is the on-foot interactors' second verb, so without
+                // it every X press beside a parked car respawned the car.
+                //
+                // And X yields entirely while a door handle is on offer — the
+                // town reads the SAME press as GET OUT, script order decides
+                // which component sees it first, and the losing order was a
+                // player stepping out of a car already teleporting back to the
+                // racing line.
+                if ((pad.selectButton.wasPressedThisFrame ||
+                     (pad.buttonWest.wasPressedThisFrame && !OnFoot.ForecourtMode.OfferGetOut))
+                    && inputEnabled)
                     DriveSession.Respawn(car);
             }
 

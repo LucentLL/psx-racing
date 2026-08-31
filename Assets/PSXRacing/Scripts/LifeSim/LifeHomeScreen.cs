@@ -83,8 +83,10 @@ namespace PSXRacing.LifeSim
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "HomeCanvas", 10);
             MenuKit.Panel(canvas.transform, "Backdrop", MenuKit.Bg);
-            // Scanlines go down first so every panel built after sits on top of
-            // them — the effect belongs to the screen, not to the content.
+            // The GT2 blueprint grid over the charcoal, then the scanlines.
+            // Both go down first so every panel built after sits on top of
+            // them — the effects belong to the screen, not to the content.
+            MenuKit.GridBackdrop(canvas.transform);
             MenuKit.Scanlines(canvas.transform);
 
             wizard = !LifeSimManager.HasSave || string.IsNullOrEmpty(S.playerName);

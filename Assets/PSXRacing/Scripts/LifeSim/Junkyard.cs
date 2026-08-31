@@ -256,7 +256,19 @@ namespace PSXRacing.LifeSim
             }
         }
 
-        static YardPart Roll(LifeState s, Shelf shelf)
+        static YardPart Roll(LifeState s, Shelf shelf) => RollWith(s, shelf, null);
+
+        // Two dice, one roll. The shelves want Unity's Random — a shop that
+        // reshuffles is the point of a shop — and the WRECKS want a seeded one,
+        // because a wreck is scenery that must hold still for a week. One body
+        // serves both so the two kinds of pull can never drift apart on what a
+        // part IS.
+        static int Next(System.Random rng, int min, int maxExcl) =>
+            rng != null ? rng.Next(min, maxExcl) : Random.Range(min, maxExcl);
+        static float Value01(System.Random rng) =>
+            rng != null ? (float)rng.NextDouble() : Random.value;
+
+        static YardPart RollWith(LifeState s, Shelf shelf, System.Random rng)
         {
             int idx = (int)shelf;
             var part = new YardPart
@@ -265,27 +277,27 @@ namespace PSXRacing.LifeSim
                 // Grade is flat across 25..100 rather than bell-shaped on
                 // purpose: a yard where most of everything is average is a yard
                 // with nothing to find. The two ends are the reason to look.
-                grade = Random.Range(25, 101),
+                grade = Next(rng, 25, 101),
                 expiresDay = s.day + ShelfLife[idx].minDays +
-                             Random.Range(0, ShelfLife[idx].spreadDays + 1),
+                             Next(rng, 0, ShelfLife[idx].spreadDays + 1),
             };
 
             float hardwareChance = shelf == Shelf.Week ? WeekHardwareChance
                                  : shelf == Shelf.BackLot ? BackLotHardwareChance : 0f;
-            if (Random.value < hardwareChance)
+            if (Value01(rng) < hardwareChance)
             {
                 var table = shelf == Shelf.BackLot ? BackLotHardware : WeekHardware;
-                var pick = table[Random.Range(0, table.Length)];
+                var pick = table[Next(rng, 0, table.Length)];
                 part.label = pick.label;
                 part.upgradeKind = Upgrades.UpgradeKindKey(pick.kind);
                 part.maxStage = pick.maxStage;
                 part.stat = "engine";           // the lane a bad one bites, as Upgrades does
-                part.donorHint = DonorHint();
+                part.donorHint = DonorHint(rng);
                 return part;
             }
 
             var stock = StockFor(shelf);
-            var kind = stock[Random.Range(0, stock.Length)];
+            var kind = stock[Next(rng, 0, stock.Length)];
             part.label = kind.label;
             part.stat = kind.stat;
             part.add = kind.add;
@@ -298,14 +310,14 @@ namespace PSXRacing.LifeSim
         /// <summary>Flavour for a hardware pull, which has no fixed line of its
         /// own because it is quoted per car. Says where it came off, which on a
         /// used performance part is most of what you would want to know.</summary>
-        static string DonorHint()
+        static string DonorHint(System.Random rng = null)
         {
             string[] hints =
             {
                 "off a track car", "one season on it", "seller says lightly used",
                 "boxed, no receipts", "still on the donor", "swapped out for newer",
             };
-            return hints[Random.Range(0, hints.Length)];
+            return hints[Next(rng, 0, hints.Length)];
         }
 
         // ================= quoting and buying =================
@@ -455,6 +467,144 @@ namespace PSXRacing.LifeSim
             // Best first: a scrapyard page sorted by nothing is a scrapyard.
             rows.Sort((a, b) => b.grade.CompareTo(a.grade));
             return rows;
+        }
+
+        // ================= pulling off the wrecks =================
+        //
+        // The shelves are what the yard already pulled; the WRECKS are what it
+        // has not got to. Walking the compound, every shell standing in the
+        // dirt carries one part worth having, found by looking it over and got
+        // by pulling it yourself — your skill, rented tools, and a price that
+        // undercuts the shelf because the labour is yours. Reported as missing
+        // in exactly those words: "There is no prompt to inspect or pull parts
+        // from junkyard cars. Player should use their mechanic/repair skill."
+
+        /// <summary>Flat fee for the yard's loan-a-tool van, waived for
+        /// somebody who walked in with an impact wrench of their own. "Tools
+        /// can be rented" is the owner's own design note.</summary>
+        public const int ToolRentalFee = 25;
+
+        public static int ToolRental(LifeState s) =>
+            Toolbox.Owned(s, Toolbox.Impact) ? 0 : ToolRentalFee;
+
+        /// <summary>Yard-pull discount against the shelf quote for the same
+        /// part. The yard's crew did not pull, clean or rack this one — you
+        /// did — so the counter takes what a donor shell is worth and no more.</summary>
+        const float PullPriceMult = 0.55f;
+
+        /// <summary>The week key a wreck's contents live under. Off day/7, the
+        /// same clock the yard scenery turns over on, so the cars and what is
+        /// in them change together.</summary>
+        static string PullKey(LifeState s, int wreck) => (s.day / 7) + ":" + wreck;
+
+        public static bool WreckPulled(LifeState s, int wreck) =>
+            s != null && s.yardPulls != null && s.yardPulls.Contains(PullKey(s, wreck));
+
+        /// <summary>
+        /// What is still bolted to wreck <paramref name="wreck"/> this week.
+        /// SEEDED off the same week clock the yard's scenery uses — a wreck is
+        /// a thing you walk back to, and one whose engine became a fender
+        /// between two looks would read as the yard lying. Mostly shelf-grade
+        /// stuff, with the odd back-lot find, which is what makes walking the
+        /// rows worth it over reading the page.
+        /// </summary>
+        public static YardPart WreckPart(LifeState s, int wreck)
+        {
+            var rng = new System.Random((s.day / 7) * 7919 + 13 + wreck * 101);
+            double r = rng.NextDouble();
+            var shelf = r < 0.40 ? Shelf.Bin : r < 0.85 ? Shelf.Week : Shelf.BackLot;
+            return RollWith(s, shelf, rng);
+        }
+
+        /// <summary>Skill a pull demands. Hardware quotes its own number via
+        /// the build plan; a service part is graded off its own downtime, the
+        /// same proxy the bench pays skill against — a plug set is an
+        /// afternoon, a donor engine is a crane and a week.</summary>
+        public static int PullSkillReq(YardPart part, Quote q) =>
+            q.isUpgrade ? q.skillReq : Mathf.Max(0, (part.days - 1) * 15);
+
+        /// <summary>One wreck's offer, priced and gated for THIS player and
+        /// their active car. Everything the walk-up prompt prints.</summary>
+        public struct PullOffer
+        {
+            public YardPart part;
+            public Quote quote;
+            public int price, rental, skillReq;
+            public bool can, pulled;
+            public string blocked;
+        }
+
+        public static PullOffer GetPull(LifeState s, OwnedCar car, CarSpec carSpec, int wreck)
+        {
+            var o = new PullOffer();
+            if (s == null) { o.blocked = "no save"; return o; }
+            o.part = WreckPart(s, wreck);
+            if (WreckPulled(s, wreck))
+            {
+                o.pulled = true;
+                o.blocked = "picked clean — fresh stock rolls in next week";
+                return o;
+            }
+            o.quote = GetQuote(s, car, carSpec, o.part);
+            o.rental = ToolRental(s);
+            o.price = Mathf.Max(5, Mathf.RoundToInt(o.quote.price * PullPriceMult)) + o.rental;
+            o.skillReq = PullSkillReq(o.part, o.quote);
+            if (!o.quote.available) { o.blocked = o.quote.blockedReason; return o; }
+            if (s.mechSkill < o.skillReq)
+            {
+                o.blocked = "needs skill " + o.skillReq + " — yours is " +
+                            Mathf.FloorToInt(s.mechSkill);
+                return o;
+            }
+            if (s.money < o.price) { o.blocked = "need " + MenuKit.Money(o.price); return o; }
+            o.can = true;
+            return o;
+        }
+
+        /// <summary>
+        /// Pull it. Queues into the same pendingParts lane the shelves and the
+        /// bench use — a pulled part still costs the days it costs and still
+        /// carries its grade's hidden-fault risk — and marks the wreck spent
+        /// for the week. Returns null on success, or the reason it was refused.
+        /// </summary>
+        public static string PullFromWreck(LifeState s, OwnedCar car, CarSpec carSpec, int wreck)
+        {
+            var o = GetPull(s, car, carSpec, wreck);
+            if (!o.can) return o.blocked;
+            if (car == null) return "no car";
+
+            s.money -= o.price;
+            // Doing the pull yourself teaches more than signing for a box: the
+            // bench's own DIY gain, graded against the pull's own demand.
+            s.mechSkill = Mathf.Min(100f, s.mechSkill + FaultCatalog.DiySkillGain(
+                s.mechSkill, Mathf.Max(o.skillReq, 10 + o.part.days * 8)));
+
+            s.pendingParts.Add(new PendingPart
+            {
+                carId = car.id,
+                faultId = "",
+                label = o.part.label,
+                stat = o.part.stat,
+                add = o.quote.isUpgrade ? 0 : o.quote.add,
+                readyDay = s.day + o.quote.days,
+                venue = 0,                      // DIY twice over: you pulled it AND you fit it
+                upgradeKind = o.quote.isUpgrade ? o.part.upgradeKind : "",
+                upgradeStage = o.quote.isUpgrade ? o.quote.stage : 0,
+                junkRisk = o.quote.risk,
+            });
+
+            if (s.yardPulls == null) s.yardPulls = new List<string>();
+            // Last week's keys are dead weight — the wrecks they named are gone.
+            string week = (s.day / 7) + ":";
+            s.yardPulls.RemoveAll(k => k == null || !k.StartsWith(week));
+            s.yardPulls.Add(PullKey(s, wreck));
+
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": pulled " + o.part.label +
+                              " off a wreck at the yard (" + MenuKit.Money(o.price) +
+                              (o.rental > 0 ? " incl. tool rental" : "") + ", " +
+                              GradeWord(o.part.grade).ToLowerInvariant() + ", " +
+                              o.quote.days + "d)");
+            return null;
         }
     }
 }

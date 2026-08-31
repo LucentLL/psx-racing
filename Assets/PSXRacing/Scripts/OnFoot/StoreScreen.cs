@@ -111,7 +111,10 @@ namespace PSXRacing.OnFoot
         {
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "StoreCanvas", 140);
-            MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.03f, 0.03f, 0.05f, 0.88f));
+            // GT2 charcoal, translucent so the room stays visible behind the
+            // counter, with the blueprint grid the whole menu family wears.
+            MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.10f, 0.10f, 0.10f, 0.90f));
+            MenuKit.GridBackdrop(canvas.transform);
             MenuKit.Scanlines(canvas.transform);
 
             panel = MenuKit.Stretch(canvas.transform, "Shop",

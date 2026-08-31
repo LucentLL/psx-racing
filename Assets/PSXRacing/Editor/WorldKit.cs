@@ -350,6 +350,34 @@ namespace PSXRacing.EditorTools
             return n;
         }
 
+        /// <summary>
+        /// Stand the pack's door leaves open: disable every mesh named Door /
+        /// Door.NNN / Door_NN so the doorway behind them is a doorway.
+        ///
+        /// The pizzeria and the station shop both model real interiors behind
+        /// real door meshes, and a door leaf with a MeshCollider is a shop the
+        /// player can see into and never enter — reported as "I am unable to
+        /// go inside Pizzeria". A disabled leaf draws nothing and collides
+        /// with nothing, which is what an open door does. Run BEFORE
+        /// <see cref="AddColliders"/> only by convention — a collider on an
+        /// inactive object is inert either way.
+        /// </summary>
+        public static int OpenDoors(GameObject root)
+        {
+            int n = 0;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null || t == root.transform) continue;
+                string name = t.name;
+                if (name != "Door" && !name.StartsWith("Door.") && !name.StartsWith("Door_"))
+                    continue;
+                if (t.GetComponentInChildren<MeshRenderer>(true) == null) continue;
+                t.gameObject.SetActive(false);
+                n++;
+            }
+            return n;
+        }
+
         /// <summary>World-space bounds of every renderer under a root, or an
         /// empty box centred on it when there are none.</summary>
         public static Bounds BoundsOf(GameObject go)

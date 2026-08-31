@@ -368,18 +368,22 @@ namespace PSXRacing
                        new Vector2(24f, -24f), new Vector2(120f, 62f), 20, () => SetOpen(true));
             menuBtn.navigation = new Navigation { mode = Navigation.Mode.None };
 
-            // Dimmed modal panel
+            // Dimmed modal panel — GT2 charcoal with the blueprint grid, the
+            // same ground every LifeSim menu stands on, so pausing mid-race
+            // and standing in the garage read as one product.
             panel = new GameObject("Panel");
             panel.transform.SetParent(canvasGO.transform, false);
             var bg = panel.AddComponent<Image>();
-            bg.color = new Color(0.05f, 0.03f, 0.08f, 0.85f);
+            bg.color = new Color(0.10f, 0.10f, 0.10f, 0.90f);
             var bgRT = bg.rectTransform;
             bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
             bgRT.offsetMin = Vector2.zero; bgRT.offsetMax = Vector2.zero;
+            LifeSim.MenuKit.GridBackdrop(panel.transform);
 
             var title = MakeText(panel.transform, "PAUSED", font, 34,
                                  new Vector2(0.5f, 1f), new Vector2(0f, -70f));
             title.fontStyle = FontStyle.Bold;
+            title.color = LifeSim.MenuKit.Accent;
 
             // Eleven rows in the height ten used to take. The panel already
             // reached the bottom of a 16:9 canvas at ten, and on a 20:9 phone
@@ -437,7 +441,7 @@ namespace PSXRacing
                        new Vector2(0f, y), rowSize, 20, ToggleDebug)); y -= 54f;
 
             MakeText(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT", font, 15,
-                     new Vector2(0.5f, 1f), new Vector2(0f, y)).color = new Color(0.72f, 0.74f, 0.85f);
+                     new Vector2(0.5f, 1f), new Vector2(0f, y)).color = LifeSim.MenuKit.Dim;
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);

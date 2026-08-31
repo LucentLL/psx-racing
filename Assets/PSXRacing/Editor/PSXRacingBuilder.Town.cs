@@ -450,6 +450,12 @@ namespace PSXRacing.EditorTools
             if (shop != null)
             {
                 WorldKit.SeatOnGround(shop, 0f);
+                // The double leaves stand OPEN — this is a shop on shop hours,
+                // and a door mesh with a collider was the whole of "I am
+                // unable to go inside Pizzeria". The interior is modelled and
+                // collided piece by piece below, so a player who walks in
+                // finds booths to sit at, not a hollow facade.
+                WorldKit.OpenDoors(shop);
                 WorldKit.AddColliders(shop, WorldKit.SolidLayer);
             }
             WorldKit.GridSlab(strip.transform, "PizzaApron", new Vector3(-6f, 0.015f, -13f),
@@ -773,6 +779,9 @@ namespace PSXRacing.EditorTools
             PlaceStoreDoor(parent, shopBounds, pumps, 1.2f);
 
             // A drive-up volume per pump, exactly as the circuits build them.
+            // No separate island box any more: the pump's own mesh is collided
+            // by the piece pass above, so a car stops on the pump's actual
+            // bodywork and a person walks the real gap between two of them.
             foreach (var pump in pumps)
             {
                 var pb = CombinedBounds(pump.gameObject);
@@ -783,12 +792,6 @@ namespace PSXRacing.EditorTools
                 trigger.isTrigger = true;
                 trigger.size = new Vector3(7f, 3f, 5.5f);
                 go.AddComponent<GasPump>();
-                // The island itself, so a car cannot drive through a pump.
-                var island = new GameObject("PumpIsland");
-                island.transform.SetParent(parent, false);
-                island.layer = WorldKit.SolidLayer;
-                island.transform.position = pb.center;
-                island.AddComponent<BoxCollider>().size = pb.size;
             }
             // THE APRON. On a circuit BuildApron lays this off the pad; there
             // is no pad here, so the forecourt was a petrol station standing on

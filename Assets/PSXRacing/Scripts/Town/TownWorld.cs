@@ -300,8 +300,42 @@ namespace PSXRacing.Town
                 // Seeded off the LISTING, not the slot, so the blue one stays
                 // the blue one when the lot reshuffles around it.
                 int skin = CarShell.SkinFor(def, spec, Viewings.KeyOf(listing).GetHashCode());
-                CarShell.Spawn(spot, def, skin, out _);
+                CarShell.Spawn(spot, def, skin, out Vector3 roof);
+                MakeDealerCarTarget(spot, listing, roof);
             }
+        }
+
+        /// <summary>
+        /// The sticker in the windscreen, for a walk-up. Each car on the lot
+        /// names itself, quotes its price and condition, and hands the player
+        /// to sales — which is the answer to "I can't inspect or talk to
+        /// dealer about their cars": the car IS the way in now, not just the
+        /// showroom door forty metres away.
+        /// </summary>
+        void MakeDealerCarTarget(Transform spot, CarListing listing, Vector3 roof)
+        {
+            var go = new GameObject("DealerCarTarget");
+            go.transform.SetParent(spot, false);
+            // Aim at the roof line, not the axle midpoint — the same rule every
+            // car hook in the game follows, because a hook aimed at road height
+            // is one the tarmac stands in front of.
+            var focus = new GameObject("Focus");
+            focus.transform.SetParent(spot, false);
+            focus.transform.localPosition = roof;
+
+            var t = go.AddComponent<OnFoot.FootTarget>();
+            t.range = 4.6f;
+            t.focus = focus.transform;
+            t.ignoreRoot = spot;
+            t.title = (string.IsNullOrEmpty(listing.displayName)
+                          ? "A CAR FOR SALE" : listing.displayName).ToUpperInvariant();
+            t.detail = MenuKit.Money(listing.price) + "   ·   " +
+                       LifeRules.ConditionLabel(listing.cond) + "   ·   " +
+                       listing.odoMiles.ToString("N0") + " mi" +
+                       (string.IsNullOrEmpty(listing.problem)
+                           ? "" : "   ·   " + listing.problem);
+            t.action = "TALK TO SALES ABOUT IT";
+            t.onUse = () => TownExit.GoHome(player, "dealer");
         }
 
         void FillYard()
@@ -355,12 +389,108 @@ namespace PSXRacing.Town
                     }
                 }
 
-                // A wreck is not solid. It stands on blocks in the dirt, and a
-                // box collider round it would be something a player on foot
-                // catches on — and nobody drives into the yard.
-                CarShell.Spawn(spot, def, rng.Next(8), out _, solid: false,
+                // SOLID now. "A box collider round it would be something a
+                // player on foot catches on" held right up until the player
+                // could walk the yard — at which point ghosting through a
+                // dead Charger reads as the yard not being there at all
+                // ("I am also walk through the cars"). A wreck you can lean
+                // on is a wreck; a hologram is a bug.
+                CarShell.Spawn(spot, def, rng.Next(8), out Vector3 roof, solid: true,
                                missingWheels: mask, blockMat: blockMaterial);
+                MakeWreckTarget(spot, i, spec, roof);
             }
+        }
+
+        /// <summary>
+        /// The walk-up offer on one wreck: look it over, and pull what it
+        /// still carries. The LOOK is the prompt itself — grade, part, effect,
+        /// price and the skill it wants are all on the two lines — and the one
+        /// button does the pull, gated by <see cref="Junkyard.GetPull"/> on
+        /// skill, money, and whether this shell has already been stripped
+        /// this week.
+        /// </summary>
+        void MakeWreckTarget(Transform spot, int wreckIndex, CarSpec donor, Vector3 roof)
+        {
+            var go = new GameObject("WreckTarget");
+            go.transform.SetParent(spot, false);
+            var focus = new GameObject("Focus");
+            focus.transform.SetParent(spot, false);
+            focus.transform.localPosition = roof;
+
+            var t = go.AddComponent<OnFoot.FootTarget>();
+            t.range = 4.4f;
+            t.focus = focus.transform;
+            t.ignoreRoot = spot;
+            RefreshWreck(t, wreckIndex, donor);
+        }
+
+        /// <summary>Rewrite one wreck's prompt from the save as it stands.
+        /// Called at spawn and again after a pull, because the pull changes
+        /// every line of it.</summary>
+        void RefreshWreck(OnFoot.FootTarget t, int wreckIndex, CarSpec donor)
+        {
+            if (t == null) return;
+            string donorName = donor != null && !string.IsNullOrEmpty(donor.name)
+                ? donor.name.ToUpperInvariant() : "SOMETHING";
+            t.title = "WRECKED " + donorName;
+
+            var s = S;
+            var car = s != null ? s.ActiveCar : null;
+            var carSpec = car != null ? CarCatalog.Get(car.specId) : null;
+            if (s == null || car == null)
+            {
+                t.detail = "Stripped to the shell, one good part left in it.";
+                t.action = "";
+                t.onUse = null;
+                return;
+            }
+
+            var offer = Junkyard.GetPull(s, car, carSpec, wreckIndex);
+            string what = Junkyard.GradeWord(offer.part.grade) + " " + offer.part.label;
+
+            if (offer.pulled)
+            {
+                t.detail = "Picked clean. The crusher gets it next week.";
+                t.action = "";
+                t.onUse = null;
+                return;
+            }
+
+            string effect = offer.quote.effect;
+            t.detail = what +
+                       (string.IsNullOrEmpty(effect) ? "" : "   ·   " + effect) +
+                       "   ·   " + MenuKit.Money(offer.price) +
+                       (offer.rental > 0 ? " incl. tool rental" : ", own tools") +
+                       (offer.skillReq > 0 ? "   ·   skill " + offer.skillReq : "");
+
+            if (!offer.can)
+            {
+                // The part stays named — a blocked pull should still be a
+                // thing you learned by walking over — but the reason takes
+                // the action line, so nothing is pressable that will refuse.
+                t.detail = what + "   ·   " + offer.blocked;
+                t.action = "";
+                t.onUse = null;
+                return;
+            }
+
+            t.action = "PULL IT — " + MenuKit.Money(offer.price);
+            t.onUse = () =>
+            {
+                string err = Junkyard.PullFromWreck(s, car, carSpec, wreckIndex);
+                var screen = FindFirstObjectByType<OnFoot.FootScreen>();
+                if (err == null)
+                {
+                    LifeSimManager.Save();
+                    if (screen != null)
+                        screen.Toast("PULLED — " + offer.part.label +
+                                     ", " + offer.quote.days + " DAY" +
+                                     (offer.quote.days == 1 ? "" : "S") + " TO FIT");
+                }
+                else if (screen != null) screen.Toast(err.ToUpperInvariant());
+                RefreshWreck(t, wreckIndex, donor);
+                if (screen != null) screen.Invalidate();
+            };
         }
     }
 }
