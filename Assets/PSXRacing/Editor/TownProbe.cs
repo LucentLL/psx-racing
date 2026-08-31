@@ -170,6 +170,38 @@ namespace PSXRacing.EditorTools
                 if (t.name == "Shell") shells++;
             log.AppendLine("parked shells: " + shells + " (lot + yard)");
 
+            // The yard's stripping, counted rather than photographed: a block
+            // stack is a 20 cm object on the far side of a car that faces a
+            // random way, so the camera can only ever hint. Wheels + missing
+            // must sum to four on every wreck, and a yard with nothing missing
+            // at all means the strip roll is dead.
+            var tw = Object.FindFirstObjectByType<PSXRacing.Town.TownWorld>();
+            if (tw != null)
+            {
+                int missingTotal = 0, blockStacks = 0;
+                var line = new StringBuilder("yard corners:");
+                for (int i = 0; i < tw.yardSpots.Length; i++)
+                {
+                    var spot = tw.yardSpots[i];
+                    if (spot == null || spot.childCount == 0) continue;
+                    var shell = spot.GetChild(0);
+                    int wheels = 0, blocks = 0;
+                    foreach (Transform c in shell)
+                    {
+                        if (c.name.StartsWith("Wheel")) wheels++;
+                        if (c.name.StartsWith("Blocks") && c.name.EndsWith("_0")) blocks++;
+                    }
+                    missingTotal += 4 - wheels;
+                    blockStacks += blocks;
+                    line.Append("  #" + i + " " + wheels + "w/" + blocks + "b");
+                }
+                log.AppendLine(line.ToString());
+                log.AppendLine("yard stripped wheels: " + missingTotal +
+                               "  block stacks: " + blockStacks +
+                               (missingTotal == blockStacks ? "  (every bare corner is held up)"
+                                                            : "  (MISMATCH)"));
+            }
+
             // The four shots that would each have caught a different bug.
             if (car != null)
             {
@@ -206,6 +238,13 @@ namespace PSXRacing.EditorTools
                  new Vector3(0.35f, -0.45f, 1f));
             Shot("town_dealer", new Vector3(62f, 9f, 2f), new Vector3(0f, -0.35f, 1f));
             Shot("town_yard", new Vector3(106f, 9f, -56f), new Vector3(0f, -0.32f, 1f));
+            // Close on the front row of wrecks, eye height. The stripped
+            // corners and their block stacks are 20 cm objects: they exist in
+            // the wide shot only as a hunch, and every failure mode here — a
+            // block floating, a wheel left inside a stack, a body sunk to its
+            // sills — is silent at nine metres in the air.
+            Shot("town_yard_close", new Vector3(94f, 1.6f, -33f),
+                 new Vector3(1f, -0.12f, 0.35f));
             // Straight down over the whole map. The one shot that shows what a
             // town IS rather than what one corner of it looks like — whether
             // the roads join, whether anything is stranded on a lawn, and

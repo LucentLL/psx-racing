@@ -57,6 +57,18 @@ namespace PSXRacing
         /// <summary>What the drop is worth, rolled at the shop so the player
         /// can be told before they set off. Tips, so it swings.</summary>
         public static int DeliveryPay;
+        /// <summary>What was left of the pizza when the RACE began, 0-1. The
+        /// order rides across town on the passenger seat before the run
+        /// starts, and a box thrown into the footwell on Main Street must not
+        /// arrive graded as fresh out of the oven: the drop is scored against
+        /// the WORSE of this and the race's own leg.</summary>
+        public static float CarryCondition = 1f;
+        /// <summary>This free-roam exit is one leg of a longer errand — the
+        /// drive to work, or the loaded drive to the junction — and the slot
+        /// it would normally cost is the SHIFT's to spend. Without this the
+        /// commute charged a second slot on top of the one the shop door
+        /// takes, and a single delivery ate two thirds of the day.</summary>
+        public static bool CommuteLeg;
 
         /// <summary>
         /// This run is a TEST DRIVE of a car the player does not own.
@@ -224,6 +236,10 @@ namespace PSXRacing
             HardHits = 0;
             CargoCondition = 1f;
             CargoReported = false;
+            // Rides with the RESULT rather than the request: it is stamped on
+            // the way out of a scene and consumed by the one apply-back that
+            // reads it, so a later, unrelated exit must start clean.
+            CommuteLeg = false;
         }
 
         public static void ClearAll()
@@ -235,6 +251,7 @@ namespace PSXRacing
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             FreeRoam = false; FreeRoamPlace = null;
             Delivery = false; DeliveryPay = 0; Solo = false;
+            CarryCondition = 1f;
             TestDrive = false; TestDriveKey = null;
             OrderToppings = null; OrderBoxes = 1;
             StartFuelPct = 100f;

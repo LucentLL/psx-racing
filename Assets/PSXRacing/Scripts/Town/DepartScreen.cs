@@ -85,26 +85,50 @@ namespace PSXRacing.Town
                 MenuKit.Dim, 760f);
             y -= 48f;
 
-            Row(panel, ref y, "IN TOWN",
-                "The shop, the pumps, the lot and the yard are all down this road.",
-                true, Close);
-
             // The two that LEAVE need a car with something in it, the same
             // guard PizzaShift.Drive carries — a career that strands itself
             // with an empty tank on the far side of a scene load is a career
             // that cannot recover.
             bool canDrive = car != null && car.fuel > 5f;
-            Row(panel, ref y, "GO RACING",
-                canDrive ? "Set the venue and the money at home, then drive out."
-                         : "Not enough fuel to go anywhere.",
-                canDrive, () => Leave("main"));
 
-            int forSale = (S.newspaper != null ? S.newspaper.Count : 0);
-            Row(panel, ref y, "INSPECT A CAR",
-                forSale > 0
-                    ? forSale + " in the paper this week. Pick one and drive over."
-                    : "Nothing in the classifieds worth the drive today.",
-                canDrive && forSale > 0, () => Leave("market"));
+            // An order on the seat rewrites the junction: the delivery is the
+            // reason you drove out here, so it is the first door — and the
+            // doors that would carry a hot pizza off to a race meeting or a
+            // stranger's driveway are shut while you are holding it.
+            bool carrying = PizzaRun.Carrying;
+            if (carrying)
+            {
+                string venue = PizzaRun.TrackIndex >= 0 &&
+                               PizzaRun.TrackIndex < TrackCatalog.All.Length
+                    ? TrackCatalog.All[PizzaRun.TrackIndex].name : "the drop";
+                Row(panel, ref y, "MAKE THE DELIVERY",
+                    venue + "  ·  $" + PizzaRun.Pay + " on the door, more under " +
+                    LifeRules.DeliveryClock(PizzaRun.ParSeconds) + ".",
+                    canDrive, () => Leave("deliverrun"));
+            }
+
+            Row(panel, ref y, "IN TOWN",
+                "The shop, the pumps, the lot and the yard are all down this road.",
+                true, Close);
+
+            // Hidden outright while carrying, not greyed: the panel's row
+            // budget is three (see Row), and a fourth pushes the way out off
+            // the bottom of a phone. Two shut doors explain themselves less
+            // well than their absence beside MAKE THE DELIVERY does.
+            if (!carrying)
+            {
+                Row(panel, ref y, "GO RACING",
+                    canDrive ? "Set the venue and the money at home, then drive out."
+                             : "Not enough fuel to go anywhere.",
+                    canDrive, () => Leave("main"));
+
+                int forSale = (S.newspaper != null ? S.newspaper.Count : 0);
+                Row(panel, ref y, "INSPECT A CAR",
+                    forSale > 0
+                        ? forSale + " in the paper this week. Pick one and drive over."
+                        : "Nothing in the classifieds worth the drive today.",
+                    canDrive && forSale > 0, () => Leave("market"));
+            }
 
             y -= 6f;
             MenuKit.Button(panel, "TURN BACK", new Vector2(0.5f, 1f),

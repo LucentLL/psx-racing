@@ -5,6 +5,85 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE JOB IS A JOURNEY, AND THE TOWN GROWS DOORS (2026-08-31)
+
+Six asks from a phone playtest, and they share one root: the town shipped as a
+drive-past. You could stop at things but not get OUT at them, the work "commute"
+was a teleport, and the two shops that sell cars each did half of what a shop
+does. This pass makes the town a place made of doors.
+
+**Getting out of the car, anywhere in town.** Reported as *"I can't get out of
+the car at the Pizzeria to pick up delivery"* — and there was genuinely no way:
+`ForecourtMode` only offered GET OUT at a pump with a thirsty tank.
+`anywhereInTown` (set by the town builder alone) now offers it whenever the car
+is stopped, on the SECOND verb — E / pad-west, the same pair the walk-in scenes
+use — so a venue's F prompt and the door handle never fight over one key. On
+touch, the ACTION button falls through to GET OUT only when no pump, venue or
+order window is claiming it. On foot, the venues grew `FootTarget` doors
+(`TownWorld.BuildFootDoors`): the shop's door clocks you on or sells over the
+counter, the dealership's office and the yard's gate open their pages, your own
+garage bay ends the day.
+
+**The invisible walls were one box.** The station's collider was a single slab
+from the pump line to the back of the lot — fine from a car, and a wall of air
+everywhere a walker went ("invisible walls stop me from walking into areas like
+one of the gas stations"). `AddStationPieceColliders` replaces it on circuits
+AND in town: every station piece gets a local-space box on its own mesh (ground
+clutter under 35 cm and the canopy overhead are skipped), so the shop stops you
+at its walls and the concrete between them is concrete. The town also gained the
+`StoreDoor` the circuits always had, so the 6TWELVE works there on foot.
+
+**GO TO WORK is a drive.** The owner's spec, verbatim: *"player should drive
+from home to pizzeria, then pick up pizza, drive to part of map, a new menu to
+Random Race to 'deliver'."* `PizzaRun` (new static mailbox beside RaceHandoff)
+threads it: DoWork loads the TOWN with a HUD signpost (the slot Charlotte's food
+cue uses — same eight-point arrow relative to the car's heading); clocking on at
+the shop hops through the front end so the commute banks, then loads the
+counter; the shop door with boxes in hand returns you to the town AT THE SHOP
+KERB with the cargo rig live on the passenger seat; the JUNCTION menu grows
+MAKE THE DELIVERY, which launches the same solo time-trial as before. The drop
+is scored against the WORSE of the town leg and the race leg
+(`RaceHandoff.CarryCondition`) — a box thrown into the footwell on Main Street
+stays thrown. Two rules keep the economy honest: commute legs ride
+`RaceHandoff.CommuteLeg` so they bank metres and fuel but never a slot (the
+shift's slot is paid once, at the shop door — without this one delivery cost
+two thirds of a day), and an order that leaves town any other way is abandoned
+with a diary line, never silently carried.
+
+**The dealership sells new AND used, and hands over the keys.**
+`CarMarket.RefreshLot` guarantees two current-model-year cars (swapping out
+trade-ins, never growing the eight bays); the page splits IN THE SHOWROOM / ON
+THE LOT. Test drives are allowed from the lot now — the salesman rides along —
+and haggling works there too: small and grudging on a new car (sticker is
+sticker, 2-8% when it lands), the full private-seller rules on used, and
+`Viewings.Reprice` already discounts every fault an inspection turns up, which
+is what makes GET UNDER IT at a dealership worth the trouble.
+
+**A private seller can say NO, and the no is worth money.** `AskStands` /
+`AskTestDrive` roll once per visit (28% / 25%); a refusal is permanent for the
+visit, locks that access, and banks `Viewing.leverage` — each point makes the
+next haggle harder to rebuff and cuts deeper, and reopens a haggle already
+spent ("new information, new conversation", the same rule a test-drive find
+uses). The raise row on a stranger's driveway is now ASK FOR STANDS the first
+time; the dealership never refuses (it is their hoist).
+
+**Backing out no longer loses the car.** Three holes, all real: Escape from an
+inspection running on a phantom obeyed the static parent table and landed on
+your OWN car's page; the market had no way back to an open conversation; and
+WALK AWAY was one press. Now `ParentTab` is state-aware (phantom inspection →
+viewing; lot viewing → dealer), the classifieds lead with BACK TO THE SELLER
+while a visit is open, and WALK AWAY arms a two-press confirm ("Give up on this
+car?") with the safe row first for pad players.
+
+**The yard stopped burying its stock.** The owner: *"junkyard cars don't need
+to be half buried. They can be on jack stands or cinder blocks. When parts like
+wheels are stripped, they should be removed from the car."* Wreck spots are
+upright at grade now (yaw variety only), and the SHELVES decide the stripping:
+two wheels per tyre-lane part in stock (floor three, up to three per car), each
+bare corner held up by a crosswise two-block cinder stack built into
+`CarShell.Spawn` — the stack tops out at hub height, so the body sits exactly
+where its wheels would have put it.
+
 ## THE PIZZA IS THE SCORE (2026-08-29, second pass)
 
 **The pitch, from the owner, and it settles what this game is:** *"like Initial

@@ -123,9 +123,12 @@ namespace PSXRacing
             // The attribution has its seven seconds, then the slot becomes the
             // signpost. Ten restaurants over 2,574 km of road behind a 360 m
             // fog wall are findable only by accident otherwise — the question
-            // that prompted this was literally "where are they?".
+            // that prompted this was literally "where are they?". The town has
+            // no attribution and no food index; its errand cue rides the same
+            // slot instead — where the shift wants you, with the same arrow.
             Set(lastLapText, city.SessionSeconds < 7f && world != null && world.Map != null
-                ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS" : FoodCue());
+                ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS"
+                : Town.TownWorld.Cue ?? FoodCue());
 
             UpdateFuel();
 
@@ -156,6 +159,12 @@ namespace PSXRacing
             // ACTION a touch player has out there.
             else if (cityTouch != null && Town.TownVenue.AtVenue)
                 cityTouch.SetAction(true, "OPEN");
+            // Nothing else wants the button and the car is stopped in town:
+            // the door handle. Last in the chain on purpose — whoever is
+            // PROMPTING owns the one contextual button a phone has.
+            else if (cityTouch != null && OnFoot.ForecourtMode.OfferGetOut &&
+                     !GasPump.AtPump)
+                cityTouch.SetAction(true, "GET OUT");
         }
 
 
@@ -455,7 +464,8 @@ namespace PSXRacing
                         : (responder != null ? responder.DamageScore : 0f),
                 stamped ? RaceHandoff.HardHits
                         : (responder != null ? responder.HardHits : 0),
-                inProgress: !stamped, cargoCondition: cargo);
+                inProgress: !stamped, cargoCondition: cargo,
+                carryCondition: RaceHandoff.CarryCondition);
         }
 
         string DeliverySheet(float finishTime)

@@ -6,7 +6,10 @@ namespace PSXRacing.Town
 {
     /// <summary>
     /// Puts the cars in the town: the dealership's stock on its bays, and the
-    /// dead ones in the yard.
+    /// dead ones in the yard — and, since the delivery loop became a real
+    /// journey, everything the town has to DO at runtime: spawn the player at
+    /// the shop kerb mid-errand, put the order on the passenger seat, offer
+    /// the walk-up doors, and keep the HUD's errand signpost fresh.
     ///
     /// Same split as every other place in this game that has cars standing in
     /// it — the LOT is baked, because it is the same lot for everybody, and
@@ -19,21 +22,251 @@ namespace PSXRacing.Town
     /// The yard's wrecks are NOT save state and deliberately so. Nothing in
     /// the salvage model is a whole car — the yard sells PARTS
     /// (<see cref="Junkyard"/>, three shelves on three clocks) — so what is
-    /// lying in the dirt is scenery, seeded off the day so it turns over with
-    /// the shelves and never off Random, which would reshuffle every time the
-    /// player drove past.
+    /// standing in the dirt is scenery, seeded off the day so it turns over
+    /// with the shelves and never off Random, which would reshuffle every time
+    /// the player drove past. What the scenery now agrees with is the STOCK:
+    /// wheels on the shelves are wheels off these cars, so cars stand stripped
+    /// on cinder blocks in proportion to what the yard is selling.
     /// </summary>
     public class TownWorld : MonoBehaviour
     {
         [Header("Wired by the scene builder")]
         public Transform[] dealerSpots = new Transform[0];
         public Transform[] yardSpots = new Transform[0];
+        /// <summary>The player's car, for the mid-errand teleport and the cue
+        /// arrow. CityMode holds it too, but Awake/Start order between the two
+        /// is nobody's promise.</summary>
+        public CarController player;
+        /// <summary>Where the car stands when the player walks OUT of the shop
+        /// carrying an order — the kerb by the pizzeria, facing the street.</summary>
+        public Transform pizzaKerb;
+        /// <summary>Walk-up anchors, one per door a player on foot can use.</summary>
+        public Transform pizzaDoor;
+        public Transform dealerDoor;
+        public Transform yardGate;
+        public Transform homeDoor;
+        /// <summary>PSX-lit grey for the cinder blocks under stripped wrecks —
+        /// materials are bake-time things and this class runs at runtime.</summary>
+        public Material blockMaterial;
+
+        /// <summary>
+        /// The errand signpost: one line the HUD draws in the slot Charlotte
+        /// uses for its food cue. Null when there is no errand — which is most
+        /// sessions — so the slot stays empty rather than chatty.
+        /// </summary>
+        public static string Cue { get; private set; }
 
         LifeState S => LifeSimManager.State;
 
         bool built;
+        float cueNext;
 
-        void Start() => PreviewBuild();
+        void Awake() { Cue = null; }
+
+        void Start()
+        {
+            PreviewBuild();
+
+            // ---- mid-errand arrival ----
+            // The player just walked out of the shop with the boxes: the car
+            // is at the kerb outside it, not back on the home drive where the
+            // scene's baked spawn puts it.
+            if (PizzaRun.SpawnAtShop && player != null && pizzaKerb != null)
+            {
+                PizzaRun.SpawnAtShop = false;
+                player.ResetTo(pizzaKerb.position + Vector3.up * 0.3f, pizzaKerb.rotation);
+            }
+            else PizzaRun.SpawnAtShop = false;
+
+            // The order rides the seat for real. Same rig the race scenes
+            // spawn, so the drive across town is played by the same rules that
+            // grade the run — a box thrown into the footwell on Main Street
+            // arrives thrown.
+            if (PizzaRun.Carrying && player != null && PizzaRun.Toppings != null)
+            {
+                var cargo = PizzaCargo.Spawn(player, PizzaRun.Toppings);
+                if (cargo != null) PizzaCam.Spawn(cargo);
+            }
+
+            BuildFootDoors();
+        }
+
+        void OnDestroy() { Cue = null; }
+
+        void Update()
+        {
+            if (Time.unscaledTime < cueNext) return;
+            cueNext = Time.unscaledTime + 0.4f;
+            Cue = BuildCue();
+
+            // The shop door's offer depends on whether an order is in the car,
+            // and that can change mid-session (handing one back at the
+            // counter). A label written once at load would tell the player the
+            // order is in the car while they stand there holding nothing.
+            if (pizzaDoorTarget != null && lastDoorCarrying != PizzaRun.Carrying)
+                RefreshPizzaDoor();
+        }
+
+        /// <summary>
+        /// Where the errand wants you, as an eight-point arrow relative to the
+        /// car's own heading — the same instrument as Charlotte's food cue,
+        /// and for the same reason: a driver can act on "over your left
+        /// shoulder" and cannot act on a compass.
+        /// </summary>
+        string BuildCue()
+        {
+            Transform anchor = null;
+            string label = null;
+
+            if (PizzaRun.Carrying)
+            {
+                // The junction launches the run, so the junction is the way.
+                anchor = FindVenue(TownVenue.Kind.Depart);
+                label = "DELIVERY — TO THE JUNCTION";
+                if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
+                {
+                    PizzaRun.CarryCondition = Mathf.Min(PizzaRun.CarryCondition,
+                                                        PizzaCargo.Instance.Condition);
+                    if (PizzaRun.CarryCondition < LifeRules.PizzaPerfectCondition)
+                        label = "DELIVERY (" +
+                                LifeRules.PizzaConditionLabel(PizzaRun.CarryCondition) +
+                                ") — TO THE JUNCTION";
+                }
+            }
+            else if (PizzaRun.DriveToShop)
+            {
+                anchor = FindVenue(TownVenue.Kind.Pizzeria);
+                label = "ON THE CLOCK — TONY'S";
+            }
+
+            if (anchor == null || label == null || player == null) return null;
+
+            Vector3 to = anchor.position - player.transform.position;
+            to.y = 0f;
+            if (to.magnitude < 18f) return label;   // you are basically there
+            float rel = Vector3.SignedAngle(
+                new Vector3(player.transform.forward.x, 0f, player.transform.forward.z),
+                to, Vector3.up);
+            int oct = Mathf.RoundToInt(Mathf.Repeat(rel, 360f) / 45f) % 8;
+            string range = to.magnitude >= 1000f
+                ? (to.magnitude / 1000f).ToString("0.0") + " km"
+                : Mathf.RoundToInt(to.magnitude / 10f) * 10 + " m";
+            return CueArrows[oct] + "  " + label + "  " + range;
+        }
+
+        static readonly string[] CueArrows =
+            { "^", "/^", ">", "\v", "v", "v/", "<", "^\\" };
+
+        Transform FindVenue(TownVenue.Kind kind)
+        {
+            foreach (var v in FindObjectsByType<TownVenue>(FindObjectsSortMode.None))
+                if (v.kind == kind) return v.transform;
+            return null;
+        }
+
+        // ------------------------------------------------------------------
+        //  walk-up doors
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// The doors a player ON FOOT can use. The venues answer to a stopped
+        /// CAR; these answer to somebody who pressed E and walked over — which
+        /// is the fix for "I can't get out of the car at the Pizzeria": now
+        /// you can, and the door does what the drive-up prompt did.
+        /// </summary>
+        void BuildFootDoors()
+        {
+            if (pizzaDoor != null)
+            {
+                pizzaDoorTarget = MakeDoor(pizzaDoor, "PizzaDoorTarget", 3.6f);
+                RefreshPizzaDoor();
+            }
+
+            if (dealerDoor != null)
+            {
+                var t = MakeDoor(dealerDoor, "DealerDoorTarget", 4.2f);
+                t.title = "CRESTLINE MOTORS";
+                t.detail = "New and used. The stock is standing right here.";
+                t.action = "TALK TO SALES";
+                t.onUse = () => TownExit.GoHome(player, "dealer");
+            }
+
+            if (yardGate != null)
+            {
+                var t = MakeDoor(yardGate, "YardGateTarget", 4.2f);
+                t.title = Junkyard.YardName;
+                t.detail = "Three shelves, three clocks.";
+                t.action = "WALK THE SHELVES";
+                t.onUse = () => TownExit.GoHome(player, "junkyard");
+            }
+
+            if (homeDoor != null)
+            {
+                var t = MakeDoor(homeDoor, "HomeDoorTarget", 3.4f);
+                t.title = "HOME";
+                t.detail = "Park it up, put the kettle on.";
+                t.action = "GO IN — CALL IT A DRIVE";
+                t.onUse = () => TownExit.GoHome(player, "garage");
+            }
+        }
+
+        FootTarget pizzaDoorTarget;
+        bool lastDoorCarrying;
+
+        /// <summary>What the shop door offers a walk-up, from the state as it
+        /// stands: hand nothing to a player mid-run, a shift when the clock is
+        /// punching, the counter otherwise.</summary>
+        void RefreshPizzaDoor()
+        {
+            var t = pizzaDoorTarget;
+            if (t == null) return;
+            lastDoorCarrying = PizzaRun.Carrying;
+            bool canClockOn = S != null && !string.IsNullOrEmpty(S.playerJob) &&
+                              LifeRules.ShopOpen(S);
+            t.title = "TONY'S — SLICE HOUSE";
+            t.action2 = "";
+            t.onUse2 = null;
+            if (PizzaRun.Carrying)
+            {
+                t.detail = "The order is already in the car.";
+                t.action = "";
+                t.onUse = null;
+            }
+            else if (canClockOn)
+            {
+                t.detail = "The counter is up. A shift is a drive.";
+                t.action = "CLOCK ON — TAKE A RUN";
+                t.onUse = () => TownExit.ClockOn(player);
+                t.action2 = "BUY AT THE COUNTER";
+                t.onUse2 = OpenPizzaCounter;
+            }
+            else
+            {
+                t.detail = LifeRules.ShiftHoursShort;
+                t.action = "BUY AT THE COUNTER";
+                t.onUse = OpenPizzaCounter;
+            }
+        }
+
+        void OpenPizzaCounter()
+        {
+            var forecourt = FindFirstObjectByType<ForecourtMode>();
+            if (forecourt == null) return;
+            forecourt.OpenStoreWith("TONY'S — SLICE HOUSE", "COUNTER SERVICE",
+                "the pizza shop", TownVenue.PizzaCounter);
+        }
+
+        static FootTarget MakeDoor(Transform at, string name, float range)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(at, false);
+            var t = go.AddComponent<FootTarget>();
+            t.range = range;
+            return t;
+        }
+
+        // ------------------------------------------------------------------
+        //  the lot and the yard
+        // ------------------------------------------------------------------
 
         /// <summary>Fill the lot and the yard. Public and idempotent for the
         /// same reason GarageWorld's is: AddComponent runs no Start outside
@@ -80,6 +313,20 @@ namespace PSXRacing.Town
             // that never held still.
             var rng = new System.Random((S != null ? S.day / 7 : 0) * 7919 + 13);
             var all = CarCatalog.All;
+
+            // THE SHELVES DECIDE THE STRIPPING. Wheels and tyres in the stock
+            // are wheels and tyres off these cars: two stripped corners per
+            // tyre-lane part the yard is selling, floored at three so the
+            // compound never reads as a car park even on a lean week.
+            int tyreParts = 0;
+            if (S != null && S.junkyard != null)
+                foreach (var p in S.junkyard)
+                {
+                    if (p == null) continue;
+                    if (p.stat == "tires" || p.upgradeKind == "tires") tyreParts++;
+                }
+            int stripBudget = Mathf.Max(3, tyreParts * 2);
+
             for (int i = 0; i < yardSpots.Length; i++)
             {
                 var spot = yardSpots[i];
@@ -87,11 +334,32 @@ namespace PSXRacing.Town
                 var spec = all[rng.Next(all.Count)];
                 var def = CarShell.DefFor(spec);
                 if (def == null) continue;
-                // A wreck is not solid. Its shell is leaned over and half
-                // sunk, so a box collider round it would be a box collider at
-                // an angle in the dirt for a player on foot to catch on — and
-                // nobody drives into the yard.
-                CarShell.Spawn(spot, def, rng.Next(8), out _, solid: false);
+
+                // Which corners this one has lost. SPREAD across the yard
+                // rather than gutting the first car: each shell rolls whether
+                // it has been picked at all (about two in three have), then
+                // loses one or two corners while the budget lasts — up to
+                // three on a bad week, so even a picked-over wreck keeps one
+                // wheel to sit crooked on.
+                int mask = 0;
+                if (stripBudget > 0 && rng.Next(3) != 0)
+                {
+                    int want = Mathf.Min(stripBudget, 1 + (rng.Next(4) == 0 ? 2 : rng.Next(2)));
+                    for (int k = 0; k < 6 && want > 0; k++)
+                    {
+                        int wheel = rng.Next(4);
+                        if ((mask & (1 << wheel)) != 0) continue;
+                        mask |= 1 << wheel;
+                        stripBudget--;
+                        want--;
+                    }
+                }
+
+                // A wreck is not solid. It stands on blocks in the dirt, and a
+                // box collider round it would be something a player on foot
+                // catches on — and nobody drives into the yard.
+                CarShell.Spawn(spot, def, rng.Next(8), out _, solid: false,
+                               missingWheels: mask, blockMat: blockMaterial);
             }
         }
     }

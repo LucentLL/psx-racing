@@ -217,13 +217,23 @@ namespace PSXRacing.OnFoot
         }
 
         /// <summary>
-        /// Hand over to the driving half.
+        /// Out of the door with the boxes — INTO THE TOWN, not into the race.
         ///
-        /// A delivery is a race with nobody in it: same venue, same car, same
-        /// fuel and wear, but Solo retires the grid and Delivery tells
-        /// ApplyRaceResult to pay a tip instead of a purse. The activity slot is
-        /// spent HERE rather than on arrival, because the shift is what costs the
-        /// afternoon whether or not the player makes it to the door.
+        /// The owner's ask, and the shape of the job now: the order rides the
+        /// passenger seat from the shop kerb to the junction, and the junction
+        /// is where the run proper starts (DepartScreen → MAKE THE DELIVERY →
+        /// PizzaRun.LaunchDelivery). The town leg is real: it burns fuel,
+        /// takes damage, and whatever happens to the boxes on Main Street is
+        /// scored against the drop.
+        ///
+        /// The activity slot and the attendance are still banked HERE, before
+        /// the door shuts: the shift costs the afternoon whether or not the
+        /// player makes it anywhere, and clocking on must precede the spend
+        /// because spending the last slot of the day rolls it — the rollover
+        /// decides whether the player skived by reading the very latch this
+        /// sets. Crediting the shift on arrival instead booked an absence for
+        /// the night shift and credited the work to the following morning,
+        /// which on a seven-day roster is most of the job.
         /// </summary>
         void Drive()
         {
@@ -239,32 +249,39 @@ namespace PSXRacing.OnFoot
             if (trackIndex < 0 || trackIndex >= TrackCatalog.All.Length)
                 trackIndex = LifeRules.DeliveryTrackIndex(S);
 
-            RaceHandoff.ClearAll();
-            RaceHandoff.FromLifeSim = true;
-            RaceHandoff.Delivery = true;
-            RaceHandoff.Solo = true;
-            RaceHandoff.IsPractice = true;   // no purse, no rep, no rival ladder
-            RaceHandoff.DeliveryPay = pay;
-            RaceHandoff.OrderToppings = toppings;
-            RaceHandoff.OrderBoxes = toppings != null ? toppings.Length : 1;
-            RaceHandoff.CarId = S.activeCar;
-            RaceHandoff.CarSpecId = car.specId;
-            RaceHandoff.TrackIndex = trackIndex;
-            RaceHandoff.TimeOfDayIndex = TimeOfDay.ForSlot(S.slotIndex, S.day);
-            RaceHandoff.StartFuelPct = car.fuel;
+            // The hour the run leaves the counter, read BEFORE the slot spend
+            // rolls the clock: a night pickup must not arrive in tomorrow's
+            // morning light.
+            int tod = TimeOfDay.ForSlot(S.slotIndex, S.day);
 
-            LifeHomeScreen.FillCarRequestFor(S);
-
-            // Clocking on is banked HERE, before the slot is spent, because
-            // spending the last slot of the day rolls it — and the rollover
-            // decides whether the player skived by reading the very latch this
-            // sets. Crediting the shift on arrival instead booked an absence for
-            // the night shift and credited the work to the following morning,
-            // which on a seven-day roster is most of the job.
             LifeRules.ClockOnShift(S);
             LifeRules.SpendActivitySlot(S);
+            PizzaRun.StartRun(toppings, pay, trackIndex, parSeconds, tod);
             LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+
+            // A build without the town (or a career caught mid-update) still
+            // has to be able to deliver: fall straight through to the race the
+            // way this door always used to.
+            int townIdx = TrackCatalog.TownSceneIndex;
+            if (townIdx <= 0 || townIdx >= SceneManager.sceneCountInBuildSettings)
+            {
+                PizzaRun.LaunchDelivery(S);
+                return;
+            }
+
+            // The town leg is a free-roam session in the PLAYER'S car, so the
+            // handoff is filled the way StartTown fills it — without this the
+            // applier leaves the scene's built-in RX-7 standing and the player
+            // walks out of the shop into somebody else's car.
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.CarId = S.activeCar;
+            RaceHandoff.CarSpecId = car.specId;
+            RaceHandoff.TimeOfDayIndex = tod;
+            RaceHandoff.StartFuelPct = car.fuel;
+            LifeHomeScreen.FillCarRequestFor(S);
+            SceneManager.LoadScene(townIdx);
         }
 
         /// <summary>Biggest order the shop hands out. Aliases the rule in

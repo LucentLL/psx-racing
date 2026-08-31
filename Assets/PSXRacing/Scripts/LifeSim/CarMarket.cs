@@ -237,6 +237,60 @@ namespace PSXRacing.LifeSim
                 });
                 seen.Add(spec.id);
             }
+
+            EnsureNewStock(s, seen, gameYear);
+        }
+
+        /// <summary>Fewest NEW cars the forecourt ever shows. A dealership
+        /// that sells "new and used" and rolls zero new for a fortnight is a
+        /// used lot with a sign it cannot live up to.</summary>
+        public const int LotMinNew = 2;
+
+        /// <summary>
+        /// Top the lot up to <see cref="LotMinNew"/> current-model-year cars.
+        ///
+        /// The 15% roll above is the right FLAVOUR — a forecourt is mostly
+        /// trade-ins — but it is a coin that can come up tails eight times,
+        /// and the showroom would then stand empty behind the glass. Swap a
+        /// used car out rather than growing the lot: eight bays is eight bays.
+        /// </summary>
+        static void EnsureNewStock(LifeState s, HashSet<string> seen, int gameYear)
+        {
+            int haveNew = 0;
+            foreach (var l in s.dealerLot) if (l.isNew) haveNew++;
+
+            int guard = 0;
+            while (haveNew < LotMinNew && guard++ < 90)
+            {
+                var spec = CarCatalog.All[Random.Range(0, CarCatalog.All.Count)];
+                if (seen.Contains(spec.id)) continue;
+                if (spec.IsRaceCar) continue;
+                if (gameYear - spec.modelYear > 1) continue;
+
+                // Make room by retiring a used car, oldest habit a lot has.
+                if (s.dealerLot.Count >= LotSlots)
+                {
+                    int drop = -1;
+                    for (int i = 0; i < s.dealerLot.Count; i++)
+                        if (!s.dealerLot[i].isNew) { drop = i; break; }
+                    if (drop < 0) break;
+                    s.dealerLot.RemoveAt(drop);
+                }
+
+                s.dealerLot.Add(new CarListing
+                {
+                    specId = spec.id,
+                    displayName = spec.name,
+                    price = spec.price,
+                    cond = 100,
+                    odoMiles = RollDeliveryMiles(),
+                    isNew = true,
+                    problem = "",
+                    expiresDay = int.MaxValue,
+                });
+                seen.Add(spec.id);
+                haveNew++;
+            }
         }
 
         // ================= buying =================

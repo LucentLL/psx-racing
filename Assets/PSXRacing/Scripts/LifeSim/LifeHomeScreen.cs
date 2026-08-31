@@ -163,6 +163,39 @@ namespace PSXRacing.LifeSim
                 return;
             }
 
+            // "deliverrun" is the second hop of the same journey: the junction
+            // menu routes through here so the loaded drive across town is
+            // banked by the block above — LaunchDelivery opens with ClearAll
+            // and would otherwise erase it — then carries straight on to the
+            // run. The player sees one loading screen and arrives on the grid.
+            if (tab == "deliverrun")
+            {
+                tab = "main";
+                if (PizzaRun.Carrying && S.ActiveCar != null && S.ActiveCar.fuel > 1f)
+                {
+                    BuildChrome();
+                    PizzaRun.LaunchDelivery(S);
+                    return;
+                }
+                PizzaRun.AbandonRun(S, "the delivery fell through at the junction");
+                LifeSimManager.Save();
+                BuildChrome();
+                Rebuild();
+                Toast("the run fell through — no order to deliver");
+                return;
+            }
+
+            // Arriving HOME by any other door with an order still on the seat
+            // means it never went anywhere. Every route out of the town funnels
+            // through this scene, so this one catch covers the pause menu's
+            // EXIT and anything else that skips the polite paths.
+            if (PizzaRun.Carrying)
+            {
+                PizzaRun.AbandonRun(S, "the order went cold on the passenger seat — no tip");
+                LifeSimManager.Save();
+            }
+            PizzaRun.DriveToShop = false;
+
             BuildChrome();
             Rebuild();
             if (raceSummary != null)
@@ -791,7 +824,21 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>Where BACK goes from the current page.</summary>
-        string ParentTab() => ParentTabOf(tab);
+        string ParentTab()
+        {
+            // The static table cannot see WHOSE car a page is about. Backing
+            // out of an inspection that is running on a PHANTOM must land on
+            // the seller conversation it came from — the table's answer,
+            // "carmenu", is the garage page of a car the player owns, which is
+            // the reported "back sends me to my home menu and I lose the car".
+            if (tab == "inspect" && InspectingAVisit) return "viewing";
+            if (tab == "viewing")
+            {
+                var v = Viewings.ByKey(S, S.activeViewing);
+                if (v != null && v.source == "lot") return "dealer";
+            }
+            return ParentTabOf(tab);
+        }
 
         static string ParentTabOf(string tab)
         {
@@ -882,7 +929,16 @@ namespace PSXRacing.LifeSim
                           (kb != null && kb.escapeKey.wasPressedThisFrame);
             if (!cancel) return;
             if (confirmNewGame) { confirmNewGame = false; Rebuild(); }
-            else if (tab != "main") { FlushSetup(); tab = ParentTab(); buyTarget = null; Rebuild(); }
+            else if (tab != "main")
+            {
+                FlushSetup();
+                tab = ParentTab();
+                buyTarget = null;
+                // A half-armed WALK AWAY must not still be armed when the
+                // player wanders back tomorrow.
+                walkAwayArmed = null;
+                Rebuild();
+            }
         }
 
         // =================== tabs ===================
@@ -2271,17 +2327,52 @@ namespace PSXRacing.LifeSim
             var best = Toolbox.BestRaise(S);
 
             float bw = Mathf.Min(200f, ColW * 0.46f);
+
+            // SOMEBODY ELSE'S DRIVEWAY: raising the car is a REQUEST, and the
+            // seller can turn it down. Once, for the visit — and a no locks
+            // the underside checks out and banks leverage for the haggle,
+            // which is the trade the whole refusal mechanic exists to offer.
+            // The dealership never refuses (it is their hoist), and a car the
+            // player owns never asks.
+            Viewing visit = null;
+            foreach (var vv in S.viewings)
+                if (vv.car != null && vv.car.id == car.id) { visit = vv; break; }
+            bool paper = visit != null && visit.source != "lot";
+
+            if (paper && !up && visit.standsRefused)
+            {
+                MenuKit.Label(body, "THE CAR STAYS ON ITS WHEELS — SELLER SAYS SO",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, MenuKit.Bad, ColW, height: 36f, bold: true);
+                y -= 26f;
+                MenuKit.Label(body,
+                    "No stands, no underside. That is leverage in the haggle.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 22f);
+                y -= 26f;
+                return;
+            }
+
             MenuKit.Label(body, "THE CAR IS " + Toolbox.RaiseName(now), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 up ? MenuKit.Good : MenuKit.Dim, ColW - bw - 12f, height: 36f, bold: true);
 
+            bool mustAsk = paper && !up && !visit.standsAsked;
             MenuKit.Button(body,
                 up ? "SET IT DOWN"
+                   : mustAsk ? "ASK FOR STANDS"
                    : best == Toolbox.Raise.Lift ? "PUT IT ON THE LIFT" : "PUT IT ON STANDS",
                 new Vector2(0.5f, 1f), new Vector2(MenuKit.ColRight(ColR, bw), y),
                 new Vector2(bw, 36f),
                 () =>
                 {
+                    if (!up && paper && !Viewings.AskStands(S, visit))
+                    {
+                        LifeSimManager.Save();
+                        Rebuild();
+                        Toast("\"it stays on its wheels.\" — that refusal is leverage now");
+                        return;
+                    }
                     var to = Toolbox.ToggleRaise(S, car);
                     LifeSimManager.Save();
                     Rebuild();
@@ -3722,6 +3813,23 @@ namespace PSXRacing.LifeSim
                 MenuKit.Dim, ColW * 0.55f);
             y -= 34f;
 
+            // A conversation LEFT OPEN is the first thing on the page. Backing
+            // out of a viewing has never thrown the visit away — the faults
+            // found, the price talked down, all of it stays on the save — but
+            // there was no door back to it, so it READ as lost ("I lose the
+            // option to view/discuss the car"). This is the door back.
+            var open = Viewings.ByKey(S, S.activeViewing);
+            if (open != null && open.car != null && Viewings.ListingFor(S, open) != null)
+            {
+                MenuKit.Button(body, "BACK TO THE SELLER — " +
+                        Clip(open.car.displayName.ToUpperInvariant(), 26),
+                    new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, ColW), y),
+                    new Vector2(ColW, 46f),
+                    () => { tab = "viewing"; Rebuild(); }, 15,
+                    new Color(0.45f, 0.75f, 1f, 0.22f));
+                y -= 54f;
+            }
+
             if (S.newspaper.Count == 0)
             {
                 MenuKit.Label(body, "Nothing for sale today. Sleep and check again.", 16,
@@ -4090,7 +4198,12 @@ namespace PSXRacing.LifeSim
             }
 
             // ---- haggle ----
-            MenuKit.Button(body, v.haggled ? "THEY HAVE SAID THEIR PIECE TODAY" : "HAGGLE",
+            // The label says when the player is holding cards: every access
+            // refusal banked on the visit makes this press likelier to land
+            // and worth more — see Viewing.leverage.
+            MenuKit.Button(body,
+                v.haggled ? "THEY HAVE SAID THEIR PIECE TODAY"
+                : v.leverage > 0 ? "HAGGLE — PRESS THE ADVANTAGE" : "HAGGLE",
                 new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 44f),
                 v.haggled ? null : (UnityEngine.Events.UnityAction)(() =>
                 {
@@ -4127,47 +4240,99 @@ namespace PSXRacing.LifeSim
             y -= 50f;
 
             // ---- the keys ----
-            // A dealer in 1999 does not hand a stranger the keys to drive off
-            // alone, and RG2's lot does not offer one either. That asymmetry is
-            // the reason to buy privately: 21 of the 36 used-car faults are
-            // only findable at speed.
-            if (lot)
+            // The dealership hands them over (the salesman rides along, at the
+            // owner's instruction — test drives are half the point of a lot).
+            // A PRIVATE seller is a person, and a person can say no: that no
+            // is permanent for the visit, and it is worth money in the haggle,
+            // because a car you were not allowed to drive is a car priced on
+            // trust — 21 of the 36 used-car faults only show up at speed.
+            bool canDrive = v.car.fuel > 5f;
+            if (v.driveRefused)
             {
-                MenuKit.Label(body, "The salesman will not let it off the lot.",
-                    15, new Vector2(0.5f, 1f), new Vector2(ColL, y + 8f),
-                    TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-                y -= 34f;
+                MenuKit.Button(body, "NO TEST DRIVE — THEY SAID SO",
+                    new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 46f),
+                    null, 16, MenuKit.BtnBgDisabled);
+                y -= 52f;
+                MenuKit.Label(body,
+                    "\"Not insured for strangers.\" A no like that is worth money in the haggle.",
+                    14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Bad, 820f);
+                y -= 30f;
             }
             else
             {
-                bool canDrive = v.car.fuel > 5f;
                 MenuKit.Button(body,
                     v.testDrove ? "TEST DRIVE IT AGAIN" : "TEST DRIVE IT",
                     new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 46f),
-                    canDrive ? (UnityEngine.Events.UnityAction)(() => StartTestDrive(v)) : null,
+                    canDrive ? (UnityEngine.Events.UnityAction)(() =>
+                    {
+                        if (!Viewings.AskTestDrive(S, v))
+                        {
+                            LifeSimManager.Save(); Rebuild();
+                            Toast("they will not hand a stranger the keys — that is leverage now");
+                            return;
+                        }
+                        StartTestDrive(v);
+                    }) : null,
                     16, canDrive ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 52f;
-                MenuKit.Label(body, canDrive
-                        ? "Some things only show up at speed. Nothing you do out there is banked."
-                        : "There is not enough fuel in it to go anywhere.",
+                MenuKit.Label(body, !canDrive
+                        ? "There is not enough fuel in it to go anywhere."
+                        : lot
+                            ? "The salesman rides along. Nothing you do out there is banked."
+                            : "Some things only show up at speed. Nothing you do out there is banked.",
                     14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);
                 y -= 30f;
             }
 
-            MenuKit.Button(body, "WALK AWAY", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                () =>
-                {
-                    // The visit STAYS in the save. Everything found on it is
-                    // knowledge the player paid an afternoon for, and coming
-                    // back tomorrow to a car whose problems had been forgotten
-                    // would make going the first time pointless.
-                    S.activeViewing = "";
-                    LifeSimManager.Save();
-                    tab = lot ? "dealer" : "market"; Rebuild();
-                }, 16);
+            // ---- the way out, with a hand on the door ----
+            // Leaving by accident was the reported wound ("I lose the option
+            // to view/discuss the car"), so giving up is TWO presses: arm,
+            // then confirm — with the safe row first for a pad player.
+            if (walkAwayArmed == v.key)
+            {
+                MenuKit.Label(body,
+                    "Give up on this car? What you have found stays in your notebook while the ad runs.",
+                    14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Bad, 820f);
+                y -= 28f;
+                MenuKit.Button(body, "KEEP TALKING", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    () => { walkAwayArmed = null; Rebuild(); }, 16);
+                y -= 50f;
+                MenuKit.Button(body, "YES — WALK AWAY", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    () =>
+                    {
+                        // The visit STAYS in the save. Everything found on it
+                        // is knowledge the player paid an afternoon for, and
+                        // coming back tomorrow to a car whose problems had
+                        // been forgotten would make going the first time
+                        // pointless.
+                        walkAwayArmed = null;
+                        S.activeViewing = "";
+                        LifeSimManager.Save();
+                        tab = lot ? "dealer" : "market"; Rebuild();
+                    }, 16, new Color(0.45f, 0.16f, 0.16f, 1f));
+            }
+            else
+            {
+                MenuKit.Button(body, "WALK AWAY", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    () =>
+                    {
+                        walkAwayArmed = v.key;
+                        focusAfterRebuild = "KEEP TALKING";
+                        Rebuild();
+                    }, 16);
+            }
         }
+
+        /// <summary>The viewing whose WALK AWAY is one press from happening.
+        /// Keyed to the visit rather than a bool so a stale arm cannot carry
+        /// from one car's page onto another's.</summary>
+        string walkAwayArmed;
 
         /// <summary>
         /// Take it out. A SOLO PRACTICE run in the seller's car, on the
@@ -4214,7 +4379,7 @@ namespace PSXRacing.LifeSim
         void BuildDealer()
         {
             float y = -16f;
-            MenuKit.Label(body, "CRESTLINE MOTORS — USED CARS", 20,
+            MenuKit.Label(body, "CRESTLINE MOTORS — NEW & USED", 20,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Accent, 600f, bold: true);
             MenuKit.Label(body, "CREDIT " + S.creditScore + " (" +
@@ -4225,14 +4390,33 @@ namespace PSXRacing.LifeSim
             y -= 34f;
 
             MenuKit.Label(body,
-                "Sold as seen. The salesman answers questions and hands over nothing else.",
+                "Test drives with the salesman riding along. Nothing disclosed — bring questions.",
                 15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 820f);
             y -= 30f;
 
             if (S.dealerLot.Count == 0) CarMarket.RefreshLot(S);
+
+            // The showroom, then the forecourt: two sections rather than one
+            // shuffled list, because "new and used" is the shop's whole pitch
+            // and a NEW tag lost in a column of trade-ins is not a showroom.
+            DealerSection(ref y, "IN THE SHOWROOM — NEW", true);
+            DealerSection(ref y, "ON THE LOT — USED", false);
+        }
+
+        void DealerSection(ref float y, string heading, bool wantNew)
+        {
+            bool any = false;
+            foreach (var l in S.dealerLot) if (l.isNew == wantNew) { any = true; break; }
+            if (!any) return;
+
+            MenuKit.Label(body, heading, 15, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 500f, bold: true);
+            y -= 28f;
+
             foreach (var listing in S.dealerLot)
             {
+                if (listing.isNew != wantNew) continue;
                 var captured = listing;
                 var seen = Viewings.Find(S, listing);
                 MenuKit.Button(body, "", new Vector2(0.5f, 1f),
@@ -4251,12 +4435,16 @@ namespace PSXRacing.LifeSim
                     new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 8f), TextAnchor.MiddleLeft,
                     listing.isNew ? MenuKit.Good : Color.white, ColW - 28f).raycastTarget = false;
                 MenuKit.Label(body, MenuKit.Money(seen != null ? seen.offerPrice : listing.price) +
-                        "  ·  " + listing.odoMiles.ToString("N0") + " mi  ·  cond " + listing.cond +
+                        (listing.isNew
+                            ? "  ·  delivery miles only"
+                            : "  ·  " + listing.odoMiles.ToString("N0") + " mi  ·  cond " +
+                              listing.cond) +
                         (seen != null ? "  ·  you have looked at this one" : ""),
                     13, new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 32f),
                     TextAnchor.MiddleLeft, MenuKit.Dim, ColW - 28f).raycastTarget = false;
                 y -= 62f;
             }
+            y -= 8f;
         }
 
         /// <summary>The flat-rate counterpart to fault repair: no skill gate, no
@@ -4859,6 +5047,32 @@ namespace PSXRacing.LifeSim
                 var car = S.ActiveCar;
                 if (car != null && car.fuel > 5f)
                 {
+                    // GO TO WORK is a DRIVE now: out of your own garage,
+                    // across town, and clock on at the shop's door — the
+                    // owner's ask, in the owner's order. The teleport survives
+                    // only as the second hop: TownExit.ClockOn raises
+                    // ArrivedAtShop once the player is actually parked outside
+                    // Tony's, and only then does this branch load the counter.
+                    int townIdx = TrackCatalog.TownSceneIndex;
+                    if (!PizzaRun.ArrivedAtShop &&
+                        townIdx > 0 && townIdx < SceneManager.sceneCountInBuildSettings)
+                    {
+                        PizzaRun.DriveToShop = true;
+                        RaceHandoff.ClearAll();
+                        RaceHandoff.FromLifeSim = true;
+                        RaceHandoff.FreeRoam = true;
+                        RaceHandoff.CarId = S.activeCar;
+                        RaceHandoff.CarSpecId = car.specId;
+                        // The slot's own hour, not the race picker's: this is
+                        // the commute, and it happens when the day says it does.
+                        RaceHandoff.TimeOfDayIndex = TimeOfDay.ForSlot(S.slotIndex, S.day);
+                        RaceHandoff.StartFuelPct = car.fuel;
+                        FillCarRequest();
+                        LifeSimManager.Save();
+                        SceneManager.LoadScene(townIdx);
+                        return;
+                    }
+                    PizzaRun.ArrivedAtShop = false;
                     LifeSimManager.Save();
                     SceneManager.LoadScene(TrackCatalog.PizzeriaSceneIndex);
                     return;

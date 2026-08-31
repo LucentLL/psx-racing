@@ -38,6 +38,25 @@ namespace PSXRacing.OnFoot
         public PlayerCarInput carInput;
         public EngineAudio engine;
 
+        /// <summary>
+        /// Getting out is allowed ANYWHERE the car can stop, not only at a
+        /// pump with a thirsty tank. Set by the town's builder and nobody
+        /// else: a circuit mid-race is not a place to go for a walk, but the
+        /// town is made of doors, and "I can't get out of the car at the
+        /// Pizzeria" was reported in exactly those words.
+        ///
+        /// The pump keeps its own key (USE) and its own priority; this rides
+        /// the SECOND verb — E, pad-west, the same second button the walk-in
+        /// scenes use — so stopping at a venue never makes one press mean two
+        /// things.
+        /// </summary>
+        public bool anywhereInTown;
+
+        /// <summary>True when a stopped car could be got out of right here,
+        /// right now. The HUD reads it to hand the touch ACTION button over
+        /// when no pump, venue or order window is claiming it.</summary>
+        public static bool OfferGetOut { get; private set; }
+
         /// <summary>True from the moment the driver's door shuts behind them to
         /// the moment it shuts in front of them. Read by the HUD and by
         /// StuckRecovery, both of which have nothing useful to say about a car
@@ -76,6 +95,7 @@ namespace PSXRacing.OnFoot
         {
             OnFoot = false;
             Prompt = null;
+            OfferGetOut = false;
         }
 
         void Start()
@@ -103,24 +123,69 @@ namespace PSXRacing.OnFoot
         void TickInCar()
         {
             Prompt = null;
-            if (playerCar == null || !GasPump.AtPump || PauseMenu.IsOpen) return;
+            OfferGetOut = false;
+            if (playerCar == null || PauseMenu.IsOpen) return;
             // Not on the grid and not after the flag — the two windows where the
             // player does not have the car.
             if (carInput != null && !carInput.inputEnabled) return;
 
-            var tank = playerCar.GetComponent<FuelTank>();
-            // Nothing to stop for. A full car crossing its own forecourt every
-            // lap does not need to be asked whether it wants fuel.
-            if (tank != null && tank.percent >= 99.5f) return;
+            bool stopped = Mathf.Abs(playerCar.speedKmh) <= StopKmh;
 
-            if (Mathf.Abs(playerCar.speedKmh) > StopKmh)
+            // ---- the pump, exactly as it has always worked ----
+            if (GasPump.AtPump)
             {
-                Prompt = "PUMP — STOP TO FILL UP";
-                return;
+                var tank = playerCar.GetComponent<FuelTank>();
+                // A full car crossing its own forecourt every lap does not need
+                // to be asked whether it wants fuel — but in town it can still
+                // be got out of, below.
+                bool wantsFuel = tank == null || tank.percent < 99.5f;
+                if (wantsFuel)
+                {
+                    if (!stopped)
+                    {
+                        Prompt = "PUMP — STOP TO FILL UP";
+                        return;
+                    }
+                    Prompt = UseControlName() + " TO GET OUT AND FUEL";
+                    if (UsePressed() || (anywhereInTown && OutPressed()))
+                        StartCoroutine(GetOut());
+                    return;
+                }
             }
 
-            Prompt = UseControlName() + " TO GET OUT AND FUEL";
-            if (UsePressed()) StartCoroutine(GetOut());
+            // ---- anywhere in town ----
+            if (!anywhereInTown || !stopped) return;
+
+            OfferGetOut = true;
+            // The centre banner belongs to whichever venue is claiming the
+            // stopped car; this line only speaks when nothing else is, so the
+            // player is never shown two prompts fighting over one slot.
+            if (!Town.TownVenue.AtVenue && !DriveThru.AtBay)
+                Prompt = OutControlName() + " — GET OUT AND WALK";
+            if (OutPressed()) StartCoroutine(GetOut());
+        }
+
+        /// <summary>The SECOND verb, in the car: E, pad-west — the same pair
+        /// the walk-in scenes use for their second action — plus the touch
+        /// ACTION button when no pump, venue or order window has claimed it
+        /// (a phone has one contextual button, and whoever is prompting owns
+        /// it).</summary>
+        bool OutPressed()
+        {
+            var kb = Keyboard.current;
+            if (kb != null && kb.eKey.wasPressedThisFrame) return true;
+            var pad = Gamepad.current;
+            if (pad != null && pad.buttonWest.wasPressedThisFrame) return true;
+            var touch = TouchControls.Instance;
+            return touch != null && touch.Visible && touch.ActionPressed &&
+                   !Town.TownVenue.AtVenue && !DriveThru.AtBay && !GasPump.AtPump;
+        }
+
+        static string OutControlName()
+        {
+            if (TouchControls.Instance != null && TouchControls.Instance.Visible)
+                return "TAP ACTION";
+            return Gamepad.current != null ? "PRESS SQUARE / X" : "PRESS E";
         }
 
         // ------------------------------------------------------------------
@@ -128,7 +193,9 @@ namespace PSXRacing.OnFoot
         // ------------------------------------------------------------------
         void TickAfoot()
         {
-            if (store != null && store.IsOpen) { GasPump.WalkerAtNozzle = false; return; }
+            if ((store != null && store.IsOpen) ||
+                (counterStore != null && counterStore.IsOpen))
+            { GasPump.WalkerAtNozzle = false; return; }
 
             // The pump fills only for somebody standing at it. GasPump keeps the
             // whole transaction — wallet, tank, save — so that there is one
@@ -184,6 +251,7 @@ namespace PSXRacing.OnFoot
         {
             phase = Phase.GettingOut;
             Prompt = null;
+            OfferGetOut = false;
 
             if (carInput != null) carInput.inputEnabled = false;
             playerCar.throttleInput = 0f;
@@ -398,6 +466,32 @@ namespace PSXRacing.OnFoot
             if (store == null) return;
             if (walk != null) walk.enabled = false;
             store.Open();
+        }
+
+        StoreScreen counterStore;
+
+        /// <summary>
+        /// A DIFFERENT counter, opened from a foot target somewhere in town —
+        /// the pizza shop's, today. Its own StoreScreen instance rather than
+        /// the 6TWELVE's with the fields swapped, because the station's shop
+        /// door and this one can both exist in one scene and the last one
+        /// configured would win both.
+        /// </summary>
+        public void OpenStoreWith(string title, string subtitle, string logPlace,
+                                  StoreScreen.Item[] stock)
+        {
+            if (walker == null) return;   // nobody is on foot
+            if (counterStore == null)
+            {
+                counterStore = gameObject.AddComponent<StoreScreen>();
+                counterStore.onClosed = () => { if (walk != null) walk.enabled = true; };
+            }
+            counterStore.title = title;
+            counterStore.subtitle = subtitle;
+            counterStore.logPlace = logPlace;
+            counterStore.stock = stock;
+            if (walk != null) walk.enabled = false;
+            counterStore.Open();
         }
 
         // ------------------------------------------------------------------

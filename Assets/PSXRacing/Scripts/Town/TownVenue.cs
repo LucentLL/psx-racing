@@ -104,10 +104,12 @@ namespace PSXRacing.Town
             {
                 switch (kind)
                 {
-                    case Kind.Depart: return "WHERE TO?";
+                    case Kind.Depart: return PizzaRun.Carrying ? "MAKE THE DELIVERY"
+                                                               : "WHERE TO?";
                     case Kind.Home: return "PARK UP AND GO IN";
-                    case Kind.Pizzeria: return CanClockOn ? "CLOCK ON AT " + Title
-                                                         : "ORDER AT " + Title;
+                    case Kind.Pizzeria: return PizzaRun.Carrying ? "HAND THE ORDER BACK"
+                                             : CanClockOn ? "CLOCK ON AT " + Title
+                                                          : "ORDER AT " + Title;
                     case Kind.Dealer: return "WALK THE LOT";
                     default: return "GO IN THE YARD";
                 }
@@ -176,8 +178,20 @@ namespace PSXRacing.Town
             }
 
             AtVenue = true;
-            Prompt = UseControlName() + " — " + Verb;
+            Prompt = UseControlName() + " — " + Verb + GetOutHint();
             if (UsePressed()) Act();
+        }
+
+        /// <summary>The other thing a stopped car can do here. Appended to the
+        /// venue's own line rather than fighting it for the banner — and only
+        /// where a second physical button exists, because on touch the one
+        /// ACTION button is already spoken for by the venue.</summary>
+        static string GetOutHint()
+        {
+            if (!OnFoot.ForecourtMode.OfferGetOut) return "";
+            if (TouchControls.Instance != null && TouchControls.Instance.Visible) return "";
+            return Gamepad.current != null ? "   ·   SQUARE / X — GET OUT"
+                                           : "   ·   E — GET OUT";
         }
 
         void Act()
@@ -189,10 +203,26 @@ namespace PSXRacing.Town
                 case Kind.Dealer: TownExit.GoHome(car, "dealer"); return;
                 case Kind.Junkyard: TownExit.GoHome(car, "junkyard"); return;
                 default:
+                    if (PizzaRun.Carrying) { HandBack(); return; }
                     if (CanClockOn) TownExit.ClockOn(car);
                     else OpenCounter();
                     return;
             }
+        }
+
+        /// <summary>
+        /// Drive back to the shop with the order still on the seat and give it
+        /// up. The shift stays worked — the slot and the attendance were spent
+        /// when the box left the counter, and an evening that delivered
+        /// nothing is exactly what it cost. The cargo and its little window
+        /// come off the car on the spot, which is also the confirmation.
+        /// </summary>
+        void HandBack()
+        {
+            PizzaRun.AbandonRun(S, "brought the order back to the shop — no tip, no harm");
+            if (PizzaCargo.Instance != null) Destroy(PizzaCargo.Instance.gameObject);
+            if (PizzaCam.Instance != null) Destroy(PizzaCam.Instance.gameObject);
+            LifeSimManager.Save();
         }
 
         /// <summary>Is there a shift to take right now? The shop is open
@@ -240,8 +270,9 @@ namespace PSXRacing.Town
 
         /// <summary>The shop's own menu. Deliberately the Charlotte pizzeria's
         /// numbers rather than new ones — one shop, one price list, whichever
-        /// door you came in by.</summary>
-        static readonly StoreScreen.Item[] PizzaCounter =
+        /// door you came in by. PUBLIC because the door serves walk-ups now
+        /// too: the on-foot counter (TownWorld) sells off this same list.</summary>
+        public static readonly StoreScreen.Item[] PizzaCounter =
         {
             new StoreScreen.Item { name = "SLICE", blurb = "Folded, as the law requires.", tier = "junk", price = 5, heal = 6f },
             new StoreScreen.Item { name = "HOT PIE", blurb = "Twelve minutes in a real oven.", tier = "regular", price = 14, heal = 16f },
@@ -300,6 +331,18 @@ namespace PSXRacing.Town
         /// <summary>Back to the front end, on a named page.</summary>
         public static void GoHome(CarController car, string tab)
         {
+            // The two exits that CONTINUE the shift ride slot-free — the
+            // shift's slot is paid at the shop door, once. Every other exit is
+            // a drive that ends here and costs what a drive costs.
+            RaceHandoff.CommuteLeg = tab == "work" || tab == "deliverrun";
+
+            // An order still on the seat on any exit that is not the delivery
+            // itself went nowhere: parked up for the night, wandered off to
+            // the dealership, whatever — the shop is not coming to find you.
+            if (PizzaRun.Carrying && tab != "deliverrun")
+                PizzaRun.AbandonRun(LifeSimManager.State,
+                    "the order went cold on the passenger seat — no tip");
+
             City.CityMode.Instance?.StampExitResult();
             LifeHomeScreen.PendingTab = tab;
             LifeSimManager.Save();
@@ -323,6 +366,12 @@ namespace PSXRacing.Town
         /// straight on to the shift, so the player sees one loading screen and
         /// arrives at the counter.
         /// </summary>
-        public static void ClockOn(CarController car) => GoHome(car, "work");
+        public static void ClockOn(CarController car)
+        {
+            // The commute is DONE: the next DoWork is the shift itself, not
+            // another drive to a shop the player is already parked outside.
+            PizzaRun.ArrivedAtShop = true;
+            GoHome(car, "work");
+        }
     }
 }

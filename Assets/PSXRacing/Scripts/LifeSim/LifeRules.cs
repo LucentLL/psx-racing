@@ -436,7 +436,8 @@ namespace PSXRacing.LifeSim
         public static DeliveryOutcome ScoreDelivery(int quoted, int trackIndex,
                                                     float seconds, float damage,
                                                     int hardHits, bool inProgress = false,
-                                                    float? cargoCondition = null)
+                                                    float? cargoCondition = null,
+                                                    float carryCondition = 1f)
         {
             var o = new DeliveryOutcome
             {
@@ -452,6 +453,11 @@ namespace PSXRacing.LifeSim
                 condition = cargoCondition ?? PizzaCondition(damage, hardHits),
                 inProgress = inProgress,
             };
+            // The drive ACROSS TOWN counts. The order rides the passenger seat
+            // from the shop to the junction before the run proper begins, and
+            // the customer opens the box, not the lap chart: what arrives is
+            // the worse of the two legs, never magically the better.
+            o.condition = Mathf.Min(o.condition, Mathf.Clamp01(carryCondition));
 
             // The clock. Under par pays a premium that keeps climbing to a
             // quarter over at 0.6x par; over par it slides to the floor by the
@@ -766,7 +772,11 @@ namespace PSXRacing.LifeSim
             // day, so one afternoon run ate the afternoon, the night and any
             // chance of sleeping — most of the day the inspect-repair-work-sleep
             // decision is supposed to be spent making.
-            if (!RaceHandoff.Delivery) SpendActivitySlot(s);
+            // ... and NOT a commute leg either: the drive to the shop and the
+            // loaded drive to the junction are halves of the shift, and the
+            // shift's slot is spent once, at the shop door. Charging each leg
+            // as well made one delivery cost most of a day.
+            if (!RaceHandoff.Delivery && !RaceHandoff.CommuteLeg) SpendActivitySlot(s);
 
             if (car != null)
             {
@@ -827,7 +837,8 @@ namespace PSXRacing.LifeSim
                 // A drive is not a result: no purse, no rep, and no rep-decay
                 // reset — cruising Charlotte is not showing up on the street.
                 // The metres, fuel and wear above are already banked.
-                summary = "free roam — " + (RaceHandoff.MetersDriven / 1000f).ToString("0.0") +
+                summary = (RaceHandoff.CommuteLeg ? "on the clock — " : "free roam — ") +
+                          (RaceHandoff.MetersDriven / 1000f).ToString("0.0") +
                           " km in " + (string.IsNullOrEmpty(RaceHandoff.FreeRoamPlace)
                               ? "Charlotte" : RaceHandoff.FreeRoamPlace.ToLowerInvariant());
             }
@@ -852,7 +863,8 @@ namespace PSXRacing.LifeSim
                                          RaceHandoff.RaceTimeSeconds,
                                          RaceHandoff.DamageScore, RaceHandoff.HardHits,
                                          cargoCondition: RaceHandoff.CargoReported
-                                             ? RaceHandoff.CargoCondition : (float?)null);
+                                             ? RaceHandoff.CargoCondition : (float?)null,
+                                         carryCondition: RaceHandoff.CarryCondition);
                 s.money += drop.tip;
                 // Attendance was banked at the counter (ClockOnShift, from
                 // PizzaShift) — turning up is what the shop counts, and a night

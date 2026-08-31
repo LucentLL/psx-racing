@@ -54,8 +54,18 @@ namespace PSXRacing.OnFoot
         /// line, not the origin. A car's transform sits between its axles at
         /// road height, and a hook that aims there is one the ground stands in
         /// front of.</param>
+        /// <param name="missingWheels">Bitmask of wheels that have been
+        /// STRIPPED off the car — bit i is wheel i in the loop's own order
+        /// (FL, FR, RL, RR). The junkyard's whole read: a shelf selling used
+        /// wheels next to a yard of cars all wearing four of them is a shop
+        /// that lies about where its stock comes from.</param>
+        /// <param name="blockMat">When a wheel is missing, a stack of cinder
+        /// blocks goes under that corner so the car is supported rather than
+        /// half buried — the material is the caller's, because a runtime class
+        /// cannot conjure a PSX/Lit material that fits the scene.</param>
         public static Transform Spawn(Transform at, CarModelDef def, int skin,
-                                      out Vector3 roofPoint, bool solid = true)
+                                      out Vector3 roofPoint, bool solid = true,
+                                      int missingWheels = 0, Material blockMat = null)
         {
             roofPoint = new Vector3(0f, 1.1f, 0f);
             if (at == null || def == null) return null;
@@ -80,12 +90,25 @@ namespace PSXRacing.OnFoot
             for (int i = 0; i < 4; i++)
             {
                 bool left = i % 2 == 0;
-                var w = new GameObject("Wheel" + i);
-                w.transform.SetParent(shell, false);
-                w.transform.localPosition = new Vector3(
+                var hub = new Vector3(
                     (left ? -0.5f : 0.5f) * def.trackWidth,
                     def.wheelRadius,
                     (i < 2 ? 0.5f : -0.5f) * def.wheelbase - centre);
+
+                if ((missingWheels & (1 << i)) != 0)
+                {
+                    // The wheel is on a shelf somewhere. What holds the corner
+                    // up is a two-block stack under the sill, topping out at
+                    // hub height so the body sits exactly where its wheels
+                    // would have put it — a car on blocks is level; a car on a
+                    // guess is a car with one corner in the dirt.
+                    BuildBlockStack(shell, "Blocks" + i, hub, def.wheelRadius, blockMat);
+                    continue;
+                }
+
+                var w = new GameObject("Wheel" + i);
+                w.transform.SetParent(shell, false);
+                w.transform.localPosition = hub;
                 w.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
                 w.transform.localScale = Vector3.one * def.wheelMeshScale;
                 w.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
@@ -104,6 +127,37 @@ namespace PSXRacing.OnFoot
 
             roofPoint = new Vector3(0f, Mathf.Max(def.roofY, 1.1f) * 0.82f, 0f);
             return shell;
+        }
+
+        /// <summary>
+        /// Two cinder blocks, laid crosswise, from the ground up to hub
+        /// height. Primitive cubes because there is no block model in either
+        /// art tree — the same reason the garage's jack stands are primitives —
+        /// and crosswise because that is how anyone who has actually done this
+        /// stacks them.
+        /// </summary>
+        static void BuildBlockStack(Transform shell, string name, Vector3 hub,
+                                    float topY, Material mat)
+        {
+            float each = Mathf.Max(0.09f, topY * 0.5f);
+            for (int layer = 0; layer < 2; layer++)
+            {
+                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                b.name = name + "_" + layer;
+                // The preview tools run this in edit mode, where Destroy is an
+                // error rather than a deferral.
+                var col = b.GetComponent<Collider>();
+                if (Application.isPlaying) Object.Destroy(col);
+                else Object.DestroyImmediate(col);
+                b.transform.SetParent(shell, false);
+                b.transform.localPosition = new Vector3(
+                    hub.x, each * (layer + 0.5f), hub.z);
+                // Crosswise: the long axis alternates per layer.
+                b.transform.localRotation = Quaternion.Euler(0f, layer * 90f, 0f);
+                b.transform.localScale = new Vector3(0.44f, each, 0.22f);
+                var r = b.GetComponent<MeshRenderer>();
+                if (mat != null) r.sharedMaterial = mat;
+            }
         }
     }
 }

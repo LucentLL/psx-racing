@@ -51,6 +51,25 @@ namespace PSXRacing.LifeSim
         public bool haggled;
         public bool lookedOver;
         public bool testDrove;
+        /// <summary>The seller has been ASKED for stands / for the keys, and
+        /// what they said. Asked once per visit: a seller who said no does not
+        /// say yes because you asked again, and one who said yes stays asked.
+        /// </summary>
+        public bool standsAsked;
+        public bool standsRefused;
+        public bool driveAsked;
+        public bool driveRefused;
+        /// <summary>
+        /// What the seller's own behaviour has handed you to bargain with.
+        ///
+        /// A refusal is INFORMATION: a seller who will not put the car on
+        /// stands or hand over the keys is a seller whose car you cannot
+        /// check, and "then I'm not paying sight-unseen money" is the natural
+        /// reply. Each refusal banked here makes the next haggle harder to
+        /// rebuff and worth more — which turns a locked door into a tool
+        /// instead of a dead end.
+        /// </summary>
+        public int leverage;
         /// <summary>Day the visit's activity slot was paid for. -1 until you
         /// actually turn up. Re-entering the same day is free, exactly like
         /// <see cref="Inspection"/>'s own day latch.</summary>
@@ -238,20 +257,98 @@ namespace PSXRacing.LifeSim
             return found;
         }
 
-        /// <summary>Talk them down. 30% flat refusal, otherwise 5-20% off —
-        /// the monolith's numbers, and note it is NOT gated on having found
-        /// anything: some sellers just want the car gone.</summary>
+        // ---- asking for access, and what a "no" is worth ----
+
+        /// <summary>How often a private seller turns each request down. Rolled
+        /// once per visit and remembered — a seller is a person, not a slot
+        /// machine.</summary>
+        const float StandsRefuseChance = 0.28f;
+        const float DriveRefuseChance = 0.25f;
+
+        /// <summary>
+        /// "Mind if I get it up on stands?" True = go ahead. A dealership
+        /// always says yes — it is their hoist and their salesman standing
+        /// beside it; the whole mechanic exists on the driveway, where the
+        /// stranger holding the jack is you.
+        ///
+        /// A refusal banks LEVERAGE and reopens the haggle: a car you were
+        /// not allowed underneath is a car priced on trust, and saying so is
+        /// the counter-offer.
+        /// </summary>
+        public static bool AskStands(LifeState s, Viewing v)
+        {
+            if (v == null) return false;
+            if (v.source == "lot") return true;
+            if (v.standsAsked) return !v.standsRefused;
+            v.standsAsked = true;
+            if (Random.value < StandsRefuseChance)
+            {
+                v.standsRefused = true;
+                v.leverage++;
+                v.haggled = false;   // new information, new conversation
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>"Can I take it round the block?" Same shape as
+        /// <see cref="AskStands"/>. The dealership hands the keys over (the
+        /// salesman rides along); a private seller may not, and that no is
+        /// worth money in the haggle for the same reason: 21 of the 36 used
+        /// faults only show up at speed, and you were just refused the only
+        /// way to find them.</summary>
+        public static bool AskTestDrive(LifeState s, Viewing v)
+        {
+            if (v == null) return false;
+            if (v.source == "lot") { v.driveAsked = true; return true; }
+            if (v.driveAsked) return !v.driveRefused;
+            v.driveAsked = true;
+            if (Random.value < DriveRefuseChance)
+            {
+                v.driveRefused = true;
+                v.leverage++;
+                v.haggled = false;   // new information, new conversation
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Talk them down. The base numbers are the monolith's — 30%
+        /// flat refusal, otherwise 5-20% off, NOT gated on having found
+        /// anything: some sellers just want the car gone. Two amendments:
+        /// LEVERAGE (each access refusal makes a rebuff rarer and the cut
+        /// deeper — see <see cref="Viewing.leverage"/>), and NEW CARS at the
+        /// dealership, where the sticker is the sticker and the salesman has a
+        /// manager to hide behind: refusal is likelier and the movement is
+        /// 2-8%, which on a new-car price is still real money.</summary>
         public static string Haggle(LifeState s, Viewing v)
         {
             if (v == null) return "nothing to haggle over";
             if (v.haggled) return "they have made their best offer today";
             v.haggled = true;
-            if (Random.value < 0.30f) return "they will not budge on the price";
-            float disc = 0.80f + Random.value * 0.15f;
+
+            var listing = ListingFor(s, v);
+            bool isNew = listing != null && listing.isNew;
+            if (isNew)
+            {
+                if (Random.value < 0.55f) return "the salesman spreads his hands — sticker is sticker";
+                float newDisc = 0.92f + Random.value * 0.06f;
+                int wasNew = v.offerPrice;
+                v.offerPrice = Mathf.Max(200, Mathf.RoundToInt(v.offerPrice * newDisc));
+                return "he 'talks to his manager' — " + MenuKit.Money(v.offerPrice) +
+                       " (" + MenuKit.Money(wasNew - v.offerPrice) + " off)";
+            }
+
+            float refuse = Mathf.Max(0.05f, 0.30f - 0.12f * v.leverage);
+            if (Random.value < refuse) return "they will not budge on the price";
+            float disc = 0.80f + Random.value * 0.15f - 0.04f * Mathf.Min(v.leverage, 3);
             int was = v.offerPrice;
-            v.offerPrice = Mathf.Max(200, Mathf.RoundToInt(v.offerPrice * disc));
-            return "down to " + MenuKit.Money(v.offerPrice) +
-                   " (" + MenuKit.Money(was - v.offerPrice) + " off)";
+            v.offerPrice = Mathf.Max(200, Mathf.RoundToInt(v.offerPrice * Mathf.Max(0.68f, disc)));
+            string line = "down to " + MenuKit.Money(v.offerPrice) +
+                          " (" + MenuKit.Money(was - v.offerPrice) + " off)";
+            if (v.leverage > 0)
+                line += " — 'fine, since you couldn't check it over'";
+            return line;
         }
 
         /// <summary>

@@ -79,8 +79,26 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Build Town Scene")]
         public static void BuildTownMenu() => BuildTownScene();
 
+        // Walk-up anchors, filled by the build functions below and wired onto
+        // TownWorld at the end — the same static-scratch style the rest of the
+        // builder uses. Nulled at the top of every build so a re-run cannot
+        // wire last build's transforms.
+        static Transform townPizzaDoor, townPizzaKerb, townDealerDoor,
+                         townYardGate, townHomeDoor;
+
+        static Transform TownAnchor(Transform parent, string name, Vector3 at, Vector3 facing)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.SetPositionAndRotation(at,
+                Quaternion.LookRotation(facing.sqrMagnitude > 0.01f ? facing : Vector3.forward,
+                                        Vector3.up));
+            return go.transform;
+        }
+
         public static string BuildTownScene()
         {
+            townPizzaDoor = townPizzaKerb = townDealerDoor = townYardGate = townHomeDoor = null;
             psxLit = Shader.Find("PSX/Lit");
             if (psxLit == null) throw new System.Exception("PSX/Lit not found");
             matByTex.Clear();
@@ -135,14 +153,18 @@ namespace PSXRacing.EditorTools
             var menu = systems.AddComponent<PauseMenu>();
             menu.playerCar = player;
 
-            // Getting out at the pumps. The forecourt's own component, wired
+            // Getting out of the car. The forecourt's own component, wired
             // exactly as the circuits wire it — it BORROWS the race camera
             // rather than making a second one, because that camera carries the
-            // whole PSX display chain.
+            // whole PSX display chain. anywhereInTown is the town's one
+            // departure from the circuits: this is a map made of doors, so a
+            // stopped car can be got out of at any of them, not only at a
+            // pump with a thirsty tank.
             var forecourt = systems.AddComponent<ForecourtMode>();
             forecourt.playerCar = player;
             forecourt.carInput = player.GetComponent<PlayerCarInput>();
             forecourt.engine = player.GetComponent<EngineAudio>();
+            forecourt.anywhereInTown = true;
             var psxCam = GameObject.Find("PSXCamera");
             if (psxCam != null)
             {
@@ -153,6 +175,17 @@ namespace PSXRacing.EditorTools
             var world = systems.AddComponent<TownWorld>();
             world.dealerSpots = dealerAnchors;
             world.yardSpots = yardAnchors;
+            world.player = player;
+            world.pizzaKerb = townPizzaKerb;
+            world.pizzaDoor = townPizzaDoor;
+            world.dealerDoor = townDealerDoor;
+            world.yardGate = townYardGate;
+            world.homeDoor = townHomeDoor;
+            // Bare concrete grey for the cinder blocks under stripped wrecks —
+            // a bake-time material for a runtime spawner, same contract as
+            // GarageWorld's rig materials.
+            world.blockMaterial = MakeMat("TownCinder", null,
+                tint: new Color(0.56f, 0.56f, 0.52f));
 
             EditorSceneManager.SaveScene(scene, TownScenePath);
             AssetDatabase.SaveAssets();
@@ -387,6 +420,11 @@ namespace PSXRacing.EditorTools
             TownTrigger(home.transform, "HomeVenue", TownVenue.Kind.Home,
                 new Vector3(doorX, 1.4f, driveTopZ - 5f), new Vector3(9f, 3f, 10f));
 
+            // The open garage bay, for somebody who parked on the street and
+            // walked up their own drive.
+            townHomeDoor = TownAnchor(home.transform, "HomeDoorAnchor",
+                new Vector3(doorX, 1.2f, driveTopZ - 1.2f), Vector3.forward);
+
             // The junction at the bottom of your street: the one place the game
             // asks where you are going. Placed just short of the main road, so
             // a player who simply drives on has answered the question.
@@ -418,6 +456,19 @@ namespace PSXRacing.EditorTools
                 26f, 14f, 3f, m.drive, true, 6f, WorldKit.RoadLayer);
             TownTrigger(strip.transform, "PizzaVenue", TownVenue.Kind.Pizzeria,
                 new Vector3(-6f, 1.4f, -13.5f), new Vector3(12f, 3f, 9f));
+
+            // The shop's DOOR, for a player who got out and walked up — the
+            // storefront's face toward the street, measured off the model so a
+            // pack update cannot strand the anchor inside the wall. And the
+            // KERB, where the car stands when the player walks out mid-shift
+            // with the boxes: on the apron, nose pointed up the street toward
+            // the junction, because that is where every run goes next.
+            var shopB = shop != null ? WorldKit.BoundsOf(shop)
+                : new Bounds(new Vector3(-6f, 1f, -22f), new Vector3(8f, 4f, 8f));
+            townPizzaDoor = TownAnchor(strip.transform, "PizzaDoorAnchor",
+                new Vector3(shopB.center.x, 1.2f, shopB.max.z + 0.8f), Vector3.back);
+            townPizzaKerb = TownAnchor(strip.transform, "PizzaKerbAnchor",
+                new Vector3(-14f, 0.35f, -8.5f), Vector3.left);
 
             // Neighbours, so the street is a street. Three blocks on the north
             // side facing the road, spread far enough apart to leave the
@@ -516,6 +567,12 @@ namespace PSXRacing.EditorTools
 
             TownTrigger(lot.transform, "DealerVenue", TownVenue.Kind.Dealer,
                 new Vector3(cx - 6f, 1.4f, cz - 12.5f), new Vector3(16f, 3f, 8f));
+
+            // The sales office: the showroom's street face, for a walk-up.
+            var showB = show != null ? WorldKit.BoundsOf(show)
+                : new Bounds(new Vector3(cx + 14f, 2f, cz + 12f), new Vector3(10f, 6f, 10f));
+            townDealerDoor = TownAnchor(lot.transform, "DealerDoorAnchor",
+                new Vector3(showB.center.x, 1.2f, showB.min.z - 0.8f), Vector3.forward);
             return spots.ToArray();
         }
 
@@ -605,9 +662,18 @@ namespace PSXRacing.EditorTools
                     new Vector3(1.2f, 1.2f, 1.2f), m.metal, true, (i * 17) % 40,
                     WorldKit.SolidLayer);
 
-            // Where the wrecks go. Two rows along the back, tipped and turned
-            // at bake time so the yard is not a car park; the SHELLS arrive at
-            // runtime because which cars are in a yard is a save question.
+            // Where the wrecks go. Two rows along the back, turned every which
+            // way at bake time so the yard is not a car park; the SHELLS
+            // arrive at runtime because which cars are in a yard is a save
+            // question.
+            //
+            // UPRIGHT and at grade now, at the owner's instruction: "junkyard
+            // cars don't need to be half buried — they can be on jack stands
+            // or cinder blocks." The half-sunk lean was standing in for decay;
+            // the decay is real now (TownWorld strips wheels to match the
+            // shelves and stacks blocks under the bare corners), and a buried
+            // sill under a car on blocks would read as a car on blocks in a
+            // hole.
             var spots = new List<Transform>();
             for (int i = 0; i < 8; i++)
             {
@@ -615,15 +681,9 @@ namespace PSXRacing.EditorTools
                 float z = cz + (i < 4 ? 6f : -6f);
                 var t = new GameObject("Wreck" + i);
                 t.transform.SetParent(yard.transform, false);
-                // Sunk a little and leaned over: a car sitting on its sills in
-                // the dirt reads completely differently from one on its wheels.
-                // Down on its sills and properly over. Four degrees of lean
-                // is a car parked badly; twelve is a car that has not moved in
-                // a decade, and that difference is the whole read of the yard.
                 t.transform.SetPositionAndRotation(
-                    new Vector3(x, -0.26f - (i % 3) * 0.05f, z),
-                    Quaternion.Euler((i % 3 - 1) * 9f, 25f + i * 41f,
-                                     (i % 2 == 0 ? 11f : -14f)));
+                    new Vector3(x, 0.01f, z),
+                    Quaternion.Euler(0f, 25f + i * 41f, 0f));
                 spots.Add(t.transform);
             }
 
@@ -651,6 +711,11 @@ namespace PSXRacing.EditorTools
 
             TownTrigger(yard.transform, "YardVenue", TownVenue.Kind.Junkyard,
                 new Vector3(cx, 1.4f, cz + halfZ - 3f), new Vector3(10f, 3f, 9f));
+
+            // The gate, for a walk-up: just inside the opening in the north
+            // fence, where the way in already is.
+            townYardGate = TownAnchor(yard.transform, "YardGateAnchor",
+                new Vector3(cx, 1.2f, cz + halfZ - 1.5f), Vector3.forward);
             return spots.ToArray();
         }
 
@@ -695,20 +760,17 @@ namespace PSXRacing.EditorTools
             float floorY = pumps.Count > 0 ? PumpBounds(pumps).min.y : b.min.y;
             root.transform.position += new Vector3(cx - b.center.x, -floorY, cz - b.center.z);
 
-            // Solid where the building is. The pack has no floor, so a mesh
-            // collider sweep would let a car through the forecourt roof and
-            // stop it on a ketchup bottle; one box behind the pump line is what
-            // the circuits use and it is the right shape here too.
+            // Solid where a THING is and open everywhere else — the same
+            // piece-collider pass the circuits run now. The old one-box-behind-
+            // the-pump-line filled every open yard of concrete around the shop
+            // with invisible wall, which nobody noticed from a car and the
+            // player hit the moment they got out and walked ("invisible walls
+            // stop me from walking into areas like one of the gas stations").
             b = WorldKit.BoundsOf(root);
-            var solid = new GameObject("StationSolid");
-            solid.transform.SetParent(parent, false);
-            solid.layer = WorldKit.SolidLayer;
-            float pumpZ = pumps.Count > 0 ? PumpBounds(pumps).center.z : cz;
-            float backZ = b.max.z;
-            float depth = Mathf.Max(3f, backZ - (pumpZ + 3f));
-            solid.transform.position = new Vector3(b.center.x, b.center.y, backZ - depth * 0.5f);
-            var box = solid.AddComponent<BoxCollider>();
-            box.size = new Vector3(Mathf.Max(6f, b.size.x), Mathf.Max(4f, b.size.y), depth);
+            var shopBounds = AddStationPieceColliders(root, pumps);
+            // And the shop DOOR, so the walk-in store works here the way it
+            // does on every circuit forecourt. The town's ground is flat zero.
+            PlaceStoreDoor(parent, shopBounds, pumps, 1.2f);
 
             // A drive-up volume per pump, exactly as the circuits build them.
             foreach (var pump in pumps)

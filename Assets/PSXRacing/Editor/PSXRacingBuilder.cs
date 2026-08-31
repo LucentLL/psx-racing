@@ -3466,70 +3466,100 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// Solid where it should be and open where it should not.
+        /// Solid where a THING is and open everywhere else.
         ///
-        /// One box over the whole station is what made the forecourt
-        /// unreachable — the pumps, the canopy and the tarmac in front of them
-        /// were all inside it. What actually needs to stop a car is the SHOP
-        /// behind the pumps and the pump islands themselves; everything between
-        /// them is where the player is meant to drive.
+        /// The previous shape was one box from the pump line to the back of
+        /// the lot. It stopped cars ending up in the shop, and it also filled
+        /// every open yard of concrete beside and behind the building with
+        /// invisible wall — which nobody noticed from a car and everybody hit
+        /// the moment the forecourt became somewhere you walk ("invisible
+        /// walls stop me from walking into areas like one of the gas
+        /// stations"). Each piece of the model now carries its own local-space
+        /// box: the shop stops you at its walls, the canopy columns at the
+        /// columns, and the concrete between them is concrete.
+        ///
+        /// Returns the SHOP cluster's world bounds — the tall, wide pieces —
+        /// so the caller can stand a StoreDoor at its face.
         /// </summary>
-        static void BuildStationColliders(GameObject root, List<Transform> pumps)
+        static Bounds AddStationPieceColliders(GameObject root, List<Transform> pumps)
         {
-            var bounds = CombinedBounds(root);
-            var lot = StationSize();
-            float halfDeep = lot.y * 0.5f;
+            var lotBounds = CombinedBounds(root);
+            float floorY = pumps.Count > 0 ? PumpBounds(pumps).min.y : lotBounds.min.y;
 
-            // Where the pumps start, measured toward the road. Anything behind
-            // that line is building.
-            //
-            // With NO pumps found the whole station goes solid, which is the
-            // behaviour this replaced. That is the right fallback: a forecourt
-            // with nothing to stop at is not one worth being able to drive into,
-            // and leaving it open would only let a car end up inside a shop.
-            float pumpLine = halfDeep;
-            if (pumps.Count > 0)
+            var shopBounds = new Bounds();
+            bool haveShop = false;
+
+            foreach (var r in root.GetComponentsInChildren<Renderer>())
             {
-                Bounds pb = PumpBounds(pumps);
-                PadLocal(pb.center.x, pb.center.z, out _, out float pumpDeep);
-                PadLocal(bounds.center.x, bounds.center.z, out _, out float centreDeep);
-                // Two and a half metres behind the pumps, or the station's
-                // middle if the pumps somehow sit behind that.
-                pumpLine = Mathf.Min(pumpDeep - centreDeep - 2.5f, 0f);
+                if (r == null) continue;
+                if (r.GetComponentsInChildren<Renderer>().Length > 1) continue;   // a group
+
+                // The pumps already get bespoke islands from the caller — a
+                // second box on the mesh would double-collide every one.
+                bool isPump = false;
+                for (var p = r.transform; p != null && p != root.transform; p = p.parent)
+                    if (p.name.StartsWith("Fuel_pump", StringComparison.OrdinalIgnoreCase))
+                    { isPump = true; break; }
+                if (isPump) continue;
+
+                var b = r.bounds;
+                // Ground clutter you can step over, and the canopy overhead
+                // you drive under. The 2.05 m headroom line is above the
+                // walker's eye and above every car in the game.
+                if (b.size.y < 0.35f) continue;
+                if (b.min.y > floorY + 2.05f) continue;
+
+                if (r.GetComponent<Collider>() == null)
+                {
+                    // On the renderer's own object, so the box is fitted in
+                    // LOCAL space — a world-axis box around a yawed building
+                    // is its diagonal, which is a wall standing in fresh air.
+                    r.gameObject.AddComponent<BoxCollider>();
+                }
+                r.gameObject.layer = SolidLayer;
+
+                // The building: tall and wide. Everything else is furniture.
+                if (b.size.y > 2.3f && Mathf.Min(b.size.x, b.size.z) > 2.5f)
+                {
+                    if (!haveShop) { shopBounds = b; haveShop = true; }
+                    else shopBounds.Encapsulate(b);
+                }
             }
 
-            float shopDepth = Mathf.Max(1f, pumpLine + halfDeep);
+            return haveShop ? shopBounds : lotBounds;
+        }
 
-            var shop = new GameObject("StationSolid");
-            shop.transform.SetParent(root.transform.parent, false);
-            shop.layer = SolidLayer;
-            // Centred between the back of the station and the pump line, in the
-            // pad's frame — the station is yawed to face the road and a world
-            // box would be its diagonal.
-            PadLocal(bounds.center.x, bounds.center.z, out float cAlong, out float cDeep);
-            float shopDeep = cDeep + (pumpLine - halfDeep) * 0.5f;
-            Vector3 shopCentre = padCentre + padAlong * cAlong + padToRoad * shopDeep;
-            shopCentre.y = bounds.center.y;
-            shop.transform.position = shopCentre;
-            shop.transform.rotation = Quaternion.LookRotation(padToRoad, Vector3.up);
-            var box = shop.AddComponent<BoxCollider>();
-            box.size = new Vector3(lot.x, Mathf.Max(3f, bounds.size.y), shopDepth);
-
-            // Where the shop door is, for somebody on foot. Derived from the
-            // same box the shop is collided with rather than hunted for in the
-            // model: the front face of the building, a step out onto the
-            // forecourt. The asset has no identifiable door object, and a
-            // marker that is merely NEAR the shop is a better answer than one
-            // that is exactly on a mesh chosen by guesswork.
+        /// <summary>Where the shop door is, for somebody on foot: the face of
+        /// the shop cluster that looks at the pumps, a step out onto the
+        /// forecourt. The asset has no identifiable door object, and a marker
+        /// that is merely NEAR the shop is a better answer than one that is
+        /// exactly on a mesh chosen by guesswork.</summary>
+        static void PlaceStoreDoor(Transform parent, Bounds shop, List<Transform> pumps,
+                                   float eyeY)
+        {
+            Vector3 toward = pumps.Count > 0
+                ? PumpBounds(pumps).center - shop.center : Vector3.forward;
+            toward.y = 0f;
+            if (toward.sqrMagnitude < 0.01f) toward = Vector3.forward;
+            toward.Normalize();
+            float reach = Mathf.Abs(toward.x) * shop.extents.x +
+                          Mathf.Abs(toward.z) * shop.extents.z;
             var storeDoor = new GameObject("StoreDoor");
-            storeDoor.transform.SetParent(root.transform.parent, false);
-            float doorDeep = shopDeep + shopDepth * 0.5f + 1.4f;
-            Vector3 doorAt = padCentre + padAlong * cAlong + padToRoad * doorDeep;
-            doorAt.y = GroundHeightAt(doorAt.x, doorAt.z) + 1.2f;
+            storeDoor.transform.SetParent(parent, false);
+            Vector3 doorAt = shop.center + toward * (reach + 1.4f);
+            doorAt.y = eyeY;
             storeDoor.transform.position = doorAt;
+        }
 
-            // The islands. A pump is a bollard-sized thing and its own bounds
-            // are the right box for it.
+        /// <summary>The circuit wiring: piece colliders, the shop door, and a
+        /// bespoke island per pump — a pump is a bollard-sized thing and its
+        /// own bounds are the right box for it.</summary>
+        static void BuildStationColliders(GameObject root, List<Transform> pumps)
+        {
+            var shop = AddStationPieceColliders(root, pumps);
+            PlaceStoreDoor(root.transform.parent, shop, pumps,
+                GroundHeightAt(shop.center.x, shop.center.z) + 1.2f);
+
             foreach (var pump in pumps)
             {
                 var pb = CombinedBounds(pump.gameObject);
