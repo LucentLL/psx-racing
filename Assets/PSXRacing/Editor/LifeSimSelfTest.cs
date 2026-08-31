@@ -814,6 +814,86 @@ namespace PSXRacing.EditorTools
             TestVertexSnapOff();
             TestWalkInScenesRender();
             TestTownScene();
+            TestPizzaCounter();
+            TestPaintShop();
+        }
+
+        /// <summary>
+        /// There is a pizza on the counter, and it is within walking distance
+        /// of where the shift starts.
+        ///
+        /// Reported as "I selected go to work, drove to work, but was unable
+        /// to find a pizza inside to deliver", and every part of that failure
+        /// is silent. PizzeriaSceneBuilder finds the order by walking the pack
+        /// for meshes called Pizza_box; if the pack renames one the search
+        /// returns nothing, the builder logs a warning nobody reads, and the
+        /// COUNTER HOOK falls back onto the shop root — a 603-renderer city
+        /// block whose transform origin is out in the street. The scene still
+        /// loads, still renders, and has no order in it.
+        ///
+        /// So: the boxes exist, the hooks exist, and the counter is a WALK
+        /// from the spawn rather than a hike. 12 m is the far corner of the
+        /// modelled front-of-house; anything past that is the hook having
+        /// landed somewhere nobody stands.
+        /// </summary>
+        static void TestPizzaCounter()
+        {
+            Line("the order on the counter:");
+            string path = PizzeriaSceneBuilder.ScenePath;
+            if (!System.IO.File.Exists(path))
+            {
+                Check(false, "the pizzeria scene exists (run the scene build)");
+                return;
+            }
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                path, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+
+            PSXRacing.OnFoot.PizzaShift shift = null;
+            PSXRacing.OnFoot.FirstPersonWalk walker = null;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                shift = shift ?? go.GetComponentInChildren<PSXRacing.OnFoot.PizzaShift>(true);
+                walker = walker ?? go.GetComponentInChildren<PSXRacing.OnFoot.FirstPersonWalk>(true);
+            }
+
+            Check(shift != null, "the shop has a PizzaShift on it");
+            if (shift == null)
+            {
+                UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+                return;
+            }
+            Check(shift.counterStack != null && shift.counterStack.Length > 0,
+                  "and a stack of the pack's own boxes on the counter",
+                  shift.counterStack != null ? shift.counterStack.Length : 0);
+            Check(shift.counterStack == null ||
+                  shift.counterStack.Length >= PSXRacing.LifeSim.LifeRules.MaxOrderBoxes,
+                  "at least as tall as the biggest order the shop hands out — a three-box "
+                  + "run off a two-box counter is a box the player is paid for and never sees",
+                  (shift.counterStack != null ? shift.counterStack.Length : 0) + " of " +
+                  PSXRacing.LifeSim.LifeRules.MaxOrderBoxes);
+            Check(shift.counterHook != null && shift.doorHook != null,
+                  "the counter and the door both have hooks on them");
+            int carried = 0;
+            if (shift.carriedBoxes != null)
+                foreach (var b in shift.carriedBoxes) if (b != null) carried++;
+            Check(carried >= PSXRacing.LifeSim.LifeRules.MaxOrderBoxes,
+                  "and the carried stack is built to full height", carried);
+
+            if (walker != null && shift.counterHook != null)
+            {
+                float d = Vector3.Distance(walker.transform.position,
+                                           shift.counterHook.FocusPoint);
+                Check(d < 12f,
+                      "the counter is a walk from where the shift starts — a hook that "
+                      + "fell back onto the shop root lands out in the street",
+                      d.ToString("0.0") + " m");
+                Check(d > shift.counterHook.range,
+                      "...but not so close that the order is in the player's hands on "
+                      + "arrival: collecting it should be something you walk over and do",
+                      d.ToString("0.0") + " m vs " + shift.counterHook.range + " m reach");
+            }
+
+            UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
         }
 
         /// <summary>
@@ -963,8 +1043,10 @@ namespace PSXRacing.EditorTools
             var venues = new List<PSXRacing.Town.TownVenue>();
             var pumps = new List<PSXRacing.GasPump>();
             var roadCols = new List<Collider>();
+            var doors = new List<PSXRacing.SwingDoor>();
             foreach (var go in scene.GetRootGameObjects())
             {
+                doors.AddRange(go.GetComponentsInChildren<PSXRacing.SwingDoor>(true));
                 player = player ?? go.GetComponentInChildren<PSXRacing.CarController>(true);
                 mode = mode ?? go.GetComponentInChildren<PSXRacing.City.CityMode>(true);
                 pause = pause ?? go.GetComponentInChildren<PSXRacing.PauseMenu>(true);
@@ -1025,7 +1107,118 @@ namespace PSXRacing.EditorTools
                   + "compares layer numbers, and layer-0 tarmac is off-road tarmac",
                   roadCols.Count + " road colliders");
 
+            // ---- doors ----
+            // The pizzeria's leaves and the forecourt shop's. They were DELETED
+            // before this pass ("the doors are missing to Pizzeria and
+            // Convenience store"), and a deleted door leaves a hole that looks
+            // exactly like a working doorway in a screenshot — so the assertion
+            // is that a SwingDoor exists at all, and that each one knows which
+            // way it hangs. A zero hingeToFree is a leaf that opens by rotating
+            // about its own middle, i.e. a door that sweeps the doorway rather
+            // than clearing it.
+            Check(doors.Count > 0, "the town's shop fronts have doors on hinges",
+                  doors.Count + " leaves");
+            int flat = 0;
+            foreach (var d in doors)
+                // Loose, because both are stored in the BUILDING's frame and a
+                // pack model can carry a scale — a real 1.2 m leaf under a
+                // scaled parent is a small number, not a missing one.
+                if (d.hingeToFree.sqrMagnitude < 1e-10f ||
+                    d.throughNormal.sqrMagnitude < 1e-10f) flat++;
+            Check(flat == 0, "and every one of them knows which way it swings", flat + " bad");
+
+            // ---- the walk-up hooks ----
+            // TownWorld builds these at runtime out of anchors the builder
+            // wires, and a null anchor is a door that simply never appears —
+            // silently, because the code that makes the hook is inside an
+            // "if (anchor != null)".
+            int shopHooks = 0;
+            if (world != null && world.pizzaHooks != null)
+                foreach (var h in world.pizzaHooks) if (h != null) shopHooks++;
+            Check(shopHooks >= 3,
+                  "Tony's offers a shift from the frontage, the doorway AND inside — its "
+                  + "only door is round the east end while the apron is to the north, so "
+                  + "one hook is a shop you can walk all the way into and be told nothing",
+                  shopHooks + " hooks");
+            Check(world != null && world.mechanicDoor != null,
+                  "the mechanic has a door to walk up to");
+            Check(world != null && world.paintDoor != null,
+                  "and so does the body shop");
+
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+        }
+
+        /// <summary>
+        /// The body shop actually changes what colour the car is.
+        ///
+        /// Three things have to hold and each one is silent on its own: the
+        /// override has to SURVIVE A SAVE (it is a string on OwnedCar, so a
+        /// JsonUtility round trip is the test), the resolver has to prefer it
+        /// over the catalog colour, and a name that no longer exists in the
+        /// pack has to fall back rather than throw or paint the car black.
+        ///
+        /// The last one is the reason the save holds a NAME rather than an
+        /// index: CarModelBaker rebuilds skinMaterials from the pack, so a
+        /// stored index would quietly become a different colour the day a
+        /// livery is added to a shell.
+        /// </summary>
+        static void TestPaintShop()
+        {
+            Line("paint shop:");
+            // SeedNewGame leaves the garage empty — the wizard picks the first
+            // car — so seed the fallback FD, which is also the car most
+            // careers actually start in and the one whose specId is EMPTY.
+            // That last part matters here: an unlisted car still has a shell
+            // and can still be painted.
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            var car = s.ActiveCar;
+            if (car == null) { Check(false, "a new career has a car to paint"); return; }
+            Check(true, "the starter car is seeded", car.displayName);
+            var spec = CarCatalog.Get(car.specId);
+            var def = Paint.DefFor(spec);
+            Check(def != null, "the starter car has a shell");
+            if (def == null) return;
+            Check(def.SkinCount > 1, "and the shell has more than one livery on it",
+                  def.SkinCount);
+            if (def.SkinCount < 2) return;
+
+            int factory = Paint.FactorySkin(spec, def);
+            Check(Paint.SkinFor(car, spec, def) == factory,
+                  "an unpainted car wears the factory colour", Paint.LabelOf(def, factory));
+
+            int want = (factory + 1) % def.SkinCount;
+            s.money = 500000;
+            car.paint = 40f;
+            string err = Paint.Respray(s, car, want);
+            Check(err == null, "a respray goes through when the money is there", err);
+            Check(Paint.SkinFor(car, spec, def) == want,
+                  "and the car is wearing the colour that was picked",
+                  Paint.LabelOf(def, Paint.SkinFor(car, spec, def)));
+            Check(car.paint >= 99.9f,
+                  "a respray is a refinish — the panels come back at 100", car.paint);
+
+            // Through a save. A string field survives JsonUtility; an int with a
+            // -1 sentinel would not, which is the trap this avoids.
+            var round = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(s));
+            var reloaded = round != null ? round.FindCar(car.id) : null;
+            Check(reloaded != null && reloaded.paintSkin == car.paintSkin,
+                  "and the colour survives a save/load",
+                  reloaded != null ? reloaded.paintSkin : "car lost");
+
+            // A livery the pack no longer has.
+            car.paintSkin = "a_colour_that_was_never_baked";
+            Check(Paint.SkinFor(car, spec, def) == factory,
+                  "a livery the pack dropped falls back to the factory colour rather "
+                  + "than to index zero or an exception");
+
+            // And it costs money.
+            car.paintSkin = "";
+            s.money = 1;
+            Check(Paint.Respray(s, car, want) != null,
+                  "a respray you cannot afford is refused");
+            Check(string.IsNullOrEmpty(car.paintSkin),
+                  "and a refused respray does not change the colour anyway");
         }
 
         /// <summary>

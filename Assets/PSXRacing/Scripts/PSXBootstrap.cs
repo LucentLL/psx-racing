@@ -28,6 +28,13 @@ namespace PSXRacing
 
             if (Application.isMobilePlatform)
                 Screen.orientation = ScreenOrientation.AutoRotation;
+
+            // Hold the game while the browser window is not focused. Here
+            // rather than in each scene builder because this component is the
+            // one thing every scene with a world in it already has, and the
+            // guard itself is DontDestroyOnLoad — see FocusGuard for why an
+            // unfocused window is a race running with no driver.
+            FocusGuard.Ensure();
         }
     }
 }

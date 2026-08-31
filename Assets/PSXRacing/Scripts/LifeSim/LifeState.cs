@@ -232,6 +232,15 @@ namespace PSXRacing.LifeSim
         public float tires = 100f;
         public float carHP = 100f;
         public float paint = 100f;
+        /// <summary>The livery this car has been RESPRAYED into, by baked
+        /// name, or empty for "however it left the factory". A NAME rather
+        /// than an index into CarModelDef.skinMaterials, because that array is
+        /// rebuilt from the pack every time the model baker runs and a saved
+        /// index would quietly become a different colour the day a livery was
+        /// added. An ADDED field, so every existing save reads back empty —
+        /// which is exactly right: nobody has painted anything yet. See
+        /// <see cref="Paint"/>.</summary>
+        public string paintSkin = "";
 
         public List<CarFault> faults = new List<CarFault>();
 

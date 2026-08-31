@@ -51,6 +51,13 @@ namespace PSXRacing.Town
             Dealer,
             /// <summary>The salvage yard's gate.</summary>
             Junkyard,
+            /// <summary>DELMAR AUTO: the mechanic's forecourt. The services
+            /// page has existed since the LifeSim port; this is the first time
+            /// it has had an address you can drive to.</summary>
+            Mechanic,
+            /// <summary>COLOURWORKS: paint and body. The only door in the game
+            /// that changes what colour the car is.</summary>
+            PaintShop,
         }
 
         public Kind kind = Kind.Depart;
@@ -93,6 +100,8 @@ namespace PSXRacing.Town
                     case Kind.Home: return "HOME";
                     case Kind.Pizzeria: return "TONY'S — SLICE HOUSE";
                     case Kind.Dealer: return "CRESTLINE MOTORS";
+                    case Kind.Mechanic: return "DELMAR AUTO";
+                    case Kind.PaintShop: return "COLOURWORKS";
                     default: return "THE SALVAGE YARD";
                 }
             }
@@ -111,6 +120,8 @@ namespace PSXRacing.Town
                                              : CanClockOn ? "CLOCK ON AT " + Title
                                                           : "ORDER AT " + Title;
                     case Kind.Dealer: return "WALK THE LOT";
+                    case Kind.Mechanic: return "BOOK IT IN";
+                    case Kind.PaintShop: return "TALK PAINT";
                     default: return "GO IN THE YARD";
                 }
             }
@@ -202,6 +213,11 @@ namespace PSXRacing.Town
                 case Kind.Home: TownExit.GoHome(car, "garage"); return;
                 case Kind.Dealer: TownExit.GoHome(car, "dealer"); return;
                 case Kind.Junkyard: TownExit.GoHome(car, "junkyard"); return;
+                // Both trades open the page for the car the player ARRIVED in,
+                // not for whichever one the garage list happened to be showing
+                // — you drove this one here, so this is the one on the ramp.
+                case Kind.Mechanic: TownExit.GoToShop(car, "service"); return;
+                case Kind.PaintShop: TownExit.GoToShop(car, "paint"); return;
                 default:
                     if (PizzaRun.Carrying) { HandBack(); return; }
                     if (CanClockOn) TownExit.ClockOn(car);
@@ -352,6 +368,22 @@ namespace PSXRacing.Town
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             SceneManager.LoadScene(0);
+        }
+
+        /// <summary>
+        /// Into one of the two trades, with the car you drove there.
+        ///
+        /// The service and respray pages are both about a SPECIFIC car and
+        /// they read it from the garage list's cursor, which on a fresh load
+        /// falls back to whichever car is active. That is right in the menu
+        /// and wrong at a kerb: the point of driving to a body shop is that
+        /// this car is the one being painted. PendingGarageCar carries it.
+        /// </summary>
+        public static void GoToShop(CarController car, string tab)
+        {
+            LifeHomeScreen.PendingGarageCar =
+                LifeSimManager.State != null ? LifeSimManager.State.activeCar : null;
+            GoHome(car, tab);
         }
 
         /// <summary>

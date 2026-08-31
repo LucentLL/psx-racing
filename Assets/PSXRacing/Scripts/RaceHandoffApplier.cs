@@ -66,7 +66,7 @@ namespace PSXRacing
                 {
                     // Shell BEFORE spec: fitting a body writes wheel radius, and
                     // ApplySpec builds the gearbox off it.
-                    ApplyShell(playerCar, spec);
+                    ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
                     // MODS BEFORE THE SPEC, not after. ApplySpec ends by
                     // capturing a baseline and applying the setup, and the
                     // setup READS weldedDiff to decide the differential — so
@@ -100,6 +100,7 @@ namespace PSXRacing
                     // well as what it makes.
                     ApplyVoice(playerCar, spec, RaceHandoff.Supercharged, isPlayer: true);
                 }
+                else ApplyPaint(playerCar, RaceHandoff.CarPaintSkin);
 
                 // The tank arrives with whatever is in it. A car sent out on a
                 // third of a tank is a car whose driver has to plan a stop at
@@ -267,10 +268,35 @@ namespace PSXRacing
         /// Silently does nothing on a car the builder did not give a CarBody —
         /// which is what keeps an older saved scene loading.
         /// </summary>
-        static void ApplyShell(CarController car, CarSpec spec)
+        /// <param name="paintSkin">The livery the player has had this car
+        /// resprayed into, by baked name. Empty or unknown falls through to
+        /// the catalog colour, so an opponent — and a car nobody has painted —
+        /// takes exactly the path it always did.</param>
+        static void ApplyShell(CarController car, CarSpec spec, string paintSkin = null)
         {
             var shell = car.GetComponent<CarBody>();
-            if (shell != null) shell.ApplySpec(spec);
+            if (shell == null) return;
+            shell.ApplySpec(spec);
+            ApplyPaint(car, paintSkin);
+        }
+
+        /// <summary>
+        /// The respray, on its own.
+        ///
+        /// Separate because a car with NO CATALOG ENTRY still has a shell and
+        /// can still have been painted: the seeded starter RX-7 carries an
+        /// empty specId — it is the built-in car the whole game was tuned on
+        /// rather than a catalog row — and ApplyShell above never runs for it.
+        /// The first car most players ever paint is that one.
+        /// </summary>
+        static void ApplyPaint(CarController car, string paintSkin)
+        {
+            if (string.IsNullOrEmpty(paintSkin)) return;
+            var shell = car.GetComponent<CarBody>();
+            if (shell == null) return;
+            var def = shell.Def;
+            int skin = LifeSim.Paint.IndexOf(def, paintSkin);
+            if (skin >= 0) shell.Apply(def, skin);
         }
 
         /// <summary>

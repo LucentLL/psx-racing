@@ -188,7 +188,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void DressBurger(GameObject inst, CityProps.Def def)
         {
-            WorldKit.OpenDoors(inst);
+            WorldKit.HingeDoors(inst);
             WorldKit.AddColliders(inst, SolidLayer);
             AddApron(inst, def.w + 5f, def.d + 5f);
             Transform shell = FindDeep(inst.transform, "BurgerPiz");
@@ -217,12 +217,12 @@ namespace PSXRacing.EditorTools
         /// <summary>The pizzeria is a corner shop: no lane, so the order bay is
         /// the kerb — a stopped car anywhere along either face is "parked
         /// outside", which is what curbside pickup is. Collided piece by piece
-        /// with its double doors standing open, for the same reason as the
+        /// with its double doors on hinges, for the same reason as the
         /// burger box above: the dining room is modelled, and it is for
         /// walking into.</summary>
         static void DressPizzeria(GameObject inst, CityProps.Def def)
         {
-            WorldKit.OpenDoors(inst);
+            WorldKit.HingeDoors(inst);
             WorldKit.AddColliders(inst, SolidLayer);
             AddApron(inst, def.w + 4f, def.d + 8f);
             var b = RendererBounds(inst);

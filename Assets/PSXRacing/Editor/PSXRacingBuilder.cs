@@ -3483,10 +3483,13 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static Bounds AddStationPieceColliders(GameObject root, List<Transform> pumps)
         {
-            // Leaves open first, so the piece pass below never sees them: the
-            // 6TWELVE models real doors on a real interior, and an open shop
-            // is the whole reason the colliders went piece-by-piece.
-            WorldKit.OpenDoors(root);
+            // Doors on their hinges first, so the piece pass below finds them
+            // already collided and leaves them alone: the 6TWELVE models real
+            // doors on a real interior, and a shop you can walk into is the
+            // whole reason the colliders went piece-by-piece. The leaves used
+            // to be DISABLED here, which is what "the doors are missing to
+            // Pizzeria and Convenience store" was — they swing now.
+            WorldKit.HingeDoors(root);
 
             var lotBounds = CombinedBounds(root);
             float floorY = pumps.Count > 0 ? PumpBounds(pumps).min.y : lotBounds.min.y;
@@ -4403,7 +4406,15 @@ namespace PSXRacing.EditorTools
             hud.camText = MakeText("Cam", new Vector2(0.5f, 0f), new Vector2(0f, 98f), 11, TextAnchor.MiddleCenter);
             hud.camText.color = new Color(1f, 0.85f, 0.35f);
 
-            // The fuel gauge, top left under the lap counter.
+            // The fuel gauge, top RIGHT under the position counter.
+            //
+            // It was top LEFT under the lap counter, which is where the pause
+            // menu's always-visible MENU button lives — a different canvas at
+            // device resolution, so nothing in either layout could see the
+            // collision. The button covered "FUEL 100%" and half its bar in
+            // every screenshot the owner sent. The right-hand column has the
+            // position readout and then nothing until the speedometer, which
+            // is also where a driver's eye goes for a fuel gauge.
             //
             // A BAR and not just a number: it is read mid-corner at a glance,
             // and it is now the one readout on screen that can end a race on its
@@ -4412,7 +4423,7 @@ namespace PSXRacing.EditorTools
             // resolution, but how much fuel is left is information printed over
             // the world, not an instrument you look down at.
             hud.tank = player.GetComponent<FuelTank>();
-            hud.fuelText = MakeText("Fuel", new Vector2(0f, 1f), new Vector2(10f, -30f), 10, TextAnchor.MiddleLeft);
+            hud.fuelText = MakeText("Fuel", new Vector2(1f, 1f), new Vector2(-10f, -30f), 10, TextAnchor.MiddleRight);
 
             var barBgGO = new GameObject("FuelBarBg");
             barBgGO.transform.SetParent(hudCanvasGO.transform, false);
@@ -4420,9 +4431,9 @@ namespace PSXRacing.EditorTools
             barBg.color = new Color(0f, 0f, 0f, 0.6f);
             barBg.raycastTarget = false;
             var barBgRT = barBg.rectTransform;
-            barBgRT.anchorMin = barBgRT.anchorMax = new Vector2(0f, 1f);
-            barBgRT.pivot = new Vector2(0f, 0.5f);
-            barBgRT.anchoredPosition = new Vector2(10f, -42f);
+            barBgRT.anchorMin = barBgRT.anchorMax = new Vector2(1f, 1f);
+            barBgRT.pivot = new Vector2(1f, 0.5f);
+            barBgRT.anchoredPosition = new Vector2(-10f, -42f);
             barBgRT.sizeDelta = new Vector2(50f, 6f);
 
             var fillGO = new GameObject("FuelBarFill");

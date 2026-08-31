@@ -23,6 +23,10 @@ namespace PSXRacing
         /// <summary>Catalog key the race scene specs the player's car from.
         /// Empty means "leave the built-in RX-7 spec alone".</summary>
         public static string CarSpecId;
+        /// <summary>The livery the player's own car is wearing, by baked name,
+        /// or empty for the factory answer. The paint shop writes it onto the
+        /// OwnedCar; this is how it reaches the grid. See LifeSim.Paint.</summary>
+        public static string CarPaintSkin;
         /// <summary>Purse for winning, from the LifeSim's race offer.</summary>
         public static int PurseWin;
         public static int PurseSecond;
@@ -247,6 +251,7 @@ namespace PSXRacing
             FromLifeSim = false;
             CarId = null;
             CarSpecId = null;
+            CarPaintSkin = null;
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             FreeRoam = false; FreeRoamPlace = null;

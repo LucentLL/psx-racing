@@ -168,9 +168,12 @@ namespace PSXRacing.OnFoot
                                        : CarModelLibrary.Load(CarModelLibrary.Default);
                 if (def == null) continue;
 
-                int skin = spec != null
-                    ? def.SkinFor(spec.color, Mathf.Abs(car.id != null ? car.id.GetHashCode() : i) % 97)
-                    : 0;
+                // Paint decides, not this. It used to salt the livery off the
+                // OWNED CAR's id while CarBody salted off the SPEC's, so a car
+                // could stand blue in its own bay and race silver, with
+                // nothing anywhere claiming they were the same colour. One
+                // answer now, and it is the one the body shop can change.
+                int skin = Paint.SkinFor(car, spec, def);
                 st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint);
 
                 BuildRaiseRig(st, def);

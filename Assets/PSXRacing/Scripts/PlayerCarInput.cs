@@ -67,6 +67,11 @@ namespace PSXRacing
             // driving input, and B/Circle closing the menu doubles as a stab of
             // handbrake on the frame the race resumes.
             if (PauseMenu.IsOpen) return;
+            // And not while the window is unfocused and being held. The click
+            // that gives the page its focus back is a click the game can see,
+            // and reading it as a driving input would mean the first thing a
+            // returning player does is stab a control they did not press.
+            if (FocusGuard.Frozen) return;
 
             var kb = Keyboard.current;
             var pad = Gamepad.current;

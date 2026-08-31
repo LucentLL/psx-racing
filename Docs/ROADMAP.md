@@ -5,6 +5,81 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE DOORS SWING, THE TOWN GETS A TRADE, AND THE WINDOW STOPS LYING (2026-08-31, later)
+
+Four more from the same phone playtest, and three of them are the previous
+pass's own fixes seen from the player's side.
+
+**The doors were missing because we deleted them.** *"The doors are missing to
+Pizzeria and Convenience store. They should swing open as player moves
+through."* Correct on both counts: `WorldKit.OpenDoors` disabled every mesh
+named `Door*` so the opening behind it was an opening, which is how "I am
+unable to go inside Pizzeria" got fixed and how a hole in a wall got shipped.
+It is `HingeDoors` now — the leaf stays, gets a box collider instead of a mesh
+one because it MOVES, and hangs on a pivot at its outer jamb. `SwingDoor` opens
+it at 3.4 m (a second and a half before you arrive, so there is no state in
+which a door stops you), away from whichever side you are standing on, latching
+that choice while the door is off its stop so it cannot change its mind and
+close through you. Everything is measured: leaves are grouped by plan position
+so a double door hinges on opposite jambs, and the width axis is whichever
+horizontal extent of the group is longer — never a close call on something
+metres wide and centimetres thick, even on a forecourt yawed three degrees off
+the world axes. The baked vectors are in the BUILDING's frame, not the world's,
+because the restaurants are prefabs CityProps stands up at whatever yaw the
+street runs at.
+
+**"I drove to work but was unable to find a pizza inside to deliver."** The
+walk-in shop is fine — the self-test now stands in it and confirms four boxes
+on the counter, 7.3 m from the spawn with a 4.5 m reach. What the player walked
+into was the TOWN's pizzeria, which is a storefront prop with a hollow inside
+and no shift in it, and the only hook was on the centre of its 21 m bounding
+box, eight metres from the only door. Three fixes: the drive-up trigger is the
+whole 26 x 14 apron rather than a 12 x 9 box in the middle of it (park on the
+east half of the shop's own frontage and you used to be offered nothing); the
+walk-up hook is at the DOORWAY, measured off the model's own leaf
+(`WorldKit.DoorwayOf`, called before the hinges go on, because a hinged leaf
+can be open); and there is a second hook INSIDE, so walking through the door
+cannot find an empty room. Both carry the same offer, rewritten together.
+
+**A garage for the mechanic and one for the paint shop.** MECHANIC SERVICES had
+lived four presses down a menu with no address in the world, and RESPRAY did
+not exist at all — even though every shell in the pack carries a handful of
+baked liveries and nothing had ever let the player choose one. DELMAR AUTO and
+COLOURWORKS are two authored units on the south side of the main street (there
+is no garage, workshop or spray booth in either art tree), each a slab, a shell
+with a hole in the front and a sign saying which trade it is. The front is four
+pieces — two piers, a middle post and a header — because a BoxCollider cannot
+have a hole in it and a shell built as one box is a building you cannot walk
+into, which is the bug the gas station's single slab was.
+
+`Paint` is now the ONE answer to "what colour is this car". That mattered more
+than it looked: an owned car had been coloured by three different salts in three
+places, so it could be silver on the menu, blue in the garage and silver again
+on track. The override is stored as a livery NAME rather than an index, because
+the index is a position in an array CarModelBaker rebuilds from the pack. A
+respray is also a refinish, so the panels come back at 100%.
+
+**"Power cut out to car just as the race started. My controller felt like it
+disconnected."** The screenshot carried the answer: the page's own CLICK HERE TO
+RESUME CONTROL banner was up, so `document.hasFocus()` was false. The Gamepad
+API only reports to a focused document — Chrome freezes every axis at rest — and
+the keyboard goes with it, while `requestAnimationFrame` keeps firing for a
+window that is merely unfocused rather than hidden. So the race ran, the field
+drove away, and the player's car sat on the grid answering nothing.
+`Application.runInBackground` does not cover this: it is about VISIBILITY.
+`FocusGuard` holds the clock (and the audio) until focus returns, told by both
+Unity's own event and a `SendMessage` from the template's blur/focus listeners.
+It thaws on focus, or on any input at all — an input event is proof of focus —
+and a platform that hands over input while claiming not to be focused has its
+`Application.isFocused` retired for the session, because that flicker loop would
+be worse than the bug.
+
+**And the fuel gauge moved.** It sat top-left under the lap counter, which is
+where the pause menu's always-visible MENU button lives — a different canvas at
+device resolution, so neither layout could see the collision. It covered
+"FUEL 100%" in every screenshot the owner sent. It is under the position
+readout now.
+
 ## THE JOB IS A JOURNEY, AND THE TOWN GROWS DOORS (2026-08-31)
 
 Six asks from a phone playtest, and they share one root: the town shipped as a

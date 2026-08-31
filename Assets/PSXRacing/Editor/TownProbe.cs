@@ -162,9 +162,57 @@ namespace PSXRacing.EditorTools
             Report(log, "Pizzeria");
             Report(log, "Showroom");
             Report(log, "GasStation");
+            Report(log, "Mechanic");
+            Report(log, "PaintShop");
             foreach (var v in Object.FindObjectsByType<TownVenue>(FindObjectsSortMode.None))
                 log.AppendLine("venue " + v.kind + " at " +
                                v.transform.position.ToString("0.0"));
+
+            // The doors, and where they hang. A leaf that opens by rotating
+            // about its own middle sweeps the doorway instead of clearing it,
+            // and that is a hinge measured on the wrong edge — which nothing
+            // in a still photograph can show.
+            foreach (var d in Object.FindObjectsByType<PSXRacing.SwingDoor>(
+                                  FindObjectsSortMode.None))
+            {
+                // Reported in WORLD space. The fields are stored in the
+                // building's frame so a prefab can be stood up at any yaw, and
+                // a probe printing those raw would be printing the door of a
+                // building on a turntable.
+                var frame = d.transform.parent;
+                Vector3 leaf = frame != null
+                    ? frame.TransformDirection(d.hingeToFree) : d.hingeToFree;
+                Vector3 thru = frame != null
+                    ? frame.TransformDirection(d.throughNormal) : d.throughNormal;
+                log.AppendLine("door " + d.name + " at " +
+                               d.transform.position.ToString("0.0") +
+                               "  leaf " + leaf.magnitude.ToString("0.00") +
+                               " m toward " + leaf.normalized.ToString("0.0") +
+                               "  through " + thru.normalized.ToString("0.0"));
+            }
+
+            // The walk-up anchors, which are the whole of "can I do anything
+            // here on foot". A null one is a hook that never gets built, and
+            // TownWorld builds hooks inside an "if (anchor != null)".
+            var tw0 = Object.FindFirstObjectByType<PSXRacing.Town.TownWorld>();
+            if (tw0 != null)
+            {
+                if (tw0.pizzaHooks == null || tw0.pizzaHooks.Length == 0)
+                    log.AppendLine("anchor pizza: MISSING");
+                else
+                    foreach (var h in tw0.pizzaHooks)
+                        log.AppendLine("anchor " + (h == null ? "pizza: NULL"
+                            : h.name + ": " + h.position.ToString("0.0")));
+                foreach (var pair in new (string, Transform)[]
+                {
+                    ("mechanic", tw0.mechanicDoor), ("paint shop", tw0.paintDoor),
+                    ("dealer", tw0.dealerDoor), ("yard gate", tw0.yardGate),
+                    ("home", tw0.homeDoor), ("pizza kerb", tw0.pizzaKerb),
+                })
+                    log.AppendLine("anchor " + pair.Item1 + ": " +
+                        (pair.Item2 == null ? "MISSING"
+                                            : pair.Item2.position.ToString("0.0")));
+            }
             int shells = 0;
             foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
                 if (t.name == "Shell") shells++;
@@ -237,6 +285,22 @@ namespace PSXRacing.EditorTools
             Shot("town_forecourt_wide", new Vector3(-64f, 14f, -6f),
                  new Vector3(0.35f, -0.45f, 1f));
             Shot("town_dealer", new Vector3(62f, 9f, 2f), new Vector3(0f, -0.35f, 1f));
+            // The shop from the apron the car parks on, and then its actual
+            // DOOR, which is round the east end. Two shots because they answer
+            // two questions the same picture cannot: whether the frontage
+            // reads as a pizza shop, and whether the leaves are back in the
+            // doorway. They had been DELETED — "the doors are missing to
+            // Pizzeria and Convenience store" — and a hole in a wall
+            // photographs as a perfectly good open door.
+            Shot("town_pizzeria", new Vector3(-6f, 4f, -4f), new Vector3(0f, -0.25f, -1f));
+            Shot("town_pizzeria_door", new Vector3(11f, 1.8f, -24.7f),
+                 new Vector3(-1f, -0.05f, 0f));
+            // The two trades, from the street. Both are authored — there is no
+            // garage, workshop or spray booth in either art tree — so these are
+            // the only way to know a unit reads as a unit rather than as a
+            // shed with a coloured board over it.
+            Shot("town_mechanic", new Vector3(58f, 4f, -3f), new Vector3(0f, -0.22f, -1f));
+            Shot("town_paint", new Vector3(-92f, 4f, -3f), new Vector3(0f, -0.22f, -1f));
             Shot("town_yard", new Vector3(106f, 9f, -56f), new Vector3(0f, -0.32f, 1f));
             // Close on the front row of wrecks, eye height. The stripped
             // corners and their block stacks are 20 cm objects: they exist in

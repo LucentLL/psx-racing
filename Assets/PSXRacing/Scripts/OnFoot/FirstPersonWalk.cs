@@ -72,12 +72,27 @@ namespace PSXRacing.OnFoot
         /// <summary>Below this, a metre-per-second walk has not moved.</summary>
         const float StuckSpeed = 0.12f;
 
+        /// <summary>
+        /// The walker currently on their feet, or null when the player is in a
+        /// car (or in a menu).
+        ///
+        /// OnEnable/OnDisable rather than Awake, because the forecourt does not
+        /// destroy its rig when the player gets back in — it deactivates it,
+        /// and a static set in Awake would go on claiming a driver was walking
+        /// around for the rest of the session. Anything that wants to know
+        /// where the person is rather than where the car is reads this;
+        /// <see cref="SwingDoor"/> is the first.
+        /// </summary>
+        public static FirstPersonWalk Current { get; private set; }
+
         void Awake()
         {
             body = GetComponent<CharacterController>();
             yaw = transform.eulerAngles.y;
             if (head != null) pitch = 0f;
         }
+
+        void OnEnable() => Current = this;
 
         /// <summary>
         /// Re-read the heading off the transform.
@@ -91,7 +106,11 @@ namespace PSXRacing.OnFoot
         /// </summary>
         public void SnapYawToTransform() => yaw = transform.eulerAngles.y;
 
-        void OnDisable() => SetCapture(false);
+        void OnDisable()
+        {
+            if (Current == this) Current = null;
+            SetCapture(false);
+        }
 
         void Update()
         {

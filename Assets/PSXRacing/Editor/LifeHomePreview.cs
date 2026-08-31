@@ -141,6 +141,16 @@ namespace PSXRacing.EditorTools
                                       // everything you can do to a car lives, so the tab shot
                                       // no longer covers either of them.
                                       "carmenu", "specs",
+                                      // The two trades the town now has an
+                                      // address for. PAINT is a grid of colour
+                                      // chips over a turntable and is the only
+                                      // page in the menu whose height depends
+                                      // on how many liveries a shell happens
+                                      // to carry — which is exactly the kind of
+                                      // page that fits on the car it was
+                                      // written against and runs off the
+                                      // bottom on the next one.
+                                      "service", "paint",
                                       // The setup screen on a car with nothing
                                       // fitted: every row padlocked. That is the
                                       // state most players see first, and the

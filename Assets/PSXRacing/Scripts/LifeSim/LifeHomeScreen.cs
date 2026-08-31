@@ -38,6 +38,18 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static string PendingTab;
 
+        /// <summary>
+        /// Which car a <see cref="PendingTab"/> page should be about.
+        ///
+        /// The garage list's cursor is menu state, so it survives being driven
+        /// across town and is meaningless when you get there: pulling onto the
+        /// body shop's forecourt in the Charger and being shown a respray page
+        /// for the Skyline you were reading about this morning is not a shop.
+        /// The town's trades write the car they were driven to in, and the
+        /// same hand-off contract as PendingTab applies — read once, cleared.
+        /// </summary>
+        public static string PendingGarageCar;
+
         /// <summary>The tab strip, in screen order, kept so the navigation graph
         /// can be rebuilt against it and so the shoulder buttons can page
         /// through it.</summary>
@@ -135,6 +147,12 @@ namespace PSXRacing.LifeSim
             // Coming back in from somewhere that asked for a particular screen.
             // Read once and cleared, so it is a hand-off and not a preference.
             if (!string.IsNullOrEmpty(PendingTab)) { tab = PendingTab; PendingTab = null; }
+            if (!string.IsNullOrEmpty(PendingGarageCar))
+            {
+                garageCarId = PendingGarageCar;
+                paintPick = -1;
+                PendingGarageCar = null;
+            }
             if (!string.IsNullOrEmpty(PendingInspectCar))
             {
                 inspectCarId = PendingInspectCar;
@@ -665,6 +683,7 @@ namespace PSXRacing.LifeSim
                 case "news": BuildNews(); break;
                 case "options": BuildOptions(); break;
                 case "service": BuildService(); break;
+                case "paint": BuildPaint(); break;
                 case "tune": BuildTune(); break;
                 case "setup": BuildSetup(); break;
                 case "market": BuildMarket(); break;
@@ -876,6 +895,7 @@ namespace PSXRacing.LifeSim
                 // not to the list: the player picked a car and then picked an
                 // action, so BACK should undo one of those, not both.
                 case "service":
+                case "paint":
                 case "tune":
                 case "specs":
                 case "inspect":
@@ -1622,7 +1642,7 @@ namespace PSXRacing.LifeSim
                 // margin. Children of the button still take its click.
                 var rt = (RectTransform)row.transform;
                 var swatch = MenuKit.Rect(rt, "Paint", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
-                    new Vector2(30f, 0f), new Vector2(44f, 30f), PaintOf(spec));
+                    new Vector2(30f, 0f), new Vector2(44f, 30f), PaintOf(spec, captured));
                 swatch.GetComponent<Image>().raycastTarget = false;
 
                 MenuKit.Label(rt, (active ? "> " : "") + Clip(owned.displayName, 40),
@@ -1673,8 +1693,19 @@ namespace PSXRacing.LifeSim
         /// <summary>The colour a car's catalog entry claims, for the list
         /// swatch. Falls back to a neutral grey rather than to black, which on
         /// this background would read as a missing swatch.</summary>
-        static Color PaintOf(CarSpec spec)
+        /// <param name="owned">When the row is about a car the player owns,
+        /// the swatch has to show the colour it is ACTUALLY wearing — the
+        /// catalog's nominal hex is what it left the factory in, and a garage
+        /// list still showing that after a respray is the one place the player
+        /// would look to check the work.</param>
+        static Color PaintOf(CarSpec spec, OwnedCar owned = null)
         {
+            if (owned != null && !string.IsNullOrEmpty(owned.paintSkin))
+            {
+                var def = Paint.DefFor(spec);
+                int skin = Paint.IndexOf(def, owned.paintSkin);
+                if (skin >= 0) return Paint.ColorOf(def, skin);
+            }
             if (spec != null && !string.IsNullOrEmpty(spec.color) &&
                 ColorUtility.TryParseHtmlString(spec.color, out var c))
                 return c;
@@ -1697,10 +1728,18 @@ namespace PSXRacing.LifeSim
         /// which is what the market's buy page wants: inventing a shell for a
         /// listing whose spec failed to resolve would be a lie about what is
         /// for sale.</param>
+        /// <param name="owned">The car this is a picture OF, when the player
+        /// owns it. Only owned cars can have been resprayed, and a turntable
+        /// showing the factory colour of a car the player painted last week is
+        /// the body shop appearing not to have done the work.</param>
+        /// <param name="skinOverride">Force a livery, for the paint page's own
+        /// preview.</param>
         void DrawCarView(CarSpec spec, ref float y, float height = 230f,
-                         string fallbackKey = null)
+                         string fallbackKey = null, OwnedCar owned = null,
+                         int skinOverride = -1)
         {
-            if (spec != null) Viewer.Show(spec);
+            if (owned != null || skinOverride >= 0) Viewer.ShowOwned(owned, spec, skinOverride);
+            else if (spec != null) Viewer.Show(spec);
             else if (fallbackKey != null) Viewer.Show(CarModelLibrary.Load(fallbackKey), 0);
             else return;
             if (Viewer.Shown == null) return;
@@ -1832,7 +1871,7 @@ namespace PSXRacing.LifeSim
 
             float y = -20f;
             DrawCarView(CarCatalog.Get(car.specId), ref y,
-                        fallbackKey: CarModelLibrary.Default);
+                        fallbackKey: CarModelLibrary.Default, owned: car);
             MenuKit.Label(body, car.displayName, 23, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, bold: true);
             y -= 38f;
@@ -1994,16 +2033,27 @@ namespace PSXRacing.LifeSim
             MenuKit.Button(body, "TOOLBOX", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
                 () => { tab = "toolbox"; Rebuild(); }, 16);
+            // PAINT + BODY beside it, because a respray is a thing you have
+            // DONE to a car rather than a thing you do to it yourself — the
+            // same shelf as MECHANIC SERVICES, one row down where the rest of
+            // the shop errands live.
+            MenuKit.Button(body, "PAINT + BODY", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
+                () => { paintPick = -1; tab = "paint"; Rebuild(); }, 16);
+            y -= 52f;
+
             // Advertising a car is a MARKET action — the classifieds are where
             // the ad runs and where the buyer answers it — so this is a door to
             // that page rather than a second copy of it. Not shown on the last
             // car in the garage: CarMarket refuses that sale, and a button whose
             // only outcome is a refusal is worse than no button.
             if (S.cars.Count > 1)
+            {
                 MenuKit.Button(body, "SELL / LIST AD", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
+                    new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
                     () => { tab = "market"; Rebuild(); }, 16);
-            y -= 52f;
+                y -= 52f;
+            }
 
             y -= 6f;
             MenuKit.Button(body, "< BACK TO GARAGE", new Vector2(0.5f, 1f),
@@ -4523,6 +4573,125 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>
+        /// Which colour the player is LOOKING at on the paint page, as an
+        /// index into the shell's liveries. -1 is "the one it is wearing".
+        ///
+        /// Page state rather than save state on purpose: choosing a colour and
+        /// then walking away should leave the car the colour it was. Reset
+        /// whenever the page is entered from anywhere.
+        /// </summary>
+        int paintPick = -1;
+
+        /// <summary>
+        /// COLOURWORKS — the body shop.
+        ///
+        /// The owner's ask: cars "have multiple options" and there was no way
+        /// to pick one. Every shell the pack ships carries a handful of baked
+        /// liveries with a name and a mean colour each; until now the only
+        /// thing that ever chose between them was the catalog's nominal colour,
+        /// matched once at spawn.
+        ///
+        /// The turntable is the whole page. A grid of swatches is a colour
+        /// picker; a colour picker plus the actual car in the actual colour is
+        /// a body shop — so selecting a chip repaints the car on the
+        /// turntable and nothing is charged until BUY. That is also why the
+        /// price is quoted on the button rather than in a corner: the one
+        /// number the player needs is what this costs, and it is next to the
+        /// press that spends it.
+        /// </summary>
+        void BuildPaint()
+        {
+            var car = GarageCar;
+            if (car == null) { tab = "garage"; Rebuild(); return; }
+            var spec = CarCatalog.Get(car.specId);
+            var def = Paint.DefFor(spec);
+            int worn = Paint.SkinFor(car, spec, def);
+            int show = paintPick >= 0 && def != null && paintPick < def.SkinCount ? paintPick : worn;
+
+            float y = -20f;
+            MenuKit.Label(body, "COLOURWORKS — " + Clip(car.displayName, 30), 20,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, 800f, bold: true);
+            y -= 36f;
+
+            if (def == null || def.SkinCount == 0)
+            {
+                MenuKit.Label(body, "This shell came with one finish and no book of " +
+                    "colours. Nothing to spray.", 16, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                y -= 44f;
+                MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    () => { tab = "carmenu"; Rebuild(); }, 16);
+                return;
+            }
+
+            DrawCarView(spec, ref y, 210f, fallbackKey: CarModelLibrary.Default,
+                        owned: car, skinOverride: show);
+
+            MenuKit.Label(body,
+                "ON THE CAR: " + Paint.LabelOf(def, worn) +
+                (show == worn ? "" : "      ON THE GUN: " + Paint.LabelOf(def, show)),
+                16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                show == worn ? MenuKit.Dim : MenuKit.Good, 820f);
+            y -= 32f;
+            DrawBar("PAINT", car.paint, ref y);
+            y -= 6f;
+
+            // The chips. Two columns of a swatch and a name, because a phone
+            // column is 445 units wide and a livery name is most of it.
+            float chipW = Mathf.Min(360f, (ColW - 12f) / 2f);
+            for (int i = 0; i < def.SkinCount; i++)
+            {
+                int idx = i;
+                bool picked = idx == show;
+                float x = (i % 2 == 0) ? ColL : ColL + chipW + 12f;
+                if (i % 2 == 0 && i > 0) y -= 46f;
+                var chip = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(x, chipW), y), new Vector2(chipW, 40f),
+                    () => { paintPick = idx; Rebuild(); }, 14,
+                    picked ? new Color(0.42f, 0.34f, 0.10f, 1f) : (Color?)null);
+                var rt = (RectTransform)chip.transform;
+                var sw = MenuKit.Rect(rt, "Chip", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                    new Vector2(26f, 0f), new Vector2(40f, 24f), Paint.ColorOf(def, idx));
+                sw.GetComponent<Image>().raycastTarget = false;
+                // Clear of the swatch, which runs 26..66. The first cut put the
+                // caption at 56 and the chip sat on top of its first letter.
+                MenuKit.Label(rt, (idx == worn ? "· " : "") + Paint.LabelOf(def, idx), 15,
+                    new Vector2(0f, 0.5f), new Vector2(78f, 0f), TextAnchor.MiddleLeft,
+                    picked ? MenuKit.Accent : Color.white, chipW - 88f, height: 22f);
+            }
+            y -= 52f;
+
+            int price = Paint.Cost(car);
+            bool sameColour = show == worn;
+            bool afford = S.money >= price;
+            string label = sameColour
+                ? "REFINISH IT — " + MenuKit.Money(price)
+                : "SPRAY IT " + Paint.LabelOf(def, show) + " — " + MenuKit.Money(price);
+            MenuKit.Button(body, label, new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 480f), 50f),
+                afford ? (UnityEngine.Events.UnityAction)(() =>
+                {
+                    string err = Paint.Respray(S, car, show);
+                    if (err == null) paintPick = -1;
+                    LifeSimManager.Save(); Rebuild();
+                    Toast(err ?? ("RESPRAYED — " + Paint.LabelOf(def, show)));
+                }) : null, 17, afford ? new Color(0.30f, 0.18f, 0.30f, 1f)
+                                      : MenuKit.BtnBgDisabled);
+            y -= 58f;
+            MenuKit.Label(body,
+                "A respray is a refinish: the panels come back at 100% whichever " +
+                "colour you pick.", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+            y -= 32f;
+
+            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                () => { paintPick = -1; tab = "carmenu"; Rebuild(); }, 16);
+        }
+
+        /// <summary>
         /// One condition bar.
         ///
         /// The readout on the right is a WORD, not a percentage. A driver can
@@ -4934,6 +5103,11 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static void FillCarRequestFor(LifeState S, OwnedCar car)
         {
+            // The colour it is actually wearing. Empty for everything nobody
+            // has had resprayed, which is the factory answer and the path this
+            // took before the body shop existed.
+            RaceHandoff.CarPaintSkin = car != null ? car.paintSkin : null;
+
             // Parts the car is carrying become the advantage it races with.
             var tuned = car;
             if (tuned != null)

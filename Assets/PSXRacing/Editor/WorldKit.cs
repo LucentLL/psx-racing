@@ -340,6 +340,12 @@ namespace PSXRacing.EditorTools
             {
                 var mf = r.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
+                // Already collided by somebody with a better idea. HingeDoors
+                // gives a swinging leaf a BOX on purpose — a moving non-convex
+                // MeshCollider is the one shape PhysX charges for — and a
+                // second collider on top of it would put the shut door's mesh
+                // back in the doorway for ever.
+                if (r.GetComponent<Collider>() != null) continue;
                 var s = r.bounds.size;
                 if (!((s.x > 0.35f && s.z > 0.35f) || s.y > 0.6f)) continue;
                 var mc = r.gameObject.AddComponent<MeshCollider>();
@@ -351,31 +357,244 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// Stand the pack's door leaves open: disable every mesh named Door /
-        /// Door.NNN / Door_NN so the doorway behind them is a doorway.
+        /// Hang the pack's door leaves on hinges, so they swing open as the
+        /// player walks up and shut again behind them.
         ///
-        /// The pizzeria and the station shop both model real interiors behind
-        /// real door meshes, and a door leaf with a MeshCollider is a shop the
-        /// player can see into and never enter — reported as "I am unable to
-        /// go inside Pizzeria". A disabled leaf draws nothing and collides
-        /// with nothing, which is what an open door does. Run BEFORE
-        /// <see cref="AddColliders"/> only by convention — a collider on an
-        /// inactive object is inert either way.
+        /// This USED to be OpenDoors, which disabled every mesh named Door /
+        /// Door.NNN / Door_NN. That fixed "I am unable to go inside Pizzeria"
+        /// — a leaf with a MeshCollider is a shop you can see into and never
+        /// enter — and it introduced the next report word for word: "the doors
+        /// are missing to Pizzeria and Convenience store. They should swing
+        /// open as player moves through." A doorway with no leaf in it is a
+        /// hole in a wall.
+        ///
+        /// Nothing about the geometry is authored, because the two packs with
+        /// real doors disagree about which way round they are modelled and
+        /// neither is going to be re-exported. Everything is MEASURED:
+        ///
+        ///   * Leaves are GROUPED by plan position, because a shop front is a
+        ///     double door and the two halves hinge on opposite jambs. Two
+        ///     leaves within 3 m of each other are one doorway.
+        ///   * The doorway's WIDTH AXIS is whichever horizontal extent of the
+        ///     group is longer. A double door is metres wide and centimetres
+        ///     thick, so this is never a close call even on the forecourt,
+        ///     whose whole model is yawed three degrees off the world axes.
+        ///   * Each leaf HINGES on its outer jamb — the end furthest from the
+        ///     group centre — which is what makes a pair open outward from the
+        ///     middle instead of both swinging the same way.
+        ///
+        /// The leaf keeps a collider, and gets a BOX rather than the mesh: it
+        /// moves now, and a moving non-convex MeshCollider is the one shape
+        /// PhysX charges real money for. <see cref="AddColliders"/> skips
+        /// anything already collided, so the order of the two calls no longer
+        /// matters.
         /// </summary>
-        public static int OpenDoors(GameObject root)
+        /// <param name="tallEnough">Ignore anything shorter than this. The
+        /// packs name cupboard fronts and oven doors "Door" too, and a
+        /// self-opening fridge in the back of the kitchen is not the feature
+        /// anybody asked for.</param>
+        public static int HingeDoors(GameObject root, float tallEnough = 1.6f)
         {
-            int n = 0;
+            var leaves = new System.Collections.Generic.List<Transform>();
+            int named = 0;
             foreach (var t in root.GetComponentsInChildren<Transform>(true))
             {
                 if (t == null || t == root.transform) continue;
                 string name = t.name;
                 if (name != "Door" && !name.StartsWith("Door.") && !name.StartsWith("Door_"))
                     continue;
-                if (t.GetComponentInChildren<MeshRenderer>(true) == null) continue;
-                t.gameObject.SetActive(false);
-                n++;
+                var r = t.GetComponentInChildren<MeshRenderer>(true);
+                if (r == null) continue;
+                named++;
+                if (r.bounds.size.y < tallEnough) continue;
+                // And WIDE enough. The forecourt pack calls its door FRAME
+                // uprights "Door" too — 8 cm square and two metres tall — and
+                // a frame post on a hinge is a post that swings out of its own
+                // frame when you walk past it.
+                if (Mathf.Max(r.bounds.size.x, r.bounds.size.z) < 0.35f) continue;
+                leaves.Add(t);
+            }
+            // Said out loud, because every way this goes wrong is silent. A
+            // model whose leaves are all named something else hinges nothing
+            // and looks exactly like a shop with its doors open; one whose
+            // leaves are all under the height gate is a shop you cannot walk
+            // into and looks exactly like a shop with its doors shut.
+            Debug.Log("[WorldKit] " + root.name + ": " + named + " door mesh(es), " +
+                      leaves.Count + " tall enough to hinge");
+            if (leaves.Count == 0) return 0;
+
+            // Group by plan position AND by which way the leaf runs: one
+            // doorway per group.
+            //
+            // The orientation half is not fussiness. The forecourt has a corner
+            // entrance — two doors on PERPENDICULAR walls, 2.5 m apart — and
+            // grouping on distance alone put them in one group, whose combined
+            // box then picked a width axis that was right for one leaf and
+            // ninety degrees wrong for the other. A leaf hinged across its own
+            // short side pivots about a point 8 cm from its middle: it does not
+            // open, it spins in place and sweeps the doorway it is meant to
+            // clear. Caught by the build log printing a 0.08 m leaf.
+            var groups = new System.Collections.Generic.List<
+                             System.Collections.Generic.List<Transform>>();
+            var groupAxisIsX = new System.Collections.Generic.List<bool>();
+            foreach (var leaf in leaves)
+            {
+                var lb0 = LeafBounds(leaf);
+                bool axisIsX = lb0.size.x >= lb0.size.z;
+                Vector3 c = lb0.center;
+                int into = -1;
+                for (int gi = 0; gi < groups.Count; gi++)
+                {
+                    if (groupAxisIsX[gi] != axisIsX) continue;
+                    Vector3 gc = LeafBounds(groups[gi][0]).center;
+                    if (Mathf.Abs(gc.x - c.x) < 3f && Mathf.Abs(gc.z - c.z) < 3f)
+                    { into = gi; break; }
+                }
+                if (into < 0)
+                {
+                    groups.Add(new System.Collections.Generic.List<Transform>());
+                    groupAxisIsX.Add(axisIsX);
+                    into = groups.Count - 1;
+                }
+                groups[into].Add(leaf);
+            }
+
+            int n = 0;
+            for (int gi = 0; gi < groups.Count; gi++)
+            {
+                var g = groups[gi];
+                var gb = LeafBounds(g[0]);
+                foreach (var leaf in g) gb.Encapsulate(LeafBounds(leaf));
+                // Which way the doorway runs, and which way you go through it.
+                bool widthIsX = groupAxisIsX[gi];
+                Vector3 width = widthIsX ? Vector3.right : Vector3.forward;
+                Vector3 through = widthIsX ? Vector3.forward : Vector3.right;
+
+                foreach (var leaf in g)
+                {
+                    var lb = LeafBounds(leaf);
+                    float centreAlong = Vector3.Dot(gb.center, width);
+                    float minAlong = Vector3.Dot(lb.min, width);
+                    float maxAlong = Vector3.Dot(lb.max, width);
+                    // The jamb: whichever end of this leaf is further from the
+                    // middle of the opening. A single leaf falls out of this
+                    // with its two ends equidistant, and either is a real door.
+                    bool hingeAtMax = Mathf.Abs(maxAlong - centreAlong) >=
+                                      Mathf.Abs(minAlong - centreAlong);
+                    float hingeAlong = hingeAtMax ? maxAlong : minAlong;
+                    float freeAlong = hingeAtMax ? minAlong : maxAlong;
+
+                    Vector3 hinge = lb.center;
+                    hinge += width * (hingeAlong - Vector3.Dot(lb.center, width));
+                    hinge.y = lb.min.y;
+
+                    var pivot = new GameObject(leaf.name + "_Hinge");
+                    pivot.transform.SetParent(leaf.parent, true);
+                    pivot.transform.SetPositionAndRotation(hinge, Quaternion.identity);
+                    leaf.SetParent(pivot.transform, true);
+
+                    // IN THE BUILDING'S FRAME, not the world's. These get baked
+                    // into prefabs that CityProps then stands up at whatever
+                    // yaw the street runs at, and a world vector would describe
+                    // the door of the building as it sat on the bake
+                    // turntable. The pivot's own frame is no good either — it
+                    // is the thing that turns.
+                    var door = pivot.AddComponent<SwingDoor>();
+                    var frame = pivot.transform.parent;
+                    Vector3 leafDir = width * (freeAlong - hingeAlong);
+                    door.hingeToFree = frame != null
+                        ? frame.InverseTransformDirection(leafDir) : leafDir;
+                    door.throughNormal = frame != null
+                        ? frame.InverseTransformDirection(through) : through;
+                    // A leaf that came out shorter than a doorknob is one whose
+                    // hinge landed in the middle of it, which is a door that
+                    // spins rather than opens. Nothing else in this pass can
+                    // see that, so it says so.
+                    if (Mathf.Abs(freeAlong - hingeAlong) < 0.3f)
+                        Debug.LogWarning("[WorldKit] " + root.name + "/" + leaf.name +
+                            " hinged on a " + Mathf.Abs(freeAlong - hingeAlong).ToString("0.00") +
+                            " m edge — that leaf is grouped across its own short side");
+
+                    // A box on the leaf's own local bounds. Local, because the
+                    // pivot turns it: a world AABB baked at bake time would be
+                    // the shape of a shut door for as long as the door was
+                    // open.
+                    foreach (var stale in leaf.GetComponents<Collider>())
+                        Object.DestroyImmediate(stale);
+                    var mf = leaf.GetComponentInChildren<MeshFilter>(true);
+                    if (mf != null && mf.sharedMesh != null)
+                    {
+                        var target = mf.gameObject;
+                        foreach (var stale in target.GetComponents<Collider>())
+                            Object.DestroyImmediate(stale);
+                        var mb = mf.sharedMesh.bounds;
+                        var bc = target.AddComponent<BoxCollider>();
+                        bc.center = mb.center;
+                        bc.size = mb.size;
+                        target.layer = SolidLayer;
+                    }
+                    leaf.gameObject.layer = SolidLayer;
+                    n++;
+                }
             }
             return n;
+        }
+
+        /// <summary>
+        /// Where the way IN is: the combined world bounds of the widest door
+        /// group on a model, and the direction that leads out of it.
+        ///
+        /// Call it BEFORE <see cref="HingeDoors"/> — a hinged leaf has already
+        /// been reparented and can be standing open in the baked scene, and a
+        /// doorway measured off an open door is a doorway ninety degrees round
+        /// the corner from itself.
+        ///
+        /// It exists because a walk-up prompt hung on the model's BOUNDING BOX
+        /// is a prompt on the middle of a wall. The town's pizzeria is 21 m of
+        /// frontage and its door is nowhere near the centre of it, so the hook
+        /// that was meant to say "clock on" stood eight metres to one side of
+        /// the only door in the building — which is most of "I drove to work
+        /// but was unable to find a pizza inside".
+        /// </summary>
+        public static bool DoorwayOf(GameObject root, out Bounds doorway, out Vector3 outward,
+                                     float tallEnough = 1.6f)
+        {
+            doorway = new Bounds();
+            outward = Vector3.forward;
+            bool any = false;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                string name = t.name;
+                if (name != "Door" && !name.StartsWith("Door.") && !name.StartsWith("Door_"))
+                    continue;
+                var r = t.GetComponentInChildren<MeshRenderer>(true);
+                if (r == null || r.bounds.size.y < tallEnough) continue;
+                if (!any) { doorway = r.bounds; any = true; }
+                else doorway.Encapsulate(r.bounds);
+            }
+            if (!any) return false;
+
+            // Out of the building is away from its middle, along whichever
+            // horizontal axis the door is furthest off centre. Measured rather
+            // than assumed: these packs face four different ways and the
+            // forecourt's is yawed three degrees on top of that.
+            var shell = BoundsOf(root);
+            Vector3 off = doorway.center - shell.center;
+            outward = Mathf.Abs(off.x) >= Mathf.Abs(off.z)
+                ? new Vector3(Mathf.Sign(off.x), 0f, 0f)
+                : new Vector3(0f, 0f, Mathf.Sign(off.z));
+            return true;
+        }
+
+        /// <summary>World bounds of a leaf's renderers, or a point at its own
+        /// position when it somehow has none.</summary>
+        static Bounds LeafBounds(Transform leaf)
+        {
+            var rs = leaf.GetComponentsInChildren<MeshRenderer>(true);
+            if (rs.Length == 0) return new Bounds(leaf.position, Vector3.zero);
+            var b = rs[0].bounds;
+            for (int i = 1; i < rs.Length; i++) b.Encapsulate(rs[i].bounds);
+            return b;
         }
 
         /// <summary>World-space bounds of every renderer under a root, or an

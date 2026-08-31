@@ -40,11 +40,24 @@ namespace PSXRacing.Town
         /// <summary>Where the car stands when the player walks OUT of the shop
         /// carrying an order — the kerb by the pizzeria, facing the street.</summary>
         public Transform pizzaKerb;
-        /// <summary>Walk-up anchors, one per door a player on foot can use.</summary>
-        public Transform pizzaDoor;
+        /// <summary>
+        /// Everywhere a walker can be offered a shift at Tony's: the frontage
+        /// the car parks at, the pack's actual doorway, and a step inside it.
+        ///
+        /// A LIST rather than one anchor, because one was demonstrably not
+        /// enough. The old hook hung off the centre of the model's bounding
+        /// box — 21 m of frontage, so eight metres from anything — and the
+        /// shop's only door is round the east end while the apron is to the
+        /// north. You could stop at the shop, get out, walk round it, walk in,
+        /// and never be offered a thing: "I drove to work but was unable to
+        /// find a pizza inside to deliver."
+        /// </summary>
+        public Transform[] pizzaHooks = new Transform[0];
         public Transform dealerDoor;
         public Transform yardGate;
         public Transform homeDoor;
+        public Transform mechanicDoor;
+        public Transform paintDoor;
         /// <summary>PSX-lit grey for the cinder blocks under stripped wrecks —
         /// materials are bake-time things and this class runs at runtime.</summary>
         public Material blockMaterial;
@@ -103,8 +116,7 @@ namespace PSXRacing.Town
             // and that can change mid-session (handing one back at the
             // counter). A label written once at load would tell the player the
             // order is in the car while they stand there holding nothing.
-            if (pizzaDoorTarget != null && lastDoorCarrying != PizzaRun.Carrying)
-                RefreshPizzaDoor();
+            if (lastDoorCarrying != PizzaRun.Carrying) RefreshPizzaDoor();
         }
 
         /// <summary>
@@ -175,10 +187,31 @@ namespace PSXRacing.Town
         /// </summary>
         void BuildFootDoors()
         {
-            if (pizzaDoor != null)
+            // The ranges are wide on purpose. The pizzeria is 21 m of frontage
+            // with its door round the side and a hollow room behind it; a
+            // 3.6 m hook on the middle of the bounding box was reachable from
+            // almost nowhere a player actually stands.
+            if (pizzaHooks != null)
+                foreach (var at in pizzaHooks)
+                    if (at != null) pizzaDoorTargets.Add(MakeDoor(at, at.name + "Target", 6.5f));
+            RefreshPizzaDoor();
+
+            if (mechanicDoor != null)
             {
-                pizzaDoorTarget = MakeDoor(pizzaDoor, "PizzaDoorTarget", 3.6f);
-                RefreshPizzaDoor();
+                var t = MakeDoor(mechanicDoor, "MechanicDoorTarget", 5f);
+                t.title = "DELMAR AUTO";
+                t.detail = "Servicing, repairs, and somebody who will tell you what is wrong.";
+                t.action = "BOOK IT IN";
+                t.onUse = () => TownExit.GoToShop(player, "service");
+            }
+
+            if (paintDoor != null)
+            {
+                var t = MakeDoor(paintDoor, "PaintDoorTarget", 5f);
+                t.title = "COLOURWORKS — PAINT + BODY";
+                t.detail = "Respray, panel work, and a book of colours.";
+                t.action = "TALK PAINT";
+                t.onUse = () => TownExit.GoToShop(player, "paint");
             }
 
             if (dealerDoor != null)
@@ -209,41 +242,48 @@ namespace PSXRacing.Town
             }
         }
 
-        FootTarget pizzaDoorTarget;
+        readonly System.Collections.Generic.List<FootTarget> pizzaDoorTargets =
+            new System.Collections.Generic.List<FootTarget>();
         bool lastDoorCarrying;
 
-        /// <summary>What the shop door offers a walk-up, from the state as it
+        /// <summary>What the shop offers a walk-up, from the state as it
         /// stands: hand nothing to a player mid-run, a shift when the clock is
-        /// punching, the counter otherwise.</summary>
+        /// punching, the counter otherwise. Written onto EVERY hook the shop
+        /// has — the frontage, the doorway and the counter behind it — because
+        /// all three are one shop, and a player who walked past one should not
+        /// find the next one saying something different.</summary>
         void RefreshPizzaDoor()
         {
-            var t = pizzaDoorTarget;
-            if (t == null) return;
+            if (pizzaDoorTargets.Count == 0) return;
             lastDoorCarrying = PizzaRun.Carrying;
             bool canClockOn = S != null && !string.IsNullOrEmpty(S.playerJob) &&
                               LifeRules.ShopOpen(S);
-            t.title = "TONY'S — SLICE HOUSE";
-            t.action2 = "";
-            t.onUse2 = null;
-            if (PizzaRun.Carrying)
+            foreach (var t in pizzaDoorTargets)
             {
-                t.detail = "The order is already in the car.";
-                t.action = "";
-                t.onUse = null;
-            }
-            else if (canClockOn)
-            {
-                t.detail = "The counter is up. A shift is a drive.";
-                t.action = "CLOCK ON — TAKE A RUN";
-                t.onUse = () => TownExit.ClockOn(player);
-                t.action2 = "BUY AT THE COUNTER";
-                t.onUse2 = OpenPizzaCounter;
-            }
-            else
-            {
-                t.detail = LifeRules.ShiftHoursShort;
-                t.action = "BUY AT THE COUNTER";
-                t.onUse = OpenPizzaCounter;
+                if (t == null) continue;
+                t.title = "TONY'S — SLICE HOUSE";
+                t.action2 = "";
+                t.onUse2 = null;
+                if (PizzaRun.Carrying)
+                {
+                    t.detail = "The order is already in the car.";
+                    t.action = "";
+                    t.onUse = null;
+                }
+                else if (canClockOn)
+                {
+                    t.detail = "The counter is up. A shift is a drive.";
+                    t.action = "CLOCK ON — TAKE A RUN";
+                    t.onUse = () => TownExit.ClockOn(player);
+                    t.action2 = "BUY AT THE COUNTER";
+                    t.onUse2 = OpenPizzaCounter;
+                }
+                else
+                {
+                    t.detail = LifeRules.ShiftHoursShort;
+                    t.action = "BUY AT THE COUNTER";
+                    t.onUse = OpenPizzaCounter;
+                }
             }
         }
 

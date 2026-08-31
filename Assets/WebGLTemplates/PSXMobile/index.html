@@ -256,11 +256,25 @@
   // this was reported in. Nothing in the page can take focus back, because
   // giving focus to a window is the user's to do — so the least it can do is
   // stop the failure being silent and name the one action that fixes it.
+  // AND STOP THE GAME WHILE IT LASTS.
+  //
+  // Saying so at the bottom of the screen is not enough on its own: a notice
+  // you read after losing a race is a post-mortem. The build carries a
+  // FocusGuard on a DontDestroyOnLoad object called PSXFocus that holds the
+  // clock until focus comes back, and this is the reliable way to tell it —
+  // Unity's own OnApplicationFocus fires too, so both paths are idempotent by
+  // design. Wrapped because SendMessage throws if the object is not in the
+  // scene yet, which is every frame before the first world loads.
   var unfocused = document.querySelector("#unfocused");
+  function tellUnity(live) {
+    if (!unityInstance || !started) return;
+    try { unityInstance.SendMessage("PSXFocus", "SetFocus", live ? 1 : 0); } catch (e) {}
+  }
   function focusState() {
     if (!started) { unfocused.style.display = "none"; return; }
     var live = document.hasFocus() && document.visibilityState === "visible";
     unfocused.style.display = live ? "none" : "block";
+    tellUnity(live);
     if (live) refocus();
   }
   window.addEventListener("focus", focusState);

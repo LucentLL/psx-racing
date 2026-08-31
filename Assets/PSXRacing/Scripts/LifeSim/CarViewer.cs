@@ -264,16 +264,33 @@ namespace PSXRacing.LifeSim
                 cam.Render();
         }
 
-        /// <summary>Put an owned car on the turntable, in the livery it would
-        /// turn up to a race in.</summary>
+        /// <summary>Put a car on the turntable, in the livery it would turn up
+        /// to a race in.</summary>
         public void Show(CarSpec spec)
         {
             if (spec == null) return;
             var def = CarModelLibrary.LoadFor(spec);
             if (def == null) return;
-            // Same salt CarBody uses, so the car on the turntable is the car on
-            // the grid rather than a different colour of it.
-            Show(def, def.SkinFor(spec.color, Mathf.Abs(spec.id != null ? spec.id.GetHashCode() : 0) % 97));
+            // Paint's answer, which is CarBody's answer, so the car on the
+            // turntable is the car on the grid rather than a different colour
+            // of it.
+            Show(def, Paint.FactorySkin(spec, def));
+        }
+
+        /// <summary>
+        /// The same, for a car the player OWNS — which is the only kind that
+        /// can have been resprayed. Separate rather than a nullable argument
+        /// because most callers are showing a car in a classified ad or a
+        /// showroom, and those have no owner and no paint history.
+        /// </summary>
+        /// <param name="skinOverride">Force a particular livery, for the body
+        /// shop's own preview: the player is choosing a colour and has to see
+        /// the one they are hovering, not the one on the car.</param>
+        public void ShowOwned(OwnedCar car, CarSpec spec, int skinOverride = -1)
+        {
+            var def = Paint.DefFor(spec);
+            if (def == null) return;
+            Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def));
         }
 
         public void Show(CarModelDef def, int skin)

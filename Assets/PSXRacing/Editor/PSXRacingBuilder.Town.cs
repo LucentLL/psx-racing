@@ -83,8 +83,12 @@ namespace PSXRacing.EditorTools
         // TownWorld at the end — the same static-scratch style the rest of the
         // builder uses. Nulled at the top of every build so a re-run cannot
         // wire last build's transforms.
-        static Transform townPizzaDoor, townPizzaKerb, townDealerDoor,
-                         townYardGate, townHomeDoor;
+        static Transform townPizzaKerb, townDealerDoor,
+                         townYardGate, townHomeDoor, townMechanicDoor, townPaintDoor;
+        /// <summary>Every place a walker can be offered a shift at Tony's:
+        /// the frontage, the doorway, and a step inside it. An ARRAY because
+        /// one was not enough — see BuildTownStrip.</summary>
+        static Transform[] townPizzaHooks;
 
         static Transform TownAnchor(Transform parent, string name, Vector3 at, Vector3 facing)
         {
@@ -98,7 +102,9 @@ namespace PSXRacing.EditorTools
 
         public static string BuildTownScene()
         {
-            townPizzaDoor = townPizzaKerb = townDealerDoor = townYardGate = townHomeDoor = null;
+            townPizzaKerb = townDealerDoor =
+                townYardGate = townHomeDoor = townMechanicDoor = townPaintDoor = null;
+            townPizzaHooks = null;
             psxLit = Shader.Find("PSX/Lit");
             if (psxLit == null) throw new System.Exception("PSX/Lit not found");
             matByTex.Clear();
@@ -120,6 +126,7 @@ namespace PSXRacing.EditorTools
             BuildTownGround(root.transform, mats);
             var homeDrive = BuildTownHome(root.transform, mats);
             BuildTownStrip(root.transform, mats);
+            BuildTownTrade(root.transform, mats);
             var dealerAnchors = BuildTownDealer(root.transform, mats);
             var yardAnchors = BuildTownYard(root.transform, mats);
             BuildTownStation(root.transform);
@@ -177,10 +184,12 @@ namespace PSXRacing.EditorTools
             world.yardSpots = yardAnchors;
             world.player = player;
             world.pizzaKerb = townPizzaKerb;
-            world.pizzaDoor = townPizzaDoor;
+            world.pizzaHooks = townPizzaHooks;
             world.dealerDoor = townDealerDoor;
             world.yardGate = townYardGate;
             world.homeDoor = townHomeDoor;
+            world.mechanicDoor = townMechanicDoor;
+            world.paintDoor = townPaintDoor;
             // Bare concrete grey for the cinder blocks under stripped wrecks —
             // a bake-time material for a runtime spawner, same contract as
             // GarageWorld's rig materials.
@@ -445,34 +454,95 @@ namespace PSXRacing.EditorTools
             // to, and its windows being an opaque pale wall is the exact thing
             // the owner asked to have fixed. The INTERIOR is a separate scene
             // (Pizzeria.unity), which is where a shift actually happens.
+            // THE SHOPFRONT FACES THE STREET. It did not, and that is most of
+            // "I drove to work but was unable to find a pizza inside to
+            // deliver": this pack model is a corner block whose glazing, door
+            // and signage are all on ONE 10.8 m face and whose other side is
+            // 21.4 m of blank brick — and it had been stood up with the brick
+            // toward the apron. A player parked outside their own workplace was
+            // looking at the back of it. Photographed, finally, by
+            // TownProbe's town_pizzeria shot.
+            //
+            // frontToward: LEFT. Place multiplies a flat 180 onto
+            // LookRotation(frontToward) — the pack's fronts face -Z — and this
+            // model's shopfront is a further 90 round from that, so the two
+            // together land it on +Z. Everything downstream is MEASURED off
+            // the result (WorldKit.DoorwayOf), so nothing else here has to
+            // know which way it ended up.
+            //
+            // And BACK 8.5 m, because the depth and the frontage swap when it
+            // turns: 21.4 m of building now runs away from the road instead of
+            // along it, and left where it was it would have stood in its own
+            // apron.
             var shop = WorldKit.Place(strip.transform, TownPizzeria, "Pizzeria",
-                new Vector3(-6f, 0f, -22f), Vector3.forward, 1f, glass: true);
+                new Vector3(-6f, 0f, -30.5f), Vector3.left, 1f, glass: true);
+            // MEASURED BEFORE THE HINGES GO ON. A door that has already been
+            // reparented onto a pivot is a door that can be standing open, and
+            // a doorway measured off an open leaf is a doorway round the
+            // corner from itself.
+            bool haveDoor = false;
+            Bounds doorway = new Bounds();
+            Vector3 outward = Vector3.forward;
             if (shop != null)
             {
                 WorldKit.SeatOnGround(shop, 0f);
-                // The double leaves stand OPEN — this is a shop on shop hours,
-                // and a door mesh with a collider was the whole of "I am
-                // unable to go inside Pizzeria". The interior is modelled and
-                // collided piece by piece below, so a player who walks in
-                // finds booths to sit at, not a hollow facade.
-                WorldKit.OpenDoors(shop);
+                haveDoor = WorldKit.DoorwayOf(shop, out doorway, out outward);
+                // The double leaves SWING. A shut door with a collider was the
+                // whole of "I am unable to go inside Pizzeria"; deleting the
+                // leaves fixed that and became "the doors are missing to
+                // Pizzeria". A hinge is the answer to both — see
+                // WorldKit.HingeDoors.
+                WorldKit.HingeDoors(shop);
                 WorldKit.AddColliders(shop, WorldKit.SolidLayer);
             }
-            WorldKit.GridSlab(strip.transform, "PizzaApron", new Vector3(-6f, 0.015f, -13f),
-                26f, 14f, 3f, m.drive, true, 6f, WorldKit.RoadLayer);
+            // The apron, run UNDER the shopfront rather than up to it. Sized
+            // off the bounding box it stopped two metres short of the wall and
+            // left a band of lawn between the forecourt and the door, because
+            // the far edge of this model's bounds is its AWNING, which
+            // overhangs the pavement by a good stride. Concrete costs nothing
+            // and a building standing on it is a building on a pavement.
+            WorldKit.GridSlab(strip.transform, "PizzaApron", new Vector3(-6f, 0.015f, -14f),
+                26f, 16f, 3f, m.drive, true, 6f, WorldKit.RoadLayer);
+            // THE WHOLE APRON, not a box in the middle of it. The volume used
+            // to be 12 x 9 on a 26 x 14 forecourt, so a car parked on the east
+            // half of the shop's own frontage was offered nothing at all —
+            // which is the driving half of "I selected go to work, drove to
+            // work, but was unable to find a pizza".
             TownTrigger(strip.transform, "PizzaVenue", TownVenue.Kind.Pizzeria,
-                new Vector3(-6f, 1.4f, -13.5f), new Vector3(12f, 3f, 9f));
+                new Vector3(-6f, 1.4f, -13f), new Vector3(24f, 3f, 12f));
 
-            // The shop's DOOR, for a player who got out and walked up — the
-            // storefront's face toward the street, measured off the model so a
-            // pack update cannot strand the anchor inside the wall. And the
-            // KERB, where the car stands when the player walks out mid-shift
-            // with the boxes: on the apron, nose pointed up the street toward
-            // the junction, because that is where every run goes next.
+            // ---- three ways to be offered a shift ----
+            //
+            // THREE, because one is demonstrably not enough and this shop is an
+            // awkward shape. The hook used to hang off the centre of the
+            // model's bounding box — 21 m of frontage, so eight metres from
+            // anything — and the pack's Door meshes turn out to be round the
+            // EAST end, in the far half of the side wall, while the apron the
+            // car parks on is to the NORTH. A player could stop at the shop,
+            // get out, walk to it, walk round it, walk in, and be offered
+            // nothing anywhere: "I selected go to work, drove to work, but was
+            // unable to find a pizza inside to deliver."
+            //
+            // So: one on the frontage the car is parked at, one at the measured
+            // doorway, one a step inside it. TownWorld writes the same offer
+            // onto all three, so there is nowhere in or around Tony's that says
+            // nothing.
             var shopB = shop != null ? WorldKit.BoundsOf(shop)
                 : new Bounds(new Vector3(-6f, 1f, -22f), new Vector3(8f, 4f, 8f));
-            townPizzaDoor = TownAnchor(strip.transform, "PizzaDoorAnchor",
-                new Vector3(shopB.center.x, 1.2f, shopB.max.z + 0.8f), Vector3.back);
+            var hooks = new List<Transform>
+            {
+                TownAnchor(strip.transform, "PizzaFrontAnchor",
+                    new Vector3(shopB.center.x, 1.2f, shopB.max.z + 1.2f), Vector3.back),
+            };
+            if (haveDoor)
+            {
+                Vector3 doorAt = new Vector3(doorway.center.x, 1.2f, doorway.center.z);
+                hooks.Add(TownAnchor(strip.transform, "PizzaDoorAnchor",
+                    doorAt + outward * 1.2f, -outward));
+                hooks.Add(TownAnchor(strip.transform, "PizzaCounterAnchor",
+                    doorAt - outward * 2.5f, outward));
+            }
+            townPizzaHooks = hooks.ToArray();
             townPizzaKerb = TownAnchor(strip.transform, "PizzaKerbAnchor",
                 new Vector3(-14f, 0.35f, -8.5f), Vector3.left);
 
@@ -499,6 +569,182 @@ namespace PSXRacing.EditorTools
                 WorldKit.SeatOnGround(b, 0f);
                 WorldKit.AddColliders(b, WorldKit.SolidLayer);
             }
+        }
+
+        // ------------------------------------------------------------------
+        //  the trade: a workshop and a body shop
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// The two trades the garage menu already had and the town did not:
+        /// a MECHANIC and a PAINT + BODY shop, as places you drive to.
+        ///
+        /// The owner's ask, verbatim: "there should be a garage in town for
+        /// Mechanic and one for Paint Shop. Currently there is no option to
+        /// change the paint color of cars even though they have multiple
+        /// options." Both halves are real — MECHANIC SERVICES lived four
+        /// presses down a menu with no address in the world, and RESPRAY did
+        /// not exist at all even though every shell in the pack carries a
+        /// handful of baked liveries.
+        ///
+        /// Placed on the SOUTH side of the main street, in the two gaps the
+        /// street blocks leave: the body shop out west past the junction (so
+        /// it is the first trade you pass leaving home) and the workshop out
+        /// east between the last block and the salvage yard, which puts the
+        /// two places you take a broken car next door to each other.
+        /// </summary>
+        static void BuildTownTrade(Transform parent, TownMats m)
+        {
+            var paint = BuildTownUnit(parent, m, "PaintShop", new Vector3(-92f, 0f, -26f),
+                "COLOURWORKS — PAINT + BODY", new Color(0.55f, 0.20f, 0.42f),
+                out townPaintDoor);
+            // A COLOUR CHART on the board. Nothing in this project can put
+            // legible words on a wall, so two identical units 150 m apart would
+            // be told apart only by walking up to them and reading the prompt.
+            // A row of paint chips is a body shop from the far end of the
+            // street, which is where the question gets asked.
+            var chips = new[]
+            {
+                new Color(0.78f, 0.14f, 0.14f), new Color(0.90f, 0.62f, 0.10f),
+                new Color(0.16f, 0.52f, 0.30f), new Color(0.16f, 0.34f, 0.66f),
+                new Color(0.92f, 0.92f, 0.90f), new Color(0.11f, 0.11f, 0.13f),
+            };
+            for (int i = 0; i < chips.Length; i++)
+                WorldKit.Panel(paint, "PaintChip" + i,
+                    new Vector3(-92f - 3.6f + i * 1.45f, 6.7f, -20f + 0.32f),
+                    1.25f, 1.25f, 0f, MakeMat("TownChip" + i, null, tint: chips[i]), false);
+            TownTrigger(parent, "PaintVenue", TownVenue.Kind.PaintShop,
+                new Vector3(-92f, 1.4f, -15f), new Vector3(24f, 3f, 18f));
+
+            BuildTownUnit(parent, m, "Mechanic", new Vector3(58f, 0f, -26f),
+                "DELMAR AUTO — SERVICE", new Color(0.18f, 0.42f, 0.30f),
+                out townMechanicDoor);
+            TownTrigger(parent, "MechanicVenue", TownVenue.Kind.Mechanic,
+                new Vector3(58f, 1.4f, -15f), new Vector3(24f, 3f, 18f));
+        }
+
+        /// <summary>
+        /// A two-bay unit on a concrete apron, with its shutters up.
+        ///
+        /// Both of the town's new trades are the same building — that is the
+        /// point of the shared function rather than a shortcut. Neither art
+        /// tree has a garage, a workshop, a spray booth or a body shop in it,
+        /// so what a unit like this reads as comes entirely from the things
+        /// this project can actually make: a slab, a shell with a hole in the
+        /// front, a header over the hole, and a sign that says what the hole
+        /// is for. The two differ by the colour of the sign, what is standing
+        /// in the bays, and which page the door opens — which, from the road,
+        /// is exactly how two industrial units on the same estate differ.
+        ///
+        /// THE FRONT IS FOUR PIECES, not one wall with a doorway in it: two
+        /// piers, a header over the bays and a middle post between them. A
+        /// BoxCollider cannot have a hole in it, so a shell built as one box
+        /// is a building you cannot drive or walk into — which is the bug the
+        /// gas station's single slab was, reported as invisible walls.
+        /// </summary>
+        /// <param name="signTint">The board over the door. It is the only
+        /// thing on the building that says which trade this is.</param>
+        static Transform BuildTownUnit(Transform parent, TownMats m, string name,
+                                       Vector3 at, string sign, Color signTint,
+                                       out Transform doorAnchor)
+        {
+            var unit = new GameObject(name);
+            unit.transform.SetParent(parent, false);
+
+            const float w = 18f;      // frontage
+            const float d = 12f;      // depth
+            const float h = 5.2f;     // eaves
+            const float bayW = 5.4f;  // each roller opening
+            const float wall = 0.4f;
+            float fz = at.z + d * 0.5f;   // the front wall plane, toward the street
+            float bz = at.z - d * 0.5f;
+
+            // Apron, running from the shutters all the way OUT TO THE KERB.
+            // Same lesson the dealership learnt the hard way: a lot whose
+            // concrete stops six metres short of the road is a lot you reach
+            // across a lawn, and it reads as scenery dropped on the map rather
+            // than a unit built beside the street.
+            // Front wall to kerb. Both units stand SOUTH of the main street, so
+            // the kerb is the low-z edge of the carriageway and the apron runs
+            // up in +z; the Max is a floor rather than a case, so a unit moved
+            // to the far side gets a forecourt rather than an inside-out one.
+            float apronDepth = Mathf.Max(14f, -(TownRoadW * 0.5f + 0.4f) - fz);
+            WorldKit.GridSlab(unit.transform, name + "Apron",
+                new Vector3(at.x, 0.015f, fz + apronDepth * 0.5f), w + 8f, apronDepth, 3f,
+                m.drive, true, 6f, WorldKit.RoadLayer);
+            // AND A FLOOR INSIDE. The shutters are 5.4 m openings you can drive
+            // through, and without this the inside of a workshop is the town's
+            // grass — off-road grip under a roof, which is exactly the trap
+            // WorldKit.RoadLayer exists to name.
+            WorldKit.GridSlab(unit.transform, name + "Floor",
+                new Vector3(at.x, 0.02f, at.z), w, d, 3f,
+                m.drive, true, 6f, WorldKit.RoadLayer);
+
+            // Shell: back, two sides, roof.
+            WorldKit.Box(unit.transform, name + "Back", new Vector3(at.x, h * 0.5f, bz),
+                new Vector3(w, h, wall), m.metal, true, 0f, WorldKit.SolidLayer);
+            for (int s = -1; s <= 1; s += 2)
+                WorldKit.Box(unit.transform, name + "Side" + s,
+                    new Vector3(at.x + s * (w * 0.5f), h * 0.5f, at.z),
+                    new Vector3(wall, h, d), m.metal, true, 0f, WorldKit.SolidLayer);
+            WorldKit.Box(unit.transform, name + "Roof",
+                new Vector3(at.x, h + 0.15f, at.z),
+                new Vector3(w + 0.6f, 0.3f, d + 0.6f), m.metal, true, 0f, WorldKit.SolidLayer);
+
+            // Front: pier, bay, post, bay, pier — and a header over the lot.
+            float pier = (w - bayW * 2f - 0.9f) * 0.5f;
+            for (int s = -1; s <= 1; s += 2)
+                WorldKit.Box(unit.transform, name + "Pier" + s,
+                    new Vector3(at.x + s * (w - pier) * 0.5f, h * 0.5f, fz),
+                    new Vector3(pier, h, wall), m.metal, true, 0f, WorldKit.SolidLayer);
+            WorldKit.Box(unit.transform, name + "Post",
+                new Vector3(at.x, h * 0.5f, fz), new Vector3(0.9f, h, wall),
+                m.metal, true, 0f, WorldKit.SolidLayer);
+            // A 3.6 m opening under the header — high enough for anything in
+            // the catalog and low enough that the building has a lintel.
+            WorldKit.Box(unit.transform, name + "Header",
+                new Vector3(at.x, (3.6f + h) * 0.5f, fz),
+                new Vector3(w, h - 3.6f, wall), m.metal, true, 0f, WorldKit.SolidLayer);
+            // The shutters, rolled up into their boxes over each opening. Not
+            // doors: a roller shutter that swings would be a roller shutter
+            // that is a door, and these are open all day anyway.
+            for (int s = -1; s <= 1; s += 2)
+                WorldKit.Box(unit.transform, name + "Shutter" + s,
+                    new Vector3(at.x + s * (bayW * 0.5f + 0.45f), 3.35f, fz - 0.05f),
+                    new Vector3(bayW, 0.45f, 0.5f), m.kerb, false);
+
+            // The board. Panel rather than Box so it takes a tint cleanly and
+            // reads flat from the road, on two posts so it is signage rather
+            // than paint on the wall.
+            var board = MakeMat("TownSign" + name, null, tint: signTint);
+            WorldKit.Panel(unit.transform, name + "Sign",
+                new Vector3(at.x, h + 1.5f, fz + 0.25f), w * 0.72f, 2.0f, 0f,
+                board, false);
+            for (int s = -1; s <= 1; s += 2)
+                WorldKit.Post(unit.transform, name + "SignPost" + s,
+                    new Vector3(at.x + s * w * 0.30f, h, fz + 0.25f), 0.16f, 1.6f, m.metal);
+
+            // Something in the bays, so an empty unit is not an empty unit. Two
+            // benches at the back wall and a stack of drums between them: the
+            // only shapes this can honestly make, and enough that the inside
+            // is somewhere rather than a void.
+            WorldKit.Box(unit.transform, name + "Bench",
+                new Vector3(at.x, 0.45f, bz + 1.1f), new Vector3(w - 3f, 0.9f, 0.8f),
+                m.kerb, true, 0f, WorldKit.SolidLayer);
+            for (int i = 0; i < 4; i++)
+                WorldKit.Post(unit.transform, name + "Drum" + i,
+                    new Vector3(at.x - 6.2f + i * 0.72f, 0f, bz + 2.4f),
+                    0.58f, 0.88f, m.metal, solid: true);
+
+            // The door: in the LEFT bay, one step inside the opening. Inside
+            // rather than out on the apron, because that is where a walker
+            // ends up once the bay is somewhere they can walk into — and a
+            // hook they walk past is a hook that does not exist.
+            doorAnchor = TownAnchor(unit.transform, name + "DoorAnchor",
+                new Vector3(at.x - (bayW * 0.5f + 0.45f), 1.2f, fz - 1.6f),
+                Vector3.forward);
+            Log("[Town] " + name + ": unit " + w + " x " + d + " at " +
+                at.ToString("0") + ", sign " + sign);
+            return unit.transform;
         }
 
         /// <summary>
