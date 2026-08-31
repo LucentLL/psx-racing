@@ -28,8 +28,12 @@ namespace PSXRacing.LifeSim
         /// v6: housing keys renamed apartment→house (start = 1-car-garage house).
         /// v7: faults rolled before the hidden layer landed are re-hidden on
         ///     cars nobody has inspected; OwnedCar gained proInspectDay.
+        /// v8: the job book closed down to one job; absences count every day.
+        /// v9: the salvage yard — LifeState gained junkyard, PendingPart gained
+        ///     junkRisk. Both are ADDED, so the migration only exists to stock
+        ///     the shelves an old career would otherwise open onto empty.
         /// </summary>
-        public int saveVersion = 8;
+        public int saveVersion = 9;
 
         // === Core economy / clock ===
         public int money;
@@ -135,6 +139,12 @@ namespace PSXRacing.LifeSim
         // === Used-car market ===
         public List<CarListing> newspaper = new List<CarListing>();
         public List<CarAd> carAds = new List<CarAd>();
+
+        /// <summary>What is on the salvage yard's shelves. One flat list rather
+        /// than three, because JsonUtility serialises a list of one type and not
+        /// a list of lists — each part carries the shelf it is on
+        /// (<see cref="YardPart.shelf"/>) and the page groups them.</summary>
+        public List<YardPart> junkyard = new List<YardPart>();
 
         // === Mail / log ===
         public List<MailItem> mail = new List<MailItem>();
@@ -265,6 +275,65 @@ namespace PSXRacing.LifeSim
         /// <summary>Stage this job installs, 1-4. Ignored when
         /// <see cref="upgradeKind"/> is empty.</summary>
         public int upgradeStage;
+
+        /// <summary>Percent chance this job seeds a hidden fault on
+        /// <see cref="stat"/> when it goes in — a used part off the salvage
+        /// yard's shelf, and how rough it looked. Rolled at INSTALL rather than
+        /// at purchase, which is the reason it rides on the job at all: a fault
+        /// stamped the day you paid would be on the car for the days the part
+        /// spends in the boot. 0 on everything a shop or a dealer touched, and
+        /// on every job in a save written before the yard existed.</summary>
+        public int junkRisk;
+
+        public bool IsUpgrade => !string.IsNullOrEmpty(upgradeKind);
+
+        /// <summary>A part bought off the salvage yard's shelf rather than
+        /// booked at a bench: no fault behind it and no stage in front of it,
+        /// which is a combination nothing else in the queue produces. It is a
+        /// thing you OWN and are waiting to fit, and that is why the mechanic's
+        /// supersede rule has to be able to see it — see
+        /// <see cref="LifeRules.BuyService"/>.</summary>
+        public bool IsYardPart => !IsUpgrade && string.IsNullOrEmpty(faultId);
+    }
+
+    /// <summary>
+    /// One part on the salvage yard's shelf. Expires like a classified ad does,
+    /// but on the clock its own shelf keeps — see <see cref="Junkyard.Shelf"/>.
+    ///
+    /// Carries a rated <see cref="add"/> and a <see cref="basePrice"/> for a
+    /// service part, or an <see cref="upgradeKind"/> and a
+    /// <see cref="maxStage"/> for hardware, and never both. Hardware has no
+    /// price of its own here on purpose: a used turbo is worth a fraction of
+    /// whatever the stage it serves costs on the car it is going onto, so the
+    /// number is quoted at the row rather than stamped on the shelf.
+    /// </summary>
+    [Serializable]
+    public class YardPart
+    {
+        public int shelf;                // Junkyard.Shelf ordinal
+        public string label = "";
+        /// <summary>What the yard says about where it came from. Flavour, and
+        /// the only thing on the row that is not a number.</summary>
+        public string donorHint = "";
+        /// <summary>0-100, and openly shown: you can see rust. Drives price,
+        /// how much of `add` you actually get, and the fault risk.</summary>
+        public int grade = 60;
+        public int expiresDay;
+
+        // ---- service part ----
+        public string stat = "engine";   // engine / tires / hp / paint
+        public int add;                  // condition a PERFECT example restores
+        public int basePrice;
+        public int days;
+
+        // ---- hardware ----
+        /// <summary>Upgrade category key, or empty for a service part. Same
+        /// string form <see cref="PendingPart.upgradeKind"/> uses, and for the
+        /// same reason: a reordered enum must not re-point a saved shelf.</summary>
+        public string upgradeKind = "";
+        /// <summary>Highest stage this pull can serve. A car already past it is
+        /// told so rather than being sold a part that does nothing.</summary>
+        public int maxStage;
 
         public bool IsUpgrade => !string.IsNullOrEmpty(upgradeKind);
     }

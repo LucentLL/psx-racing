@@ -39,6 +39,7 @@ namespace PSXRacing.EditorTools
             TestCarModels();
             TestUpgrades();
             TestMarket();
+            TestJunkyard();
             TestRaceField();
             TestBlacklist();
             TestTracks();
@@ -2773,6 +2774,172 @@ namespace PSXRacing.EditorTools
             int pay = CarMarket.LoanPayment(10000f, 0.105f, 48);
             Check(pay * 48 > 10000, "a loan costs more than the principal", pay + "/mo");
             Check(CarMarket.LoanPayment(1200f, 0f, 12) == 100, "0% APR splits evenly");
+        }
+
+        /// <summary>
+        /// The salvage yard. Four things worth asserting, and they are the four
+        /// that would break silently:
+        ///
+        ///   * the shelves stock, stay inside their slot counts, and do not
+        ///     double up within a shelf;
+        ///   * the three CLOCKS are actually three — a yard whose shelves all
+        ///     expire together is one shelf drawn three times, and nothing on
+        ///     screen would say so;
+        ///   * a purchase queues a real job that a rollover actually installs,
+        ///     which is the whole join between this and the rest of the game;
+        ///   * the fault risk rides the JOB rather than firing at the till.
+        /// </summary>
+        static void TestJunkyard()
+        {
+            Line("salvage yard:");
+            if (!CarCatalog.Ready) { Check(false, "catalog loaded"); return; }
+
+            var s = LifeRules.SeedNewGame("TESTER", 25, 3);
+            // A CATALOG car, not SeedFallbackCar's RX-7. The fallback is the one
+            // car in the game written by hand rather than baked, so its specId
+            // is empty and CarCatalog.Get hands back null — which silently
+            // skipped every hardware assertion below on the first two runs of
+            // this test. A quote that cannot be taken proves nothing.
+            var testCar = CarMarket.MakeOwnedCar(s, CarCatalog.All[0], 70, 60000f, 9000);
+            s.activeCar = testCar.id;
+            Check(s.junkyard.Count > 0, "a new career opens onto a stocked yard",
+                  s.junkyard.Count);
+
+            int slotTotal = 0;
+            for (int sh = 0; sh < Junkyard.ShelfNames.Length; sh++)
+            {
+                var shelf = (Junkyard.Shelf)sh;
+                var rows = Junkyard.OnShelf(s, shelf);
+                slotTotal += Junkyard.SlotsOn(shelf);
+                Check(rows.Count == Junkyard.SlotsOn(shelf),
+                      "'" + Junkyard.ShelfNames[sh] + "' fills its slots",
+                      rows.Count + "/" + Junkyard.SlotsOn(shelf));
+                var seen = new System.Collections.Generic.HashSet<string>();
+                bool dupe = false;
+                foreach (var p in rows) if (!seen.Add(p.label)) dupe = true;
+                Check(!dupe, "  and holds no two of the same part");
+            }
+            Check(s.junkyard.Count == slotTotal, "the yard is exactly its shelves",
+                  s.junkyard.Count + "/" + slotTotal);
+
+            // The three clocks. Compared as MINIMA rather than averages: the
+            // bin's longest life still has to be shorter than the back lot's
+            // shortest, which is what makes them different shelves.
+            int binMax = 0, weekMin = int.MaxValue, weekMax = 0, lotMin = int.MaxValue;
+            foreach (var p in s.junkyard)
+            {
+                int life = p.expiresDay - s.day;
+                if (p.shelf == (int)Junkyard.Shelf.Bin) binMax = Mathf.Max(binMax, life);
+                else if (p.shelf == (int)Junkyard.Shelf.Week)
+                { weekMin = Mathf.Min(weekMin, life); weekMax = Mathf.Max(weekMax, life); }
+                else lotMin = Mathf.Min(lotMin, life);
+            }
+            Check(binMax < weekMin, "the bin turns over faster than the week's pulls",
+                  binMax + "d vs " + weekMin + "d");
+            Check(weekMax < lotMin, "and the week's pulls faster than the back lot",
+                  weekMax + "d vs " + lotMin + "d");
+
+            // Grade drives price, restoration and risk, all in the same
+            // direction. Checked on one part rather than on the shelf, because
+            // the shelf is random and the relationship is not.
+            Check(Junkyard.EffectiveAdd(20, 100) > Junkyard.EffectiveAdd(20, 25),
+                  "a clean pull restores more than a scrap one",
+                  Junkyard.EffectiveAdd(20, 100) + " vs " + Junkyard.EffectiveAdd(20, 25));
+            Check(Junkyard.FaultRisk(90) == 0 && Junkyard.FaultRisk(25) > 0,
+                  "and only a rough one can bring something with it",
+                  Junkyard.FaultRisk(90) + " / " + Junkyard.FaultRisk(25));
+            Check(Junkyard.CarMult(CarCatalog.All[0]) <= 1.8f,
+                  "the yard's car multiplier is capped well under the shop's 3.5x",
+                  Junkyard.CarMult(CarCatalog.All[0]));
+
+            // Buying: it has to leave the shelf, cost money, and land as a job
+            // that a rollover installs. A part that vanished into a receipt is
+            // the failure this exists to catch.
+            var car = s.ActiveCar;
+            car.engine = 40f;
+            var spec = CarCatalog.Get(car.specId);
+            YardPart svc = null;
+            foreach (var p in s.junkyard)
+                if (!p.IsUpgrade && p.stat == "engine") { svc = p; break; }
+            if (svc == null) { Check(false, "the yard offers an engine part to buy"); return; }
+
+            s.money = 50000;
+            int before = s.money, shelfBefore = s.junkyard.Count;
+            var quote = Junkyard.GetQuote(s, car, spec, svc);
+            Check(quote.available, "an engine part quotes for the active car",
+                  quote.blockedReason);
+            string err = Junkyard.Buy(s, car, spec, svc);
+            Check(err == null, "and can be bought", err);
+            Check(s.money < before, "  it costs money", before + " -> " + s.money);
+            Check(s.junkyard.Count == shelfBefore - 1, "  it leaves the shelf");
+            var job = s.pendingParts.Find(p => p.label == svc.label);
+            Check(job != null, "  and lands as a job in the queue");
+            if (job != null)
+            {
+                Check(job.readyDay > s.day, "  that takes real days", job.readyDay - s.day);
+                Check(job.junkRisk == Junkyard.FaultRisk(svc.grade),
+                      "  carrying its own fault risk to install day", job.junkRisk);
+            }
+
+            // The mechanic must not sweep it. A booked repair is an appointment
+            // and cancelling it is a favour; a bought part is a part.
+            if (job != null)
+            {
+                LifeRules.BuyService(s, car, 0);          // OIL CHANGE, engine lane
+                Check(s.pendingParts.Contains(job),
+                      "an oil change does not void a paid-for yard part");
+            }
+
+            // A second engine part must be refused while the first is queued —
+            // the same one-job-per-lane rule the mechanic bench keeps.
+            YardPart second = null;
+            foreach (var p in s.junkyard)
+                if (!p.IsUpgrade && p.stat == "engine") { second = p; break; }
+            if (second != null)
+                Check(!Junkyard.GetQuote(s, car, spec, second).available,
+                      "a second job on the same lane is refused while one is booked");
+
+            // Roll forward to install day. The condition has to actually move,
+            // which is the join between the shelf and the car.
+            // SleepUntilMorning, not Sleep: Sleep steps ONE activity slot and
+            // only rolls the day from the last one, so a loop of it advances
+            // the calendar a third as fast as it reads — and the back lot's
+            // parts take five days, which a twelve-nap loop would never reach.
+            float engineBefore = car.engine;
+            for (int guard = 0; guard < 10 && s.pendingParts.Count > 0; guard++)
+                LifeRules.SleepUntilMorning(s);
+            Check(car.engine > engineBefore, "sleeping until it is fitted raises the lane",
+                  engineBefore + " -> " + car.engine);
+
+            // Hardware: quoted against the car's NEXT stage, and refused
+            // outright when the car has already outgrown the pull.
+            Check(spec != null, "the test car resolves to a catalog spec");
+            if (spec != null)
+            {
+                var hw = new YardPart
+                {
+                    shelf = (int)Junkyard.Shelf.Week,
+                    label = "TEST HARDWARE",
+                    grade = 80,
+                    upgradeKind = Upgrades.UpgradeKindKey(Upgrades.Kind.Tires),
+                    maxStage = 1,
+                    stat = "engine",
+                    expiresDay = s.day + 5,
+                };
+                s.junkyard.Add(hw);
+                s.mechSkill = 100f;
+                var q1 = Junkyard.GetQuote(s, car, spec, hw);
+                var plan = Upgrades.NextStagePlan(s, car, spec, Upgrades.Kind.Tires);
+                Check(q1.available && q1.stage == 1, "a stage-1 pull quotes stage 1",
+                      q1.available ? (object)q1.stage : q1.blockedReason);
+                Check(q1.price < plan.diyPrice, "  and undercuts building it new",
+                      q1.price + " vs " + plan.diyPrice);
+
+                Upgrades.SetStage(car, Upgrades.Kind.Tires, 2);
+                Check(!Junkyard.GetQuote(s, car, spec, hw).available,
+                      "  but a car past it is told so rather than sold it",
+                      Junkyard.GetQuote(s, car, spec, hw).blockedReason);
+            }
         }
 
         // ---------------------------------------------------------------

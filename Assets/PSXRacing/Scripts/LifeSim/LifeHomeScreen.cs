@@ -581,6 +581,7 @@ namespace PSXRacing.LifeSim
                 case "service": BuildService(); break;
                 case "tune": BuildTune(); break;
                 case "market": BuildMarket(); break;
+                case "junkyard": BuildJunkyard(); break;
                 case "buy": BuildBuyDetail(); break;
                 case "debugcars": BuildDebugCars(); break;
                 case "inspect": BuildInspect(); break;
@@ -731,8 +732,10 @@ namespace PSXRacing.LifeSim
 
                 // The classifieds are a page OF the paper, so backing out of
                 // them puts the paper back in your hands rather than dropping
-                // you on the home screen holding nothing.
-                case "market": return "news";
+                // you on the home screen holding nothing. Same for the yard,
+                // which you got to through its advert in the same paper.
+                case "market":
+                case "junkyard": return "news";
                 // The focus view backs out to the car map, not to the garage —
                 // an inspection is a place you are IN, and BACK should walk you
                 // out of it a room at a time.
@@ -2986,6 +2989,28 @@ namespace PSXRacing.LifeSim
                 () => { tab = "market"; Rebuild(); }, 18);
             y -= 64f;
 
+            // The yard is an ADVERT, which is why it is in the paper and not on
+            // the strip: a scrapyard in 1999 is a quarter-page in the back of
+            // the classifieds with a phone number on it, and the strip is full
+            // at eight anyway. Same shape as the classifieds above — a button
+            // into a page — so the paper reads as two things you can act on
+            // rather than one button and a frame.
+            int onShelf = S.junkyard != null ? S.junkyard.Count : 0;
+            MenuKit.Button(body, "JUNKYARD — USED PARTS (" + onShelf + ")",
+                new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 460f), 52f),
+                () => { tab = "junkyard"; Rebuild(); }, 18);
+            // 58, not 40: a MenuKit button is pivoted at the anchor it is given
+            // and this page anchors at the TOP, so the button hangs its whole
+            // 52 units DOWN from y — a 40-unit step printed the strapline
+            // through the caption. Same trap as the masthead rule above, which
+            // is why the classifieds button steps 64.
+            y -= 58f;
+            MenuKit.Label(body, "   " + Junkyard.YardName + " — U-PULL-IT · CASH ONLY · NO RETURNS",
+                15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW, height: 24f);
+            y -= 34f;
+
             foreach (string line in new[]
             {
                 "MOTORING — nothing filed this week.",
@@ -2997,6 +3022,134 @@ namespace PSXRacing.LifeSim
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
                 y -= 26f;
             }
+        }
+
+        /// <summary>
+        /// The salvage yard: three shelves on three clocks, and what each pull
+        /// would cost and do TO THE CAR YOU ARE DRIVING.
+        ///
+        /// Quoted against the active car rather than shown as a bare price
+        /// list, because neither number on a used part means anything without
+        /// one — a service part's price scales with the car and a hardware
+        /// pull has no price at all until it knows what stage it is serving.
+        /// That is also what lets a row say "you are past this" instead of
+        /// selling you something that would do nothing.
+        /// </summary>
+        void BuildJunkyard()
+        {
+            float y = -16f;
+            var car = S.ActiveCar;
+            var spec = car != null ? CarCatalog.Get(car.specId) : null;
+
+            MenuKit.Label(body, Junkyard.YardName, 20, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 600f, bold: true);
+            MenuKit.Label(body, LifeRules.DateLabel(S.day), 15, new Vector2(0.5f, 1f),
+                new Vector2(ColR, y), TextAnchor.MiddleRight, MenuKit.Dim, ColW * 0.4f);
+            y -= 30f;
+            MenuKit.Label(body, car != null
+                    ? "quoting for " + car.displayName + "  ·  skill " +
+                      Mathf.RoundToInt(S.mechSkill) + "  ·  you fit it yourself"
+                    : "no car — nothing here fits anything you own",
+                15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                car != null ? MenuKit.Dim : MenuKit.Bad, ColW, height: 24f).raycastTarget = false;
+            y -= 30f;
+            MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Accent);
+            y -= 26f;
+
+            for (int sh = 0; sh < Junkyard.ShelfNames.Length; sh++)
+            {
+                var shelf = (Junkyard.Shelf)sh;
+                var rows = Junkyard.OnShelf(S, shelf);
+                // Height 26 and NOT a raycast target. A label's box is 40 tall
+                // by default and hangs its full height below y, so a 30-unit
+                // step put an invisible, clickable rectangle over the top ten
+                // units of the first row's button — a shelf heading eating
+                // presses meant for the part under it.
+                MenuKit.Label(body, Junkyard.ShelfNames[sh] + "   (" + rows.Count + "/" +
+                        Junkyard.SlotsOn(shelf) + ")",
+                    18, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Accent, ColW, height: 26f, bold: true).raycastTarget = false;
+                y -= 30f;
+
+                if (rows.Count == 0)
+                {
+                    MenuKit.Label(body, "   picked clean. Something turns up.", 15,
+                        new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                        MenuKit.Dim, ColW, height: 24f);
+                    y -= 34f;
+                    continue;
+                }
+                foreach (var part in rows) DrawYardRow(car, spec, part, ref y);
+                y -= 10f;
+            }
+        }
+
+        /// <summary>One pull on the shelf: what it is and how rough, what it
+        /// would do to your car, and one button carrying the price — or, when
+        /// it cannot be bought, the reason, on a dead button rather than on no
+        /// button at all. The gate is information: "needs skill 45" is what
+        /// tells a player mechanical skill is worth raising.</summary>
+        void DrawYardRow(OwnedCar car, CarSpec spec, YardPart part, ref float y)
+        {
+            var q = Junkyard.GetQuote(S, car, spec, part);
+            int daysLeft = Mathf.Max(0, part.expiresDay - S.day);
+            string grade = Junkyard.GradeWord(part.grade);
+
+            // The whole row is the button, the way a classified listing is, so
+            // there is one target per part rather than a caption and a hit box
+            // that disagree about where the part ends.
+            bool usable = q.available && S.money >= q.price;
+            var captured = part;
+            var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, ColW), y), new Vector2(ColW, 56f),
+                usable ? (UnityEngine.Events.UnityAction)(() =>
+                {
+                    string err = Junkyard.Buy(S, S.ActiveCar,
+                        S.ActiveCar != null ? CarCatalog.Get(S.ActiveCar.specId) : null, captured);
+                    LifeSimManager.Save();
+                    Rebuild();
+                    Toast(err ?? (captured.label + " — home in the boot"));
+                }) : null, 14,
+                usable ? (Color?)null : MenuKit.BtnBgDisabled);
+            // Named after the PART, because the caption is empty and MenuKit
+            // names a button after its caption. Twelve rows all called "Btn_"
+            // is twelve rows the cursor-restore cannot tell apart, so every
+            // purchase would throw the cursor back to the top of the yard —
+            // which is the same complaint that put CaptureNavCursor here in the
+            // first place, on a page where it costs the most.
+            row.gameObject.name = "Btn_yard_" + part.shelf + "_" + part.label;
+
+            // Explicit heights on both lines, and they sum to the row. A label
+            // hangs its FULL height below the y it is given, and the default is
+            // 40 — two of those in a 56-unit row put the detail line ten units
+            // into the row underneath, which reads as a tight page rather than
+            // as the overlap it is.
+            MenuKit.Label(body, part.label + "   [" + grade + "]", 16, new Vector2(0.5f, 1f),
+                new Vector2(ColL + 14f, y - 8f), TextAnchor.MiddleLeft,
+                part.grade >= 70 ? MenuKit.Good : part.grade >= 40 ? Color.white : MenuKit.Bad,
+                ColW * 0.62f, height: 26f).raycastTarget = false;
+
+            // Price on the right of the headline, where a price belongs, and
+            // the refusal in its place when there is one — the row still has to
+            // say something about money or the player cannot tell a part they
+            // cannot afford from one that does not fit.
+            MenuKit.Label(body,
+                q.available ? MenuKit.Money(q.price) + (S.money >= q.price ? "" : "  (short)")
+                            : (q.blockedReason ?? "not for you"),
+                16, new Vector2(0.5f, 1f), new Vector2(ColR - 14f, y - 8f),
+                TextAnchor.MiddleRight,
+                !q.available ? MenuKit.Dim : S.money >= q.price ? MenuKit.Accent : MenuKit.Bad,
+                ColW * 0.36f, height: 26f).raycastTarget = false;
+
+            string risk = q.risk > 0 ? "  ·  " + q.risk + "% it brings something with it" : "";
+            MenuKit.Label(body,
+                (q.effect ?? part.label) + "  ·  " + q.days + "d to fit" + risk +
+                "  ·  " + part.donorHint + "  ·  " + daysLeft + "d left",
+                13, new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 34f),
+                TextAnchor.MiddleLeft, q.risk >= 20 ? MenuKit.Bad : MenuKit.Dim,
+                ColW - 28f, height: 22f).raycastTarget = false;
+            y -= 64f;
         }
 
         /// <summary>

@@ -1103,6 +1103,19 @@ namespace PSXRacing.LifeSim
                         car.faults.RemoveAll(x => x.id == p.faultId);
                         s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " repaired");
                     }
+
+                    // A used part off the salvage yard can bring something with
+                    // it, and this is where it finds out — the day it goes ON,
+                    // not the day it was paid for. Seeded HIDDEN through the
+                    // same door every other fault comes in by, so the car goes
+                    // off song and an inspection is what names it: the yard
+                    // feeds the inspection layer rather than routing round it.
+                    if (p.junkRisk > 0 && Random.Range(0, 100) < p.junkRisk)
+                    {
+                        var spec = CarCatalog.Get(car.specId);
+                        AddFault(s, car, FaultCatalog.RollWearFault(
+                            car, p.stat, false, "wear", spec != null ? spec.origin : "jpn"));
+                    }
                 }
                 s.pendingParts.RemoveAt(i);
             }
@@ -1142,11 +1155,21 @@ namespace PSXRacing.LifeSim
             AddToStat(car, svc.stat, svc.add);
             car.faults.RemoveAll(f => f.stat == svc.stat);
             // A service supersedes any repair queued for the same stat lane —
-            // new tyres make a booked tyre job pointless. Upgrade builds are
-            // explicitly spared: they are filed under the "engine" stat for
-            // want of a better lane, and an oil change must not cancel a
-            // paid-for turbo build.
-            s.pendingParts.RemoveAll(p => p.carId == car.id && p.stat == svc.stat && !p.IsUpgrade);
+            // new tyres make a booked tyre job pointless. Two kinds of job are
+            // explicitly spared.
+            //
+            // Upgrade builds: they are filed under the "engine" stat for want
+            // of a better lane, and an oil change must not cancel a paid-for
+            // turbo build.
+            //
+            // And salvage-yard parts, for a sharper version of the same reason.
+            // A booked repair is an APPOINTMENT — cancelling it when the work
+            // is no longer needed is doing the player a favour. A yard part is
+            // a PART, bought, paid for and sitting in the boot; sweeping it
+            // means a $50 oil change silently voiding a $900 donor engine on
+            // its way in, with nothing on screen to say where the money went.
+            s.pendingParts.RemoveAll(p => p.carId == car.id && p.stat == svc.stat &&
+                                          !p.IsUpgrade && !p.IsYardPart);
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + svc.name + " " + MenuKit.Money(price));
             return null;
         }
@@ -1431,9 +1454,11 @@ namespace PSXRacing.LifeSim
             TickPendingParts(s);
 
             // 8. the market turns over: listings expire and refill, and any car
-            // the player has advertised may draw an offer.
+            // the player has advertised may draw an offer. The salvage yard
+            // turns over beside it, on its own three clocks.
             CarMarket.RefreshListings(s);
             CarMarket.GenerateOffers(s);
+            Junkyard.RefreshStock(s);
 
             // 9. the ladder: expired call-outs go cold, and a gate that has just
             // cleared pages the player. Order matters — pruning first stops a
@@ -1550,6 +1575,7 @@ namespace PSXRacing.LifeSim
                               MenuKit.Money(s.money) + " saved." +
                               (debug ? "  [DEBUG CAREER]" : ""));
             CarMarket.RefreshListings(s);
+            Junkyard.RefreshStock(s);
             return s;
         }
 

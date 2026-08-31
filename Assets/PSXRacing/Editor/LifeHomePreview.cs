@@ -135,7 +135,7 @@ namespace PSXRacing.EditorTools
             // Every tab, not just the two that had been looked at. Three of the
             // four bugs found here were on tabs nobody had rendered.
             foreach (var t in new[] { "rivals", "garage", "calendar", "news", "options",
-                                      "market", "eat", "bills", "jobs",
+                                      "market", "junkyard", "eat", "bills", "jobs",
                                       "inspect", "inspectfocus", "toolbox",
                                       // The garage is a LIST now and the car page is where
                                       // everything you can do to a car lives, so the tab shot

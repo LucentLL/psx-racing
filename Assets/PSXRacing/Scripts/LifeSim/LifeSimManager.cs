@@ -227,6 +227,21 @@ namespace PSXRacing.LifeSim
                 s.consecutiveAbsences = 0;
                 s.saveVersion = 8;
             }
+
+            if (s.saveVersion < 9)
+            {
+                // v9 added the salvage yard. The list itself needs nothing —
+                // JsonUtility leaves an added field at its initializer — but an
+                // EMPTY yard is not the same as a yard nobody has looked at:
+                // the shelves only fill on a rollover, so a career that came in
+                // from before this would open the advert onto three empty
+                // shelves and have to sleep to find out the page works at all.
+                // Stock it here so it is a yard the first time it is opened.
+                if (s.junkyard == null)
+                    s.junkyard = new System.Collections.Generic.List<YardPart>();
+                Junkyard.RefreshStock(s);
+                s.saveVersion = 9;
+            }
         }
 
         public static void DeleteSave()
