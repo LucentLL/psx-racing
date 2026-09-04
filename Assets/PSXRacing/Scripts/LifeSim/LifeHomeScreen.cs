@@ -147,6 +147,16 @@ namespace PSXRacing.LifeSim
             // Coming back in from somewhere that asked for a particular screen.
             // Read once and cleared, so it is a hand-off and not a preference.
             if (!string.IsNullOrEmpty(PendingTab)) { tab = PendingTab; PendingTab = null; }
+
+            // A TOWN ERRAND'S WAY BACK ONLY SURVIVES THE HOP THAT ARMED IT.
+            // TownReturn is a static, so without this a shop visit three
+            // sessions ago would still be offering to put the car back on a
+            // forecourt the player left in a different car on a different day.
+            // Arriving on one of the four shop pages is the only way to be
+            // holding one; every other arrival at the house is somebody who
+            // came home.
+            if (tab != "service" && tab != "paint" && tab != "dealer" && tab != "junkyard")
+                Town.TownReturn.Clear();
             if (!string.IsNullOrEmpty(PendingGarageCar))
             {
                 garageCarId = PendingGarageCar;
@@ -1112,6 +1122,26 @@ namespace PSXRacing.LifeSim
         void BuildMain()
         {
             float left = -14f, right = -14f;
+
+            // PARKED IN TOWN, reading a page. The way back sits above both
+            // columns and across the whole width, because it is not one of the
+            // day's choices — it is the door out of a shop the player is
+            // standing in, and every other row on this screen assumes they are
+            // at home when they are not.
+            if (Town.TownReturn.Pending)
+            {
+                MenuKit.Button(body,
+                    "OUT TO THE CAR — " + Clip(Town.TownReturn.VenueName, 30),
+                    new Vector2(0.5f, 1f), new Vector2(0f, left), new Vector2(520f, 46f),
+                    () => Town.TownReturn.Go(), 18, new Color(0.20f, 0.30f, 0.24f, 1f));
+                left -= 52f;
+                MenuKit.Label(body, "The car is where you left it. Everything here can wait.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, left),
+                    TextAnchor.MiddleCenter, MenuKit.Dim, 700f);
+                left -= 30f;
+                right = left;
+            }
+
             BuildRaceColumn(ref left, MainLeftX, MainColW);
             BuildDayColumn(ref right, MainRightX, MainColW);
         }
@@ -2739,9 +2769,7 @@ namespace PSXRacing.LifeSim
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);
                 y -= 40f;
-                MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                    () => { tab = "carmenu"; Rebuild(); }, 16);
+                ExitRow(ref y, "BACK TO THE CAR", () => { tab = "carmenu"; Rebuild(); });
                 return;
             }
 
@@ -3706,6 +3734,21 @@ namespace PSXRacing.LifeSim
                 foreach (var part in rows) DrawYardRow(car, spec, part, ref y);
                 y -= 10f;
             }
+
+            // The shelves are the yard's RACKED stock, read from the advert.
+            // The cars in the compound are a different shop and they are not on
+            // this page — walk the rows for those. Saying so matters: driving
+            // to the yard used to open this page, and a page of tidy priced
+            // rows is the opposite of what a salvage yard is for.
+            y -= 8f;
+            MenuKit.Label(body,
+                "This is what the yard has already pulled and racked. What is " +
+                "still bolted to the shells in the compound is yours to find — " +
+                "drive out and walk the rows.",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 44f);
+            y -= 52f;
+            ExitRow(ref y, "BACK TO THE PAPER", () => { tab = "news"; Rebuild(); });
         }
 
         /// <summary>One pull on the shelf: what it is and how rough, what it
@@ -4454,6 +4497,9 @@ namespace PSXRacing.LifeSim
             // and a NEW tag lost in a column of trade-ins is not a showroom.
             DealerSection(ref y, "IN THE SHOWROOM — NEW", true);
             DealerSection(ref y, "ON THE LOT — USED", false);
+
+            y -= 10f;
+            ExitRow(ref y, "BACK", () => { tab = "main"; Rebuild(); });
         }
 
         void DealerSection(ref float y, string heading, bool wantNew)
@@ -4501,6 +4547,43 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The flat-rate counterpart to fault repair: no skill gate, no
         /// waiting, and it clears the fault lane it touches.</summary>
+        /// <summary>
+        /// The way out of a page a TOWN VENUE may have opened, offered as a way
+        /// BACK when one did.
+        ///
+        /// Every shop in the town is a menu page and every menu page lives in
+        /// scene 0, which is the house. So driving to a body shop teleported the
+        /// player home, and finishing there left them at home with the car
+        /// parked a hundred and fifty metres up a street they were no longer
+        /// standing in — reported as "everything I do warps me back home to the
+        /// garage... paint car, warp back home to driveway. This should not
+        /// happen."
+        ///
+        /// The page cannot know it was opened from a kerb, so
+        /// <see cref="Town.TownReturn"/> tells it. When the answer is yes, the
+        /// door out of the shop is a door back onto its forecourt and it goes
+        /// FIRST, because that is the one the player wants.
+        /// </summary>
+        void ExitRow(ref float y, string stayLabel, UnityEngine.Events.UnityAction stay)
+        {
+            if (Town.TownReturn.Pending)
+            {
+                MenuKit.Button(body,
+                    "OUT TO THE CAR — " + Clip(Town.TownReturn.VenueName, 24),
+                    new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, 400f), y),
+                    new Vector2(400f, 46f), () => Town.TownReturn.Go(), 17,
+                    new Color(0.20f, 0.30f, 0.24f, 1f));
+                y -= 54f;
+            }
+            if (stay != null)
+            {
+                MenuKit.Button(body, stayLabel, new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
+                    stay, 16);
+                y -= 50f;
+            }
+        }
+
         void BuildService()
         {
             var car = GarageCar;
@@ -4567,9 +4650,8 @@ namespace PSXRacing.LifeSim
                 y -= 52f;
             }
 
-            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, 280f), y - 6f), new Vector2(280f, 44f),
-                () => { tab = "carmenu"; Rebuild(); }, 16);
+            y -= 6f;
+            ExitRow(ref y, "BACK TO THE CAR", () => { tab = "carmenu"; Rebuild(); });
         }
 
         /// <summary>
@@ -4620,9 +4702,7 @@ namespace PSXRacing.LifeSim
                     "colours. Nothing to spray.", 16, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
                 y -= 44f;
-                MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                    () => { tab = "carmenu"; Rebuild(); }, 16);
+                ExitRow(ref y, "BACK TO THE CAR", () => { tab = "carmenu"; Rebuild(); });
                 return;
             }
 
@@ -4686,9 +4766,8 @@ namespace PSXRacing.LifeSim
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
             y -= 32f;
 
-            MenuKit.Button(body, "BACK TO THE CAR", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                () => { paintPick = -1; tab = "carmenu"; Rebuild(); }, 16);
+            ExitRow(ref y, "BACK TO THE CAR",
+                () => { paintPick = -1; tab = "carmenu"; Rebuild(); });
         }
 
         /// <summary>
@@ -4957,10 +5036,6 @@ namespace PSXRacing.LifeSim
                 S.creditScore >= 660 ? MenuKit.Good : S.creditScore >= 550 ? MenuKit.Accent : MenuKit.Bad);
             if (S.missedPayments > 0)
                 Row("MISSED PAYMENTS", S.missedPayments.ToString(), ref y, MenuKit.Bad);
-            // The insurer is already watching, even though the premium does not
-            // move on it yet (that multiplier lands with the L5 record pass).
-            if (S.atFaultIncidents > 0)
-                Row("AT-FAULT INCIDENTS", S.atFaultIncidents.ToString(), ref y, MenuKit.Bad);
             if (S.pendingSalary > 0)
                 Row("PAY PENDING (Friday)", MenuKit.Money(S.pendingSalary), ref y, MenuKit.Good);
         }
@@ -5266,6 +5341,9 @@ namespace PSXRacing.LifeSim
 
         void DoSleep()
         {
+            // Sleeping ends the day, and a car parked outside a body shop is
+            // not somewhere you wake up. Whatever errand was open is over.
+            Town.TownReturn.Clear();
             bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
             LifeRules.Sleep(S);
             LifeSimManager.Save();

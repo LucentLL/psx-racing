@@ -154,6 +154,24 @@ namespace PSXRacing.EditorTools
             mode.venueName = "TOWN";
             mode.respawnPoints = BuildTownRespawns(root.transform);
 
+            // AND THE HANDOFF, WHICH THE TOWN NEVER HAD. Every scene builder
+            // but this one and Charlotte's puts a RaceHandoffApplier on the
+            // race manager; a free-roam map has no race manager, so neither of
+            // them applied anything. The consequence was quiet and total: the
+            // LifeSim filled the handoff on the way out — shell, livery,
+            // upgrades, faults, tune, fuel — and the town ignored all of it and
+            // handed the player the scene's baked RX-7. You could buy a
+            // Charger, paint it green, drive into town and be in a silver FD.
+            //
+            // Applier's own Start does the work; it reads RaceManager.Instance
+            // for the field list, finds none, and applies the player half. It
+            // no-ops entirely when FromLifeSim is false, so pressing Play on
+            // this scene in the editor still gives the built-in car.
+            var handoff = sessionGO.AddComponent<RaceHandoffApplier>();
+            handoff.playerCar = player;
+            handoff.sun = lightGO.GetComponent<Light>();
+            handoff.hud = Object.FindFirstObjectByType<RaceHUD>();
+
             var systems = new GameObject("GameSystems");
             systems.AddComponent<PSXBootstrap>();
             systems.AddComponent<TouchControls>();
@@ -1070,6 +1088,23 @@ namespace PSXRacing.EditorTools
             Wall("E", new Vector3(hx, 3f, 12f), new Vector3(1f, 6f, 170f));
             Wall("S", new Vector3(0f, 3f, -58f), new Vector3(hx * 2f, 6f, 1f));
             Wall("N", new Vector3(0f, 3f, 82f), new Vector3(hx * 2f, 6f, 1f));
+
+            // AND THE TWO ENDS OF THE ROAD, which are where a delivery leaves
+            // from. Both ends, because "drive to the end of the road" should not
+            // also mean "and it has to be the correct end" — the shop is in the
+            // middle of the street and either way out is out of town. Set well
+            // inside the bounds wall so a car is over the line before it is
+            // stopped by anything.
+            for (int s = -1; s <= 1; s += 2)
+            {
+                var go = new GameObject("TownEdge" + (s < 0 ? "W" : "E"));
+                go.transform.SetParent(b.transform, false);
+                go.transform.position = new Vector3(s * (TownStreetHalf - 6f), 1.6f, 0f);
+                var col = go.AddComponent<BoxCollider>();
+                col.isTrigger = true;
+                col.size = new Vector3(7f, 4f, TownRoadW + 8f);
+                go.AddComponent<PSXRacing.Town.TownEdge>();
+            }
         }
 
         /// <summary>Places a stuck car can be put back on. On the road, facing

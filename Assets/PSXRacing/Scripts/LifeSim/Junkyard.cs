@@ -469,15 +469,33 @@ namespace PSXRacing.LifeSim
             return rows;
         }
 
-        // ================= pulling off the wrecks =================
+        // ================= walking the wrecks =================
         //
-        // The shelves are what the yard already pulled; the WRECKS are what it
-        // has not got to. Walking the compound, every shell standing in the
-        // dirt carries one part worth having, found by looking it over and got
-        // by pulling it yourself — your skill, rented tools, and a price that
-        // undercuts the shelf because the labour is yours. Reported as missing
-        // in exactly those words: "There is no prompt to inspect or pull parts
-        // from junkyard cars. Player should use their mechanic/repair skill."
+        // The shelves are what the yard already pulled and racked. The WRECKS
+        // are what it has not got to, and they are the reason to walk the
+        // compound instead of reading the advert.
+        //
+        // THIS USED TO BE ONE PART PER SHELL, handed over on sight. Reported:
+        // "instead of inspecting the car for all possible parts (including
+        // good, bad, worn, shot) parts, looking at the car only gave me one
+        // part to pull. It didn't require an inspection. This defeats the fun
+        // of searching junkyards." Correct on every count. A shell now carries
+        // a whole car's worth of slots, each with its own grade, and you have
+        // to LOOK IT OVER before the yard tells you what is on it — and some of
+        // them are already gone, because somebody got there first, which is the
+        // other half of what makes finding a good one feel like finding
+        // something.
+
+        /// <summary>Part slots a shell in the compound carries. Five is a front
+        /// end, a back end, wheels and whatever is under the bonnet — enough
+        /// that two shells are worth checking, few enough that one car is one
+        /// page.</summary>
+        public const int WreckSlots = 5;
+
+        /// <summary>Chance a slot was stripped before the player got to it. A
+        /// third, which is what makes the yard a place you SEARCH: a compound
+        /// where every car is whole is a shop with its stock on the floor.</summary>
+        const float StrippedChance = 0.34f;
 
         /// <summary>Flat fee for the yard's loan-a-tool van, waived for
         /// somebody who walked in with an impact wrench of their own. "Tools
@@ -488,32 +506,107 @@ namespace PSXRacing.LifeSim
             Toolbox.Owned(s, Toolbox.Impact) ? 0 : ToolRentalFee;
 
         /// <summary>Yard-pull discount against the shelf quote for the same
-        /// part. The yard's crew did not pull, clean or rack this one — you
-        /// did — so the counter takes what a donor shell is worth and no more.</summary>
+        /// part. The yard's crew did not pull, clean or rack this one — you did
+        /// — so the counter takes what a donor shell is worth and no more. This
+        /// IS the "cheaper than buying the parts from a dealership" the yard
+        /// exists for.</summary>
         const float PullPriceMult = 0.55f;
 
-        /// <summary>The week key a wreck's contents live under. Off day/7, the
-        /// same clock the yard scenery turns over on, so the cars and what is
-        /// in them change together.</summary>
-        static string PullKey(LifeState s, int wreck) => (s.day / 7) + ":" + wreck;
+        /// <summary>The week a wreck's contents live under. Off day/7, the same
+        /// clock the yard's scenery turns over on, so the cars and what is in
+        /// them change together — and a shell you walked away from is the same
+        /// shell when you walk back.</summary>
+        static int WreckWeek(LifeState s) => s.day / 7;
 
-        public static bool WreckPulled(LifeState s, int wreck) =>
-            s != null && s.yardPulls != null && s.yardPulls.Contains(PullKey(s, wreck));
+        static string PullKey(LifeState s, int wreck, int slot) =>
+            WreckWeek(s) + ":" + wreck + ":" + slot;
+        static string LookKey(LifeState s, int wreck) =>
+            WreckWeek(s) + ":L" + wreck;
+
+        /// <summary>Has the player been over this shell yet? Until they have,
+        /// the yard does not tell them what is on it.</summary>
+        public static bool WreckLookedOver(LifeState s, int wreck) =>
+            s != null && s.yardPulls != null && s.yardPulls.Contains(LookKey(s, wreck));
 
         /// <summary>
-        /// What is still bolted to wreck <paramref name="wreck"/> this week.
-        /// SEEDED off the same week clock the yard's scenery uses — a wreck is
-        /// a thing you walk back to, and one whose engine became a fender
-        /// between two looks would read as the yard lying. Mostly shelf-grade
-        /// stuff, with the odd back-lot find, which is what makes walking the
-        /// rows worth it over reading the page.
+        /// Go over one shell.
+        ///
+        /// Free — the price of looking is the walk, and a yard with an
+        /// admission charge on every bonnet is a yard nobody searches — but it
+        /// is a thing you have to DO, and that is the whole point. It also
+        /// pays a little skill, because looking over a wrecked car and working
+        /// out what is worth having off it IS the trade.
         /// </summary>
-        public static YardPart WreckPart(LifeState s, int wreck)
+        public static void LookOverWreck(LifeState s, int wreck)
         {
-            var rng = new System.Random((s.day / 7) * 7919 + 13 + wreck * 101);
-            double r = rng.NextDouble();
-            var shelf = r < 0.40 ? Shelf.Bin : r < 0.85 ? Shelf.Week : Shelf.BackLot;
-            return RollWith(s, shelf, rng);
+            if (s == null || WreckLookedOver(s, wreck)) return;
+            Forget(s);
+            s.yardPulls.Add(LookKey(s, wreck));
+            s.mechSkill = Mathf.Min(100f, s.mechSkill + FaultCatalog.DiySkillGain(s.mechSkill, 8));
+        }
+
+        public static bool SlotPulled(LifeState s, int wreck, int slot) =>
+            s != null && s.yardPulls != null && s.yardPulls.Contains(PullKey(s, wreck, slot));
+
+        /// <summary>Drop keys from previous weeks. The wrecks they named are
+        /// gone, and a list that only grows is a save that only grows.</summary>
+        static void Forget(LifeState s)
+        {
+            if (s.yardPulls == null) s.yardPulls = new List<string>();
+            string week = WreckWeek(s) + ":";
+            s.yardPulls.RemoveAll(k => k == null || !k.StartsWith(week));
+        }
+
+        /// <summary>One slot on one shell: what is bolted there, and whether it
+        /// is still bolted there.</summary>
+        public struct WreckSlot
+        {
+            public int slot;
+            public YardPart part;
+            /// <summary>You pulled this one.</summary>
+            public bool taken;
+            /// <summary>It was gone before you got here.</summary>
+            public bool stripped;
+            public bool Present => !taken && !stripped;
+        }
+
+        /// <summary>
+        /// Everything on wreck <paramref name="wreck"/> this week, gone slots
+        /// included.
+        ///
+        /// SEEDED, and seeded PER SLOT: a shell is a thing you walk back to,
+        /// and one whose engine became a fender between two looks would read as
+        /// the yard lying. The seed carries the week, the wreck and the slot,
+        /// so pulling slot 2 cannot reshuffle slot 3.
+        /// </summary>
+        public static List<WreckSlot> WreckContents(LifeState s, int wreck)
+        {
+            var rows = new List<WreckSlot>();
+            if (s == null) return rows;
+            for (int slot = 0; slot < WreckSlots; slot++)
+            {
+                var rng = new System.Random(WreckWeek(s) * 7919 + wreck * 101 + slot * 17 + 13);
+                bool stripped = rng.NextDouble() < StrippedChance;
+                double r = rng.NextDouble();
+                var shelf = r < 0.45 ? Shelf.Bin : r < 0.88 ? Shelf.Week : Shelf.BackLot;
+                rows.Add(new WreckSlot
+                {
+                    slot = slot,
+                    part = RollWith(s, shelf, rng),
+                    taken = SlotPulled(s, wreck, slot),
+                    stripped = stripped,
+                });
+            }
+            return rows;
+        }
+
+        /// <summary>How many parts are still on a shell — what the walk-up
+        /// prompt counts once the car has been looked over.</summary>
+        public static int WreckPartsLeft(LifeState s, int wreck)
+        {
+            int n = 0;
+            foreach (var w in WreckContents(s, wreck)) if (w.Present) n++;
+            return n;
         }
 
         /// <summary>Skill a pull demands. Hardware quotes its own number via
@@ -523,28 +616,41 @@ namespace PSXRacing.LifeSim
         public static int PullSkillReq(YardPart part, Quote q) =>
             q.isUpgrade ? q.skillReq : Mathf.Max(0, (part.days - 1) * 15);
 
-        /// <summary>One wreck's offer, priced and gated for THIS player and
-        /// their active car. Everything the walk-up prompt prints.</summary>
+        /// <summary>One slot's offer, priced and gated for THIS player and their
+        /// active car. Everything a row on the wreck's page prints.</summary>
         public struct PullOffer
         {
             public YardPart part;
             public Quote quote;
-            public int price, rental, skillReq;
-            public bool can, pulled;
+            public int slot, price, rental, skillReq;
+            public bool can, pulled, stripped;
             public string blocked;
         }
 
-        public static PullOffer GetPull(LifeState s, OwnedCar car, CarSpec carSpec, int wreck)
+        public static PullOffer GetPull(LifeState s, OwnedCar car, CarSpec carSpec,
+                                        int wreck, int slot)
         {
-            var o = new PullOffer();
+            var o = new PullOffer { slot = slot };
             if (s == null) { o.blocked = "no save"; return o; }
-            o.part = WreckPart(s, wreck);
-            if (WreckPulled(s, wreck))
+
+            var contents = WreckContents(s, wreck);
+            if (slot < 0 || slot >= contents.Count) { o.blocked = "nothing there"; return o; }
+            var row = contents[slot];
+            o.part = row.part;
+
+            if (row.stripped)
             {
-                o.pulled = true;
-                o.blocked = "picked clean — fresh stock rolls in next week";
+                o.stripped = true;
+                o.blocked = "gone — somebody got here first";
                 return o;
             }
+            if (row.taken)
+            {
+                o.pulled = true;
+                o.blocked = "yours — in the boot";
+                return o;
+            }
+
             o.quote = GetQuote(s, car, carSpec, o.part);
             o.rental = ToolRental(s);
             o.price = Mathf.Max(5, Mathf.RoundToInt(o.quote.price * PullPriceMult)) + o.rental;
@@ -564,12 +670,13 @@ namespace PSXRacing.LifeSim
         /// <summary>
         /// Pull it. Queues into the same pendingParts lane the shelves and the
         /// bench use — a pulled part still costs the days it costs and still
-        /// carries its grade's hidden-fault risk — and marks the wreck spent
-        /// for the week. Returns null on success, or the reason it was refused.
+        /// carries its grade's hidden-fault risk — and marks that SLOT spent for
+        /// the week. Returns null on success, or the reason it was refused.
         /// </summary>
-        public static string PullFromWreck(LifeState s, OwnedCar car, CarSpec carSpec, int wreck)
+        public static string PullFromWreck(LifeState s, OwnedCar car, CarSpec carSpec,
+                                           int wreck, int slot)
         {
-            var o = GetPull(s, car, carSpec, wreck);
+            var o = GetPull(s, car, carSpec, wreck, slot);
             if (!o.can) return o.blocked;
             if (car == null) return "no car";
 
@@ -593,11 +700,8 @@ namespace PSXRacing.LifeSim
                 junkRisk = o.quote.risk,
             });
 
-            if (s.yardPulls == null) s.yardPulls = new List<string>();
-            // Last week's keys are dead weight — the wrecks they named are gone.
-            string week = (s.day / 7) + ":";
-            s.yardPulls.RemoveAll(k => k == null || !k.StartsWith(week));
-            s.yardPulls.Add(PullKey(s, wreck));
+            Forget(s);
+            s.yardPulls.Add(PullKey(s, wreck, slot));
 
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": pulled " + o.part.label +
                               " off a wreck at the yard (" + MenuKit.Money(o.price) +

@@ -34,7 +34,7 @@ namespace PSXRacing.LifeSim
 
         // ---- the order on the seat ----
         /// <summary>An order is in the car, in town, on its way to the drop.
-        /// While true the junction offers MAKE THE DELIVERY and the shop door
+        /// While true the road ends launch the run (TownEdge) and the shop door
         /// takes the order back.</summary>
         public static bool Carrying;
         /// <summary>The town should spawn the car at the shop's kerb — the
@@ -55,7 +55,7 @@ namespace PSXRacing.LifeSim
         public static int TodIndex;
 
         /// <summary>What is left of the pizza after the drive across town,
-        /// 0-1. Read off the live cargo at the junction; the race grades the
+        /// 0-1. Read off the live cargo on the way out; the race grades the
         /// drop against the WORSE of this and its own leg, so a box thrown on
         /// the floor on Main Street stays thrown.</summary>
         public static float CarryCondition = 1f;
@@ -96,7 +96,7 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>
-        /// The key actually turning: the race scene, loaded from the junction.
+        /// The key actually turning: the race scene, loaded from the edge of town.
         ///
         /// This is PizzaShift.Drive's old tail, moved wholesale. It must run
         /// AFTER the town leg has been banked (the deliverrun hop through the

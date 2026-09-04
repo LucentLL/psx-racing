@@ -815,11 +815,13 @@ namespace PSXRacing.LifeSim
                         AddFault(s, car, FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact"));
                 }
 
-                // 4c. the DRIVING RECORD, which is a different quantity from the
-                // repair bill: the insurer cares how many times you crashed, not
-                // how expensive each one was. Capped per race so one shambolic
-                // night cannot eat the whole L5 incident allowance at once.
-                s.atFaultIncidents += Mathf.Min(RaceHandoff.HardHits, MaxIncidentsPerRace);
+                // 4c. NO DRIVING RECORD. There used to be an at-fault incident
+                // tally here, feeding a BILLS row and an insurance multiplier
+                // that was never built. Cut at the owner's ask: "the player is
+                // punished enough by repairing damages to their car." Counting
+                // the same crash twice — once in panel damage you pay to undo,
+                // once on a permanent record you cannot — is one punishment
+                // with two invoices.
 
                 // 5. fault threshold rolls (H535): worn components start
                 // throwing faults. Below 40 rolls a minor one, below 15 a
@@ -1020,10 +1022,6 @@ namespace PSXRacing.LifeSim
         public const float BodyDamagePerHit = 0.65f;
         public const float PaintDamagePerHit = 0.4f;
         public const float ImpactFaultThreshold = 22f;
-        /// <summary>At-fault incidents one race can put on the record. L5's
-        /// insurance multiplier caps at six incidents total, so an uncapped race
-        /// could spend the whole allowance in one lap of wall-riding.</summary>
-        public const int MaxIncidentsPerRace = 2;
 
         public static bool CarInShop(LifeState s, OwnedCar car) =>
             car != null && s.pendingParts.Exists(p => p.carId == car.id);

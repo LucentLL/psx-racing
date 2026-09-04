@@ -211,13 +211,19 @@ namespace PSXRacing.Town
             {
                 case Kind.Depart: OpenPanel(); return;
                 case Kind.Home: TownExit.GoHome(car, "garage"); return;
-                case Kind.Dealer: TownExit.GoHome(car, "dealer"); return;
-                case Kind.Junkyard: TownExit.GoHome(car, "junkyard"); return;
-                // Both trades open the page for the car the player ARRIVED in,
-                // not for whichever one the garage list happened to be showing
-                // — you drove this one here, so this is the one on the ramp.
-                case Kind.Mechanic: TownExit.GoToShop(car, "service"); return;
-                case Kind.PaintShop: TownExit.GoToShop(car, "paint"); return;
+                // EVERY SHOP IS A HOP, NOT AN EXIT. All four of these are menu
+                // pages reached through scene 0, and until this pass every one
+                // of them left the player at home afterwards with the car
+                // parked across town. GoToShop remembers the forecourt so the
+                // page's way out is a way BACK.
+                case Kind.Dealer: TownExit.GoToShop(car, "dealer", Title); return;
+                case Kind.Junkyard: TownExit.GoToShop(car, "junkyard", Title); return;
+                // The two trades also open the page for the car the player
+                // ARRIVED in, not for whichever one the garage list happened to
+                // be showing — you drove this one here, so this is the one on
+                // the ramp.
+                case Kind.Mechanic: TownExit.GoToShop(car, "service", Title); return;
+                case Kind.PaintShop: TownExit.GoToShop(car, "paint", Title); return;
                 default:
                     if (PizzaRun.Carrying) { HandBack(); return; }
                     if (CanClockOn) TownExit.ClockOn(car);
@@ -345,19 +351,34 @@ namespace PSXRacing.Town
     public static class TownExit
     {
         /// <summary>Back to the front end, on a named page.</summary>
-        public static void GoHome(CarController car, string tab)
+        /// <param name="commute">This leg is part of a trip already paid for —
+        /// the shift's drive to the shop, the loaded drive to the drop, or a
+        /// hop into one of the town's shops and back out. It banks metres,
+        /// fuel and wear but never an activity slot. Without it a player who
+        /// drove into town and popped into the body shop paid for the day
+        /// twice.</param>
+        public static void GoHome(CarController car, string tab, bool commute = false)
         {
-            // The two exits that CONTINUE the shift ride slot-free — the
-            // shift's slot is paid at the shop door, once. Every other exit is
-            // a drive that ends here and costs what a drive costs.
-            RaceHandoff.CommuteLeg = tab == "work" || tab == "deliverrun";
+            // The exits that CONTINUE a trip ride slot-free — a shift's slot is
+            // paid at the shop door, once, and a town errand's is paid on the
+            // way in. Every other exit is a drive that ends here and costs what
+            // a drive costs.
+            RaceHandoff.CommuteLeg = commute || tab == "work" || tab == "deliverrun";
 
             // An order still on the seat on any exit that is not the delivery
             // itself went nowhere: parked up for the night, wandered off to
             // the dealership, whatever — the shop is not coming to find you.
-            if (PizzaRun.Carrying && tab != "deliverrun")
+            // A SHOP HOP IS NOT AN EXIT: the player is coming straight back to
+            // the same forecourt, so the pizza is still on the seat when they
+            // do. TownReturn.Pending is exactly "this is not goodbye".
+            if (PizzaRun.Carrying && tab != "deliverrun" && !TownReturn.Pending)
                 PizzaRun.AbandonRun(LifeSimManager.State,
                     "the order went cold on the passenger seat — no tip");
+
+            // Leaving town for real closes any open errand. Arm() sets this a
+            // line before it calls in, so a shop hop keeps its way back and
+            // everything else drops it.
+            if (!TownReturn.Pending) TownReturn.Clear();
 
             City.CityMode.Instance?.StampExitResult();
             LifeHomeScreen.PendingTab = tab;
@@ -371,19 +392,27 @@ namespace PSXRacing.Town
         }
 
         /// <summary>
-        /// Into one of the two trades, with the car you drove there.
+        /// Into one of the town's shops, with the car you drove there — and
+        /// with a way back OUT to it.
         ///
-        /// The service and respray pages are both about a SPECIFIC car and
-        /// they read it from the garage list's cursor, which on a fresh load
-        /// falls back to whichever car is active. That is right in the menu
-        /// and wrong at a kerb: the point of driving to a body shop is that
-        /// this car is the one being painted. PendingGarageCar carries it.
+        /// Two things this carries that a plain GoHome does not. The service
+        /// and respray pages are both about a SPECIFIC car and they read it
+        /// from the garage list's cursor, which on a fresh load falls back to
+        /// whichever car is active; that is right in the menu and wrong at a
+        /// kerb, so PendingGarageCar carries the one on the forecourt. And
+        /// TownReturn remembers where the car is standing, so finishing at the
+        /// shop puts the player back on its forecourt rather than at home in
+        /// their own driveway — which is what "everything I do warps me back
+        /// home to the garage" was.
         /// </summary>
-        public static void GoToShop(CarController car, string tab)
+        public static void GoToShop(CarController car, string tab, string venueName)
         {
             LifeHomeScreen.PendingGarageCar =
                 LifeSimManager.State != null ? LifeSimManager.State.activeCar : null;
-            GoHome(car, tab);
+            TownReturn.Arm(car, venueName);
+            // A shop visit is part of ONE trip into town, so the drive to its
+            // door is not a second drive: the slot was spent getting here.
+            GoHome(car, tab, commute: true);
         }
 
         /// <summary>

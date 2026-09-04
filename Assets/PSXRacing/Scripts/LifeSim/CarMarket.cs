@@ -33,6 +33,31 @@ namespace PSXRacing.LifeSim
             "Bad transmission", "Oil leak", "Cracked windshield",
         };
 
+        /// <summary>
+        /// What a DISCLOSED problem does to the advertised condition.
+        ///
+        /// It has to do something, and it did not. Condition was rolled off the
+        /// odometer and the problem was rolled beside it, so the paper printed
+        /// "10,694 mi, cond 100, Worn brakes" and "100 mi, cond 99, Engine
+        /// knock" — reported in exactly those terms: "worn brakes means it
+        /// can't be condition 100, and engine knock after 100 miles is
+        /// absolutely not condition 99."
+        ///
+        /// The advert is not lying about anything else — the problem string IS
+        /// a real fault, seeded onto the car by SeedHidden the moment it is
+        /// bought — so the number beside it was the only part that was wrong.
+        /// A named mechanical fault takes a third off and caps the car in the
+        /// rough band, which is where a car somebody is disclosing a knock on
+        /// actually sits.
+        /// </summary>
+        public static int CondWithProblem(int cond, bool hasProblem) =>
+            hasProblem ? Mathf.Clamp(Mathf.Min(cond - 30, ProblemCondCeiling), 12, 100) : cond;
+
+        /// <summary>Highest condition a car with a disclosed fault can advertise.
+        /// A shade under the "rough / serviceable" line, so a problem car never
+        /// reads as tidy however few miles it has done.</summary>
+        public const int ProblemCondCeiling = 62;
+
         // ---- finance ----
         public const float UsedLoanApr = 0.105f;
         public const float NewLoanApr = 0.085f;
@@ -152,6 +177,9 @@ namespace PSXRacing.LifeSim
                 int cond = isNew ? 100
                     : Mathf.Clamp(Mathf.RoundToInt(100f - odo / 2500f + Random.Range(-10, 10)), 15, 100);
                 bool hasProblem = !isNew && Random.value < ProblemChance;
+                // The disclosed fault takes its bite out of the NUMBER too, not
+                // just the price. See CondWithProblem.
+                cond = CondWithProblem(cond, hasProblem);
 
                 s.newspaper.Add(new CarListing
                 {

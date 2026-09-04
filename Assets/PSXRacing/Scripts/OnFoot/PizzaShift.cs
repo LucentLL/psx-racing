@@ -83,7 +83,52 @@ namespace PSXRacing.OnFoot
             if (carHook != null) carHook.onUse = Drive;
             if (doorHook != null) doorHook.onUse = UseDoor;
 
+            StandTheCarUp();
             RefreshLabels();
+        }
+
+        /// <summary>
+        /// Put the player's ACTUAL car through the shop window.
+        ///
+        /// Reported as "once inside the Pizzeria, the exterior is generated with
+        /// a random car instead of properly showing the real outside area — this
+        /// only seems to happen when I clock in to work. When I buy pizza from
+        /// the Pizzeria it shows my car outside." Both true, and the difference
+        /// between them is which SCENE you are in: buying never leaves the town,
+        /// so that is the real car on the real apron; clocking on loads this
+        /// scene, whose kerb carried four grey slabs.
+        ///
+        /// The scene cannot bake the right car — it is built once per project
+        /// and there are 317 of them — so the builder leaves an anchor with the
+        /// slabs on it and this swaps them for the shell the save says the
+        /// player owns, in the colour they had it painted. Falls through to the
+        /// slabs when there is no save, which is what pressing Play on this
+        /// scene in the editor is.
+        /// </summary>
+        void StandTheCarUp()
+        {
+            if (carHook == null || S == null) return;
+            var anchor = carHook.transform.parent;
+            if (anchor == null) return;
+
+            var car = S.ActiveCar;
+            var spec = car != null ? CarCatalog.Get(car.specId) : null;
+            var def = CarShell.DefFor(spec);
+            if (car == null || def == null) return;
+
+            var standIn = anchor.Find("StandIn");
+            if (standIn != null) standIn.gameObject.SetActive(false);
+
+            // Solid, because the shop's street is somewhere the player can see
+            // but never reach — and a shell you could walk through would only
+            // ever be noticed by walking through it.
+            CarShell.Spawn(anchor, def, Paint.SkinFor(car, spec, def),
+                           out Vector3 roof, solid: true);
+            var focus = new GameObject("Focus");
+            focus.transform.SetParent(anchor, false);
+            focus.transform.localPosition = roof;
+            carHook.focus = focus.transform;
+            carHook.ignoreRoot = anchor;
         }
 
         /// <summary>
@@ -204,7 +249,7 @@ namespace PSXRacing.OnFoot
             // would read as the game inflating a number to take it back.
             screen?.Toast("ORDER UP — " + Boxes + " to " + venue + ", $" + pay +
                           " on the door. Beat " + LifeRules.DeliveryClock(parSeconds) +
-                          " for more; keep them flat. Out the front.");
+                          " for more; keep them flat. Out the front, then out of town.");
         }
 
         /// <summary>The door does whichever of the two things the player is
@@ -220,9 +265,9 @@ namespace PSXRacing.OnFoot
         /// Out of the door with the boxes — INTO THE TOWN, not into the race.
         ///
         /// The owner's ask, and the shape of the job now: the order rides the
-        /// passenger seat from the shop kerb to the junction, and the junction
-        /// is where the run proper starts (DepartScreen → MAKE THE DELIVERY →
-        /// PizzaRun.LaunchDelivery). The town leg is real: it burns fuel,
+        /// passenger seat from the shop kerb to the edge of town, and the road end
+        /// is where the run proper starts (TownEdge, or the junction menu as a
+        /// fallback, then PizzaRun.LaunchDelivery). The town leg is real: it burns fuel,
         /// takes damage, and whatever happens to the boxes on Main Street is
         /// scored against the drop.
         ///

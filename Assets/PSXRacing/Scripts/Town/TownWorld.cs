@@ -76,20 +76,38 @@ namespace PSXRacing.Town
 
         void Awake() { Cue = null; }
 
+        /// <summary>
+        /// THE ARRIVAL COMES FIRST, and that ordering is the fix for "leave
+        /// Pizzeria with pizza, warp back home in driveway."
+        ///
+        /// PreviewBuild fills the dealership and the yard out of the save —
+        /// sixteen car shells, a runtime model load each. It used to run at the
+        /// top of this method, ahead of the two things that decide WHERE THE
+        /// PLAYER IS. Anything that threw in there (a model the library cannot
+        /// resolve, an empty catalog on a cold boot) aborted Start before the
+        /// car was moved and before the pizza was put on the seat — leaving the
+        /// player on the scene's baked spawn, which is their own driveway,
+        /// holding nothing. A crash in the scenery is not allowed to relocate
+        /// the player.
+        /// </summary>
         void Start()
         {
-            PreviewBuild();
-
-            // ---- mid-errand arrival ----
-            // The player just walked out of the shop with the boxes: the car
-            // is at the kerb outside it, not back on the home drive where the
-            // scene's baked spawn puts it.
+            // ---- where the car is ----
+            // Two ways to arrive somewhere other than the baked spawn, and they
+            // are mutually exclusive: walking out of the shop with an order,
+            // and coming back out of a shop PAGE onto the forecourt you drove
+            // onto. Both are one-shot flags cleared here whether or not they
+            // fire, because a stale one would teleport the next session.
             if (PizzaRun.SpawnAtShop && player != null && pizzaKerb != null)
-            {
-                PizzaRun.SpawnAtShop = false;
                 player.ResetTo(pizzaKerb.position + Vector3.up * 0.3f, pizzaKerb.rotation);
+            PizzaRun.SpawnAtShop = false;
+
+            if (TownReturn.SpawnAtVenue && player != null)
+            {
+                TownReturn.Spot(out Vector3 back, out Quaternion facing);
+                player.ResetTo(back + Vector3.up * 0.3f, facing);
             }
-            else PizzaRun.SpawnAtShop = false;
+            TownReturn.SpawnAtVenue = false;
 
             // The order rides the seat for real. Same rig the race scenes
             // spawn, so the drive across town is played by the same rules that
@@ -102,6 +120,9 @@ namespace PSXRacing.Town
             }
 
             BuildFootDoors();
+
+            // ---- and only then the scenery ----
+            PreviewBuild();
         }
 
         void OnDestroy() { Cue = null; }
@@ -132,9 +153,13 @@ namespace PSXRacing.Town
 
             if (PizzaRun.Carrying)
             {
-                // The junction launches the run, so the junction is the way.
-                anchor = FindVenue(TownVenue.Kind.Depart);
-                label = "DELIVERY — TO THE JUNCTION";
+                // OUT OF TOWN, not back to the junction. The run starts where
+                // the road runs out — see TownEdge — and the arrow points at
+                // whichever end is nearer, because the shop is in the middle of
+                // the street and both ends are out.
+                anchor = NearestEdge();
+                string where = " — DRIVE OUT OF TOWN";
+                label = "DELIVERY" + where;
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
                 {
                     PizzaRun.CarryCondition = Mathf.Min(PizzaRun.CarryCondition,
@@ -142,7 +167,7 @@ namespace PSXRacing.Town
                     if (PizzaRun.CarryCondition < LifeRules.PizzaPerfectCondition)
                         label = "DELIVERY (" +
                                 LifeRules.PizzaConditionLabel(PizzaRun.CarryCondition) +
-                                ") — TO THE JUNCTION";
+                                ")" + where;
                 }
             }
             else if (PizzaRun.DriveToShop)
@@ -169,6 +194,22 @@ namespace PSXRacing.Town
         static readonly string[] CueArrows =
             { "^", "/^", ">", "\v", "v", "v/", "<", "^\\" };
 
+
+        /// <summary>Whichever end of the main street is nearer. Both ends
+        /// launch a delivery, so pointing at the far one would send a driver
+        /// the length of the town for no reason.</summary>
+        Transform NearestEdge()
+        {
+            Transform best = null;
+            float bestSq = float.MaxValue;
+            Vector3 from = player != null ? player.transform.position : Vector3.zero;
+            foreach (var e in FindObjectsByType<TownEdge>(FindObjectsSortMode.None))
+            {
+                float d = (e.transform.position - from).sqrMagnitude;
+                if (d < bestSq) { bestSq = d; best = e.transform; }
+            }
+            return best;
+        }
         Transform FindVenue(TownVenue.Kind kind)
         {
             foreach (var v in FindObjectsByType<TownVenue>(FindObjectsSortMode.None))
@@ -202,7 +243,7 @@ namespace PSXRacing.Town
                 t.title = "DELMAR AUTO";
                 t.detail = "Servicing, repairs, and somebody who will tell you what is wrong.";
                 t.action = "BOOK IT IN";
-                t.onUse = () => TownExit.GoToShop(player, "service");
+                t.onUse = () => TownExit.GoToShop(player, "service", t.title);
             }
 
             if (paintDoor != null)
@@ -211,7 +252,7 @@ namespace PSXRacing.Town
                 t.title = "COLOURWORKS — PAINT + BODY";
                 t.detail = "Respray, panel work, and a book of colours.";
                 t.action = "TALK PAINT";
-                t.onUse = () => TownExit.GoToShop(player, "paint");
+                t.onUse = () => TownExit.GoToShop(player, "paint", t.title);
             }
 
             if (dealerDoor != null)
@@ -220,16 +261,29 @@ namespace PSXRacing.Town
                 t.title = "CRESTLINE MOTORS";
                 t.detail = "New and used. The stock is standing right here.";
                 t.action = "TALK TO SALES";
-                t.onUse = () => TownExit.GoHome(player, "dealer");
+                t.onUse = () => TownExit.GoToShop(player, "dealer", t.title);
             }
 
             if (yardGate != null)
             {
+                // THE GATE IS A SIGN, NOT A SHOP. It used to be "WALK THE
+                // SHELVES", which threw the player back to the front end and
+                // opened the classifieds' yard advert — reported as: "I don't
+                // like that when I drive to the Junkyard it gives me an option
+                // to Walk the Shelves which shows me the News tab and shows me
+                // all items available. The point of a Junkyard is for the
+                // customers to inspect cars and pull parts they want."
+                //
+                // Exactly so. The parts are ON THE CARS now (WreckScreen), and
+                // the racked shelves stay where a racked shelf belongs: in the
+                // advert, read from home. Standing at the gate should tell you
+                // where you are and get out of the way.
                 var t = MakeDoor(yardGate, "YardGateTarget", 4.2f);
                 t.title = Junkyard.YardName;
-                t.detail = "Three shelves, three clocks.";
-                t.action = "WALK THE SHELVES";
-                t.onUse = () => TownExit.GoHome(player, "junkyard");
+                t.detail = "Pull your own. Tools for hire at the hut, " +
+                           MenuKit.Money(Junkyard.ToolRentalFee) + " unless you brought your own.";
+                t.action = "";
+                t.onUse = null;
             }
 
             if (homeDoor != null)
@@ -442,12 +496,15 @@ namespace PSXRacing.Town
         }
 
         /// <summary>
-        /// The walk-up offer on one wreck: look it over, and pull what it
-        /// still carries. The LOOK is the prompt itself — grade, part, effect,
-        /// price and the skill it wants are all on the two lines — and the one
-        /// button does the pull, gated by <see cref="Junkyard.GetPull"/> on
-        /// skill, money, and whether this shell has already been stripped
-        /// this week.
+        /// The walk-up offer on one wreck: get under it, and see what is left.
+        ///
+        /// The prompt is deliberately a DOOR rather than a shop. It used to be
+        /// the whole transaction — one part, named, priced and pulled off the
+        /// two lines of a walk-up hook — which is what "looking at the car only
+        /// gave me one part to pull, it didn't require an inspection" was. A car
+        /// has more than one part on it and a yard is somewhere you SEARCH, so
+        /// the hook opens <see cref="OnFoot.WreckScreen"/> and the searching
+        /// happens there.
         /// </summary>
         void MakeWreckTarget(Transform spot, int wreckIndex, CarSpec donor, Vector3 roof)
         {
@@ -465,8 +522,8 @@ namespace PSXRacing.Town
         }
 
         /// <summary>Rewrite one wreck's prompt from the save as it stands.
-        /// Called at spawn and again after a pull, because the pull changes
-        /// every line of it.</summary>
+        /// Called at spawn and again every time the screen closes, because
+        /// pulling something changes what the car has left on it.</summary>
         void RefreshWreck(OnFoot.FootTarget t, int wreckIndex, CarSpec donor)
         {
             if (t == null) return;
@@ -475,62 +532,60 @@ namespace PSXRacing.Town
             t.title = "WRECKED " + donorName;
 
             var s = S;
-            var car = s != null ? s.ActiveCar : null;
-            var carSpec = car != null ? CarCatalog.Get(car.specId) : null;
-            if (s == null || car == null)
+            if (s == null)
             {
-                t.detail = "Stripped to the shell, one good part left in it.";
+                t.detail = "Dead, and going nowhere.";
                 t.action = "";
                 t.onUse = null;
                 return;
             }
 
-            var offer = Junkyard.GetPull(s, car, carSpec, wreckIndex);
-            string what = Junkyard.GradeWord(offer.part.grade) + " " + offer.part.label;
-
-            if (offer.pulled)
+            if (!Junkyard.WreckLookedOver(s, wreckIndex))
             {
-                t.detail = "Picked clean. The crusher gets it next week.";
-                t.action = "";
-                t.onUse = null;
-                return;
+                // Nothing is named before the walk-round. The yard does not
+                // hand you an inventory through the windscreen.
+                t.detail = "Nobody has been over this one. Bonnet down, wheels on.";
+                t.action = "GET UNDER IT";
+            }
+            else
+            {
+                int left = Junkyard.WreckPartsLeft(s, wreckIndex);
+                t.detail = left > 0
+                    ? left + (left == 1 ? " part" : " parts") +
+                      " still on it, yours for the pulling."
+                    : "Picked clean. The crusher gets it next week.";
+                t.action = left > 0 ? "PULL SOMETHING OFF IT" : "LOOK AGAIN";
             }
 
-            string effect = offer.quote.effect;
-            t.detail = what +
-                       (string.IsNullOrEmpty(effect) ? "" : "   ·   " + effect) +
-                       "   ·   " + MenuKit.Money(offer.price) +
-                       (offer.rental > 0 ? " incl. tool rental" : ", own tools") +
-                       (offer.skillReq > 0 ? "   ·   skill " + offer.skillReq : "");
+            t.onUse = () => OpenWreck(t, wreckIndex, donor);
+        }
 
-            if (!offer.can)
+        /// <summary>
+        /// Crouch down at one shell.
+        ///
+        /// Freezes the walker while the page is up — the same contract the
+        /// forecourt's shop keeps — and rewrites the hook on the way out,
+        /// because what is left on the car is exactly what the prompt is about.
+        /// The component is added and destroyed per visit rather than kept:
+        /// eight shells each holding a dead screen is eight canvases waiting to
+        /// be rebuilt out of a save that has moved on.
+        /// </summary>
+        void OpenWreck(OnFoot.FootTarget t, int wreckIndex, CarSpec donor)
+        {
+            var screen = gameObject.AddComponent<OnFoot.WreckScreen>();
+            screen.wreck = wreckIndex;
+            screen.donorName = t.title;
+            var walk = OnFoot.FirstPersonWalk.Current;
+            if (walk != null) walk.enabled = false;
+            screen.onClosed = () =>
             {
-                // The part stays named — a blocked pull should still be a
-                // thing you learned by walking over — but the reason takes
-                // the action line, so nothing is pressable that will refuse.
-                t.detail = what + "   ·   " + offer.blocked;
-                t.action = "";
-                t.onUse = null;
-                return;
-            }
-
-            t.action = "PULL IT — " + MenuKit.Money(offer.price);
-            t.onUse = () =>
-            {
-                string err = Junkyard.PullFromWreck(s, car, carSpec, wreckIndex);
-                var screen = FindFirstObjectByType<OnFoot.FootScreen>();
-                if (err == null)
-                {
-                    LifeSimManager.Save();
-                    if (screen != null)
-                        screen.Toast("PULLED — " + offer.part.label +
-                                     ", " + offer.quote.days + " DAY" +
-                                     (offer.quote.days == 1 ? "" : "S") + " TO FIT");
-                }
-                else if (screen != null) screen.Toast(err.ToUpperInvariant());
+                if (walk != null) walk.enabled = true;
                 RefreshWreck(t, wreckIndex, donor);
-                if (screen != null) screen.Invalidate();
+                var foot = FindFirstObjectByType<OnFoot.FootScreen>();
+                if (foot != null) foot.Invalidate();
+                Destroy(screen);
             };
+            screen.Open();
         }
     }
 }

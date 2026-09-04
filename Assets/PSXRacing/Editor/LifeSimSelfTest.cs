@@ -816,6 +816,151 @@ namespace PSXRacing.EditorTools
             TestTownScene();
             TestPizzaCounter();
             TestPaintShop();
+            TestYardWrecks();
+            TestDisclosedProblems();
+        }
+
+        /// <summary>
+        /// A wrecked shell is a car with several parts on it, and you have to
+        /// look before the yard tells you what they are.
+        ///
+        /// It used to hand over ONE part on sight, which is what "looking at
+        /// the car only gave me one part to pull, it didn't require an
+        /// inspection — this defeats the fun of searching junkyards" was. Four
+        /// properties make the replacement a yard rather than a vending
+        /// machine, and every one of them is silent when it breaks:
+        ///
+        ///   * MORE THAN ONE THING on a car.
+        ///   * NOTHING NAMED before the walk-round.
+        ///   * SOME OF IT ALREADY GONE, so shells differ.
+        ///   * THE SAME SHELL TWICE. A wreck whose contents re-rolled between
+        ///     two looks would read as the yard lying, and nothing on screen
+        ///     would say so.
+        /// </summary>
+        static void TestYardWrecks()
+        {
+            Line("walking the wrecks:");
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            var car = s.ActiveCar;
+            if (car == null) { Check(false, "a career with a car to fit parts to"); return; }
+            var spec = CarCatalog.Get(car.specId);
+
+            Check(Junkyard.WreckSlots >= 3,
+                  "a shell carries several part slots, not one", Junkyard.WreckSlots);
+
+            var first = Junkyard.WreckContents(s, 0);
+            Check(first.Count == Junkyard.WreckSlots,
+                  "and the compound reports all of them", first.Count);
+
+            // Nothing is knowable before the look. The gate is the whole
+            // difference between searching a yard and shopping in one.
+            Check(!Junkyard.WreckLookedOver(s, 0),
+                  "a shell nobody has been over is not looked over yet");
+            Junkyard.LookOverWreck(s, 0);
+            Check(Junkyard.WreckLookedOver(s, 0), "and looking it over says so");
+
+            // Held still. Same week, same wreck, same contents.
+            var again = Junkyard.WreckContents(s, 0);
+            bool stable = again.Count == first.Count;
+            for (int i = 0; stable && i < first.Count; i++)
+                stable = again[i].part.label == first[i].part.label &&
+                         again[i].part.grade == first[i].part.grade &&
+                         again[i].stripped == first[i].stripped;
+            Check(stable, "and reading it twice describes the same car");
+
+            // Shells differ, and some slots are already empty. Counted across
+            // the whole compound rather than one car, because one shell being
+            // whole is luck and eight being whole is a broken roll.
+            int stripped = 0, present = 0;
+            var labels = new HashSet<string>();
+            for (int w = 0; w < 8; w++)
+                foreach (var row in Junkyard.WreckContents(s, w))
+                {
+                    if (row.stripped) stripped++; else present++;
+                    labels.Add(row.part.label);
+                }
+            Check(stripped > 0, "somebody got to some of it first", stripped + " gone");
+            Check(present > 0, "and there is still something worth pulling", present + " left");
+            Check(labels.Count > 3, "the compound is not eight copies of one part",
+                  labels.Count + " different parts");
+
+            // Pulling one takes THAT slot and leaves the rest of the car alone.
+            s.money = 500000;
+            s.mechSkill = 100f;
+            int slot = -1;
+            for (int i = 0; i < first.Count; i++)
+                if (Junkyard.GetPull(s, car, spec, 0, i).can) { slot = i; break; }
+            if (slot < 0) { Check(false, "at least one slot is pullable with money and skill"); return; }
+
+            int leftBefore = Junkyard.WreckPartsLeft(s, 0);
+            string err = Junkyard.PullFromWreck(s, car, spec, 0, slot);
+            Check(err == null, "a pull goes through", err);
+            Check(Junkyard.SlotPulled(s, 0, slot), "and that slot is spent");
+            Check(Junkyard.WreckPartsLeft(s, 0) == leftBefore - 1,
+                  "exactly one part comes off the car",
+                  leftBefore + " -> " + Junkyard.WreckPartsLeft(s, 0));
+            Check(Junkyard.GetPull(s, car, spec, 0, slot).pulled,
+                  "and pulling it again is refused");
+            Check(s.pendingParts.Exists(p => p.carId == car.id),
+                  "the part is queued onto the car, not applied on the spot");
+
+            // The yard's whole reason to exist: cheaper than the counter.
+            var pulled = Junkyard.GetPull(s, car, spec, 1, 0);
+            if (pulled.quote.available)
+                Check(pulled.price < pulled.quote.price + Junkyard.ToolRentalFee,
+                      "pulling it yourself undercuts the racked price",
+                      MenuKit.Money(pulled.price) + " vs " + MenuKit.Money(pulled.quote.price));
+        }
+
+        /// <summary>
+        /// A car advertised with a fault cannot also be advertised as mint.
+        ///
+        /// The paper printed "10,694 mi · cond 100 · Worn brakes" and "100 mi ·
+        /// cond 99 · Engine knock", because condition was rolled off the
+        /// odometer and the problem was rolled beside it with no conversation
+        /// between them. The problem string is a REAL fault — SeedHidden puts
+        /// it on the car the moment it is bought — so the number was the only
+        /// part of the advert that was lying.
+        /// </summary>
+        static void TestDisclosedProblems()
+        {
+            Line("the paper does not advertise a mint car with a knock:");
+            Check(CarMarket.CondWithProblem(100, false) == 100,
+                  "a clean car keeps its condition");
+            Check(CarMarket.CondWithProblem(100, true) <= CarMarket.ProblemCondCeiling,
+                  "a nearly-new car with a disclosed fault is capped",
+                  CarMarket.CondWithProblem(100, true));
+            Check(CarMarket.CondWithProblem(50, true) < 50,
+                  "and a rough one still takes the hit",
+                  CarMarket.CondWithProblem(50, true));
+            Check(CarMarket.CondWithProblem(14, true) >= 1,
+                  "without going through the floor",
+                  CarMarket.CondWithProblem(14, true));
+
+            // And through the roll itself, which is what the player reads.
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            int worst = 100, checked_ = 0;
+            for (int day = 1; day <= 90 && checked_ < 40; day++)
+            {
+                s.day = day;
+                s.newspaper.Clear();
+                CarMarket.RefreshListings(s);
+                foreach (var l in s.newspaper)
+                {
+                    if (string.IsNullOrEmpty(l.problem)) continue;
+                    checked_++;
+                    if (l.cond < worst) worst = l.cond;
+                    if (l.cond > CarMarket.ProblemCondCeiling)
+                    {
+                        Check(false, "a listing with " + l.problem + " advertises cond " + l.cond);
+                        return;
+                    }
+                }
+            }
+            Check(checked_ > 0, "the classifieds do disclose problems", checked_ + " seen");
+            Check(true, "and none of them advertises above the ceiling",
+                  "worst seen " + worst + ", ceiling " + CarMarket.ProblemCondCeiling);
         }
 
         /// <summary>
@@ -1144,6 +1289,35 @@ namespace PSXRacing.EditorTools
                   "the mechanic has a door to walk up to");
             Check(world != null && world.paintDoor != null,
                   "and so does the body shop");
+
+            // ---- the way out with a pizza ----
+            // The run used to start from a MENU at the junction, which is
+            // inside the town: "it tells me to deliver it inside of the little
+            // town map. I should drive to the end of the road." Both ends of the
+            // main street are gates now, because the shop is in the middle of it
+            // and either way out is out.
+            var edges = new List<PSXRacing.Town.TownEdge>();
+            var appliers = new List<RaceHandoffApplier>();
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                edges.AddRange(go.GetComponentsInChildren<PSXRacing.Town.TownEdge>(true));
+                appliers.AddRange(go.GetComponentsInChildren<RaceHandoffApplier>(true));
+            }
+            Check(edges.Count == 2, "both ends of the road launch a delivery",
+                  edges.Count + " gates");
+            foreach (var e in edges)
+            {
+                var col = e.GetComponent<Collider>();
+                Check(col != null && col.isTrigger,
+                      "a road end is a trigger you drive through, not a wall", e.name);
+            }
+
+            // ---- the car you actually own ----
+            // The town had no RaceHandoffApplier at all, so every drive into it
+            // was in the scene's baked RX-7 whatever the save said. Buying a
+            // Charger and painting it green changed nothing out here.
+            Check(appliers.Count > 0 && appliers[0].playerCar != null,
+                  "the town applies the LifeSim's car, not the one it was baked with");
 
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
         }
@@ -4321,21 +4495,25 @@ namespace PSXRacing.EditorTools
             Check(highRep > lowRep, "a high-rep field averages further up the catalog",
                   MenuKit.Money((int)lowRep) + " -> " + MenuKit.Money((int)highRep));
 
-            // At-fault incidents: counted, and capped so one bad night cannot
-            // spend the whole L5 allowance.
+            // NINE HARD HITS COST PANELS AND NOTHING ELSE. There used to be an
+            // at-fault incident tally beside the repair bill, feeding a BILLS
+            // row and an insurance multiplier that was never built. Cut at the
+            // owner's ask -- "the player is punished enough by repairing
+            // damages to their car" -- so what a crash costs is the crash.
             RaceHandoff.ClearAll();
-            int incidents0 = s.atFaultIncidents;
             car.fuel = 100f;
+            float hpBeforeHits = car.carHP;
             RaceHandoff.ResultReady = true;
             RaceHandoff.CarId = car.id;
             RaceHandoff.MetersDriven = 3f * 1168f;
             RaceHandoff.FinishPos = 2;
             RaceHandoff.FieldSize = 4;
             RaceHandoff.HardHits = 9;
+            RaceHandoff.DamageScore = 60f;
             LifeRules.ApplyRaceResult(s);
-            Check(s.atFaultIncidents - incidents0 == LifeRules.MaxIncidentsPerRace,
-                  "nine hits in one race record " + LifeRules.MaxIncidentsPerRace + " incidents",
-                  s.atFaultIncidents - incidents0);
+            Check(car.carHP < hpBeforeHits,
+                  "a race full of hard hits still costs bodywork",
+                  hpBeforeHits.ToString("0") + " -> " + car.carHP.ToString("0"));
         }
 
         /// <summary>Average catalog price of a field drawn at a given rep.</summary>

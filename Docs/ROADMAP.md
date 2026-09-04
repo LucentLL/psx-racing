@@ -5,6 +5,95 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE YARD BECOMES A YARD, AND THE TOWN STOPS SENDING YOU HOME (2026-09-04)
+
+Eight from a playtest. Three of them are the same structural mistake seen from
+three angles.
+
+**"Everything I do warps me back home to the garage."** Every shop in the town
+is a menu PAGE, and every page lives in scene 0, which is the house. So pulling
+onto a body shop's forecourt teleported the player home, and finishing there
+left them at home with the car parked a hundred and fifty metres up a street
+they were no longer standing in. `TownReturn` is the other half of the trip: it
+remembers where the car was left, the pages offer OUT TO THE CAR — COLOURWORKS
+instead of a way home, and `TownWorld` puts the car back on the spot. The hop
+also stopped charging a second activity slot — one trip into town is one trip.
+
+Two things fell out of looking at that. The town had **no `RaceHandoffApplier`
+at all** — every builder but this one and Charlotte's hangs it on the race
+manager, and a free-roam map has no race manager — so every drive into town was
+in the scene's baked RX-7 whatever the save said. Buy a Charger, paint it green,
+drive into town, and you were in a silver FD. And `TownWorld.Start` filled the
+dealership and the yard BEFORE deciding where the player stood, so anything
+throwing in the scenery aborted the method and left them on the baked spawn,
+which is their own driveway, holding nothing. That is almost certainly the
+literal "leave Pizzeria with pizza, warp back home in driveway". The arrival
+comes first now: a crash in the scenery is not allowed to relocate the player.
+
+**The delivery leaves by the road.** *"When I pick up a pizza for delivery, it
+tells me to deliver it inside of the little town map. I should drive to the end
+of the road and that transports me to a random race track."* It was launched
+from a menu at the junction at the bottom of the player's own street, and the
+HUD arrow pointed back at it, so the whole errand happened inside four hundred
+metres. Both ends of the main street are `TownEdge` gates now — both, because
+the shop is in the middle and either way out is out — and they do not ask
+first. You cannot carry somebody's dinner to the edge of town by accident.
+
+**The junkyard is somewhere you SEARCH.** *"Instead of inspecting the car for
+all possible parts (including good, bad, worn, shot), looking at the car only
+gave me one part to pull. It didn't require an inspection. This defeats the fun
+of searching junkyards."* Right on every count — a shell handed over exactly one
+part on sight, which is a vending machine with a car drawn on it. A shell now
+carries five slots, each with its own grade, and about a third are already
+stripped by somebody who got there first. Nothing is named until you LOOK IT
+OVER, which is free but is a thing you have to do. `WreckScreen` is the page:
+CLEAN / SOLID / SERVICEABLE / ROUGH / SCRAP in front of each part, price, days
+to fit, and the gone ones shown struck out rather than hidden — a picked-over
+shell has to LOOK picked over, or every car reads the same. Contents are seeded
+per (week, wreck, slot), so pulling slot 2 cannot reshuffle slot 3 and a shell
+you walked away from is the same shell when you walk back.
+
+And the gate stopped being a shop: *"I don't like that when I drive to the
+Junkyard it gives me an option to Walk the Shelves which shows me the News
+tab."* WALK THE SHELVES threw the player back to the front end and opened the
+classifieds' yard advert. The racked stock stays in the advert, where racked
+stock belongs; the compound is for pulling your own, and the gate is now a sign.
+
+**Doors hang on the jamb, not the handle.** *"The gas station door swings open
+from the wrong side (the door handle is hinged to the building)."* The old rule
+was one line — hinge on whichever end is further from the middle of the opening
+— which is right for a matched pair and MEANINGLESS for a single leaf, whose two
+ends are equidistant from its own centre. So single doors hinged on whichever
+end the comparison happened to favour: a coin flip, and five of the forecourt's
+eight had called it wrong. Three tries now, in order of how much they know: the
+ARTIST'S OWN PIVOT (a door modelled to open has its origin at the hinge — that
+is what an origin is for), then WHICH END IS AGAINST THE BUILDING (probed
+against renderer bounds, because HingeDoors runs before the collider pass and
+there is nothing to raycast at yet), then the pair rule.
+
+**The car outside the pizzeria is yours.** *"Once inside the Pizzeria, the
+exterior is generated with a random car... this only seems to happen when I
+clock in to work. When I buy pizza it shows my car outside."* Both observations
+were right, and the difference between them is which scene you are in: buying
+never leaves the town, so that is the real car on the real apron; clocking on
+loads `Pizzeria.unity`, whose kerb carried four grey slabs. The slabs are a
+fallback for a scene with no save behind it and `PizzaShift` stands the real
+shell and livery on the anchor.
+
+**A car with a knock is not condition 99.** Condition was rolled off the
+odometer and the disclosed problem was rolled beside it with no conversation
+between them, so the paper printed "10,694 mi · cond 100 · Worn brakes". The
+problem string is a REAL fault — `SeedHidden` puts it on the car the moment it
+is bought — so the number was the only part of the advert that was lying. A
+disclosed fault takes 30 points and caps at 62.
+
+**At-fault incidents are gone**, at the owner's ask: "the player is punished
+enough by repairing damages to their car." Counting one crash twice — once in
+panels you pay to undo, once on a permanent record you cannot — is one
+punishment with two invoices. The save field stays with a note, because a
+removed field can take the rest of the object with it through JsonUtility.
+
+
 ## THE DOORS SWING, THE TOWN GETS A TRADE, AND THE WINDOW STOPS LYING (2026-08-31, later)
 
 Four more from the same phone playtest, and three of them are the previous

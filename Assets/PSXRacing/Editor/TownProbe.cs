@@ -293,8 +293,13 @@ namespace PSXRacing.EditorTools
             // Pizzeria and Convenience store" — and a hole in a wall
             // photographs as a perfectly good open door.
             Shot("town_pizzeria", new Vector3(-6f, 4f, -4f), new Vector3(0f, -0.25f, -1f));
-            Shot("town_pizzeria_door", new Vector3(11f, 1.8f, -24.7f),
-                 new Vector3(-1f, -0.05f, 0f));
+            // Eye height, five metres out on the apron, square to the shop.
+            // The doorway is MEASURED at bake time and the shop was turned 90
+            // degrees after this shot was first aimed, so it spent one build
+            // photographing the blank brick side — which is exactly the thing
+            // the shot exists to catch, at the shot rather than in the game.
+            Shot("town_pizzeria_door", new Vector3(-3.3f, 1.7f, -16.6f),
+                 new Vector3(0f, -0.03f, -1f), fov: 48f);
             // The two trades, from the street. Both are authored — there is no
             // garage, workshop or spray booth in either art tree — so these are
             // the only way to know a unit reads as a unit rather than as a

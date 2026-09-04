@@ -380,22 +380,24 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// The player's car, out on the street in front of the shop.
+        /// An ANCHOR out on the street, and a fallback shell on it.
         ///
-        /// A grey block rather than their real car: the shells are baked per
-        /// catalog entry into Resources and this scene is built ONCE for every
-        /// career, so it cannot know which one to stand here. What it has to get
-        /// right is the size and where the driver's door is, so walking up to it
-        /// reads as walking up to a car. Seated on whatever the raycast finds,
-        /// because the pack's pavement and road are not at the shop's floor
-        /// level and a car floating over a kerb is the first thing anyone sees.
+        /// The car in the window used to be four grey slabs, and it read exactly
+        /// like four grey slabs: "once inside the Pizzeria, the exterior is
+        /// generated with a random car instead of properly showing the real
+        /// outside area — this only seems to happen when I clock in to work.
+        /// When I buy pizza from the Pizzeria it shows my car outside." Both
+        /// observations were right. Buying a pizza never leaves the town, so the
+        /// car through the glass is the real one standing on the real apron;
+        /// clocking on loads THIS scene, whose street is the pack's own and
+        /// whose car was a stand-in nobody had ever looked at up close.
         ///
-        /// SCENERY, though it still carries a hook. The shop is a sealed shell —
-        /// the door leaf takes a collider like every other panel — so nobody
-        /// walks out here, and putting the only "start the run" control on this
-        /// object is what stranded the first version of the shift with a pizza
-        /// in its hands and nothing to press. The door starts the run; this
-        /// stands in the window so there is visibly a car to walk out to.
+        /// So the slabs go and the spot becomes an anchor. <see cref="PizzaShift"/>
+        /// stands the player's ACTUAL car on it at runtime — right shell, right
+        /// livery, out of the save — because which car that is cannot be known
+        /// at bake time. The slabs survive only as the thing that stands there
+        /// when there is no save at all, which is what pressing Play on this
+        /// scene in the editor is.
         /// </summary>
         static GameObject BuildParkedCar(Vector3 doorPos, float inward, out Vector3 at)
         {
@@ -416,14 +418,19 @@ namespace PSXRacing.EditorTools
             // here) rather than pointing at the shop window.
             go.transform.rotation = Quaternion.Euler(0f, 0f, 0f);
 
-            Slab(go.transform, "Body", at + new Vector3(0f, 0.62f, 0f),
+            // The stand-in, under its own parent so the runtime shell can
+            // switch it off in one call without touching the anchor the hook
+            // hangs on.
+            var slabs = new GameObject("StandIn");
+            slabs.transform.SetParent(go.transform, false);
+            Slab(slabs.transform, "Body", at + new Vector3(0f, 0.62f, 0f),
                  new Vector3(1.78f, 0.78f, 4.29f), body);
-            Slab(go.transform, "Roof", at + new Vector3(0f, 1.22f, -0.18f),
+            Slab(slabs.transform, "Roof", at + new Vector3(0f, 1.22f, -0.18f),
                  new Vector3(1.62f, 0.52f, 2.10f), body);
             foreach (var w in new[] {
                 new Vector3(-0.82f, 0.33f, 1.35f), new Vector3(0.82f, 0.33f, 1.35f),
                 new Vector3(-0.82f, 0.33f, -1.35f), new Vector3(0.82f, 0.33f, -1.35f) })
-                Slab(go.transform, "Wheel", at + w, new Vector3(0.22f, 0.66f, 0.66f), tyre);
+                Slab(slabs.transform, "Wheel", at + w, new Vector3(0.22f, 0.66f, 0.66f), tyre);
 
             return go;
         }

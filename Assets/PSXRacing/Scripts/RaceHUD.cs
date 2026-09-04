@@ -149,6 +149,7 @@ namespace PSXRacing
                   ?? GasPump.Prompt
                   ?? OnFoot.ForecourtMode.Prompt
                   ?? Town.TownVenue.Prompt
+                  ?? Town.TownEdge.Prompt
                   ?? DriveThru.Prompt
                   ?? DryTankPrompt()
                   ?? "";
@@ -374,6 +375,7 @@ namespace PSXRacing
                              ?? GasPump.Prompt
                              ?? OnFoot.ForecourtMode.Prompt
                              ?? Town.TownVenue.Prompt
+                             ?? Town.TownEdge.Prompt
                              ?? DriveThru.Prompt
                              ?? DryTankPrompt()
                              ?? "";

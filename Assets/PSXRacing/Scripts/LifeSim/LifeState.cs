@@ -117,9 +117,17 @@ namespace PSXRacing.LifeSim
         /// that opens, closes to rep decay and reopens does not re-page.</summary>
         public List<int> blPaged = new List<int>();
 
-        /// <summary>At-fault incidents on the driving record — heavy impacts,
-        /// counted from the race scene's collision layer. Feeds the insurance
-        /// premium; capped in the premium math, not here.</summary>
+        /// <summary>
+        /// DEAD. Heavy impacts used to accumulate here as a permanent driving
+        /// record, printed on BILLS and destined for an insurance multiplier
+        /// that never landed. Retired at the owner's ask: "the player is
+        /// punished enough by repairing damages to their car."
+        ///
+        /// The FIELD stays because JsonUtility reads what a save wrote and a
+        /// removed field is a parse that quietly drops the rest of the object
+        /// on some Unity versions. Nothing reads it and nothing writes it; an
+        /// old career carries its old number and it means nothing.
+        /// </summary>
         public int atFaultIncidents;
 
         // === Housing / finance ===

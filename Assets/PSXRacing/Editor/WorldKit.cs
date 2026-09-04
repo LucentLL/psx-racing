@@ -473,14 +473,10 @@ namespace PSXRacing.EditorTools
                 foreach (var leaf in g)
                 {
                     var lb = LeafBounds(leaf);
-                    float centreAlong = Vector3.Dot(gb.center, width);
                     float minAlong = Vector3.Dot(lb.min, width);
                     float maxAlong = Vector3.Dot(lb.max, width);
-                    // The jamb: whichever end of this leaf is further from the
-                    // middle of the opening. A single leaf falls out of this
-                    // with its two ends equidistant, and either is a real door.
-                    bool hingeAtMax = Mathf.Abs(maxAlong - centreAlong) >=
-                                      Mathf.Abs(minAlong - centreAlong);
+                    bool hingeAtMax = HingeAtMax(root, leaf, g, gb, lb, width,
+                                                 minAlong, maxAlong);
                     float hingeAlong = hingeAtMax ? maxAlong : minAlong;
                     float freeAlong = hingeAtMax ? minAlong : maxAlong;
 
@@ -538,6 +534,101 @@ namespace PSXRacing.EditorTools
                 }
             }
             return n;
+        }
+
+        /// <summary>
+        /// WHICH EDGE THE LEAF HANGS ON, in three tries.
+        ///
+        /// Reported as "the gas station door swings open from the wrong side —
+        /// the door handle is hinged to the building." Exactly the failure this
+        /// exists to stop: a leaf swinging about its handle sweeps the doorway
+        /// it is meant to clear and buries its own free edge in the wall.
+        ///
+        /// The old rule was one line — hinge on whichever end is further from
+        /// the middle of the opening — which is right for a matched pair and
+        /// meaningless for a single leaf, whose two ends are equidistant from
+        /// its own centre. So a single door hinged on whichever end the
+        /// comparison happened to favour, which is a coin flip.
+        ///
+        /// In order of how much it knows:
+        ///
+        ///   1. THE ARTIST'S OWN PIVOT. A door modelled to open has its
+        ///      transform origin at the hinge — that is what the origin is FOR.
+        ///      If the leaf's own position sits near one end of its span and
+        ///      nowhere near the other, that is the answer and no probe beats
+        ///      it.
+        ///   2. WHICH END IS AGAINST SOMETHING. A hinge is bolted to a jamb, so
+        ///      the end with the building on it hangs and the end with air in
+        ///      front of it swings. Probed against the model's own renderer
+        ///      bounds — no colliders exist yet at this point in the bake, and
+        ///      adding them to ask would change what the piece pass then sees.
+        ///   3. THE PAIR RULE. Two leaves in one opening hinge outward, on the
+        ///      jambs, meeting in the middle. Still right, still last, because
+        ///      it is the only one that says nothing about a single door.
+        /// </summary>
+        static bool HingeAtMax(GameObject root, Transform leaf,
+                               System.Collections.Generic.List<Transform> group,
+                               Bounds groupBounds, Bounds lb, Vector3 width,
+                               float minAlong, float maxAlong)
+        {
+            float span = maxAlong - minAlong;
+
+            // ---- 1. the authored pivot ----
+            if (span > 0.2f)
+            {
+                float pivotAlong = Vector3.Dot(leaf.position, width);
+                float fromMin = Mathf.Abs(pivotAlong - minAlong);
+                float fromMax = Mathf.Abs(pivotAlong - maxAlong);
+                // Near one end and clearly not the other: a quarter of the span
+                // against three quarters. A pivot in the middle is a mesh
+                // origin, not a hinge, and says nothing.
+                if (fromMin < span * 0.25f && fromMax > span * 0.6f) return false;
+                if (fromMax < span * 0.25f && fromMin > span * 0.6f) return true;
+            }
+
+            // ---- 2. which end is against the building ----
+            bool minJamb = EndTouchesBuilding(root, group, lb, width, minAlong, -1f);
+            bool maxJamb = EndTouchesBuilding(root, group, lb, width, maxAlong, 1f);
+            if (minJamb != maxJamb) return maxJamb;
+
+            // ---- 3. the pair rule ----
+            float centreAlong = Vector3.Dot(groupBounds.center, width);
+            return Mathf.Abs(maxAlong - centreAlong) >= Mathf.Abs(minAlong - centreAlong);
+        }
+
+        /// <summary>
+        /// Is there model on the far side of one end of this leaf?
+        ///
+        /// Probes a point a hand's width beyond the end, at the leaf's own
+        /// mid-height and thickness, against every renderer in the model except
+        /// the doors themselves. Bounds rather than a raycast: HingeDoors runs
+        /// BEFORE the collider pass on every path that calls it, so at this
+        /// moment the model has no colliders to cast at — and adding some to
+        /// ask would change what that pass then finds.
+        /// </summary>
+        static bool EndTouchesBuilding(GameObject root,
+                                       System.Collections.Generic.List<Transform> group,
+                                       Bounds lb, Vector3 width, float endAlong, float outward)
+        {
+            Vector3 probe = lb.center;
+            probe += width * (endAlong + outward * 0.18f - Vector3.Dot(lb.center, width));
+            probe.y = lb.min.y + lb.size.y * 0.5f;
+
+            foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                if (r == null) continue;
+                bool isDoor = false;
+                foreach (var d in group)
+                    if (r.transform == d || r.transform.IsChildOf(d)) { isDoor = true; break; }
+                if (isDoor) continue;
+                // A hair of slack: the jamb and the leaf are modelled touching,
+                // and a probe exactly on a shared face is a coin flip about
+                // floating point.
+                var b = r.bounds;
+                b.Expand(0.06f);
+                if (b.Contains(probe)) return true;
+            }
+            return false;
         }
 
         /// <summary>
