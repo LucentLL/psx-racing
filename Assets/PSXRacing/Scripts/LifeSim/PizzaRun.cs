@@ -27,10 +27,10 @@ namespace PSXRacing.LifeSim
         /// player at the shop rather than leave them wondering why they are on
         /// their own driveway.</summary>
         public static bool DriveToShop;
-        /// <summary>The player clocked on AT the shop's door in town, so the
-        /// next DoWork is the shift itself, not another commute. Set by
-        /// TownExit.ClockOn, read once by LifeHomeScreen.DoWork.</summary>
-        public static bool ArrivedAtShop;
+        // ArrivedAtShop was the second half of a two-hop commute — drive to
+        // town, bounce off the front end, land in a walk-in shop scene. The
+        // shift is taken in the town's own pizzeria now, so there is no second
+        // hop and nothing to remember between them.
 
         // ---- the order on the seat ----
         /// <summary>An order is in the car, in town, on its way to the drop.
@@ -75,7 +75,6 @@ namespace PSXRacing.LifeSim
         public static void ClearAll()
         {
             DriveToShop = false;
-            ArrivedAtShop = false;
             ClearRun();
         }
 

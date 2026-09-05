@@ -152,7 +152,42 @@ namespace PSXRacing.EditorTools
                     Quaternion.LookRotation(prop.position + Vector3.up * 0.7f - kerb));
             }
 
+            CaptureShoulder(def, cam, tag);
             CaptureBridge(def, cam, tag);
+        }
+
+        /// <summary>
+        /// The SHOULDER, from a driver's eye, a third and two thirds of the way
+        /// along.
+        ///
+        /// Every other frame here is taken at the start line, which on a stage
+        /// is a graded pad with a start apron — the one place the shoulder is
+        /// supposed to be wide. "Most of the blue ridge does not have big runoff
+        /// areas to drive onto" was reported against a road every existing shot
+        /// photographed at its widest point. Two frames out on the route, aimed
+        /// slightly down and to the side, are what shows whether the guard wall,
+        /// the cut bank and the falling verge are where they should be.
+        /// </summary>
+        static void CaptureShoulder(TrackCatalog.TrackDef def, Camera cam, string tag)
+        {
+            if (!def.stage) return;
+            var path = Object.FindFirstObjectByType<TrackPath>();
+            if (path == null || path.Count < 12) return;
+
+            foreach (float f in new[] { 0.34f, 0.68f })
+            {
+                int i = Mathf.Clamp(Mathf.RoundToInt(path.Count * f), 1, path.Count - 3);
+                Vector3 here = path.GetPoint(i);
+                Vector3 fwd = (path.GetPoint(i + 2) - path.GetPoint(i)).normalized;
+                Vector3 right = Vector3.Cross(Vector3.up, fwd).normalized;
+                // Off the centreline and a driver's height up, looking down the
+                // road and 22 degrees off it: a shoulder photographed head-on is
+                // a stripe two pixels tall.
+                Vector3 eye = here + Vector3.up * 1.35f - right * 2.2f;
+                Vector3 aim = here + fwd * 26f + right * 9f - Vector3.up * 1.2f;
+                Shot(cam, tag + "_9_shoulder_" + Mathf.RoundToInt(f * 100f),
+                     eye, Quaternion.LookRotation(aim - eye));
+            }
         }
 
         /// <summary>

@@ -5,6 +5,178 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE ROAD IS THE RIGHT SIZE, AND THE MOUNTAIN COMES BACK (2026-09-04, later)
+
+Four more from the same playtest. Two are about the road being the wrong shape
+and two are the same warp reported for the third time.
+
+### "THE PROPORTIONS FOR ROAD LINES AND LANE WIDTHS ARE NOT REALISTIC"
+
+Sent with a Street View frame of Mt Holly-Huntersville Road: a thin double
+yellow, a thin white edge line, two ordinary lanes. The lane ladder was already
+right — `LaneM = 3.6576`, twelve feet, since Charlotte — so the lanes were never
+the problem. **THE PAINT WAS TWO TO FOUR TIMES TOO WIDE**, and against correct
+lanes that is exactly what makes a road read as a toy:
+
+| line | was | is | MUTCD "normal" |
+|---|---|---|---|
+| centre | one band 0.44 m | double yellow, 0.12 + 0.12 with a 0.12 gap | 4-6 in |
+| edge | 0.28 m | 0.12 m | 4-6 in |
+| lane dash | 0.24 m | 0.12 m | 4-6 in |
+
+One constant now: `PaintHalf = 0.06f`. It is deliberately not thinner. These
+textures are capped at 256 px across — the PS1's own texture-page ceiling, and
+the reason the game looks like it does — so on a 12 m road one pixel is 4.7 cm.
+A 10 cm line would be two pixels on a good day and one on a wide road, and **a
+line that drops to one pixel does not get thinner, it starts to flicker.** Which
+is also why the two narrowest road classes moved from 128 px to 256: at 128, a
+14.6 m major road samples the paint at one pixel per line.
+
+**THE DASHES ARE A REAL DASH CYCLE.** `CityMeshes.RoadVTile` — metres of road per
+texture repeat — was 18 m with a 56 % duty, which is a 10 m stripe and an 8 m
+gap: nothing on any road anywhere. It is 12.192 m now, which is 40 feet, which is
+the US cycle (10 ft stripe, 30 ft gap), and the painter draws the stripe as the
+first quarter of the repeat. Changing the TILE rather than the duty test is what
+keeps it honest — the cycle IS the repeat, so there is no second place to get it
+wrong. Every track road and bridge deck reads the same constant through
+`TrackRoadVTile`.
+
+The edge line also moved: it sat ON the boundary between shoulder and
+carriageway, so half of it was painted on the shoulder. It sits its own width
+inside the carriageway now, where a white edge line goes.
+
+### "MOST OF THE BLUE RIDGE DOES NOT HAVE BIG RUNOFF AREAS TO DRIVE ONTO"
+
+Sent with a photograph of the Linn Cove Viaduct: two lanes, a stone guard wall at
+the edge of the tarmac, and then nothing at all. **The parkway had eleven metres
+of dead-level gravel on each side of it**, and the reason is structural: the
+terrain corridor holds the ground flat out to `CorridorR` = 16 m so that the
+coarse ground grid — 12 m cells on a 9.5 m road — can never push a facet up
+through the tarmac between its own vertices. That guarantee is worth keeping.
+The bench it produced is not.
+
+So the corridor keeps its width and two things happen inside it, one per side of
+the road, because a mountain road has a different problem on each side.
+
+**DOWNHILL: THE SHOULDER FALLS AWAY.** Two lines in `StageGroundHeightAt`: a
+1-in-1.8 fill batter starting 0.7 m behind the guard wall, and a floor saying it
+may never dig below the real mountainside.
+
+```csharp
+float fall = StageVergeFallAt(d);
+if (fall > 0f) shelf = Mathf.Max(shelf - fall, Mathf.Min(dem, shelf));
+```
+
+Where the land drops, the shoulder drops with it and meets the real slope within
+a few metres. Where the land is gentle, the shelf lands on the DEM at once and
+simply becomes the hillside. Where the land RISES, `Min` picks the shelf and the
+fall cancels itself — you do not dig a five-metre ditch beside a hill. **It can
+only ever LOWER the ground, so every millimetre of clearance the roadbed had
+under the tarmac it still has**, which is the whole reason it is a subtraction
+with a floor and not a smaller `CorridorR`.
+
+**UPHILL: A CUT BANK.** That side cannot be fixed in the height field at all —
+nothing inside the corridor is allowed to rise, or the grid reaches through the
+road. A cut bank is ADDED geometry standing on the shelf, exactly like the guard
+wall, so it closes the shoulder without touching the guarantee. `BuildStageBanks`
+reuses the wall pass's run detection and hysteresis; the wall wins any shoulder
+both could claim, so no station is built twice.
+
+The face height is SOLVED, not sampled. **The top of a cut lands on the
+hillside** — that is the shape of the thing — so h is fixed-pointed to the height
+at which the top of a battered face of height h meets the real DEM. Sizing it off
+a rise measured at some fixed distance instead gives a wall standing proud of a
+hill that is not there yet: a lip along the top, visible from the road, on every
+gentle gradient. Four iterations converge; six are free.
+
+And a wobble goes back on top of the smoothed edge, two incommensurate periods
+at 80 m and 33 m, because a smoothed top edge is a milled one — the first bake
+photographed 5 km of precast retaining wall.
+
+The rock face took three goes and both failures are worth keeping. **Clean sines
+at one frequency are FLUTING**, which is the retaining wall again. And **a
+horizontal feature on a wall beside a road reads as decoration, not geology** —
+the second attempt added dark bedding joints across the face and they came back
+as swags of bunting hung along the parkway, because anything curving across the
+direction of travel is read as ornament however geological the intent. What
+works is four incommensurate near-vertical frequencies and nothing else but
+colour blotching.
+
+The Blue Ridge: 26 guard-wall runs over 7.5 km of shoulder and 26 bank runs over
+5.2 km, out of 14.5 km of roadside. Eighty-eight per cent closed, on a road that
+runs along a mountainside for seven kilometres — which is what a road along a
+mountainside is.
+
+**AND A NEW AUDIT, BECAUSE NOTHING COULD SEE IT.** TerrainAudit asked whether the
+ground came UP through the tarmac; the obstacle audit asked what stood inside the
+barrier line. Neither asks the question a driver asks, which is *how far out can
+I go before the world stops me*. Check 4 walks outward from the tarmac edge until
+something solid is in the way or the land has left the road's level by a metre,
+and reports the width. The parkway measures **2.2 m of drivable shoulder on
+average** where the corridor used to hand it eleven.
+
+It counts only shoulders on a road **benched into a slope** — hillside one side,
+valley the other — asked as "are the two sides of this road at different
+heights", because that is what a bench IS. Two weaker rules were tried first and
+both mislabelled a beach: flat-vs-not fails Emerald Isle (a drag strip across a
+sandbar) and both causeways (salt flat) for being flat, and "is there relief off
+to the side" fails a causeway approach for having water four metres down and
+thirty-eight out. On an embankment both sides are equally low, which is what
+tells the two apart.
+
+### "IT STILL WARPS THE PLAYER INSTEAD OF JUST WALKING IN AND OUT"
+
+Third report of the same thing, and the first two fixes were both fixes to the
+RETURN leg. They were not wrong, but they were not it. **The round trip was the
+bug.** Clocking on outside the town's pizzeria did this:
+
+1. load scene 0, the front end, to bank the drive across town
+2. load `Pizzeria.unity`, a walk-in shop standing on a street in a different city
+3. take the order at its counter
+4. load scene 0 again on the way out
+5. load the town again, and hope the car respawns where it was left
+
+Five scene loads to walk through one door — and the shop on the far side of them
+had a fake street outside its window, which is where "the outside world is fake
+and not the real city" came from. The town's own pizzeria is a modelled shop with
+a counter, booths and a door that opens. **There was never a reason for the shift
+to happen somewhere else.**
+
+`TownExit.ClockOn` is deleted. `TownWorld.CollectOrder` takes the whole shift
+standing in the room the player walked into: rolls the ticket, banks it in
+`PizzaRun`, spends the slot, and toasts the address, the money and the clock
+before they set off. The drive-up prompt at the kerb now offers the counter and
+`E — GO IN AND CLOCK ON`; the cargo lands on the seat when the DRIVER does, not
+at the counter, so the walk out is a walk out. `GO TO WORK` is one hop into the
+town and nothing else. **The next loading screen after leaving home is the
+race.**
+
+`PizzaRun.ArrivedAtShop` went with it — it was the memory between hop one and hop
+two, and there is only one hop now.
+
+The touch path needed one more thing. `ForecourtMode` hands the phone's single
+ACTION button to whichever venue is claiming the stopped car, so a touch player
+parked outside Tony's could not get out — and the delivery job would have been
+unreachable on a phone, which is the device this game is played on. On touch,
+and only while there is a shift on the board, the venue's one button IS the door
+(`ForecourtMode.RequestGetOut`); the counter is still there, three steps away,
+on the door target's second verb, which `FootTouchPanel` gives its own button.
+
+### Verified
+
+- `tools/typecheck.ps1` clean.
+- `tools/terrain-audit.ps1`: **TERRAIN AUDIT OK**, all ten venues. The parkway's
+  road stands 0.246 m clear of the ground at its tightest over 4,722 probes —
+  the verge fall cannot reduce that number, by construction, and it did not.
+- `tools/verify.ps1`: **SELF-TEST OK**, terrain audit OK, obstacle audit CLEAR
+  on every venue — 3,177 measurable colliders on the parkway (up from ~1,900
+  with the bank's per-station chords) and nothing inside the barrier line.
+- Its screenshot pass, including two new stage frames (`_9_shoulder_34`,
+  `_9_shoulder_68`) taken a third and two thirds along the route. Every other
+  shot in that pass is at the start line, which on a stage is a graded pad with
+  a start apron — the one place the shoulder is *supposed* to be wide, which is
+  why nothing photographed the problem for a week.
+
 ## THE YARD BECOMES A YARD, AND THE TOWN STOPS SENDING YOU HOME (2026-09-04)
 
 Eight from a playtest. Three of them are the same structural mistake seen from

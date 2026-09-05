@@ -458,7 +458,8 @@ namespace PSXRacing.EditorTools
 
             BuildRoad(waypoints, pathGO.transform);
             BuildKerbs(waypoints, pathGO.transform);
-            if (def.stage) BuildStageWalls(waypoints, pathGO.transform);
+            if (def.stage) { BuildStageWalls(waypoints, pathGO.transform);
+                             BuildStageBanks(waypoints, pathGO.transform); }
             else BuildWalls(waypoints, pathGO.transform);
             if (def.stage) BuildStageGround(waypoints, pathGO.transform);
             else BuildGround(waypoints, pathGO.transform);

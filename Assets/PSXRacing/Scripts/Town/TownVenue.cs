@@ -116,8 +116,13 @@ namespace PSXRacing.Town
                     case Kind.Depart: return PizzaRun.Carrying ? "MAKE THE DELIVERY"
                                                                : "WHERE TO?";
                     case Kind.Home: return "PARK UP AND GO IN";
+                    // NOT "clock on" any more, however open the shop is. The
+                    // window of the car is where you buy a pizza; taking a
+                    // shift is something you do inside, on foot, at the
+                    // counter — see GetOutWhy. On touch there is no second
+                    // button to say that with, so the one button IS the door.
                     case Kind.Pizzeria: return PizzaRun.Carrying ? "HAND THE ORDER BACK"
-                                             : CanClockOn ? "CLOCK ON AT " + Title
+                                             : WalkInOnly ? "GO IN TO " + Title
                                                           : "ORDER AT " + Title;
                     case Kind.Dealer: return "WALK THE LOT";
                     case Kind.Mechanic: return "BOOK IT IN";
@@ -189,20 +194,37 @@ namespace PSXRacing.Town
             }
 
             AtVenue = true;
-            Prompt = UseControlName() + " — " + Verb + GetOutHint();
+            Prompt = UseControlName() + " — " + Verb + GetOutHint(GetOutWhy);
             if (UsePressed()) Act();
         }
+
+        /// <summary>What is worth getting out of the car FOR, here and now.
+        /// Only the pizzeria has an answer other than "have a look round",
+        /// and it only has one while there is a shift on the board.</summary>
+        string GetOutWhy =>
+            kind == Kind.Pizzeria && CanClockOn && !PizzaRun.Carrying
+                ? "GO IN AND CLOCK ON" : "GET OUT";
+
+        /// <summary>Is this a venue whose one button has to be the door,
+        /// because there is no second button to put it on? True only on touch,
+        /// only at the shop, and only while there is a shift to walk in for.
+        /// </summary>
+        bool WalkInOnly =>
+            kind == Kind.Pizzeria && CanClockOn &&
+            TouchControls.Instance != null && TouchControls.Instance.Visible;
 
         /// <summary>The other thing a stopped car can do here. Appended to the
         /// venue's own line rather than fighting it for the banner — and only
         /// where a second physical button exists, because on touch the one
         /// ACTION button is already spoken for by the venue.</summary>
-        static string GetOutHint()
+        /// <param name="why">What getting out is FOR, at this venue. A shift is
+        /// taken inside the shop now, and "E — GET OUT" does not say that the
+        /// job is through that door.</param>
+        static string GetOutHint(string why = "GET OUT")
         {
             if (!OnFoot.ForecourtMode.OfferGetOut) return "";
             if (TouchControls.Instance != null && TouchControls.Instance.Visible) return "";
-            return Gamepad.current != null ? "   ·   SQUARE / X — GET OUT"
-                                           : "   ·   E — GET OUT";
+            return (Gamepad.current != null ? "   ·   SQUARE / X — " : "   ·   E — ") + why;
         }
 
         void Act()
@@ -224,10 +246,24 @@ namespace PSXRacing.Town
                 // the ramp.
                 case Kind.Mechanic: TownExit.GoToShop(car, "service", Title); return;
                 case Kind.PaintShop: TownExit.GoToShop(car, "paint", Title); return;
+                // THE PIZZERIA IS THE ONE VENUE THAT IS NOT A HOP. It is a
+                // real shop in this scene with a real counter and a door that
+                // opens, so the window of the car buys a pizza and NOTHING
+                // here loads a scene. Taking a shift is TownWorld.CollectOrder,
+                // reached by walking through that door: "it still warps the
+                // player instead of just walking in and out."
                 default:
                     if (PizzaRun.Carrying) { HandBack(); return; }
-                    if (CanClockOn) TownExit.ClockOn(car);
-                    else OpenCounter();
+                    // ON A PHONE THIS IS THE ONLY BUTTON. ForecourtMode gives
+                    // the touch ACTION button up while a venue is claiming the
+                    // stopped car, so opening the counter unconditionally here
+                    // would leave a touch player unable to get out at Tony's —
+                    // and the delivery job unreachable on mobile, which is the
+                    // device this game is played on. The shift is what they
+                    // came for; the counter is still there, on the door, three
+                    // steps away.
+                    if (WalkInOnly && OnFoot.ForecourtMode.RequestGetOut()) return;
+                    OpenCounter();
                     return;
             }
         }
@@ -415,24 +451,12 @@ namespace PSXRacing.Town
             GoHome(car, tab, commute: true);
         }
 
-        /// <summary>
-        /// Into the pizza shop for a shift.
-        ///
-        /// Goes VIA THE FRONT END rather than straight to the shop, and that is
-        /// not a detour — it is the only place the drive across town gets
-        /// banked. PizzaShift.Drive opens with RaceHandoff.ClearAll(), so a
-        /// route that loaded the shop directly would wipe the session this exit
-        /// just stamped: the fuel burned getting to work, and the miles, would
-        /// simply not have happened. The menu applies the drive and then hops
-        /// straight on to the shift, so the player sees one loading screen and
-        /// arrives at the counter.
-        /// </summary>
-        public static void ClockOn(CarController car)
-        {
-            // The commute is DONE: the next DoWork is the shift itself, not
-            // another drive to a shop the player is already parked outside.
-            PizzaRun.ArrivedAtShop = true;
-            GoHome(car, "work");
-        }
+        // ClockOn used to live here: park outside the shop, load the front end
+        // to bank the drive, load Pizzeria.unity to take the order, load the
+        // front end again on the way out. Four scene loads to walk through one
+        // door, and the shop on the far side of them stood on a street that was
+        // not this one. It is gone — TownWorld.CollectOrder takes the shift in
+        // the room the player is standing in, and the drive across town never
+        // needs banking because it was never interrupted.
     }
 }

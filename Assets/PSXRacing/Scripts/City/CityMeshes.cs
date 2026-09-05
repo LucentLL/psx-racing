@@ -18,7 +18,20 @@ namespace PSXRacing.City
     {
         public const float TileSize = 256f;
         public const int GroundRes = 32;          // 8 m cells
-        public const float RoadVTile = 18f;       // metres of road per texture repeat
+        /// <summary>
+        /// Metres of road per texture repeat — and therefore the length of ONE
+        /// DASH CYCLE, because the painter draws the broken lane line as the
+        /// first quarter of the repeat.
+        ///
+        /// 12.192 m is 40 feet, which is the US standard cycle: a 10 ft stripe
+        /// and a 30 ft gap. It was 18 m with a 56% duty, so the dashes were
+        /// long, close together and nothing like a road — one of the two things
+        /// behind "the proportions for road lines and lane widths are not
+        /// realistic". Changing the tile rather than the dash test is what
+        /// keeps the number honest: the cycle IS the repeat, so there is no
+        /// second place to get it wrong.
+        /// </summary>
+        public const float RoadVTile = 12.192f;
         public const float RailH = 0.95f;
         public const float RailW = 0.3f;
         public const float PierEvery = 26f;

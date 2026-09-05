@@ -138,6 +138,19 @@ namespace PSXRacing.Town
             // counter). A label written once at load would tell the player the
             // order is in the car while they stand there holding nothing.
             if (lastDoorCarrying != PizzaRun.Carrying) RefreshPizzaDoor();
+
+            // THE BOXES LAND WHEN THE DRIVER DOES. The order is now taken
+            // INSIDE the shop, on foot, so there is no scene load to spawn the
+            // cargo on any more — and putting it on the passenger seat while
+            // the player is still standing at the counter would be three boxes
+            // arriving in an empty car. Gated on being back in the car rather
+            // than on the collect, so the walk out is a walk out.
+            if (PizzaRun.Carrying && !ForecourtMode.OnFoot && player != null &&
+                PizzaRun.Toppings != null && PizzaCargo.Instance == null)
+            {
+                var cargo = PizzaCargo.Spawn(player, PizzaRun.Toppings);
+                if (cargo != null) PizzaCam.Spawn(cargo);
+            }
         }
 
         /// <summary>
@@ -150,6 +163,9 @@ namespace PSXRacing.Town
         {
             Transform anchor = null;
             string label = null;
+            // What the cue says once the arrow stops being useful. Null means
+            // keep the same words.
+            string near = null;
 
             if (PizzaRun.Carrying)
             {
@@ -173,14 +189,19 @@ namespace PSXRacing.Town
             else if (PizzaRun.DriveToShop)
             {
                 anchor = FindVenue(TownVenue.Kind.Pizzeria);
-                label = "ON THE CLOCK — TONY'S";
+                // The shift is taken at the counter, on foot, so the arrow has
+                // to say that the last twenty metres are walked. Told at the
+                // door rather than from across town, where "walk in" is not yet
+                // an instruction anybody can follow.
+                label = "GO TO WORK — TONY'S";
+                near = "TONY'S — PARK UP AND WALK IN";
             }
 
             if (anchor == null || label == null || player == null) return null;
 
             Vector3 to = anchor.position - player.transform.position;
             to.y = 0f;
-            if (to.magnitude < 18f) return label;   // you are basically there
+            if (to.magnitude < 18f) return near ?? label;   // you are basically there
             float rel = Vector3.SignedAngle(
                 new Vector3(player.transform.forward.x, 0f, player.transform.forward.z),
                 to, Vector3.up);
@@ -320,15 +341,15 @@ namespace PSXRacing.Town
                 t.onUse2 = null;
                 if (PizzaRun.Carrying)
                 {
-                    t.detail = "The order is already in the car.";
+                    t.detail = "Boxes are yours. Out to the car and out of town.";
                     t.action = "";
                     t.onUse = null;
                 }
                 else if (canClockOn)
                 {
-                    t.detail = "The counter is up. A shift is a drive.";
+                    t.detail = "The counter is up. Take the run and drive it.";
                     t.action = "CLOCK ON — TAKE A RUN";
-                    t.onUse = () => TownExit.ClockOn(player);
+                    t.onUse = CollectOrder;
                     t.action2 = "BUY AT THE COUNTER";
                     t.onUse2 = OpenPizzaCounter;
                 }
@@ -339,6 +360,72 @@ namespace PSXRacing.Town
                     t.onUse = OpenPizzaCounter;
                 }
             }
+        }
+
+        /// <summary>
+        /// TAKE THE RUN, STANDING WHERE YOU ARE.
+        ///
+        /// This used to be <c>TownExit.ClockOn</c>: a scene load to the front
+        /// end, a second scene load into Pizzeria.unity, a walk to a counter in
+        /// a shop whose street was a different city, and a third scene load
+        /// back out. Reported twice, the second time plainly: "you replaced the
+        /// fake car with the player's car, but it still warps the player
+        /// instead of just walking in and out. And when I leave the Pizzeria it
+        /// warps me back home."
+        ///
+        /// Right on both counts, and the second one was never a bug in the
+        /// return trip — it was the round trip existing at all. The town's
+        /// pizzeria is a modelled shop with a counter, booths and a door that
+        /// opens; there was never a reason for the shift to happen somewhere
+        /// else. So the whole of PizzaShift.Collect + PizzaShift.Drive's
+        /// bookkeeping happens here, in the room the player is standing in, and
+        /// the next loading screen they see is the race.
+        ///
+        /// The ticket is rolled ONCE and banked in PizzaRun immediately: the
+        /// player is told the address and the money before they set off, which
+        /// is the only reason to take the job seriously rather than treat it as
+        /// a lap.
+        /// </summary>
+        void CollectOrder()
+        {
+            var s = S;
+            var screen = FindFirstObjectByType<FootScreen>();
+            if (s == null) return;
+
+            var car = s.ActiveCar;
+            if (car == null) { screen?.Toast("NO CAR TO DELIVER IN"); return; }
+            if (car.fuel <= 5f) { screen?.Toast("TANK IS DRY — FILL UP FIRST"); return; }
+
+            var toppings = LifeRules.RollOrderToppings(LifeRules.MaxOrderBoxes);
+            int pay = LifeRules.RollDeliveryPay(s) * toppings.Length;
+            int trackIndex = LifeRules.DeliveryTrackIndex(s);
+            float par = LifeRules.DeliveryParSeconds(trackIndex);
+            // The hour the run leaves the counter, read BEFORE the slot spend
+            // rolls the clock: a night pickup must not arrive in tomorrow's
+            // morning light.
+            int tod = TimeOfDay.ForSlot(s.slotIndex, s.day);
+
+            // The shift costs the evening whether or not the box arrives, and
+            // clocking on must precede the spend — spending the last slot of
+            // the day rolls it, and the rollover decides whether the player
+            // skived by reading the very latch this sets.
+            LifeRules.ClockOnShift(s);
+            LifeRules.SpendActivitySlot(s);
+            PizzaRun.StartRun(toppings, pay, trackIndex, par, tod);
+            // Already standing at the shop. SpawnAtShop is for a scene load
+            // that is no longer happening, and leaving it set would teleport
+            // the car onto the kerb the next time the town loaded.
+            PizzaRun.SpawnAtShop = false;
+            LifeSimManager.Save();
+
+            string venue = trackIndex >= 0 && trackIndex < TrackCatalog.All.Length
+                         ? TrackCatalog.All[trackIndex].name : "the drop";
+            screen?.Toast("ORDER UP — " + (toppings.Length == 1 ? "ONE BOX" : toppings.Length + " BOXES") +
+                          " TO " + venue.ToUpperInvariant() + ", $" + pay +
+                          ". BEAT " + LifeRules.DeliveryClock(par) +
+                          " FOR MORE. OUT TO THE CAR, THEN OUT OF TOWN.");
+            RefreshPizzaDoor();
+            screen?.Invalidate();
         }
 
         void OpenPizzaCounter()

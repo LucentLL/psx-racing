@@ -5298,15 +5298,16 @@ namespace PSXRacing.LifeSim
                 var car = S.ActiveCar;
                 if (car != null && car.fuel > 5f)
                 {
-                    // GO TO WORK is a DRIVE now: out of your own garage,
-                    // across town, and clock on at the shop's door — the
-                    // owner's ask, in the owner's order. The teleport survives
-                    // only as the second hop: TownExit.ClockOn raises
-                    // ArrivedAtShop once the player is actually parked outside
-                    // Tony's, and only then does this branch load the counter.
+                    // GO TO WORK IS A DRIVE, AND ONLY A DRIVE. It used to be
+                    // two hops: this loaded the town, the shop's door loaded
+                    // the front end, and the front end loaded Pizzeria.unity —
+                    // a walk-in shop whose street was a different city. That is
+                    // "it still warps the player instead of just walking in and
+                    // out". The shift happens in the town's own pizzeria now
+                    // (TownWorld.CollectOrder), so this has one job: put the
+                    // player on their driveway with the clock running.
                     int townIdx = TrackCatalog.TownSceneIndex;
-                    if (!PizzaRun.ArrivedAtShop &&
-                        townIdx > 0 && townIdx < SceneManager.sceneCountInBuildSettings)
+                    if (townIdx > 0 && townIdx < SceneManager.sceneCountInBuildSettings)
                     {
                         PizzaRun.DriveToShop = true;
                         RaceHandoff.ClearAll();
@@ -5323,7 +5324,9 @@ namespace PSXRacing.LifeSim
                         SceneManager.LoadScene(townIdx);
                         return;
                     }
-                    PizzaRun.ArrivedAtShop = false;
+                    // No town in this build. The old walk-in shop is still
+                    // there and still works end to end, so it is the fallback
+                    // rather than a dead end.
                     LifeSimManager.Save();
                     SceneManager.LoadScene(TrackCatalog.PizzeriaSceneIndex);
                     return;

@@ -40,6 +40,26 @@ namespace PSXRacing.EditorTools
         /// before the span reads as a span rather than as a hump.</summary>
         const float BridgeDropMin = 3f;
 
+        /// <summary>How far the land has to leave the road's level before the
+        /// shoulder stops being somewhere you can drive. A metre is about the
+        /// step a car takes without either stopping or leaving the ground —
+        /// past that you are off the road rather than beside it.</summary>
+        const float AprunEdgeM = 1.0f;
+        /// <summary>How far out to bother looking. Past twenty metres it is
+        /// not a shoulder by any reading, and the answer is already bad.
+        /// </summary>
+        const float AprunReachM = 20f;
+        /// <summary>Metres of drivable shoulder a mountain road is allowed on
+        /// average. Two metres is a verge you could put two wheels on to let
+        /// something past, which is what the parkway has; the corridor shelf
+        /// used to give it eleven.</summary>
+        const float AprunOkM = 2.5f;
+        /// <summary>Where "is this road benched into a slope" is asked, and how
+        /// far apart its two sides have to be for the answer to be yes. Past
+        /// the corridor shelf and well into the blend, so what is being
+        /// compared is the real land on each side.</summary>
+        const float AprunReliefM = 38f, AprunBenchM = 8f;
+
         [MenuItem("PSX Racing/Audit Terrain")]
         public static void Run()
         {
@@ -237,6 +257,93 @@ namespace PSXRacing.EditorTools
                 if (showing > worstGap) { worstGap = showing; worstName = root.name; }
                 if (showing > 0.05f) floating++;
             }
+
+            // ---- 4. the shoulder is a shoulder, not a car park ----
+            //
+            // "Most of the blue ridge does not have big runoff areas to drive
+            // onto." It had them everywhere: the terrain corridor holds a flat
+            // shelf sixteen metres either side of the centreline, and on a road
+            // nine and a half metres wide that is eleven metres of level gravel
+            // you can leave the road onto, sit on, and drive back off.
+            //
+            // Nothing already here could see it. TerrainAudit asked whether the
+            // ground came UP through the tarmac; the obstacle audit asked what
+            // stood inside the barrier line; neither asks the question a driver
+            // asks, which is HOW FAR OUT can I go before the world stops me.
+            // So this walks outward from the tarmac edge until either something
+            // solid is in the way or the land has left the road's level by
+            // AprunEdgeM, and reports the width it found.
+            //
+            // Stages only. A closed circuit is SUPPOSED to have run-off — that
+            // is what a run-off area IS — and measuring one against a mountain
+            // road's shoulder would be a permanent failure with nothing behind
+            // it.
+            //
+            // And only where the road is BENCHED INTO A SLOPE, which is the
+            // thing being complained about: hillside one side, valley the
+            // other, and a strip of level ground either side of the tarmac that
+            // the corridor put there. Asked as "are the two sides of this road
+            // at different heights", because that is what a bench IS and
+            // nothing else answers it honestly.
+            //
+            // Two weaker rules were tried first and both mislabelled a beach.
+            // Flat-vs-not fails Emerald Isle (a drag strip across a sandbar)
+            // and both causeways (salt flat) for being flat — thirteen metres
+            // of drivable shoulder there is not a bench, it is the island. And
+            // "is there relief somewhere off to the side" fails a causeway
+            // approach for having water 4 m down and 38 m out, which is also
+            // just the island. On an embankment both sides are equally low, so
+            // the difference between them is what tells the two apart.
+            if (def.stage)
+            {
+                float roadHalf = path.roadWidth * 0.5f;
+                double total = 0.0;
+                float widest = 0f;
+                int widestIdx = -1, counted = 0, wide = 0, flat = 0;
+                for (int i = 0; i < path.Count; i++)
+                {
+                    if (BlendAt(def, i, path.spacing) > 0.5f) continue;   // decks have parapets
+                    Vector3 wp = path.GetPoint(i);
+                    Vector3 right = RightAt(path, i);
+                    if (!DropAny(groundCols, wp - right * AprunReliefM, out float lo) ||
+                        !DropAny(groundCols, wp + right * AprunReliefM, out float hi) ||
+                        Mathf.Abs(hi - lo) < AprunBenchM)
+                    { flat += 2; continue; }
+
+                    foreach (float side in new[] { -1f, 1f })
+                    {
+                        float apron = 0f;
+                        for (float d = roadHalf + 0.4f; d <= AprunReachM; d += 0.35f)
+                        {
+                            Vector3 at = wp + right * side * d;
+                            if (Stopped(at, wp.y, groundCols, roadCol)) break;
+                            if (!DropAny(groundCols, at, out float gy)) break;
+                            if (Mathf.Abs(gy - wp.y) > AprunEdgeM) break;
+                            apron = d - roadHalf;
+                        }
+                        total += apron;
+                        counted++;
+                        if (apron > AprunOkM) wide++;
+                        if (apron > widest) { widest = apron; widestIdx = i; }
+                    }
+                }
+                if (counted > 0)
+                {
+                    float mean = (float)(total / counted);
+                    bool ok = mean <= AprunOkM;
+                    if (!ok) problems++;
+                    log.AppendLine(string.Format(
+                        "  {0} shoulder is drivable for {1:0.0} m past the tarmac on average " +
+                        "(worst {2:0.0} m at waypoint {3}); {4} of {5} shoulders on a benched road " +
+                        "over {6:0.0} m, {7} not benched and not counted",
+                        ok ? "ok  " : "FAIL", mean, widest, widestIdx, wide, counted,
+                        AprunOkM, flat));
+                }
+                else
+                {
+                    log.AppendLine("  ..   nothing benched into a slope — no shoulder to measure");
+                }
+            }
             foreach (var mc in temporary) Object.DestroyImmediate(mc);
             if (sampled > 0)
             {
@@ -286,6 +393,34 @@ namespace PSXRacing.EditorTools
 
         static bool DropAny(List<Collider> grounds, Vector3 from, out float y) =>
             DropAny(grounds, from, out y, out _);
+
+        static readonly Collider[] Overlap = new Collider[16];
+
+        /// <summary>
+        /// Is there something solid standing here that a car would hit?
+        ///
+        /// Deliberately does NOT look for walls by name. A guard wall, a cut
+        /// bank, a bridge parapet and a tree with a trunk collider all stop a
+        /// car identically, and a rule that named the two we happened to think
+        /// of would keep passing as the third was added. So: anything that is
+        /// not the ground and not the road, with something of it standing at
+        /// least 30 cm above the road's level — which is what excludes the
+        /// kerb, whose whole job is to be flush enough to drive over.
+        /// </summary>
+        static bool Stopped(Vector3 at, float roadY, List<Collider> grounds, Collider road)
+        {
+            int n = Physics.OverlapSphereNonAlloc(
+                new Vector3(at.x, roadY + 0.75f, at.z), 0.4f, Overlap,
+                ~0, QueryTriggerInteraction.Ignore);
+            for (int k = 0; k < n; k++)
+            {
+                var c = Overlap[k];
+                if (c == null || c == road || grounds.Contains(c)) continue;
+                if (c.bounds.max.y - roadY < 0.3f) continue;
+                return true;
+            }
+            return false;
+        }
 
         /// <summary>Road-right at a waypoint, from the neighbouring points.
         /// Clamped rather than wrapped: one sample either side of the seam on a

@@ -206,12 +206,19 @@ namespace PSXRacing.EditorTools
             for (int s = 0; s < CityMeshes.SurfaceCount; s++)
             {
                 var surf = (CityMeshes.Surface)s;
-                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Minor, surf), lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0f, width: 128, surf: surf);
-                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Major, surf), lanesPerSide: 2, medianM: 0f, grassMed: false, shoulderM: 0f, width: 128, surf: surf);
+                // WIDTH IS RESOLUTION ACROSS THE ROAD, and a painted line has
+                // to survive it. A major road is 14.6 m across, so at 128 px
+                // one pixel is 11 cm and a 12 cm line is one pixel wide — which
+                // does not render as a thin line, it renders as a line that
+                // flickers on and off as the road turns. 256 halves that. The
+                // three wider classes were already there; these two were the
+                // ones being sampled at half the paint's own width.
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Minor, surf), lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0f, width: 256, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Major, surf), lanesPerSide: 2, medianM: 0f, grassMed: false, shoulderM: 0f, width: 256, surf: surf);
                 DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.DividedGrass, surf), lanesPerSide: 3, medianM: LaneM * 6f * 0.25f, grassMed: true, shoulderM: LaneM * 0.5f, width: 256, surf: surf);
                 DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.DividedAsphalt, surf), lanesPerSide: 3, medianM: LaneM * 6f * 0.22f, grassMed: false, shoulderM: LaneM * 0.5f, width: 256, surf: surf);
                 DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Motorway, surf), lanesPerSide: 4, medianM: LaneM * 8f * 0.02f, grassMed: false, shoulderM: LaneM * 0.5f, width: 256, surf: surf);
-                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Ramp, surf), lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0.3f, width: 64, oneWay: true, surf: surf);
+                DrawRoadTex(RoadTexFile(CityMeshes.RoadClass.Ramp, surf), lanesPerSide: 1, medianM: 0f, grassMed: false, shoulderM: 0.3f, width: 128, oneWay: true, surf: surf);
 
                 // A junction is a poured slab with no markings on it at all,
                 // so it is the base surface and nothing else.
@@ -363,7 +370,10 @@ namespace PSXRacing.EditorTools
 
             // stripe positions in metres from the left edge
             var whiteLines = new List<float>();   // dashed lane separators
-            var edgeLines = new List<float> { shoulderM + 0.15f, total - shoulderM - 0.15f };
+            // The edge line sits just INSIDE the carriageway, its own width in
+            // from where the lane ladder starts — that is where a white edge
+            // line goes on a real road.
+            var edgeLines = new List<float> { shoulderM + PaintHalf, total - shoulderM - PaintHalf };
             float cursor = shoulderM;
             for (int i = 1; i < (oneWay ? laneCount : lanesPerSide); i++)
                 whiteLines.Add(cursor + LaneM * i);
@@ -386,24 +396,62 @@ namespace PSXRacing.EditorTools
                         return new Color32((byte)(56 + n * 24), (byte)(92 + n * 30), (byte)(44 + n * 16), 255);
                     }
                     // asphalt median with a solid yellow line each side
-                    if (m < medStart + 0.35f || m > medStart + medianM - 0.35f)
-                        return new Color32(196, 160, 40, 255);
+                    if (m < medStart + PaintHalf * 2f || m > medStart + medianM - PaintHalf * 2f)
+                        return Yellow;
                     return px;
                 }
-                // centre line on undivided two-way roads
-                if (!oneWay && medianM <= 0.2f && Mathf.Abs(m - total * 0.5f) < 0.22f)
-                    return new Color32(196, 160, 40, 255);
+
+                // THE CENTRE LINE IS A DOUBLE YELLOW, and it is the right width.
+                // It used to be one band 0.44 m across — seventeen inches of
+                // paint down the middle of the road — which is most of what
+                // "the proportions for road lines are not realistic" was about.
+                // Two normal lines with a normal gap between them is what a
+                // no-passing line IS, and it is what both of the reference
+                // photographs show.
+                if (!oneWay && medianM <= 0.2f)
+                {
+                    // Measured from the middle of the CARRIAGEWAY, not the
+                    // middle of the texture. They agree while the shoulders
+                    // match, and the day one of them does not is the day the
+                    // centre line stops being between the lanes.
+                    float d = Mathf.Abs(m - (medStart + medianM * 0.5f));
+                    if (d > PaintHalf && d < PaintHalf * 3f) return Yellow;
+                }
 
                 foreach (var e in edgeLines)
-                    if (Mathf.Abs(m - e) < 0.14f) return new Color32(200, 200, 196, 255);
+                    if (Mathf.Abs(m - e) < PaintHalf) return White;
 
+                // Broken lane line: the first quarter of the texture repeat,
+                // which RoadVTile makes 10 feet of a 40 foot cycle.
                 foreach (var wl in whiteLines)
-                    if (Mathf.Abs(m - wl) < 0.12f && (y % 16) < 9)
-                        return new Color32(190, 190, 186, 255);
+                    if (Mathf.Abs(m - wl) < PaintHalf && (y % h) < h / 4)
+                        return White;
 
                 return px;
             });
         }
+
+        /// <summary>
+        /// HALF the width of one painted line, in metres.
+        ///
+        /// 0.06 makes a 12 cm line, which is the middle of the MUTCD's 4-to-6
+        /// inch "normal" width and what almost every line on an American road
+        /// actually is. Every line here was two to four times that — the centre
+        /// band 0.44 m, the edge lines 0.28, the lane dashes 0.24 — and against
+        /// a correct 3.6576 m lane ladder that is what made the road read as a
+        /// toy: the paint was the wrong size, not the lanes.
+        ///
+        /// It is deliberately not thinner. These textures are capped at 256 px
+        /// across (the PS1's own texture-page ceiling, and the reason this game
+        /// looks like it does), so on a 12 m road one pixel is 4.7 cm and a
+        /// 12 cm line is between two and three of them. A 10 cm line would be
+        /// two pixels on a good day and one on a wide road, and a line that
+        /// drops to one pixel does not get thinner — it starts to flicker.
+        /// </summary>
+        const float PaintHalf = 0.06f;
+
+        static readonly Color32 Yellow = new Color32(196, 160, 40, 255);
+        static readonly Color32 White = new Color32(200, 200, 196, 255);
 
         // ------------------------------------------------------------------
         //  Facades: copied from the owner's pack; shops composed into one

@@ -46,6 +46,26 @@ namespace PSXRacing.EditorTools
         /// </summary>
         internal const float StageVerge = 1.15f;
 
+        /// <summary>How far from the centreline the corridor shelf stays dead
+        /// level: the tarmac, its kerb strip, the slab batter, the guard wall,
+        /// and a hand's breadth of gravel behind it. Everything further out is
+        /// hillside.</summary>
+        static float StageVergeFlat => StageWallOffset + 0.7f;
+
+        /// <summary>
+        /// How fast the shoulder falls away past <see cref="StageVergeFlat"/>,
+        /// in metres down per metre out. 0.55 is about 1 in 1.8 — the batter a
+        /// highway fill is built to, and steep enough that a car which leaves
+        /// the road is leaving it rather than parking beside it.
+        /// </summary>
+        const float StageVergeSlope = 0.55f;
+
+        /// <summary>Metres the shoulder has dropped by distance <paramref
+        /// name="d"/> from the centreline, before the mountain has its say.
+        /// </summary>
+        static float StageVergeFallAt(float d) =>
+            d <= StageVergeFlat ? 0f : (d - StageVergeFlat) * StageVergeSlope;
+
         /// <summary>
         /// Barrier line for a stage, measured from ITS road.
         ///
@@ -319,8 +339,46 @@ namespace PSXRacing.EditorTools
 
             float blend = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(CorridorR, CorridorR + CorridorBlend, d));
-            float pinned = Mathf.Lerp(roadY, dem, blend)
-                         - RoadbedSinkAt(d) * (1f - blend);
+
+            // The bench the corridor holds level under and beside the road:
+            // the roadbed dig under the pavement, the shoulder shelf outside
+            // it. Written out rather than folded into the Lerp below because
+            // the verge fall has to be measured from it.
+            float shelf = roadY - RoadbedSinkAt(d);
+
+            // THE SHOULDER FALLS AWAY. THE MOUNTAIN DECIDES HOW FAR.
+            //
+            // The corridor holds a flat shelf out to CorridorR — sixteen
+            // metres, on a road nine and a half wide — and it held it whatever
+            // the mountain was doing, so the parkway ran down the middle of an
+            // eleven-metre gravel apron on each side. "Most of the blue ridge
+            // does not have big runoff areas to drive onto", and the reference
+            // photograph is the Linn Cove Viaduct: two lanes, a stone wall, and
+            // then nothing at all.
+            //
+            // Two lines, and the second is what makes it a road rather than a
+            // trench. The fall is a 1-in-1.8 fill batter starting just behind
+            // the guard wall; the clamp says it may never dig BELOW the real
+            // mountainside, so:
+            //
+            //   * where the land drops away, the shoulder drops with it and
+            //     meets the real slope within a few metres — no apron;
+            //   * where the land is gentle, the shelf lands on the DEM almost
+            //     at once and simply becomes the hillside;
+            //   * where the land RISES — the cut side — Min picks the shelf and
+            //     the fall cancels itself, because you do not dig a five-metre
+            //     ditch beside a hill. That side is closed by the cut bank
+            //     instead (BuildStageBanks).
+            //
+            // It can only ever LOWER the shelf, so every clearance the roadbed
+            // had under the tarmac it still has. That is the whole reason it is
+            // written as a subtraction with a floor rather than as a narrower
+            // CorridorR: a narrower corridor would let the coarse ground grid
+            // reach up through the road, and this cannot.
+            float fall = StageVergeFallAt(d);
+            if (fall > 0f) shelf = Mathf.Max(shelf - fall, Mathf.Min(dem, shelf));
+
+            float pinned = Mathf.Lerp(shelf, dem, blend);
 
             if (f <= 0.001f) return pinned;
 
@@ -731,14 +789,7 @@ namespace PSXRacing.EditorTools
                 // wall that flickers on and off along a marginal slope from
                 // becoming a picket line of two-metre stubs.
                 var want = new bool[n];
-                for (int i = 0; i < n; i++)
-                {
-                    if (bridgeBlend != null && bridgeBlend[i] > 0.35f) { want[i] = true; continue; }
-                    Vector3 right = RightAt(pts, i);
-                    float px = pts[i].x + right.x * side * 30f;
-                    float pz = pts[i].z + right.z * side * 30f;
-                    want[i] = pts[i].y - StageDemY(px, pz) > WallDropM;
-                }
+                for (int i = 0; i < n; i++) want[i] = StageWallWanted(pts, i, side);
                 for (int i = 0; i < n; )
                 {
                     if (!want[i]) { i++; continue; }
@@ -760,6 +811,19 @@ namespace PSXRacing.EditorTools
             }
             Log($"Stage guard walls: {runs} runs covering {walled * Spacing:0} m of shoulder " +
                 $"(of {n * Spacing * 2:0} m of roadside).");
+        }
+
+        /// <summary>Does the parkway have a guard wall on this shoulder? Both
+        /// sides of every span, and anywhere the mountain falls
+        /// <see cref="WallDropM"/> within thirty metres. Shared with the cut
+        /// bank pass so the two can never claim the same station.</summary>
+        static bool StageWallWanted(List<Vector3> pts, int i, float side)
+        {
+            if (bridgeBlend != null && bridgeBlend[i] > 0.35f) return true;
+            Vector3 right = RightAt(pts, i);
+            float px = pts[i].x + right.x * side * 30f;
+            float pz = pts[i].z + right.z * side * 30f;
+            return pts[i].y - StageDemY(px, pz) > WallDropM;
         }
 
         static void BuildOneStageWall(List<Vector3> pts, int from, int stations, float side,
@@ -825,6 +889,229 @@ namespace PSXRacing.EditorTools
             var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
             SaveMesh(mesh, "StageWall" + no);
             var go = new GameObject("Wall" + no);
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            go.isStatic = true;
+        }
+
+        // ------------------------------------------------------------------
+        //  Cut banks
+        // ------------------------------------------------------------------
+        // THE OTHER SIDE OF THE ROAD.
+        //
+        // A mountain road has a valley on one side and a hillside on the other,
+        // and until this pass only the valley was closed: the guard wall went
+        // up where the land fell away, and where the land ROSE the corridor
+        // held eleven metres of dead-level bench either side of the tarmac that
+        // you could drive onto, through the trees, and sit on. "Most of the
+        // blue ridge does not have big runoff areas to drive onto" — that bench
+        // was most of them.
+        //
+        // It cannot be fixed in the height field. The corridor shelf is what
+        // stops the coarse ground grid (12 m cells on a 9.5 m road) pushing a
+        // facet up through the tarmac between its own vertices, so nothing
+        // inside CorridorR is allowed to rise. A cut bank is ADDED geometry
+        // standing on the shelf, exactly like the guard wall, so it closes the
+        // shoulder without touching that guarantee at all.
+        //
+        // Where the wall and the bank could both claim a shoulder the wall wins
+        // — StageBankHeight asks the wall's own question first — so no station is
+        // ever built twice.
+
+        /// <summary>Shortest face worth building. Under a metre it is a kerb
+        /// rather than a cut — you would drive up it — and a hillside that
+        /// gentle is a shoulder you can see over, which is a lot of the
+        /// parkway and should stay that way.</summary>
+        const float BankRiseM = 0.9f;
+        /// <summary>Tallest face built. Past this you are looking at a rock
+        /// wall the fog will hide the top of anyway, and the collider becomes
+        /// more expensive than the mountain behind it.</summary>
+        const float BankMaxH = 5.5f;
+        /// <summary>Metres the face leans back per metre of height. 0.5 is a
+        /// 2:1 cut — steeper than earth stands but exactly what a blasted
+        /// Appalachian road cut looks like.</summary>
+        const float BankBatter = 0.5f;
+        /// <summary>Where the toe of the bank sits, past the barrier line. Far
+        /// enough out that its collider face never reaches the audit's reach
+        /// band (barrier line minus 0.4), close enough that there is nothing to
+        /// park on in front of it.</summary>
+        static float BankToe => StageWallOffset + 0.45f;
+
+        static void BuildStageBanks(List<Vector3> pts, Transform parent)
+        {
+            int n = pts.Count;
+            string tex = System.IO.File.Exists(StageGenDir + "/CutBank.png")
+                       ? StageGenDir + "/CutBank.png" : theme.wall;
+            var mat = MakeMat(MeshPrefix + "Bank", tex, affine: 0f);
+            var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
+            var root = new GameObject("Banks");
+            root.transform.SetParent(parent, false);
+
+            int runs = 0, banked = 0;
+            foreach (float side in new[] { -1f, 1f })
+            {
+                var h = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    float face = StageBankHeight(pts, i, side);
+                    h[i] = face >= BankRiseM ? face : 0f;
+                }
+                // Smooth the top line. The DEM is 30 m posts read through a
+                // bilinear filter, so raw station-to-station rise is noisy at
+                // exactly the scale a 4 m ring samples it — an unsmoothed top
+                // edge saws visibly along a cut that is, on the ground, one
+                // continuous face.
+                var sm = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    float sum = 0f; int cnt = 0;
+                    for (int o = -3; o <= 3; o++)
+                    {
+                        int j = Mathf.Clamp(i + o, 0, n - 1);
+                        sum += h[j]; cnt++;
+                    }
+                    // ...and then put a wobble BACK, because a smoothed top
+                    // edge is a milled one. Two incommensurate periods, 80 m
+                    // and 33 m, which are the scales a rock face actually
+                    // varies at — and deterministic in the station index, so
+                    // the same bake gives the same mountain every time.
+                    sm[i] = sum / cnt * (1f + 0.11f * Mathf.Sin(i * 0.37f + 1.1f)
+                                            + 0.06f * Mathf.Sin(i * 0.91f));
+                }
+
+                var want = new bool[n];
+                for (int i = 0; i < n; i++) want[i] = h[i] > 0f;
+
+                for (int i = 0; i < n; )
+                {
+                    if (!want[i]) { i++; continue; }
+                    int len = 1, clear = 0;
+                    while (i + len < n && clear < 3)
+                    {
+                        if (want[i + len]) clear = 0; else clear++;
+                        len++;
+                    }
+                    len -= clear;
+                    // Same four-station floor the walls use: a cut that lasts
+                    // twelve metres is a bump in the DEM, not a road cut, and
+                    // building it gives the shoulder a picket line of stubs.
+                    if (len >= 4)
+                    {
+                        BuildOneStageBank(pts, i, len, side, sm, root.transform, mat, phys, runs++);
+                        banked += len;
+                    }
+                    i += len + clear;
+                }
+            }
+            Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder.");
+        }
+
+        /// <summary>
+        /// How tall the cut face is here, or 0 where a bank would be wrong.
+        ///
+        /// THE TOP OF A CUT LANDS ON THE HILLSIDE. That is the whole shape of
+        /// the thing: you take a bite out of a slope, and the face is exactly
+        /// as tall as the slope is where the face stops. Sizing it off a rise
+        /// measured at some fixed distance instead gives a wall standing a
+        /// metre proud of a hill that is not there yet — a lip along the top,
+        /// visible from the road, on every gentle gradient.
+        ///
+        /// So it is solved rather than sampled: h is the height at which the
+        /// top of a battered face of height h meets the real DEM. The
+        /// iteration converges from below in three or four passes because the
+        /// DEM rises with distance and the batter is shallower than 1:1; six
+        /// is free and covers the odd bench.
+        ///
+        /// Zero over a span and its approaches (a deck has a parapet, and the
+        /// abutment cuts sit five metres above the tarmac — a bank there would
+        /// be a wall across the bridge mouth), and zero wherever the guard wall
+        /// already wants this shoulder.
+        /// </summary>
+        static float StageBankHeight(List<Vector3> pts, int i, float side)
+        {
+            if (bridgeBlend != null && bridgeBlend[i] > 0.05f) return 0f;
+            if (StageWallWanted(pts, i, side)) return 0f;
+            Vector3 right = RightAt(pts, i);
+            float h = 0f;
+            for (int it = 0; it < 6; it++)
+            {
+                // A metre PAST the top of the face, so the cut bites into the
+                // hill rather than balancing on the surface of it.
+                float probe = BankToe + h * BankBatter + 1f;
+                float px = pts[i].x + right.x * side * probe;
+                float pz = pts[i].z + right.z * side * probe;
+                h = Mathf.Clamp(StageDemY(px, pz) - pts[i].y, 0f, BankMaxH);
+                if (h <= 0f) return 0f;
+            }
+            return h;
+        }
+
+        static void BuildOneStageBank(List<Vector3> pts, int from, int stations, float side,
+                                      float[] h, Transform parent, Material mat,
+                                      PhysicsMaterial phys, int no)
+        {
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            float dist = 0f;
+            for (int k = 0; k < stations; k++)
+            {
+                int i = Mathf.Min(from + k, pts.Count - 1);
+                // Taper both ends into the ground over four stations. A cut
+                // face that simply stops leaves a vertical edge standing in
+                // open hillside, which reads as a missing chunk of world.
+                float taper = Mathf.Min(Mathf.InverseLerp(-0.5f, 3.5f, k),
+                                        Mathf.InverseLerp(-0.5f, 3.5f, stations - 1 - k));
+                float hh = Mathf.Max(0.15f, h[i] * Mathf.SmoothStep(0f, 1f, taper));
+
+                Vector3 right = RightAt(pts, i);
+                Vector3 toe = pts[i] + right * side * BankToe;
+                // Half a metre of skirt below the shelf, for the same reason
+                // the guard wall has one: a coarse ground facet must never be
+                // able to show daylight under the bottom of it.
+                toe.y = pts[i].y - 0.5f;
+                Vector3 top = pts[i] + right * side * (BankToe + hh * BankBatter);
+                top.y = pts[i].y + hh;
+
+                int v = verts.Count;
+                verts.Add(toe); verts.Add(top);
+                uvs.Add(new Vector2(dist / 4.5f, 0f));
+                uvs.Add(new Vector2(dist / 4.5f, (hh + 0.5f) / 4.5f));
+                if (k > 0)
+                {
+                    // Facing the road, one winding, like the wall — the back of
+                    // a cut face is inside the mountain.
+                    if (side < 0f) tris.AddRange(new[] { v - 2, v - 1, v, v - 1, v + 1, v });
+                    else tris.AddRange(new[] { v - 2, v, v - 1, v - 1, v, v + 1 });
+                }
+                dist += Spacing;
+
+                // One box per station chord, for the reason the wall's comment
+                // gives: a box spanning four stations cuts the corner and ends
+                // up inside the kerb band on the stage's tightest radius.
+                if (k + 1 < stations)
+                {
+                    int j = Mathf.Min(from + k + 1, pts.Count - 1);
+                    Vector3 a = pts[i] + RightAt(pts, i) * side * (BankToe + 0.3f);
+                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (BankToe + 0.3f);
+                    float ch = Mathf.Max(hh, StageWallCollH);
+                    var seg = new GameObject("BankColl");
+                    seg.transform.SetParent(parent, false);
+                    seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (ch * 0.5f - 0.3f);
+                    Vector3 dir = bPos - a; dir.y = 0f;
+                    if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
+                    seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+                    var box = seg.AddComponent<BoxCollider>();
+                    box.size = new Vector3(0.6f, ch + 0.6f, dir.magnitude + 0.5f);
+                    box.sharedMaterial = phys;
+                    seg.layer = SolidLayer;
+                    seg.isStatic = true;
+                }
+            }
+            var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
+            SaveMesh(mesh, "StageBank" + no);
+            var go = new GameObject("Bank" + no);
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
@@ -976,6 +1263,43 @@ namespace PSXRacing.EditorTools
                 int h = (x * 7 + y * 13) % 17;
                 byte v = (byte)(96 + (h * 5) % 28);
                 return new Color32(v, (byte)(v - 8), (byte)(v - 22), 255);
+            });
+
+            // The cut bank: blasted Blue Ridge gneiss.
+            //
+            // Vertical, because both the foliation and the drill lines run up
+            // the face and it is the verticality that makes a cut read as cut.
+            //
+            // TWO THINGS IT MUST NOT HAVE, both learned by photographing them:
+            // even spacing (clean sines at one frequency are FLUTING, and 5 km
+            // of that is a precast retaining wall), and any strong HORIZONTAL
+            // feature. Dark bedding joints across the face were the second
+            // attempt and they came back as swags of bunting draped along the
+            // parkway — a curve that crosses the direction of travel reads as
+            // decoration however geological the intent. So: four incommensurate
+            // vertical frequencies leaning very slightly, and everything else
+            // is COLOUR blotching rather than lines.
+            WriteTexture(StageGenDir + "/CutBank.png", 64, 64, (x, y) =>
+            {
+                float u = x / 64f, v = y / 64f;
+                float band = Mathf.Sin(u * 31f + v * 2.2f)
+                           + 0.9f * Mathf.Sin(u * 19f - v * 1.4f + 2.1f)
+                           + 0.6f * Mathf.Sin(u * 53f + 0.8f)
+                           + 0.4f * Mathf.Sin(u * 7f + v * 1.1f + 4.3f);
+                // Weathering and lichen, coarse and soft, over the top of it.
+                float stain = Mathf.Sin(u * 9f + 1.4f) * Mathf.Cos(v * 4.5f - 0.6f)
+                            + 0.7f * Mathf.Sin(u * 3f - v * 5f + 2.6f);
+                float grit = ((x * 29 + y * 71) % 23) / 23f;
+                float shade = 0.52f + band * 0.075f + grit * 0.15f;
+                byte r = (byte)Mathf.Clamp(116 * shade + 44 + stain * 10f, 0, 255);
+                byte g = (byte)Mathf.Clamp(108 * shade + 40 + stain * 5f, 0, 255);
+                byte b = (byte)Mathf.Clamp(94 * shade + 36 - stain * 4f, 0, 255);
+                // Soil and scrub at the toe, over the bottom fifth.
+                float soil = Mathf.Clamp01((0.2f - v) * 5f);
+                r = (byte)Mathf.Lerp(r, 74 + grit * 22f, soil);
+                g = (byte)Mathf.Lerp(g, 72 + grit * 26f, soil);
+                b = (byte)Mathf.Lerp(b, 46 + grit * 16f, soil);
+                return new Color32(r, g, b, 255);
             });
         }
 

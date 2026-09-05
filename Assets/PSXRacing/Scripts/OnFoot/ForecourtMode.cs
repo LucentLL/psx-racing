@@ -243,6 +243,27 @@ namespace PSXRacing.OnFoot
         //  the ceremony
         // ------------------------------------------------------------------
         /// <summary>
+        /// Out of the car, asked for by SOMETHING ELSE'S button.
+        ///
+        /// A phone has one contextual button, and <see cref="OutPressed"/>
+        /// hands it to whichever venue, pump or order window is claiming the
+        /// stopped car — which is right until the thing the player came for is
+        /// through the venue's door. Tony's is that case: the shift is taken at
+        /// the counter now, so a touch player parked outside with the venue
+        /// holding the button could not get out, and the delivery job was
+        /// unreachable on a phone. Returns false if there is nothing to get out
+        /// of, so a caller can fall back to whatever it would have done.
+        /// </summary>
+        public static bool RequestGetOut()
+        {
+            if (!OfferGetOut || OnFoot) return false;
+            var m = FindFirstObjectByType<ForecourtMode>();
+            if (m == null || m.playerCar == null || m.phase != Phase.InCar) return false;
+            m.StartCoroutine(m.GetOut());
+            return true;
+        }
+
+        /// <summary>
         /// Out of the car. Engine off first, because everything else is a
         /// consequence of it: the exhaust only ticks once it has stopped
         /// burning, and the door only opens once the car is parked.
