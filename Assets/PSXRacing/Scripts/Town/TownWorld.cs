@@ -200,12 +200,33 @@ namespace PSXRacing.Town
             else if (PizzaRun.DriveToShop)
             {
                 anchor = FindVenue(TownVenue.Kind.Pizzeria);
-                // The shift is taken at the counter, on foot, so the arrow has
-                // to say that the last twenty metres are walked. Told at the
-                // door rather than from across town, where "walk in" is not yet
-                // an instruction anybody can follow.
-                label = "GO TO WORK — TONY'S";
-                near = "TONY'S — PARK UP AND WALK IN";
+                if (anchor != null)
+                {
+                    // The shift is taken at the counter, on foot, so the arrow
+                    // has to say that the last twenty metres are walked. Told at
+                    // the door rather than from across town, where "walk in" is
+                    // not yet an instruction anybody can follow.
+                    label = "GO TO WORK — TONY'S";
+                    near = "TONY'S — PARK UP AND WALK IN";
+                }
+                else
+                {
+                    // THE SHIFT NOW STARTS ON YOUR OWN STREET, AND THE SHOP IS
+                    // IN ANOTHER SCENE. Clocking in loads the neighbourhood, not
+                    // the town, so this branch asked for a Pizzeria venue that
+                    // is not in the loaded scene, got null, and returned no cue
+                    // at all — a player who chose GO TO WORK was given neither
+                    // an arrow nor, with the junction trigger dead, a prompt.
+                    // Two silences on one screen, which is why the report said
+                    // "with or without choosing to clock in to work".
+                    //
+                    // Point at the way out instead. Both strings have to move
+                    // with the anchor: pointing at the junction while still
+                    // saying TONY'S would be a worse lie than saying nothing.
+                    anchor = FindVenue(TownVenue.Kind.Depart);
+                    label = "GO TO WORK — DRIVE INTO TOWN";
+                    near = "THE JUNCTION — STOP AND CHOOSE";
+                }
             }
 
             if (anchor == null || label == null || player == null) return null;

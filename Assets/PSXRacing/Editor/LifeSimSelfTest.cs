@@ -1342,6 +1342,39 @@ namespace PSXRacing.EditorTools
             // off-road grip with nothing on screen to say so.
             Check(roadCols > 0, "the street is on the road layer", roadCols);
 
+            // A VENUE HAS TO STAND ON THE GROUND UNDER IT, and until this line
+            // existed nothing asked. The DEPART trigger shipped 10.9 m above
+            // its own junction — its Y was a literal from when the street was
+            // flat — and every assertion above passed, because they only ask
+            // whether it EXISTS. The player drove to the end of the road, got
+            // no prompt, and was stopped by the boundary wall.
+            //
+            // RAYCAST rather than re-running the builder's arithmetic. A second
+            // copy of the maths agrees with the first while both are wrong, and
+            // it would have to pick its datum by hand — the road profile under
+            // the junction, the graded ground under a plot. The scene already
+            // holds the answer: drop a ray onto the road colliders and ask
+            // whether a car standing there would be inside the box.
+            foreach (var v in venues)
+            {
+                if (v == null) continue;
+                var col = v.GetComponent<Collider>();
+                if (col == null) { Check(false, v.kind + " has a trigger volume"); continue; }
+                Check(col.isTrigger, v.kind + " is a trigger, not a wall");
+
+                Vector3 at = v.transform.position;
+                bool found = Physics.Raycast(at + Vector3.up * 40f, Vector3.down,
+                                             out var hit, 120f, ~0,
+                                             QueryTriggerInteraction.Ignore);
+                if (!found) { Check(false, v.kind + " has ground under it"); continue; }
+                // Where the middle of a car's body sits when it is parked here.
+                Check(col.bounds.Contains(hit.point + Vector3.up * 0.7f),
+                      v.kind + " sits on the ground the car drives on",
+                      "surface " + hit.point.y.ToString("0.00") +
+                      " m, trigger " + col.bounds.min.y.ToString("0.00") +
+                      ".." + col.bounds.max.y.ToString("0.00"));
+            }
+
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
         }
 

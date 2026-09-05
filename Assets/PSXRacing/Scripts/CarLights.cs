@@ -104,9 +104,26 @@ namespace PSXRacing
         }
 
         /// <summary>
-        /// The pool lies on the ground plane in WORLD space rather than riding
-        /// the body. Parented to the car it would pitch under braking and cut
+        /// The pool lies on the ground in WORLD space rather than riding the
+        /// body. Parented to the car it would pitch under braking and cut
         /// through the road, which is exactly when the player is looking at it.
+        ///
+        /// IT MEASURES THE GROUND. IT USED TO ASSUME IT — and the assumption
+        /// was an ABSOLUTE world Y of 0.155, which is only right on a world
+        /// whose road happens to lie at zero. Reported as "headlights shine
+        /// above the house... headlight beams always shine onto a specific
+        /// z-layer, not thinking about actual layer lights are pointing at",
+        /// which is exactly what it was.
+        ///
+        /// This was never a regression from the graded street; the street is
+        /// only where it became unmissable, because there the road falls BELOW
+        /// zero and the pool was left hanging in the sky over the rooftops.
+        /// Everywhere else in the game it fails the other way and is therefore
+        /// invisible: every circuit climbs, every baked route sits hundreds of
+        /// metres up (Beech Gap's road is 40 to 776 m in local coordinates), so
+        /// the pool has been buried under the terrain — headlights throwing no
+        /// pool at all — for as long as those venues have existed. Both halves
+        /// are the same line.
         /// </summary>
         void PlacePool()
         {
@@ -115,10 +132,37 @@ namespace PSXRacing
             fwd = fwd.sqrMagnitude > 0.001f ? fwd.normalized : Vector3.forward;
             float steer = car != null ? car.steerInput : 0f;
             fwd = Quaternion.AngleAxis(steer * 12f, Vector3.up) * fwd;
-            Vector3 origin = transform.position;
-            pool.SetPositionAndRotation(
-                new Vector3(origin.x, PoolHeight, origin.z) + fwd * poolDistance,
-                Quaternion.LookRotation(Vector3.down, fwd));
+
+            // Sample under the POOL, not under the car. They are seven metres
+            // apart, which on a 12% street is nearly a metre of height.
+            Vector3 head = transform.position + fwd * poolDistance;
+
+            if (Physics.Raycast(head + Vector3.up * PoolProbeUp, Vector3.down,
+                                out var hit, PoolProbeUp + PoolProbeDown,
+                                PoolMask, QueryTriggerInteraction.Ignore))
+            {
+                // TILTED TO THE SURFACE. The quad is 14 m long, so on the
+                // street's steepest 12.5% a level one has its ends 0.87 m out
+                // — the uphill end buried in the tarmac right at the player's
+                // bumper, the downhill end floating.
+                Vector3 along = Vector3.ProjectOnPlane(fwd, hit.normal);
+                pool.SetPositionAndRotation(
+                    hit.point + hit.normal * PoolLift,
+                    Quaternion.LookRotation(-hit.normal,
+                        along.sqrMagnitude > 1e-4f ? along.normalized : fwd));
+            }
+            else
+            {
+                // Nothing under it — airborne, over a gorge, off the mesh. Fall
+                // back to the car's OWN contact plane, which is never worse
+                // than wheel height, rather than to a constant that could be
+                // anywhere. Never leave the pool where the ray failed.
+                float floor = transform.position.y
+                            + (box != null ? box.center.y - box.size.y * 0.5f : 0f);
+                pool.SetPositionAndRotation(
+                    new Vector3(head.x, floor + PoolLift, head.z),
+                    Quaternion.LookRotation(Vector3.down, fwd));
+            }
         }
 
         /// <summary>
@@ -143,9 +187,37 @@ namespace PSXRacing
             PlacePool();
         }
 
-        /// <summary>Road ribbon sits at 0.12 and the kerbs at 0.13, so the pool
-        /// goes just above both.</summary>
-        const float PoolHeight = 0.155f;
+        /// <summary>
+        /// Metres the pool floats above THE SURFACE IT LANDS ON.
+        ///
+        /// It was <c>PoolHeight = 0.155f</c>, and the name is most of the bug.
+        /// 0.12 and 0.13 are the CIRCUIT builder's offsets for the ribbon and
+        /// the kerb above their own waypoint plane (PSXRacingBuilder.RoadLift,
+        /// applied as <c>pts[i] + Vector3.up * RoadLift</c>) — relative numbers,
+        /// read off the builder and written into the runtime as an absolute
+        /// world Y. Other worlds do not even use those offsets: the street and
+        /// the town lay tarmac at 0.02 over their own ground function.
+        ///
+        /// Now that the ground is measured, the only job left is clearing the
+        /// surface it was measured on, so this is a z-fight margin and the
+        /// 1 cm the kerb stands over the ribbon — not a height.
+        /// </summary>
+        const float PoolLift = 0.06f;
+
+        /// <summary>How far above and below the pool to look for ground. Up is
+        /// generous enough to start clear of a kerb or a bank the pool sits
+        /// beside; down is deep enough to find the road from the top of a crest
+        /// and shallow enough not to find the valley floor from a bridge.</summary>
+        const float PoolProbeUp = 3f, PoolProbeDown = 12f;
+
+        /// <summary>Everything the light could land on: road, ground, buildings.
+        /// Only Ignore Raycast, Water and Foliage are out — a pool on the water
+        /// plane is a pool on the sea, and the trees are billboards.
+        ///
+        /// NOT <c>CarController.suspensionMask</c>, which also drops Solid: the
+        /// wheels want to ignore walls, and the light very much does not.</summary>
+        static readonly int PoolMask = ~((1 << 2) | (1 << 4) | (1 << 10));
+
         float poolDistance = 7f;
 
         void Refresh()

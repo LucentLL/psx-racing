@@ -5,6 +5,258 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE STREET, READ BACK (2026-09-05, fifth pass)
+
+Seven reports, all on the street that shipped an hour earlier, and the useful
+thing about them is how many were the SAME MISTAKE wearing different clothes: a
+number that was measured once against a flat world and then written down.
+
+### A JUNCTION ELEVEN METRES IN THE AIR
+
+"I drove to the end of the neighborhood but was not prompted or warped to town.
+With or without choosing to clock in to work."
+
+The DEPART trigger sat at a hardcoded `y = 1.4`, which was correct while the
+street was flat and became the only object in the file that did not read
+`NbRoadY`. The road at the junction is now at **-10.84 m**. A 3 m box centred at
+1.4 spans [-0.1, 2.9]; the roof of the car passing under it is at -9.34. **Nine
+metres of clear air**, and detection is a real trigger collider against the car's
+rigidbody, so there was no distance fallback that could still have fired. The
+player drove to the end of the road and was stopped by the boundary wall with
+nothing on screen.
+
+HOME did not fail, and that is the tell in the report: it carries the identical
+literal, and survives only because `NbRoadY` clamps to zero above the top of the
+street and the home lot is still flat there. It was never right — it was standing
+on the one part of the map that had not moved. It is seated now too, along with
+the spawn and the garage-door anchor, so all four are right for the reason rather
+than by luck.
+
+**And there were two silences, not one.** Clocking in loads the neighbourhood,
+but the cue that draws the arrow asked for the PIZZERIA venue — which lives in
+the town scene. It got null and returned no cue at all. So a player who chose GO
+TO WORK got no arrow AND, with the trigger dead, no prompt. It falls back to the
+junction now, with both strings moved: an arrow pointing at the way out while
+still saying TONY'S would be a worse lie than saying nothing.
+
+**The self-test only ever asked whether the venue EXISTED.** That is why this
+shipped with the suite green. It raycasts now — drop a ray through the loaded
+scene and require that a car standing on what it lands on would be inside the
+trigger. A ray rather than a second copy of the builder's arithmetic, because a
+second copy agrees with the first while both are wrong, and because it would have
+to choose its own datum by hand: the road profile under a junction, the graded
+ground under a plot. The scene knows.
+
+It takes the FIRST hit on any layer rather than filtering to the road, and that
+is a deliberate looseness with a known cost: over the home lot it lands on the
+house's porch at 1.57 m rather than on the drive at 0.03. It still passes,
+because the trigger is 3 m tall and contains both — and it would still have
+failed DEPART, which was nine metres out. A filter to the road layer would fail
+every venue that legitimately sits on a forecourt. If this ever needs tightening,
+tighten it to "the highest hit BELOW the trigger's own top", not to a layer.
+
+### HEADLIGHTS ON A FIXED SHELF, AND IT WAS NEVER A REGRESSION
+
+"Headlights shine above the house. This happens in races too, like headlight
+beams always shine onto a specific z-layer, not thinking about actual layer
+lights are pointing at."
+
+That is the bug stated exactly. `CarLights.PlacePool` took X and Z from the car,
+**threw the car's Y away, and substituted the constant 0.155** — an absolute
+world height, with no raycast and no layer mask anywhere in the file. The pool
+does not live in front of the car; it lives on the plane y = 0.155 forever.
+
+The framing that matters: this is not fallout from the graded street. **It has
+been wrong on every elevated surface in the game since it was written**, and the
+street is only where it became visible, because there the road falls BELOW zero
+and the pool was left hanging over the rooftops. Everywhere else it fails the
+other way and is therefore invisible — buried under the terrain, headlights
+throwing no pool at all:
+
+| where | local road Y | the pool |
+|---|---|---|
+| Emerald Isle | 9.2 – 15.5 m | 9 m under the road |
+| Blue Ridge | 40 – 110 m | 40 m under |
+| Beech Gap | 40 – 776 m | up to 776 m under |
+| Airfield Sprint | -2.0 – +2.0 m | alternates: 2 m under, then 2 m over the roof |
+
+It measures the ground now: a ray straight down at the POOL's own XZ — seven
+metres from the car, which on a 12.5% street is nearly a metre of height — and
+the quad is tilted to the surface normal, because a 14 m quad held level on that
+gradient has its ends 0.87 m out, the uphill end buried in the tarmac right at
+the player's own bumper. When the ray misses, it falls back to the car's own
+contact plane rather than to a constant: the worst case becomes a pool at wheel
+level instead of a pool anywhere at all.
+
+**What it deliberately does NOT do is cast forward.** The obvious next thought —
+shorten the beam when something is in front of it — is already handled: PSX/Glow
+keeps the depth test on, so a car nosed up to a garage door has the far half of
+its pool depth-rejected by the door. Adding a forward ray would have been a fix
+for a bug that the shader closed years ago, and on this street it would have been
+worse than nothing, because the forward vector is flattened to horizontal and a
+horizontal ray down a falling street hits the road.
+
+The constant is called `PoolLift` now and means what its own comment always
+described — metres above the surface it lands on. `PoolHeight` is most of how it
+went wrong: 0.12 and 0.13 are the CIRCUIT builder's offsets above a waypoint
+plane, read off the builder and written into the runtime as an absolute Y.
+
+### A STREET OF HOUSES FACING THEIR OWN BACK GARDENS
+
+"Homes are facing the wrong way, driveway not leading to garage."
+
+`WorldKit.Place` applies `Euler(0, yawOffsetDeg, 0) * LookRotation(frontToward)`,
+and defaults `yawOffsetDeg` to 180 — correct only for a model whose front is
+local -Z. Measured in Blender off the shipped FBX, **house_simple's garage door,
+front door and concrete path are all at Unity local +Z**, and only its veranda is
+at -Z. Both rows were turned to show the road their back gardens.
+
+The doc comment on `Place` asserted the opposite as fact — "180 for every
+EXTRACTED prop in this project" — and excused `house_hero` as a special case for
+being a showcase scene rather than a cut-out. That reasoning is wrong and it is
+what propagated the bug: the two models carry the same garage door at the same
+coordinates and were exported minutes apart. The 180 IS right for the restaurant
+pack, where it came from a real observation ("every restaurant politely showed
+the street its back"). One pack's measurement was generalised to four that were
+never checked to agree. The comment now says which is which, and says MEASURE.
+
+**And the drive still would have missed on one side.** The wide garage door is
+4.93 m off the model's centre, so once the house is turned to face the street
+that offset lands on world Z — on OPPOSITE sides for the two rows. The drive's Z
+was a flat `plotZ - 4.5`, which can only ever match one row and missed the other
+by **9.4 m**: a driveway to a blank wall with the garage round the corner. It is
+`plotZ - side * 4.93` now, in the height field and in the slab together, so the
+graded ramp and the concrete on top of it agree.
+
+### GRASS THROUGH THE FLOOR, WHICH WAS NOT THE TERRAIN
+
+"Houses are empty and have hills going through the floors."
+
+Two separate things, and the height field was innocent of both — it is dead flat
+across the home lot and never rises above any slab there.
+
+**The player's own drive was 5.2 m wide over a 3.65 m apron.** house_hero ships
+its own dressed forecourt with planting beds immediately either side, and the
+extra 0.775 m of slab on each flank landed square on them, cutting each plant off
+7 cm above its base and leaving the rest standing up through the concrete. The
+"grass mounds coming up through a flat floor" were shrubs. The drive is 3.9 m
+now, which is the model's apron plus a hand's width.
+
+**The neighbours' houses overhung their own benches by 1.67 m.** The house went
+at `NbSetback + 4` and the bench NbGroundY cuts is centred at `NbSetback + 2`;
+the model is 16.3 m deep, so its back 1.67 m stood on the ungraded hillside — and
+nothing retained it, because the footing is sized by where land FALLS AWAY and a
+corner where it RISES contributes nothing to a `Max`. Centring the house on its
+own bench leaves 0.33 m to spare at both ends.
+
+**"Empty" was literal.** house_simple is one 1403-poly shell with no interior:
+no rooms, no ceilings, a floor covering under a third of its plan. It was placed
+with `glass: true`, so the panes drew transparent and the player looked through a
+window into a hollow. The neighbours' glass is opaque now. They are scenery, and
+scenery should not invite an inspection it cannot survive.
+
+### THE SURFACE OF THE ROAD
+
+"Neighborhood road should not have road lines." It should not — a residential
+street is unmarked, and a yellow centre line is what makes a 9 m carriageway read
+as a highway with houses improbably close to it. Twenty-three dashes gone. The
+town's main street keeps its own.
+
+"Driveways should not extend into the road." They ran 0.6 m onto it — 42 square
+metres of concrete on the carriageway, five of them stepping up out of it by as
+much as 12 cm — on the reasoning that a drive which merely touches a kerb leaves
+a strip of lawn for a wheel to drop onto. **The premise was false**: the tarmac
+edge and the kerb's inner face are the same line, so a drive ending there shares
+an edge with the road and there is no gap for lawn to appear in.
+
+The cause was a constant lying about itself. `NbKerbOut` is documented as "how
+far out from the centreline the kerb is" and evaluated to 0.6 m INSIDE it, and it
+is the inner pin of the driveway ramp — so the graded ground was already climbing
+across the last 0.6 m of carriageway and reached 1 cm ABOVE the road surface at
+its edge, hidden only because the oversized slab was parked on top of it. Moving
+one without the other would have swapped a visible fault for an invisible one.
+They moved together.
+
+**And the kerb is dropped at every drive.** It ran unbroken past all fourteen, so
+each driveway crossed a 16 cm kerb to reach the road — the real version of the
+hazard the overlap was flailing at, and visible in every picture down the street.
+Per side, in 2 m lengths: an earlier cut dropped both sides wherever either had a
+crossing and took 84 of 200 segments out, most of them opposite a driveway rather
+than at one.
+
+### A CUL-DE-SAC
+
+"House at end of street should be a culdasec, not a straight line to driveway."
+
+A dead-end street with no way to turn round is the tell that a map was laid out
+as a rectangle, and this one was. `WorldKit.Disc` is new — rings and sectors, the
+same contract as `GridSlab` — because a hammerhead of boxes reads as a widened
+road rather than as the end of one.
+
+The head is 10 m of radius and its centre is DERIVED rather than chosen: back off
+from the garage door by the apron the drive needs, then by the radius. What it
+has to clear at the far end is the first neighbour, which is why that plot moved
+twelve metres down the street — the bulb's south pole is at 30.5 and the plot's
+bench now ends at 27, with its driveway entrance further down still. That costs
+the street one plot pair, which is a fair price for an end.
+
+Three things it needed that a straight street did not:
+
+- **The land is pinned to the head, not just to the strip.** `NbCrownDist`
+  measures to the centreline down the street AND to the centre of the head, with
+  the head's extra width taken off, so the pin reaches its rim exactly as it
+  reaches the kerb line everywhere else. Without it the bulb's shoulders would
+  have stood in unpinned hillside with up to three metres of relief cutting
+  across a piece of tarmac.
+- **A join that never necks.** The street ends where the disc first reaches full
+  carriageway width, so neither surface has to pinch to meet the other, and the
+  head is laid one centimetre proud over the overlap because two coplanar road
+  surfaces are a z-fight.
+- **A kerb that bends.** Chords, yawed to the tangent as well as pitched to the
+  fall, opened twice — once at the throat where the street comes in, once at the
+  top where the drive goes out. A ring with no gaps would be a moat.
+
+The head's surface is the street's own profile, which over its twenty metres is a
+1.6% cross-fall. That is drainage, not a compromise.
+
+### HOW THIS ROUND WAS DIAGNOSED, AND WHY THE REFUTATIONS WERE THE POINT
+
+Six investigators, one per symptom, then every claim handed to an adversary told
+to refute it. **26 held, 11 were refuted**, and the refutations changed the work:
+
+- An agent proposed shortening the headlight beam with a forward raycast so a car
+  nosed at a garage would not shine through it. The shader already depth-tests;
+  the beam does not go through the door. Building that would have been effort
+  spent on a bug that does not exist, and a horizontal ray on a falling street
+  would have introduced one.
+- An agent mapped a cul-de-sac in detail — rim samples, encroachment tables,
+  which kerb segments collided with it — for a bulb **that did not exist**. Six
+  findings, all describing a hypothetical in the indicative. Another agent then
+  showed a bulb DID fit, with the arithmetic for how big.
+- A claim that the street house was 25% smaller than the garage house: 0.15%
+  bigger, and the scale constant is derived from the garage's own door
+  measurement.
+
+Every high-confidence claim I acted on was checked, and the one that would have
+been most expensive to get wrong — flipping the yaw on a model used by the
+neighbourhood, the seller's lot and every suburb in Charlotte — I measured myself
+in Blender before touching it. It contradicted a note in my own memory, which was
+wrong in both halves.
+
+### AND A FOUR-MINUTE LOOP
+
+`tools/nb-check.ps1` builds one scene and takes four pictures. `verify.ps1`
+rebuilds eleven circuits, four mountain stages and the whole of Charlotte to
+answer a question about one suburban road, and takes forty minutes doing it —
+which, when the street is where every report lands, means guessing instead of
+measuring. It is not a substitute: no self-test, no terrain audit, no obstacle
+audit. Shape with one, ship with the other.
+
+The other half of that loop is reading the BUILT SCENE rather than the picture.
+"Is that car on its driveway" is a sunset-lit judgement call at 240 lines and an
+exact number in the YAML, and the second one found that every kerbside car on the
+street was parked two metres out on the grass verge.
+
 ## THE STREET GETS HILLS, AND THE MOUNTAINS GET TWO ROADS (2026-09-05, fourth pass)
 
 Five from a playtest, two of which were mine from an hour earlier.

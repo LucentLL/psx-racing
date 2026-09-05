@@ -85,7 +85,38 @@ namespace PSXRacing.EditorTools
         /// and the height field that benches the ground under them — if those
         /// two disagreed by one plot, the ground would step where no house
         /// stands and a house would stand on a hill.</summary>
-        const float NbFirstPlotZ = HomeStreetTop - 14f;
+        const float NbFirstPlotZ = HomeStreetTop - 26f;
+
+        /// <summary>
+        /// THE TURNING HEAD. "House at end of street should be a culdasec, not
+        /// a straight line to driveway."
+        ///
+        /// A dead-end street with no way to turn round is the tell that a map
+        /// was laid out as a rectangle, and this one was: the carriageway ran
+        /// straight into the player's own drive. The bulb is a proper
+        /// residential turning head — 10 m of radius, which is the small end of
+        /// what a fire appliance needs and the large end of what fits here.
+        ///
+        /// The centre is DERIVED, not chosen: back off from the garage door by
+        /// the apron the drive needs and then by the radius. Using the door's
+        /// fallback constant rather than its measured position on purpose —
+        /// the height field reads this, and a height field cannot depend on a
+        /// measurement taken later during the build.
+        ///
+        /// What it has to clear at the other end is plot 0, which is why
+        /// NbFirstPlotZ moved from -14 to -26: the bulb's south pole is at
+        /// 30.5 and the first plot's bench now ends at 27, with its drive
+        /// entrance further down still. That costs the street one plot pair.
+        /// </summary>
+        const float NbBulbR = 10f;
+        const float NbBulbCz = TownHouseZ - 6.45f - 6f - NbBulbR;   // door - apron - radius
+
+        /// <summary>Where the straight street gives out and the head takes
+        /// over: the point where the disc first reaches the full carriageway
+        /// width, so neither surface ever has to neck down to meet the
+        /// other.</summary>
+        static float NbBulbThroatZ =>
+            NbBulbCz - Mathf.Sqrt(NbBulbR * NbBulbR - HomeRoadW * 0.5f * HomeRoadW * 0.5f);
         static int NbPlotCount =>
             Mathf.CeilToInt((NbFirstPlotZ - (NbStreetEnd + 26f)) / NbPlotPitch);
         static float NbPlotZ(int i) => NbFirstPlotZ - i * NbPlotPitch;
@@ -133,8 +164,20 @@ namespace PSXRacing.EditorTools
             // now, so it is placed by whoever built the street — which is also
             // why it moved out of the home lot: the town has no junction any
             // more and would have inherited a menu to nowhere.
+            //
+            // AND IT SITS ON THE ROAD, which it did not. The Y was a literal
+            // 1.4 — correct while the street was flat at zero, and 10.9 m of
+            // clear air once the street fell away under it. A 3 m box centred
+            // at 1.4 spans [-0.1, 2.9]; the tarmac here is at -10.84. The car
+            // drove underneath its own junction and was stopped by the bound
+            // wall with nothing on screen, which is "I drove to the end of the
+            // neighborhood but was not prompted or warped to town."
+            //
+            // Detection is a real trigger collider against the car's rigidbody,
+            // so there was no distance fallback that could still have fired.
+            float departZ = NbStreetEnd + 16f;
             TownTrigger(root.transform, "DepartVenue", TownVenue.Kind.Depart,
-                new Vector3(HomeStreetX, 1.4f, NbStreetEnd + 16f),
+                new Vector3(HomeStreetX, NbRoadY(departZ) + 1.4f, departZ),
                 new Vector3(HomeRoadW + 6f, 3f, 14f));
 
             // ---- the player, on their own drive, pointing down the street ----
@@ -255,10 +298,31 @@ namespace PSXRacing.EditorTools
         /// the scale. The pin is what keeps the kerb line honest: a lawn that
         /// did its own thing right up to the tarmac would cut through it.
         /// </summary>
+        /// <summary>
+        /// Distance from the CROWN of the carriageway — the centreline running
+        /// down the street, and the centre of the turning head at the top of
+        /// it, with the head's extra width taken off so the pin reaches its rim
+        /// exactly as it reaches the kerb line everywhere else.
+        ///
+        /// Without this the bulb's flanks would stand in unpinned hillside: the
+        /// pin is solid out to 7 m from the crown and the head reaches 10, so
+        /// its shoulders would have had up to three metres of relief cutting
+        /// across a piece of tarmac.
+        /// </summary>
+        static float NbCrownDist(float x, float z)
+        {
+            float dx = Mathf.Abs(x - HomeStreetX);
+            float dz = z - NbBulbCz;
+            float radial = Mathf.Sqrt(dx * dx + dz * dz);
+            float street = dz <= 0f ? dx : radial;
+            float head = radial - (NbBulbR - HomeRoadW * 0.5f);
+            return Mathf.Max(0f, Mathf.Min(street, head));
+        }
+
         static float NbLandY(float x, float z)
         {
             float road = NbRoadY(z);
-            float d = Mathf.Abs(x - HomeStreetX);
+            float d = NbCrownDist(x, z);
             float t = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(HomeRoadW * 0.5f + 2.5f, 34f, d));
             // Three terms rather than two, and half again the amplitude, for
@@ -307,7 +371,20 @@ namespace PSXRacing.EditorTools
         /// the surface to its level while the ramp was still climbing to it:
         /// 36% measured, on a drive whose average was 15%. Two graders working
         /// on the same three metres.</summary>
-        static float NbKerbOut => HomeRoadW * 0.5f - 0.6f;
+        ///
+        /// THE CARRIAGEWAY EDGE, WHICH IS ALSO THE KERB'S INNER FACE. It was
+        /// HomeRoadW/2 - 0.6, i.e. 0.6 m INSIDE the kerb it is named for, so
+        /// the ramp began under the tarmac: the graded ground was already
+        /// climbing across the last 0.6 m of carriageway and reached 1 cm ABOVE
+        /// the road surface at its edge, hidden only because the driveway slab
+        /// was parked on top of it. The drive read the same wrong number and so
+        /// ran 0.6 m out onto the road — 42 square metres of concrete on the
+        /// street, which is "driveways should not extend into the road".
+        ///
+        /// The two are the same expression and have to move together: pulling
+        /// the slab in without pulling the ramp in exposes the grass, and the
+        /// slab lands on a 12 cm step off the tarmac.
+        static float NbKerbOut => HomeRoadW * 0.5f;
         // The batter counts as bench. Landing the ramp on the bench's EDGE
         // still overlapped the two by the width of the batter, and over those
         // three metres the bench pulled the surface up while the ramp was
@@ -316,6 +393,28 @@ namespace PSXRacing.EditorTools
         // the garage and makes the measured gradient the designed one.
         static float NbBenchOut => NbSetback + 2f - (NbBenchW * 0.5f + NbBatter);
         static float NbDriveRun => NbBenchOut - NbKerbOut;
+
+        /// <summary>
+        /// How far the wide garage door sits from the middle of house_simple,
+        /// along the axis that ends up pointing down the street.
+        ///
+        /// MEASURED, in Blender, off the shipped FBX: the Garage_Door material's
+        /// wide slab centres at model x -6.082, which at CityProps.PackScale
+        /// 0.81 is 4.93 m. The house is turned to face the street, so that X
+        /// offset lands on world Z — and it lands on the OPPOSITE side of the
+        /// plot for the two rows, because they are turned opposite ways.
+        /// </summary>
+        const float NbGarageOffsetZ = 4.93f;
+
+        /// <summary>
+        /// Where a plot's drive runs, in z. Signed by <paramref name="side"/>,
+        /// which the first version was not: it was a flat <c>z - 4.5</c>, so it
+        /// could only ever meet the garage on ONE side of the street and missed
+        /// the other row's door by 9.4 m — a driveway to a blank wall, with the
+        /// garage round the corner. Read by the height field AND the slab, so
+        /// the graded ramp and the concrete on top of it agree.
+        /// </summary>
+        static float NbDriveZ(int side, float plotZ) => plotZ - side * NbGarageOffsetZ;
 
         /// <summary>
         /// The land as it has been GRADED: the hillside everywhere, except
@@ -367,7 +466,7 @@ namespace PSXRacing.EditorTools
             // and would cost a third of the bench height to stay legal; a
             // straight ramp with a break at the kerb and another at the apron
             // is both steeper-looking and what a driveway actually is.
-            float driveZ = pz - 4.5f;
+            float driveZ = NbDriveZ(side, pz);
             float outward = (x - HomeStreetX) * side;      // metres out from the crown
             float kDrive = (1f - Mathf.SmoothStep(0f, 1f,
                                 Mathf.InverseLerp(2.5f, 6.5f, Mathf.Abs(z - driveZ))))
@@ -396,8 +495,14 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         static void BuildNbGround(Transform parent, TownMats m)
         {
-            float streetLen = HomeStreetTop - NbStreetEnd;
-            float midZ = (HomeStreetTop + NbStreetEnd) * 0.5f;
+            // THE STREET ENDS AT THE THROAT and the turning head carries the
+            // rest. They meet where the disc is exactly as wide as the
+            // carriageway, so there is no pinch and no gap; the head is laid a
+            // centimetre proud over the overlap because two coplanar road
+            // surfaces are a z-fight, and a centimetre is a hundredth of the
+            // kerb beside them.
+            float streetLen = NbBulbThroatZ - NbStreetEnd;
+            float midZ = (NbBulbThroatZ + NbStreetEnd) * 0.5f;
 
             // Past the fog wall in every direction, and SUNK below the tarmac
             // for the reason the town's is: at the grazing angle you see a
@@ -424,36 +529,44 @@ namespace PSXRacing.EditorTools
                 HomeRoadW, streetLen, 2f, m.road, true, 12f, WorldKit.RoadLayer,
                 (x, z) => NbRoadY(z) + 0.02f);
 
-            // Paint, not surface: no collider and off the road layer, because a
-            // strip standing proud of the tarmac is something a wheel climbs.
-            // Broken, because this is a residential street and a solid centre
-            // line down one would be wrong in a way that is quietly obvious.
-            // NUMBERED, and that is not cosmetic. WorldKit.SaveMesh writes one
-            // mesh ASSET per name and DELETES the existing one first, so a loop
-            // that hands it the same name every time leaves exactly one live
-            // mesh and a trail of MeshFilters pointing at deleted assets. This
-            // shipped: 22 of these 23 dashes, 13 of 14 neighbour lawns and 13 of
-            // 14 driveways rendered nothing at all, which is most of why the
-            // street looked bare.
-            int dash = 0;
-            for (float z = NbStreetEnd + 6f; z < HomeStreetTop - 6f; z += 9f)
-                WorldKit.GridSlab(parent, "NbLine" + (dash++),
-                    new Vector3(HomeStreetX, 0f, z), 0.14f, 3.6f, 2f, m.line, false, 4f,
-                    0, (px, pz) => NbRoadY(pz) + 0.035f);
+            // The turning head. Its surface is the street's own profile, so it
+            // drains across itself the way a real one does — NbRoadY is a
+            // function of z alone, which over the head's twenty metres is a
+            // 1.6% cross-fall, and that is a feature rather than a compromise.
+            WorldKit.Disc(parent, "NbBulb", new Vector3(HomeStreetX, 0f, NbBulbCz),
+                NbBulbR, 2f, m.road, true, 12f, WorldKit.RoadLayer,
+                (x, z) => NbRoadY(z) + 0.03f);
+
+            // NO CENTRE LINE. There was one — 23 yellow dashes down the middle
+            // — and the comment justifying it argued only about whether it
+            // should be broken or solid, having never asked the question the
+            // owner did: "neighborhood road should not have road lines." It
+            // should not. A residential street is unmarked; a centre line is
+            // what makes a 9 m carriageway read as a highway with houses
+            // improbably close to it. The town's main street keeps its own.
 
             // THE KERB IS SEGMENTED, because a kerb is a box and a box cannot
-            // bend. One 212 m cube laid on a street that climbs 7.8% either
-            // buries itself in the hill or floats off it; eight-metre lengths,
-            // each seated and pitched to the road under it, read as a kerb the
-            // whole way. The pitch matters as much as the height — a level box
-            // on a slope shows a wedge of daylight at one end.
+            // bend. One 212 m cube laid on a street that falls eleven metres
+            // either buries itself in the hill or floats off it; eight-metre
+            // lengths, each seated and pitched to the road under it, read as a
+            // kerb the whole way. The pitch matters as much as the height — a
+            // level box on a slope shows a wedge of daylight at one end.
+            //
+            // AND IT IS DROPPED AT EVERY DRIVE. It used to run unbroken past
+            // all fourteen of them, so each driveway crossed a 16 cm kerb on
+            // its way to the road — visible in every screenshot down the
+            // street, and the real version of the hazard the driveway overlap
+            // was flailing at. The kerb has no collider, so this was never
+            // something a wheel climbed; it was something a wheel drove
+            // straight through, which is worse to look at and easier to fix.
             for (int side = -1; side <= 1; side += 2)
             {
                 int seg = 0;
-                for (float z = NbStreetEnd; z < HomeStreetTop; z += 8f)
+                for (float z = NbStreetEnd; z < NbBulbThroatZ; z += 2f)
                 {
-                    float z0 = z, z1 = Mathf.Min(z + 8f, HomeStreetTop);
+                    float z0 = z, z1 = Mathf.Min(z + 2f, NbBulbThroatZ);
                     float mid = (z0 + z1) * 0.5f;
+                    if (NbInDriveway(side, mid)) continue;
                     float pitch = Mathf.Atan2(NbRoadY(z1) - NbRoadY(z0), z1 - z0) * Mathf.Rad2Deg;
                     var kerb = WorldKit.Box(parent, "NbKerb" + side + "_" + (seg++),
                         new Vector3(HomeStreetX + side * (HomeRoadW * 0.5f + 0.2f),
@@ -464,6 +577,63 @@ namespace PSXRacing.EditorTools
                     kerb.transform.rotation = Quaternion.Euler(-pitch, 0f, 0f);
                 }
             }
+
+            // THE KERB ROUND THE HEAD, in chords, for the reason the straight
+            // one is in lengths: a box cannot bend. Yawed to the tangent as
+            // well as pitched to the fall, and opened twice — once at the
+            // throat where the street comes in, once at the top where the
+            // player's drive goes out. A ring with no gaps would be a moat.
+            int arcs = Mathf.RoundToInt(2f * Mathf.PI * NbBulbR / 2.2f);
+            for (int i = 0; i < arcs; i++)
+            {
+                float a0 = i * 2f * Mathf.PI / arcs, a1 = (i + 1) * 2f * Mathf.PI / arcs;
+                float am = (a0 + a1) * 0.5f;
+                float rr = NbBulbR + 0.2f;
+                Vector3 mid = new Vector3(HomeStreetX + Mathf.Cos(am) * rr,
+                                          0f, NbBulbCz + Mathf.Sin(am) * rr);
+                // The throat: the street's own width, plus the kerb.
+                if (mid.z < NbBulbCz && Mathf.Abs(mid.x - HomeStreetX) < HomeRoadW * 0.5f + 0.9f)
+                    continue;
+                // The drive out, which leaves over the top of the head.
+                if (mid.z > NbBulbCz && Mathf.Abs(mid.x - HomeStreetX) < 2.6f) continue;
+
+                Vector3 p0 = new Vector3(HomeStreetX + Mathf.Cos(a0) * rr,
+                                         0f, NbBulbCz + Mathf.Sin(a0) * rr);
+                Vector3 p1 = new Vector3(HomeStreetX + Mathf.Cos(a1) * rr,
+                                         0f, NbBulbCz + Mathf.Sin(a1) * rr);
+                float chord = Vector3.Distance(p0, p1);
+                var ring = WorldKit.Box(parent, "NbBulbKerb" + i,
+                    new Vector3(mid.x, NbRoadY(mid.z) + 0.08f, mid.z),
+                    new Vector3(0.4f, 0.16f, chord + 0.15f), m.kerb, false);
+                // Yaw so the chord lies along the rim, then pitch so it lies on
+                // the fall. Order matters: yaw first, in world, then pitch about
+                // the box's own long axis.
+                float yaw = Mathf.Atan2(p1.x - p0.x, p1.z - p0.z) * Mathf.Rad2Deg;
+                float drop = Mathf.Atan2(NbRoadY(p1.z) - NbRoadY(p0.z), chord) * Mathf.Rad2Deg;
+                ring.transform.rotation = Quaternion.Euler(0f, yaw, 0f)
+                                        * Quaternion.Euler(-drop, 0f, 0f);
+            }
+        }
+
+        /// <summary>
+        /// Is this station of THIS SIDE of the street inside a driveway
+        /// entrance?
+        ///
+        /// Two metres of kerb at a time rather than eight, so a dropped kerb
+        /// lands within half a metre of the drive's real edge instead of taking
+        /// a quarter of the frontage out with it.
+        ///
+        /// PER SIDE. Dropping both sides wherever either had a drive sounded
+        /// tidy and took 84 of 200 segments out — the two rows' drives are
+        /// 9.9 m apart in z, so between them they punched holes through nearly
+        /// half the kerb on the street, most of them opposite a driveway rather
+        /// than at one.
+        /// </summary>
+        static bool NbInDriveway(int side, float z)
+        {
+            for (int i = 0; i < NbPlotCount; i++)
+                if (Mathf.Abs(z - NbDriveZ(side, NbPlotZ(i))) < 2.9f) return true;
+            return false;
         }
 
         /// <summary>
@@ -532,7 +702,7 @@ namespace PSXRacing.EditorTools
                     // lost by it — the street edge is the one edge held near
                     // road level by NbPadY, so it is the one with almost no
                     // drop to retain.
-                    float wallInner = NbSetback + 2f - 5f;              // where the drive ends
+                    float wallInner = 18.5f;                            // where the drive ends
                     float wallOuter = NbSetback + 2f + NbBenchW * 0.5f + NbBatter;
                     float wallHalfZ = NbBenchD * 0.5f + NbBatter;
                     float drop = 0f;
@@ -556,10 +726,36 @@ namespace PSXRacing.EditorTools
                             m.drive, false);
                     }
 
+                    // TURNED THE RIGHT WAY ROUND, AND STANDING ON ITS OWN BENCH.
+                    //
+                    // yawOffsetDeg: 0f. WorldKit.Place defaults to 180, and its
+                    // doc comment claims that is right for every prop in the
+                    // project — it is not right for this pack. Measured in
+                    // Blender off the shipped FBX, house_simple's garage door,
+                    // front door and concrete path are all at Unity local +Z
+                    // and only the veranda is at -Z, so LookRotation already
+                    // aims the front where `facing` says and the extra 180
+                    // turned it to face the back gardens. Both rows showed the
+                    // street a veranda and a shed door, with the drive running
+                    // to a blank wall: "homes are facing the wrong way,
+                    // driveway not leading to garage." house_hero is placed
+                    // with yawOffsetDeg 0 two files over for the same reason,
+                    // and the two models carry the same door at the same
+                    // coordinates.
+                    //
+                    // x + side * 2f, not 4f: the bench NbGroundY cuts is centred
+                    // at NbSetback + 2, and the house was two metres outboard of
+                    // it. The model is 16.33 m deep, so it overhung the graded
+                    // ground by 1.67 m at the back and stood on raw hillside —
+                    // which is the other half of "houses ... have hills going
+                    // through the floors", and which no retaining wall covered,
+                    // because the wall is sized by where land FALLS AWAY and a
+                    // corner where it rises contributes nothing.
                     var house = WorldKit.Place(lots.transform,
                         TownHouseDir + "/house_simple.fbx", "NbHouse" + tag,
-                        new Vector3(x + side * 4f, padY, z), facing,
-                        PSXRacing.City.CityProps.PackScale, glass: true);
+                        new Vector3(x + side * 2f, padY, z), facing,
+                        PSXRacing.City.CityProps.PackScale,
+                        glass: false, yawOffsetDeg: 0f);
                     if (house != null)
                     {
                         // SEAT IT. WorldKit.Place OVERWRITES the instantiated
@@ -575,14 +771,25 @@ namespace PSXRacing.EditorTools
                         WorldKit.AddColliders(house, WorldKit.SolidLayer);
                     }
 
-                    // The drive, from the kerb to the front of the house. It
-                    // OVERLAPS the kerb line, because a drive that merely
-                    // touches one leaves a strip of lawn for a wheel to drop
-                    // onto — the same correction the home lot's drive carries.
-                    float kerbX = HomeStreetX + side * (HomeRoadW * 0.5f - 0.6f);
-                    float houseX = x - side * 3f;
+                    // The drive, from the kerb to the front of the house.
+                    //
+                    // IT STOPS AT THE KERB. It used to run 0.6 m past it onto
+                    // the carriageway, on the reasoning that "a drive that
+                    // merely touches one leaves a strip of lawn for a wheel to
+                    // drop onto". The premise was wrong: the tarmac edge and
+                    // the kerb's inner face are the SAME line, so a drive ending
+                    // there shares an edge with the road and there is no gap for
+                    // lawn to appear in. What the overlap actually bought was
+                    // 42 square metres of concrete lying on the street, five of
+                    // them stepping up out of it by as much as 12 cm.
+                    //
+                    // The lawn hazard the comment feared is real, but it lives
+                    // one metre further out and the fix for it is the dropped
+                    // kerb in BuildNbGround, not a wider slab.
+                    float kerbX = HomeStreetX + side * NbKerbOut;
+                    float houseX = HomeStreetX + side * 18.5f;
                     float driveX = (kerbX + houseX) * 0.5f;
-                    float driveZ = z - 4.5f;
+                    float driveZ = NbDriveZ(side, z);
                     // THE DRIVE RAMPS, because it has to: it starts at the kerb
                     // and ends on a pad that is not at kerb height. Interpolated
                     // across its own width, from the road's own surface at the
@@ -614,11 +821,21 @@ namespace PSXRacing.EditorTools
                             // Seated on what it is standing on, not on y=0.
                             // A car parked on a drive that climbs two metres to
                             // the house is two metres in the air otherwise.
+                            // ON the drive, which means on the drive's own
+                            // centreline — that moved with the garage, so a car
+                            // parked off the old fixed z sat on the lawn beside
+                            // it for half the street.
+                            float parkX = HomeStreetX + side * 12f;
                             Vector3 at = onDrive
-                                ? new Vector3(x - side * 6f,
-                                              NbGroundY(x - side * 6f, z - 4.5f) + 0.07f,
-                                              z - 4.5f)
-                                : new Vector3(kerbX + side * 2.2f, NbRoadY(z + 6f) + 0.02f, z + 6f);
+                                ? new Vector3(parkX,
+                                              NbGroundY(parkX, driveZ) + 0.07f, driveZ)
+                                // AT the kerb means ON the tarmac, inboard of
+                                // it. This was kerbX + side * 2.2, which is two
+                                // metres OUTSIDE the carriageway — every
+                                // kerbside car on the street was parked on the
+                                // grass verge with its wheels in a lawn.
+                                : new Vector3(kerbX - side * 1.3f,
+                                              NbRoadY(z + 9f) + 0.02f, z + 9f);
                             var go = new GameObject("Parked_" + def.key);
                             go.transform.SetParent(lots.transform, false);
                             go.transform.position = at;
@@ -681,7 +898,7 @@ namespace PSXRacing.EditorTools
             var list = new List<Transform>();
             // Down the crown of the street, facing the junction — a car put
             // back on its own road should be pointing the way out of it.
-            for (float z = HomeStreetTop - 8f; z > NbStreetEnd + 12f; z -= 34f)
+            for (float z = NbBulbThroatZ - 6f; z > NbStreetEnd + 12f; z -= 34f)
             {
                 var go = new GameObject("NbRespawn");
                 go.transform.SetParent(root.transform, false);

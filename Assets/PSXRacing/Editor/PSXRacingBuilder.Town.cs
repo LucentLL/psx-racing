@@ -426,32 +426,65 @@ namespace PSXRacing.EditorTools
                 else WorldKit.AddColliders(house, WorldKit.SolidLayer);
             }
 
-            // The drive: from the garage door down to where the road stops.
-            // It OVERLAPS the road end by two metres, because a driveway that
-            // merely touches a kerb leaves a strip of lawn between them for a
-            // wheel to drop onto.
+            // The drive: from the garage door down to where the road starts.
+            //
+            // IT USED TO BE 5.2 m WIDE AND IT IS 3.9 NOW, because the house
+            // brings its own forecourt. house_hero ships a 3.65 m concrete
+            // apron in front of the garage bay with PLANTING BEDS immediately
+            // either side of it, and the extra 0.775 m of slab on each flank
+            // landed square on those beds — cutting each plant off 7 cm above
+            // its own base and leaving the rest of it standing up through the
+            // concrete. That is "houses ... have hills going through the
+            // floors": not the height field at all, which is dead flat here,
+            // but shrubbery growing out of the player's own driveway.
+            //
+            // AND IT STOPS AT THE ROAD, not two metres onto it. The comment
+            // that justified the overlap named a kerb to bridge; there is no
+            // kerb across the head of the street, only the two side kerbs the
+            // drive never reaches, so the overlap bridged nothing and simply
+            // laid 10 square metres of drive on the carriageway — 2 cm proud of
+            // it, on a flat box collider, over tarmac that now slopes.
             float driveTopZ = doorZ;
-            float driveBotZ = HomeStreetTop - 2f;
+            // Down to the RIM OF THE TURNING HEAD, which is what the street
+            // ends in now — not to HomeStreetTop, which is a line inside it.
+            float driveBotZ = NbBulbCz + NbBulbR;
             WorldKit.GridSlab(home.transform, "HomeDrive",
-                new Vector3(doorX, 0.03f, (driveTopZ + driveBotZ) * 0.5f),
-                5.2f, driveTopZ - driveBotZ, 3f, m.drive, true, 5f, WorldKit.RoadLayer);
+                new Vector3(doorX, 0f, (driveTopZ + driveBotZ) * 0.5f),
+                3.9f, driveTopZ - driveBotZ, 3f, m.drive, true, 5f, WorldKit.RoadLayer,
+                // Follows the street's own profile at the bottom. NbRoadY is
+                // clamped to zero for z >= HomeStreetTop, so the whole drive is
+                // flat at 0.03 exactly as before and only its last metres could
+                // ever bend — but they bend correctly if the head of the street
+                // ever moves, instead of hanging where a literal put them.
+                (px, pz) => NbRoadY(pz) + 0.03f);
 
             // Where the car is parked at the start of a session, facing OUT.
             // Two metres clear of the door so the nose is not inside the house.
+            //
+            // EVERY ONE OF THESE THREE ANCHORS IS SEATED ON THE DRIVE, not on a
+            // literal Y. They were 0.35, 1.4 and 1.2 above an assumed zero, and
+            // the junction at the far end of the street was seated the same way
+            // — where the road then fell eleven metres out from under it and
+            // the DEPART prompt could never fire. These three survive today
+            // only because NbRoadY clamps to zero above HomeStreetTop and the
+            // lot happens to be flat. That is luck, not correctness, and it is
+            // the same landmine three more times.
             var spawn = new GameObject("HomeSpawn");
             spawn.transform.SetParent(home.transform, false);
             spawn.transform.SetPositionAndRotation(
-                new Vector3(doorX, 0.35f, driveTopZ - 3.5f),
+                new Vector3(doorX, NbRoadY(driveTopZ - 3.5f) + 0.35f, driveTopZ - 3.5f),
                 Quaternion.LookRotation(Vector3.back, Vector3.up));
 
             // Pull back in and the day is over.
             TownTrigger(home.transform, "HomeVenue", TownVenue.Kind.Home,
-                new Vector3(doorX, 1.4f, driveTopZ - 5f), new Vector3(9f, 3f, 10f));
+                new Vector3(doorX, NbRoadY(driveTopZ - 5f) + 1.4f, driveTopZ - 5f),
+                new Vector3(9f, 3f, 10f));
 
             // The open garage bay, for somebody who parked on the street and
             // walked up their own drive.
             townHomeDoor = TownAnchor(home.transform, "HomeDoorAnchor",
-                new Vector3(doorX, 1.2f, driveTopZ - 1.2f), Vector3.forward);
+                new Vector3(doorX, NbRoadY(driveTopZ - 1.2f) + 1.2f, driveTopZ - 1.2f),
+                Vector3.forward);
 
             // The junction that used to be built here has moved out to
             // whoever builds the STREET — see PSXRacingBuilder.Neighborhood.cs.

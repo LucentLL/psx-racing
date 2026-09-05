@@ -168,6 +168,98 @@ namespace PSXRacing.EditorTools
             return go;
         }
 
+        /// <summary>
+        /// A DISC, in rings and sectors, with the same contract as GridSlab:
+        /// world-anchored UVs so it seams with the slabs around it, an optional
+        /// world height function, and a MeshCollider when it is shaped.
+        ///
+        /// The one shape a rectangular grid cannot make, and a cul-de-sac is
+        /// exactly that shape. Written for the turning head at the top of the
+        /// player's street, where a hammerhead of boxes would have read as a
+        /// widened road rather than as the end of one.
+        /// </summary>
+        /// <param name="cell">Target edge length, used for BOTH the ring pitch
+        /// and the sector count, so the facets stay roughly square rather than
+        /// becoming long thin wedges near the rim.</param>
+        public static GameObject Disc(Transform parent, string name, Vector3 centre,
+                                      float radius, float cell,
+                                      Material mat, bool solid, float tile,
+                                      int layer = 0,
+                                      System.Func<float, float, float> heightAt = null)
+        {
+            int rings = Mathf.Max(2, Mathf.RoundToInt(radius / cell));
+            int sectors = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / cell));
+
+            var verts = new Vector3[1 + rings * sectors];
+            var uvs = new Vector2[verts.Length];
+
+            void Put(int idx, float lx, float lz)
+            {
+                // LOCAL, for the reason GridSlab spells out: the transform
+                // already carries centre.y, and adding it twice puts the
+                // surface two centimetres above itself.
+                float wy = heightAt != null
+                         ? heightAt(lx + centre.x, lz + centre.z) - centre.y
+                         : 0f;
+                verts[idx] = new Vector3(lx, wy, lz);
+                uvs[idx] = new Vector2((lx + centre.x) / tile, (lz + centre.z) / tile);
+            }
+
+            Put(0, 0f, 0f);
+            for (int r = 1; r <= rings; r++)
+            {
+                float rad = radius * r / rings;
+                for (int s = 0; s < sectors; s++)
+                {
+                    float a = s * 2f * Mathf.PI / sectors;
+                    Put(1 + (r - 1) * sectors + s, Mathf.Cos(a) * rad, Mathf.Sin(a) * rad);
+                }
+            }
+
+            var tris = new int[sectors * 3 + (rings - 1) * sectors * 6];
+            int t = 0;
+            for (int s = 0; s < sectors; s++)                    // the middle fan
+            {
+                int a = 1 + s, b = 1 + (s + 1) % sectors;
+                tris[t++] = 0; tris[t++] = a; tris[t++] = b;
+            }
+            for (int r = 1; r < rings; r++)                      // and the rings
+                for (int s = 0; s < sectors; s++)
+                {
+                    int i0 = 1 + (r - 1) * sectors + s;
+                    int i1 = 1 + (r - 1) * sectors + (s + 1) % sectors;
+                    int o0 = 1 + r * sectors + s;
+                    int o1 = 1 + r * sectors + (s + 1) % sectors;
+                    tris[t++] = i0; tris[t++] = o0; tris[t++] = o1;
+                    tris[t++] = i0; tris[t++] = o1; tris[t++] = i1;
+                }
+
+            var mesh = new Mesh { name = name };
+            mesh.vertices = verts;
+            mesh.uv = uvs;
+            mesh.triangles = tris;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            SaveMesh(mesh, name);
+
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = centre;
+            go.isStatic = true;
+            go.layer = layer;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var dmr = go.AddComponent<MeshRenderer>();
+            if (mat != null) dmr.sharedMaterial = mat;
+            dmr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            dmr.receiveShadows = false;
+            if (solid)
+            {
+                var mc = go.AddComponent<MeshCollider>();
+                mc.sharedMesh = mesh;
+            }
+            return go;
+        }
+
         /// <summary>A box. Sizes are FULL extents, the way a person measures a
         /// wall, not Unity's half-extents.</summary>
         public static GameObject Box(Transform parent, string name, Vector3 centre,
@@ -285,17 +377,28 @@ namespace PSXRacing.EditorTools
         /// </summary>
         /// <param name="frontToward">Which way the model's FRONT should end up
         /// pointing.</param>
-        /// <param name="yawOffsetDeg">The model's own front-facing correction.
-        /// 180 for every EXTRACTED prop in this project — the pack models its
-        /// fronts toward Blender -Y, which lands at Unity -Z — and that is what
-        /// CityProps carries on every row, so it is the default.
+        /// <param name="yawOffsetDeg">The model's own front-facing correction:
+        /// 180 for a model whose front is Unity local -Z, 0 for one whose front
+        /// is local +Z. LookRotation aims local +Z at <paramref
+        /// name="frontToward"/>, so the 180 is a correction, not a convention.
         ///
-        /// It is NOT universal, and getting it wrong is silent: house_hero.fbx
-        /// is the whole showcase scene rather than a cut-out prop and its front
-        /// arrives facing +Z, which is why GarageSceneBuilder turns it by a
-        /// flat 180 and this needs to be told 0 for it. A house facing the
-        /// wrong way still renders, still collides, and still measures — it
-        /// just shows the street its back garden.</param>
+        /// IT IS PER-PACK, AND THE DEFAULT OF 180 IS ONLY RIGHT FOR SOME OF
+        /// THEM. This comment used to claim 180 was right for "every EXTRACTED
+        /// prop in this project" and excuse house_hero as a special case for
+        /// being a showcase scene rather than a cut-out. That reasoning is
+        /// wrong, and it propagated: the HOUSE pack's fronts are at local +Z,
+        /// measured in Blender off the shipped FBXs — house_simple's garage
+        /// door, front door and concrete path are all at +Z and only its
+        /// veranda is at -Z, and house_hero carries the same door at the same
+        /// coordinates. Both want 0. The neighbourhood took the default and
+        /// built a whole street showing the road its back gardens.
+        ///
+        /// The 180 IS right for the restaurant pack, where it was originally
+        /// derived from an observation ("every restaurant politely showed the
+        /// street its back"). One pack's measurement was generalised to four
+        /// that were never checked to agree. MEASURE THE MODEL before trusting
+        /// the default — a house facing the wrong way still renders, still
+        /// collides and still measures; it just faces the wrong way.</param>
         public static GameObject Place(Transform parent, string fbxPath, string name,
                                        Vector3 at, Vector3 frontToward, float scale,
                                        bool glass = false, float yawOffsetDeg = 180f)

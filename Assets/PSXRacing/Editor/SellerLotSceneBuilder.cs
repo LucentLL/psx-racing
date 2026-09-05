@@ -132,11 +132,21 @@ namespace PSXRacing.EditorTools
                 for (int v = 0; v < Variants.Length; v++)
                 {
                     // frontToward -Z: the houses look down at the street, which
-                    // is south of them. WorldKit.Place carries the pack's own
-                    // 180-degree front correction so this reads as written.
+                    // is south of them.
+                    //
+                    // PER-VARIANT YAW, because the two packs disagree. The
+                    // HOUSE pack's front is Unity local +Z — measured off the
+                    // FBX, and the same fault that had the whole neighbourhood
+                    // facing backwards — so house_simple needs 0 and the default
+                    // 180 turned it to show the street its back garden. The
+                    // trailers are a different pack and stay on the default
+                    // until one of them is measured the same way; trailer_00 is
+                    // a side-entry model with no garage door to measure by, so
+                    // it needs its own look rather than being swept in here.
                     var go = WorldKit.Place(plotGO.transform, Variants[v], "House" + v,
                         new Vector3(x, 0f, HouseZ + 5f), Vector3.back,
-                        PSXRacing.City.CityProps.PackScale);
+                        PSXRacing.City.CityProps.PackScale,
+                        yawOffsetDeg: Variants[v].EndsWith("house_simple.fbx") ? 0f : 180f);
                     if (go == null) continue;
                     // Seat by the MEASURED bottom, not by the origin. The house
                     // pack sits on a foundation and the trailers do not, so one
