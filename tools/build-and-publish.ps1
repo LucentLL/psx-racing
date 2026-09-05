@@ -144,8 +144,8 @@ if (-not $SkipDeploy) {
     Copy-Item "$build\Build" $pages -Recurse
     if (Test-Path "$build\StreamingAssets") { Copy-Item "$build\StreamingAssets" $pages -Recurse }
 
-    # CACHE BUSTING. Every deploy writes the same four filenames — WebGL.data,
-    # WebGL.wasm, WebGL.framework.js, WebGL.loader.js — and GitHub Pages serves
+    # CACHE BUSTING. Every deploy writes the same four payloads — the data, the
+    # wasm, the framework and the loader — and GitHub Pages serves
     # them with caching headers, so a browser holding the previous 65 MB .data
     # happily reuses it and runs the OLD GAME. The deploy looks green, the
     # bytes on the server are correct, and the player sees the last build: this
@@ -156,11 +156,36 @@ if (-not $SkipDeploy) {
     # so the browser fetches it. Stamped from the build's own timestamp, so
     # republishing the SAME build (-SkipBuild) keeps the same stamp and does
     # not force a pointless 65 MB re-download.
-    $stamp = (Get-Item "$pages\Build\WebGL.data").LastWriteTimeUtc.ToString("yyyyMMddHHmmss")
+    # FOUND, NOT ASSUMED. The payload names carry a suffix now, and it is NOT
+    # the one you would guess: Brotli with decompressionFallback writes
+    # WebGL.data.unityweb, not WebGL.data.br. The neutral extension is the
+    # point — it stops a server helpfully interpreting a stream the LOADER is
+    # going to decompress. The loader itself is never compressed and keeps its
+    # plain name.
+    #
+    # A hardcoded list stamps nothing, fails its own check, and throws away a
+    # forty-minute build. That happened twice on one afternoon: once with the
+    # plain names after compression was turned on, and once with ".br" guessed.
+    # Asking the directory what it holds is the only version of this that
+    # survives the next change.
+    $files = @()
+    foreach ($stem in @("WebGL.data", "WebGL.wasm", "WebGL.framework.js", "WebGL.loader.js")) {
+        $hit = Get-ChildItem "$pages\Build" -Filter "$stem*" -File |
+               Where-Object { $_.Name -in @($stem, "$stem.unityweb", "$stem.br", "$stem.gz") } |
+               Select-Object -First 1
+        if ($null -eq $hit) { Write-Host "  WARN: no build file for $stem"; continue }
+        $files += $hit.Name
+    }
+    $dataFile = $files | Where-Object { $_ -like "WebGL.data*" } | Select-Object -First 1
+    if ($null -eq $dataFile) {
+        Write-Host "NO WebGL.data IN THE BUILD - nothing to publish." -ForegroundColor Red
+        exit 1
+    }
+    $stamp = (Get-Item "$pages\Build\$dataFile").LastWriteTimeUtc.ToString("yyyyMMddHHmmss")
     $idx = Join-Path $pages "index.html"
     $html = Get-Content $idx -Raw
     $stamped = 0
-    foreach ($f in @("WebGL.data", "WebGL.wasm", "WebGL.framework.js", "WebGL.loader.js")) {
+    foreach ($f in $files) {
         # Pattern into a variable, NOT inlined: `-replace [regex]::Escape(..) +
         # "(?!\?)", ..` parses its operands ambiguously and silently replaced
         # nothing, which printed a stamp and shipped an unstamped page.
@@ -176,7 +201,7 @@ if (-not $SkipDeploy) {
     # all: a cache-bust that quietly does nothing is indistinguishable from a
     # deploy that worked.
     $check = (Get-Content $idx -Raw)
-    if ($stamped -lt 4 -or $check -notmatch [regex]::Escape("WebGL.data?v=$stamp")) {
+    if ($stamped -lt 4 -or $check -notmatch [regex]::Escape("$dataFile" + "?v=$stamp")) {
         Write-Host "CACHE-BUST FAILED - index.html would serve stale build." -ForegroundColor Red
         exit 1
     }

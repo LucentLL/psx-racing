@@ -85,9 +85,24 @@ namespace PSXRacing.EditorTools
                 PlayerSettings.defaultWebScreenWidth = 960;
                 PlayerSettings.defaultWebScreenHeight = 720;
 
-                // Uncompressed: a dumb static server (python http.server) can serve it as-is.
-                PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
-                PlayerSettings.WebGL.decompressionFallback = false;
+                // BROTLI, WITH THE JAVASCRIPT FALLBACK.
+                //
+                // This was Disabled, for a good reason — "a dumb static server
+                // (python http.server) can serve it as-is" — and the reason
+                // survives, because decompressionFallback is what makes it
+                // survive: the loader unpacks the stream itself instead of
+                // relying on the server to send Content-Encoding. A dumb static
+                // server still works, and so does GitHub Pages, which serves a
+                // .br file as opaque bytes and would otherwise hand the browser
+                // something it cannot read.
+                //
+                // What forced it: two mountain roads took WebGL.data to 103.8 MB
+                // and GITHUB REFUSES ANY FILE OVER 100 MB. The push was rejected
+                // after a successful forty-minute build. Uncompressed was never
+                // really free either — Pages was gzipping the whole 48 MB on
+                // every single request before this.
+                PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
+                PlayerSettings.WebGL.decompressionFallback = true;
                 PlayerSettings.WebGL.dataCaching = true;
                 PlayerSettings.WebGL.linkerTarget = WebGLLinkerTarget.Wasm;
                 PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.None;
