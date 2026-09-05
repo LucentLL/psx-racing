@@ -35,6 +35,52 @@ namespace PSXRacing
         /// decided at a distance, and there is no lap.</summary>
         public bool HasEnds => drag || pointToPoint;
 
+        /// <summary>Which way round this path is being driven. Set once, at
+        /// load, by whoever turned it round; read by anything that has to
+        /// PRINT the direction rather than follow it.</summary>
+        public bool reversed;
+
+        /// <summary>
+        /// TURN THE CIRCUIT ROUND.
+        ///
+        /// A reverse venue has no scene of its own — it races in its forward
+        /// twin's, because the road, the barriers, the kerbs, the scenery and
+        /// the elevation are the same physical objects standing in the same
+        /// places, and the only thing that differs is the order you meet them
+        /// in. That order is this list.
+        ///
+        /// WAYPOINT 0 DOES NOT MOVE. On a loop the list is reversed and then
+        /// rotated so the old first point is still the first point, which keeps
+        /// the start/finish line, the grid, the fuel-stop opening and the lap
+        /// counter exactly where they were baked — a start line is a painted
+        /// band across a road and does not care which way you cross it. On a
+        /// route with ENDS the whole list simply flips, because the far end of
+        /// a mountain stage IS the new start, and the climb becomes a descent.
+        ///
+        /// The curvature array rides along unchanged in VALUE because
+        /// BuildWaypoints measures it with Vector3.Angle, which is unsigned: a
+        /// corner is as tight from either side. Only its order moves.
+        /// </summary>
+        public void ReverseInPlace()
+        {
+            if (waypoints == null || waypoints.Length < 2 || reversed) return;
+            int n = waypoints.Length;
+            var wp = new Vector3[n];
+            var cv = curvatures != null && curvatures.Length == n ? new float[n] : null;
+
+            for (int i = 0; i < n; i++)
+            {
+                // Loop: 0 stays put and the rest walk backwards round it.
+                // Ends:  a straight flip, first point to last.
+                int src = HasEnds ? (n - 1 - i) : (i == 0 ? 0 : n - i);
+                wp[i] = waypoints[src];
+                if (cv != null) cv[i] = curvatures[src];
+            }
+            waypoints = wp;
+            if (cv != null) curvatures = cv;
+            reversed = true;
+        }
+
         public int Count => waypoints != null ? waypoints.Length : 0;
         public float TotalLength => Count * spacing;
 

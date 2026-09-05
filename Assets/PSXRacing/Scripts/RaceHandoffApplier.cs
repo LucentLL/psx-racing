@@ -50,6 +50,22 @@ namespace PSXRacing
         {
             if (applied) return;
             applied = true;
+
+            // TURN THE CIRCUIT ROUND BEFORE ANYTHING READS IT.
+            //
+            // A reverse venue races in its forward twin s scene, so the only
+            // difference is the order of the waypoints — and RaceManager.Start
+            // calls this method and then immediately builds its progress table
+            // from that list, while the grid staging a few lines down places
+            // the field along it. Both have to see the reversed one, which is
+            // why this is the first statement in the method rather than
+            // somewhere tidier.
+            var venue = TrackCatalog.At(RaceHandoff.TrackIndex);
+            if (RaceHandoff.FromLifeSim && venue.Reversed)
+            {
+                var tp = Object.FindFirstObjectByType<TrackPath>();
+                if (tp != null) tp.ReverseInPlace();
+            }
             // Time of day is applied EVEN on a standalone editor race, unlike
             // everything else here: the scene is baked at one hour, and the
             // hour is now the cheapest thing to vary while testing. Pressing

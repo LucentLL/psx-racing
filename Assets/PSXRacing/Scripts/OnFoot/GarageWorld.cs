@@ -799,7 +799,7 @@ namespace PSXRacing.OnFoot
                 return;
             }
 
-            int idx = TrackCatalog.TownSceneIndex;
+            int idx = TrackCatalog.NeighborhoodSceneIndex;
             if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
             {
                 // A bad index reaching LoadScene is a black screen with no

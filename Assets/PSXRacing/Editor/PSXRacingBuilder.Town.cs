@@ -124,7 +124,6 @@ namespace PSXRacing.EditorTools
             var mats = TownMaterials();
 
             BuildTownGround(root.transform, mats);
-            var homeDrive = BuildTownHome(root.transform, mats);
             BuildTownStrip(root.transform, mats);
             BuildTownTrade(root.transform, mats);
             var dealerAnchors = BuildTownDealer(root.transform, mats);
@@ -136,8 +135,14 @@ namespace PSXRacing.EditorTools
             var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
             var blobMat = MakeBlobShadowMaterial();
             var carsRoot = new GameObject("Cars");
+            // ARRIVING FROM HOME, at the west end, pointing up the street.
+            // The town used to spawn you on your own driveway because the
+            // driveway was in it; the house is its own map now, so the town's
+            // spawn is where its road comes in from that map. Every other
+            // arrival (a shop page, the shift) repositions the car itself.
             var player = BuildOneCar(carsRoot.transform, CarSetups[0], isPlayer: true,
-                homeDrive.position, homeDrive.rotation, physMat, blobMat);
+                new Vector3(-TownStreetHalf + 18f, 0.35f, 0f),
+                Quaternion.LookRotation(Vector3.right, Vector3.up), physMat, blobMat);
             var cars = new List<CarController> { player };
 
             BuildCameraAndHUD(player, cars, null, lightGO.GetComponent<Light>());
@@ -205,7 +210,6 @@ namespace PSXRacing.EditorTools
             world.pizzaHooks = townPizzaHooks;
             world.dealerDoor = townDealerDoor;
             world.yardGate = townYardGate;
-            world.homeDoor = townHomeDoor;
             world.mechanicDoor = townMechanicDoor;
             world.paintDoor = townPaintDoor;
             // Bare concrete grey for the cinder blocks under stripped wrecks —
@@ -285,9 +289,6 @@ namespace PSXRacing.EditorTools
             // for the whole session and nothing on screen says so.
             WorldKit.GridSlab(parent, "TownMain", new Vector3(0f, 0.02f, 0f),
                 TownStreetHalf * 2f, TownRoadW, 4f, m.road, true, 12f, WorldKit.RoadLayer);
-            WorldKit.GridSlab(parent, "TownHomeRoad",
-                new Vector3(HomeStreetX, 0.02f, HomeStreetTop * 0.5f),
-                HomeRoadW, HomeStreetTop, 4f, m.road, true, 12f, WorldKit.RoadLayer);
 
             // Centre line on the main street, and kerbs either side of it.
             // The line is PAINT, not surface: no collider, and off the road
@@ -452,12 +453,10 @@ namespace PSXRacing.EditorTools
             townHomeDoor = TownAnchor(home.transform, "HomeDoorAnchor",
                 new Vector3(doorX, 1.2f, driveTopZ - 1.2f), Vector3.forward);
 
-            // The junction at the bottom of your street: the one place the game
-            // asks where you are going. Placed just short of the main road, so
-            // a player who simply drives on has answered the question.
-            TownTrigger(home.transform, "DepartVenue", TownVenue.Kind.Depart,
-                new Vector3(HomeStreetX, 1.4f, 13f), new Vector3(HomeRoadW + 4f, 3f, 12f));
-
+            // The junction that used to be built here has moved out to
+            // whoever builds the STREET — see PSXRacingBuilder.Neighborhood.cs.
+            // It belonged to the road rather than to the house, and leaving it
+            // in the lot would have given the town a menu to nowhere.
             return spawn.transform;
         }
 

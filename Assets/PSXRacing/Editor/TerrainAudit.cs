@@ -65,7 +65,7 @@ namespace PSXRacing.EditorTools
         {
             var log = new StringBuilder();
             int failures = 0;
-            foreach (var def in TrackCatalog.All) failures += AuditOne(def, log);
+            foreach (var def in TrackCatalog.Scened) failures += AuditOne(def, log);
             log.AppendLine(failures == 0 ? "TERRAIN AUDIT OK" : "TERRAIN AUDIT: " + failures + " PROBLEM(S)");
             Debug.Log(log.ToString());
             System.IO.File.WriteAllText(

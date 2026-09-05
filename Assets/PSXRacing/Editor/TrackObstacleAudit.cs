@@ -54,7 +54,7 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             var log = new StringBuilder();
-            foreach (var def in TrackCatalog.All) AuditOne(def, log);
+            foreach (var def in TrackCatalog.Scened) AuditOne(def, log);
 
             Debug.Log(log.ToString());
             System.IO.File.WriteAllText(

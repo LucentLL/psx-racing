@@ -622,6 +622,19 @@ namespace PSXRacing.EditorTools
             foreach (var t in TrackCatalog.All)
             {
                 Check(ids.Add(t.id), "unique id " + t.id);
+                // A reverse twin has no scene of its own — it races in its
+                // forward venue s. What it owes instead is that the venue it
+                // names still exists and still has one, which is the assertion
+                // that would actually catch a rename.
+                if (t.Reversed)
+                {
+                    var fwd = TrackCatalog.At(TrackCatalog.IndexOf(t.reverseOf));
+                    Check(fwd.id == t.reverseOf, t.id + " points at a real venue", t.reverseOf);
+                    Check(TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.id)) ==
+                          TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.reverseOf)),
+                          t.id + " races in " + t.reverseOf + " s scene");
+                    continue;
+                }
                 Check(System.IO.File.Exists("Assets/PSXRacing/Scenes/" + t.id + ".unity"),
                       t.id + " scene exists");
 
@@ -736,23 +749,33 @@ namespace PSXRacing.EditorTools
                       thumb != null ? OpaquePixels(thumb) : 0);
             }
 
+            // Every SCENED venue is at its own index; a reverse twin resolves
+            // to the venue it names. Walking Count rather than SceneCount is
+            // what caught the reverses being appended in the wrong place.
             for (int i = 0; i < TrackCatalog.Count; i++)
-                Check(TrackCatalog.SceneIndex(i) == i + 1, "scene index " + i + " is " + (i + 1));
+            {
+                var t = TrackCatalog.At(i);
+                int want = t.Reversed ? TrackCatalog.IndexOf(t.reverseOf) + 1 : i + 1;
+                Check(TrackCatalog.SceneIndex(i) == want,
+                      "scene index " + i + " (" + t.id + ") is " + want,
+                      TrackCatalog.SceneIndex(i));
+            }
             // Build settings ARE the contract SceneIndex assumes. A track added
             // to the catalog and not to the scene list sends the player to the
             // wrong circuit, or to no scene at all.
             var scenes = EditorBuildSettings.scenes;
-            Check(scenes.Length == TrackCatalog.Count + 5,
-                  "build settings hold home + every circuit + garage + pizzeria + town + "
-                  + "seller lot", scenes.Length);
-            for (int i = 0; i < TrackCatalog.Count && i + 1 < scenes.Length; i++)
-                Check(scenes[i + 1].path.EndsWith("/" + TrackCatalog.At(i).id + ".unity"),
-                      "build index " + (i + 1) + " is " + TrackCatalog.At(i).id, scenes[i + 1].path);
+            Check(scenes.Length == TrackCatalog.SceneCount + 6,
+                  "build settings hold home + every built circuit + garage + pizzeria + town + "
+                  + "seller lot + neighbourhood", scenes.Length);
+            for (int i = 0; i < TrackCatalog.SceneCount && i + 1 < scenes.Length; i++)
+                Check(scenes[i + 1].path.EndsWith("/" + TrackCatalog.Scened[i].id + ".unity"),
+                      "build index " + (i + 1) + " is " + TrackCatalog.Scened[i].id, scenes[i + 1].path);
             // The garage is addressed by a formula off the catalog length, so
             // the one way to get it wrong is to insert a scene before the
             // circuits — which would also silently re-point every race.
-            Check(TrackCatalog.GarageSceneIndex == TrackCatalog.Count + 1,
-                  "garage scene index sits after every circuit", TrackCatalog.GarageSceneIndex);
+            Check(TrackCatalog.GarageSceneIndex == TrackCatalog.SceneCount + 1,
+                  "garage scene index sits after every built circuit",
+                  TrackCatalog.GarageSceneIndex);
             Check(TrackCatalog.GarageSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.GarageSceneIndex].path.EndsWith("/Garage.unity"),
                   "build index " + TrackCatalog.GarageSceneIndex + " is the garage",
@@ -789,6 +812,14 @@ namespace PSXRacing.EditorTools
                   "build index " + TrackCatalog.SellerLotSceneIndex + " is the seller's street",
                   TrackCatalog.SellerLotSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.SellerLotSceneIndex].path : "missing");
+            Check(TrackCatalog.NeighborhoodSceneIndex == TrackCatalog.SellerLotSceneIndex + 1,
+                  "your street sits after the seller s",
+                  TrackCatalog.NeighborhoodSceneIndex);
+            Check(TrackCatalog.NeighborhoodSceneIndex < scenes.Length &&
+                  scenes[TrackCatalog.NeighborhoodSceneIndex].path.EndsWith("/Neighborhood.unity"),
+                  "build index " + TrackCatalog.NeighborhoodSceneIndex + " is your street",
+                  TrackCatalog.NeighborhoodSceneIndex < scenes.Length
+                      ? scenes[TrackCatalog.NeighborhoodSceneIndex].path : "missing");
 
             // THE PLAYER'S list, not the editor's.
             //
@@ -814,6 +845,7 @@ namespace PSXRacing.EditorTools
             TestVertexSnapOff();
             TestWalkInScenesRender();
             TestTownScene();
+            TestNeighborhoodScene();
             TestPizzaCounter();
             TestPaintShop();
             TestYardWrecks();
@@ -1166,6 +1198,82 @@ namespace PSXRacing.EditorTools
         /// the whole session. A venue with no trigger is a shop with no door.
         /// None of the three throws, logs, or looks wrong in a screenshot.
         /// </summary>
+        /// <summary>
+        /// YOUR STREET, as a scene.
+        ///
+        /// Its own map since the house came out of the town, and it needs the
+        /// same eight-piece drivable stack the town does — every one of which
+        /// fails silently. What is checked here that is NOT checked there is
+        /// the pair of venues that MOVED: a neighbourhood without a Home venue
+        /// is a house you cannot go into, and one without a Depart venue is a
+        /// map with no way out of it but the pause menu.
+        /// </summary>
+        static void TestNeighborhoodScene()
+        {
+            Line("your street:");
+            string path = PSXRacingBuilder.NeighborhoodScenePath;
+            if (!System.IO.File.Exists(path))
+            {
+                Check(false, "the neighbourhood scene exists (run the scene build)");
+                return;
+            }
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                path, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+
+            PSXRacing.CarController player = null;
+            PSXRacing.City.CityMode mode = null;
+            PSXRacing.PauseMenu pause = null;
+            PSXRacing.PSXCameraOutput output = null;
+            PSXRacing.OnFoot.ForecourtMode forecourt = null;
+            PSXRacing.Town.TownWorld world = null;
+            var venues = new List<PSXRacing.Town.TownVenue>();
+            int roadCols = 0;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                player = player ?? go.GetComponentInChildren<PSXRacing.CarController>(true);
+                mode = mode ?? go.GetComponentInChildren<PSXRacing.City.CityMode>(true);
+                pause = pause ?? go.GetComponentInChildren<PSXRacing.PauseMenu>(true);
+                output = output ?? go.GetComponentInChildren<PSXRacing.PSXCameraOutput>(true);
+                forecourt = forecourt ?? go.GetComponentInChildren<PSXRacing.OnFoot.ForecourtMode>(true);
+                world = world ?? go.GetComponentInChildren<PSXRacing.Town.TownWorld>(true);
+                venues.AddRange(go.GetComponentsInChildren<PSXRacing.Town.TownVenue>(true));
+                foreach (var c in go.GetComponentsInChildren<Collider>(true))
+                    if (c.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer) roadCols++;
+            }
+
+            Check(player != null, "there is a car on your drive");
+            Check(output != null && output.display != null,
+                  "and it blits its picture back to the screen");
+            Check(pause != null, "and a pause menu");
+            Check(mode != null && mode.player != null,
+                  "a CityMode owns the session, so DriveSession is live");
+            Check(mode != null && mode.respawnPoints != null && mode.respawnPoints.Length > 0,
+                  "and it has somewhere to put a stuck car back",
+                  mode != null ? mode.respawnPoints.Length : 0);
+            Check(forecourt != null && forecourt.anywhereInTown,
+                  "you can get out anywhere on your own street");
+            Check(world != null && world.homeDoor != null,
+                  "and walk in through your own garage door");
+
+            // The two that moved out of the town. Without HOME the house is
+            // scenery; without DEPART the road ends in a wall.
+            bool home = false, depart = false;
+            foreach (var v in venues)
+            {
+                if (v.kind == PSXRacing.Town.TownVenue.Kind.Home) home = true;
+                if (v.kind == PSXRacing.Town.TownVenue.Kind.Depart) depart = true;
+            }
+            Check(home, "your house is somewhere you can pull up and go in");
+            Check(depart, "and the end of the road asks where you are going");
+
+            // Tarmac on the ROAD LAYER. CarController decides onRoad by layer
+            // number, so a street left on layer 0 is a whole session of
+            // off-road grip with nothing on screen to say so.
+            Check(roadCols > 0, "the street is on the road layer", roadCols);
+
+            UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+        }
+
         static void TestTownScene()
         {
             Line("town:");
@@ -1225,9 +1333,17 @@ namespace PSXRacing.EditorTools
                   mode != null ? mode.respawnPoints.Length : 0);
 
             // Every venue the owner asked for, each with a way in.
+            //
+            // HOME and DEPART are not among them any more: the house and the
+            // junction at the end of its street are their own map now, so
+            // asserting them here would be asserting that the split did not
+            // happen. They are checked in the neighbourhood block below, which
+            // is where a missing one would actually strand the player.
             foreach (PSXRacing.Town.TownVenue.Kind k in
                      System.Enum.GetValues(typeof(PSXRacing.Town.TownVenue.Kind)))
             {
+                if (k == PSXRacing.Town.TownVenue.Kind.Home ||
+                    k == PSXRacing.Town.TownVenue.Kind.Depart) continue;
                 bool found = false;
                 foreach (var v in venues) if (v.kind == k) { found = true; break; }
                 Check(found, "the town has a " + k + " you can stop at");

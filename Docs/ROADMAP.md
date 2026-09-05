@@ -5,6 +5,114 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## YOUR STREET IS A PLACE, AND EVERY CIRCUIT HAS A BACK (2026-09-05, third pass)
+
+Three from a phone playtest.
+
+### THE DRIVING UI WAS ON SCREEN WHILE WALKING
+
+One line, and the cause is worth writing down because the code that broke it is
+the code that fixes it. `ForecourtMode` hides the wheel and pedals when the
+player gets out — "a steering wheel floating over somebody standing on tarmac is
+a control for a seat nobody is in", which was already the comment. And then
+`TouchControls.Update` re-revealed the panel on the first touch it saw, because
+that is how a mobile browser that does not report `isMobilePlatform` gets its
+controls.
+
+**The first thing a walking player does is put a thumb on the glass to walk.** So
+the reveal fired on the foot panel's own stick, and handed them a steering wheel,
+three pedals and a gear knob to walk around town with, drawn over the top of the
+panel that was already there. The reveal now stands down while `OnFoot`.
+
+### YOUR HOUSE AND THE TOWN ARE TWO MAPS
+
+"I don't like that the player has one house they are warped to and a different
+house in town" — exactly true. The front end had a walk-around house and the town
+had a second one on a stub street, and no player could act on the difference.
+The ask, and the shape of the fix: *"for now, the player's house/neighborhood
+should be its own map. Driving to the end of road gives option to go into town or
+go race. Maybe one day it becomes all one world, but for now they are separate
+maps that have warps to drive between."*
+
+`Neighborhood.unity` is that map. The home lot moved out of the town **unchanged**
+— same house, same garage door, same driveway, same spawn — onto a proper
+residential street with six plots a side: houses facing the road, drives that
+overlap the kerb, and cars on two plots in three. Not on all of them; a street
+where every house has a car outside reads as a car park with houses behind it.
+
+**The junction menu moved with it**, out of `BuildTownHome` and into whoever
+builds the street. It belonged to the road rather than to the house, and leaving
+it behind would have given the town a menu to nowhere. It is the question the
+owner asked for, and it was already written: IN TOWN / GO RACING / INSPECT A CAR,
+plus MAKE THE DELIVERY when there is one on the seat.
+
+The town kept the shops, lost the house, and its road ends became **the way
+home** — they used to say "the road runs out, turn back", which was honest while
+your street was the other end of the same map. That one is ASKED for, unlike the
+delivery: the argument for not confirming a delivery is that you cannot carry
+somebody's dinner to the edge of town by accident, and you absolutely can drive
+past the last shop by accident.
+
+**Both crossings route through the front end for one frame**, which is the whole
+reason the split is affordable: that hop is where the leg gets banked — metres,
+fuel and wear — before the next scene load wipes the handoff. Two maps cost what
+one drive would. Same shape as the `deliverrun` hop, for the same reason.
+
+### EVERY REAL CIRCUIT HAS A BACK
+
+"For variance, let's make reverse directions of tracks like Gran Turismo would
+have Track Name and Track Name II."
+
+Five twins: **City Circuit II**, **Harbor Point II**, **Ridge Pass II**,
+**Airfield Sprint II** and **Blue Ridge Parkway II**. Not the drag strips, where
+the direction IS the event; not the causeway and beach runs, which are drag
+events on real roads; and not Charlotte, which has no centreline at all. The rule
+is written as `CanReverse` rather than as a list, so a venue added later is
+offered backwards without anybody remembering to say so.
+
+**A reverse has no scene of its own, and that is the whole design.** The road,
+the barriers, the kerbs, the scenery and the elevation are the same objects
+standing in the same places; the only thing that differs is the order you meet
+them in, and that order is the waypoint list. So the list is turned round at
+load — `TrackPath.ReverseInPlace`, called as the first statement of
+`RaceHandoffApplier.Apply` because `RaceManager.Start` calls that method and then
+immediately builds its progress table from the list, while the grid staging a few
+lines further down places the field along it. Both have to see the reversed one.
+
+- **Waypoint 0 does not move.** On a loop the list reverses and then rotates so
+  the old first point is still first, which leaves the start/finish line, the
+  grid, the fuel-stop opening in the barrier and the lap counter exactly where
+  they were baked. A start line is a painted band across a road and does not care
+  which way you cross it.
+- **A route with ENDS simply flips**, because the far end of a mountain stage IS
+  the new start. Southbound the parkway is a descent; northbound it is a climb,
+  and that is a genuinely different drive rather than the same one mirrored.
+- **The curvature array keeps its values** and only moves its order, because
+  `BuildWaypoints` measures it with `Vector3.Angle`, which is unsigned. A corner
+  is as tight from either side.
+
+The catalog gained the distinction the reverses need and the build did not: the
+authored venues are `Scened` (eleven, one scene each) and `All` is those plus the
+twins (sixteen). **The twins go on the END**, because a saved career stores its
+venue by index and anything inserted before an existing entry silently sends
+every recorded race somewhere else. `SceneIndex` resolves a twin to its forward
+venue BY ID rather than by arithmetic, so the two lists cannot drift; the garage,
+shop, town, seller's lot and now the neighbourhood are all `SceneCount + n`.
+
+### Verified
+
+- `tools/typecheck.ps1` clean.
+- **SELF-TEST OK**, including a new `TestNeighborhoodScene` — the drivable stack
+  is eight pieces that each fail silently, and the two venues that MOVED are the
+  ones worth asserting: a neighbourhood without a Home venue is a house you
+  cannot go into, and one without a Depart venue is a map whose only exit is the
+  pause menu.
+- **TERRAIN AUDIT OK**, obstacle audit CLEAR.
+- `PSX Racing/Capture Neighborhood` — four frames, because the only two things
+  that can be wrong with a new map are both pictures: whether the house you spawn
+  on the drive of is the one you walk around in the front end, and whether the
+  street reads as a street.
+
 ## AN ORDER YOU CAN SEE, AND TWO PIECES OF UI THE PHONE WAS RIGHT ABOUT (2026-09-05, later)
 
 Four from a phone playtest.

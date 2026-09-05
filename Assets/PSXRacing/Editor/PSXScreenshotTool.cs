@@ -48,7 +48,7 @@ namespace PSXRacing.EditorTools
         public static void Capture()
         {
             Directory.CreateDirectory(OutDir);
-            foreach (var def in TrackCatalog.All) CaptureTrack(def);
+            foreach (var def in TrackCatalog.Scened) CaptureTrack(def);
             // The hour sweep and the camera sweep both go on the city circuit:
             // it is the one with buildings, trees, parked cars and a forecourt
             // all in shot, so it shows what an hour does to every kind of
@@ -65,6 +65,7 @@ namespace PSXRacing.EditorTools
             // picture.
             CaptureFuelStop(TrackCatalog.At(0));
             CaptureGarage();
+            CaptureNeighborhood();
             Debug.Log("[PSXShot] Screenshots written to " + OutDir);
         }
 
@@ -287,6 +288,71 @@ namespace PSXRacing.EditorTools
         /// empty concrete box, which is exactly what "the garage looks fine"
         /// would then mean.
         /// </summary>
+        /// <summary>
+        /// YOUR STREET, from the drive and from the road.
+        ///
+        /// A new map, and the only two things that can be wrong with it are
+        /// both pictures: whether the house you spawn on the drive of is the
+        /// one you walk around in the front end, and whether the street reads
+        /// as a street — houses facing it, drives meeting the kerb, cars parked
+        /// where cars park. Neither is answerable from a log line.
+        /// </summary>
+        [MenuItem("PSX Racing/Capture Neighborhood")]
+        public static void CaptureNeighborhood()
+        {
+            Directory.CreateDirectory(OutDir);
+            const string path = "Assets/PSXRacing/Scenes/Neighborhood.unity";
+            if (!File.Exists(path)) { Debug.LogWarning("[PSXShot] no neighbourhood scene"); return; }
+            EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
+
+            var cam = GameObject.Find("PSXCamera")?.GetComponent<Camera>();
+            var car = Object.FindFirstObjectByType<CarController>();
+            if (cam == null || car == null)
+            {
+                Debug.LogError("[PSXShot] neighbourhood scene is missing its camera or its car");
+                return;
+            }
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+
+            var t = car.transform;
+            // Beside the car on the drive rather than behind it. The car is
+            // parked three metres out of its own garage facing down the drive,
+            // so a chase-style eye seven metres BEHIND it is seven metres
+            // inside the house — which is what the first version of this shot
+            // photographed: a ceiling, and the roof of the car through a
+            // doorway.
+            Vector3 eye = t.position + t.right * 11f - t.forward * 4f + Vector3.up * 3.4f;
+            Shot(cam, "nb_1_drive", eye,
+                 Quaternion.LookRotation(t.position + Vector3.up * 0.6f - eye));
+
+            // Down the street from head height, which is the shot that says
+            // whether the neighbours read as neighbours.
+            Vector3 mid = t.position + t.forward * 60f + Vector3.up * 3.4f;
+            Shot(cam, "nb_2_street", mid, Quaternion.LookRotation(t.forward + Vector3.up * 0.06f));
+
+            // And back UP it toward the house, from near the junction.
+            Vector3 far = t.position + t.forward * 150f + Vector3.up * 3.2f;
+            Shot(cam, "nb_3_lookback", far, Quaternion.LookRotation(-t.forward + Vector3.up * 0.05f));
+
+            // The whole plan, from above, with the fog pushed back: the one
+            // frame that shows the street IS a street rather than a row of
+            // houses in a field.
+            float keepFar = cam.farClipPlane;
+            float keepNear = Shader.GetGlobalFloat("_PSXFogNear");
+            float keepFogFar = Shader.GetGlobalFloat("_PSXFogFar");
+            cam.farClipPlane = 900f;
+            Shader.SetGlobalFloat("_PSXFogNear", 600f);
+            Shader.SetGlobalFloat("_PSXFogFar", 900f);
+            Vector3 high = t.position + t.forward * 80f + Vector3.up * 150f;
+            Shot(cam, "nb_4_plan", high, Quaternion.LookRotation(Vector3.down, t.forward));
+            cam.farClipPlane = keepFar;
+            Shader.SetGlobalFloat("_PSXFogNear", keepNear);
+            Shader.SetGlobalFloat("_PSXFogFar", keepFogFar);
+
+            Debug.Log("[PSXShot] neighbourhood shots written to " + OutDir);
+        }
+
         static void CaptureGarage()
         {
             const string path = "Assets/PSXRacing/Scenes/Garage.unity";

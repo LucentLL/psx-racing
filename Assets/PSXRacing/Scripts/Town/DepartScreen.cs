@@ -110,9 +110,16 @@ namespace PSXRacing.Town
                     canDrive, () => Leave("deliverrun"));
             }
 
+            // A DRIVE, not a dismissal. This row used to Close, because the
+            // town and your street were one map and "in town" meant "carry on
+            // down this road". They are two maps now — the owner's ask, and the
+            // reason the house you walk around and the house you drive past are
+            // finally the same house — so the row that says IN TOWN has to take
+            // you there.
             Row(panel, ref y, "IN TOWN",
-                "The shop, the pumps, the lot and the yard are all down this road.",
-                true, Close);
+                canDrive ? "The shop, the pumps, the lot and the yard. A few minutes down the road."
+                         : "Not enough fuel to get there.",
+                canDrive, () => Leave("town"));
 
             // Hidden outright while carrying, not greyed: the panel's row
             // budget is three (see Row), and a fourth pushes the way out off

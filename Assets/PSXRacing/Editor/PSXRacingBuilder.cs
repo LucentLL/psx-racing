@@ -361,7 +361,7 @@ namespace PSXRacing.EditorTools
                     new EditorBuildSettingsScene(LifeHomeSceneBuilder.ScenePath, true),
                 };
 
-                foreach (var def in TrackCatalog.All)
+                foreach (var def in TrackCatalog.Scened)
                     scenes.Add(new EditorBuildSettingsScene(
                         def.city ? BuildCityScene(def) : BuildTrack(def), true));
 
@@ -373,6 +373,7 @@ namespace PSXRacing.EditorTools
                 PizzeriaSceneBuilder.Build();
                 BuildTownScene();
                 SellerLotSceneBuilder.Build();
+                BuildNeighborhoodScene();
 
                 // Written from SceneOrder rather than from the list assembled
                 // as we went, so the build settings and the WebGL player are the
@@ -383,7 +384,8 @@ namespace PSXRacing.EditorTools
                 foreach (var p in SceneOrder())
                     scenes.Add(new EditorBuildSettingsScene(p, true));
                 EditorBuildSettings.scenes = scenes.ToArray();
-                Log($"BUILD OK — {TrackCatalog.Count} circuits + home + garage + shop + town + street.");
+                Log($"BUILD OK — {TrackCatalog.SceneCount} venues ({TrackCatalog.Count} with reverses) " +
+                    "+ home + garage + shop + town + street + neighbourhood.");
             }
             catch (Exception e)
             {
@@ -575,7 +577,7 @@ namespace PSXRacing.EditorTools
             EnsureCityFolders();
             GenerateCityTextures();
             EnsureConcreteTex();
-            foreach (var def in TrackCatalog.All)
+            foreach (var def in TrackCatalog.Scened)
             {
                 if (def.city) continue;      // the city draws its own by class
                 // All four, not just the one this circuit turns out to want.
@@ -940,12 +942,13 @@ namespace PSXRacing.EditorTools
         public static string[] SceneOrder()
         {
             var list = new List<string> { LifeHomeSceneBuilder.ScenePath };
-            foreach (var t in TrackCatalog.All)
+            foreach (var t in TrackCatalog.Scened)
                 list.Add("Assets/PSXRacing/Scenes/" + t.id + ".unity");
             list.Add(GarageSceneBuilder.ScenePath);
             list.Add(PizzeriaSceneBuilder.ScenePath);
             list.Add(TownScenePath);
             list.Add(SellerLotSceneBuilder.ScenePath);
+            list.Add(NeighborhoodScenePath);
             return list.ToArray();
         }
 

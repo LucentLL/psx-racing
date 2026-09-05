@@ -89,6 +89,15 @@ namespace PSXRacing
         {
             // Reveal on the first real touch — covers mobile browsers that do not
             // report isMobilePlatform until the user interacts.
+            //
+            // NOT while the player is out of the car. ForecourtMode hides this
+            // panel when they get out, and the very next thing a walking player
+            // does is put a thumb on the glass to walk — which this read as
+            // "must be a phone, show the wheel" and handed them a steering
+            // wheel, three pedals and a gear knob to walk around town with,
+            // over the top of the foot panel that was already there. Reported
+            // exactly that way: "driving UI is on screen when walking in town."
+            if (OnFoot.ForecourtMode.OnFoot) return;
             if (!Visible && Touchscreen.current != null &&
                 Touchscreen.current.primaryTouch.press.isPressed)
                 SetVisible(true);

@@ -65,10 +65,26 @@ namespace PSXRacing.Town
 
             if (!PizzaRun.Carrying)
             {
-                // Nothing to take anywhere. The road still ends, and saying so
-                // is kinder than an invisible wall with no explanation — the
-                // bounds collider is four metres further on either way.
-                Prompt = "THE ROAD RUNS OUT — TURN BACK";
+                // THE ROAD OUT OF TOWN IS THE ROAD HOME.
+                //
+                // It used to say "the road runs out — turn back", which was
+                // honest while your street was the other end of this same map.
+                // The house is its own scene now, so the end of the main road
+                // is the way back to it, and the town needs one or the pause
+                // menu is the only way out of it.
+                //
+                // ASKED FOR, unlike the delivery. The argument in the class
+                // note is that you cannot carry somebody's dinner to the edge
+                // of town by accident — but you can absolutely drive past the
+                // last shop by accident, and a warp for that would be the toll
+                // booth the junction was told off for being.
+                Prompt = HomeControlName() + " — HEAD HOME";
+                if (HomePressed())
+                {
+                    leaving = true;
+                    Prompt = null;
+                    TownExit.GoHome(car, "drivehome");
+                }
                 return;
             }
 
@@ -79,6 +95,28 @@ namespace PSXRacing.Town
             leaving = true;
             Prompt = null;
             TownExit.GoHome(car, "deliverrun");
+        }
+
+        /// <summary>The same USE verb every venue in the town answers to —
+        /// F, pad-south, or the touch ACTION button. Duplicated from TownVenue
+        /// rather than shared because that one is an instance method gated on
+        /// the venue that has CLAIMED the car, and an edge claims nothing.
+        /// </summary>
+        static bool HomePressed()
+        {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null && kb.fKey.wasPressedThisFrame) return true;
+            var pad = UnityEngine.InputSystem.Gamepad.current;
+            if (pad != null && pad.buttonSouth.wasPressedThisFrame) return true;
+            var touch = TouchControls.Instance;
+            return touch != null && touch.Visible && touch.ActionPressed;
+        }
+
+        static string HomeControlName()
+        {
+            if (TouchControls.Instance != null && TouchControls.Instance.Visible)
+                return "TAP ACTION";
+            return UnityEngine.InputSystem.Gamepad.current != null ? "PRESS X / A" : "PRESS F";
         }
 
         void Update()

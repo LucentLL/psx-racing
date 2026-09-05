@@ -202,6 +202,38 @@ namespace PSXRacing
             // parkway has no services on it in real life either — the fuel
             // gate demands a tank for the whole run, which at 7 km is small.
             public bool hasFuelStop => !drag && !city && !stage;
+
+            /// <summary>
+            /// The id of the circuit this one is the REVERSE of, or null.
+            ///
+            /// A reverse track has NO SCENE OF ITS OWN — it races in its
+            /// forward twin's, with the waypoint list turned round at load. The
+            /// road, the barriers, the scenery and the elevation are the same
+            /// physical objects standing in the same places, so a second scene
+            /// would buy nothing but a second copy of all of it in the
+            /// download. See TrackPath.ReverseInPlace.
+            /// </summary>
+            public string reverseOf;
+            /// <summary>Set on a FORWARD track to say it must not be offered
+            /// backwards. Nothing sets it yet; it exists so a venue that cannot
+            /// be reversed for a real reason can say so, rather than the rule
+            /// below growing a list of exceptions.</summary>
+            public bool noReverse;
+
+            /// <summary>This entry IS a reverse of something else.</summary>
+            public bool Reversed => !string.IsNullOrEmpty(reverseOf);
+
+            /// <summary>
+            /// Is this venue worth driving the other way?
+            ///
+            /// Everything that is a real ROAD rather than a straight: the four
+            /// closed circuits, and the mountain stage, which northbound is a
+            /// climb where southbound is a descent and is genuinely a different
+            /// drive. Not the drag strips, where the direction IS the event;
+            /// not the bridge and beach runs, which are drag events on real
+            /// roads; and not the city, which has no centreline at all.
+            /// </summary>
+            public bool CanReverse => !drag && !dragEvent && !city && !noReverse && !Reversed;
         }
 
         /// <summary>Waypoint spacing, metres. The scene builder reads its own
@@ -213,7 +245,11 @@ namespace PSXRacing
         // are tuned, then checked for minimum corner radius (>= 22 m, so a
         // hairpin is tight rather than impossible) and for self-clearance (no
         // two parts of the circuit closer than road + both wall lines).
-        public static readonly TrackDef[] All =
+        /// <summary>The venues as WRITTEN. <see cref="All"/> is this plus a
+        /// reverse twin for every one of them that has two directions worth
+        /// driving, and it is this array — not that one — whose length decides
+        /// how many scenes get built.</summary>
+        static readonly TrackDef[] Authored =
         {
             new TrackDef
             {
@@ -455,6 +491,68 @@ namespace PSXRacing
             },
         };
 
+        /// <summary>
+        /// A reverse twin: the same venue driven backwards, named the way Gran
+        /// Turismo named them.
+        ///
+        /// A SHALLOW copy on purpose. Every number that describes the place —
+        /// the control points, the heights, the bridge spans, the road width,
+        /// the stage bake — describes the same place, and a reverse carrying
+        /// its own copies would be a second set of numbers to keep in step with
+        /// the first. Only the identity changes.
+        /// </summary>
+        static TrackDef ReverseTwin(TrackDef f) => new TrackDef
+        {
+            id = f.id + "Rev",
+            name = f.name + " II",
+            blurb = "The same road, the other way round. " + f.blurb,
+            controlPoints = f.controlPoints,
+            controlHeights = f.controlHeights,
+            bridges = f.bridges,
+            bridgeDepth = f.bridgeDepth,
+            roadWidth = f.roadWidth,
+            laps = f.laps,
+            drag = f.drag,
+            dragMeters = f.dragMeters,
+            dragShutdown = f.dragShutdown,
+            dragLabel = f.dragLabel,
+            dragEvent = f.dragEvent,
+            city = f.city,
+            stage = f.stage,
+            stageData = f.stageData,
+            reverseOf = f.id,
+        };
+
+        /// <summary>
+        /// Every venue the game offers, forward twins first.
+        ///
+        /// THE REVERSES GO ON THE END, and that ordering is load-bearing for
+        /// the same reason the garage went after the circuits: a saved career
+        /// stores its track by INDEX, so anything inserted before an existing
+        /// entry silently sends every recorded race to a different venue.
+        /// Appending costs nothing and cannot.
+        /// </summary>
+        public static readonly TrackDef[] All = BuildAll();
+
+        static TrackDef[] BuildAll()
+        {
+            var list = new List<TrackDef>(Authored);
+            foreach (var f in Authored) if (f.CanReverse) list.Add(ReverseTwin(f));
+            return list.ToArray();
+        }
+
+        /// <summary>How many venues have a SCENE. The reverses do not — they
+        /// race in their twin's — so this, not All.Length, is what the scene
+        /// list and every index past it are built from.</summary>
+        public static int SceneCount => Authored.Length;
+
+        /// <summary>The venues that HAVE a scene of their own — everything the
+        /// builder builds and every audit walks. A reverse twin is deliberately
+        /// NOT here: it races in its forward venue s scene, so a pass that
+        /// iterated All would go looking for CityCircuitRev.unity and fail on a
+        /// file nothing was ever supposed to write.</summary>
+        public static TrackDef[] Scened => Authored;
+
         public static int Count => All.Length;
 
         public static TrackDef At(int index) => All[Mathf.Clamp(index, 0, All.Length - 1)];
@@ -467,8 +565,15 @@ namespace PSXRacing
 
         /// <summary>Build-settings index of a track's scene. Scene 0 is
         /// LifeHome, so the tracks start at 1.</summary>
-        public static int SceneIndex(int trackIndex) =>
-            1 + Mathf.Clamp(trackIndex, 0, All.Length - 1);
+        public static int SceneIndex(int trackIndex)
+        {
+            int i = Mathf.Clamp(trackIndex, 0, All.Length - 1);
+            // A reverse races in its twin's scene. Resolved by id rather than
+            // by arithmetic on the index, so the two lists can never drift.
+            var def = All[i];
+            if (def.Reversed) i = IndexOf(def.reverseOf);
+            return 1 + Mathf.Clamp(i, 0, SceneCount - 1);
+        }
 
         /// <summary>
         /// Build-settings index of the walk-in garage.
@@ -479,13 +584,13 @@ namespace PSXRacing
         /// anywhere before them would send every race to the wrong circuit.
         /// Adding one at the end costs nothing.
         /// </summary>
-        public static int GarageSceneIndex => 1 + All.Length;
+        public static int GarageSceneIndex => 1 + SceneCount;
 
         /// <summary>The pizza shop the delivery shift starts in. Appended after
         /// the garage for the same reason the garage went after the circuits:
         /// every index below it is addressed by position, so a new scene can
         /// only ever go on the END.</summary>
-        public static int PizzeriaSceneIndex => 2 + All.Length;
+        public static int PizzeriaSceneIndex => 2 + SceneCount;
 
         /// <summary>
         /// The drivable town: your street, the forecourt, the shop, the
@@ -500,12 +605,27 @@ namespace PSXRacing
         /// map in the town's venue block. A scene on the end of the list needs
         /// none of that, and the town is never a race venue.
         /// </summary>
-        public static int TownSceneIndex => 3 + All.Length;
+        public static int TownSceneIndex => 3 + SceneCount;
 
         /// <summary>The seller's driveway: a stranger's house with a car for
         /// sale on it. One baked scene, dressed at runtime per listing — see
         /// SellerLotWorld.</summary>
-        public static int SellerLotSceneIndex => 4 + All.Length;
+        public static int SellerLotSceneIndex => 4 + SceneCount;
+
+        /// <summary>
+        /// YOUR STREET: the player's house, its garage and its neighbours.
+        ///
+        /// Its own map since the owner asked for it — "the player's
+        /// house/neighborhood should be its own map. Driving to the end of road
+        /// gives option to go into town or go race." The house used to be a
+        /// corner of the town, which meant the game had one house you walked
+        /// around in the front end and a different one you drove past.
+        ///
+        /// On the END of the list, like every scene added since the circuits,
+        /// because everything below is addressed by position and a save stores
+        /// its venue by index.
+        /// </summary>
+        public static int NeighborhoodSceneIndex => 5 + SceneCount;
 
         // ------------------------------------------------------------------
         //  Stage bake loading

@@ -48,7 +48,7 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             var log = new StringBuilder();
-            foreach (var def in TrackCatalog.All) SweepOne(def, log);
+            foreach (var def in TrackCatalog.Scened) SweepOne(def, log);
             Debug.Log(log.ToString());
             System.IO.File.WriteAllText(
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_sweep_audit.txt"),

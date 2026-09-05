@@ -193,6 +193,44 @@ namespace PSXRacing.LifeSim
                 return;
             }
 
+            // "town" is the same shape: the junction at the end of your street
+            // routes through here so the drive DOWN that street is banked —
+            // metres, fuel and wear — before the next scene load wipes the
+            // handoff. One loading screen, and the player arrives on the main
+            // road. It is the only way the two maps can be two maps and still
+            // cost what one drive would.
+            // Driving back out of the town. The same one-hop shape: the leg
+            // is banked here and the next scene is your own street.
+            if (tab == "drivehome")
+            {
+                tab = "main";
+                if (S.ActiveCar != null && S.ActiveCar.fuel > 1f)
+                {
+                    BuildChrome();
+                    StartTown();
+                    return;
+                }
+                BuildChrome();
+                Rebuild();
+                Toast("tank is dry — call the fuel truck before you set off");
+                return;
+            }
+
+            if (tab == "town")
+            {
+                tab = "main";
+                if (S.ActiveCar != null && S.ActiveCar.fuel > 1f)
+                {
+                    BuildChrome();
+                    StartShops();
+                    return;
+                }
+                BuildChrome();
+                Rebuild();
+                Toast("tank is dry — you are not driving anywhere");
+                return;
+            }
+
             // "deliverrun" is the second hop of the same journey: the junction
             // menu routes through here so the loaded drive across town is
             // banked by the block above — LaunchDelivery opens with ClearAll
@@ -5241,6 +5279,34 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void StartTown()
         {
+            int idx = TrackCatalog.NeighborhoodSceneIndex;
+            if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
+            {
+                Toast("the town is not in this build");
+                return;
+            }
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.CarId = S.activeCar;
+            RaceHandoff.CarSpecId = S.ActiveCar != null ? S.ActiveCar.specId : "";
+            RaceHandoff.TimeOfDayIndex = RaceHour();
+            RaceHandoff.StartFuelPct = S.ActiveCar != null ? S.ActiveCar.fuel : 100f;
+            FillCarRequest();
+            LifeSimManager.Save();
+            SceneManager.LoadScene(idx);
+        }
+
+        /// <summary>
+        /// The other end of the same road: your street to the shops.
+        ///
+        /// Identical to StartTown but for the scene, and it exists as a second
+        /// method rather than a parameter because the two are different PLACES
+        /// with different reasons to be there — one is where the car lives, the
+        /// other is where the errands are.
+        /// </summary>
+        void StartShops()
+        {
             int idx = TrackCatalog.TownSceneIndex;
             if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
             {
@@ -5306,7 +5372,7 @@ namespace PSXRacing.LifeSim
                     // out". The shift happens in the town's own pizzeria now
                     // (TownWorld.CollectOrder), so this has one job: put the
                     // player on their driveway with the clock running.
-                    int townIdx = TrackCatalog.TownSceneIndex;
+                    int townIdx = TrackCatalog.NeighborhoodSceneIndex;
                     if (townIdx > 0 && townIdx < SceneManager.sceneCountInBuildSettings)
                     {
                         PizzaRun.DriveToShop = true;
