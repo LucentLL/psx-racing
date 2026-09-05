@@ -330,6 +330,7 @@ namespace PSXRacing.EditorTools
                 EnsureFolders();
                 GenerateTrackTextures();
                 ConfigureTextureImporters();
+                ConfigureSkyImporters();
                 ConfigureAudioImporters();
                 ConfigureAudioVoiceLimits();
                 EnsureRoadLayer();
@@ -702,6 +703,84 @@ namespace PSXRacing.EditorTools
                 if (dirty) { imp.SaveAndReimport(); n++; }
             }
             Log($"Configured {n} texture importers (point filter, no mips).");
+        }
+
+        /// <summary>Where the sky panoramas live. Under Resources because
+        /// TimeOfDay swaps them at runtime when the player picks an hour, and a
+        /// texture reachable only through a material asset would ship the one
+        /// baked into the scene and nothing else.</summary>
+        const string SkyTexDir = Root + "/Resources/Sky";
+
+        static Texture2D SkyPanoramaFor(TimeOfDay.Preset hour) =>
+            string.IsNullOrEmpty(hour.skyTex) ? null
+                : AssetDatabase.LoadAssetAtPath<Texture2D>(SkyTexDir + "/" + hour.skyTex + ".png");
+
+        /// <summary>
+        /// The panorama's spin at BAKE time — the same arithmetic
+        /// TimeOfDay.SkyRotationFor does at runtime, off the hour's own sun
+        /// angle rather than off a Light that does not exist yet.
+        ///
+        /// Two copies of one formula is a thing worth flinching at, and the
+        /// alternative is worse: the runtime one has to read the live light
+        /// (a scene can aim its sun where it likes) and this one has to run
+        /// before there is a scene. The screenshot pass is what keeps them
+        /// honest — a sign error here puts the sunset in the wrong quarter of
+        /// the sky and every hour frame shows it.
+        /// </summary>
+        static float BakedSkyRotation(TimeOfDay.Preset hour)
+        {
+            Vector3 toSun = -(Quaternion.Euler(hour.sunEuler) * Vector3.forward);
+            if (new Vector2(toSun.x, toSun.z).sqrMagnitude < 1e-6f) return 0f;
+            float worldAzi = Mathf.Atan2(toSun.z, toSun.x) * Mathf.Rad2Deg;
+            return hour.skyTexAzimuth - 180f - worldAzi;
+        }
+
+        /// <summary>
+        /// The sky is the ONE set of textures that does not get the PS1
+        /// treatment, and that is deliberate.
+        ///
+        /// Everything under Art/ is point-filtered, unmipped and clamped to
+        /// 256 px because that is the PS1's texture page and the reason the
+        /// game looks like it does. A skybox on that hardware was never in
+        /// that budget — it is a handful of polygons at infinity with no
+        /// lighting and no overdraw, so a PS1 or N64 game could hang a much
+        /// better picture up there than it could lay on the road, and most of
+        /// them did. Bilinear with mips on top of that stops the sun disc
+        /// crawling when the car turns, which point sampling at 1024 px
+        /// absolutely does.
+        ///
+        /// 1024 x 512 is not a compromise, it is the right number: the
+        /// framebuffer is 240 lines, the visible band above the horizon is
+        /// about 100 of them, and 512 px of panorama across 180 degrees puts
+        /// roughly one texel on one pixel there. Wrapping repeats round the
+        /// horizon and clamps at the poles — repeat in V mirrors the zenith
+        /// into the ground.
+        /// </summary>
+        static void ConfigureSkyImporters()
+        {
+            if (!Directory.Exists(SkyTexDir)) return;
+            int n = 0;
+            foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { SkyTexDir }))
+            {
+                var p = AssetDatabase.GUIDToAssetPath(guid);
+                var imp = AssetImporter.GetAtPath(p) as TextureImporter;
+                if (imp == null) continue;
+                bool dirty = imp.filterMode != FilterMode.Bilinear || !imp.mipmapEnabled ||
+                             imp.maxTextureSize != 1024 ||
+                             imp.textureCompression != TextureImporterCompression.Compressed ||
+                             imp.wrapModeU != TextureWrapMode.Repeat ||
+                             imp.wrapModeV != TextureWrapMode.Clamp;
+                imp.filterMode = FilterMode.Bilinear;
+                imp.mipmapEnabled = true;
+                imp.maxTextureSize = 1024;
+                imp.textureCompression = TextureImporterCompression.Compressed;
+                imp.wrapMode = TextureWrapMode.Repeat;
+                imp.wrapModeU = TextureWrapMode.Repeat;
+                imp.wrapModeV = TextureWrapMode.Clamp;
+                imp.alphaSource = TextureImporterAlphaSource.None;
+                if (dirty) { imp.SaveAndReimport(); n++; }
+            }
+            Log($"Configured {n} sky importers (bilinear, mipped, 1024, clamped at the poles).");
         }
 
         static void ConfigureAudioImporters()
@@ -3681,7 +3760,6 @@ namespace PSXRacing.EditorTools
             globals.fogScale = track != null && track.stage ? StageFogScale : 1f;
             globals.fogNear = hour.fogNear * globals.fogScale;
             globals.fogFar = hour.fogFar * globals.fogScale;
-
             var skyShader = Shader.Find("PSX/Sky");
             if (skyShader != null)
             {
@@ -3697,6 +3775,18 @@ namespace PSXRacing.EditorTools
                 sky.SetColor("_HorizonColor", hour.skyHorizon);
                 sky.SetColor("_BottomColor", hour.skyBottom);
                 sky.SetFloat("_HorizonSharpness", hour.skySharpness);
+                // The panorama, baked in as well as applied at runtime. The
+                // asset is what an editor scene, a screenshot pass and the
+                // first frame after a load all render with — TimeOfDay.Apply
+                // only runs once somebody has chosen an hour, and until then
+                // the material on disk IS the sky.
+                var pano = SkyPanoramaFor(hour);
+                sky.SetTexture("_MainTex", pano);
+                sky.SetFloat("_PanoAmount", pano != null ? 1f : 0f);
+                sky.SetFloat("_Rotation", BakedSkyRotation(hour));
+                sky.SetFloat("_Tint", hour.skyTint);
+                sky.SetFloat("_Exposure", Mathf.Max(0.01f, hour.skyExposure));
+                sky.SetFloat("_Stars", hour.skyStars);
                 EditorUtility.SetDirty(sky);
                 RenderSettings.skybox = sky;
             }

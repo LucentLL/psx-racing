@@ -54,6 +54,7 @@ namespace PSXRacing.EditorTools
             // all in shot, so it shows what an hour does to every kind of
             // surface at once.
             CaptureHours(TrackCatalog.At(0));
+            CaptureSky(TrackCatalog.At(0));
             CaptureCameras(TrackCatalog.At(0));
             CaptureHoodCams(TrackCatalog.At(0));
             // The forecourt is a PLACE now — a hole in the barrier, an apron on
@@ -382,6 +383,51 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  Every hour, on one circuit
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The SKY, at every hour, framed on the sky.
+        ///
+        /// The hour sweep next door frames the car, so the sky is a strip along
+        /// the top of it — enough to see the colour, nowhere near enough to see
+        /// whether it is any good. And the one thing that has to be checked
+        /// cannot be checked from an arbitrary heading at all: the panorama is
+        /// spun so its baked sun lands where the directional light actually is,
+        /// and a sign error there is invisible unless you are LOOKING AT THE
+        /// SUN. So each hour is shot twice, once down the sun's own azimuth and
+        /// once with it behind the camera. The sun has to be in the middle of
+        /// the first frame and absent from the second.
+        /// </summary>
+        static void CaptureSky(TrackCatalog.TrackDef def)
+        {
+            if (!Open(def, out var cam, out var player)) return;
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var t = player.transform;
+            // Up off the deck and tilted 12 degrees above level: high enough
+            // that the bonnet and the barrier are out of it, low enough that
+            // the horizon stays in — the horizon is where the sky has to agree
+            // with the fog, which is half of what these frames are for.
+            Vector3 eye = t.position + Vector3.up * 3.2f;
+
+            for (int h = 0; h < TimeOfDay.Count; h++)
+            {
+                var hour = TimeOfDay.At(h);
+                TimeOfDay.Apply(h, sun);
+                var globals = Object.FindFirstObjectByType<PSXGlobals>();
+                if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+
+                Vector3 toSun = sun != null ? -sun.transform.forward
+                                            : -(Quaternion.Euler(hour.sunEuler) * Vector3.forward);
+                Vector3 flat = new Vector3(toSun.x, 0f, toSun.z);
+                if (flat.sqrMagnitude < 1e-6f) flat = Vector3.forward;
+                flat.Normalize();
+
+                string tag = "sky_" + h + "_" + hour.name.ToLower();
+                Shot(cam, tag + "_sunward", eye,
+                     Quaternion.LookRotation(flat + Vector3.up * 0.21f));
+                Shot(cam, tag + "_away", eye,
+                     Quaternion.LookRotation(-flat + Vector3.up * 0.21f));
+            }
+        }
         static void CaptureHours(TrackCatalog.TrackDef def)
         {
             if (!Open(def, out var cam, out var player)) return;

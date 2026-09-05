@@ -31,6 +31,32 @@ namespace PSXRacing
             public float fogNear, fogFar;
             public Color skyTop, skyHorizon, skyBottom;
             public float skySharpness;
+
+            // ---- the panorama ----
+            /// <summary>Which sky photograph hangs at this hour, by file name
+            /// under <c>Resources/Sky/</c>. Empty falls back to the three-stop
+            /// gradient, which is what every hour was before this.</summary>
+            public string skyTex;
+            /// <summary>Where the sun sits in THAT image, in degrees across it
+            /// (0 at the left edge, 360 at the right). Every sky in the pack
+            /// bakes its sun at 270, but storing it per hour is what lets the
+            /// panorama be turned to face the scene's own sun instead of the
+            /// scene being rebuilt to face the panorama — see ApplySky.</summary>
+            public float skyTexAzimuth;
+            /// <summary>How hard the photograph is pulled toward the three
+            /// stops above. 0 is the raw image, 1 is the image's structure
+            /// wearing the hour's colour entirely. The hours whose look is
+            /// ALREADY the photograph (sunset, dawn) want little; the ones
+            /// borrowing a sky from a different time of day want a lot.</summary>
+            public float skyTint;
+            /// <summary>Brightness multiplier on the photograph. These are
+            /// rendered skies with a real sun in them, so the bright ones come
+            /// in hotter than a game sky should be.</summary>
+            public float skyExposure;
+            /// <summary>Star field strength. Occluded by whatever cloud the
+            /// photograph has, so this is the count you would see through a
+            /// clear gap rather than a flat overlay.</summary>
+            public float skyStars;
             /// <summary>Cars run headlights and tail lights at this hour.</summary>
             public bool lightsOn;
         }
@@ -51,6 +77,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.95f, 0.62f, 0.55f),
                 skyBottom = new Color(0.20f, 0.18f, 0.24f),
                 skySharpness = 4.5f, lightsOn = true,
+                skyTex = "sky_dawn", skyTexAzimuth = 270f,
+                skyTint = 0.30f, skyExposure = 1.00f, skyStars = 0.15f,
             },
             new Preset
             {
@@ -63,6 +91,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.86f, 0.86f, 0.80f),
                 skyBottom = new Color(0.28f, 0.30f, 0.30f),
                 skySharpness = 6f, lightsOn = false,
+                skyTex = "sky_morning", skyTexAzimuth = 270f,
+                skyTint = 0.30f, skyExposure = 1.00f, skyStars = 0.00f,
             },
             new Preset
             {
@@ -75,6 +105,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.72f, 0.85f, 0.96f),
                 skyBottom = new Color(0.34f, 0.38f, 0.40f),
                 skySharpness = 8f, lightsOn = false,
+                skyTex = "sky_noon", skyTexAzimuth = 270f,
+                skyTint = 0.26f, skyExposure = 1.08f, skyStars = 0.00f,
             },
             new Preset
             {
@@ -87,6 +119,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.90f, 0.82f, 0.66f),
                 skyBottom = new Color(0.30f, 0.28f, 0.26f),
                 skySharpness = 6f, lightsOn = false,
+                skyTex = "sky_afternoon", skyTexAzimuth = 270f,
+                skyTint = 0.30f, skyExposure = 1.00f, skyStars = 0.00f,
             },
             new Preset
             {
@@ -101,6 +135,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.98f, 0.58f, 0.36f),
                 skyBottom = new Color(0.25f, 0.20f, 0.22f),
                 skySharpness = 5f, lightsOn = true,
+                skyTex = "sky_sunset", skyTexAzimuth = 270f,
+                skyTint = 0.20f, skyExposure = 1.00f, skyStars = 0.00f,
             },
             new Preset
             {
@@ -116,6 +152,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.52f, 0.32f, 0.42f),
                 skyBottom = new Color(0.12f, 0.11f, 0.16f),
                 skySharpness = 4f, lightsOn = true,
+                skyTex = "sky_dusk", skyTexAzimuth = 270f,
+                skyTint = 0.45f, skyExposure = 0.95f, skyStars = 0.45f,
             },
             new Preset
             {
@@ -128,6 +166,8 @@ namespace PSXRacing
                 skyHorizon = new Color(0.13f, 0.13f, 0.26f),
                 skyBottom = new Color(0.04f, 0.04f, 0.08f),
                 skySharpness = 3f, lightsOn = true,
+                skyTex = "sky_night", skyTexAzimuth = 270f,
+                skyTint = 0.55f, skyExposure = 1.00f, skyStars = 1.00f,
             },
         };
 
@@ -212,14 +252,67 @@ namespace PSXRacing
                 globals.fogFar = p.fogFar * s;
             }
 
-            ApplySky(p);
+            ApplySky(p, sun);
             CarLights.SetAll(p.lightsOn);
             NightGlow.SetAll(p.lightsOn);
         }
 
         static Material skyInstance;
+        static readonly System.Collections.Generic.Dictionary<string, Texture2D> skyTextures =
+            new System.Collections.Generic.Dictionary<string, Texture2D>();
 
-        static void ApplySky(Preset p)
+        /// <summary>
+        /// Load a sky panorama once and keep it.
+        ///
+        /// Cached including its MISSES — a null entry is a real answer here.
+        /// Without that, an hour whose texture failed to import would hit
+        /// Resources.Load every single time the hour was applied, which on a
+        /// scene load is the loading screen and on a WebGL build is a stall
+        /// looking for a file that is not there.
+        /// </summary>
+        static Texture2D SkyTexture(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            if (skyTextures.TryGetValue(name, out var tex)) return tex;
+            tex = Resources.Load<Texture2D>("Sky/" + name);
+            skyTextures[name] = tex;
+            return tex;
+        }
+
+        /// <summary>
+        /// TURN THE SKY TO FACE THE SUN.
+        ///
+        /// Every panorama in the pack bakes its sun at the same place in the
+        /// image, and the seven hours put their directional light in seven
+        /// different places. Left alone that is a sunset glowing in the north
+        /// while the light rakes in from the west — the single thing that would
+        /// give the whole trick away.
+        ///
+        /// Derived from the light's own transform rather than from the hour's
+        /// sunEuler, so it stays right if a scene aims its sun somewhere else
+        /// (the city does) and there is no second copy of the angle to keep in
+        /// step. The sun is the direction light comes FROM, hence -forward.
+        /// </summary>
+        static float SkyRotationFor(Preset p, Light sun)
+        {
+            // The live light where there is one, the hour table where there
+            // is not. A scene with no sun still has a sky, and leaving that at
+            // rotation zero would point every panorama at world +Z regardless
+            // of the hour it is meant to be.
+            Vector3 toSun = sun != null ? -sun.transform.forward
+                                        : -(Quaternion.Euler(p.sunEuler) * Vector3.forward);
+            // Straight up or straight down has no azimuth to match; leaving the
+            // panorama where it is beats snapping it to whatever atan2 returns
+            // for a zero-length vector.
+            if (new Vector2(toSun.x, toSun.z).sqrMagnitude < 1e-6f) return 0f;
+            float worldAzi = Mathf.Atan2(toSun.z, toSun.x) * Mathf.Rad2Deg;
+            // The shader samples u = azimuth/360 + 0.5 + rotation/360, so a
+            // feature baked at image azimuth T shows up in the world at
+            // T - 180 - rotation. Solve that for rotation.
+            return p.skyTexAzimuth - 180f - worldAzi;
+        }
+
+        static void ApplySky(Preset p, Light sun)
         {
             var src = RenderSettings.skybox;
             if (src == null) return;
@@ -231,6 +324,21 @@ namespace PSXRacing
             if (skyInstance.HasProperty("_HorizonColor")) skyInstance.SetColor("_HorizonColor", p.skyHorizon);
             if (skyInstance.HasProperty("_BottomColor")) skyInstance.SetColor("_BottomColor", p.skyBottom);
             if (skyInstance.HasProperty("_HorizonSharpness")) skyInstance.SetFloat("_HorizonSharpness", p.skySharpness);
+
+            // The panorama, and the four numbers that make it this hour's. A
+            // missing texture drops _PanoAmount to zero rather than rendering
+            // Unity's white default across the whole sky, so a failed import is
+            // the old gradient and not a blank screen.
+            if (skyInstance.HasProperty("_MainTex"))
+            {
+                var tex = SkyTexture(p.skyTex);
+                skyInstance.SetTexture("_MainTex", tex);
+                skyInstance.SetFloat("_PanoAmount", tex != null ? 1f : 0f);
+                skyInstance.SetFloat("_Rotation", SkyRotationFor(p, sun));
+                skyInstance.SetFloat("_Tint", p.skyTint);
+                skyInstance.SetFloat("_Exposure", Mathf.Max(0.01f, p.skyExposure));
+                skyInstance.SetFloat("_Stars", p.skyStars);
+            }
             RenderSettings.skybox = skyInstance;
         }
     }

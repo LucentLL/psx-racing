@@ -5,6 +5,140 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE SKY IS ALLOWED TO LOOK BETTER THAN THE ROAD (2026-09-05)
+
+The owner's ask, and the observation inside it is the whole design: "skyboxes
+and distant art around maps on PSX and N64 normally looked *better* than the 3D
+textures... part of driving is enjoying the view."
+
+That is exactly right and it is not nostalgia. A skybox on that hardware was a
+handful of polygons at infinity with no lighting, no z-write and no overdraw
+worth the name, so it cost almost nothing to draw — which meant a PS1 game could
+hang a much better picture up there than it could lay on the road. Ridge Racer,
+Gran Turismo and Wave Race all look like this. **The one texture in this game
+that gets to break the 256 px PS1 texture-page rule is the one over your head.**
+
+Before this, the sky was three colours and a `lerp`.
+
+### THE ART WAS ALREADY IN THE FOLDER
+
+Two CC0 packs from Screaming Brain Studios sat unused in `PSX Assets`: *Cloudy
+Skyboxes* as cubemaps and as **panoramas** — 25 skies each, 2048x1024
+equirectangular, public domain. Panoramas rather than cubemaps because a single
+lat-long can be *rotated in the shader*, which turns out to be the load-bearing
+trick (below).
+
+Measuring all 25 first is what made the rest tractable. `hot%` is how much of the
+sky is within a whisker of peak brightness — a hard sun disc lights a small
+area, an overcast sky is bright everywhere:
+
+- **every sky bakes its sun at azimuth ~270**, so one rotation offset aims any
+  of them at any hour;
+- sun ELEVATIONS run 4 to 49 degrees, and there is nothing higher.
+
+That second fact decided the noon pick. Noon's light comes from 68 degrees and
+no photograph in the pack has a sun anywhere near it, so noon uses a sky with a
+BROAD glow rather than a hard disc (`hot 6.04%`, the highest in the set) — no
+pinpoint sun means nothing visibly disagrees with where the light is coming
+from. The alternative was dropping noon's sun angle, which changes the lighting
+nobody complained about.
+
+| hour | sky | why |
+|---|---|---|
+| DAWN 05:40 | 07 | salmon cloud on lavender, first light |
+| MORNING 08:30 | 05 | blue with scattered cumulus |
+| NOON 12:30 | 04 | crisp blue, white cirrus, no disc to disagree with |
+| AFTERNOON 16:10 | 02 | golden altocumulus |
+| SUNSET 19:10 | 21 | heavy orange, the sun sitting in it |
+| DUSK 20:25 | 23 | pink-mauve overcast, no disc — the sun has gone |
+| NIGHT 23:15 | 12 | dark blue-grey, a moon, and stars |
+
+### FOUR THINGS MAKE A PHOTOGRAPH BELONG TO A SCENE THAT IS NOT ONE
+
+**IT WEARS THE HOUR.** `_Tint` multiplies the photograph by the same three
+gradient stops the shader used to be built from, so the picture keeps its
+structure and its luminance while the palette supplies the colour. Seven hours
+stay seven hours instead of becoming seven photographs. Low where the sky
+already fits its slot (sunset 0.20), high where it is being asked to carry a
+mood it was not rendered for (night 0.55).
+
+**IT MEETS THE FOG.** The band either side of the horizon fades to
+`_HorizonColor`, which the hour table already keeps in step with the fog colour.
+Without it the world ends at a visible line where the terrain stops — the sky
+and the fogged distance have to be the same paint at the join.
+
+**IT TURNS TO FACE THE SUN.** `_Rotation` spins the panorama about Y so its
+baked sun lands where the directional light actually is, computed FROM the
+light's transform rather than from a second copy of the angle. A sunset glowing
+in the north while the light rakes in from the west is the single thing that
+would give the whole trick away. The arithmetic is written twice on purpose —
+once at runtime off the live light (a scene can aim its sun where it likes) and
+once at bake time before any light exists — and the screenshot pass is what
+keeps them honest.
+
+**IT STOPS QUANTIZING ITSELF.** The old shader ended in `floor(col * 31) / 31`.
+`PSXBlit` already does the 15-bit cut with a 4x4 Bayer dither across the whole
+frame, which is what a PS1 did and is why its gradients did not band, so that
+line was a SECOND quantize with no dither: invisible on a flat gradient, and
+tree rings on a photograph.
+
+### AND STARS, UNDER THE CLOUD
+
+Night and dusk get a procedural star field — cells on the direction sphere, one
+hashed point in about one cell in fourteen, so a star stays nailed to the sky
+while the car turns underneath it. Two details do the work: they are **occluded
+by whatever cloud the photograph has** (scaled by how dark the image is at that
+direction), which is most of why a real night sky reads as having depth; and
+they are added AFTER the tint, because the tint is what darkens the night sky
+and a star dimmed along with it is no star. Dawn keeps a few, high up, where the
+sky is still dark.
+
+### THE MECHANICAL DETAILS THAT WOULD OTHERWISE HAVE BITTEN
+
+- **`tex2Dgrad`, not `tex2D`.** `u` comes from `atan2`, so it jumps from 1 back
+  to 0 down one meridian. The hardware reads that jump as a whole texture's
+  worth of detail in one pixel, picks the smallest mip, and draws a blurred
+  vertical stripe from horizon to zenith — and it lands somewhere different
+  every time the panorama is rotated. Subtracting the wrap from the gradients
+  turns the spike back into the one-texel step it really is.
+- **The lower hemisphere is thrown away.** These panoramas render the ground as
+  a mirror of the sky, which seen from a bridge deck is a lake hanging in the
+  air. Below the horizon is `_BottomColor`.
+- **1024 x 512, bilinear, mipped, compressed, V clamped.** Not a compromise: the
+  framebuffer is 240 lines, the visible band above the horizon is about 100 of
+  them, and 512 px of panorama across 180 degrees puts roughly one texel on one
+  pixel there. Bilinear and mips stop the sun disc crawling as the car turns,
+  which point sampling at this size absolutely does. `ConfigureSkyImporters` is
+  a separate pass from `ConfigureTextureImporters` precisely so the exemption is
+  stated rather than implied — and V clamps because repeating it mirrors the
+  zenith into the ground.
+- **They live in `Resources/Sky/`** because TimeOfDay swaps them when the player
+  picks an hour; a texture reachable only through the scene's material would
+  ship the one baked in and nothing else.
+- **A missing texture is the old gradient, not a white sky.** `_PanoAmount`
+  drops to zero rather than letting Unity's white default cover the hemisphere.
+
+### Verified
+
+- Seven hours photographed twice each by a new `CaptureSky` pass — once straight
+  down the sun's own azimuth, once with it behind the camera. **That framing is
+  the test**: a sign error in the rotation is invisible from an arbitrary
+  heading, and obvious when the sun is supposed to be in the middle of the
+  frame. All seven put it there.
+- `tools/sky-shots.ps1` is the iteration loop. `shots-only.ps1` syncs Scripts
+  and Editor — that is everything EXCEPT the shaders, so a sky shader edit never
+  reached the sandbox and the rerun photographed the old one. This one syncs
+  Shaders and the sky art too.
+- `tools/verify.ps1`: self-test, terrain audit, obstacle audit, full screenshot
+  pass.
+
+### Not done, and worth asking about
+
+The other half of the owner's sentence was **"distant art around maps"** —
+mountain silhouettes and skylines standing between the fog and the sky. The
+parkway has real far terrain; the six circuits have flat ground and fog. That is
+a separate pass and a bigger one.
+
 ## THE ROAD IS THE RIGHT SIZE, AND THE MOUNTAIN COMES BACK (2026-09-04, later)
 
 Four more from the same playtest. Two are about the road being the wrong shape
