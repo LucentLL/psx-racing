@@ -46,6 +46,9 @@ namespace PSXRacing.LifeSim
         /// used to pour straight into RaceHandoff; they wait here now because
         /// the race no longer starts at the shop door.</summary>
         public static int[] Toppings;
+        /// <summary>Two litre bottles riding with the order. Cosmetic and
+        /// physical, never scored — see PizzaCargo.BuildBottle.</summary>
+        public static int Bottles;
         public static int Pay;
         public static int TrackIndex = -1;
         public static float ParSeconds;
@@ -65,6 +68,7 @@ namespace PSXRacing.LifeSim
             Carrying = false;
             SpawnAtShop = false;
             Toppings = null;
+            Bottles = 0;
             Pay = 0;
             TrackIndex = -1;
             ParSeconds = 0f;
@@ -80,10 +84,11 @@ namespace PSXRacing.LifeSim
 
         /// <summary>Take the order at the shop counter's door: everything the
         /// run needs to know later, banked before the town leg begins.</summary>
-        public static void StartRun(int[] toppings, int pay, int trackIndex,
+        public static void StartRun(int[] toppings, int bottles, int pay, int trackIndex,
                                     float parSeconds, int todIndex)
         {
             Toppings = toppings;
+            Bottles = bottles;
             Pay = pay;
             TrackIndex = trackIndex;
             ParSeconds = parSeconds;
@@ -123,6 +128,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.DeliveryPay = Pay;
             RaceHandoff.OrderToppings = Toppings;
             RaceHandoff.OrderBoxes = Toppings != null ? Toppings.Length : 1;
+            RaceHandoff.OrderBottles = Bottles;
             RaceHandoff.CarId = S.activeCar;
             RaceHandoff.CarSpecId = car.specId;
             RaceHandoff.TrackIndex = TrackIndex;

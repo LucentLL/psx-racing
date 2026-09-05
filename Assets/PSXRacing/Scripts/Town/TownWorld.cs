@@ -115,7 +115,7 @@ namespace PSXRacing.Town
             // arrives thrown.
             if (PizzaRun.Carrying && player != null && PizzaRun.Toppings != null)
             {
-                var cargo = PizzaCargo.Spawn(player, PizzaRun.Toppings);
+                var cargo = PizzaCargo.Spawn(player, PizzaRun.Toppings, PizzaRun.Bottles);
                 if (cargo != null) PizzaCam.Spawn(cargo);
             }
 
@@ -148,9 +148,20 @@ namespace PSXRacing.Town
             if (PizzaRun.Carrying && !ForecourtMode.OnFoot && player != null &&
                 PizzaRun.Toppings != null && PizzaCargo.Instance == null)
             {
-                var cargo = PizzaCargo.Spawn(player, PizzaRun.Toppings);
+                var cargo = PizzaCargo.Spawn(player, PizzaRun.Toppings, PizzaRun.Bottles);
                 if (cargo != null) PizzaCam.Spawn(cargo);
             }
+
+            // AND THE OTHER HALF: the boxes IN YOUR HANDS between the counter
+            // and the car. "When I pick up a pizza for delivery, it doesn't show
+            // me carrying the boxes" — it did not, because the seat rig only
+            // exists once you are back in the car, and the walk out of the shop
+            // had nothing in it at all. Same condition, opposite side.
+            bool afoot = PizzaRun.Carrying && ForecourtMode.OnFoot && PizzaRun.Toppings != null;
+            if (afoot && PizzaCarry.Instance == null)
+                PizzaCarry.Spawn(PizzaRun.Toppings, PizzaRun.Bottles);
+            else if (!afoot && PizzaCarry.Instance != null)
+                PizzaCarry.Clear();
         }
 
         /// <summary>
@@ -397,6 +408,7 @@ namespace PSXRacing.Town
             if (car.fuel <= 5f) { screen?.Toast("TANK IS DRY — FILL UP FIRST"); return; }
 
             var toppings = LifeRules.RollOrderToppings(LifeRules.MaxOrderBoxes);
+            int bottles = LifeRules.RollOrderBottles(toppings.Length);
             int pay = LifeRules.RollDeliveryPay(s) * toppings.Length;
             int trackIndex = LifeRules.DeliveryTrackIndex(s);
             float par = LifeRules.DeliveryParSeconds(trackIndex);
@@ -411,7 +423,7 @@ namespace PSXRacing.Town
             // skived by reading the very latch this sets.
             LifeRules.ClockOnShift(s);
             LifeRules.SpendActivitySlot(s);
-            PizzaRun.StartRun(toppings, pay, trackIndex, par, tod);
+            PizzaRun.StartRun(toppings, bottles, pay, trackIndex, par, tod);
             // Already standing at the shop. SpawnAtShop is for a scene load
             // that is no longer happening, and leaving it set would teleport
             // the car onto the kerb the next time the town loaded.
@@ -420,7 +432,8 @@ namespace PSXRacing.Town
 
             string venue = trackIndex >= 0 && trackIndex < TrackCatalog.All.Length
                          ? TrackCatalog.All[trackIndex].name : "the drop";
-            screen?.Toast("ORDER UP — " + (toppings.Length == 1 ? "ONE BOX" : toppings.Length + " BOXES") +
+            string drinks = bottles == 0 ? "" : bottles == 1 ? " AND A 2 LITRE" : " AND TWO 2 LITRES";
+            screen?.Toast("ORDER UP — " + (toppings.Length == 1 ? "ONE BOX" : toppings.Length + " BOXES") + drinks +
                           " TO " + venue.ToUpperInvariant() + ", $" + pay +
                           ". BEAT " + LifeRules.DeliveryClock(par) +
                           " FOR MORE. OUT TO THE CAR, THEN OUT OF TOWN.");

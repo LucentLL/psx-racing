@@ -358,6 +358,26 @@ namespace PSXRacing.LifeSim
             return order;
         }
 
+        /// <summary>Most an order can carry.</summary>
+        public const int MaxOrderBottles = 2;
+
+        /// <summary>
+        /// How many two litre bottles come with the pizza.
+        ///
+        /// Weighted so that most orders have one and a bare few have two: a
+        /// bottle is a passenger, and the whole point of it is the movement it
+        /// adds to a run, not the odds of getting one. It costs nothing and
+        /// earns nothing — see PizzaCargo.BuildBottle for why it is not a slot.
+        /// Scaled off the box count, because nobody orders one slice and two
+        /// litres of cola.
+        /// </summary>
+        public static int RollOrderBottles(int boxes)
+        {
+            float r = Random.value;
+            if (boxes >= 2) return r < 0.22f ? 0 : r < 0.74f ? 1 : 2;
+            return r < 0.42f ? 0 : 1;
+        }
+
         /// <summary>Impact energy a delivery gets for free. Kerbs, rubs and a
         /// clipped wall happen on any real drive, and a job that punished the
         /// first bump would be graded on luck.</summary>

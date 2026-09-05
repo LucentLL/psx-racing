@@ -5,6 +5,146 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## AN ORDER YOU CAN SEE, AND TWO PIECES OF UI THE PHONE WAS RIGHT ABOUT (2026-09-05, later)
+
+Four from a phone playtest.
+
+### "IT DOESN'T SHOW ME CARRYING THE BOXES"
+
+The screenshot is the moment after clocking on: standing in Tony's, the toast up,
+holding nothing. The seat cargo and its little camera only exist once you are
+back in the car, so between the counter and the door there was **nothing at all**
+— and the walk-in shop this replaced (`Pizzeria.unity`, still the no-town
+fallback) always had `carriedBoxes`. Moving the shift into the town lost it.
+
+`Scripts/OnFoot/PizzaCarry.cs` is the stack in your hands: the same baked box
+prefabs parented to the walker's head, bobbing with the walk. Deliberately NOT
+the cargo rig — that thing is a physics island with four rigidbodies, a camera
+and a tip score. **A carried box does not need simulating; you are holding it.**
+The interesting question starts when it goes on the seat.
+
+Three things it got wrong first, all found by photographing it:
+
+- **THE STACK HANGS FROM ITS TOP, NOT ITS BASE.** An order is one box or three.
+  Anchored on the base, one box sat on the bottom edge of the frame and three
+  filled half of it. Anchored on the lid, both read the same — you see the top
+  and the front edges, and the bottom of a tall pile runs off frame, which is
+  what carrying a tall pile looks like.
+- **`Awake` DOES NOT RUN IN EDIT MODE**, so the harness's `Instance` stayed null,
+  every `Clear` was a no-op and every `Spawn` built ANOTHER rig on the same head.
+  The first contact sheet was four orders stacked in one frame and I read it as a
+  framing problem. The factory claims `Instance` now, which also fixes the live
+  case where a Clear and a Spawn land in the same frame — `Destroy` is deferred,
+  so `OnDestroy` has not run yet.
+- **A BOTTLE'S PIVOT IS ITS BASE**, which is the right datum for standing one on
+  a seat and the wrong one for laying it down: once it is on its side the base is
+  an END, and the bottle hangs a third of a metre off whichever way it was
+  turned. Place, measure, correct by the bounds — the only version that does not
+  depend on which axis the pack built it along.
+
+### 2 LITRE SODAS
+
+"They are in the assets packs with pizzas. The bottles can be stood up or on
+their side. Bottles don't impact tip if they fall or shake around, but it just
+adds a little more action."
+
+The pizzeria props pack labels its drinks four ways and only some of them are
+bottles — `vessel_Soda` is a CRATE and `Can_Soda` is a can, and both would have
+baked without complaint and put a red box on the passenger seat. So the baker
+takes a list of candidates and **the shape decides**: the first one half again
+taller than it is wide is the bottle. It found `Soft_drinks_01` at
+0.089 x 0.322 x 0.089 — a real two-litre, near enough that the scale to 33 cm is
+1.026.
+
+`SaveBottle` rather than `SaveFlat`, because SaveFlat turns its input so the
+THINNEST axis points up. Exactly right for a pizza; exactly wrong for the one
+thing in the pack whose tallest axis is the point of it.
+
+**Where they go was decided twice, and the second answer is the one that keeps
+the promise.**
+
+BESIDE the stack is impossible: the bolsters leave 63 cm of usable seat and three
+41 cm boxes plus a bottle either side is 63 cm exactly, so anything in that gap
+starts the run touching both the stack and the bolster — and a solver handed an
+interpenetration on frame one answers by firing it across the car.
+
+ON TOP of the stack fits, looks right, and **quietly changes the game**. Two
+kilos of cola resting on a 1.2 kg box presses it into the seat and buys it
+friction, and the self-test caught it on the first run: *"a hard corner on a real
+road visibly slides the bottom box (got 0.01 m)"* — an assertion that exists
+because a load which never moves is the bug. Easier is still an impact, and the
+ask was that a bottle be action rather than a mechanic.
+
+So: **the strip between the front edge of the boxes and the front edge of the
+seat**, which is 10.5 cm where a bottle is 8.9 cm across. Nothing touches at
+rest, so the graded physics is exactly what it was without them — same six cases,
+same conditions. Under braking the lying one rolls into the seat front and under
+power it rolls back into the stack, so contact happens because of DRIVING, which
+is the "little more action" arriving the only honest way.
+
+The first bottle **lies down** and the second **stands up**, alternating, because
+the two read completely differently through the cam: a lying bottle rolls the
+length of the box under braking and comes back, an upright one wobbles for half a
+corner and goes over the side. One behaviour would have been half the value of
+having them.
+
+A **BOX** collider, not a capsule: a capsule's bottom is a hemisphere, so an
+"upright" bottle stands on a curve and falls before the car has moved. Centre of
+mass at the middle of the liquid rather than at the origin on its base, or it is
+a weeble that will not tip at all.
+
+**NOT A SLOT.** Slots are what `Condition` averages, so a bottle in that list
+would quietly make every order harder to deliver clean — the exact opposite of
+the ask. It can still SHOVE a box, because it is two kilos of cola on the same
+seat and pretending otherwise means a bottle passing through a pizza box, which
+looks broken. What it cannot do is be scored. The harness confirms it: the same
+six cases, the same conditions to two decimal places, with two bottles added.
+
+### THE MENU GRID WAS PLAID
+
+"The grid for menus on mobile is not symmetrical and looks like plaid", and it
+was. The backdrop tiled a 32-texel texture whose line was ONE texel and asked for
+`size / 26` copies: one copy covered 26 canvas units, the line inside it covered
+26/32 of a unit, and after the canvas scaler that landed on some fraction of a
+device pixel. **A line that falls between two pixels either vanishes or lights
+both** — so the spacing wandered, the weight alternated, and a square grid came
+out woven.
+
+Two changes and both are needed. The pitch is **rounded to whole device pixels**,
+so every line starts on a pixel boundary and they are all the same distance
+apart. And the texture is **rebuilt at that pitch**, one line texel in `pitch`
+texels, so one texel is one device pixel and the line is exactly one pixel wide
+everywhere instead of a fraction of one somewhere. Rebuilt only when the pitch
+changes, which is a resize or an orientation flip and never a frame.
+
+### THE CONTROL LABELS ARE GONE
+
+"I don't like the gas, brake, shift, etc labels on mobile UI." Gone — GAS, BRK,
+E-BRK and SHIFT.
+
+But they were carrying something. The pedal bars are transparent (they are a
+thumb rail and a pair of tick edges), so the caption's tint was the only thing
+telling the three controls apart, and without it they are three identical white
+slides. **The colour moved onto the thumb**: green under the right thumb is the
+throttle wherever it happens to be, red is the brake, amber the lever. No words
+spent on it.
+
+The gear ball keeps its NUMBER, which is information rather than a name — a
+driver needs to know they are in third, not to be told that a gear knob is a gear
+knob. The ACTION, CAM and RESET buttons keep their captions too: those name what
+a press DOES and change with context, and a blank one is the bug the panel
+already has history with.
+
+### Tooling
+
+`tools/cargo-sim.ps1` bakes the cargo and shoots both harnesses — the physics
+suite and, separately, the carry. Separately because the carry is not a
+simulation: nothing is stepped and there is nothing to grade, and everything that
+can be wrong with it is framing. `PizzaCarry.SpawnOn(head, ...)` takes an
+arbitrary transform for the same reason `PizzaCargo.Spawn(null, ...)` takes a
+null car — a rig that can only be built from `FirstPersonWalk.Current` could only
+be looked at by playing the game.
+
 ## THE SKY IS ALLOWED TO LOOK BETTER THAN THE ROAD (2026-09-05)
 
 The owner's ask, and the observation inside it is the whole design: "skyboxes

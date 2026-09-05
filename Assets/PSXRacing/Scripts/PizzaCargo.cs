@@ -253,21 +253,27 @@ namespace PSXRacing
         /// how the headless harness drives it, one step at a time, with
         /// accelerations it chose. A simulation that can only be observed by
         /// playing the game is a simulation that ships unverified.</param>
-        public static PizzaCargo Spawn(CarController player, int[] toppings)
+        /// <param name="bottles">Two litre bottles riding with the order.
+        /// They are NOT slots and never reach <see cref="Condition"/> — at the
+        /// owner's ask, "bottles don't impact tip if they fall or shake around,
+        /// but it just adds a little more action". A thing that rolls around
+        /// the footwell and costs nothing is a better passenger than one more
+        /// way to lose money.</param>
+        public static PizzaCargo Spawn(CarController player, int[] toppings, int bottles = 0)
         {
             if (toppings == null || toppings.Length == 0) return null;
             var go = new GameObject("PizzaCargo");
             var cargo = go.AddComponent<PizzaCargo>();
             cargo.car = player;
             cargo.carBody = player != null ? player.Body : null;
-            cargo.BuildIsland(toppings);
+            cargo.BuildIsland(toppings, bottles);
             return cargo;
         }
 
         void Awake() { if (Instance == null) Instance = this; }
         void OnDestroy() { if (Instance == this) Instance = null; }
 
-        void BuildIsland(int[] toppings)
+        void BuildIsland(int[] toppings, int bottles = 0)
         {
             boxesOrdered = toppings != null ? toppings.Length : 1;
             var origin = new Vector3(0f, IslandY, 0f);
@@ -416,6 +422,112 @@ namespace PSXRacing
                 var at = new Vector3(0f, 0.01f + i * (boxH + 0.004f), 0f);
                 slots.Add(BuildBox(boxPrefab, toppings[i], at, boxH));
             }
+
+            var bottlePrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Bottle);
+            if (bottlePrefab == null) return;
+            for (int i = 0; i < bottles; i++) BuildBottle(bottlePrefab, i);
+        }
+
+        /// <summary>
+        /// A two litre bottle, IN FRONT OF THE STACK.
+        /// </summary>
+        ///
+        /// <remarks>
+        /// Where it goes was decided twice, and the second answer is the one
+        /// that keeps the promise.
+        ///
+        /// Beside the stack is impossible: the bolsters leave 63 cm of usable
+        /// seat and three 41 cm boxes plus a bottle either side is 63 cm
+        /// exactly, so anything in that gap starts the run touching both the
+        /// stack and the bolster, and a solver handed an interpenetration on
+        /// frame one answers by firing it across the car.
+        ///
+        /// ON TOP of the stack fits, looks right, and QUIETLY CHANGES THE
+        /// GAME. Two kilos of cola resting on a 1.2 kg box presses it into the
+        /// seat and buys it friction: the self-test caught it immediately — the
+        /// bottom box stopped sliding on a rough corner, an assertion that
+        /// exists because a load that never moves is the bug. Easier is still
+        /// an impact, and the ask was that a bottle be action rather than a
+        /// mechanic.
+        ///
+        /// So: the strip between the front edge of the boxes and the front edge
+        /// of the seat, which is 10.5 cm and a bottle is 8.9 cm across. Nothing
+        /// touches at rest, so the graded physics is exactly what it was
+        /// without them. Under braking the lying one rolls into the seat front
+        /// and under power it rolls back into the stack, so contact happens
+        /// because of DRIVING — which is the "little more action" that was
+        /// asked for, arriving the only honest way.
+        ///
+        /// The first lies down and the second stands up, because the two read
+        /// completely differently through the cam: a lying bottle rolls the
+        /// width of the seat and comes back, an upright one wobbles for half a
+        /// corner and goes over. One behaviour would be half the value.
+        ///
+        /// A BOX collider, not a capsule. A capsule's bottom is a hemisphere,
+        /// so an upright bottle stands on a curve and falls before the car has
+        /// moved; a box has a flat base and stands until something tips it.
+        ///
+        /// NOT a slot either way — <see cref="Condition"/> averages slots, and
+        /// a bottle in that list would be scored.
+        /// </remarks>
+        void BuildBottle(GameObject prefab, int index)
+        {
+            bool upright = index != 0;
+
+            var pb = Bounds(prefab);
+            float h = Mathf.Max(0.05f, pb.size.y);
+            float r = Mathf.Max(0.02f, Mathf.Max(pb.size.x, pb.size.z) * 0.5f);
+
+            // Measured off the seat rather than typed in, so the clearance
+            // survives a change to either the seat or the pack's bottle.
+            float z = SeatD * 0.5f - r - 0.008f;
+            // The lying one runs across the car and is 33 cm long, so it is
+            // offset to leave the standing one a place to be.
+            float x = upright ? 0.20f : -0.10f;
+
+            var local = upright ? new Vector3(x, 0.012f, z)
+                                : new Vector3(x, r + 0.012f, z);
+            var rot = upright ? Quaternion.Euler(0f, index * 47f, 0f)
+                              : Quaternion.Euler(0f, 4f, 90f);
+
+            var go = Instantiate(prefab, tray.TransformPoint(local), tray.rotation * rot, transform);
+            go.name = "Bottle" + index;
+            // Placed by its BOUNDS, not by its pivot. The prefab is seated on
+            // its base — the right datum for standing one up and the wrong one
+            // for laying it down, because on its side the base is an END and
+            // the bottle hangs a third of a metre off whichever way it turned.
+            if (!upright)
+            {
+                var got = Bounds(go);
+                go.transform.position += tray.TransformPoint(local) - got.center;
+            }
+
+            // Sized in LOCAL units for the same reason the box walls are: the
+            // prefab root carries the scale that takes the pack's mesh to a real
+            // bottle, and a collider built from world bounds on a scaled object
+            // applies that scale twice.
+            Vector3 ls = prefab.transform.lossyScale;
+            var col = go.AddComponent<BoxCollider>();
+            col.size = new Vector3(r * 1.7f / Mathf.Max(1e-4f, ls.x),
+                                   h / Mathf.Max(1e-4f, ls.y),
+                                   r * 1.7f / Mathf.Max(1e-4f, ls.z));
+            col.center = new Vector3(0f, col.size.y * 0.5f, 0f);
+            col.sharedMaterial = grip;
+
+            var rb = go.AddComponent<Rigidbody>();
+            // Two kilos, because it is two litres of water, and the mass is what
+            // decides whether it shoves a box or is shoved by one.
+            rb.mass = 2.0f;
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            rb.interpolation = RigidbodyInterpolation.Interpolate;
+            // Less damping than a cardboard box: a bottle on cloth keeps going,
+            // which is the whole reason it is worth having.
+            rb.linearDamping = 0.12f;
+            rb.angularDamping = 0.6f;
+            // Centre of mass at the middle of the liquid, not at the origin,
+            // which is on the base — left there the bottle is a weeble and will
+            // not tip at all.
+            rb.centerOfMass = new Vector3(0f, h * 0.42f / Mathf.Max(1e-4f, ls.y), 0f);
         }
 
         Slot BuildBox(GameObject boxPrefab, int topping, Vector3 localPos, float boxH)
@@ -837,6 +949,11 @@ namespace PSXRacing
         /// <summary>One prefab, assembled: its `Lid` is a child, not a separate
         /// asset. The closed box's HEIGHT is what every consumer needs.</summary>
         public const string Box = Dir + "pizza_box";
+        /// <summary>The 2 litre bottle that rides with the order. Baked from
+        /// the same props pack and standing on its own base, so the runtime
+        /// stands one up by putting its origin on the seat and lays one down by
+        /// turning it ninety degrees.</summary>
+        public const string Bottle = Dir + "soda_bottle";
         /// <summary>How many toppings the baker writes. A saved order names its
         /// pizzas by index into this, so it is append-only.</summary>
         public const int ToppingCount = 10;

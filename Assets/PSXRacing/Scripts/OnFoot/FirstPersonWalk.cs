@@ -85,6 +85,22 @@ namespace PSXRacing.OnFoot
         /// </summary>
         public static FirstPersonWalk Current { get; private set; }
 
+        /// <summary>How fast the walker is actually moving over the ground, in
+        /// m/s. Read off the CharacterController rather than off the input, so
+        /// a player walking into a wall reads as stopped — which is what
+        /// anything driven by it (a carried stack bobbing, a footstep) needs to
+        /// know.</summary>
+        public float PlanarSpeed
+        {
+            get
+            {
+                if (body == null) return 0f;
+                var v = body.velocity;
+                v.y = 0f;
+                return v.magnitude;
+            }
+        }
+
         void Awake()
         {
             body = GetComponent<CharacterController>();

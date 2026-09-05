@@ -105,6 +105,9 @@ namespace PSXRacing
         /// rather than read off its length so a handoff with no array (a scene
         /// played standalone) still says one.</summary>
         public static int OrderBoxes = 1;
+        /// <summary>Two litre bottles riding with the order. Physical on the
+        /// seat, never scored.</summary>
+        public static int OrderBottles;
         /// <summary>Retire the whole AI field. An EMPTY OpponentSpecIds does
         /// NOT mean this — ApplyField reads an empty list as "leave the grid as
         /// the track authored it", which is four cars. Solo has to be asked for
@@ -258,7 +261,7 @@ namespace PSXRacing
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;
             TestDrive = false; TestDriveKey = null;
-            OrderToppings = null; OrderBoxes = 1;
+            OrderToppings = null; OrderBoxes = 1; OrderBottles = 0;
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null;

@@ -161,6 +161,8 @@ namespace PSXRacing.EditorTools
                              SlicePrefix + i, scale, seatOnBase: true)) baked++;
             }
 
+            if (SaveBottle(inst)) baked++;
+
             Object.DestroyImmediate(inst);
             AssetDatabase.SaveAssets();
             Debug.Log("[PizzaCargo] baked " + baked + " prefabs -> " + ResDir);
@@ -307,6 +309,94 @@ namespace PSXRacing.EditorTools
             return true;
         }
 
+
+        /// <summary>
+        /// How tall a 2 litre bottle really is, in metres.
+        ///
+        /// 33 cm to the cap, which is a standard PET two-litre. The same
+        /// argument as BoxWidthM: derived as a SCALE from whatever the pack's
+        /// mesh measures, because this pack is oversized and a bottle that
+        /// arrives at the pack's own size is a fire extinguisher on the seat.
+        /// </summary>
+        public const float BottleHeightM = 0.33f;
+
+        /// <summary>
+        /// Candidate names for the drink, best first.
+        ///
+        /// A list rather than a name because the pack labels its drinks four
+        /// different ways and only some of them are bottles — vessel_Soda is a
+        /// CRATE and Can_Soda is a can, and both would bake without complaint
+        /// and put a red box on the passenger seat. The shape test below is
+        /// what actually decides; this only sets the order it asks in.
+        /// </summary>
+        static readonly string[] BottleCandidates =
+        {
+            "Soft_drinks_01", "Soft_drinks", "Soft_drinks_01.001", "Soft_drinks.001",
+            "Soft_drinks_01.002", "Soft_drinks.002", "Soft_drinks_c",
+        };
+
+        public const string BottlePrefab = "soda_bottle";
+
+        /// <summary>
+        /// The 2 litre bottle, standing up.
+        ///
+        /// NOT SaveFlat, which turns its input so the thinnest axis points up —
+        /// exactly right for a pizza and exactly wrong for a bottle, which is
+        /// the one thing in this pack whose tallest axis is the one that
+        /// matters. It is also what identifies the bottle: the first candidate
+        /// that is half again taller than it is wide is a bottle, and anything
+        /// squatter than that is the crate or the can.
+        /// </summary>
+        static bool SaveBottle(GameObject inst)
+        {
+            Transform src = null;
+            foreach (var name in BottleCandidates)
+            {
+                var t = Find(inst, name);
+                if (t == null) continue;
+                var probe = WorldBounds(t);
+                float plan = Mathf.Max(probe.size.x, probe.size.z);
+                bool upright = plan > 1e-4f && probe.size.y > plan * 1.5f;
+                Debug.Log("[PizzaCargo] drink candidate '" + name + "' " +
+                          probe.size.ToString("0.000") + (upright ? "  <- bottle" : "  (not a bottle)"));
+                if (upright && src == null) src = t;
+            }
+            if (src == null)
+            {
+                Debug.LogWarning("[PizzaCargo] no bottle-shaped drink in the pack — orders will be pizza only");
+                return false;
+            }
+
+            var parts = new List<Renderer>(src.GetComponentsInChildren<MeshRenderer>(true));
+            var b = WorldBounds(src);
+            float scale = b.size.y > 0.01f ? BottleHeightM / b.size.y : 1f;
+            Debug.Log("[PizzaCargo] bottle '" + src.name + "' measures " + b.size.ToString("0.000") +
+                      " -> scale " + scale.ToString("0.000"));
+
+            var holder = new GameObject(BottlePrefab);
+            var pivot = new GameObject("Mesh");
+            pivot.transform.SetParent(holder.transform, false);
+            foreach (var r in parts)
+            {
+                var copy = (GameObject)Object.Instantiate(r.gameObject);
+                copy.name = r.name;
+                foreach (var c in copy.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+                copy.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
+                copy.transform.localScale = r.transform.lossyScale;
+                copy.transform.SetParent(pivot.transform, true);
+            }
+            // Base at y = 0 and centred in plan, so the runtime can stand one on
+            // a seat by putting its origin on the seat — the same contract the
+            // toppings are saved under.
+            var got = WorldBounds(holder.transform);
+            pivot.transform.position += new Vector3(-got.center.x, -got.min.y, -got.center.z);
+
+            PSXRacingBuilder.ConvertToPSXMaterials(holder);
+            holder.transform.localScale = Vector3.one * scale;
+            PrefabUtility.SaveAsPrefabAsset(holder, ResDir + "/" + BottlePrefab + ".prefab");
+            Object.DestroyImmediate(holder);
+            return true;
+        }
         static Transform Find(GameObject root, string name)
         {
             foreach (var t in root.GetComponentsInChildren<Transform>(true))

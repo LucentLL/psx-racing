@@ -151,7 +151,7 @@ namespace PSXRacing
                 {
                     var order = RaceHandoff.OrderToppings;
                     if (order == null || order.Length == 0) order = new[] { 0 };
-                    var cargo = PizzaCargo.Spawn(playerCar, order);
+                    var cargo = PizzaCargo.Spawn(playerCar, order, RaceHandoff.OrderBottles);
                     if (cargo != null) PizzaCam.Spawn(cargo);
                 }
             }

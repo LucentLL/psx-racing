@@ -567,7 +567,8 @@ namespace PSXRacing.LifeSim
             go.transform.SetParent(parent, false);
             var img = go.AddComponent<RawImage>();
             img.raycastTarget = false;
-            img.texture = GridTex();
+            // Texture assigned by GridTiler, which is the only thing that
+            // knows the device-pixel pitch it has to be sized to.
             img.color = new Color(0.47f, 0.55f, 0.67f, alpha);
             var rt = img.rectTransform;
             rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
@@ -575,19 +576,40 @@ namespace PSXRacing.LifeSim
             go.AddComponent<GridTiler>();
         }
 
-        /// <summary>One grid cell per 26 canvas units, whatever the rect
-        /// resolves to. Same contract as <see cref="ScanlineTiler"/>: uvRect
-        /// off the canvas-unit size, never off Screen pixels.
+        /// <summary>
+        /// THE GRID HAS TO LAND ON WHOLE DEVICE PIXELS, and until this pass it
+        /// did not.
         ///
-        /// ExecuteAlways + the dimensions-change callback, NOT just LateUpdate:
-        /// edit mode runs no LateUpdate at all, so the preview tool rendered
-        /// the texture stretched to ONE cell — a single faint line up the left
-        /// of every screenshot, indistinguishable from the grid not existing.
-        /// The callback also beats LateUpdate to the first live frame, so the
-        /// menu never flashes untiled while the layout resolves.</summary>
+        /// Reported from a phone as "the grid for menus on mobile is not
+        /// symmetrical and looks like plaid", which is exactly what it was. The
+        /// old version tiled a 32-texel texture whose line was ONE texel and
+        /// asked for `size / 26` copies of it: so one copy covered 26 canvas
+        /// units, the line inside it covered 26/32 of a unit, and after the
+        /// canvas scaler that landed on some fraction of a device pixel. A line
+        /// that falls between two pixels either vanishes or lights both — so
+        /// the spacing wandered, the weight alternated, and a square grid came
+        /// out woven.
+        ///
+        /// Two things fix it and both are necessary:
+        ///
+        ///   * THE PITCH IS ROUNDED TO WHOLE DEVICE PIXELS. Every line then
+        ///     starts on a pixel boundary and they are all the same distance
+        ///     apart. Rounding the CELL rather than nudging the uvRect is what
+        ///     makes it exact rather than nearly right.
+        ///   * THE TEXTURE IS REBUILT AT THAT PITCH, one line texel in
+        ///     `pitch` texels. One texel is then one device pixel, so the line
+        ///     is exactly one pixel wide everywhere instead of a fraction of
+        ///     one somewhere.
+        ///
+        /// The texture is shared and rebuilt only when the pitch actually
+        /// changes, which is on a resize or an orientation flip and never on a
+        /// frame.
+        /// </summary>
         [ExecuteAlways]
         class GridTiler : MonoBehaviour
         {
+            /// <summary>Target cell, in canvas units. The nearest whole number
+            /// of device pixels to this is what gets drawn.</summary>
             const float Cell = 26f;
 
             void OnEnable() => Apply();
@@ -601,26 +623,48 @@ namespace PSXRacing.LifeSim
                 if (img == null || rt == null) return;
                 var size = rt.rect.size;
                 if (size.x <= 0f || size.y <= 0f) return;
-                var want = new Rect(0f, 0f, size.x / Cell, size.y / Cell);
+
+                // Canvas units to device pixels. A canvas with no scaler
+                // reports 1, which is the identity this wants anyway.
+                var canvas = img.canvas;
+                float scale = canvas != null && canvas.scaleFactor > 0.01f
+                            ? canvas.scaleFactor : 1f;
+                // At least four pixels, or the "grid" is a solid wash.
+                int pitch = Mathf.Max(4, Mathf.RoundToInt(Cell * scale));
+
+                img.texture = GridTex(pitch);
+                // Copies across = device pixels across / pixels per cell. The
+                // uvRect is in copies, so this is the whole conversion.
+                var want = new Rect(0f, 0f, size.x * scale / pitch, size.y * scale / pitch);
                 if (img.uvRect != want) img.uvRect = want;
             }
         }
 
         static Texture2D gridTex;
-        static Texture2D GridTex()
+        static int gridTexPitch = -1;
+
+        /// <summary>A grid cell exactly <paramref name="pitch"/> texels square
+        /// with a one-texel line down two of its edges. Sized to the pitch
+        /// rather than to a round number so that one texel is one device pixel
+        /// — see <see cref="GridTiler"/> for why that matters.</summary>
+        static Texture2D GridTex(int pitch)
         {
-            if (gridTex != null) return gridTex;
-            const int n = 32;
-            gridTex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+            if (gridTex != null && gridTexPitch == pitch) return gridTex;
+            if (gridTex != null) Object.DestroyImmediate(gridTex);
+            gridTexPitch = pitch;
+            gridTex = new Texture2D(pitch, pitch, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Repeat,
+                hideFlags = HideFlags.DontSave,
             };
             var clear = new Color(0f, 0f, 0f, 0f);
             var line = Color.white;   // tinted by the RawImage colour
-            for (int y = 0; y < n; y++)
-                for (int x = 0; x < n; x++)
-                    gridTex.SetPixel(x, y, x == 0 || y == 0 ? line : clear);
+            var px = new Color[pitch * pitch];
+            for (int y = 0; y < pitch; y++)
+                for (int x = 0; x < pitch; x++)
+                    px[y * pitch + x] = (x == 0 || y == 0) ? line : clear;
+            gridTex.SetPixels(px);
             gridTex.Apply();
             return gridTex;
         }

@@ -72,6 +72,10 @@ namespace PSXRacing.OnFoot
         /// IS the order — it crosses into the race scene and becomes the boxes
         /// on the passenger seat.</summary>
         int[] toppings;
+        /// <summary>Two litre bottles in the order. Rolled with the pizzas so
+        /// the walk-in shop and the town counter hand over the same kind of
+        /// order — this scene is the no-town fallback, not a second design.</summary>
+        int bottles;
 
         void Start()
         {
@@ -220,6 +224,7 @@ namespace PSXRacing.OnFoot
             if (trackIndex < 0)
             {
                 toppings = LifeRules.RollOrderToppings(MaxBoxes);
+                bottles = LifeRules.RollOrderBottles(toppings.Length);
                 pay = LifeRules.RollDeliveryPay(S) * toppings.Length;
                 trackIndex = LifeRules.DeliveryTrackIndex(S);
                 parSeconds = LifeRules.DeliveryParSeconds(trackIndex);
@@ -301,7 +306,7 @@ namespace PSXRacing.OnFoot
 
             LifeRules.ClockOnShift(S);
             LifeRules.SpendActivitySlot(S);
-            PizzaRun.StartRun(toppings, pay, trackIndex, parSeconds, tod);
+            PizzaRun.StartRun(toppings, bottles, pay, trackIndex, parSeconds, tod);
             LifeSimManager.Save();
 
             // A build without the town (or a career caught mid-update) still

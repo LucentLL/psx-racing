@@ -301,7 +301,6 @@ namespace PSXRacing
             bool isLever = kind == PedalKind.Handbrake;
             Color tint = kind == PedalKind.Gas ? GasGreen
                        : kind == PedalKind.Brake ? BrakeRed : EbrakeAmber;
-            string label = kind == PedalKind.Gas ? "GAS" : kind == PedalKind.Brake ? "BRK" : "E-BRK";
 
             var go = new GameObject(kind.ToString());
             go.transform.SetParent(parent, false);
@@ -403,17 +402,20 @@ namespace PSXRacing
             var thumbImg = thumbGO.AddComponent<Image>();
             thumbImg.sprite = Rounded();
             thumbImg.type = Image.Type.Sliced;
-            thumbImg.color = new Color(1f, 1f, 1f, 0.95f);
+            // THE COLOUR IS THE LABEL NOW. The caption under each pedal is gone
+            // at the owner's ask, and it was carrying the only thing that told
+            // the three controls apart: the bar itself is transparent, so
+            // without a word under it GAS, BRK and E-BRK were three identical
+            // white slides. Tinting the thumb keeps the distinction and spends
+            // no text on it — green under the right thumb is the throttle
+            // wherever it happens to be.
+            thumbImg.color = new Color(tint.r, tint.g, tint.b, 0.95f);
             thumbImg.raycastTarget = false;
             var thumbRT = thumbImg.rectTransform;
             thumbRT.anchorMin = thumbRT.anchorMax = new Vector2(0.5f, 0f);
             thumbRT.pivot = new Vector2(0.5f, 0.5f);
             thumbRT.anchoredPosition = Vector2.zero;
             thumbRT.sizeDelta = new Vector2(size.x + Px(6f), Px(5f));
-
-            var cap = MakeLabel(go.transform, label, font, 15, new Vector2(0.5f, 1f),
-                                new Vector2(0f, -Px(6f)), 1f);
-            cap.color = tint;
 
             var pedal = go.AddComponent<TouchPedal>();
             // Set BEFORE SetParts, which redraws off them.
@@ -474,9 +476,9 @@ namespace PSXRacing
                                      Mathf.RoundToInt(Px(17f)), new Vector2(0.5f, 0.5f),
                                      Vector2.zero, 1f);
 
-            var capShift = MakeLabel(go.transform, "SHIFT", font, 15, new Vector2(0.5f, 1f),
-                                     new Vector2(0f, -Px(6f)), 1f);
-            capShift.color = ShiftCyan;
+            // No SHIFT caption either. The ball still carries the gear NUMBER,
+            // which is information rather than a name — a driver needs to know
+            // they are in third, not to be told that a gear knob is a gear knob.
 
             shifter = go.AddComponent<TouchShifter>();
             shifter.SetParts(krt, gearText);

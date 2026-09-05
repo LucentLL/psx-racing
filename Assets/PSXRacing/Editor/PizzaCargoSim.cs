@@ -32,6 +32,85 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Preview Pizza Cargo Sim")]
         public static void Shoot() => Run(shoot: true);
 
+        /// <summary>
+        /// THE CARRY, from the eye that carries it.
+        ///
+        /// Its own pass rather than a case inside Run, because it is not a
+        /// simulation — nothing is stepped and there is nothing to grade. What
+        /// can be wrong with it is entirely framing: a stack too low is invisible
+        /// behind the HUD, too high blocks the door you are walking through, and
+        /// too close is clipped in half by the near plane. All three are
+        /// questions only a picture answers, and none of them is answerable by
+        /// playing the game once and squinting.
+        /// </summary>
+        [MenuItem("PSX Racing/Preview Pizza Carry")]
+        public static void ShootCarry()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+                UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+                UnityEditor.SceneManagement.NewSceneMode.Single);
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName,
+                                      "Screenshots", "PizzaCargo");
+            Directory.CreateDirectory(dir);
+            Lighting();
+
+            var head = new GameObject("Head").transform;
+            head.position = new Vector3(0f, 1.62f, 0f);
+
+            var camGO = new GameObject("CarryCam");
+            camGO.transform.SetParent(head, false);
+            var cam = camGO.AddComponent<Camera>();
+            // The walker's own lens: 52 vertical, and a near plane close enough
+            // that the stack is not sliced through. Both come from the game —
+            // shooting this at a preview-friendly FOV would certify a framing
+            // the player never gets.
+            cam.fieldOfView = 52f;
+            cam.nearClipPlane = 0.05f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.16f, 0.17f, 0.20f, 1f);
+
+            foreach (var boxes in new[] { 1, 3 })
+            {
+                for (int bottles = 0; bottles <= 2; bottles += 2)
+                {
+                    PSXRacing.OnFoot.PizzaCarry.Clear();
+                    var order = new int[boxes];
+                    for (int i = 0; i < boxes; i++) order[i] = i * 3;
+                    var carry = PSXRacing.OnFoot.PizzaCarry.SpawnOn(head, order, bottles);
+                    if (carry == null)
+                    {
+                        Debug.LogError("[PizzaCarry] rig did not build — no baked prefabs?");
+                        return;
+                    }
+                    string tag = "carry_" + boxes + "box_" + bottles + "bottle";
+                    ShootCamera(cam, dir, tag);
+                    Debug.Log("[PizzaCarry] " + tag);
+                }
+            }
+            PSXRacing.OnFoot.PizzaCarry.Clear();
+        }
+
+        /// <summary>Render one frame of an arbitrary camera to a PNG. The sim's
+        /// own Shoot builds a camera per call around the cargo island; this one
+        /// is handed a camera that is already where it needs to be.</summary>
+        static void ShootCamera(Camera cam, string dir, string name)
+        {
+            var rt = new RenderTexture(854, 480, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.Render();
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            cam.targetTexture = null;
+            File.WriteAllBytes(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            rt.Release();
+            Object.DestroyImmediate(rt);
+        }
+
 
         public struct Reading
         {
@@ -90,7 +169,9 @@ namespace PSXRacing.EditorTools
                 Physics.simulationMode = SimulationMode.Script;
                 // Three boxes: the full order, and the case the owner asked
                 // about — stacked, moving independently, top one most exposed.
-                var cargo = PizzaCargo.Spawn(null, new[] { 0, 3, 6 });
+                // Two bottles: one lying, one standing, so the harness covers
+                // both behaviours in every case it shoots.
+                var cargo = PizzaCargo.Spawn(null, new[] { 0, 3, 6 }, 2);
                 if (cargo == null || cargo.BoxCount == 0)
                 {
                     Debug.LogError("[PizzaSim] the cargo did not build — no baked prefabs?");
