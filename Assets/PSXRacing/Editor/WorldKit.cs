@@ -83,10 +83,22 @@ namespace PSXRacing.EditorTools
         /// <summary>A horizontal ground plane, subdivided into ~<paramref
         /// name="cell"/>-metre squares. UVs are WORLD-anchored so two slabs
         /// meeting at a seam do not show one.</summary>
+        /// <param name="heightAt">Optional. Given a WORLD (x, z), returns the
+        /// world Y this slab should reach there. Null keeps the slab dead flat,
+        /// which is what it always was.
+        ///
+        /// THIS IS ALSO A COLLIDER SWITCH, and that is the whole trap. A flat
+        /// slab gets a BoxCollider — cheap, and correct for a plane. A slab
+        /// given a height function that kept it would RENDER as hills and
+        /// COLLIDE as the flat box underneath, so the car would drive along an
+        /// invisible plane through the middle of the visible landscape, with
+        /// nothing in the scene or the log to say so. A shaped slab gets a
+        /// MeshCollider on the mesh it is actually drawing.</param>
         public static GameObject GridSlab(Transform parent, string name, Vector3 centre,
                                           float sizeX, float sizeZ, float cell,
                                           Material mat, bool solid, float tile,
-                                          int layer = 0)
+                                          int layer = 0,
+                                          System.Func<float, float, float> heightAt = null)
         {
             int nx = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeX) / cell));
             int nz = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeZ) / cell));
@@ -100,7 +112,14 @@ namespace PSXRacing.EditorTools
                     float fx = (x / (float)nx - 0.5f) * sizeX;
                     float fz = (z / (float)nz - 0.5f) * sizeZ;
                     int v = z * (nx + 1) + x;
-                    verts[v] = new Vector3(fx, 0f, fz);
+                    // LOCAL, so the height function is asked about the world
+                    // point and the answer is stored relative to the slab's own
+                    // origin — the transform carries centre.y, and adding it
+                    // twice is how a road ends up two centimetres above itself.
+                    float wy = heightAt != null
+                             ? heightAt(fx + centre.x, fz + centre.z) - centre.y
+                             : 0f;
+                    verts[v] = new Vector3(fx, wy, fz);
                     uvs[v] = new Vector2((fx + centre.x) / tile, (fz + centre.z) / tile);
                 }
             int t = 0;
@@ -132,9 +151,19 @@ namespace PSXRacing.EditorTools
             mr.receiveShadows = false;
             if (solid)
             {
-                var col = go.AddComponent<BoxCollider>();
-                col.size = new Vector3(Mathf.Abs(sizeX), 0.4f, Mathf.Abs(sizeZ));
-                col.center = new Vector3(0f, -0.2f, 0f);
+                if (heightAt != null)
+                {
+                    // The mesh it is drawing, not a box around it. See the
+                    // heightAt parameter note.
+                    var mc = go.AddComponent<MeshCollider>();
+                    mc.sharedMesh = mesh;
+                }
+                else
+                {
+                    var col = go.AddComponent<BoxCollider>();
+                    col.size = new Vector3(Mathf.Abs(sizeX), 0.4f, Mathf.Abs(sizeZ));
+                    col.center = new Vector3(0f, -0.2f, 0f);
+                }
             }
             return go;
         }

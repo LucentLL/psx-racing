@@ -675,8 +675,21 @@ namespace PSXRacing.EditorTools
                     Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
                     Check(t.stageStartLineM > 20f,
                           t.id + " has a lead-in for the grid", t.stageStartLineM);
+                    // A REAL ROAD IS ALLOWED TO BE TIGHTER THAN A DESIGNED ONE.
+                    //
+                    // The circuits' floor is 18 m because their shapes are
+                    // generated and a corner tighter than that is a generator
+                    // fault. A stage's shape is a survey: NC 128 climbs Mount
+                    // Mitchell on switchbacks, one of them turning through 193
+                    // degrees, and 15.7 m is what that measures. Flattening it
+                    // would be flattening the reason the road is in the game.
+                    //
+                    // 12 m is still a floor and it is the CAR's: at 22 degrees
+                    // of lock on a 2.5 m wheelbase the front axle describes
+                    // about 6.7 m, so a 12 m centreline with a 9 m road around
+                    // it is a hairpin you take slowly, not one you cannot take.
                     float stageMinR = MinCornerRadius(pts);
-                    Check(stageMinR >= 18f, t.id + " tightest corner is drivable",
+                    Check(stageMinR >= 12f, t.id + " tightest corner is drivable",
                           stageMinR.ToString("0.0") + " m");
                     // Asked of the builder rather than restated: the stage
                     // barrier line follows the road's width now, and a literal
@@ -846,6 +859,7 @@ namespace PSXRacing.EditorTools
             TestWalkInScenesRender();
             TestTownScene();
             TestNeighborhoodScene();
+            TestNoDeletedMeshes();
             TestPizzaCounter();
             TestPaintShop();
             TestYardWrecks();
@@ -1208,6 +1222,63 @@ namespace PSXRacing.EditorTools
         /// is a house you cannot go into, and one without a Depart venue is a
         /// map with no way out of it but the pause menu.
         /// </summary>
+        /// <summary>
+        /// NOTHING IN ANY SCENE RENDERS A DELETED MESH.
+        ///
+        /// WorldKit.SaveMesh writes one mesh ASSET per name and deletes the
+        /// existing one first — which is exactly right for rebuilding, and a
+        /// landmine inside a loop. A builder that hands it the same name twice
+        /// leaves one live mesh and a trail of MeshFilters pointing at assets
+        /// that no longer exist. They do not throw, they do not warn, and they
+        /// do not draw.
+        ///
+        /// It shipped: the neighbourhood's fourteen lawns, fourteen driveways
+        /// and twenty-three centre-line dashes were built in three loops that
+        /// each reused one name, so 48 of them rendered nothing and the street
+        /// went out bare. A picture could not catch it either — a missing lawn
+        /// looks like grass, because grass is what is underneath it.
+        ///
+        /// Cheap enough to run over every scene in the build: a null
+        /// sharedMesh on a MeshFilter is one dereference.
+        /// </summary>
+        static void TestNoDeletedMeshes()
+        {
+            Line("meshes:");
+            int worstCount = 0;
+            string worstScene = null, worstName = null;
+            int scenesChecked = 0;
+            foreach (var path in PSXRacingBuilder.SceneOrder())
+            {
+                if (!System.IO.File.Exists(path)) continue;
+                scenesChecked++;
+                var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                    path, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+                int missing = 0;
+                string firstName = null;
+                foreach (var go in scene.GetRootGameObjects())
+                    foreach (var mf in go.GetComponentsInChildren<MeshFilter>(true))
+                        if (mf.sharedMesh == null)
+                        {
+                            missing++;
+                            if (firstName == null) firstName = mf.gameObject.name;
+                        }
+                if (missing > worstCount)
+                {
+                    worstCount = missing;
+                    worstScene = System.IO.Path.GetFileNameWithoutExtension(path);
+                    worstName = firstName;
+                }
+                UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+            }
+            Check(scenesChecked > 0, "there are built scenes to check", scenesChecked);
+            Check(worstCount == 0,
+                  worstCount == 0
+                      ? "no scene renders a mesh that was deleted out from under it"
+                      : worstScene + " has " + worstCount + " MeshFilters with no mesh (first: " +
+                        worstName + ") — a SaveMesh name collision",
+                  worstCount);
+        }
+
         static void TestNeighborhoodScene()
         {
             Line("your street:");

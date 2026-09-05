@@ -324,7 +324,15 @@ namespace PSXRacing.Town
                 t.title = "HOME";
                 t.detail = "Park it up, put the kettle on.";
                 t.action = "GO IN — CALL IT A DRIVE";
-                t.onUse = () => TownExit.GoHome(player, "garage");
+                // STRAIGHT INTO THE GARAGE, not into a menu about it. This used
+                // to hand the player scene 0 on the garage tab, where they then
+                // had to press WALK INTO YOUR HOUSE to reach the room they were
+                // already standing at the door of — two loading screens and a
+                // menu to walk through a door in front of them. The "garagewalk"
+                // tab still routes through scene 0 for one frame, because that
+                // frame is where the drive gets banked, but nothing is drawn and
+                // nothing is pressed.
+                t.onUse = () => TownExit.GoHome(player, "garagewalk");
             }
         }
 

@@ -199,6 +199,26 @@ namespace PSXRacing.LifeSim
             // handoff. One loading screen, and the player arrives on the main
             // road. It is the only way the two maps can be two maps and still
             // cost what one drive would.
+            // Walking in through your own garage door. Same one-hop shape as
+            // "town" and "drivehome": this frame banks the drive — metres, fuel
+            // and wear — and then loads the room. The player sees one loading
+            // screen and arrives inside the garage, which is what walking
+            // through a door should cost.
+            if (tab == "garagewalk")
+            {
+                tab = "garage";
+                int gIdx = TrackCatalog.GarageSceneIndex;
+                if (gIdx > 0 && gIdx < SceneManager.sceneCountInBuildSettings)
+                {
+                    BuildChrome();
+                    LifeSimManager.Save();
+                    SceneManager.LoadScene(gIdx);
+                    return;
+                }
+                // No garage in this build: fall through to the tab, which is
+                // the page that has a button to it.
+            }
+
             // Driving back out of the town. The same one-hop shape: the leg
             // is banked here and the next scene is your own street.
             if (tab == "drivehome")

@@ -5,6 +5,294 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE STREET GETS HILLS, AND THE MOUNTAINS GET TWO ROADS (2026-09-05, fourth pass)
+
+Five from a playtest, two of which were mine from an hour earlier.
+
+### 48 MESHES WERE RENDERING NOTHING
+
+Not reported, and not reportable — found by reading. `WorldKit.SaveMesh` writes
+one mesh ASSET per name and **deletes the existing one first**, which is exactly
+right for rebuilding and a landmine inside a loop. The new neighbourhood named
+every lawn `NbYard`, every driveway `NbDrive` and every centre-line dash
+`NbLine`, so each loop left one live mesh and a trail of MeshFilters pointing at
+assets that no longer existed: **13 of 14 lawns, 13 of 14 driveways and 22 of 23
+dashes drew nothing.** They do not throw, they do not warn, and a screenshot
+cannot catch them — a missing lawn looks like grass, because grass is what is
+underneath it.
+
+`TestNoDeletedMeshes` opens every scene in the build order and fails on any
+MeshFilter with a null mesh. One dereference per filter, and it covers the whole
+class in every scene rather than the three names that happened to collide.
+
+### HOUSES SHOULD NEVER BE UNDERGROUND
+
+They were: 2.27 m of a 7.36 m house. `WorldKit.Place` **overwrites** the
+instantiated FBX root's position, which throws away the node translation the
+house pack uses to lift its mesh onto its own base — `house_simple` spans
+-2.865 to +6.226 about that origin, so at the pack's 0.81 scale the model lands
+2.27 m under whatever it was placed on. Every other `Place` call site in the
+project follows it with `WorldKit.SeatOnGround`; the neighbourhood's was the only
+one that did not.
+
+### VERTICALITY
+
+"Maps needs some verticality. Not just flatlands forever. Houses are often built
+on hills, but use concrete foundations to level them out. And driveways can be on
+hills as well."
+
+The circuits have had height splines for months and Charlotte has a real
+elevation solver; the free-roam maps were stacks of flat slabs at hardcoded Y.
+The neighbourhood is the third and smallest elevation system, and it follows the
+same doctrine as the other two: **the land is graded TO the road.**
+
+#### THE FIRST VERSION WAS TOO SMALL TO SEE
+
+It shipped as two sines, 2.6 m and 0.9 m: 2.7 m of range over 212 m of street,
+with a worst-case gradient of 7.8% that a grade check would happily call steep.
+The screenshots came back showing flat ground, and they were right to. **A 2.6 m
+rise a hundred metres away subtends under two degrees.** Amplitude a GRADIENT
+calls steep is not amplitude a PLAYER calls a hill, and the check that mattered
+was the picture, not the arithmetic.
+
+So the street falls off a ridge instead of rippling along one — **your house is
+on the high ground and the junction is 11.2 m below it**, with a pair of rolls on
+the way down and 12.5% at the worst of it. The land beside it grew the same way:
+three terms instead of two and half again the amplitude, the third varying with
+x alone so that one side of the road sits above the other, which is the thing a
+driver actually sees.
+
+#### AND THEN EVERY DERIVED THING BROKE, WHICH IS THE POINT OF DERIVING THEM
+
+Steepening one function steepened everything that reads it, and a numeric model
+of the whole street — the same arithmetic in JavaScript, run before Unity was
+opened — said how badly:
+
+- **32.7% driveways.** A plot levelled at whatever height its own middle landed
+  on, with 17 m of drive to climb back to the kerb. Fixed by making the DRIVE
+  the constraint: `NbPadY` clamps the bench to what a 15% ramp can reach, so
+  the gradient is bounded by construction rather than by luck.
+- **6.2 m of hillside standing through a flat lawn.** Each plot laid a level
+  slab over ground that was left alone underneath. Two surfaces describing one
+  piece of land will always find a way to disagree. **The benches went INTO the
+  height field**, so the ground mesh, the driveways and the plot builder all read
+  one function and the lawn slab stopped existing. Poke-through is now 0.000 m,
+  and not because it was tuned to zero — because it cannot happen.
+- **A 109% ramp into the garden.** With the bench in the field, the drive had to
+  cross the bench's 3 m batter and climbed the whole foundation in three metres.
+  A drive is cut its own way up a slope in real life for exactly this reason, so
+  it got its own corridor in the field.
+- **23% on a 15% drive.** The ramp landed on the bench's EDGE, so for the width
+  of the batter the bench was pulling the surface up while the ramp was still
+  climbing to it: two graders on the same three metres. Landing the ramp where
+  the bench's INFLUENCE begins gives it a level apron and makes the measured
+  gradient the designed one.
+- **A foundation nobody could ever see.** A 3 m grass batter is a graded earth
+  bank, and an earth bank buries the wall it is supposed to expose. At 1.5 m the
+  transition is a face, the retaining wall stands in front of it, and the walls
+  come out between 0.75 m and 5.7 m — which is what "houses are often built on
+  hills, but use concrete foundations to level them out" looks like. It wraps the
+  two sides and the back and leaves the street face open, because that is where
+  the drive comes up and it is also the one edge `NbPadY` holds near road level.
+
+**The kerb is segmented**, and that was right the first time. A kerb is a box and
+a box cannot bend; one 212 m cube on a street that now falls eleven metres either
+buries itself or floats. Eight-metre lengths, each seated AND pitched — a level
+box on a slope shows a wedge of daylight at one end.
+
+**Everything above was measured before the build.** The model prints the worst
+wall, the worst driveway gradient, the worst poke-through, the worst cross-slope
+beside a drive, and how far the ground stands through its own tarmac, for all
+fourteen plots. Five of those numbers were wrong on the first run and none of
+them would have been visible in a screenshot until someone drove into it.
+
+**The trap, found before a line of it was written:** `WorldKit.GridSlab` hangs a
+flat `BoxCollider` under its plane. A slab handed a height function that kept
+that would RENDER as hills and COLLIDE as the flat box underneath — the car
+driving along an invisible plane through the middle of the visible landscape,
+with nothing in the scene or the log to say so. `heightAt` is therefore also a
+collider switch: a shaped slab gets a `MeshCollider` on the mesh it is drawing.
+
+### WALKING INTO YOUR OWN GARAGE
+
+The garage door in the neighbourhood handed the player scene 0 on the garage tab,
+where they then had to press WALK INTO YOUR HOUSE to reach the room they were
+already standing at the door of. Two loading screens and a menu to walk through a
+door in front of you. The `garagewalk` tab still routes through scene 0 for one
+frame — that frame is where the drive gets banked — but nothing is drawn and
+nothing is pressed.
+
+### MOUNT MITCHELL
+
+"Let's add more tracks that focus on mountain roads (based on real roads) and
+research their altitude change... you can at least research the starting and
+ending altitude and make that accurate in game."
+
+**NC 128 leaves the Blue Ridge Parkway at milepost 355.4 and climbs 432 m in
+7.5 km to the highest road in the eastern United States.** It is the shortest
+stage in the game and has the biggest altitude change per kilometre of anything
+in it.
+
+The numbers were researched and then **independently fact-checked**, and the
+check earned its keep — it caught a start milepost off by 0.1, a summit
+conflated with a separate overlook, and a claimed maximum gradient that was a
+point too steep. What survived: 1,573 m at the Parkway junction and 2,004.7 m at
+the summit car park, both confirmed by USGS 3DEP lidar, SRTM and the published
+sign values agreeing to within a metre.
+
+**The bake came out at 1,574 to 2,003 m with a peak grade of 9.2%**, against a
+published maximum of 9.4%. Both anchors landed 0 m off the matched road and the
+run measured 7.46 km against a surveyed 7.47. The mountain in the game is the
+mountain.
+
+### ONE FETCHER, A TABLE OF ROADS
+
+`tools/brp/fetch_brp.mjs` proved the pipeline and `tools/bogue/fetch_bogue.mjs`
+proved it again — by COPYING it, which is why a third road was about to mean a
+third copy of the spline resampler, the gaussian smoother and the DEM grid baker.
+`tools/roads/fetch_road.mjs` is that script generalised, and the Parkway is now
+just the first row of its table. What changed, and why each was hardcoded:
+
+- **Two anchors instead of one anchor and a length.** The old bake had a point
+  and a distance and then had to GUESS which way along the chain was forward by
+  comparing latitudes either side of it. Every road here was researched as a pair
+  of endpoints with surveyed elevations, which is the form the ask was in — and
+  deriving the run from two points removes the guess entirely.
+- **Multi-tile SRTM**, lifted from the Bogue bake. One tile covered the Parkway;
+  Tail of the Dragon straddles the W084/W085 boundary and a single-tile sampler
+  would read zero for a third of it and bake a cliff.
+- **A road matcher per road.** The Parkway is found by name and a state route by
+  its `ref` — and refs are compared with the spacing stripped, because OSM writes
+  `NC 128`, `NC128` and `NC 128;NC 80` and all three mean the road is here.
+- **Lead and shutdown are CLAMPED, not demanded.** Lead is road before the start
+  line for the grid to stand on and shutdown is road past the finish for a car
+  crossing at speed, and a dead-end spur has neither: Mount Mitchell starts at a
+  junction and ends in a car park. Take what the road has and SAY what was lost,
+  because a stage that quietly finishes 120 m short of the summit is a stage that
+  lied about its own altitude.
+
+**And the self-test caught four things a picture never would.** A dead-end spur
+breaks assumptions a circuit does not: no lead-in for the grid, no shutdown past
+the finish, a 15.7 m switchback where a generated circuit floors at 18 m, and a
+road too narrow to stage two cars abreast on.
+
+Three were fixed by making the stage honest — the START LINE MOVES 60 m INTO the
+road and the finish 150 m back, so the timed section is 7.25 km of 7.47 km while
+the terrain, the walls and the banks are still the whole mountain. What that
+costs is a little altitude at each end, which is why the bake PRINTS it: a stage
+that quietly finishes short of the summit is a stage that lied about its climb.
+
+The fourth was the assertion being wrong rather than the road. The 18 m floor was
+written for GENERATED circuit shapes, where anything tighter is a generator
+fault. A stage's plan is a SURVEY, and NC 128 climbs on switchbacks — one of them
+turning through 193 degrees, which is what 15.7 m measures. Flattening it would
+be flattening the reason the road is in the game. The stage floor is 12 m, and
+that is still the CAR's floor rather than none: 22 degrees of lock on a 2.5 m
+wheelbase describes about 6.7 m, so a 12 m centreline inside a 9 m road is a
+hairpin you take slowly, not one you cannot take.
+
+### BEECH GAP, AND THE THREE ROADS THAT DID NOT MAKE IT
+
+"Add a lot more verticality to roads, especially on side roads that branch on/off
+Blueridge parkway."
+
+**Beech Gap — NC 215**, from under the Parkway bridge at 1,623 m down 736 m to
+Balsam Grove in eleven kilometres. It is literally that ask: a road that leaves
+the Parkway and falls off it. The biggest drop of anything in the game, on the
+narrowest road in it, with no straight long enough to rest on — its tightest
+corner is 16.4 m and its gentlest is not much better. Both anchors landed on the
+matched centreline and the bake agreed with the survey to 3 m.
+
+Three others were researched, baked, measured, and left out, each for a
+different reason, and the reasons are the useful part.
+
+**Tail of the Dragon — thrown away for its size.** It is the one road on the list
+that never touches the Parkway, so it would have pushed the download furthest for
+the least connection to what was asked for. One run of it was worth keeping
+though, because it CORRECTED THE RESEARCH: the table had Deals Gap at 512 m, the
+bake said 595, and a gap that size looks exactly like the canopy bias the Parkway
+notes warn about. It was not. Deals Gap is 1,955 ft — 596 m — so SRTM was right
+to within a metre and the research was 84 m wrong. **The surveyed number is a
+check, not an authority**, and this is the run where it was the one that failed.
+
+**The Devil's Whip — baked, and held for its first corner.** NC 80 leaves the
+Parkway at Buck Creek Gap and its first switchback is a real 9.8 m radius:
+confirmed on the RAW OSM at a 30 m chord, six samples out of 6,706, with every
+other turn on the road over 13 m. The 12 m self-test floor is not really the
+obstacle — a 9 m road on a 9.8 m centreline leaves a 5.3 m inner kerb, which is a
+hairpin taken at walking pace and a ribbon that very nearly folds. It needs one
+of three real answers: a cut that starts below the hairpin, a narrower road
+through it, or a floor derived from the car's lock and the road's width instead
+of a constant. It does not need a smoothing pass, and the next section is why.
+
+**A STAGE IS A SECTION OF A ROAD, AND NOW THE FETCHER KNOWS IT.** NC 80 runs
+19.5 km to US 70 and the first bake took all of it, which is the wrong answer
+twice over. Terrain COSTS — Blue Ridge's 7.0 km is 19 MB of mesh assets and the
+cost is close to linear, so 19.5 km would be 53 MB added to a 49 MB WebGL
+download — and eleven minutes of one road is a commute rather than a stage.
+`maxRunM` trims from the FAR end and keeps the researched START, because these
+roads are known by where they begin: a gap, a junction, the foot of a summit
+road. What that gives up is a researched elevation at the finish, which is a fair
+trade here: every road in the table came out within 4 m of BOTH its surveyed
+endpoints, so the height field has earned the middle, where there is nothing to
+check it against.
+
+### THE SPLINE WAS WRONG FOR EVERY ROAD, AND ONE MEASUREMENT FOUND IT
+
+`splineResample` used UNIFORM Catmull-Rom, copied from `TrackCatalog` — where it
+is right, because circuit control points are AUTHORED at comparable spacing. OSM
+vertices are not. A mountain road is digitised with clusters two metres apart
+through a switchback and fifty-metre chords down the straight between them, and
+uniform parameterisation on a ratio like that overshoots hard.
+
+**NC 215 baked a 1.5 m plan radius. NC 80 baked 3.9 m.** Not corners — the spline
+doubling back on itself, on roads whose real switchbacks are twelve to sixteen.
+The ribbon builder would have splayed the road sixty metres wide around them.
+
+It is the same trap the Bogue bake hit — one OSM way modelling a bridge as two
+vertices, 40 m / 40 m / 1288 m, giving an 11 m hairpin — where it was patched by
+DENSIFYING long segments. That treats one half of it: a very SHORT segment beside
+a normal one breaks it just as badly, which is the mountain case. **Centripetal
+(alpha = 0.5) is the actual fix**, and it is what the parameterisation exists
+for: it provably cannot cusp or self-intersect at any spacing ratio, while still
+passing through every vertex. NC 215 went 1.5 m → 16.4 m from that one change.
+
+**None of the numbers the bake already printed would have caught it.** Not the
+length, not the elevation range, not the maximum gradient, not a screenshot of a
+road nobody had driven into yet. The bake prints its tightest plan corner now,
+and refuses to write a stage that is under the floor — a check that costs
+milliseconds where the self-test costs a forty-minute build.
+
+**And then a smoothing pass was written to force NC 80 through anyway, which is
+the mistake worth recording.** Opening a hairpin by pulling its apex toward the
+chord CUTS THE CORNER OFF. In place it made the road worse — five violations
+became thirteen, because R is roughly d / (2·sin(θ/2)) and shortening the chords
+shrinks the neighbours' radii faster than it opens the one being fixed.
+Resampling between passes fixed that and exposed the next one: the resampler
+dropped its tail remainder, which was one waypoint per call and **1,204 of them
+over 1,200 passes — forty per cent of NC 80 gone off the bottom of the mountain**,
+with no sign of it except a printed elevation range starting 85 m too high.
+Fixed, it still took 300 m out of the corners it opened and left the finish line
+past the end of the route. All of it was deleted. The road keeps its hairpin.
+
+Two things survived the attempt and both were worth the trip. The resampler
+KEEPS ITS LAST POINT now. And **the start and finish lines are measured on the
+waypoint list**, which is the road the game actually drives, instead of in metres
+along the original OSM chain — a different curve, longer through the spline and
+shorter through the resample. That was always approximate; on NC 80 it became a
+finish line 90 m past the last waypoint, on a road where every other printed
+number looked perfect.
+
+Every one of those roads keeps its row in the table with its research intact and
+its reason for not shipping written beside it, so the next pass starts from what
+was measured rather than from scratch.
+
+**The warning worth carrying forward:** SRTM reads the top of a forest, not the
+road under it. Measured against 1 m lidar the bias reaches **+33 m** on these
+ridges and it GROWS with ridge height, so a flat offset will not correct it. The
+surveyed endpoints in the road table are there to be compared against what the
+bake prints, and a large disagreement is the canopy talking.
+
 ## YOUR STREET IS A PLACE, AND EVERY CIRCUIT HAS A BACK (2026-09-05, third pass)
 
 Three from a phone playtest.

@@ -234,6 +234,41 @@ namespace PSXRacing.EditorTools
                 gasStation = false,
             },
 
+            // Mount Mitchell. The same mountain as the Parkway and the same
+            // look, so it borrows the Parkway's theme wholesale and changes
+            // only where its bake lives. What it does NOT share is the
+            // altitude: this one starts where the Parkway is and climbs 432 m
+            // above it, to 2,003 m — the highest tarmac in eastern America and
+            // above the hardwood line, which is why the forest thins toward the
+            // top all by itself: the tree pass reads the DEM.
+            ["MtMitchell"] = new Theme
+            {
+                ground = Root + "/Art/GasStation/Textures/Ground.jpg",
+                wall = Root + "/Art/Roads/T (3).jpg",
+                groundTile = 13f,
+                relief = 0f,                            // the DEM is the relief
+                buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+                gasStation = false,
+                stageDir = Root + "/Art/MtMitchell",
+                stagePrefix = "mtm",
+            },
+
+            // NC 215 off the Parkway at Beech Gap. It wears the Parkway's look
+            // for the reason Mount Mitchell does: same mountains, same rock in
+            // the cuts, same hardwood on the shoulders. What differs is the DEM
+            // it reads, which is the whole of what a stage theme decides.
+            ["BeechGap"] = new Theme
+            {
+                ground = Root + "/Art/GasStation/Textures/Ground.jpg",
+                wall = Root + "/Art/Roads/T (3).jpg",
+                groundTile = 13f,
+                relief = 0f,
+                buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+                gasStation = false,
+                stageDir = Root + "/Art/BeechGap",
+                stagePrefix = "beech",
+            },
+
             // Bogue Banks. One look, three venues: pale sand, scrub behind the
             // dune line, water on both sides of everything. All three share a
             // folder because they share an island; the DEM PREFIX is what keeps

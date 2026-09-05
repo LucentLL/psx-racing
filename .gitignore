@@ -32,3 +32,6 @@ Assets/PSXShaderKit/
 Assets/PSXShaderKit.meta
 
 tools/brp/cache/
+# The generalised road bake downloads SRTM tiles and Overpass results here.
+# 15 MB and up per road, all of it re-fetchable, none of it source.
+tools/roads/cache/

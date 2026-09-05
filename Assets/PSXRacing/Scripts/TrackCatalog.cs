@@ -489,6 +489,62 @@ namespace PSXRacing
                 dragLabel = "THE SPAN",
                 bridgeDepth = 4f,
             },
+
+            // ----------------------------------------------------------------
+            //  Mount Mitchell — NC 128, straight off the Parkway and straight
+            //  up. Appended after the coast for the same reason everything is
+            //  appended: a saved career stores its venue by index.
+            //
+            //  THE ALTITUDE IS REAL AND IT IS THE POINT. The bake reads the
+            //  same SRTM the Parkway does, and its endpoints were researched
+            //  and independently fact-checked against USGS 3DEP lidar: 1,573 m
+            //  at the Parkway junction, 2,004.7 m at the summit car park, a
+            //  432 m climb in 7.5 km with nothing but up in between. The route
+            //  came out of the bake at 1,574..2,003 m with a peak grade of
+            //  9.2%, against a published maximum of 9.4% — so the mountain in
+            //  the game is the mountain.
+            // ----------------------------------------------------------------
+            new TrackDef
+            {
+                id = "MtMitchell",
+                name = "MOUNT MITCHELL — NC 128",
+                blurb = "Off the Parkway at Ridge Junction and 432 m up in seven and a half " +
+                        "kilometres, finishing at 2,003 m — the highest road in the eastern " +
+                        "United States. Map (c) OpenStreetMap contributors.",
+                // Nine metres, not the 7.5 the first cut guessed. NC 128 is a
+                // two-lane park road — two 3.5 m lanes and a shoulder is about
+                // nine — and the number is also load-bearing: the 1v1 restage
+                // check asks whether a car can sit 5.2 m off the rival and
+                // still be on tarmac, which a 7.5 m road cannot answer yes to.
+                roadWidth = 9f,
+                laps = 1,
+                stage = true,
+                stageData = "mtm_stage",
+                dragLabel = "THE SUMMIT",
+            },
+
+            // ----------------------------------------------------------------
+            //  Beech Gap — NC 215, under the Parkway and down the other side.
+            //
+            //  1,623 m where it passes beneath the Parkway bridge and 887 m
+            //  eleven kilometres later above Balsam Grove: 736 m of descent,
+            //  the biggest drop of the three, on the narrowest road of the
+            //  three. Both anchors landed on the matched road and the bake
+            //  agreed with the survey to 3 m.
+            // ----------------------------------------------------------------
+            new TrackDef
+            {
+                id = "BeechGap",
+                name = "BEECH GAP — NC 215",
+                blurb = "From under the Parkway bridge at 1,623 m down to Balsam Grove: " +
+                        "736 m of descent in eleven kilometres, and no straight long " +
+                        "enough to rest on. Map (c) OpenStreetMap contributors.",
+                roadWidth = 8.5f,
+                laps = 1,
+                stage = true,
+                stageData = "beech_stage",
+                dragLabel = "THE GAP",
+            },
         };
 
         /// <summary>
