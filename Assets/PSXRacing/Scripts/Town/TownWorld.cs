@@ -184,8 +184,16 @@ namespace PSXRacing.Town
                 // the road runs out — see TownEdge — and the arrow points at
                 // whichever end is nearer, because the shop is in the middle of
                 // the street and both ends are out.
-                anchor = NearestEdge();
-                string where = " — DRIVE OUT OF TOWN";
+                // WHICH EDGE, because there are two kinds now. The town's ends
+                // ARE the way out and launch the run on the spot; your own
+                // street's end is a junction that asks, and the delivery is the
+                // first row it offers. Telling a player on their own drive to
+                // "drive out of town" is a direction to a town they are not in.
+                var edge = NearestEdge();
+                anchor = edge != null ? edge.transform : null;
+                string where = edge != null && edge.mode == TownEdge.Mode.AskWhereTo
+                    ? " — DRIVE TO THE JUNCTION"
+                    : " — DRIVE OUT OF TOWN";
                 label = "DELIVERY" + where;
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
                 {
@@ -225,7 +233,12 @@ namespace PSXRacing.Town
                     // saying TONY'S would be a worse lie than saying nothing.
                     anchor = FindVenue(TownVenue.Kind.Depart);
                     label = "GO TO WORK — DRIVE INTO TOWN";
-                    near = "THE JUNCTION — STOP AND CHOOSE";
+                    // NOT "stop and choose" any more. Stopping still works —
+                    // the junction is a signpost you can press at — but the end
+                    // of the street is a line now, and it opens the same menu on
+                    // its own. A cue that names the harder of two ways in reads
+                    // as the only one.
+                    near = "THE JUNCTION — DRIVE ON AND CHOOSE";
                 }
             }
 
@@ -264,18 +277,20 @@ namespace PSXRacing.Town
             { "^", "/^", ">", "\v", "v", "v/", "<", "^\\" };
 
 
-        /// <summary>Whichever end of the main street is nearer. Both ends
-        /// launch a delivery, so pointing at the far one would send a driver
-        /// the length of the town for no reason.</summary>
-        Transform NearestEdge()
+        /// <summary>Whichever end of the street is nearer. The town has two and
+        /// both launch a delivery, so pointing at the far one would send a
+        /// driver the length of the town for no reason; the neighbourhood has
+        /// one, and it asks rather than launches — which is why this hands back
+        /// the COMPONENT and not just a transform.</summary>
+        TownEdge NearestEdge()
         {
-            Transform best = null;
+            TownEdge best = null;
             float bestSq = float.MaxValue;
             Vector3 from = player != null ? player.transform.position : Vector3.zero;
             foreach (var e in FindObjectsByType<TownEdge>(FindObjectsSortMode.None))
             {
                 float d = (e.transform.position - from).sqrMagnitude;
-                if (d < bestSq) { bestSq = d; best = e.transform; }
+                if (d < bestSq) { bestSq = d; best = e; }
             }
             return best;
         }

@@ -53,6 +53,32 @@ namespace PSXRacing.OnFoot
 
         Canvas canvas;
 
+        /// <summary>
+        /// Set by <see cref="ForecourtMode"/> on the panel it builds itself, and
+        /// by nobody else: this one belongs to a player who can be sitting in a
+        /// car, so it has to stand down while they are.
+        ///
+        /// DECLARED RATHER THAN GUESSED. The panel could look for a
+        /// ForecourtMode in the scene and infer the same answer, and it would
+        /// be right in all four scene families today — but the failure mode of
+        /// a wrong guess is a soft lock. The walk-in scenes (the garage, the
+        /// pizzeria, the seller's driveway) carry a panel and no ForecourtMode,
+        /// and there this IS the player's only set of controls: losing it is
+        /// "the difference between walking out of the room and reloading the
+        /// page", in SetVisible's own words below. Whoever owns a car says so;
+        /// everybody else gets the panel they have always had.
+        ///
+        /// NonSerialized, so the FootTouchPanel already baked into Garage.unity
+        /// is byte-for-byte what it was and no scene needs rebuilding for this.
+        /// </summary>
+        [System.NonSerialized] public bool ownedByCar;
+
+        /// <summary>Is the player on their feet? The flag every other overlay
+        /// in this game already reads — RaceHUD, GaugeCluster, CockpitView,
+        /// StuckRecovery and TouchControls all gate on it. This panel was the
+        /// one that did not.</summary>
+        bool Afoot => !ownedByCar || ForecourtMode.OnFoot;
+
         void Awake()
         {
             Build();
@@ -73,7 +99,17 @@ namespace PSXRacing.OnFoot
         void SetVisible(bool v)
         {
             Visible = v;
-            if (canvas != null) canvas.enabled = v;
+            Apply();
+        }
+
+        /// <summary>Two independent questions, one canvas: does this device
+        /// have thumbs (<see cref="Visible"/>, which FootScreen also reads to
+        /// choose its wording, so it must keep meaning only that), and is the
+        /// player on their feet.</summary>
+        void Apply()
+        {
+            bool want = Visible && Afoot;
+            if (canvas != null && canvas.enabled != want) canvas.enabled = want;
         }
 
         void Build()
@@ -151,6 +187,42 @@ namespace PSXRacing.OnFoot
         void Update()
         {
             PointerOverUI = false;
+            // Every frame, because OnFoot flips inside ForecourtMode's
+            // coroutines and nobody calls in here to say so.
+            Apply();
+
+            // BACK IN THE CAR, AND EVERYTHING BELOW IS FOR SOMEBODY STANDING UP.
+            //
+            // The forecourt does not destroy its rig when the player gets in —
+            // it deactivates the WALKER (ForecourtMode.GetIn), and this panel
+            // hangs off the scene's systems object rather than off the walker,
+            // so it never receives the OnDisable that FirstPersonWalk stands
+            // itself down in. Left running it draws a USE button over the
+            // throttle pedal and a walk stick over the steering wheel —
+            // reported in those words after a pizza pickup — and it hit-tests
+            // every pedal press into interactor.touchUse, which then fires the
+            // moment the player next steps out.
+            //
+            // ABOVE the reveal-on-touch below, and not merged into it: a
+            // throttle tap must not be able to flip Visible true and light the
+            // canvas back up. That is the exact trap TouchControls.Update
+            // documents in its own mirror-image guard.
+            if (!Afoot)
+            {
+                stickTouch = lookTouch = -1;
+                // BOTH fields, and they are not symmetric: FirstPersonWalk
+                // OVERWRITES from externalMove every frame but DRAINS
+                // externalLook, which this panel adds to. A sum left standing
+                // is a sum that lands in one frame the next time somebody
+                // steps out of the car.
+                if (walker != null)
+                {
+                    walker.externalMove = Vector2.zero;
+                    walker.externalLook = Vector2.zero;
+                }
+                if (interactor != null) { interactor.touchUse = false; interactor.touchUse2 = false; }
+                return;
+            }
 
             // A finger on the glass is proof, and it outranks whatever the
             // platform claimed at boot. Revealed on the first touch rather than
@@ -269,8 +341,16 @@ namespace PSXRacing.OnFoot
 
             if (walker != null)
             {
-                walker.externalMove = move;
-                walker.externalLook += look;
+                // A PAGE ON SCREEN IS NOT A ROOM YOU ARE LOOKING ROUND. The
+                // store counter and the wreck screen switch the WALKER off and
+                // leave it active, so this panel keeps running over the top of
+                // an open menu — and because externalLook is accumulated here
+                // and drained by FirstPersonWalk.Look, every drag on that page
+                // piled up and swung the view the moment it closed.
+                bool live = walker.enabled;
+                walker.externalMove = live ? move : Vector2.zero;
+                if (live) walker.externalLook += look;
+                else walker.externalLook = Vector2.zero;
             }
 
             // The stick base follows the thumb once it has one, so a thumb that

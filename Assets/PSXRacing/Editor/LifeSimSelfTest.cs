@@ -579,6 +579,106 @@ namespace PSXRacing.EditorTools
             var mf = yard != null ? yard.GetComponent<MeshFilter>() : null;
             int verts = mf != null && mf.sharedMesh != null ? mf.sharedMesh.vertexCount : 0;
             Check(verts >= 400, "the yard is subdivided, not one big quad", verts + " verts");
+
+            // SOMEWHERE TO SLEEP, and it is measured off the model like every
+            // other datum on this lot — which is exactly why it needs asserting
+            // here. The bed is geometry inside house_hero.fbx, found by the node
+            // names bed_01..bed_03, so a pack update that renames or moves them
+            // restores "the bed offers nothing" with nothing else failing. The
+            // builder only logs a warning, and a warning in an editor console is
+            // not a test.
+            var world = Object.FindFirstObjectByType<PSXRacing.OnFoot.GarageWorld>();
+            int beds = world != null && world.beds != null ? world.beds.Length : 0;
+            Check(beds > 0, "there is a bed to sleep in", beds);
+            for (int i = 0; i < beds; i++)
+            {
+                var b = world.beds[i];
+                if (b == null) { Check(false, "bed anchor " + i + " survived the build"); continue; }
+                // UPSTAIRS AND IN THE AIR. The aim point has to clear the
+                // mattress's own MeshCollider — which arrives on
+                // house_hero_colliders.fbx, under a different root, so
+                // FootTarget's sight test does not forgive it — and it has to
+                // be on the storey the bedrooms are on rather than at the height
+                // of a rug.
+                Check(b.position.y > garageBaseY + 2.5f,
+                      "bed " + i + " is upstairs, where the bedrooms are",
+                      b.position.y.ToString("0.00") + " m");
+            }
+
+            // AND IT HAS TO ANSWER. An anchor that exists is not a prompt.
+            // FootInteractor's sight test blocks on the ROOM, and this project
+            // has lost a prompt more than once to an aim point a hand's width
+            // inside the furniture it named — the bed's mattress carries its own
+            // MeshCollider, on house_hero_colliders.fbx, under a root the target
+            // does not forgive. So ask the SAME code the game asks, from head
+            // height beside each bed, the way FootSightProbe does.
+            if (world != null && beds > 0) TestBedOffersSleep(world);
+        }
+
+        /// <summary>Stand beside every bed in turn and check the game would
+        /// offer SLEEP. Eight positions a stride out, because which side of a
+        /// bed is the open side of its room is not something the builder knows
+        /// and not something worth teaching it: ONE of them has to work.
+        /// </summary>
+        static void TestBedOffersSleep(PSXRacing.OnFoot.GarageWorld world)
+        {
+            GameObject rig = null;
+            try
+            {
+                // The hooks are spawned from the save at runtime, so the scene
+                // as saved holds none of them. PreviewBuild is public for
+                // exactly this — the screenshot pass calls it for the same
+                // reason — and it is idempotent.
+                world.PreviewBuild();
+
+                var targets = new List<PSXRacing.OnFoot.FootTarget>();
+                foreach (var go in UnityEngine.SceneManagement.SceneManager
+                                   .GetActiveScene().GetRootGameObjects())
+                    targets.AddRange(go.GetComponentsInChildren<PSXRacing.OnFoot.FootTarget>(true));
+
+                rig = new GameObject("SightRig");
+                var interactor = rig.AddComponent<PSXRacing.OnFoot.FootInteractor>();
+
+                for (int i = 0; i < world.beds.Length; i++)
+                {
+                    var bed = world.beds[i];
+                    if (bed == null) continue;
+                    string best = null;
+                    for (int a = 0; a < 8 && best == null; a++)
+                    {
+                        float rad = a * Mathf.PI * 0.25f;
+                        Vector3 eye = bed.position +
+                            new Vector3(Mathf.Cos(rad), 0f, Mathf.Sin(rad)) * 1.3f;
+                        var hit = interactor.PickFrom(targets, eye,
+                                                      (bed.position - eye).normalized);
+                        if (hit != null && hit.action == "SLEEP") best = "from " + (a * 45) + " deg";
+                    }
+                    Check(best != null, "standing by bed " + i + " offers SLEEP",
+                          best ?? "no approach to it is offered the prompt");
+
+                    // AND NOT FROM THE ROOM UNDERNEATH. The bedrooms are over
+                    // the garage — FootInteractor's own header is about a jack
+                    // you could work from bed — and 2.6 m is inside the hook's
+                    // 3.4 m reach, so the only thing standing between a player
+                    // under a car and an offer to sleep is the floor. It holds
+                    // because the pack's floor planes face DOWN and the project
+                    // does not query backfaces; both of those are settings
+                    // somebody could change without ever thinking about a bed.
+                    Vector3 below = bed.position + Vector3.down * 2.6f;
+                    var through = interactor.PickFrom(targets, below, Vector3.up);
+                    Check(through == null || through.action != "SLEEP",
+                          "and bed " + i + " cannot be slept in through the floor",
+                          through != null ? through.title : "nothing offered");
+                }
+            }
+            catch (System.Exception e)
+            {
+                Check(false, "the bed sight check runs", e.Message);
+            }
+            finally
+            {
+                if (rig != null) Object.DestroyImmediate(rig);
+            }
         }
 
         static bool OnRoad(TrackPath path, Vector3 pos)
@@ -1325,6 +1425,7 @@ namespace PSXRacing.EditorTools
             PSXRacing.OnFoot.ForecourtMode forecourt = null;
             PSXRacing.Town.TownWorld world = null;
             var venues = new List<PSXRacing.Town.TownVenue>();
+            var edges = new List<PSXRacing.Town.TownEdge>();
             int roadCols = 0;
             foreach (var go in scene.GetRootGameObjects())
             {
@@ -1335,6 +1436,7 @@ namespace PSXRacing.EditorTools
                 forecourt = forecourt ?? go.GetComponentInChildren<PSXRacing.OnFoot.ForecourtMode>(true);
                 world = world ?? go.GetComponentInChildren<PSXRacing.Town.TownWorld>(true);
                 venues.AddRange(go.GetComponentsInChildren<PSXRacing.Town.TownVenue>(true));
+                edges.AddRange(go.GetComponentsInChildren<PSXRacing.Town.TownEdge>(true));
                 foreach (var c in go.GetComponentsInChildren<Collider>(true))
                     if (c.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer) roadCols++;
             }
@@ -1417,6 +1519,57 @@ namespace PSXRacing.EditorTools
                           "the junction is long enough to stop in",
                           Mathf.Max(col.bounds.size.x, col.bounds.size.z)
                               .ToString("0.0") + " m");
+            }
+
+            // AND A LINE FOR THE PLAYER WHO DOES NOT STOP.
+            //
+            // Every assertion above is about a volume you have to STOP in and
+            // PRESS at, and all of them passed while the reported bug was live:
+            // a car that runs the street out at speed never satisfies either
+            // gate, and what it meets instead is the boundary wall — which the
+            // stuck watchdog then reads as stuck, prints over the junction's own
+            // banner, and finally teleports the car away from. So the invariant
+            // is not "there is a menu somewhere near the end", it is NOTHING
+            // SOLID STANDS BETWEEN THE STREET AND THE LINE.
+            PSXRacing.Town.TownEdge line = null;
+            foreach (var e in edges)
+                if (e != null && e.mode == PSXRacing.Town.TownEdge.Mode.AskWhereTo) line = e;
+            Check(line != null, "the end of the road is a line you cannot drive past");
+            var lc = line != null ? line.GetComponent<Collider>() : null;
+            Check(lc != null && lc.isTrigger, "and it is a trigger, not a wall");
+            if (lc != null)
+            {
+                // At a 0.02 s fixed step even a 200 km/h car moves 1.1 m a tick,
+                // so eighteen metres is sixteen ticks inside the volume — no
+                // car this game can build steps over it.
+                Check(lc.bounds.size.z >= 18f,
+                      "and long enough that a fast car cannot step over it",
+                      lc.bounds.size.z.ToString("0.0") + " m");
+                // As wide as the wall behind it, or the verge is a way round.
+                Check(lc.bounds.size.x >= 100f,
+                      "and as wide as the map, so the grass is not a way round it",
+                      lc.bounds.size.x.ToString("0.0") + " m");
+
+                // BARRIERS ONLY, and only the ones you cannot drive round: a
+                // solid that spans the carriageway from side to side is a thing
+                // the player MEETS, and it has to be behind the line or ahead of
+                // it, never in the twenty-two metres the line occupies. Houses,
+                // kerbs and the two side walls are all narrow across the crown
+                // and are the reason this cannot simply sweep every collider.
+                float crown = lc.bounds.center.x;
+                foreach (var go in scene.GetRootGameObjects())
+                    foreach (var c in go.GetComponentsInChildren<Collider>(true))
+                    {
+                        if (c.isTrigger) continue;
+                        if (c.gameObject.layer != PSXRacing.EditorTools.WorldKit.SolidLayer) continue;
+                        if (c.bounds.min.x > crown - 6f || c.bounds.max.x < crown + 6f) continue;
+                        // North of the line is the street you drive down it.
+                        if (c.bounds.min.z > lc.bounds.max.z) continue;
+                        Check(c.bounds.max.z < lc.bounds.min.z,
+                              "nothing solid stands across the road in front of the depart line",
+                              c.name + " reaches z " + c.bounds.max.z.ToString("0.0") +
+                              ", the line starts " + lc.bounds.min.z.ToString("0.0"));
+                    }
             }
 
             TestDrivesReachTheirGarages(scene);

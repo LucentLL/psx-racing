@@ -49,6 +49,31 @@ namespace PSXRacing.EditorTools
         /// Long enough that pulling off the drive and reaching the end is a
         /// drive rather than a manoeuvre.</summary>
         const float NbStreetEnd = -168f;
+        /// <summary>Grass between the end of the tarmac and the boundary wall.
+        ///
+        /// The wall is a BACKSTOP now rather than the thing you meet. It stood
+        /// six metres past the tarmac — three and a half metres past the
+        /// junction volume's own south face — so a car that ran the street out
+        /// and stopped nose-on against it had barely half a metre of its
+        /// four-metre body left inside the trigger, and any bounce or yaw took
+        /// even that.
+        ///
+        /// Thirty metres is what a suburban street is actually left at: a car
+        /// that comes down its own road at fifty and crosses the line loses the
+        /// throttle to the panel and stops on the grass with the wall still
+        /// ahead of it. It is NOT enough for a car doing a hundred and forty,
+        /// and no honest number would be — 30% of pedal over thirteen metres
+        /// is not a stop. What makes that case harmless is not the distance: the
+        /// panel is already up, the game already has the controls
+        /// (PlayerCarInput's !inputEnabled branch), and StuckRecovery is already
+        /// standing down for the same reason. The wall is met behind a menu.
+        /// </summary>
+        const float NbRunoff = 30f;
+        /// <summary>Half the map's width. It was a local in BuildNbBounds; the
+        /// depart line has to be exactly as wide as the wall it stands in front
+        /// of, or a player who leaves the tarmac reaches the wall without ever
+        /// crossing the line.</summary>
+        const float NbHalfWidth = 58f;
         /// <summary>Metres between neighbouring plot centres. A 11.7 m house at
         /// the pack's scale needs a garden either side or the street reads as a
         /// terrace, which North Carolina suburbs are not.</summary>
@@ -199,6 +224,38 @@ namespace PSXRacing.EditorTools
             TownTrigger(root.transform, "DepartVenue", TownVenue.Kind.Depart,
                 new Vector3(HomeStreetX, NbRoadY(departZ) + 1.8f, departZ),
                 new Vector3(HomeRoadW + 6f, 5f, departLen));
+
+            // AND THE LINE YOU CANNOT MISS, because the volume above is still
+            // a SIGNPOST and a signpost is not a map edge.
+            //
+            // Forty metres of it was the right answer to "the junction was too
+            // short to stop in" and no answer at all to a player who never
+            // stops. TownVenue will not claim a car over 4.5 km/h and then
+            // wants a PRESS — and while the car is moving AtVenue stays false,
+            // so on a phone the ACTION button that press lives on is not even
+            // drawn. What the player meets instead is the boundary wall, and
+            // what happens there is worse than nothing: StuckRecovery reads a
+            // car pinned against it as stuck, RaceHUD ranks the watchdog's line
+            // ABOVE the junction's, and seven seconds later the car is
+            // teleported back up its own street. "I crash into an invisible
+            // wall instead of being given the menu", reported three times.
+            //
+            // A TownEdge and NOT a second TownVenue: TownVenue.active is a
+            // single static slot already claimed by the junction on the way
+            // down, so an overlapping second venue could never claim anything.
+            //
+            // FULL MAP WIDTH, exactly like the wall behind it. The run-off is a
+            // hundred and sixteen metres of open grass, and a road-width line is
+            // one a car can drive round to find the wall on the verge. Twenty-two
+            // metres deep: the fixed step is 0.02 s, so even at 200 km/h a car
+            // moves 1.1 m a tick and spends twenty of them inside.
+            var edge = new GameObject("DepartEdge");
+            edge.transform.SetParent(root.transform, false);
+            edge.transform.position = new Vector3(HomeStreetX, -5f, NbStreetEnd - 5f);
+            var edgeCol = edge.AddComponent<BoxCollider>();
+            edgeCol.isTrigger = true;
+            edgeCol.size = new Vector3(NbHalfWidth * 2f, 40f, 22f);
+            edge.AddComponent<TownEdge>().mode = TownEdge.Mode.AskWhereTo;
 
             // ---- the player, on their own drive, pointing down the street ----
             var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
@@ -1039,18 +1096,29 @@ namespace PSXRacing.EditorTools
             // them now falls thirteen metres from one end of the street to the
             // other and a 16 m wall hung off y=3 leaves the far end of the map
             // open under its own fence.
-            float hx = 58f;
-            float len = HomeStreetTop - NbStreetEnd + 40f;
-            float midZ = (HomeStreetTop + NbStreetEnd) * 0.5f;
+            float hx = NbHalfWidth;
+            // The south end moved out by the run-off, so the side walls have to
+            // follow it: leaving them where they were opens the map at both
+            // southern corners.
+            float southZ = NbStreetEnd - NbRunoff;
+            float len = HomeStreetTop - southZ + 40f;
+            float midZ = (HomeStreetTop + southZ) * 0.5f;
             Wall("W", new Vector3(HomeStreetX - hx, -5f, midZ), new Vector3(1f, 40f, len));
             Wall("E", new Vector3(HomeStreetX + hx, -5f, midZ), new Vector3(1f, 40f, len));
             // North is BEHIND your house — far enough back that the building
             // stands in a garden rather than against a wall.
             Wall("N", new Vector3(HomeStreetX, -5f, TownHouseZ + 26f),
                  new Vector3(hx * 2f, 40f, 1f));
-            // South is past the junction. The junction menu is the way out;
-            // this is only what stops a player who drove through it.
-            Wall("S", new Vector3(HomeStreetX, -5f, NbStreetEnd - 6f),
+            // South stands BEHIND the depart line, not on top of it.
+            //
+            // It used to sit six metres past the tarmac, which is three and a
+            // half metres past the junction volume's own south face — so the
+            // last thing on the way out of the neighbourhood was a wall, with
+            // the menu that was meant to be the way out ending BEHIND the car
+            // that had stopped against it. It is a backstop now: the line is at
+            // NbStreetEnd - 5 with eleven metres of body length either side of
+            // it, and this is thirteen and a half metres of grass behind that.
+            Wall("S", new Vector3(HomeStreetX, -5f, southZ),
                  new Vector3(hx * 2f, 40f, 1f));
         }
 

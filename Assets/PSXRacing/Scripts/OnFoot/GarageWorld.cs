@@ -37,6 +37,13 @@ namespace PSXRacing.OnFoot
         /// same EatMeal rule the EAT tab runs, standing in front of the thing
         /// the food is actually in.</summary>
         public Transform fridge;
+        /// <summary>One aim point over each bed the house has, placed by the
+        /// scene builder off the model's own bed_NN objects. Sleeping at the
+        /// bed, without the menu — the fridge's rule applied to the other
+        /// thing the day is spent on. Three of them, because the house has
+        /// three bedrooms and the player is not told which one is theirs.
+        /// </summary>
+        public Transform[] beds = new Transform[0];
         public FootScreen screen;
 
         /// <summary>Where spawned crates go — the empty shelf run beside the
@@ -92,6 +99,8 @@ namespace PSXRacing.OnFoot
         const float RaiseSpeed = 0.9f;
 
         FootTarget rackHook, toolHook, benchHook, doorHook, fridgeHook;
+        readonly System.Collections.Generic.List<FootTarget> bedHooks =
+            new System.Collections.Generic.List<FootTarget>();
 
         LifeState S => LifeSimManager.State;
 
@@ -489,6 +498,25 @@ namespace PSXRacing.OnFoot
             if (benchHook != null) benchHook.onUse = () => GoHome("service");
             if (doorHook != null) doorHook.onUse = () => GoHome("main");
             if (fridgeHook != null) fridgeHook.onUse = EatFromFridge;
+
+            // THE BEDS. A hook per bedroom, all three doing the same thing —
+            // the player is never told which bed is theirs, and a house where
+            // two of the three cannot be slept in is a house with two props in
+            // it that look exactly like the one that works.
+            //
+            // The anchor already IS the aim point, so it is both the hook's
+            // parent and its focus: the builder put it in clear air over the
+            // pillows precisely so the sight test can reach it, and re-aiming
+            // at the parent's own origin here would throw that away.
+            bedHooks.Clear();
+            for (int i = 0; i < beds.Length; i++)
+            {
+                var h = Hook(beds[i], 3.4f);
+                if (h == null) continue;
+                h.focus = beds[i];
+                h.onUse = SleepInBed;
+                bedHooks.Add(h);
+            }
         }
 
         static FootTarget Hook(Transform where, float range)
@@ -608,6 +636,29 @@ namespace PSXRacing.OnFoot
                 fridgeHook.action = canEat ? "EAT A MEAL" : "";
             }
 
+            // THE BED SAYS WHERE THE EIGHT HOURS LAND, which is the one thing
+            // about sleeping the player cannot work out by looking. The menu's
+            // SLEEP button carries the same caption under it for the same
+            // reason — it stopped saying UNTIL TOMORROW when it stopped meaning
+            // it, and a bed that promised a new day two times out of three
+            // would be the same lie in a nicer room.
+            for (int i = 0; i < bedHooks.Count; i++)
+            {
+                var h = bedHooks[i];
+                if (h == null) continue;
+                bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
+                h.title = "BED";
+                h.detail = "It is " + LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0,
+                               LifeRules.SlotNames.Length - 1)] +
+                           (overnight ? ". Eight hours turns the day over."
+                                      : ". Eight hours takes you to " + NextSlotName() + ".") +
+                           (S.daysSinceSleep > 0
+                               ? "  ·  " + S.daysSinceSleep + " night" +
+                                 (S.daysSinceSleep == 1 ? "" : "s") + " without one."
+                               : "");
+                h.action = "SLEEP";
+            }
+
             // The prompt on screen is change-gated on WHICH interactable is in
             // front of the player, and this rewrote the wording of the one they
             // are already looking at without changing which one it is. Without
@@ -628,6 +679,47 @@ namespace PSXRacing.OnFoot
             RefreshLabels();
             screen?.Toast("ATE A " + tier.ToUpperInvariant() + " MEAL — " +
                           S.foodStock + " LEFT");
+        }
+
+        /// <summary>Where the next slot's name comes from, and the one place it
+        /// is worked out: the menu's own caption uses the same wrap, so a night
+        /// slot reads as MORNING in both.</summary>
+        string NextSlotName() =>
+            LifeRules.SlotNames[(Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotNames.Length - 1) + 1)
+                                % LifeRules.SlotNames.Length];
+
+        /// <summary>
+        /// Eight hours, in the bed rather than on the menu page.
+        ///
+        /// A LINE-FOR-LINE PORT OF LifeHomeScreen.DoSleep, and deliberately not
+        /// a second set of rules: LifeRules.Sleep owns the slot clock and the
+        /// rollover it turns into on the night slot, and everything that hangs
+        /// off a rollover — the payday, the bills, the no-show ladder, the
+        /// health settle — happens inside it. What is copied here is only the
+        /// three things the PAGE does around that call, and each is load-bearing:
+        ///
+        ///   TownReturn.Clear, because sleeping ends the day and an errand that
+        ///   left a car parked outside a body shop is not somewhere you wake up;
+        ///
+        ///   the overnight test taken BEFORE the call, because afterwards the
+        ///   slot has already wrapped and every sleep looks like a nap.
+        ///
+        /// The third thing the page does — draining LifeRules.lastPage so the
+        /// blacklist's call-out is not lost — belongs to FootScreen.Toast
+        /// rather than here, for the same reason it lives in the menu's Toast
+        /// and not in its DoSleep: this is the first walk-in verb that can roll
+        /// a day and it will not be the last.
+        /// </summary>
+        void SleepInBed()
+        {
+            Town.TownReturn.Clear();
+            bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
+            LifeRules.Sleep(S);
+            LifeSimManager.Save();
+            RefreshLabels();
+            screen?.Toast(overnight
+                ? "SLEPT THE NIGHT — " + LifeRules.SlotNames[S.slotIndex]
+                : "EIGHT HOURS ON — " + LifeRules.SlotNames[S.slotIndex]);
         }
 
         /// <summary>

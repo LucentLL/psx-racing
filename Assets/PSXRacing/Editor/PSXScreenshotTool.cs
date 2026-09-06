@@ -501,6 +501,33 @@ namespace PSXRacing.EditorTools
             Shot(cam, "garage_7_underlift", underEye,
                  Quaternion.LookRotation(new Vector3(0f, 2.0f, 3.4f) - underEye));
 
+            // UPSTAIRS, AT THE BED — the one interaction in this house that is
+            // on the other storey, and the one nothing here had ever
+            // photographed. Sleeping is offered by looking at a bed, so whether
+            // it works is a question about a picture: the aim point sits in the
+            // air over the pillows to clear the mattress collider, and too high
+            // reads as a prompt hanging off the ceiling.
+            //
+            // FRAMED OFF THE ANCHOR the builder measured, never off a typed
+            // coordinate: the house is scaled by its own door heights and seated
+            // by its own garage door, so no number about a bedroom is known
+            // until both have run. Which SIDE of the bed is the open side of its
+            // room is not known even then, so the eight approaches are tried and
+            // the first one that can see the bed is the one photographed —
+            // the same question FootInteractor asks, asked with a camera.
+            if (world.beds != null && world.beds.Length > 0 && world.beds[0] != null)
+            {
+                Vector3 aim = world.beds[0].position;
+                for (int a = 0; a < 8; a++)
+                {
+                    float rad = a * Mathf.PI * 0.25f;
+                    Vector3 eye = aim + new Vector3(Mathf.Cos(rad), 0.15f, Mathf.Sin(rad)) * 1.9f;
+                    if (Physics.Linecast(eye, aim)) continue;
+                    Shot(cam, "garage_8_bed", eye, Quaternion.LookRotation(aim - eye));
+                    break;
+                }
+            }
+
             LifeSimManager.DeleteSave();
         }
 

@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 namespace PSXRacing.OnFoot
 {
@@ -91,12 +92,45 @@ namespace PSXRacing.OnFoot
         float engineVolume = 1f;
         bool drivingPanelWasVisible;
 
-        void Awake()
+        void Awake() => ClearStatics();
+
+        /// <summary>
+        /// NOBODY IS ON FOOT IN A SCENE THAT HAS JUST LOADED.
+        ///
+        /// Awake was the only reset these three had, which meant they were only
+        /// reset in a scene that HAS a ForecourtMode — and the walk-up doors do
+        /// not use one. TownWorld's doors go through TownExit.GoHome, which is a
+        /// LoadScene from a player who is standing up, so OnFoot went true in
+        /// the town and stayed true through the front end and into Charlotte,
+        /// which has a RaceHUD, a GaugeCluster, a CockpitView, a StuckRecovery
+        /// and a TouchControls and no forecourt to tell any of them otherwise.
+        /// Every one of the five reads this flag: the HUD blanks its lap, time
+        /// and fuel, the cluster switches both dials and the gear panel off, the
+        /// cabin disappears, the stuck watchdog goes dead, and the driving
+        /// controls refuse to reveal themselves on a phone. A whole city with no
+        /// instruments, from a boolean left true two scenes ago.
+        ///
+        /// Hooked to sceneLoaded rather than added to the four call sites: this
+        /// is a flag about a rig that cannot survive a scene load, so the scene
+        /// load is where it belongs. sceneLoaded runs after the new scene's
+        /// Awakes, so a forecourt that has just cleared them agrees.
+        /// </summary>
+        static void ClearStatics()
         {
             OnFoot = false;
             Prompt = null;
             OfferGetOut = false;
         }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void HookSceneLoads()
+        {
+            ClearStatics();
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => ClearStatics();
 
         void Start()
         {
@@ -378,6 +412,13 @@ namespace PSXRacing.OnFoot
             touchPanel = ui.AddComponent<FootTouchPanel>();
             touchPanel.walker = walk;
             touchPanel.interactor = interactor;
+            // THIS ONE HAS A CAR TO GET BACK INTO, and it is the only kind that
+            // does. GetIn deactivates the WALKER, and this panel is not on the
+            // walker — it hangs off the systems object beside StoreScreen so it
+            // survives between visits — so without being told, it went on
+            // drawing a USE button over the throttle pedal and a walk stick over
+            // the steering wheel for the rest of the session.
+            touchPanel.ownedByCar = true;
 
             screen = ui.AddComponent<FootScreen>();
             screen.interactor = interactor;

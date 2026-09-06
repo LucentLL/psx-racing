@@ -134,8 +134,16 @@ namespace PSXRacing
             // standing down for them meant a car that rolled onto the forecourt
             // stayed there for good — with the fuel prompt over the top of the
             // banner that would have told it how to get out.
+            //   at a venue — the same excuse as the pump, and it was missing.
+            //     A car stopped at the junction at the end of your own street
+            //     is a car being asked where it is going, and the watchdog took
+            //     the banner off it: RaceHUD ranks this Prompt ABOVE
+            //     TownVenue's, so "PRESS F — WHERE TO?" was replaced by
+            //     "STUCK — AUTO-RESET IN 3", and then the car was teleported
+            //     off the menu it was standing on.
             bool parkedOnPurpose = !rolled && !pinned;
-            if (parkedOnPurpose && (GasPump.AtPump || (tank != null && tank.Empty)))
+            if (parkedOnPurpose && (GasPump.AtPump || Town.TownVenue.AtVenue ||
+                                    (tank != null && tank.Empty)))
                 live = false;
 
             // And never while the driver is out of it. A car with nobody in it

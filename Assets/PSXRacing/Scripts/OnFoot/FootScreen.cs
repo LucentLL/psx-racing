@@ -61,6 +61,23 @@ namespace PSXRacing.OnFoot
 
         public void Toast(string message)
         {
+            // THE PAGER RIDES OUT ON THE NEXT TOAST, and this is now one of the
+            // screens that can cause one. LifeRules.lastPage is a static one-shot
+            // written by the day rollover and, until the bed, drained by exactly
+            // one place — LifeHomeScreen.Toast, whose comment states the
+            // contract: "Every path that can roll the day ends in exactly one
+            // Toast, so draining it here catches all of them instead of four
+            // call sites each remembering to ask." Sleeping at the bed made the
+            // walk-in home the first day-rolling path outside that menu, and
+            // Blacklist.TickPager is destructive-once: undrained, a call-out
+            // headline is either lost to a page reload or turns up days later
+            // glued to an unrelated line. Here rather than in the bed, so the
+            // next walk-in verb that rolls a day does not have to remember.
+            if (!string.IsNullOrEmpty(LifeRules.lastPage))
+            {
+                message = "PAGER — " + LifeRules.lastPage + "   ·   " + message;
+                LifeRules.lastPage = null;
+            }
             toast = message;
             toastUntil = Time.unscaledTime + 2.6f;
         }
@@ -150,7 +167,7 @@ namespace PSXRacing.OnFoot
         // player is standing still and looking at type.
         FootTarget lastIt;
         string lastCtrl, lastHint;
-        int lastMoney = int.MinValue, lastDay = int.MinValue;
+        int lastMoney = int.MinValue, lastDay = int.MinValue, lastSlot = int.MinValue;
         bool lastCaptured, lastPad, lastInvert;
 
         /// <summary>Force the prompt to be re-read. The world edits an
@@ -189,13 +206,27 @@ namespace PSXRacing.OnFoot
                                                  : new Color(1f, 1f, 1f, 0.4f);
             }
 
+            // AND THE BAND, because this room now contains a bed.
+            //
+            // The header was place / money / date, and the slot clock moves
+            // MORNING to AFTERNOON to NIGHT twice for every once it turns the
+            // calendar over — so two sleeps out of three changed neither the
+            // money nor the day and the screen did not repaint at all. The whole
+            // answer to pressing SLEEP was a toast that expires in two and a half
+            // seconds. LifeHomeScreen's own note explains why its version can get
+            // away with a bare toast: "The header already carries the date and
+            // the band". This one did not, and a clock-advancing verb in a scene
+            // with no clock is a button that appears to do nothing.
             if (!showWallet) Set(headerText, "");
-            else if (S.money != lastMoney || S.day != lastDay)
+            else if (S.money != lastMoney || S.day != lastDay || S.slotIndex != lastSlot)
             {
                 lastMoney = S.money;
                 lastDay = S.day;
+                lastSlot = S.slotIndex;
                 Set(headerText, place + "   ·   " + MenuKit.Money(S.money) + "   ·   " +
-                                LifeRules.DateLabel(S.day).ToUpperInvariant());
+                                LifeRules.DateLabel(S.day).ToUpperInvariant() + "   ·   " +
+                                LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0,
+                                    LifeRules.SlotNames.Length - 1)]);
             }
 
             // The pad is in the gate as well as the cursor: the hint names the

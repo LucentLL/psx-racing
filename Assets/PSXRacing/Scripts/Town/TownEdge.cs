@@ -32,9 +32,38 @@ namespace PSXRacing.Town
     /// </summary>
     public class TownEdge : MonoBehaviour
     {
+        /// <summary>What crossing this line means.</summary>
+        public enum Mode
+        {
+            /// <summary>The town's two ends: the road out is the road home, and
+            /// with an order on the seat it is the start of the run.</summary>
+            HeadHome = 0,
+            /// <summary>
+            /// The bottom of your own street, where the MAP stops.
+            ///
+            /// The town's edges can afford to ask, because a player who drives
+            /// past the last shop by accident is still in a town they can turn
+            /// round in. This one cannot: it is a cul-de-sac with a boundary
+            /// wall four car-lengths behind it, so "drive on" is not an answer
+            /// the world can give. Crossing it opens the junction panel itself
+            /// — no stopping, no press — and TURN BACK is the row that means
+            /// "I was only looking".
+            /// </summary>
+            AskWhereTo,
+        }
+
+        public Mode mode = Mode.HeadHome;
+
         /// <summary>Centre-banner line, drained by RaceHUD beside GasPump's and
         /// TownVenue's. Null when nobody is near an edge.</summary>
         public static string Prompt { get; private set; }
+
+        /// <summary>True while that line is one a PRESS would answer, so the
+        /// touch ACTION button can be drawn for it. Beside GasPump.AtPump and
+        /// TownVenue.AtVenue in RaceHUD's one-button chain — without it the
+        /// edge printed "TAP ACTION — HEAD HOME" on a phone over a button
+        /// that was not there.</summary>
+        public static bool AtEdge { get; private set; }
 
         /// <summary>Set the frame the run launches, so a second trigger volume
         /// cannot fire the same delivery twice on the way through.</summary>
@@ -42,10 +71,41 @@ namespace PSXRacing.Town
 
         int lastSeenFrame;
 
+        DepartScreen panel;
+        /// <summary>The car the panel was opened for, and the two halves of its
+        /// controls. Fields rather than closure captures, so a second crossing
+        /// hands the CLOSE handler the car it is actually holding.</summary>
+        CarController heldCar;
+        PlayerCarInput heldInput;
+        /// <summary>Set when the panel opens, and cleared only once the car has
+        /// LEFT the volume. Clearing it in onClosed would reopen the panel on
+        /// the next physics tick, because TURN BACK leaves the car standing on
+        /// the line it was asked at.</summary>
+        bool asked;
+        /// <summary>What the latch is measured against: WHERE THE CAR IS, not
+        /// how long it has been since a trigger callback.
+        ///
+        /// A frame-count watchdog is right for the PROMPT and wrong for this.
+        /// It expires on silence, and there are three ways to be silent while
+        /// standing perfectly still on the line: a rigidbody that has come to
+        /// rest stops generating OnTriggerStay, the pause menu stops the physics
+        /// clock while Update keeps counting frames, and a driver who gets out
+        /// to walk fails the inputEnabled test the callback returns on. Every
+        /// one of those would have cleared the latch under a stopped car and
+        /// reopened the panel it had just dismissed — the toll booth
+        /// DepartScreen's own note argues against.</summary>
+        Collider box;
+        /// <summary>Where the car was standing on the frame it was asked —
+        /// which is the face it came in by.</summary>
+        Vector3 askedFrom;
+
         void Awake()
         {
             Prompt = null;
+            AtEdge = false;
             leaving = false;
+            asked = false;
+            box = GetComponent<Collider>();
         }
 
         void OnTriggerEnter(Collider other) => Cross(other);
@@ -63,6 +123,34 @@ namespace PSXRacing.Town
 
             lastSeenFrame = Time.frameCount;
 
+            // THE END OF YOUR OWN STREET, and it does not wait to be asked.
+            //
+            // The junction volume behind this line still has to be STOPPED in
+            // and PRESSED at, which was right while this was a TURNING off the
+            // town's main road: driving past it meant carrying on into town.
+            // It is the end of a cul-de-sac now, and a player who arrives at
+            // speed meets the boundary wall instead — where StuckRecovery
+            // calls them stuck, RaceHUD ranks the watchdog's line above the
+            // junction's, and seven seconds later the car is teleported back up
+            // its own street. Reported, three times, as "I crash into an
+            // invisible wall instead of being given the menu".
+            //
+            // NOT forked on PizzaRun.Carrying like the town's edges: the panel
+            // makes the delivery its own first row when there is an order on
+            // the seat, so one screen answers every case.
+            if (mode == Mode.AskWhereTo)
+            {
+                heldCar = car;
+                heldInput = input;
+                if (asked || (panel != null && panel.IsOpen)) return;
+                asked = true;
+                askedFrom = car.transform.position;
+                Prompt = null;
+                AtEdge = false;
+                OpenDepart();
+                return;
+            }
+
             if (!PizzaRun.Carrying)
             {
                 // THE ROAD OUT OF TOWN IS THE ROAD HOME.
@@ -79,10 +167,12 @@ namespace PSXRacing.Town
                 // last shop by accident, and a warp for that would be the toll
                 // booth the junction was told off for being.
                 Prompt = HomeControlName() + " — HEAD HOME";
+                AtEdge = true;
                 if (HomePressed())
                 {
                     leaving = true;
                     Prompt = null;
+                    AtEdge = false;
                     TownExit.GoHome(car, "drivehome");
                 }
                 return;
@@ -95,6 +185,39 @@ namespace PSXRacing.Town
             leaving = true;
             Prompt = null;
             TownExit.GoHome(car, "deliverrun");
+        }
+
+        /// <summary>
+        /// The junction's own menu, opened by driving over the line rather than
+        /// by pressing at it.
+        ///
+        /// The same screen, the same rows and the same freeze TownVenue.OpenPanel
+        /// uses: input off and the handbrake on, which hands the car to
+        /// PlayerCarInput's !inputEnabled branch — 30% of pedal, and the lever
+        /// once it is under 1 m/s. That is enough to bring a street car to a
+        /// stand and not enough to stop one doing a hundred and forty inside the
+        /// run-off. It does not need to be: the panel is up, the player is not
+        /// driving, and StuckRecovery stands down for a car with no driver, so
+        /// the worst case is a wall met behind a menu.
+        /// </summary>
+        void OpenDepart()
+        {
+            if (panel == null)
+            {
+                panel = gameObject.AddComponent<DepartScreen>();
+                // Reads the FIELDS, the way TownVenue.OpenPanel does. A closure
+                // over the locals would hand the controls back to whichever car
+                // happened to be the first one over this line.
+                panel.onClosed = () =>
+                {
+                    if (heldInput != null) heldInput.inputEnabled = true;
+                    if (heldCar != null) heldCar.handbrakeInput = false;
+                };
+            }
+            panel.playerCar = heldCar;
+            if (heldInput != null) heldInput.inputEnabled = false;
+            if (heldCar != null) heldCar.handbrakeInput = true;
+            panel.Open();
         }
 
         /// <summary>The same USE verb every venue in the town answers to —
@@ -124,7 +247,37 @@ namespace PSXRacing.Town
             // Same frame-count watchdog as TownVenue, and for the same reason:
             // OnTriggerExit does not fire reliably when a volume is left on a
             // physics tick the frame loop never sees.
-            if (Prompt != null && Time.frameCount - lastSeenFrame > 6) Prompt = null;
+            if (Prompt != null && Time.frameCount - lastSeenFrame > 6)
+            {
+                Prompt = null;
+                AtEdge = false;
+            }
+
+            // BACK UP THE STREET, so the next crossing is a new question.
+            //
+            // "Off the line" is asked of the CAR'S POSITION, for the three
+            // reasons `box` records. The volume is axis-aligned and unrotated,
+            // so its world AABB is the box itself.
+            //
+            // And it is asked with a SIDE. The panel takes the controls away as
+            // it opens, which hands the car to PlayerCarInput's 30% of pedal —
+            // enough to stop a street car and not enough to stop it inside
+            // twenty-two metres, so TURN BACK usually gives the player back a
+            // car that has coasted out of the far side of the line. Clearing
+            // the latch there means the drive back up the road crosses it again
+            // and asks again, which is the toll booth this whole volume exists
+            // to avoid being. Leaving by the face you came in at is turning
+            // back; leaving by the other one is not leaving at all — there is
+            // nothing past it but the boundary wall.
+            if (!asked) return;
+            if (heldCar == null || box == null) { asked = false; return; }
+            Vector3 at = heldCar.transform.position;
+            if (box.bounds.Contains(at)) return;
+            Vector3 c = box.bounds.center;
+            Vector3 entry = askedFrom - c;
+            // A car that somehow arrived dead on the centre gets the plain test:
+            // no side to go back to, so being outside is enough.
+            if (entry.sqrMagnitude < 0.01f || Vector3.Dot(at - c, entry) > 0f) asked = false;
         }
     }
 }

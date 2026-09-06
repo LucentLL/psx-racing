@@ -183,6 +183,14 @@ namespace PSXRacing
                     cityTouch.SetAction(true, "FUEL");
                 else if (DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
                 else if (Town.TownVenue.AtVenue) cityTouch.SetAction(true, "OPEN");
+                // THE EDGE OF TOWN WAS MISSING FROM THIS CHAIN. It prints
+                // "TAP ACTION — HEAD HOME" the moment a car reaches the last
+                // shop, and on a phone there was no ACTION button under that
+                // sentence: the town's only way out that is not the pause menu
+                // could be read and not pressed. Below the venues because a
+                // shop you have stopped at is more specific than a line you are
+                // driving over, and the two do not overlap anyway.
+                else if (Town.TownEdge.AtEdge) cityTouch.SetAction(true, "HOME");
                 else if (OnFoot.ForecourtMode.OfferGetOut)
                     cityTouch.SetAction(true, "GET OUT");
                 else cityTouch.SetAction(false);

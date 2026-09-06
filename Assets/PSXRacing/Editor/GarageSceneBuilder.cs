@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -117,7 +118,7 @@ namespace PSXRacing.EditorTools
 
             // House first: it MEASURES the garage door, and every slab after
             // it — the driveway included — is laid out from that measurement.
-            PlaceHouse(lot.transform);
+            var beds = PlaceHouse(lot.transform);
             BuildGrounds(lot.transform, grassMat, driveMat, roadMat, kerbMat);
             var bays = BuildBays(lot.transform, lineMat);
             var rack = BuildRack(lot.transform, shelfMat, out Transform crateAnchor);
@@ -155,6 +156,7 @@ namespace PSXRacing.EditorTools
             world.workbench = bench;
             world.exitDoor = door;
             world.fridge = fridge;
+            world.beds = beds;
             world.screen = screen;
             world.crateAnchor = crateAnchor;
             world.toolAnchor = toolAnchor;
@@ -274,13 +276,13 @@ namespace PSXRacing.EditorTools
         /// stands open so the car inside is the first thing a player sees
         /// walking up the drive.
         /// </summary>
-        static void PlaceHouse(Transform parent)
+        static Transform[] PlaceHouse(Transform parent)
         {
             var housePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(HouseDir + "/house_hero.fbx");
             if (housePrefab == null)
             {
                 Debug.LogError("[Home] house_hero.fbx missing — the lot builds empty.");
-                return;
+                return new Transform[0];
             }
             var house = (GameObject)Object.Instantiate(housePrefab);
             house.name = "House";
@@ -297,7 +299,27 @@ namespace PSXRacing.EditorTools
             float scale = MeasuredScale(house);
             house.transform.localScale = Vector3.one * scale;
 
-            PSXRacingBuilder.ConvertToPSXMaterials(house);
+            // glass: true — THE SAME HOUSE, THE SAME WINDOWS, TWO ANSWERS.
+            // BuildTownHome stands this exact model up on the home street with
+            // glass on (PSXRacingBuilder.Town.cs), and the shop fronts in town
+            // and the pizzeria both ask for it. This call did not, so the one
+            // copy of the house the player actually walks around inside was the
+            // one wearing opaque panels where its windows are — reported as
+            // "house windows are opaque again", and it is the same house it was
+            // reported against, built by a second call that never got the flag.
+            // house_hero's pane material is named "Glass" and carries NO map at
+            // all, so opaque it resolved to Texture2D.whiteTexture and every
+            // window in the house was a flat white panel behind its mullions.
+            // IsGlassName already matches it; nothing else in the model does.
+            //
+            // The NEIGHBOURS on the street stay opaque ON PURPOSE, and that is
+            // not the same bug left half-fixed: they are house_simple, whose
+            // window slot wears Windows.jpg — a real painted sash with blinds
+            // behind it — over a shell with no interior materials at all. Open
+            // that to a third and the pack's own artwork washes out and the
+            // window becomes a hole onto the hillside. A pane with a picture in
+            // it is already a window; this one had nothing.
+            PSXRacingBuilder.ConvertToPSXMaterials(house, glass: true);
             foreach (var t in house.GetComponentsInChildren<Transform>(true))
                 t.gameObject.isStatic = true;
 
@@ -391,6 +413,59 @@ namespace PSXRacing.EditorTools
                 }
             }
             else Debug.LogWarning("[Home] house_hero_colliders.fbx missing — house is a ghost.");
+
+            // LAST, because these are WORLD points on a house that has just
+            // been scaled and seated, and a bed anchor measured before the Y
+            // move is a bed anchor half a storey underground.
+            return BuildBedAnchors(house.transform);
+        }
+
+        /// <summary>
+        /// An aim point over each bed in the house, so the walker can be
+        /// offered a night's sleep by looking at one.
+        ///
+        /// FOUND BY NAME, not by material and not by coordinate. The pack
+        /// splits this model into four hundred named objects and exactly three
+        /// of them are called bed_01, bed_02 and bed_03 — one per bedroom —
+        /// and unlike the materials, which ConvertToPSXMaterials rewrites into
+        /// one slot per texture, those names survive the whole build. A literal
+        /// coordinate would not: the house is scaled off its own door heights
+        /// and then seated off its own garage door, so nothing about where a
+        /// bed ends up is known until both of those have run.
+        ///
+        /// THE AIM POINT IS IN THE AIR ABOVE THE BED, twenty centimetres over
+        /// the top of its bounding box, and that is the load-bearing part.
+        /// The collider shell that comes in on house_hero_colliders.fbx is not
+        /// one box round the building — it is sixty-odd pieces, and several of
+        /// them sit exactly on the pack's furniture. FootTarget only lets the
+        /// sight test see through the target's OWN body, so an anchor sunk into
+        /// the mattress could be hidden behind a collider that is not the
+        /// bed_NN object and belongs to no target at all. A point in clear air
+        /// just over the pillows is a point nothing is in front of, and it is
+        /// still what a player standing beside a bed is looking at.
+        /// </summary>
+        static Transform[] BuildBedAnchors(Transform house)
+        {
+            var anchors = new List<Transform>();
+            foreach (var r in house.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                string n = r.gameObject.name;
+                if (!n.StartsWith("bed", System.StringComparison.OrdinalIgnoreCase)) continue;
+                // "bed_01" yes, "bedside_table" no. The pack's own suffix is an
+                // underscore and two digits and nothing else.
+                if (n.Length > 3 && n[3] != '_') continue;
+
+                var b = r.bounds;
+                if (b.size.y < 0.2f) continue;      // a rug, not a bed
+
+                var go = new GameObject("BedAim");
+                go.transform.SetParent(r.transform, false);
+                go.transform.position = new Vector3(b.center.x, b.max.y + 0.2f, b.center.z);
+                anchors.Add(go.transform);
+            }
+            Debug.Log("[Home] " + anchors.Count + " bed" + (anchors.Count == 1 ? "" : "s") +
+                      " found to sleep in.");
+            return anchors.ToArray();
         }
 
         // ------------------------------------------------------------------
