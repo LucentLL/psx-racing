@@ -49,13 +49,22 @@ Invoke-UnityJob -Log "$proj\selftest.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.LifeSimSelfTest.Run",
     "-logFile","$proj\selftest.log","-accept-apiupdate") | Out-Null
+# THE EXIT CODE HAS TO MEAN SOMETHING, and it did not. This script printed its
+# findings and then ended on a Write-Host, so its exit status was whatever
+# PowerShell happened to be carrying: a run whose self-test THREW exited 0, and
+# a run where everything passed exited 1. Both happened on the same afternoon,
+# and either one teaches you to stop reading the exit code — which is the only
+# thing an automated caller can read.
+$bad = 0
 if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
     Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL|SELF-TEST" |
         ForEach-Object { $_.Line }
+    if (Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "SELF-TEST FAILED" -Quiet) { $bad++ }
 } else {
     Write-Host "SELF-TEST WROTE NOTHING - it threw, see $proj\selftest.log" -ForegroundColor Red
     Select-String -Path "$proj\selftest.log" -Pattern "error CS|Exception" |
         Select-Object -First 6 | ForEach-Object { $_.Line }
+    $bad++
 }
 
 Write-Host "[4/5] Terrain + obstacle audits..." -ForegroundColor Cyan
@@ -63,8 +72,13 @@ Invoke-UnityJob -Log "$proj\terrain.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TerrainAudit.Run",
     "-logFile","$proj\terrain.log","-accept-apiupdate") | Out-Null
-if (Test-Path "$proj\PSXRacing_terrain_audit.txt") { Get-Content "$proj\PSXRacing_terrain_audit.txt" }
-else { Write-Host "TERRAIN AUDIT WROTE NOTHING - see $proj\terrain.log" -ForegroundColor Red }
+if (Test-Path "$proj\PSXRacing_terrain_audit.txt") {
+    Get-Content "$proj\PSXRacing_terrain_audit.txt"
+    if (Select-String -Path "$proj\PSXRacing_terrain_audit.txt" -Pattern "^\s*FAIL" -Quiet) { $bad++ }
+} else {
+    Write-Host "TERRAIN AUDIT WROTE NOTHING - see $proj\terrain.log" -ForegroundColor Red
+    $bad++
+}
 
 Invoke-UnityJob -Log "$proj\obstacle.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
@@ -85,4 +99,15 @@ Invoke-UnityJob -Log "$proj\shots.log" -UnityArgs @(
 Select-String -Path "$proj\shots.log" -Pattern "PSXShot|error CS|Exception" |
     Select-Object -First 6 | ForEach-Object { $_.Line }
 
+# A mesh wound inside out renders nothing and collides perfectly, so the only
+# place it can ever be caught is the build log.
+$inv = Select-String -Path "$proj\scenebuild.log" -Pattern "wound INSIDE OUT" `
+                     -ErrorAction SilentlyContinue
+if ($inv) { $inv | Select-Object -First 5 | ForEach-Object { $_.Line }; $bad++ }
+
+if ($bad -gt 0) {
+    Write-Host "VERIFY FAILED ($bad stage(s))" -ForegroundColor Red
+    exit 1
+}
 Write-Host "VERIFY PASS COMPLETE" -ForegroundColor Green
+exit 0

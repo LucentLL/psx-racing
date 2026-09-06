@@ -233,7 +233,23 @@ namespace PSXRacing.Town
 
             Vector3 to = anchor.position - player.transform.position;
             to.y = 0f;
-            if (to.magnitude < 18f) return near ?? label;   // you are basically there
+            // Eighteen metres, and NOT widened. The obvious change here was to
+            // show the plain-language line ("STOP AND CHOOSE") earlier, on the
+            // theory that it only had a moment on screen. It did not: this
+            // distance is unsigned, so the line already held from 18 m before
+            // the anchor to 18 m past it — the whole approach and the whole
+            // crossing. Widening it would only have cost the distance readout,
+            // which is the half of the cue that is actually working.
+            if (to.magnitude < 18f) return near ?? label;
+            // WHAT WAS MISSING IS THE OTHER DIRECTION. Overshooting left the
+            // arrow pointing backwards with the same words on it, which reads
+            // as "keep going" when it means the opposite — and reversing is
+            // exactly what a player who has driven past a venue has to do,
+            // because the venue only claims a car that is stopped INSIDE it.
+            if (Vector3.Dot(to.normalized, player.transform.forward) < -0.4f &&
+                to.magnitude < 90f)
+                return "BEHIND YOU  " + label + "  " +
+                       Mathf.RoundToInt(to.magnitude / 10f) * 10 + " m";
             float rel = Vector3.SignedAngle(
                 new Vector3(player.transform.forward.x, 0f, player.transform.forward.z),
                 to, Vector3.up);

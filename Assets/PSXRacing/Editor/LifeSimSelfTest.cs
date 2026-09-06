@@ -30,41 +30,67 @@ namespace PSXRacing.EditorTools
             log = new StringBuilder();
             failures = 0;
 
-            TestCatalogLoads();
-            TestCalendarPipeline();
-            TestRepairEconomy();
-            TestFaultGate();
-            TestCarCatalog();
-            TestEngineVoices();
-            TestCarModels();
-            TestUpgrades();
-            TestAdvancedTuning();
-            TestMarket();
-            TestViewings();
-            TestJunkyard();
-            TestRaceField();
-            TestBlacklist();
-            TestTracks();
-            TestTimeOfDay();
-            TestCameraViews();
-            TestToolbox();
-            TestInspection();
-            TestCarXray();
-            TestHousingAndJobs();
-            TestShiftRoster();
-            TestCalendar();
-            TestDiary();
-            TestCityProps();
-            TestGridStaging();
-            TestHomeLot();
-            TestMenuNavigation();
-            TestSleepBlocks();
+            // EACH ONE IN ITS OWN NET.
+            //
+            // These used to be twenty-nine bare calls, and the log is built in
+            // memory and written at the very end — so ONE exception anywhere in
+            // the suite threw away the results of everything that had already
+            // passed and everything that would have run after it. That happened:
+            // a flaky assertion in TestMarket produced "SELF-TEST WROTE NOTHING
+            // - it threw", which is indistinguishable from a compile failure and
+            // tells you nothing about the twenty-eight tests that were fine.
+            //
+            // A throw is now a FAILURE, named and counted, and the suite carries
+            // on. The whole point of a test run is the report.
+            Guard(nameof(TestCatalogLoads), TestCatalogLoads);
+            Guard(nameof(TestCalendarPipeline), TestCalendarPipeline);
+            Guard(nameof(TestRepairEconomy), TestRepairEconomy);
+            Guard(nameof(TestFaultGate), TestFaultGate);
+            Guard(nameof(TestCarCatalog), TestCarCatalog);
+            Guard(nameof(TestEngineVoices), TestEngineVoices);
+            Guard(nameof(TestCarModels), TestCarModels);
+            Guard(nameof(TestUpgrades), TestUpgrades);
+            Guard(nameof(TestAdvancedTuning), TestAdvancedTuning);
+            Guard(nameof(TestMarket), TestMarket);
+            Guard(nameof(TestViewings), TestViewings);
+            Guard(nameof(TestJunkyard), TestJunkyard);
+            Guard(nameof(TestRaceField), TestRaceField);
+            Guard(nameof(TestBlacklist), TestBlacklist);
+            Guard(nameof(TestTracks), TestTracks);
+            Guard(nameof(TestTimeOfDay), TestTimeOfDay);
+            Guard(nameof(TestCameraViews), TestCameraViews);
+            Guard(nameof(TestToolbox), TestToolbox);
+            Guard(nameof(TestInspection), TestInspection);
+            Guard(nameof(TestCarXray), TestCarXray);
+            Guard(nameof(TestHousingAndJobs), TestHousingAndJobs);
+            Guard(nameof(TestShiftRoster), TestShiftRoster);
+            Guard(nameof(TestCalendar), TestCalendar);
+            Guard(nameof(TestDiary), TestDiary);
+            Guard(nameof(TestCityProps), TestCityProps);
+            Guard(nameof(TestGridStaging), TestGridStaging);
+            Guard(nameof(TestHomeLot), TestHomeLot);
+            Guard(nameof(TestMenuNavigation), TestMenuNavigation);
+            Guard(nameof(TestSleepBlocks), TestSleepBlocks);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
             System.IO.File.WriteAllText(
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_log.txt"),
                 log.ToString());
+        }
+
+        /// <summary>Run one test; turn anything it throws into a named failure
+        /// rather than into the loss of the entire run.</summary>
+        static void Guard(string name, System.Action test)
+        {
+            try { test(); }
+            catch (System.Exception e)
+            {
+                failures++;
+                Line("  FAIL " + name + " THREW: " + e.GetType().Name + " — " + e.Message);
+                foreach (var l in (e.StackTrace ?? "").Split('\n'))
+                    if (l.Contains("LifeSimSelfTest")) Line("         " + l.Trim());
+            }
         }
 
         static void Line(string s) { log.AppendLine(s); }
@@ -1373,6 +1399,23 @@ namespace PSXRacing.EditorTools
                       "surface " + hit.point.y.ToString("0.00") +
                       " m, trigger " + col.bounds.min.y.ToString("0.00") +
                       ".." + col.bounds.max.y.ToString("0.00"));
+
+                // A VENUE YOU MUST STOP INSIDE HAS TO BE LONG ENOUGH TO STOP
+                // IN. TownVenue will not claim a car over 4.5 km/h and drops
+                // the claim six frames after it leaves the box, so a volume
+                // shorter than a braking distance can only ever be used by
+                // somebody who was already crawling. The junction was 14 m at
+                // the bottom of a street a car arrives down at speed: the
+                // player passed through it every time, coasted on and stopped
+                // against the boundary wall with nothing on screen. Twice.
+                //
+                // DEPART only. HOME is small on purpose — you arrive at your
+                // own garage door off your own drive, already slow.
+                if (v.kind == PSXRacing.Town.TownVenue.Kind.Depart)
+                    Check(Mathf.Max(col.bounds.size.x, col.bounds.size.z) >= 24f,
+                          "the junction is long enough to stop in",
+                          Mathf.Max(col.bounds.size.x, col.bounds.size.z)
+                              .ToString("0.0") + " m");
             }
 
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
@@ -4449,6 +4492,19 @@ namespace PSXRacing.EditorTools
             Check(owned.catalogPrice > 0, "the owned car carries its catalog price",
                   owned.catalogPrice);
             Check(CarCatalog.Get(owned.specId) != null, "and resolves back to a catalog spec");
+
+            // A CAR TO TRADE FROM, WHICHEVER WAY THE LANES ROLLED.
+            //
+            // Everything below needs the player to already own one, and the
+            // only thing that gave them one was the financed-lane branch above —
+            // which is conditional, because RollStartingLanes builds its lanes
+            // from price bands off a RANDOMISED basePay and creditScore
+            // (LifeRules.SeedNewGame), and a low roll can leave those pools
+            // empty. When that happened the buy made the first car rather than
+            // the second and `s.cars[1]` threw, taking the whole suite's log
+            // with it. Seed the fallback instead of hoping.
+            if (s.cars.Count == 0) LifeRules.SeedFallbackCar(s);
+            Check(s.cars.Count == 1, "a car to trade from", s.cars.Count);
 
             // Buying: cash path, garage cap, and the value model.
             s.garageSlots = 2;

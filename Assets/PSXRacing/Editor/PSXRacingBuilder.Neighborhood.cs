@@ -175,10 +175,29 @@ namespace PSXRacing.EditorTools
             //
             // Detection is a real trigger collider against the car's rigidbody,
             // so there was no distance fallback that could still have fired.
-            float departZ = NbStreetEnd + 16f;
+            // AND IT IS THE WHOLE END OF THE STREET, not fourteen metres of it.
+            //
+            // Seating it on the road was necessary and not sufficient: the
+            // volume still had to be STOPPED IN. TownVenue will not claim a car
+            // over 4.5 km/h — deliberately, because "driving past the junction
+            // is how you say I'm staying in town" — and it drops the claim six
+            // frames after the car leaves the box. So a player who arrives at
+            // any speed passes straight through, coasts the last fifteen metres
+            // and stops against the boundary wall with the volume behind them
+            // and no way to ask for it back: there is no distance fallback
+            // anywhere in TownVenue. That is "hits an invisible wall and does
+            // not warp me to town", reported twice.
+            //
+            // Forty metres, from below the last plot to just past where the
+            // tarmac runs out. The speed gate is untouched and still means what
+            // it says; what changes is that stopping ANYWHERE at the end of
+            // your own street is now inside the junction, which is what a
+            // player means by "the end of the road".
+            float departZ = NbStreetEnd + 18f;
+            float departLen = 40f;
             TownTrigger(root.transform, "DepartVenue", TownVenue.Kind.Depart,
-                new Vector3(HomeStreetX, NbRoadY(departZ) + 1.4f, departZ),
-                new Vector3(HomeRoadW + 6f, 3f, 14f));
+                new Vector3(HomeStreetX, NbRoadY(departZ) + 1.8f, departZ),
+                new Vector3(HomeRoadW + 6f, 5f, departLen));
 
             // ---- the player, on their own drive, pointing down the street ----
             var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
@@ -845,7 +864,23 @@ namespace PSXRacing.EditorTools
                             // perfectly aligned cars reads as a texture.
                             Vector3 nose = onDrive ? -facing
                                 : (rng.NextDouble() < 0.5 ? Vector3.forward : Vector3.back);
-                            go.transform.rotation = Quaternion.LookRotation(nose, Vector3.up)
+                            // AND IT SITS ON THE SLOPE IT IS PARKED ON.
+                            //
+                            // Seating a car by its Y and then turning it with a
+                            // level LookRotation puts it flat on a driveway that
+                            // climbs 15% — nose in the air at one end, boot in
+                            // the concrete at the other. "Cars are level in
+                            // driveways, even when driveways are not level."
+                            // Measure the surface a wheelbase apart along the
+                            // car's own nose and look along THAT, which pitches
+                            // it and leaves the yaw alone.
+                            Vector3 ahead = at + nose * 2.2f, behind = at - nose * 2.2f;
+                            ahead.y = onDrive ? NbGroundY(ahead.x, ahead.z) : NbRoadY(ahead.z);
+                            behind.y = onDrive ? NbGroundY(behind.x, behind.z) : NbRoadY(behind.z);
+                            Vector3 alongSlope = ahead - behind;
+                            if (alongSlope.sqrMagnitude < 1e-4f) alongSlope = nose;
+                            go.transform.rotation =
+                                Quaternion.LookRotation(alongSlope.normalized, Vector3.up)
                                 * Quaternion.Euler(0f, (float)(rng.NextDouble() * 6.0 - 3.0), 0f);
                             DressProp(go.transform, def, rng.Next(Mathf.Max(1, def.SkinCount)));
                             foreach (var t in go.GetComponentsInChildren<Transform>())

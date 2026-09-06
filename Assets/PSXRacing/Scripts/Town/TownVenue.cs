@@ -158,6 +158,16 @@ namespace PSXRacing.Town
             carInput = null;
         }
 
+        /// <summary>
+        /// LET GO ON THE WAY OUT. `active` is a single static slot and the only
+        /// path to Release() is the holder's own Update, which every non-holder
+        /// returns from on its first line. So a venue switched off or destroyed
+        /// while holding the claim would keep it forever, and no other venue in
+        /// the scene could ever prompt again — a deadlock with no symptom
+        /// except that the game quietly stops offering to do anything.
+        /// </summary>
+        void OnDisable() => Release();
+
         void Update()
         {
             if (active != this) return;

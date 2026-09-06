@@ -5,6 +5,123 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE JUNCTION YOU COULD NOT STOP IN (2026-09-05, sixth pass)
+
+Three more, and the first one is the same report for the third time — which is
+the interesting part, because the previous two fixes were both real.
+
+### A TRIGGER YOU CANNOT STOP INSIDE IS A TRIGGER THAT DOES NOT EXIST
+
+"Driving to the end of the road hits an invisible wall and does not warp me to
+town."
+
+Round four put the junction volume 10.9 m in the air; that was true and fixing it
+was necessary. It was not sufficient, and the reason is a rule nobody had written
+down: **TownVenue will not claim a car over 4.5 km/h**, and it drops the claim
+six frames after the car leaves the box. That speed gate is deliberate and right
+— "driving PAST the junction is how you say I'm staying in town", says the
+comment, and a menu that opened every time you left your own street would be a
+toll booth on the only road out of it.
+
+But the box was **14 metres long**, at the bottom of a street a car arrives down
+at speed, with 15 m of road and then a wall past it. A car at 60 km/h crosses
+14 m in 0.84 s. So the sequence was always: pass through, get a sub-second hint,
+coast on, stop against the boundary wall with the volume behind you — and there
+is no distance fallback anywhere in TownVenue, so nothing on screen ever mentions
+that reversing fifteen metres would work.
+
+**Forty metres now**, from below the last plot to just past where the tarmac runs
+out. The speed gate is untouched. What changed is that stopping anywhere at the
+end of your own street is now inside the junction, which is what a player means
+by "the end of the road".
+
+**And the self-test learned the rule**: a venue you must stop INSIDE has to be
+long enough to stop in. DEPART only — HOME is small on purpose, because you
+arrive at your own garage door off your own drive, already slow.
+
+Two smaller things came out of the same read and are fixed with it. The cue now
+says **BEHIND YOU** when the junction is behind the car, because reversing is
+precisely what a player who has driven past a venue has to do and the arrow alone
+reads as "keep going". And a venue now releases its claim in `OnDisable`: the
+claim is a single static slot whose only release path is the holder's own Update,
+which every non-holder returns from on its first line, so a venue switched off
+while holding it would deadlock every other venue in the scene with no symptom
+except that the game quietly stops offering to do anything.
+
+**What I did NOT change, having been shown it was already right:** the "STOP AND
+CHOOSE" copy looked like it only had a moment on screen, and the obvious fix was
+to show it earlier. The distance driving it is unsigned, so it already held from
+18 m before the anchor to 18 m past it — the whole approach and the whole
+crossing. Widening it would only have cost the distance readout, which is the
+half of the cue that was working.
+
+### A TURNING HEAD MADE OF GRASS
+
+"The culdasec has no asphalt."
+
+`WorldKit.Disc` was wound the wrong way round. Sectors run anticlockwise in the
+XZ plane and I fanned centre → s → s+1, which gives a downward normal:
+`Cross((1,0,0), (0,0,1)) = (0,-1,0)`. GridSlab's quads go +z then +x, which is
+the other way, and that is the one that works.
+
+**The mesh rendered nothing at all from above and its MeshCollider carried on
+working perfectly**, so the car drove across a turning head that was not there.
+That is the whole failure mode in one sentence, and it is why this needed a check
+rather than a fix: a reversed winding is invisible to the renderer, invisible to
+physics, invisible to the log, and invisible to a screenshot unless you happen to
+know what should have been in it.
+
+`AssertFacesUp` now errors at bake time on any ground primitive whose average
+normal points down. Averaged rather than sampled, because a single vertex on a
+steep batter can lean past horizontal while the surface as a whole is still a
+floor.
+
+### CARS PARKED LEVEL ON SLOPING DRIVES
+
+"Cars are level in driveways, even when driveways are not level."
+
+Seating a car by its Y and then turning it with a level `LookRotation` puts it
+flat on a driveway that climbs 15% — nose in the air at one end, boot in the
+concrete at the other. The rotation is built from the surface now: sample the
+ground a wheelbase apart along the car's own nose and look along THAT, which
+pitches it and leaves the yaw and its jitter alone. Kerbside cars get the same
+treatment against the road profile, which falls 12.5% at its worst.
+
+### ONE FLAKY ASSERTION BLINDED THE WHOLE SUITE
+
+Not reported — it surfaced while verifying the above, as `SELF-TEST WROTE
+NOTHING - it threw`, which is a message that tells you nothing about the
+twenty-eight tests that were fine.
+
+`TestMarket` needs the player to already own a car, and the only thing giving
+them one was a CONDITIONAL branch: `RollStartingLanes` builds its lanes from
+price bands off a randomised `basePay` and `creditScore`, and a low roll leaves
+those pools empty and produces no financed lane. When that happened the test's
+purchase created the FIRST car rather than the second, and `s.cars[1]` threw. It
+had nothing to do with the change being verified — it is a coin the suite has
+been flipping for as long as it has existed.
+
+**The real defect is that one throw cost the entire run.** The log is built in
+memory and written at the very end, so an exception anywhere discarded everything
+that had already passed and everything that would have run after it — and left a
+result indistinguishable from a compile failure. Twenty-nine bare calls are
+twenty-nine `Guard(nameof(T), T)` calls now: a throw is a named, counted FAILURE
+with its stack frames, and the suite carries on. The whole point of a test run is
+the report.
+
+### THE HUD'S ONE BUTTON, ARBITRATED ONCE
+
+Found while tracing the junction, and worth recording even though it was NOT the
+bug — three independent verifiers said so, and they were right. The free-roam HUD
+hid the ACTION button for a fuel nozzle that does not exist out there and then
+took it back twenty lines later, both inside the same Update: the button's
+GameObject was `SetActive(false)` and `SetActive(true)` again on **every
+rendered frame** the player spent in town. Nothing functional depends on it —
+every consumer reads a tap that outlives the toggle — but it dirties the canvas
+each frame and the button can never render its own pressed state, so a phone
+player's taps go visually unacknowledged. It is one if/else chain now, ordered by
+who is prompting, and it ends by clearing rather than leaving a stale label.
+
 ## THE STREET, READ BACK (2026-09-05, fifth pass)
 
 Seven reports, all on the street that shipped an hour earlier, and the useful

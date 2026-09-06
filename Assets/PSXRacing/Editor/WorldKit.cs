@@ -169,6 +169,30 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// A GROUND surface faces UP. Cheap, and it is the check that was
+        /// missing: a mesh wound the wrong way renders NOTHING from above while
+        /// its MeshCollider carries on working perfectly, so the car drives
+        /// across a piece of tarmac that is not there and no log line, no
+        /// self-test and no audit says a word. The cul-de-sac shipped that way.
+        ///
+        /// Averaged rather than sampled, because a single vertex on a steep
+        /// batter can legitimately lean past horizontal while the surface as a
+        /// whole is still a floor.
+        /// </summary>
+        static void AssertFacesUp(Mesh mesh, string name)
+        {
+            var ns = mesh.normals;
+            if (ns == null || ns.Length == 0) return;
+            Vector3 sum = Vector3.zero;
+            foreach (var n in ns) sum += n;
+            if (sum.y < 0f)
+                Debug.LogError("[WorldKit] " + name + " is wound INSIDE OUT — its " +
+                               "average normal points down (" + (sum / ns.Length) +
+                               "), so it will be invisible from above and solid " +
+                               "underfoot. Reverse the triangle winding.");
+        }
+
+        /// <summary>
         /// A DISC, in rings and sectors, with the same contract as GridSlab:
         /// world-anchored UVs so it seams with the slabs around it, an optional
         /// world height function, and a MeshCollider when it is shaped.
@@ -216,12 +240,22 @@ namespace PSXRacing.EditorTools
                 }
             }
 
+            // WOUND TO FACE UP, and the first version was not.
+            //
+            // Sectors run anticlockwise in the XZ plane (increasing angle), and
+            // fanning centre -> s -> s+1 that way gives a DOWNWARD normal:
+            // Cross((1,0,0), (0,0,1)) = (0,-1,0). GridSlab's quads go +z then
+            // +x, which is the other way round, and that is the one that works.
+            // The mesh rendered nothing at all from above — back-face culled —
+            // while its MeshCollider carried on working perfectly, so the car
+            // drove across a turning head made of grass. Reported in three
+            // words: "the culdasec has no asphalt."
             var tris = new int[sectors * 3 + (rings - 1) * sectors * 6];
             int t = 0;
             for (int s = 0; s < sectors; s++)                    // the middle fan
             {
                 int a = 1 + s, b = 1 + (s + 1) % sectors;
-                tris[t++] = 0; tris[t++] = a; tris[t++] = b;
+                tris[t++] = 0; tris[t++] = b; tris[t++] = a;
             }
             for (int r = 1; r < rings; r++)                      // and the rings
                 for (int s = 0; s < sectors; s++)
@@ -230,8 +264,8 @@ namespace PSXRacing.EditorTools
                     int i1 = 1 + (r - 1) * sectors + (s + 1) % sectors;
                     int o0 = 1 + r * sectors + s;
                     int o1 = 1 + r * sectors + (s + 1) % sectors;
-                    tris[t++] = i0; tris[t++] = o0; tris[t++] = o1;
-                    tris[t++] = i0; tris[t++] = o1; tris[t++] = i1;
+                    tris[t++] = i0; tris[t++] = o1; tris[t++] = o0;
+                    tris[t++] = i0; tris[t++] = i1; tris[t++] = o1;
                 }
 
             var mesh = new Mesh { name = name };
@@ -240,6 +274,7 @@ namespace PSXRacing.EditorTools
             mesh.triangles = tris;
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
+            AssertFacesUp(mesh, name);
             SaveMesh(mesh, name);
 
             var go = new GameObject(name);

@@ -133,7 +133,7 @@ namespace PSXRacing
                 ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS"
                 : Town.TownWorld.Cue ?? FoodCue());
 
-            UpdateFuel();
+            UpdateFuel(ownsActionButton: false);
 
             if (lastCamView != ChaseCamera.Current) { lastCamView = ChaseCamera.Current; camHintUsed = true; }
             string cam = "";
@@ -147,28 +147,46 @@ namespace PSXRacing
             string center = !city.Live ? city.VenueName
                 : (stuck != null ? stuck.Prompt : null)
                   ?? GasPump.Prompt
-                  ?? OnFoot.ForecourtMode.Prompt
+                  // THE VENUE BEFORE THE DOOR HANDLE. ForecourtMode used to win
+                  // this chain and suppressed itself by reading TownVenue's
+                  // AtVenue — a static written in the SAME frame by a component
+                  // with no execution order against it, so on the frame the car
+                  // stops the banner can read "GET OUT AND WALK" over a junction
+                  // that is offering a menu. Ordering the chain by specificity
+                  // makes it true regardless of who ran first.
                   ?? Town.TownVenue.Prompt
+                  ?? OnFoot.ForecourtMode.Prompt
                   ?? Town.TownEdge.Prompt
                   ?? DriveThru.Prompt
                   ?? DryTankPrompt()
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
 
-            // UpdateFuel() above claims the ACTION button for a nozzle that
-            // does not exist out here; the order window takes it back.
+            // ONE DECISION PER FRAME FOR THE ONE CONTEXTUAL BUTTON A PHONE HAS.
+            //
+            // This used to be a RECLAIM: UpdateFuel hid the button for a nozzle
+            // that does not exist out here, and this chain took it back twenty
+            // lines later. Both calls land inside the same Update, so the
+            // button's GameObject was SetActive(false) and SetActive(true)
+            // again on every rendered frame the player spent in free roam —
+            // and a UI object deactivated under a finger has its press
+            // cancelled. Whatever else that costs, it is not something to leave
+            // in the path of the only button that opens a menu.
+            //
+            // Ordered by who is PROMPTING, most specific first, and it always
+            // ends by clearing: a chain with no else leaves a stale label on
+            // screen from the last thing that wanted it.
             var cityTouch = TouchControls.Instance;
-            if (cityTouch != null && DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
-            // Same reclaim for the town's own venues, which are the only
-            // ACTION a touch player has out there.
-            else if (cityTouch != null && Town.TownVenue.AtVenue)
-                cityTouch.SetAction(true, "OPEN");
-            // Nothing else wants the button and the car is stopped in town:
-            // the door handle. Last in the chain on purpose — whoever is
-            // PROMPTING owns the one contextual button a phone has.
-            else if (cityTouch != null && OnFoot.ForecourtMode.OfferGetOut &&
-                     !GasPump.AtPump)
-                cityTouch.SetAction(true, "GET OUT");
+            if (cityTouch != null)
+            {
+                if (GasPump.AtPump && GasPump.Prompt != null)
+                    cityTouch.SetAction(true, "FUEL");
+                else if (DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
+                else if (Town.TownVenue.AtVenue) cityTouch.SetAction(true, "OPEN");
+                else if (OnFoot.ForecourtMode.OfferGetOut)
+                    cityTouch.SetAction(true, "GET OUT");
+                else cityTouch.SetAction(false);
+            }
         }
 
 
@@ -545,7 +563,12 @@ namespace PSXRacing
         /// bar rather than a line of text: a bar is read at a glance mid-corner
         /// and a percentage is not.
         /// </summary>
-        void UpdateFuel()
+        /// <param name="ownsActionButton">False on the free-roam path, which
+        /// arbitrates the ACTION button itself against the pump, the order
+        /// window, the venues and the door handle. Passing true from two places
+        /// that both write the same button every frame is how it ended up being
+        /// toggled off and on once per frame.</param>
+        void UpdateFuel(bool ownsActionButton = true)
         {
             if (tank != null)
             {
@@ -587,7 +610,8 @@ namespace PSXRacing
             {
                 bool over = RaceManager.Instance != null &&
                             RaceManager.Instance.State == RaceManager.RaceState.Finished;
-                touch.SetAction(!over && GasPump.AtPump && GasPump.Prompt != null, "FUEL");
+                if (ownsActionButton)
+                    touch.SetAction(!over && GasPump.AtPump && GasPump.Prompt != null, "FUEL");
                 touch.SetContinue(over);
             }
         }
