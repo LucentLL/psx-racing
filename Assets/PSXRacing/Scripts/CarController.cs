@@ -348,6 +348,35 @@ namespace PSXRacing
 
         /// <summary>Below this the driver is not asking for a direction.</summary>
         const float YawSteerNeutral = 0.10f;
+
+        // ---- the parking brake ---------------------------------------------
+
+        /// <summary>Road speed under which a car with the lever up and the
+        /// throttle shut counts as PARKED rather than as crawling.
+        ///
+        /// The same 0.3 m/s the rest of this solver already calls a standstill,
+        /// deliberately: it is the floor the low-speed brake hold uses and the
+        /// ceiling the handbrake's own branch starts at, so parking picks up
+        /// exactly where those two leave a gap and opens no new one. A car
+        /// creeping at walking pace is not parked and must not be seized.
+        /// </summary>
+        const float ParkHoldSpeed = 0.3f;
+
+        /// <summary>Damping on the parked hold, in 1/s of the mass each tyre
+        /// carries. It is NOT what holds the car — the gravity cancellation is
+        /// — so it only has to mop up solver residue, and it is deliberately
+        /// stiff: 8/s kills a millimetre-per-second wobble inside a tick
+        /// without ever reaching the friction circle at speeds this small. Any
+        /// larger and it becomes the bang-bang force the low-speed hold's own
+        /// comment warns buzzes the car.</summary>
+        const float ParkHoldDamp = 8f;
+
+        /// <summary>Yaw rate above which a car is turning rather than parked,
+        /// in rad/s. 0.35 is about 20 deg/s — slower than anything a car does
+        /// on purpose and far faster than the solver's own noise at a
+        /// standstill, so it separates "settling on its springs" from "still
+        /// coming round".</summary>
+        const float ParkHoldSpin = 0.35f;
         /// <summary>Below this on BOTH controls the driver has let go entirely,
         /// which is the one case where the car should tidy itself up hardest.
         /// </summary>
@@ -448,6 +477,13 @@ namespace PSXRacing
         /// on-the-limiter recordings on this rather than on RPM position, because
         /// RPM alone cannot tell "deep in the red" from "bouncing off the cut".</summary>
         public bool RevLimiterActive { get; private set; }
+        /// <summary>True while the tyres are holding a stationary car against
+        /// gravity rather than rolling — the handbrake is up (or the pedal is
+        /// buried), the throttle is shut, and the car has stopped. Read by the
+        /// self-test, and worth having on the outside because "is this car
+        /// parked" is a question three different systems ask by guessing.
+        /// </summary>
+        public bool Parked { get; private set; }
         public Rigidbody Body { get; private set; }
 
         public Transform[] wheelHubs = new Transform[4];
@@ -1800,6 +1836,72 @@ namespace PSXRacing
                 ? 1f - EbrakeMuCollapse * Mathf.Min(1f, EbrakeTimer / EbrakeWindow)
                 : 1f;
 
+            // THE PARKING BRAKE. "When I park my car it tends to roll away. It
+            // should park in gear and/or with e-brake."
+            //
+            // It rolled away because NOTHING in this model held a stationary
+            // car. brakeForceTotal is the PEDAL only, so the handbrake never
+            // reached the low-speed hold below; the handbrake's own branch is
+            // gated on speed > 0.3, so a parked car got no lever at all until
+            // it was already moving, and then a full rear lock stopped it dead
+            // — and released it again the moment it dropped back under 0.3.
+            // A car left on the neighbourhood's 15% drive ratcheted down it a
+            // third of a metre at a time. Laterally it was worse: fLat is faded
+            // to ZERO below 0.6 m/s to stop solver jitter, so a parked car had
+            // no sideways grip whatever and slid off any camber it was left on.
+            //
+            // A DAMPER CANNOT FIX THIS, which is why the existing low-speed
+            // hold does not: it opposes VELOCITY, so on a slope it settles at
+            // whatever speed makes its force equal gravity's — 3 cm/s with the
+            // pedal buried, 11 cm/s on the 0.3 the game applies when it takes
+            // the controls away. Non-zero by construction. Static friction does
+            // not work like that. It opposes the LOAD, and a parked tyre's load
+            // is the component of gravity that runs along the car.
+            //
+            // So: cancel that component outright, up to the grip the tyre
+            // actually has, and keep a stiff damper on top of it for solver
+            // residue. Above the tyres' grip it still slides — a car parked on
+            // ice, or across a 1-in-1 bank, should.
+            //
+            // NOT while the throttle is open: a standing burnout is throttle
+            // plus handbrake at zero road speed, and a hold that fought it
+            // would make the smokiest thing a car can do the quietest. Which is
+            // the same argument the scrub model makes twenty lines down.
+            //
+            // GATED ON THE WHOLE BODY, not on forwardSpeed, and this is the one
+            // place in the solver where that distinction is not pedantry.
+            // `speed` is Abs(forwardSpeed) — the component along the car's nose
+            // — so a car travelling SIDEWAYS reads as stationary by it. Every
+            // 0.3 m/s gate in this function shares that blind spot, which is
+            // half of why a car left on a cambered street drifted off it. But
+            // it cuts both ways: a car properly sideways mid-drift also reads
+            // near zero, and seizing THAT would clamp full lateral grip onto
+            // the exact moment the whole drift layer exists to allow. The
+            // angular gate is the second half of the same guard — a car
+            // spinning on the spot is not parked either.
+            bool atRest = Body.linearVelocity.magnitude <= ParkHoldSpeed &&
+                          Body.angularVelocity.magnitude <= ParkHoldSpin;
+            bool parkHold = atRest && accelPedal < 0.02f &&
+                            (handbrakeInput || brakePedal > 0.5f);
+            int groundedAll = 0;
+            for (int i = 0; i < 4; i++) if (wheelGrounded[i]) groundedAll++;
+            // Shared over the wheels holding the car up, so a car with a wheel
+            // in the air is held by the three that are down rather than by a
+            // quarter of itself four times.
+            //
+            // The load each one carries is resolved in ITS OWN axes, down in
+            // the loop, not in the chassis's. A tyre's force can only ever be
+            // applied along wheelForward and wheelRight, and on a car left with
+            // lock on those are up to 34 degrees round from the body's — so a
+            // hold computed against transform.forward and then applied along
+            // the steered axis is the right magnitude pointing the wrong way,
+            // and the part that misses is a sideways shove the damper then has
+            // to argue with. The two axes are orthogonal and both lie in the
+            // ground plane, so a dot product each captures the whole of the
+            // in-plane load with nothing left over.
+            float parkShareKg = groundedAll > 0 ? massKg / groundedAll : 0f;
+            Parked = parkHold;
+
             // Only tractive effort counts toward wheelspin. Engine drag would
             // otherwise report wheelspin on a lift, firing the power-oversteer
             // yaw injector every time the player came off the throttle.
@@ -1924,6 +2026,16 @@ namespace PSXRacing
                     brakeDemand = brakeForceTotal * share / brakeWheels;
                     fLong -= Mathf.Sign(vLong) * Mathf.Min(brakeDemand, longCap);
                 }
+                // PARKED: this tyre holds its share of the car, full stop. It
+                // REPLACES the demand rather than adding to it — a parked wheel
+                // is not braking against a drive torque, it is standing still,
+                // and at this speed with the throttle shut there is nothing in
+                // fLong to preserve anyway (tractive effort is zero below 0.02
+                // pedal and engine braking is gated at 0.5 m/s).
+                if (parkHold)
+                    fLong = Mathf.Clamp(
+                        -Vector3.Dot(Physics.gravity, wheelForward) * parkShareKg
+                        - vLong * ParkHoldDamp * parkShareKg, -longCap, longCap);
                 if (!front && handbrakeInput && speed > 0.3f)
                 {
                     fLong = -Mathf.Sign(vLong) * Mathf.Min(circle * 0.9f, Mathf.Abs(fLong) + circle * 0.6f);
@@ -1970,6 +2082,16 @@ namespace PSXRacing
                 // jitter. Fading it out to 2 m/s made the tires let go at parking
                 // speeds, which is most of why the car felt unbound from the road.
                 fLat *= Mathf.Clamp01(contactVel.magnitude / 0.6f);
+                // EXCEPT WHEN PARKED, where that fade is the bug: a stationary
+                // car has no slip angle, so TireCurve gives it nothing to fade
+                // in the first place, and the multiply then takes away the last
+                // of it. A parked tyre on a cambered street holds sideways for
+                // the same reason it holds fore-and-aft, and by the same
+                // arithmetic — the load, not the velocity.
+                if (parkHold)
+                    fLat = Mathf.Clamp(
+                        -Vector3.Dot(Physics.gravity, wheelRight) * parkShareKg
+                        - vLat * ParkHoldDamp * parkShareKg, -latCap, latCap);
 
                 Body.AddForceAtPosition(wheelForward * fLong + wheelRight * fLat, contact);
             }

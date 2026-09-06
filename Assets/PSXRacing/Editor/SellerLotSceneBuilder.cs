@@ -123,9 +123,15 @@ namespace PSXRacing.EditorTools
                 // the door, which reads as a path to nowhere.
                 const float driveTopZ = HouseZ + 3f;
                 const float driveBotZ = StreetZ + 4.4f;
+                // WITH A SIDE TO IT. This is a walk-around scene — the player
+                // is on foot, at eye level, a metre from the edge of it — and a
+                // drive with no thickness reads as a stripe painted on the
+                // grass. Its lawn faces are the x ones; the ends run into the
+                // house and into the street.
                 WorldKit.GridSlab(plotGO.transform, "Drive" + i,
                     new Vector3(x, 0.012f, (driveTopZ + driveBotZ) * 0.5f),
-                    4.8f, driveTopZ - driveBotZ, 2f, drive, false, 4f);
+                    4.8f, driveTopZ - driveBotZ, 2f, drive, false, 4f,
+                    skirt: WorldKit.SlabEdge.SidesX);
 
                 // Four stacked variants, all disabled. The world picks one.
                 var set = new GameObject[Variants.Length];
@@ -152,6 +158,35 @@ namespace PSXRacing.EditorTools
                     // pack sits on a foundation and the trailers do not, so one
                     // shared y buries one and floats the other.
                     WorldKit.SeatOnGround(go, 0f);
+                    // AND SLID SO ITS GARAGE IS ON THE DRIVE.
+                    //
+                    // house_simple's wide garage door is 4.93 m off the model's
+                    // origin, so a house stood on the plot's centreline puts it
+                    // two and a half metres clear of a 4.8 m drive: the drive
+                    // ran up to a blank wall with the garage beside it, which is
+                    // the seller's-lot half of "driveways go to the wrong side
+                    // of house. they should go to the garage."
+                    //
+                    // THE HOUSE MOVES, NOT THE DRIVE, because the drive is
+                    // baked once and four variants stand on it — the three
+                    // trailers are side-entry models with no garage door at
+                    // all, and a drive shifted to suit house_simple would miss
+                    // every one of them. Measuring rather than shifting by a
+                    // constant is what makes that work: a model with no wide
+                    // Garage_Door is left exactly where it was.
+                    //
+                    // THROUGH WorldKit.GarageDoorOf, not by transform name.
+                    // The first version of this searched node names the way
+                    // BuildTownHome does and found nothing on any of the four
+                    // variants: house_simple is ONE mesh called "House" and its
+                    // door is a material slot, so the guard was dead code that
+                    // silently left every plot exactly as it had been. The
+                    // helper reads material slots, takes the widest island —
+                    // discarding the 2.17 m shed door on the back wall, which
+                    // carries the same material and would drag the house the
+                    // wrong way — and answers for house_hero's named nodes too.
+                    if (WorldKit.GarageDoorOf(go, out var door))
+                        go.transform.position += new Vector3(x - door.center.x, 0f, 0f);
                     WorldKit.AddColliders(go, WorldKit.SolidLayer);
                     go.SetActive(false);
                     set[v] = go;

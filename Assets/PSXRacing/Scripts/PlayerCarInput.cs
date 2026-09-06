@@ -156,7 +156,27 @@ namespace PSXRacing
                 // own timer, and RESET CAR (UNSTICK) is one tap behind MENU.
             }
 
-            if (!inputEnabled) { kbSteer = 0f; analogSteer = null; throttle = 0f; brake = 0.3f; handbrake = false; }
+            // THE GAME HAS THE CONTROLS: coast to a stop, then PARK.
+            //
+            // It used to hold 30% of pedal and no lever, which is a car being
+            // slowed rather than a car being left — and 30% of pedal settles at
+            // 11 cm/s on a gradient, so anything that took the controls away
+            // for longer than a moment gave the car back somewhere else. That
+            // is every walk-in venue, the drive-thru, the city hand-off and the
+            // whole time the player is on foot: get out on your own drive,
+            // walk into the house, come back and the car is at the kerb.
+            //
+            // The lever only goes on once the car has actually STOPPED. This
+            // also runs at the end of a race, where the car is handed back at
+            // whatever it crossed the line at, and a handbrake applied at
+            // 200 km/h is a rear lock and a spin — CarController reads a
+            // handbrake edge above DriveGateSpeed as a drift request. Below
+            // 1 m/s there is no edge worth having and no drift to enter.
+            if (!inputEnabled)
+            {
+                kbSteer = 0f; analogSteer = null; throttle = 0f; brake = 0.3f;
+                handbrake = Mathf.Abs(car.forwardSpeed) < 1f;
+            }
 
             // Two things take the throttle off the player, and both of them are
             // the CAR rather than the game: an empty tank, and a nozzle in the

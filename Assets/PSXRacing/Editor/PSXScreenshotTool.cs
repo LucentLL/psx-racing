@@ -326,6 +326,63 @@ namespace PSXRacing.EditorTools
             Shot(cam, "nb_1_drive", eye,
                  Quaternion.LookRotation(t.position + Vector3.up * 0.6f - eye));
 
+            // A NEIGHBOUR'S DRIVE, STRAIGHT UP IT, ONE PER SIDE.
+            //
+            // Every other frame here photographs the PLAYER'S drive, and the
+            // player's house is the one the builder measures its garage door
+            // on at runtime — so it was right while all fourteen neighbours
+            // were wrong, and four screenshots said nothing about it. "Drive-
+            // ways go to the wrong side of house" was reported by a player,
+            // not caught by this tool, because this tool never looked.
+            //
+            // ONE PER SIDE because the two rows are turned opposite ways and
+            // the bug was a SIGN: a shot of one row would have been half a
+            // test. Standing at the kerb end on the drive's own centreline and
+            // looking up it at door height is the whole assertion — the garage
+            // door fills the middle of the frame, or it does not.
+            //
+            // Framed off the slab's own bounds rather than off the plot
+            // arithmetic, deliberately. A camera placed by NbDriveZ would
+            // follow the drive wherever the drive went, including into the
+            // garden, and photograph a perfectly centred patch of lawn.
+            float streetX = FindBounds("NbStreet", out var sb) ? sb.center.x : t.position.x;
+            for (int want = -1; want <= 1; want += 2)
+            {
+                for (int p = 0; p < 40; p++)
+                {
+                    if (!FindBounds("NbDrive" + p, out var db)) continue;
+                    int side = db.center.x >= streetX ? 1 : -1;
+                    if (side != want) continue;
+                    float kerbX = side > 0 ? db.min.x : db.max.x;
+                    float houseX = side > 0 ? db.max.x : db.min.x;
+
+                    Vector3 up = new Vector3(kerbX + side * 1.5f, db.max.y + 2.0f, db.center.z);
+                    Shot(cam, "nb_5_garage" + (side > 0 ? "E" : "W"), up,
+                         Quaternion.LookRotation(
+                             new Vector3(houseX, db.max.y + 1.4f, db.center.z) - up));
+
+                    // AND A GRAZING FRAME, for the thickness. No other shot in
+                    // this pass can show it: three of them are at or above
+                    // 3.2 m and the fourth is straight down, and a slab's edge
+                    // is a few inches. An eye 35 cm over the lawn, off the
+                    // drive's long side, looking along it, is the only camera
+                    // from which "a stripe painted on the grass" and "a slab of
+                    // concrete" look different.
+                    // The SAME edge on both rows — the min-z one — rather than
+                    // whichever the arithmetic happened to land on. The first
+                    // version framed off db.max.z for both, which put the
+                    // camera along the near edge on one row and across the
+                    // whole drive on the other, so half the pair photographed
+                    // the thing and half of it photographed a lawn.
+                    Vector3 lawn = new Vector3(kerbX + side * 4f, db.max.y + 0.35f,
+                                               db.min.z - 2.2f);
+                    Shot(cam, "nb_6_edge" + (side > 0 ? "E" : "W"), lawn,
+                         Quaternion.LookRotation(
+                             new Vector3(houseX - side * 2f, db.max.y, db.min.z) - lawn));
+                    break;
+                }
+            }
+
             // Down the street from head height, which is the shot that says
             // whether the neighbours read as neighbours.
             Vector3 mid = t.position + t.forward * 60f + Vector3.up * 3.4f;
@@ -353,6 +410,28 @@ namespace PSXRacing.EditorTools
             Debug.Log("[PSXShot] neighbourhood shots written to " + OutDir);
         }
 
+        /// <summary>
+        /// World bounds of a named object's renderers, or false if the scene
+        /// has no such object.
+        ///
+        /// Renderers rather than the transform, because everything this tool
+        /// wants to frame is a generated mesh whose GameObject sits at the
+        /// centre of a slab it says nothing about the size of.
+        /// </summary>
+        static bool FindBounds(string name, out Bounds bounds)
+        {
+            bounds = new Bounds();
+            var go = GameObject.Find(name);
+            if (go == null) return false;
+            bool any = false;
+            foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+            {
+                if (any) bounds.Encapsulate(r.bounds);
+                else { bounds = r.bounds; any = true; }
+            }
+            return any;
+        }
+
         static void CaptureGarage()
         {
             const string path = "Assets/PSXRacing/Scenes/Garage.unity";
@@ -375,6 +454,28 @@ namespace PSXRacing.EditorTools
 
             // Standing inside the door, which is where a player arrives.
             Shot(cam, "garage_1_entry", new Vector3(0f, 1.62f, -6.4f), Quaternion.Euler(3f, 0f, 0f));
+            // OUT ON THE DRIVE, LOOKING BACK AT THE HOUSE — the walk up your
+            // own driveway, and the only view in this pass that is outdoors at
+            // all. Every other frame here is inside the room, so the drive,
+            // the yard and the street had no picture between them: "driveways
+            // do not have any depth/thickness" was reported about a slab this
+            // tool had never photographed. Eye deliberately low and off the
+            // drive's centreline, because a few inches of concrete edge is
+            // only visible at a grazing angle.
+            //
+            // FRAMED OFF THE SLAB, not off the builder's constants. Those are
+            // FALLBACKS — GarageSceneBuilder measures the garage door on the
+            // instantiated model and the whole lot keys off the result, which
+            // this build logs as x = -3.56 against a fallback of +4.45. A
+            // camera aimed at the literal would photograph the far side of the
+            // garden and call it a driveway.
+            if (FindBounds("Driveway", out var gd))
+            {
+                Vector3 onDrive = new Vector3(gd.center.x - 3.2f, gd.max.y + 1.5f, gd.min.z - 1.5f);
+                Shot(cam, "garage_0_drive", onDrive,
+                     Quaternion.LookRotation(
+                         new Vector3(gd.center.x, gd.max.y + 1.3f, gd.max.z) - onDrive));
+            }
             // Down the row of bays from the corner.
             Shot(cam, "garage_2_bays", new Vector3(-9.4f, 1.62f, -1.2f), Quaternion.Euler(3f, 38f, 0f));
             // The parts rack, from where you would stand to read it.

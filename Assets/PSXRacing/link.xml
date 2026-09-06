@@ -1,0 +1,47 @@
+<!--
+  IL2CPP STRIPPING EXCEPTIONS.
+
+  (No double hyphen anywhere in this comment, and no hyphen at the end of a
+  line. XML forbids both inside a comment, and UnityLinker does not soften the
+  blow: it dies with "Fatal error in Unity CIL Linker / System.Xml.XmlException"
+  fifteen seconds into the build, which reads like a broken toolchain rather
+  than like a typo in a rule file.)
+
+  System.Threading.OSSpecificSynchronizationContext
+
+  2026-09-06. Every WebGL build from a COLD sandbox died in il2cpp with
+
+      Error: IL2CPP error (no further information about what managed code
+      was being converted is available)
+      System.Collections.Generic.KeyNotFoundException: The given key
+      'System.Void System.Threading.OSSpecificSynchronizationContext::.ctor(
+      System.Object)' was not present in the dictionary.
+        at Unity.IL2CPP.Metadata.MetadataCollector.GetMethodIndex(...)
+        at Unity.IL2CPP.Metadata.Dat.SectionWriters.TypeDefinitionsWriter...
+
+  The managed stripper keeps the TYPE and drops its constructor, and the
+  metadata writer then asks for a method index that was never registered.
+  Preserving the type keeps the two in step.
+
+  IT DOES NOT LOOK LIKE THIS WHEN YOU MEET IT, which is the reason for this
+  comment. il2cpp leaves a PARTIAL Library/Bee/artifacts/WebGL/il2cppOutput
+  behind when it throws, and the incremental build trusts it, so the next
+  three attempts failed in three different tools and none of them named the
+  real cause:
+
+      wasm-opt   crashed outright, 0xC0000374 (STATUS_HEAP_CORRUPTION)
+      wasm-opt   [parse exception: invalid heap type index: 524295]
+      clang      "Building ...\uvr7rbqt5rl1.o failed with output:" and then
+                 nothing at all
+
+  It is the same shape the build workflow notes already record for a killed
+  build: one bad input, a new error per fix attempt. Clearing artifacts one
+  layer at a time only moves the symptom. Only a build with Library/Bee AND
+  Library/Il2cppBuildCache both gone showed the exception underneath, and it
+  reproduced identically on a clean checkout, so this is not anyone's code.
+-->
+<linker>
+  <assembly fullname="mscorlib">
+    <type fullname="System.Threading.OSSpecificSynchronizationContext" preserve="all" />
+  </assembly>
+</linker>

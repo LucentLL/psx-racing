@@ -456,7 +456,14 @@ namespace PSXRacing.EditorTools
                 // flat at 0.03 exactly as before and only its last metres could
                 // ever bend — but they bend correctly if the head of the street
                 // ever moves, instead of hanging where a literal put them.
-                (px, pz) => NbRoadY(pz) + 0.03f);
+                (px, pz) => NbRoadY(pz) + 0.03f,
+                // AND IT HAS A SIDE TO IT. Your own drive is the one the
+                // player stands beside every time they get out of the car, so
+                // it is the one whose zero thickness was most visible. The
+                // slab runs in z, so its lawn faces are the x ones; the top of
+                // it is against the garage and the bottom runs into the
+                // turning head, and neither wants a lip.
+                WorldKit.SlabEdge.SidesX);
 
             // Where the car is parked at the start of a session, facing OUT.
             // Two metres clear of the door so the nose is not inside the house.

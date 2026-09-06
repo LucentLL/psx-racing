@@ -142,6 +142,7 @@ namespace PSXRacing.EditorTools
             if (psxLit == null) throw new System.Exception("PSX/Lit not found");
             matByTex.Clear();
             matByKey.Clear();
+            nbGarageChecked = false;
             // Same reason the town clears it: BuildLighting reads `track` for
             // the fog scale, and a stage's three-kilometre band on a suburban
             // street would show the far bound wall with sky under it.
@@ -417,13 +418,46 @@ namespace PSXRacing.EditorTools
         /// How far the wide garage door sits from the middle of house_simple,
         /// along the axis that ends up pointing down the street.
         ///
-        /// MEASURED, in Blender, off the shipped FBX: the Garage_Door material's
-        /// wide slab centres at model x -6.082, which at CityProps.PackScale
+        /// MEASURED IN UNITY, off the instantiated model, by
+        /// <see cref="PackProbe"/> — and the sign is the whole point of saying
+        /// so. This was measured in BLENDER and converted by hand, which is a
+        /// thing the town builder's own comment already warns about ("the
+        /// exporter mirrors X, so a coordinate that is correct in Blender is on
+        /// the wrong side of the house in Unity"). It came out NEGATIVE, and
+        /// so did every driveway on the street: the drive ran to model local
+        /// x -6.08, which is not merely the far side of the garage but two
+        /// thirds of a metre off the END of a house that spans -5.52 to +8.90.
+        /// Fourteen driveways to a patch of lawn beside the building. Reported
+        /// in one line: "driveways go to the wrong side of house. they should
+        /// go to the garage."
+        ///
+        /// The magnitude was right all along. PackProbe puts the Garage_Door
+        /// material's wide leaf — 3.51 x 3.01, against the 2.17 shed door round
+        /// the back — at Unity local x +6.082, which at CityProps.PackScale
         /// 0.81 is 4.93 m. The house is turned to face the street, so that X
         /// offset lands on world Z — and it lands on the OPPOSITE side of the
         /// plot for the two rows, because they are turned opposite ways.
         /// </summary>
         const float NbGarageOffsetZ = 4.93f;
+
+        /// <summary>
+        /// How far out from the street's crown the garage door's face is, on
+        /// the axis that runs up the drive.
+        ///
+        /// The same measurement, on the model's other horizontal axis: the door
+        /// is at Unity local z +6.754, the house is turned so local +Z points
+        /// AT the street, and its origin stands <c>NbSetback + 2</c> out — so
+        /// the door faces the street from 26 - 6.754*0.81 = 20.53 m out.
+        ///
+        /// IT IS WHERE THE DRIVE HAS TO END. The drive used to stop at a flat
+        /// 18.5, which is two metres short of the door with the model's own
+        /// concrete path lying in the gap: half a fix, and the half that still
+        /// reads as "the driveway does not go to the garage" even once the
+        /// drive is on the right side of the house. A little past it rather
+        /// than exactly on it, so the concrete runs under the door line and
+        /// there is no hairline of lawn where the two meet.
+        /// </summary>
+        const float NbGarageFaceOut = 20.53f + 0.6f;
 
         /// <summary>
         /// Where a plot's drive runs, in z. Signed by <paramref name="side"/>,
@@ -432,8 +466,67 @@ namespace PSXRacing.EditorTools
         /// the other row's door by 9.4 m — a driveway to a blank wall, with the
         /// garage round the corner. Read by the height field AND the slab, so
         /// the graded ramp and the concrete on top of it agree.
+        ///
+        /// PLUS, not minus. See <see cref="NbGarageOffsetZ"/>: signing this the
+        /// other way put all fourteen drives past the end of the house.
         /// </summary>
-        static float NbDriveZ(int side, float plotZ) => plotZ - side * NbGarageOffsetZ;
+        static float NbDriveZ(int side, float plotZ) => plotZ + side * NbGarageOffsetZ;
+
+        static bool nbGarageChecked;
+
+        /// <summary>
+        /// Does the drive actually arrive at the garage door?
+        ///
+        /// Measures the door on a house that has just been placed and seated,
+        /// and compares it with where <see cref="NbDriveZ"/> and
+        /// <see cref="NbGarageFaceOut"/> say the drive is going. Once per
+        /// build, on the first house — every plot is the same model turned the
+        /// same way, so a second measurement would only be the first one again.
+        ///
+        /// It LOGS rather than throws. The numbers it checks are cosmetic
+        /// geometry, and a street that builds with a warning on it is a street
+        /// somebody can look at; one that refuses to build is forty minutes of
+        /// nothing. But it is a WARNING and it names the correction, because
+        /// the failure it is looking for is invisible in a screenshot taken
+        /// from anywhere but directly over the plot.
+        ///
+        /// BY MATERIAL, through <see cref="WorldKit.GarageDoorOf"/>. The first
+        /// version of this check searched transform names the way the town's
+        /// does, and reported "no wide Garage_Door on house_simple" on every
+        /// build — house_hero ships its door as a named node and house_simple
+        /// is one mesh called "House" with the door on a material slot. A
+        /// check that cannot see its subject passes for the wrong reason,
+        /// which is worse than not having one.
+        /// </summary>
+        static void NbCheckGarage(GameObject house, int side, float plotZ)
+        {
+            nbGarageChecked = true;
+            if (!WorldKit.GarageDoorOf(house, out var door))
+            {
+                Log("[Neighborhood] WARN: no wide Garage_Door on house_simple — " +
+                    "NbGarageOffsetZ is unchecked and the drives are a guess.");
+                return;
+            }
+            float widest = Mathf.Max(door.size.x, door.size.z);
+
+            float driveZ = NbDriveZ(side, plotZ);
+            float offZ = Mathf.Abs(door.center.z - driveZ);
+            float doorOut = (door.center.x - HomeStreetX) * side;
+            float offX = NbGarageFaceOut - doorOut;
+
+            string verdict = (offZ < 1.2f && offX > -0.5f && offX < 2.5f) ? "OK" : "WRONG";
+            Log("[Neighborhood] garage check " + verdict + ": door " +
+                widest.ToString("0.00") + " m wide at z " + door.center.z.ToString("0.00") +
+                " / " + doorOut.ToString("0.00") + " m out; drive centred z " +
+                driveZ.ToString("0.00") + " (off by " + offZ.ToString("0.00") +
+                " m) and ends " + offX.ToString("0.00") + " m past the door.");
+            if (verdict == "WRONG")
+                Log("[Neighborhood] WARN: the drives do not meet the garage. " +
+                    "NbGarageOffsetZ should be " +
+                    (Mathf.Abs(door.center.z - plotZ)).ToString("0.000") + " signed " +
+                    ((door.center.z - plotZ) * side > 0f ? "+" : "-") +
+                    ", NbGarageFaceOut " + doorOut.ToString("0.00") + ".");
+        }
 
         /// <summary>
         /// The land as it has been GRADED: the hillside everywhere, except
@@ -788,6 +881,19 @@ namespace PSXRacing.EditorTools
                         // "houses should never be underground."
                         WorldKit.SeatOnGround(house, padY);
                         WorldKit.AddColliders(house, WorldKit.SolidLayer);
+                        // AND CHECK THE CONSTANT AGAINST THE MODEL, once.
+                        //
+                        // NbGarageOffsetZ cannot be measured here and used —
+                        // the height field grades the drive corridor long
+                        // before any house is instantiated, and a height field
+                        // that depended on a measurement taken later in the
+                        // build would be a different street every time the
+                        // order changed. So the constant stays a constant and
+                        // this says, in the build log, whether it is still
+                        // true. It was not, by 9.86 m and a sign, for the whole
+                        // life of the street, and nothing in the build said a
+                        // word: a driveway to a blank wall renders perfectly.
+                        if (!nbGarageChecked) NbCheckGarage(house, side, z);
                     }
 
                     // The drive, from the kerb to the front of the house.
@@ -805,8 +911,16 @@ namespace PSXRacing.EditorTools
                     // The lawn hazard the comment feared is real, but it lives
                     // one metre further out and the fix for it is the dropped
                     // kerb in BuildNbGround, not a wider slab.
+                    //
+                    // AND IT ENDS AT THE GARAGE DOOR. It ended at a flat 18.5,
+                    // which was a guess at "the front of the house" and is two
+                    // metres short of the door PackProbe measures — a gap the
+                    // model fills with its own concrete front path, so the
+                    // drive arrived at a footpath rather than at a garage.
+                    // Bounded by the measurement now, like everything else on
+                    // this street.
                     float kerbX = HomeStreetX + side * NbKerbOut;
-                    float houseX = HomeStreetX + side * 18.5f;
+                    float houseX = HomeStreetX + side * NbGarageFaceOut;
                     float driveX = (kerbX + houseX) * 0.5f;
                     float driveZ = NbDriveZ(side, z);
                     // THE DRIVE RAMPS, because it has to: it starts at the kerb
@@ -822,11 +936,25 @@ namespace PSXRacing.EditorTools
                     // the next. Reading NbGroundY gets the ramp for free —
                     // the field is already pinned to the road at the kerb and
                     // already level on the bench at the house.
+                    //
+                    // AND IT IS A SLAB OF CONCRETE, not a decal. "Driveways do
+                    // not have any depth/thickness. They should be a few inches
+                    // thick." They were a single-sided skin: from the side, a
+                    // drive was a painted stripe on the lawn with nothing
+                    // holding it up, and from a low camera it disappeared
+                    // edge-on entirely.
+                    //
+                    // The two LAWN edges only. The slab runs in x, so those are
+                    // its z faces. The street end must not have one — it would
+                    // be a 30 cm wall in the gutter, on the one edge the car
+                    // crosses at speed — and the house end is inside the
+                    // building.
                     WorldKit.GridSlab(lots.transform, "NbDrive" + tag,
                         new Vector3(driveX, 0f, driveZ),
                         Mathf.Abs(houseX - kerbX), 5.0f, 1.5f,
                         m.drive, true, 5f, WorldKit.RoadLayer,
-                        (px, pz) => NbGroundY(px, pz) + 0.05f);
+                        (px, pz) => NbGroundY(px, pz) + 0.05f,
+                        WorldKit.SlabEdge.SidesZ);
 
                     // Two plots in three get a car, on the drive or at the
                     // kerb. Not all of them: a street where every house has a

@@ -881,6 +881,7 @@ namespace PSXRacing.EditorTools
             TestDeliveryJob();
             TestDeliverySlotCost();
             TestPizzaCargo();
+            TestParkedCarHolds();
             TestVertexSnapOff();
             TestWalkInScenesRender();
             TestTownScene();
@@ -1418,7 +1419,104 @@ namespace PSXRacing.EditorTools
                               .ToString("0.0") + " m");
             }
 
+            TestDrivesReachTheirGarages(scene);
+
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+        }
+
+        /// <summary>
+        /// DOES EACH DRIVE ACTUALLY GO TO A GARAGE, AND IS IT MADE OF ANYTHING?
+        ///
+        /// Two assertions the street went its whole life without, and two bugs
+        /// that shipped because of it. Every check above asks whether a thing
+        /// EXISTS; a driveway laid across the garden beside its house exists
+        /// perfectly, has a collider, is on the right layer, and renders. The
+        /// owner found both by looking: "driveways go to the wrong side of
+        /// house. they should go to the garage" and "driveways do not have any
+        /// depth/thickness. they should be a few inches thick."
+        ///
+        /// MEASURED OFF THE SCENE, not off the builder's arithmetic — the same
+        /// argument the venue raycast above makes. NbDriveZ is exactly the
+        /// expression that was wrong; a test that called it would have agreed
+        /// with it and passed.
+        /// </summary>
+        static void TestDrivesReachTheirGarages(UnityEngine.SceneManagement.Scene scene)
+        {
+            var drives = new List<Renderer>();
+            var houses = new List<GameObject>();
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var t in go.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t.name.StartsWith("NbDrive") && !t.name.EndsWith("Edge"))
+                    {
+                        var r = t.GetComponent<Renderer>();
+                        if (r != null) drives.Add(r);
+                    }
+                    else if (t.name.StartsWith("NbHouse")) houses.Add(t.gameObject);
+                }
+
+            Check(drives.Count > 0, "the street has driveways on it", drives.Count);
+            if (drives.Count == 0) return;
+
+            // The wide garage door of every house, in world space. BY
+            // MATERIAL — house_simple is one mesh called "House" and its door
+            // is a material slot, so the transform-name search the town uses
+            // finds nothing at all on it and this test would pass on a street
+            // with no garages whatever. See WorldKit.GarageDoorOf, which also
+            // discards the 2.17 m shed door round the back: it carries the same
+            // material, and a drive aimed at THAT would otherwise pass.
+            var doors = new List<Bounds>();
+            foreach (var h in houses)
+                if (PSXRacing.EditorTools.WorldKit.GarageDoorOf(h, out var b)) doors.Add(b);
+            Check(doors.Count > 0, "and the houses on it have garage doors", doors.Count);
+
+            int missed = 0, thin = 0;
+            float worstGap = 0f;
+            foreach (var d in drives)
+            {
+                // Nearest door to this drive, in PLAN. Height is no help — the
+                // door is three metres up a wall and the drive is on the floor.
+                var db = d.bounds;
+                float best = float.MaxValue;
+                foreach (var b in doors)
+                {
+                    Vector3 p = b.center; p.y = db.center.y;
+                    // Distance from the door to the drive's own footprint,
+                    // which is zero when the door stands on it. A centre-to-
+                    // centre distance would fail every drive on the street for
+                    // being longer than it is wide.
+                    Vector3 q = db.ClosestPoint(p);
+                    best = Mathf.Min(best, Vector3.Distance(new Vector3(p.x, 0f, p.z),
+                                                            new Vector3(q.x, 0f, q.z)));
+                }
+                if (best > 1.5f) { missed++; worstGap = Mathf.Max(worstGap, best); }
+
+                // AND IT IS A SLAB. A GridSlab with no skirt is a single sheet
+                // of triangles with no downward-facing face anywhere in it, so
+                // this is a fact about the mesh rather than a tolerance: either
+                // there is an underside or there is not.
+                var mf = d.GetComponent<MeshFilter>();
+                bool hasSide = false;
+                var skirt = d.transform.Find(d.name + "Edge");
+                if (skirt != null)
+                {
+                    var sf = skirt.GetComponent<MeshFilter>();
+                    hasSide = sf != null && sf.sharedMesh != null &&
+                              sf.sharedMesh.vertexCount > 0;
+                    // And NOT solid: a colliding lip along the edge of a drive
+                    // is a wall a car stops dead against — its box sits about
+                    // 9 cm above the surface it is driving on.
+                    Check(skirt.GetComponent<Collider>() == null,
+                          "the drive's edge is scenery, not a kerb the car hits");
+                }
+                if (!hasSide || mf == null) thin++;
+            }
+
+            Check(missed == 0, "every drive runs up to its own garage door",
+                  missed == 0 ? drives.Count + " drives"
+                              : missed + " miss, worst by " + worstGap.ToString("0.0") + " m");
+            Check(thin == 0, "and every one of them is a slab with a side to it",
+                  thin == 0 ? drives.Count + " drives" : thin + " are paper");
         }
 
         static void TestTownScene()
@@ -2105,6 +2203,54 @@ namespace PSXRacing.EditorTools
         /// reads as a missing lid. An order rolled longer than the carried stack
         /// is boxes the player is charged for and never sees.
         /// </summary>
+        /// <summary>
+        /// A PARKED CAR STAYS WHERE IT WAS PARKED.
+        ///
+        /// "When I park my car it tends to roll away. It should park in gear
+        /// and/or with e-brake." Nothing in this file could see that: the whole
+        /// CarController block is algebra over torque curves and gear ratios
+        /// and never steps the solver, so a handbrake that did literally
+        /// nothing below 0.3 m/s passed every test in it.
+        ///
+        /// <see cref="ParkedCarSim"/> puts the car on the 15% slope its own
+        /// driveways are built at and drives the physics by hand. This owns the
+        /// thresholds, the same way <see cref="TestPizzaCargo"/> owns
+        /// PizzaCargoSim's — a harness that grades itself is a harness whose
+        /// failure mode is a quiet edit to a number.
+        ///
+        /// THE CONTROL IS THE IMPORTANT ASSERTION. "It did not move" passes on
+        /// a level slope, a car in the air and a solver that was never stepped;
+        /// only "and this one DID" rules those out.
+        /// </summary>
+        static void TestParkedCarHolds()
+        {
+            Line("parked car:");
+            ParkedCarSim.Reading[] r;
+            try { r = ParkedCarSim.Run(); }
+            catch (System.Exception e)
+            {
+                Check(false, "the parked-car sim runs", e.GetType().Name + ": " + e.Message);
+                return;
+            }
+            foreach (var x in r)
+            {
+                bool control = x.name.StartsWith("nothing");
+                Check(x.grounded, "\"" + x.name + "\" is standing on the slope");
+                Check(control ? x.driftM > 1.0f : x.driftM < 0.10f,
+                      control ? "...and with nothing on it, it rolls away (the control)"
+                              : "...and \"" + x.name + "\" holds it still",
+                      x.driftM.ToString("0.000") + " m in 6 s");
+                // AND THE HOLD IS WHY. "It did not move" and "the parking hold
+                // was engaged" are the same displacement and different bugs —
+                // a car wedged on scenery, or one the solver never reached,
+                // reports the first without the second. The control has to
+                // fail this one too, or the flag means nothing.
+                Check(x.parked != control,
+                      control ? "...and the solver correctly did NOT think it was parked"
+                              : "...because the parking hold is engaged, not by luck");
+            }
+        }
+
         static void TestPizzaCargo()
         {
             Line("pizza cargo:");

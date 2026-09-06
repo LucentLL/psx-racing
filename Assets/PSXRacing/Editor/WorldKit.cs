@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -80,9 +81,161 @@ namespace PSXRacing.EditorTools
             return mesh;
         }
 
+        /// <summary>
+        /// THE WIDE GARAGE DOOR of a house from the LifeSim house pack, in
+        /// world space, or false if it has not got one.
+        ///
+        /// BY MATERIAL, and that is the whole reason this exists. Three
+        /// builders already look for this door and all three search TRANSFORM
+        /// NAMES — which works on house_hero, whose pack ships the door as a
+        /// node called Garage_Door, and finds nothing whatever on
+        /// house_simple, whose entire building is ONE mesh called "House" with
+        /// a dozen material slots on it. The neighbourhood's first attempt at
+        /// checking its own driveways reported "no wide Garage_Door on
+        /// house_simple" and passed, which is the failure mode this project
+        /// keeps paying for: a check that cannot see its subject is a check
+        /// that always agrees with you.
+        ///
+        /// THE WIDEST, and split into islands first. The same material carries
+        /// a 2.17 m shed door on the back wall, and the bounding box of the
+        /// two together centres on the middle of the house — a number that
+        /// would make a drive to nowhere look perfectly aimed. Islands are a
+        /// gap test along the widest axis, which is enough for two doors on
+        /// opposite walls and does not need the index buffer welded.
+        /// </summary>
+        public static bool GarageDoorOf(GameObject root, out Bounds door)
+        {
+            door = new Bounds();
+            if (root == null) return false;
+            var pts = new List<Vector3>();
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                var mesh = mf.sharedMesh;
+                var mr = mf.GetComponent<MeshRenderer>();
+                if (mesh == null || mr == null) continue;
+                var mats = mr.sharedMaterials;
+                var verts = mesh.vertices;
+                var toWorld = mf.transform.localToWorldMatrix;
+                // CONTAINS, not StartsWith, and the difference is a whole
+                // build. Every model placed by Place() has already been through
+                // ConvertToPSXMaterials, which rebuilds each slot as
+                // "<texture>_<original name>" — the pack's Garage_Door arrives
+                // here called "scenery_Garage_Door_Garage_Door". StartsWith
+                // matched none of them, and the neighbourhood's garage check
+                // reported "no wide Garage_Door on house_simple" on a street
+                // where all fourteen of them have one.
+                //
+                // The TRANSFORM name too, because house_hero's pack ships its
+                // door as a node and those are not renamed. One helper that
+                // answers for both models is the point: two door-finders is
+                // how the town and the street came to disagree about which
+                // side of a house the garage is on.
+                for (int s = 0; s < mesh.subMeshCount && s < mats.Length; s++)
+                {
+                    bool isDoor = (mats[s] != null && mats[s].name.Contains("Garage_Door"))
+                               || mf.transform.name.StartsWith("Garage_Door");
+                    if (!isDoor) continue;
+                    var idx = mesh.GetTriangles(s);
+                    for (int i = 0; i < idx.Length; i++)
+                        pts.Add(toWorld.MultiplyPoint3x4(verts[idx[i]]));
+                }
+            }
+            if (pts.Count == 0) return false;
+
+            var all = new Bounds(pts[0], Vector3.zero);
+            foreach (var p in pts) all.Encapsulate(p);
+            int axis = all.size.x >= all.size.z ? 0 : 2;      // horizontal only
+            const float Gap = 1.0f;
+
+            var groups = new List<List<Vector3>>();
+            if (all.size[axis] < Gap) groups.Add(pts);
+            else
+            {
+                var sorted = new List<float>(pts.Count);
+                foreach (var p in pts) sorted.Add(p[axis]);
+                sorted.Sort();
+                var cuts = new List<float>();
+                for (int i = 1; i < sorted.Count; i++)
+                    if (sorted[i] - sorted[i - 1] > Gap)
+                        cuts.Add((sorted[i] + sorted[i - 1]) * 0.5f);
+                for (int i = 0; i <= cuts.Count; i++) groups.Add(new List<Vector3>());
+                foreach (var p in pts)
+                {
+                    int g = 0;
+                    while (g < cuts.Count && p[axis] > cuts[g]) g++;
+                    groups[g].Add(p);
+                }
+            }
+
+            float widest = 0f;
+            bool any = false;
+            foreach (var g in groups)
+            {
+                if (g.Count == 0) continue;
+                var b = new Bounds(g[0], Vector3.zero);
+                foreach (var p in g) b.Encapsulate(p);
+                float w = Mathf.Max(b.size.x, b.size.z);
+                // A DOOR, not a doorstep: wide enough for a car and tall
+                // enough to drive through. Without the height test a flat
+                // threshold strip carrying the same material wins on width.
+                if (w <= 2.4f || b.size.y <= 1.8f || w <= widest) continue;
+                widest = w; door = b; any = true;
+            }
+            return any;
+        }
+
+        /// <summary>
+        /// Which sides of a slab are EDGES OF SOMETHING — a kerb of concrete
+        /// standing proud of the lawn beside it — rather than seams into
+        /// another surface.
+        ///
+        /// Named in the slab's own axes, before the transform: MinX is the
+        /// face at <c>centre.x - sizeX/2</c>. Nothing here is rotated, so those
+        /// are also world directions, but a call site should still be thinking
+        /// about which END of its drive it means rather than about compass
+        /// points.
+        /// </summary>
+        [System.Flags]
+        public enum SlabEdge
+        {
+            None = 0,
+            MinX = 1, MaxX = 2, MinZ = 4, MaxZ = 8,
+            /// <summary>Both faces along the slab's long axis when it runs in
+            /// X — the two lawn edges of a driveway, which is the common
+            /// case.</summary>
+            SidesZ = MinZ | MaxZ,
+            SidesX = MinX | MaxX,
+            All = MinX | MaxX | MinZ | MaxZ,
+        }
+
+        /// <summary>How far a skirt hangs below the surface it edges.
+        ///
+        /// NOT the thickness anybody sees. A drive is laid 5 cm proud of a
+        /// ground mesh that is itself sunk 6 cm, so about 11 cm of the skirt —
+        /// four inches, which is what a concrete drive actually is — stands
+        /// above the lawn and the rest is buried in it. The burial is the
+        /// point: the ground under a drive is a 3 m grid on a 15% ramp, and
+        /// its facets rise several centimetres above their own sample points
+        /// between vertices. A skirt cut to the visible 11 cm would show
+        /// daylight under the drive wherever that happened.
+        /// </summary>
+        public const float SkirtDepth = 0.30f;
+
         /// <summary>A horizontal ground plane, subdivided into ~<paramref
         /// name="cell"/>-metre squares. UVs are WORLD-anchored so two slabs
         /// meeting at a seam do not show one.</summary>
+        /// <param name="skirt">Which edges get a visible thickness. A slab
+        /// with none is what this always built: an infinitely thin skin, which
+        /// is right for a road (its edge is a kerb, or the next slab) and
+        /// wrong for a driveway — "driveways do not have any depth/thickness.
+        /// they should be a few inches thick."
+        ///
+        /// The skirt is a SEPARATE, RENDER-ONLY object. It gets no collider,
+        /// deliberately: a baked catalog car's box sits about 9 cm above the
+        /// surface it drives on, so a solid 11 cm lip along the side of a drive
+        /// is a wall the car stops dead against instead of bumping down off.
+        /// The surface keeps its own collider and the car keeps driving off the
+        /// edge of a drive exactly as it did.</param>
         /// <param name="heightAt">Optional. Given a WORLD (x, z), returns the
         /// world Y this slab should reach there. Null keeps the slab dead flat,
         /// which is what it always was.
@@ -98,7 +251,8 @@ namespace PSXRacing.EditorTools
                                           float sizeX, float sizeZ, float cell,
                                           Material mat, bool solid, float tile,
                                           int layer = 0,
-                                          System.Func<float, float, float> heightAt = null)
+                                          System.Func<float, float, float> heightAt = null,
+                                          SlabEdge skirt = SlabEdge.None)
         {
             int nx = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeX) / cell));
             int nz = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeZ) / cell));
@@ -165,7 +319,109 @@ namespace PSXRacing.EditorTools
                     col.center = new Vector3(0f, -0.2f, 0f);
                 }
             }
+            if (skirt != SlabEdge.None)
+                BuildSkirt(go.transform, name, centre, verts, nx, nz, tile, mat, skirt);
             return go;
+        }
+
+        /// <summary>
+        /// The SIDE of a slab: the band of concrete between its surface and the
+        /// ground it is lying on.
+        ///
+        /// Hung from the slab's own boundary vertices, which is the only way it
+        /// can be right — the surface follows a height function and a skirt
+        /// built from the slab's nominal rectangle would part company with it
+        /// the moment the ground moved. Every top vertex here is a vertex the
+        /// surface mesh already has, so the two share an edge exactly and no
+        /// seam can open between them.
+        ///
+        /// A CHILD, and render-only. Separate so the collider stays the flat
+        /// surface (see the skirt parameter on GridSlab); a child so it moves,
+        /// hides and gets deleted with the slab it belongs to rather than
+        /// becoming litter in the hierarchy the next builder has to know about.
+        ///
+        /// WOUND OUTWARD, tested rather than reasoned. The four edges want four
+        /// different windings and the two axes are not symmetric — Unity's
+        /// front face is <c>Cross(b - a, c - a)</c>, which for the same vertex
+        /// order gives +Z on one pair of edges and -X on the other. A slab
+        /// wound the wrong way renders NOTHING and says nothing about it, which
+        /// this project has now paid for twice; so build the quad, measure the
+        /// normal it came out with, and flip it if it is facing into the lawn.
+        /// </summary>
+        static void BuildSkirt(Transform slab, string name, Vector3 centre,
+                               Vector3[] verts, int nx, int nz, float tile,
+                               Material mat, SlabEdge edges)
+        {
+            var v = new List<Vector3>();
+            var uv = new List<Vector2>();
+            var tri = new List<int>();
+
+            void Edge(SlabEdge which, Vector3 outward, Vector3 along,
+                      System.Func<int, int> index, int count)
+            {
+                if ((edges & which) == 0) return;
+                for (int i = 0; i < count; i++)
+                {
+                    Vector3 t0 = verts[index(i)], t1 = verts[index(i + 1)];
+                    Vector3 b0 = t0 - Vector3.up * SkirtDepth;
+                    Vector3 b1 = t1 - Vector3.up * SkirtDepth;
+                    // Runs with the edge in world metres so a long drive's side
+                    // is not one stretched texel, and DOWN the face on v — the
+                    // same world-anchored convention the surface uses, so the
+                    // grain of the concrete carries over the lip.
+                    float u0 = Vector3.Dot(t0 + centre, along) / tile;
+                    float u1 = Vector3.Dot(t1 + centre, along) / tile;
+                    int b = v.Count;
+                    v.Add(t0); v.Add(t1); v.Add(b0); v.Add(b1);
+                    uv.Add(new Vector2(u0, 0f)); uv.Add(new Vector2(u1, 0f));
+                    uv.Add(new Vector2(u0, SkirtDepth / tile));
+                    uv.Add(new Vector2(u1, SkirtDepth / tile));
+
+                    // t0, b0, b1 then t0, b1, t1 — one winding; the test below
+                    // decides whether it is this one or its mirror.
+                    bool flip = Vector3.Dot(Vector3.Cross(b0 - t0, b1 - t0), outward) < 0f;
+                    if (flip)
+                    {
+                        tri.Add(b + 0); tri.Add(b + 3); tri.Add(b + 2);
+                        tri.Add(b + 0); tri.Add(b + 1); tri.Add(b + 3);
+                    }
+                    else
+                    {
+                        tri.Add(b + 0); tri.Add(b + 2); tri.Add(b + 3);
+                        tri.Add(b + 0); tri.Add(b + 3); tri.Add(b + 1);
+                    }
+                }
+            }
+
+            // The surface's vertex grid, exactly as GridSlab laid it out: z
+            // major, x minor. The two Z edges are its first and last ROWS and
+            // run in x; the two X edges are its first and last COLUMNS and run
+            // in z.
+            int Row(int z, int x) => z * (nx + 1) + x;
+            Edge(SlabEdge.MinZ, Vector3.back,    Vector3.right,   i => Row(0, i),  nx);
+            Edge(SlabEdge.MaxZ, Vector3.forward, Vector3.right,   i => Row(nz, i), nx);
+            Edge(SlabEdge.MinX, Vector3.left,    Vector3.forward, i => Row(i, 0),  nz);
+            Edge(SlabEdge.MaxX, Vector3.right,   Vector3.forward, i => Row(i, nx), nz);
+            if (tri.Count == 0) return;
+
+            var mesh = new Mesh { name = name + "Edge" };
+            mesh.SetVertices(v);
+            mesh.SetUVs(0, uv);
+            mesh.SetTriangles(tri, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            SaveMesh(mesh, name + "Edge");
+
+            var go = new GameObject(name + "Edge");
+            go.transform.SetParent(slab, false);
+            go.transform.localPosition = Vector3.zero;
+            go.isStatic = true;
+            go.layer = slab.gameObject.layer;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (mat != null) mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
         }
 
         /// <summary>

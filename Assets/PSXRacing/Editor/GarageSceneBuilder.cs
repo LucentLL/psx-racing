@@ -46,6 +46,14 @@ namespace PSXRacing.EditorTools
         const float StreetZ = -24f;       // street centreline
         const float LotFrontZ = -27f;     // far kerb — the world ends past it
 
+        /// <summary>How high the driveway's surface stands over the lawn, and
+        /// therefore how thick it looks. Three and a half inches, which is what
+        /// a residential concrete drive is poured at. Named because the slab,
+        /// the box that gives it its sides and the car parked on it all have to
+        /// agree, and a literal in three places is how they stop agreeing.
+        /// </summary>
+        const float DriveY = 0.09f;
+
         // ---- the house, measured off the INSTANTIATED model ----
         // The numbers came out mirrored when derived from the Blender source
         // (the exporter's axis bake flips X), so the door is now MEASURED off
@@ -180,10 +188,32 @@ namespace PSXRacing.EditorTools
             GridSlab(parent, "Yard", new Vector3(0f, 0f, midZ),
                      LotHalfX * 2f, depth, 2f, grass, true, 14f);
 
-            // Driveway, just proud of the grass so the seam never z-fights.
+            // Driveway. It used to be 1.2 cm proud of the grass — enough to
+            // stop a z-fight and nothing else, so it read as a stripe painted
+            // on the lawn: "driveways do not have any depth/thickness. They
+            // should be a few inches thick."
+            //
+            // It is 9 cm proud now, with a box under it for the sides. The box
+            // rather than a mesh skirt because this drive is DEAD FLAT, and a
+            // cube with its top buried 5 mm under the skin gives all four faces
+            // for nothing; it is the same trick the Kerb beside it already
+            // uses. Inset a centimetre so its sides cannot z-fight the skin's
+            // own edge, no collider, and 20 cm deep so the bottom is well under
+            // the grass whatever the camera does.
+            //
+            // The one cost: the yard's collider top is still y = 0, so a player
+            // walking up the drive is 9 cm inside it. That is invisible from a
+            // first-person eye at 1.65 m with no feet to draw, and it is much
+            // cheaper than sinking the ground plane every prop in the scene is
+            // seated on. The BAY on the drive does move — see BuildBays — since
+            // a car is a thing you can see the wheels of.
             float driveTop = (garZ + StreetZ + 2.4f) * 0.5f;
-            GridSlab(parent, "Driveway", new Vector3(garX, 0.012f, driveTop),
+            GridSlab(parent, "Driveway", new Vector3(garX, DriveY, driveTop),
                      4.4f, garZ - StreetZ - 2.4f, 1.5f, drive, false, 5f);
+            Slab(parent, "DrivewayEdge",
+                 new Vector3(garX, DriveY - 0.005f - 0.10f, driveTop),
+                 new Vector3(4.4f - 0.02f, 0.20f, garZ - StreetZ - 2.4f - 0.02f),
+                 drive, false);
 
             // The street out front, and its far kerb. The world ends past the
             // kerb — the fog is closed long before the eye gets there.
@@ -385,8 +415,11 @@ namespace PSXRacing.EditorTools
             // Dead centre of the doorway: the model's furniture stands off
             // both walls, so the aisles clear on either side of the car.
             Bay(0, new Vector3(garX, 0f, garZ + 2.4f), 180f);
-            // Bay 1: the driveway.
-            Bay(1, new Vector3(garX, 0f, -14.5f), 180f);
+            // Bay 1: the driveway — and ON it, at DriveY. The drive is a slab
+            // with a thickness now rather than a stripe at 1.2 cm, and a car
+            // left seated on the old lawn height parks with 9 cm of each wheel
+            // in the concrete.
+            Bay(1, new Vector3(garX, DriveY, -14.5f), 180f);
             // Bays 2-4: parallel-parked along the kerb.
             Bay(2, new Vector3(4.5f, 0f, StreetZ + 1.6f), 90f);
             Bay(3, new Vector3(12.5f, 0f, StreetZ + 1.6f), 90f);
