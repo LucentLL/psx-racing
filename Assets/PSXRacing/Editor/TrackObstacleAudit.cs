@@ -117,6 +117,7 @@ namespace PSXRacing.EditorTools
             AuditFacing(path, log);
             AuditVerge(def, path, trackHalf, reachHalf, log);
             AuditSurface(path, trackHalf, log);
+            AuditPosts(def, path, trackHalf, log);
 
             foreach (var col in colliders)
             {
@@ -354,6 +355,70 @@ namespace PSXRacing.EditorTools
                 if (!found || h.point.y > y) { y = h.point.y; on = h.collider; found = true; }
             }
             return found;
+        }
+
+        // ==================================================================
+        //  The roadside posts: clear of the kerb, and dense enough to matter
+        // ==================================================================
+        /// <summary>Metres every post vertex must sit past the kerb's outer
+        /// edge. The builder puts the verge post's inner face 0.31 m out;
+        /// this is the fence under it.</summary>
+        const float PostClearance = 0.2f;
+        /// <summary>Posts per kilometre a circuit must carry, both sides and
+        /// both kinds. 12 m verge pitch on two sides is 167/km and the wall
+        /// seams add 250; a strip with no verge room has the seams alone.
+        /// Under this, the sense-of-speed pass has silently not run.</summary>
+        const float PostsPerKmMin = 60f;
+
+        /// <summary>
+        /// The posts carry no collider, so nothing else in this file can see
+        /// them — and a post line that drifted onto the kerb would be a fence
+        /// down the racing line that every audit called clear. Read the
+        /// combined meshes' vertices directly, hold every one of them past the
+        /// kerb, and count them against the venue's length. Stages are only
+        /// reported: their posts follow the guard walls, which exist only
+        /// where the mountain falls away.
+        /// </summary>
+        static void AuditPosts(TrackCatalog.TrackDef def, TrackPath path,
+                               float trackHalf, StringBuilder log)
+        {
+            string[] names = { "PostsL", "PostsR", "WallPostsL", "WallPostsR", "StagePosts" };
+            int posts = 0, bad = 0;
+            float nearest = float.MaxValue;
+            string worst = "";
+            foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                if (System.Array.IndexOf(names, mf.name) < 0) continue;
+                var verts = mf.sharedMesh.vertices;
+                posts += verts.Length / PSXRacingBuilder.PostVerts;
+                int hint = -1;
+                foreach (var local in verts)
+                {
+                    Vector3 v = mf.transform.TransformPoint(local);
+                    hint = path.NearestIndex(v, hint);
+                    Vector3 c = path.GetPoint(hint);
+                    Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(hint)).normalized;
+                    float lateral = Mathf.Abs(Vector3.Dot(v - c, right));
+                    if (lateral < nearest) { nearest = lateral; worst = mf.name + " near wp " + hint; }
+                    if (lateral < trackHalf + PostClearance) bad++;
+                }
+            }
+
+            if (posts == 0)
+            {
+                log.AppendLine(def.stage
+                    ? "  posts: none (no guard-wall runs on this stage)"
+                    : "  POSTS: NONE — the sense-of-speed pass did not run on this circuit");
+                return;
+            }
+            float perKm = posts / Mathf.Max(def.LengthM / 1000f, 0.01f);
+            log.AppendLine("  posts: " + posts + " (" + perKm.ToString("0") + "/km), nearest vertex " +
+                           nearest.ToString("0.00") + " m off the centreline (" + worst + ")" +
+                           (bad > 0 ? "  " + bad + " VERTICES INSIDE THE KERB + " +
+                                      PostClearance.ToString("0.0") + " m BAND" : ""));
+            if (!def.stage && perKm < PostsPerKmMin)
+                log.AppendLine("  POSTS TOO SPARSE: " + perKm.ToString("0") + "/km, want " + PostsPerKmMin);
         }
 
         static void AuditVerge(TrackCatalog.TrackDef def, TrackPath path,

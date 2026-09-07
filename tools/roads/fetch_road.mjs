@@ -27,11 +27,18 @@
 // bias talking (SRTM reads the top of a forest, not the road under it) and
 // should be read before trusting the result.
 
-import { createRequire } from 'node:module';
-import { gunzipSync } from 'node:zlib';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The helpers live in lib.mjs now, shared with the Charlotte bake
+// (tools/clt/fetch_clt.mjs). This file keeps the ROADS table and the cut
+// logic; every numeric behaviour below is unchanged.
+import {
+  fetchOverpass, srtmSampler, makeProjection,
+  arcPositions, pointAtS, projectOntoChain, splineResample,
+  tightestPlan, radiusFloorMessage, waypointBridgeFlags, smoothHeights,
+  bridgeSpans, bakeGrid, writeDemMeta, writeStage,
+} from './lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cacheDir = join(here, 'cache');
@@ -151,99 +158,13 @@ const FAR_CELL = 60, FAR_MARGIN = 9000;
 console.log('=== ' + CFG.name + ' (' + KEY + ') ===');
 console.log('  ' + CFG.start.elevM + ' m -> ' + CFG.end.elevM + ' m, surveyed');
 
-async function fetchCached(name, url, opts) {
-  const path = join(cacheDir, name);
-  if (existsSync(path)) return readFileSync(path);
-  console.log('fetching ' + url);
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(url + ' -> HTTP ' + res.status);
-  const buf = Buffer.from(await res.arrayBuffer());
-  writeFileSync(path, buf);
-  return buf;
-}
+const USER_AGENT = 'psx-racing-brp-bake/1.0 (game map bake; contact: mcgeevarnell@gmail.com)';
 
-async function fetchOverpass() {
-  const q = `[out:json][timeout:120];
+function fetchOverpassBbox() {
+  const query = `[out:json][timeout:120];
 way["highway"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e});
 out tags geom;`;
-  // Global-coverage mirrors only — overpass.osm.ch is Switzerland-only and
-  // happily returns an empty result for a North Carolina bbox.
-  const mirrors = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.private.coffee/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  ];
-  let lastErr = null;
-  for (let round = 0; round < 3; round++) {
-    for (const url of mirrors) {
-      try {
-        const buf = await fetchCached('overpass_' + KEY + '.json', url,
-          { method: 'POST', body: 'data=' + encodeURIComponent(q),
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'User-Agent': 'psx-racing-brp-bake/1.0 (game map bake; contact: mcgeevarnell@gmail.com)',
-              'Accept': 'application/json',
-            } });
-        const parsed = JSON.parse(buf.toString('utf8'));
-        if (!parsed.elements || !parsed.elements.length)
-          throw new Error('empty result (regional mirror or bad query)');
-        return parsed;
-      } catch (e) {
-        lastErr = e; console.log('  mirror failed: ' + e.message);
-        // A cached empty/bad body must not poison the next attempt.
-        try { const p = join(cacheDir, 'overpass_' + KEY + '.json');
-              if (existsSync(p)) (await import('node:fs')).unlinkSync(p); } catch {}
-      }
-    }
-    if (round < 2) { console.log('  retrying in 15 s...'); await new Promise(r => setTimeout(r, 15000)); }
-  }
-  throw lastErr;
-}
-
-// MULTI-TILE, lifted from the Bogue bake. One .hgt covered the Parkway; Tail
-// of the Dragon straddles the W084/W085 boundary at lon -84, so a single-tile
-// sampler would read zero for a third of it and bake a cliff.
-const tiles = new Map();
-async function loadTile(latN, lonW) {
-  const key = `N${String(latN).padStart(2, '0')}W${String(-lonW).padStart(3, '0')}`;
-  if (tiles.has(key)) return tiles.get(key);
-  const gz = await fetchCached(key + '.hgt.gz',
-    `https://s3.amazonaws.com/elevation-tiles-prod/skadi/N${String(latN).padStart(2, '0')}/${key}.hgt.gz`);
-  const raw = gunzipSync(gz);
-  const posts = 3601;
-  if (raw.length !== posts * posts * 2) throw new Error(`${key}: unexpected size ${raw.length}`);
-  const t = { raw, posts, latN: latN + 1, lonW };
-  tiles.set(key, t);
-  console.log('  SRTM ' + key + ' loaded');
-  return t;
-}
-
-function sampleTile(t, lat, lon) {
-  const { raw, posts, latN, lonW } = t;
-  const at = (r, c) => {
-    r = Math.min(posts - 1, Math.max(0, r)); c = Math.min(posts - 1, Math.max(0, c));
-    return raw.readInt16BE((r * posts + c) * 2);
-  };
-  const fr = (latN - lat) * 3600, fc = (lon - lonW) * 3600;
-  const r0 = Math.floor(fr), c0 = Math.floor(fc);
-  const tr = fr - r0, tc = fc - c0;
-  let h00 = at(r0, c0), h01 = at(r0, c0 + 1), h10 = at(r0 + 1, c0), h11 = at(r0 + 1, c0 + 1);
-  const ok = v => v > -32000;
-  const fb = [h00, h01, h10, h11].find(ok) ?? 0;
-  if (!ok(h00)) h00 = fb; if (!ok(h01)) h01 = fb;
-  if (!ok(h10)) h10 = fb; if (!ok(h11)) h11 = fb;
-  return (h00 * (1 - tc) + h01 * tc) * (1 - tr) + (h10 * (1 - tc) + h11 * tc) * tr;
-}
-
-async function buildElevSampler() {
-  for (let lat = Math.floor(BBOX.s); lat <= Math.floor(BBOX.n); lat++)
-    for (let lon = Math.floor(BBOX.w); lon <= Math.floor(BBOX.e); lon++)
-      await loadTile(lat, lon);
-  return (lat, lon) => {
-    const t = tiles.get(`N${String(Math.floor(lat)).padStart(2, '0')}W${String(-Math.floor(lon)).padStart(3, '0')}`);
-    return t ? sampleTile(t, lat, lon) : 0;
-  };
+  return fetchOverpass({ cacheDir, name: 'overpass_' + KEY + '.json', query, userAgent: USER_AGENT });
 }
 
 // ------------------------------------------------------- assemble chain
@@ -304,163 +225,12 @@ function assembleChain(overpass) {
   return { chain, perVertexBridge };
 }
 
-// ------------------------------------------------------------ projection
-// Local equirectangular about the route centroid: x = east, z = north,
-// exactly what Unity's ground plane wants. Sub-0.1% over a 20 km window.
-function makeProjection(lat0, lon0) {
-  const phi = lat0 * Math.PI / 180;
-  const mLat = 111132.92 - 559.82 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi);
-  const mLon = 111412.84 * Math.cos(phi) - 93.5 * Math.cos(3 * phi);
-  return {
-    mLat, mLon,
-    toXZ: (lat, lon) => ({ x: (lon - lon0) * mLon, z: (lat - lat0) * mLat }),
-    toLL: (x, z) => ({ lat: lat0 + z / mLat, lon: lon0 + x / mLon }),
-  };
-}
-
-// --------------------------------------------------------------- helpers
-const dist2 = (a, b) => { const dx = a.x - b.x, dz = a.z - b.z; return dx * dx + dz * dz; };
-
-function arcPositions(pts) {
-  const s = [0];
-  for (let i = 1; i < pts.length; i++)
-    s.push(s[i - 1] + Math.sqrt(dist2(pts[i - 1], pts[i])));
-  return s;
-}
-
-/// The world point at arc position <at> along a chain. The inverse of
-/// projectOntoChain, and needed for the same reason: a capped run's finish is
-/// known as a DISTANCE and has to become a PLACE before it can be re-measured
-/// on the waypoint list.
-function pointAtS(pts, s, at) {
-  if (at <= 0) return { x: pts[0].x, z: pts[0].z };
-  for (let i = 1; i < pts.length; i++) {
-    if (s[i] < at) continue;
-    const seg = s[i] - s[i - 1];
-    const f = seg > 1e-9 ? (at - s[i - 1]) / seg : 0;
-    return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f,
-             z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * f };
-  }
-  return { x: pts[pts.length - 1].x, z: pts[pts.length - 1].z };
-}
-
-function projectOntoChain(pts, s, p) {
-  let best = { d2: Infinity, s: 0 };
-  for (let i = 0; i + 1 < pts.length; i++) {
-    const ax = pts[i].x, az = pts[i].z;
-    const ex = pts[i + 1].x - ax, ez = pts[i + 1].z - az;
-    const len2 = ex * ex + ez * ez;
-    if (len2 < 1e-9) continue;
-    let t = ((p.x - ax) * ex + (p.z - az) * ez) / len2;
-    t = Math.max(0, Math.min(1, t));
-    const qx = ax + ex * t, qz = az + ez * t;
-    const d2 = (qx - p.x) ** 2 + (qz - p.z) ** 2;
-    if (d2 < best.d2) best = { d2, s: s[i] + Math.sqrt(len2) * t };
-  }
-  return best;
-}
-
-// CENTRIPETAL Catmull-Rom through the cut vertices, densely sampled then
-// arc-resampled.
-//
-// UNIFORM parameterisation was the first version, copied from TrackCatalog —
-// where it is right, because circuit control points are AUTHORED at comparable
-// spacing. OSM vertices are not. A mountain road is digitised with clusters two
-// metres apart through a switchback and fifty-metre chords down the straight
-// between them, and uniform Catmull-Rom on a spacing ratio like that overshoots
-// hard: NC 215 baked a 1.5 m plan radius and NC 80 a 3.9 m, on roads whose real
-// switchbacks are twelve to fifteen. Those are not corners, they are the spline
-// doubling back on itself, and the ribbon builder would have splayed the road
-// sixty metres wide around them.
-//
-// It is the same trap the Bogue bake hit — one OSM way modelling a bridge as
-// two vertices, 40 m / 40 m / 1288 m, giving an 11 m hairpin — where it was
-// patched by DENSIFYING long segments. That treats one half of it: a very SHORT
-// segment beside a normal one breaks it just as badly, which is the mountain
-// case. Centripetal (alpha = 0.5) is the actual fix and it is what the
-// parameterisation exists for — it provably cannot cusp or self-intersect at
-// any spacing ratio, while still passing through every vertex. Evaluated with
-// the Barry-Goldman pyramid, which is the numerically stable form.
-function splineResample(pts, spacing) {
-  // Coincident vertices give a zero knot interval, and OSM has them wherever
-  // two ways were joined at a shared node. Dropped, keeping each survivor's
-  // ORIGINAL index — the bridge flags are looked up by it downstream, and a
-  // renumbered chain would move every span.
-  const src = [];
-  for (let i = 0; i < pts.length; i++)
-    if (!src.length || dist2(src[src.length - 1], pts[i]) > 0.25)
-      src.push({ x: pts[i].x, z: pts[i].z, oi: i });
-  if (src.length < 2) throw new Error('spline needs at least two distinct points');
-
-  // Centripetal knots: dt = |dP| ^ 0.5, floored so the duplicated end points
-  // (P(-1) = P(0) on an open spline) cannot collapse an interval.
-  const knot = (t, a, b) => t + Math.max(1e-3, Math.pow(dist2(a, b), 0.25));
-
-  const dense = [];
-  const P = i => src[Math.max(0, Math.min(src.length - 1, i))];
-  for (let i = 0; i + 1 < src.length; i++) {
-    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
-    const t0 = 0, t1 = knot(t0, p0, p1), t2 = knot(t1, p1, p2), t3 = knot(t2, p2, p3);
-    const seg = Math.sqrt(dist2(p1, p2));
-    const steps = Math.max(2, Math.ceil(seg));   // dense spacing ~1 m
-    for (let sIdx = 0; sIdx < steps; sIdx++) {
-      const t = t1 + (t2 - t1) * (sIdx / steps);
-      const mix = (a, b, ta, tb) => {
-        const d = tb - ta;
-        const w = (tb - t) / d, v = (t - ta) / d;
-        return { x: a.x * w + b.x * v, z: a.z * w + b.z * v };
-      };
-      const A1 = mix(p0, p1, t0, t1);
-      const A2 = mix(p1, p2, t1, t2);
-      const A3 = mix(p2, p3, t2, t3);
-      const B1 = mix(A1, A2, t0, t2);
-      const B2 = mix(A2, A3, t1, t3);
-      const C  = mix(B1, B2, t1, t2);
-      dense.push({ x: C.x, z: C.z, srcS: null, srcI: src[i].oi });
-    }
-  }
-  dense.push({ x: src[src.length - 1].x, z: src[src.length - 1].z,
-               srcS: null, srcI: src[src.length - 1].oi });
-
-  return arcResample(dense, spacing);
-}
-
-/// Walk a polyline and drop a point every <spacing> metres. Lifted out of
-/// splineResample because the plan relaxation below needs it too: nudging a
-/// waypoint sideways shortens the chords either side of it, and a radius
-/// measured on shortened chords is not the radius the road has.
-function arcResample(poly, spacing) {
-  const out = [poly[0]];
-  let acc = 0;
-  for (let i = 1; i < poly.length; i++) {
-    const d = Math.sqrt(dist2(poly[i - 1], poly[i]));
-    acc += d;
-    while (acc >= spacing) {
-      const over = acc - spacing;
-      const t = d > 1e-9 ? over / d : 0;
-      out.push({
-        x: poly[i].x + (poly[i - 1].x - poly[i].x) * t,
-        z: poly[i].z + (poly[i - 1].z - poly[i].z) * t,
-        srcI: poly[i].srcI,
-      });
-      acc = over;
-    }
-  }
-  // KEEP THE LAST POINT. Walking in fixed steps leaves a remainder shorter than
-  // one step, and dropping it costs a waypoint per call — which is nothing when
-  // this ran once at the end of splineResample and was 1204 waypoints when the
-  // relaxation below started calling it twelve hundred times. Forty per cent of
-  // NC 80 disappeared off the bottom of the mountain, and the only sign of it
-  // was the printed elevation range starting 85 m higher than the survey.
-  const last = poly[poly.length - 1];
-  if (dist2(out[out.length - 1], last) > 1e-6)
-    out.push({ x: last.x, z: last.z, srcI: last.srcI });
-  return out;
-}
-
 // ------------------------------------------------------------------ main
-const overpass = await fetchOverpass();
-const elevAt = await buildElevSampler();
+// The projection, the centripetal spline and the arc resampler are lib.mjs's
+// now (see the notes there on WHY the spline is centripetal and why the
+// resampler keeps its last point — both were learned on these roads).
+const overpass = await fetchOverpassBbox();
+const elevAt = await srtmSampler(BBOX, cacheDir);
 
 const { chain, perVertexBridge } = assembleChain(overpass);
 
@@ -604,39 +374,11 @@ console.log(`waypoints: ${wp.length} (${(wp.length * SPACING / 1000).toFixed(2)}
 // midpoint of their neighbours, in small steps, until every corner clears.
 // Nothing that already passes is touched, which is the point: this must open a
 // hairpin the road cannot hold, not soften a road that climbs on hairpins.
-function planRadius(w, i) {
-  const a = Math.sqrt(dist2(w[i - 1], w[i]));
-  const b = Math.sqrt(dist2(w[i], w[i + 1]));
-  const c = Math.sqrt(dist2(w[i - 1], w[i + 1]));
-  const area = Math.abs((w[i].x - w[i - 1].x) * (w[i + 1].z - w[i - 1].z)
-                      - (w[i + 1].x - w[i - 1].x) * (w[i].z - w[i - 1].z)) * 0.5;
-  return area < 1e-6 ? Infinity : (a * b * c) / (4 * area);
-}
-function tightestPlan(w) {
-  let minR = Infinity, at = 0, under = 0;
-  for (let i = 1; i + 1 < w.length; i++) {
-    const R = planRadius(w, i);
-    if (R < minR) { minR = R; at = i; }
-    if (R < RADIUS_FLOOR_M) under++;
-  }
-  return { minR, at, under };
-}
 {
-  const t = tightestPlan(wp);
+  const t = tightestPlan(wp, RADIUS_FLOOR_M);
   console.log(`tightest corner ${t.minR.toFixed(1)} m at wp ${t.at}` +
               (t.under ? `  — ${t.under} waypoint(s) under the ${RADIUS_FLOOR_M} m floor` : ''));
-  if (t.under)
-    throw new Error(
-      `${t.under} waypoint(s) under the ${RADIUS_FLOOR_M} m floor, tightest ` +
-      `${t.minR.toFixed(1)} m. This road cannot be baked at ` +
-      'this width as it stands. Do NOT reach for a smoothing pass: one was ' +
-      'written and it is in the history for a reason — opening a hairpin by ' +
-      'pulling its apex toward the chord CUTS THE CORNER OFF, which took 300 m ' +
-      'out of NC 80 and left the finish line past the end of the route. Check ' +
-      'the raw OSM first (a 30 m chord over the densified way tells you whether ' +
-      'the turn is real); if it is real, the answer is a different cut, a ' +
-      'narrower roadWidth, or a floor derived from the CAR and the road width ' +
-      'rather than a constant.');
+  if (t.under) throw new Error(radiusFloorMessage(t, RADIUS_FLOOR_M));
 }
 
 // THE TWO LINES ARE MEASURED ON THE WAYPOINT LIST, WHICH IS THE ROAD THE GAME
@@ -673,55 +415,15 @@ const wpFinish = projectOntoChain(wp, wpS, endPt).s - shutBorrow;
 
 // Bridge flags carry from source vertices: a waypoint is on a bridge when
 // its source cut segment is.
-const wpBridge = wp.map(p => {
-  const i = Math.max(0, Math.min(cutBridge.length - 1, p.srcI));
-  const j = Math.min(cutBridge.length - 1, i + 1);
-  return cutBridge[i] || cutBridge[j];
-});
+const wpBridge = waypointBridgeFlags(wp, cutBridge);
 
-// Heights: DEM at stations, gaussian smooth, grade clamp, then per waypoint.
+// Heights: DEM at stations, gaussian smooth, grade clamp (then the light
+// re-smooth that rounds the clamp's kinks — see smoothHeights).
 const rawH = wp.map(p => {
   const ll = proj.toLL(p.x, p.z);
   return elevAt(ll.lat, ll.lon);
 });
-const win = Math.ceil((SMOOTH_SIGMA * 3) / SPACING);
-const smoothH = rawH.map((_, i) => {
-  let sw = 0, sh = 0;
-  for (let o = -win; o <= win; o++) {
-    const j = Math.max(0, Math.min(rawH.length - 1, i + o));
-    const w = Math.exp(-((o * SPACING) ** 2) / (2 * SMOOTH_SIGMA * SMOOTH_SIGMA));
-    sw += w; sh += w * rawH[j];
-  }
-  return sh / sw;
-});
-// Grade clamp, two directions — then a LIGHT re-smooth to round the kink a
-// hard clamp leaves at its boundary (a grade discontinuity is a vertical
-// hairpin, and the self-test's crest-radius floor exists to catch exactly
-// that shape). The re-smooth can nudge a few segments a hair past the
-// clamp, which is why the limit here sits under the 9.5% the game tests.
-for (let pass = 0; pass < 3; pass++) {
-  for (let i = 1; i < smoothH.length; i++) {
-    const d = smoothH[i] - smoothH[i - 1];
-    const lim = MAX_GRADE * SPACING;
-    if (d > lim) smoothH[i] = smoothH[i - 1] + lim;
-  }
-  for (let i = smoothH.length - 2; i >= 0; i--) {
-    const d = smoothH[i] - smoothH[i + 1];
-    const lim = MAX_GRADE * SPACING;
-    if (d > lim) smoothH[i] = smoothH[i + 1] + lim;
-  }
-  const kinkSigma = 22, kinkWin = Math.ceil((kinkSigma * 3) / SPACING);
-  const rounded = smoothH.map((_, i) => {
-    let sw = 0, sh = 0;
-    for (let o = -kinkWin; o <= kinkWin; o++) {
-      const j = Math.max(0, Math.min(smoothH.length - 1, i + o));
-      const w = Math.exp(-((o * SPACING) ** 2) / (2 * kinkSigma * kinkSigma));
-      sw += w; sh += w * smoothH[j];
-    }
-    return sh / sw;
-  });
-  for (let i = 0; i < smoothH.length; i++) smoothH[i] = rounded[i];
-}
+const smoothH = smoothHeights(rawH, { spacing: SPACING, sigma: SMOOTH_SIGMA, maxGrade: MAX_GRADE });
 
 let maxGrade = 0, minH = Infinity, maxH = -Infinity;
 for (let i = 1; i < smoothH.length; i++) {
@@ -732,62 +434,21 @@ const baseM = Math.floor(minH - 40);
 console.log(`route elevation ${minH.toFixed(0)}..${maxH.toFixed(0)} m ASL, ` +
   `max grade ${(maxGrade * 100).toFixed(1)}%, baseM ${baseM}`);
 
-// Bridge spans in metres-along.
-const spans = [];
-let open = -1;
-for (let i = 0; i < wpBridge.length; i++) {
-  if (wpBridge[i] && open < 0) open = i * SPACING;
-  if ((!wpBridge[i] || i === wpBridge.length - 1) && open >= 0) {
-    spans.push([open, i * SPACING]); open = -1;
-  }
-}
-// merge close, drop short
-for (let i = spans.length - 2; i >= 0; i--)
-  if (spans[i + 1][0] - spans[i][1] < BRIDGE_MERGE_M) {
-    spans[i][1] = spans[i + 1][1]; spans.splice(i + 1, 1);
-  }
-const bridges = spans.filter(s => s[1] - s[0] >= MIN_BRIDGE_M);
+// Bridge spans in metres-along: runs, merge close, drop short.
+const bridges = bridgeSpans(wpBridge, SPACING, { minM: MIN_BRIDGE_M, mergeM: BRIDGE_MERGE_M });
 console.log(`bridge spans: ${bridges.map(s =>
   `${s[0].toFixed(0)}-${s[1].toFixed(0)} (${(s[1] - s[0]).toFixed(0)} m)`).join(', ') || 'none'}`);
 
 // ------------------------------------------------------------- DEM grids
-function bakeGrid(name, cell, margin) {
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const p of wp) {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
-  }
-  minX -= margin; maxX += margin; minZ -= margin; maxZ += margin;
-  const cols = Math.ceil((maxX - minX) / cell) + 1;
-  const rows = Math.ceil((maxZ - minZ) / cell) + 1;
-  const buf = Buffer.alloc(cols * rows * 2);
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++) {
-      const x = minX + c * cell, z = minZ + r * cell;
-      const ll = proj.toLL(x, z);
-      const h = elevAt(ll.lat, ll.lon) - baseM;
-      buf.writeInt16LE(Math.round(h * 10), (r * cols + c) * 2);
-    }
-  const outPath = join(projectRoot, 'Assets', 'PSXRacing', 'Art', CFG.artDir, name + '.bytes');
-  mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, buf);
-  console.log(`${name}: ${cols}x${rows} @ ${cell} m (${(buf.length / 1024).toFixed(0)} KB)`);
-  return { originX: minX, originZ: minZ, cell, cols, rows };
-}
-
-const near = bakeGrid(CFG.prefix + '_dem_near', NEAR_CELL, NEAR_MARGIN);
-const far = bakeGrid(CFG.prefix + '_dem_far', FAR_CELL, FAR_MARGIN);
-
-const metaPath = join(projectRoot, 'Assets', 'PSXRacing', 'Art', CFG.artDir, CFG.prefix + '_dem_meta.json');
-writeFileSync(metaPath, JSON.stringify({ baseM, near, far }, null, 2));
+const artDir = join(projectRoot, 'Assets', 'PSXRacing', 'Art', CFG.artDir);
+const grid = (name, cell, margin) =>
+  bakeGrid({ wp, proj, elevAt, baseM, cell, margin, outDir: artDir, name });
+const near = grid(CFG.prefix + '_dem_near', NEAR_CELL, NEAR_MARGIN);
+const far = grid(CFG.prefix + '_dem_far', FAR_CELL, FAR_MARGIN);
+writeDemMeta(artDir, CFG.prefix, baseM, near, far);
 
 // ------------------------------------------------------------ stage json
-// Flat arrays, deliberately: Unity's JsonUtility parses [1,2,3] but not
-// [[1,2],[3,4]], and the consumer is TrackCatalog at runtime.
-const xyz = [];
-for (let i = 0; i < wp.length; i++)
-  xyz.push(+wp[i].x.toFixed(2), +(smoothH[i] - baseM).toFixed(2), +wp[i].z.toFixed(2));
-const stage = {
+writeStage(join(projectRoot, 'Assets', 'PSXRacing', 'Resources', CFG.resKey + '.json'), {
   // CFG.name, not a literal. This was left hardcoded when fetch_brp was
   // generalised, so every road baked itself a JSON claiming to be the Parkway.
   // Nothing reads it at runtime — TrackCatalog takes only attribution — which
@@ -795,19 +456,13 @@ const stage = {
   // unread field that lies is a trap for whoever reads it next.
   name: CFG.name,
   attribution: 'Route data (c) OpenStreetMap contributors. Elevation: USGS/NASA SRTM.',
-  lat0: proj.toLL(0, 0).lat, lon0: proj.toLL(0, 0).lon, baseM,
-  spacing: SPACING,
+  proj, baseM, spacing: SPACING,
   // MEASURED, not assumed. Both used to be written from the constants the cut
   // was asked for; the cut is now clamped to the road that actually exists, so
   // a spur with no lead-in would have put its start line 50 m before its own
   // first metre and its finish line 120 m past the summit.
   startLineM: wpStart,
   finishM: wpFinish,
-  bridges: bridges.flat(),
-  xyz,
-};
-const stagePath = join(projectRoot, 'Assets', 'PSXRacing', 'Resources', CFG.resKey + '.json');
-writeFileSync(stagePath, JSON.stringify(stage));
-console.log(`${CFG.resKey}.json: ${stage.xyz.length / 3} pts, finish at ${stage.finishM} m ` +
-  `(${(readFileSync(stagePath).length / 1024).toFixed(0)} KB)`);
+  bridges, wp, heights: smoothH,
+});
 console.log('OK');

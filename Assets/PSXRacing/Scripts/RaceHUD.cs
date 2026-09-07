@@ -81,6 +81,18 @@ namespace PSXRacing
         /// enough to read at a glance, short enough not to become chrome.</summary>
         const float CamFlashSeconds = 2.4f;
 
+        /// <summary>The OpenStreetMap attribution ODbL requires wherever the
+        /// road data is shown, and how long it holds its slot. The city has
+        /// always shown it; a stage is the same map data with elevation under
+        /// it, so it shows the same line for the same seven seconds.</summary>
+        const string OsmAttribution = "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS";
+        const float AttributionSeconds = 7f;
+        /// <summary>Whether this race is on baked map data. Read once off the
+        /// handoff's venue: the HUD serves every scene and a circuit owes
+        /// nobody an attribution.</summary>
+        bool? stageVenue;
+        bool lastAttribution;
+
         /// <summary>Invariant culture: on a machine with a comma decimal
         /// separator the lap clock would otherwise read 1'23,456.</summary>
         static string FormatTime(float t)
@@ -129,8 +141,8 @@ namespace PSXRacing
             // that prompted this was literally "where are they?". The town has
             // no attribution and no food index; its errand cue rides the same
             // slot instead — where the shift wants you, with the same arrow.
-            Set(lastLapText, city.SessionSeconds < 7f && world != null && world.Map != null
-                ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS"
+            Set(lastLapText, city.SessionSeconds < AttributionSeconds && world != null && world.Map != null
+                ? OsmAttribution
                 : Town.TownWorld.Cue ?? FoodCue());
 
             UpdateFuel(ownsActionButton: false);
@@ -183,14 +195,8 @@ namespace PSXRacing
                     cityTouch.SetAction(true, "FUEL");
                 else if (DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
                 else if (Town.TownVenue.AtVenue) cityTouch.SetAction(true, "OPEN");
-                // THE EDGE OF TOWN WAS MISSING FROM THIS CHAIN. It prints
-                // "TAP ACTION — HEAD HOME" the moment a car reaches the last
-                // shop, and on a phone there was no ACTION button under that
-                // sentence: the town's only way out that is not the pause menu
-                // could be read and not pressed. Below the venues because a
-                // shop you have stopped at is more specific than a line you are
-                // driving over, and the two do not overlap anyway.
-                else if (Town.TownEdge.AtEdge) cityTouch.SetAction(true, "HOME");
+                // No edge branch: a zone line opens its menu on crossing and
+                // never asks to be pressed (TownEdge.AtEdge is always false).
                 else if (OnFoot.ForecourtMode.OfferGetOut)
                     cityTouch.SetAction(true, "GET OUT");
                 else cityTouch.SetAction(false);
@@ -332,18 +338,41 @@ namespace PSXRacing
                 // instead — "LAP 1/1" on a quarter mile is a readout that tells
                 // the player nothing they did not already know. A stage names
                 // its run the same way.
-                int lap = ends ? 1 : Mathf.Min(p.lap, rm.totalLaps);
-                if (lap != lastLap)
+                if (RaceHandoff.Delivery && (ends || rm.Sprint))
                 {
-                    lastLap = lap;
-                    Set(lapText, ends ? rm.path.dragLabel : "LAP " + lap + "/" + rm.totalLaps);
+                    // A delivery is a SPRINT to a door: the slot says how far
+                    // the door is rather than a lap count that never reaches
+                    // 2 — and on a stage it replaces the run's name for the
+                    // same reason. The range is a float that moves every
+                    // frame, so it is timer-gated and rounded before it is
+                    // allowed anywhere near Text.text.
+                    UpdateDropRange(p, rm);
+                }
+                else
+                {
+                    int lap = ends ? 1 : Mathf.Min(p.lap, rm.totalLaps);
+                    if (lap != lastLap)
+                    {
+                        lastLap = lap;
+                        Set(lapText, ends ? rm.path.dragLabel : "LAP " + lap + "/" + rm.totalLaps);
+                    }
                 }
 
                 // The clock only needs redrawing when a hundredth ticks over.
                 int centis = Mathf.FloorToInt(p.raceTime * 100f);
                 if (centis != lastTimeCentis) { lastTimeCentis = centis; Set(timeText, FormatTime(p.raceTime)); }
 
-                if (!Mathf.Approximately(p.bestLapTime, lastBest))
+                // On a stage the BEST slot carries the map attribution for its
+                // first seconds — it has nothing to say before the first lap
+                // anyway — and hands the slot back by resetting the change-
+                // gate, so it repaints on the next frame rather than waiting
+                // for a best lap that a point-to-point run never sets.
+                if (stageVenue == null) stageVenue = TrackCatalog.At(RaceHandoff.TrackIndex).stage;
+                bool attribution = stageVenue.Value && p.raceTime < AttributionSeconds;
+                if (attribution != lastAttribution) { lastAttribution = attribution; lastBest = -1f; }
+                if (attribution)
+                    Set(lastLapText, OsmAttribution);
+                else if (!Mathf.Approximately(p.bestLapTime, lastBest))
                 {
                     lastBest = p.bestLapTime;
                     Set(lastLapText, p.bestLapTime > 0f ? "BEST " + FormatTime(p.bestLapTime) : "");
@@ -396,7 +425,11 @@ namespace PSXRacing
                     // rolled it there, and "HOLD F TO FUEL" over the top of the
                     // only instructions for getting out is the game answering a
                     // question nobody asked.
-                    center = rm.CountdownRemaining > 0f ? "GO!"
+                    // No "GO!" on a rolling start: the car was already going
+                    // when the scene opened. The countdown is zero there so
+                    // this is only a guard, but it is the guard that keeps a
+                    // banner off a screen the player is already driving on.
+                    center = rm.CountdownRemaining > 0f && !rm.RollingStart ? "GO!"
                            : (stuck != null ? stuck.Prompt : null)
                              ?? GasPump.Prompt
                              ?? OnFoot.ForecourtMode.Prompt
@@ -427,8 +460,10 @@ namespace PSXRacing
                     // lap" for a single 402 m run would be the circuit's answer
                     // to a question the strip did not ask. A stage result is an
                     // ET too — but a trap speed on a mountain finish line is
-                    // drag talk, so the stage sheet is the time alone.
-                    string sheet = ends
+                    // drag talk, so the stage sheet is the time alone. A sprint
+                    // round part of a circuit is one run as well: its ET is the
+                    // result, and "BEST" of one lap nobody completed is blank.
+                    string sheet = ends || rm.Sprint
                         ? "\nET " + FormatTime(p != null ? p.finishTime : 0f) +
                           (drag ? "   TRAP " + Mathf.RoundToInt(SpeedUnits.FromKmh(
                                       p != null ? p.trapSpeedKmh : 0f)) + SpeedUnits.Suffix : "")
@@ -472,6 +507,36 @@ namespace PSXRacing
         /// something.</summary>
         CollisionResponder responder;
         bool responderChecked;
+
+        /// <summary>The last DROP range painted, in the units it was painted
+        /// at — whole tens of metres under a kilometre, whole hundreds over —
+        /// so the slot repaints only when a digit would.</summary>
+        int lastDropM = int.MinValue;
+        float nextDropAt;
+
+        /// <summary>
+        /// "DROP 640 m" / "DROP 1.2 km" in the lap slot: how far the door is.
+        /// Off RaceManager.RemainingToFinishM, which is the same progress the
+        /// standings use. Same cadence as the tip beside it (TipRefreshSeconds)
+        /// and the same formatter as the city's food cue, for the same reason:
+        /// a range is read at a glance, and tens of metres is the resolution a
+        /// driver can act on.
+        /// </summary>
+        void UpdateDropRange(RaceManager.CarProgress p, RaceManager rm)
+        {
+            if (lapText == null) return;
+            if (Time.unscaledTime < nextDropAt) return;
+            nextDropAt = Time.unscaledTime + TipRefreshSeconds;
+
+            float m = Mathf.Max(0f, rm.RemainingToFinishM(p));
+            int key = m >= 1000f ? Mathf.RoundToInt(m / 100f) * 100
+                                 : Mathf.RoundToInt(m / 10f) * 10;
+            if (key == lastDropM) return;
+            lastDropM = key;
+            Set(lapText, "DROP " + (key >= 1000
+                ? (key / 1000f).ToString("0.0", CultureInfo.InvariantCulture) + " km"
+                : key + " m"));
+        }
 
         void UpdateDeliveryTip(RaceManager.CarProgress p)
         {

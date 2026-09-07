@@ -305,6 +305,24 @@ namespace PSXRacing.LifeSim
                         MenuKit.Money(refunded) + " back)");
                 s.saveVersion = 10;
             }
+
+            if (s.saveVersion < 11)
+            {
+                // v11 appended three Charlotte venues to the AUTHORED list.
+                // Appending is the rule precisely because a save stores its
+                // venue by index — but the reverse twins live AFTER the
+                // authored list, so three more authored entries move every
+                // twin three places along, and a career that remembered
+                // RIDGE PASS II now points at UPTOWN LOOP. The twins keep their
+                // ORDER (they are generated in authored order and the new
+                // venues sit at the end), so a twin's new home is "the same
+                // twin, counted from wherever the twins start now".
+                s.trackIndex = TrackCatalog.RemapV10Index(s.trackIndex);
+                if (s.bookings != null)
+                    foreach (var b in s.bookings)
+                        if (b != null) b.trackIndex = TrackCatalog.RemapV10Index(b.trackIndex);
+                s.saveVersion = 11;
+            }
         }
 
         public static void DeleteSave()

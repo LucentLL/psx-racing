@@ -60,6 +60,27 @@ namespace PSXRacing
         const float WrongWayDot = -0.3f;
         const float WrongWayMinSpeed = 3f;
 
+        // ---- top speed (sense of speed) ----
+        /// <summary>The AI's own straight-line ceiling: 68 m/s scaled by skill,
+        /// 54-71 m/s (196-257 km/h) across the skill range.</summary>
+        const float SkillTopSpeedMps = 68f;
+        /// <summary>
+        /// And never more than this much over the PLAYER'S car. The field is
+        /// drawn from a price band up to 1.65x the player's car, so a 204 km/h
+        /// Miata could line up against an S15 the AI would run to 245 on the
+        /// straight — and a car that walks past you on a straight is the one
+        /// thing that kills the sense of speed stone dead (NWR's MW review
+        /// names exactly that failure). 5% over lets a faster car still get a
+        /// pass done off a bad shift without ever simply driving away.
+        /// </summary>
+        public const float PlayerVmaxMargin = 1.05f;
+
+        /// <summary>Straight-line target ceiling for a skill against the
+        /// player's spec top speed (m/s); no player cap when that is unknown.</summary>
+        public static float TargetSpeedCap(float skill, float playerVmaxMps) =>
+            Mathf.Min(SkillTopSpeedMps * skill,
+                      playerVmaxMps > 1f ? playerVmaxMps * PlayerVmaxMargin : float.MaxValue);
+
         void Awake()
         {
             car = GetComponent<CarController>();
@@ -119,7 +140,12 @@ namespace PSXRacing
             float mu = 1.0f * skill;
             float curvNow = Mathf.Max(path.MaxCurvatureAhead(nearestIdx, 6), 0.0005f);
             float cornerSpeed = Mathf.Sqrt(mu * 9.81f / curvNow) * 0.92f;
-            float targetSpeed = Mathf.Min(cornerSpeed, 68f * skill);
+            // The player's SPEC top speed: DeriveDrag solves the car to its
+            // sheet figure whatever parts are fitted, so this is the number the
+            // player can actually reach, tuned or not.
+            var rmNow = RaceManager.Instance;
+            float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.topSpeedMps : 0f;
+            float targetSpeed = Mathf.Min(cornerSpeed, TargetSpeedCap(skill, playerVmax));
 
             // Brake early for upcoming slow corners
             float brakeScan = speed * speed / (2f * 6.5f) + 10f;

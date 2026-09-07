@@ -5,22 +5,29 @@ using PSXRacing.LifeSim;
 namespace PSXRacing.Town
 {
     /// <summary>
-    /// The end of your street, and the only place the game asks where you are
+    /// The edge of a zone, and the only place the game asks where you are
     /// going.
     ///
-    /// Three doors: IN TOWN, GO RACING, INSPECT A CAR. Modelled on
-    /// <see cref="OnFoot.StoreScreen"/> — same overlay canvas, same Escape
-    /// handling, same pad wiring, same onClosed contract that hands the car
-    /// back to whoever froze it.
+    /// The doors: IN TOWN from your own street, HEAD HOME from the town's
+    /// ends, GO RACING from either, INSPECT A CAR from home, MAKE THE DELIVERY
+    /// first and highlighted when there is an order on the seat, and TURN
+    /// BACK. Modelled on <see cref="OnFoot.StoreScreen"/> — same overlay
+    /// canvas, same Escape handling, same pad wiring, same onClosed contract
+    /// that hands the car back to whoever froze it.
     ///
-    /// It is reached by PRESSING at the junction rather than by driving over a
-    /// line. That is the whole difference between a signpost and a toll booth:
-    /// the only road out of your street is also the road into town, and a menu
-    /// that opened every time you used it would be a menu you dismissed forty
-    /// times a career.
+    /// It is opened by DRIVING THROUGH THE ZONE LINE — <see cref="TownEdge"/>
+    /// at the end of your street and at both ends of the town's — not by
+    /// pressing at a junction volume; that volume is gone. The old worry was
+    /// the toll booth: the only road out of your street is also the road into
+    /// town, and a menu that opened every time you used it would be one you
+    /// dismissed forty times a career. TownEdge's latch answers it — TURN BACK
+    /// hands the car back and the line does not ask again until the car has
+    /// genuinely driven away and returned — and the line itself is drawn
+    /// across the road, so nothing here happens without warning.
     ///
-    /// STAY IN TOWN is not a scene load. The town already contains the shop,
-    /// the forecourt, the lot and the yard — closing the panel is arriving.
+    /// Every row but TURN BACK is a scene load now: the town and your street
+    /// are separate maps, and the hop through the front end is where the
+    /// drive gets banked.
     /// </summary>
     public class DepartScreen : MonoBehaviour
     {

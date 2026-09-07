@@ -120,6 +120,17 @@ namespace PSXRacing.EditorTools
                         if (col.gameObject.layer == LayerMask.NameToLayer("Road")) continue;
                         // "Ground" on a circuit; "GroundN_x_z" chunks on the stage.
                         if (col.name.StartsWith("Ground") || col.name.StartsWith("BridgeDeck")) continue;
+                        // The shoulder batter behind the kerb strip: a surface
+                        // a wheel rolls on, exactly like Ground, and off the
+                        // Road layer on purpose (it gives off-road grip). Its
+                        // top vertex starts at the back edge of the kerb, and
+                        // on a KerbStyle.Street venue that is the pavement at
+                        // +0.28 over the waypoint plane — one centimetre into
+                        // this box's floor at +0.27 — so without this line
+                        // every street circuit reports BLOCKED down both
+                        // sides. Whether the batter's SHAPE is drivable is
+                        // TrackObstacleAudit.AuditVerge's question.
+                        if (col.name == "RoadEdge") continue;
                         // The barrier is the intended limit, and the outermost
                         // probe is meant to touch it: a car centred at
                         // WallOffset - halfWidth has its flank 14 cm off the

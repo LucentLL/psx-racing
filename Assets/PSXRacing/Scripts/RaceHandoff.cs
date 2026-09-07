@@ -67,6 +67,26 @@ namespace PSXRacing
         /// arrive graded as fresh out of the oven: the drop is scored against
         /// the WORSE of this and the race's own leg.</summary>
         public static float CarryCondition = 1f;
+        /// <summary>
+        /// How far round the lap the customer's door is, as a fraction of a
+        /// circuit, rolled at the counter. A delivery is a SPRINT: on a loop
+        /// circuit RaceManager puts the finish part-way round instead of
+        /// counting laps, and the par the tip is graded against is sized to
+        /// the same fraction — LifeRules.DeliveryMeters is the one place both
+        /// read it from. 1 (the default and the cleared value) is a full lap,
+        /// which is what an old ticket with no fraction on it gets. Ignored on
+        /// a route with ENDS, where the baked finish already is the door.
+        /// </summary>
+        public static float DeliveryDropFraction = 1f;
+        /// <summary>
+        /// The speed the car is already doing when the race scene opens, km/h
+        /// — the venue's speed limit, TrackDef.speedLimitKmh. Above zero the
+        /// grid starts ROLLING: no starter, no countdown, the controls live on
+        /// frame one. Zero (the default and the cleared value) is the standing
+        /// start every race has always had, and a synthetic strip keeps it
+        /// whatever this says — the tree is the event there.
+        /// </summary>
+        public static float RollingStartKmh;
         /// <summary>This free-roam exit is one leg of a longer errand — the
         /// drive to work, or the loaded drive to the junction — and the slot
         /// it would normally cost is the SHIFT's to spend. Without this the
@@ -264,6 +284,10 @@ namespace PSXRacing
             FreeRoam = false; FreeRoamPlace = null;
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;
+            // Both survive a scene load by design, so a delivery that left
+            // either behind would hand the NEXT ordinary race a rolling start
+            // or a finish part-way round its first lap.
+            DeliveryDropFraction = 1f; RollingStartKmh = 0f;
             TestDrive = false; TestDriveKey = null;
             OrderToppings = null; OrderBoxes = 1; OrderBottles = 0;
             StartFuelPct = 100f;

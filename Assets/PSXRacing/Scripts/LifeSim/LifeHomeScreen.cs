@@ -1131,7 +1131,9 @@ namespace PSXRacing.LifeSim
                   + "  ·  " + t.dragLabel
             : t.stage
                 ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " + t.dragLabel +
-                  "  ·  point to point"
+                  // A loop stage (the 277 belt) is a lap, not a run with ends.
+                  (t.loop ? "  ·  " + t.laps + (t.laps == 1 ? " lap" : " laps")
+                          : "  ·  point to point")
                 : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps";
 
         void StepTrack(int step)
@@ -3664,7 +3666,8 @@ namespace PSXRacing.LifeSim
                       : (t.RaceMeters / 1000f).ToString("0.00") + " km")
                   + "  ·  " + t.dragLabel
             : t.stage
-                ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  point to point"
+                ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " +
+                  (t.loop ? t.laps + (t.laps == 1 ? " lap" : " laps") : "point to point")
                 : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps";
 
         /// <summary>Step the diary's venue, skipping the open city. Charlotte
@@ -3924,6 +3927,13 @@ namespace PSXRacing.LifeSim
             OptionRow("SPEED", SpeedUnits.Label,
                 "What the speedometer counts in. MPH by default — it is 1999 in North Carolina.",
                 () => SpeedUnits.Toggle(), ref y);
+            // The one sense-of-speed cue that is a style rather than a fact
+            // (Ridge Racer never drew streaks; WipEout did). The pause menu
+            // carries the same switch; this is the copy you can reach without
+            // being in a car. Ships ON.
+            OptionRow("SPEED LINES", SpeedLinesPrefs.Label,
+                "Streaks at the edge of the picture above 110 km/h. Off if you would rather the road did the talking.",
+                () => SpeedLinesPrefs.Toggle(), ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries these too,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,

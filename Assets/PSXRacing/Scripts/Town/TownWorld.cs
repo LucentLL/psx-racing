@@ -220,8 +220,11 @@ namespace PSXRacing.Town
                 // "drive out of town" is a direction to a town they are not in.
                 var edge = NearestEdge();
                 anchor = edge != null ? edge.transform : null;
+                // THE LINE, by name: it is the thing now on screen — a curtain
+                // across the road — and "the junction" named a volume that is
+                // gone.
                 string where = edge != null && edge.mode == TownEdge.Mode.AskWhereTo
-                    ? " — DRIVE TO THE JUNCTION"
+                    ? " — DRIVE THROUGH THE LINE"
                     : " — DRIVE OUT OF TOWN";
                 label = "DELIVERY" + where;
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
@@ -270,14 +273,16 @@ namespace PSXRacing.Town
                     // Point at the way out instead. Both strings have to move
                     // with the anchor: pointing at the junction while still
                     // saying TONY'S would be a worse lie than saying nothing.
-                    anchor = FindVenue(TownVenue.Kind.Depart);
+                    // THE LINE, not the junction VOLUME: that volume is gone
+                    // (2026-09-07), so the anchor is the edge itself. The
+                    // near-string names what is on screen — a curtain across
+                    // the road — and says what to do with it. NOT "stop and
+                    // choose": there is nothing to stop at; crossing opens
+                    // the menu.
+                    var way = NearestEdge();
+                    anchor = way != null ? way.transform : null;
                     label = "GO TO WORK — DRIVE INTO TOWN";
-                    // NOT "stop and choose" any more. Stopping still works —
-                    // the junction is a signpost you can press at — but the end
-                    // of the street is a line now, and it opens the same menu on
-                    // its own. A cue that names the harder of two ways in reads
-                    // as the only one.
-                    near = "THE JUNCTION — DRIVE ON AND CHOOSE";
+                    near = "THE LINE — DRIVE THROUGH IT TO CHOOSE";
                 }
             }
 
@@ -360,12 +365,19 @@ namespace PSXRacing.Town
                     if (at != null) pizzaDoorTargets.Add(MakeDoor(at, at.name + "Target", 6.5f));
             RefreshPizzaDoor();
 
+            // EVERY DOOR'S BUTTON SAYS ENTER. The verb is the word on the thumb
+            // button (FootTarget.verb; USE when unset) and it is written beside
+            // the sentence it belongs to, here and in every Refresh below —
+            // the self-test sweep fails a target with an action and no verb.
+            // A door is a door whatever the shop behind it does, so all four
+            // say ENTER and the sentence says what you are going in for.
             if (mechanicDoor != null)
             {
                 var t = MakeDoor(mechanicDoor, "MechanicDoorTarget", 5f);
                 t.title = "DELMAR AUTO";
                 t.detail = "Servicing, repairs, and somebody who will tell you what is wrong.";
                 t.action = "BOOK IT IN";
+                t.verb = "ENTER";
                 t.onUse = () => TownExit.GoToShop(player, "service", t.title);
             }
 
@@ -375,6 +387,7 @@ namespace PSXRacing.Town
                 t.title = "COLOURWORKS — PAINT + BODY";
                 t.detail = "Respray, panel work, and a book of colours.";
                 t.action = "TALK PAINT";
+                t.verb = "ENTER";
                 t.onUse = () => TownExit.GoToShop(player, "paint", t.title);
             }
 
@@ -384,6 +397,7 @@ namespace PSXRacing.Town
                 t.title = "CRESTLINE MOTORS";
                 t.detail = "New and used. The stock is standing right here.";
                 t.action = "TALK TO SALES";
+                t.verb = "ENTER";
                 t.onUse = () => TownExit.GoToShop(player, "dealer", t.title);
             }
 
@@ -406,6 +420,7 @@ namespace PSXRacing.Town
                 t.detail = "Pull your own. Tools for hire at the hut, " +
                            MenuKit.Money(Junkyard.ToolRentalFee) + " unless you brought your own.";
                 t.action = "";
+                t.verb = "";
                 t.onUse = null;
             }
 
@@ -414,7 +429,11 @@ namespace PSXRacing.Town
                 var t = MakeDoor(homeDoor, "HomeDoorTarget", 3.4f);
                 t.title = "HOME";
                 t.detail = "Park it up, put the kettle on.";
-                t.action = "GO IN — CALL IT A DRIVE";
+                // Was "GO IN — CALL IT A DRIVE". The button says ENTER now, and
+                // a sentence that opened with its own verb would print two of
+                // them on a keyboard: "ENTER · GO IN — CALL IT A DRIVE".
+                t.action = "CALL IT A DRIVE";
+                t.verb = "ENTER";
                 // STRAIGHT INTO THE GARAGE, not into a menu about it. This used
                 // to hand the player scene 0 on the garage tab, where they then
                 // had to press WALK INTO YOUR HOUSE to reach the room they were
@@ -447,20 +466,21 @@ namespace PSXRacing.Town
             {
                 if (t == null) continue;
                 t.title = "TONY'S — SLICE HOUSE";
-                t.action2 = "";
+                // The WORDS come from one pure rule the self-test can call
+                // without a save that has a job and an open shop; what each
+                // word is wired to, and the line under it, stay here.
+                PizzaOffer(PizzaRun.Carrying, canClockOn,
+                           out t.action, out t.verb, out t.action2, out t.verb2);
                 t.onUse2 = null;
                 if (PizzaRun.Carrying)
                 {
                     t.detail = "Boxes are yours. Out to the car and out of town.";
-                    t.action = "";
                     t.onUse = null;
                 }
                 else if (canClockOn)
                 {
                     t.detail = "The counter is up. Take the run and drive it.";
-                    t.action = "CLOCK ON — TAKE A RUN";
                     t.onUse = CollectOrder;
-                    t.action2 = "BUY AT THE COUNTER";
                     t.onUse2 = OpenPizzaCounter;
                 }
                 else
@@ -476,9 +496,42 @@ namespace PSXRacing.Town
                     // to be here with no run on offer is the hour.
                     t.detail = "No runs this morning. Back at noon, or sleep to the afternoon.  ·  " +
                                LifeRules.ShiftHoursShort;
-                    t.action = "BUY AT THE COUNTER";
                     t.onUse = OpenPizzaCounter;
                 }
+            }
+        }
+
+        /// <summary>
+        /// THE SHOP'S OFFER, AS WORDS, from two bools and nothing else — so the
+        /// self-test can ask it in edit mode without a save that has a job and
+        /// an open shop, and so the three hooks cannot drift from each other.
+        ///
+        /// Carrying beats everything: a player mid-run is handed nothing, and
+        /// nothing means an empty action AND an empty verb (the action is the
+        /// gate; the verb is only the word on a button that is not there).
+        /// Clocking on is the first button — PICK UP, the owner's ask:
+        /// "picking up pizza for delivery should say Pick Up, not Use" — with
+        /// the counter on the second, whose own verb is BUY because the first
+        /// two words of "BUY AT THE COUNTER" are not a verb. A shut shop has
+        /// only the counter, on the first button, saying the same BUY.
+        /// </summary>
+        public static void PizzaOffer(bool carrying, bool canClockOn,
+                                      out string action, out string verb,
+                                      out string action2, out string verb2)
+        {
+            action = verb = action2 = verb2 = "";
+            if (carrying) return;
+            if (canClockOn)
+            {
+                action = "CLOCK ON — TAKE A RUN";
+                verb = "PICK UP";
+                action2 = "BUY AT THE COUNTER";
+                verb2 = "BUY";
+            }
+            else
+            {
+                action = "BUY AT THE COUNTER";
+                verb = "BUY";
             }
         }
 
@@ -520,7 +573,12 @@ namespace PSXRacing.Town
             int bottles = LifeRules.RollOrderBottles(toppings.Length);
             int pay = LifeRules.RollDeliveryPay(s) * toppings.Length;
             int trackIndex = LifeRules.DeliveryTrackIndex(s);
-            float par = LifeRules.DeliveryParSeconds(trackIndex);
+            // WHERE on the lap the door is, rolled with the venue: the par
+            // quoted below is sized to it, and the race ends where the quote
+            // said it would. Rolled here and nowhere else — a fraction re-rolled
+            // at the junction would be a quote the run does not honour.
+            float drop = LifeRules.RollDropFraction();
+            float par = LifeRules.DeliveryParSeconds(trackIndex, drop);
             // The hour the run leaves the counter, read BEFORE the slot spend
             // rolls the clock: a night pickup must not arrive in tomorrow's
             // morning light.
@@ -532,7 +590,7 @@ namespace PSXRacing.Town
             // skived by reading the very latch this sets.
             LifeRules.ClockOnShift(s);
             LifeRules.SpendActivitySlot(s);
-            PizzaRun.StartRun(toppings, bottles, pay, trackIndex, par, tod);
+            PizzaRun.StartRun(toppings, bottles, pay, trackIndex, par, tod, drop);
             // Already standing at the shop. SpawnAtShop is for a scene load
             // that is no longer happening, and leaving it set would teleport
             // the car onto the kerb the next time the town loaded.
@@ -638,6 +696,7 @@ namespace PSXRacing.Town
                        (string.IsNullOrEmpty(listing.problem)
                            ? "" : "   ·   " + listing.problem);
             t.action = "TALK TO SALES ABOUT IT";
+            t.verb = "TALK";
             t.onUse = () => TownExit.GoHome(player, "dealer");
         }
 
@@ -745,6 +804,7 @@ namespace PSXRacing.Town
             {
                 t.detail = "Dead, and going nowhere.";
                 t.action = "";
+                t.verb = "";
                 t.onUse = null;
                 return;
             }
@@ -755,6 +815,9 @@ namespace PSXRacing.Town
                 // hand you an inventory through the windscreen.
                 t.detail = "Nobody has been over this one. Bonnet down, wheels on.";
                 t.action = "GET UNDER IT";
+                // LOOK, not GET UNDER: the button is about what the press
+                // opens (the wreck screen, a search) and the sentence says how.
+                t.verb = "LOOK";
             }
             else
             {
@@ -764,6 +827,7 @@ namespace PSXRacing.Town
                       " still on it, yours for the pulling."
                     : "Picked clean. The crusher gets it next week.";
                 t.action = left > 0 ? "PULL SOMETHING OFF IT" : "LOOK AGAIN";
+                t.verb = left > 0 ? "PULL" : "LOOK";
             }
 
             t.onUse = () => OpenWreck(t, wreckIndex, donor);

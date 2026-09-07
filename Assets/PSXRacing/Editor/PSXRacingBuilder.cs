@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -61,7 +61,9 @@ namespace PSXRacing.EditorTools
         /// Every ribbon in here used to close by walking one segment past the
         /// last waypoint back to the first; on a straight that segment is 700 m
         /// of road laid back down the strip on top of itself.</summary>
-        static bool Loop => track == null || (!track.drag && !track.stage);
+        // A LOOP stage (the 277 belt) is a stage whose ends meet, so it wraps
+        // like a circuit: the closing segment is road.
+        static bool Loop => track == null || (!track.drag && !(track.stage && !track.loop));
 
         internal const float WallOffset = 10f;
         // 2.4 m puts the top edge above the ~1.9 m chase-cam eyeline, so the
@@ -74,6 +76,65 @@ namespace PSXRacing.EditorTools
         const float WallCollThick = 1.2f;
         const float WallCollOverlap = 0.6f;
         internal const float KerbWidth = 0.9f;
+
+        // ------------------------------------------------------------------
+        //  The street curb (KerbStyle.Street). Built INSIDE KerbWidth: the
+        //  roadbed dig (RoadbedToe), the verge batter (VergeOuter), the
+        //  forecourt overlap (PadRoadOverlap) and TrackObstacleAudit's track
+        //  half-width all key on that 0.9 m, so the curb stone and the
+        //  pavement behind it share the footprint and nothing else moves.
+        // ------------------------------------------------------------------
+        /// <summary>Height of the curb stone's face above the tarmac: a 6 in
+        /// US barrier curb. NOT a solid step to the car's BODY — the player
+        /// box's bottom face sits ~9 cm over the tarmac and overhangs the
+        /// wheel centre by 13 cm (WorldKit: "a solid 11 cm lip is a wall the
+        /// car stops dead against"), so what the car COLLIDES with under this
+        /// face is the ramp in <see cref="StreetKerbRamp"/>, never the face
+        /// itself. The wheel raycast rides the ramp; the picture shows the
+        /// stone.</summary>
+        internal const float StreetKerbHeight = 0.15f;
+        /// <summary>How far the top of the face leans OUT over its foot. Real
+        /// curb stones are battered, and it is also what keeps
+        /// TrackObstacleAudit.AuditFacing green: a perfectly vertical face on
+        /// an object named KerbL has normal.y == 0 and fails its `&lt;= 0`
+        /// test; 3 cm over 15 gives the face triangles normal.y ~ +0.19.
+        /// Remove the batter and that audit must change to `&lt; 0`.</summary>
+        internal const float StreetKerbFaceBatter = 0.03f;
+        /// <summary>Width of the curb stone's top, measured from the tarmac
+        /// edge and including the face. The rest of <see cref="KerbWidth"/>
+        /// (0.6 m) is the pavement slab behind it — narrower than a real
+        /// 1.5 m sidewalk, deliberately: widening it means moving four
+        /// constants and re-running every audit.</summary>
+        internal const float StreetKerbTop = 0.30f;
+        /// <summary>Length of the COLLIDER's rise from the tarmac edge to the
+        /// curb top. 0.15 over 0.45 is a 33% grade, chosen against three
+        /// numbers: its normal is 0.95 from vertical, above
+        /// CollisionResponder.LandingNormalDot (0.7), so a body touch is a
+        /// landing and never a crash; under the body's 0.13 m overhang the
+        /// ramp has risen 4.3 cm against ~9 cm of clearance at stock ride
+        /// height; and AuditVerge's 0.25 m probe sees 0.083 m per step
+        /// against its 0.17 limit. Starting value for tuning — 0.6 (25%)
+        /// buys a slammed setup margin at the cost of the wheel visibly
+        /// sinking further into the curb stone.</summary>
+        internal const float StreetKerbRamp = 0.45f;
+        /// <summary>Metres of road per repeat of StreetKerb.png along the
+        /// curb — the same 2 m pitch the racing strip has always used, so the
+        /// curb-stone joints land every 2 m and the pavement's every 1 m.</summary>
+        internal const float StreetKerbUTile = 2f;
+
+        /// <summary>
+        /// What the strip along the tarmac edge IS on a venue.
+        ///
+        ///   Racing — the flat red/white ribbon a purpose-built circuit has.
+        ///   Street — a raised concrete curb with a pavement slab behind it,
+        ///            which is what a public road has. The owner's rule:
+        ///            "there should not be racing red/white strips on city
+        ///            streets. it should be concrete textured curbs."
+        ///   Verge  — the same flat ribbon as Racing, drawn as gravel: a
+        ///            stage's tarmac runs straight into its shoulder, and the
+        ///            stage texture pass chooses what that shoulder is.
+        /// </summary>
+        internal enum KerbStyle { Racing, Street, Verge }
         /// <summary>Metres between the wall line and the nearest face of a
         /// building. Measured to the FACE, not to the building's origin, so it
         /// holds whatever mesh the scatter happens to pick.</summary>
@@ -105,6 +166,14 @@ namespace PSXRacing.EditorTools
             public string ground = Root + "/Art/Roads/T (5).jpg";
             public string wall = Root + "/Art/Roads/T (2).jpg";
             public string tree = Root + "/Art/Roads/Ar (4).png";
+            /// <summary>What runs along the edge of the tarmac. STREET by
+            /// default, because a road is a road unless the theme says it is
+            /// a circuit — "there should not be racing red/white strips on
+            /// city streets. it should be concrete textured curbs." — and
+            /// because <c>new Theme()</c> IS the downtown circuit. The airfield
+            /// and the drag strips say Racing explicitly; a stage never reads
+            /// this (<see cref="KerbStyleFor"/> answers Verge for it).</summary>
+            public KerbStyle kerb = KerbStyle.Street;
             /// <summary>Metres of ground per texture repeat.</summary>
             public float groundTile = 9f;
             /// <summary>Amplitude of the rolling relief away from the road, in
@@ -115,10 +184,24 @@ namespace PSXRacing.EditorTools
             public float relief = 3f;
             /// <summary>Waypoints between scenery of each kind; 0 means none of
             /// it. Waypoints are 4 m apart, so 9 is a building every 36 m.</summary>
-            public int buildingEvery = 9, treeEvery = 7, parkedEvery = 11, lampEvery = 13;
+            public int buildingEvery = 9, treeEvery = 4, parkedEvery = 11, lampEvery = 13;
+            /// <summary>
+            /// Waypoints between roadside delineator posts, both verges; 0 for
+            /// none. THE cheapest sense-of-speed cue there is: Black Box's
+            /// track designers put the feeling of speed in what streams past
+            /// the edge of the frame, and a 1.2 m post every 12 m at 50 m/s is
+            /// four of them a second per side, inside the widened FOV's
+            /// periphery where the eye reads motion. Lamps are NOT densified
+            /// for this — each one carries a 16 m additive night-glow quad,
+            /// and doubling them doubles that overdraw after dark; a post is
+            /// twenty unlit vertices in one combined mesh per side.
+            /// </summary>
+            public int postEvery = 3;
             /// <summary>Chance a candidate site is skipped, so a run of scenery
-            /// reads as a street rather than as a fence.</summary>
-            public double buildingSkip = 0.25, treeSkip = 0.35;
+            /// reads as a street rather than as a fence. The city's trees were
+            /// every 28 m with a third skipped and are now every 16 m with a
+            /// quarter: the same reason as the posts, taller.</summary>
+            public double buildingSkip = 0.25, treeSkip = 0.25;
             public bool gasStation = true;
 
             // --------------------------------------------------------------
@@ -152,6 +235,59 @@ namespace PSXRacing.EditorTools
             public string marsh;
             /// <summary>Metres of ground per repeat for those three.</summary>
             public float sandTile = 8f, waterTile = 26f, marshTile = 6f;
+
+            // --------------------------------------------------------------
+            //  Stage LOOK. The defaults are the mountain's — every field here
+            //  used to be a constant in PSXRacingBuilder.Stage.cs and the
+            //  three shipped mountains read exactly those values through
+            //  them. The Charlotte themes are what override them.
+            // --------------------------------------------------------------
+            /// <summary>An URBAN stage: the shoulder strip is concrete curb
+            /// rather than the mountain's gravel or the coast's shell, the
+            /// far ring is painted as ground rather than as autumn forest,
+            /// and the ground carries no tint.</summary>
+            public bool stageUrban;
+            /// <summary>A barrier down both shoulders whatever the DEM does.
+            /// A freeway has one; the mountain's rule ("only where the land
+            /// falls five metres") would leave the 277 belt open.</summary>
+            public bool stageWallAlways;
+            /// <summary>Dig the ground out under each bridge span by the
+            /// track's bridgeDepth, the way a circuit's field does. It can
+            /// only ever LOWER ground. OFF on the mountains on purpose: their
+            /// spans cross real gorges the DEM already has, and a dig there
+            /// would move the abutments of three shipped stages by a metre.
+            /// In a flat city SRTM reads street level under an overpass, so
+            /// without it the terrain audit finds no daylight under a deck.
+            /// </summary>
+            public bool stageBridgeDig;
+            /// <summary>Build the cut-bank pass. Off in a city: SRTM there
+            /// reads ROOFS beside the road, and a "cut" solved against a
+            /// roofline is a five-metre concrete face along the pavement of
+            /// Tryon Street with the lots seated on top of it.</summary>
+            public bool stageBanks = true;
+            /// <summary>Fog band multiplier over the hour presets and the
+            /// camera's far plane: mountain scale by default.</summary>
+            public float fogScale = StageFogScale;
+            public float farClip = StageFarClip;
+            /// <summary>How far past the route the far (60 m) ground ring is
+            /// built. 2300 m on a mountain is the far wall of the valley; a
+            /// flat city has nothing out there to see and every far chunk is
+            /// download.</summary>
+            public float farCoverage = FarCoverageDefault;
+            /// <summary>Tint on the near ground material, or null for none.
+            /// The mountain's warm autumn tint stops its dirt reading
+            /// grey-green against the orange mottle.</summary>
+            public Color? groundTint = StageAutumnTint;
+            /// <summary>Texture for the far ring, or null for the default
+            /// (FallMottle on a forest stage, the ground itself on the coast).
+            /// </summary>
+            public string farGround;
+            /// <summary>The CityProps kinds BuildStageHomes may draw from, or
+            /// null for the beach-town mix. Bucketed by kind — towers, mid-
+            /// rise blocks, everything else — and dealt by distance from
+            /// uptown, so one list serves a venue that runs from the core to
+            /// the suburbs.</summary>
+            public byte[] stageProps;
         }
 
         static readonly Dictionary<string, Theme> Themes = new Dictionary<string, Theme>
@@ -207,10 +343,15 @@ namespace PSXRacing.EditorTools
                 groundTile = 16f,
                 relief = 1f,            // an airfield is chosen for being flat
                 buildingEvery = 17, buildingSkip = 0.35,
-                treeEvery = 13, treeSkip = 0.3,
+                treeEvery = 7, treeSkip = 0.3,
                 parkedEvery = 19,
                 lampEvery = 11,
                 gasStation = true,
+                // The one venue whose blurb is about racing rather than about
+                // a place: perimeter-track tarmac, slab walls, hangars — the
+                // Silverstone/Goodwood lineage, and the archetype of a
+                // purpose-built circuit. It keeps the red/white.
+                kerb = KerbStyle.Racing,
             },
 
             // Both strips share one look: fresh prepped tarmac, concrete walls
@@ -231,6 +372,10 @@ namespace PSXRacing.EditorTools
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+                // Reflector posts behind the guard walls every 16 m — the one
+                // near-road vertical a stage can carry without breaking the
+                // "nothing built" rule, and the real parkway has them.
+                postEvery = 4,
                 gasStation = false,
             },
 
@@ -248,6 +393,10 @@ namespace PSXRacing.EditorTools
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+                // Reflector posts behind the guard walls every 16 m — the one
+                // near-road vertical a stage can carry without breaking the
+                // "nothing built" rule, and the real parkway has them.
+                postEvery = 4,
                 gasStation = false,
                 stageDir = Root + "/Art/MtMitchell",
                 stagePrefix = "mtm",
@@ -264,6 +413,10 @@ namespace PSXRacing.EditorTools
                 groundTile = 13f,
                 relief = 0f,
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+                // Reflector posts behind the guard walls every 16 m — the one
+                // near-road vertical a stage can carry without breaking the
+                // "nothing built" rule, and the real parkway has them.
+                postEvery = 4,
                 gasStation = false,
                 stageDir = Root + "/Art/BeechGap",
                 stagePrefix = "beech",
@@ -276,6 +429,82 @@ namespace PSXRacing.EditorTools
             ["EmeraldIsle"] = EmeraldTheme(),
             ["LangstonBridge"] = BogueTheme(),
             ["AtlanticBeachBridge"] = BogueTheme(),
+
+            // Charlotte. Three venues on the streets FREE ROAM drives. One
+            // folder (Art/CLT) and three bakes, told apart by stageData like
+            // the Bogue three. The freeways carry a continuous concrete
+            // barrier; Tryon is a street with a curb and buildings.
+            ["UptownLoop"] = CltTheme(freeway: true, props: CltCoreProps),
+            ["TryonSprint"] = CltTheme(freeway: false, props: CltCoreProps),
+            ["IndependenceSprint"] = CltTheme(freeway: true, props: CltStripProps),
+        };
+
+        /// <summary>Uptown's mix: every tower for the core, the eight mid-
+        /// rise blocks for the edge of it, houses and trailers and the two
+        /// restaurants beyond. BuildStageHomes deals them by distance from
+        /// Trade & Tryon.</summary>
+        // A PROPERTY, not a readonly field: C# runs static initialisers in textual
+        // order, and the Themes table above reads these two while building itself,
+        // so as fields they were still null there and every Charlotte venue was
+        // silently dressed as the beach town. Built on first touch instead.
+        static byte[] CltCoreProps => cltCoreProps ??= BuildCltProps(towers: true);
+        static byte[] cltCoreProps;
+        /// <summary>Independence Boulevard: strip malls and motels, which of
+        /// the prop set is the mid-rise blocks and the drive-thru — and the
+        /// houses, or six kilometres of expressway would be bare past the
+        /// blocks. No towers: the route never comes within the core.</summary>
+        static byte[] CltStripProps => cltStripProps ??= BuildCltProps(towers: false);
+        static byte[] cltStripProps;
+
+        static byte[] BuildCltProps(bool towers)
+        {
+            var list = new List<byte>();
+            if (towers)
+                for (int i = 0; i < CityProps.TowerCount; i++) list.Add((byte)(CityProps.Tower0 + i));
+            for (int i = 0; i < 8; i++) list.Add((byte)(CityProps.Block0 + i));
+            list.Add(CityProps.Burger); list.Add(CityProps.Pizzeria);
+            list.Add(CityProps.House);
+            list.Add(CityProps.Trailer0); list.Add(CityProps.Trailer1); list.Add(CityProps.Trailer2);
+            return list.ToArray();
+        }
+
+        /// <summary>
+        /// A Charlotte stage. Everything here follows from the ground being a
+        /// city: the downtown circuit's own gravel-and-grass ground with no
+        /// tint and the same texture out to the fog, a concrete barrier (the
+        /// stage's 0.85 m wall IS a Jersey barrier at that height), no forest
+        /// pass, no cut banks, the bridge dig on so the overpasses have
+        /// daylight under them, the city prop set along the road, and a
+        /// shorter far ring — 1200 m rather than the mountain's 2300 —
+        /// because a flat city has nothing to look at out there and every
+        /// far chunk is download.
+        /// </summary>
+        static Theme CltTheme(bool freeway, byte[] props) => new Theme
+        {
+            ground = Root + "/Art/Roads/T (5).jpg",
+            farGround = Root + "/Art/Roads/T (5).jpg",
+            groundTint = null,
+            wall = Root + "/Art/Roads/T (4).jpg",   // concrete — a Jersey barrier
+            groundTile = 9f,
+            relief = 0f,                            // the DEM is the relief
+            stageDir = Root + "/Art/CLT",
+            stagePrefix = null,                     // off the track's stageData, as Bogue does
+            stageForest = false,
+            stageUrban = true,
+            stageWallAlways = freeway,
+            stageBridgeDig = true,
+            stageBanks = false,
+            fogScale = 3.2f,                        // the skyline is the point
+            farClip = 1500f,
+            farCoverage = 1200f,
+            buildingEvery = 0, treeEvery = 0, parkedEvery = 0,
+            // Lamps every 52 m are what make a freeway read as one at night.
+            lampEvery = 13,
+            // Reflector posts every 16 m behind the barrier, both sides.
+            postEvery = 4,
+            gasStation = false,
+            stageHomes = true,
+            stageProps = props,
         };
 
         /// <summary>
@@ -332,7 +561,17 @@ namespace PSXRacing.EditorTools
             treeEvery = 0,
             parkedEvery = 0,
             lampEvery = 7,
+            // Every 8 m. There is no verge on a strip — 18 m of tarmac inside
+            // a 10 m barrier line — so this pitch is taken by the wall's own
+            // seam posts (see PlacePosts), which is what a strip's wall looks
+            // like anyway.
+            postEvery = 2,
             gasStation = false,
+            // A strip is a purpose-built racing surface, and its kerb band
+            // (9.0-9.9 m out) is mostly behind the wall at 9.8 m anyway.
+            // Left as the red/white to bound the change; a plain white line
+            // over concrete would be truer and is one enum value away.
+            kerb = KerbStyle.Racing,
         };
 
         /// <summary>For the self-test: every catalog track needs a theme, and a
@@ -346,6 +585,23 @@ namespace PSXRacing.EditorTools
             Log("WARN: no theme for track '" + d.id + "' — using the city one.");
             return Themes["CityCircuit"];
         }
+
+        /// <summary>
+        /// The kerb style for a venue — the per-venue accessor the audits and
+        /// the self-test read, mirroring <see cref="WallOffsetFor"/>.
+        ///
+        /// A stage's strip is its VERGE whatever its theme says: the stage
+        /// texture pass draws that strip's Shoulder.png, and a raised curb on
+        /// a stage would need the guard wall and the falling verge rethought
+        /// (a later pass gives Charlotte's stages an urban concrete
+        /// Shoulder.png through the same texture pass, not through this).
+        /// Null is Street, the Theme default, so nothing here can hand a
+        /// venue the red/white by accident.
+        /// </summary>
+        internal static KerbStyle KerbStyleFor(TrackCatalog.TrackDef d) =>
+            d == null ? KerbStyle.Street
+            : d.stage ? KerbStyle.Verge
+            : ThemeFor(d).kerb;
 
         /// <summary>Filename prefix for the current stage's bake. The theme may
         /// name one (the parkway does — "brp"); otherwise the track's own
@@ -470,7 +726,9 @@ namespace PSXRacing.EditorTools
             // union, so a stage with dragEvent gets clamped index walks either
             // way.
             path.drag = def.IsDragEvent;
-            path.pointToPoint = def.stage;
+            // A loop stage has no ends: RaceManager counts its laps at
+            // waypoint 0 exactly as it does a circuit's.
+            path.pointToPoint = def.stage && !def.loop;
             path.finishIndex = def.FinishIndex;
             path.dragLabel = def.dragLabel;
 
@@ -497,7 +755,7 @@ namespace PSXRacing.EditorTools
             BuildRoad(waypoints, pathGO.transform);
             BuildKerbs(waypoints, pathGO.transform);
             if (def.stage) { BuildStageWalls(waypoints, pathGO.transform);
-                             BuildStageBanks(waypoints, pathGO.transform); }
+                             if (theme.stageBanks) BuildStageBanks(waypoints, pathGO.transform); }
             else BuildWalls(waypoints, pathGO.transform);
             if (def.stage) BuildStageGround(waypoints, pathGO.transform);
             else BuildGround(waypoints, pathGO.transform);
@@ -622,8 +880,11 @@ namespace PSXRacing.EditorTools
                 // above and comes back bilinear and mipmapped. Four 256x64
                 // PNGs per venue is nothing; a coordination channel between
                 // here and there would have been the expensive part.
+                // One-way (dashes only, no double yellow) for a strip AND
+                // for a one-way real road: the 277 belt and Independence
+                // are single carriageways.
                 for (int s = 0; s < CityMeshes.SurfaceCount; s++)
-                    EnsureTrackRoadTex(def.roadWidth, def.drag, (CityMeshes.Surface)s);
+                    EnsureTrackRoadTex(def.roadWidth, def.drag || def.oneWay, (CityMeshes.Surface)s);
             }
 
             // Bands run ACROSS the direction of travel. BuildKerbs lays u along
@@ -640,11 +901,82 @@ namespace PSXRacing.EditorTools
                               : new Color32(214, 210, 202, 255);
             });
 
+            // The street curb, for KerbStyle.Street venues. Drawn HERE, right
+            // after Kerb.png and never lazily from BuildKerbs: anything
+            // written after ConfigureTextureImporters ships bilinear and
+            // mipmapped, and a 2 px joint is the first thing a mip averages
+            // away.
+            //
+            // u runs along the road (64 px per StreetKerbUTile = 2 m, so
+            // 3.1 cm/px) and v across the PROFILE, in the three bands the
+            // street mesh assigns: rows 0-7 (v 0..0.25) are the curb FACE,
+            // 8-15 (0.25..0.5) the curb stone's TOP, 16-31 (0.5..1) the
+            // PAVEMENT slab. Colours come off SurfaceBase — RG2's concrete
+            // hexes — so the curb matches the bridge decks and Charlotte's
+            // own concrete rather than being a fifth grey. 64x32 is far under
+            // the 256 ceiling, and at 240 lines a 2 px joint is 6 cm and
+            // reads.
+            WriteTexture(StreetKerbTexPath, 64, 32, (x, y) =>
+            {
+                var old = SurfaceBase[(int)CityMeshes.Surface.ConcreteOld];
+                var fresh = SurfaceBase[(int)CityMeshes.Surface.ConcreteNew];
+                // The same grain amplitude Grain() gives concrete (20), off a
+                // different noise offset so the curb does not repeat the
+                // junction slab pixel for pixel.
+                float g = (Noise(x + 31, y + 7) - 0.5f) * 20f;
+                if (y < 8)
+                {
+                    // FACE: weathered concrete in shadow, ~18% down. No joints
+                    // along it — at 3 cm/px a joint on a 15 cm face would
+                    // read as a crack.
+                    float d = g - 28f;
+                    return new Color32(Chan(old.r, d), Chan(old.g, d), Chan(old.b, d + 2f), 255);
+                }
+                if (y < 16)
+                {
+                    // TOP of the curb stone: a joint every repeat (precast
+                    // stones are 1-2 m long) and the arris highlight along
+                    // the row where the top meets the face.
+                    float d = g;
+                    if (x < 2) d -= 34f;
+                    else if (y == 8) d += 12f;
+                    return new Color32(Chan(old.r, d), Chan(old.g, d), Chan(old.b, d + 2f), 255);
+                }
+                // PAVEMENT: fresh concrete ~10% down, slabs every metre (the
+                // repeat's joint at x 0-1 and a second at 32-33), the seam
+                // against the curb stone (row 16) and the back edge (row 31)
+                // both dark so the slab has an edge instead of fading into the
+                // batter.
+                float p = g - 18f;
+                if (x < 2 || x == 32 || x == 33 || y == 16 || y == 31) p -= 34f;
+                return new Color32(Chan(fresh.r, p), Chan(fresh.g, p), Chan(fresh.b, p + 2f), 255);
+            });
+
             // One 2x2 cell, tiled 8x2 by BuildStartLine: 16 squares across the
             // road and 4 along it.
             WriteTexture(GridTexPath, 32, 32, (x, y) =>
                 ((x < 16) ^ (y < 16)) ? new Color32(18, 18, 20, 255)
                                       : new Color32(220, 218, 212, 255));
+
+            // A delineator post, seen from the side: v runs up the post. The
+            // bottom 29 rows are the white shaft, the top three the red cap —
+            // 3/32 of a 1.22 m post is 11 cm of red. Written rather than drawn
+            // because the two colours ARE the design.
+            WriteTexture(PostTexPath, 8, 32, (x, y) =>
+                y >= 29 ? new Color32(190, 36, 34, 255)
+                        : new Color32(226, 224, 218, 255));
+
+            // The speed-streak sheet for PSX/SpeedLines: u is ANGLE round the
+            // frame, v is RADIUS out from its centre, so each dash drawn here
+            // as a short vertical bar is a radial streak on screen. 256 wide
+            // (the page limit) so the angular pitch is as fine as it can be;
+            // sampled three times round the frame, one column is 0.47 deg and
+            // a two-column streak is ~2.5 px at half a 240-line frame's
+            // radius — chosen at RETRO and accepted at SHARP, where it is 5.
+            // A one-column streak drops between pixel centres at 240 lines
+            // and flickers. Seeded, so a rebuild writes the same bytes and the
+            // importer does not reimport it.
+            WriteStreakTexture();
 
             // A bridge expansion joint, seen from a car: two steel angle plates
             // with the finger gap between them, dark with the grease and grit
@@ -675,8 +1007,40 @@ namespace PSXRacing.EditorTools
         }
 
         static string KerbTexPath => TrackTexDir + "/Kerb.png";
+        internal static string StreetKerbTexPath => TrackTexDir + "/StreetKerb.png";
         static string GridTexPath => TrackTexDir + "/StartGrid.png";
         static string JointTexPath => TrackTexDir + "/Joint.png";
+        static string PostTexPath => TrackTexDir + "/Post.png";
+        internal static string SpeedStreaksTexPath => TrackTexDir + "/SpeedStreaks.png";
+
+        /// <summary>Streaks per angular repeat of the sheet; three repeats
+        /// round the frame (the shader's _Spokes) make sixty.</summary>
+        const int StreakCount = 20;
+        const int StreakSheetW = 256, StreakSheetH = 64;
+
+        static void WriteStreakTexture()
+        {
+            var on = new bool[StreakSheetW * StreakSheetH];
+            var rng = new System.Random(19990);
+            for (int s = 0; s < StreakCount; s++)
+            {
+                // Two columns wide, 10-36 rows long, anywhere on the sheet;
+                // the pattern wraps in v (the shader scrolls it) so a streak
+                // may run off the top and come back at the bottom.
+                int col = rng.Next(StreakSheetW);
+                int start = rng.Next(StreakSheetH);
+                int len = 10 + rng.Next(27);
+                for (int k = 0; k < len; k++)
+                {
+                    int y = (start + k) % StreakSheetH;
+                    on[y * StreakSheetW + col] = true;
+                    on[y * StreakSheetW + (col + 1) % StreakSheetW] = true;
+                }
+            }
+            WriteTexture(SpeedStreaksTexPath, StreakSheetW, StreakSheetH, (x, y) =>
+                on[y * StreakSheetW + x] ? new Color32(255, 255, 255, 255)
+                                          : new Color32(0, 0, 0, 255));
+        }
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a
@@ -826,6 +1190,9 @@ namespace PSXRacing.EditorTools
             // different settings rather than one compromise.
             int core = ConfigureAudioFolder(Root + "/Audio", 1.0f, true);
             int engines = ConfigureAudioFolder(Root + "/Resources/Engines", EngineClipQuality, false);
+            // The generated wind beds (tools/gen_wind.mjs): two short mono
+            // loops the player's WindAudio loads itself, core settings.
+            ConfigureAudioFolder(Root + "/Resources/Sfx", 1.0f, true);
             Log($"Configured {core} core audio importers (Vorbis q1.0, preloaded) and " +
                 $"{engines} engine-family clips (Vorbis q{EngineClipQuality:0.00}, load-on-demand).");
         }
@@ -1373,14 +1740,15 @@ namespace PSXRacing.EditorTools
             var tarmacSurf = fresh ? CityMeshes.Surface.AsphaltNew : CityMeshes.Surface.AsphaltOld;
             var deckSurf = fresh ? CityMeshes.Surface.ConcreteNew : CityMeshes.Surface.ConcreteOld;
 
+            bool oneWay = track != null && (track.drag || track.oneWay);
             var mat = MakeMat(MeshPrefix + "Road",
-                              EnsureTrackRoadTex(RoadWidth, track != null && track.drag, tarmacSurf),
+                              EnsureTrackRoadTex(RoadWidth, oneWay, tarmacSurf),
                               affine: 0f);
             var mr = go.AddComponent<MeshRenderer>();
             if (anyDeck)
             {
                 var deckRoadMat = MakeMat(MeshPrefix + "RoadDeck",
-                                          EnsureTrackRoadTex(RoadWidth, track != null && track.drag, deckSurf),
+                                          EnsureTrackRoadTex(RoadWidth, oneWay, deckSurf),
                                           affine: 0f);
                 mr.sharedMaterials = new[] { mat, deckRoadMat };
             }
@@ -1458,7 +1826,19 @@ namespace PSXRacing.EditorTools
                 {
                     int idx = Loop ? i % n : i;
                     Vector3 outw = RightAt(pts, idx) * side;
-                    Vector3 top = pts[idx] + Vector3.up * (RoadLift + 0.01f)
+                    // The top starts where the kerb strip ENDS — which on a
+                    // street venue is the back edge of the pavement, 15 cm up
+                    // (0 across a driveway). Lifting this vertex is the whole
+                    // of how the shoulder meets the raised curb: a vertical
+                    // back face on the kerb instead would be a 0.18-0.20 m
+                    // step against the already-fallen batter and fail the
+                    // re-entry audit (VergeMaxStep 0.17). Lifted, the batter
+                    // falls 0.61 m over its 2.0-2.75 m run, 22-30%, which the
+                    // 0.25 m probe sees as 0.076 m per step. Its top at +0.28
+                    // does overlap the sweep audit's box floor (+0.27) by a
+                    // centimetre, and TrackSweepAudit exempts RoadEdge by name
+                    // for it — a surface a wheel rolls on, like Ground.
+                    Vector3 top = pts[idx] + Vector3.up * (RoadLift + 0.01f + KerbLiftAt(idx, n, side))
                                 + outw * kerbOuter;
                     Vector3 toe = pts[idx] + Vector3.down * ToeDrop + outw * outer;
                     int v = verts.Count;
@@ -1516,67 +1896,51 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// A high-contrast strip along the exact edge of the tarmac. The barrier
-        /// sits 4 m out in the gravel, so without this there is nothing marking
-        /// where grip actually ends — the road just fades into dirt.
+        /// The strip along the exact edge of the tarmac, in whichever
+        /// <see cref="KerbStyle"/> the venue wears. The barrier sits 4 m out
+        /// in the gravel, so without this there is nothing marking where grip
+        /// actually ends — the road just fades into dirt.
+        ///
+        /// Racing and Verge are the flat two-verts-per-station ribbon this
+        /// has always been, textured red/white or gravel. Street is a SECTION:
+        /// a battered 15 cm face, a 30 cm curb-stone top and a 60 cm pavement
+        /// slab — and, on the same object, a collider that is NOT the picture
+        /// but a ramp (<see cref="StreetKerbRamp"/>), because a solid vertical
+        /// lip at the tarmac edge is a wall the car's body stops dead against
+        /// before its wheel ray ever lifts it (the failure WorldKit's
+        /// render-only skirts and the neighbourhood's collider-less kerb were
+        /// both built to avoid). Dropped across the forecourt driveways
+        /// (<see cref="KerbLiftAt"/>). Same 0.9 m footprint in every style:
+        /// the strip is also what visually seals the corridor-sink lip at the
+        /// road edge, and four other constants key on its width.
         /// </summary>
         static void BuildKerbs(List<Vector3> pts, Transform parent)
         {
-            int n = pts.Count, last = Loop ? n : n - 1;
-            // The parkway has no racing kerb — its tarmac runs into a mown
-            // gravel verge, so the stage lays the same strip in gravel. Same
-            // geometry either way: the strip is also what visually seals the
-            // corridor-sink lip at the road edge.
-            var mat = track != null && track.stage
-                ? MakeMat(MeshPrefix + "Kerb", StageGenDir + "/Shoulder.png", affine: 0f)
-                : MakeMat("Kerb", KerbTexPath, affine: 0f);
+            var style = KerbStyleFor(track);
+            // MeshPrefix on EVERY branch. The circuit branch used to make one
+            // shared Materials/Kerb.mat — harmless while every circuit wanted
+            // the same texture, and a trap the moment there were two: the last
+            // venue built repaints every other venue's kerb, exactly as
+            // BuildRoad records for its Road material.
+            string tex = style == KerbStyle.Verge ? StageGenDir + "/Shoulder.png"
+                       : style == KerbStyle.Street ? StreetKerbTexPath
+                       : KerbTexPath;
+            var mat = MakeMat(MeshPrefix + "Kerb", tex, affine: 0f);
             mat.mainTextureScale = new Vector2(1f, 1f);
 
             foreach (float side in new[] { -1f, 1f })
             {
-                var verts = new List<Vector3>();
-                var uvs = new List<Vector2>();
-                var tris = new List<int>();
-                float dist = 0f;
-
-                for (int i = 0; i <= last; i++)
-                {
-                    int idx = Loop ? i % n : i;
-                    Vector3 outw = RightAt(pts, idx) * side;
-                    // 1 cm above the road ribbon so it reads as a raised kerb and
-                    // cannot z-fight; the road mesh ends exactly at 6 m.
-                    Vector3 inner = pts[idx] + Vector3.up * (RoadLift + 0.01f) + outw * (RoadWidth * 0.5f);
-                    Vector3 outer = inner + outw * KerbWidth;
-                    int v = verts.Count;
-                    verts.Add(inner); verts.Add(outer);
-                    // Repeat every 2 m of travel gives the classic red/white dashing.
-                    uvs.Add(new Vector2(dist / 2f, 0f));
-                    uvs.Add(new Vector2(dist / 2f, 1f));
-                    dist += Spacing;
-                    // Opposite winding on the two sides, because `outw` flips
-                    // with `side` and the corner order goes with it — the same
-                    // branch BuildRoadEdge has always had, and which this strip
-                    // never got. Without it the LEFT kerb faced downward: it was
-                    // invisible from the car (which is why every screenshot of
-                    // this game has a kerb on one side only), and once the strip
-                    // carried a collider its back face was invisible to a
-                    // downward raycast too, so the run-off audit found half a
-                    // metre of missing surface down the left of all four
-                    // circuits and none down the right.
-                    if (i < last)
-                    {
-                        if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
-                        else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
-                    }
-                }
-
-                var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
+                Mesh mesh, coll;
+                if (style == KerbStyle.Street) mesh = StreetKerbMeshes(pts, side, out coll);
+                else { mesh = FlatKerbMesh(pts, side); coll = mesh; }
                 SaveMesh(mesh, side < 0 ? "KerbMeshL" : "KerbMeshR");
+                if (coll != mesh) SaveMesh(coll, side < 0 ? "KerbCollMeshL" : "KerbCollMeshR");
+
                 var go = new GameObject(side < 0 ? "KerbL" : "KerbR");
                 go.transform.SetParent(parent, false);
                 go.AddComponent<MeshFilter>().sharedMesh = mesh;
                 go.AddComponent<MeshRenderer>().sharedMaterial = mat;
-                // A COLLIDER, which this strip has never had.
+                // A COLLIDER, which this strip once had none of.
                 //
                 // The road mesh stops dead at RoadWidth/2 and the strip runs
                 // 0.9 m further out, so for its whole width there was nothing
@@ -1587,14 +1951,135 @@ namespace PSXRacing.EditorTools
                 // had a lip taller than its own wheels between it and the way
                 // back — invisible, because the picture showed a kerb.
                 //
-                // On the road layer for a circuit, because that is a racing
-                // kerb and it grips; off it on a stage, where the same geometry
-                // is drawn as a gravel shoulder and should not.
-                if (track == null || !track.stage) go.layer = RoadLayer;
-                go.AddComponent<MeshCollider>().sharedMesh = mesh;
+                // On the road layer for a racing kerb, because it grips; off
+                // it on a stage, where the same geometry is drawn as a gravel
+                // shoulder and should not. The street curb stays ON it: the
+                // pavement is concrete, not gravel, and the road layer is also
+                // what keeps TrackSweepAudit skipping this object — its top at
+                // +0.28 is a centimetre into the sweep box's floor. A pavement
+                // that should punish running wide would need to come off the
+                // layer AND be exempted there by name, like RoadEdge.
+                if (style != KerbStyle.Verge) go.layer = RoadLayer;
+                go.AddComponent<MeshCollider>().sharedMesh = coll;
                 go.isStatic = true;
             }
-            Log("Built kerb strips at the tarmac edge.");
+            Log($"Built {style} kerb strips at the tarmac edge.");
+        }
+
+        /// <summary>
+        /// Two triangles between station i and station i+1 of a strip laid
+        /// down <paramref name="stride"/> vertices per station, joining the
+        /// vertex at <paramref name="v"/> and the one after it to their
+        /// counterparts a station on. Opposite winding on the two sides,
+        /// because `outw` flips with `side` and the corner order goes with it
+        /// — the same branch BuildRoadEdge has always had, and which the kerb
+        /// strip once never got. Without it the LEFT kerb faced downward: it
+        /// was invisible from the car (which is why every screenshot of this
+        /// game had a kerb on one side only), and once the strip carried a
+        /// collider its back face was invisible to a downward raycast too, so
+        /// the run-off audit found half a metre of missing surface down the
+        /// left of all four circuits and none down the right.
+        ///
+        /// The pattern is the flat strip's original (stride 2:
+        /// {v,v+1,v+2, v+1,v+3,v+2} / {v,v+2,v+1, v+1,v+2,v+3}) with the
+        /// station-on offset named; it is COPIED, not re-derived, because
+        /// per-call-site winding is the recorded trap.
+        /// </summary>
+        static void KerbQuad(List<int> tris, int v, int stride, float side)
+        {
+            if (side < 0f) tris.AddRange(new[] { v, v + 1, v + stride, v + 1, v + stride + 1, v + stride });
+            else tris.AddRange(new[] { v, v + stride, v + 1, v + 1, v + stride, v + stride + 1 });
+        }
+
+        /// <summary>The Racing/Verge ribbon: two verts per station, 1 cm
+        /// above the road, u along the road at one repeat per 2 m (the
+        /// classic red/white dashing), v across.</summary>
+        static Mesh FlatKerbMesh(List<Vector3> pts, float side)
+        {
+            int n = pts.Count, last = Loop ? n : n - 1;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            float dist = 0f;
+
+            for (int i = 0; i <= last; i++)
+            {
+                int idx = Loop ? i % n : i;
+                Vector3 outw = RightAt(pts, idx) * side;
+                // 1 cm above the road ribbon so it reads as a raised kerb and
+                // cannot z-fight; the road mesh ends exactly at 6 m.
+                Vector3 inner = pts[idx] + Vector3.up * (RoadLift + 0.01f) + outw * (RoadWidth * 0.5f);
+                Vector3 outer = inner + outw * KerbWidth;
+                int v = verts.Count;
+                verts.Add(inner); verts.Add(outer);
+                // Repeat every 2 m of travel gives the classic red/white dashing.
+                uvs.Add(new Vector2(dist / 2f, 0f));
+                uvs.Add(new Vector2(dist / 2f, 1f));
+                dist += Spacing;
+                if (i < last) KerbQuad(tris, v, 2, side);
+            }
+            return new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
+        }
+
+        /// <summary>
+        /// The Street section, per station and side, four verts A-B-C-D:
+        ///
+        ///   A  foot of the face, tarmac edge, +0.13 (as the flat strip)  v 0
+        ///   B  top of the face: A + lift, leaned out by the batter         v 0.25
+        ///   C  back of the curb stone's top, StreetKerbTop out            v 0.5
+        ///   D  back edge of the pavement, KerbWidth out                   v 1
+        ///
+        /// u = dist / StreetKerbUTile on all four, so the bands of
+        /// StreetKerb.png land on face, top and pavement. `lift` is the
+        /// curb height here (0 across a driveway) and the same number
+        /// BuildRoadEdge lifts its top vertex by.
+        ///
+        /// The COLLIDER is a second mesh on three verts: A, then R = A + lift
+        /// at StreetKerbRamp out, then D — a 33% ramp and a flat top. Over the
+        /// first 0.3 m the wheel raycast rides the ramp while the picture
+        /// shows a face, so a wheel on the curb stone sits up to ~10 cm into
+        /// it; at 240 lines from the chase camera that is the same class of
+        /// compromise as WorldKit's render-only skirts.
+        /// </summary>
+        static Mesh StreetKerbMeshes(List<Vector3> pts, float side, out Mesh collider)
+        {
+            int n = pts.Count, last = Loop ? n : n - 1;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            var cverts = new List<Vector3>();
+            var ctris = new List<int>();
+            float dist = 0f;
+
+            for (int i = 0; i <= last; i++)
+            {
+                int idx = Loop ? i % n : i;
+                Vector3 outw = RightAt(pts, idx) * side;
+                Vector3 rise = Vector3.up * KerbLiftAt(idx, n, side);
+                Vector3 a = pts[idx] + Vector3.up * (RoadLift + 0.01f) + outw * (RoadWidth * 0.5f);
+                Vector3 b = a + rise + outw * StreetKerbFaceBatter;
+                Vector3 c = a + rise + outw * StreetKerbTop;
+                Vector3 d = a + rise + outw * KerbWidth;
+                float u = dist / StreetKerbUTile;
+                int v = verts.Count;
+                verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
+                uvs.Add(new Vector2(u, 0f)); uvs.Add(new Vector2(u, 0.25f));
+                uvs.Add(new Vector2(u, 0.5f)); uvs.Add(new Vector2(u, 1f));
+
+                int w = cverts.Count;
+                cverts.Add(a); cverts.Add(a + rise + outw * StreetKerbRamp); cverts.Add(d);
+                dist += Spacing;
+
+                if (i < last)
+                {
+                    // Face, top, pavement — three quads on a stride of four.
+                    for (int k = 0; k < 3; k++) KerbQuad(tris, v + k, 4, side);
+                    // Ramp, flat — two quads on a stride of three.
+                    for (int k = 0; k < 2; k++) KerbQuad(ctris, w + k, 3, side);
+                }
+            }
+            collider = new Mesh { vertices = cverts.ToArray(), triangles = ctris.ToArray() };
+            return new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
         }
 
         static void BuildWalls(List<Vector3> pts, Transform parent)
@@ -2368,13 +2853,15 @@ namespace PSXRacing.EditorTools
             // On the stage the start line sits a lead-in past waypoint 0, so
             // the whole grid can stand on real road behind it without the
             // index walk falling off the front of the list.
-            int startIdx = track.stage
+            // (A loop stage's line is waypoint 0, like a circuit's: that is
+            // where RaceManager counts the lap.)
+            int startIdx = track.stage && !track.loop
                 ? Mathf.RoundToInt(track.stageStartLineM / Spacing) : 0;
             Line("StartLine", startIdx);
             // A route with ends needs a line at each end: the one you launch
             // from is not the one that stops the clock, and they are kilometres
             // apart with a shutdown area beyond.
-            if ((track.drag || track.stage) && track.FinishIndex > 0 && track.FinishIndex < pts.Count)
+            if ((track.drag || (track.stage && !track.loop)) && track.FinishIndex > 0 && track.FinishIndex < pts.Count)
                 Line("FinishLine", track.FinishIndex);
 
             void Line(string name, int idx)
@@ -2406,6 +2893,175 @@ namespace PSXRacing.EditorTools
             if (theme.treeEvery > 0) PlaceTrees(pts, sceneryRoot.transform);
             if (theme.parkedEvery > 0) PlaceParkedCars(pts, sceneryRoot.transform);
             if (theme.lampEvery > 0) PlaceStreetLamps(pts, sceneryRoot.transform);
+            PlacePosts(pts, sceneryRoot.transform);
+        }
+
+        // ------------------------------------------------------------------
+        //  Roadside posts — the sense-of-speed pass
+        // ------------------------------------------------------------------
+        /// <summary>Delineator post: shaft height, cap height, square width.
+        /// 1.1 m of white with 12 cm of red on top is a highway delineator;
+        /// 8 cm is one or two pixels at 240 lines, which is a post rather
+        /// than a plank.</summary>
+        const float PostShaftH = 1.1f;
+        const float PostCapH = 0.12f;
+        const float PostW = 0.08f;
+        /// <summary>Post centre, metres past the kerb's outer edge — on the
+        /// verge, inside the wall line: 7.25 m from the centreline on a 12 m
+        /// road against a 10 m barrier. Its inner face is 0.31 m clear of the
+        /// kerb, and the obstacle audit holds it to 0.2.</summary>
+        const float PostVergeOffset = 0.35f;
+        /// <summary>Room the verge must have between the kerb and the wall for
+        /// a post line at all. A drag strip has 0.1 m; there the wall's own
+        /// seam posts carry the pitch instead.</summary>
+        const float PostVergeMinRoom = 0.8f;
+        /// <summary>Wall seam posts: one every two waypoints, 8 m, which is the
+        /// wall texture's own repeat, so the seam lands on the seam. 0.2 m
+        /// square, the wall's full height, proud of the face by 0.1 m — enough
+        /// to throw a line at 240 lines and turn a smeared 8 m photo into a
+        /// barrier that streams.</summary>
+        const int WallPostEvery = 2;
+        const float WallPostW = 0.2f;
+        const float WallPostProud = 0.1f;
+        /// <summary>Vertices one <see cref="AppendPost"/> adds: five faces of
+        /// four. The audit divides by it to count posts.</summary>
+        internal const int PostVerts = 20;
+
+        /// <summary>
+        /// Delineator posts down both verges and seam posts on both walls,
+        /// ONE mesh per side per kind. A 5 km stage at 12 m would otherwise
+        /// be ~850 GameObjects; four combined meshes are four draw calls.
+        /// No colliders, like the lamps: a post that stops a car that ran wide
+        /// is a wall in the run-off, and the audit would say so.
+        ///
+        /// Circuits only. A stage's guard walls hug the shoulder and exist
+        /// only where the mountain falls away, so its posts are placed along
+        /// those runs by BuildStageWalls instead.
+        /// </summary>
+        static void PlacePosts(List<Vector3> pts, Transform parent)
+        {
+            if (track != null && track.stage) return;
+            int n = pts.Count;
+            float kerbOuter = RoadWidth * 0.5f + KerbWidth;
+            bool verge = theme.postEvery > 0 && WallOffset - kerbOuter >= PostVergeMinRoom;
+            var postMat = MakeMat("RoadPost", PostTexPath, affine: 0f);
+            var wallPostMat = MakeMat("WallPost", null,
+                                      tint: new Color(0.16f, 0.16f, 0.18f), affine: 0f);
+            int vergePosts = 0, wallPosts = 0;
+
+            foreach (float side in new[] { -1f, 1f })
+            {
+                string sfx = side < 0 ? "L" : "R";
+                if (verge)
+                {
+                    var verts = new List<Vector3>();
+                    var uvs = new List<Vector2>();
+                    var tris = new List<int>();
+                    for (int i = 1; i < n; i += theme.postEvery)
+                    {
+                        Vector3 right = RightAt(pts, i);
+                        Vector3 baseP = pts[i] + right * side * (kerbOuter + PostVergeOffset);
+                        // Not across the forecourt entrance.
+                        if (OnFuelPad(baseP, 1.5f)) continue;
+                        // Seated like the lamps: its own patch of ground, or
+                        // the deck over a gorge.
+                        baseP.y = OverGorge(i) ? pts[i].y + 0.08f
+                                               : GroundHeightAt(baseP.x, baseP.z);
+                        AppendPost(verts, uvs, tris, baseP, right, PostW,
+                                   PostShaftH + PostCapH);
+                        vergePosts++;
+                    }
+                    CombinedPosts(verts, uvs, tris, "PostMesh" + sfx, "Posts" + sfx, postMat, parent);
+                }
+
+                {
+                    var verts = new List<Vector3>();
+                    var uvs = new List<Vector2>();
+                    var tris = new List<int>();
+                    int last = Loop ? n : n - 1;
+                    for (int i = 0; i < last; i += WallPostEvery)
+                    {
+                        // Not in the driveway the wall leaves open.
+                        if (side == padSide && InWallGap(i, n)) continue;
+                        Vector3 right = RightAt(pts, i);
+                        // On the wall's own base (BuildWalls seats the wall at
+                        // the waypoint height, not on GroundHeightAt), a
+                        // hand's width inside its face.
+                        Vector3 baseP = pts[i] + right * side * (WallOffset - WallPostProud);
+                        AppendPost(verts, uvs, tris, baseP, right, WallPostW, WallHeight);
+                        wallPosts++;
+                    }
+                    CombinedPosts(verts, uvs, tris, "WallPostMesh" + sfx, "WallPosts" + sfx,
+                                  wallPostMat, parent);
+                }
+            }
+            Log($"Placed {vergePosts} verge posts and {wallPosts} wall seam posts " +
+                (verge ? "" : "(no verge room on this venue — walls only) ") +
+                "as four combined meshes.");
+        }
+
+        /// <summary>Save one combined post mesh as its own static, colliderless
+        /// object. Nothing to save is nothing built.</summary>
+        static void CombinedPosts(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+                                  string meshName, string goName, Material mat, Transform parent)
+        {
+            if (verts.Count == 0) return;
+            var mesh = new Mesh();
+            // Five faces a post; a long circuit's wall seams can pass the
+            // 16-bit index ceiling.
+            if (verts.Count > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            mesh.vertices = verts.ToArray();
+            mesh.uv = uvs.ToArray();
+            mesh.triangles = tris.ToArray();
+            SaveMesh(mesh, meshName);
+            var go = new GameObject(goName);
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            go.isStatic = true;
+        }
+
+        /// <summary>
+        /// Append one square post standing on <paramref name="baseP"/>, its
+        /// faces aligned to <paramref name="right"/>: four sides and a top,
+        /// twenty vertices, wound OUTWARD (Cross(b - a, c - a) is the face
+        /// normal, the convention BuildWalls relies on). v runs up the post
+        /// so the post texture's red band lands on the cap.
+        /// </summary>
+        static void AppendPost(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+                               Vector3 baseP, Vector3 right, float width, float height)
+        {
+            right.y = 0f;
+            right = right.sqrMagnitude > 1e-6f ? right.normalized : Vector3.right;
+            Vector3 fwd = Vector3.Cross(right, Vector3.up);
+            float hw = width * 0.5f;
+            Vector3 up = Vector3.up * height;
+
+            void Side(Vector3 normal)
+            {
+                // Tangent chosen so Cross(up, tangent) == normal.
+                Vector3 tangent = Vector3.Cross(normal, Vector3.up);
+                Vector3 a = baseP + normal * hw - tangent * hw;
+                Vector3 c = baseP + normal * hw + tangent * hw + up;
+                int v = verts.Count;
+                verts.Add(a); verts.Add(a + up); verts.Add(c); verts.Add(c - up);
+                uvs.Add(new Vector2(0f, 0f)); uvs.Add(new Vector2(0f, 1f));
+                uvs.Add(new Vector2(1f, 1f)); uvs.Add(new Vector2(1f, 0f));
+                tris.AddRange(new[] { v, v + 1, v + 2, v, v + 2, v + 3 });
+            }
+            Side(right); Side(-right); Side(fwd); Side(-fwd);
+
+            // The top, normal up.
+            {
+                int v = verts.Count;
+                Vector3 top = baseP + up;
+                verts.Add(top - right * hw - fwd * hw);
+                verts.Add(top - right * hw + fwd * hw);
+                verts.Add(top + right * hw + fwd * hw);
+                verts.Add(top + right * hw - fwd * hw);
+                for (int k = 0; k < 4; k++) uvs.Add(new Vector2(0.5f, 1f));
+                tris.AddRange(new[] { v, v + 1, v + 2, v, v + 2, v + 3 });
+            }
         }
 
         /// <summary>
@@ -2442,7 +3098,10 @@ namespace PSXRacing.EditorTools
             {
                 float side = (i / theme.lampEvery) % 2 == 0 ? 1f : -1f;
                 Vector3 right = RightAt(pts, i);
-                Vector3 baseP = pts[i] + right * side * (WallOffset + 0.8f);
+                // Off THIS venue's barrier line: on a stage the wall hugs the
+                // shoulder, and a lamp at the circuits' constant 10 m would
+                // stand on the tarmac of a 16 m freeway.
+                Vector3 baseP = pts[i] + right * side * (WallOffsetFor(track) + 0.8f);
                 // The lamp line runs where the forecourt entrance is, and a
                 // post in the middle of it would be a lamp standing on tarmac
                 // the player is meant to drive over. The station lights its own
@@ -2505,6 +3164,115 @@ namespace PSXRacing.EditorTools
                 placed++;
             }
             Log($"Placed {placed} street lamps.");
+        }
+
+        // ---- the zone-line curtain ----
+        // The gradient the curtain wears, bottom to top. Starting values for
+        // tuning; what each one is FOR is the derivation.
+        /// <summary>The body colour: a mid-dark saturated blue. Over the Noon
+        /// sky (0.72, 0.85, 0.96) at alpha 0.6 it lands near (0.38, 0.58,
+        /// 0.98) — plainly a wall; over grass it goes teal, over tarmac blue.
+        /// A PALE cyan (the FFXIV reference's colour) would read as the
+        /// additive line did against daylight sky, which is not at all.</summary>
+        static readonly Color ZoneCurtainBlue = new Color(0.15f, 0.40f, 1.00f);
+        /// <summary>The bottom tenth is a solid white band with a HARD step
+        /// above it, so the foot of the curtain survives PSXBlit's 5-bit
+        /// quantize at RETRO, which bands the gradient above into a handful of
+        /// steps and would smear a soft foot into the road.</summary>
+        const float ZoneCurtainBaseBand = 0.10f, ZoneCurtainBaseAlpha = 0.95f;
+        /// <summary>The body starts at 0.70 above the band and falls to 0 at
+        /// the top with a power of 1.6 — above 1 so the mass stays low, the
+        /// way light standing on a road would, and the top edge is soft
+        /// enough never to read as a rectangle against the sky.</summary>
+        const float ZoneCurtainBodyAlpha = 0.70f, ZoneCurtainFalloff = 1.6f;
+        /// <summary>Every 4th column is a quarter brighter: faint vertical
+        /// streaks, the one texture the reference has. 16 columns across
+        /// 11-13 m is a streak every ~0.8 m.</summary>
+        const int ZoneCurtainStreakPitch = 4;
+        const float ZoneCurtainStreakGain = 1.25f;
+        /// <summary>_Strength on the material; the texture already carries
+        /// the intended alpha, so this is a tuning hook at unity.</summary>
+        const float ZoneCurtainStrength = 1f;
+
+        /// <summary>
+        /// THE ZONE-LINE CURTAIN'S MATERIAL: PSX/ZoneLine (alpha-blended — see
+        /// the shader's own note for why additive could not work) wearing the
+        /// gradient below.
+        ///
+        /// The asset name is the one the first (additive, PSX/Glow) line used,
+        /// and the shader is written UNCONDITIONALLY, exactly as
+        /// MakeGlowMaterial writes its own: the sandbox already holds a
+        /// ZoneLine.mat, and a load-or-create that trusted the asset would
+        /// rebuild every scene with the additive material the owner could not
+        /// see. Warns rather than throws on a missing shader, the way the lamp
+        /// pass does — a run through a script that does not mirror Shaders/
+        /// gets a magenta curtain and a line in the log saying why.
+        /// </summary>
+        static Material MakeZoneLineMaterial()
+        {
+            string p = MatDir + "/ZoneLine.mat";
+            var shader = Shader.Find("PSX/ZoneLine");
+            if (shader == null)
+                Log("WARN: PSX/ZoneLine shader not found — the zone line will render magenta " +
+                    "(was Assets/PSXRacing/Shaders mirrored?)");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(p);
+            if (mat == null)
+            {
+                mat = new Material(shader != null ? shader : Shader.Find("PSX/Glow"));
+                AssetDatabase.CreateAsset(mat, p);
+            }
+            if (shader != null) mat.shader = shader;
+            mat.mainTexture = GetOrCreateCurtainTexture();
+            // WHITE, not the curtain's blue: the shader's tex.rgb * _Color
+            // cannot lift a texel above the tint, so a white base band under
+            // a blue body has to be painted INTO the texture; this stays a
+            // tint hook at unity.
+            mat.SetColor("_Color", Color.white);
+            mat.SetFloat("_Strength", ZoneCurtainStrength);
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
+        /// The curtain gradient: 16 x 64, white band at the foot, blue body
+        /// fading to nothing at the top, faint streaks. A generated .asset
+        /// beside Glow.asset, so ConfigureTextureImporters' Art/-only 256 px
+        /// point-filter rule neither applies to it nor is broken by it —
+        /// bilinear and clamped on purpose, because a 64-row gradient
+        /// point-sampled across 150 screen lines is a staircase.
+        ///
+        /// v = 0 is the ROAD: GlowQuad's uv (0,0) is its bottom-left vertex,
+        /// so texture row 0 lands at the curtain's foot.
+        /// </summary>
+        static Texture2D GetOrCreateCurtainTexture()
+        {
+            string p = GenDir + "/ZoneCurtain.asset";
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+            if (tex != null) return tex;
+            const int w = 16, h = 64;
+            tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            for (int y = 0; y < h; y++)
+            {
+                float v = y / (float)(h - 1);
+                bool band = v < ZoneCurtainBaseBand;
+                float a = band
+                    ? ZoneCurtainBaseAlpha
+                    : ZoneCurtainBodyAlpha * Mathf.Pow(
+                        1f - (v - ZoneCurtainBaseBand) / (1f - ZoneCurtainBaseBand),
+                        ZoneCurtainFalloff);
+                Color rgb = band ? Color.white : ZoneCurtainBlue;
+                for (int x = 0; x < w; x++)
+                {
+                    float ax = x % ZoneCurtainStreakPitch == 0
+                        ? Mathf.Min(1f, a * ZoneCurtainStreakGain) : a;
+                    tex.SetPixel(x, y, new Color(rgb.r, rgb.g, rgb.b, ax));
+                }
+            }
+            tex.Apply();
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+            AssetDatabase.CreateAsset(tex, p);
+            return tex;
         }
 
         /// <summary>Additive glow material, shared by every circuit — the lamps
@@ -2611,7 +3379,7 @@ namespace PSXRacing.EditorTools
                 go.transform.SetParent(parent, false);
                 // Tight against the outside of the barrier, in front of the
                 // tree line: street parking, not a scrapyard in a field.
-                Vector3 parkAt = pts[i] + right * side * (WallOffset + 1.5f);
+                Vector3 parkAt = pts[i] + right * side * (WallOffsetFor(track) + 1.5f);
                 // The forecourt is the one stretch of verge that is a road.
                 if (OnFuelPad(parkAt, 2f)) { UnityEngine.Object.DestroyImmediate(go); continue; }
                 parkAt.y = GroundHeightAt(parkAt.x, parkAt.z);
@@ -2697,7 +3465,7 @@ namespace PSXRacing.EditorTools
                     // radius round its waypoint: the pad is 36 m along the road
                     // and 30 m off it, and a circle big enough to contain that
                     // clears a great deal of ground that is not forecourt.
-                    if (OnFuelPad(pts[i] + RightAt(pts, i) * side * (WallOffset + 8f), 10f))
+                    if (OnFuelPad(pts[i] + RightAt(pts, i) * side * (WallOffsetFor(track) + 8f), 10f))
                         continue;
                     var src = children[rng.Next(children.Count)];
                     var b = (GameObject)UnityEngine.Object.Instantiate(src.gameObject);
@@ -2734,8 +3502,12 @@ namespace PSXRacing.EditorTools
                     // makes the clearance mean what it says regardless of how
                     // the mesh is centred or which building was drawn.
                     float faceOffset = local.max.z * ls.z;
+                    // Measured from THIS venue's barrier line (WallOffsetFor),
+                    // never the circuits' 10 m constant: a stage's wall hugs
+                    // its shoulder, and a wide enough road would otherwise put
+                    // a building face inside its own barrier.
                     Vector3 pos = pts[i] + right * side *
-                                  (WallOffset + BuildingClearance + faceOffset);
+                                  (WallOffsetFor(track) + BuildingClearance + faceOffset);
 
                     // Then push it back out until the WHOLE FOOTPRINT clears the
                     // barrier, not just the middle of its front wall.
@@ -2831,7 +3603,7 @@ namespace PSXRacing.EditorTools
         static bool PushClearOfTrack(List<Vector3> pts, ref Vector3 pos, Quaternion rot,
                                      Vector3 footCentre, Vector3 halfExt, Vector3 outward)
         {
-            const float Want = WallOffset + BuildingClearance;
+            float Want = WallOffsetFor(track) + BuildingClearance;
             const float MaxPush = 14f;
             float pushed = 0f;
             for (int pass = 0; pass < 32; pass++)
@@ -3419,6 +4191,39 @@ namespace PSXRacing.EditorTools
             return Mathf.Abs(d - DrivewayOffset) <= DrivewaySpan;
         }
 
+        /// <summary>
+        /// How high the street curb stands at a waypoint, per side: the full
+        /// <see cref="StreetKerbHeight"/> nearly everywhere, ZERO across each
+        /// forecourt driveway, and a one-station ramp between the two. Zero
+        /// on any venue that is not <see cref="KerbStyle.Street"/>.
+        ///
+        /// A curb that ran unbroken across the filling station's entrance is
+        /// the bug the home street had ("AND IT IS DROPPED AT EVERY DRIVE"):
+        /// a car leaving the race for fuel would mount a 15 cm step on the
+        /// way in and again on the way out. The openings are exactly the
+        /// wall's (<see cref="InWallGap"/>), so the curb drops where the
+        /// barrier does. Ramped over ONE station (4 m) rather than cut
+        /// square: 0.15 m over 4 m is 3.75%, invisible to AuditSurface's
+        /// 0.12-per-0.35 m rule, where a square cut is a 0.15 m step along
+        /// the edge lane and fails it.
+        ///
+        /// Read by BuildKerbs for the strip AND by BuildRoadEdge for the
+        /// batter behind it, so the two can never disagree about the height
+        /// of the pavement's back edge.
+        /// </summary>
+        static float KerbLiftAt(int idx, int n, float side)
+        {
+            if (KerbStyleFor(track) != KerbStyle.Street) return 0f;
+            if (!padActive || n == 0 || side != padSide) return StreetKerbHeight;
+            int d = Mathf.Abs(idx - padIdx);
+            if (Loop) d = Mathf.Min(d, n - d);
+            // Stations outside the nearest opening: 0 inside it (InWallGap's
+            // own test), 1 at the first station past its edge. The mesh
+            // interpolates the 4 m between — that is the ramp.
+            int outside = Mathf.Abs(d - DrivewayOffset) - DrivewaySpan;
+            return StreetKerbHeight * Mathf.Clamp01(outside);
+        }
+
         static void PlaceGasStation(List<Vector3> pts, Transform parent)
         {
             if (!padActive) return;
@@ -3752,7 +4557,7 @@ namespace PSXRacing.EditorTools
                 Vector3 right = RightAt(pts, i);
                 var t = new GameObject("Tree");
                 t.transform.SetParent(parent, false);
-                Vector3 treeAt = pts[i] + right * side * (WallOffset + 2.6f);
+                Vector3 treeAt = pts[i] + right * side * (WallOffsetFor(track) + 2.6f);
                 // Not through the forecourt.
                 if (OnFuelPad(treeAt, 2f)) { UnityEngine.Object.DestroyImmediate(t); continue; }
                 // Sunk 20 cm. A billboard whose base is exactly on a facet edge
@@ -3795,7 +4600,7 @@ namespace PSXRacing.EditorTools
             // The stage lives at mountain scale: the same hour table, seen
             // three times further. TimeOfDay.Apply reads the scale back at
             // runtime, so the seven hours all stretch with the venue.
-            globals.fogScale = track != null && track.stage ? StageFogScale : 1f;
+            globals.fogScale = track != null && track.stage ? theme.fogScale : 1f;
             globals.fogNear = hour.fogNear * globals.fogScale;
             globals.fogFar = hour.fogFar * globals.fogScale;
             var skyShader = Shader.Find("PSX/Sky");
@@ -3896,13 +4701,15 @@ namespace PSXRacing.EditorTools
                     float lane = (c - (CarSetups.Length - 1) * 0.5f) * laneW;
                     gridPos = pts[lineIdx] + right * lane + Vector3.up * 0.35f;
                 }
-                else if (track.stage)
+                else if (track.stage && !track.loop)
                 {
                     // A stage grids like a circuit — 2x2, player at the back —
                     // but the index walk CLAMPS on the lead-in behind the start
                     // line instead of wrapping, because wrapping backwards from
                     // waypoint 0 on a point-to-point route puts the grid at the
-                    // FINISH, seven kilometres away.
+                    // FINISH, seven kilometres away. (A LOOP stage takes the
+                    // circuit branch below: its start line is waypoint 0 and
+                    // the road behind it is the end of the lap.)
                     int lineIdx = Mathf.RoundToInt(track.stageStartLineM / Spacing);
                     int row = isPlayer ? 3 : c - 1;
                     float back = 9f + row * 6.5f;
@@ -4044,6 +4851,14 @@ namespace PSXRacing.EditorTools
                 lights.car = car;
                 lights.box = box;
 
+                // Render-only roll/dive/squat on the shell (research B6). Every
+                // car, not only the player's: an opponent that leans into a
+                // corner reads as cornering from three car-lengths back.
+                var lean = root.AddComponent<CarBodyLean>();
+                lean.car = car;
+                lean.body = shell;
+                lean.bodyRoot = body.transform;
+
                 AttachAudio(root, car, isPlayer);
                 AttachTireEffects(root, car, isPlayer);
 
@@ -4157,6 +4972,11 @@ namespace PSXRacing.EditorTools
             // standalone editor play still gets boost.)
             if (isPlayer)
             {
+                // The wind bed, player only: the field's airstream is inaudible
+                // from the driving seat, and it is two more always-on voices.
+                var wind = root.AddComponent<WindAudio>();
+                wind.car = car;
+
                 var turbo = root.AddComponent<TurboAudio>();
                 turbo.car = car;
                 turbo.aspiration = TurboAudio.Aspiration.Turbo;
@@ -4425,7 +5245,7 @@ namespace PSXRacing.EditorTools
             // The circuits end at 360 m because their fog closes before that.
             // The stage's fog closes around three times further out, and what
             // it is buying is the far wall of the valley.
-            cam.farClipPlane = track != null && track.stage ? StageFarClip : 360f;
+            cam.farClipPlane = track != null && track.stage ? theme.farClip : 360f;
             cam.clearFlags = CameraClearFlags.Skybox;
             if (track != null && track.stage)
                 camGO.AddComponent<StageCulling>();
@@ -4580,6 +5400,47 @@ namespace PSXRacing.EditorTools
             fillRT.sizeDelta = new Vector2(48f, 4f);
             hud.fuelFill = fillRT;
             hud.fuelFillWidth = 48f;
+
+            // The speed-streak overlay. On THIS canvas on purpose: HUDCanvas is
+            // ScreenSpaceCamera on the PSX camera, so a full-frame RawImage
+            // here is rasterised inside the low-res target and dithered by
+            // PSX/Blit with the world — that is what makes it read as period
+            // rather than as a modern post effect. First sibling, so every
+            // readout above draws over it. The material is a saved asset so
+            // the scene shows the wiring; SpeedLines instances it at runtime.
+            var linesShader = Shader.Find("PSX/SpeedLines");
+            if (linesShader != null)
+            {
+                var linesGO = new GameObject("SpeedLines");
+                linesGO.transform.SetParent(hudCanvasGO.transform, false);
+                linesGO.transform.SetAsFirstSibling();
+                var linesImg = linesGO.AddComponent<RawImage>();
+                linesImg.texture = AssetDatabase.LoadAssetAtPath<Texture2D>(SpeedStreaksTexPath);
+                linesImg.raycastTarget = false;
+                string lp = MatDir + "/SpeedLines.mat";
+                var linesMat = AssetDatabase.LoadAssetAtPath<Material>(lp);
+                if (linesMat == null) { linesMat = new Material(linesShader); AssetDatabase.CreateAsset(linesMat, lp); }
+                linesMat.shader = linesShader;
+                linesMat.SetFloat("_Intensity", 0f);
+                EditorUtility.SetDirty(linesMat);
+                linesImg.material = linesMat;
+                // SAVED DISABLED. SpeedLines.Awake turns it off and Update turns
+                // it on with its own material instance when there is something
+                // to draw; nothing else may ever show this image. The screenshot
+                // tool opens the scene in edit mode where no Awake runs and
+                // HudOnTop.Apply swaps every HUD graphic onto its plain material
+                // -- which drew the raw streak sheet as an opaque black panel
+                // over the whole frame of the first pass (2026-09-07).
+                linesImg.enabled = false;
+                var lrt = linesImg.rectTransform;
+                lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
+                lrt.offsetMin = Vector2.zero; lrt.offsetMax = Vector2.zero;
+                var lines = linesGO.AddComponent<SpeedLines>();
+                lines.car = player;
+                lines.image = linesImg;
+                lines.cam = cam;
+            }
+            else Log("WARN: PSX/SpeedLines missing — no speed streaks.");
 
             // The instrument cluster: a tachometer and a speedometer, built at
             // RUNTIME rather than here. Both scales come from the car — redline

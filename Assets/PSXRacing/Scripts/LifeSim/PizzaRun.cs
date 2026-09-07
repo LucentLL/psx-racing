@@ -52,6 +52,11 @@ namespace PSXRacing.LifeSim
         public static int Pay;
         public static int TrackIndex = -1;
         public static float ParSeconds;
+        /// <summary>How far round the lap the door is, 0-1 of a circuit —
+        /// rolled at the counter with the venue, because the par the player
+        /// is quoted there is sized to it. A full lap when nothing set it.
+        /// See RaceHandoff.DeliveryDropFraction.</summary>
+        public static float DropFraction = 1f;
         /// <summary>The hour the shift left the counter, captured BEFORE the
         /// slot was spent — spending the last slot rolls the day, and a run
         /// collected at night must not arrive in tomorrow's morning light.</summary>
@@ -72,6 +77,7 @@ namespace PSXRacing.LifeSim
             Pay = 0;
             TrackIndex = -1;
             ParSeconds = 0f;
+            DropFraction = 1f;
             TodIndex = 0;
             CarryCondition = 1f;
         }
@@ -85,13 +91,14 @@ namespace PSXRacing.LifeSim
         /// <summary>Take the order at the shop counter's door: everything the
         /// run needs to know later, banked before the town leg begins.</summary>
         public static void StartRun(int[] toppings, int bottles, int pay, int trackIndex,
-                                    float parSeconds, int todIndex)
+                                    float parSeconds, int todIndex, float dropFraction)
         {
             Toppings = toppings;
             Bottles = bottles;
             Pay = pay;
             TrackIndex = trackIndex;
             ParSeconds = parSeconds;
+            DropFraction = dropFraction;
             TodIndex = todIndex;
             CarryCondition = 1f;
             Carrying = true;
@@ -114,9 +121,30 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static void LaunchDelivery(LifeState S)
         {
-            if (S == null) return;
+            if (!FillDeliveryHandoff(S)) return;
+
+            int track = TrackIndex;
+            ClearRun();
+            LifeSimManager.Save();
+            SceneManager.LoadScene(TrackCatalog.SceneIndex(track));
+        }
+
+        /// <summary>
+        /// The request half of <see cref="LaunchDelivery"/>: everything the
+        /// race scene needs to know, written into RaceHandoff, and nothing
+        /// loaded. Split out so the self-test can drive a ticket through the
+        /// real fill and read the handoff back — the two fields the sprint and
+        /// the rolling start ride on cross a scene load as statics, and a
+        /// static nobody wrote is a static nobody notices until the next race
+        /// starts part-way round its first lap.
+        /// </summary>
+        /// <returns>False when there is nothing to launch: no save, no car, or
+        /// no order in the car. The run is cleared on the way out.</returns>
+        public static bool FillDeliveryHandoff(LifeState S)
+        {
+            if (S == null) return false;
             var car = S.ActiveCar;
-            if (car == null || !Carrying) { ClearRun(); return; }
+            if (car == null || !Carrying) { ClearRun(); return false; }
             if (TrackIndex < 0 || TrackIndex >= TrackCatalog.All.Length)
                 TrackIndex = LifeRules.DeliveryTrackIndex(S);
 
@@ -135,13 +163,16 @@ namespace PSXRacing.LifeSim
             RaceHandoff.TimeOfDayIndex = TodIndex;
             RaceHandoff.StartFuelPct = car.fuel;
             RaceHandoff.CarryCondition = Mathf.Clamp01(CarryCondition);
+            // The shape of the run. The fraction was rolled with the venue at
+            // the counter and the par quoted there was sized to it, so the
+            // race has to end where the quote said it would; and the car
+            // arrives at the venue's own limit rather than at a standing
+            // start — a delivery driver does not turn the key at the junction.
+            RaceHandoff.DeliveryDropFraction = DropFraction;
+            RaceHandoff.RollingStartKmh = TrackCatalog.All[TrackIndex].speedLimitKmh;
 
             LifeHomeScreen.FillCarRequestFor(S);
-
-            int track = TrackIndex;
-            ClearRun();
-            LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(track));
+            return true;
         }
 
         /// <summary>

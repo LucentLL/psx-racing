@@ -184,65 +184,46 @@ namespace PSXRacing.EditorTools
             BuildNbPlots(root.transform, mats);
             BuildNbBounds(root.transform);
 
-            // THE JUNCTION AT THE BOTTOM OF THE STREET. It used to be built
-            // inside BuildTownHome, three metres from the main road, because
-            // the home lot was a stub off that road. It belongs to the STREET
-            // now, so it is placed by whoever built the street — which is also
-            // why it moved out of the home lot: the town has no junction any
-            // more and would have inherited a menu to nowhere.
+            // THE JUNCTION AT THE BOTTOM OF THE STREET is the LINE below, and
+            // nothing else.
             //
-            // AND IT SITS ON THE ROAD, which it did not. The Y was a literal
-            // 1.4 — correct while the street was flat at zero, and 10.9 m of
-            // clear air once the street fell away under it. A 3 m box centred
-            // at 1.4 spans [-0.1, 2.9]; the tarmac here is at -10.84. The car
-            // drove underneath its own junction and was stopped by the bound
-            // wall with nothing on screen, which is "I drove to the end of the
-            // neighborhood but was not prompted or warped to town."
-            //
-            // Detection is a real trigger collider against the car's rigidbody,
-            // so there was no distance fallback that could still have fired.
-            // AND IT IS THE WHOLE END OF THE STREET, not fourteen metres of it.
-            //
-            // Seating it on the road was necessary and not sufficient: the
-            // volume still had to be STOPPED IN. TownVenue will not claim a car
-            // over 4.5 km/h — deliberately, because "driving past the junction
-            // is how you say I'm staying in town" — and it drops the claim six
-            // frames after the car leaves the box. So a player who arrives at
-            // any speed passes straight through, coasts the last fifteen metres
-            // and stops against the boundary wall with the volume behind them
-            // and no way to ask for it back: there is no distance fallback
-            // anywhere in TownVenue. That is "hits an invisible wall and does
-            // not warp me to town", reported twice.
-            //
-            // Forty metres, from below the last plot to just past where the
-            // tarmac runs out. The speed gate is untouched and still means what
-            // it says; what changes is that stopping ANYWHERE at the end of
-            // your own street is now inside the junction, which is what a
-            // player means by "the end of the road".
-            float departZ = NbStreetEnd + 18f;
-            float departLen = 40f;
-            TownTrigger(root.transform, "DepartVenue", TownVenue.Kind.Depart,
-                new Vector3(HomeStreetX, NbRoadY(departZ) + 1.8f, departZ),
-                new Vector3(HomeRoadW + 6f, 5f, departLen));
+            // There used to be a VOLUME here as well — "DepartVenue", a
+            // TownVenue.Kind.Depart forty metres long that you stopped inside
+            // and pressed at. It had a history: built inside BuildTownHome
+            // when the lot was a stub off the main road; moved out here when
+            // the street became its own map; seated on the road after its
+            // literal Y left it 10.9 m in the air; stretched from 14 m to 40
+            // because nobody could stop inside 14. Every one of those was
+            // right, and none of them answered a player who does not stop —
+            // that answer is the TownEdge below, which opens the same menu on
+            // crossing. Once it did, the volume was a SECOND menu on the same
+            // spot, and its moving-car prompt ("TAP ACTION — STOP AT THE
+            // JUNCTION", TownVenue's line for any venue you are not yet
+            // stopped in) sat in the middle of the screen for the whole last
+            // forty metres of the street, telling the player to stop at a
+            // junction they could not see on the approach to a line they were
+            // about to drive through. Removed 2026-09-07. The enum value stays
+            // because TownVenue's Depart rows still name the menu.
 
-            // AND THE LINE YOU CANNOT MISS, because the volume above is still
-            // a SIGNPOST and a signpost is not a map edge.
+            // THE LINE YOU CANNOT MISS — the end of the street, and the only
+            // junction there is now.
             //
-            // Forty metres of it was the right answer to "the junction was too
+            // It began as a companion to that volume: forty metres of
+            // stop-and-press was the right answer to "the junction was too
             // short to stop in" and no answer at all to a player who never
             // stops. TownVenue will not claim a car over 4.5 km/h and then
             // wants a PRESS — and while the car is moving AtVenue stays false,
             // so on a phone the ACTION button that press lives on is not even
-            // drawn. What the player meets instead is the boundary wall, and
-            // what happens there is worse than nothing: StuckRecovery reads a
-            // car pinned against it as stuck, RaceHUD ranks the watchdog's line
-            // ABOVE the junction's, and seven seconds later the car is
+            // drawn. What the player met instead was the boundary wall, and
+            // what happened there was worse than nothing: StuckRecovery read a
+            // car pinned against it as stuck, RaceHUD ranked the watchdog's
+            // line ABOVE the junction's, and seven seconds later the car was
             // teleported back up its own street. "I crash into an invisible
             // wall instead of being given the menu", reported three times.
             //
-            // A TownEdge and NOT a second TownVenue: TownVenue.active is a
-            // single static slot already claimed by the junction on the way
-            // down, so an overlapping second venue could never claim anything.
+            // A TownEdge and NOT a TownVenue: a venue claims a STOPPED car and
+            // waits to be pressed; this claims a car at any speed and opens
+            // the menu itself.
             //
             // FULL MAP WIDTH, exactly like the wall behind it. The run-off is a
             // hundred and sixteen metres of open grass, and a road-width line is
@@ -262,12 +243,17 @@ namespace PSXRacing.EditorTools
             junction.inward = Vector3.forward;
             // THE LINE, on the face the car crosses first coming down the
             // street — the north one, 11 m up from the volume's centre — and
-            // seated on the road's own height there, which is eleven metres
-            // below the volume's centre and the reason the volume is forty
-            // tall. Across the carriageway, not the whole map.
+            // seated on the ROAD SURFACE there (the NbStreet slab's
+            // NbRoadY + 0.02), which is eleven metres below the volume's
+            // centre and the reason the volume is forty tall. The marker seats
+            // its own parts, so this is the tarmac and not a lift above it.
+            // Across the carriageway, not the whole map: NbRoadY is a function
+            // of z alone and the last fifty metres are flat, so a level
+            // curtain is right over the full width of the road and wrong the
+            // moment it reaches the graded verge.
             float lineZ = NbStreetEnd - 5f + 11f;
             EdgeMarkers(root.transform,
-                new Vector3(HomeStreetX, NbRoadY(lineZ) + 0.55f, lineZ),
+                new Vector3(HomeStreetX, NbRoadY(lineZ) + 0.02f, lineZ),
                 Vector3.right, HomeRoadW);
 
             // ---- the player, on their own drive, pointing down the street ----

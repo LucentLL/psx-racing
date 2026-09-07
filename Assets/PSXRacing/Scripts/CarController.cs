@@ -63,11 +63,59 @@ namespace PSXRacing
         public float upshiftRPM = 7200f;
         public float downshiftRPM = 3400f;
         public float topSpeedMps = 64.75f;
-        /// <summary>Crank drag off throttle, Nm: 38 at idle rising to 78 at
-        /// redline. Deliberately modest — a 13B has no valvetrain and famously
-        /// weak engine braking. Rear-axle only, so it gives lift-off oversteer.</summary>
-        public float engineBrakeBaseNm = 38f;
-        public float engineBrakeRpmNm = 40f;
+        /// <summary>
+        /// Engine braking, as FRACTIONS OF THE ENGINE'S OWN PEAK TORQUE: this
+        /// much crank drag with the throttle shut at idle, rising linearly to
+        /// this much at redline. MW05 tunes it the same way — its VLT
+        /// ENGINE_BRAKING "multiplies maximum torque at current gear", 0.70-0.90
+        /// — and it is what gives those cars their lift-off weight: let go and
+        /// the car slows, visibly, until it stops.
+        ///
+        /// It was a flat 38 Nm rising to 78 for EVERY car: the RX-7's 13B
+        /// figure, never rescaled by ApplySpec. On the catalog's 952 Nm
+        /// muscle car that was 8% of its torque and on its 71 Nm hatchback
+        /// 110% — the small cars braked harder off throttle than they pulled
+        /// on it, and the big ones coasted like bicycles. A fraction of the
+        /// car's own peak makes the lift feel the same on all 317.
+        ///
+        /// 0.20 -> 0.60 sits under MW's 0.7-0.9 on purpose, and the reason is
+        /// arithmetic, not taste. Their number drives a scripted decel; here
+        /// it goes through the TYRES. On the reference FD (297 Nm peak, first
+        /// gear 3.65 x 4.10 x 0.88 / 0.31 m = 42.5 N per Nm) 0.9 x 297 through
+        /// first is 11.4 kN against an 8.1 kN rear friction circle — a locked
+        /// rear axle on every lift. What the chosen pair does: third gear at
+        /// 100 km/h is 5124 rpm, 0.66 of the way to redline, so the drag is
+        /// 297 x (0.20 + 0.40 x 0.66) = 138 Nm x 17.0 N/Nm = 2.34 kN, plus
+        /// ~0.40 kN of aero and rolling drag: 2.74 kN on 1280 kg = 0.22 g of
+        /// lift-off deceleration, twice a real road car's and short of a
+        /// brake. The old 64 Nm gave 0.12 g. In top gear at low revs it is
+        /// 0.05 g, which is coasting, and the auto box downshifts at 3.4 x
+        /// idle so the drag rises as the car slows — "auto brakes until it
+        /// stands still", the GTPlanet description of MW. Low gears are fenced
+        /// by <see cref="EngineBrakeRearCircleShare"/>. Starting values.
+        /// </summary>
+        public float engineBrakeFracIdle = DefaultEngineBrakeFracIdle;
+        public float engineBrakeFracRedline = DefaultEngineBrakeFracRedline;
+        public const float DefaultEngineBrakeFracIdle = 0.20f;
+        public const float DefaultEngineBrakeFracRedline = 0.60f;
+        /// <summary>
+        /// Engine braking may never take more than this share of the rear
+        /// friction circle, whatever the gear. A lift in first at redline asks
+        /// 0.60 x 297 x 42.5 = 7.6 kN of the FD's 8.1 kN circle and would leave
+        /// the rear 34% of its lateral grip mid-corner — a spin, and the
+        /// handling note says never randomly loose. At 0.45 the rear keeps
+        /// sqrt(1 - 0.45^2) = 89% of its lateral grip, so lift-off oversteer
+        /// stays a nudge the stability layer can hold. On the FD it binds in
+        /// first and second at high revs (7.6 and 4.4 kN asked) and never in
+        /// third (3.0 kN, 37%).
+        /// </summary>
+        public const float EngineBrakeRearCircleShare = 0.45f;
+        /// <summary>Peak of the STOCK torque curve, Nm — what the two fractions
+        /// multiply. Derived, never configured: the default curve's 314 for the
+        /// built-in car, the spec's own peak after ApplySpec. Stock rather than
+        /// the power-scaled curve because engine braking is displacement and
+        /// valvetrain, and a turbo stage buys none of that.</summary>
+        public float engineBrakePeakNm = 314f;
         public float clutchEngageSpeed = 3.5f;
         /// <summary>AI cars never need reverse, and holding them on the brake at
         /// the grid would otherwise select it and drive them backwards.</summary>
@@ -212,13 +260,33 @@ namespace PSXRacing
         /// the point where they are hardest to hold, instead of the hatchback
         /// gaining 60% and the GT 15% off one shared number.
         ///
-        /// 0.35 lands the reference FD at a 1.05 coefficient, which is where the
-        /// handling notes wanted this (they suggested trying 1.0-1.2 by hand);
-        /// deriving it means the same feel now transfers to all 317 cars.
-        /// The old flat 0.35 coefficient gave the FD 11% of its weight — enough
-        /// to measure and not enough to feel.
+        /// 0.35 landed the reference FD at a 1.05 coefficient, where the
+        /// handling notes first wanted it (they suggested 1.0-1.2 by hand); the
+        /// old flat 0.35 coefficient gave the FD 11% of its weight — enough to
+        /// measure and not enough to feel.
+        ///
+        /// 0.70 now, and the case for it is that downforce is TYRE grip, not
+        /// stabiliser. The 2026-08-31 note backed the arcade layer off because
+        /// a flat 0.45 g of non-tyre force was 35% of the car's lateral
+        /// budget; downforce goes the other way — it loads the wheels, the
+        /// friction circle grows with the load, so the budget itself rises
+        /// with speed (mu * g * (1 + df/W)) and the damper's share of it
+        /// FALLS. On the FD (1280 kg, vmax 81.1 m/s, front mu 1.26):
+        ///
+        ///   30 m/s (108 km/h): df/W 0.048 -> 0.096, budget 1.32 g -> 1.38 g
+        ///   50 m/s (180 km/h): df/W 0.133 -> 0.266, budget 1.43 g -> 1.60 g
+        ///   damper share of the budget at 50 m/s: 31% -> 28%
+        ///
+        /// That is the "progressively more glued as speed rises" an NFS car
+        /// has, bought with load rather than with a damper. What does NOT
+        /// move is the front's saturation angle: circle / C = mu / 11 whatever
+        /// Fz is, so the 6.6 deg of the lock note still holds and steering
+        /// lock is still not the lever. What it costs is ride height: at vmax
+        /// 0.7 x 12.6 kN over the 47/35 kN/m springs is 4.7 cm front and
+        /// 6.2 cm rear of a 30 cm rest length, which is why this stops at 0.7
+        /// and not at 1.0.
         /// </summary>
-        public float downforceWeightFractionAtVmax = 0.35f;
+        public float downforceWeightFractionAtVmax = DefaultDownforceWeightFraction;
         public float rollingResistance = 165f;
 
         [Header("Steering")]
@@ -305,6 +373,13 @@ namespace PSXRacing
         const float EbrakeMuCollapse = 0.70f;     // rear mu -> 30% at full window
         const float EbrakeKickCooldown = 0.15f;
         const float EbrakeKickBase = 1.2f;        // rad/s
+        /// <summary>Share of road speed a handbrake kick scrubs at full steer
+        /// and vmax (the source's 2.5% x 1.1). The slide is not free speed:
+        /// this is the punch's cost, and the locked rears keep charging for
+        /// the rest of the window through their own friction circle. Named
+        /// so the self-test can hold it — an NFS drift that lost no speed
+        /// would be the exploit every corner is taken with.</summary>
+        public const float EbrakeKickScrub = 0.0275f;
         const float DriveGateSpeed = 1.3f;        // source 8 gu/s
         const float ThrottleSustainWindow = 0.4f;
         const float BrakeStabWindow = 0.35f;
@@ -587,9 +662,19 @@ namespace PSXRacing
             // here too — otherwise standalone editor play and a race launched
             // from the LifeSim would be two different cars.
             DeriveDownforce();
+            engineBrakePeakNm = PeakTorque(DefaultTorqueNm);
 
             RebuildGeometry();
             currentRPM = idleRPM;
+        }
+
+        /// <summary>Peak of a torque curve, Nm. Zero for no curve, so a car
+        /// with none gets no engine braking rather than a default car's.</summary>
+        public static float PeakTorque(float[] nm)
+        {
+            float p = 0f;
+            if (nm != null) foreach (float v in nm) if (v > p) p = v;
+            return p;
         }
 
         /// <summary>
@@ -742,6 +827,9 @@ namespace PSXRacing
 
             frontDriveShare = spec.FrontDriveShare;
             topSpeedMps = spec.topSpeedMps > 1f ? spec.topSpeedMps : topSpeedMps;
+            // The STOCK curve's peak, not the power-scaled copy above.
+            if (spec.curveNm != null && spec.curveNm.Length > 0)
+                engineBrakePeakNm = PeakTorque(spec.curveNm);
             ApplyTuneHandling();
             DeriveDrag();
             DeriveDownforce();
@@ -1363,7 +1451,7 @@ namespace PSXRacing
         public const float DefaultMaxSteerDriftDeg = 45f;
         public const float DefaultSteerRateDeg = 260f;
         public const float DefaultSteerRateDriftDeg = 400f;
-        public const float DefaultDownforceWeightFraction = 0.35f;
+        public const float DefaultDownforceWeightFraction = 0.70f;
         public const float DefaultDrivetrainEfficiency = 0.88f;
         public const float DefaultFinalDrive = 4.10f;
 
@@ -1437,6 +1525,14 @@ namespace PSXRacing
             downforceRearCoef = downforceCoefficient * (1f - downforceBalanceFront);
         }
         float downforceFrontCoef, downforceRearCoef;
+
+        /// <summary>Downforce as a fraction of weight at a road speed, for a
+        /// car that carries <paramref name="fractionAtVmax"/> at its top speed:
+        /// the v^2 law <see cref="DeriveDownforce"/> solves. Static so the
+        /// self-test can pin the FD's 30 and 50 m/s figures quoted on the
+        /// field — a tuning pass that moves the fraction sees what moved.</summary>
+        public static float DownforceFractionAt(float fractionAtVmax, float speedMps, float vmaxMps) =>
+            fractionAtVmax * (speedMps * speedMps) / Mathf.Max(vmaxMps * vmaxMps, 1f);
 
         /// <summary>Lateral tire force. Ported 1:1 from tire.ts tireCurve().</summary>
         static float TireCurve(float slip, float C)
@@ -1598,7 +1694,7 @@ namespace PSXRacing
                 float dOmega = Mathf.Sign(steerInput) * EbrakeKickBase * 1.1f * massDamp *
                                surfBoost * inputScale;
                 Body.AddTorque(transform.up * dOmega, ForceMode.VelocityChange);
-                Body.linearVelocity *= 1f - 0.025f * 1.1f * inputScale;
+                Body.linearVelocity *= 1f - EbrakeKickScrub * inputScale;
                 ebrakeCooldown = EbrakeKickCooldown;
             }
             if (handbrakeInput && speed > DriveGateSpeed) EbrakeTimer = EbrakeWindow;
@@ -1653,6 +1749,26 @@ namespace PSXRacing
             steerAngleDeg = Mathf.MoveTowards(steerAngleDeg, steerTarget * maxSteer, rate * dt);
         }
 
+        /// <summary>
+        /// Revs the clutch holds the engine at on a full-pedal launch — the
+        /// old hardcoded 5200. Now bounded under the upshift point: five cars
+        /// in the catalog (Camaro IROC-Z '88, Charger 440 R/T '70, Corvette C1
+        /// '54, Jensen Interceptor '74, Chaparral 2D) redline at 5400 or below,
+        /// so 0.96 x redline is UNDER 5200 and a standing start pushed them
+        /// straight past their own upshift trigger — an automatic shift to
+        /// second from rest, then hunting between gears below 3.5 m/s where
+        /// the clutch is still slipping. The margin keeps the launch note
+        /// clearly below the shift on those cars; everything else still
+        /// launches at 5200.
+        /// </summary>
+        public const float LaunchTargetRPM = 5200f;
+        public const float LaunchUpshiftMarginRPM = 300f;
+
+        public static float LaunchRPMFor(float idleRPM, float upshiftRPM, float pedal) =>
+            Mathf.Lerp(idleRPM,
+                       Mathf.Max(idleRPM, Mathf.Min(LaunchTargetRPM, upshiftRPM - LaunchUpshiftMarginRPM)),
+                       Mathf.Clamp01(pedal));
+
         void UpdateGearbox(float dt)
         {
             if (shiftTimer > 0f) shiftTimer -= dt;
@@ -1680,7 +1796,7 @@ namespace PSXRacing
             float kinematicRPM = wheelRPM * Mathf.Abs(ratio) * finalDrive;
 
             float accelPedal = currentGear == -1 ? brakeInput : throttleInput;
-            float launchRPM = Mathf.Lerp(idleRPM, 5200f, accelPedal);
+            float launchRPM = LaunchRPMFor(idleRPM, upshiftRPM, accelPedal);
             float clutchLock = Mathf.Clamp01(speed / clutchEngageSpeed);
             kinematicRPM = Mathf.Lerp(Mathf.Max(kinematicRPM, launchRPM), kinematicRPM, clutchLock);
 
@@ -1794,6 +1910,15 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>Crank drag with the throttle at <paramref name="accelPedal"/>,
+        /// Nm: the idle-to-redline fraction of peak torque, faded out as the
+        /// pedal goes down. Static so the self-test can pin the FD's 138 Nm at
+        /// 100 km/h in third that the field comment derives.</summary>
+        public static float EngineBrakeTorque(float peakNm, float rpmNorm, float accelPedal,
+                                              float fracIdle, float fracRedline) =>
+            peakNm * Mathf.Lerp(fracIdle, fracRedline, Mathf.Clamp01(rpmNorm)) *
+            (1f - Mathf.Clamp01(accelPedal));
+
         void TireForces(float dt)
         {
             float speed = Mathf.Abs(forwardSpeed);
@@ -1815,15 +1940,22 @@ namespace PSXRacing
                 tractionForce = torque * ratio * finalDrive * drivetrainEfficiency /
                                 wheelRadius * faultAccelMult;
             }
-            // Engine braking, rear axle only and gear-scaled, so downshifting
+            // Engine braking, on the driven axle and gear-scaled, so downshifting
             // into a corner actually does something and lift-off rotates the car.
             float driveForce = tractionForce;
             if (accelPedal < 0.99f && currentGear >= 1 && speed > 0.5f)
             {
                 float rpmNorm = Mathf.Clamp01((currentRPM - idleRPM) / Mathf.Max(redlineRPM - idleRPM, 1f));
-                float tBrake = (engineBrakeBaseNm + engineBrakeRpmNm * rpmNorm) * (1f - accelPedal);
-                driveForce -= tBrake * ratio * finalDrive * drivetrainEfficiency /
-                              wheelRadius * Mathf.Sign(forwardSpeed);
+                float tBrake = EngineBrakeTorque(engineBrakePeakNm, rpmNorm, accelPedal,
+                                                 engineBrakeFracIdle, engineBrakeFracRedline);
+                float fBrake = tBrake * ratio * finalDrive * drivetrainEfficiency / wheelRadius;
+                // THE FENCE. rearCircleTotal is rebuilt further down this
+                // function, so here it still holds last tick's circle (zero on
+                // the very first tick, which is one tick of coasting). It
+                // stands in for the front's circle on a front-driver too: the
+                // static split is 50/50, and this is a ceiling, not a model.
+                fBrake = Mathf.Min(fBrake, EngineBrakeRearCircleShare * rearCircleTotal);
+                driveForce -= fBrake * Mathf.Sign(forwardSpeed);
             }
 
             float brakeForceTotal = brakePedal * brakeDemandG * massKg * 9.81f * faultBrakeMult;
@@ -2337,6 +2469,89 @@ namespace PSXRacing
             transform.SetPositionAndRotation(position + Vector3.up * ResetLift, rotation);
             currentGear = 1;
             currentRPM = idleRPM;
+            wheelSpin = 0f;
+            wheelspinRatio = 0f;
+            EbrakeTimer = 0f;
+            Drifting = false;
+            postDriftTimer = 0f;
+            impactGraceTimer = 0f;
+            ImpactGrace01 = 0f;
+        }
+
+        /// <summary>
+        /// Engine speed for a road speed in a gear, with the clutch locked —
+        /// the same arithmetic UpdateGearbox runs every tick, exposed so a
+        /// rolling start can pick its gear from it before the first tick
+        /// rather than after the first tick has already picked for it.
+        /// </summary>
+        public float KinematicRPM(float mps, int gear)
+        {
+            if (gearRatios == null || gearRatios.Length == 0) return idleRPM;
+            float wheelRPM = Mathf.Abs(mps) / (2f * Mathf.PI * wheelRadius) * 60f;
+            float ratio = gearRatios[Mathf.Clamp(gear, 1, gearRatios.Length) - 1];
+            return wheelRPM * Mathf.Abs(ratio) * finalDrive;
+        }
+
+        /// <summary>
+        /// Headroom under the upshift point a rolling start's gear is chosen
+        /// with, as a fraction of upshiftRPM. The box shifts up on the first
+        /// tick currentRPM crosses upshiftRPM, and the RPM slews at 12,000
+        /// rpm/s, so a gear picked within a few hundred rpm of the point
+        /// upshifts on the driver's first squeeze of throttle — a car that
+        /// changes gear before it has done anything. A tenth is ~720 rpm on
+        /// the RX-7, 0.06 s of slew. Starting value for tuning.
+        /// </summary>
+        public const float RollingGearHeadroom = 0.9f;
+
+        /// <summary>
+        /// The gear a car already doing <paramref name="mps"/> should be in:
+        /// the LOWEST gear whose kinematic RPM sits under the upshift point
+        /// with <see cref="RollingGearHeadroom"/> to spare, so the engine is
+        /// in the meat of its band rather than lugging at the downshift
+        /// threshold in the tallest gear that will hold the speed. Top gear if
+        /// none will, first if the car is stopped. Pure — reads the ratios and
+        /// the shift points and nothing else — so the self-test can ask it
+        /// about the built-in RX-7 and about catalog cars without a scene.
+        ///
+        /// On the built-in ratios: 45 km/h is first at ~5500 rpm, 72 km/h is
+        /// second at ~5100 (first would be 8800, over the limiter).
+        /// </summary>
+        public int GearForSpeed(float mps)
+        {
+            if (gearRatios == null || gearRatios.Length == 0) return 1;
+            float ceiling = upshiftRPM * RollingGearHeadroom;
+            for (int g = 1; g <= gearRatios.Length; g++)
+                if (KinematicRPM(mps, g) <= ceiling) return g;
+            return gearRatios.Length;
+        }
+
+        /// <summary>
+        /// Put the car on the road ALREADY MOVING, where it stands and the way
+        /// it faces: a delivery arrives at the venue's speed limit rather than
+        /// turning the key on the grid. The mirror of <see cref="ResetTo"/>
+        /// for a car that is meant to be going.
+        ///
+        /// Everything the drivetrain remembers is written to agree with the
+        /// speed — gear from <see cref="GearForSpeed"/>, RPM from the gear —
+        /// because ResetTo's "gear 1, idle" on a car doing 72 km/h is 8,800
+        /// rpm on the first tick, over the limiter until the slew and the
+        /// auto-upshift catch it. Called from RaceManager.Start, AFTER the
+        /// handoff has restaged the grid (which zeroes velocity and reseats
+        /// the car, so the forward vector has to be read after it) and BEFORE
+        /// the first FixedUpdate (so PizzaCargo seeds its velocity memory on
+        /// a car that is already moving instead of reading the step as a
+        /// crash — ForgetMotion below is belt and braces for the same thing).
+        /// </summary>
+        public void SetRolling(float mps)
+        {
+            if (Body != null)
+            {
+                Body.linearVelocity = transform.forward * mps;
+                Body.angularVelocity = Vector3.zero;
+            }
+            PizzaCargo.Instance?.ForgetMotion();
+            currentGear = GearForSpeed(mps);
+            currentRPM = Mathf.Clamp(KinematicRPM(mps, currentGear), idleRPM, revLimitRPM);
             wheelSpin = 0f;
             wheelspinRatio = 0f;
             EbrakeTimer = 0f;

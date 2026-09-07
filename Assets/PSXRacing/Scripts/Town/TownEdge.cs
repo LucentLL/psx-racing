@@ -18,12 +18,19 @@ namespace PSXRacing.Town
     /// four hundred metres of the same town. Leaving town by driving out of it
     /// is the thing the fiction was already describing.
     ///
-    /// NOT a menu, deliberately. Every other departure in this game asks first,
-    /// because every other departure is reversible and the player might have
-    /// been passing. This one is not: you cannot be carrying somebody's dinner
-    /// to the edge of town by accident, and being asked to confirm the errand
-    /// you are visibly running is the toll booth the junction was already told
-    /// off for being.
+    /// A LINE, AND CROSSING IT OPENS THE MENU — both modes, no stopping, no
+    /// press. The owner's rule is one rule for every zone edge: "a dividing
+    /// line on edges of areas, when driven through, takes you to the menu;
+    /// your car does not keep going; the sound fades out." The old argument
+    /// that a delivery must never be asked to confirm still holds and is
+    /// answered on the panel instead: MAKE THE DELIVERY is its first,
+    /// highlighted row, one tap. What keeps this from being the toll booth
+    /// the junction was once told off for being is the LATCH below, measured
+    /// on position and side, so TURN BACK is not asked again until the car
+    /// has genuinely driven away and come back. The line the player SEES is
+    /// the builder's EdgeMarkers — a curtain, a bar and two posts, no
+    /// collider — on the face of this volume the car crosses first; there is
+    /// no stop-and-press junction volume behind it any more.
     ///
     /// The claim rules are <see cref="TownVenue"/>'s, for the reasons listed
     /// there: identity is the FuelTank plus a PlayerCarInput, the prompt is a
@@ -68,12 +75,17 @@ namespace PSXRacing.Town
         /// THE SPEED LIMIT, and the speed a car arrives at.
         ///
         /// "Warp going through the next area's border at speed limit." There
-        /// was no speed limit in the game, so this is it: 45 km/h, a town
+        /// was no speed limit in the game, so this was it: 45 km/h, a town
         /// street. A car placed inside the line rolling at this reads as having
         /// come through it, and it is slow enough that the three-tenths of a
         /// second before the driver has the controls costs nothing.
+        ///
+        /// Now the CATALOG's default: every venue carries its own limit
+        /// (TrackDef.speedLimitKmh) and a delivery rolls into a circuit at it,
+        /// so the town and the circuits share the one number rather than each
+        /// keeping a 45 that would drift apart.
         /// </summary>
-        public const float ArrivalKmh = 45f;
+        public const float ArrivalKmh = TrackCatalog.DefaultSpeedLimitKmh;
 
         /// <summary>
         /// Set by the departure menu when it leaves for a DRIVABLE scene, read
@@ -113,14 +125,15 @@ namespace PSXRacing.Town
         public void BeginArrival() { arriving = true; asked = false; }
 
         /// <summary>Centre-banner line, drained by RaceHUD beside GasPump's and
-        /// TownVenue's. Null when nobody is near an edge.</summary>
+        /// TownVenue's. ALWAYS NULL NOW: an edge no longer prompts and waits,
+        /// it opens the menu on crossing. Kept because RaceHUD's coalesce
+        /// chain reads it, and so a later edge that does want to say
+        /// something has the slot.</summary>
         public static string Prompt { get; private set; }
 
-        /// <summary>True while that line is one a PRESS would answer, so the
-        /// touch ACTION button can be drawn for it. Beside GasPump.AtPump and
-        /// TownVenue.AtVenue in RaceHUD's one-button chain — without it the
-        /// edge printed "TAP ACTION — HEAD HOME" on a phone over a button
-        /// that was not there.</summary>
+        /// <summary>True while that line was one a PRESS would answer. ALWAYS
+        /// FALSE NOW, for the same reason; StuckRecovery still reads it as
+        /// "parked on purpose", which a car crossing a line never is.</summary>
         public static bool AtEdge { get; private set; }
 
         /// <summary>Set the frame the run launches, so a second trigger volume
@@ -189,15 +202,17 @@ namespace PSXRacing.Town
 
             // THE END OF YOUR OWN STREET, and it does not wait to be asked.
             //
-            // The junction volume behind this line still has to be STOPPED in
-            // and PRESSED at, which was right while this was a TURNING off the
-            // town's main road: driving past it meant carrying on into town.
-            // It is the end of a cul-de-sac now, and a player who arrives at
-            // speed meets the boundary wall instead — where StuckRecovery
-            // calls them stuck, RaceHUD ranks the watchdog's line above the
-            // junction's, and seven seconds later the car is teleported back up
-            // its own street. Reported, three times, as "I crash into an
-            // invisible wall instead of being given the menu".
+            // There was a junction VOLUME behind this line that had to be
+            // STOPPED in and PRESSED at, which was right while this was a
+            // TURNING off the town's main road: driving past it meant carrying
+            // on into town. It is the end of a cul-de-sac now, and a player
+            // who arrived at speed met the boundary wall instead — where
+            // StuckRecovery called them stuck, RaceHUD ranked the watchdog's
+            // line above the junction's, and seven seconds later the car was
+            // teleported back up its own street. Reported, three times, as "I
+            // crash into an invisible wall instead of being given the menu".
+            // The volume is gone (its moving-car prompt was the stale "STOP AT
+            // THE JUNCTION" banner); this line IS the junction.
             //
             // NOT forked on PizzaRun.Carrying like the town's edges: the panel
             // makes the delivery its own first row when there is an order on
@@ -275,28 +290,6 @@ namespace PSXRacing.Town
             if (heldInput != null) heldInput.inputEnabled = false;
             if (heldCar != null) heldCar.handbrakeInput = true;
             panel.Open();
-        }
-
-        /// <summary>The same USE verb every venue in the town answers to —
-        /// F, pad-south, or the touch ACTION button. Duplicated from TownVenue
-        /// rather than shared because that one is an instance method gated on
-        /// the venue that has CLAIMED the car, and an edge claims nothing.
-        /// </summary>
-        static bool HomePressed()
-        {
-            var kb = UnityEngine.InputSystem.Keyboard.current;
-            if (kb != null && kb.fKey.wasPressedThisFrame) return true;
-            var pad = UnityEngine.InputSystem.Gamepad.current;
-            if (pad != null && pad.buttonSouth.wasPressedThisFrame) return true;
-            var touch = TouchControls.Instance;
-            return touch != null && touch.Visible && touch.ActionPressed;
-        }
-
-        static string HomeControlName()
-        {
-            if (TouchControls.Instance != null && TouchControls.Instance.Visible)
-                return "TAP ACTION";
-            return UnityEngine.InputSystem.Gamepad.current != null ? "PRESS X / A" : "PRESS F";
         }
 
         void Update()

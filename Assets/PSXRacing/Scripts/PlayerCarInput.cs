@@ -32,6 +32,32 @@ namespace PSXRacing
         public float steerReleaseRate = DefaultSteerReleaseRate;
         public const float DefaultSteerReleaseRate = 3.0f;
 
+        /// <summary>
+        /// The release rate is SPEED-SCALED, which is the part of caster the
+        /// flat 3.0 never had. A real self-aligning torque grows with the
+        /// lateral force the tyre is making, and at a given lock that grows
+        /// with speed — so a wheel let go in a parking lot drifts back, and
+        /// one let go at 150 km/h snaps back. NFS Underground and MW05 are
+        /// built on that visible return. The multiplier runs 0.5x at rest to
+        /// 1.5x at <see cref="ReleaseRateFullMps"/> (40 m/s, 144 km/h) and
+        /// holds there: 1.5 units/s (0.67 s from full lock) parking, the old
+        /// 3.0 at 20 m/s, 4.5 (0.22 s) on a fast straight.
+        ///
+        /// Never the slower of the two filters in series: CarController's own
+        /// actuator unwinds at 260 deg/s over a lock of 34 deg at rest (7.6
+        /// units/s) and 18 deg at 40 m/s (14 units/s), so the release here is
+        /// what the player sees at every speed, and it can never be the thing
+        /// that makes the car feel late. Asserted by the self-test.
+        /// </summary>
+        public const float ReleaseRateLowMul = 0.5f;
+        public const float ReleaseRateHighMul = 1.5f;
+        public const float ReleaseRateFullMps = 40f;
+
+        /// <summary>Steer units per second the wheel unwinds at a road speed.</summary>
+        public static float ReleaseRateAt(float speedMps, float baseRate) =>
+            baseRate * Mathf.Lerp(ReleaseRateLowMul, ReleaseRateHighMul,
+                                  Mathf.Clamp01(Mathf.Abs(speedMps) / ReleaseRateFullMps));
+
         CarController car;
         float steerAxis;
         public bool inputEnabled = true;
@@ -197,6 +223,12 @@ namespace PSXRacing
             }
             else
             {
+                // The keyboard, a released touch wheel (its Axis goes null the
+                // moment the finger lifts) and a pad stick inside its
+                // deadband all arrive here: every analog source self-centres
+                // through the same speed-scaled unwind, and the touch wheel's
+                // rim is driven from the result below, so what the player
+                // sees the wheel do IS what the car is doing.
                 steerAxis = SlewRelease(steerAxis, kbSteer, Time.deltaTime);
             }
 
@@ -221,7 +253,8 @@ namespace PSXRacing
             bool flipping = target != 0f && current != 0f &&
                             Mathf.Sign(target) != Mathf.Sign(current);
             if (addingLock || flipping) return target;
-            return Mathf.MoveTowards(current, target, steerReleaseRate * dt);
+            float rate = ReleaseRateAt(car != null ? car.forwardSpeed : 0f, steerReleaseRate);
+            return Mathf.MoveTowards(current, target, rate * dt);
         }
     }
 }

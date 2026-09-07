@@ -38,10 +38,17 @@ namespace PSXRacing
         /// the radius made the guarded circle half the size the source protects.
         /// </summary>
         const float HubDeadbandFrac = 0.15f;
-        /// <summary>How fast the rim eases back once released, in degrees/sec.
-        /// Separate from the steering slew in PlayerCarInput: this one is purely
-        /// cosmetic, and the source deliberately runs the two at similar but
-        /// independent rates.</summary>
+        /// <summary>
+        /// How fast the rim eases back once released, in degrees/sec — the
+        /// FALLBACK only. While a PlayerCarInput is driving the car it
+        /// reflects its own slewed steer axis into <see cref="SetVisualAxis"/>
+        /// every frame, and that wins: the rim then unwinds at exactly the
+        /// speed-scaled release rate the car is steering by, so the picture
+        /// and the physics agree. This rate only runs when nobody reflects
+        /// (a frozen window, a scene with no driver), and it used to fight
+        /// the reflection — 750 deg/s here against the slew's 495, with the
+        /// winner decided by component Update order.
+        /// </summary>
         public float visualReturnDegPerSec = 750f;
 
         /// <summary>-1..1, or null when nothing is touching the wheel — the null
@@ -57,6 +64,8 @@ namespace PSXRacing
         float prevAngleRad;       // last sampled finger angle
         float cumDeltaDeg;        // accumulated rotation this drag
         bool hasPrevAngle;
+        float reflectedRotDeg;    // where the car says the wheel is
+        bool reflected;           // ...and whether it said so since last Update
 
         void Awake() => self = GetComponent<RectTransform>();
 
@@ -72,20 +81,28 @@ namespace PSXRacing
 
             if (!Active)
             {
-                // Ease home. The physics axis already went null on release, so
-                // this is only the picture catching up with the car.
-                currentRotDeg = Mathf.MoveTowards(currentRotDeg, 0f,
-                                                  visualReturnDegPerSec * Time.deltaTime);
+                // The physics axis already went null on release, so this is
+                // only the picture catching up with the car — and the car
+                // knows best where its own wheel is. Take the reflected axis
+                // when there is one; ease home on our own only when nobody is
+                // driving.
+                if (reflected) currentRotDeg = reflectedRotDeg;
+                else currentRotDeg = Mathf.MoveTowards(currentRotDeg, 0f,
+                                                       visualReturnDegPerSec * Time.deltaTime);
             }
+            reflected = false;
             if (rim != null) rim.localRotation = Quaternion.Euler(0f, 0f, -currentRotDeg);
         }
 
-        /// <summary>Drive the rim from keyboard or gamepad so the wheel is not a
-        /// dead prop for players who never touch it. Ignored mid-drag.</summary>
+        /// <summary>Drive the rim from the car's own steer axis — keyboard,
+        /// gamepad, or the speed-scaled unwind after the finger lifts — so the
+        /// wheel is never a dead prop and never disagrees with the physics.
+        /// Ignored mid-drag; consumed on the next Update.</summary>
         public void SetVisualAxis(float axis)
         {
             if (Active) return;
-            currentRotDeg = Mathf.Clamp(axis, -1f, 1f) * MaxRotationDeg;
+            reflectedRotDeg = Mathf.Clamp(axis, -1f, 1f) * MaxRotationDeg;
+            reflected = true;
         }
 
         bool TryAngle(Vector2 screenPos, out float angleRad)

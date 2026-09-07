@@ -309,7 +309,12 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void BuildStageHomes(List<Vector3> pts, Transform parent)
         {
-            var root = new GameObject("BeachTown");
+            // The same pass dresses a Charlotte street when the theme hands
+            // it the city's prop set (theme.stageProps): the towers, the
+            // mid-rise blocks and the suburbs' houses, dealt by how far the
+            // lot is from Trade & Tryon. Same seating, same clearances.
+            bool city = theme.stageProps != null;
+            var root = new GameObject(city ? "StreetFront" : "BeachTown");
             root.transform.SetParent(parent, false);
 
             var defs = new List<(byte kind, GameObject prefab)>();
@@ -342,34 +347,76 @@ namespace PSXRacing.EditorTools
             Physics.queriesHitBackfaces = true;
 
             var rand = new System.Random(41);
-            int placed = 0, eats = 0, sunk = 0;
+            int placed = 0, eats = 0, sunk = 0, crowded = 0, towers = 0, blocks = 0;
             float startM = track.stageStartLineM;
             float finishM = track.FinishIndex * Spacing;
+            float lapM = pts.Count * Spacing;
+            bool loop = track.loop;
+
+            // The city's set, bucketed. Towers and blocks are ranges of kind;
+            // the block range ends where the food kinds begin (CityProps:
+            // "5..12 are the eight mid-rise shells").
+            var towerKinds = new List<byte>(); var blockKinds = new List<byte>();
+            var suburbKinds = new List<byte>(); var foodKinds = new List<byte>();
+            if (city)
+                foreach (var k in theme.stageProps)
+                {
+                    if (k >= CityProps.Tower0 && k < CityProps.Tower0 + CityProps.TowerCount) towerKinds.Add(k);
+                    else if (k >= CityProps.Block0 && k < CityProps.Burger) blockKinds.Add(k);
+                    else if (CityProps.IsFood(k)) foodKinds.Add(k);
+                    else suburbKinds.Add(k);
+                }
+            Vector2 uptown = StageUptownPoint(out bool hasUptown);
+            if (city)
+                Log(hasUptown
+                    ? $"Street front: uptown at ({uptown.x:0},{uptown.y:0}) in the stage frame, " +
+                      $"{Vector2.Distance(uptown, new Vector2(pts[0].x, pts[0].z)):0} m from waypoint 0"
+                    : "Street front: no city frame on this bake — suburbs only");
+
+            // Along-the-road occupancy per side, so two lots on one shoulder
+            // cannot overlap: the site pitch is 48-84 m and a tower's lot is
+            // up to 49 m wide.
+            var usedTo = new[] { float.NegativeInfinity, float.NegativeInfinity };
 
             for (int i = 6; i < pts.Count - 6; i += 12 + rand.Next(0, 10))
             {
                 float m = i * Spacing;
-                // clear of the staging box and the traps, and off the bridges
-                if (Mathf.Abs(m - startM) < 90f || Mathf.Abs(m - finishM) < 60f) continue;
+                // clear of the staging box and the traps, and off the bridges.
+                // On a loop the grid stands BEHIND waypoint 0, which is the
+                // far end of the lap, so the distance to the line wraps.
+                float fromStart = Mathf.Abs(m - startM);
+                if (loop) fromStart = Mathf.Min(fromStart, lapM - fromStart);
+                if (fromStart < 90f || (!loop && Mathf.Abs(m - finishM) < 60f)) continue;
                 if (OverBridge(m)) continue;
 
                 int side = rand.Next(2) == 0 ? -1 : 1;
                 Vector3 rightv = RightAt(pts, i);
                 float wobble = 14f + (float)rand.NextDouble() * 6f;
 
-                // the restaurants: one burger box past the traps, one pizzeria
-                // mid-island, then houses and trailers for everyone else
                 byte kind;
-                if (eats == 0 && m > finishM + 80f)
-                { kind = CityProps.Burger; eats++; }
-                else if (eats == 1 && m > finishM + 700f)
-                { kind = CityProps.Pizzeria; eats++; }
+                if (!city)
+                {
+                    // the restaurants: one burger box past the traps, one
+                    // pizzeria mid-island, then houses and trailers for
+                    // everyone else
+                    if (eats == 0 && m > finishM + 80f)
+                    { kind = CityProps.Burger; eats++; }
+                    else if (eats == 1 && m > finishM + 700f)
+                    { kind = CityProps.Pizzeria; eats++; }
+                    else
+                    {
+                        double r = rand.NextDouble();
+                        kind = r < 0.62 ? CityProps.House
+                             : r < 0.92 ? (byte)(CityProps.Trailer0 + rand.Next(3))
+                             : CityProps.House;
+                    }
+                }
                 else
                 {
-                    double r = rand.NextDouble();
-                    kind = r < 0.62 ? CityProps.House
-                         : r < 0.92 ? (byte)(CityProps.Trailer0 + rand.Next(3))
-                         : CityProps.House;
+                    float du = hasUptown
+                        ? Vector2.Distance(uptown, new Vector2(pts[i].x, pts[i].z)) : float.MaxValue;
+                    kind = PickCityKind(rand, du, towerKinds, blockKinds, suburbKinds, foodKinds, ref eats);
+                    if (kind == 0) continue;
                 }
 
                 var prefab = Prefab(kind);
@@ -392,12 +439,34 @@ namespace PSXRacing.EditorTools
                 float off = Mathf.Max(wobble, clear);
                 Vector3 at = pts[i] + rightv * (side * off);
 
-                // Sample the REAL surface under all four corners of the lot and
-                // the middle of it. All five must find ground, or the lot is
-                // over water or off the edge of the chunked terrain.
+                // ALONG the road: the previous lot on this shoulder must have
+                // ended before this one begins.
+                float halfAlong = Mathf.Max(def.w, def.d) * 0.5f + 3f;
+                int sideIdx = side > 0 ? 1 : 0;
+                if (m - halfAlong < usedTo[sideIdx]) { crowded++; continue; }
+
                 Vector3 face = -rightv * side;
                 var rot = Quaternion.LookRotation(face, Vector3.up);
                 Vector3 fwd = rot * Vector3.forward, rgt = rot * Vector3.right;
+
+                // ACROSS the route: every corner of the lot clear of EVERY arm
+                // of it, not only the one it fronts. The 277 belt is a ring
+                // whose arms pass within 85 m of each other, and a 49 m tower
+                // set back from one arm reaches most of the way to the next.
+                // Same test PushClearOfTrack applies to a circuit's buildings.
+                bool clearOfRoute = true;
+                float wantClear = WallOffsetFor(track) + 3f;
+                for (int c = 0; c < 4 && clearOfRoute; c++)
+                {
+                    Vector3 corner = at + rgt * (((c & 1) == 0 ? -0.5f : 0.5f) * def.w)
+                                        + fwd * (((c & 2) == 0 ? -0.5f : 0.5f) * def.d);
+                    if (PlanDistanceToPath(pts, corner) < wantClear) clearOfRoute = false;
+                }
+                if (!clearOfRoute) { crowded++; continue; }
+
+                // Sample the REAL surface under all four corners of the lot and
+                // the middle of it. All five must find ground, or the lot is
+                // over water or off the edge of the chunked terrain.
                 float lo = float.MaxValue, hi = float.MinValue;
                 bool ok = true;
                 for (int c = 0; c < 5 && ok; c++)
@@ -426,12 +495,80 @@ namespace PSXRacing.EditorTools
                 go.transform.rotation = rot * Quaternion.Euler(0f, def.yawOffsetDeg, 0f);
                 foreach (var t in go.GetComponentsInChildren<Transform>(true))
                     t.gameObject.isStatic = true;
+                usedTo[sideIdx] = m + halfAlong;
+                if (towerKinds.Contains(kind)) towers++;
+                else if (blockKinds.Contains(kind)) blocks++;
                 placed++;
             }
 
             Physics.queriesHitBackfaces = hitBackfaces;
-            Log("Beach town: " + placed + " lots (" + eats + " places to eat), " +
-                sunk + " sites rejected as wet, steep or off-mesh");
+            Log((city ? "Street front: " : "Beach town: ") + placed + " lots (" +
+                (city ? towers + " towers, " + blocks + " blocks, " : "") + eats + " places to eat), " +
+                sunk + " sites rejected as wet, steep or off-mesh, " + crowded + " as overlapping");
+        }
+
+        // ------------------------------------------------------------------
+        //  The city's prop set, dealt by distance from uptown
+        // ------------------------------------------------------------------
+        /// <summary>Towers stand inside this radius of Trade & Tryon (the
+        /// city's own CityBuildings uses ~900 m), fading out over
+        /// <see cref="CoreFadeM"/> beyond it.</summary>
+        const float CoreRadiusM = 900f, CoreFadeM = 400f;
+        /// <summary>Mid-rise blocks reach this far out, then fade.</summary>
+        const float MidRadiusM = 2600f, MidFadeM = 500f;
+        /// <summary>Houses, trailers and the drive-thrus begin here and are
+        /// all there is by the end of the fade.</summary>
+        const float SuburbFromM = 1800f, SuburbFadeM = 1200f;
+        /// <summary>Weight of a mid-rise block against a tower inside the
+        /// core: uptown is not all towers.</summary>
+        const float BlockInCoreWeight = 0.7f;
+
+        /// <summary>
+        /// Which kind of building stands on a lot <paramref name="du"/>
+        /// metres from uptown. Three soft bands — towers in the core, blocks
+        /// to the edge of it, the suburbs beyond — rolled by weight rather
+        /// than cut by radius so the transitions do not read as a fence.
+        /// The two restaurants go up once each, on the first suburban lots
+        /// the roll hands them. Returns 0 for "leave this lot empty".
+        /// </summary>
+        static byte PickCityKind(System.Random rand, float du, List<byte> towers, List<byte> blocks,
+                                 List<byte> suburb, List<byte> food, ref int eats)
+        {
+            float wT = towers.Count > 0 ? 1f - Mathf.Clamp01((du - CoreRadiusM) / CoreFadeM) : 0f;
+            float wB = blocks.Count > 0 ? (1f - Mathf.Clamp01((du - MidRadiusM) / MidFadeM)) * BlockInCoreWeight : 0f;
+            float wS = suburb.Count + food.Count > 0 ? Mathf.Clamp01((du - SuburbFromM) / SuburbFadeM) : 0f;
+            // Off the map, or past every band the theme has kinds for: the
+            // suburbs are what is left.
+            if (wT + wB + wS <= 0f) wS = suburb.Count + food.Count > 0 ? 1f : 0f;
+            float total = wT + wB + wS;
+            if (total <= 0f) return 0;
+            double r = rand.NextDouble() * total;
+            if (r < wT) return towers[rand.Next(towers.Count)];
+            if (r < wT + wB) return blocks[rand.Next(blocks.Count)];
+            if (eats < food.Count) return food[eats++];
+            if (suburb.Count == 0) return 0;
+            // Houses over trailers, as the beach town does.
+            var pick = suburb[rand.Next(suburb.Count)];
+            if (pick >= CityProps.Trailer0 && pick <= CityProps.Trailer2 && rand.NextDouble() < 0.5)
+                pick = suburb.Contains(CityProps.House) ? CityProps.House : pick;
+            return pick;
+        }
+
+        /// <summary>
+        /// Trade & Tryon in THIS stage's frame, via the registration the bake
+        /// wrote (charlotte_city.json's frame and the stage's differ only by
+        /// a translation and a tenth of a per cent of scale). False on any
+        /// bake outside Charlotte, and the caller treats every lot as
+        /// suburban.
+        /// </summary>
+        static Vector2 StageUptownPoint(out bool has)
+        {
+            has = false;
+            if (track == null || !track.stageInCity) return Vector2.zero;
+            var map = CityMap.Get();
+            if (map == null) return Vector2.zero;
+            has = true;
+            return map.uptown / CityMap.LayoutScale - track.stageCityOrigin;
         }
 
         /// <summary>
@@ -450,6 +587,12 @@ namespace PSXRacing.EditorTools
             foreach (var h in hits)
             {
                 if (h.collider.gameObject.layer == RoadLayer) continue;
+                // TERRAIN only — the ground chunks and the decks, which are
+                // the concave MeshColliders (the audits' own rule for "a
+                // surface"). A guard wall's box or a cut bank's box is a
+                // thing that STANDS on the ground, and a lot whose corner
+                // finds one seats the whole house on top of it.
+                if (!(h.collider is MeshCollider)) continue;
                 if (h.point.y > best) { best = h.point.y; found = true; }
             }
             if (found) y = best;

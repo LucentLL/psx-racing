@@ -71,6 +71,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestHomeLot), TestHomeLot);
             Guard(nameof(TestMenuNavigation), TestMenuNavigation);
             Guard(nameof(TestSleepBlocks), TestSleepBlocks);
+            Guard(nameof(TestSenseOfSpeed), TestSenseOfSpeed);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -674,9 +675,13 @@ namespace PSXRacing.EditorTools
                             new Vector3(Mathf.Cos(rad), 0f, Mathf.Sin(rad)) * 1.3f;
                         var hit = interactor.PickFrom(targets, eye,
                                                       (bed.position - eye).normalized);
-                        if (hit != null && hit.action == "SLEEP") best = "from " + (a * 45) + " deg";
+                        // BOTH words: the sentence the interactor gates on AND
+                        // the word on the thumb button, which FootScreen prints
+                        // once as "[SLEEP]" precisely because they agree.
+                        if (hit != null && hit.action == "SLEEP" && hit.verb == "SLEEP")
+                            best = "from " + (a * 45) + " deg";
                     }
-                    Check(best != null, "standing by bed " + i + " offers SLEEP",
+                    Check(best != null, "standing by bed " + i + " offers SLEEP, and its button says so",
                           best ?? "no approach to it is offered the prompt");
 
                     // AND NOT FROM THE ROOM UNDERNEATH. The bedrooms are over
@@ -771,14 +776,39 @@ namespace PSXRacing.EditorTools
             foreach (var t in TrackCatalog.All)
             {
                 Check(ids.Add(t.id), "unique id " + t.id);
+                // THE SPEED LIMIT: a road's, or none. A synthetic strip stands
+                // (0 — the tree is the start) and every road rolls, at
+                // something between a car park and a motorway. A twin is the
+                // same road the other way and carries the same limit;
+                // ReverseTwin is an explicit field list, and a field left out
+                // of it gives every twin the 45 default with no error anywhere.
+                Check(t.speedLimitKmh == 0f || (t.speedLimitKmh >= 30f && t.speedLimitKmh <= 110f),
+                      t.id + " speed limit is a road's or none", t.speedLimitKmh);
+                Check(t.drag ? t.speedLimitKmh == 0f : t.speedLimitKmh > 0f,
+                      t.id + (t.drag ? " stands: a strip has no limit" : " rolls: a road has a limit"),
+                      t.speedLimitKmh);
+                if (t.Reversed)
+                    Check(Mathf.Approximately(t.speedLimitKmh,
+                              TrackCatalog.At(TrackCatalog.IndexOf(t.reverseOf)).speedLimitKmh),
+                          t.id + " keeps its forward twin's speed limit", t.speedLimitKmh);
                 // A reverse twin has no scene of its own — it races in its
                 // forward venue s. What it owes instead is that the venue it
                 // names still exists and still has one, which is the assertion
                 // that would actually catch a rename.
+                // A loop is a STAGE shape (a ring of baked map data raced by
+                // laps); a one-way road is never offered backwards — "UPTOWN
+                // LOOP II" would be the 277 belt against traffic, every ramp
+                // the wrong way up.
+                Check(!t.loop || t.stage, t.id + " loop is a stage");
+                Check(!t.oneWay || t.noReverse, t.id + " one-way road is not offered backwards");
                 if (t.Reversed)
                 {
                     var fwd = TrackCatalog.At(TrackCatalog.IndexOf(t.reverseOf));
                     Check(fwd.id == t.reverseOf, t.id + " points at a real venue", t.reverseOf);
+                    // ReverseTwin is an explicit field list; a shape flag left
+                    // out of it makes the twin a different kind of venue.
+                    Check(t.loop == fwd.loop && t.oneWay == fwd.oneWay,
+                          t.id + " keeps its forward twin's shape flags");
                     Check(TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.id)) ==
                           TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.reverseOf)),
                           t.id + " races in " + t.reverseOf + " s scene");
@@ -799,6 +829,18 @@ namespace PSXRacing.EditorTools
                     continue;
                 }
                 Check(PSXRacingBuilder.HasTheme(t.id), t.id + " has a builder theme");
+                // THE KERB POLICY, pinned by name so a new venue cannot slip
+                // back to the red/white: "there should not be racing
+                // red/white strips on city streets. it should be concrete
+                // textured curbs." Racing only on the airfield (the one
+                // purpose-built circuit) and the two strips; every stage is
+                // its own verge; every other real road is a street curb.
+                var wantKerb = t.stage ? PSXRacingBuilder.KerbStyle.Verge
+                    : (t.id == "AirfieldSprint" || t.id == "DragQuarter" || t.id == "DragEighth")
+                        ? PSXRacingBuilder.KerbStyle.Racing
+                        : PSXRacingBuilder.KerbStyle.Street;
+                Check(PSXRacingBuilder.KerbStyleFor(t) == wantKerb,
+                      t.id + " kerb style is " + wantKerb, PSXRacingBuilder.KerbStyleFor(t));
 
                 var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
 
@@ -818,12 +860,50 @@ namespace PSXRacing.EditorTools
                     // bake becomes a 2-point token road, and the Bogue Banks
                     // bridges are legitimately 400-odd waypoints long.
                     Check(pts.Count > 100, t.id + " bakes to a real stage", pts.Count);
-                    Check(t.FinishIndex > 20 && t.FinishIndex < pts.Count - 20,
-                          t.id + " has a finish with shutdown beyond it",
-                          t.FinishIndex + " of " + pts.Count);
                     Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
-                    Check(t.stageStartLineM > 20f,
-                          t.id + " has a lead-in for the grid", t.stageStartLineM);
+                    // Map data is ODbL: the bake writes its attribution and
+                    // the HUD shows it for its first seconds, so an empty
+                    // string here is a licence gap, not a cosmetic one.
+                    Check(!string.IsNullOrEmpty(t.stageAttribution),
+                          t.id + " carries its map attribution");
+                    // The bake was cut for a width. The lane ladder and the
+                    // barrier line are both derived from the CATALOG's number,
+                    // so a row that disagrees with its bake is a road half the
+                    // width of the map it was cut from. Older bakes do not say.
+                    Check(t.stageRoadWidthM <= 0f || Mathf.Approximately(t.stageRoadWidthM, t.roadWidth),
+                          t.id + " catalog width matches its bake",
+                          t.roadWidth + " vs bake " + t.stageRoadWidthM);
+                    // The Charlotte bakes register into the city's frame (that
+                    // is how the street front finds uptown); a bake that says
+                    // it is in the city must put its origin inside the city.
+                    bool clt = t.id == "UptownLoop" || t.id == "TryonSprint" || t.id == "IndependenceSprint";
+                    Check(t.stageInCity == clt,
+                          t.id + (clt ? " registers into Charlotte's frame" : " is not in Charlotte"));
+                    if (t.stageInCity)
+                        Check(t.stageCityOrigin.magnitude < 20000f,
+                              t.id + " origin is inside the city", t.stageCityOrigin);
+                    if (t.loop)
+                    {
+                        // A LOOP stage: waypoint 0 is the line, there is no
+                        // finish, and the ring must actually close — the
+                        // builder wraps the last segment as road, so a gap
+                        // there is a chord drawn across the map.
+                        float seam = Vector3.Distance(pts[pts.Count - 1], pts[0]);
+                        Check(seam <= TrackCatalog.Spacing * 1.5f,
+                              t.id + " closes into a ring", seam.ToString("0.00") + " m");
+                        Check(t.FinishIndex == -1, t.id + " has no finish line", t.FinishIndex);
+                        Check(t.stageStartLineM == 0f, t.id + " starts at waypoint 0", t.stageStartLineM);
+                        Check(t.laps >= 1, t.id + " races at least one lap", t.laps);
+                        Check(!t.dragEvent, t.id + " is a lap, not a drag event");
+                    }
+                    else
+                    {
+                        Check(t.FinishIndex > 20 && t.FinishIndex < pts.Count - 20,
+                              t.id + " has a finish with shutdown beyond it",
+                              t.FinishIndex + " of " + pts.Count);
+                        Check(t.stageStartLineM > 20f,
+                              t.id + " has a lead-in for the grid", t.stageStartLineM);
+                    }
                     // A REAL ROAD IS ALLOWED TO BE TIGHTER THAN A DESIGNED ONE.
                     //
                     // The circuits' floor is 18 m because their shapes are
@@ -909,6 +989,41 @@ namespace PSXRacing.EditorTools
                 var thumb = TrackCatalog.Thumbnail(t, 96);
                 Check(thumb != null && OpaquePixels(thumb) > 200, t.id + " draws a map",
                       thumb != null ? OpaquePixels(thumb) : 0);
+            }
+
+            // THE SAVE THAT REMEMBERED A TWIN. Version-10 saves were written
+            // against thirteen authored venues with the twins from index 13;
+            // appending the Charlotte venues moved the twins, so a v10 index
+            // has to be re-read through RemapV10Index. Pinned on the twins'
+            // ids rather than on numbers, so the next append cannot quietly
+            // break this again: the old first twin was Sunset City's, the old
+            // last (index 19) was Beech Gap's, and everything authored stays
+            // exactly where it was.
+            {
+                int cityRev = TrackCatalog.IndexOf("CityCircuitRev");
+                int beechRev = TrackCatalog.IndexOf("BeechGapRev");
+                Check(TrackCatalog.V10AuthoredCount == 13, "the v10 layout is thirteen authored venues");
+                Check(TrackCatalog.RemapV10Index(0) == 0, "a v10 authored index stays put (0)");
+                Check(TrackCatalog.RemapV10Index(12) == 12, "a v10 authored index stays put (12)");
+                Check(TrackCatalog.RemapV10Index(13) == cityRev,
+                      "the old first twin is still Sunset City II", TrackCatalog.At(TrackCatalog.RemapV10Index(13)).id);
+                Check(TrackCatalog.RemapV10Index(19) == beechRev,
+                      "the old last twin is still Beech Gap II", TrackCatalog.At(TrackCatalog.RemapV10Index(19)).id);
+                Check(TrackCatalog.RemapV10Index(-3) == 0 && TrackCatalog.RemapV10Index(999) == TrackCatalog.All.Length - 1,
+                      "and a nonsense index clamps like At() does");
+                // A whole seeded career, not a bare LifeState: Migrate walks
+                // the cars and the mail on the way through, and a state with
+                // null lists would die in a step this test is not about.
+                var v10 = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
+                v10.saveVersion = 10;
+                v10.trackIndex = 15;
+                v10.bookings = new System.Collections.Generic.List<RaceBooking> {
+                    new RaceBooking { day = 3, trackIndex = 19 }, new RaceBooking { day = 4, trackIndex = 2 } };
+                LifeSimManager.Migrate(v10);
+                Check(v10.saveVersion >= 11 && v10.trackIndex == TrackCatalog.IndexOf("RidgePassRev"),
+                      "migrating a v10 save keeps its remembered twin (RIDGE PASS II)", TrackCatalog.At(v10.trackIndex).id);
+                Check(v10.bookings[0].trackIndex == beechRev && v10.bookings[1].trackIndex == 2,
+                      "and re-points its bookings the same way", v10.bookings[0].trackIndex);
             }
 
             // Every SCENED venue is at its own index; a reverse twin resolves
@@ -1006,11 +1121,13 @@ namespace PSXRacing.EditorTools
             TestPizzaCargo();
             TestParkedCarHolds();
             TestVertexSnapOff();
+            TestKerbBuild();
             TestWalkInScenesRender();
             TestTownScene();
             TestNeighborhoodScene();
             TestReverseGrid();
             TestReversedStageDistance();
+            TestDeliverySprint();
             TestNoDeletedMeshes();
             TestPizzaCounter();
             TestPaintShop();
@@ -1452,7 +1569,11 @@ namespace PSXRacing.EditorTools
             int checkedStages = 0;
             foreach (var t in TrackCatalog.All)
             {
-                if (!t.stage || !t.CanReverse) continue;
+                // A loop stage has no ends to flip — its twin, if it had one,
+                // would rotate about waypoint 0 like a circuit's and race the
+                // same lap. (None does today: both loop-capable venues are
+                // one-way freeways and say noReverse.)
+                if (!t.stage || !t.CanReverse || t.loop) continue;
 
                 var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
                 if (pts == null || pts.Count < 8) continue;
@@ -1489,6 +1610,129 @@ namespace PSXRacing.EditorTools
                 checkedStages++;
             }
             Check(checkedStages > 0, "there are reversible stages to check", checkedStages);
+        }
+
+        /// <summary>
+        /// A DELIVERY IS A SPRINT THAT STARTS ROLLING, and both halves are
+        /// arithmetic that never needs a scene.
+        ///
+        /// The finish: for every circuit and every fraction the counter can
+        /// roll — and the two it cannot, 0 and 1 — the door has to land inside
+        /// the lap and clear of the lap-crossing window at both ends, or a
+        /// frame could be a lap and a finish at once. Checked on the list
+        /// turned round as well, which is how a twin races: the count does
+        /// not change, so a twin's sprint needs no remap — asserted rather
+        /// than assumed.
+        ///
+        /// The gear: a car put down at 45 or 72 km/h in "first, idle", which
+        /// is what ResetTo hands out, is 5,500 or 8,800 rpm on the first tick,
+        /// the second over the limiter. GearForSpeed has to pick a gear whose
+        /// RPM sits under the upshift point on the built-in RX-7 AND on
+        /// catalog cars, whose ratios are solved from their own top speed.
+        /// </summary>
+        static void TestDeliverySprint()
+        {
+            Line("delivery sprint:");
+
+            int circuits = 0;
+            foreach (var t in TrackCatalog.All)
+            {
+                if (t.drag || t.stage || t.city || t.Reversed) continue;
+                var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
+                int n = pts.Count;
+                foreach (float f in new[] { 0f, LifeRules.DeliveryDropMin, LifeRules.DeliveryDropMax, 1f })
+                {
+                    int idx = RaceManager.SprintFinishIndexFor(n, f);
+                    Check(idx >= RaceManager.SprintFinishMinIndex &&
+                          idx <= n - RaceManager.SprintFinishEndMargin,
+                          t.id + " sprint at " + f.ToString("0.00") + " finishes inside the lap",
+                          idx + " of " + n);
+                }
+                // The rolled band lands where it says: a 0.7 drop finishes at
+                // 70% of the lap to within a station, so the par quoted off
+                // DeliveryMeters is the distance actually driven.
+                int mid = RaceManager.SprintFinishIndexFor(n, 0.7f);
+                float midM = mid * TrackCatalog.Spacing, quotedM = LifeRules.DeliveryMeters(t, 0.7f);
+                Check(Mathf.Abs(midM - quotedM) <= TrackCatalog.Spacing,
+                      t.id + " sprint finish is where the par was measured to",
+                      midM.ToString("0") + " m vs " + quotedM.ToString("0") + " m");
+
+                // The twin. Through TrackPath.ReverseInPlace, the real call, so
+                // a reversal that ever dropped or doubled a waypoint would show
+                // up here as a finish that moved.
+                var go = new GameObject("SprintProbe");
+                var tp = go.AddComponent<PSXRacing.TrackPath>();
+                tp.waypoints = pts.ToArray();
+                tp.spacing = TrackCatalog.Spacing;
+                tp.ReverseInPlace();
+                Check(tp.Count == n, t.id + " II has the same station count", tp.Count + " vs " + n);
+                int revIdx = RaceManager.SprintFinishIndexFor(tp.Count, LifeRules.DeliveryDropMax);
+                Check(revIdx >= RaceManager.SprintFinishMinIndex &&
+                      revIdx <= tp.Count - RaceManager.SprintFinishEndMargin,
+                      t.id + " II sprint finishes inside its lap", revIdx + " of " + tp.Count);
+                Object.DestroyImmediate(go);
+                circuits++;
+            }
+            Check(circuits > 0, "there are circuits to sprint on", circuits);
+            // A loop too short to hold both margins is no sprint at all: laps.
+            Check(RaceManager.SprintFinishIndexFor(12, 0.7f) == -1,
+                  "a token road cannot host a sprint", RaceManager.SprintFinishIndexFor(12, 0.7f));
+
+            // ---- the gear ------------------------------------------------
+            CheckRollingGear(null, "built-in RX-7");
+            // Two catalog cars with their own ratios: the first entry and the
+            // last, which is how the tuning test picks its probes too.
+            if (CarCatalog.All.Count > 1)
+            {
+                CheckRollingGear(CarCatalog.All[0], CarCatalog.All[0].name);
+                CheckRollingGear(CarCatalog.All[CarCatalog.All.Count - 1],
+                                 CarCatalog.All[CarCatalog.All.Count - 1].name);
+            }
+        }
+
+        /// <summary>
+        /// The rolling-start gear picks for one car, built-in or catalog. Stood
+        /// up headlessly the way the tuning bench does it; edit mode runs no
+        /// Awake, so the bench invokes it.
+        /// </summary>
+        static void CheckRollingGear(CarSpec spec, string who)
+        {
+            var car = TuneBenchCar(spec ?? CarCatalog.All[0]);
+            if (spec != null) car.ApplySpec(spec);
+            // The built-in case is the controller's OWN numbers: the bench
+            // writes a model's wheel radius over them, and the expected gears
+            // below were worked out from the 0.31 m the class ships with.
+            else car.wheelRadius = 0.31f;
+
+            int g45 = car.GearForSpeed(45f / 3.6f);
+            int g72 = car.GearForSpeed(72f / 3.6f);
+            int g0 = car.GearForSpeed(0f);
+            if (spec == null)
+            {
+                Check(g45 == 1, who + ": 45 km/h rolls off in first", g45);
+                Check(g72 == 2, who + ": 72 km/h rolls off in second", g72);
+            }
+            Check(g0 == 1, who + ": a standing car is in first", g0);
+            foreach (var kmh in new[] { 45f, 56f, 72f, 89f })
+            {
+                float mps = kmh / 3.6f;
+                int g = car.GearForSpeed(mps);
+                float rpm = car.KinematicRPM(mps, g);
+                // Under the upshift point — or top gear, for a car so slow
+                // that nothing holds the speed, where the rule has no better
+                // answer and the box will sort it out.
+                Check(g >= 1 && g <= car.gearRatios.Length &&
+                      (rpm <= car.upshiftRPM || g == car.gearRatios.Length),
+                      who + ": " + kmh + " km/h in gear " + g + " sits under the upshift point",
+                      rpm.ToString("0") + " rpm vs " + car.upshiftRPM.ToString("0"));
+                // And not lugging: the gear below would be over the headroom
+                // ceiling, or this IS first. Otherwise the pick is a taller
+                // gear than the speed needs.
+                Check(g == 1 || car.KinematicRPM(mps, g - 1) >
+                                car.upshiftRPM * CarController.RollingGearHeadroom,
+                      who + ": and the gear below " + g + " would be over", g);
+            }
+            TuneDrop(car);
         }
 
         /// <summary>
@@ -1672,8 +1916,13 @@ namespace PSXRacing.EditorTools
             Check(world != null && world.homeDoor != null,
                   "and walk in through your own garage door");
 
-            // The two that moved out of the town. Without HOME the house is
-            // scenery; without DEPART the road ends in a wall.
+            // HOME moved out of the town with the house. DEPART did not come
+            // with it: the junction VOLUME — stop inside forty metres, then
+            // press — is gone (2026-09-07). The end of the street is a LINE
+            // now (the TownEdge checked below) and crossing it opens the same
+            // menu; a second stop-and-press menu on the same spot was the
+            // stale "TAP ACTION — STOP AT THE JUNCTION" banner over every
+            // moving car on the last forty metres of the street.
             bool home = false, depart = false;
             foreach (var v in venues)
             {
@@ -1681,7 +1930,7 @@ namespace PSXRacing.EditorTools
                 if (v.kind == PSXRacing.Town.TownVenue.Kind.Depart) depart = true;
             }
             Check(home, "your house is somewhere you can pull up and go in");
-            Check(depart, "and the end of the road asks where you are going");
+            Check(!depart, "and there is no junction volume to stop and press at — the line is the junction");
 
             // Tarmac on the ROAD LAYER. CarController decides onRoad by layer
             // number, so a street left on layer 0 is a whole session of
@@ -1720,22 +1969,10 @@ namespace PSXRacing.EditorTools
                       " m, trigger " + col.bounds.min.y.ToString("0.00") +
                       ".." + col.bounds.max.y.ToString("0.00"));
 
-                // A VENUE YOU MUST STOP INSIDE HAS TO BE LONG ENOUGH TO STOP
-                // IN. TownVenue will not claim a car over 4.5 km/h and drops
-                // the claim six frames after it leaves the box, so a volume
-                // shorter than a braking distance can only ever be used by
-                // somebody who was already crawling. The junction was 14 m at
-                // the bottom of a street a car arrives down at speed: the
-                // player passed through it every time, coasted on and stopped
-                // against the boundary wall with nothing on screen. Twice.
-                //
-                // DEPART only. HOME is small on purpose — you arrive at your
-                // own garage door off your own drive, already slow.
-                if (v.kind == PSXRacing.Town.TownVenue.Kind.Depart)
-                    Check(Mathf.Max(col.bounds.size.x, col.bounds.size.z) >= 24f,
-                          "the junction is long enough to stop in",
-                          Mathf.Max(col.bounds.size.x, col.bounds.size.z)
-                              .ToString("0.0") + " m");
+                // (The "long enough to stop in" rule that stood here was
+                // DEPART's — 24 m, after a 14 m junction nobody could stop
+                // inside — and DEPART is gone. The LINE below is the thing
+                // that has to be deep enough now, and it is measured there.)
             }
 
             // AND A LINE FOR THE PLAYER WHO DOES NOT STOP.
@@ -1789,9 +2026,109 @@ namespace PSXRacing.EditorTools
                     }
             }
 
+            // AND THE LINE HAS TO BE SEEN — see CheckZoneLine.
+            CheckZoneLine(scene, line, 9f, "the end of your street");
+
             TestDrivesReachTheirGarages(scene);
 
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+        }
+
+        /// <summary>
+        /// THE LINE HAS TO BE SEEN, and a builder cannot tell.
+        ///
+        /// Every assertion about an edge is about the TRIGGER — that it
+        /// exists, that it is wide and deep enough, that nothing solid stands
+        /// before it — and all of it held while the owner reported "I still
+        /// don't see a barrier line", because the marker was nine three-pixel
+        /// specks on an additive shader. What CAN be asserted without a
+        /// picture: the row exists; its curtain wears the alpha-blended
+        /// shader (additive cannot darken a sky); it spans the carriageway; it
+        /// is tall enough to read from 100 m; it stands ON the tarmac rather
+        /// than floating or buried (a raycast, for the reason the venue check
+        /// gives); it sits on the face of the trigger the car crosses first;
+        /// and nothing in it has a collider. Whether it READS is ZoneLineShot's
+        /// job, which counts pixels from the chase rig.
+        /// </summary>
+        /// <param name="roadWidth">The carriageway the curtain must span — the
+        /// builder's TownRoadW (11) or HomeRoadW (9), which are private to it.
+        /// A literal here is a second copy on purpose: a road that silently
+        /// narrowed should fail this, not move it.</param>
+        static void CheckZoneLine(UnityEngine.SceneManagement.Scene scene,
+                                  PSXRacing.Town.TownEdge edge, float roadWidth, string who)
+        {
+            if (edge == null) return;   // the caller has already reported the missing edge
+
+            // The town hangs the row under its trigger; the neighbourhood's
+            // sits beside the volume under the map root. Walk THIS scene's
+            // roots, never GameObject.Find, which answers out of whichever
+            // scene the runner happens to have loaded.
+            Transform row = edge.transform.Find("ZoneLine");
+            if (row == null)
+                foreach (var go in scene.GetRootGameObjects())
+                {
+                    foreach (var t in go.GetComponentsInChildren<Transform>(true))
+                        if (t.name == "ZoneLine") { row = t; break; }
+                    if (row != null) break;
+                }
+            Check(row != null, who + " is marked by a zone line");
+            if (row == null) return;
+
+            // THE DOTS. The owner's choice over a curtain, and the reason the
+            // first row failed is what is pinned here: each knot must be big
+            // enough to be a dot at 40 m on a 240-line frame (~0.5 m), opaque
+            // and self-lit rather than additive glow (which washed out over a
+            // daylight sky), and the row must span the carriageway.
+            var knots = new System.Collections.Generic.List<MeshRenderer>();
+            foreach (var t in row.GetComponentsInChildren<Transform>(true))
+                if (t.name == "Knot" && t.GetComponent<MeshRenderer>() is MeshRenderer k) knots.Add(k);
+            Check(knots.Count >= Mathf.RoundToInt(roadWidth) - 1,
+                  "and the line is a row of dots, one a metre", knots.Count);
+            if (knots.Count == 0) return;
+            var mr = knots[0];
+            string shader = mr.sharedMaterial != null && mr.sharedMaterial.shader != null
+                ? mr.sharedMaterial.shader.name : "none";
+            Check(shader == "PSX/Lit" && mr.sharedMaterial.GetFloat("_Emission") >= 0.99f,
+                  "and each dot is opaque and self-lit, not an additive glow", shader);
+            float smallest = float.MaxValue;
+            var b = knots[0].bounds;
+            foreach (var k in knots) { b.Encapsulate(k.bounds); smallest = Mathf.Min(smallest, k.bounds.size.y); }
+            Check(smallest >= 0.6f, "and each dot is big enough to be a dot at 40 m",
+                  smallest.ToString("0.00") + " m");
+            Vector3 inward = edge.inward.normalized;
+            Vector3 across = Vector3.Cross(Vector3.up, inward);
+            // Axis-aligned at both call sites, so the world AABB's extent
+            // along `across` is the row's width.
+            float wide = Mathf.Abs(across.x) * b.size.x + Mathf.Abs(across.z) * b.size.z;
+            Check(wide >= roadWidth - 0.01f, "and the row spans the whole carriageway",
+                  wide.ToString("0.0") + " m of " + roadWidth + " m");
+
+            // SEATED. A literal Y is a bug waiting for the ground to move —
+            // this street already moved once under the junction volume.
+            bool found = Physics.Raycast(b.center + Vector3.up * 20f, Vector3.down,
+                                         out var hit, 60f, ~0, QueryTriggerInteraction.Ignore);
+            Check(found && Mathf.Abs(b.min.y - hit.point.y) <= 0.25f,
+                  "and its foot is on the tarmac, neither floating nor buried",
+                  found ? "foot " + b.min.y.ToString("0.00") + " m, road " +
+                          hit.point.y.ToString("0.00") + " m"
+                        : "nothing under it");
+
+            // ON THE FACE THE CAR CROSSES FIRST on the way out — the one on
+            // the zone's side of the volume — so what the player sees is where
+            // the menu opens, not eleven metres before it.
+            var col = edge.GetComponent<Collider>();
+            if (col != null)
+            {
+                float face = Vector3.Dot(col.bounds.center, inward) +
+                             Mathf.Abs(Vector3.Dot(col.bounds.extents, inward));
+                float at = Vector3.Dot(b.center, inward);
+                Check(Mathf.Abs(at - face) <= 0.5f,
+                      "and it stands on the trigger face the car crosses first",
+                      "curtain " + at.ToString("0.0") + ", face " + face.ToString("0.0"));
+            }
+
+            Check(row.GetComponentsInChildren<Collider>(true).Length == 0,
+                  "and nothing in it can be hit — a line you can see is not a wall");
         }
 
         /// <summary>
@@ -2021,6 +2358,36 @@ namespace PSXRacing.EditorTools
             Check(world != null && world.paintDoor != null,
                   "and so does the body shop");
 
+            // ---- the shop's words ----
+            // The offer on the three hooks is a pure rule so it can be asked
+            // HERE, in edit mode, without a save that has a job and a shop
+            // that happens to be open. The button word rides beside the
+            // sentence: PICK UP is the owner's ask ("picking up pizza for
+            // delivery should say Pick Up, not Use"), BUY is the counter on
+            // whichever button it lands on, and a player carrying an order is
+            // offered nothing — an empty action AND an empty verb, because the
+            // verb is only ever the word on a button the action decided on.
+            PSXRacing.Town.TownWorld.PizzaOffer(false, true,
+                out string offerAction, out string offerVerb,
+                out string offerAction2, out string offerVerb2);
+            Check(offerAction == "CLOCK ON — TAKE A RUN" && offerVerb == "PICK UP",
+                  "clocking on at Tony's says PICK UP over CLOCK ON — TAKE A RUN",
+                  "[" + offerVerb + "] " + offerAction);
+            Check(offerAction2 == "BUY AT THE COUNTER" && offerVerb2 == "BUY",
+                  "and its second button says BUY, not the first two words BUY AT",
+                  "[" + offerVerb2 + "] " + offerAction2);
+            PSXRacing.Town.TownWorld.PizzaOffer(false, false,
+                out offerAction, out offerVerb, out offerAction2, out offerVerb2);
+            Check(offerAction == "BUY AT THE COUNTER" && offerVerb == "BUY" &&
+                  offerAction2 == "" && offerVerb2 == "",
+                  "a shut shop offers only the counter, on the first button, saying BUY",
+                  "[" + offerVerb + "] " + offerAction + " / [" + offerVerb2 + "] " + offerAction2);
+            PSXRacing.Town.TownWorld.PizzaOffer(true, true,
+                out offerAction, out offerVerb, out offerAction2, out offerVerb2);
+            Check(offerAction == "" && offerVerb == "" && offerAction2 == "" && offerVerb2 == "",
+                  "and a player carrying an order is offered nothing on either button",
+                  "[" + offerVerb + "] " + offerAction + " / [" + offerVerb2 + "] " + offerAction2);
+
             // ---- the way out with a pizza ----
             // The run used to start from a MENU at the junction, which is
             // inside the town: "it tells me to deliver it inside of the little
@@ -2041,6 +2408,9 @@ namespace PSXRacing.EditorTools
                 var col = e.GetComponent<Collider>();
                 Check(col != null && col.isTrigger,
                       "a road end is a trigger you drive through, not a wall", e.name);
+                // And the line the player actually sees, on the main street's
+                // 11 m carriageway.
+                CheckZoneLine(scene, e, 11f, e.name);
             }
 
             // ---- the car you actually own ----
@@ -2199,6 +2569,47 @@ namespace PSXRacing.EditorTools
                 Check(walker != null, name + " has a player who can walk");
                 Check(foot != null, name + " has a FootScreen");
 
+                // ---- every button names itself ----
+                // The hooks are spawned from the save at runtime (the garage,
+                // the seller's street) or baked with no words at all (the
+                // pizzeria), so the scene as saved has nothing to read; each
+                // world's PreviewBuild / RefreshLabels is public for exactly
+                // this. Then: a target with an action and no verb is a thumb
+                // button that ships saying USE — "picking up pizza for
+                // delivery should say Pick Up, not Use" was one of those. FAIL
+                // rather than warn: the USE fallback exists for the frame
+                // before a Refresh, not for a registrar that forgot.
+                try
+                {
+                    foreach (var go in scene.GetRootGameObjects())
+                    {
+                        var g = go.GetComponentInChildren<PSXRacing.OnFoot.GarageWorld>(true);
+                        if (g != null) g.PreviewBuild();
+                        var l = go.GetComponentInChildren<PSXRacing.OnFoot.SellerLotWorld>(true);
+                        if (l != null) l.PreviewBuild();
+                        var p = go.GetComponentInChildren<PSXRacing.OnFoot.PizzaShift>(true);
+                        if (p != null) p.RefreshLabels();
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    Check(false, name + " builds its prompts for the button sweep", e.Message);
+                }
+                int prompts = 0, unnamed = 0;
+                string firstUnnamed = null;
+                foreach (var go in scene.GetRootGameObjects())
+                    foreach (var t in go.GetComponentsInChildren<PSXRacing.OnFoot.FootTarget>(true))
+                    {
+                        if (string.IsNullOrEmpty(t.action)) continue;
+                        prompts++;
+                        if (t.HasVerb) continue;
+                        unnamed++;
+                        firstUnnamed = firstUnnamed ?? (t.name + " '" + t.title + "' — " + t.action);
+                    }
+                Check(prompts > 0, name + " has prompts to read", prompts);
+                Check(unnamed == 0, name + ": every prompt names its button (verb beside action)",
+                      unnamed == 0 ? prompts + " named" : unnamed + " unnamed, e.g. " + firstUnnamed);
+
                 UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
             }
         }
@@ -2227,7 +2638,7 @@ namespace PSXRacing.EditorTools
             // The route. Charlotte has no finish line — it is an open city with
             // no lap and no line to cross — so a delivery sent there would drive
             // forever and never get paid.
-            bool everCity = false;
+            bool everCity = false, everStrip = false;
             for (int day = 1; day <= 40; day++)
                 for (int slot = 0; slot < 3; slot++)
                 {
@@ -2235,8 +2646,13 @@ namespace PSXRacing.EditorTools
                     int t = LifeRules.DeliveryTrackIndex(s);
                     if (t < 0 || t >= TrackCatalog.Count) { everCity = true; break; }
                     if (TrackCatalog.At(t).city) everCity = true;
+                    if (TrackCatalog.At(t).drag) everStrip = true;
                 }
             Check(!everCity, "no delivery is ever routed to the open city");
+            // Nor to a synthetic strip: a delivery is a road with a house at
+            // the end of it, and a quarter mile with a Christmas tree is not
+            // one. The Bogue bridges are drag EVENTS on real road and stay.
+            Check(!everStrip, "and none to a synthetic strip");
 
             // The tank. A random venue is only an improvement if it is a venue
             // the car can finish: the parkway stage is 6.9 km with no forecourt
@@ -2274,8 +2690,12 @@ namespace PSXRacing.EditorTools
                 // a perfectly correct answer.
                 s.ActiveCar.fuel = 0f;
                 float cheapest = float.MaxValue;
+                // The same pool the roll draws from: the strips are out of it,
+                // so the cheapest run the fallback may pick is the cheapest
+                // ROAD — and the eighth mile, which is cheaper than any of
+                // them, must not be what a dry tank always gets.
                 for (int i = 0; i < TrackCatalog.Count; i++)
-                    if (!TrackCatalog.At(i).city)
+                    if (!TrackCatalog.At(i).city && !TrackCatalog.At(i).drag)
                         cheapest = Mathf.Min(cheapest,
                                    LifeRules.RequiredFuelPct(TrackCatalog.At(i), s.ActiveCar));
                 Check(cheapest > 0f, "an empty tank really does fit nowhere",
@@ -2284,6 +2704,7 @@ namespace PSXRacing.EditorTools
                 Check(Mathf.Approximately(
                           LifeRules.RequiredFuelPct(starved, s.ActiveCar), cheapest),
                       "and gets the shortest run there is", starved.name);
+                Check(!starved.drag, "which is still not a strip", starved.name);
                 s.ActiveCar.fuel = 100f;
             }
 
@@ -2339,6 +2760,56 @@ namespace PSXRacing.EditorTools
             Check(parHi <= 900f, "and the longest is not an afternoon",
                   parHi.ToString("0") + "s");
 
+            // THE SPRINT. A drop on a circuit is a fraction of a lap, quoted
+            // and raced as such: shorter than the full race the venue used to
+            // be, never under the ten-second floor above, and never a whole
+            // lap — the door must not coincide with the line. A route with
+            // ENDS is its baked run whatever the roll says.
+            for (int t = 0; t < TrackCatalog.Count; t++)
+            {
+                var def = TrackCatalog.At(t);
+                if (def.city || def.drag) continue;
+                // A LOOP stage is a lap and takes the circuit's sprint rules
+                // below; only a stage with ENDS is its whole baked run.
+                if (def.stage && !def.loop)
+                {
+                    Check(Mathf.Approximately(LifeRules.DeliveryMeters(def, LifeRules.DeliveryDropMin),
+                                              def.RaceMeters),
+                          def.id + " drop is the whole stage whatever the roll",
+                          LifeRules.DeliveryMeters(def, LifeRules.DeliveryDropMin).ToString("0") + " m");
+                    continue;
+                }
+                float sprintPar = LifeRules.DeliveryParSeconds(t, LifeRules.DeliveryDropMin);
+                float racePar = LifeRules.DeliveryParSeconds(t);
+                Check(sprintPar >= 10f, def.id + " shortest sprint is still a drive",
+                      sprintPar.ToString("0") + "s");
+                Check(sprintPar < racePar, def.id + " shortest sprint is quicker than a full lap",
+                      sprintPar.ToString("0") + "s vs " + racePar.ToString("0") + "s");
+                // And a lap is what a fraction of 1 means — not the old
+                // multi-lap race, which no delivery is any more.
+                Check(Mathf.Abs(racePar - (LifeRules.DeliveryLaunchAllowance +
+                                           def.LengthM / LifeRules.DeliveryParSpeed)) < 0.01f,
+                      def.id + " full-fraction par is one lap", racePar.ToString("0.0") + "s");
+                Check(LifeRules.DeliveryMeters(def, LifeRules.DeliveryDropMax) < def.LengthM,
+                      def.id + " drop never crosses the line twice",
+                      LifeRules.DeliveryMeters(def, LifeRules.DeliveryDropMax).ToString("0") +
+                      " m of " + def.LengthM.ToString("0"));
+                // A ticket with no fraction on it (an old roll, a debug launch)
+                // grades as a full lap, not as a zero-metre drop.
+                Check(Mathf.Approximately(LifeRules.DeliveryMeters(def, 0f), def.LengthM * LifeRules.DeliveryDropMin) &&
+                      Mathf.Approximately(LifeRules.DeliveryMeters(def, 1f), def.LengthM),
+                      def.id + " clamps a bad fraction into the band");
+            }
+            // The roll stays in its band.
+            bool inBandDrop = true; float worstDrop = 0f;
+            for (int i = 0; i < 200; i++)
+            {
+                float f = LifeRules.RollDropFraction();
+                if (f < LifeRules.DeliveryDropMin || f > LifeRules.DeliveryDropMax)
+                { inBandDrop = false; worstDrop = f; }
+            }
+            Check(inBandDrop, "every rolled drop is between half a lap and a whole one", worstDrop);
+
             // The clock. Same box, same venue, three times: under par pays more
             // than par, and par pays more than crawling in.
             int venue = 0;
@@ -2388,6 +2859,53 @@ namespace PSXRacing.EditorTools
                 { inBand = false; bad = o.tip.ToString(); break; }
             }
             Check(inBand, "no roll pays outside the quoted band", bad);
+
+            // ---- the ticket crosses the scene load ----------------------
+            //
+            // Through the real fill rather than by hand: the two fields the
+            // sprint and the rolling start ride on are statics, and a static
+            // nobody wrote is a static nobody notices until the next race
+            // starts part-way round its first lap — or the one after a
+            // delivery starts rolling.
+            var plumb = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(plumb);
+            if (plumb.ActiveCar != null)
+            {
+                int ticketVenue = LifeRules.DeliveryTrackIndex(plumb);
+                PizzaRun.StartRun(new[] { 0 }, 0, 30, ticketVenue,
+                                  LifeRules.DeliveryParSeconds(ticketVenue, 0.7f), 0, 0.7f);
+                Check(PizzaRun.FillDeliveryHandoff(plumb), "a carried order fills the handoff");
+                Check(RaceHandoff.Delivery && RaceHandoff.Solo && RaceHandoff.IsPractice,
+                      "and it is a solo delivery");
+                Check(Mathf.Approximately(RaceHandoff.DeliveryDropFraction, 0.7f),
+                      "the door's fraction crosses with it", RaceHandoff.DeliveryDropFraction);
+                Check(Mathf.Approximately(RaceHandoff.RollingStartKmh,
+                                          TrackCatalog.All[ticketVenue].speedLimitKmh),
+                      "and the venue's speed limit is the rolling start", RaceHandoff.RollingStartKmh);
+                // Above zero because only the synthetic strips carry 0 and
+                // they are out of the pool. (A bridge carries its road's
+                // limit here and still stands: RaceManager gates on the baked
+                // path.drag, which is the drag PRESENTATION, not this field.)
+                Check(RaceHandoff.RollingStartKmh > 0f,
+                      "which is a road's limit — no delivery is sent to a strip",
+                      RaceHandoff.RollingStartKmh);
+                // The par the HUD and the wallet will both quote is the SPRINT's.
+                var quoted = LifeRules.ScoreDelivery(30, ticketVenue, 10f, 0f, 0,
+                                                     dropFraction: RaceHandoff.DeliveryDropFraction);
+                Check(Mathf.Approximately(quoted.parSeconds, PizzaRun.ParSeconds) ||
+                      // ClearRun has not run on this path, so the ticket still holds
+                      // the counter's number; the two must be the same number.
+                      Mathf.Approximately(quoted.parSeconds,
+                                          LifeRules.DeliveryParSeconds(ticketVenue, 0.7f)),
+                      "the run is graded against the par the counter quoted",
+                      quoted.parSeconds.ToString("0.0") + "s");
+                RaceHandoff.ClearAll();
+                Check(RaceHandoff.RollingStartKmh == 0f && RaceHandoff.DeliveryDropFraction == 1f,
+                      "and ClearAll puts both back — one field is one thing to clear");
+                PizzaRun.ClearAll();
+                Check(PizzaRun.DropFraction == 1f, "the ticket clears its fraction too",
+                      PizzaRun.DropFraction);
+            }
         }
 
         /// <summary>
@@ -2709,7 +3227,15 @@ namespace PSXRacing.EditorTools
             // spill — but it must not cost the order. The old assertion that it
             // cost NOTHING was true because friction was 0.95 and nothing short
             // of a crash moved a box, which is the bug the owner reported.
-            Check(sim.afterCorner > 0.90f,
+            // RE-PINNED 2026-09-07 with honest friction (PatchFrictionScale):
+            // this reading carries the spin before it, and a spin plus a
+            // corner on a bench now costs 0.11-0.17 — measured 0.89, 0.83,
+            // 0.83, 0.83 across four builds of the model — which is exactly
+            // SlamWear's own arithmetic for a box arriving at the bolster at
+            // a metre a second. It was 0.90 when the solver was quietly
+            // doubling the cloth's grip. A quarter is the margin; the order
+            // is lost at 0.25.
+            Check(sim.afterCorner > 0.75f,
                   "one hard corner on a stock seat costs at most a little",
                   sim.afterCorner.ToString("0.000"));
             // The case that was actually reported: "the top pizza fell off on the
@@ -2717,7 +3243,11 @@ namespace PSXRacing.EditorTools
             // passed the whole time — the difference is the SIGNAL, so this one
             // is the same corner with a real road's noise on it. A clean lap must
             // arrive with a clean load.
-            Check(sim.afterRough > 0.85f,
+            // (Re-pinned with afterCorner: the rough road costs nothing beyond
+            // the corner — 0.89, 0.82, 0.82, 0.82 — because a shut box only
+            // wears by slamming and a load already pinned against the
+            // bolster by the corner has nowhere to gather speed.)
+            Check(sim.afterRough > 0.75f,
                   "and a hard corner on a ROUGH road still does not lose it",
                   sim.afterRough.ToString("0.000"));
             // BRAKING, IN TWO HALVES. The pan is tilted, so forward and sideways
@@ -2735,7 +3265,14 @@ namespace PSXRacing.EditorTools
                   sim.afterBraking.ToString("0.000"));
             // As a delta, like the firm stop: the absolute number carried the
             // rough corner's wear and failed a knock that cost four percent.
-            Check(sim.knockCost < 0.12f,
+            // RE-PINNED 2026-09-07: with honest friction a 3 m/s knock — an
+            // eleven km/h bump — slides the stack a quarter of a metre into
+            // the bottles and puts the TOP box's nose over the front edge,
+            // and that costs 0.16-0.22 (four builds: 0.16, 0.22, 0.21, 0.22).
+            // Twice the old 0.12 was measured against doubled grip. A third
+            // is the ceiling: still well short of the crash's half, still
+            // an order that arrives.
+            Check(sim.knockCost < 0.35f,
                   "and a 3 m/s knock jostles it rather than losing it",
                   "cost " + sim.knockCost.ToString("0.000"));
             Check(sim.afterCrash < sim.afterRough - 0.05f,
@@ -2855,6 +3392,142 @@ namespace PSXRacing.EditorTools
                   "and a wall at 80 km/h throws it, not just the top one",
                   sim.bottomSlideCrash.ToString("0.00") + " m");
 
+            // ---- the shut box, the head-on, the tumble (2026-09-07) --------
+            //
+            // Two reports, one screenshot: "the pizza clips through the box,
+            // eventually breaking through and sitting on top of the box" and
+            // "I crashed head first into a wall and the pizza flew off but
+            // the box still sat there". Both were true and every check above
+            // passed while they were, because nothing here ever read a shut
+            // box's pizza against its home, no case ever ran ONE box into a
+            // wall, and the escape test could not see UP. A shut box's pizza
+            // is a child of the box now — not a body — and only Open() makes
+            // it one; these are the assertions that keep it so, and the ones
+            // that say a wall moves the box.
+            //
+            // PINNED 2026-09-07 from the harness. The harness is DETERMINISTIC
+            // for a given build of the model (three runs of the same code
+            // agreed on every line) and CHAOTIC across builds (a change to
+            // the tray's rotation path in the last float bit moved the crash
+            // from 0.39 to 0.09), so each floor is about half the smallest
+            // reading over the four builds of this pass and each ceiling is
+            // comfortably above the largest. Never loosen to pass.
+            //
+            // ShutHomeErrorMaxM: how far a SHUT box's pizza may be from where
+            // it was packed. Composed in the box's own frame, it is zero to
+            // float precision by construction (measured 0.0000 in every run);
+            // a millimetre catches a pizza that has become a body again
+            // without catching solver noise.
+            const float ShutHomeErrorMaxM = 0.001f;
+            // HeadOnThrowMinM: how far forward a lone box must go on a stock
+            // seat when the car loses 15 m/s. Measured 0.34, 1.05, 0.54, 1.11
+            // bare and 0.57-0.69 with the bottle, every one FLOOR; the
+            // LeftSeat check beside it is the one that says "off the front",
+            // this one says it went.
+            const float HeadOnThrowMinM = 0.15f;
+            // SixGStopMinM: the acceleration channel alone — a 6 g stop the
+            // responder never classified — must still move a lone box.
+            // Measured 1.99, 1.93, 1.97 (all the way down the footwell to the
+            // bulkhead) and 0.41 (propped on the front edge); FLOOR every
+            // time.
+            const float SixGStopMinM = 0.20f;
+            // TumblePizzaOutMinM: a box turned onto its lid must drop its
+            // pizza — off the box's floor, toward the mouth, by at least
+            // this much (PizzaCargo.PizzaOffFloor; "escaped" cannot fire for
+            // a pizza lying under its own box). PROVISIONAL — derived, not
+            // measured: the pass's last Unity job went before the case was
+            // turned from 110 degrees (where wall friction rightly held the
+            // pizza) to 180. The interior is 0.68 of a 5.5 cm box less a
+            // 1.5 cm pizza, so the drop is about 3 cm; half of that, and
+            // twice the slide the interior allows a right-way-up pizza.
+            const float TumblePizzaOutMinM = 0.006f /* measured 0.013 off the floor / 0.018 from home = the whole 18 mm interior clearance; half the minimum, per the pinning rule */;
+            // HoldLeanSlideMaxM / SlipLeanSlideMinM: the friction calibration
+            // itself. A lone box on the stock bench rolled to 30 degrees
+            // must not move (measured 0.000, every run) and rolled to 40 must
+            // slide to the bolster (0.110, 0.110, 0.109 — the 11 cm of travel
+            // the bolster allows, so this one is bounded by geometry, not
+            // chaos). The cloth's 0.7 lets go at 35; the solver was holding
+            // it to 50 until PizzaCargo.PatchFrictionScale.
+            const float HoldLeanSlideMaxM = 0.05f /* measured 0.000 in one build and 0.030 in the next (deterministic per build, chaotic across); the 40-degree case slides 0.11, so 0.05 still separates hold from slip */;
+            const float SlipLeanSlideMinM = 0.05f;
+            // RollBackYMinM: after a roll to 70 and back, the box's y offset
+            // from where it was placed. It is -0.010 to -0.012 at rest on the
+            // pan and -0.14 for a box the pan has been swept through (the
+            // whip that PizzaCargo.MaxTiltRateDeg exists for).
+            const float RollBackYMinM = -0.04f;
+
+            Check(sim.extended, "the shut-box, head-on and tumble cases ran");
+            if (sim.extended)
+            {
+                // S7. Integrity: read after a side jolt, a 4.5 g push, a kerb,
+                // a crest, the rough road and a wall, on one box and on three.
+                Check(sim.shutViolations == 0,
+                      "a shut box never lets its pizza out — side jolt, 4.5 g push, kerb, crest, rough road, wall",
+                      sim.shutViolations);
+                Check(sim.shutMaxHomeError < ShutHomeErrorMaxM,
+                      "and the pizza stays exactly where it was packed",
+                      sim.shutMaxHomeError.ToString("0.0000") + " m");
+
+                // S8. The owner's configuration: one box, stock seat, a wall.
+                Check(sim.oneBoxCrashZ > HeadOnThrowMinM,
+                      "a head-on that costs the car 15 m/s throws a lone box off the front of a stock seat",
+                      sim.oneBoxCrashZ.ToString("0.00") + " m");
+                Check(sim.oneBoxCrashLeftSeat, "into the footwell",
+                      sim.oneBoxCrashOpened ? "opened" : "still shut");
+                Check(sim.oneBoxCrashBottleZ > HeadOnThrowMinM,
+                      "and a bottle parked in front of it does not save it",
+                      sim.oneBoxCrashBottleZ.ToString("0.00") + " m");
+                Check(sim.oneBoxCrashBottleLeftSeat, "into the footwell, bottle and all",
+                      sim.oneBoxCrashBottleOpened ? "opened" : "still shut");
+                Check(sim.oneBoxSixGZ > SixGStopMinM,
+                      "a 6 g stop the responder never sees still moves a lone box",
+                      sim.oneBoxSixGZ.ToString("0.00") + " m" +
+                      (sim.oneBoxSixGLeftSeat ? " (floor)" : " (seat)"));
+
+                // S9. The lid opens on tilt past LidOpenTiltDeg and only then
+                // is there a pizza the solver can move. The box is turned BY
+                // HAND (PizzaCargo.TurnBoxOver): no roll of the seat tumbles
+                // a box on a bench — the ridge is a stop above a floor-level
+                // centre of mass and the door card rolls with the seat — and
+                // the roll case that used to say "tumbled" was measuring the
+                // harness whipping the pan through the box.
+                Check(!sim.tumbleControlOpened,
+                      "a box turned to ten degrees short of the lid angle and read once is still shut");
+                Check(sim.tumbleOpened, "a box turned onto its lid opens");
+                Check(sim.tumbleEscaped || sim.tumbleOffFloor > TumblePizzaOutMinM,
+                      "and the pizza drops out of it",
+                      (sim.tumbleEscaped ? "escaped, " : "") +
+                      sim.tumbleOffFloor.ToString("0.000") + " m off the floor, " +
+                      sim.tumbleHomeError.ToString("0.000") + " m from home");
+                // The seat's roll, as the controls it always was. To 70 and
+                // back over fifteen frames — a car down off two wheels — the
+                // box slides to the ridge, lies flat, rides the pan home: shut,
+                // ON the pan, packed. Held at 45: shut and packed.
+                Check(!sim.rollOpened, "a roll to 70 degrees and back does not open a box on the bench");
+                Check(!sim.rollGrounded && sim.rollY > RollBackYMinM,
+                      "and brings it home ON the pan, not under it",
+                      "y " + sim.rollY.ToString("0.000") + " m" + (sim.rollGrounded ? ", FLOOR" : ""));
+                Check(sim.rollHomeError < ShutHomeErrorMaxM,
+                      "with the pizza where it was packed",
+                      sim.rollHomeError.ToString("0.0000") + " m");
+                Check(!sim.leanOpened, "and a 45 degree lean does not open it");
+                Check(sim.leanHomeError < ShutHomeErrorMaxM,
+                      "or move the pizza inside it",
+                      sim.leanHomeError.ToString("0.0000") + " m");
+                // S9a. The friction, as the two leans either side of 35.
+                Check(sim.holdLeanSlideM < HoldLeanSlideMaxM,
+                      "a lone box on the stock bench holds a 30 degree lean",
+                      "slid " + sim.holdLeanSlideM.ToString("0.000") + " m");
+                Check(sim.slipLeanSlideM > SlipLeanSlideMinM,
+                      "and slides at 40 — the cloth's 0.7 lets go at 35, not 50",
+                      "slid " + sim.slipLeanSlideM.ToString("0.000") + " m");
+
+                // S10. The screenshot, asserted impossible everywhere.
+                Check(sim.pizzaOnShutBox == 0,
+                      "a pizza is never found on top of a shut box, anywhere in the suite",
+                      sim.pizzaOnShutBox);
+            }
+
             Line("  .. " + sim.detail);
         }
 
@@ -2923,6 +3596,125 @@ namespace PSXRacing.EditorTools
                   jittering == 0 ? "all " + found + " clean" : names);
         }
 
+        /// <summary>
+        /// What the BUILT scenes carry at the edge of the tarmac, per venue,
+        /// against the kerb policy TestTracks pins: the right texture, a
+        /// per-venue material (the shared Materials/Kerb.mat is the trap
+        /// where the last venue built repaints every other), the road layer
+        /// on anything that grips, and on a street venue the ramp collider
+        /// that is NOT the drawn face — plus its two numbers, and the drop
+        /// across the forecourt driveway on the pad side only.
+        ///
+        /// Opened additively and read off the scene's OWN roots, never
+        /// FindFirstObjectByType, for the reason TestVertexSnapOff gives.
+        /// Also the one place StreetKerb.png's importer is asserted: a
+        /// texture that misses ConfigureTextureImporters ships bilinear and
+        /// mipmapped, and the first thing a mip averages away is a 2 px
+        /// joint.
+        /// </summary>
+        static void TestKerbBuild()
+        {
+            Line("kerbs:");
+            var imp = AssetImporter.GetAtPath(PSXRacingBuilder.StreetKerbTexPath) as TextureImporter;
+            Check(imp != null, "StreetKerb.png is drawn by GenerateTrackTextures",
+                  PSXRacingBuilder.StreetKerbTexPath);
+            if (imp != null)
+                Check(imp.filterMode == FilterMode.Point && !imp.mipmapEnabled && imp.maxTextureSize <= 256,
+                      "StreetKerb.png imports point-filtered, no mips, <= 256",
+                      imp.filterMode + "/" + (imp.mipmapEnabled ? "mips" : "no mips") + "/" + imp.maxTextureSize);
+
+            int missing = 0;
+            foreach (var t in TrackCatalog.Scened)
+            {
+                if (t.city) continue;            // no centreline, no kerb
+                string scenePath = "Assets/PSXRacing/Scenes/" + t.id + ".unity";
+                if (!System.IO.File.Exists(scenePath)) { missing++; continue; }
+                var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                    scenePath, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+                try
+                {
+                    Transform trackRoot = null;
+                    foreach (var go in scene.GetRootGameObjects())
+                        if (go.name == "Track") { trackRoot = go.transform; break; }
+                    Check(trackRoot != null, t.id + " has a Track root");
+                    if (trackRoot == null) continue;
+
+                    var style = PSXRacingBuilder.KerbStyleFor(t);
+                    bool street = style == PSXRacingBuilder.KerbStyle.Street;
+                    string wantTex = street ? "StreetKerb"
+                                   : style == PSXRacingBuilder.KerbStyle.Racing ? "Kerb" : "Shoulder";
+                    // The forecourt is planned on padSide = +1, i.e. KerbR;
+                    // its presence in the scene is what says a drop is owed.
+                    bool hasPad = false;
+                    foreach (var tr in trackRoot.GetComponentsInChildren<Transform>(true))
+                        if (tr.name == "GasStation") { hasPad = true; break; }
+
+                    foreach (var name in new[] { "KerbL", "KerbR" })
+                    {
+                        string tag = t.id + " " + name;
+                        var kerb = trackRoot.Find(name);
+                        Check(kerb != null, tag + " exists");
+                        if (kerb == null) continue;
+                        var mr = kerb.GetComponent<MeshRenderer>();
+                        var mf = kerb.GetComponent<MeshFilter>();
+                        var mc = kerb.GetComponent<MeshCollider>();
+                        var mat = mr != null ? mr.sharedMaterial : null;
+                        var tex = mat != null ? mat.mainTexture : null;
+                        Check(mat != null && mat.name == t.id + "_Kerb",
+                              tag + " wears its own kerb material, not the shared Kerb.mat",
+                              mat != null ? mat.name : "none");
+                        Check(tex != null && tex.name == wantTex, tag + " is textured " + wantTex,
+                              tex != null ? tex.name : "none");
+                        Check((kerb.gameObject.layer == 8) == (style != PSXRacingBuilder.KerbStyle.Verge),
+                              tag + " is on the Road layer exactly when it grips", kerb.gameObject.layer);
+                        Check(mc != null && mc.sharedMesh != null && mf != null && mf.sharedMesh != null,
+                              tag + " draws a mesh and carries a collider");
+                        if (mc == null || mc.sharedMesh == null || mf == null || mf.sharedMesh == null) continue;
+
+                        if (!street)
+                        {
+                            Check(mc.sharedMesh == mf.sharedMesh, tag + " flat strip collides on the mesh it draws");
+                            continue;
+                        }
+
+                        string suffix = name == "KerbL" ? "L" : "R";
+                        Check(mc.sharedMesh != mf.sharedMesh && mc.sharedMesh.name == t.id + "_KerbCollMesh" + suffix,
+                              tag + " collides on its own ramp mesh, not the drawn face", mc.sharedMesh.name);
+                        // Three verts per station, A / R / D: the rise is D-A,
+                        // the ramp vertex R sits StreetKerbRamp out from A.
+                        var v = mc.sharedMesh.vertices;
+                        Check(v.Length % 3 == 0 && v.Length >= 6, tag + " ramp mesh is three verts per station", v.Length);
+                        float maxRise = float.MinValue, minRise = float.MaxValue, worstRamp = 0f;
+                        for (int i = 0; i + 2 < v.Length; i += 3)
+                        {
+                            float rise = v[i + 2].y - v[i].y;
+                            maxRise = Mathf.Max(maxRise, rise);
+                            minRise = Mathf.Min(minRise, rise);
+                            Vector3 run = v[i + 1] - v[i]; run.y = 0f;
+                            worstRamp = Mathf.Max(worstRamp, Mathf.Abs(run.magnitude - PSXRacingBuilder.StreetKerbRamp));
+                        }
+                        Check(Mathf.Abs(maxRise - PSXRacingBuilder.StreetKerbHeight) < 0.001f,
+                              tag + " stands StreetKerbHeight at its tallest", maxRise.ToString("0.000"));
+                        Check(worstRamp < 0.001f, tag + " ramp vertex lies StreetKerbRamp from the tarmac edge",
+                              worstRamp.ToString("0.0000"));
+                        // Dropped across the driveway on the forecourt side,
+                        // and ONLY there — the far side has no drive to drop
+                        // for, and a drop there would be a hole in the curb.
+                        bool wantDrop = hasPad && name == "KerbR";
+                        Check(wantDrop ? minRise < 0.001f : minRise > PSXRacingBuilder.StreetKerbHeight - 0.001f,
+                              tag + (wantDrop ? " is dropped across the forecourt driveway"
+                                              : " runs unbroken (no driveway on this side)"),
+                              minRise.ToString("0.000"));
+                    }
+                }
+                finally
+                {
+                    UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, false);
+                }
+            }
+            Check(missing == 0, "every circuit scene was there to read its kerb", missing + " missing");
+        }
+
         /// <summary>Circumradius of waypoint triples, two apart so a single
         /// resampling wobble does not read as a hairpin.
         ///
@@ -2974,7 +3766,9 @@ namespace PSXRacing.EditorTools
                   + (t.controlPoints != null ? t.controlPoints.Length : 0));
 
             int n = pts.Count;
-            bool hasEnds = t.drag || t.stage;
+            // A LOOP stage (the 277 belt) wraps like a circuit: its profile
+            // was smoothed circularly by the bake, so the seam IS a grade.
+            bool hasEnds = t.drag || (t.stage && !t.loop);
             float lo = float.MaxValue, hi = float.MinValue, maxGrade = 0f;
             for (int i = 0; i < n; i++)
             {
@@ -5062,6 +5856,240 @@ namespace PSXRacing.EditorTools
                   "4WD splits torque", awdCar?.FrontDriveShare);
             var frCar = FindDrv("FR");
             Check(frCar != null && frCar.FrontDriveShare == 0f, "FR stays rear-driven");
+
+            // The launch note sits UNDER the upshift trigger on every car. It
+            // was a flat 5200, and five cars redline at 5400 or below — a
+            // standing start pushed them past 0.96 x redline before they had
+            // moved and the box shifted to second from rest.
+            int launchOver = 0, lowRedline = 0;
+            foreach (var c in CarCatalog.All)
+            {
+                float upshift = c.redline * 0.96f;
+                if (upshift < CarController.LaunchTargetRPM) lowRedline++;
+                if (CarController.LaunchRPMFor(c.idleRPM, upshift, 1f) >= upshift) launchOver++;
+            }
+            Check(launchOver == 0, "every car's full-pedal launch rpm sits under its upshift point",
+                  launchOver + " over");
+            Check(lowRedline >= 5, "and the five low-redline cars this exists for are still in the catalog",
+                  lowRedline);
+        }
+
+        // ---------------------------------------------------------------
+        //  Sense of speed + handling (the Black Box pass)
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// Every number the sense-of-speed and handling pass chose, pinned, so
+        /// the next tuning pass sees what moved. None of these is a feel
+        /// judgement — those are made in the car — but each is a curve that
+        /// has a wrong shape (streaks in town, a camera that rolls at rest, a
+        /// wind bed that never arrives, engine braking that locks a rear
+        /// axle) and the wrong shape is what this catches.
+        /// </summary>
+        static void TestSenseOfSpeed()
+        {
+            Line("sense of speed + handling:");
+
+            // ---- the camera rig --------------------------------------------
+            float full = ChaseCamera.DefaultSpeedFullMps;
+            float pull = ChaseCamera.DefaultChaseSpeedFOV;
+            Check(ChaseCamera.SpeedT(0f, full) == 0f, "the speed rig is fully off at rest");
+            Check(Mathf.Approximately(ChaseCamera.SpeedT(full, full), 1f), "and fully wound in at 200 km/h");
+            bool mono = true; float prevT = -1f;
+            for (float v = 0f; v <= 90f; v += 0.5f)
+            {
+                float t = ChaseCamera.SpeedT(v, full);
+                if (t < prevT - 1e-6f) mono = false;
+                prevT = t;
+            }
+            Check(mono, "and monotonic in speed");
+            Check(ChaseCamera.SpeedT(10f, full) < 0.1f, "and nearly nothing at town speed (36 km/h)",
+                  ChaseCamera.SpeedT(10f, full).ToString("0.000"));
+
+            float fovRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, pull, full);
+            float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, pull, full);
+            float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, pull, full);
+            Check(fovRest == 58f, "chase FOV at rest is the scene camera's 58", fovRest);
+            Check(fov100 > 64f && fov100 < 68f, "chase FOV at 100 km/h is ~67 (was 61.7)", fov100.ToString("0.0"));
+            Check(Mathf.Abs(fov200 - 76f) < 0.1f, "chase FOV at 200 km/h is 76 (was 65.4)", fov200.ToString("0.0"));
+            float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, pull, full);
+            float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, pull, full);
+            Check(hoodMax <= ChaseCamera.HoodMaxFOV, "the hood cam never passes its 80 deg cap", hoodMax);
+            Check(bumperMax <= ChaseCamera.BumperMaxFOV, "nor the bumper cam its 86", bumperMax);
+            // The near-plane geometry MountClearance was sized against: the
+            // bonnet must cross the bottom of the frame further out than the
+            // mounted near plane, with the same 1.2-1.3x margin the clearance
+            // comment derives, at the WIDEST lens the hood cam can reach.
+            float entry = ChaseCamera.PanelEntryM(hoodMax, ChaseCamera.MountPitch(ChaseCamera.View.Hood));
+            Check(entry >= ChaseCamera.MountNearClip * 1.2f,
+                  "at the hood cam's widest lens (" + hoodMax.ToString("0") + " deg) the bonnet enters the " +
+                  "frame past the near plane with margin",
+                  entry.ToString("0.000") + " m vs " + ChaseCamera.MountNearClip + " m x1.2");
+            Check(ChaseCamera.FOVFor(ChaseCamera.View.TopDown, 58f, 90f, pull, full) == 52f,
+                  "top-down gets no pull at all");
+
+            Check(ChaseCamera.RollDegFor(0.5f) == 0f, "no camera roll under the roll's start latG");
+            Check(Mathf.Approximately(ChaseCamera.RollDegFor(9f), ChaseCamera.MaxRollDeg),
+                  "and 8 deg at full (Sh2dow's MaxRollDeg)", ChaseCamera.RollDegFor(9f));
+            float rollLimit = ChaseCamera.RollDegFor(1.3f * 9.81f * ChaseCamera.LatGScale);
+            Check(rollLimit > 0.8f && rollLimit < 2f, "a 1.3 g grip-limit corner rolls about a degree",
+                  rollLimit.ToString("0.0"));
+            float rollDrift = ChaseCamera.RollDegFor(1f * 30f * ChaseCamera.LatGScale);
+            Check(rollDrift > 6f, "and a 1 rad/s drift at 30 m/s rolls hard — the roll is a drift cue",
+                  rollDrift.ToString("0.0"));
+
+            Check(ChaseCamera.SpeedShakeDeg(30f, true) == 0f, "no road noise at 108 km/h");
+            Check(ChaseCamera.SpeedShakeDeg(80f, true) <= 0.3f && ChaseCamera.SpeedShakeDeg(80f, true) > 0.1f,
+                  "road noise tops out between 0.1 and 0.3 deg on tarmac", ChaseCamera.SpeedShakeDeg(80f, true));
+            Check(ChaseCamera.SpeedShakeDeg(80f, false) <= 0.9f, "and at most 3x that on gravel",
+                  ChaseCamera.SpeedShakeDeg(80f, false));
+            Check(3.4f >= 10f * ChaseCamera.DefaultSpeedShakeDeg,
+                  "an impact shake (3.4 deg) stays an order of magnitude over road noise");
+            Check(ChaseCamera.DriftSwingClampRad <= 0.7f, "the drift swing is clamped under 40 deg of slip",
+                  ChaseCamera.DriftSwingClampRad);
+
+            // ---- the streak overlay -----------------------------------------
+            Check(SpeedLines.IntensityFor(0f) == 0f, "no streaks at rest");
+            Check(SpeedLines.IntensityFor(20f) == 0f, "none at 72 km/h — the town never streaks");
+            Check(SpeedLines.IntensityFor(60f) > 0.2f, "streaks at 216 km/h", SpeedLines.IntensityFor(60f).ToString("0.00"));
+            Check(SpeedLines.MaxIntensity <= 0.35f && SpeedLines.IntensityFor(300f) <= SpeedLines.MaxIntensity,
+                  "and never over 0.35 of the frame", SpeedLines.IntensityFor(300f).ToString("0.00"));
+            Check(Shader.Find("PSX/SpeedLines") != null, "PSX/SpeedLines compiles and is found");
+            var streaks = AssetDatabase.LoadAssetAtPath<Texture2D>(PSXRacingBuilder.SpeedStreaksTexPath);
+            Check(streaks != null, "the streak sheet is baked (run the scene build)");
+            if (streaks != null)
+                Check(streaks.width == 256 && streaks.height == 64, "at the 256 px page",
+                      streaks.width + "x" + streaks.height);
+
+            // ---- the wind bed ---------------------------------------------
+            var low = Resources.Load<AudioClip>(WindAudio.LowClipPath);
+            var high = Resources.Load<AudioClip>(WindAudio.HighClipPath);
+            Check(low != null && high != null, "both wind loops exist under Resources/Sfx (tools/gen_wind.mjs)");
+            if (low != null) Check(low.length <= 3f && low.channels == 1, "wind_low is a short mono loop",
+                                   low.length.ToString("0.00") + " s x" + low.channels);
+            if (high != null) Check(high.length <= 3f && high.channels == 1, "wind_high is a short mono loop",
+                                    high.length.ToString("0.00") + " s x" + high.channels);
+            Check(WindAudio.LowGain(0f) == 0f, "no wind at rest");
+            Check(WindAudio.LowGain(50f) > 0.25f, "the low bed is full at 180 km/h", WindAudio.LowGain(50f).ToString("0.00"));
+            Check(WindAudio.HighGain(20f) == 0f, "the hiss has not arrived at 72 km/h");
+            Check(WindAudio.HighGain(70f) > 0.2f, "and is full at 252 km/h", WindAudio.HighGain(70f).ToString("0.00"));
+            Check(WindAudio.HighPitch(70f) > WindAudio.HighPitch(0f), "and pitches up with speed — the filter without a filter");
+
+            // ---- the field cannot out-run the player on a straight ----------
+            Check(AIDriver.TargetSpeedCap(1.05f, 56.7f) <= 56.7f * AIDriver.PlayerVmaxMargin + 1e-3f,
+                  "a Miata's field is capped at 1.05x a Miata", AIDriver.TargetSpeedCap(1.05f, 56.7f).ToString("0.0"));
+            Check(Mathf.Approximately(AIDriver.TargetSpeedCap(0.9f, 121.8f), 61.2f),
+                  "and an XJR-9's at the AI's own 68 x skill", AIDriver.TargetSpeedCap(0.9f, 121.8f).ToString("0.0"));
+            Check(AIDriver.TargetSpeedCap(1f, 0f) == 68f, "no player known, no player cap");
+
+            // The opponent pool after the 1.15x vmax trim. Counted over the
+            // WHOLE catalog at every tier: the trim must not starve the grid,
+            // and the one car it does starve is known by name.
+            int starvedTiers = 0, leaks = 0;
+            var starvedCars = new HashSet<string>();
+            foreach (var c in CarCatalog.All)
+                for (int tier = 0; tier < 4; tier++)
+                {
+                    var pool = LifeRules.OpponentPool(c.price, c.topSpeedMps, tier, out bool trimmed);
+                    if (!trimmed) { starvedTiers++; starvedCars.Add(c.name); continue; }
+                    foreach (var o in pool)
+                        if (o.topSpeedMps > c.topSpeedMps * LifeRules.OpponentVmaxCeiling + 1e-3f) leaks++;
+                }
+            Check(leaks == 0, "a trimmed pool holds nothing over 1.15x the player's top speed", leaks);
+            Check(starvedCars.Count <= 1,
+                  "the trimmed pool fills the grid for every catalog car at every tier but one",
+                  starvedCars.Count + " starved (" + string.Join(", ", starvedCars) + ")");
+            Check(starvedTiers <= 4, "and that one falls back to an untrimmed field rather than to no race",
+                  starvedTiers + " car-tiers");
+
+            // ---- handling: engine braking -----------------------------------
+            var fd = FindSpec("RX-7 Type RS");
+            float peak = fd != null ? CarController.PeakTorque(fd.curveNm) : 0f;
+            Check(peak > 250f && peak < 350f, "the FD's stock peak is ~297 Nm", peak.ToString("0"));
+            float lift = CarController.EngineBrakeTorque(peak, 0.66f, 0f,
+                CarController.DefaultEngineBrakeFracIdle, CarController.DefaultEngineBrakeFracRedline);
+            Check(lift > 120f && lift < 155f, "lift-off in third at 100 km/h drags ~138 Nm of crank (was 64)",
+                  lift.ToString("0"));
+            Check(CarController.EngineBrakeTorque(peak, 0.66f, 1f,
+                      CarController.DefaultEngineBrakeFracIdle, CarController.DefaultEngineBrakeFracRedline) == 0f,
+                  "and none with the pedal down");
+            Check(CarController.DefaultEngineBrakeFracRedline < 0.7f,
+                  "engine braking stays under MW's 0.7 — through tyres, not a script",
+                  CarController.DefaultEngineBrakeFracRedline);
+            float share = CarController.EngineBrakeRearCircleShare;
+            float lateralKept = Mathf.Sqrt(1f - share * share);
+            Check(share <= 0.5f && lateralKept >= 0.85f,
+                  "and is fenced so the rear keeps at least 85% of its lateral grip on a lift",
+                  (lateralKept * 100f).ToString("0") + "% at " + share);
+            float smallestPeak = float.MaxValue;
+            foreach (var c in CarCatalog.All)
+            {
+                float p = CarController.PeakTorque(c.curveNm);
+                if (p > 0f && p < smallestPeak) smallestPeak = p;
+            }
+            Check(smallestPeak < 78f,
+                  "the old flat 78 Nm at redline was MORE than the smallest catalog engine makes at all — "
+                  + "why it is a fraction of the car's own peak now", smallestPeak.ToString("0") + " Nm");
+
+            // ---- handling: downforce ---------------------------------------
+            Check(CarController.DefaultDownforceWeightFraction == 0.7f,
+                  "downforce at vmax is 70% of weight (was 35%)", CarController.DefaultDownforceWeightFraction);
+            if (fd != null)
+            {
+                float df30 = CarController.DownforceFractionAt(CarController.DefaultDownforceWeightFraction, 30f, fd.topSpeedMps);
+                float df50 = CarController.DownforceFractionAt(CarController.DefaultDownforceWeightFraction, 50f, fd.topSpeedMps);
+                Check(df30 > 0.08f && df30 < 0.12f, "the FD carries ~10% of its weight at 30 m/s (was 5%)",
+                      (df30 * 100f).ToString("0.0") + "%");
+                Check(df50 > 0.24f && df50 < 0.30f, "and ~27% at 50 m/s (was 13%)",
+                      (df50 * 100f).ToString("0.0") + "%");
+                // The lateral budget mu*g*(1 + df/W) and the damper's share of it.
+                float budget50 = 1.25f * CarController.DefaultTireMuFront * (1f + df50);
+                Check(0.45f / budget50 < 0.30f,
+                      "so at 50 m/s the arcade damper is under 30% of the tyre budget (was 31%)",
+                      (0.45f / budget50 * 100f).ToString("0") + "% of " + budget50.ToString("0.00") + " g");
+            }
+            float satDeg = 1.25f * CarController.DefaultTireMuFront / CarController.DefaultCorneringStiffness
+                           * Mathf.Rad2Deg;
+            Check(satDeg > 6f && satDeg < 7.5f,
+                  "the front's saturation slip angle is still ~6.6 deg — downforce scales Fz and C alike, "
+                  + "so steering lock is still not the lever", satDeg.ToString("0.0"));
+
+            // ---- handling: the launch, the release, the lean, the lever -----
+            Check(CarController.LaunchRPMFor(900f, 7200f, 1f) == 5200f, "a 7500 rpm car still launches at 5200");
+            Check(CarController.LaunchRPMFor(700f, 4800f, 1f) < 4800f, "a 5000 rpm car launches under its upshift",
+                  CarController.LaunchRPMFor(700f, 4800f, 1f));
+            Check(CarController.LaunchRPMFor(900f, 7200f, 0f) == 900f, "and idles with no pedal");
+
+            float r0 = PlayerCarInput.ReleaseRateAt(0f, PlayerCarInput.DefaultSteerReleaseRate);
+            float r20 = PlayerCarInput.ReleaseRateAt(20f, PlayerCarInput.DefaultSteerReleaseRate);
+            float r40 = PlayerCarInput.ReleaseRateAt(40f, PlayerCarInput.DefaultSteerReleaseRate);
+            float r60 = PlayerCarInput.ReleaseRateAt(60f, PlayerCarInput.DefaultSteerReleaseRate);
+            Check(Mathf.Approximately(r0, 1.5f) && Mathf.Approximately(r20, 3f) &&
+                  Mathf.Approximately(r40, 4.5f) && r60 == r40,
+                  "the wheel unwinds at 1.5 / 3.0 / 4.5 units/s at 0 / 20 / 40+ m/s",
+                  r0.ToString("0.0") + " / " + r20.ToString("0.0") + " / " + r40.ToString("0.0"));
+            bool underActuator = true;
+            for (float v = 0f; v <= 60f; v += 1f)
+            {
+                float lockDeg = Mathf.Lerp(CarController.DefaultMaxSteerLowSpeedDeg,
+                                           CarController.DefaultMaxSteerHighSpeedDeg, Mathf.Clamp01(v / 55f));
+                float actuatorUnitsPerSec = CarController.DefaultSteerRateDeg / lockDeg;
+                if (PlayerCarInput.ReleaseRateAt(v, PlayerCarInput.DefaultSteerReleaseRate) > actuatorUnitsPerSec)
+                    underActuator = false;
+            }
+            Check(underActuator, "and the release is the slower of the two filters at every speed, "
+                                 + "so the car never waits on the input");
+
+            Check(CarBodyLean.RollDegFor(1f) < 0f &&
+                  Mathf.Approximately(Mathf.Abs(CarBodyLean.RollDegFor(1f)), CarBodyLean.RollDegPerG),
+                  "a 1 g left turn drops the right sill by the roll rate", CarBodyLean.RollDegFor(1f));
+            Check(Mathf.Abs(CarBodyLean.RollDegFor(5f)) <= 3f,
+                  "and the render lean caps under 3 deg — the springs already roll the car",
+                  CarBodyLean.RollDegFor(5f));
+            Check(CarBodyLean.PitchDegFor(-1f) > 0f && CarBodyLean.PitchDegFor(1f) < 0f,
+                  "braking dives the nose, throttle squats it");
+
+            Check(Mathf.Approximately(CarController.EbrakeKickScrub, 0.0275f),
+                  "a handbrake kick scrubs 2.75% of speed at full steer and vmax", CarController.EbrakeKickScrub);
         }
 
         static CarSpec FindSpec(string namePart)

@@ -237,16 +237,30 @@ namespace PSXRacing.OnFoot
             var target = interactor != null ? interactor.Current : null;
             bool offer = target != null && !string.IsNullOrEmpty(target.action);
             if (useImage.gameObject.activeSelf != offer) useImage.gameObject.SetActive(offer);
+            // The button says the verb, for the same reason the second one
+            // below always has: "USE" over a pizza counter is a button that
+            // does not know what it is for. Reported as "picking up pizza for
+            // delivery should say Pick Up, not Use" — the label was the literal
+            // passed to ButtonLabel at Build and nothing ever wrote it again.
+            // Every frame, the way the second one is, because a target's verb
+            // flips in place (PICK UP to PUT BACK) without the target changing.
+            // The literal USE at Build stays as what the button says before
+            // any target has been offered; FootTarget.Verb falls back to it.
+            if (offer)
+            {
+                string wantUse = target.Verb;
+                if (useLabel.text != wantUse) useLabel.text = wantUse;
+            }
 
             bool offer2 = target != null && !string.IsNullOrEmpty(target.action2);
             if (use2Image.gameObject.activeSelf != offer2) use2Image.gameObject.SetActive(offer2);
             // The button says the verb, so a car that offers INSPECT and a
             // fixture that offers something else are not the same button with
-            // different consequences. First word only — a thumb button is not
-            // a place for a sentence.
+            // different consequences. Two words at most — a thumb button is
+            // not a place for a sentence — unless the target named its own.
             if (offer2)
             {
-                string want = FirstWords(target.action2);
+                string want = target.Verb2;
                 if (use2Label.text != want) use2Label.text = want;
             }
 
@@ -377,17 +391,6 @@ namespace PSXRacing.OnFoot
             float s = canvas != null ? canvas.scaleFactor : 1f;
             if (s <= 0f) s = 1f;
             return screen / s;
-        }
-
-        /// <summary>The first two words of a prompt, upper-cased — "INSPECT
-        /// THIS CAR" becomes "INSPECT THIS". Long enough to be a verb with an
-        /// object, short enough to fit a thumb button at 22pt.</summary>
-        static string FirstWords(string action)
-        {
-            if (string.IsNullOrEmpty(action)) return "";
-            var parts = action.Split(' ');
-            string s = parts.Length > 1 ? parts[0] + " " + parts[1] : parts[0];
-            return s.ToUpperInvariant();
         }
 
         static bool Contains(RectTransform rect, Vector2 screenPoint) =>

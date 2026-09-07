@@ -371,8 +371,10 @@ namespace PSXRacing.EditorTools
                            "  spec: " + (live != null && CarCatalog.Get(live.car.specId) != null) +
                            "  model: " + (live != null &&
                                CarShell.DefFor(CarCatalog.Get(live.car.specId)) != null));
+            // "[VERB] sentence": the bracket is the word on the thumb button,
+            // so a probe run shows a hook that would ship saying USE.
             foreach (var h in Object.FindObjectsByType<FootTarget>(FindObjectsSortMode.None))
-                log.AppendLine("hook " + h.name + " '" + h.title + "' — " + h.action);
+                log.AppendLine("hook " + h.name + " '" + h.title + "' — [" + h.Verb + "] " + h.action);
 
             // From the player's own eyes, which is the only view that says
             // whether the car is reachable and the house is behind it.

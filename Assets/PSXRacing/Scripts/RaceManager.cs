@@ -22,6 +22,49 @@ namespace PSXRacing
         public RaceState State { get; private set; } = RaceState.Countdown;
         public float CountdownRemaining { get; private set; } = 4f;
 
+        /// <summary>
+        /// Waypoint index a SPRINT on a loop circuit finishes at, or -1 for a
+        /// lap race. A delivery is a sprint ("pizza delivery routes should be
+        /// sprints, not circuit races"): the customer's door is part-way round
+        /// the lap, so instead of counting laps the race ends when the car
+        /// reaches this station after crossing the line once. Set from
+        /// RaceHandoff.DeliveryDropFraction in Start and never baked, so one
+        /// scene serves lap races and sprints without a rebuild.
+        /// </summary>
+        public int sprintFinishIndex = -1;
+        /// <summary>A sprint on a circuit is in progress. A route with ENDS is
+        /// never one in this sense — its baked finish already is the door.</summary>
+        public bool Sprint => sprintFinishIndex > 0 && path != null && !path.HasEnds;
+        /// <summary>The grid was put down already moving and the race went
+        /// live on frame one: no starter, no lights, no "GO!".</summary>
+        public bool RollingStart { get; private set; }
+
+        /// <summary>Earliest station a sprint may finish at: 40 m past the
+        /// line at 4 m spacing. The lap detector fires on an ARRIVAL at index
+        /// below 5, so a finish at 10 is five stations clear of it and can
+        /// never share a frame with a crossing.</summary>
+        public const int SprintFinishMinIndex = 10;
+        /// <summary>Stations a sprint finish stays short of the line by. The
+        /// lap detector arms on a DEPARTURE from index above n-6 — the last
+        /// five stations — and eight leaves two clear between the finish and
+        /// that window.</summary>
+        public const int SprintFinishEndMargin = 8;
+
+        /// <summary>
+        /// Where a sprint of <paramref name="fraction"/> of a lap finishes on
+        /// a loop of <paramref name="count"/> stations. Pure, so the self-test
+        /// can walk every circuit and every fraction without a scene. Clamped
+        /// into [SprintFinishMinIndex, count - SprintFinishEndMargin] so no
+        /// fraction can put the door inside the lap-crossing window at either
+        /// end. A loop too short to hold both margins gets -1: laps, no sprint.
+        /// </summary>
+        public static int SprintFinishIndexFor(int count, float fraction)
+        {
+            if (count <= SprintFinishMinIndex + SprintFinishEndMargin) return -1;
+            int want = Mathf.RoundToInt(Mathf.Clamp01(fraction) * count);
+            return Mathf.Clamp(want, SprintFinishMinIndex, count - SprintFinishEndMargin);
+        }
+
         public class CarProgress
         {
             public CarController car;
@@ -60,6 +103,25 @@ namespace PSXRacing
             // table is built from it.
             GetComponent<RaceHandoffApplier>()?.Apply(allCars);
 
+            // A delivery on a loop circuit is a SPRINT to a door part-way round
+            // the lap. Decided after Apply because a reverse twin has just
+            // turned the list round — the count is the same either way (the
+            // self-test says so), but the decision belongs after the last
+            // thing that touches the path.
+            if (RaceHandoff.Delivery && path != null && !path.HasEnds)
+                sprintFinishIndex = SprintFinishIndexFor(path.Count, RaceHandoff.DeliveryDropFraction);
+
+            // ROLLING START: "it would be nice if pizza delivery race tracks
+            // started with the car driving the speed limit, not turning on
+            // ignition." The handoff says what speed; a DRAG-PRESENTATION
+            // venue never rolls whatever it says, because it stages the field
+            // abreast ON the line and the tree is the event. That is path.drag,
+            // which the builder sets from TrackDef.IsDragEvent — so it covers
+            // the two synthetic strips (out of the delivery pool anyway) AND
+            // the Bogue bridge runs, which are real road with a drag start.
+            bool rolling = RaceHandoff.RollingStartKmh > 0f && path != null && !path.drag;
+            float rollingMps = RaceHandoff.RollingStartKmh / 3.6f;
+
             // Stagger the starters across the countdown so the grid does not fire
             // as one voice, and so the tach and the audio agree at lights-out.
             float startDelay = 0.25f;
@@ -70,11 +132,42 @@ namespace PSXRacing
                     car = car,
                     nearestIdx = path.NearestIndex(car.transform.position)
                 };
+                if (rolling)
+                {
+                    // AFTER Apply: StageReversedGrid zeroes every car's velocity
+                    // and reseats it, so the speed is written off the restaged
+                    // transform.forward or a twin starts stopped, or backwards.
+                    // BEFORE the first FixedUpdate: PizzaCargo seeds its
+                    // velocity memory on its first tick, so a speed the car
+                    // already has when the cargo wakes is not read as a 4.5 g
+                    // shove across the seat — one written on the Racing
+                    // transition a few frames later would be. Written for every
+                    // car, not just the player's, so an AI grid rolls too if a
+                    // delivery ever gets traffic; today deliveries are Solo.
+                    car.SetRolling(rollingMps);
+                    SetCarInputEnabled(car, true);
+                    continue;   // no starter: the engine is already running
+                }
                 SetCarInputEnabled(car, false);
 
                 var engine = car.GetComponent<EngineAudio>();
                 if (engine != null) engine.PlayStartup(startDelay);
                 startDelay += 0.3f;
+            }
+
+            if (rolling)
+            {
+                // Live on frame one. Zero countdown rather than a short one:
+                // the car is doing the limit, and every second of Countdown is
+                // a second of PlayerCarInput's no-driver branch holding 30%
+                // brake on a car that is supposed to be moving. The engine
+                // loops are already running (EngineAudio.MakeLoop) — "already
+                // started" is nothing more than not playing the starter clip.
+                RollingStart = true;
+                State = RaceState.Racing;
+                CountdownRemaining = 0f;
+                foreach (var p in progressMap.Values) p.lapStartTime = Time.time;
+                PizzaCargo.Instance?.ForgetMotion();
             }
         }
 
@@ -146,7 +239,27 @@ namespace PSXRacing
                 }
                 else if (p.nearestIdx > n - 6 && prev < 5 && p.crossedStartOnce)
                 {
-                    p.lap = Mathf.Max(1, p.lap - 1); // crossed the line backwards
+                    // Crossed the line backwards. On a sprint, back over the
+                    // line on lap 1 is back on the grid side of it and the
+                    // first crossing is owed again — otherwise a car could
+                    // cross, reverse twenty metres, and stand at index n-3,
+                    // past a finish clamped to n-8, having driven nowhere. A
+                    // lap race keeps the answer it always had, the lap floor.
+                    if (Sprint && p.lap <= 1) p.crossedStartOnce = false;
+                    else p.lap = Mathf.Max(1, p.lap - 1);
+                }
+
+                // THE DOOR. A sprint ends at a station rather than a lap count:
+                // past the finish index, having crossed the line once — the
+                // grid sits at n-7, which is "past" every index, and must not
+                // finish on frame one. After the crossing block, so the frame
+                // that crosses (index below 5) can never also be the frame
+                // that finishes (index 10 or more).
+                if (Sprint && p.crossedStartOnce && p.nearestIdx >= sprintFinishIndex)
+                {
+                    p.finished = true;
+                    p.finishTime = p.raceTime;
+                    OnCarFinished(p);
                 }
 
                 p.progress = (p.lap - (p.crossedStartOnce ? 0 : 1)) * path.TotalLength
@@ -194,11 +307,17 @@ namespace PSXRacing
                 // On a strip the ET IS the lap: there is one run and its time is
                 // the whole result, so it goes in the field the LifeSim already
                 // reports as the headline number rather than staying blank.
-                RaceHandoff.BestLapSeconds = path.HasEnds ? p.finishTime : p.bestLapTime;
+                // A sprint is one run too: its ET is the headline and its
+                // distance is the door's station, not the lap count — a 0.7-lap
+                // drop that banked three laps of odometer, wear and fuel
+                // fallback would be paying for a race that never happened.
+                bool oneRun = path.HasEnds || Sprint;
+                RaceHandoff.BestLapSeconds = oneRun ? p.finishTime : p.bestLapTime;
                 RaceHandoff.TrapSpeedKmh = p.trapSpeedKmh;
                 RaceHandoff.MetersDriven = path.HasEnds
                     ? path.finishIndex * path.spacing
-                    : totalLaps * path.TotalLength;
+                    : Sprint ? sprintFinishIndex * path.spacing
+                             : totalLaps * path.TotalLength;
                 RaceHandoff.DriftSeconds = playerDriftSeconds;
                 var responder = playerCar.GetComponent<CollisionResponder>();
                 RaceHandoff.DamageScore = responder != null ? responder.DamageScore : 0f;
@@ -282,6 +401,29 @@ namespace PSXRacing
             progressMap.TryGetValue(car, out var p) ? p : null;
 
         /// <summary>
+        /// Metres between a car and its finish, for the HUD's "DROP 640 m":
+        /// the baked finish on a route with ends, the door on a circuit
+        /// sprint, and -1 on a lap race, which has no one line to measure to.
+        ///
+        /// Off the same progress the standings sort by, so the number on the
+        /// HUD falls exactly as fast as the position table thinks it does.
+        /// That progress is NOT zero at the line: on the grid it is a lap less
+        /// the stations back to the grid (index n-7 on the lap before the
+        /// crossing), after the crossing it is a lap plus the index — so the
+        /// lap term carries the difference and one expression covers both
+        /// sides of the line.
+        /// </summary>
+        public float RemainingToFinishM(CarProgress p)
+        {
+            if (p == null || path == null) return -1f;
+            if (path.HasEnds)
+                return path.finishIndex > 0 ? (path.finishIndex - p.nearestIdx) * path.spacing : -1f;
+            if (Sprint)
+                return path.TotalLength + sprintFinishIndex * path.spacing - p.progress;
+            return -1f;
+        }
+
+        /// <summary>
         /// Put a car back in the middle of the road, facing the way the road
         /// goes — and somewhere it can actually drive away from.
         ///
@@ -305,11 +447,28 @@ namespace PSXRacing
             // nearest one anyway: a car left where it is would be worse than a
             // car put back somewhere imperfect.
             const int Search = 15;
+            int n = path.Count;
             for (int step = 0; step <= Search; step++)
             {
-                int idx = path.Wrap(start + step);
+                int raw = start + step;
+                int idx = path.Wrap(raw);
                 if (!DriveSession.TryPlace(car, path.GetPoint(idx), path.GetRotation(idx))) continue;
-                if (p != null) p.nearestIdx = idx;
+                if (p != null)
+                {
+                    // The walk went THROUGH waypoint 0, which is a line
+                    // crossing the detector in Update can never see: it
+                    // compares this frame's index with last frame's, and this
+                    // overwrites last frame's. A car unstuck off the grid onto
+                    // the far side of the line would otherwise owe a first
+                    // crossing it can no longer make — and a sprint, which
+                    // finishes only after that crossing, could never end.
+                    if (!path.HasEnds && raw >= n && !p.crossedStartOnce)
+                    {
+                        p.crossedStartOnce = true;
+                        p.lapStartTime = Time.time;
+                    }
+                    p.nearestIdx = idx;
+                }
                 return;
             }
 

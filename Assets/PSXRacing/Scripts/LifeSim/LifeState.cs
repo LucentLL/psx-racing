@@ -39,7 +39,7 @@ namespace PSXRacing.LifeSim
         ///     use. It is unfitted and refunded rather than left as a padlocked
         ///     row the player paid for.
         /// </summary>
-        public int saveVersion = 10;
+        public int saveVersion = 11;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;

@@ -68,6 +68,9 @@ namespace PSXRacing.OnFoot
         /// the time it is graded against.</summary>
         int trackIndex = -1;
         float parSeconds;
+        /// <summary>How far round the lap the door is, rolled with the venue
+        /// so the par above is sized to it. See LifeRules.RollDropFraction.</summary>
+        float dropFraction = 1f;
         /// <summary>One topping index per box, bottom of the stack first. This
         /// IS the order — it crosses into the race scene and becomes the boxes
         /// on the passenger seat.</summary>
@@ -143,8 +146,14 @@ namespace PSXRacing.OnFoot
         /// stops offering any prompt at all — a counter you cannot read is
         /// indistinguishable from a counter that is not there, and the player has
         /// no way to learn why.
+        ///
+        /// Public for the self-test's walk-in sweep, the way the other scenes'
+        /// PreviewBuild is: the builder bakes these hooks with no action at all
+        /// and Start does not run outside play mode, so without a call in here
+        /// the sweep would find three silent hooks and pass a room whose
+        /// buttons it never read.
         /// </summary>
-        void RefreshLabels()
+        public void RefreshLabels()
         {
             string venue = trackIndex >= 0 && trackIndex < TrackCatalog.All.Length
                          ? TrackCatalog.All[trackIndex].name : "";
@@ -165,6 +174,10 @@ namespace PSXRacing.OnFoot
                 // another.
                 counterHook.action = carrying ? "PUT THE ORDER BACK"
                                               : "COLLECT THE ORDER";
+                // The button word, beside the sentence and flipping with it —
+                // the same PICK UP the town's counter says, because this scene
+                // is the no-town fallback for that counter, not a second shop.
+                counterHook.verb = carrying ? "PUT BACK" : "PICK UP";
             }
             if (carHook != null)
             {
@@ -173,6 +186,7 @@ namespace PSXRacing.OnFoot
                     ? "$" + pay + " on delivery"
                     : "the order is still on the counter";
                 carHook.action = carrying ? "LOAD UP AND DRIVE" : "";
+                carHook.verb = carrying ? "GET IN" : "";
             }
             if (doorHook != null)
             {
@@ -188,7 +202,16 @@ namespace PSXRacing.OnFoot
                     : "nothing waiting on you";
                 doorHook.action = carrying ? "OUT TO THE CAR — START THE RUN"
                                            : "CLOCK OFF — GO HOME";
+                doorHook.verb = carrying ? "LEAVE" : "CLOCK OFF";
             }
+
+            // The prompt on screen is change-gated on WHICH hook is in front of
+            // the player, and Collect rewrites the wording of the one they are
+            // stood at without changing which one it is. Without this the
+            // counter kept saying COLLECT THE ORDER, box in hand, until they
+            // looked away and back — the gap GarageWorld and SellerLotWorld
+            // already close at the end of their own RefreshLabels.
+            screen?.Invalidate();
         }
 
         void UseCounter()
@@ -227,7 +250,8 @@ namespace PSXRacing.OnFoot
                 bottles = LifeRules.RollOrderBottles(toppings.Length);
                 pay = LifeRules.RollDeliveryPay(S) * toppings.Length;
                 trackIndex = LifeRules.DeliveryTrackIndex(S);
-                parSeconds = LifeRules.DeliveryParSeconds(trackIndex);
+                dropFraction = LifeRules.RollDropFraction();
+                parSeconds = LifeRules.DeliveryParSeconds(trackIndex, dropFraction);
             }
 
             // The counter loses exactly what the player picked up.
@@ -306,7 +330,7 @@ namespace PSXRacing.OnFoot
 
             LifeRules.ClockOnShift(S);
             LifeRules.SpendActivitySlot(S);
-            PizzaRun.StartRun(toppings, bottles, pay, trackIndex, parSeconds, tod);
+            PizzaRun.StartRun(toppings, bottles, pay, trackIndex, parSeconds, tod, dropFraction);
             LifeSimManager.Save();
 
             // A build without the town (or a career caught mid-update) still

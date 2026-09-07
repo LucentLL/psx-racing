@@ -5,6 +5,208 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## CHARLOTTE ON THE MAP — THREE STREET VENUES (2026-09-07)
+
+Three real Charlotte roads join the catalog, baked from OpenStreetMap + SRTM
+the way the mountains were, on the same streets FREE ROAM drives. Appended
+after Beech Gap (a save stores its venue by index); every blurb carries the
+OSM sentence and the HUD shows the city's attribution line for seven seconds.
+
+- **UPTOWN LOOP — I-277** (`UptownLoop`, "THE 277"): the belt round uptown,
+  clockwise — I-77 NB, Brookshire Fwy EB, John Belk Fwy WB, the ramps back to
+  I-77. 9.19 km, 2,298 waypoints closing on a 3.44 m seam, ONE lap, one-way,
+  no reverse twin (backwards is the wrong way up every ramp). 18 spans and
+  2,492 m on structure; tightest 22.8 m (a ramp at 8.68 km); self-clearance
+  84 m; 197..233 m ASL, 5.8% max, vertical radius 2,774 m. 65% of the 14.2 km
+  fuel ceiling — `laps` stays 1 and the self-test's tank check is what pins it.
+- **TRYON STREET SPRINT** (`TryonSprint`, "NODA"): S Tryon at Camden Road to
+  N Tryon at E 36th. 6.02 km of route, 5.70 km timed (start 60 m in, finish
+  250 m back so the run keeps a shutdown), reverse allowed — TRYON STREET
+  SPRINT II is the real southbound drive. 148 m over the Belk; tightest
+  33.5 m; 210..231 m, 5.0%, vertical R 1,457 m; 40% of the ceiling.
+- **INDEPENDENCE SPRINT — US 74** (`IndependenceSprint`, "US 74"): off the
+  Belk and east down the expressway to Sharon Amity. 6.63 km of route,
+  6.26 km timed, one-way, no reverse. 184 m on structure; tightest 66.4 m;
+  198..235 m, 4.2%, vertical R 1,164 m; 44% of the ceiling.
+
+What had to exist for them:
+
+- **A CYCLIC STAGE.** `TrackDef.loop`: stage geometry, circuit race. Every
+  place `stage` had meant "has ends" now asks `stage && !loop` — the builder's
+  `Loop`, `path.pointToPoint`, the start/finish lines, the grid walk,
+  `RaceMeters` (lap × laps), `FinishIndex` (-1), `BridgeBlend` (the modulo
+  branch), the thumbnail's closing segment, `DeliveryMeters`, the self-test's
+  grade wrap and reversed-stage probe. The bake writes `loop` into its JSON
+  and `EnsureStage` shouts if the row disagrees. The Bogue note had called
+  this the missing piece since the island circuit was routed.
+- **`oneWay`**: dashes only, no double yellow — a no-passing line down a
+  freeway carriageway would be the first thing a Charlotte driver noticed.
+  Copied by `ReverseTwin` beside `loop` and `speedLimitKmh`; the self-test
+  holds one-way to `noReverse`.
+- **The bake is a toolkit now.** `tools/roads/lib.mjs` holds what
+  fetch_road.mjs and the new `tools/clt/fetch_clt.mjs` share (projection,
+  centripetal spline, SRTM, smoother, grid baker, stage writer) with the ring
+  behaviours — periodic spline, circular smoother, wrap-aware corner test,
+  seam-merged spans — as opt-in flags whose defaults reproduce the shipped
+  bakes byte for byte (checked on the Dragon row). fetch_clt.mjs chains
+  VERIFIED WAY IDS in route order (endpoint-chaining picks the wrong
+  carriageway on a divided road; the probe's first attempt wandered 19 km up
+  Beatties Ford Road) with a oneway-respecting router as the fallback, prints
+  every number the self-test will assert (tightest corner, self-clearance,
+  closure gap, grade, vertical radius, RaceMeters against the fuel ceiling)
+  and refuses under the 12 m floor. Overpass bodies are cached under a hash
+  of the id list, so correcting an id fetches again instead of chaining
+  yesterday's gap.
+- **The carriageway-jog taper.** Where a two-way street divides into a
+  one-way pair, OSM's centreline steps sideways onto the carriageway in a few
+  metres — N Tryon at 12th (4.3 m in 7 m) and 33rd (4.8 m in 9 m) — and the
+  spline reads a 6 m plan radius on a road with no corner there. The bake now
+  recognises the jog by its tags (the oneway status changes across sharp
+  turns that cancel inside 15 m) and spreads the sidestep over the MUTCD
+  lane-shift taper for the posted limit (88 and 98 m at 35 mph). Nothing
+  else is smoothed; the freeways re-bake identical.
+- **An urban stage theme.** The stage look moved off constants onto the
+  Theme (`fogScale`, `farClip`, `farCoverage`, `groundTint`, `farGround`)
+  so a city can differ from a mountain without touching the mountain:
+  concrete curb strip for the verge (the same Shoulder.png hook BuildKerbs
+  reads), a continuous concrete barrier on the freeways
+  (`stageWallAlways`), no cut banks (`stageBanks` off — SRTM reads roofs
+  beside a street and a bank solved against a roofline is a five-metre
+  face along the pavement), the far ring at 1,200 m rather than 2,300 (a
+  flat city is download and nothing else), and **the urban dig**
+  (`stageBridgeDig`): the ground under every span drops to the track's
+  `bridgeDepth` (6 m) faded by the corridor blend, because flat SRTM gives
+  an overpass no daylight and the terrain audit wants three metres under
+  every full-blend station. It can only ever lower ground and it is a
+  theme flag, not a rule, so three shipped mountains keep their abutments.
+- **A street front.** `BuildStageHomes` takes the theme's prop set
+  (`stageProps`) and deals it by distance from Trade & Tryon — towers inside
+  ~900 m, the mid-rise blocks to 2.6 km, houses and drive-thrus beyond —
+  using the registration each bake writes (`cityX0/cityZ0`, the stage origin
+  in charlotte_city.json's frame). Lots keep an along-the-road occupancy per
+  side, clear every arm of the route (the 277's arms pass within 85 m), and
+  seat on TERRAIN colliders only — a corner that found a guard wall's box
+  used to seat the whole house on top of it.
+- **Scatter passes measure from THIS venue's barrier line.** Lamps, parked
+  cars, buildings, trees and the push-clear pass all read `WallOffsetFor(track)`
+  now; the circuits' constant 10 m had scenery inside the barrier line of any
+  road wider than ~20 m.
+
+Cost: 2.4 MB of DEM (`Art/CLT`, near 12 m / far 60 m grids) and 115 KB of
+stage JSON in the source project; the built ground meshes are the sandbox's.
+`tools/clt-sync-back.ps1` returns the generated curb strip, the materials and
+the .meta files after a green build.
+
+Follow-ups, in the order they were argued for: SOUTHPARK CIRCUIT needs a
+junction-arc pass first (OSM has no "Morrison Boulevard"; the loop only closes
+via Carnegie Blvd through four signalised 90-degree corners at 5.6 m); the
+CHARLOTTE MOTOR SPEEDWAY ROVAL is in OSM as raceway ways but BuildRoad emits a
+level section, so its banking would be flat; a phase-2 skyline that borrows
+`CityBuildings.Precompute` so uptown wears exactly the city's own blocks; the
+other carriageway of each freeway as a visual-only ribbon; cross streets over
+the Belk's trench.
+
+## A DELIVERY IS A SPRINT THAT STARTS ROLLING (2026-09-07)
+
+"It would be nice if pizza delivery race tracks started with the car driving
+the speed limit, not turning on ignition. Also, for logic, pizza delivery
+routes should be sprints, not circuit races." The screenshot was LAP 2/2 on a
+two-lap circuit with a 3-2-1 countdown in front of it.
+
+Both halves are runtime; nothing rebakes.
+
+- **Every venue has a speed limit now** — `TrackDef.speedLimitKmh`, km/h, in
+  the catalog: 45 on the fictional circuits, the posted limit on the real
+  roads (Parkway 72, NC 128 56, Langston 89), **0 on the two synthetic
+  strips**, where the tree is the start. `ReverseTwin` copies it (an explicit
+  field list — leave one out and every twin silently rolls in at 45), and
+  `TownEdge.ArrivalKmh` is now `TrackCatalog.DefaultSpeedLimitKmh` rather than
+  its own 45, so the town and the circuits share one number.
+- **A delivery rolls in at that limit.** `PizzaRun.FillDeliveryHandoff` stamps
+  `RaceHandoff.RollingStartKmh`; `RaceManager.Start` — AFTER the applier has
+  restaged the grid, BEFORE the first FixedUpdate — gives every car
+  `CarController.SetRolling(mps)` (velocity along its restaged forward, gear
+  from the new pure `GearForSpeed`, RPM from the gear, cargo told to forget)
+  and goes straight to `Racing` with a zero countdown: no starter clip, no
+  lights, no "GO!". Written for `allCars` so an AI grid would roll too;
+  deliveries are Solo today. Gated on `!path.drag`, so a drag-presentation
+  strip keeps its standing start.
+- **A delivery is a sprint.** The counter rolls a drop fraction in
+  [0.55, 0.95] of a lap (`LifeRules.RollDropFraction`) with the venue, and
+  `DeliveryMeters` sizes the par to it — the same function the HUD's live tip
+  and the wallet's payout both go through, via `RaceHandoff.DeliveryDropFraction`.
+  On a loop circuit `RaceManager` puts the finish at
+  `SprintFinishIndexFor(count, fraction)`, clamped to [10, count-8] so the
+  door can never sit inside the lap-crossing index window at either end; the
+  race ends at that station after one line crossing, `MetersDriven` is the
+  door's station rather than the lap count, and the ET is the headline. Stages
+  keep their baked ends. Reversing back over the line on a sprint hands the
+  first crossing back (or twenty metres of reverse would stand a car past the
+  finish), and `RespawnCar` now credits the crossing when its forward walk goes
+  through waypoint 0 — the index-window detector cannot see a crossing it
+  overwrote, and a sprint that never got its crossing could never end.
+- **The synthetic strips leave the delivery pool** ("for logic"): both the roll
+  and its cheapest-tank fallback filter `t.drag`. The Bogue bridges are drag
+  events on real road and stay in the pool — but they stage abreast on the
+  line with a tree, and the builder bakes `path.drag` from `IsDragEvent`, so
+  the `!path.drag` gate keeps their standing start.
+- **HUD:** the lap slot reads `DROP 640 m` / `DROP 1.2 km` off
+  `RaceManager.RemainingToFinishM` (on the tip's 0.25 s timer, rounded to the
+  digits shown, never per frame), and the finish sheet prints ET for a sprint.
+- **`DeliveryLaunchAllowance` stays at 6 s.** With no lights it is now slack
+  between the venue's limit and par pace; lowering it moves every quote at the
+  counter, which is a tuning decision and not a tidy-up.
+- Self-test: `TestTracks` (limit sane, strips stand / roads roll, twins agree),
+  `TestDeliveryJob` (no strips, sprint par shorter than the race and above the
+  floor, a drop never crosses the line twice, the roll stays in band, the
+  ticket's two new fields cross the handoff and `ClearAll` puts them back) and
+  a sceneless `TestDeliverySprint` (finish bounds on every circuit at 0 / 0.55
+  / 0.95 / 1 and on the list turned round; `GearForSpeed` on the built-in RX-7
+  and two catalog cars).
+
+## CONCRETE CURBS ON REAL ROADS (2026-09-07)
+
+"there should not be racing red/white strips on city streets. it should be
+concrete textured curbs." The screenshot was RIDGE PASS (LAP 2/2 and the
+dry-stone wall give it away), and the cause was that `BuildKerbs` had exactly
+two looks, chosen by `def.stage`: every non-stage venue — downtown, the docks, a
+mountain pass with lamps and a filling station — got the same red/white ribbon.
+
+**The policy now lives on the editor-side `Theme` as `KerbStyle`** (Racing /
+Street / Verge), read through `PSXRacingBuilder.KerbStyleFor(def)` the way the
+audits read `WallOffsetFor`: **Street on every real road** (CityCircuit,
+HarborPoint, RidgePass — and the default, so a new venue is a street unless it
+says otherwise), **Racing only on the airfield and the two drag strips** (set
+explicitly), **Verge on every stage** (a stage's strip is its shoulder and the
+stage texture pass chooses what that is; an urban concrete Shoulder.png for the
+Charlotte stages is a later pass through the same channel). The self-test pins
+the choice per venue by name.
+
+- The street curb is a SECTION inside the same 0.9 m footprint: a 15 cm battered
+  face, a 30 cm curb-stone top and a 60 cm pavement slab, textured by a builder-
+  drawn `Art/Track/StreetKerb.png` (64x32, three bands off RG2's concrete hexes,
+  joints every 2 m on the stone and every 1 m on the slab), drawn in
+  `GenerateTrackTextures` so the importer pass makes it point-filtered.
+- **The collider is not the picture.** The player box sits ~9 cm over the tarmac
+  and overhangs the wheel centre by 13 cm, so a solid 15 cm lip is a wall the
+  body stops dead against. `KerbL`/`KerbR` collide on a second mesh — a 33% ramp
+  (`StreetKerbRamp` 0.45) to the curb top — whose normal is a landing to
+  `CollisionResponder`, whose rise under the body's overhang is 4.3 cm, and
+  which `AuditVerge` sees as 0.083 m per probe against its 0.17 limit.
+- **Dropped at the forecourt driveways** (`KerbLiftAt`, the wall's own gap
+  formula, ramped over one station so `AuditSurface` never sees a step), and
+  `BuildRoadEdge` lifts its top vertex by the same amount so the shoulder starts
+  at the pavement's back edge — a vertical back face would have been a 0.2 m
+  step against the fallen batter and failed re-entry. That lift puts the batter
+  top 1 cm into the sweep audit's box, so `TrackSweepAudit` exempts `RoadEdge`
+  by name beside Ground/BridgeDeck.
+- The kerb material is `MeshPrefix`'d on EVERY branch now; the circuit branch
+  had been sharing one `Materials/Kerb.mat`, which with two textures would have
+  had the last venue built repaint every other venue's kerb.
+- `PSXScreenshotTool.CaptureShoulder` shoots every venue, not only stages: the
+  `_9_shoulder_34/68` frames are the driver's-eye view of the edge and the only
+  ones that judge a 2 px joint at ship resolution.
+
 ## THE JUNCTION YOU COULD NOT STOP IN (2026-09-05, sixth pass)
 
 Three more, and the first one is the same report for the third time — which is

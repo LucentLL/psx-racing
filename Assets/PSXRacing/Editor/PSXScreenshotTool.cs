@@ -44,10 +44,36 @@ namespace PSXRacing.EditorTools
             Capture();
         }
 
+        /// <summary>
+        /// PSX_SHOT_ONLY="RidgePass,UptownLoop" in the environment restricts
+        /// the per-venue pass to those ids (the hour/sky/camera/forecourt
+        /// sweeps on the city circuit and the garage/neighbourhood rooms are
+        /// skipped too). A headless verification that has just fixed ONE
+        /// venue's kerb should not re-open thirteen scenes to look at it.
+        /// Unset, or set to an empty string, means everything, as before.
+        /// </summary>
+        static System.Collections.Generic.HashSet<string> OnlyVenues()
+        {
+            string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_ONLY");
+            if (string.IsNullOrWhiteSpace(only)) return null;
+            var set = new System.Collections.Generic.HashSet<string>();
+            foreach (var s in only.Split(',', ';', ' '))
+                if (!string.IsNullOrWhiteSpace(s)) set.Add(s.Trim());
+            return set.Count > 0 ? set : null;
+        }
+
         [MenuItem("PSX Racing/Capture Screenshots")]
         public static void Capture()
         {
             Directory.CreateDirectory(OutDir);
+            var only = OnlyVenues();
+            if (only != null)
+            {
+                foreach (var def in TrackCatalog.Scened)
+                    if (only.Contains(def.id)) CaptureTrack(def);
+                Debug.Log("[PSXShot] Screenshots (PSX_SHOT_ONLY) written to " + OutDir);
+                return;
+            }
             foreach (var def in TrackCatalog.Scened) CaptureTrack(def);
             // The hour sweep and the camera sweep both go on the city circuit:
             // it is the one with buildings, trees, parked cars and a forecourt
@@ -169,10 +195,15 @@ namespace PSXRacing.EditorTools
         /// photographed at its widest point. Two frames out on the route, aimed
         /// slightly down and to the side, are what shows whether the guard wall,
         /// the cut bank and the falling verge are where they should be.
+        ///
+        /// Every venue, not only the stages it was written for: the same two
+        /// frames are the driver's-eye view of a circuit's kerb, and the
+        /// street curb (a 15 cm concrete section with 2 px joints) is judged
+        /// at ship resolution from exactly here — no other frame puts the
+        /// edge of the road this close to the lens.
         /// </summary>
         static void CaptureShoulder(TrackCatalog.TrackDef def, Camera cam, string tag)
         {
-            if (!def.stage) return;
             var path = Object.FindFirstObjectByType<TrackPath>();
             if (path == null || path.Count < 12) return;
 

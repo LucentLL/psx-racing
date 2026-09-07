@@ -13,7 +13,11 @@
 
 param(
     [string]$Project = (Split-Path -Parent $PSScriptRoot),
-    [string]$Editor  = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor"
+    [string]$Editor  = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor",
+    # Where the response files and DLLs land. Two concurrent runs sharing the
+    # default trample each other's .rsp mid-compile, so an agent working
+    # beside another passes its own directory.
+    [string]$OutDir  = (Join-Path $env:TEMP "psxtypecheck")
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,7 +59,7 @@ foreach ($f in $all) {
     else { $runtimeSrc += $f.FullName }
 }
 
-$out = Join-Path $env:TEMP "psxtypecheck"
+$out = $OutDir
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
 function Write-Rsp($file, $refs, $defines, $sources, $target) {

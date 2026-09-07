@@ -253,8 +253,10 @@ namespace PSXRacing.OnFoot
                           HoldName() + " to fill it";
                 // No ACTION on purpose. An action would consume the same key the
                 // pump reads to fill, and a nozzle is a thing you hold, not a
-                // thing you press once.
+                // thing you press once. No verb either: the verb is the word
+                // on a button this target does not have.
                 pumpTarget.action = "";
+                pumpTarget.verb = "";
             }
 
             if (carTarget != null)
@@ -263,6 +265,9 @@ namespace PSXRacing.OnFoot
                 carTarget.detail = tank == null ? ""
                     : "Tank " + Mathf.FloorToInt(tank.percent) + "%";
                 carTarget.action = "GET IN AND DRIVE";
+                // The button word, beside the sentence it belongs to, the way
+                // every registrar writes it; see FootTarget.verb.
+                carTarget.verb = "GET IN";
             }
 
             if (storeTarget != null)
@@ -270,6 +275,7 @@ namespace PSXRacing.OnFoot
                 storeTarget.title = "6TWELVE";
                 storeTarget.detail = "Coffee, food, and somewhere to stand out of the rain.";
                 storeTarget.action = "GO INSIDE";
+                storeTarget.verb = "ENTER";
             }
         }
 

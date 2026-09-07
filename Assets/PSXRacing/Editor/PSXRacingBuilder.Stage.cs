@@ -4,6 +4,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using PSXRacing;
+using PSXRacing.City;   // CityMeshes.Surface: the urban shoulder is painted in the city's own concrete
 
 namespace PSXRacing.EditorTools
 {
@@ -105,7 +106,17 @@ namespace PSXRacing.EditorTools
         const float ForestPitch = 13f;
 
         const float NearCell = 12f, NearCoverage = 340f, NearChunk = 240f;
-        const float FarCell = 60f, FarCoverage = 2300f, FarChunk = 960f;
+        const float FarCell = 60f, FarCoverageDefault = 2300f, FarChunk = 960f;
+        /// <summary>How far past the route the far ring reaches — the theme's
+        /// number (the mountain's 2300 m by default; 1200 on the flat
+        /// Charlotte venues, where the far chunks are download and nothing
+        /// else).</summary>
+        static float FarCoverage => theme.farCoverage;
+        /// <summary>The warm tint on a forest stage's near ground: untinted,
+        /// the dirt texture reads grey-green against the mottle's orange and
+        /// the border between the two draws itself as a band across the
+        /// hills. The Theme default; a city theme sets null.</summary>
+        internal static readonly Color StageAutumnTint = new Color(1.0f, 0.90f, 0.70f);
         /// <summary>Near chunks further than this from the route skip their
         /// MeshCollider — nothing drivable ever gets there, and cooked
         /// collision for a mountainside is pure load time.</summary>
@@ -412,6 +423,20 @@ namespace PSXRacing.EditorTools
             // honest: `pinned` has already blended most of the way to the DEM
             // by the outer edge of the corridor, so this binds where the
             // corridor is actually holding the road up and nowhere else.
+            //
+            // THE URBAN DIG. In a flat city SRTM reads street level under an
+            // overpass, so releasing to the DEM inside a span gives the deck
+            // no daylight at all — the terrain audit wants three metres under
+            // every full-blend station, and the piers want a trench to stand
+            // in. Where the theme says so, the ground under a span is dug to
+            // the track's bridgeDepth, faded by the corridor blend so the
+            // trench is the corridor's width and slopes back to the real
+            // ground by the outer edge of it. It can only ever LOWER ground,
+            // and it is a theme flag rather than a rule because the
+            // mountains' spans cross real gorges the DEM already has: turning
+            // it on there would move three shipped abutments.
+            if (theme.stageBridgeDig)
+                released = Mathf.Min(released, roadY - track.bridgeDepth * f * (1f - blend));
             return Mathf.Min(released, pinned);
         }
 
@@ -443,7 +468,7 @@ namespace PSXRacing.EditorTools
             // Sand needs no such correction — it is already the colour it is.
             bool sandy = surfNear != null && !string.IsNullOrEmpty(theme.sand);
             var nearMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f,
-                                  tint: sandy ? (Color?)null : new Color(1.0f, 0.90f, 0.70f));
+                                  tint: sandy ? (Color?)null : theme.groundTint);
             var sandMat = sandy ? MakeMat(MeshPrefix + "Sand", theme.sand, affine: 0f) : null;
             var marshMat = sandy ? MakeMat(MeshPrefix + "Marsh",
                                            string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
@@ -458,7 +483,13 @@ namespace PSXRacing.EditorTools
             // both shores rendered as one continuous beach, because a beach is
             // a narrow strip and everything BEHIND it is not. Distant land is
             // scrub; the sand is where the mask says it is, in the near band.
-            var farMat = string.IsNullOrEmpty(theme.sand)
+            //
+            // A city names its own far texture (theme.farGround): there is
+            // no forest to paint and no island to reuse, just more of the
+            // same ground out to the fog.
+            var farMat = !string.IsNullOrEmpty(theme.farGround)
+                ? MakeMat(MeshPrefix + "GroundFar", theme.farGround, affine: 0f)
+                : string.IsNullOrEmpty(theme.sand)
                 ? MakeMat(MeshPrefix + "GroundFar", StageGenDir + "/FallMottle.png", affine: 0f)
                 : MakeMat(MeshPrefix + "GroundFar", theme.ground, affine: 0f);
 
@@ -782,6 +813,7 @@ namespace PSXRacing.EditorTools
             root.transform.SetParent(parent, false);
 
             int runs = 0, walled = 0;
+            var wallRuns = new List<(int from, int len, float side)>();
             foreach (float side in new[] { -1f, 1f })
             {
                 // Decide per waypoint, then emit maximal runs. The drop test
@@ -804,6 +836,7 @@ namespace PSXRacing.EditorTools
                     if (len >= 4)
                     {
                         BuildOneStageWall(pts, i, len, side, root.transform, mat, phys, runs++);
+                        wallRuns.Add((i, len, side));
                         walled += len;
                     }
                     i += len + clear;
@@ -811,6 +844,61 @@ namespace PSXRacing.EditorTools
             }
             Log($"Stage guard walls: {runs} runs covering {walled * Spacing:0} m of shoulder " +
                 $"(of {n * Spacing * 2:0} m of roadside).");
+            PlaceStagePosts(pts, wallRuns, parent);
+        }
+
+        // ------------------------------------------------------------------
+        //  Reflector posts along the guard walls (sense of speed)
+        // ------------------------------------------------------------------
+        /// <summary>Post centre, metres OUTSIDE the wall line. The collider
+        /// box sits at +0.15 with 0.4 m of thickness, so its outer face is at
+        /// +0.35; the post stands clear of it on the shelf, which is dead
+        /// level out to StageVergeFlat = +0.7.</summary>
+        const float StagePostBack = 0.45f;
+        const float StagePostW = 0.10f;
+        /// <summary>How far the post shows above the wall's top. The stone is
+        /// 0.85 m; a parkway reflector post stands about 1.5 m, so 0.65 m of
+        /// white-and-red rises behind the wall.</summary>
+        const float StagePostAboveWall = 0.65f;
+        /// <summary>Sunk into the shelf like the wall's own skirt, so a coarse
+        /// facet can never show daylight under the foot.</summary>
+        const float StagePostSink = 0.1f;
+
+        /// <summary>
+        /// Reflector posts down every guard-wall run, one combined mesh, no
+        /// colliders. Only where there IS a wall: the stage keeps its
+        /// "nothing built" rule everywhere else, and a run of posts along a
+        /// shoulder that falls into a valley is exactly what the real road
+        /// has. Not on the spans — a bridge's shelf is its deck, and the deck
+        /// does not reach 0.45 m past the parapet.
+        /// </summary>
+        static void PlaceStagePosts(List<Vector3> pts, List<(int from, int len, float side)> runs,
+                                    Transform parent)
+        {
+            if (theme.postEvery <= 0 || runs.Count == 0) return;
+            var mat = MakeMat("RoadPost", PostTexPath, affine: 0f);
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            float height = StagePostSink + 0.45f + StageWallH + StagePostAboveWall;
+            int placed = 0, spans = 0;
+            foreach (var run in runs)
+            {
+                for (int k = 1; k < run.len; k += theme.postEvery)
+                {
+                    int i = Mathf.Min(run.from + k, pts.Count - 1);
+                    if (bridgeBlend != null && i < bridgeBlend.Length && bridgeBlend[i] > 0.35f)
+                    { spans++; continue; }
+                    Vector3 right = RightAt(pts, i);
+                    Vector3 baseP = pts[i] + right * run.side * (StageWallOffset + StagePostBack);
+                    // The wall's own base: the shelf is pinned to the road.
+                    baseP.y = pts[i].y - 0.45f - StagePostSink;
+                    AppendPost(verts, uvs, tris, baseP, right, StagePostW, height);
+                    placed++;
+                }
+            }
+            CombinedPosts(verts, uvs, tris, "StagePosts", "StagePosts", mat, parent);
+            Log($"Placed {placed} reflector posts along the guard walls ({spans} span stations skipped).");
         }
 
         /// <summary>Does the parkway have a guard wall on this shoulder? Both
@@ -819,6 +907,8 @@ namespace PSXRacing.EditorTools
         /// bank pass so the two can never claim the same station.</summary>
         static bool StageWallWanted(List<Vector3> pts, int i, float side)
         {
+            // A freeway is walled end to end whatever the ground does.
+            if (theme.stageWallAlways) return true;
             if (bridgeBlend != null && bridgeBlend[i] > 0.35f) return true;
             Vector3 right = RightAt(pts, i);
             float px = pts[i].x + right.x * side * 30f;
@@ -1195,6 +1285,7 @@ namespace PSXRacing.EditorTools
         /// thousand trees at a few dozen draw calls.</summary>
         static void GenerateStageTextures()
         {
+            if (theme.stageUrban) { GenerateUrbanTextures(); return; }
             if (!theme.stageForest) { GenerateCoastTextures(); return; }
 
             string atlasPath = StageGenDir + "/TreeAtlas.png";
@@ -1300,6 +1391,34 @@ namespace PSXRacing.EditorTools
                 g = (byte)Mathf.Lerp(g, 72 + grit * 26f, soil);
                 b = (byte)Mathf.Lerp(b, 46 + grit * 16f, soil);
                 return new Color32(r, g, b, 255);
+            });
+        }
+
+        /// <summary>
+        /// The Charlotte set: ONE texture, the shoulder strip, because the
+        /// ground is the city circuit's own JPEG and there is no far forest
+        /// to paint. A stage's strip is its verge (KerbStyleFor answers Verge
+        /// for every stage) and BuildKerbs draws it with THIS file — so an
+        /// urban stage gets a concrete curb by drawing its verge as one:
+        /// weathered concrete (RG2's ConcreteOld, the colour the city's own
+        /// bridge decks wear), a dark seam down each long edge where it meets
+        /// tarmac and grass, and a joint every metre. The strip is laid at
+        /// one repeat per 2 m, so a joint at x = 0 and x = 16 is a metre of
+        /// slab. Not the raised StreetKerb section — the stage's guard wall
+        /// and falling verge were built round a flat strip.
+        /// </summary>
+        static void GenerateUrbanTextures()
+        {
+            var slab = SurfaceBase[(int)CityMeshes.Surface.ConcreteOld];
+            WriteTexture(StageGenDir + "/Shoulder.png", 32, 16, (x, y) =>
+            {
+                int grain = (int)((Noise(x + 31, y + 7) - 0.5f) * 20f);
+                int shade = grain;
+                if (y == 0 || y == 15) shade -= 34;              // the seams
+                if (x == 0 || x == 1 || x == 16 || x == 17) shade -= 30;  // 1 m joints
+                return new Color32((byte)Mathf.Clamp(slab.r + shade, 0, 255),
+                                   (byte)Mathf.Clamp(slab.g + shade, 0, 255),
+                                   (byte)Mathf.Clamp(slab.b + shade, 0, 255), 255);
             });
         }
 

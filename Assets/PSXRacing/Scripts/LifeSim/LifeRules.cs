@@ -252,12 +252,17 @@ namespace PSXRacing.LifeSim
         /// a run from one end of a real route to the other, and a circuit is a
         /// real route the game already has. City deliveries come later.
         ///
-        /// Charlotte is the one venue excluded, and it has to be: it has no
-        /// finish line, so there would be nothing to arrive AT and the run
-        /// could never end. Everything else is fair game, strips included —
-        /// <see cref="DeliveryParSeconds"/> sizes the clock off the venue's own
-        /// raced distance, so a quarter mile and a seven-kilometre parkway
-        /// stage are both graded against what they actually take to drive.
+        /// Charlotte is excluded, and it has to be: it has no finish line, so
+        /// there would be nothing to arrive AT and the run could never end.
+        /// The two SYNTHETIC strips are excluded too, "for logic": a quarter
+        /// mile of flat tarmac with a Christmas tree at one end is not a road
+        /// anybody lives on, and a delivery that starts from a burnout box
+        /// reads as the game not knowing what a delivery is. The Bogue Banks
+        /// bridges stay — drag PRESENTATION on a real road is still a real
+        /// road with a house at the far end of it. Everything else is fair
+        /// game: <see cref="DeliveryParSeconds"/> sizes the clock off the
+        /// venue's own raced distance, so a bridge and a seven-kilometre
+        /// parkway stage are both graded against what they take to drive.
         ///
         /// Rolled rather than rotated. The previous version stepped through the
         /// catalog by day so a player could learn the route, which is the right
@@ -284,7 +289,7 @@ namespace PSXRacing.LifeSim
             {
                 int idx = (start + i) % n;
                 var t = all[idx];
-                if (t.city) continue;
+                if (t.city || t.drag) continue;
                 if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
                 return idx;
             }
@@ -297,7 +302,12 @@ namespace PSXRacing.LifeSim
             int cheapest = -1; float least = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
-                if (all[i].city) continue;
+                // The SAME filter as the roll above. A fallback that admits
+                // the strips picks the eighth mile every time — it is the
+                // cheapest run in the catalog by a mile — and the venue the
+                // roll refuses on principle would be the one a dry tank
+                // always gets.
+                if (all[i].city || all[i].drag) continue;
                 float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
                 if (need < least) { least = need; cheapest = i; }
             }
@@ -330,8 +340,52 @@ namespace PSXRacing.LifeSim
         /// <summary>Seconds allowed for the lights, the launch and getting up to
         /// speed, on top of the distance. It matters most where the run is
         /// shortest: six seconds is 4% of a circuit and 40% of a quarter mile.
+        ///
+        /// Deliberately NOT lowered when deliveries went rolling: with no
+        /// lights to wait for, the six seconds is now pure slack between the
+        /// venue's limit and the 79 km/h par pace, which is about what a car
+        /// takes to get there from 45 while the driver finds the road. Moving
+        /// it moves every quote at the counter, and the economy was balanced
+        /// on this number — a change here is a tuning decision, not a tidy-up.
         /// </summary>
         public const float DeliveryLaunchAllowance = 6f;
+
+        /// <summary>
+        /// How far round a circuit the customer's door can be, as a fraction
+        /// of the lap. A delivery is a SPRINT, not a lap race ("pizza delivery
+        /// routes should be sprints, not circuit races"): the run starts at
+        /// the line and ends part-way round, and the fraction is rolled at the
+        /// counter with the venue so the par quoted there is the par driven.
+        ///
+        /// The band: never less than half a lap, so a drop is a drive and not
+        /// a dash round the first corner, and never a whole one, so the finish
+        /// can never coincide with the start line — RaceManager detects a lap
+        /// by an index window either side of waypoint 0, and a finish inside
+        /// that window would be a lap and a finish on the same frame.
+        /// Starting values for tuning.
+        /// </summary>
+        public const float DeliveryDropMin = 0.55f;
+        public const float DeliveryDropMax = 0.95f;
+
+        /// <summary>Where this drop's door is, rolled once at the counter.</summary>
+        public static float RollDropFraction() => Random.Range(DeliveryDropMin, DeliveryDropMax);
+
+        /// <summary>
+        /// How far a delivery actually drives, in metres — THE distance the
+        /// par is sized to and the finish is placed at. On a route with ENDS
+        /// (a strip, a stage, a bridge) that is the baked run; on a circuit it
+        /// is the drop fraction of a lap. The fraction is clamped into the
+        /// band so a ticket carrying nothing (an old roll, a debug launch)
+        /// grades as a full lap rather than as a zero-metre drop.
+        /// </summary>
+        public static float DeliveryMeters(TrackCatalog.TrackDef t, float dropFraction)
+        {
+            if (t == null) return 0f;
+            // A LOOP stage (the 277 belt) has no ends: it is a lap, and the
+            // door is a fraction of it like any circuit's.
+            if (t.drag || (t.stage && !t.loop)) return t.RaceMeters;
+            return t.LengthM * Mathf.Clamp(dropFraction, DeliveryDropMin, 1f);
+        }
 
         /// <summary>
         /// Biggest order the shop hands out.
@@ -412,15 +466,22 @@ namespace PSXRacing.LifeSim
 
         /// <summary>How long the drop is expected to take, in seconds — the
         /// number the tip is graded against and the number the player is quoted
-        /// when they pick the order up. Measured off the venue's OWN raced
-        /// distance, so it means the same thing everywhere.</summary>
-        public static float DeliveryParSeconds(int trackIndex)
+        /// when they pick the order up. Measured off the distance the drop
+        /// ACTUALLY covers (<see cref="DeliveryMeters"/>), so it means the same
+        /// thing everywhere: a sprint round 70% of a lap is quoted as 70% of a
+        /// lap, and a stage as the stage.</summary>
+        /// <param name="dropFraction">The ticket's drop fraction. Defaults to
+        /// ONE LAP — which is what RaceManager races for a fraction of 1 — so
+        /// a caller with no ticket (a self-test, a debug launch) is graded
+        /// against the sprint it would actually drive. Before the sprint the
+        /// par was the whole multi-lap race; no delivery is one any more.</param>
+        public static float DeliveryParSeconds(int trackIndex, float dropFraction = 1f)
         {
             var all = TrackCatalog.All;
             if (trackIndex < 0 || trackIndex >= all.Length) return 120f;
             var t = all[trackIndex];
             float speed = t.IsDragEvent ? DeliveryParSpeedDrag : DeliveryParSpeed;
-            return DeliveryLaunchAllowance + Mathf.Max(1f, t.RaceMeters) / speed;
+            return DeliveryLaunchAllowance + Mathf.Max(1f, DeliveryMeters(t, dropFraction)) / speed;
         }
 
         /// <summary>What is left of the pizza, 0-1, from the race's damage
@@ -459,16 +520,22 @@ namespace PSXRacing.LifeSim
         /// again by the apply-back (with the finish time), so the number the
         /// player watches falling is the number that lands in the wallet.
         /// </summary>
+        /// <param name="dropFraction">How far round the lap the door is. The
+        /// HUD and the apply-back both pass RaceHandoff.DeliveryDropFraction —
+        /// they are the two callers that must never disagree, and a par sized
+        /// to a lap in one and to the sprint in the other would be a tip that
+        /// changes on the results screen.</param>
         public static DeliveryOutcome ScoreDelivery(int quoted, int trackIndex,
                                                     float seconds, float damage,
                                                     int hardHits, bool inProgress = false,
                                                     float? cargoCondition = null,
-                                                    float carryCondition = 1f)
+                                                    float carryCondition = 1f,
+                                                    float dropFraction = 1f)
         {
             var o = new DeliveryOutcome
             {
                 quoted = Mathf.Max(0, quoted),
-                parSeconds = DeliveryParSeconds(trackIndex),
+                parSeconds = DeliveryParSeconds(trackIndex, dropFraction),
                 seconds = seconds,
                 // The SIMULATION wins when there is one. PizzaCondition is an
                 // estimate off the impact tally, written when the cargo was a
@@ -695,6 +762,58 @@ namespace PSXRacing.LifeSim
         public const int FieldOpponents = 3;
 
         /// <summary>
+        /// An opponent's sheet top speed may be at most this much over the
+        /// player's. The price band alone reaches 1.65x the player's car at
+        /// the top tier, and price is a poor proxy for speed: a 204 km/h
+        /// Miata could draw a 284 km/h S15 that the AI runs to 245 on the
+        /// straights. AIDriver caps its target at 1.05x the player's vmax so a
+        /// faster car cannot simply drive away — but a car that is capped at
+        /// the player's speed while the player is flat out reads as a
+        /// rubber-band, so the pool is trimmed FIRST and the cap is the
+        /// backstop. 15% leaves room for a genuinely quicker rival to exist.
+        /// </summary>
+        public const float OpponentVmaxCeiling = 1.15f;
+
+        /// <summary>
+        /// The cars a player with a car worth <paramref name="referencePrice"/>
+        /// can be drawn against at a tier. Band around the player's money —
+        /// it opens UPWARD with tier rather than sliding, because the low end
+        /// has to stay reachable or the field stops containing anything the
+        /// player could plausibly have beaten to get here — trimmed to
+        /// <see cref="OpponentVmaxCeiling"/>. Both ends of the catalog are
+        /// thin (a $5,500 Civic and a $1,066,000 hypercar both have almost no
+        /// neighbours), so the band widens before giving up, and the speed
+        /// trim is dropped last of all: exactly one car in the catalog — the
+        /// $950k Nissan R390 GT1 Road Car, a 347 km/h car among 400 km/h
+        /// neighbours — has under three same-speed neighbours even in the
+        /// wide band, and a fast field beats no field. The self-test counts
+        /// that this stays one car.
+        /// </summary>
+        public static System.Collections.Generic.List<CarSpec> OpponentPool(
+            int referencePrice, float playerVmaxMps, int tier, out bool vmaxTrimmed)
+        {
+            float lo = 0.65f + tier * 0.08f;
+            float hi = 1.20f + tier * 0.15f;
+            float cap = playerVmaxMps > 1f ? playerVmaxMps * OpponentVmaxCeiling : float.MaxValue;
+
+            var pool = CarCatalog.InPriceBand(Mathf.RoundToInt(referencePrice * lo),
+                                              Mathf.RoundToInt(referencePrice * hi));
+            pool.RemoveAll(c => c.topSpeedMps > cap);
+            vmaxTrimmed = true;
+            if (pool.Count < FieldOpponents)
+            {
+                pool = CarCatalog.InPriceBand(referencePrice / 3, referencePrice * 3);
+                pool.RemoveAll(c => c.topSpeedMps > cap);
+            }
+            if (pool.Count < FieldOpponents)
+            {
+                pool = CarCatalog.InPriceBand(referencePrice / 3, referencePrice * 3);
+                vmaxTrimmed = false;
+            }
+            return pool;
+        }
+
+        /// <summary>
         /// Choose who shows up, and write them into the handoff.
         ///
         /// The field is drawn from the catalog around the PLAYER'S car, widening
@@ -713,20 +832,10 @@ namespace PSXRacing.LifeSim
 
             int reference = car.catalogPrice > 0 ? car.catalogPrice : Mathf.Max(1, car.paidPrice);
             int tier = StreetTier(s.streetRep).idx;
+            var playerSpec = CarCatalog.Get(car.specId);
+            float playerVmax = playerSpec != null ? playerSpec.topSpeedMps : 0f;
 
-            // Band around the player's money. It opens UPWARD with tier rather
-            // than sliding: the low end has to stay reachable or the field stops
-            // containing anything the player could plausibly have beaten to get
-            // here, and a race everyone loses is not a difficulty curve.
-            float lo = 0.65f + tier * 0.08f;
-            float hi = 1.20f + tier * 0.15f;
-            var pool = CarCatalog.InPriceBand(Mathf.RoundToInt(reference * lo),
-                                              Mathf.RoundToInt(reference * hi));
-            // Both ends of the catalog are thin — a $5,500 Civic and a
-            // $1,066,000 hypercar both have almost no neighbours — so widen
-            // before giving up.
-            if (pool.Count < FieldOpponents)
-                pool = CarCatalog.InPriceBand(reference / 3, reference * 3);
+            var pool = OpponentPool(reference, playerVmax, tier, out _);
             if (pool.Count < FieldOpponents) return false;
 
             var ids = new System.Text.StringBuilder();
@@ -892,7 +1001,8 @@ namespace PSXRacing.LifeSim
                                          RaceHandoff.DamageScore, RaceHandoff.HardHits,
                                          cargoCondition: RaceHandoff.CargoReported
                                              ? RaceHandoff.CargoCondition : (float?)null,
-                                         carryCondition: RaceHandoff.CarryCondition);
+                                         carryCondition: RaceHandoff.CarryCondition,
+                                         dropFraction: RaceHandoff.DeliveryDropFraction);
                 s.money += drop.tip;
                 // Attendance was banked at the counter (ClockOnShift, from
                 // PizzaShift) — turning up is what the shop counts, and a night

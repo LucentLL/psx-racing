@@ -167,6 +167,9 @@ namespace PSXRacing.OnFoot
                       (known > 0 ? "   ·   " + known + " known problem" + (known == 1 ? "" : "s")
                                  : visit.lookedOver ? "   ·   nothing found yet" : "");
                 carHook.action = "TALK TO THE SELLER";
+                // The button word, beside the sentence it belongs to; see
+                // FootTarget.verb for why it lives here and not at spawn.
+                carHook.verb = "TALK";
                 carHook.onUse = () => GoHome("viewing");
                 // The second verb, and the same one a car in the player's own
                 // garage carries: getting UNDER it rather than into it.
@@ -179,6 +182,7 @@ namespace PSXRacing.OnFoot
                 streetHook.title = "THE STREET";
                 streetHook.detail = "Your own car is at the kerb.";
                 streetHook.action = "DRIVE OFF";
+                streetHook.verb = "DRIVE";
             }
 
             screen?.Invalidate();

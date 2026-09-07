@@ -31,10 +31,145 @@ namespace PSXRacing
         public float distance = 5.4f;
         public float height = 1.8f;
         public float lookHeight = 0.9f;
+        /// <summary>Position follow rate, 1/s. This used to be
+        /// <c>5 + 0.08 * speed</c>, and the speed term was hiding something:
+        /// a first-order lag chasing a target moving at v sits v/lag behind
+        /// it in the steady state, so the "5.4 m" chase distance was really
+        /// 9.4 m at 100 km/h and 11.3 m at 200 — the car SHRANK in the frame
+        /// as it sped up, which is the opposite of a speed cue. The speed term
+        /// is gone and the along-forward lag is clamped instead (see
+        /// <see cref="lagClampM"/>), so distance is now the number it says.</summary>
         public float positionLag = 5f;
         public float rotationLag = 7f;
         public float baseFOV = 58f;
-        public float speedFOV = 8f;
+
+        [Header("Speed rig (Black Box style: every value is a low/high pair over speed)")]
+        /// <summary>
+        /// Road speed at which the speed rig is fully wound in: 55.6 m/s is
+        /// 200 km/h. The wind-in is a SMOOTHSTEP of speed/this rather than a
+        /// straight ramp, so almost nothing happens below ~50 km/h (the town,
+        /// the forecourt, parking) and the pull lands in the top half of the
+        /// range where the speed is — MW05 keeps (low, high) pairs per camera
+        /// and interpolates between them; this is the same thing with one
+        /// curve shared by every pair.
+        /// </summary>
+        public float speedFullMps = DefaultSpeedFullMps;
+        public const float DefaultSpeedFullMps = 55.6f;
+        /// <summary>
+        /// Degrees of FOV pull at full speed in the two CHASE views: 58 -> 76.
+        /// It was 8 over 0-60 m/s, linear, which opened the lens 3.7 deg by
+        /// 100 km/h and 7.4 by 200 — edge-of-frame angular velocity, the main
+        /// speed cue in a chase view, was nearly the same at 60 km/h as at
+        /// 200. Modders call the MW05 behaviour "FOV pull" and it is the
+        /// single cheapest cue there is: a projection change, free on a
+        /// 240-line target where wide-angle aliasing is invisible.
+        /// </summary>
+        public float speedFOV = DefaultChaseSpeedFOV;
+        public const float DefaultChaseSpeedFOV = 18f;
+        /// <summary>
+        /// Mounted views get HALF the pull. Their speed comes from the road
+        /// surface streaming past a lens a foot off it, not from the lens,
+        /// and <see cref="MountClearance"/> was sized against the hood FOV:
+        /// the bonnet enters the frame at clearance / tan(halfFOV + pitch),
+        /// and at 63 + 9 = 72 deg that is 0.18 / tan(38 deg) = 0.230 m — 1.28x
+        /// the 0.18 m near plane, the same margin the clearance was designed
+        /// to (1.3x at the old 71). At the full 18 it would be 0.196 m, 1.09x,
+        /// and the near plane would start opening the bonnet on a bump.
+        /// </summary>
+        public const float MountSpeedFOV = 9f;
+        /// <summary>Hard ceilings per mounted view, whatever the ramp says.
+        /// Asserted by the self-test together with the bonnet-entry margin.</summary>
+        public const float HoodMaxFOV = 80f;
+        public const float BumperMaxFOV = 86f;
+        /// <summary>Metres the chase camera backs off at full speed (scaled by
+        /// the car's LengthFit), and metres it drops. Lower and further is
+        /// the MW05 framing: more road in the top of the frame, the car
+        /// lower in it. Starting values.</summary>
+        public float speedPullBack = 0.9f;
+        public float speedDrop = 0.25f;
+        /// <summary>Extra metres of look-ahead at full speed, on top of the
+        /// fixed 1.5. Looking further up the road drops the car in the frame
+        /// and shows the corner arriving, which is what a fast car looks like
+        /// from behind. Starting value.</summary>
+        public float speedLookAhead = 4f;
+        /// <summary>
+        /// Bound on how far along its own forward axis the follow lag may sit
+        /// behind the wanted position, metres. With the speed term gone from
+        /// <see cref="positionLag"/> a launch would otherwise pull the car
+        /// 11 m out of the frame; 1.2 m is enough to see it surge and not
+        /// enough to lose it. Lateral and vertical lag are left free — they
+        /// are what makes the rig feel hung on rubber through a corner.
+        /// </summary>
+        public float lagClampM = 1.2f;
+        /// <summary>
+        /// Acceleration-coupled distance (research A2): metres of chase
+        /// distance per m/s^2 of forward acceleration, so throttle stretches
+        /// the rig and braking zooms in — MW05 hard-codes the brake zoom and
+        /// carries LAG per camera for the launch stretch; one scalar does
+        /// both. 0.12 puts a first-gear launch at ~0.6 g = 5.9 m/s^2 at 0.7 m
+        /// and 0.9 g of braking at -1.06 m, inside the +/-25% limit below.
+        /// </summary>
+        public float accelDistPerMps2 = 0.12f;
+        public float accelDistLimitFrac = 0.25f;
+        /// <summary>Smoothing on the acceleration read, 1/s. Forward speed
+        /// changes once a physics tick, so the per-frame difference is spiky;
+        /// 6/s settles in ~0.5 s, which is the "returns within half a second"
+        /// the design asks for.</summary>
+        public float accelLag = 6f;
+        /// <summary>
+        /// Drift swing: metres the chase camera moves sideways per radian of
+        /// body slip, toward the OUTSIDE of the slide, so the frame shows the
+        /// car's flank and the nose pointing at the apex. Gated on the car's
+        /// own Drifting flag and lagged, or a grip-limit corner would wag the
+        /// camera on every entry. The slip is clamped at
+        /// <see cref="DriftSwingClampRad"/> (34 deg) so a spin does not orbit
+        /// the lens round the car. Starting value.
+        /// </summary>
+        public float driftSwing = 1.4f;
+        public float driftSwingLag = 4f;
+        public const float DriftSwingClampRad = 0.6f;
+
+        // ---- roll bias, Sh2dow's NFS.CameraMod constants (research B6) ------
+        // latG = |yawRate| * speed * LatGScale, smoothstepped from LatGStart to
+        // LatGFull, MaxRollDeg at full, wound in at RollWindIn and out at
+        // RollUnwind (both 1/s), slew-limited to RollSlewDegPerSec. In this
+        // game's units v*yawRate IS lateral acceleration in m/s^2, so the 0.16
+        // scale makes "1.0" about 0.64 g and "5.5" about 3.5 g: a grip-limit
+        // corner (1.3 g, latG 2.0) rolls ~1 deg and a committed drift (1 rad/s
+        // at 30 m/s, latG 4.8) rolls ~7.5 deg — the roll is a DRIFT cue, and a
+        // gripping corner barely tilts. Chase views only; the camera banks
+        // INTO the turn, the UG2 lean.
+        public const float LatGScale = 0.16f;
+        public const float LatGStart = 1.0f;
+        public const float LatGFull = 5.5f;
+        public const float MaxRollDeg = 8f;
+        public const float RollWindIn = 7f;
+        public const float RollUnwind = 11f;
+        public const float RollSlewDegPerSec = 45f;
+
+        [Header("Speed shake (MW05 RoadNoiseRecord: amplitude ramped between two speeds)")]
+        /// <summary>
+        /// Continuous road noise, an order of magnitude under the impact
+        /// shake: 0.25 deg against 3.4. MW05 carries {Frequency, Amplitude,
+        /// MinSpeed, MaxSpeed} per SURFACE for exactly this; here the surface
+        /// is the car's own onRoad flag, and gravel shakes 2.5x tarmac. Ramps
+        /// in from 38 m/s (137 km/h) to full at 63 (227), at 11 Hz through the
+        /// same Perlin noise the impact shake uses. Held small on purpose — a
+        /// phone is read at arm's length and a straight must not nauseate.
+        /// None in TOP DOWN (nothing under the lens to shake it) and half in
+        /// COCKPIT (the cabin overlay does not move, and the world jittering
+        /// behind a still dashboard reads as a bug). Starting values.
+        /// </summary>
+        public float speedShakeStartMps = DefaultSpeedShakeStartMps;
+        public float speedShakeSpanMps = DefaultSpeedShakeSpanMps;
+        public float speedShakeDeg = DefaultSpeedShakeDeg;
+        public float speedShakePos = 0.03f;
+        public float speedShakeHz = 11f;
+        public const float DefaultSpeedShakeStartMps = 38f;
+        public const float DefaultSpeedShakeSpanMps = 25f;
+        public const float DefaultSpeedShakeDeg = 0.25f;
+        public const float OffroadShakeMul = 2.5f;
+        public const float CockpitShakeMul = 0.5f;
 
         [Header("Impact shake")]
         /// <summary>Peak angular kick in degrees at full trauma.</summary>
@@ -118,9 +253,24 @@ namespace PSXRacing
         public static float ChangedAt { get; private set; } = -99f;
 
         Vector3 smoothPos;
+        /// <summary>
+        /// The follow rotation BEFORE roll and shake. Kept separately because
+        /// both of those are composed onto the transform after the follow
+        /// slerp, and a slerp that starts from a rotation which already
+        /// carries last frame's roll re-applies it on top: a steady 2 deg of
+        /// roll through a 7/s slerp at 60 fps converges on 2 / 0.11 = 18 deg.
+        /// The impact shake had the same leak and got away with it only
+        /// because noise averages to zero.
+        /// </summary>
+        Quaternion followRot = Quaternion.identity;
         Camera cam;
         float trauma;
         float shakeSeed;
+        float swing;
+        float roll;
+        float accelSmoothed;
+        float prevForward;
+        bool haveForward;
         /// <summary>The near plane the scene was built with, so a mounted view
         /// can tighten it and every other view can put it back.</summary>
         float baseNear = 0.25f;
@@ -130,6 +280,7 @@ namespace PSXRacing
             cam = GetComponent<Camera>();
             if (cam != null) baseNear = cam.nearClipPlane;
             if (target != null) smoothPos = target.position;
+            followRot = transform.rotation;
             Active = this;
             shakeSeed = Random.value * 100f;
             // Remembered across races: a player who drives in bumper cam should
@@ -274,12 +425,14 @@ namespace PSXRacing
             float fit = LengthFit();
             float fov = ViewFOV(Current, baseFOV);
 
+            UpdateAcceleration();
+
             switch (Current)
             {
                 case View.Chase:
                 case View.Close:
                     ChaseParams(Current, out float dm, out float hm, out float lm);
-                    Follow(distance * fit * dm, height * hm, lookHeight * lm, speed);
+                    Follow(distance * fit * dm, height * hm, lookHeight * lm, speed, fit);
                     break;
                 case View.Roof:
                 case View.Hood:
@@ -294,28 +447,119 @@ namespace PSXRacing
 
             if (cam != null)
             {
-                cam.fieldOfView = fov + speedFOV * Mathf.Clamp01(speed / 60f);
+                cam.fieldOfView = FOVFor(Current, baseFOV, speed, speedFOV, speedFullMps);
                 cam.nearClipPlane = ViewNearClip(Current, baseNear);
             }
 
-            ApplyShake();
+            // Composed onto the follow result, never fed back into it.
+            ApplyRoll(speed);
+            ApplyShake(speed);
         }
 
-        void Follow(float dist, float h, float look, float speed)
+        /// <summary>Smoothstep wind-in of the speed rig, 0 at rest to 1 at
+        /// <paramref name="fullMps"/>. Static so the self-test can pin the
+        /// curve: it must be zero at rest and monotonic.</summary>
+        public static float SpeedT(float speedMps, float fullMps) =>
+            Smooth01(Mathf.Abs(speedMps) / Mathf.Max(fullMps, 1f));
+
+        /// <summary>A real smoothstep: 0 below <paramref name="a"/>, 1 above
+        /// <paramref name="b"/>, 3t^2 - 2t^3 between. (Mathf.SmoothStep is an
+        /// interpolator between two VALUES, which is not this.)</summary>
+        public static float Smooth01(float t)
         {
+            t = Mathf.Clamp01(t);
+            return t * t * (3f - 2f * t);
+        }
+
+        /// <summary>
+        /// Forward acceleration, smoothed. Differenced off the car's forward
+        /// speed once a frame, so it reads zero on the frames between physics
+        /// ticks and double on the frames after; the first-order lag averages
+        /// that to the true value and gives the rig its half-second return.
+        /// </summary>
+        void UpdateAcceleration()
+        {
+            float dt = Time.deltaTime;
+            float fwdV = targetCar != null ? targetCar.forwardSpeed : 0f;
+            float raw = haveForward && dt > 0f ? (fwdV - prevForward) / dt : 0f;
+            prevForward = fwdV;
+            haveForward = true;
+            accelSmoothed = Mathf.Lerp(accelSmoothed, raw, 1f - Mathf.Exp(-accelLag * dt));
+        }
+
+        void Follow(float dist, float h, float look, float speed, float fit)
+        {
+            float dt = Time.deltaTime;
             // Flatten forward so the camera doesn't dive with body pitch
             Vector3 fwd = target.forward; fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 0.01f ? fwd.normalized : Vector3.forward;
+            Vector3 right = Vector3.Cross(Vector3.up, fwd);
 
-            Vector3 wanted = target.position - fwd * dist + Vector3.up * h;
-            float lag = positionLag + speed * 0.08f;
-            smoothPos = Vector3.Lerp(smoothPos, wanted, 1f - Mathf.Exp(-lag * Time.deltaTime));
+            // ---- the speed rig: back, down, and further up the road --------
+            float t = SpeedT(speed, speedFullMps);
+            dist += speedPullBack * t * fit;
+            h -= speedDrop * t;
+
+            // ---- acceleration-coupled distance: throttle stretches, braking
+            // zooms in, bounded so a wall strike cannot throw the lens.
+            float limit = accelDistLimitFrac * dist;
+            dist += Mathf.Clamp(accelSmoothed * accelDistPerMps2, -limit, limit);
+
+            // ---- drift swing, to the outside of the slide ----------------
+            // chassisSlipAngle is positive when the nose points RIGHT of the
+            // velocity — tail out to the left, a right-hand drift — and the
+            // outside of that corner is the left, so the sign is inverted.
+            float slip = targetCar != null
+                ? Mathf.Clamp(targetCar.chassisSlipAngle, -DriftSwingClampRad, DriftSwingClampRad)
+                : 0f;
+            float wantSwing = targetCar != null && targetCar.Drifting ? -slip * driftSwing : 0f;
+            swing = Mathf.Lerp(swing, wantSwing, 1f - Mathf.Exp(-driftSwingLag * dt));
+
+            Vector3 wanted = target.position - fwd * dist + Vector3.up * h + right * swing;
+            smoothPos = Vector3.Lerp(smoothPos, wanted, 1f - Mathf.Exp(-positionLag * dt));
+
+            // ---- the lag clamp: a launch never leaves the car behind the lens
+            // (nor a braking stop in front of it). Only the along-forward part
+            // is bounded; sideways and vertical lag stay soft.
+            float along = Vector3.Dot(smoothPos - wanted, fwd);
+            float bounded = Mathf.Clamp(along, -lagClampM, lagClampM);
+            if (bounded != along) smoothPos += fwd * (bounded - along);
             transform.position = smoothPos;
 
-            Vector3 lookAt = target.position + Vector3.up * look + fwd * 1.5f;
-            Quaternion wantedRot = Quaternion.LookRotation(lookAt - transform.position, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, wantedRot,
-                1f - Mathf.Exp(-rotationLag * Time.deltaTime));
+            Vector3 lookAt = target.position + Vector3.up * look + fwd * (1.5f + speedLookAhead * t);
+            Quaternion wantedRot = Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
+            followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-rotationLag * dt));
+            transform.rotation = followRot;
+        }
+
+        /// <summary>Roll bias for a Sh2dow-style latG (see the constants):
+        /// 0 below <see cref="LatGStart"/>, <see cref="MaxRollDeg"/> at
+        /// <see cref="LatGFull"/>, smoothstepped between. Unsigned.</summary>
+        public static float RollDegFor(float latG) =>
+            MaxRollDeg * Smooth01((latG - LatGStart) / (LatGFull - LatGStart));
+
+        /// <summary>
+        /// Bank the chase camera into the turn. Composed onto the transform
+        /// after the follow slerp, never stored back into it — see
+        /// <see cref="followRot"/>. A right turn is a negative yaw rate about
+        /// +Y, and a negative roll about the camera's forward is clockwise
+        /// seen from behind: the lens leans the way the car is going.
+        /// </summary>
+        void ApplyRoll(float speed)
+        {
+            float dt = Time.deltaTime;
+            bool chase = Current == View.Chase || Current == View.Close;
+            float yawRate = chase && targetCar != null && targetCar.Body != null
+                ? Vector3.Dot(targetCar.Body.angularVelocity, Vector3.up)
+                : 0f;
+            float latG = Mathf.Abs(yawRate) * speed * LatGScale;
+            float want = chase ? Mathf.Sign(yawRate) * RollDegFor(latG) : 0f;
+
+            float rate = Mathf.Abs(want) > Mathf.Abs(roll) ? RollWindIn : RollUnwind;
+            float next = Mathf.Lerp(roll, want, 1f - Mathf.Exp(-rate * dt));
+            roll = Mathf.MoveTowards(roll, next, RollSlewDegPerSec * dt);
+            if (Mathf.Abs(roll) > 1e-4f)
+                transform.rotation *= Quaternion.Euler(0f, 0f, roll);
         }
 
         /// <summary>
@@ -328,6 +572,9 @@ namespace PSXRacing
             transform.position = target.TransformPoint(localOffset);
             transform.rotation = target.rotation * Quaternion.Euler(pitchDeg, 0f, 0f);
             smoothPos = transform.position;
+            // So a switch back to a chase view slerps from where the lens IS,
+            // not from wherever the chase rig last left it a lap ago.
+            followRot = transform.rotation;
         }
 
         // Every offset below is derived from the body box: centre and size are
@@ -510,6 +757,52 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>Degrees of speed pull per view: the chase pair get the
+        /// full amount, the mounted views half (see <see cref="MountSpeedFOV"/>),
+        /// and TOP DOWN none — from 20 m up a wider lens is a bowl, not
+        /// speed, and that view already climbs with speed instead.</summary>
+        public static float ViewSpeedFOV(View v, float chaseSpeedFOV)
+        {
+            switch (v)
+            {
+                case View.Chase:
+                case View.Close: return chaseSpeedFOV;
+                case View.TopDown: return 0f;
+                default: return MountSpeedFOV;
+            }
+        }
+
+        /// <summary>Ceiling per view. The two the near plane cares about are
+        /// named; the rest simply cannot be reached by the ramp.</summary>
+        public static float ViewMaxFOV(View v)
+        {
+            switch (v)
+            {
+                case View.Hood: return HoodMaxFOV;
+                case View.Bumper: return BumperMaxFOV;
+                default: return 90f;
+            }
+        }
+
+        /// <summary>The lens at a given speed: the view's rest FOV plus its
+        /// share of the pull, smoothstepped in over <paramref name="fullMps"/>,
+        /// capped per view. Chase: 58 at rest, 67 at 100 km/h, 76 at 200.</summary>
+        public static float FOVFor(View v, float baseFOV, float speedMps,
+                                   float chaseSpeedFOV, float fullMps) =>
+            Mathf.Min(ViewFOV(v, baseFOV) + ViewSpeedFOV(v, chaseSpeedFOV) * SpeedT(speedMps, fullMps),
+                      ViewMaxFOV(v));
+
+        /// <summary>
+        /// How far ahead of a mounted lens the panel it looks over crosses the
+        /// bottom of the frame, metres: clearance / tan(halfFOV + pitch). The
+        /// number the near plane has to stay under — see
+        /// <see cref="MountClearance"/> — and the self-test checks it at the
+        /// hood camera's WIDEST lens, because that is the frame a bump at
+        /// 200 km/h would open a hole in.
+        /// </summary>
+        public static float PanelEntryM(float fovDeg, float pitchDeg) =>
+            MountClearance / Mathf.Tan((fovDeg * 0.5f + pitchDeg) * Mathf.Deg2Rad);
+
         /// <summary>
         /// Overhead, rotating with the car, climbing with speed. A fixed height
         /// either buries a fast car in the bottom of the frame or makes a slow
@@ -527,31 +820,71 @@ namespace PSXRacing
             transform.position = smoothPos;
 
             Quaternion wantedRot = Quaternion.LookRotation(Vector3.down, fwd);
-            transform.rotation = Quaternion.Slerp(transform.rotation, wantedRot,
-                1f - Mathf.Exp(-8f * Time.deltaTime));
+            followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-8f * Time.deltaTime));
+            transform.rotation = followRot;
         }
 
+        /// <summary>Continuous road-noise amplitude in degrees for a road speed
+        /// and surface, with the DEFAULT constants — zero below the start
+        /// speed, <see cref="DefaultSpeedShakeDeg"/> (x2.5 off the tarmac) at
+        /// the top of the ramp. Static so the self-test can pin that it is
+        /// silent at town speed and an order of magnitude under an impact.</summary>
+        public static float SpeedShakeDeg(float speedMps, bool onRoad) =>
+            DefaultSpeedShakeDeg * (onRoad ? 1f : OffroadShakeMul) *
+            Mathf.Clamp01((Mathf.Abs(speedMps) - DefaultSpeedShakeStartMps) / DefaultSpeedShakeSpanMps);
+
         /// <summary>
-        /// Trauma-squared shake: the response is deliberately non-linear so small
-        /// scrapes stay subtle while a real hit is violent. Driven by Perlin noise
-        /// rather than Random so the motion is continuous instead of jittering,
-        /// and applied AFTER the follow logic so it never feeds back into the lag.
+        /// Two shakes on one transform. Trauma-squared IMPACT shake: the
+        /// response is deliberately non-linear so small scrapes stay subtle
+        /// while a real hit is violent. And the continuous SPEED shake, ramped
+        /// between two speeds and scaled by surface, at its own lower
+        /// frequency. Both driven by Perlin noise rather than Random so the
+        /// motion is continuous instead of jittering, and both composed onto
+        /// the transform after the follow logic — the follow slerps from its
+        /// own stored rotation, so nothing here feeds back into the lag.
         /// </summary>
-        void ApplyShake()
+        void ApplyShake(float speed)
         {
-            if (trauma <= 0.0001f) return;
-            float s = trauma * trauma;
-            float t = Time.time * shakeFrequency + shakeSeed;
+            float st = Mathf.Clamp01((speed - speedShakeStartMps) / Mathf.Max(speedShakeSpanMps, 0.01f));
+            bool onRoad = targetCar == null || targetCar.onRoad;
+            float surf = onRoad ? 1f : OffroadShakeMul;
+            float viewMul = Current == View.TopDown ? 0f
+                          : Current == View.Cockpit ? CockpitShakeMul : 1f;
+            float speedAng = speedShakeDeg * st * surf * viewMul;
+            float speedPos = speedShakePos * st * surf * viewMul;
 
-            float nx = Mathf.PerlinNoise(t, 0f) * 2f - 1f;
-            float ny = Mathf.PerlinNoise(0f, t) * 2f - 1f;
-            float nz = Mathf.PerlinNoise(t, t) * 2f - 1f;
+            bool impact = trauma > 0.0001f;
+            if (!impact && speedAng <= 0f) return;
 
-            transform.rotation *= Quaternion.Euler(nx * shakeAngleDeg * s,
-                                                   ny * shakeAngleDeg * s,
-                                                   nz * shakeAngleDeg * s * 1.6f);
-            transform.position += transform.right * (nx * shakePosition * s)
-                                + transform.up * (ny * shakePosition * s);
+            float ang = 0f, pos = 0f;
+            float nx = 0f, ny = 0f, nz = 0f;
+            if (impact)
+            {
+                float s = trauma * trauma;
+                float t = Time.time * shakeFrequency + shakeSeed;
+                nx += (Mathf.PerlinNoise(t, 0f) * 2f - 1f) * shakeAngleDeg * s;
+                ny += (Mathf.PerlinNoise(0f, t) * 2f - 1f) * shakeAngleDeg * s;
+                nz += (Mathf.PerlinNoise(t, t) * 2f - 1f) * shakeAngleDeg * s * 1.6f;
+                ang = shakeAngleDeg * s;
+                pos = shakePosition * s;
+            }
+            if (speedAng > 0f)
+            {
+                // A different noise lane (offset seed) at the road-noise
+                // frequency, so the two shakes do not phase-lock.
+                float t = Time.time * speedShakeHz + shakeSeed + 37f;
+                nx += (Mathf.PerlinNoise(t, 0f) * 2f - 1f) * speedAng;
+                ny += (Mathf.PerlinNoise(0f, t) * 2f - 1f) * speedAng;
+                nz += (Mathf.PerlinNoise(t, t) * 2f - 1f) * speedAng * 0.6f;
+                pos += speedPos;
+            }
+
+            transform.rotation *= Quaternion.Euler(nx, ny, nz);
+            // Positional jitter follows the dominant angular lane, scaled to
+            // the summed positional amplitude.
+            float denom = Mathf.Max(ang + speedAng, 1e-4f);
+            transform.position += transform.right * (nx / denom * pos)
+                                + transform.up * (ny / denom * pos);
 
             trauma = Mathf.Max(0f, trauma - traumaDecay * Time.deltaTime);
         }

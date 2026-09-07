@@ -27,6 +27,35 @@ namespace PSXRacing.OnFoot
         /// <summary>What pressing USE does, in words. Empty means this is a
         /// label rather than a control, and the prompt shows no key.</summary>
         public string action = "";
+        /// <summary>
+        /// The WORD on the button — what the thumb presses — as distinct from
+        /// <see cref="action"/>, the sentence about what happens. Empty means
+        /// USE.
+        ///
+        /// PURELY PRESENTATIONAL. <see cref="action"/> stays the one thing that
+        /// decides whether there is a button at all (FootInteractor refuses to
+        /// fire on an empty action; the thumb panel and the prompt line hide on
+        /// it), and nothing may gate on this instead: the yard gate, the pump
+        /// and the shop's carrying-state hooks all have an empty action ON
+        /// PURPOSE and would change behaviour the day a verb became a second
+        /// gate. Set it BESIDE the action, in the same Refresh, because the
+        /// verb flips with the sentence (PICK UP becomes PUT BACK) and a verb
+        /// written once at spawn is a button that lies after the first press.
+        /// Reported as "picking up pizza for delivery should say Pick Up, not
+        /// Use": the button read the literal USE over every counter in the game.
+        ///
+        /// Keep it to two words and about nine characters — TAKE KEYS, CLOCK
+        /// OFF, PUT BACK are the longest in use. The thumb button is 240 canvas
+        /// units at 26pt bold and its label sets no overflow mode, so a longer
+        /// verb wraps inside a 96-unit-tall button. Not passed through
+        /// <see cref="FirstWords"/>: a verb is already button-sized.
+        /// </summary>
+        public string verb = "";
+        public bool HasVerb => !string.IsNullOrEmpty(verb);
+        /// <summary>The button word with its fallback applied. USE is what the
+        /// button said before any target could say otherwise, and it is what a
+        /// target still says for the frame before its first Refresh.</summary>
+        public string Verb => HasVerb ? verb : "USE";
         /// <summary>How close you have to be. Generous by design — the point is
         /// standing in front of a thing, not aiming at it.</summary>
         public float range = 3.6f;
@@ -52,6 +81,30 @@ namespace PSXRacing.OnFoot
         /// </summary>
         public string action2 = "";
         public System.Action onUse2;
+        /// <summary>The word on the SECOND button. Same contract as
+        /// <see cref="verb"/>, with a different fallback: the second button
+        /// has always been labelled from the first two words of its sentence
+        /// (INSPECT IT, CARRY ON, GET UNDER), and those read as verbs. This
+        /// exists for the one that does not — "BUY AT THE COUNTER" made a
+        /// button that said BUY AT. Set it only where the fallback is wrong.
+        /// </summary>
+        public string verb2 = "";
+        public bool HasVerb2 => !string.IsNullOrEmpty(verb2);
+        public string Verb2 => HasVerb2 ? verb2 : FirstWords(action2);
+
+        /// <summary>The first two words of a prompt, upper-cased — "INSPECT
+        /// THIS CAR" becomes "INSPECT THIS". Long enough to be a verb with an
+        /// object, short enough to fit a thumb button at 22pt. The fallback
+        /// for <see cref="Verb2"/> only: the first button's fallback is the
+        /// literal USE, because its sentences ("CLOCK ON — TAKE A RUN") do not
+        /// start with the word a player would press for.</summary>
+        public static string FirstWords(string action)
+        {
+            if (string.IsNullOrEmpty(action)) return "";
+            var parts = action.Split(' ');
+            string s = parts.Length > 1 ? parts[0] + " " + parts[1] : parts[0];
+            return s.ToUpperInvariant();
+        }
 
         /// <summary>
         /// What the LINE-OF-SIGHT test is allowed to see through on its way to

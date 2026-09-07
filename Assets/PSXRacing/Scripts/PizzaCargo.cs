@@ -80,6 +80,30 @@ namespace PSXRacing
         /// its springs over every ripple; a seat does too, but not at fifty
         /// hertz.</summary>
         const float TiltTau = 0.04f;
+        /// <summary>
+        /// AND A CEILING ON HOW FAST THE SEAT MAY TURN, in degrees per second.
+        ///
+        /// The filter above shapes a step; it does not bound one. Handed a
+        /// rotation that JUMPS — the harness levelling a seventy-degree roll
+        /// in one frame, StuckRecovery righting a rolled car — it takes a
+        /// third of the whole jump in the first step (dt over TiltTau + dt),
+        /// and a pan edge forty centimetres from the roll axis sweeps sixteen
+        /// centimetres through a box five and a half thick. The solver
+        /// resolves that overlap toward the nearer face, which is the
+        /// underside: the box comes out UNDER the seat, "grounded" and open.
+        /// The roll case's trace showed exactly that — y from -0.01 to -0.14
+        /// in six steps, spinning at twenty radians a second, the lid five
+        /// metres away — and the self-test had read it as a tumble.
+        ///
+        /// Two hundred degrees a second is four degrees a step at fifty
+        /// hertz: 2.75 cm at the pan's edge, half a box, inside the contact
+        /// skin. It is far above anything a car does on its springs, and it
+        /// lags a genuine rollover by a few degrees for a few frames, which
+        /// is invisible; a box under the pan is not. Same spirit as MaxJolt:
+        /// the one clamp that keeps the solver from being handed something it
+        /// cannot integrate.
+        /// </summary>
+        const float MaxTiltRateDeg = 200f;
 
         /// <summary>
         /// An IMPACT is not an acceleration, and treating it as one is why a
@@ -116,6 +140,105 @@ namespace PSXRacing
         /// is the difference between a box sliding flat and a box going over,
         /// not a reason for the load to cartwheel.</summary>
         const float JoltSpin = 0.9f;
+
+        /// <summary>
+        /// THE CLAMPS ARE SPLIT BY AXIS, and this is part of why a head-on
+        /// that threw the pizza left the box sitting on the seat.
+        ///
+        /// Both ceilings above were applied to the 3D magnitude. A real wall
+        /// hit's per-step velocity change is not horizontal: the nose dives,
+        /// the suspension bottoms, the car bounces off the bank — and that
+        /// vertical component was spending the forward budget, AND, as a
+        /// downward push, PINNING the load: friction is proportional to the
+        /// normal load, and 0.7 × (g + a_down) at four g down is a box that
+        /// will not move for anything. The harness never saw it because its
+        /// crash jolt was (0, 0, -22) and its kerbs were pure vertical.
+        ///
+        /// So horizontal gets the whole of MaxAccel / MaxJolt and vertical
+        /// gets its own, smaller ceiling. Two g down is a landing pressing
+        /// the load into the seat; harder than that is a slam, and slams are
+        /// the jolt channel's. Two g up is a box lifting clean off the
+        /// cushion, which is all a crest at speed does (about one g).
+        /// </summary>
+        const float MaxAccelVert = 20f;
+        /// <summary>The jolt's vertical ceiling, m/s. A car does not lose
+        /// seven m/s VERTICALLY to a wall; it loses two or three to a bank
+        /// or a landing. Held here so a bounce cannot spend the forward
+        /// budget the way the magnitude clamp let it.</summary>
+        const float MaxJoltVert = 2.5f;
+
+        /// <summary>
+        /// HOW A LID COMES OFF. Three ways and only three: the box TUMBLES
+        /// past this angle, the box LEAVES THE SEAT (the grounded test in
+        /// Assess), or the box SLAMS into something at LidPopSpeed. A jolt on
+        /// its own never opens a box — the car hitting a wall is not the box
+        /// hitting anything, and the box has to go somewhere first. The
+        /// owner: "the pizza should only get out if the box lid opens".
+        ///
+        /// Sixty degrees. It was 51.7 (a literal upness of 0.62); the cosine
+        /// is derived from the angle now so the number in the comment and
+        /// the number in the test cannot drift apart. A box leaning on a
+        /// bolster is at thirty and shut.
+        /// </summary>
+        public const float LidOpenTiltDeg = 60f;
+        /// <summary>
+        /// Speed a box has to have been carrying, and lose in one step, for
+        /// the stop to pop its lid: a metre and a half a second. A stock
+        /// bench's bolster is 11 cm from a box and a hard corner delivers it
+        /// at about a metre a second (see SlamMinSpeed); that dents the pizza
+        /// — the slam wear — and does not open the box. A metre and a half is
+        /// a box thrown across the seat by a crash or arriving at the
+        /// footwell bulkhead, and a lid does come off in that. On a race
+        /// bucket the bolster is a centimetre away and no box ever gets going.
+        /// </summary>
+        const float LidPopSpeed = 1.5f;
+
+        /// <summary>The pizza's mass once it IS a body — see Release. Half a
+        /// kilo: a 16-inch pizza and its box liner.</summary>
+        const float PizzaMass = 0.45f;
+
+        /// <summary>
+        /// THE SOLVER DOUBLES FRICTION, and every coefficient in the seat
+        /// table is halved on its way into the material to undo that.
+        ///
+        /// Measured, not read (PizzaCargoSim.Probe): a plain 1.2 kg cube on a
+        /// plain slope with this material at 0.7/0.6 holds at 50 degrees and
+        /// lets go at 55 — Coulomb says 35 — and slides down a 60 degree
+        /// slope at the rate a coefficient of 1.25 predicts; kicked (0, -2.5,
+        /// 7) on the level it keeps 3.75 m/s where 0.7 leaves 5.25. One
+        /// collider or five, CCD or not: it is the solver, not the box.
+        /// PhysX's default patch-friction model applies the friction limit at
+        /// each of a contact patch's anchor points, so a face resting on a
+        /// face gets it twice. Physics.improvedPatchFriction is the global
+        /// switch that stops it; it is off in this project and it is not
+        /// this file's to flip — it would change the car's tyres against
+        /// every wall too.
+        ///
+        /// Uncorrected, the shop quoted HoldsG at 0.685 g for a seat that
+        /// held 1.27, every slam cost twice the wear the constants describe,
+        /// and a lone box slammed into the pan by a head-on gave up nearly
+        /// six of the seven m/s the jolt handed it and parked at the lip —
+        /// the owner's report, reproduced by the harness. Exact for a face on
+        /// a face, which is every box on every seat and every box on every
+        /// box; a box propped on one edge gets one anchor and half the
+        /// intended grip, and that is a box that is already off the seat.
+        /// The self-test pins the corrected number: a box on the stock bench
+        /// holds a 30 degree lean and slides at 40.
+        /// </summary>
+        const float PatchFrictionScale = 0.5f;
+
+        /// <summary>
+        /// THE BREADCRUMB. The report was "I crashed head first into a wall
+        /// and the pizza flew off but the box still sat there", and the one
+        /// number that would have settled whether the game's hit ARMED the
+        /// jolt channel — or only reached the load as a filtered 4.5 g push —
+        /// is not in a screenshot. With this on, every step whose velocity
+        /// change is big enough to be a jolt logs the candidate: how big, in
+        /// the car's axes, what the responder said, whether it armed, and the
+        /// filtered push the load was feeling. Off by default: it is a line
+        /// per contact step and the console belongs to the phone.
+        /// </summary>
+        public static bool DebugJolts = false;
 
         /// <summary>Smoothed speed a box has to have been carrying for a stop
         /// to count as a slam — see the term in Assess. Well under the metre a
@@ -164,9 +287,12 @@ namespace PSXRacing
         /// The HEIGHT still has to stay below the boxes' centre of mass: a box
         /// sliding into a ridge taller than its own centre of gravity levers
         /// over it instead of stopping against it. Three centimetres catches and
-        /// holds; anything taller is a fulcrum.
+        /// holds; anything taller is a fulcrum. (The height itself now comes
+        /// off the seat table — SeatSpec.bolsterBoxes — and the old SeatLip
+        /// constant that once sized the stock ridge was declared and read by
+        /// nothing, so it is gone.)
         /// </summary>
-        const float BolsterHalf = 0.335f, SeatLip = 0.03f;
+        const float BolsterHalf = 0.335f;
 
         /// <summary>
         /// THE SEAT LADDER. One table, read by the physics that builds the seat
@@ -295,6 +421,19 @@ namespace PSXRacing
         /// <summary>The pan's attitude in the tray's frame: front up.</summary>
         static Quaternion PanRot => Quaternion.Euler(-PanPitchDeg, 0f, 0f);
 
+        /// <summary>
+        /// Where the cushion ENDS, in tray-local z: half its depth, foreshortened
+        /// by its pitch. A box whose base centre is past this cannot be resting
+        /// on the seat — more than half of it is over the footwell and its
+        /// centre of mass (on the floor of the box, at its middle) has nothing
+        /// under it. The harness found the case the height test alone misses:
+        /// a 41 cm box tipping off a lip 38 cm above the floor lands on its
+        /// front edge and PROPS, nose down at seventy degrees, lid open,
+        /// origin only 5-10 cm below the pan — "still on the seat" by the
+        /// old test, on the floor by any other.
+        /// </summary>
+        static readonly float PanFrontZ = SeatD * 0.5f * Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
+
         /// <summary>Height of the pan's top surface at tray-local
         /// <paramref name="z"/>. Zero at the centre, rising toward the front
         /// — anything placed on the cushion away from its middle has to be
@@ -348,11 +487,46 @@ namespace PSXRacing
         {
             public Rigidbody box;
             public Transform lid;
-            public Rigidbody pizza;
+            /// <summary>
+            /// The pizza. A CHILD OF THE BOX while the lid is on — not a body.
+            ///
+            /// It was its own rigidbody from the first frame, held in by
+            /// nothing but contact with the box's walls, and the owner watched
+            /// it "clip through the box, eventually breaking through and
+            /// sitting on top". Three leaks were found and they are one fact:
+            /// a free body inside a moving container tunnels. The ceiling was
+            /// the thinnest collider in the rig (8.8 mm, thinner than the
+            /// 10 mm contact offset); the jolt spun the BOX at up to 6.3 rad/s
+            /// and the pizza not at all, and CCD is a linear sweep that knows
+            /// nothing about rotation; and six solver iterations across a
+            /// pan-box-pizza-box chain leave residue every step. Any one of
+            /// them puts the pizza on the lid, and once there nothing ever
+            /// brought it back, because the escape test only looked sideways
+            /// and down.
+            ///
+            /// So a shut box's pizza is not simulated at all. Its collider is
+            /// off, its transform is parented under the box at homeLocal, and
+            /// it goes exactly where the box goes because that is what a box
+            /// IS. Only Open() makes it a body — see Release — and it leaves
+            /// with the box's own velocity at its own position, so it never
+            /// pops into existence standing still.
+            /// </summary>
+            public Transform pizza;
+            /// <summary>Its collider, disabled until Release.</summary>
+            public BoxCollider pizzaCol;
+            /// <summary>Its rigidbody. NULL WHILE SHUT. Every term in Assess
+            /// that reads pizza motion is gated on this, because a shut box's
+            /// pizza has none.</summary>
+            public Rigidbody pizzaBody;
             /// <summary>The lid's collider while the box is shut. Destroying it
             /// IS opening the box: until then it is the ceiling that keeps the
             /// pizza in.</summary>
             public Collider ceiling;
+            /// <summary>The box's top face in its own local units, above its
+            /// origin. A pizza whose centre is above this is on the lid or
+            /// gone — the state the screenshot showed and the old escape test
+            /// could not see.</summary>
+            public float topLocal;
             /// <summary>How far from the middle of its own box, in that box's
             /// local units, the pizza has to get before it counts as out.
             /// Measured off the box rather than typed in — the prefab carries a
@@ -369,8 +543,8 @@ namespace PSXRacing
             public float speedEma;
             /// <summary>Where the pizza's collider sits when the box is as it
             /// was packed, in the BOX's local frame: the interior's centre, a
-            /// pizza's half-height above the floor. The point a shut box puts
-            /// its pizza back at.</summary>
+            /// pizza's half-height above the floor. Where a shut box's pizza
+            /// IS, by construction — it is a child parked exactly here.</summary>
             public Vector3 homeLocal;
             /// <summary>Where this box was put, in the seat's own axes. Kept so
             /// the harness can ask how far it has MOVED — "the bottom pizza
@@ -389,6 +563,21 @@ namespace PSXRacing
         }
 
         readonly List<Slot> slots = new List<Slot>();
+
+        /// <summary>
+        /// EVERY FREE BODY ON THE ISLAND: boxes, bottles, released pizzas,
+        /// released lids. This is what Tick drives.
+        ///
+        /// Tick used to drive the slots' boxes and pizzas and nothing else.
+        /// The bottles were built with rigidbodies and forgotten — never
+        /// pushed, never jolted — which made them a two-kilo parked wall in
+        /// front of the stack that most orders carry (58% of one-box orders,
+        /// 78% of the rest): a 1.2 kg box kicked at 7 m/s into four kilos of
+        /// cola that did not get the memo keeps 1.6 of them. A released lid
+        /// was the same. If it can move, it is on this list and it feels the
+        /// car.
+        /// </summary>
+        readonly List<Rigidbody> loose = new List<Rigidbody>();
 
         /// <summary>The order, worst-case first is NOT how it is reported: the
         /// customer opens every box, so the mean is what the tip is graded on.
@@ -511,10 +700,12 @@ namespace PSXRacing
             //
             // MAXIMUM combine, still: the box's own material is this one too,
             // and Average would halve the seat's grip against a bottle's.
+            // HALVED on the way in — see PatchFrictionScale — so the solver
+            // delivers the table's number rather than twice it.
             grip = new PhysicsMaterial("PizzaGrip")
             {
-                staticFriction = seat.muStatic,
-                dynamicFriction = seat.muKinetic,
+                staticFriction = seat.muStatic * PatchFrictionScale,
+                dynamicFriction = seat.muKinetic * PatchFrictionScale,
                 bounciness = 0f,
                 frictionCombine = PhysicsMaterialCombine.Maximum,
                 bounceCombine = PhysicsMaterialCombine.Minimum,
@@ -653,10 +844,34 @@ namespace PSXRacing
             // sailed clean over on its way to infinity. Two metres of floor and
             // a bulkhead catches one and lets it come to rest where the Pizza
             // Cam can still see what became of it.
-            Slab(tray, "Footwell", new Vector3(0f, -0.34f, SeatD * 0.5f + 0.95f),
-                 new Vector3(SeatW * 1.6f, 0.04f, 2.0f), visible: false);
-            Slab(tray, "Bulkhead", new Vector3(0f, -0.20f, SeatD * 0.5f + 1.93f),
-                 new Vector3(SeatW * 1.6f, 0.32f, 0.06f), visible: false);
+            //
+            // WIDE, AND WALLED ON EVERY SIDE. The harness's crash case put a
+            // box at tray-local (-2.87, -4.75, 0.03): thrown forward into the
+            // then-undriven bottle, deflected OVER the door card, and off the
+            // side of a floor that was 1.3 m wide and began 26 cm ahead of the
+            // seat. It read FLOOR — but it was in free fall, and whether a
+            // falling box's condition settles before the frame count runs out
+            // is a race, not a measurement. Three seat-widths across, from
+            // behind the squab to the bulkhead, with a kerb down each side and
+            // one across the back: now FLOOR means on the floor.
+            const float FloorY = -0.34f;
+            float floorHalfW = SeatW * 1.5f;
+            float floorZ0 = -SeatD * 0.5f - 0.30f;   // behind the backrest
+            float floorZ1 = SeatD * 0.5f + 1.95f;    // the bulkhead's face
+            float floorLen = floorZ1 - floorZ0;
+            float floorZc = (floorZ0 + floorZ1) * 0.5f;
+            const float KerbH = 0.32f;
+            float kerbY = FloorY + 0.14f;            // -0.20, as the bulkhead always was
+            Slab(tray, "Footwell", new Vector3(0f, FloorY, floorZc),
+                 new Vector3(floorHalfW * 2f, 0.04f, floorLen), visible: false);
+            Slab(tray, "Bulkhead", new Vector3(0f, kerbY, floorZ1 - 0.03f),
+                 new Vector3(floorHalfW * 2f, KerbH, 0.06f), visible: false);
+            Slab(tray, "FootwellRear", new Vector3(0f, kerbY, floorZ0 + 0.03f),
+                 new Vector3(floorHalfW * 2f, KerbH, 0.06f), visible: false);
+            Slab(tray, "FootwellL", new Vector3(-floorHalfW + 0.02f, kerbY, floorZc),
+                 new Vector3(0.04f, KerbH, floorLen), visible: false);
+            Slab(tray, "FootwellR", new Vector3(floorHalfW - 0.02f, kerbY, floorZc),
+                 new Vector3(0.04f, KerbH, floorLen), visible: false);
 
             var boxPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
             if (boxPrefab == null)
@@ -803,6 +1018,12 @@ namespace PSXRacing
             // which is on the base — left there the bottle is a weeble and will
             // not tip at all.
             rb.centerOfMass = new Vector3(0f, h * 0.42f / Mathf.Max(1e-4f, ls.y), 0f);
+            // DRIVEN, like everything else that can move — see `loose`. And
+            // never asleep, for the same reason the boxes are not: a bottle
+            // standing still on a parked seat is exactly the body PhysX puts
+            // to sleep, and a sleeping body eats the crash impulse.
+            rb.sleepThreshold = 0f;
+            loose.Add(rb);
         }
 
         Slot BuildBox(GameObject boxPrefab, int topping, Vector3 localPos, float boxH)
@@ -871,6 +1092,7 @@ namespace PSXRacing
                                 new Vector3(local.x, wall, local.z));
             foreach (var c in go.GetComponentsInChildren<Collider>(true)) c.sharedMaterial = grip;
             slot.escapeRadius = Mathf.Max(local.x, local.z) * 0.42f;
+            slot.topLocal = lc.y + hy * 0.5f;
 
             var rb = go.AddComponent<Rigidbody>();
             rb.mass = 1.2f;
@@ -907,12 +1129,16 @@ namespace PSXRacing
             // rather than tips, and only tipping opens a box.
             rb.centerOfMass = lc + new Vector3(0f, -hy * 0.34f, 0f);
             slot.box = rb;
+            loose.Add(rb);
             slot.startLocal = tray.InverseTransformPoint(go.transform.position);
 
-            // The pizza, inside. Its own body from the start rather than
-            // parented and released, because a body that pops into existence
-            // mid-crash arrives with no velocity and looks pasted on. It is held
-            // in by the box walls, which is how a pizza is held in by a box.
+            // The pizza, inside. NOT a body while the lid is on — see
+            // Slot.pizza for the three ways a free body leaked out of a shut
+            // box. It is placed and sized exactly as before, then parked as a
+            // child of the box with its collider off; Release turns it into a
+            // body the moment the box opens, with the box's own velocity, so
+            // the old worry that "a body that pops into existence mid-crash
+            // arrives with no velocity and looks pasted on" does not apply.
             var topPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Topping(topping));
             if (topPrefab != null)
             {
@@ -965,15 +1191,30 @@ namespace PSXRacing
                                       pizzaH / Mathf.Max(1e-4f, pls.y),
                                       innerZ * 0.90f / Mathf.Max(1e-4f, pls.z));
                 pc.sharedMaterial = grip;
-                var prb = pz.AddComponent<Rigidbody>();
-                prb.mass = 0.45f;
-                prb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-                prb.interpolation = RigidbodyInterpolation.Interpolate;
-                prb.linearDamping = 0.5f;
-                prb.angularDamping = 1.8f;
-                prb.sleepThreshold = 0f;   // see the box above
 
-                slot.pizza = prb;
+                // PARKED. Collider off, and the pizza becomes a child of its
+                // box, so it rides exactly where the box goes and cannot leak
+                // through a wall it is not touching. worldPositionStays keeps
+                // the mesh where the placement above put it; the box's scale
+                // is uniform, so the child's lossy scale — which pc.size was
+                // sized against — comes through unchanged.
+                pc.enabled = false;
+                pz.transform.SetParent(go.transform, true);
+                pz.transform.localRotation = Quaternion.identity;   // both built square
+                // SNAPPED to home in the box's own frame, not trusted to the
+                // world round trip. The island is at y = -4000, where a float's
+                // grain is a quarter of a millimetre and every world position
+                // above was rounded to it. The packed pose is DEFINED by
+                // homeLocal, so the last quarter-millimetre is put right here,
+                // and the assertion is exact rather than "close enough".
+                pz.transform.localPosition += slot.homeLocal - PizzaCentreInBox(pz.transform, pc);
+                float homeErr = (PizzaCentreInBox(pz.transform, pc) - slot.homeLocal).magnitude;
+                Debug.Assert(homeErr < 1e-4f,
+                             "[PizzaCargo] pizza parked off its home by " + homeErr + " (box-local)");
+
+                slot.pizza = pz.transform;
+                slot.pizzaCol = pc;
+                slot.pizzaBody = null;      // until Release
             }
 
             // The lid came in ON the box — the baked prefab is the assembled,
@@ -983,27 +1224,30 @@ namespace PSXRacing
             foreach (var t in go.GetComponentsInChildren<Transform>(true))
                 if (t.name == "Lid") { slot.lid = t; break; }
 
-            // NOW turn it to the pan's angle — the box about its own base, and
-            // the pizza with it, so the two arrive pitched together exactly as
-            // they were built square. The base is the origin, and the origin
-            // lies on the pan's normal that the stack is laid along, so each
-            // box turning about its own base keeps the stack aligned.
-            var pitched = tray.rotation * PanRot;
-            if (slot.pizza != null)
-            {
-                // Through the TRANSFORMS, not Rigidbody.position: nothing has
-                // simulated yet, PhysX takes its first pose from the transform,
-                // and the rigidbody setter would leave the transform — and so
-                // the picture — a step behind.
-                var pt = slot.pizza.transform;
-                Vector3 inBox = go.transform.InverseTransformPoint(pt.position);
-                go.transform.rotation = pitched;
-                pt.SetPositionAndRotation(go.transform.TransformPoint(inBox), pitched);
-            }
-            else go.transform.rotation = pitched;
+            // NOW turn it to the pan's angle, about its own base. The base is
+            // the origin, and the origin lies on the pan's normal that the
+            // stack is laid along, so each box turning about its own base
+            // keeps the stack aligned. The pizza is a child and simply turns
+            // with it — the two-body dance that used to pitch them "together"
+            // went with the second body. Through the TRANSFORM: nothing has
+            // simulated yet and PhysX takes its first pose from it.
+            go.transform.rotation = tray.rotation * PanRot;
 
             return slot;
         }
+
+        /// <summary>
+        /// The pizza collider's centre in the BOX's local frame, composed
+        /// from the child's local pose alone — T · R · S · centre, which is
+        /// exactly what Unity's TransformPoint does, minus the trip through
+        /// world space. That trip matters: the island is at y = -4000, where
+        /// a float's grain is a quarter of a millimetre, and "is the pizza
+        /// where it was packed" asked through world coordinates can only be
+        /// answered to half a millimetre. Only meaningful while the pizza is
+        /// a child of its box.
+        /// </summary>
+        static Vector3 PizzaCentreInBox(Transform pizza, BoxCollider pc) =>
+            pizza.localRotation * Vector3.Scale(pizza.localScale, pc.center) + pizza.localPosition;
 
         // ------------------------------------------------------------------
         void FixedUpdate()
@@ -1069,6 +1313,17 @@ namespace PSXRacing
             if (responder != null && responder.InWallContact && deltaV.magnitude >= JoltMinSpeed)
                 jolt = car.transform.InverseTransformDirection(deltaV);
 
+            // The breadcrumb — see DebugJolts. Logged for every CANDIDATE, not
+            // just the armed ones: "big velocity change, responder said no"
+            // is the line that would have settled the owner's report.
+            if (DebugJolts && deltaV.magnitude >= JoltMinSpeed)
+                Debug.Log("[PizzaCargo] jolt? |dV| " + deltaV.magnitude.ToString("0.00") +
+                          " m/s  car-local " +
+                          car.transform.InverseTransformDirection(deltaV).ToString("F2") +
+                          "  InWallContact " + (responder != null && responder.InWallContact) +
+                          "  armed " + (jolt.sqrMagnitude > 1e-6f) +
+                          "  smoothAccel " + smoothAccel.ToString("F1"));
+
             // Into the car's own axes. The tray holds the same pitch and roll, so
             // pushing the boxes in ITS frame is what makes "the car braked" mean
             // "forward" to a box regardless of which compass direction the car
@@ -1122,16 +1377,22 @@ namespace PSXRacing
             // A filter that only some callers get is not part of the model.
             smoothAccel = Vector3.Lerp(smoothAccel, accelCarLocal, dt / (AccelTau + dt));
             if (!haveTilt) { smoothTilt = tilt; haveTilt = true; }
-            else smoothTilt = Quaternion.Slerp(smoothTilt, tilt, dt / (TiltTau + dt));
+            else
+            {
+                // Shaped by the filter, then BOUNDED — see MaxTiltRateDeg.
+                var shaped = Quaternion.Slerp(smoothTilt, tilt, dt / (TiltTau + dt));
+                smoothTilt = Quaternion.RotateTowards(smoothTilt, shaped, MaxTiltRateDeg * dt);
+            }
 
             trayBody.MoveRotation(smoothTilt);
-            var push = tray.TransformDirection(-Vector3.ClampMagnitude(smoothAccel, MaxAccel));
+            // Clamped BY AXIS — see MaxAccelVert for why one magnitude was
+            // wrong. In the car's frame, where the vertical is the car's.
+            var push = tray.TransformDirection(-SplitClamp(smoothAccel, MaxAccel, MaxAccelVert));
 
-            foreach (var s in slots)
-            {
-                if (s.box != null) s.box.AddForce(push, ForceMode.Acceleration);
-                if (s.pizza != null) s.pizza.AddForce(push, ForceMode.Acceleration);
-            }
+            // Everything that can move — see `loose`. A shut box's pizza is
+            // not on the list and needs no push: it is a child of the box.
+            foreach (var rb in loose)
+                if (rb != null) rb.AddForce(push, ForceMode.Acceleration);
 
             // The crash, on its own channel and unfiltered. The car lost this
             // much speed; the load did not, so relative to the seat it lurches
@@ -1141,7 +1402,7 @@ namespace PSXRacing
             // the solver being handed something it cannot integrate.
             if (jolt.sqrMagnitude > 1e-6f)
             {
-                var kick = tray.TransformDirection(Vector3.ClampMagnitude(-jolt, MaxJolt));
+                var kick = tray.TransformDirection(SplitClamp(-jolt, MaxJolt, MaxJoltVert));
                 // A little TUMBLE with it. A box thrown across a seat does not
                 // slide flat like a puck — it catches an edge and goes over, and
                 // that is most of what a crash looks like from the Pizza Cam.
@@ -1150,28 +1411,32 @@ namespace PSXRacing
                 // the spin is about a horizontal axis square to the throw, which
                 // is the axis a box actually tips about.
                 var spin = Vector3.Cross(tray.up, kick) * JoltSpin;
-                foreach (var s in slots)
+                foreach (var rb in loose)
                 {
-                    if (s.box != null)
-                    {
-                        // Belt and braces alongside sleepThreshold: a body that
-                        // is asleep when an impulse arrives silently eats it,
-                        // and that is the failure this whole channel exists to
-                        // fix. Cheap enough to do both.
-                        s.box.WakeUp();
-                        s.box.AddForce(kick, ForceMode.VelocityChange);
-                        s.box.AddTorque(spin, ForceMode.VelocityChange);
-                    }
-                    if (s.pizza != null)
-                    {
-                        s.pizza.WakeUp();
-                        s.pizza.AddForce(kick, ForceMode.VelocityChange);
-                    }
+                    if (rb == null) continue;
+                    // Belt and braces alongside sleepThreshold: a body that
+                    // is asleep when an impulse arrives silently eats it,
+                    // and that is the failure this whole channel exists to
+                    // fix. Cheap enough to do both.
+                    rb.WakeUp();
+                    rb.AddForce(kick, ForceMode.VelocityChange);
                 }
-
+                // The tumble is the BOX's. A bottle rolls and a loose pizza
+                // slides; it is the box that catches an edge.
+                foreach (var s in slots)
+                    if (s.box != null) s.box.AddTorque(spin, ForceMode.VelocityChange);
             }
 
             Assess(dt);
+        }
+
+        /// <summary>Clamp a car-local vector's HORIZONTAL magnitude and its
+        /// vertical component separately — see MaxAccelVert.</summary>
+        static Vector3 SplitClamp(Vector3 v, float maxHorizontal, float maxVertical)
+        {
+            var h = Vector3.ClampMagnitude(new Vector3(v.x, 0f, v.z), maxHorizontal);
+            h.y = Mathf.Clamp(v.y, -maxVertical, maxVertical);
+            return h;
         }
 
         /// <summary>One box's state, for the harness and for a bug report.
@@ -1190,6 +1455,7 @@ namespace PSXRacing
                   .Append(s.grounded ? " FLOOR" : "")
                   .Append(" at ").Append(BoxOffset(i).ToString("F2"))
                   .Append(" wear ").Append(s.slideWear.ToString("0.00"))
+                  .Append(" home ").Append(PizzaHomeError(i).ToString("0.000"))
                   .Append("; ");
             }
             return sb.ToString();
@@ -1202,62 +1468,27 @@ namespace PSXRacing
         /// </summary>
         void Assess(float dt)
         {
+            // Derived from the angle, once — see LidOpenTiltDeg.
+            float lidOpenCos = Mathf.Cos(LidOpenTiltDeg * Mathf.Deg2Rad);
             foreach (var s in slots)
             {
                 if (s.box == null) continue;
 
-                // Upside down, or near enough that the lid is not holding
-                // anything in.
+                // TUMBLED past LidOpenTiltDeg: the lid is not holding anything
+                // in. The first of the three ways a box opens.
                 float upness = Vector3.Dot(s.box.transform.up, tray.up);
-                if (!s.open && upness < 0.62f) Open(s);
+                if (!s.open && upness < lidOpenCos) Open(s);
                 if (upness < -0.1f) s.flipped = true;
 
-                // OFF THE SEAT means below the pan — on the floor, out of shot.
-                // Merely climbing over a bolster onto the rest of the bench is
-                // not that: it is a box sliding about on a seat, which is the
-                // thing the player is supposed to watch and worry about rather
-                // than be charged for.
-                float height = tray.InverseTransformPoint(s.box.position).y;
-                if (height < -0.12f) { s.grounded = true; Open(s); }
-
-                if (s.pizza == null) continue;
-
-                // Out of its box: measured against the box, not the world, so a
-                // pizza riding along in a box that is itself sliding about is
-                // not counted as lost.
-                var inBox = s.box.transform.InverseTransformPoint(s.pizza.position);
-                float away = new Vector2(inBox.x, inBox.z).magnitude;
-                if (away > s.escapeRadius || inBox.y < -0.25f)
-                {
-                    // A SHUT BOX KEEPS ITS PIZZA. That is not a rule of the
-                    // game, it is what a box is — and a pizza found outside one
-                    // whose ceiling is still in place did not leave, it
-                    // TUNNELLED, through a wall the solver could not hold in one
-                    // step. The thicker walls above make that rare; this makes
-                    // it impossible to score. Put back where it was, still, and
-                    // the tick carries on as if the wall had held — which is
-                    // the only honest reading of a lid that never opened.
-                    if (!s.open && s.ceiling != null)
-                    {
-                        // To its HOME inside the box, not to the box's origin:
-                        // the origin is the base, which is inside the floor
-                        // collider, and a pizza put there is a pizza the solver
-                        // has to fire out of the floor.
-                        s.pizza.position = s.box.transform.TransformPoint(s.homeLocal);
-                        s.pizza.rotation = s.box.transform.rotation;
-                        s.pizza.linearVelocity = s.box.linearVelocity;
-                        s.pizza.angularVelocity = Vector3.zero;
-                    }
-                    else { s.escaped = true; Open(s); }
-                }
-
-                // Jostling. Only the pizza's motion RELATIVE to its box counts —
-                // the whole car is moving and none of that matters to the
-                // cheese.
-                var rel = s.pizza.linearVelocity - s.box.linearVelocity;
-                float slide = rel.magnitude;
-                if (slide > 0.35f)
-                    s.slideWear = Mathf.Clamp01(s.slideWear + (slide - 0.35f) * 0.045f * dt);
+                // OFF THE SEAT means below the pan — on the floor, out of shot —
+                // or PAST ITS FRONT EDGE, propped nose-down over the footwell
+                // (see PanFrontZ). Merely climbing over a bolster onto the rest
+                // of the bench is not that: it is a box sliding about on a
+                // seat, which is the thing the player is supposed to watch and
+                // worry about rather than be charged for. The second way a box
+                // opens.
+                var inTray = tray.InverseTransformPoint(s.box.position);
+                if (inTray.y < -0.12f || inTray.z > PanFrontZ) { s.grounded = true; Open(s); }
 
                 // THE SLAM. A box that gathers speed across a seat and stops
                 // against the door card has a pizza inside it that did not
@@ -1291,16 +1522,60 @@ namespace PSXRacing
                 // safest — lost the most, which inverted the whole ladder. A
                 // sixty-millisecond smoother on the speed is what a spike
                 // cannot climb and a slide across the seat cannot help but.
+                //
+                // READ FOR EVERY BOX, shut or open. It used to sit below the
+                // pizza terms and be skipped for a box with no pizza body —
+                // which, now that a shut box's pizza is not a body, would be
+                // every shut box, and this term is the only wear a shut box
+                // can take (a lid held shut does not spill, so a hard corner
+                // costs the dent it makes and nothing else).
                 if (!s.grounded)
                 {
                     float sp = s.box.linearVelocity.magnitude;
                     if (s.speedEma > SlamMinSpeed && sp < s.speedEma * 0.35f)
                     {
                         s.slideWear = Mathf.Clamp01(s.slideWear + s.speedEma * SlamWear);
+                        // The third way a box opens: a slam hard enough to
+                        // pop the lid — see LidPopSpeed.
+                        if (!s.open && s.speedEma - sp > LidPopSpeed) Open(s);
                         s.speedEma = sp;    // one slam, counted once
                     }
                     else s.speedEma = Mathf.Lerp(s.speedEma, sp, dt / (SlamTau + dt));
                 }
+
+                // Everything below is the PIZZA'S motion, and a shut box's
+                // pizza has none: it is a child of the box, not a body, so
+                // it cannot escape, cannot jostle, and costs nothing. Only an
+                // opened box has a pizza the solver can move.
+                if (s.pizzaBody == null) continue;
+
+                // Out of its box: measured against the box, not the world, so
+                // a pizza riding along in a box that is itself sliding about is
+                // not counted as lost. Sideways past the walls, fallen out
+                // below — or ABOVE THE TOP. That third clause did not exist:
+                // a pizza lying on the lid had `away` of nought and a positive
+                // y, was neither escaped nor scored, and Describe printed the
+                // box as shut at 1.00 with a pizza on top of it. The
+                // screenshot, asserted impossible now (ShutBoxesWithPizzaOut),
+                // and scored when it happens to an OPEN box. The collider's
+                // centre, not the body's origin — the origin is the mesh base.
+                var inBox = s.box.transform.InverseTransformPoint(
+                                s.pizza.TransformPoint(s.pizzaCol.center));
+                float away = new Vector2(inBox.x, inBox.z).magnitude;
+                if (away > s.escapeRadius || inBox.y < -0.25f || inBox.y > s.topLocal)
+                    s.escaped = true;
+                // (No snap-back. The old one teleported a "tunnelled" pizza
+                // home, origin-to-centre, 9.5 mm high and 7 mm under the
+                // ceiling — one of the leaks. A shut box's pizza cannot
+                // tunnel now, and an open box's pizza that leaves has left.)
+
+                // Jostling. Only the pizza's motion RELATIVE to its box counts —
+                // the whole car is moving and none of that matters to the
+                // cheese.
+                var rel = s.pizzaBody.linearVelocity - s.box.linearVelocity;
+                float slide = rel.magnitude;
+                if (slide > 0.35f)
+                    s.slideWear = Mathf.Clamp01(s.slideWear + (slide - 0.35f) * 0.045f * dt);
             }
         }
 
@@ -1311,28 +1586,264 @@ namespace PSXRacing
         {
             if (s.open) return;
             s.open = true;
+            // THE PIZZA FIRST, while the box is still whole: Release reads the
+            // box's velocity at the pizza's position, and it has to be the
+            // velocity before the ceiling goes and the lid is shoved off.
+            Release(s);
             // The lid stops being a lid. Until this moment the ceiling collider
             // is what keeps the pizza in through every bump on the road; after
             // it, the box is an open tray and physics decides the rest.
-            if (s.ceiling != null) { Destroy(s.ceiling); s.ceiling = null; }
+            if (s.ceiling != null) { Kill(s.ceiling.gameObject); s.ceiling = null; }
             if (s.lid == null) return;
             s.lid.SetParent(transform, true);
             var lb = s.lid.gameObject.AddComponent<BoxCollider>();
-            var b = Bounds(s.lid.gameObject);
-            Vector3 lls = s.lid.lossyScale;
-            lb.center = s.lid.InverseTransformPoint(b.center);
-            lb.size = new Vector3(b.size.x / Mathf.Max(1e-4f, lls.x),
-                                  Mathf.Max(b.size.y / Mathf.Max(1e-4f, lls.y), 0.015f),
-                                  b.size.z / Mathf.Max(1e-4f, lls.z));
+            // SIZED IN THE LID'S OWN FRAME. A world AABB is the lid's shape
+            // only while the lid is level, and a box opens TILTED — propped
+            // at seventy over the footwell, on its lid at a hundred and ten.
+            // Sized from the world box, a lid opened at that angle got a
+            // collider taller than it is wide: a block the size of the box,
+            // inside the box, overlapping the walls, the pizza and the seat.
+            // Depenetration fired the lid metres across the island (every
+            // run's "lid at (.., -5.5)") and held the box and its pizza in a
+            // solver vice for most of a second — the tumble trace read y flat
+            // at 0.30 for forty-five steps with three metres a second on the
+            // clock. BuildBox's note on measuring a tilted box is this same
+            // trap; the pizza is no longer scored by a phantom.
+            //
+            // AND IT IS THE LID'S TOP FACE, NOT THE LID. The pack's lid is an
+            // outer SHELL that slips over the tray (see the baker's note on
+            // splitting by footprint): its mesh bounds are the whole outside
+            // of the box, so a collider sized to them — in any frame — is a
+            // solid block coincident with the box's walls, floor and pizza.
+            // The solver's answer to that, every run, was to fire the lid six
+            // metres down the footwell and shove the pizza into the floor on
+            // the way; the tumble by hand ended with an inverted box whose
+            // loose pizza was three millimetres from home. A plate the
+            // footprint of the shell, on the rim, along whichever of the
+            // lid's own axes is the box's up.
+            var lbb = LocalBounds(s.lid);
+            Vector3 upL = s.lid.InverseTransformDirection(s.box.transform.up);
+            int ax = Mathf.Abs(upL.x) > Mathf.Abs(upL.y) && Mathf.Abs(upL.x) > Mathf.Abs(upL.z) ? 0
+                   : Mathf.Abs(upL.z) > Mathf.Abs(upL.y) ? 2 : 1;
+            float sign = Mathf.Sign(upL[ax]);
+            const float plate = 0.015f;      // local units: nine millimetres of card
+            Vector3 size = lbb.size; size[ax] = plate;
+            Vector3 centre = lbb.center;
+            centre[ax] = (sign > 0f ? lbb.max[ax] : lbb.min[ax]) + sign * plate * 0.5f;
+            lb.center = centre;
+            lb.size = size;
             var rb = s.lid.gameObject.AddComponent<Rigidbody>();
             rb.mass = 0.12f;
             rb.linearDamping = 0.6f;
             rb.angularDamping = 2.2f;
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            rb.sleepThreshold = 0f;     // see the box in BuildBox
+            loose.Add(rb);              // a loose lid feels the car too
             // A shove off the box, so it visibly comes away rather than sitting
             // in place looking like nothing happened.
             rb.AddForce(s.box.transform.up * 0.4f + s.box.transform.forward * 0.2f,
                         ForceMode.Impulse);
+        }
+
+        /// <summary>
+        /// THE PIZZA BECOMES A BODY. Called from Open and from nowhere else: a
+        /// shut box's pizza is a child of the box with no physics of its own
+        /// (see Slot.pizza), so this is the moment it starts to exist for the
+        /// solver — and the only way it ever gets out of a box.
+        ///
+        /// It leaves with the box's kinematics AT ITS OWN POSITION: the box's
+        /// point velocity there, and the box's spin, read BEFORE the ceiling
+        /// goes and the lid is shoved off. So it neither arrives standing
+        /// still inside a box doing five metres a second — the "pasted on"
+        /// look that was the reason the pizza used to be a body from frame
+        /// one — nor inherits the lid's shove.
+        /// </summary>
+        void Release(Slot s)
+        {
+            if (s.pizza == null || s.pizzaCol == null || s.pizzaBody != null) return;
+            Vector3 centre = s.pizza.TransformPoint(s.pizzaCol.center);
+            Vector3 vel = s.box != null ? s.box.GetPointVelocity(centre) : Vector3.zero;
+            Vector3 spin = s.box != null ? s.box.angularVelocity : Vector3.zero;
+
+            // Out from under the box (worldPositionStays: it is where it is),
+            // then a body, THEN the collider — a live collider on a bodiless
+            // child would join the box's compound for the instant between.
+            s.pizza.SetParent(transform, true);
+            var prb = s.pizza.gameObject.AddComponent<Rigidbody>();
+            prb.mass = PizzaMass;
+            prb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            prb.interpolation = RigidbodyInterpolation.Interpolate;
+            prb.linearDamping = 0.5f;
+            prb.angularDamping = 1.8f;
+            prb.sleepThreshold = 0f;    // see the box in BuildBox
+            s.pizzaCol.enabled = true;
+            prb.linearVelocity = vel;
+            prb.angularVelocity = spin;
+            s.pizzaBody = prb;
+            loose.Add(prb);
+        }
+
+        /// <summary>
+        /// Destroy that works in both worlds. The harness runs in EDIT mode,
+        /// where Object.Destroy logs "may not be called from edit mode" and
+        /// does nothing — so every box the sim ever "opened" kept its
+        /// ceiling, and every spill it reported was a tunnel through a shut
+        /// box (cargoshot.log has the three errors, one per opened box).
+        /// GaugeCluster's idiom.
+        /// </summary>
+        static void Kill(Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) Destroy(o); else DestroyImmediate(o);
+        }
+
+        // ------------------------------------------------------------------
+        // THE HARNESS'S QUESTIONS. Nothing in the game reads these; they exist
+        // so PizzaCargoSim can assert the two things the owner reported —
+        // a pizza on top of a shut box, and a box that shrugged off a wall —
+        // are impossible and untrue respectively.
+
+        bool Valid(int i) => i >= 0 && i < slots.Count;
+        /// <summary>Has box <paramref name="i"/>'s lid come off?</summary>
+        public bool IsOpen(int i) => Valid(i) && slots[i].open;
+        /// <summary>Has box <paramref name="i"/> left the seat for the floor?</summary>
+        public bool IsGrounded(int i) => Valid(i) && slots[i].grounded;
+        /// <summary>Is box <paramref name="i"/>'s pizza out of it? Only ever
+        /// true of an OPEN box — see Assess.</summary>
+        public bool PizzaEscaped(int i) => Valid(i) && slots[i].escaped;
+
+        /// <summary>Box <paramref name="i"/>'s velocity in the SEAT's axes —
+        /// the harness's per-step trace, for reading what a kick actually
+        /// did to a box between one solver step and the next.</summary>
+        public Vector3 BoxVelocityLocal(int i) =>
+            Valid(i) && slots[i].box != null && tray != null
+                ? tray.InverseTransformDirection(slots[i].box.linearVelocity) : Vector3.zero;
+        /// <summary>Its angular velocity in the seat's axes, rad/s.</summary>
+        public Vector3 BoxSpinLocal(int i) =>
+            Valid(i) && slots[i].box != null && tray != null
+                ? tray.InverseTransformDirection(slots[i].box.angularVelocity) : Vector3.zero;
+        /// <summary>How upright the box is against the seat: the cosine Assess
+        /// tests against LidOpenTiltDeg.</summary>
+        public float BoxUpness(int i) =>
+            Valid(i) && slots[i].box != null && tray != null
+                ? Vector3.Dot(slots[i].box.transform.up, tray.up) : 1f;
+        /// <summary>Where box <paramref name="i"/>'s pizza is, in the seat's
+        /// axes (its collider centre) — for the harness to say where a loose
+        /// pizza went, not only how far.</summary>
+        public Vector3 PizzaLocal(int i) =>
+            Valid(i) && slots[i].pizza != null && slots[i].pizzaCol != null && tray != null
+                ? tray.InverseTransformPoint(slots[i].pizza.TransformPoint(slots[i].pizzaCol.center))
+                : Vector3.zero;
+        /// <summary>And its lid's origin, likewise.</summary>
+        public Vector3 LidLocal(int i) =>
+            Valid(i) && slots[i].lid != null && tray != null
+                ? tray.InverseTransformPoint(slots[i].lid.position) : Vector3.zero;
+
+        /// <summary>The pizza's collider centre in its box's frame: composed
+        /// locally while it is a child (exact), through the world while it is
+        /// a body (half a millimetre of grain at y = -4000, which is nothing
+        /// against the centimetres a loose pizza moves).</summary>
+        Vector3 PizzaCentreInBoxAny(Slot s) =>
+            s.pizzaBody == null && s.pizza.parent == s.box.transform
+                ? PizzaCentreInBox(s.pizza, s.pizzaCol)
+                : s.box.transform.InverseTransformPoint(s.pizza.TransformPoint(s.pizzaCol.center));
+
+        /// <summary>
+        /// How far box <paramref name="i"/>'s pizza is from where it was
+        /// packed, in METRES, in the box's own frame. Zero by construction
+        /// while the box is shut — MEASURED rather than assumed, so that the
+        /// day someone makes it a body again the self-test says so.
+        /// </summary>
+        public float PizzaHomeError(int i)
+        {
+            if (!Valid(i)) return 0f;
+            var s = slots[i];
+            if (s.pizza == null || s.pizzaCol == null || s.box == null) return 0f;
+            // Box-local to metres: the prefab's scale is uniform.
+            return Vector3.Scale(PizzaCentreInBoxAny(s) - s.homeLocal,
+                                 s.box.transform.lossyScale).magnitude;
+        }
+
+        /// <summary>
+        /// How far box <paramref name="i"/>'s pizza has moved OFF THE FLOOR of
+        /// its box, in metres, signed toward the lid. The reading for a box
+        /// on its lid: a loose pizza there drops the interior's height onto
+        /// the seat and reads about three centimetres, which the home error
+        /// alone cannot tell from a pizza that slid to a wall — and "escaped"
+        /// never fires for it, because a pizza under an upturned box is still
+        /// inside its rim. (Turned to 110 rather than 180 the pizza stayed
+        /// put, and rightly: gravity in the box's frame was 0.94 g into the
+        /// side wall and 0.34 g out of the mouth, and 0.7 of the wall load
+        /// holds that; it takes 125 degrees before a pizza can leave.)
+        /// </summary>
+        public float PizzaOffFloor(int i)
+        {
+            if (!Valid(i)) return 0f;
+            var s = slots[i];
+            if (s.pizza == null || s.pizzaCol == null || s.box == null) return 0f;
+            return (PizzaCentreInBoxAny(s).y - s.homeLocal.y) * s.box.transform.lossyScale.y;
+        }
+
+        /// <summary>Is the pizza's centre above its box's top face — on the
+        /// lid, or gone over the rim?</summary>
+        bool PizzaAbove(Slot s) =>
+            s.pizza != null && s.pizzaCol != null && s.box != null &&
+            PizzaCentreInBoxAny(s).y > s.topLocal;
+
+        /// <summary>
+        /// THE SCREENSHOT, AS A COUNT: shut boxes whose pizza is not where it
+        /// was packed (more than five millimetres off — the world round trip's
+        /// grain is half of one) or is above the box. Must be zero, always,
+        /// everywhere in the suite; the sim tallies it at every reading.
+        /// </summary>
+        public int ShutBoxesWithPizzaOut()
+        {
+            int n = 0;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var s = slots[i];
+                if (s.open || s.pizza == null) continue;
+                if (PizzaHomeError(i) > 0.005f || PizzaAbove(s)) n++;
+            }
+            return n;
+        }
+
+        /// <summary>
+        /// THE HARNESS'S HAND: turn box <paramref name="i"/> over by
+        /// <paramref name="rollDeg"/> about the seat's forward axis, lifted
+        /// so its lowest corner clears the pan, at rest, and leave the rest
+        /// to physics.
+        ///
+        /// Because no motion of the SEAT tumbles a box on a bench. The roll
+        /// case's trace showed a lone box flat against the ridge at seventy
+        /// degrees — up 0.98 to the tray from the first frame to the last —
+        /// since a ridge that stands above a floor-level centre of mass is a
+        /// stop and not a fulcrum, and the door card turns with the seat.
+        /// What that case had been reading as "tumbled" was the harness
+        /// whipping the tray back through the box (see MaxTiltRateDeg). A
+        /// box turns over in the game by being thrown off a stack or spun by
+        /// a wall, and the tilt rule in Assess plus Release are what a
+        /// tumble exercises — so the box is turned by hand and the seat is
+        /// left alone.
+        /// </summary>
+        public void TurnBoxOver(int i, float rollDeg)
+        {
+            if (!Valid(i) || slots[i].box == null || tray == null) return;
+            var rb = slots[i].box;
+            var t = rb.transform;
+            t.rotation = tray.rotation * PanRot * Quaternion.Euler(0f, 0f, rollDeg);
+            // A centimetre clear of the pan at the turned box's lowest
+            // corner, allowing for the cushion's rise under the box's front:
+            // the pan is pitched in z and the turn is about z, so the box's
+            // z extent is what it was.
+            var b = Bounds(rb.gameObject);
+            float clear = tray.TransformPoint(0f, PanTop(b.extents.z), 0f).y + 0.01f;
+            if (b.min.y < clear) t.position += tray.up * (clear - b.min.y);
+            rb.position = t.position;
+            rb.rotation = t.rotation;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            rb.WakeUp();
         }
 
         // ------------------------------------------------------------------
@@ -1342,6 +1853,33 @@ namespace PSXRacing
             if (rs.Length == 0) return new Bounds(go.transform.position, Vector3.one * 0.1f);
             var b = rs[0].bounds;
             foreach (var r in rs) b.Encapsulate(r.bounds);
+            return b;
+        }
+
+        /// <summary>
+        /// The meshes' bounds in <paramref name="root"/>'s OWN frame, in its
+        /// local units — the shape of the thing whichever way it is turned.
+        /// Bounds() above is a world AABB and is only the shape while the
+        /// thing is level; see BuildBox for what measuring a tilted box did
+        /// to the stack, and Open for what it did to a released lid.
+        /// </summary>
+        static Bounds LocalBounds(Transform root)
+        {
+            var b = new Bounds(Vector3.zero, Vector3.one * 0.1f);
+            bool any = false;
+            foreach (var f in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (f.sharedMesh == null) continue;
+                var mb = f.sharedMesh.bounds;
+                for (int i = 0; i < 8; i++)
+                {
+                    var corner = mb.center + Vector3.Scale(mb.extents, new Vector3(
+                        (i & 1) == 0 ? -1f : 1f, (i & 2) == 0 ? -1f : 1f, (i & 4) == 0 ? -1f : 1f));
+                    var p = root.InverseTransformPoint(f.transform.TransformPoint(corner));
+                    if (!any) { b = new Bounds(p, Vector3.zero); any = true; }
+                    else b.Encapsulate(p);
+                }
+            }
             return b;
         }
 

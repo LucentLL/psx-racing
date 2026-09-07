@@ -72,10 +72,14 @@ namespace PSXRacing.EditorTools
             var targets = new List<FootTarget>(
                 Object.FindObjectsByType<FootTarget>(FindObjectsInactive.Exclude, FindObjectsSortMode.None));
             sb.AppendLine("targets in scene: " + targets.Count);
+            // "[VERB] sentence" on each line: the bracket is the word on the
+            // thumb button, so a hook that would ship saying USE is visible in
+            // the report rather than only on a phone.
             foreach (var t in targets)
                 sb.AppendLine("  " + Path(t.transform) + "  focus " + V(t.FocusPoint) +
                               "  range " + t.range.ToString("0.0") +
-                              "  ignore=" + (t.IgnoreRoot != null ? t.IgnoreRoot.name : "-"));
+                              "  ignore=" + (t.IgnoreRoot != null ? t.IgnoreRoot.name : "-") +
+                              "  [" + t.Verb + "] " + t.action);
             sb.AppendLine();
 
             // ---- 1. storeys ----------------------------------------------

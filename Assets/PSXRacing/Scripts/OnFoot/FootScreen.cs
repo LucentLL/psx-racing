@@ -189,7 +189,12 @@ namespace PSXRacing.OnFoot
             if (crosshair != null && !crosshair.enabled) crosshair.enabled = true;
 
             var it = interactor != null ? interactor.Current : null;
-            string ctrl = UseControlName();
+            // Target-aware on a touchscreen, where it names the BUTTON — so on
+            // thumbs the verb is inside ctrl and a verb rewritten in place
+            // repaints through this gate on its own. On a keyboard or pad it
+            // is not, and an in-place rewording still needs Invalidate(), which
+            // every RefreshLabels calls.
+            string ctrl = UseControlName(it);
 
             if (it != lastIt || ctrl != lastCtrl)
             {
@@ -197,10 +202,10 @@ namespace PSXRacing.OnFoot
                 lastCtrl = ctrl;
                 Set(titleText, it != null ? it.title : "");
                 Set(detailText, it != null ? it.detail : "");
-                Set(actionText, it != null && !string.IsNullOrEmpty(it.action)
-                                ? ctrl + "  " + it.action : "");
-                Set(action2Text, it != null && !string.IsNullOrEmpty(it.action2)
-                                 ? (Use2ControlName() + "  " + it.action2).Trim() : "");
+                Set(actionText, it != null
+                                ? PromptLine(ctrl, it.Verb, it.HasVerb, it.action) : "");
+                Set(action2Text, it != null
+                                 ? PromptLine(Use2ControlName(), it.Verb2, it.HasVerb2, it.action2) : "");
                 if (crosshair != null)
                     crosshair.color = it != null ? new Color(1f, 0.82f, 0.3f, 0.9f)
                                                  : new Color(1f, 1f, 1f, 0.4f);
@@ -258,7 +263,10 @@ namespace PSXRacing.OnFoot
             // the two read as the same setting rather than two settings.
             string invert = "   ·   I INVERTS LOOK Y (" + LookPrefs.Label + ")";
 
-            if (Thumbs) return "LEFT THUMB WALKS  ·  RIGHT THUMB LOOKS  ·  USE BUTTON ACTS";
+            // THE button, not the USE button: it says PICK UP at the counter
+            // and SLEEP at the bed now, and a hint naming a word that is not
+            // on screen is a hint about a control the player cannot find.
+            if (Thumbs) return "LEFT THUMB WALKS  ·  RIGHT THUMB LOOKS  ·  THE BUTTON ACTS";
 
             if (Gamepad.current != null)
                 return "LEFT STICK MOVES   ·   RIGHT STICK LOOKS   ·   A / CROSS USES" + invert;
@@ -269,10 +277,17 @@ namespace PSXRacing.OnFoot
             return line;
         }
 
-        string UseControlName()
+        /// <summary>
+        /// On a touchscreen this names the BUTTON, so it says what the button
+        /// says — "[USE]" only when the target has not said otherwise. On a
+        /// keyboard or pad it is the in-car idiom the same scenes already show
+        /// ("PRESS E — GET OUT AND WALK", "PRESS F — WHERE TO?"), so the
+        /// walker's prompt and the driver's stop reading as two games.
+        /// </summary>
+        string UseControlName(FootTarget it)
         {
-            if (Thumbs) return "[USE]";
-            return Gamepad.current != null ? "[A / CROSS]" : "[F]";
+            if (Thumbs) return "[" + (it != null ? it.Verb : "USE") + "]";
+            return Gamepad.current != null ? "PRESS A / CROSS —" : "PRESS F —";
         }
 
         /// <summary>Empty on a touchscreen: the second thumb button is
@@ -281,7 +296,35 @@ namespace PSXRacing.OnFoot
         string Use2ControlName()
         {
             if (Thumbs) return "";
-            return Gamepad.current != null ? "[X / SQUARE]" : "[E]";
+            return Gamepad.current != null ? "PRESS X / SQUARE —" : "PRESS E —";
+        }
+
+        /// <summary>
+        /// One prompt line out of three words: the control, the button word,
+        /// and the sentence. Empty when there is no sentence — the sentence is
+        /// still the only thing that decides whether there is a control.
+        ///
+        /// The verb is said ONCE. On thumbs the bracket in ctrl already is the
+        /// verb, so the body is the sentence alone, and a sentence that IS the
+        /// verb (the bed's "SLEEP") is dropped rather than printed twice:
+        /// "[SLEEP]". On a keyboard the verb leads the sentence — "PRESS F —
+        /// PICK UP   ·   CLOCK ON — TAKE A RUN" — unless the sentence already
+        /// starts with it ("GET IN AND DRIVE" under GET IN) or the target never
+        /// named one, in which case the line is what it always was:
+        /// "PRESS F — GET IN AND DRIVE". A fallback verb never leads, or every
+        /// unnamed prompt on a keyboard would begin with USE.
+        /// </summary>
+        string PromptLine(string ctrl, string verb, bool named, string sentence)
+        {
+            if (string.IsNullOrEmpty(sentence)) return "";
+            bool leads = sentence.StartsWith(verb, System.StringComparison.OrdinalIgnoreCase);
+            string body;
+            if (Thumbs)
+                body = string.Equals(sentence, verb, System.StringComparison.OrdinalIgnoreCase)
+                     ? "" : sentence;
+            else
+                body = named && !leads ? verb + "   ·   " + sentence : sentence;
+            return (ctrl + "  " + body).Trim();
         }
 
         static void Set(Text field, string value)

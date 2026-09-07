@@ -540,6 +540,12 @@ namespace PSXRacing.OnFoot
         /// </summary>
         void RefreshLabels()
         {
+            // EVERY action HAS ITS VERB BESIDE IT. The verb is the word on the
+            // thumb button (FootTarget.verb, USE when unset) and it is written
+            // here, next to the sentence it belongs to, because the two flip
+            // together — a verb set once at spawn is a button that lies after
+            // the first press. The self-test sweep fails any target that has an
+            // action and no verb.
             for (int i = 0; i < bayStates.Count; i++)
             {
                 var st = bayStates[i];
@@ -554,6 +560,7 @@ namespace PSXRacing.OnFoot
                         ? "No room booked for another car."
                         : "Room for one more.";
                     hook.action = "READ THE CLASSIFIEDS";
+                    hook.verb = "READ";
                     hook.onUse = () => GoHome("market");
                     continue;
                 }
@@ -570,6 +577,7 @@ namespace PSXRacing.OnFoot
                 // scene's only door out into the town, and it has to be the
                 // obvious thing to press when you are stood at your own car.
                 hook.action = active ? "GET IN AND DRIVE" : "TAKE THE KEYS TO THIS ONE";
+                hook.verb = active ? "GET IN" : "TAKE KEYS";
 
                 var target = car;
                 hook.onUse = active
@@ -601,6 +609,7 @@ namespace PSXRacing.OnFoot
                 rackHook.title = "PARTS RACK";
                 rackHook.detail = RackLine(activeCar);
                 rackHook.action = "OPEN PARTS + TUNING";
+                rackHook.verb = "OPEN";
             }
 
             if (toolHook != null)
@@ -608,6 +617,7 @@ namespace PSXRacing.OnFoot
                 toolHook.title = "TOOL BOARD";
                 toolHook.detail = ToolLine();
                 toolHook.action = "OPEN THE TOOLBOX";
+                toolHook.verb = "OPEN";
             }
 
             if (benchHook != null)
@@ -615,6 +625,7 @@ namespace PSXRacing.OnFoot
                 benchHook.title = "WORKBENCH";
                 benchHook.detail = BenchLine(activeCar);
                 benchHook.action = "BOOK MECHANIC WORK";
+                benchHook.verb = "BOOK";
             }
 
             if (doorHook != null)
@@ -622,6 +633,7 @@ namespace PSXRacing.OnFoot
                 doorHook.title = "THE FRONT DOOR";
                 doorHook.detail = "Back inside, to the desk and the phone.";
                 doorHook.action = "GO INSIDE";
+                doorHook.verb = "ENTER";
             }
 
             if (fridgeHook != null)
@@ -634,6 +646,7 @@ namespace PSXRacing.OnFoot
                       (string.IsNullOrEmpty(S.lastMealTier) ? "regular" : S.lastMealTier) + ")" +
                       (S.ateToday ? "  ·  already ate today" : "");
                 fridgeHook.action = canEat ? "EAT A MEAL" : "";
+                fridgeHook.verb = canEat ? "EAT" : "";
             }
 
             // THE BED SAYS WHERE THE EIGHT HOURS LAND, which is the one thing
@@ -657,6 +670,9 @@ namespace PSXRacing.OnFoot
                                  (S.daysSinceSleep == 1 ? "" : "s") + " without one."
                                : "");
                 h.action = "SLEEP";
+                // The one prompt whose sentence IS its verb; FootScreen prints
+                // it once. The self-test asserts both words at the bed.
+                h.verb = "SLEEP";
             }
 
             // The prompt on screen is change-gated on WHICH interactable is in
@@ -749,6 +765,9 @@ namespace PSXRacing.OnFoot
             hook.action = up ? "SET IT BACK DOWN"
                              : best == Toolbox.Raise.Lift ? "RAISE IT ON THE LIFT"
                                                           : "PUT IT UP ON STANDS";
+            // RAISE for stands as well as the lift: the button is about which
+            // way the car goes, and the title already says what it goes up on.
+            hook.verb = up ? "LOWER" : "RAISE";
 
             var bay = st;
             hook.onUse = () =>

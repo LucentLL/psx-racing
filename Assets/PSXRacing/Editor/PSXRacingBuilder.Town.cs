@@ -1150,11 +1150,42 @@ namespace PSXRacing.EditorTools
                 edge.inward = new Vector3(-s, 0f, 0f);
                 edge.homeSide = s < 0;
                 // THE LINE, on the face the car crosses first: the inner one.
+                // At the ROAD SURFACE — the TownMain slab's 0.02 — because
+                // the marker seats its own parts; the old 0.55 was the lift
+                // for a row of floating knots.
                 EdgeMarkers(go.transform,
-                    new Vector3(s * (TownStreetHalf - 6f - 3.5f), 0.55f, 0f),
+                    new Vector3(s * (TownStreetHalf - 6f - 3.5f), 0.02f, 0f),
                     Vector3.forward, TownRoadW);
             }
         }
+
+        // ---- the zone line's dimensions ----
+        // All starting values for tuning; the derivations are the chase rig
+        // (5.4 m back, 1.8 m up, 58 deg vertical) at the game's own 240 and
+        // 480 lines: 4.14 and 8.28 px per degree.
+        /// <summary>2.8 m: twice a car roof, so it reads as a wall and not a
+        /// fence, and from the chase rig at 100 m it subtends ~5 deg = 22 px
+        /// at 240 lines (45 at 480); at 30 m, ~150 px.</summary>
+        const float ZoneCurtainHeight = 2.8f;
+        /// <summary>One metre past each kerb, so the curtain is seen to end
+        /// on the verge rather than at the tarmac's edge. Both triggers are
+        /// wider still (the town's 19 m across, the junction's the whole map),
+        /// so nothing of it stands outside the volume it marks.</summary>
+        const float ZoneCurtainOverhang = 1.0f;
+        /// <summary>The on-road bar: 0.5 m wide, 8 cm tall, centred 7 cm up so
+        /// its top sits at +11 cm — above the town's 3.5 cm centre-line paint
+        /// and below the 16 cm kerbs, never coplanar with the road.</summary>
+        const float ZoneBarWidth = 0.5f, ZoneBarHeight = 0.08f, ZoneBarLift = 0.07f;
+        /// <summary>Posts: 3 m tall, 30 cm across, standing 0.6 m past the
+        /// kerb line — the kerb boxes reach width/2 + 0.4, so a 15 cm radius
+        /// clears them by 5 cm — with a 0.4 m cap. The cap is what reads from
+        /// far away; the shaft is ~2.5 px at 100 m / 480 lines.</summary>
+        const float ZonePostHeight = 3.0f, ZonePostDiameter = 0.30f,
+                    ZonePostOut = 0.6f, ZoneCapSize = 0.4f;
+        /// <summary>Near-white for the bar and caps, the curtain's blue for the
+        /// posts. Emissive, so these ARE the colours on screen before fog.</summary>
+        static readonly Color ZoneBarTint = new Color(0.85f, 0.97f, 1.0f);
+        static readonly Color ZonePostTint = new Color(0.12f, 0.30f, 0.90f);
 
         /// <summary>
         /// THE ZONE LINE YOU CAN SEE.
@@ -1162,43 +1193,98 @@ namespace PSXRacing.EditorTools
         /// "There should be a dividing line on edges of areas when driven
         /// through take you to menu." The trigger volumes have always been
         /// there; nothing marked them, so the edge of a zone was a place the
-        /// game did something to you without warning. This is the marker: a
-        /// row of glowing knots across the road on the plane the car crosses,
-        /// the way an MMO draws a zone boundary — additive, unlit, the same
-        /// PSX/Glow the street lamps wear, in a cold blue no lamp uses so it
-        /// reads as a line and not as lighting. Cubes rather than billboards
-        /// because a glowing cube reads as a blob from every angle at this
-        /// fidelity and needs nothing to face the camera.
+        /// game did something to you without warning. This is the marker, on
+        /// the plane the car crosses, the way an MMO draws a zone boundary.
+        ///
+        /// SECOND CUT. The first was a row of 0.38 m glowing cubes wearing the
+        /// street lamps' additive PSX/Glow, and the owner reported "I still
+        /// don't see a barrier line" — correctly. Two reasons, both measured
+        /// after the fact. SIZE: the radial lamp mask leaves each cube a
+        /// ~0.19 m bright core, which from the chase rig thirty metres out is
+        /// 3 px at 480 lines and 1.5 px at 240 — nine specks 22 px apart that
+        /// never fuse into a line. BLEND MODE: additive light can only
+        /// brighten, so over the daylight sky and fog band it saturated to
+        /// white and vanished, and the reference the owner sent is a CURTAIN,
+        /// which is taller than the road and therefore always against the sky.
+        /// And the tool that signed it off had photographed it from the
+        /// ARRIVAL side at 540 lines, never the departure approach at the
+        /// game's own 240 — see ZoneLineShot, which now shoots what the player
+        /// sees and counts the pixels.
+        ///
+        /// So, three parts, each the answer to a way the last cut failed:
+        ///   - the CURTAIN: one quad the road width plus a metre over each
+        ///     kerb, ZoneCurtainHeight tall, alpha-blended (PSX/ZoneLine) so
+        ///     it can DARKEN a bright sky; white at the base, blue above,
+        ///     fading to nothing at the top.
+        ///   - the BAR: an opaque emissive white strip on the tarmac, so the
+        ///     line keeps a hard edge on the road even at RETRO, where the
+        ///     dither eats the curtain's gradient.
+        ///   - two POSTS with caps just outside the kerbs, opaque emissive
+        ///     blue: they cannot vanish against any background, and they give
+        ///     the curtain a height reference from 200 m out where its fog
+        ///     fade has already taken it.
+        /// The opaque parts are PSX/Lit with _Emission 1 — unlit colour, then
+        /// fogged, never lit dark on the shaded side. Nothing here has a
+        /// collider: a line you can see is not a line you can hit.
         /// </summary>
-        /// <param name="across">The direction the row runs — along the road's
-        /// width, not its length.</param>
+        /// <param name="centre">The middle of the line ON THE ROAD SURFACE.
+        /// Callers pass the tarmac's own height, not a lift above it; the
+        /// parts seat themselves from there.</param>
+        /// <param name="across">The direction the line runs — along the road's
+        /// width, not its length. Axis-aligned at both call sites.</param>
+        /// <param name="width">The carriageway, kerb to kerb.</param>
         static void EdgeMarkers(Transform parent, Vector3 centre, Vector3 across, float width)
         {
-            var mat = MakeGlowMaterial("ZoneLine", new Color(0.35f, 0.75f, 1.0f), 2.2f);
-            const float Pitch = 1.4f;
-            int n = Mathf.Max(3, Mathf.RoundToInt(width / Pitch)) | 1;   // odd: one on the crown
+            across = across.normalized;
+
             var row = new GameObject("ZoneLine");
             row.transform.SetParent(parent, false);
             row.transform.position = centre;
+
+            // A ROW OF DOTS, the owner's choice over a curtain ("I'm not a fan
+            // of that blue divider. I preferred the dots."). The first row of
+            // dots was 0.38 m additive glow-blobs at 1.4 m: three pixels each
+            // from the chase camera and washed to white over a daylight sky,
+            // which is why it was reported invisible. These are OPAQUE,
+            // self-lit (PSX/Lit with _Emission, the same trick the posts
+            // used), half a metre across and a metre apart, so each is a
+            // four-pixel diamond at 40 m on a 240-line frame and the row
+            // reads as a dotted line against sky, grass and tarmac alike.
+            // Turned 45 degrees about the road's across-axis so they present
+            // an edge to the driver, not a flat face. No colliders: a line
+            // you can see is not a wall.
+            var knotMat = MakeMat("ZoneKnot", null, tint: ZoneKnotTint);
+            knotMat.SetFloat("_Emission", 1f);
+            int n = Mathf.Max(3, Mathf.RoundToInt(width / ZoneKnotPitch));
+            if ((n & 1) == 0) n++;                        // one on the crown
+            float step = width / (n - 1);
             for (int i = 0; i < n; i++)
             {
-                float t = (i - (n - 1) * 0.5f) * Pitch;
+                float u = -width * 0.5f + step * i;
                 var knot = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 knot.name = "Knot";
                 Object.DestroyImmediate(knot.GetComponent<Collider>());
                 knot.transform.SetParent(row.transform, false);
-                knot.transform.localPosition = across.normalized * t;
-                // Turned 45 degrees about the road so a cube reads as a
-                // diamond from the driver's seat, which is the shape the
-                // reference shows.
-                knot.transform.localRotation = Quaternion.AngleAxis(45f, across.normalized);
-                knot.transform.localScale = Vector3.one * 0.38f;
-                var mr = knot.GetComponent<MeshRenderer>();
-                mr.sharedMaterial = mat;
-                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                mr.receiveShadows = false;
+                knot.transform.position = centre + across * u + Vector3.up * ZoneKnotLift;
+                knot.transform.rotation = Quaternion.AngleAxis(45f, across);
+                knot.transform.localScale = Vector3.one * ZoneKnotSize;
+                var kmr = knot.GetComponent<MeshRenderer>();
+                kmr.sharedMaterial = knotMat;
+                kmr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                kmr.receiveShadows = false;
             }
         }
+
+        /// <summary>Knot size, pitch and height: a 0.5 m cube on its edge is
+        /// ~0.7 m tall and 0.7 m wide, which at 40 m on a 240-line frame is
+        /// four pixels — the smallest thing that reads as a dot rather than a
+        /// speck. Lifted so the diamond's lower point sits just over the
+        /// tarmac (0.5 * sqrt2 / 2 = 0.35 m to the point).</summary>
+        const float ZoneKnotSize = 0.50f, ZoneKnotPitch = 1.0f, ZoneKnotLift = 0.42f;
+        /// <summary>A saturated blue no lamp uses: darker than a daylight sky,
+        /// bluer than grass or tarmac, so it contrasts with every ground the
+        /// three lines stand on.</summary>
+        static readonly Color ZoneKnotTint = new Color(0.20f, 0.45f, 1.00f);
 
         /// <summary>Places a stuck car can be put back on. On the road, facing
         /// along it, spread out enough that the nearest one is never the thing

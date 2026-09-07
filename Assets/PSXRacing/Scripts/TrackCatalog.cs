@@ -67,6 +67,21 @@ namespace PSXRacing
             public float bridgeDepth = 9f;
 
             public float roadWidth = 12f;
+            /// <summary>
+            /// THE SPEED LIMIT on this road, km/h — the speed a delivery is
+            /// already doing when the race scene opens on it. Zero means a
+            /// STANDING start: a strip has no limit because the tree is the
+            /// event, and a car placed rolling on one would cross the beams
+            /// before the lights. Real-road venues carry their posted limit
+            /// (the Parkway's 45 mph is 72); the fictional circuits carry a
+            /// town street's 45. Read by RaceManager through
+            /// RaceHandoff.RollingStartKmh, and copied by ReverseTwin — the
+            /// same road has the same limit in both directions.
+            ///
+            /// Keep the name and the unit: `speedLimitKmh`, km/h. New venues
+            /// (the Charlotte ones being appended) set it by this exact name.
+            /// </summary>
+            public float speedLimitKmh = DefaultSpeedLimitKmh;
             /// <summary>Laps for a full race. Short circuits run more of them so
             /// every race lands near 3.3 km — the distance the fuel and wear
             /// economy was balanced against when there was only one track.
@@ -123,6 +138,43 @@ namespace PSXRacing
             /// <summary>Resources name of the stage bake (e.g. "brp_stage").</summary>
             public string stageData;
 
+            /// <summary>
+            /// A stage whose ENDS MEET: the I-277 belt round uptown Charlotte
+            /// is real map data with real elevation and no finish line — it
+            /// is a lap. The terrain, the bridges and the scenery come from
+            /// the stage builder; the laps, the AI and the reverse rule
+            /// behave like a circuit. So: stage geometry, circuit race.
+            /// <see cref="RaceMeters"/> is the lap times <see cref="laps"/>,
+            /// <see cref="FinishIndex"/> is -1, and the bake's JSON says
+            /// <c>loop</c> too so the two cannot disagree silently. The Bogue
+            /// memory called this "the missing piece" for a year.
+            /// </summary>
+            public bool loop;
+
+            /// <summary>
+            /// ONE direction of traffic: paint lane dashes only, never the
+            /// double yellow. A freeway carriageway with a no-passing line
+            /// down the middle of it is the first thing a Charlotte driver
+            /// would notice. Only the road texture reads this; the builder
+            /// passes <c>drag || oneWay</c> to EnsureTrackRoadTex.
+            /// </summary>
+            public bool oneWay;
+
+            /// <summary>Where this stage's origin sits in charlotte_city.json's
+            /// frame, when the bake says it is in Charlotte at all
+            /// (<see cref="stageInCity"/>). The stage builder uses it to find
+            /// uptown and put the towers where the towers are; a mountain
+            /// bake leaves it false and nothing asks.</summary>
+            [System.NonSerialized] public bool stageInCity;
+            [System.NonSerialized] public Vector2 stageCityOrigin;
+            /// <summary>The road width the bake was made for, or 0 when the
+            /// bake does not say. The self-test holds the catalog's
+            /// <see cref="roadWidth"/> to it: the lane ladder and the barrier
+            /// line are both derived from the catalog number, and a bake made
+            /// for four lanes under a catalog row that says two is a road
+            /// half the width of the map it was cut from.</summary>
+            [System.NonSerialized] public float stageRoadWidthM;
+
             // Loaded lazily out of stageData by EnsureStage. The waypoints ARE
             // the bake — no spline pass here, the bake already resampled its
             // spline at Spacing.
@@ -173,6 +225,9 @@ namespace PSXRacing
                     // on the parkway: 60 m lost in 6.9 km is a rounding error,
                     // 60 m added to a quarter mile is a menu quoting 462 m for
                     // a race the player will time at 402.
+                    // A loop stage has no finish line to measure to: it is
+                    // a lap, raced <see cref="laps"/> times like a circuit.
+                    if (stage && loop) { EnsureStage(this); return LengthM * laps; }
                     if (stage) { EnsureStage(this); return dragMeters - stageStartLineM; }
                     return drag ? dragMeters : LengthM * laps;
                 }
@@ -184,6 +239,7 @@ namespace PSXRacing
             {
                 get
                 {
+                    if (stage && loop) return -1;    // a lap has no traps
                     if (stage) { EnsureStage(this); return Mathf.RoundToInt(dragMeters / Spacing); }
                     return drag ? Mathf.RoundToInt(dragMeters / Spacing) : -1;
                 }
@@ -240,6 +296,15 @@ namespace PSXRacing
         /// Spacing from here so the menu and the mesh cannot disagree.</summary>
         public const float Spacing = 4f;
 
+        /// <summary>
+        /// The speed limit a road has when nobody wrote one down: 45 km/h, a
+        /// town street. It is ALSO the speed the town and the neighbourhood
+        /// put an arriving car down at (TownEdge.ArrivalKmh reads it from
+        /// here), so a car that rolls through the edge of town and a car that
+        /// rolls into a delivery are doing the same speed for the same reason.
+        /// </summary>
+        public const float DefaultSpeedLimitKmh = 45f;
+
         // Layouts 2-4 were generated as polar loops — r(t) = R(1 + sum a_k
         // cos(k t + phi_k)) — which cannot self-intersect however the harmonics
         // are tuned, then checked for minimum corner radius (>= 22 m, so a
@@ -258,6 +323,7 @@ namespace PSXRacing
                 blurb = "Downtown blocks and close walls. The circuit this game was tuned on.",
                 roadWidth = 12f,
                 laps = 3,
+                speedLimitKmh = 45f,    // downtown blocks: a city street
                 controlPoints = new[]
                 {
                     new Vector2(0, 0),      new Vector2(120, 0),   new Vector2(180, 8),
@@ -289,6 +355,7 @@ namespace PSXRacing
                 blurb = "Short, narrow and relentless. Nowhere to put the power down.",
                 roadWidth = 10.5f,
                 laps = 4,
+                speedLimitKmh = 45f,    // dock roads
                 controlPoints = new[]
                 {
                     new Vector2(142, 0),   new Vector2(109, 45),  new Vector2(79, 79),
@@ -319,6 +386,7 @@ namespace PSXRacing
                 blurb = "Long, wide and flowing, through the trees. Two corners bite.",
                 roadWidth = 13f,
                 laps = 2,
+                speedLimitKmh = 72f,    // a mountain pass: 45 mph
                 controlPoints = new[]
                 {
                     new Vector2(295, 0),    new Vector2(221, 50),   new Vector2(170, 84),
@@ -354,6 +422,7 @@ namespace PSXRacing
                 blurb = "Two long straights joined by hairpins. Gearing decides this one.",
                 roadWidth = 14f,
                 laps = 2,
+                speedLimitKmh = 72f,    // perimeter road round an airfield
                 controlPoints = new[]
                 {
                     new Vector2(331, 0),   new Vector2(276, 62),  new Vector2(170, 88),
@@ -384,6 +453,7 @@ namespace PSXRacing
                 blurb = "402 m in a straight line. Gearing, launch, and nothing else.",
                 roadWidth = 18f,
                 laps = 1,
+                speedLimitKmh = 0f,     // a strip: the tree IS the start
                 drag = true,
                 dragMeters = 402.336f,
                 dragLabel = "1/4 MILE",
@@ -395,6 +465,7 @@ namespace PSXRacing
                 blurb = "201 m. Over before a long gearbox has finished thinking.",
                 roadWidth = 18f,
                 laps = 1,
+                speedLimitKmh = 0f,     // a strip: the tree IS the start
                 drag = true,
                 dragMeters = 201.168f,
                 dragShutdown = 260f,
@@ -410,6 +481,7 @@ namespace PSXRacing
                 blurb = "The whole city at 1:1 — uptown to the 485 belt. Free roam.",
                 roadWidth = 12f,
                 laps = 1,
+                speedLimitKmh = 45f,    // documentary: CityMode does not read it
                 city = true,
             },
             // Appended after the city so every existing save's track index
@@ -423,6 +495,7 @@ namespace PSXRacing
                         "Linn Cove Viaduct. Map (c) OpenStreetMap contributors.",
                 roadWidth = 9.5f,
                 laps = 1,
+                speedLimitKmh = 72f,    // the Parkway's posted maximum, 45 mph
                 stage = true,
                 stageData = "brp_stage",
                 dragLabel = "LINN COVE",
@@ -446,6 +519,7 @@ namespace PSXRacing
                         "Map (c) OpenStreetMap contributors.",
                 roadWidth = 11f,
                 laps = 1,
+                speedLimitKmh = 72f,    // NC 58 through the island, 45 mph
                 stage = true,
                 dragEvent = true,
                 stageData = "bogue_emerald",
@@ -465,6 +539,7 @@ namespace PSXRacing
                         "Map (c) OpenStreetMap contributors.",
                 roadWidth = 11f,
                 laps = 1,
+                speedLimitKmh = 89f,    // a 55 mph high-rise
                 stage = true,
                 dragEvent = true,
                 stageData = "bogue_langston",
@@ -483,6 +558,7 @@ namespace PSXRacing
                         "Map (c) OpenStreetMap contributors.",
                 roadWidth = 13f,
                 laps = 1,
+                speedLimitKmh = 72f,    // 45 mph across the causeway
                 stage = true,
                 dragEvent = true,
                 stageData = "bogue_atlantic",
@@ -518,6 +594,7 @@ namespace PSXRacing
                 // still be on tarmac, which a 7.5 m road cannot answer yes to.
                 roadWidth = 9f,
                 laps = 1,
+                speedLimitKmh = 56f,    // a 35 mph park road
                 stage = true,
                 stageData = "mtm_stage",
                 dragLabel = "THE SUMMIT",
@@ -541,9 +618,83 @@ namespace PSXRacing
                         "enough to rest on. Map (c) OpenStreetMap contributors.",
                 roadWidth = 8.5f,
                 laps = 1,
+                speedLimitKmh = 72f,    // NC 215, 45 mph
                 stage = true,
                 stageData = "beech_stage",
                 dragLabel = "THE GAP",
+            },
+
+            // ----------------------------------------------------------------
+            //  Charlotte. Three real-road venues on the same streets FREE ROAM
+            //  drives, baked by tools/clt/fetch_clt.mjs from the way ids the
+            //  investigation verified against live OpenStreetMap, with SRTM
+            //  under them — the first step toward the city itself being the
+            //  race venue. Appended after Beech Gap because a saved career
+            //  stores its venue by index.
+            //
+            //  Every one carries its posted limit in km/h (the bake's JSON
+            //  says mph as posted, for the record), and the two that run on
+            //  freeway carriageways are ONE-WAY: dashes only, no double
+            //  yellow. Those two are not offered backwards either — "UPTOWN
+            //  LOOP II" would drive the 277 belt against traffic, taking every
+            //  ramp the wrong way; Tryon is a two-way street and its reverse
+            //  is a real southbound drive.
+            // ----------------------------------------------------------------
+            new TrackDef
+            {
+                id = "UptownLoop",
+                name = "UPTOWN LOOP — I-277",
+                blurb = "The 277 belt round uptown Charlotte at 1:1 — Brookshire, the Belk, " +
+                        "and the I-77 straight. 9.2 km, one lap, no pumps. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 14.6f,      // three 3.66 m lanes and paved shoulders
+                // ONE lap, and it must stay one: the thirstiest stage-4 car in
+                // the catalog reaches the self-test's 85% tank at 14.2 km at
+                // race load, and two laps of this is 18.4. The self-test's
+                // tank check is what pins it.
+                laps = 1,
+                speedLimitKmh = 80f,    // I-277 is posted 50 mph
+                stage = true,
+                loop = true,
+                oneWay = true,
+                noReverse = true,       // a freeway backwards is the wrong way up every ramp
+                stageData = "clt_uptown",
+                dragLabel = "THE 277",
+                // The urban bridge dig: how far the ground drops under each
+                // overpass so the deck has daylight beneath it. Six metres is
+                // a street under a freeway, and what the terrain audit wants
+                // to see under every full-blend span (it asks for three).
+                bridgeDepth = 6f,
+            },
+            new TrackDef
+            {
+                id = "TryonSprint",
+                name = "TRYON STREET SPRINT",
+                blurb = "South End to NoDa straight up Tryon — Camden Road, through the towers, " +
+                        "out past 36th. Map (c) OpenStreetMap contributors.",
+                roadWidth = 15.5f,      // two lanes a side plus parking, uptown's own width
+                laps = 1,
+                speedLimitKmh = 56f,    // 35 mph north of the core (25 through it)
+                stage = true,
+                stageData = "clt_tryon",
+                dragLabel = "NODA",
+                bridgeDepth = 6f,       // the Belk runs in a cut under Tryon
+            },
+            new TrackDef
+            {
+                id = "IndependenceSprint",
+                name = "INDEPENDENCE SPRINT — US 74",
+                blurb = "Off the Belk and east down the Independence Expressway to Sharon Amity. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 16f,        // three lanes and a full shoulder each way
+                laps = 1,
+                speedLimitKmh = 89f,    // 55 mph on the motorway section
+                stage = true,
+                oneWay = true,
+                noReverse = true,       // an eastbound expressway has no westbound
+                stageData = "clt_independence",
+                dragLabel = "US 74",
+                bridgeDepth = 6f,
             },
         };
 
@@ -567,6 +718,15 @@ namespace PSXRacing
             bridges = f.bridges,
             bridgeDepth = f.bridgeDepth,
             roadWidth = f.roadWidth,
+            // The one field that is NOT about the place's shape and still has
+            // to be copied: left out, every twin silently rolls in at the 45
+            // default while its forward venue does 72. The self-test asserts
+            // the pair agree.
+            speedLimitKmh = f.speedLimitKmh,
+            // Same reason: a loop stage's twin must race by laps too, and a
+            // one-way road is one-way in both directions of the picker.
+            loop = f.loop,
+            oneWay = f.oneWay,
             laps = f.laps,
             drag = f.drag,
             dragMeters = f.dragMeters,
@@ -617,6 +777,35 @@ namespace PSXRacing
         {
             for (int i = 0; i < All.Length; i++) if (All[i].id == id) return i;
             return 0;
+        }
+
+        /// <summary>
+        /// How many venues the authored list held when saves were still
+        /// version 10 — thirteen, Sunset City GP through Beech Gap — and so
+        /// where the reverse twins began in every save written before the
+        /// three Charlotte venues were appended (2026-09-07). A constant on
+        /// purpose: the migration must describe the OLD layout, and the old
+        /// layout does not change when the catalog grows again.
+        /// </summary>
+        public const int V10AuthoredCount = 13;
+
+        /// <summary>
+        /// A venue index from a version-10 save, in today's list.
+        ///
+        /// Appending to the authored list is the rule because a save stores
+        /// its venue by index — but the twins sit AFTER the authored list, so
+        /// an append moves every twin along by the number of venues added.
+        /// The twins keep their order (generated in authored order, and new
+        /// venues go on the end, so their twins do too), which makes the map
+        /// one line: the k-th twin is still the k-th twin, counted from where
+        /// the twins start NOW. Authored indices are untouched; anything past
+        /// the old list is clamped like <see cref="At"/> would clamp it.
+        /// </summary>
+        public static int RemapV10Index(int oldIndex)
+        {
+            if (oldIndex < V10AuthoredCount) return Mathf.Max(0, oldIndex);
+            int twin = oldIndex - V10AuthoredCount;
+            return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
         }
 
         /// <summary>Build-settings index of a track's scene. Scene 0 is
@@ -695,6 +884,19 @@ namespace PSXRacing
             /// Zero means "no water on this stage" — which is what every
             /// inland bake leaves it as, and what the mountain is.</summary>
             public float waterY;
+            /// <summary>The bake is a RING (tools/clt/fetch_clt.mjs writes it
+            /// for the 277 belt). Confirms the catalog's TrackDef.loop; a
+            /// bake that says loop under a row that does not is caught by
+            /// EnsureStage rather than by a finish line nobody crosses.</summary>
+            public bool loop;
+            /// <summary>The road width the bake was cut for, or 0 when the
+            /// bake predates the field. The self-test holds the catalog to it.</summary>
+            public float roadWidthM;
+            /// <summary>Registration into charlotte_city.json's frame: where
+            /// this stage's origin sits in city metres. False/zero on every
+            /// bake outside Charlotte.</summary>
+            public bool inCity;
+            public float cityX0, cityZ0;
             public float[] xyz;       // interleaved x,y,z per waypoint
             public float[] bridges;   // interleaved fromM,toM per span
         }
@@ -728,6 +930,19 @@ namespace PSXRacing
             def.stageStartLineM = j.startLineM;
             def.stageAttribution = j.attribution ?? "";
             def.stageWaterY = j.waterY;
+            // The bake's word on the shape wins over silence, never over the
+            // catalog: a ring that the row calls point-to-point would race to
+            // a finish at metre zero, so say so loudly and run it as the lap
+            // it is.
+            if (j.loop && !def.loop)
+            {
+                Debug.LogError("Stage bake " + def.stageData + " is a loop but TrackDef." + def.id +
+                               " is not — set loop = true in the catalog");
+                def.loop = true;
+            }
+            def.stageRoadWidthM = j.roadWidthM;
+            def.stageInCity = j.inCity;
+            def.stageCityOrigin = new Vector2(j.cityX0, j.cityZ0);
             // finishM is measured from waypoint 0, and so is dragMeters — the
             // lead-in is inside both, which is what FinishIndex assumes.
             def.dragMeters = j.finishM;
@@ -873,10 +1088,13 @@ namespace PSXRacing
             foreach (var span in def.bridges)
             {
                 float from, len;
-                if (def.stage)
+                if (def.stage && !def.loop)
                 {
                     // A stage has ENDS — a span near the finish must not bleed
-                    // through the modulo onto the start of the run.
+                    // through the modulo onto the start of the run. (A LOOP
+                    // stage takes the lap branch below: its bake writes a
+                    // span that crosses the start line past the lap length,
+                    // exactly as a circuit's table would.)
                     len = span.y - span.x;
                     from = metres - span.x;
                     if (from < 0f || from > len) continue;
@@ -963,7 +1181,8 @@ namespace PSXRacing
             // A route with ENDS must not close back onto itself: on a strip the
             // phantom closing segment hides inside the strip, on a 7 km stage
             // it is a chord drawn straight across the map.
-            int segs = (def.drag || def.stage) ? pts.Count - 1 : pts.Count;
+            bool ends = def.drag || (def.stage && !def.loop);
+            int segs = ends ? pts.Count - 1 : pts.Count;
             for (int i = 0; i < segs; i++)
             {
                 var a = pts[i];
@@ -981,7 +1200,7 @@ namespace PSXRacing
             // On a strip the interesting end is the OTHER one: a horizontal bar
             // with one dot on it says nothing about where the traps are. Same
             // for a stage's finish.
-            if ((def.drag || def.stage) && def.FinishIndex > 0 && def.FinishIndex < pts.Count)
+            if (ends && def.FinishIndex > 0 && def.FinishIndex < pts.Count)
             {
                 var f = pts[def.FinishIndex];
                 var red = new Color32(255, 90, 70, 255);
