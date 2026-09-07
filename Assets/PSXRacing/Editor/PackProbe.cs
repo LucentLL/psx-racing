@@ -44,6 +44,12 @@ namespace PSXRacing.EditorTools
             "Assets/PSXRacing/Art/LifeSim/House/house_simple.fbx",
             "Assets/PSXRacing/Art/LifeSim/House/house_hero.fbx",
             "Assets/PSXRacing/Art/LifeSim/House/house_hero_colliders.fbx",
+            // The pizzeria's props: every drink in the pack, by material
+            // island, so a bottle can be chosen by its measured shape rather
+            // than by guessing at names. The baker's candidate list only ever
+            // asked for "Soft_drinks_*" and got a small glass bottle; the two
+            // litre ones the owner circled are in here under something else.
+            "Assets/PSXRacing/Art/LifeSim/PizzeriaScene/Pizzeria_Props.fbx",
         };
 
         [MenuItem("PSX Racing/Probe Pack Models")]

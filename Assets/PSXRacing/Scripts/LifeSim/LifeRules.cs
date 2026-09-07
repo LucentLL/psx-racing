@@ -1392,6 +1392,15 @@ namespace PSXRacing.LifeSim
         public static void Sleep(LifeState s)
         {
             if (s == null) return;
+            // THE SLOT YOU WERE GOING TO WORK HAS PASSED. DriveToShop is the
+            // player's intent to clock on, set at home and cleared when a run
+            // starts or the home screen is rebuilt — and neither of those
+            // happens when the player sleeps in the bed upstairs, which rolls
+            // the clock to a morning the shop is shut for. The town then
+            // pointed at a shift that could not be taken: "park up and walk
+            // in" over a counter that only sold. An intent to work the
+            // afternoon does not survive sleeping through it, whichever bed.
+            PizzaRun.DriveToShop = false;
             if (s.slotIndex >= SlotNames.Length - 1)
             {
                 s.health = Mathf.Min(100f, s.health + 5f);

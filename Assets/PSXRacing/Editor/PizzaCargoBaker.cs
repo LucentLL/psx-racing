@@ -338,65 +338,186 @@ namespace PSXRacing.EditorTools
         public const string BottlePrefab = "soda_bottle";
 
         /// <summary>
-        /// The 2 litre bottle, standing up.
+        /// THE 2 LITRE BOTTLE, BUILT RATHER THAN FOUND.
         ///
-        /// NOT SaveFlat, which turns its input so the thinnest axis points up —
-        /// exactly right for a pizza and exactly wrong for a bottle, which is
-        /// the one thing in this pack whose tallest axis is the one that
-        /// matters. It is also what identifies the bottle: the first candidate
-        /// that is half again taller than it is wide is a bottle, and anything
-        /// squatter than that is the crate or the can.
+        /// It used to be found: the first "Soft_drinks" object in the props
+        /// pack taller than it was wide. That is a small glass cola bottle,
+        /// and the owner, shown it, drew a ring round something else — the
+        /// second row of a grocery shelf, tall PET bottles with coloured
+        /// labels. Every drink in every pack in the project was then measured
+        /// and photographed (DrinkProbe): the pizzeria pack's soft drinks are
+        /// glass bottles, crates, cans and a fountain cup, the house pack has
+        /// one bottle and a milk carton, the gas station a fridge texture. The
+        /// bottle asked for is not in the project.
+        ///
+        /// So it is a lathe: base, body, shoulder, neck, cap, twelve sides —
+        /// which is the whole silhouette of a 2 litre bottle and about as many
+        /// polygons as this renderer wants — and a sixteen by sixty-four label
+        /// painted here: drink colour on the body, a contrasting band with a
+        /// stripe through it for the label, a cap. Four of them, because the
+        /// shelf in the photograph is four colours, and two identical bottles
+        /// on a seat read as one extruded object. Saved under the same
+        /// contract the pack bottle was — base at y = 0, centred in plan,
+        /// BottleHeightM tall — so nothing that stands one on a seat or lays
+        /// one on a lid knows the difference. If the grocery pack that shelf
+        /// came from ever lands in Art/, this is the one method to point at it.
         /// </summary>
         static bool SaveBottle(GameObject inst)
         {
-            Transform src = null;
-            foreach (var name in BottleCandidates)
+            // (drink colour, label colour, cap colour) — cola, lemon-lime,
+            // orange, cherry: the four the photograph shows.
+            var looks = new (Color body, Color label, Color cap)[]
             {
-                var t = Find(inst, name);
-                if (t == null) continue;
-                var probe = WorldBounds(t);
-                float plan = Mathf.Max(probe.size.x, probe.size.z);
-                bool upright = plan > 1e-4f && probe.size.y > plan * 1.5f;
-                Debug.Log("[PizzaCargo] drink candidate '" + name + "' " +
-                          probe.size.ToString("0.000") + (upright ? "  <- bottle" : "  (not a bottle)"));
-                if (upright && src == null) src = t;
-            }
-            if (src == null)
+                (new Color(0.20f, 0.10f, 0.06f), new Color(0.80f, 0.12f, 0.10f), new Color(0.80f, 0.12f, 0.10f)),
+                (new Color(0.62f, 0.86f, 0.50f), new Color(0.10f, 0.52f, 0.22f), new Color(0.10f, 0.52f, 0.22f)),
+                (new Color(0.96f, 0.58f, 0.12f), new Color(0.12f, 0.30f, 0.72f), new Color(0.96f, 0.58f, 0.12f)),
+                (new Color(0.68f, 0.10f, 0.16f), new Color(0.96f, 0.84f, 0.22f), new Color(0.92f, 0.92f, 0.92f)),
+            };
+
+            int made = 0;
+            for (int v = 0; v < looks.Length; v++)
             {
-                Debug.LogWarning("[PizzaCargo] no bottle-shaped drink in the pack — orders will be pizza only");
-                return false;
+                string name = v == 0 ? BottlePrefab : BottlePrefab + "_" + v;
+                var tex = LabelTexture(name, looks[v].body, looks[v].label, looks[v].cap);
+                var mesh = BottleMesh();
+                AssetDatabase.CreateAsset(mesh, ResDir + "/" + name + "_mesh.asset");
+
+                var holder = new GameObject(name);
+                var pivot = new GameObject("Mesh");
+                pivot.transform.SetParent(holder.transform, false);
+                pivot.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var mr = pivot.AddComponent<MeshRenderer>();
+                // A throwaway Standard material carrying the label: the PSX
+                // converter reads a material's mainTexture and rebuilds it,
+                // which is the same road every pack material takes.
+                var tmp = new Material(Shader.Find("Standard")) { mainTexture = tex, name = name };
+                mr.sharedMaterial = tmp;
+
+                // Already based at y = 0 and centred — the lathe is built that
+                // way — but measured and corrected anyway, the same as the pack
+                // bottle was, so the contract holds if the profile changes.
+                var got = WorldBounds(holder.transform);
+                pivot.transform.position += new Vector3(-got.center.x, -got.min.y, -got.center.z);
+
+                PSXRacingBuilder.ConvertToPSXMaterials(holder);
+                PrefabUtility.SaveAsPrefabAsset(holder, ResDir + "/" + name + ".prefab");
+                Object.DestroyImmediate(holder);
+                Object.DestroyImmediate(tmp);
+                made++;
             }
-
-            var parts = new List<Renderer>(src.GetComponentsInChildren<MeshRenderer>(true));
-            var b = WorldBounds(src);
-            float scale = b.size.y > 0.01f ? BottleHeightM / b.size.y : 1f;
-            Debug.Log("[PizzaCargo] bottle '" + src.name + "' measures " + b.size.ToString("0.000") +
-                      " -> scale " + scale.ToString("0.000"));
-
-            var holder = new GameObject(BottlePrefab);
-            var pivot = new GameObject("Mesh");
-            pivot.transform.SetParent(holder.transform, false);
-            foreach (var r in parts)
-            {
-                var copy = (GameObject)Object.Instantiate(r.gameObject);
-                copy.name = r.name;
-                foreach (var c in copy.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
-                copy.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
-                copy.transform.localScale = r.transform.lossyScale;
-                copy.transform.SetParent(pivot.transform, true);
-            }
-            // Base at y = 0 and centred in plan, so the runtime can stand one on
-            // a seat by putting its origin on the seat — the same contract the
-            // toppings are saved under.
-            var got = WorldBounds(holder.transform);
-            pivot.transform.position += new Vector3(-got.center.x, -got.min.y, -got.center.z);
-
-            PSXRacingBuilder.ConvertToPSXMaterials(holder);
-            holder.transform.localScale = Vector3.one * scale;
-            PrefabUtility.SaveAsPrefabAsset(holder, ResDir + "/" + BottlePrefab + ".prefab");
-            Object.DestroyImmediate(holder);
-            return true;
+            Debug.Log("[PizzaCargo] built " + made + " two-litre bottles (lathe, " +
+                      BottleHeightM.ToString("0.00") + " m)");
+            return made > 0;
         }
+
+        /// <summary>
+        /// The bottle's outline, turned round its axis. Radii and heights in
+        /// metres for a real 2 litre: 105 mm across, 330 mm tall, a shoulder
+        /// that starts two thirds of the way up, a 4 cm neck and a cap.
+        /// Twelve sides — PSX — and a closed top and bottom.
+        /// </summary>
+        static Mesh BottleMesh()
+        {
+            var profile = new (float y, float r)[]
+            {
+                (0.000f, 0.040f), (0.012f, 0.052f), (0.200f, 0.052f), (0.250f, 0.038f),
+                (0.285f, 0.021f), (0.308f, 0.021f), (0.310f, 0.017f), (0.330f, 0.017f),
+            };
+            const int Sides = 12;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+
+            // Rings. One extra column so the UV seam closes at u = 1.
+            for (int i = 0; i < profile.Length; i++)
+                for (int s = 0; s <= Sides; s++)
+                {
+                    float a = s / (float)Sides * Mathf.PI * 2f;
+                    verts.Add(new Vector3(Mathf.Cos(a) * profile[i].r, profile[i].y,
+                                          Mathf.Sin(a) * profile[i].r));
+                    uvs.Add(new Vector2(s / (float)Sides, profile[i].y / BottleHeightM));
+                }
+            int cols = Sides + 1;
+            for (int i = 0; i < profile.Length - 1; i++)
+                for (int s = 0; s < Sides; s++)
+                {
+                    int a = i * cols + s, b = a + 1, c = a + cols, d = c + 1;
+                    tris.Add(a); tris.Add(c); tris.Add(b);
+                    tris.Add(b); tris.Add(c); tris.Add(d);
+                }
+            // Base and cap discs.
+            int bottom = verts.Count;
+            verts.Add(new Vector3(0f, profile[0].y, 0f));
+            uvs.Add(new Vector2(0.5f, 0f));
+            for (int s = 0; s < Sides; s++)
+            { tris.Add(bottom); tris.Add(s + 1); tris.Add(s); }
+            int top = verts.Count;
+            verts.Add(new Vector3(0f, profile[profile.Length - 1].y, 0f));
+            uvs.Add(new Vector2(0.5f, 1f));
+            int lastRing = (profile.Length - 1) * cols;
+            for (int s = 0; s < Sides; s++)
+            { tris.Add(top); tris.Add(lastRing + s); tris.Add(lastRing + s + 1); }
+
+            var mesh = new Mesh { name = "soda_bottle" };
+            mesh.SetVertices(verts);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>
+        /// The label, painted: v runs bottom to top. Drink colour on the body,
+        /// a darker foot, a band of label colour from a third of the way up to
+        /// just past the middle with a pale stripe through it, the neck a
+        /// shade lighter, the cap its own colour. Sixteen by sixty-four, point
+        /// filtered, no mips — the renderer's own rules for a texture.
+        /// </summary>
+        static Texture2D LabelTexture(string name, Color body, Color label, Color cap)
+        {
+            const int W = 16, H = 64;
+            var px = new Color32[W * H];
+            for (int y = 0; y < H; y++)
+            {
+                float v = (y + 0.5f) / H;
+                Color c;
+                if (v < 0.04f) c = body * 0.55f;
+                else if (v < 0.30f) c = body;
+                else if (v < 0.60f)
+                {
+                    c = label;
+                    // The stripe, and a thin dark rule at each edge of the
+                    // band so it reads as a printed label and not a colour
+                    // change in the plastic.
+                    if (v > 0.42f && v < 0.48f) c = Color.Lerp(label, Color.white, 0.75f);
+                    if (v < 0.315f || v > 0.585f) c = label * 0.6f;
+                }
+                else if (v < 0.86f) c = body;
+                else if (v < 0.94f) c = Color.Lerp(body, Color.white, 0.35f);
+                else c = cap;
+                c.a = 1f;
+                for (int x = 0; x < W; x++) px[y * W + x] = c;
+            }
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false);
+            tex.SetPixels32(px);
+            tex.Apply();
+
+            string path = ResDir + "/" + name + "_label.png";
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            if (AssetImporter.GetAtPath(path) is TextureImporter imp)
+            {
+                imp.filterMode = FilterMode.Point;
+                imp.mipmapEnabled = false;
+                imp.wrapMode = TextureWrapMode.Clamp;
+                imp.textureCompression = TextureImporterCompression.Uncompressed;
+                imp.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
         static Transform Find(GameObject root, string name)
         {
             foreach (var t in root.GetComponentsInChildren<Transform>(true))

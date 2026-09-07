@@ -214,8 +214,18 @@ namespace PSXRacing.Town
                     // has to say that the last twenty metres are walked. Told at
                     // the door rather than from across town, where "walk in" is
                     // not yet an instruction anybody can follow.
-                    label = "GO TO WORK — TONY'S";
-                    near = "TONY'S — PARK UP AND WALK IN";
+                    // ONLY IF THE SHOP WILL TAKE THE SHIFT. This flag is set
+                    // when the player clocks on at home and it survives
+                    // everything until a run starts or the home screen is
+                    // rebuilt — including a night's sleep in the bed upstairs,
+                    // which rolls the day over to a morning the shop is shut
+                    // for. The cue then promised "walk in" at a counter that
+                    // could only sell a slice, which is the report. Say what
+                    // the counter will actually say.
+                    bool open = S != null && LifeRules.ShopOpen(S);
+                    label = open ? "GO TO WORK — TONY'S" : "TONY'S — NO RUNS TILL NOON";
+                    near = open ? "TONY'S — PARK UP AND WALK IN"
+                                : "TONY'S — SHUT FOR RUNS TILL NOON";
                 }
                 else
                 {
@@ -426,7 +436,17 @@ namespace PSXRacing.Town
                 }
                 else
                 {
-                    t.detail = LifeRules.ShiftHoursShort;
+                    // SAY WHY, not just the hours. "AFTERNOONS + NIGHTS, SEVEN
+                    // DAYS" on its own reads as decoration, and a player who
+                    // came here to work and found only a counter that sells
+                    // reported that they "can't pick up delivery". There are
+                    // two reasons that can be true and they want different
+                    // things done about them.
+                    bool noJob = S == null || string.IsNullOrEmpty(S.playerJob);
+                    t.detail = noJob
+                        ? "No job here yet — take the delivery job on the JOBS tab at home."
+                        : "No runs this morning. Back at noon, or sleep to the afternoon.  ·  " +
+                          LifeRules.ShiftHoursShort;
                     t.action = "BUY AT THE COUNTER";
                     t.onUse = OpenPizzaCounter;
                 }

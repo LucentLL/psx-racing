@@ -688,9 +688,14 @@ namespace PSXRacing
                 slots.Add(BuildBox(boxPrefab, toppings[i], at, boxH));
             }
 
-            var bottlePrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Bottle);
-            if (bottlePrefab == null) return;
-            for (int i = 0; i < bottles; i++) BuildBottle(bottlePrefab, i);
+            // A different look per bottle: the two on a seat were the same
+            // model, and two identical bottles side by side read as one thing.
+            for (int i = 0; i < bottles; i++)
+            {
+                var bottlePrefab = PizzaCargoBakerNames.LoadBottle(i);
+                if (bottlePrefab == null) return;
+                BuildBottle(bottlePrefab, i);
+            }
         }
 
         /// <summary>
@@ -1408,6 +1413,22 @@ namespace PSXRacing
         /// stands one up by putting its origin on the seat and lays one down by
         /// turning it ninety degrees.</summary>
         public const string Bottle = Dir + "soda_bottle";
+        /// <summary>How many looks the baker paints — cola, lemon-lime, orange,
+        /// cherry. Variant 0 is <see cref="Bottle"/> itself, so a load that
+        /// only knows the old name still gets a bottle.</summary>
+        public const int BottleVariants = 4;
+        /// <summary>The i-th look, wrapping, so an order's second bottle is
+        /// never the same colour as its first.</summary>
+        public static string BottleVariant(int i)
+        {
+            int v = ((i % BottleVariants) + BottleVariants) % BottleVariants;
+            return v == 0 ? Bottle : Bottle + "_" + v;
+        }
+        /// <summary>Load the i-th look, or the base bottle if that variant was
+        /// never baked — a bake from before the variants existed has only
+        /// the one.</summary>
+        public static GameObject LoadBottle(int i) =>
+            Resources.Load<GameObject>(BottleVariant(i)) ?? Resources.Load<GameObject>(Bottle);
         /// <summary>How many toppings the baker writes. A saved order names its
         /// pizzas by index into this, so it is append-only.</summary>
         public const int ToppingCount = 10;

@@ -219,8 +219,20 @@ namespace PSXRacing.Town
         /// because there is no second button to put it on? True only on touch,
         /// only at the shop, and only while there is a shift to walk in for.
         /// </summary>
+        /// <remarks>
+        /// NOT gated on a shift being available any more. It was, and the
+        /// gate is what "I can't get out of my car by the Pizzeria, it just
+        /// makes me buy pizza without getting out" is: when the shop was shut
+        /// for shifts the one touch button became ORDER, and there was no
+        /// button left to open the door with — a player who wanted to walk in
+        /// for a slice, or to look around, or to test the seat, had to reverse
+        /// out to the road where the button turns back into GET OUT. Getting
+        /// out of a car is not a thing a shop's opening hours should decide.
+        /// The counter is three steps inside the door either way, and it
+        /// sells or offers the run according to the same hours it always did.
+        /// </remarks>
         bool WalkInOnly =>
-            kind == Kind.Pizzeria && CanClockOn &&
+            kind == Kind.Pizzeria &&
             TouchControls.Instance != null && TouchControls.Instance.Visible;
 
         /// <summary>The other thing a stopped car can do here. Appended to the

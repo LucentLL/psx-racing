@@ -131,11 +131,15 @@ namespace PSXRacing.OnFoot
             // load instead of as a pair of railings in front of the camera.
             var bottlePrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Bottle);
             if (bottlePrefab == null) return;
+            // Measured off the base bottle: every look is the same lathe, so
+            // one measurement serves them all.
             var pb = PrefabBounds(bottlePrefab);
             float br = Mathf.Max(0.02f, Mathf.Max(pb.size.x, pb.size.z) * 0.5f);
             for (int i = 0; i < bottles; i++)
             {
-                var b = Instantiate(bottlePrefab, rig);
+                // The same looks the seat uses, in the same order, so the
+                // bottles you carried in are the bottles on the seat.
+                var b = Instantiate(PizzaCargoBakerNames.LoadBottle(i) ?? bottlePrefab, rig);
                 b.name = "Bottle" + i;
                 // Across the lid, alternating which way the neck points, so two
                 // do not read as one extruded object.
