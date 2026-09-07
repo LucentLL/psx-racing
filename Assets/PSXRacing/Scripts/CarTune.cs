@@ -23,9 +23,14 @@ namespace PSXRacing
         public struct Stages
         {
             public int power, weight, brakes, suspension, tires;
+            /// <summary>The passenger seat. Carried here so the race scene
+            /// has it alongside the rest, though nothing in CarTune reads it:
+            /// its only consumer is the pizza on it.</summary>
+            public int seat;
 
             public bool IsStock =>
-                power == 0 && weight == 0 && brakes == 0 && suspension == 0 && tires == 0;
+                power == 0 && weight == 0 && brakes == 0 && suspension == 0 && tires == 0 &&
+                seat == 0;
         }
 
         /// <summary>Cumulative share of the stock->built HP span unlocked at each

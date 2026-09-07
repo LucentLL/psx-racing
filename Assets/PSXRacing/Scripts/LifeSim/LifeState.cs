@@ -282,6 +282,12 @@ namespace PSXRacing.LifeSim
         public int upBrakes;
         public int upSuspension;
         public int upTires;
+        /// <summary>The passenger seat, 0-4. The one category that does
+        /// nothing for the stopwatch: it exists for the pizza on it. A flat
+        /// stock seat lets a box slide on a hard corner; a race bucket holds it
+        /// between its bolsters. Defaults to 0 like the rest, so a pre-feature
+        /// save loads as a stock seat with no migration.</summary>
+        public int upSeat;
 
         // One-off bolt-on mods. Separate from the stage ladder because they are
         // not a ladder — you either welded the diff or you did not, and neither

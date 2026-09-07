@@ -27,12 +27,31 @@ namespace PSXRacing.LifeSim
     /// </summary>
     public static class Upgrades
     {
-        public enum Kind { Power = 0, Weight = 1, Brakes = 2, Suspension = 3, Tires = 4 }
+        /// <summary>
+        /// SEAT IS THE SIXTH, and it is the odd one out on purpose: the only
+        /// category that does nothing for the stopwatch. It exists for the
+        /// pizza. A flat stock seat lets a box slide on any hard corner; a race
+        /// bucket stands its bolsters an inch off the load and holds it. The
+        /// owner's design note, verbatim: "the more racing oriented seats, the
+        /// better they are suited to keep pizza boxes safe from side to side
+        /// movement." Appended to the END of the enum because a save stores
+        /// pending jobs by the string key below, but the stage arrays here are
+        /// indexed by the enum's value, and inserting in the middle would
+        /// re-point every one of them.
+        /// </summary>
+        public enum Kind { Power = 0, Weight = 1, Brakes = 2, Suspension = 3, Tires = 4, Seat = 5 }
+
+        /// <summary>Highest kind, for the loops that walk the ladder. Written
+        /// down once because two of those loops used to end at Kind.Tires by
+        /// name, which is exactly how a sixth category never appears on the
+        /// parts page.</summary>
+        public const Kind LastKind = Kind.Seat;
+        public const int KindCount = (int)LastKind + 1;
 
         public const int MaxStage = 4;
 
         public static readonly string[] KindLabels =
-            { "POWER", "WEIGHT", "BRAKES", "SUSPENSION", "TIRES" };
+            { "POWER", "WEIGHT", "BRAKES", "SUSPENSION", "TIRES", "SEAT" };
 
         /// <summary>What each category is actually buying, for the shop rows.
         /// Stage-indexed 1..4; index 0 is the stock car.</summary>
@@ -43,6 +62,11 @@ namespace PSXRacing.LifeSim
             new[] { "STOCK", "PADS + FLUID", "SLOTTED ROTORS", "BIG BRAKE KIT", "RACE CALIPERS" },
             new[] { "STOCK", "LOWERING SPRINGS", "SPORT DAMPERS", "COILOVERS", "RACE COILOVERS" },
             new[] { "STOCK", "SPORT TIRES", "PERFORMANCE", "SEMI-SLICKS", "TRACK COMPOUND" },
+            // The passenger seat, with the load in mind. The names are the real
+            // ladder — a sport seat has a little side support, a bucket has a
+            // lot, a race bucket is alcantara and hugs, and a fixed-back FIA
+            // shell is the deepest thing you can bolt to a floor.
+            new[] { "STOCK", "SPORT SEAT", "BUCKET SEAT", "RACE BUCKET", "FIXED-BACK RACE SEAT" },
         };
 
         // ---- stage curves --------------------------------------------------
@@ -65,7 +89,8 @@ namespace PSXRacing.LifeSim
                 case Kind.Weight: return Clamp(car.upWeight);
                 case Kind.Brakes: return Clamp(car.upBrakes);
                 case Kind.Suspension: return Clamp(car.upSuspension);
-                default: return Clamp(car.upTires);
+                case Kind.Tires: return Clamp(car.upTires);
+                default: return Clamp(car.upSeat);
             }
         }
 
@@ -79,19 +104,20 @@ namespace PSXRacing.LifeSim
                 case Kind.Weight: car.upWeight = stage; break;
                 case Kind.Brakes: car.upBrakes = stage; break;
                 case Kind.Suspension: car.upSuspension = stage; break;
-                default: car.upTires = stage; break;
+                case Kind.Tires: car.upTires = stage; break;
+                default: car.upSeat = stage; break;
             }
         }
 
         public static bool IsStock(OwnedCar car) =>
             car != null && car.upPower == 0 && car.upWeight == 0 && car.upBrakes == 0 &&
-            car.upSuspension == 0 && car.upTires == 0;
+            car.upSuspension == 0 && car.upTires == 0 && car.upSeat == 0;
 
-        /// <summary>Total stages bought across all five categories, 0-20. The
+        /// <summary>Total stages bought across all six categories, 0-24. The
         /// one-number "how built is this car" the garage list shows.</summary>
         public static int TotalStages(OwnedCar car) =>
             car == null ? 0 : Clamp(car.upPower) + Clamp(car.upWeight) + Clamp(car.upBrakes) +
-                              Clamp(car.upSuspension) + Clamp(car.upTires);
+                              Clamp(car.upSuspension) + Clamp(car.upTires) + Clamp(car.upSeat);
 
         // ---- pricing ------------------------------------------------------
         const int PerHp = 55;
@@ -104,6 +130,11 @@ namespace PSXRacing.LifeSim
         const int BaseBrake = 220;   // S1 = pads + fluid
         const int BaseSusp = 200;    // S1 = lowering springs
         const int BaseTire = 250;    // S1 = a set of sport tyres
+        /// <summary>S1 = a sport seat from a breaker. Priced like the handling
+        /// hardware because it is bolted-on hardware: a flat base with the
+        /// steep per-stage premium below, so a used sport seat is cheap and an
+        /// FIA shell is properly dear.</summary>
+        const int BaseSeat = 180;
         const float ShopMult = 1.6f;
 
         /// <summary>DIY skill requirement by category and target stage. Handling
@@ -116,6 +147,9 @@ namespace PSXRacing.LifeSim
             new[] { 0, 15, 30, 50, 70 },   // brakes
             new[] { 0, 20, 38, 58, 78 },   // suspension
             new[] { 0, 10, 22, 40, 60 },   // tires
+            // A seat is four bolts and a slider. The FIA shell wants a bracket
+            // fabricated, which is the only step that asks anything of you.
+            new[] { 0,  8, 18, 30, 55 },   // seat
         };
 
         /// <summary>Car-class price multiplier — exotics cost more to work on.
@@ -233,12 +267,33 @@ namespace PSXRacing.LifeSim
                             : "sits the car " + mm + " mm lower";
                     }
                     break;
-                default:
+                case Kind.Tires:
                     p.fromVal = Mathf.RoundToInt((CarTune.GripStageMult(from) - 1f) * 100f);
                     p.toVal = Mathf.RoundToInt((CarTune.GripStageMult(to) - 1f) * 100f);
                     p.delta = Mathf.Max(0, p.toVal - p.fromVal);
                     p.unit = "%";
                     basePrice = BaseTire;
+                    break;
+                default:
+                    {
+                        // Quoted in HUNDREDTHS OF A G held sideways, straight
+                        // off the seat table the physics builds from — so the
+                        // row says what the boxes will feel and cannot say
+                        // anything else. The row renderer prints it as a g
+                        // figure; the integer is only so the plan's delta and
+                        // its before/after stay the ints they are everywhere.
+                        var a = PizzaCargo.SeatAt(from);
+                        var b = PizzaCargo.SeatAt(to);
+                        p.fromVal = Mathf.RoundToInt(a.HoldsG * 100f);
+                        p.toVal = Mathf.RoundToInt(b.HoldsG * 100f);
+                        p.delta = Mathf.Max(0, p.toVal - p.fromVal);
+                        p.unit = "cg";
+                        basePrice = BaseSeat;
+                        int gapMm = Mathf.RoundToInt((b.bolsterHalf - 0.02f - 0.205f) * 1000f);
+                        int tallMm = b.NominalHeightMm;
+                        p.sideEffect = "bolsters " + tallMm + " mm tall, " +
+                                       Mathf.Max(0, gapMm) + " mm off a pizza box";
+                    }
                     break;
             }
 
@@ -247,8 +302,10 @@ namespace PSXRacing.LifeSim
             // a consumable, stage 4 is race hardware. Power keeps the full car
             // multiplier (engine money really does scale with the car) and a
             // gentle premium, since its front-loaded gain curve already makes
-            // late stages worse value per dollar.
-            bool handling = kind == Kind.Brakes || kind == Kind.Suspension || kind == Kind.Tires;
+            // late stages worse value per dollar. The seat is hardware and
+            // prices like it.
+            bool handling = kind == Kind.Brakes || kind == Kind.Suspension ||
+                            kind == Kind.Tires || kind == Kind.Seat;
             float mult = handling ? EffCostMult(spec, basePrice) : CarCostMult(spec);
             float premiumPerStage = (kind == Kind.Weight || handling) ? 1.0f : 0.25f;
             float stagePremium = 1f + (to - 1) * premiumPerStage;
@@ -538,6 +595,7 @@ namespace PSXRacing.LifeSim
             brakes = GetStage(car, Kind.Brakes),
             suspension = GetStage(car, Kind.Suspension),
             tires = GetStage(car, Kind.Tires),
+            seat = GetStage(car, Kind.Seat),
         };
 
         /// <summary>Crank HP as built — what the SPECS screen should show

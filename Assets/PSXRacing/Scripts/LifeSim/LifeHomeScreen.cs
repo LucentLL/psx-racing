@@ -2849,7 +2849,10 @@ namespace PSXRacing.LifeSim
                 MenuKit.Dim, 820f);
             y -= 36f;
 
-            for (int i = 0; i <= (int)Upgrades.Kind.Tires; i++)
+            // To LastKind, not to a kind by name: the loop used to end at
+            // Tires, and a sixth category added to the ladder simply did not
+            // appear here.
+            for (int i = 0; i <= (int)Upgrades.LastKind; i++)
                 DrawUpgradeRow(car, spec, (Upgrades.Kind)i, ref y);
 
             y -= 6f;
@@ -3272,13 +3275,25 @@ namespace PSXRacing.LifeSim
             }
 
             y -= 24f;
-            string gain = plan.unit == "kg"
-                ? "-" + plan.delta + " kg"
-                : "+" + plan.delta + " " + plan.unit;
+            string gain, span;
+            if (plan.unit == "cg")
+            {
+                // The seat quotes the g a box takes sideways before it moves,
+                // in hundredths. "+12 cg (70 -> 82 cg)" is a unit nobody has
+                // heard of; "holds 0.82 g" is the thing being bought.
+                gain = "holds " + (plan.toVal / 100f).ToString("0.00") + " g";
+                span = (plan.fromVal / 100f).ToString("0.00") + " -> " +
+                       (plan.toVal / 100f).ToString("0.00") + " g sideways";
+            }
+            else
+            {
+                gain = plan.unit == "kg" ? "-" + plan.delta + " kg"
+                                         : "+" + plan.delta + " " + plan.unit;
+                span = plan.fromVal + " -> " + plan.toVal + " " + plan.unit;
+            }
             MenuKit.Label(body, "  next: " + plan.stageName + "   " + gain +
-                "   (" + plan.fromVal + " -> " + plan.toVal + " " + plan.unit + ")   " +
-                plan.days + "d", 14, new Vector2(0.5f, 1f), new Vector2(ColL, y),
-                TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                "   (" + span + ")   " + plan.days + "d", 14, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
             y -= 28f;
             if (!string.IsNullOrEmpty(plan.sideEffect))
             {
@@ -5250,6 +5265,7 @@ namespace PSXRacing.LifeSim
                 RaceHandoff.UpBrakes = tuned.upBrakes;
                 RaceHandoff.UpSuspension = tuned.upSuspension;
                 RaceHandoff.UpTires = tuned.upTires;
+                RaceHandoff.UpSeat = tuned.upSeat;
                 RaceHandoff.Welded = tuned.welded;
                 RaceHandoff.Supercharged = tuned.supercharged;
                 // The advanced tune, gated HERE rather than in the race scene.

@@ -128,8 +128,51 @@ namespace PSXRacing.EditorTools
             /// this is the case that proves it is proportional: a scrape has to
             /// cost something and it must not cost the order.</summary>
             public float afterKnock;
+            /// <summary>What the knock alone cost, as a delta, for the same
+            /// reason the firm stop is a delta.</summary>
+            public float knockCost;
 
             public float afterCrash;  // after a full-clamp frontal impact
+
+            /// <summary>Condition after THE MANOEUVRE THAT WAS REPORTED: a
+            /// handbrake 180 at 80 mph. The centre of mass scrubs off speed at
+            /// about 0.8 g while the car spins at three-and-a-half radians a
+            /// second, and the passenger seat — half a metre off the axis — is
+            /// flung outward on top of that. "The boxes barely move" was true,
+            /// and it was true because the seat's own motion was not modelled;
+            /// this case is what proves it is now.</summary>
+            public float afterSpin;
+            /// <summary>How far the bottom box went in that spin. The number
+            /// the complaint was actually about.</summary>
+            public float bottomSlideSpin;
+            /// <summary>Condition after a FIRM stop — 0.7 g, the hardest brake
+            /// most driving ever needs. This has to be free on every seat, or
+            /// the delivery job is a game about never braking.</summary>
+            public float afterFirmStop;
+            /// <summary>What the firm stop ALONE cost: condition before it
+            /// minus condition after. The absolute number above carries every
+            /// case before it, and a stop that cost nothing was failing on a
+            /// corner's wear.</summary>
+            public float firmStopCost;
+
+            /// <summary>The same corner, spin and panic stop, once per rung of
+            /// the seat ladder, indexed by stage. The shop sells five seats on
+            /// the promise that each holds the load better than the last, and a
+            /// promise like that is an assertion or it is marketing.</summary>
+            public float[] tierCorner, tierSpin, tierBraking, tierSlideSpin;
+
+            /// <summary>
+            /// ONE BOX, per seat, through the handbrake 180 — the case the
+            /// owner named: "especially when just one pizza box is in the
+            /// seat". A single box has nothing sitting on it, so it is the
+            /// most mobile load the game carries and the cleanest signal a
+            /// seat can be judged on: in a stack the bottom box is pinned by
+            /// the ones above it and the top box's slide is damped by the
+            /// friction it drags across, and the ladder's differences are
+            /// buried in that. Condition after the spin, and how far the box
+            /// went, indexed by seat stage.
+            /// </summary>
+            public float[] singleSpin, singleSlide;
             /// <summary>How far the BOTTOM box slid on the rough corner and in
             /// the crash, in metres. Condition alone cannot see the bug this
             /// exists for: a box wedged between two bolsters 3.5 cm off its own
@@ -188,6 +231,26 @@ namespace PSXRacing.EditorTools
                 if (shoot) Shoot(cargo, dir, "sim_1_rest");
                 Debug.Log("[PizzaSim] at rest  " + r.atRest.ToString("0.00") + "  " + cargo.Describe());
 
+                // 1s. THE HANDBRAKE 180, FIRST — from a settled, centred load.
+                //
+                // It was run after the corners, and it passed for the wrong
+                // reason: BoxSlide is the offset from where the box was PUT, and
+                // the rough corner had already pushed it 11 cm into the bolster,
+                // so a spin that moved nothing still reported 11 cm. Measured
+                // here as the DELTA across the spin alone, on a box that is
+                // still in the middle of the seat with somewhere to go. See
+                // Spin for what the seat feels.
+                float beforeSpin = cargo.BoxSlideMax();
+                Spin(cargo, 60);
+                Step(cargo, Vector3.zero, Quaternion.identity, 60);
+                r.afterSpin = cargo.Condition;
+                // The MOST-MOVED box, not the bottom one — see BoxSlideMax.
+                r.bottomSlideSpin = Mathf.Max(0f, cargo.BoxSlideMax() - beforeSpin);
+                if (shoot) Shoot(cargo, dir, "sim_1s_spin");
+                Debug.Log("[PizzaSim] spin     " + r.afterSpin.ToString("0.00") +
+                          " (bottom box moved " + r.bottomSlideSpin.ToString("0.00") + " m)  " +
+                          cargo.Describe());
+
                 // 2. A HARD LEFT. 0.9 g of lateral for two and a half seconds,
                 //    with the eight degrees of roll a car actually takes. The
                 //    boxes should walk across the seat and lean on the bolster.
@@ -244,10 +307,24 @@ namespace PSXRacing.EditorTools
                 }
                 Step(cargo, Vector3.zero, Quaternion.identity, 40);
                 r.afterRough = cargo.Condition;
-                r.bottomSlideRough = cargo.BoxSlide(0);
+                // The most-moved box: in a stack it is never the bottom one.
+                r.bottomSlideRough = cargo.BoxSlideMax();
 
                 if (shoot) Shoot(cargo, dir, "sim_3_rough");
                 Debug.Log("[PizzaSim] rough    " + r.afterRough.ToString("0.00") + "  " + cargo.Describe());
+
+                // 3a. A FIRM STOP. 0.7 g for a second — the hardest brake most
+                //     driving ever asks for, and the one that must cost nothing
+                //     on any seat. The pan's tilt is what makes this free while
+                //     a hard corner is not: sin(12 deg) of a g holds the box
+                //     back against the squab, and that margin only exists
+                //     forward.
+                float beforeFirm = cargo.Condition;
+                Step(cargo, new Vector3(0f, 0f, -0.7f * 9.81f), Quaternion.Euler(-3f, 0f, 0f), 50);
+                Step(cargo, Vector3.zero, Quaternion.identity, 40);
+                r.afterFirmStop = cargo.Condition;
+                r.firmStopCost = beforeFirm - r.afterFirmStop;
+                Debug.Log("[PizzaSim] firm     " + r.afterFirmStop.ToString("0.00") + "  " + cargo.Describe());
 
                 // 3b. A HEAVY STOP. 1.0 g on the brakes for a second and a half,
                 //     with the nose-down attitude that comes with it. This is
@@ -268,10 +345,12 @@ namespace PSXRacing.EditorTools
                 //     where that is checked: with nothing across the front of
                 //     the seat, a scrape must jostle the load and must not tip
                 //     it into the footwell.
+                float beforeKnock = cargo.Condition;
                 cargo.Tick(Vector3.zero, Quaternion.identity, Dt, new Vector3(0f, 0f, -3f));
                 Physics.Simulate(Dt);
                 Step(cargo, Vector3.zero, Quaternion.identity, 90);
                 r.afterKnock = cargo.Condition;
+                r.knockCost = beforeKnock - r.afterKnock;
                 if (shoot) Shoot(cargo, dir, "sim_3c_knock");
 
                 Debug.Log("[PizzaSim] knock    " + r.afterKnock.ToString("0.00") + "  " + cargo.Describe());
@@ -311,6 +390,70 @@ namespace PSXRacing.EditorTools
                 r.detail = cargo.Describe();
 
                 Object.DestroyImmediate(cargo.gameObject);
+
+                // 5. THE SEAT LADDER, one rung at a time.
+                //
+                // A fresh three-box cargo on each seat, put through the three
+                // things a seat is sold to survive: the hard corner, the
+                // handbrake 180, and the panic stop. The self-test asserts the
+                // ladder is MONOTONE — every rung at least as good as the one
+                // below it on every case — because that is the whole promise
+                // of the parts page, and a promise about five prices is an
+                // assertion or it is nothing.
+                int tiers = PizzaCargo.Seats.Length;
+                r.tierCorner = new float[tiers];
+                r.tierSpin = new float[tiers];
+                r.tierBraking = new float[tiers];
+                r.tierSlideSpin = new float[tiers];
+                for (int t = 0; t < tiers; t++)
+                {
+                    var c = PizzaCargo.Spawn(null, new[] { 0, 3, 6 }, 0, seatStage: t);
+                    if (c == null) break;
+                    Step(c, Vector3.zero, Quaternion.identity, 60);
+                    // The spin FIRST, from a centred load, and as a delta — the
+                    // same false positive the main run had: a box the corner has
+                    // already parked against a bolster has nowhere to be thrown.
+                    Vector3 before = c.BoxOffset(0);
+                    Spin(c, 60);
+                    Step(c, Vector3.zero, Quaternion.identity, 60);
+                    r.tierSpin[t] = c.Condition;
+                    r.tierSlideSpin[t] = (c.BoxOffset(0) - before).magnitude;
+                    Step(c, new Vector3(8.8f, 0f, 0f), Quaternion.Euler(0f, 0f, -8f), 125);
+                    Step(c, Vector3.zero, Quaternion.identity, 40);
+                    r.tierCorner[t] = c.Condition;
+                    Step(c, new Vector3(0f, 0f, -9.81f), Quaternion.Euler(-4f, 0f, 0f), 75);
+                    Step(c, Vector3.zero, Quaternion.identity, 60);
+                    r.tierBraking[t] = c.Condition;
+                    if (shoot) Shoot(c, dir, "sim_5_seat" + t);
+                    Debug.Log("[PizzaSim] seat " + t + " " + PizzaCargo.Seats[t].name +
+                              "  corner " + r.tierCorner[t].ToString("0.00") +
+                              "  spin " + r.tierSpin[t].ToString("0.00") +
+                              " (slid " + r.tierSlideSpin[t].ToString("0.00") + " m)" +
+                              "  brake " + r.tierBraking[t].ToString("0.00") +
+                              "  " + c.Describe());
+                    Object.DestroyImmediate(c.gameObject);
+                }
+
+                // 6. ONE BOX, per seat, through the spin. The owner's own case
+                //    and the ladder's cleanest signal — see Reading.singleSpin.
+                r.singleSpin = new float[tiers];
+                r.singleSlide = new float[tiers];
+                for (int t = 0; t < tiers; t++)
+                {
+                    var c = PizzaCargo.Spawn(null, new[] { 4 }, 0, seatStage: t);
+                    if (c == null) break;
+                    Step(c, Vector3.zero, Quaternion.identity, 60);
+                    Spin(c, 60);
+                    Step(c, Vector3.zero, Quaternion.identity, 60);
+                    r.singleSpin[t] = c.Condition;
+                    r.singleSlide[t] = c.BoxSlide(0);
+                    if (shoot) Shoot(c, dir, "sim_6_onebox_seat" + t);
+                    Debug.Log("[PizzaSim] one box, seat " + t + " " + PizzaCargo.Seats[t].name +
+                              "  spin " + r.singleSpin[t].ToString("0.00") +
+                              " (slid " + r.singleSlide[t].ToString("0.00") + " m)  " +
+                              c.Describe());
+                    Object.DestroyImmediate(c.gameObject);
+                }
             }
             finally
             {
@@ -325,6 +468,78 @@ namespace PSXRacing.EditorTools
             {
                 cargo.Tick(accel, tilt, Dt);
                 Physics.Simulate(Dt);
+            }
+        }
+
+        /// <summary>
+        /// A HANDBRAKE 180, as the seat feels it.
+        ///
+        /// The harness hands Tick an acceleration in the car's own axes, which
+        /// in the game is assembled by FixedUpdate from two things: what the
+        /// centre of mass is doing, and what the SEAT is doing on top of that
+        /// because it is half a metre off the yaw axis. Both are modelled here
+        /// so the case is the game's arithmetic and not a guess at it.
+        ///
+        /// The centre of mass: the tyres are sliding, so the car scrubs speed
+        /// at about 0.8 g along its ORIGINAL heading. In the car's axes that
+        /// direction rotates as the car does — it starts as braking, is pure
+        /// sideways at ninety degrees, and is a shove from behind at the end.
+        ///
+        /// The seat: a point r from the axis of a body spinning at omega is
+        /// accelerated toward the axis at omega-squared-r, and the pseudo-force
+        /// is the negative — flung OUTWARD. At 3.5 rad/s and 0.43 m that is
+        /// 5.3 m/s^2, more than half a g, for the whole duration. The snap in
+        /// and out adds alpha-cross-r for a few frames at each end.
+        ///
+        /// A 180 takes about a second at that rate. The roll is the car
+        /// leaning out of the spin.
+        ///
+        /// SPUN TOWARD THE PASSENGER, and this is not a detail. The two terms
+        /// point the same way only when the seat is on the OUTSIDE of the
+        /// spin: the scrub throws everything in the car outward, and the
+        /// seat's own centrifugal term throws it away from the axis — which
+        /// for a seat on the right is rightward whichever way the car turns.
+        /// Spin right and the passenger is on the inside, the two oppose, and
+        /// the seat feels 0.3 g; spin left and they add to 1.3 g. The first
+        /// version of this case spun right and reported that a handbrake 180
+        /// does nothing, which is true of exactly half of them. The violent
+        /// half is the one a seat is sold to survive. In Unity's frame a
+        /// positive yaw rate is clockwise from above — a right turn — so the
+        /// rate here is negative.
+        /// </summary>
+        static void Spin(PizzaCargo cargo, int frames)
+        {
+            const float ScrubG = 0.8f, Omega = -3.5f;
+            // How long the yaw takes to build, and to die. A THIRD OF A
+            // SECOND, which is what a road car's tyres take to let go and to
+            // bite again. The first version used a tenth, and a tenth is 35
+            // rad/s^2 — alpha-cross-r on the seat was a g and a half, forward,
+            // at the snap-out, and it threw two boxes off the whole island.
+            // That was the harness inventing an impact, not a seat failing.
+            const int RampFrames = 15;
+            var r = new Vector3(0.40f, 0f, 0.15f);
+            float heading = 0f;
+            for (int i = 0; i < frames; i++)
+            {
+                float ramp = Mathf.Clamp01(Mathf.Min(i, frames - 1 - i) / (float)RampFrames);
+                float w = Omega * ramp;
+                float alpha = i < RampFrames ? Omega / (RampFrames * Dt)
+                            : (i >= frames - RampFrames ? -Omega / (RampFrames * Dt) : 0f);
+
+                // Scrub along the original heading, expressed in the rotating
+                // car frame. World -Z is "where the car was going"; the car has
+                // yawed by `heading` since.
+                var scrubWorld = new Vector3(0f, 0f, -ScrubG * 9.81f);
+                var scrubCar = Quaternion.Euler(0f, -heading * Mathf.Rad2Deg, 0f) * scrubWorld;
+
+                var wv = new Vector3(0f, w, 0f);
+                var av = new Vector3(0f, alpha, 0f);
+                var seat = Vector3.Cross(av, r) + Vector3.Cross(wv, Vector3.Cross(wv, r));
+
+                var tilt = Quaternion.Euler(0f, 0f, -7f * ramp);
+                cargo.Tick(scrubCar + seat, tilt, Dt);
+                Physics.Simulate(Dt);
+                heading += w * Dt;
             }
         }
 

@@ -145,6 +145,10 @@ namespace PSXRacing
         // garage quoted from — two places computing "what a stage-3 build is
         // worth" is how a shop screen and a stopwatch start disagreeing.
         public static int UpPower, UpWeight, UpBrakes, UpSuspension, UpTires;
+        /// <summary>The passenger seat's stage, read by PizzaCargo when it
+        /// stands the order up. Rides alongside the rest so the town drive and
+        /// the race hand the cargo the same seat.</summary>
+        public static int UpSeat;
         /// <summary>One-off bolt-ons: welded rear diff, Roots blower.</summary>
         public static bool Welded, Supercharged;
         /// <summary>
@@ -265,7 +269,7 @@ namespace PSXRacing
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null;
-            UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = 0;
+            UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = UpSeat = 0;
             // A payload left out of here does not go stale, it goes to the NEXT
             // car: these statics survive a scene load by design, so the tune the
             // player set on one car would silently be applied to another.

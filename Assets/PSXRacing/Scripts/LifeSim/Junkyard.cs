@@ -145,6 +145,7 @@ namespace PSXRacing.LifeSim
             (Upgrades.Kind.Tires,      "SPORT TYRES, HALF WORN",   2),
             (Upgrades.Kind.Weight,     "LIGHT WHEELS + SEATS",     2),
             (Upgrades.Kind.Power,      "INTAKE + HEADER, USED",    2),
+            (Upgrades.Kind.Seat,       "SPORT SEAT, TORN BOLSTER", 2),
         };
 
         static readonly (Upgrades.Kind kind, string label, int maxStage)[] BackLotHardware =
@@ -154,6 +155,7 @@ namespace PSXRacing.LifeSim
             (Upgrades.Kind.Suspension, "COILOVERS OFF A RACE CAR", 4),
             (Upgrades.Kind.Weight,     "CARBON PANELS, REPAIRED",  4),
             (Upgrades.Kind.Tires,      "SEMI-SLICKS, ONE WEEKEND", 3),
+            (Upgrades.Kind.Seat,       "RACE BUCKET, OUT OF DATE", 3),
         };
 
         /// <summary>How often a slot comes up hardware rather than a service

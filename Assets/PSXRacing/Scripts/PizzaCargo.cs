@@ -117,6 +117,23 @@ namespace PSXRacing
         /// not a reason for the load to cartwheel.</summary>
         const float JoltSpin = 0.9f;
 
+        /// <summary>Smoothed speed a box has to have been carrying for a stop
+        /// to count as a slam — see the term in Assess. Well under the metre a
+        /// second a stock bench lets a box reach across 11 cm, and well over
+        /// anything solver jitter can sustain for the length of the smoother.
+        /// </summary>
+        const float SlamMinSpeed = 0.18f;
+        /// <summary>The smoother's time constant. Three frames: long enough
+        /// that a one-step contact spike never registers, short enough that a
+        /// box crossing the seat in a tenth of a second does.</summary>
+        const float SlamTau = 0.06f;
+        /// <summary>Condition lost per metre-per-second of slam. A box
+        /// arriving at a metre a second — a stock bench, a hard corner —
+        /// costs twelve percent; the same corner on a race bucket, where the
+        /// box cannot reach the threshold, costs nothing. That gap is the
+        /// upgrade.</summary>
+        const float SlamWear = 0.15f;
+
         /// <summary>
         /// Seat geometry, in metres.
         ///
@@ -150,6 +167,142 @@ namespace PSXRacing
         /// holds; anything taller is a fulcrum.
         /// </summary>
         const float BolsterHalf = 0.335f, SeatLip = 0.03f;
+
+        /// <summary>
+        /// THE SEAT LADDER. One table, read by the physics that builds the seat
+        /// and by the shop that sells it, so the number on the parts page is
+        /// the number the boxes feel.
+        ///
+        /// Two things change up the ladder and both are the owner's brief —
+        /// "the more racing oriented seats, the better they are suited to keep
+        /// pizza boxes safe from side to side movement":
+        ///
+        ///   THE BOLSTERS COME IN, AND UP. A box is 41 cm across, so its edge is
+        ///   at 0.205; the stock seat's bolster stands 11 cm away from it and 3
+        ///   cm tall, and a box has to slide that far, gathering speed, before
+        ///   anything catches it. A race bucket's stands a centimetre off it
+        ///   and as tall as the stack, so there is nowhere to go and no speed
+        ///   to gather. That second half matters: the old note that a bolster
+        ///   taller than the box's centre of mass is a FULCRUM was measured
+        ///   with 11 cm of run-up. A box that arrives at walking pace does not
+        ///   lever over anything.
+        ///
+        ///   THE CLOTH GETS GRIPPIER. Cardboard on stock seat fabric is about
+        ///   0.7; on alcantara it is nearer 0.9. Which is the difference between
+        ///   a box that starts moving in a hard corner and one that does not.
+        ///
+        /// HoldsG is what the shop quotes: the lateral g a box on this seat
+        /// takes before it starts to move, from the friction and the pan's own
+        /// tilt. It is derived, not typed, so it cannot drift from the physics.
+        /// </summary>
+        public struct SeatSpec
+        {
+            public string name;
+            /// <summary>Distance from the seat's centreline to the bolster's
+            /// centre.</summary>
+            public float bolsterHalf;
+            /// <summary>
+            /// How tall the bolster is, IN BOXES — resolved against the real
+            /// baked box at build time, never typed in centimetres.
+            ///
+            /// Because a bolster's top edge must never land in the MIDDLE of a
+            /// box. A box pressed sideways against an edge that meets it
+            /// halfway up is levered over that edge: the harness put a 10 cm
+            /// bolster halfway up the second box of a stack and a 14 cm one
+            /// halfway up the third, and both seats — the middle of the ladder
+            /// — lost pizzas that had moved a centimetre. Sized in whole boxes
+            /// the edge always lands on a seam between boxes, where it holds
+            /// the box below and simply does not meet the box above. Half a
+            /// box is the stock bench's lip; a big number is "the whole
+            /// stack".
+            /// </summary>
+            public float bolsterBoxes;
+
+            /// <summary>The height that rule produces for a given box pitch,
+            /// capped so the tallest seat never stands proud of the door card
+            /// beside it.</summary>
+            public float BolsterHeight(float boxPitch, float wallH) =>
+                Mathf.Min(wallH, bolsterBoxes * boxPitch + 0.008f);
+            /// <summary>What the shop prints: the same rule, against a nominal
+            /// real pizza box, so the parts page and the seat cannot disagree
+            /// by more than the box does.</summary>
+            public int NominalHeightMm => Mathf.RoundToInt(BolsterHeight(0.059f, 0.34f) * 1000f);
+            /// <summary>Static and kinetic friction of the seat surface against
+            /// cardboard.</summary>
+            public float muStatic, muKinetic;
+            /// <summary>Drawn? A stock bench has no bolster worth looking at; a
+            /// bucket IS its bolsters.</summary>
+            public bool bolstersVisible;
+
+            /// <summary>Lateral acceleration, in g, at which a box on the pan
+            /// starts to slide sideways: mu on a pan tilted PanPitchDeg is mu
+            /// times the cosine of that tilt.</summary>
+            public float HoldsG => muStatic * Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
+            /// <summary>
+            /// The same, forward — braking — which the pan's tilt helps with
+            /// and the bolsters do not.
+            ///
+            /// NOT mu cos(t) + sin(t). That is the threshold for a box sitting
+            /// still on an incline, and a box under braking is not sitting
+            /// still: the pseudo-force that pushes it up the slope also presses
+            /// it INTO the slope, and the extra normal load buys extra friction.
+            /// Solving a cos(t) - g sin(t) = mu (g cos(t) + a sin(t)) for a
+            /// gives the form below, and it is the difference between a stock
+            /// seat that lets go at 0.89 g and one that holds through a full
+            /// 1.07 g — which is the difference between a panic stop costing
+            /// the order and not. The harness measured the second number before
+            /// this comment caught up with it.
+            /// </summary>
+            public float HoldsBrakingG
+            {
+                get
+                {
+                    float c = Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
+                    float s = Mathf.Sin(PanPitchDeg * Mathf.Deg2Rad);
+                    return (s + muStatic * c) / Mathf.Max(0.05f, c - muStatic * s);
+                }
+            }
+        }
+
+        /// <summary>Stage 0 is the stock seat: the geometry this file has
+        /// always built, with honest friction under it now.</summary>
+        public static readonly SeatSpec[] Seats =
+        {
+            new SeatSpec { name = "STOCK",          bolsterHalf = 0.335f, bolsterBoxes = 0.5f, muStatic = 0.70f, muKinetic = 0.60f, bolstersVisible = false },
+            new SeatSpec { name = "SPORT SEAT",     bolsterHalf = 0.300f, bolsterBoxes = 1f,   muStatic = 0.76f, muKinetic = 0.66f, bolstersVisible = true  },
+            new SeatSpec { name = "BUCKET SEAT",    bolsterHalf = 0.270f, bolsterBoxes = 2f,   muStatic = 0.80f, muKinetic = 0.70f, bolstersVisible = true  },
+            new SeatSpec { name = "RACE BUCKET",    bolsterHalf = 0.250f, bolsterBoxes = 3f,   muStatic = 0.86f, muKinetic = 0.76f, bolstersVisible = true  },
+            new SeatSpec { name = "FIXED-BACK",     bolsterHalf = 0.235f, bolsterBoxes = 99f,  muStatic = 0.92f, muKinetic = 0.82f, bolstersVisible = true  },
+        };
+
+        public static SeatSpec SeatAt(int stage) =>
+            Seats[Mathf.Clamp(stage, 0, Seats.Length - 1)];
+
+        /// <summary>
+        /// The pan is not flat. A seat cushion rises toward the knees — about
+        /// twelve degrees on a road car — and that tilt is what lets braking
+        /// and cornering come apart. The game's brakes and its tyres both top
+        /// out near a g, so friction alone can never make a hard corner slide
+        /// a box while a hard stop keeps it: they are the same number. Tilt
+        /// the pan and gravity holds the box back against the squab, adding
+        /// sin(12 deg) of a g to what it takes to push it forward and nothing
+        /// to what it takes to push it sideways. Forward is the footwell;
+        /// sideways is a door card. That is the asymmetry the seat's geometry
+        /// was always relying on, made honest.
+        /// </summary>
+        public const float PanPitchDeg = 12f;
+
+        /// <summary>The pan's attitude in the tray's frame: front up.</summary>
+        static Quaternion PanRot => Quaternion.Euler(-PanPitchDeg, 0f, 0f);
+
+        /// <summary>Height of the pan's top surface at tray-local
+        /// <paramref name="z"/>. Zero at the centre, rising toward the front
+        /// — anything placed on the cushion away from its middle has to be
+        /// lifted by this or it spawns inside it.</summary>
+        static float PanTop(float z) => z * Mathf.Tan(PanPitchDeg * Mathf.Deg2Rad);
+
+        /// <summary>Which rung of <see cref="Seats"/> this cargo was built on.</summary>
+        public int SeatStage { get; private set; }
         CarController car;
         Rigidbody carBody;
         Transform tray;
@@ -211,6 +364,14 @@ namespace PSXRacing
             public bool flipped;           // box went past horizontal at some point
             public bool grounded;          // box left the seat
             public float slideWear;        // accumulated jostling, 0-1
+            /// <summary>The box's speed across the seat, smoothed over a few
+            /// steps, for the slam test in Assess.</summary>
+            public float speedEma;
+            /// <summary>Where the pizza's collider sits when the box is as it
+            /// was packed, in the BOX's local frame: the interior's centre, a
+            /// pizza's half-height above the floor. The point a shut box puts
+            /// its pizza back at.</summary>
+            public Vector3 homeLocal;
             /// <summary>Where this box was put, in the seat's own axes. Kept so
             /// the harness can ask how far it has MOVED — "the bottom pizza
             /// barely moved" is a displacement complaint and the condition
@@ -253,6 +414,23 @@ namespace PSXRacing
         /// failure, not a success, for anything short of a parked car.</summary>
         public float BoxSlide(int i) => BoxOffset(i).magnitude;
 
+        /// <summary>
+        /// How far the MOST-MOVED box has gone. The question "did the load
+        /// move" is answered by whichever box moved, and in a stack that is
+        /// never the bottom one: it carries every box above it on its lid and
+        /// gets back only their sliding friction, so it stays put at
+        /// accelerations that walk the top box clean across the seat. The
+        /// harness asserted on the bottom box, read 0.00, and called the
+        /// physics stuck while two boxes were sliding into the door card
+        /// above it.
+        /// </summary>
+        public float BoxSlideMax()
+        {
+            float m = 0f;
+            for (int i = 0; i < slots.Count; i++) m = Mathf.Max(m, BoxSlide(i));
+            return m;
+        }
+
         /// <summary>The same displacement, per axis: +x toward the tunnel, +y up
         /// off the seat, +z forward into the footwell. A single magnitude cannot
         /// tell "slid across the seat" from "went out the front", and those are
@@ -280,13 +458,21 @@ namespace PSXRacing
         /// but it just adds a little more action". A thing that rolls around
         /// the footwell and costs nothing is a better passenger than one more
         /// way to lose money.</param>
-        public static PizzaCargo Spawn(CarController player, int[] toppings, int bottles = 0)
+        /// <param name="seatStage">Which rung of <see cref="Seats"/> to build
+        /// the seat from. Negative means "the car's own", read off the handoff
+        /// — which FillCarRequestFor stamps for every drive, the town run
+        /// included, so the seat the boxes ride across town is the one the
+        /// player bought. The harness passes each rung explicitly.</param>
+        public static PizzaCargo Spawn(CarController player, int[] toppings, int bottles = 0,
+                                       int seatStage = -1)
         {
             if (toppings == null || toppings.Length == 0) return null;
             var go = new GameObject("PizzaCargo");
             var cargo = go.AddComponent<PizzaCargo>();
             cargo.car = player;
             cargo.carBody = player != null ? player.Body : null;
+            cargo.SeatStage = Mathf.Clamp(seatStage < 0 ? RaceHandoff.UpSeat : seatStage,
+                                          0, Seats.Length - 1);
             cargo.BuildIsland(toppings, bottles);
             return cargo;
         }
@@ -311,10 +497,24 @@ namespace PSXRacing
             // own floor.
             trayBody.interpolation = RigidbodyInterpolation.None;
 
+            var seat = SeatAt(SeatStage);
+
+            // HONEST FRICTION, from the seat table.
+            //
+            // This was 0.95 static and it was chosen, not measured: the note
+            // said "less than a hard corner produces, so on the default every
+            // box slid on every bend". True — and it meant no corner short of
+            // a crash moved a box at all, which is what "I pull the ebrake for
+            // a 180 at 80 mph and the boxes barely move" is. Cardboard on seat
+            // cloth is about 0.7. On alcantara, nearer 0.9. The difference
+            // between those two numbers is the seat upgrade.
+            //
+            // MAXIMUM combine, still: the box's own material is this one too,
+            // and Average would halve the seat's grip against a bottle's.
             grip = new PhysicsMaterial("PizzaGrip")
             {
-                staticFriction = 0.95f,
-                dynamicFriction = 0.85f,
+                staticFriction = seat.muStatic,
+                dynamicFriction = seat.muKinetic,
                 bounciness = 0f,
                 frictionCombine = PhysicsMaterialCombine.Maximum,
                 bounceCombine = PhysicsMaterialCombine.Minimum,
@@ -333,19 +533,57 @@ namespace PSXRacing
             // stand at. A visible pan narrower than the walls that confine the
             // cargo would show a box pressed against the door apparently
             // floating off the edge of the seat.
-            Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f), new Vector3(SeatW, 0.04f, SeatD));
+            // THE PAN IS TILTED, front up, by PanPitchDeg — see that constant
+            // for why. Pitched about its own centre, so the surface at z = 0,
+            // where the stack stands, is exactly where it always was.
+            Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f), new Vector3(SeatW, 0.04f, SeatD),
+                 pitchDeg: -PanPitchDeg);
             Slab(tray, "Back", new Vector3(0f, 0.17f, -SeatD * 0.5f + 0.02f),
                  new Vector3(SeatW, 0.38f, 0.05f));
 
-            // The bolsters stay where a real seat's are, INSIDE the visible pan,
-            // so the cargo is still confined by seat-sized geometry. A box that
-            // gets over one is out of its seat and on the bench, which the player
-            // can see happen — better than the old footwell, which caught it out
-            // of frame and told them nothing.
-            Slab(tray, "BolsterL", new Vector3(-BolsterHalf, SeatLip * 0.5f, 0f),
-                 new Vector3(0.04f, SeatLip, SeatD * 0.8f), visible: false);
-            Slab(tray, "BolsterR", new Vector3(BolsterHalf, SeatLip * 0.5f, 0f),
-                 new Vector3(0.04f, SeatLip, SeatD * 0.8f), visible: false);
+            // THE BOLSTERS ARE THE SEAT UPGRADE. Where they stand and how tall
+            // they are comes off the seat table: a stock bench's are 11 cm off
+            // a box and 3 cm tall, a fixed-back shell's are a centimetre off it
+            // and as tall as the stack. Drawn on the bucket tiers — a bucket IS
+            // its bolsters, and a player who bought one should see it holding
+            // the load — and left invisible on the stock bench, whose 3 cm ridge
+            // is not worth looking at.
+            //
+            // Capped at the door card's height so the tallest seat never stands
+            // proud of the wall beside it; a box that clears a bolster should
+            // still meet a door.
+            float wallH = Mathf.Max(0.34f, 0.02f + boxesOrdered * 0.1f);
+            // The box has to be MEASURED before the bolster can be sized,
+            // because the bolster is sized in boxes — see SeatSpec.bolsterBoxes.
+            // The same measurement the stack below is built from.
+            float pitch = 0.075f + 0.004f;
+            {
+                var probe = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+                if (probe != null)
+                {
+                    var pbb = Bounds(probe);
+                    if (pbb.size.y > 0.005f) pitch = pbb.size.y + 0.004f;
+                }
+            }
+            float bolsterH = seat.BolsterHeight(pitch, wallH);
+            // Seated on the tilted pan at the bolster's own z (it is centred on
+            // the seat, so that is the pan's centre and the surface is at 0),
+            // and pitched with it, so the ridge lies along the cushion rather
+            // than through it.
+            // THE FULL DEPTH OF THE CUSHION, not 80% of it. At 80% a bolster
+            // ended 25 cm forward of the seat's centre, and a box that had been
+            // leaning on it since the last corner slid forward under braking,
+            // ran its leading corner off the END of the bolster while its tail
+            // was still propped on it, and went over. It showed up as the one
+            // seat in the middle of the ladder losing a box in a panic stop
+            // that the seats either side of it held — a bucket's bolsters run
+            // the whole cushion for the same reason.
+            Slab(tray, "BolsterL", new Vector3(-seat.bolsterHalf, bolsterH * 0.5f, 0f),
+                 new Vector3(0.04f, bolsterH, SeatD),
+                 visible: seat.bolstersVisible, pitchDeg: -PanPitchDeg);
+            Slab(tray, "BolsterR", new Vector3(seat.bolsterHalf, bolsterH * 0.5f, 0f),
+                 new Vector3(0.04f, bolsterH, SeatD),
+                 visible: seat.bolstersVisible, pitchDeg: -PanPitchDeg);
             // THE CAR AROUND THE SEAT: door card one side, transmission tunnel
             // the other, and the dash ahead.
             //
@@ -364,7 +602,6 @@ namespace PSXRacing
             //, as far as they were concerned, open on both sides. That is the
             // last of "the top pizza fell off on the first turn". A real door
             // card is about this high above a seat base anyway.
-            float wallH = Mathf.Max(0.34f, 0.02f + boxesOrdered * 0.1f);
             Slab(tray, "DoorCard", new Vector3(-SeatW * 0.5f + 0.02f, wallH * 0.5f, 0f),
                  new Vector3(0.04f, wallH, SeatD), visible: false);
             Slab(tray, "Tunnel", new Vector3(SeatW * 0.5f - 0.02f, wallH * 0.5f, 0f),
@@ -436,11 +673,18 @@ namespace PSXRacing
             var bb = Bounds(boxPrefab);
             if (bb.size.y > 0.005f) boxH = bb.size.y;
 
+            // ON THE TILTED PAN, and pitched with it. The stack is placed along
+            // the pan's own normal rather than straight up, and each box is
+            // spawned already lying at the pan's angle — a flat box dropped on
+            // a tilted cushion settles for the first few frames, and a settling
+            // stack is a moving one, which is exactly what the at-rest case
+            // exists to say never happens.
+            var panUp = PanRot * Vector3.up;
             for (int i = 0; i < toppings.Length; i++)
             {
                 // Stacked, with a hair of daylight between them so the solver
                 // does not start the race resolving an interpenetration.
-                var at = new Vector3(0f, 0.01f + i * (boxH + 0.004f), 0f);
+                var at = panUp * (0.01f + i * (boxH + 0.004f));
                 slots.Add(BuildBox(boxPrefab, toppings[i], at, boxH));
             }
 
@@ -506,8 +750,13 @@ namespace PSXRacing
             // offset to leave the standing one a place to be.
             float x = upright ? 0.20f : -0.10f;
 
-            var local = upright ? new Vector3(x, 0.012f, z)
-                                : new Vector3(x, r + 0.012f, z);
+            // Lifted by the pan's own rise at this z: the bottles sit at the
+            // FRONT of the cushion, which on a tilted pan is six centimetres
+            // above its middle, and a bottle placed for a flat pan spawned with
+            // its base inside the seat.
+            float lift = PanTop(z);
+            var local = upright ? new Vector3(x, 0.012f + lift, z)
+                                : new Vector3(x, r + 0.012f + lift, z);
             var rot = upright ? Quaternion.Euler(0f, index * 47f, 0f)
                               : Quaternion.Euler(0f, 4f, 90f);
 
@@ -555,7 +804,21 @@ namespace PSXRacing
         {
             var slot = new Slot();
 
-            var go = Instantiate(boxPrefab, tray.TransformPoint(localPos), tray.rotation, transform);
+            // BUILT SQUARE, THEN TURNED. The box lies at the pan's angle from
+            // its first frame — see the stack in BuildIsland — but it is
+            // instantiated UPRIGHT here and pitched only at the very end,
+            // because everything below is measured with Bounds(), and a
+            // renderer's bounds are a WORLD-axis-aligned box. A 41 by 5.5 cm
+            // tray tilted twelve degrees has an AABB fourteen centimetres
+            // tall. Measured tilted, every box's collider was built fourteen
+            // centimetres high in its own frame and then stacked six apart —
+            // eight centimetres of overlap per box, which the solver answered
+            // by lifting the stack into the air at rest — and the pizza sized
+            // to that phantom interior hung four centimetres below its own box,
+            // into the one beneath. Three runs of the harness were spent
+            // tuning around that before it was found.
+            var go = Instantiate(boxPrefab, tray.TransformPoint(localPos), Quaternion.identity,
+                                 transform);
             go.name = "Box" + slots.Count;
 
             // A BOX, not a block. One BoxCollider over the whole thing is a
@@ -579,7 +842,18 @@ namespace PSXRacing
             float wall = hy * 0.16f;
             Wall(go, "Floor", lc + new Vector3(0f, -hy * 0.5f + wall * 0.5f, 0f),
                  new Vector3(local.x, wall, local.z));
-            float side = Mathf.Max(local.x, local.z) * 0.05f;
+            // THICKER THAN ONE STEP OF SLAM. A box thrown into a bolster at a
+            // metre and a half a second stops in one step, and the pizza inside
+            // it does not: it has 3 cm of travel that step against a wall that
+            // was 2 cm thick and a millimetre away, and PhysX resolved the
+            // overlap by pushing it out the FAR side. Every "spilled" pizza in
+            // a box that had neither flipped nor left the seat was this — the
+            // pizza tunnelling out of a shut box — and once loose its motion
+            // against its own box ground the wear to 1.00 in a second. Nine
+            // percent of the box is 3.7 cm, more than a step's travel at any
+            // speed the seat can throw one, and the pizza below is sized to
+            // leave it clearance.
+            float side = Mathf.Max(local.x, local.z) * 0.09f;
             Wall(go, "WallXn", lc + new Vector3(-local.x * 0.5f + side * 0.5f, 0f, 0f),
                  new Vector3(side, hy, local.z));
             Wall(go, "WallXp", lc + new Vector3(local.x * 0.5f - side * 0.5f, 0f, 0f),
@@ -641,17 +915,50 @@ namespace PSXRacing
                 // own base, so this is the floor's thickness plus a millimetre —
                 // any higher and it spawns inside the lid, which the solver
                 // resolves by launching it.
-                float rest = wall * ls.y + 0.002f;
-                var pz = Instantiate(topPrefab, go.transform.position + go.transform.up * rest,
+                // SIZED FROM THE BOX IT LIVES IN, not from its own mesh.
+                //
+                // The collider used to be 0.92 of the pizza mesh, and nobody
+                // had measured the mesh against the box. The pack's top is
+                // drawn to fill a lid, so it is wider than the tray's inside:
+                // the collider was born a centimetre or two INSIDE the box's
+                // walls, the solver spent every frame shoving it back out, and
+                // that is why the stack jumped ten centimetres into the air at
+                // rest, why a pizza "tunnelled" out of a shut box on the first
+                // real slam — it was already most of the way through — and why
+                // the load read as sticky. Ninety percent of the interior, with
+                // the bottom on the floor, cannot overlap anything by
+                // construction, whatever the artist drew.
+                float innerX = local.x - 2f * side, innerZ = local.z - 2f * side;
+                float innerY = hy - 2f * wall;
+                // The interior's centre, in box-local, at the top of the floor.
+                var home = lc + new Vector3(0f, -hy * 0.5f + wall + 0.002f, 0f);
+
+                var pz = Instantiate(topPrefab, go.transform.TransformPoint(home),
                                      go.transform.rotation, transform);
                 pz.name = "Pizza" + slots.Count;
+                // Slide the MESH so its bounds sit centred on that point with
+                // their bottom on the floor: the collider below is placed off
+                // the bounds, so this is what keeps picture and physics
+                // together whatever the mesh's own origin is.
                 var pb = Bounds(pz);
+                Vector3 want = go.transform.TransformPoint(home);
+                pz.transform.position += (want - pb.center) +
+                                         go.transform.up * (pb.size.y * 0.5f);
+                pb = Bounds(pz);
                 Vector3 pls = pz.transform.lossyScale;
+                float pizzaH = Mathf.Clamp(pb.size.y, 0.012f, innerY * 0.8f);
+                // The collider's centre is the INTERIOR'S, a half-height above
+                // the floor — not the mesh's. A mesh taller than the inside of
+                // its box has a centre above where the collider's can be, and a
+                // collider hung off it floats and then settles, which is a
+                // stack that moves at rest.
+                slot.homeLocal = home + new Vector3(0f, pizzaH * 0.5f, 0f);
                 var pc = pz.AddComponent<BoxCollider>();
-                pc.center = pz.transform.InverseTransformPoint(pb.center);
-                pc.size = new Vector3(pb.size.x / Mathf.Max(1e-4f, pls.x) * 0.92f,
-                                      Mathf.Max(pb.size.y / Mathf.Max(1e-4f, pls.y), 0.02f),
-                                      pb.size.z / Mathf.Max(1e-4f, pls.z) * 0.92f);
+                pc.center = pz.transform.InverseTransformPoint(
+                                go.transform.TransformPoint(slot.homeLocal));
+                pc.size = new Vector3(innerX * 0.90f / Mathf.Max(1e-4f, pls.x),
+                                      pizzaH / Mathf.Max(1e-4f, pls.y),
+                                      innerZ * 0.90f / Mathf.Max(1e-4f, pls.z));
                 pc.sharedMaterial = grip;
                 var prb = pz.AddComponent<Rigidbody>();
                 prb.mass = 0.45f;
@@ -670,6 +977,25 @@ namespace PSXRacing
             // stack is three bodies and not six.
             foreach (var t in go.GetComponentsInChildren<Transform>(true))
                 if (t.name == "Lid") { slot.lid = t; break; }
+
+            // NOW turn it to the pan's angle — the box about its own base, and
+            // the pizza with it, so the two arrive pitched together exactly as
+            // they were built square. The base is the origin, and the origin
+            // lies on the pan's normal that the stack is laid along, so each
+            // box turning about its own base keeps the stack aligned.
+            var pitched = tray.rotation * PanRot;
+            if (slot.pizza != null)
+            {
+                // Through the TRANSFORMS, not Rigidbody.position: nothing has
+                // simulated yet, PhysX takes its first pose from the transform,
+                // and the rigidbody setter would leave the transform — and so
+                // the picture — a step behind.
+                var pt = slot.pizza.transform;
+                Vector3 inBox = go.transform.InverseTransformPoint(pt.position);
+                go.transform.rotation = pitched;
+                pt.SetPositionAndRotation(go.transform.TransformPoint(inBox), pitched);
+            }
+            else go.transform.rotation = pitched;
 
             return slot;
         }
@@ -690,10 +1016,40 @@ namespace PSXRacing
             var tilt = Quaternion.Inverse(yawOnly) * rot;
 
             var v = carBody.linearVelocity;
-            if (!haveLastVel) { lastVel = v; haveLastVel = true; Tick(Vector3.zero, tilt, dt); return; }
+            var w = car.transform.InverseTransformDirection(carBody.angularVelocity);
+            if (!haveLastVel)
+            {
+                lastVel = v; lastW = w; haveLastVel = true;
+                Tick(Vector3.zero, tilt, dt);
+                return;
+            }
             var deltaV = v - lastVel;
             var accelWorld = deltaV / dt;
             lastVel = v;
+
+            // THE SEAT IS NOT THE CENTRE OF MASS, and this is the whole of "I
+            // pull the ebrake for a 180 at 80 mph and the boxes barely move".
+            //
+            // linearVelocity is the car's centre of mass. The passenger seat
+            // sits half a metre from it, and a point half a metre from the
+            // axis of a spinning car is being flung outward at omega-squared-r
+            // — the force that throws a passenger against the door in a spin,
+            // and the thing that was missing here. At the three or four
+            // radians a second a handbrake turn reaches that is most of a g,
+            // on top of the scrub the centre of mass feels; the snap into it
+            // adds alpha-cross-r on top of that. None of it existed, so a spin
+            // arrived on the seat as a gentle sweep of the same 0.8 g the car
+            // was losing to its tyres, which friction held with room to spare.
+            //
+            // a_seat = a_com + alpha x r + omega x (omega x r), in the car's
+            // own axes. omega comes off the body; alpha is its per-step
+            // difference, which gets the same filter as everything else in
+            // Tick. The pseudo-force the boxes feel is the negative, so the
+            // centripetal term above becomes the centrifugal push.
+            var alpha = (w - lastW) / dt;
+            lastW = w;
+            var aSeat = Vector3.Cross(alpha, SeatOffset) +
+                        Vector3.Cross(w, Vector3.Cross(w, SeatOffset));
 
             // Was that a crash, or was that the road? Only the responder knows,
             // and it already does the classifying — see JoltMinSpeed. Its window
@@ -712,8 +1068,20 @@ namespace PSXRacing
             // pushing the boxes in ITS frame is what makes "the car braked" mean
             // "forward" to a box regardless of which compass direction the car
             // happens to be pointing.
-            Tick(car.transform.InverseTransformDirection(accelWorld), tilt, dt, jolt);
+            Tick(car.transform.InverseTransformDirection(accelWorld) + aSeat, tilt, dt, jolt);
         }
+
+        /// <summary>The car's angular velocity last step, in its own axes.</summary>
+        Vector3 lastW;
+
+        /// <summary>
+        /// Where the passenger seat is, relative to the car's centre of mass,
+        /// in the car's axes: 40 cm to the right and a little ahead. The
+        /// magnitude is what matters and the sign barely does — the seat is
+        /// walled on both sides at the same height, so a box flung toward the
+        /// door and one flung toward the tunnel meet the same wall.
+        /// </summary>
+        static readonly Vector3 SeatOffset = new Vector3(0.40f, 0f, 0.15f);
 
         CollisionResponder responder;
         bool responderChecked;
@@ -854,7 +1222,29 @@ namespace PSXRacing
                 // not counted as lost.
                 var inBox = s.box.transform.InverseTransformPoint(s.pizza.position);
                 float away = new Vector2(inBox.x, inBox.z).magnitude;
-                if (away > s.escapeRadius || inBox.y < -0.25f) { s.escaped = true; Open(s); }
+                if (away > s.escapeRadius || inBox.y < -0.25f)
+                {
+                    // A SHUT BOX KEEPS ITS PIZZA. That is not a rule of the
+                    // game, it is what a box is — and a pizza found outside one
+                    // whose ceiling is still in place did not leave, it
+                    // TUNNELLED, through a wall the solver could not hold in one
+                    // step. The thicker walls above make that rare; this makes
+                    // it impossible to score. Put back where it was, still, and
+                    // the tick carries on as if the wall had held — which is
+                    // the only honest reading of a lid that never opened.
+                    if (!s.open && s.ceiling != null)
+                    {
+                        // To its HOME inside the box, not to the box's origin:
+                        // the origin is the base, which is inside the floor
+                        // collider, and a pizza put there is a pizza the solver
+                        // has to fire out of the floor.
+                        s.pizza.position = s.box.transform.TransformPoint(s.homeLocal);
+                        s.pizza.rotation = s.box.transform.rotation;
+                        s.pizza.linearVelocity = s.box.linearVelocity;
+                        s.pizza.angularVelocity = Vector3.zero;
+                    }
+                    else { s.escaped = true; Open(s); }
+                }
 
                 // Jostling. Only the pizza's motion RELATIVE to its box counts —
                 // the whole car is moving and none of that matters to the
@@ -863,6 +1253,49 @@ namespace PSXRacing
                 float slide = rel.magnitude;
                 if (slide > 0.35f)
                     s.slideWear = Mathf.Clamp01(s.slideWear + (slide - 0.35f) * 0.045f * dt);
+
+                // THE SLAM. A box that gathers speed across a seat and stops
+                // against the door card has a pizza inside it that did not
+                // stop — it kept going and hit the far wall of its own box,
+                // which is how toppings end up on one side. The term above
+                // cannot see that: the pizza is against the wall for one step
+                // and the relative speed is gone before the next.
+                //
+                // So it is read off the BOX, as the speed it loses in a single
+                // step. Friction slows a box at about mu g, seven metres a
+                // second squared, which over one step is fourteen centimetres
+                // a second; a wall stops it outright. Anything over twenty-five
+                // centimetres a second in one step is a wall.
+                //
+                // This is the dial the original design left for "if the middle
+                // band ever needs texture", and it is what makes the seat
+                // ladder worth money: on a stock bench a box has 11 cm of
+                // run-up and arrives at a metre a second; between a race
+                // bucket's bolsters it has one centimetre and never gets going.
+                // The island does not translate, so the box's own velocity IS
+                // its velocity across the seat.
+                //
+                // GATED ON HAVING BEEN MOVING, over several steps, and not on
+                // a one-step drop. The first version asked only whether the
+                // speed fell by a quarter of a metre a second in one step, and
+                // the solver answers yes to that constantly: a box resting
+                // against a wall a centimetre away jitters in and out of
+                // contact at fifty hertz, and every spike back to zero read as
+                // a slam. A parked car lost three percent doing nothing, and
+                // the seats with the CLOSEST walls — the ones sold as the
+                // safest — lost the most, which inverted the whole ladder. A
+                // sixty-millisecond smoother on the speed is what a spike
+                // cannot climb and a slide across the seat cannot help but.
+                if (!s.grounded)
+                {
+                    float sp = s.box.linearVelocity.magnitude;
+                    if (s.speedEma > SlamMinSpeed && sp < s.speedEma * 0.35f)
+                    {
+                        s.slideWear = Mathf.Clamp01(s.slideWear + s.speedEma * SlamWear);
+                        s.speedEma = sp;    // one slam, counted once
+                    }
+                    else s.speedEma = Mathf.Lerp(s.speedEma, sp, dt / (SlamTau + dt));
+                }
             }
         }
 
