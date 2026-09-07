@@ -75,6 +75,25 @@ namespace PSXRacing
                 foreach (int i in jointIndex)
                     if (i >= 0 && i < n) isJoint[i] = true;
             }
+
+            // AND RE-SEED WHERE EVERY CAR IS, which is why this has to run
+            // AFTER the grid is restaged rather than before.
+            //
+            // lastIdx is the other half of the state: FixedUpdate walks from it
+            // to the current index and fires every joint in between. A car that
+            // was seeded on the forward grid is holding an index into a list
+            // that no longer means the same thing, and NearestIndex takes it as
+            // a HINT and only searches 25 waypoints either side of it — so it
+            // would not merely be stale, it would latch onto whatever happened
+            // to be near the wrong subscript and stay there. RE-SEEDED rather
+            // than cleared: FixedUpdate skips a car with no entry and nothing
+            // ever puts one back, so clearing would silence the bridge for the
+            // rest of the race.
+            for (int i = 0; i < cars.Count; i++)
+            {
+                var c = cars[i];
+                if (c != null) lastIdx[c] = path.NearestIndex(c.transform.position);
+            }
         }
 
         /// <summary>Upward velocity added per m/s of road speed, and the cap.

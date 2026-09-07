@@ -64,24 +64,7 @@ namespace PSXRacing
             if (RaceHandoff.FromLifeSim && venue.Reversed)
             {
                 var tp = Object.FindFirstObjectByType<TrackPath>();
-                if (tp != null)
-                {
-                    tp.ReverseInPlace();
-                    // AND TURN THE GRID ROUND WITH IT. The list is only half of
-                    // a direction — see StageReversedGrid.
-                    //
-                    // The datum is read BEFORE the finish is remapped, because
-                    // on a route with ends it IS the old finish: the line you
-                    // used to cross is the line you now set off from.
-                    int datum = ReversedStartIndex(tp);
-                    RemapReversedFinish(tp, venue);
-                    StageReversedGrid(tp, datum);
-                    // Anything else holding a baked waypoint INDEX has to be
-                    // turned round too — the piers are the other one.
-                    foreach (var bj in Object.FindObjectsByType<BridgeJoints>(
-                                 FindObjectsSortMode.None))
-                        if (bj.path == tp) bj.ReverseIndices();
-                }
+                ApplyReversal(tp, venue);
             }
             // Time of day is applied EVEN on a standalone editor race, unlike
             // everything else here: the scene is baked at one hour, and the
@@ -424,6 +407,45 @@ namespace PSXRacing
         /// builds its progress table (see the note on Apply), so the table is
         /// built from these positions and nothing has to be told twice.
         /// </summary>
+        /// <summary>
+        /// TURN A VENUE ROUND: the list, the finish, the grid and the piers.
+        ///
+        /// One method because the ORDER is the load-bearing part and it is not
+        /// obvious from any one of the four steps. The datum has to be read
+        /// before the finish is remapped, because on a route with ends the
+        /// datum IS the old finish and the remap overwrites it. The piers have
+        /// to be turned after the grid is restaged, because they re-seed
+        /// themselves against where the cars actually are.
+        ///
+        /// And it is one method because the self-test calls THIS, rather than
+        /// repeating the four steps in what it believes is the right order. A
+        /// test that reproduces the recipe cannot catch the recipe changing:
+        /// swap two lines here and a test written the other way still passes
+        /// while every reversed stage silently starts in the wrong place.
+        /// </summary>
+        /// <returns>The waypoint index the reversed race starts from — the
+        /// grid's datum. Returned rather than recomputed by the caller because
+        /// RemapReversedFinish overwrites the number it is derived from, so
+        /// asking again afterwards gives a different and wrong answer.</returns>
+        public int ApplyReversal(TrackPath tp, TrackCatalog.TrackDef venue)
+        {
+            if (tp == null) return 0;
+
+            tp.ReverseInPlace();
+            // The list is only half of a direction — see StageReversedGrid.
+            int datum = ReversedStartIndex(tp);
+            RemapReversedFinish(tp, venue);
+            StageReversedGrid(tp, datum);
+            // Anything else holding a baked waypoint INDEX has to be turned
+            // round too. The piers are the other one, and they go last because
+            // they take their bearings from the restaged cars.
+            foreach (var bj in Object.FindObjectsByType<BridgeJoints>(
+                         FindObjectsSortMode.None))
+                if (bj.path == tp) bj.ReverseIndices();
+
+            return datum;
+        }
+
         public void StageReversedGrid(TrackPath path) =>
             StageReversedGrid(path, ReversedStartIndex(path));
 

@@ -1444,10 +1444,13 @@ namespace PSXRacing.EditorTools
                 int startLine = Mathf.RoundToInt(t.stageStartLineM / TrackCatalog.Spacing);
                 float forwardM = (tp.finishIndex - startLine) * tp.spacing;
 
-                // Exactly what Apply does, in the order it does it.
-                tp.ReverseInPlace();
-                int datum = PSXRacing.RaceHandoffApplier.ReversedStartIndex(tp);
-                PSXRacing.RaceHandoffApplier.RemapReversedFinish(tp, t);
+                // THROUGH THE REAL CALL SITE, not a copy of its recipe. The
+                // order of the four steps in ApplyReversal is the load-bearing
+                // part — the datum has to be read before the finish is
+                // remapped — and a test that repeated those steps itself would
+                // still pass if someone swapped two lines in the game.
+                var applier = go.AddComponent<PSXRacing.RaceHandoffApplier>();
+                int datum = applier.ApplyReversal(tp, t);
                 float reversedM = (tp.finishIndex - datum) * tp.spacing;
 
                 Check(Mathf.Abs(reversedM - forwardM) <= tp.spacing * 2f,
@@ -1542,9 +1545,10 @@ namespace PSXRacing.EditorTools
             Check(agreeFwd == field.Count, "the baked grid faces the forward path",
                   agreeFwd + "/" + field.Count);
 
-            // Now do exactly what the game does on a reverse venue.
-            tp.ReverseInPlace();
-            applier.StageReversedGrid(tp);
+            // THE REAL CALL SITE, not a copy of its recipe — see ApplyReversal.
+            // fwd is the FORWARD def, which is what Apply hands it; the finish
+            // remap inside no-ops on a circuit, where finishIndex is -1.
+            applier.ApplyReversal(tp, fwd);
 
             int agreeRev = 0, staggered = 0;
             float worst = 1f, worstLat = 0f;
