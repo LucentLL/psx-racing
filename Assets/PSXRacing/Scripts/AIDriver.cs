@@ -71,6 +71,23 @@ namespace PSXRacing
             if (path != null) nearestIdx = path.NearestIndex(transform.position);
         }
 
+        /// <summary>
+        /// Take the path index again from scratch.
+        ///
+        /// FixedUpdate only ever REFINES the cached index, searching a window
+        /// around it — which is right while a car is driving and wrong the
+        /// moment something moves it a long way, or turns the list it is an
+        /// index into round underneath it. Both happen on a reverse venue:
+        /// RaceHandoffApplier flips the waypoints and restages the grid, and
+        /// this component's own Start has no defined order against the one that
+        /// does it. A car whose Start won that race is holding an index into
+        /// the forward list, and the window is 25 waypoints wide.
+        /// </summary>
+        public void ReseedPath()
+        {
+            if (path != null) nearestIdx = path.NearestIndex(transform.position);
+        }
+
         void FixedUpdate()
         {
             if (path == null || path.Count == 0) return;

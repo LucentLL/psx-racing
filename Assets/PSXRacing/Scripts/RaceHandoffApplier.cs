@@ -64,7 +64,14 @@ namespace PSXRacing
             if (RaceHandoff.FromLifeSim && venue.Reversed)
             {
                 var tp = Object.FindFirstObjectByType<TrackPath>();
-                if (tp != null) tp.ReverseInPlace();
+                if (tp != null)
+                {
+                    tp.ReverseInPlace();
+                    // AND TURN THE GRID ROUND WITH IT. The list is only half of
+                    // a direction — see StageReversedGrid.
+                    RemapReversedFinish(tp, venue);
+                    StageReversedGrid(tp);
+                }
             }
             // Time of day is applied EVEN on a standalone editor race, unlike
             // everything else here: the scene is baked at one hour, and the
@@ -361,6 +368,163 @@ namespace PSXRacing
         /// the centreline, so this puts the player 2.6 m right of it — clear of
         /// contact, and inside the 12 m road.</summary>
         const float RivalGridGapM = 5.2f;
+
+        // ------------------------------------------------------------------
+        //  reverse venues: the grid
+        // ------------------------------------------------------------------
+        /// <summary>Metres from the line to the front row, and between rows.
+        /// The builder's own figures — see the grid block in
+        /// PSXRacingBuilder.BuildRace. Duplicated rather than shared because
+        /// one is an editor constant baked into a scene and the other has to
+        /// reproduce it at load with no editor assembly to ask.</summary>
+        const float GridFrontM = 9f, GridRowM = 6.5f, GridLateralM = 2.6f, GridLiftM = 0.35f;
+
+        /// <summary>
+        /// PUT THE FIELD BACK ON THE GRID, POINTING THE OTHER WAY.
+        ///
+        /// TrackPath's own note says waypoint 0 does not move on a loop, and
+        /// that this "keeps the start/finish line, the grid, the fuel-stop
+        /// opening and the lap counter exactly where they were baked". That is
+        /// true of the start line, which is a painted band and does not care
+        /// which way you cross it. It is NOT true of the grid, and the note
+        /// saying so is what let this ship: a car is not a band of paint, it
+        /// has a NOSE. The four cars are baked facing the forward tangent, and
+        /// reversing the list turns the direction of travel at waypoint 0
+        /// through 180 degrees without touching a single transform — so every
+        /// car on a reverse venue started facing back down the road it was
+        /// about to drive.
+        ///
+        /// What the player then saw is AIDriver noticing: it carries a
+        /// wrong-way test (alignment against the path tangent, WrongWayDot
+        /// -0.3) and the whole field acted on it at once, which is the reported
+        /// "all the cars do a 180".
+        ///
+        /// They were also on the WRONG SIDE of the line. The grid is laid out
+        /// by walking BACKWARDS from waypoint 0, so on the reversed list those
+        /// same points are the first few metres AFTER it.
+        ///
+        /// Restaged here rather than in the builder because a reverse venue has
+        /// no scene to bake: it borrows its forward twin's, and this is the one
+        /// place that knows the borrowing happened. It runs before RaceManager
+        /// builds its progress table (see the note on Apply), so the table is
+        /// built from these positions and nothing has to be told twice.
+        /// </summary>
+        public void StageReversedGrid(TrackPath path)
+        {
+            if (path == null || path.Count < 2) return;
+
+            // Grid order is the builder's: the AI take the front rows in the
+            // order the opponent list addresses them, and the player starts at
+            // the back. aiCars is that order already — it is the contract with
+            // OpponentSpecIds — so the field is simply that list with the
+            // player appended.
+            var field = new List<CarController>(aiCars);
+            if (playerCar != null) field.Add(playerCar);
+
+            for (int row = 0; row < field.Count; row++)
+            {
+                var car = field[row];
+                if (car == null) continue;
+
+                float back = GridFrontM + row * GridRowM;
+                float lateral = (row % 2 == 0) ? -GridLateralM : GridLateralM;
+
+                PointAlong(path, back, out Vector3 centre, out Vector3 fwd, out Vector3 right);
+
+                // Straight onto the transform, not through ResetTo, for the
+                // reason the 1v1 restage below gives: nothing has stepped yet,
+                // and ResetTo's ride-height lift would stack on the grid's own.
+                car.transform.SetPositionAndRotation(
+                    centre + right * lateral + Vector3.up * GridLiftM,
+                    Quaternion.LookRotation(fwd, Vector3.up));
+                if (car.Body != null)
+                {
+                    car.Body.linearVelocity = Vector3.zero;
+                    car.Body.angularVelocity = Vector3.zero;
+                }
+
+                // The AI caches its path index in Start, and Start has no
+                // defined order against RaceManager's. One that already ran is
+                // holding an index it took while standing on the FORWARD grid,
+                // and it only ever refines that hint within a 25-waypoint
+                // window afterwards — so a stale one never finds its way back.
+                car.GetComponent<AIDriver>()?.ReseedPath();
+            }
+        }
+
+        /// <summary>
+        /// A point <paramref name="back"/> metres BEHIND the start of the
+        /// reversed path, with the direction of travel there.
+        ///
+        /// On a LOOP that is a walk backwards round the list from waypoint 0,
+        /// which is what the builder does. On a route with ENDS there is
+        /// nothing behind waypoint 0 but the end of the road, so the grid is
+        /// laid the other way — measured FORWARD from the end, deepest row
+        /// nearest it — and the start line is wherever the front row lands.
+        /// A mountain stage reversed is a descent that begins at the summit,
+        /// and a summit has no lead-in.
+        ///
+        /// Interpolated between waypoints rather than snapped to one: rows are
+        /// 6.5 m apart and waypoints 4, so rounding would put two of the four
+        /// rows on top of each other. The tangent is FLATTENED, matching the
+        /// builder's Cross(right, up) — a car on a 12% climb should sit level
+        /// on its wheels, not pitched to the gradient with its nose in the
+        /// tarmac.
+        /// </summary>
+        static void PointAlong(TrackPath path, float back,
+                               out Vector3 centre, out Vector3 fwd, out Vector3 right)
+        {
+            int n = path.Count;
+            float fIdx;
+            if (path.HasEnds)
+            {
+                // Deepest row sits GridStageMarginM in from the end; the rest
+                // stack up the road ahead of it.
+                const float GridStageMarginM = 4f;
+                float depth = GridFrontM + 3f * GridRowM + GridStageMarginM;
+                fIdx = Mathf.Max(0f, (depth - back)) / path.spacing;
+                fIdx = Mathf.Min(fIdx, n - 1.001f);
+            }
+            else
+            {
+                fIdx = -back / path.spacing;
+            }
+
+            int i0 = Mathf.FloorToInt(fIdx);
+            float frac = fIdx - i0;
+            int a = path.Wrap(i0), b = path.Wrap(i0 + 1);
+
+            centre = Vector3.Lerp(path.GetPoint(a), path.GetPoint(b), frac);
+
+            fwd = path.GetTangent(a);
+            fwd.y = 0f;
+            fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
+            right = Vector3.Cross(Vector3.up, fwd);
+        }
+
+        /// <summary>
+        /// Move the FINISH to the other end of a reversed stage.
+        ///
+        /// A circuit is decided by laps and keeps finishIndex at -1, so this is
+        /// only ever about a route with ends. There the race is decided by
+        /// reaching an INDEX, and ReverseInPlace flips the points without
+        /// touching that number — so a reversed stage was still finishing the
+        /// same count of waypoints from the start, which after the flip is a
+        /// piece of road in the middle of the mountain.
+        ///
+        /// The mapping is the flip's own: index i becomes n-1-i. A forward
+        /// stage is lead-in, start line, road, finish, shutdown; reversed, the
+        /// shutdown becomes the lead-in and the OLD START LINE becomes the
+        /// finish. So the new finish is the flip of the old start line, not the
+        /// flip of the old finish.
+        /// </summary>
+        static void RemapReversedFinish(TrackPath path, TrackCatalog.TrackDef venue)
+        {
+            if (path == null || !path.HasEnds || path.finishIndex <= 0) return;
+            int n = path.Count;
+            int startLine = Mathf.RoundToInt(venue.stageStartLineM / TrackCatalog.Spacing);
+            path.finishIndex = Mathf.Clamp(n - 1 - startLine, 1, n - 1);
+        }
 
         static readonly string[] Empty = new string[0];
         static string[] Split(string joined) =>

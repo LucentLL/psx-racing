@@ -986,6 +986,7 @@ namespace PSXRacing.EditorTools
             TestWalkInScenesRender();
             TestTownScene();
             TestNeighborhoodScene();
+            TestReverseGrid();
             TestNoDeletedMeshes();
             TestPizzaCounter();
             TestPaintShop();
@@ -1404,6 +1405,115 @@ namespace PSXRacing.EditorTools
                       : worstScene + " has " + worstCount + " MeshFilters with no mesh (first: " +
                         worstName + ") — a SaveMesh name collision",
                   worstCount);
+        }
+
+        /// <summary>
+        /// A REVERSE VENUE'S GRID FACES THE WAY THE RACE ACTUALLY GOES.
+        ///
+        /// This is the assertion that was missing when four cars shipped facing
+        /// backwards. Nothing caught it because nothing could: a reverse venue
+        /// has no scene of its own, so there is no artefact on disk to inspect
+        /// and no build-time check that could ever have looked at one. The
+        /// wrongness only exists for the few milliseconds between
+        /// TrackPath.ReverseInPlace turning the list round and the first
+        /// FixedUpdate, and the only way to see it is to do what the game does
+        /// and then measure the result.
+        ///
+        /// Measured as a DOT PRODUCT against the path's own tangent rather than
+        /// against a remembered heading: the question is not "did the cars
+        /// move", it is "does each car agree with the road under it", which is
+        /// exactly what AIDriver's wrong-way test asks a moment later. 0.9 is
+        /// about 25 degrees — loose enough for a car sitting on the outside of
+        /// a bend at the back of a staggered grid, tight enough that a 180 can
+        /// never pass.
+        /// </summary>
+        static void TestReverseGrid()
+        {
+            Line("reverse grid:");
+
+            // A plain circuit, not a stage: the point is the loop's
+            // walk-backwards-from-waypoint-0 layout, and stage scenes are eight
+            // megabytes to open for an answer this one already gives.
+            TrackCatalog.TrackDef fwd = null;
+            foreach (var d in TrackCatalog.All)
+                if (d.CanReverse && !d.stage && !d.drag && !d.dragEvent && !d.city) { fwd = d; break; }
+            if (fwd == null) { Check(false, "there is a reversible circuit to test"); return; }
+
+            string scenePath = "Assets/PSXRacing/Scenes/" + fwd.id + ".unity";
+            if (!System.IO.File.Exists(scenePath))
+            {
+                Check(false, "the " + fwd.id + " scene exists (run the scene build)");
+                return;
+            }
+
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                scenePath, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+
+            PSXRacing.TrackPath tp = null;
+            PSXRacing.RaceHandoffApplier applier = null;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                if (tp == null) tp = go.GetComponentInChildren<PSXRacing.TrackPath>(true);
+                if (applier == null)
+                    applier = go.GetComponentInChildren<PSXRacing.RaceHandoffApplier>(true);
+            }
+
+            if (tp == null || applier == null)
+            {
+                Check(false, "the " + fwd.id + " scene carries a TrackPath and a handoff applier",
+                      (tp == null ? "no path" : "path") + ", " +
+                      (applier == null ? "no applier" : "applier"));
+                UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+                return;
+            }
+
+            var field = new List<PSXRacing.CarController>(applier.aiCars);
+            if (applier.playerCar != null) field.Add(applier.playerCar);
+            Check(field.Count >= 2, "the baked grid has a field to turn round", field.Count);
+
+            // BEFORE: the baked grid agrees with the FORWARD path. If this ever
+            // fails the builder is broken and the reverse test below would be
+            // measuring against a grid that was never right in the first place.
+            int agreeFwd = 0;
+            foreach (var c in field)
+            {
+                if (c == null) continue;
+                int i = tp.NearestIndex(c.transform.position);
+                if (Vector3.Dot(c.transform.forward, tp.GetTangent(i)) > 0.9f) agreeFwd++;
+            }
+            Check(agreeFwd == field.Count, "the baked grid faces the forward path",
+                  agreeFwd + "/" + field.Count);
+
+            // Now do exactly what the game does on a reverse venue.
+            tp.ReverseInPlace();
+            applier.StageReversedGrid(tp);
+
+            int agreeRev = 0, onRoad = 0;
+            float worst = 1f;
+            foreach (var c in field)
+            {
+                if (c == null) continue;
+                int i = tp.NearestIndex(c.transform.position);
+                float dot = Vector3.Dot(c.transform.forward, tp.GetTangent(i));
+                if (dot > 0.9f) agreeRev++;
+                worst = Mathf.Min(worst, dot);
+                // On the road, not beside it: the lateral offset is taken from
+                // the path's own right vector, so a sign error here would put
+                // half the grid in the barrier and still pass the heading test.
+                if (Vector3.Distance(c.transform.position, tp.GetPoint(i))
+                    <= tp.roadWidth * 0.5f + 1f) onRoad++;
+            }
+
+            Check(agreeRev == field.Count,
+                  "and every car faces the REVERSED path after staging",
+                  agreeRev + "/" + field.Count + ", worst dot " + worst.ToString("0.00"));
+            Check(onRoad == field.Count, "and the reversed grid is on the road",
+                  onRoad + "/" + field.Count);
+
+            // Never saved: this scene is build output and the reversal is a
+            // runtime-only edit. Writing it back would bake a backwards circuit
+            // into the forward venue.
+            UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
         }
 
         static void TestNeighborhoodScene()

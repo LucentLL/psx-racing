@@ -191,14 +191,19 @@ namespace PSXRacing.Town
         /// The junction's own menu, opened by driving over the line rather than
         /// by pressing at it.
         ///
-        /// The same screen, the same rows and the same freeze TownVenue.OpenPanel
-        /// uses: input off and the handbrake on, which hands the car to
-        /// PlayerCarInput's !inputEnabled branch — 30% of pedal, and the lever
-        /// once it is under 1 m/s. That is enough to bring a street car to a
-        /// stand and not enough to stop one doing a hundred and forty inside the
-        /// run-off. It does not need to be: the panel is up, the player is not
-        /// driving, and StuckRecovery stands down for a car with no driver, so
-        /// the worst case is a wall met behind a menu.
+        /// The same screen and the same rows TownVenue.OpenPanel uses: input off
+        /// and the handbrake on, which hands the car to PlayerCarInput's
+        /// !inputEnabled branch — 30% of pedal, and the lever once it is under
+        /// 1 m/s.
+        ///
+        /// THAT IS NOT A STOP, and the note that used to stand here said so and
+        /// then shrugged: "the worst case is a wall met behind a menu". It was
+        /// wrong. 30% of pedal needs the better part of a hundred metres from
+        /// motorway speed and there are twenty-two before the boundary wall, so
+        /// the player got the menu AND the crash — heard it, and watched it
+        /// through a backdrop that is 90% opaque rather than 100%. The stop
+        /// itself now lives in DepartScreen.Open, so it covers this line and the
+        /// volume behind it and anything that opens that screen later.
         /// </summary>
         void OpenDepart()
         {

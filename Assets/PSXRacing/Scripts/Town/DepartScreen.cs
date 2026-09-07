@@ -37,9 +37,45 @@ namespace PSXRacing.Town
         {
             if (IsOpen) return;
             IsOpen = true;
+            Arrest();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             Build();
+        }
+
+        /// <summary>
+        /// STOP THE CAR DEAD, here, on the line.
+        ///
+        /// Both of this screen's openers take the controls away — input off,
+        /// handbrake on — and that is all they did. It is enough at the
+        /// junction VOLUME, which will not claim a car over 4.5 km/h, and it is
+        /// nowhere near enough at the junction LINE, which is crossed at
+        /// whatever speed the player arrives at. Losing the input hands the car
+        /// to PlayerCarInput's no-driver branch (brake 0.3, and the lever only
+        /// once it is under 1 m/s), so a car doing 140 needs the better part of
+        /// a hundred metres to come to rest and has twenty-two before the
+        /// boundary wall. The note that used to sit on the opener called that
+        /// "a wall met behind a menu" and shrugged; the player heard it hit,
+        /// and watched it through the backdrop, which is 90% opaque and not
+        /// 100%.
+        ///
+        /// Killing the velocity outright rather than braking harder: there is
+        /// no braking figure that stops a car in twenty-two metres from every
+        /// speed it can arrive at, and the honest reading of the moment is that
+        /// the drive is OVER — the menu is up, the player is not driving, and
+        /// the car is where they drove it to. The park hold in the solver keeps
+        /// it there once it is stopped (atRest + handbrakeInput), which is why
+        /// this can be a one-shot and does not need to fight gravity on a 12%
+        /// street for as long as the menu is open.
+        ///
+        /// Safe on the stop-and-press path too, where the car is already inside
+        /// the 4.5 km/h gate and this takes away a walking pace.
+        /// </summary>
+        void Arrest()
+        {
+            if (playerCar == null || playerCar.Body == null) return;
+            playerCar.Body.linearVelocity = Vector3.zero;
+            playerCar.Body.angularVelocity = Vector3.zero;
         }
 
         public void Close()

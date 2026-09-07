@@ -51,9 +51,20 @@ namespace PSXRacing
         ///
         /// WAYPOINT 0 DOES NOT MOVE. On a loop the list is reversed and then
         /// rotated so the old first point is still the first point, which keeps
-        /// the start/finish line, the grid, the fuel-stop opening and the lap
-        /// counter exactly where they were baked — a start line is a painted
-        /// band across a road and does not care which way you cross it. On a
+        /// the start/finish line, the fuel-stop opening and the lap counter
+        /// exactly where they were baked — a start line is a painted band
+        /// across a road and does not care which way you cross it.
+        ///
+        /// THE GRID IS NOT ON THAT LIST, and this note used to claim it was.
+        /// A car is not a band of paint: it has a nose, it is baked facing the
+        /// forward tangent, and turning the list round moves the direction of
+        /// travel at waypoint 0 through 180 degrees without touching a single
+        /// transform. Every car on a reverse venue therefore started facing
+        /// back down the road — and on the wrong side of the line, because the
+        /// grid is laid by walking BACKWARDS from waypoint 0 and those points
+        /// are the first few metres AFTER it once the list is turned round.
+        /// RaceHandoffApplier.StageReversedGrid restages the field, and is the
+        /// other half of this method. On a
         /// route with ENDS the whole list simply flips, because the far end of
         /// a mountain stage IS the new start, and the climb becomes a descent.
         ///
