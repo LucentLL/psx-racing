@@ -255,7 +255,20 @@ namespace PSXRacing.EditorTools
             var edgeCol = edge.AddComponent<BoxCollider>();
             edgeCol.isTrigger = true;
             edgeCol.size = new Vector3(NbHalfWidth * 2f, 40f, 22f);
-            edge.AddComponent<TownEdge>().mode = TownEdge.Mode.AskWhereTo;
+            var junction = edge.AddComponent<TownEdge>();
+            junction.mode = TownEdge.Mode.AskWhereTo;
+            // Into the neighbourhood is UP the street, toward the house: a car
+            // arriving from town is put just inside this line facing that way.
+            junction.inward = Vector3.forward;
+            // THE LINE, on the face the car crosses first coming down the
+            // street — the north one, 11 m up from the volume's centre — and
+            // seated on the road's own height there, which is eleven metres
+            // below the volume's centre and the reason the volume is forty
+            // tall. Across the carriageway, not the whole map.
+            float lineZ = NbStreetEnd - 5f + 11f;
+            EdgeMarkers(root.transform,
+                new Vector3(HomeStreetX, NbRoadY(lineZ) + 0.55f, lineZ),
+                Vector3.right, HomeRoadW);
 
             // ---- the player, on their own drive, pointing down the street ----
             var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);

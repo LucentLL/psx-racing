@@ -109,6 +109,35 @@ namespace PSXRacing.Town
             }
             TownReturn.SpawnAtVenue = false;
 
+            // THROUGH THE LINE, ROLLING. A car that left the last zone by
+            // driving through its edge arrives in this one the same way: put
+            // two metres inside this zone's line, facing in, already doing the
+            // limit — "warp going through the next area's border at speed
+            // limit". The line itself stands down until the car has driven
+            // clear of it, or it would ask where you were going on the first
+            // frame. One-shot, like the two flags above, and for the same
+            // reason.
+            if (TownEdge.ArrivePending && player != null)
+            {
+                TownEdge gate = null;
+                foreach (var e in FindObjectsByType<TownEdge>(FindObjectsSortMode.None))
+                {
+                    // The junction is the neighbourhood's only line; in town
+                    // it is the end the road home leaves from.
+                    if (e.mode == TownEdge.Mode.AskWhereTo || e.homeSide) { gate = e; break; }
+                }
+                if (gate != null)
+                {
+                    gate.ArrivalSpot(out Vector3 at, out Quaternion facing);
+                    player.ResetTo(at + Vector3.up * 0.3f, facing);
+                    if (player.Body != null)
+                        player.Body.linearVelocity = facing * Vector3.forward *
+                                                     (TownEdge.ArrivalKmh / 3.6f);
+                    gate.BeginArrival();
+                }
+            }
+            TownEdge.ArrivePending = false;
+
             // The order rides the seat for real. Same rig the race scenes
             // spawn, so the drive across town is played by the same rules that
             // grade the run — a box thrown into the footwell on Main Street
@@ -442,11 +471,11 @@ namespace PSXRacing.Town
                     // reported that they "can't pick up delivery". There are
                     // two reasons that can be true and they want different
                     // things done about them.
-                    bool noJob = S == null || string.IsNullOrEmpty(S.playerJob);
-                    t.detail = noJob
-                        ? "No job here yet — take the delivery job on the JOBS tab at home."
-                        : "No runs this morning. Back at noon, or sleep to the afternoon.  ·  " +
-                          LifeRules.ShiftHoursShort;
+                    // There is one job and it is always the player's (nobody
+                    // is fired any more; Migrate re-hires), so the only reason
+                    // to be here with no run on offer is the hour.
+                    t.detail = "No runs this morning. Back at noon, or sleep to the afternoon.  ·  " +
+                               LifeRules.ShiftHoursShort;
                     t.action = "BUY AT THE COUNTER";
                     t.onUse = OpenPizzaCounter;
                 }

@@ -210,6 +210,12 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public const int FreeDaysOff = 2;
 
+        /// <summary>What a missed day past the allowance costs: one typical
+        /// day's tips, the same figure the jobs page quotes as "a day". Off the
+        /// pay pending for Friday, and never more than is pending.</summary>
+        public static int MissedDayDock(LifeState s) =>
+            s == null ? 0 : Mathf.Max(0, Mathf.RoundToInt(s.basePay * s.payMultiplier));
+
         /// <summary>The delivery job's advertised $96/day is an AVERAGE of the
         /// tip roll below, not a salary — WorkOneDay branches on the name.</summary>
         public const string DeliveryJobName = "FOOD DELIVERY";
@@ -1447,22 +1453,28 @@ namespace PSXRacing.LifeSim
             // The ladder therefore counts consecutive days off and only starts
             // charging PAST the allowance — two free days, the same two the old
             // weekend handed out, except the player chooses which two they are.
+            //
+            // NOBODY IS FIRED. There is one job in this game and it is the
+            // player's; the ladder that ended in "FIRED from FOOD DELIVERY"
+            // was left over from a port with a job board, and it fired the
+            // owner during a test — which is how the shop counter came to
+            // offer only slices for a week. The owner's rule now: "missing
+            // work just reduces your weekly paycheck." So past the free days,
+            // a missed day docks one typical day's tips from the pay pending
+            // for Friday, and nothing else happens — no rep, no dismissal, no
+            // credit score. It cannot go below zero: you cannot owe the shop
+            // for tips you never collected.
             if (!string.IsNullOrEmpty(s.playerJob) && !s.workedToday)
             {
                 s.consecutiveAbsences++;
                 int over = s.consecutiveAbsences - FreeDaysOff;
                 if (over > 0)
                 {
-                    float loss = over switch { 1 => 5f, 2 => 15f, _ => 30f };
-                    s.workRep = Mathf.Max(0f, s.workRep - loss);
+                    int dock = Mathf.Min(s.pendingSalary, MissedDayDock(s));
+                    s.pendingSalary -= dock;
                     s.workDaysTotal++;
-                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": missed a shift (−" + loss + " rep)");
-                    if (over >= 3 || s.workRep <= 0f)
-                    {
-                        s.calendarLog.Add(LifeRules.LogDate(s.day) + ": FIRED from " + s.playerJob);
-                        s.playerJob = ""; s.basePay = 0; s.fired = true;
-                        s.creditScore = Mathf.Max(300, s.creditScore - 25);
-                    }
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": missed a shift" +
+                                      (dock > 0 ? " (−$" + dock + " off Friday's pay)" : ""));
                 }
             }
 

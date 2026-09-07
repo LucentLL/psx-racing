@@ -1142,7 +1142,61 @@ namespace PSXRacing.EditorTools
                 var col = go.AddComponent<BoxCollider>();
                 col.isTrigger = true;
                 col.size = new Vector3(7f, 4f, TownRoadW + 8f);
-                go.AddComponent<PSXRacing.Town.TownEdge>();
+                var edge = go.AddComponent<PSXRacing.Town.TownEdge>();
+                // Into town is toward the middle of the street. The WEST end
+                // is where the road home leaves from — the player spawns at
+                // that end facing east — so a car arriving FROM home comes
+                // through this one.
+                edge.inward = new Vector3(-s, 0f, 0f);
+                edge.homeSide = s < 0;
+                // THE LINE, on the face the car crosses first: the inner one.
+                EdgeMarkers(go.transform,
+                    new Vector3(s * (TownStreetHalf - 6f - 3.5f), 0.55f, 0f),
+                    Vector3.forward, TownRoadW);
+            }
+        }
+
+        /// <summary>
+        /// THE ZONE LINE YOU CAN SEE.
+        ///
+        /// "There should be a dividing line on edges of areas when driven
+        /// through take you to menu." The trigger volumes have always been
+        /// there; nothing marked them, so the edge of a zone was a place the
+        /// game did something to you without warning. This is the marker: a
+        /// row of glowing knots across the road on the plane the car crosses,
+        /// the way an MMO draws a zone boundary — additive, unlit, the same
+        /// PSX/Glow the street lamps wear, in a cold blue no lamp uses so it
+        /// reads as a line and not as lighting. Cubes rather than billboards
+        /// because a glowing cube reads as a blob from every angle at this
+        /// fidelity and needs nothing to face the camera.
+        /// </summary>
+        /// <param name="across">The direction the row runs — along the road's
+        /// width, not its length.</param>
+        static void EdgeMarkers(Transform parent, Vector3 centre, Vector3 across, float width)
+        {
+            var mat = MakeGlowMaterial("ZoneLine", new Color(0.35f, 0.75f, 1.0f), 2.2f);
+            const float Pitch = 1.4f;
+            int n = Mathf.Max(3, Mathf.RoundToInt(width / Pitch)) | 1;   // odd: one on the crown
+            var row = new GameObject("ZoneLine");
+            row.transform.SetParent(parent, false);
+            row.transform.position = centre;
+            for (int i = 0; i < n; i++)
+            {
+                float t = (i - (n - 1) * 0.5f) * Pitch;
+                var knot = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                knot.name = "Knot";
+                Object.DestroyImmediate(knot.GetComponent<Collider>());
+                knot.transform.SetParent(row.transform, false);
+                knot.transform.localPosition = across.normalized * t;
+                // Turned 45 degrees about the road so a cube reads as a
+                // diamond from the driver's seat, which is the shape the
+                // reference shows.
+                knot.transform.localRotation = Quaternion.AngleAxis(45f, across.normalized);
+                knot.transform.localScale = Vector3.one * 0.38f;
+                var mr = knot.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = mat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
             }
         }
 

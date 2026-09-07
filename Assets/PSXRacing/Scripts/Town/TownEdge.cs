@@ -54,6 +54,64 @@ namespace PSXRacing.Town
 
         public Mode mode = Mode.HeadHome;
 
+        /// <summary>Which way is INTO this zone from the line, set by the
+        /// builder. A car arriving through the line is placed just inside it
+        /// facing this way; a car leaving crosses it the other way.</summary>
+        public Vector3 inward = Vector3.forward;
+
+        /// <summary>The end of the town's street that the road home leaves
+        /// from — where a car arriving FROM home is put. The town has two
+        /// ends and only one of them is that.</summary>
+        public bool homeSide;
+
+        /// <summary>
+        /// THE SPEED LIMIT, and the speed a car arrives at.
+        ///
+        /// "Warp going through the next area's border at speed limit." There
+        /// was no speed limit in the game, so this is it: 45 km/h, a town
+        /// street. A car placed inside the line rolling at this reads as having
+        /// come through it, and it is slow enough that the three-tenths of a
+        /// second before the driver has the controls costs nothing.
+        /// </summary>
+        public const float ArrivalKmh = 45f;
+
+        /// <summary>
+        /// Set by the departure menu when it leaves for a DRIVABLE scene, read
+        /// and cleared by that scene's TownWorld when it puts the car down. A
+        /// static on this class rather than on RaceHandoff, because the home
+        /// screen's scene starters call RaceHandoff.ClearAll on the way, and
+        /// this has to survive that; and cleared by the home screen whenever it
+        /// actually builds a menu, so a flag left over from an aborted trip
+        /// cannot teleport the next session.
+        /// </summary>
+        public static bool ArrivePending;
+
+        /// <summary>
+        /// True from being placed inside the line until the car has driven
+        /// clear of it. Without this the arriving car, standing in the volume
+        /// it was just put in, would be asked where it wanted to go before it
+        /// had moved — a menu on the first frame of every arrival.
+        /// </summary>
+        bool arriving;
+
+        /// <summary>Where a car arriving through this line is put: two metres
+        /// inside it, on the road, facing in.</summary>
+        public void ArrivalSpot(out Vector3 pos, out Quaternion rot)
+        {
+            var b = GetComponent<Collider>().bounds;
+            Vector3 dir = inward.normalized;
+            // The inner face is the one `inward` points out of; two metres
+            // past it puts the car's origin inside the volume with its nose
+            // clear, which is what the latch above measures against.
+            float half = Mathf.Abs(Vector3.Dot(b.extents, dir));
+            pos = b.center + dir * (half - 2f);
+            rot = Quaternion.LookRotation(dir, Vector3.up);
+        }
+
+        /// <summary>Called by TownWorld once the car is placed, so the line
+        /// stands down until it is left.</summary>
+        public void BeginArrival() { arriving = true; asked = false; }
+
         /// <summary>Centre-banner line, drained by RaceHUD beside GasPump's and
         /// TownVenue's. Null when nobody is near an edge.</summary>
         public static string Prompt { get; private set; }
@@ -119,7 +177,7 @@ namespace PSXRacing.Town
 
         void Cross(Collider other)
         {
-            if (leaving) return;
+            if (leaving || arriving) return;
             var tank = other.GetComponentInParent<FuelTank>();
             if (tank == null) return;
             var car = tank.GetComponent<CarController>();
@@ -157,40 +215,25 @@ namespace PSXRacing.Town
                 return;
             }
 
-            if (!PizzaRun.Carrying)
-            {
-                // THE ROAD OUT OF TOWN IS THE ROAD HOME.
-                //
-                // It used to say "the road runs out — turn back", which was
-                // honest while your street was the other end of this same map.
-                // The house is its own scene now, so the end of the main road
-                // is the way back to it, and the town needs one or the pause
-                // menu is the only way out of it.
-                //
-                // ASKED FOR, unlike the delivery. The argument in the class
-                // note is that you cannot carry somebody's dinner to the edge
-                // of town by accident — but you can absolutely drive past the
-                // last shop by accident, and a warp for that would be the toll
-                // booth the junction was told off for being.
-                Prompt = HomeControlName() + " — HEAD HOME";
-                AtEdge = true;
-                if (HomePressed())
-                {
-                    leaving = true;
-                    Prompt = null;
-                    AtEdge = false;
-                    TownExit.GoHome(car, "drivehome");
-                }
-                return;
-            }
-
-            // Out of town with the order. GoHome banks the town leg first (free
-            // roam has no finish line, so leaving IS the finish) and the front
-            // end hops straight on to PizzaRun.LaunchDelivery — one loading
-            // screen, and the player arrives on the grid.
-            leaving = true;
+            // THE TOWN'S ENDS CROSS INTO THE MENU TOO. They used to prompt
+            // and wait to be pressed, and with an order aboard they launched
+            // the run on the spot. The owner's rule now is one rule for every
+            // zone line: "a dividing line on the edges of areas, when driven
+            // through, takes you to the menu; your car does not keep going;
+            // the sound fades out." So this is the junction's behaviour, with
+            // the town's own rows — HEAD HOME, GO RACING, and the delivery
+            // first when there is one on the seat. The class note's argument
+            // that a delivery should not ask still holds: the run is the
+            // first row and the one highlighted, so it is one tap, not a
+            // question.
+            heldCar = car;
+            heldInput = input;
+            if (asked || (panel != null && panel.IsOpen)) return;
+            asked = true;
+            askedFrom = car.transform.position;
             Prompt = null;
-            TownExit.GoHome(car, "deliverrun");
+            AtEdge = false;
+            OpenDepart();
         }
 
         /// <summary>
@@ -226,6 +269,9 @@ namespace PSXRacing.Town
                 };
             }
             panel.playerCar = heldCar;
+            // Which zone's edge this is decides the rows: the town's ends
+            // offer HEAD HOME, the junction offers IN TOWN.
+            panel.fromTown = mode == Mode.HeadHome;
             if (heldInput != null) heldInput.inputEnabled = false;
             if (heldCar != null) heldCar.handbrakeInput = true;
             panel.Open();
@@ -292,6 +338,20 @@ namespace PSXRacing.Town
             // A menu with no way out of it, which is worse than the wall it
             // replaced. The margin is a car length and change, so the latch can
             // only clear once the player has genuinely driven away.
+            // ARRIVING: the line stands down until the car that was put inside
+            // it has driven clear, by the same margin the re-arm uses. The
+            // player's car is the one with a PlayerCarInput; there is only
+            // ever one, and the latch has no car of its own to read yet.
+            if (arriving)
+            {
+                var pc = FindAnyObjectByType<PlayerCarInput>();
+                if (pc == null || box == null) { arriving = false; return; }
+                var gone = box.bounds;
+                gone.Expand(ReArmMarginM * 2f);
+                if (!gone.Contains(pc.transform.position)) arriving = false;
+                return;
+            }
+
             if (!asked) return;
             if (heldCar == null || box == null) { asked = false; return; }
             Vector3 at = heldCar.transform.position;

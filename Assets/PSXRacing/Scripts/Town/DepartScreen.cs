@@ -27,6 +27,11 @@ namespace PSXRacing.Town
         public System.Action onClosed;
         public CarController playerCar;
 
+        /// <summary>Opened at one of the TOWN's ends rather than at the
+        /// junction on your own street. The rows differ: from town the way
+        /// out is HEAD HOME, and IN TOWN would be a row to where you are.</summary>
+        public bool fromTown;
+
         public bool IsOpen { get; private set; }
 
         Canvas canvas;
@@ -38,6 +43,9 @@ namespace PSXRacing.Town
             if (IsOpen) return;
             IsOpen = true;
             Arrest();
+            // The sound goes with the car. Every scene load brings it back,
+            // and TURN BACK brings it back here — see AudioFader.
+            AudioFader.FadeOut();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             Build();
@@ -89,6 +97,8 @@ namespace PSXRacing.Town
             IsOpen = false;
             if (canvas != null) Destroy(canvas.gameObject);
             canvas = null;
+            // TURN BACK: the drive goes on, and so does the sound.
+            AudioFader.FadeIn();
             onClosed?.Invoke();
         }
 
@@ -157,10 +167,20 @@ namespace PSXRacing.Town
             // reason the house you walk around and the house you drive past are
             // finally the same house — so the row that says IN TOWN has to take
             // you there.
-            Row(panel, ref y, "IN TOWN",
-                canDrive ? "The shop, the pumps, the lot and the yard. A few minutes down the road."
-                         : "Not enough fuel to get there.",
-                canDrive, () => Leave("town"));
+            // WHICH WAY IS OUT depends on which line you are standing on. At
+            // the junction on your own street the road out leads to town; at
+            // either end of the town's street it leads home. The same screen
+            // serves both, so the rows say where THIS line goes.
+            if (fromTown)
+                Row(panel, ref y, "HEAD HOME",
+                    canDrive ? "Back up your own street. A few minutes down the road."
+                             : "Not enough fuel to get there.",
+                    canDrive, () => Leave("drivehome"));
+            else
+                Row(panel, ref y, "IN TOWN",
+                    canDrive ? "The shop, the pumps, the lot and the yard. A few minutes down the road."
+                             : "Not enough fuel to get there.",
+                    canDrive, () => Leave("town"));
 
             // Hidden outright while carrying, not greyed: the panel's row
             // budget is three (see Row), and a fourth pushes the way out off
@@ -173,12 +193,18 @@ namespace PSXRacing.Town
                              : "Not enough fuel to go anywhere.",
                     canDrive, () => Leave("main"));
 
-                int forSale = (S.newspaper != null ? S.newspaper.Count : 0);
-                Row(panel, ref y, "INSPECT A CAR",
-                    forSale > 0
-                        ? forSale + " in the paper this week. Pick one and drive over."
-                        : "Nothing in the classifieds worth the drive today.",
-                    canDrive && forSale > 0, () => Leave("market"));
+                // The classifieds are a thing you read at home; from the
+                // town's end the row would be a hop through the house to a
+                // car on somebody else's street, and the budget is three.
+                if (!fromTown)
+                {
+                    int forSale = (S.newspaper != null ? S.newspaper.Count : 0);
+                    Row(panel, ref y, "INSPECT A CAR",
+                        forSale > 0
+                            ? forSale + " in the paper this week. Pick one and drive over."
+                            : "Nothing in the classifieds worth the drive today.",
+                        canDrive && forSale > 0, () => Leave("market"));
+                }
             }
 
             y -= 6f;
@@ -228,6 +254,11 @@ namespace PSXRacing.Town
         void Leave(string tab)
         {
             IsOpen = false;
+            // Leaving for another DRIVABLE zone arms the arrival: the far
+            // side puts the car through its own line, rolling, rather than on
+            // a driveway. A page (racing, the classifieds) is not a zone and
+            // gets nothing.
+            TownEdge.ArrivePending = tab == "town" || tab == "drivehome";
             TownExit.GoHome(playerCar, tab);
         }
     }

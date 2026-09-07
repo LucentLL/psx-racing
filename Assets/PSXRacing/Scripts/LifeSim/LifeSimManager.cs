@@ -219,6 +219,22 @@ namespace PSXRacing.LifeSim
                     }
                 }
 
+                // NOBODY IS FIRED ANY MORE, and a save that was is taken back
+                // on. There is one job and it is the player's; the old ladder
+                // sacked the owner mid-test and left the pizzeria's counter
+                // able to sell and nothing else. Standing is kept — the rep
+                // the ladder took is not given back, it simply stops mattering.
+                if (string.IsNullOrEmpty(s.playerJob) || s.fired)
+                {
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": back on the roster at " +
+                                      LifeRules.DeliveryJobName + " — nobody gets fired");
+                    s.playerJob = LifeRules.DeliveryJobName;
+                    s.basePay = LifeRules.DeliveryBasePay;
+                    if (s.workRep <= 0f) s.workRep = LifeRules.NewHireWorkRep;
+                    s.fired = false;
+                    s.consecutiveAbsences = 0;
+                }
+
                 // The absence counter meant something different yesterday: it
                 // only ever counted weekdays, because the weekend was free. It
                 // now counts every day, so a save that came in mid-weekend with

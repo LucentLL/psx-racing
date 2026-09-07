@@ -283,6 +283,10 @@ namespace PSXRacing.LifeSim
                 LifeSimManager.Save();
             }
             PizzaRun.DriveToShop = false;
+            // Same reason: an arrival armed at a zone line and never used —
+            // the player went to the garage instead — must not put the next
+            // drive's car through a line it never crossed.
+            Town.TownEdge.ArrivePending = false;
 
             BuildChrome();
             Rebuild();
@@ -5139,12 +5143,20 @@ namespace PSXRacing.LifeSim
                 // Broken into short lines on purpose: MenuKit.Label overflows
                 // rather than wrapping, so one long sentence runs off the right
                 // of a 4:3 canvas instead of folding onto a second row.
+                // THE ONE JOB, AND ITS RULE. There is no job board and no
+                // applying: the delivery job is the player's for the whole
+                // career, and the "You were FIRED, apply for work (55% hire
+                // odds)" page that used to live below this branch was a
+                // leftover from a port with several jobs. The owner's rule is
+                // the third line, and it is the whole of the discipline.
                 foreach (string line in new[]
                 {
                     "Shifts run noon to four in the morning, weekends included.",
                     "Tips are paid at the door, per drop — there is no salary.",
-                    LifeRules.FreeDaysOff + " days off in a row are yours to take. Past that the",
-                    "ladder bites: −5 rep, then −15, then −30 and fired.",
+                    LifeRules.FreeDaysOff + " days off in a row are yours to take. Each missed day",
+                    "past that docks a day's tips (" + MenuKit.Money(LifeRules.MissedDayDock(S)) +
+                        ") from Friday's pay. That is all it costs:",
+                    "it is the only job in town, and nobody gets let go from it.",
                 })
                 {
                     MenuKit.Label(body, line, 17, new Vector2(0.5f, 1f),
@@ -5153,35 +5165,12 @@ namespace PSXRacing.LifeSim
                 }
                 return;
             }
-            MenuKit.Label(body, (S.fired ? "You were FIRED. " : "") + "Apply for work (55% hire odds per try):",
+            // Unreachable on any save that has been through Migrate, which
+            // re-hires — kept as a plain line rather than a job board, so a
+            // state that should not exist reads as what it is.
+            MenuKit.Label(body, "Not on the roster. Sleep once and the shop takes you back on.",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                S.fired ? MenuKit.Bad : Color.white, ColW);
-            y -= 30f;
-            MenuKit.Label(body, LifeRules.ShiftHours, 17, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
-            y -= 40f;
-            foreach (var (name, dailyPay, _, _) in LifeRules.Jobs)
-            {
-                string jn = name; int jp = dailyPay;
-                // "a day IN TIPS" rather than "/day": the delivery job has no
-                // salary at all, and a job book that quotes it the way it quoted
-                // the tanker driver's $231 is promising a wage nobody pays.
-                MenuKit.Button(body, name + "  —  ~$" + dailyPay + " a day in tips",
-                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(460f, 46f), () =>
-                    {
-                        if (Random.value < LifeRules.ApplyHireChance)
-                        {
-                            S.playerJob = jn; S.basePay = jp;
-                            S.workRep = LifeRules.NewHireWorkRep;
-                            S.consecutiveAbsences = 0; S.fired = false;
-                            S.calendarLog.Add(LifeRules.LogDate(S.day) + ": hired — " + jn);
-                            Toast("HIRED: " + jn);
-                        }
-                        else Toast("No luck at " + jn + ". Try again.");
-                        LifeSimManager.Save(); Rebuild();
-                    }, 16);
-                y -= 56f;
-            }
+                MenuKit.Dim, ColW);
         }
 
         // =================== actions ===================

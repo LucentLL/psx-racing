@@ -329,13 +329,36 @@ namespace PSXRacing.EditorTools
             Check(t.workRep == startRep && !string.IsNullOrEmpty(t.playerJob),
                   LifeRules.FreeDaysOff + " days off cost nothing", t.workRep);
 
+            // THE DAY AFTER THE ALLOWANCE DOCKS PAY, AND ONLY PAY. Something
+            // has to be pending for a dock to show, so a shift is worked
+            // first. The night that follows rolls the WORKED day over — the
+            // latch ClockOnShift set means it is not an absence — so it is
+            // slept separately, before the free days and the one that costs.
+            // (Day 1 is a Friday and this runs days 3-7; the next payout is
+            // day 8's rollover, so nothing here can zero the pay for us.)
+            LifeRules.WorkOneDay(t);
             LifeRules.SleepUntilMorning(t);
-            Check(t.workRep < startRep, "the day after the allowance costs rep", t.workRep);
+            int pending = t.pendingSalary;
+            int dock = LifeRules.MissedDayDock(t);
+            for (int i = 0; i < LifeRules.FreeDaysOff; i++) LifeRules.SleepUntilMorning(t);
+            Check(t.pendingSalary == pending,
+                  "the free days after a shift dock nothing", t.pendingSalary + " from " + pending);
+            LifeRules.SleepUntilMorning(t);
+            Check(dock > 0 && t.pendingSalary == pending - dock,
+                  "the day after the allowance docks Friday's pay by one day's tips",
+                  t.pendingSalary + " from " + pending + " (dock " + dock + ")");
+            Check(t.calendarLog.Exists(l => l.Contains("missed a shift (\u2212$" + dock)),
+                  "and says so in the diary");
+            Check(Mathf.Approximately(t.workRep, startRep + 3f) || t.workRep >= startRep,
+                  "and costs no rep", t.workRep);
 
-            int guard = 0;
-            while (!string.IsNullOrEmpty(t.playerJob) && guard++ < 20) LifeRules.SleepUntilMorning(t);
-            Check(string.IsNullOrEmpty(t.playerJob) && t.fired,
-                  "a driver who never turns up is fired", guard);
+            // AND NOBODY IS EVER FIRED. Twenty days without turning up: the
+            // job is still there, and the dock cannot go below zero.
+            for (int i = 0; i < 20; i++) LifeRules.SleepUntilMorning(t);
+            Check(!string.IsNullOrEmpty(t.playerJob) && !t.fired,
+                  "a driver who never turns up still has the job — nobody is fired",
+                  t.playerJob);
+            Check(t.pendingSalary >= 0, "and the dock never goes negative", t.pendingSalary);
 
             // And a single shift clears the counter, which is the half that
             // makes the allowance a rolling one rather than a countdown to

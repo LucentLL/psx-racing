@@ -57,9 +57,22 @@ namespace PSXRacing.City
         Quaternion spawnRot;
         bool stamped;
 
+        /// <summary>
+        /// The car came in THROUGH THE ZONE LINE, already rolling. Read in
+        /// Awake because TownWorld.Start consumes the flag and Awake is the
+        /// one hook guaranteed to run before every Start. It shortens the
+        /// start delay — 1.6 s of the no-driver branch's 30% brake would take
+        /// a car doing the limit down to a crawl before the player had the
+        /// wheel, and a car that is already moving has nothing to wait for —
+        /// and it skips the starter, because the engine never stopped.
+        /// </summary>
+        bool arrivedRolling;
+        const float RollingStartDelay = 0.3f;
+
         void Awake()
         {
             Instance = this;
+            arrivedRolling = Town.TownEdge.ArrivePending;
         }
 
         void OnDestroy()
@@ -76,7 +89,7 @@ namespace PSXRacing.City
                 var input = player.GetComponent<PlayerCarInput>();
                 if (input != null) input.inputEnabled = false;
                 var engine = player.GetComponent<EngineAudio>();
-                if (engine != null) engine.PlayStartup(0.3f);
+                if (engine != null && !arrivedRolling) engine.PlayStartup(0.3f);
             }
         }
 
@@ -87,7 +100,7 @@ namespace PSXRacing.City
             if (!Live)
             {
                 startTimer += Time.deltaTime;
-                if (startTimer >= StartDelay)
+                if (startTimer >= (arrivedRolling ? RollingStartDelay : StartDelay))
                 {
                     Live = true;
                     var input = player.GetComponent<PlayerCarInput>();
