@@ -35,6 +35,48 @@ namespace PSXRacing
         public int[] jointIndex = new int[0];
         public TrackPath path;
 
+        /// <summary>
+        /// TURN THE PIERS ROUND WITH THE ROAD.
+        ///
+        /// These are waypoint INDICES baked at build time, which makes them the
+        /// same kind of thing as TrackPath.finishIndex: the flip moves every
+        /// point in the list and leaves the numbers pointing at whatever now
+        /// happens to sit at that subscript. On a reversed venue that meant the
+        /// viaduct went silent — a car on the real deck has an index that is
+        /// not in the list — while the jolt and the clang fired somewhere else
+        /// entirely, which on a mountain stage is kilometres away, on plain
+        /// tarmac, potentially mid-corner.
+        ///
+        /// A METHOD RATHER THAN A FIELD WRITE, because Start bakes the array
+        /// into the isJoint lookup and its order against RaceManager.Start —
+        /// which is what calls the reversal — is undefined. Rewriting the array
+        /// alone would work only when this component's Start had not run yet.
+        /// The same shape, and for the same reason, as AIDriver.ReseedPath.
+        /// </summary>
+        public void ReverseIndices()
+        {
+            if (path == null || path.Count == 0 || jointIndex == null) return;
+            int n = path.Count;
+            for (int i = 0; i < jointIndex.Length; i++)
+            {
+                int j = jointIndex[i];
+                // The mapping ReverseInPlace itself used: a straight flip on a
+                // route with ends, and on a loop 0 stays put while the rest
+                // walk backwards round it.
+                jointIndex[i] = path.HasEnds ? n - 1 - j : (j == 0 ? 0 : n - j);
+            }
+            System.Array.Sort(jointIndex);   // the walk below assumes ascending
+
+            // Rebuild the lookup if Start already built one; leave it null if it
+            // has not, so Start still does the work in its own good time.
+            if (isJoint != null)
+            {
+                isJoint = new bool[n];
+                foreach (int i in jointIndex)
+                    if (i >= 0 && i < n) isJoint[i] = true;
+            }
+        }
+
         /// <summary>Upward velocity added per m/s of road speed, and the cap.
         /// A joint is a jolt, not a jump: 0.28 m/s at 60 m/s is a distinct
         /// knock through the seat that never unsettles the car mid-corner.

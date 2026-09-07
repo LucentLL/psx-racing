@@ -141,8 +141,15 @@ namespace PSXRacing
             //     TownVenue's, so "PRESS F — WHERE TO?" was replaced by
             //     "STUCK — AUTO-RESET IN 3", and then the car was teleported
             //     off the menu it was standing on.
+            //     AND AT AN EDGE, which the same pass missed. The town's two
+            //     ends print "PRESS F — HEAD HOME" and then wait to be
+            //     pressed, so they are a car stopped on purpose in front of a
+            //     question by exactly the same argument, and the watchdog was
+            //     still free to take the banner off that one and teleport the
+            //     car away from the road out of town.
             bool parkedOnPurpose = !rolled && !pinned;
             if (parkedOnPurpose && (GasPump.AtPump || Town.TownVenue.AtVenue ||
+                                    Town.TownEdge.AtEdge ||
                                     (tank != null && tank.Empty)))
                 live = false;
 

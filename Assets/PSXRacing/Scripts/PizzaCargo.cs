@@ -157,6 +157,27 @@ namespace PSXRacing
 
         Vector3 lastVel;
         bool haveLastVel;
+
+        /// <summary>
+        /// THAT WAS NOT BRAKING.
+        ///
+        /// The whole drive here is a velocity DIFFERENCE between two physics
+        /// ticks, so anything that writes the car's velocity from outside the
+        /// solver — a scripted stop, a respawn, a teleport — arrives looking
+        /// exactly like the hardest deceleration the model can represent. A car
+        /// arrested at 140 km/h reads as roughly 1950 m/s^2, which the smoother
+        /// then holds pinned against the 4.5 g ceiling for a fifth of a second:
+        /// several times the hardest real braking this model ever sees, and
+        /// sustained. The collision channel does NOT save us, because it is
+        /// gated on the responder having actually hit something and nothing was
+        /// hit. The boxes go across the seat and the tip goes with them, for a
+        /// stop the game performed rather than one the player caused.
+        ///
+        /// Forgetting the last sample makes the next tick re-seed instead of
+        /// differencing, which is exactly what the first frame after the cargo
+        /// is built already does.
+        /// </summary>
+        public void ForgetMotion() => haveLastVel = false;
         /// <summary>How many boxes this order is, known before any of them are
         /// built — the seat's walls have to be tall enough for the whole stack
         /// and they are put up first.</summary>

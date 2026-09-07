@@ -987,6 +987,7 @@ namespace PSXRacing.EditorTools
             TestTownScene();
             TestNeighborhoodScene();
             TestReverseGrid();
+            TestReversedStageDistance();
             TestNoDeletedMeshes();
             TestPizzaCounter();
             TestPaintShop();
@@ -1408,6 +1409,63 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// A REVERSED STAGE IS THE SAME LENGTH AS THE STAGE.
+        ///
+        /// The reverse twin inherits its distance from the forward venue -- it
+        /// is a shallow copy -- so TrackCatalog quotes the forward metres and
+        /// the pre-race fuel gate spends them. A stage has no pumps, and
+        /// LifeRules.RequiredFuelPct carries NO margin over that figure, so any
+        /// distance the reversed race adds is distance the player was never
+        /// given fuel for: the failure is running dry within sight of the
+        /// finish, on a mountain, with no way to refuel.
+        ///
+        /// Cheap enough to run for every stage: no scene is opened, just the
+        /// sampled centreline and a bare TrackPath, which is all the arithmetic
+        /// under test actually reads.
+        /// </summary>
+        static void TestReversedStageDistance()
+        {
+            Line("reversed stages:");
+            int checkedStages = 0;
+            foreach (var t in TrackCatalog.All)
+            {
+                if (!t.stage || !t.CanReverse) continue;
+
+                var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
+                if (pts == null || pts.Count < 8) continue;
+
+                var go = new GameObject("RevProbe");
+                var tp = go.AddComponent<PSXRacing.TrackPath>();
+                tp.waypoints = pts.ToArray();
+                tp.spacing = TrackCatalog.Spacing;
+                tp.pointToPoint = true;
+                tp.finishIndex = t.FinishIndex;
+
+                int startLine = Mathf.RoundToInt(t.stageStartLineM / TrackCatalog.Spacing);
+                float forwardM = (tp.finishIndex - startLine) * tp.spacing;
+
+                // Exactly what Apply does, in the order it does it.
+                tp.ReverseInPlace();
+                int datum = PSXRacing.RaceHandoffApplier.ReversedStartIndex(tp);
+                PSXRacing.RaceHandoffApplier.RemapReversedFinish(tp, t);
+                float reversedM = (tp.finishIndex - datum) * tp.spacing;
+
+                Check(Mathf.Abs(reversedM - forwardM) <= tp.spacing * 2f,
+                      t.name + " II races the same distance as " + t.name,
+                      reversedM.ToString("0") + " m vs " + forwardM.ToString("0") + " m");
+                // And the field must not start beyond its own finish, which
+                // would end the race on the first frame.
+                Check(datum < tp.finishIndex,
+                      "and its grid is behind its finish line",
+                      "start " + datum + ", finish " + tp.finishIndex);
+
+                Object.DestroyImmediate(go);
+                checkedStages++;
+            }
+            Check(checkedStages > 0, "there are reversible stages to check", checkedStages);
+        }
+
+        /// <summary>
         /// A REVERSE VENUE'S GRID FACES THE WAY THE RACE ACTUALLY GOES.
         ///
         /// This is the assertion that was missing when four cars shipped facing
@@ -1488,27 +1546,49 @@ namespace PSXRacing.EditorTools
             tp.ReverseInPlace();
             applier.StageReversedGrid(tp);
 
-            int agreeRev = 0, onRoad = 0;
-            float worst = 1f;
-            foreach (var c in field)
+            int agreeRev = 0, staggered = 0;
+            float worst = 1f, worstLat = 0f;
+            for (int row = 0; row < field.Count; row++)
             {
+                var c = field[row];
                 if (c == null) continue;
                 int i = tp.NearestIndex(c.transform.position);
                 float dot = Vector3.Dot(c.transform.forward, tp.GetTangent(i));
                 if (dot > 0.9f) agreeRev++;
                 worst = Mathf.Min(worst, dot);
-                // On the road, not beside it: the lateral offset is taken from
-                // the path's own right vector, so a sign error here would put
-                // half the grid in the barrier and still pass the heading test.
-                if (Vector3.Distance(c.transform.position, tp.GetPoint(i))
-                    <= tp.roadWidth * 0.5f + 1f) onRoad++;
+
+                // THE LATERAL OFFSET, resolved against the path's own right
+                // vector rather than measured as a plain distance.
+                //
+                // This began as Distance(car, centreline) <= halfWidth, which
+                // is seven metres on a circuit whose offset is 2.6 -- loose
+                // enough to pass a grid stacked on the centreline, and it mixed
+                // in the longitudinal error to the nearest waypoint as well.
+                // Projecting separates the two and asks the question meant.
+                //
+                // MAGNITUDE, NOT SIGN, deliberately. The stagger alternates
+                // symmetrically, so flipping the right vector mirrors the whole
+                // grid about the centreline and yields the SAME SET of
+                // positions -- same rows, same spacing, same headings, every
+                // car on the tarmac. Asserting the side would fail a change
+                // that breaks nothing, which is how a test starts costing more
+                // than it catches.
+                Vector3 tan = tp.GetTangent(i); tan.y = 0f;
+                tan = tan.sqrMagnitude > 1e-6f ? tan.normalized : Vector3.forward;
+                Vector3 right = Vector3.Cross(Vector3.up, tan);
+                float lat = Mathf.Abs(
+                    Vector3.Dot(c.transform.position - tp.GetPoint(i), right));
+                worstLat = Mathf.Max(worstLat, Mathf.Abs(lat - 2.6f));
+                if (Mathf.Abs(lat - 2.6f) <= 1.2f) staggered++;
             }
 
             Check(agreeRev == field.Count,
                   "and every car faces the REVERSED path after staging",
                   agreeRev + "/" + field.Count + ", worst dot " + worst.ToString("0.00"));
-            Check(onRoad == field.Count, "and the reversed grid is on the road",
-                  onRoad + "/" + field.Count);
+            Check(staggered == field.Count,
+                  "and each row is staggered off the centreline",
+                  staggered + "/" + field.Count + ", worst offset error " +
+                  worstLat.ToString("0.00") + " m");
 
             // Never saved: this scene is build output and the reversal is a
             // runtime-only edit. Writing it back would bake a backwards circuit

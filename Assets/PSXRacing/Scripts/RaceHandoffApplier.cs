@@ -69,8 +69,18 @@ namespace PSXRacing
                     tp.ReverseInPlace();
                     // AND TURN THE GRID ROUND WITH IT. The list is only half of
                     // a direction — see StageReversedGrid.
+                    //
+                    // The datum is read BEFORE the finish is remapped, because
+                    // on a route with ends it IS the old finish: the line you
+                    // used to cross is the line you now set off from.
+                    int datum = ReversedStartIndex(tp);
                     RemapReversedFinish(tp, venue);
-                    StageReversedGrid(tp);
+                    StageReversedGrid(tp, datum);
+                    // Anything else holding a baked waypoint INDEX has to be
+                    // turned round too — the piers are the other one.
+                    foreach (var bj in Object.FindObjectsByType<BridgeJoints>(
+                                 FindObjectsSortMode.None))
+                        if (bj.path == tp) bj.ReverseIndices();
                 }
             }
             // Time of day is applied EVEN on a standalone editor race, unlike
@@ -376,8 +386,13 @@ namespace PSXRacing
         /// The builder's own figures — see the grid block in
         /// PSXRacingBuilder.BuildRace. Duplicated rather than shared because
         /// one is an editor constant baked into a scene and the other has to
-        /// reproduce it at load with no editor assembly to ask.</summary>
-        const float GridFrontM = 9f, GridRowM = 6.5f, GridLateralM = 2.6f, GridLiftM = 0.35f;
+        /// reproduce it at load with no editor assembly to ask.
+        ///
+        /// TWO LATERALS, because the builder has two: 2.6 m on a circuit and
+        /// 2.1 m on a stage, which is not a rounding difference but a road
+        /// three metres narrower.</summary>
+        const float GridFrontM = 9f, GridRowM = 6.5f, GridLiftM = 0.35f;
+        const float GridLateralM = 2.6f, GridLateralStageM = 2.1f;
 
         /// <summary>
         /// PUT THE FIELD BACK ON THE GRID, POINTING THE OTHER WAY.
@@ -409,7 +424,41 @@ namespace PSXRacing
         /// builds its progress table (see the note on Apply), so the table is
         /// built from these positions and nothing has to be told twice.
         /// </summary>
-        public void StageReversedGrid(TrackPath path)
+        public void StageReversedGrid(TrackPath path) =>
+            StageReversedGrid(path, ReversedStartIndex(path));
+
+        /// <summary>
+        /// WHERE THE REVERSED RACE STARTS, as a waypoint index.
+        ///
+        /// A loop starts where it always did: waypoint 0 does not move, and the
+        /// start line is a painted band that does not care which way you cross
+        /// it.
+        ///
+        /// A ROUTE WITH ENDS STARTS AT ITS OLD FINISH, and getting this wrong
+        /// is not cosmetic. Measuring the grid back from index 0 instead —
+        /// which is the far end of the SHUTDOWN, several hundred metres past
+        /// where the forward race ever stopped — makes the whole shutdown raced
+        /// distance while RemapReversedFinish simultaneously pushes the finish
+        /// out to the flip of the old start line. Blue Ridge II came out 280 m
+        /// (4.1%) longer than the catalog says it is, and the catalog figure is
+        /// what the pre-race fuel gate spends: a stage has no pumps, and
+        /// LifeRules.RequiredFuelPct carries no margin over the quoted
+        /// distance, so the game would let a car onto a mountain it runs dry
+        /// 280 m short of the end of. Anchoring here instead makes the reversed
+        /// race old-finish-line to old-start-line — exactly the metres the
+        /// catalog already quotes — and turns the forward shutdown back into
+        /// what the comment on RemapReversedFinish always claimed it was: the
+        /// lead-in.
+        ///
+        /// MUST be read BEFORE RemapReversedFinish overwrites finishIndex.
+        /// </summary>
+        public static int ReversedStartIndex(TrackPath path)
+        {
+            if (path == null || !path.HasEnds || path.finishIndex <= 0) return 0;
+            return Mathf.Clamp(path.Count - 1 - path.finishIndex, 1, path.Count - 1);
+        }
+
+        public void StageReversedGrid(TrackPath path, int datum)
         {
             if (path == null || path.Count < 2) return;
 
@@ -427,9 +476,15 @@ namespace PSXRacing
                 if (car == null) continue;
 
                 float back = GridFrontM + row * GridRowM;
-                float lateral = (row % 2 == 0) ? -GridLateralM : GridLateralM;
+                // NARROWER ON A STAGE, exactly as the builder is. A stage road
+                // is 8.5-9.5 m where a circuit is 12, and Beech Gap's tarmac is
+                // 4.25 m from the crown: at the circuit's 2.6 m the outer wheels
+                // of two of the four cars start out on the shoulder.
+                float half = path.HasEnds ? GridLateralStageM : GridLateralM;
+                float lateral = (row % 2 == 0) ? -half : half;
 
-                PointAlong(path, back, out Vector3 centre, out Vector3 fwd, out Vector3 right);
+                PointAlong(path, datum, back,
+                           out Vector3 centre, out Vector3 fwd, out Vector3 right);
 
                 // Straight onto the transform, not through ResetTo, for the
                 // reason the 1v1 restage below gives: nothing has stepped yet,
@@ -471,24 +526,20 @@ namespace PSXRacing
         /// on its wheels, not pitched to the gradient with its nose in the
         /// tarmac.
         /// </summary>
-        static void PointAlong(TrackPath path, float back,
+        static void PointAlong(TrackPath path, int datum, float back,
                                out Vector3 centre, out Vector3 fwd, out Vector3 right)
         {
             int n = path.Count;
-            float fIdx;
-            if (path.HasEnds)
-            {
-                // Deepest row sits GridStageMarginM in from the end; the rest
-                // stack up the road ahead of it.
-                const float GridStageMarginM = 4f;
-                float depth = GridFrontM + 3f * GridRowM + GridStageMarginM;
-                fIdx = Mathf.Max(0f, (depth - back)) / path.spacing;
-                fIdx = Mathf.Min(fIdx, n - 1.001f);
-            }
-            else
-            {
-                fIdx = -back / path.spacing;
-            }
+
+            // ONE EXPRESSION FOR BOTH KINDS OF VENUE, now that the datum says
+            // where the start is: the grid is always `back` metres before it.
+            // On a loop the datum is 0 and this goes negative, which Wrap turns
+            // into the last few waypoints — the same walk backwards round the
+            // list the builder does. On a route with ends the datum is the old
+            // finish line and there are hundreds of metres of former shutdown
+            // behind it to stand the field on.
+            float fIdx = datum - back / path.spacing;
+            if (path.HasEnds) fIdx = Mathf.Clamp(fIdx, 0f, n - 1.001f);
 
             int i0 = Mathf.FloorToInt(fIdx);
             float frac = fIdx - i0;
@@ -518,7 +569,7 @@ namespace PSXRacing
         /// finish. So the new finish is the flip of the old start line, not the
         /// flip of the old finish.
         /// </summary>
-        static void RemapReversedFinish(TrackPath path, TrackCatalog.TrackDef venue)
+        public static void RemapReversedFinish(TrackPath path, TrackCatalog.TrackDef venue)
         {
             if (path == null || !path.HasEnds || path.finishIndex <= 0) return;
             int n = path.Count;

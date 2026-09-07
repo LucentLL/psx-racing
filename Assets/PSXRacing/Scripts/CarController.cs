@@ -2328,6 +2328,12 @@ namespace PSXRacing
         {
             Body.linearVelocity = Vector3.zero;
             Body.angularVelocity = Vector3.zero;
+            // A respawn is not a crash. PizzaCargo drives itself off the
+            // velocity difference between two physics ticks, so a teleport that
+            // zeroes the body reads to it as the hardest braking it can
+            // represent and throws the order across the seat — for a stop the
+            // player did not make. See PizzaCargo.ForgetMotion.
+            PizzaCargo.Instance?.ForgetMotion();
             transform.SetPositionAndRotation(position + Vector3.up * ResetLift, rotation);
             currentGear = 1;
             currentRPM = idleRPM;

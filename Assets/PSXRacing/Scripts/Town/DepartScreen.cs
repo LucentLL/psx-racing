@@ -76,6 +76,11 @@ namespace PSXRacing.Town
             if (playerCar == null || playerCar.Body == null) return;
             playerCar.Body.linearVelocity = Vector3.zero;
             playerCar.Body.angularVelocity = Vector3.zero;
+            // And tell the order on the back seat that this was not braking —
+            // see PizzaCargo.ForgetMotion. Arriving at the junction WITH a
+            // delivery aboard is not a corner case, it is the first row on the
+            // panel this method is opening.
+            PizzaCargo.Instance?.ForgetMotion();
         }
 
         public void Close()

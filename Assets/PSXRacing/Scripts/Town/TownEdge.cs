@@ -99,6 +99,12 @@ namespace PSXRacing.Town
         /// which is the face it came in by.</summary>
         Vector3 askedFrom;
 
+        /// <summary>How far outside the volume the car has to get before the
+        /// junction is allowed to ask again. Longer than a car, because the
+        /// thing being guarded against is a car whose collider is inside the
+        /// volume while its origin is not.</summary>
+        const float ReArmMarginM = 8f;
+
         void Awake()
         {
             Prompt = null;
@@ -274,10 +280,24 @@ namespace PSXRacing.Town
             // to avoid being. Leaving by the face you came in at is turning
             // back; leaving by the other one is not leaving at all — there is
             // nothing past it but the boundary wall.
+            //
+            // AND IT HAS TO GET WELL CLEAR, not merely outside. The volume
+            // triggers on the car's COLLIDER, whose nose is a couple of metres
+            // ahead of the transform this test reads, and DepartScreen now
+            // stops the car on the frame the panel opens — so it comes to rest
+            // with its origin still OUTSIDE the volume it is standing in. The
+            // plain Contains test read that as "left" on the very next frame
+            // and dropped the latch while the menu was still up; the instant
+            // TURN BACK handed the controls back, OnTriggerStay asked again.
+            // A menu with no way out of it, which is worse than the wall it
+            // replaced. The margin is a car length and change, so the latch can
+            // only clear once the player has genuinely driven away.
             if (!asked) return;
             if (heldCar == null || box == null) { asked = false; return; }
             Vector3 at = heldCar.transform.position;
-            if (box.bounds.Contains(at)) return;
+            var clear = box.bounds;
+            clear.Expand(ReArmMarginM * 2f);   // Expand adds half per side
+            if (clear.Contains(at)) return;
             Vector3 c = box.bounds.center;
             Vector3 entry = askedFrom - c;
             // A car that somehow arrived dead on the centre gets the plain test:
