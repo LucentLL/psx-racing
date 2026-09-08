@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace PSXRacing
@@ -51,6 +51,55 @@ namespace PSXRacing
         /// <see cref="RaceHUD"/>; kept as state here rather than pushed, so the
         /// HUD's change-gating still works.</summary>
         public string Prompt { get; private set; }
+
+        /// <summary>Set while the car has been pointing back down the road long
+        /// enough to mean it. Read by <see cref="RaceHUD"/>, which ranks it
+        /// under <see cref="Prompt"/> — being stuck is the more urgent news.</summary>
+        public bool WrongWay { get; private set; }
+
+        /// <summary>Alignment against the path tangent below which the car is
+        /// going the wrong way, and the speed and patience it takes to say so.
+        /// The dot and the speed are AIDriver's numbers; the four seconds are
+        /// not, deliberately — a human is allowed to be halfway through a spin.
+        /// The TEST is stricter than the AI's: see UpdateWrongWay.</summary>
+        const float WrongWayDot = -0.3f;
+        const float WrongWayMinSpeed = 3f;      // m/s, as AIDriver measures it
+        const float WrongWaySeconds = 4f;
+        float wrongWayTimer;
+        /// <summary>Last waypoint index, so the search is a window and not a walk.</summary>
+        int pathHint = -1;
+
+        void UpdateWrongWay(float dt)
+        {
+            var mgr = RaceManager.Instance;
+            var path = mgr != null ? mgr.path : null;
+            if (path == null || path.Count < 2 || car == null || car.Body == null)
+            { wrongWayTimer = 0f; WrongWay = false; pathHint = -1; return; }
+
+            Vector3 v = car.Body.linearVelocity; v.y = 0f;
+            if (v.magnitude < WrongWayMinSpeed)
+            { wrongWayTimer = 0f; WrongWay = false; return; }
+
+            // BOTH have to be wrong, and that is not pedantry — it is the
+            // difference between the two cars this test has to tell apart.
+            // TRAVEL alone condemns a car REVERSING back onto the line, which
+            // is the recovery the banner should be praising. The NOSE alone
+            // (which is all AIDriver checks) condemns a car sliding backwards
+            // through a corner it is still carrying. Going the wrong way means
+            // pointed down the road AND moving that way.
+            //
+            // Hinted, because NearestIndex without one walks every waypoint and
+            // Beech Gap has 2819 of them — 2819 distance tests per rendered
+            // frame, on a phone, for a banner. Every other per-frame caller in
+            // the project passes a hint; this was the exception.
+            pathHint = path.NearestIndex(transform.position, pathHint);
+            Vector3 tangent = path.GetTangent(pathHint);
+            bool travelWrong = Vector3.Dot(v.normalized, tangent) < WrongWayDot;
+            bool noseWrong = Vector3.Dot(transform.forward, tangent) < WrongWayDot;
+            if (travelWrong && noseWrong) wrongWayTimer += dt;
+            else wrongWayTimer = 0f;
+            WrongWay = wrongWayTimer >= WrongWaySeconds;
+        }
 
         float stuckTimer;
 
@@ -112,8 +161,31 @@ namespace PSXRacing
                 DriveSession.Respawn(car);
                 stuckTimer = 0f;
                 Prompt = null;
+                // This return skips the wrong-way block below, so the flag has
+                // to be cleared here too or a recovered car keeps a banner it
+                // earned somewhere it no longer is; and the index hint is now
+                // a kilometre out.
+                wrongWayTimer = 0f; WrongWay = false; pathHint = -1;
                 return;
             }
+
+            // WRONG WAY. Warned about, never acted on.
+            //
+            // The AI have carried this test since P2 (AIDriver.UpdateRecovery:
+            // heading against the path tangent, under -0.3 for two seconds
+            // above 3 m/s) and turn themselves round when it trips. The player
+            // had no equivalent, which is how a grid facing the wrong way ends
+            // up as "I started facing the other cars" — the whole field quietly
+            // corrected itself and the one car nobody could correct was the
+            // one being driven. It is also the cheapest possible answer to
+            // being spun round mid-race with no landmark to tell you.
+            //
+            // A BANNER AND NOTHING ELSE. Turning the player's car round for
+            // them is exactly the complaint this component was written to
+            // answer; telling them is not. Four seconds rather than the AI's
+            // two, because a human is allowed to be halfway through a spin.
+            if (live) UpdateWrongWay(Time.deltaTime);
+            else { wrongWayTimer = 0f; WrongWay = false; }
 
             bool rolled = car != null && Vector3.Dot(transform.up, Vector3.up) < 0.25f;
             bool pinned = responder != null && responder.InWallContact;

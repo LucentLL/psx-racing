@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace PSXRacing
 {
@@ -145,11 +145,14 @@ namespace PSXRacing
         /// planted under 2.3 deg, which is where the Underground/MW05 feel
         /// actually lives, but a real slide is no longer half-deleted before it
         /// begins.</summary>
-        public float lateralDampGrip = 3.6f;
-        public float lateralDampDrift = 0.6f;
+        public float lateralDampGrip = DefaultLateralDampGrip;
+        public float lateralDampDrift = DefaultLateralDampDrift;
+        public const float DefaultLateralDampGrip = 3.6f;
+        public const float DefaultLateralDampDrift = 0.6f;
         /// <summary>Ceiling on the stabilizer in g, so it assists rather than
         /// teleports the car sideways.</summary>
-        public float lateralDampMaxG = 0.45f;
+        public float lateralDampMaxG = DefaultLateralDampMaxG;
+        public const float DefaultLateralDampMaxG = 0.45f;
         /// <summary>Speed (m/s) below which the yaw injector is fully suppressed.
         /// Without this, full throttle at walking pace spins the car on the spot.</summary>
         public float yawInjectorMinSpeed = 4f;
@@ -307,6 +310,10 @@ namespace PSXRacing
         /// drift blend below keeps its shape.</summary>
         public float steerRateDeg = 260f;
         public float steerRateDriftDeg = 400f;   // lock-to-lock in 0.3 s
+        /// <summary>Fraction of <see cref="steerRateDeg"/> the actuator is
+        /// allowed at and above <see cref="steerSpeedFalloff"/> — see
+        /// UpdateSteering. 260 deg/s becomes 143.</summary>
+        public const float SteerRateHighSpeedFrac = 0.55f;
         public float gripBonus = 1f;
 
         // ---- bolt-on mods (LifeSim parts shop) ----
@@ -349,7 +356,11 @@ namespace PSXRacing
 
         [Header("Brakes")]
         public float brakeDemandG = 0.9f;
-        public float brakeFrontShare = 0.6f;
+        public float brakeFrontShare = DefaultBrakeFrontShare;
+        /// <summary>How much of the front/rear split follows the LIVE axle
+        /// loads rather than the fixed hardware bias — see the brake block in
+        /// TireForces. 0 is the old fixed-fraction behaviour.</summary>
+        public const float BrakeLoadSensitivity = 0.5f;
 
         /// <summary>Layer holding the drivable road surface. Checked by layer
         /// rather than by collider name: reading Collider.name allocates a
@@ -363,15 +374,29 @@ namespace PSXRacing
         public int solidLayer = 9;
 
         [Header("Drift feel (Racing Game 2 gameplay layer)")]
-        /// <summary>0 = simulator, 1 = maximum forgiveness. The source ships 0.3.</summary>
-        [Range(0f, 1f)] public float countersteerAssist = 0.55f;
-        [Range(0f, 2f)] public float brakeStabDrift = 1f;
+        /// <summary>0 = simulator, 1 = maximum forgiveness. (An older note here
+        /// claimed "the source ships 0.3"; there is no such constant in either
+        /// Racing Game 2 source — this layer is the Unity port's own.)</summary>
+        [Range(0f, 1f)] public float countersteerAssist = DefaultCountersteerAssist;
+        public const float DefaultCountersteerAssist = 0.55f;
+        /// <summary>Racing Game 2's physBrakeDrift. Zero here — see gesture 2
+        /// in UpdateDriftGestures for why the brake pedal no longer starts a
+        /// slide. <see cref="DefaultBrakeStabDrift"/> is what the scene builder
+        /// bakes, so a stale scene cannot outvote this.</summary>
+        [Range(0f, 2f)] public float brakeStabDrift = DefaultBrakeStabDrift;
+        public const float DefaultBrakeStabDrift = 0f;
         [Range(0f, 2f)] public float wheelspinYawGain = 1f;
 
         // ---- ported tuning constants ---------------------------------------
         const float EbrakeWindow = 0.75f;
         const float EbrakeMuCollapse = 0.70f;     // rear mu -> 30% at full window
         const float EbrakeKickCooldown = 0.15f;
+        /// <summary>How long a handbrake press waits for the wheels to catch up
+        /// before it gives up on kicking — see gesture 1. Five ticks: the
+        /// actuator crosses the 0.15 gate in about 17 ms from centre, and a
+        /// player who pulls the lever and only then starts steering is making a
+        /// different move.</summary>
+        const float EbrakePendingSeconds = 0.08f;
         const float EbrakeKickBase = 1.2f;        // rad/s
         /// <summary>Share of road speed a handbrake kick scrubs at full steer
         /// and vmax (the source's 2.5% x 1.1). The slide is not free speed:
@@ -387,6 +412,13 @@ namespace PSXRacing
         const float BrakeStabBase = 0.55f;
         const float DriftEnterSlip = 0.32f;
         const float DriftExitSlip = 0.10f;
+        /// <summary>How far the whole car has to be pointing away from where it
+        /// is going before rear slip counts as a DRIFT rather than as a rear
+        /// axle working hard: 7 degrees in, 4.6 out. See UpdateDriftState — the
+        /// rear slip test on its own is satisfied by any committed corner near
+        /// the limit, which is what made the drift state latch.</summary>
+        const float DriftEnterBodySlip = 0.12f;
+        const float DriftExitBodySlip = 0.08f;
         const float DriftStopSpeed = 0.8f;        // source 5 gu/s
         const float PostDriftLockout = 0.5f;
         const float CountersteerDeadzone = 0.14f;
@@ -544,6 +576,32 @@ namespace PSXRacing
         [HideInInspector] public bool onRoad = true;
 
         public bool Drifting { get; private set; }
+        /// <summary>
+        /// HOW SIDEWAYS THE CAR IS, 0 to 1 — the thing every consumer of
+        /// <see cref="Drifting"/> should actually be asking.
+        ///
+        /// Drifting is a bool, and four separate systems used to switch on it
+        /// in the same tick: the lateral stabilizer (a 6x collapse), the yaw
+        /// damper (halved), the wheelspin injector (7.5x, or 10x with the
+        /// e-brake window live) and the steering lock. So the instant the flag
+        /// tripped the car lost most of what was holding it on the road, which
+        /// made more slip, which held the flag — and that cascade is what "just
+        /// tapping the turn initiates a drift" felt like from the inside.
+        ///
+        /// This ramps with the body slip angle instead, over a quarter of a
+        /// second, so five degrees of slide gets five degrees' worth of loose
+        /// car. Same threshold and span the steering lock already blends on
+        /// (UpdateSteering's slideT), deliberately, so the lock and the damping
+        /// cannot step at different body angles.
+        /// </summary>
+        public float DriftBlend { get; private set; }
+        const float DriftBlendStart = 0.15f;
+        const float DriftBlendSpan = 0.45f;
+        const float DriftBlendTau = 0.25f;
+        /// <summary>How much of the loose car a live handbrake or clutch-kick
+        /// window buys before the body has gone anywhere — see the ramp in
+        /// FixedUpdate.</summary>
+        const float DriftBlendGestureFloor = 0.65f;
         public float EbrakeTimer { get; private set; }
         /// <summary>1 immediately after an impact, decaying to 0 across the grace
         /// window. Read by the stabilizer and the counter-steer assist.</summary>
@@ -627,6 +685,8 @@ namespace PSXRacing
         float postDriftTimer;
         float ebrakeCooldown;
         bool prevHandbrake;
+        /// <summary>Seconds a handbrake press is still waiting for lock — see gesture 1.</summary>
+        float ebrakePending;
         bool prevBrake;
         float rearCircleTotal;
         float yawDamp = 0.6f;
@@ -1440,7 +1500,12 @@ namespace PSXRacing
         /// by the self-test rather than by hoping.
         /// </summary>
         public const float DefaultBrakeDemandG = 0.9f;
-        public const float DefaultBrakeFrontShare = 0.6f;
+        /// <summary>0.66, up from 0.60. With the load-sensitive term in
+        /// TireForces this puts both axles at about the same fraction of their
+        /// own friction circle at full pedal, so the car brakes STRAIGHT. The
+        /// garage's BrakeBalance range is this +/- 0.15, so a player who wants
+        /// the loose car can still dial 51% front.</summary>
+        public const float DefaultBrakeFrontShare = 0.66f;
         public const float DefaultTireMuFront = 1.010f;
         public const float DefaultTireMuRear = 1.030f;
         public const float DefaultCorneringStiffness = 11.0f;
@@ -1579,6 +1644,31 @@ namespace PSXRacing
             // there is exactly one value of Drifting per tick.
             RefreshSlipAngles();
             UpdateDriftState(vel);
+            // The ramp the mode switch is actually read through — see DriftBlend.
+            // Driven here, once, between the state machine that sets Drifting and
+            // everything downstream that used to branch on it.
+            {
+                float slip = Mathf.Abs(chassisSlipAngle);
+                if (slip > Mathf.PI * 0.5f) slip = Mathf.PI - slip;   // see UpdateDriftState
+                float want = Drifting
+                    ? Mathf.Clamp01((slip - DriftBlendStart) / DriftBlendSpan)
+                    : 0f;
+                // A GESTURE BUYS THE LOOSE CAR AT ONCE, without waiting for the
+                // car to be sideways first. Ramping purely on body slip is
+                // right for a slide that develops out of the tyres, and wrong
+                // for the handbrake: the lever used to switch the stabilizer
+                // from 3.6 to 0.6 in one tick, and blending instead made the
+                // one gesture the player is MEANT to drift with feel duller
+                // than it did — the opposite of what was asked for. So a live
+                // e-brake window or clutch kick puts a floor under the blend,
+                // decaying with the window. Not 1.0: a lever held with the car
+                // pointing dead straight should not pin the stabilizer fully
+                // off, or a handbrake dab on a straight is a spin again.
+                float gesture = Mathf.Max(EbrakeTimer / EbrakeWindow,
+                                          clutchKickTimer / ClutchKickWindow);
+                want = Mathf.Max(want, Mathf.Clamp01(gesture) * DriftBlendGestureFloor);
+                DriftBlend = Mathf.MoveTowards(DriftBlend, want, dt / DriftBlendTau);
+            }
             UpdateDriftGestures(dt);      // runs early, so the frame sees the kick
             UpdateSteering(dt);
             UpdateGearbox(dt);
@@ -1675,9 +1765,10 @@ namespace PSXRacing
             EbrakeTimer = Mathf.Max(0f, EbrakeTimer - dt);
             postDriftTimer = Mathf.Max(0f, postDriftTimer - dt);
             ebrakeCooldown = Mathf.Max(0f, ebrakeCooldown - dt);
+            clutchKickTimer = Mathf.Max(0f, clutchKickTimer - dt);
 
             float speed = Mathf.Abs(forwardSpeed);
-            float steerMag = Mathf.Abs(steerInput);
+            float steerMag = Mathf.Abs(SteerCommand);   // actuated lock, not the stick — see SteerCommand
             float massDamp = Mathf.Sqrt(1200f / Mathf.Max(800f, massKg));
             float speedRatio = Mathf.Min(1f, speed / topSpeedMps);
             float surfBoost = onRoad ? 1.0f : 1.3f;
@@ -1685,33 +1776,75 @@ namespace PSXRacing
             // --- gesture 1: handbrake press edge. The mu collapse alone slides
             // the car but has no punch; this is the punch. The steer gate is not
             // optional — without it ambient yaw noise spins a straight-line pull.
-            bool edge = handbrakeInput && !prevHandbrake;
-            if (edge && anyWheelGrounded && speed > DriveGateSpeed &&
-                ebrakeCooldown <= 0f && steerMag > 0.15f)
+            //
+            // THE EDGE IS LATCHED, because the gate now reads the ACTUATOR and
+            // the actuator has not moved yet. A flick entry presses the lever
+            // and the stick on the same frame; steerInput is 1 immediately but
+            // steerCommandDeg is still 0 on the physics tick that follows, so a
+            // gate of 0.15 fails — and `prevHandbrake` is assigned
+            // unconditionally below, so the edge would be spent and never come
+            // back for that pull. Held for a few ticks instead, and fired on the
+            // first one where the wheels are actually turned, scaled by the lock
+            // as it stands THEN. Reading steerInput here instead would undo the
+            // whole point: a keyboard tap would buy a maximum kick again.
+            if (handbrakeInput && !prevHandbrake && anyWheelGrounded &&
+                speed > DriveGateSpeed && ebrakeCooldown <= 0f)
+                ebrakePending = EbrakePendingSeconds;
+            ebrakePending = Mathf.Max(0f, ebrakePending - dt);
+            if (ebrakePending > 0f && handbrakeInput && anyWheelGrounded &&
+                speed > DriveGateSpeed && ebrakeCooldown <= 0f && steerMag > 0.15f)
             {
+                ebrakePending = 0f;
                 float inputScale = steerMag * (0.3f + speedRatio * 0.7f);
                 // VelocityChange ignores the inertia tensor, which is why massDamp stays.
-                float dOmega = Mathf.Sign(steerInput) * EbrakeKickBase * 1.1f * massDamp *
+                float dOmega = Mathf.Sign(steerCommandDeg) * EbrakeKickBase * 1.1f * massDamp *
                                surfBoost * inputScale;
                 Body.AddTorque(transform.up * dOmega, ForceMode.VelocityChange);
                 Body.linearVelocity *= 1f - EbrakeKickScrub * inputScale;
                 ebrakeCooldown = EbrakeKickCooldown;
             }
-            if (handbrakeInput && speed > DriveGateSpeed) EbrakeTimer = EbrakeWindow;
+            if (handbrakeInput && speed > DriveGateSpeed)
+            {
+                EbrakeTimer = EbrakeWindow;
+                // The lever is a REQUEST, and this is where the throttle sustain
+                // gets the seconds it later spends. Refilled on the hold rather
+                // than only on the press edge, so a long pull keeps paying.
+                sustainBudget = SustainBudgetSeconds;
+            }
             prevHandbrake = handbrakeInput;
 
-            // --- gesture 2: brake stab. Gentler and shorter-windowed than the
-            // handbrake so it rotates rather than spins.
+            // --- gesture 2: brake stab. OFF BY DEFAULT NOW, and no longer
+            // allowed to arm the handbrake's window even when it is on.
+            //
+            // "Even using front brakes (not e-brake) while turning initiates a
+            // drift. This is not fun and low skill." It did three things on the
+            // rising edge of half pedal with a fifth of a turn of lock: a
+            // direct yaw assignment, EbrakeTimer = 0.35 s — which is the
+            // HANDBRAKE's timer, so it collapsed rear mu by a third — and,
+            // through that timer, an unconditional `Drifting = true` plus the
+            // injector at its e-brake multiplier with its gate dropped to 0.05.
+            // One tap of the pedal mid-corner therefore bought the whole loose
+            // car, and it also switched OFF the counter-steer assist, which is
+            // gated on EbrakeTimer being clear. The builder already turned this
+            // off for the AI with the comment "would keep tripping the
+            // brake-stab drift initiator and spin it"; only the human still had
+            // it. Default is now 0 for everyone.
+            //
+            // Left in the file, and re-gated rather than deleted, because it is
+            // a real Racing Game 2 setting (physBrakeDrift) that a player may
+            // want: a genuine STAB now — near-full pedal, off the throttle,
+            // most of a turn of lock — and it never touches EbrakeTimer, so it
+            // is a yaw nudge and not a mode change.
             bool brakeEdge = brakeInput > 0.5f && !prevBrake;
             if (brakeStabDrift > 0f && brakeEdge && anyWheelGrounded &&
                 forwardSpeed > topSpeedMps * 0.15f &&
-                ebrakeCooldown <= 0f && EbrakeTimer <= 0f && steerMag > 0.2f)
+                ebrakeCooldown <= 0f && EbrakeTimer <= 0f &&
+                brakeInput > 0.85f && throttleInput < 0.05f && steerMag > 0.6f)
             {
                 float inputScale = steerMag * (0.4f + speedRatio * 0.6f);
-                float dOmega = Mathf.Sign(steerInput) * BrakeStabBase * brakeStabDrift *
+                float dOmega = Mathf.Sign(steerCommandDeg) * BrakeStabBase * brakeStabDrift *
                                1.1f * massDamp * inputScale;
                 Body.AddTorque(transform.up * dOmega, ForceMode.VelocityChange);
-                EbrakeTimer = BrakeStabWindow;
                 ebrakeCooldown = BrakeStabCooldown;
             }
             prevBrake = brakeInput > 0.5f;
@@ -1723,13 +1856,29 @@ namespace PSXRacing
             // LOWER one stops the latch: without it, being in the drift state
             // refreshes the timer, the live timer blocks the drift exit, and the
             // car stays permanently loose for as long as the throttle is held.
-            float slipNow = Mathf.Max(Mathf.Abs(frontSlipAngle), Mathf.Abs(rearSlipAngle));
+            //
+            // Neither cap closed the latch, because the timer is what blocks
+            // the drift EXIT and this re-arms it every tick. A third bound now
+            // does: the sustain spends a budget that only a real gesture
+            // refills, so a drift you asked for outlives the lever by a second
+            // and a half and a drift nobody asked for cannot outlive anything.
+            // And the measure is the REAR axle, matching UpdateDriftState —
+            // sustaining on front understeer was half of the same bug.
+            sustainBudget = Mathf.Max(0f, sustainBudget - dt);
+            float slipNow = Mathf.Abs(rearSlipAngle);
             if (!handbrakeInput && Drifting && throttleInput > 0.3f && speed > DriveGateSpeed &&
-                slipNow > DriftExitSlip &&
+                slipNow > DriftExitSlip && sustainBudget > 0f &&
                 Mathf.Abs(chassisSlipAngle) < MaxBodySlipForSustain &&
                 EbrakeTimer < ThrottleSustainWindow)
                 EbrakeTimer = ThrottleSustainWindow;
         }
+
+        /// <summary>Seconds of throttle-sustained drift still owed by the last
+        /// deliberate gesture. Refilled by the handbrake and by a clutch kick,
+        /// spent by the sustain, and never topped up by the drift state itself
+        /// — see UpdateDriftGestures.</summary>
+        float sustainBudget;
+        const float SustainBudgetSeconds = 1.5f;
 
         void UpdateSteering(float dt)
         {
@@ -1739,15 +1888,68 @@ namespace PSXRacing
             // Blend the extra lock in with actual body slip rather than snapping
             // to it the instant the drift flag sets. A brake-stab entry would
             // otherwise hand the player 60 degrees of lock mid-corner.
-            float slideT = Mathf.Clamp01((Mathf.Abs(chassisSlipAngle) - 0.15f) / 0.45f);
+            float slideT = Mathf.Clamp01((Mathf.Abs(chassisSlipAngle) - DriftBlendStart) / DriftBlendSpan);
             float maxSteer = Mathf.Lerp(gripSteer, maxSteerDriftDeg, Drifting ? slideT : 0f);
-            float rate = Mathf.Lerp(steerRateDeg, steerRateDriftDeg, Drifting ? slideT : 0f);
+            // THE RATE FALLS OFF WITH SPEED TOO, not just the lock.
+            //
+            // The lock was already speed-sensitive and the rate was not, so at
+            // 30 m/s the actuator still swept the whole useful range — the
+            // front axle saturates at mu/C = 6.6 deg — in about 30 ms, under
+            // the threshold at which a player can feel themselves doing it.
+            // That is the "flick" half of "just tapping the turn initiates a
+            // drift", and it is the specific thing that gives a Black Box car
+            // its heavy, deliberate feel at speed: their wheel visibly moves
+            // slower the faster you are going. Down to 55% at the top of the
+            // falloff. The DRIFT rate is left alone at 400 deg/s — that is
+            // counter-steer authority, and it is what makes a slide catchable.
+            float rateFalloff = Mathf.Lerp(1f, SteerRateHighSpeedFrac,
+                                           Mathf.Clamp01(speed / steerSpeedFalloff));
+            float rate = Mathf.Lerp(steerRateDeg * rateFalloff, steerRateDriftDeg,
+                                    Drifting ? slideT : 0f);
             // A pulling fault (bad alignment) biases the wheels, so holding a
             // straight line costs the player constant correction. Added to the
             // TARGET, not to steerInput, so it survives a released stick.
             float steerTarget = Mathf.Clamp(steerInput + faultSteerPull, -1f, 1f);
             steerAngleDeg = Mathf.MoveTowards(steerAngleDeg, steerTarget * maxSteer, rate * dt);
+            // The same actuator, WITHOUT the fault — see SteerCommand.
+            steerCommandDeg = Mathf.MoveTowards(steerCommandDeg,
+                                                Mathf.Clamp(steerInput, -1f, 1f) * maxSteer, rate * dt);
+            currentMaxSteerDeg = Mathf.Max(maxSteer, 1f);
         }
+
+        /// <summary>Lock available this tick, for normalising <see cref="SteerCommand"/>.</summary>
+        float currentMaxSteerDeg = 34f;
+        /// <summary>The actuated wheel angle the DRIVER asked for, with
+        /// faultSteerPull left out — see <see cref="SteerCommand"/>.</summary>
+        float steerCommandDeg;
+
+        /// <summary>
+        /// HOW MUCH LOCK THE CAR HAS ACTUALLY GOT ON, -1 to 1 — what the drift
+        /// gestures and the yaw injector read instead of <c>steerInput</c>.
+        ///
+        /// The keyboard drives steerInput 0 to 1 in a single frame on purpose
+        /// (PlayerCarInput rate-limits the release only, so the car never feels
+        /// late), and the 260 deg/s actuator limit protects only
+        /// <c>steerAngleDeg</c>. Every gate in the arcade layer was reading the
+        /// raw value, so one frame of a key press was FULL commitment: maximum
+        /// handbrake kick, maximum injector torque — and, through
+        /// CountersteerReleaseSpan, the counter-steer assist fully released, so
+        /// the one thing that catches a slide contributed nothing at all
+        /// whenever the player was steering. Normalised by the lock available
+        /// at THIS speed, not by the low-speed maximum, or the gates would
+        /// silently stop being reachable above about 30 m/s.
+        ///
+        /// AND WITHOUT faultSteerPull. These gates exist to detect that the
+        /// DRIVER asked for something — the handbrake's own comment says the
+        /// steer gate is what stops ambient yaw noise spinning a straight-line
+        /// pull — and a bad-alignment fault carries up to 0.25 of lock the
+        /// player never asked for. Reading the raw wheel angle would hand a
+        /// mis-aligned car a handbrake kick, an active yaw injector and a
+        /// "not steering neutral" verdict while the wheel sits centred, i.e.
+        /// the fault would quietly buy the arcade layer. The pull still reaches
+        /// the TYRES through steerAngleDeg, which is where a pull belongs.
+        /// </summary>
+        public float SteerCommand => Mathf.Clamp(steerCommandDeg / currentMaxSteerDeg, -1f, 1f);
 
         /// <summary>
         /// Revs the clutch holds the engine at on a full-pedal launch — the
@@ -1826,13 +2028,106 @@ namespace PSXRacing
             gear = Mathf.Clamp(gear, 1, gearRatios.Length);
             if (gear == currentGear) return;
             bool up = gear > currentGear;
+            int from = currentGear;
             currentGear = gear;
             shiftTimer = shiftTime * faultShiftMult;
             gearJustChangedTimer = 0.6f;
             if (up && Upshifted != null)
                 Upshifted(Mathf.Clamp01((currentRPM - idleRPM) /
                                         Mathf.Max(revLimitRPM - idleRPM, 1f)));
+            else if (!up) TryClutchKick(from);
         }
+
+        /// <summary>
+        /// THE CLUTCH KICK: a downshift that can break the rear loose.
+        ///
+        /// "Downshifting and e-brake pulls should be able to initiate drifts
+        /// while turning." The e-brake always could; a downshift never could
+        /// and structurally could not, because the only path from a gear change
+        /// to the tyres was engine braking, and engine braking is hard-fenced
+        /// at <see cref="EngineBrakeRearCircleShare"/> — 45% of the rear
+        /// friction circle, which costs the rear about 11% of its lateral grip.
+        /// You cannot drift a car on 11%.
+        ///
+        /// So the transient is modelled directly, as its own short window with
+        /// its own mu collapse, rather than by loosening that fence (which
+        /// would make every trailing-throttle corner loose, which is the bug
+        /// this whole pass exists to remove).
+        ///
+        /// Four gates, and all four are the difference between a MOVE and an
+        /// accident:
+        ///   * OVERRUN — how far up the rev range the new gear lands the
+        ///     engine. Sixth to fifth at 200 km/h is nothing; fourth to second
+        ///     into a hairpin is everything. This is also what keeps the
+        ///     automatic box out of it: an auto downshift fires at
+        ///     downshiftRPM, which by definition puts the engine LOW.
+        ///   * OFF THE THROTTLE. A downshift with the pedal down is a
+        ///     power-on rev match, not a clutch drop.
+        ///   * A DRIVEN REAR AXLE. A front-driver that shocks its driven wheels
+        ///     understeers; it does not swing.
+        ///   * LOCK ON THE WHEEL for the yaw punch (the mu collapse still
+        ///     happens straight-line, which is what makes a badly-timed
+        ///     downshift out of a corner cost you).
+        /// </summary>
+        void TryClutchKick(int fromGear)
+        {
+            if (Body == null || !anyWheelGrounded) return;
+            // MANUAL ONLY. The doc below claims the overrun gate keeps the
+            // automatic box out of this; it does not — on the reference car an
+            // auto downshift at downshiftRPM produces an overrun of 0.32 to
+            // 0.60, so three of five automatic downshifts would kick, including
+            // on every AI car braking into a corner. The AI never set
+            // manualMode, and UpdateGearbox's auto branch is already gated on
+            // it, so one line excludes both. It is not a restriction on the
+            // player: PlayerCarInput.ShiftBy sets manualMode true before it
+            // calls ShiftTo, on the same press.
+            if (!manualMode) return;
+            if (throttleInput >= 0.2f) return;
+            if (frontDriveShare > 0.6f) return;
+            float speed = Mathf.Abs(forwardSpeed);
+            if (speed <= DriveGateSpeed) return;
+
+            float rpmAfter = KinematicRPM(speed, currentGear);
+            float rpmBefore = KinematicRPM(speed, fromGear);
+            // A MONEY SHIFT IS NOT THE BEST MOVE IN THE GAME. overrun clamps to
+            // 1 exactly when the new gear would take the engine past the
+            // limiter, and UpdateGearbox silently clamps currentRPM, so the
+            // strongest kick available was a shift that should have cost an
+            // engine. No kick for a downshift the gearbox cannot take.
+            if (rpmAfter > revLimitRPM) return;
+            // Fraction of the band the change JUMPS, measured against how much
+            // band is left above the old revs. A big jump into the top of the
+            // range is a shock; a small one is a gear change.
+            float head = Mathf.Max(redlineRPM - rpmBefore, redlineRPM * 0.15f);
+            float overrun = Mathf.Clamp01((rpmAfter - rpmBefore) / head);
+            if (overrun <= ClutchKickMinOverrun) return;
+
+            clutchKickTimer = ClutchKickWindow * overrun;
+
+            float lock01 = Mathf.Abs(SteerCommand);
+            if (lock01 > 0.25f)
+            {
+                // The budget is bought by a gesture that ROTATED the car, and
+                // scaled by how hard: a straight-line downshift unsticks the
+                // rear for half a second and buys no sustain at all.
+                sustainBudget = SustainBudgetSeconds * overrun;
+                float massDamp = Mathf.Sqrt(1200f / Mathf.Max(800f, massKg));
+                float dOmega = Mathf.Sign(steerCommandDeg) * ClutchKickBase * overrun *
+                               lock01 * massDamp;
+                Body.AddTorque(transform.up * dOmega, ForceMode.VelocityChange);
+            }
+        }
+
+        /// <summary>Seconds left on the clutch-kick transient — see
+        /// <see cref="TryClutchKick"/>. Collapses rear mu while it runs.</summary>
+        [HideInInspector] public float clutchKickTimer;
+        const float ClutchKickWindow = 0.5f;
+        /// <summary>Rear mu lost at the peak of a full-strength kick: 40%.
+        /// Under the handbrake's 70%, because a clutch drop unsticks the rear
+        /// and a locked rear axle deletes it.</summary>
+        const float ClutchKickMuCollapse = 0.40f;
+        const float ClutchKickBase = 0.55f;      // rad/s at full overrun and full lock
+        const float ClutchKickMinOverrun = 0.25f;
 
         void SuspensionAndLoads(float dt)
         {
@@ -1964,9 +2259,15 @@ namespace PSXRacing
             // the integrator saturates the rear first and yaw develops from the
             // tire model, not from a scripted "drift mode". Collapse mu, NOT
             // cornering stiffness — backwards makes the rear feel numb, not loose.
+            // Two collapses, and the DEEPER one wins rather than the two
+            // multiplying: a handbrake pull during a clutch kick is still a
+            // handbrake pull, not a rear axle with 18% of its grip left.
             float rearMuMult = EbrakeTimer > 0f
                 ? 1f - EbrakeMuCollapse * Mathf.Min(1f, EbrakeTimer / EbrakeWindow)
                 : 1f;
+            if (clutchKickTimer > 0f)
+                rearMuMult = Mathf.Min(rearMuMult,
+                    1f - ClutchKickMuCollapse * Mathf.Min(1f, clutchKickTimer / ClutchKickWindow));
 
             // THE PARKING BRAKE. "When I park my car it tends to roll away. It
             // should park in gear and/or with e-brake."
@@ -2153,7 +2454,35 @@ namespace PSXRacing
                 }
                 if (brakeForceTotal > 0f && speed > 0.3f)
                 {
-                    float share = front ? brakeFrontShare : (1f - brakeFrontShare);
+                    // LOAD-SENSITIVE, which is what a proportioning valve is
+                    // for and why trail-braking used to spin the car.
+                    //
+                    // The split was a fixed fraction of pedal force with no
+                    // reference to what the axle was carrying, while weight
+                    // transfer under 0.9 g takes about a third of the load off
+                    // the rear. So at full pedal a rear wheel spent ~85% of its
+                    // shrunken friction circle on stopping and a front wheel
+                    // ~64% of its grown one — and a wheel at its longitudinal
+                    // cap has EXACTLY zero lateral grip left, with no
+                    // transition. Braking into a corner therefore removed the
+                    // rear's cornering force first, every time. "Even using
+                    // front brakes (not e-brake) while turning initiates a
+                    // drift."
+                    //
+                    // Half the bias now follows the live axle loads, so the
+                    // rear demand falls as the nose dives. Half, not all,
+                    // because the fixed number is the car's brake hardware and
+                    // the player can still dial it in the garage.
+                    float fixedShare = front ? brakeFrontShare : (1f - brakeFrontShare);
+                    float totalLoad = frontAxleLoad + rearAxleLoad;
+                    // Clamped, because wheelLoad is a raw spring+damper
+                    // reading and an axle with one wheel in the air reports
+                    // half of what it is carrying. A proportioning valve
+                    // shifts the bias; it does not hand one axle everything.
+                    float loadShareAxle = totalLoad > 1f
+                        ? Mathf.Clamp((front ? frontAxleLoad : rearAxleLoad) / totalLoad, 0.4f, 0.75f)
+                        : 0.5f;
+                    float share = Mathf.Lerp(fixedShare, loadShareAxle, BrakeLoadSensitivity);
                     int brakeWheels = Mathf.Max(1, front ? groundedFront : groundedRear);
                     brakeDemand = brakeForceTotal * share / brakeWheels;
                     fLong -= Mathf.Sign(vLong) * Mathf.Min(brakeDemand, longCap);
@@ -2263,7 +2592,41 @@ namespace PSXRacing
         /// </summary>
         void UpdateDriftState(Vector3 vel)
         {
-            float slipMax = Mathf.Max(Mathf.Abs(frontSlipAngle), Mathf.Abs(rearSlipAngle));
+            // A DRIFT IS A REAR-AXLE EVENT, and measuring it as
+            // max(front, rear) is why turning the wheel drifted the car.
+            //
+            // Front slip is computed in the STEERED wheel frame, so for the
+            // first tenth of a second after a steering input the contact
+            // velocity still points down the old heading and the front slip
+            // angle is essentially the road-wheel angle itself. Lock is 34 deg
+            // at rest falling to 12 at 55 m/s — above the 18.3 deg entry
+            // threshold everywhere below about 40 m/s — so a hard turn-in at
+            // any ordinary speed tripped the drift flag off the FRONT axle
+            // while the rear was still planted. That flag is a mode switch:
+            // the lateral stabilizer, the yaw damper, the injector and the
+            // steering lock all change with it, so understeer was being
+            // answered with the loose-car settings. Reported as "just tapping
+            // the turn initiates a drift".
+            //
+            // Two measures now, and both have to agree: the REAR tyres are
+            // past their peak, AND the whole car is pointing away from where
+            // it is going. The second is what separates a rear axle working
+            // hard in a fast corner from a car that is actually sideways.
+            float rearSlip = Mathf.Abs(rearSlipAngle);
+            // MEASURED OFF THE NOSE, and REVERSING IS NOT A DRIFT.
+            //
+            // chassisSlipAngle is the signed angle between where the car is
+            // going and where it points, so a car in reverse reads pi — which
+            // sails past the entry threshold AND can never satisfy the exit
+            // one. Backing out of a parking space in an arc would have set the
+            // drift state and latched it there for the whole manoeuvre, with
+            // the stabilizer faded off and the yaw damper halved. Reversing is
+            // its own thing: the slip measure is folded about 90 degrees so a
+            // car travelling backwards reads as pointing STRAIGHT backwards
+            // rather than as maximally sideways, and the drift layer simply
+            // does not apply to it.
+            float bodySlip = Mathf.Abs(chassisSlipAngle);
+            if (bodySlip > Mathf.PI * 0.5f) bodySlip = Mathf.PI - bodySlip;
             bool ebrakeActive = EbrakeTimer > 0f;
 
             if (Mathf.Abs(forwardSpeed) < DriftStopSpeed && vel.magnitude < DriftStopSpeed)
@@ -2272,7 +2635,7 @@ namespace PSXRacing
             }
             else if (Drifting)
             {
-                if (slipMax < DriftExitSlip && !ebrakeActive)
+                if (rearSlip < DriftExitSlip && bodySlip < DriftExitBodySlip && !ebrakeActive)
                 {
                     Drifting = false;
                     postDriftTimer = PostDriftLockout;
@@ -2280,8 +2643,13 @@ namespace PSXRacing
             }
             else
             {
-                if (ebrakeActive) Drifting = true;
-                else if (slipMax > DriftEnterSlip && postDriftTimer <= 0f) Drifting = true;
+                // A gesture is a request: the handbrake's window, and a clutch
+                // kick's. On the ENTRY branch only — folding the kick into
+                // ebrakeActive would also block the EXIT for its whole window,
+                // which is the latch this pass exists to remove.
+                if (ebrakeActive || clutchKickTimer > 0f) Drifting = true;
+                else if (rearSlip > DriftEnterSlip && bodySlip > DriftEnterBodySlip &&
+                         postDriftTimer <= 0f) Drifting = true;
             }
         }
 
@@ -2299,7 +2667,7 @@ namespace PSXRacing
             float vLat = Vector3.Dot(Body.linearVelocity, transform.right);
             if (Mathf.Abs(vLat) < LateralDampDeadzone) return;
 
-            float k = Drifting ? lateralDampDrift : lateralDampGrip;
+            float k = Mathf.Lerp(lateralDampGrip, lateralDampDrift, DriftBlend);
             // Stand down after an impact, or the hit is deleted before the player
             // can see it — the damper would pull the car straight within ~3 ticks.
             k *= 1f - impactStabilizerCut * ImpactGrace01;
@@ -2312,7 +2680,7 @@ namespace PSXRacing
 
         void ApplyYawLayer(float dt)
         {
-            float steerMag = Mathf.Abs(steerInput);
+            float steerMag = Mathf.Abs(SteerCommand);   // actuated lock, not the stick — see SteerCommand
             float yawRate = Vector3.Dot(Body.angularVelocity, transform.up);
 
             // --- wheelspin yaw boost: the injector that makes throttle rotate
@@ -2333,11 +2701,12 @@ namespace PSXRacing
             if (wheelspinRatio > 0f && injectorFade > 0f && steerMag > steerGate &&
                 postDriftTimer <= 0f && anyWheelGrounded && layoutGain > 0.05f)
             {
-                float mult = EbrakeTimer > 0f ? InjectorEbrake
-                           : (Drifting ? InjectorDrift : InjectorGrip);
+                float mult = Mathf.Lerp(InjectorGrip,
+                                        EbrakeTimer > 0f ? InjectorEbrake : InjectorDrift,
+                                        DriftBlend);
                 float surfMult = onRoad ? 1.0f : InjectorOffroadMult;
                 float arm = wheelbase * weightDistFront;
-                float torque = Mathf.Sign(steerInput) * steerMag * wheelspinRatio *
+                float torque = Mathf.Sign(steerCommandDeg) * steerMag * wheelspinRatio *
                                arm * rearCircleTotal * InjectorCircleShare * mult * surfMult *
                                wheelspinYawGain * injectorFade * layoutGain;
                 Body.AddTorque(transform.up * torque, ForceMode.Force);
@@ -2351,14 +2720,18 @@ namespace PSXRacing
                 (Mathf.Abs(chassisSlipAngle) - YawSlipRampStart) / YawSlipRampWidth);
             bool counterSteering = Drifting && steerMag > YawCounterSteerInput &&
                                    Mathf.Abs(yawRate) > YawCounterSteerRate &&
-                                   Mathf.Sign(steerInput) != Mathf.Sign(yawRate);
+                                   Mathf.Sign(steerCommandDeg) != Mathf.Sign(yawRate);
 
             if (Drifting)
             {
-                if (driverIdle) yawDamp = YawDampIdle;
-                else if (steerNeutral) yawDamp = Mathf.Lerp(YawDampNeutralMin, YawDampNeutralMax, slipT);
-                else if (counterSteering) yawDamp = YawDampCounter;
-                else yawDamp = YawDampCommitted;   // committed slide still feels loose
+                float loose;
+                if (driverIdle) loose = YawDampIdle;
+                else if (steerNeutral) loose = Mathf.Lerp(YawDampNeutralMin, YawDampNeutralMax, slipT);
+                else if (counterSteering) loose = YawDampCounter;
+                else loose = YawDampCommitted;   // committed slide still feels loose
+                // Faded in with how sideways the car is, not switched on with
+                // the flag — see DriftBlend.
+                yawDamp = Mathf.Lerp(yawDampGrip, loose, DriftBlend);
             }
             else yawDamp = yawDampGrip;
 
@@ -2369,7 +2742,7 @@ namespace PSXRacing
 
             // --- counter-steer assist: never catches a deliberate slide, and
             // backs off as the player steers, so held-opposite-lock is untouched.
-            if (countersteerAssist > 0f && EbrakeTimer <= 0f && !handbrakeInput &&
+            if (countersteerAssist > 0f && EbrakeTimer <= 0f && clutchKickTimer <= 0f && !handbrakeInput &&
                 forwardSpeed > CountersteerMinSpeed)
             {
                 float excess = Mathf.Abs(chassisSlipAngle) - CountersteerDeadzone;
@@ -2472,6 +2845,10 @@ namespace PSXRacing
             wheelSpin = 0f;
             wheelspinRatio = 0f;
             EbrakeTimer = 0f;
+            clutchKickTimer = 0f;
+            ebrakePending = 0f;
+            sustainBudget = 0f;
+            DriftBlend = 0f;
             Drifting = false;
             postDriftTimer = 0f;
             impactGraceTimer = 0f;
@@ -2555,6 +2932,10 @@ namespace PSXRacing
             wheelSpin = 0f;
             wheelspinRatio = 0f;
             EbrakeTimer = 0f;
+            clutchKickTimer = 0f;
+            ebrakePending = 0f;
+            sustainBudget = 0f;
+            DriftBlend = 0f;
             Drifting = false;
             postDriftTimer = 0f;
             impactGraceTimer = 0f;

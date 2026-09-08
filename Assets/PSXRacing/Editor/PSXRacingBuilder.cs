@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -4792,6 +4792,7 @@ namespace PSXRacing.EditorTools
                 box.sharedMaterial = physMat;
 
                 var car = root.AddComponent<CarController>();
+                ApplyHandlingDefaults(car);
 
                 // Body visual. Meshes and materials are left empty here and
                 // filled by CarBody below: which shell this car wears is a
@@ -4915,6 +4916,40 @@ namespace PSXRacing.EditorTools
                     car.allowReverse = false;   // they respawn instead of reversing
                 }
                 return car;
+        }
+
+        /// <summary>
+        /// STAMP THE HANDLING NUMBERS FROM THE CONSTANTS, at bake time.
+        ///
+        /// Every tuning value on CarController is a serialized public field, so
+        /// AddComponent writes the C# initialiser into the scene YAML once and
+        /// that YAML is what ships forever after. A retune that edits the
+        /// initialiser therefore does NOTHING until somebody re-bakes — and
+        /// PSXBuildWebGL only re-runs the builder when a scene FILE IS MISSING,
+        /// so the shipped cars had been running a lateral stabilizer of 4.5 at
+        /// 0.7 g and a 220 deg/s steering rate against source defaults of 3.6,
+        /// 0.45 and 260 for weeks, silently, while the file said otherwise.
+        ///
+        /// Assigning them here does not fix a stale scene on its own — a bake
+        /// is still a bake — but it makes the CONSTANTS the thing a rebake
+        /// copies, so the next drift between the two is a rebuild away from
+        /// being closed rather than a hand-edit of forty-one YAML entries. Same
+        /// pattern speedFOV and speedFullMps already follow on the camera.
+        /// </summary>
+        static void ApplyHandlingDefaults(CarController car)
+        {
+            car.brakeFrontShare = CarController.DefaultBrakeFrontShare;
+            car.brakeDemandG = CarController.DefaultBrakeDemandG;
+            car.steerRateDeg = CarController.DefaultSteerRateDeg;
+            car.steerRateDriftDeg = CarController.DefaultSteerRateDriftDeg;
+            car.maxSteerLowSpeedDeg = CarController.DefaultMaxSteerLowSpeedDeg;
+            car.maxSteerHighSpeedDeg = CarController.DefaultMaxSteerHighSpeedDeg;
+            car.maxSteerDriftDeg = CarController.DefaultMaxSteerDriftDeg;
+            car.lateralDampGrip = CarController.DefaultLateralDampGrip;
+            car.lateralDampDrift = CarController.DefaultLateralDampDrift;
+            car.lateralDampMaxG = CarController.DefaultLateralDampMaxG;
+            car.brakeStabDrift = CarController.DefaultBrakeStabDrift;
+            car.countersteerAssist = CarController.DefaultCountersteerAssist;
         }
 
         /// <summary>
@@ -5269,6 +5304,19 @@ namespace PSXRacing.EditorTools
             var chase = camGO.AddComponent<ChaseCamera>();
             chase.target = player.transform;
             chase.targetCar = player;
+            // Stamped from the constants for the reason ApplyHandlingDefaults
+            // gives: these are serialized fields, and a scene baked before a
+            // retune outvotes the retune forever otherwise. rotationLag is the
+            // live example — every scene in the tree carries its old 7.
+            chase.rotationLag = ChaseCamera.DefaultRotationLag;
+            chase.rotationLagDrift = ChaseCamera.DefaultRotationLagDrift;
+            chase.aimVelBlendMax = ChaseCamera.DefaultAimVelBlendMax;
+            chase.aimSlipFullRad = ChaseCamera.DefaultAimSlipFullRad;
+            chase.speedFOV = ChaseCamera.DefaultChaseSpeedFOV;
+            chase.velFilterGrip = ChaseCamera.DefaultVelFilterGrip;
+            chase.velFilterDrift = ChaseCamera.DefaultVelFilterDrift;
+            chase.speedFullMps = ChaseCamera.DefaultSpeedFullMps;
+            chase.speedLookAhead = ChaseCamera.DefaultSpeedLookAhead;
             camGO.transform.position = player.transform.position - player.transform.forward * 5.4f + Vector3.up * 1.8f;
             camGO.transform.rotation = Quaternion.LookRotation(player.transform.forward);
 

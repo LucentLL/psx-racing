@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -180,6 +180,15 @@ namespace PSXRacing.EditorTools
             /// what "I drove into a wall full speed and the bottom pizza barely
             /// moved, even side to side" looked like from in here.</summary>
             public float bottomSlideRough, bottomSlideCrash;
+            /// <summary>Displacement after a SIDE impact: the least-moved box,
+            /// the most-moved box, and the bottom one. There was no lateral
+            /// displacement reading of any kind — the one side-jolt case in the
+            /// harness only checked that a shut box kept its pizza — so "I
+            /// slammed into a wall with the passenger side and the bottom box
+            /// did not move" was a report the suite could not have caught, and
+            /// the only crash-displacement floor it does own is fed a pure
+            /// forward jolt where the seat is open by design.</summary>
+            public float sideSlideMin, sideSlideMax, sideSlideBottom;
 
             // ---- 2026-09-07: the two reports ------------------------------
             //
@@ -212,7 +221,7 @@ namespace PSXRacing.EditorTools
             /// the lid open, did the pizza leave (escaped, or how far from
             /// home in metres); and the rule's control, a box turned to ten
             /// degrees short of it and read once: did it stay shut.</summary>
-            public bool tumbleOpened, tumbleEscaped;
+            public bool tumbleOpened, tumbleEscaped, tumblePizzaLoose;
             public float tumbleHomeError;
             /// <summary>How far the pizza dropped off the floor of the
             /// upturned box, in metres — PizzaCargo.PizzaOffFloor, the
@@ -454,6 +463,43 @@ namespace PSXRacing.EditorTools
                 r.detail = cargo.Describe();
 
                 Object.DestroyImmediate(cargo.gameObject);
+
+                // 4b. THE SAME CRASH, SIDEWAYS.
+                //
+                // The passenger side into a wall at 80 km/h, on the stock
+                // bench. Sideways the seat is walled on both sides on purpose,
+                // so this is not asking for the load to leave it — only for
+                // every box to actually GO somewhere, including the bottom
+                // one, which the stock bolster used to catch at half its own
+                // height while the two above rode over the ridge.
+                {
+                    var c = PizzaCargo.Spawn(null, new[] { 0, 3, 6 }, 0, seatStage: 0);
+                    if (c != null)
+                    {
+                        Step(c, Vector3.zero, Quaternion.identity, 60);
+                        // A wall on the car's RIGHT throws the car to its
+                        // LEFT, so the velocity the car GAINS is -X and the
+                        // load — which gains nothing — lurches to +X, into the
+                        // door card. Same convention as the head-on above.
+                        // The roll has to describe the same side: Rz(-10) tips
+                        // the tray's up-vector toward +X, which is the body
+                        // roll of a passenger-side hit. Getting the two out of
+                        // step measures one side's slide under the other
+                        // side's gravity, which is a case that never happens.
+                        var roll = Quaternion.Euler(0f, 0f, -10f);
+                        c.Tick(Vector3.zero, roll, Dt, new Vector3(-22f, 0f, 0f));
+                        Physics.Simulate(Dt);
+                        Step(c, Vector3.zero, roll, 40);
+                        Step(c, Vector3.zero, Quaternion.identity, 110);
+                        r.sideSlideBottom = c.BoxSlide(0);
+                        r.sideSlideMax = c.BoxSlideMax();
+                        r.sideSlideMin = c.BoxSlideMin();
+                        Debug.Log("[PizzaSim] side     bottom " + r.sideSlideBottom.ToString("0.000") +
+                                  "  min " + r.sideSlideMin.ToString("0.000") +
+                                  "  max " + r.sideSlideMax.ToString("0.000"));
+                        Object.DestroyImmediate(c.gameObject);
+                    }
+                }
 
                 // 5. THE SEAT LADDER, one rung at a time.
                 //
@@ -728,6 +774,7 @@ namespace PSXRacing.EditorTools
                         }
                         r.tumbleOpened = c.IsOpen(0);
                         r.tumbleEscaped = c.PizzaEscaped(0);
+                        r.tumblePizzaLoose = c.PizzaLoose(0);
                         r.tumbleHomeError = c.PizzaHomeError(0);
                         r.tumbleOffFloor = c.PizzaOffFloor(0);
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();

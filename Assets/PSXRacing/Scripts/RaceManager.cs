@@ -239,13 +239,22 @@ namespace PSXRacing
                 }
                 else if (p.nearestIdx > n - 6 && prev < 5 && p.crossedStartOnce)
                 {
-                    // Crossed the line backwards. On a sprint, back over the
-                    // line on lap 1 is back on the grid side of it and the
-                    // first crossing is owed again — otherwise a car could
-                    // cross, reverse twenty metres, and stand at index n-3,
-                    // past a finish clamped to n-8, having driven nowhere. A
-                    // lap race keeps the answer it always had, the lap floor.
-                    if (Sprint && p.lap <= 1) p.crossedStartOnce = false;
+                    // Crossed the line backwards. Back over it on lap 1 is back
+                    // on the grid side of it, and the first crossing is owed
+                    // again — otherwise a car could cross, reverse twenty
+                    // metres, and stand at index n-3, past a finish clamped to
+                    // n-8, having driven nowhere.
+                    //
+                    // That used to be a SPRINT-only rule, and the lap race got
+                    // the lap floor instead — which does nothing on lap 1,
+                    // because the floor IS 1. So a car spun round early and
+                    // driven back over the line kept `crossedStartOnce`, and
+                    // the next honest forward crossing was spent on the lap
+                    // counter rather than on re-arming the first one: a whole
+                    // lap in hand, gone. "Even though I turned around, I was a
+                    // lap behind." A car that undoes its first crossing owes it
+                    // again whatever kind of race this is.
+                    if (p.lap <= 1) { p.crossedStartOnce = false; p.lapStartTime = Time.time; }
                     else p.lap = Mathf.Max(1, p.lap - 1);
                 }
 

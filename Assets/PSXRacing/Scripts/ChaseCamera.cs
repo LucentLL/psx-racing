@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace PSXRacing
@@ -40,7 +40,38 @@ namespace PSXRacing
         /// is gone and the along-forward lag is clamped instead (see
         /// <see cref="lagClampM"/>), so distance is now the number it says.</summary>
         public float positionLag = 5f;
-        public float rotationLag = 7f;
+        /// <summary>Yaw follow rate while gripping, 1/s. Was 7 — faster than
+        /// the reference game manages while gripping (6) and with no drift
+        /// branch at all, so the lens was at its most eager exactly when the
+        /// yaw rate was highest.</summary>
+        public float rotationLag = DefaultRotationLag;
+        public const float DefaultRotationLag = 5.5f;
+        /// <summary>And the rate while sideways. Read through
+        /// <see cref="RotationLagDriftOf"/> rather than directly: belt and
+        /// braces against a rate of zero, which would stop the camera turning
+        /// altogether in a slide. (A field ABSENT from a scene's YAML keeps its
+        /// C# initialiser — Unity only overwrites the keys it finds — so the
+        /// real stale-value hazard is a key that IS written there, like
+        /// <see cref="rotationLag"/>, which every baked scene carries at its
+        /// old 7. That is what the builder's stamp and a rebake are for.)</summary>
+        public float rotationLagDrift = DefaultRotationLagDrift;
+        public const float DefaultRotationLagDrift = 3.5f;
+        /// <summary>How much of the aim may be handed to the travel direction
+        /// at full body slip, and the slip that counts as full. Racing Game 2's
+        /// CAM_VEL_BLEND / CAM_SLIP_FULL.</summary>
+        public float aimVelBlendMax = DefaultAimVelBlendMax;
+        public const float DefaultAimVelBlendMax = 0.6f;
+        public float aimSlipFullRad = DefaultAimSlipFullRad;
+        public const float DefaultAimSlipFullRad = 0.35f;
+        /// <summary>Hard ceiling on how far off the nose the aim may be pulled,
+        /// degrees. Bounding the RATIO is not enough — see the block in Follow.</summary>
+        public const float MaxAimOffsetDeg = 28f;
+        /// <summary>Low-pass on the travel direction, 1/s, gripping and
+        /// drifting. Unfiltered it carries every kerb.</summary>
+        public float velFilterGrip = DefaultVelFilterGrip;
+        public float velFilterDrift = DefaultVelFilterDrift;
+        public const float DefaultVelFilterGrip = 10f;
+        public const float DefaultVelFilterDrift = 14f;
         public float baseFOV = 58f;
 
         [Header("Speed rig (Black Box style: every value is a low/high pair over speed)")]
@@ -56,20 +87,27 @@ namespace PSXRacing
         public float speedFullMps = DefaultSpeedFullMps;
         public const float DefaultSpeedFullMps = 55.6f;
         /// <summary>
-        /// Degrees of FOV pull at full speed in the two CHASE views: 58 -> 76.
-        /// It was 8 over 0-60 m/s, linear, which opened the lens 3.7 deg by
-        /// 100 km/h and 7.4 by 200 — edge-of-frame angular velocity, the main
-        /// speed cue in a chase view, was nearly the same at 60 km/h as at
-        /// 200. Modders call the MW05 behaviour "FOV pull" and it is the
-        /// single cheapest cue there is: a projection change, free on a
-        /// 240-line target where wide-angle aliasing is invisible.
+        /// Degrees of FOV pull at full speed in the two CHASE views: 58 at
+        /// rest, 62 at 100 km/h, 66 at 200. Modders call the MW05 behaviour
+        /// "FOV pull" and it is the single cheapest speed cue there is: a
+        /// projection change, free on a 240-line target where wide-angle
+        /// aliasing is invisible. It went to 18 in the sense-of-speed pass and
+        /// that was too far — see the note under the constant.
         /// </summary>
         public float speedFOV = DefaultChaseSpeedFOV;
-        public const float DefaultChaseSpeedFOV = 18f;
+        public const float DefaultChaseSpeedFOV = 8f;
+        // Was 18, and eighteen degrees is a third again of the field of view:
+        // 58 at rest, 67 at 100 km/h, 76 at 200. Black Box games do pull the
+        // lens, but by a handful of degrees — at 76 the periphery streams past
+        // fast enough to read as a boost effect rather than as speed, and it is
+        // stacked on top of the pull-back, the drop and the look-ahead. Eight
+        // gives 58 / 62 / 66: felt, not noticed.
         /// <summary>
-        /// Mounted views get HALF the pull. Their speed comes from the road
-        /// surface streaming past a lens a foot off it, not from the lens,
-        /// and <see cref="MountClearance"/> was sized against the hood FOV:
+        /// Mounted views get an INDEPENDENT 9 degrees, fixed by the near-plane
+        /// geometry rather than derived from the chase pull — it used to be
+        /// half of it, and is now slightly more than it. Their speed comes from
+        /// the road surface streaming past a lens a foot off it, not from the
+        /// lens, and <see cref="MountClearance"/> was sized against the hood FOV:
         /// the bonnet enters the frame at clearance / tan(halfFOV + pitch),
         /// and at 63 + 9 = 72 deg that is 0.18 / tan(38 deg) = 0.230 m — 1.28x
         /// the 0.18 m near plane, the same margin the clearance was designed
@@ -91,7 +129,8 @@ namespace PSXRacing
         /// fixed 1.5. Looking further up the road drops the car in the frame
         /// and shows the corner arriving, which is what a fast car looks like
         /// from behind. Starting value.</summary>
-        public float speedLookAhead = 4f;
+        public float speedLookAhead = DefaultSpeedLookAhead;
+        public const float DefaultSpeedLookAhead = 2.5f;   // was 4 — see DefaultChaseSpeedFOV
         /// <summary>
         /// Bound on how far along its own forward axis the follow lag may sit
         /// behind the wanted position, metres. With the speed term gone from
@@ -135,14 +174,15 @@ namespace PSXRacing
         // RollUnwind (both 1/s), slew-limited to RollSlewDegPerSec. In this
         // game's units v*yawRate IS lateral acceleration in m/s^2, so the 0.16
         // scale makes "1.0" about 0.64 g and "5.5" about 3.5 g: a grip-limit
-        // corner (1.3 g, latG 2.0) rolls ~1 deg and a committed drift (1 rad/s
-        // at 30 m/s, latG 4.8) rolls ~7.5 deg — the roll is a DRIFT cue, and a
-        // gripping corner barely tilts. Chase views only; the camera banks
-        // INTO the turn, the UG2 lean.
+        // corner (1.3 g, latG 2.0) sits UNDER LatGStart and rolls exactly zero,
+        // and a committed drift (1 rad/s at 30 m/s, latG 4.8) rolls about 1.5
+        // of the 1.8 deg available — the roll is a DRIFT cue and a gripping
+        // corner does not tilt at all. Chase views only; the camera banks INTO
+        // the turn, the UG2 lean.
         public const float LatGScale = 0.16f;
         public const float LatGStart = 2.6f;   // ordinary steering at 30 m/s makes ~1 g of this measure, so a 1.0 threshold wound the roll in and out on every correction
         public const float LatGFull = 5.5f;
-        public const float MaxRollDeg = 3f;
+        public const float MaxRollDeg = 1.8f;
         public const float RollWindIn = 3.5f;
         public const float RollUnwind = 11f;
         public const float RollSlewDegPerSec = 45f;
@@ -526,11 +566,91 @@ namespace PSXRacing
             if (bounded != along) smoothPos += fwd * (bounded - along);
             transform.position = smoothPos;
 
-            Vector3 lookAt = target.position + Vector3.up * look + fwd * (1.5f + speedLookAhead * t);
+            // ---- WHERE THE LENS POINTS: the heading, blended toward the
+            // direction the car is actually TRAVELLING once it is sideways.
+            //
+            // The aim was locked 100% to the chassis heading, so in a slide the
+            // whole world rotated under the player at the car's full yaw rate —
+            // the "too aggressive" half of the camera. Racing Game 2 carries
+            // this layer (cameraOrientation.ts: heading blended toward a
+            // filtered velocity angle by slip, and a SLOWER lerp while
+            // drifting, "snapping the camera instantly to the target would make
+            // drift look frantic"); it was never ported. Applied to the AIM
+            // only, not to where the rig sits — moving the seat as well rotates
+            // it the other way round the car and the two cancel.
+            float aimSlipT = 0f;
+            aimFwd = fwd;
+            if (targetCar != null && targetCar.Body != null)
+            {
+                Vector3 v = targetCar.Body.linearVelocity; v.y = 0f;
+                // REVERSING IS NOT A SLIDE, and this is the same trap the drift
+                // swing eleven lines up already guards ("so a spin does not
+                // orbit the lens round the car"). chassisSlipAngle is the angle
+                // between travel and nose, so a car backing out of a space at
+                // 3 m/s reads pi: the ratio pins at 1, the blend swings the aim
+                // 0.6 of the way toward a heading 180 degrees away, LerpAngle
+                // takes whichever arc is shorter and flips sides on any wobble,
+                // AND the follow rate drops to its drift setting at the moment
+                // the player has least idea where they are. Below, a car whose
+                // travel is not broadly forward simply aims down its own nose.
+                bool goingForward = Vector3.Dot(v, fwd) > 0f;
+                if (v.sqrMagnitude > 4f && goingForward)
+                {
+                    aimSlipT = Mathf.Clamp01(Mathf.Abs(targetCar.chassisSlipAngle) /
+                                             Mathf.Max(aimSlipFullRad, 0.01f));
+                    float rawVelYaw = Mathf.Atan2(v.x, v.z) * Mathf.Rad2Deg;
+                    if (!haveVelYaw) { velYawDeg = rawVelYaw; haveVelYaw = true; }
+                    else
+                    {
+                        float filt = Mathf.Lerp(velFilterGrip, velFilterDrift, aimSlipT);
+                        velYawDeg = Mathf.LerpAngle(velYawDeg, rawVelYaw,
+                                                    1f - Mathf.Exp(-filt * dt));
+                    }
+                    // And the OFFSET is bounded, not just the ratio. Clamping
+                    // the ratio alone leaves it at 1 for anything past
+                    // aimSlipFullRad, so a big angle still gets the full blend
+                    // of a big angle; bounding the applied degrees is what
+                    // keeps the lens behind the car.
+                    float headYaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
+                    float delta = Mathf.Clamp(Mathf.DeltaAngle(headYaw, velYawDeg),
+                                              -MaxAimOffsetDeg, MaxAimOffsetDeg);
+                    aimFwd = Quaternion.Euler(0f, headYaw + aimVelBlendMax * aimSlipT * delta, 0f)
+                             * Vector3.forward;
+                }
+                else haveVelYaw = false;
+            }
+
+            Vector3 lookAt = target.position + Vector3.up * look + aimFwd * (1.5f + speedLookAhead * t);
             Quaternion wantedRot = Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
-            followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-rotationLag * dt));
+            // Slower while sideways, for the reason the reference gives. Reads
+            // the same gated aimSlipT, so a spin or a reverse no longer slows
+            // the follow to its drift rate.
+            float rotRate = Mathf.Lerp(rotationLag, RotationLagDriftOf(this), aimSlipT);
+            followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-rotRate * dt));
             transform.rotation = followRot;
         }
+
+        Vector3 aimFwd = Vector3.forward;
+        float velYawDeg;
+        bool haveVelYaw;
+
+        /// <summary>Drop the travel-direction filter. Called whenever the rig
+        /// stops being the thing that aims the camera — a mounted view, a
+        /// respawn — so returning to a chase view mid-slide re-seeds on the
+        /// heading the car has NOW rather than resuming on one last filtered
+        /// several seconds ago.</summary>
+        public void ForgetAim() { haveVelYaw = false; aimFwd = Vector3.forward; }
+
+        /// <summary>
+        /// <see cref="rotationLagDrift"/>, with a floor.
+        ///
+        /// A yaw lerp rate of zero is a camera that stops turning altogether
+        /// the moment the car goes sideways — a worse bug than the one this
+        /// block is fixing, and one that would only ever show up in a drift.
+        /// Anything implausibly small means somebody zeroed it by accident.
+        /// </summary>
+        static float RotationLagDriftOf(ChaseCamera c) =>
+            c.rotationLagDrift > 0.5f ? c.rotationLagDrift : DefaultRotationLagDrift;
 
         /// <summary>Roll bias for a Sh2dow-style latG (see the constants):
         /// 0 below <see cref="LatGStart"/>, <see cref="MaxRollDeg"/> at
@@ -573,8 +693,10 @@ namespace PSXRacing
             transform.rotation = target.rotation * Quaternion.Euler(pitchDeg, 0f, 0f);
             smoothPos = transform.position;
             // So a switch back to a chase view slerps from where the lens IS,
-            // not from wherever the chase rig last left it a lap ago.
+            // not from wherever the chase rig last left it a lap ago. The aim
+            // filter goes with it, for exactly the same reason.
             followRot = transform.rotation;
+            ForgetAim();
         }
 
         // Every offset below is derived from the body box: centre and size are
@@ -786,7 +908,7 @@ namespace PSXRacing
 
         /// <summary>The lens at a given speed: the view's rest FOV plus its
         /// share of the pull, smoothstepped in over <paramref name="fullMps"/>,
-        /// capped per view. Chase: 58 at rest, 67 at 100 km/h, 76 at 200.</summary>
+        /// capped per view. Chase: 58 at rest, 62 at 100 km/h, 66 at 200.</summary>
         public static float FOVFor(View v, float baseFOV, float speedMps,
                                    float chaseSpeedFOV, float fullMps) =>
             Mathf.Min(ViewFOV(v, baseFOV) + ViewSpeedFOV(v, chaseSpeedFOV) * SpeedT(speedMps, fullMps),

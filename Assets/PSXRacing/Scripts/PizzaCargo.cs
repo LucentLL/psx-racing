@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing
@@ -292,7 +292,11 @@ namespace PSXRacing
         /// constant that once sized the stock ridge was declared and read by
         /// nothing, so it is gone.)
         /// </summary>
-        const float BolsterHalf = 0.335f;
+        // (And the constant that used to sit here — `const float BolsterHalf =
+        // 0.335f;` — was itself declared and read by nothing: the runtime takes
+        // the width from SeatSpec.bolsterHalf in the table below. That is the
+        // same trap the paragraph above records happening to SeatLip,
+        // re-created three lines under the note about it. Deleted.)
 
         /// <summary>
         /// THE SEAT LADDER. One table, read by the physics that builds the seat
@@ -394,6 +398,30 @@ namespace PSXRacing
         /// always built, with honest friction under it now.</summary>
         public static readonly SeatSpec[] Seats =
         {
+            // STOCK's 0.5 IS THE ONE RUNG THAT BREAKS THE RULE ABOVE, and it
+            // is NOT what pinned the owner's bottom pizza. Both halves of that
+            // are worth writing down, because the first invites the fix and the
+            // second is why it was not made.
+            //
+            // BolsterHeight puts a 0.5-box ridge at 0.5*boxH + 0.010 and box 0
+            // spans 0.010 to 0.010 + boxH, so the ridge top lands on that box's
+            // exact mid-height — "a bolster's top edge must never land in the
+            // MIDDLE of a box", four paragraphs up — and BuildBox drops the
+            // centre of mass to 34% below centre, making it a fulcrum above the
+            // mass it is meant to stop. So the reading of the code says the
+            // stock ridge catches box 0 alone while the two above ride over it,
+            // which is exactly the shape of "the boxes barely moved, I'm not
+            // sure the bottom box moved at all".
+            //
+            // MEASURED, 2026-09-08, it makes no difference: the harness's new
+            // 80 km/h passenger-side case puts the bottom box at 0.108 m with
+            // this at 0.5 and 0.108 m with it at 0 — the same three runs, one
+            // variable. The report was not geometry. The load was never told
+            // the crash happened (see PizzaCargo.InjectImpact), and once it is
+            // told, this ridge does not hold anything back. Left at 0.5, since
+            // taking a bench's only lateral aid away to fix a bug it was not
+            // causing is a gameplay change nobody asked for; the rule violation
+            // is real and is a tuning question for whoever revisits the ladder.
             new SeatSpec { name = "STOCK",          bolsterHalf = 0.335f, bolsterBoxes = 0.5f, muStatic = 0.70f, muKinetic = 0.60f, bolstersVisible = false },
             new SeatSpec { name = "SPORT SEAT",     bolsterHalf = 0.300f, bolsterBoxes = 1f,   muStatic = 0.76f, muKinetic = 0.66f, bolstersVisible = true  },
             new SeatSpec { name = "BUCKET SEAT",    bolsterHalf = 0.270f, bolsterBoxes = 2f,   muStatic = 0.80f, muKinetic = 0.70f, bolstersVisible = true  },
@@ -444,6 +472,56 @@ namespace PSXRacing
         public int SeatStage { get; private set; }
         CarController car;
         Rigidbody carBody;
+
+        /// <summary>The car this load is riding in, so a collision handler can
+        /// check it is talking about the right one before injecting an impact.</summary>
+        public CarController Car => car;
+
+        /// <summary>
+        /// AN IMPACT, DELIVERED AS AN EVENT.
+        ///
+        /// The jolt channel existed and was correct; what it could not do was
+        /// reliably NOTICE. It polled <c>CollisionResponder.InWallContact</c>
+        /// and differenced the car's velocity across one physics step, and both
+        /// halves leak. The responder throws a contact away before stamping
+        /// that flag if the closing speed is under 1.2 m/s or if the averaged
+        /// contact normal is within 45 degrees of vertical — a barrier with a
+        /// kerb or a bank at its foot — and the velocity difference only ever
+        /// sees the component PhysX actually removed, which on a shallow
+        /// side-swipe is a couple of m/s no matter how fast the car was going.
+        /// So "I slammed full speed into a wall with the passenger side and the
+        /// boxes barely moved": the load was not held in a jig, it was never
+        /// told. The give-away is that nothing TUMBLED — the channel spins the
+        /// boxes at 0.9 rad/s per m/s of throw, so had it fired at all the load
+        /// would have cartwheeled.
+        ///
+        /// Now the collision itself hands over the velocity the car gained,
+        /// once per incident. <paramref name="carDeltaVWorld"/> is that change
+        /// in world space; the load did not get it, so relative to the seat the
+        /// load lurches by the same amount the other way — which is what Tick
+        /// does with it.
+        /// </summary>
+        public void InjectImpact(Vector3 carDeltaVWorld)
+        {
+            if (car == null) return;
+            var local = car.transform.InverseTransformDirection(carDeltaVWorld);
+            // A crash is one event and PhysX reports it as a burst of contacts.
+            // Inside the window only a BIGGER one may replace what is pending,
+            // so the load is thrown by the worst of a multi-contact impact
+            // rather than by the last scrape of it.
+            bool fresh = Time.time - lastInjectTime >= InjectWindow;
+            if (!fresh && local.sqrMagnitude <= lastInjectSqr) return;
+            lastInjectTime = Time.time;
+            lastInjectSqr = local.sqrMagnitude;
+            pendingJolt = local;
+        }
+
+        Vector3 pendingJolt;
+        float lastInjectTime = -10f;
+        float lastInjectSqr;
+        /// <summary>One throw per crash — matches CollisionResponder's own
+        /// incident window.</summary>
+        const float InjectWindow = 0.6f;
         Transform tray;
         Rigidbody trayBody;
 
@@ -469,7 +547,11 @@ namespace PSXRacing
         /// differencing, which is exactly what the first frame after the cargo
         /// is built already does.
         /// </summary>
-        public void ForgetMotion() => haveLastVel = false;
+        /// <summary>Forget the last step's motion — called on every teleport,
+        /// or the difference across it reads as an enormous shove. Drops any
+        /// pending injected impulse for the same reason: a crash the car has
+        /// just been recovered from is one the load is no longer in.</summary>
+        public void ForgetMotion() { haveLastVel = false; pendingJolt = Vector3.zero; }
         /// <summary>How many boxes this order is, known before any of them are
         /// built — the seat's walls have to be tall enough for the whole stack
         /// and they are put up first.</summary>
@@ -617,6 +699,23 @@ namespace PSXRacing
         {
             float m = 0f;
             for (int i = 0; i < slots.Count; i++) m = Mathf.Max(m, BoxSlide(i));
+            return m;
+        }
+
+        /// <summary>
+        /// And how far the LEAST-moved box has gone, which is the other half of
+        /// the same question and the half nothing was asking.
+        ///
+        /// BoxSlideMax alone passes a crash in which two boxes fly and one sits
+        /// exactly where it was — which is the owner's report, word for word:
+        /// "the pizza boxes barely moved, I'm not sure the bottom box moved at
+        /// all". A floor on the minimum is what says the whole load felt it.
+        /// </summary>
+        public float BoxSlideMin()
+        {
+            if (slots.Count == 0) return 0f;
+            float m = float.MaxValue;
+            for (int i = 0; i < slots.Count; i++) m = Mathf.Min(m, BoxSlide(i));
             return m;
         }
 
@@ -1309,8 +1408,22 @@ namespace PSXRacing
                 responder = car.GetComponent<CollisionResponder>();
                 responderChecked = true;
             }
+            // The collision's own report first — see InjectImpact. The polled
+            // channel stays underneath it as the fallback for anything that
+            // changes the car's speed hard without going through
+            // CollisionResponder at all.
             Vector3 jolt = Vector3.zero;
-            if (responder != null && responder.InWallContact && deltaV.magnitude >= JoltMinSpeed)
+            if (pendingJolt.sqrMagnitude > 1e-6f)
+            {
+                jolt = pendingJolt;
+                pendingJolt = Vector3.zero;
+                // Cleared WITH the jolt. Left standing it goes on refusing
+                // every smaller impact for the rest of the window, and the
+                // second wall of a crash is usually the smaller of the two —
+                // exactly the hit a player would notice missing.
+                lastInjectSqr = 0f;
+            }
+            else if (responder != null && responder.InWallContact && deltaV.magnitude >= JoltMinSpeed)
                 jolt = car.transform.InverseTransformDirection(deltaV);
 
             // The breadcrumb — see DebugJolts. Logged for every CANDIDATE, not
@@ -1711,6 +1824,22 @@ namespace PSXRacing
         /// <summary>Is box <paramref name="i"/>'s pizza out of it? Only ever
         /// true of an OPEN box — see Assess.</summary>
         public bool PizzaEscaped(int i) => Valid(i) && slots[i].escaped;
+
+        /// <summary>
+        /// Has this box's pizza been handed to the solver — i.e. is it a body
+        /// that CAN fall out, rather than a child of a shut box?
+        ///
+        /// The invariant worth asserting about a box turned onto its lid. How
+        /// FAR the pizza then moves is not: a box that ends up lying flat on
+        /// the cushion has its mouth against the seat and 18 mm of interior
+        /// clearance, so where the pizza settles inside that is solver noise —
+        /// three builds of the same code measured 13 mm, 2 mm and -1 mm. The
+        /// harness is documented as chaotic across builds for exactly this
+        /// reason, and a floor pinned from one sample of it is a test that
+        /// fails on the next unrelated edit. Whether the lid coming off made
+        /// the pizza loose is the same answer every time.
+        /// </summary>
+        public bool PizzaLoose(int i) => Valid(i) && slots[i].pizzaBody != null;
 
         /// <summary>Box <paramref name="i"/>'s velocity in the SEAT's axes —
         /// the harness's per-step trace, for reading what a kick actually

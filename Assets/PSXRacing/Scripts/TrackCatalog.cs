@@ -1195,15 +1195,39 @@ namespace PSXRacing
                 Plot(px, size, (a.x + c.x) * 0.5f * scale + ox,
                                (a.z + c.z) * 0.5f * scale + oz, line, halo);
             }
+            // WHICH END IS THE START depends on which way round this venue is
+            // driven, and the points below are always the FORWARD bake.
+            //
+            // Sample() hands back the twin's unreversed stage data — a reverse
+            // venue has no bake of its own, it borrows its forward twin's —
+            // and this method had no def.Reversed branch at all. So on every
+            // "II" stage the picker drew the white start marker at the end the
+            // race FINISHES and the red finish marker at the end it starts
+            // from. This map is the only place in the game that tells a player
+            // where a stage begins, and on a twin it was exactly inverted:
+            // "when I select any II race, it starts me at the finish line."
+            //
+            // A LOOP is untouched. Waypoint 0 does not move when the list is
+            // turned round — a start line is a band of paint and does not care
+            // which way you cross it — so the single dot is right either way.
             var white = new Color32(255, 255, 255, 255);
-            Plot(px, size, pts[0].x * scale + ox, pts[0].z * scale + oz, white, white);
+            var red = new Color32(255, 90, 70, 255);
+            bool flip = ends && def.Reversed && def.FinishIndex > 0 && def.FinishIndex < pts.Count;
+            var startPt = flip ? pts[def.FinishIndex] : pts[0];
+            Plot(px, size, startPt.x * scale + ox, startPt.z * scale + oz, white, white);
             // On a strip the interesting end is the OTHER one: a horizontal bar
             // with one dot on it says nothing about where the traps are. Same
             // for a stage's finish.
             if (ends && def.FinishIndex > 0 && def.FinishIndex < pts.Count)
             {
-                var f = pts[def.FinishIndex];
-                var red = new Color32(255, 90, 70, 255);
+                // Reversed, the race ends on the forward START LINE — which is
+                // a few hundred metres up the list from index 0, because index
+                // 0 is the far end of the forward lead-in. FinishIndex has
+                // already forced the bake to load, so stageStartLineM is warm.
+                int finishIdx = flip
+                    ? Mathf.Clamp(Mathf.RoundToInt(def.stageStartLineM / Spacing), 0, pts.Count - 1)
+                    : def.FinishIndex;
+                var f = pts[finishIdx];
                 Plot(px, size, f.x * scale + ox, f.z * scale + oz, red, red);
             }
 

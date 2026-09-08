@@ -187,6 +187,20 @@ namespace PSXRacing
         /// row means pressing left on DIY throws the cursor to DLR at the far
         /// side of the page, which reads as being flung rather than moved. The
         /// tab bar wraps because it is a strip you cycle; a page is not.
+        ///
+        /// They DO fall out of the line when the line has nothing that way —
+        /// see <see cref="NearestInDirection"/>. Wiring left/right strictly
+        /// within a line assumes the page's columns are combed into rows, and
+        /// MAIN is not: the race column steps in 44s and 100s while the day
+        /// column steps in 48s and 76s, so the two touched on exactly one
+        /// accidental pair of buttons (GET IN CAR at y -220 and the clock-in
+        /// row at -235, 15 apart under a 23 tolerance). On a day the shop is
+        /// shut that button carries a null handler, Collect drops it as
+        /// non-interactable, and the ONLY bridge between the two halves of the
+        /// page went with it — the left column became an island the pad could
+        /// not leave and, because the cursor starts there, usually could not
+        /// leave FROM. Reported as "I have to be on clock in to go left" and
+        /// "on race track I can't go right".
         /// </summary>
         public static void Grid(IList<Selectable> items)
         {
@@ -198,12 +212,46 @@ namespace PSXRacing
                 {
                     var nav = new Navigation { mode = Navigation.Mode.Explicit };
                     if (c > 0) nav.selectOnLeft = line[c - 1];
+                    else nav.selectOnLeft = NearestInDirection(items, line[c], -1);
                     if (c < line.Count - 1) nav.selectOnRight = line[c + 1];
+                    else nav.selectOnRight = NearestInDirection(items, line[c], 1);
                     nav.selectOnUp = StepColumn(lines, r, -1, line[c]);
                     nav.selectOnDown = StepColumn(lines, r, 1, line[c]);
                     line[c].navigation = nav;
                 }
             }
+        }
+
+        /// <summary>
+        /// The nearest control CLEARLY to one side of <paramref name="from"/>,
+        /// used only when its own line has nothing that way.
+        ///
+        /// "Clearly" means no horizontal overlap at all: a wide banner sitting
+        /// above a narrow button is not to its left, and treating it as such is
+        /// how a fallback turns into the flinging the header comment rejects.
+        /// Vertical distance is weighted three to one and then CAPPED at four
+        /// times the taller control, so the answer is always the neighbouring
+        /// column at roughly this height — never something at the far end of a
+        /// long page that merely happens to be sideways.
+        /// </summary>
+        static Selectable NearestInDirection(IList<Selectable> all, Selectable from, int dir)
+        {
+            if (all == null || from == null) return null;
+            float fx = CentreX(from), fy = CentreY(from);
+            float fMin = MinX(from), fMax = MaxX(from);
+            Selectable best = null;
+            float bestScore = float.MaxValue;
+            for (int i = 0; i < all.Count; i++)
+            {
+                var s = all[i];
+                if (s == null || s == from || !(s.transform is RectTransform)) continue;
+                if (dir < 0 ? MaxX(s) > fMin + 1f : MinX(s) < fMax - 1f) continue;
+                float dy = Mathf.Abs(CentreY(s) - fy);
+                if (dy > Mathf.Max(WorldHeight(s), WorldHeight(from)) * 4f) continue;
+                float score = Mathf.Abs(CentreX(s) - fx) + dy * 3f;
+                if (score < bestScore) { bestScore = score; best = s; }
+            }
+            return best;
         }
 
         /// <summary>
@@ -295,6 +343,9 @@ namespace PSXRacing
             {
                 var nav = row[i].navigation;
                 nav.selectOnDown = column[0];
+                // And back the other way — see JoinLines for why this line is
+                // not optional.
+                nav.selectOnUp = column[column.Count - 1];
                 row[i].navigation = nav;
             }
             var first = column[0].navigation;
@@ -327,6 +378,16 @@ namespace PSXRacing
             {
                 var nav = row[i].navigation;
                 nav.selectOnDown = NearestInLine(lines[0], CentreX(row[i]));
+                // THE WRAP HAS TO CLOSE IN BOTH DIRECTIONS.
+                //
+                // Row builds each tab's Navigation fresh with left/right only,
+                // so up and down start null and Explicit mode does no
+                // fallback; the loop below then overwrites the LAST line's
+                // selectOnDown with the tab bar. So down off the bottom of the
+                // page reached the tabs and one more down reached the top of
+                // the body, while up off the tabs reached nothing at all —
+                // "when I press up it doesn't put me back to the bottom".
+                nav.selectOnUp = NearestInLine(lines[lines.Count - 1], CentreX(row[i]));
                 row[i].navigation = nav;
             }
 

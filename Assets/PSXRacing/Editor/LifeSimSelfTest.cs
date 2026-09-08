@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -1593,8 +1593,16 @@ namespace PSXRacing.EditorTools
                 // part — the datum has to be read before the finish is
                 // remapped — and a test that repeated those steps itself would
                 // still pass if someone swapped two lines in the game.
+                //
+                // AND WITH THE ARGUMENT THE GAME ACTUALLY PASSES: the TWIN.
+                // RaceHandoffApplier.Apply resolves TrackCatalog.At(TrackIndex)
+                // and only calls this when venue.Reversed, so it always hands
+                // over the reverse def — whose [NonSerialized] stage fields
+                // ReverseTwin cannot copy. Handing the forward def instead
+                // tested a warm object the game never uses, which is why the
+                // cold-twin case below had no coverage at all.
                 var applier = go.AddComponent<PSXRacing.RaceHandoffApplier>();
-                int datum = applier.ApplyReversal(tp, t);
+                int datum = applier.ApplyReversal(tp, TwinOf(t) ?? t);
                 float reversedM = (tp.finishIndex - datum) * tp.spacing;
 
                 Check(Mathf.Abs(reversedM - forwardM) <= tp.spacing * 2f,
@@ -1755,6 +1763,18 @@ namespace PSXRacing.EditorTools
         /// a bend at the back of a staggered grid, tight enough that a 180 can
         /// never pass.
         /// </summary>
+        /// <summary>The reverse twin of a forward venue, or null. The game
+        /// always hands ApplyReversal the twin (RaceHandoffApplier.Apply guards
+        /// on venue.Reversed), so a test that passes the forward def is testing
+        /// a different object with different [NonSerialized] state.</summary>
+        static TrackCatalog.TrackDef TwinOf(TrackCatalog.TrackDef fwd)
+        {
+            if (fwd == null) return null;
+            foreach (var d in TrackCatalog.All)
+                if (d.Reversed && d.reverseOf == fwd.id) return d;
+            return null;
+        }
+
         static void TestReverseGrid()
         {
             Line("reverse grid:");
@@ -1813,9 +1833,11 @@ namespace PSXRacing.EditorTools
                   agreeFwd + "/" + field.Count);
 
             // THE REAL CALL SITE, not a copy of its recipe — see ApplyReversal.
-            // fwd is the FORWARD def, which is what Apply hands it; the finish
-            // remap inside no-ops on a circuit, where finishIndex is -1.
-            applier.ApplyReversal(tp, fwd);
+            // The def only matters to the finish remap, which no-ops here: this
+            // fixture is a CIRCUIT and a circuit's baked finishIndex is -1. The
+            // twin is passed anyway so the two reverse tests call this the same
+            // way, and neither can drift back to the forward def by accident.
+            applier.ApplyReversal(tp, TwinOf(fwd) ?? fwd);
 
             int agreeRev = 0, staggered = 0;
             float worst = 1f, worstLat = 0f;
@@ -3392,6 +3414,31 @@ namespace PSXRacing.EditorTools
                   "and a wall at 80 km/h throws it, not just the top one",
                   sim.bottomSlideCrash.ToString("0.00") + " m");
 
+            // ---- AND THE SAME THING SIDEWAYS (2026-09-08) -----------------
+            //
+            // The check above is fed a pure FORWARD jolt, and forward the seat
+            // is open by design, so 0.15 m passes easily. Sideways the seat is
+            // walled at 36 cm and a box is 41 cm wide, so 0.15 m is close to
+            // the whole envelope — and NOTHING in this suite had ever read a
+            // displacement after a lateral jolt at all. That is exactly the
+            // gap the next report fell through: "I slammed full speed into a
+            // wall with the passenger side of the car and the pizza boxes
+            // barely moved. I'm not sure the bottom box moved at all."
+            //
+            // Two separate claims, so two assertions. The MINIMUM says every
+            // box felt it — the stock bolster used to stand at the bottom
+            // box's own mid-height and catch that one alone while the two
+            // above rode over it. The MAXIMUM says the load crossed the seat.
+            // Floors are provisional on this pass and are set well under the
+            // geometric ceiling (0.155 m to the door card), to be re-pinned
+            // from the harness the way the block below describes.
+            Check(sim.sideSlideMin > 0.04f,
+                  "a wall at 80 km/h on the PASSENGER SIDE moves every box, the bottom one included",
+                  sim.sideSlideMin.ToString("0.000") + " m");
+            Check(sim.sideSlideMax > 0.09f,
+                  "and throws the load across the seat, not a centimetre of it",
+                  sim.sideSlideMax.ToString("0.000") + " m");
+
             // ---- the shut box, the head-on, the tumble (2026-09-07) --------
             //
             // Two reports, one screenshot: "the pizza clips through the box,
@@ -3431,16 +3478,17 @@ namespace PSXRacing.EditorTools
             // bulkhead) and 0.41 (propped on the front edge); FLOOR every
             // time.
             const float SixGStopMinM = 0.20f;
-            // TumblePizzaOutMinM: a box turned onto its lid must drop its
-            // pizza — off the box's floor, toward the mouth, by at least
-            // this much (PizzaCargo.PizzaOffFloor; "escaped" cannot fire for
-            // a pizza lying under its own box). PROVISIONAL — derived, not
-            // measured: the pass's last Unity job went before the case was
-            // turned from 110 degrees (where wall friction rightly held the
-            // pizza) to 180. The interior is 0.68 of a 5.5 cm box less a
-            // 1.5 cm pizza, so the drop is about 3 cm; half of that, and
-            // twice the slide the interior allows a right-way-up pizza.
-            const float TumblePizzaOutMinM = 0.006f /* measured 0.013 off the floor / 0.018 from home = the whole 18 mm interior clearance; half the minimum, per the pinning rule */;
+            // (TumblePizzaOutMinM is gone. It was a 6 mm floor on how far the
+            // pizza slides inside a box turned onto its lid, pinned from ONE
+            // reading of 13 mm — against the file's own rule, which asks for
+            // half the smallest over several builds. Three builds of this pass
+            // measured 13 mm, 2 mm and -1 mm: a box that ends up lying flat has
+            // its mouth on the cushion and 18 mm of interior to rattle in, so
+            // where the pizza settles in there is solver noise and no positive
+            // floor is honest. What IS the same every time is whether the lid
+            // coming off made the pizza a body at all — PizzaCargo.PizzaLoose,
+            // asserted below. Not loosened to pass: replaced with the invariant
+            // the case was reaching for.)
             // HoldLeanSlideMaxM / SlipLeanSlideMinM: the friction calibration
             // itself. A lone box on the stock bench rolled to 30 degrees
             // must not move (measured 0.000, every run) and rolled to 40 must
@@ -3494,8 +3542,19 @@ namespace PSXRacing.EditorTools
                 Check(!sim.tumbleControlOpened,
                       "a box turned to ten degrees short of the lid angle and read once is still shut");
                 Check(sim.tumbleOpened, "a box turned onto its lid opens");
-                Check(sim.tumbleEscaped || sim.tumbleOffFloor > TumblePizzaOutMinM,
-                      "and the pizza drops out of it",
+                // NOTE: this is nearly implied by the line above — Open()
+                // always calls Release() — and it is deliberately all that is
+                // left. It replaced a 6 mm floor on how far the pizza slides
+                // inside an inverted box, and that floor was pinned from ONE
+                // reading of 13 mm against the file's own rule of half the
+                // smallest over several builds; three builds of this pass read
+                // 13 mm, 2 mm and -1 mm. A box lying flat has its mouth on the
+                // cushion and 18 mm of interior to rattle in, so no positive
+                // floor there is honest. The case proves the lid comes off and
+                // the pizza becomes a body; it does not prove a distance, and
+                // it no longer claims to.
+                Check(sim.tumbleEscaped || sim.tumblePizzaLoose,
+                      "and its pizza is loose in the solver, not still packed",
                       (sim.tumbleEscaped ? "escaped, " : "") +
                       sim.tumbleOffFloor.ToString("0.000") + " m off the floor, " +
                       sim.tumbleHomeError.ToString("0.000") + " m from home");
@@ -4353,6 +4412,33 @@ namespace PSXRacing.EditorTools
             Check(mech1.navigation.selectOnUp == head,
                   "from every button in the row, not just the first");
 
+            // ---- TWO COLUMNS THAT SHARE NO LINE ---------------------------
+            //
+            // The shape of the AT HOME page, and the one the pad could not
+            // cross: a race column on the left and a day column on the right,
+            // stepping on different pitches so no row of one lines up with a
+            // row of the other. Wiring left/right strictly within a line left
+            // the two halves as separate graphs — "I have to be on clock in to
+            // go left" — and it only took ONE optional button going away.
+            var colL = Btn("colL", -300f, -300f, 250f, 60f);
+            var colR = Btn("colR", 300f, -340f, 250f, 46f);
+            var two = new List<UnityEngine.UI.Selectable> { colL, colR };
+            Check(MenuNav.Lines(two).Count == 2,
+                  "the two columns really do not share a line in this fixture");
+            MenuNav.Grid(two);
+            Check(colL.navigation.selectOnRight == colR,
+                  "RIGHT crosses the gutter even when nothing on that line is to the right");
+            Check(colR.navigation.selectOnLeft == colL, "and LEFT crosses back");
+
+            // ...but the fallback must not turn into the flinging the header
+            // comment rejects: a control far up the page is not "to the left".
+            var farUp = Btn("farUp", -300f, 400f, 250f, 40f);
+            var lone = Btn("lone", 300f, -340f, 250f, 46f);
+            var apart = new List<UnityEngine.UI.Selectable> { farUp, lone };
+            MenuNav.Grid(apart);
+            Check(lone.navigation.selectOnLeft == null,
+                  "and does not fling the cursor to something 740 units up the page");
+
             // The tab bar joins to the LINE under it, at the column you left.
             var tabA = Btn("tabA", -260f, 120f, 250f, 44f);
             var tabB = Btn("tabB", 260f, 120f, 250f, 44f);
@@ -4360,6 +4446,15 @@ namespace PSXRacing.EditorTools
             MenuNav.JoinLines(tabs, all, tabB);
             Check(head.navigation.selectOnUp == tabB,
                   "UP off the body returns to the tab you are ON, not the first tab");
+            // AND THE OTHER WAY. DOWN off the bottom row reached the tabs and
+            // one more DOWN reached the top of the body, while UP off a tab
+            // reached nothing at all: "when I go down to the bottom and press
+            // down once more it puts me to the top, but when I press up it
+            // doesn't put me back to the bottom."
+            Check(tabB.navigation.selectOnUp == diy2,
+                  "and UP off a tab reaches the bottom of the page, closing the wrap both ways");
+            Check(diy2.navigation.selectOnDown == tabB,
+                  "which is where DOWN off the bottom row came from");
 
             Object.DestroyImmediate(root);
         }
@@ -5909,8 +6004,8 @@ namespace PSXRacing.EditorTools
             float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, pull, full);
             float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, pull, full);
             Check(fovRest == 58f, "chase FOV at rest is the scene camera's 58", fovRest);
-            Check(fov100 > 64f && fov100 < 68f, "chase FOV at 100 km/h is ~67 (was 61.7)", fov100.ToString("0.0"));
-            Check(Mathf.Abs(fov200 - 76f) < 0.1f, "chase FOV at 200 km/h is 76 (was 65.4)", fov200.ToString("0.0"));
+            Check(fov100 > 60f && fov100 < 64f, "chase FOV at 100 km/h is ~62 — a pull you feel, not a lens you notice", fov100.ToString("0.0"));
+            Check(Mathf.Abs(fov200 - 66f) < 0.1f, "chase FOV at 200 km/h is 66 (was 76, which read as a boost effect)", fov200.ToString("0.0"));
             float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, pull, full);
             float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, pull, full);
             Check(hoodMax <= ChaseCamera.HoodMaxFOV, "the hood cam never passes its 80 deg cap", hoodMax);
@@ -5929,7 +6024,7 @@ namespace PSXRacing.EditorTools
 
             Check(ChaseCamera.RollDegFor(0.5f) == 0f, "no camera roll under the roll's start latG");
             Check(Mathf.Approximately(ChaseCamera.RollDegFor(9f), ChaseCamera.MaxRollDeg),
-                  "and 8 deg at full (Sh2dow's MaxRollDeg)", ChaseCamera.RollDegFor(9f));
+                  "and MaxRollDeg at full (Sh2dow's roll bias)", ChaseCamera.RollDegFor(9f));
             float rollLimit = ChaseCamera.RollDegFor(1.3f * 9.81f * ChaseCamera.LatGScale);
             // ORDINARY CORNERING MUST NOT ROLL. The owner drove the first
             // version and reported the lens "swings with every micro
@@ -5940,7 +6035,7 @@ namespace PSXRacing.EditorTools
             Check(rollLimit == 0f, "a 1.3 g grip-limit corner does not roll the camera at all",
                   rollLimit.ToString("0.0"));
             float rollDrift = ChaseCamera.RollDegFor(1f * 30f * ChaseCamera.LatGScale);
-            Check(rollDrift > 2f, "and a 1 rad/s drift at 30 m/s still leans the lens — the roll is a drift cue",
+            Check(rollDrift > 1.2f, "and a 1 rad/s drift at 30 m/s still leans the lens — the roll is a drift cue",
                   rollDrift.ToString("0.0"));
 
             Check(ChaseCamera.SpeedShakeDeg(30f, true) == 0f, "no road noise at 108 km/h");
@@ -6089,6 +6184,14 @@ namespace PSXRacing.EditorTools
             Check(CarBodyLean.RollDegFor(1f) < 0f &&
                   Mathf.Approximately(Mathf.Abs(CarBodyLean.RollDegFor(1f)), CarBodyLean.RollDegPerG),
                   "a 1 g left turn drops the right sill by the roll rate", CarBodyLean.RollDegFor(1f));
+            // A FLOOR AS WELL AS A CEILING. The ceiling alone passed at 1.69
+            // against 3.0 with 78% slack, so an edit that took the lean to a
+            // fifth of a degree — or back to the amplitude the owner called
+            // too aggressive — would sail through unchanged. The point of the
+            // layer is that a drift READS from a chase camera.
+            Check(Mathf.Abs(CarBodyLean.RollDegFor(1.3f)) >= 1.0f,
+                  "a full-g corner still visibly leans the shell — the lean is a cue, not a rounding error",
+                  Mathf.Abs(CarBodyLean.RollDegFor(1.3f)).ToString("0.00") + " deg");
             Check(Mathf.Abs(CarBodyLean.RollDegFor(5f)) <= 3f,
                   "and the render lean caps under 3 deg — the springs already roll the car",
                   CarBodyLean.RollDegFor(5f));

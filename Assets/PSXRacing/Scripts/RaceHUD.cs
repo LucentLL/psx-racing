@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -33,6 +33,18 @@ namespace PSXRacing
         /// changes. Six views are worth having only if the player can tell
         /// which one they just switched to.</summary>
         public Text camText;
+
+        /// <summary>
+        /// WRONG WAY, under the stuck watchdog and over everything else.
+        ///
+        /// Under it because being wedged on your roof is the more urgent news
+        /// and the two can be true at once; over the pump and the venue prompts
+        /// because none of those matter while you are driving at the field.
+        /// The AI have had this test since P2 and act on it silently; the
+        /// player gets told and left to steer.
+        /// </summary>
+        string WrongWayPrompt() =>
+            stuck != null && stuck.WrongWay ? "WRONG WAY" : null;
 
         /// <summary>The player car's stuck watchdog. Its prompt takes over the
         /// centre banner while racing — the banner is empty then anyway, and a
@@ -158,6 +170,9 @@ namespace PSXRacing
 
             string center = !city.Live ? city.VenueName
                 : (stuck != null ? stuck.Prompt : null)
+                  // No WrongWayPrompt here on purpose: UpdateCity only runs
+                  // when there is no RaceManager, and the wrong-way test needs
+                  // that manager's path, so it is always false on this branch.
                   ?? GasPump.Prompt
                   // THE VENUE BEFORE THE DOOR HANDLE. ForecourtMode used to win
                   // this chain and suppressed itself by reading TownVenue's
@@ -431,6 +446,7 @@ namespace PSXRacing
                     // banner off a screen the player is already driving on.
                     center = rm.CountdownRemaining > 0f && !rm.RollingStart ? "GO!"
                            : (stuck != null ? stuck.Prompt : null)
+                             ?? WrongWayPrompt()
                              ?? GasPump.Prompt
                              ?? OnFoot.ForecourtMode.Prompt
                              ?? Town.TownVenue.Prompt

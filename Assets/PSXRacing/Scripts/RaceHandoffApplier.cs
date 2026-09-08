@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing
@@ -430,6 +430,17 @@ namespace PSXRacing
         public int ApplyReversal(TrackPath tp, TrackCatalog.TrackDef venue)
         {
             if (tp == null) return 0;
+
+            // WARM THE BAKE BEFORE READING IT. stageStartLineM is
+            // [NonSerialized] and only EnsureStage fills it in, ReverseTwin
+            // does not copy it (it cannot — it runs inside the static
+            // initialiser, before any bake is loaded), and RemapReversedFinish
+            // reads it off the TWIN. Today the venue block warms it on the way
+            // past; nothing enforces that, and cold it would put the reversed
+            // finish at the last waypoint instead of on the old start line —
+            // a longer race than the catalog quotes and than the pre-race fuel
+            // gate paid for. EnsureStage is idempotent and self-guarding.
+            if (venue != null) TrackCatalog.EnsureStage(venue);
 
             tp.ReverseInPlace();
             // The list is only half of a direction — see StageReversedGrid.

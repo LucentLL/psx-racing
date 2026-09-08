@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace PSXRacing
 {
@@ -96,7 +96,21 @@ namespace PSXRacing
 
         void OnCollisionEnter(Collision c)
         {
-            if (!Classify(c, out float normalSpeed, out float incidence, out Vector3 n)) return;
+            if (!Measure(c, out float normalSpeed, out float incidence, out Vector3 n)) return;
+
+            // THE CARGO IS TOLD BEFORE ANY OF THE AUDIO GATES RUN.
+            //
+            // PizzaCargo used to poll InWallContact, which is stamped below —
+            // after the landing test and after the minImpactSpeed early-out. A
+            // passenger-side slam into a barrier whose foot is banked or kerbed
+            // averages its normals upward and was thrown away as a landing, so
+            // the load was never told about it. The cargo path gets its own,
+            // looser vertical test (25 degrees rather than 45) and its own
+            // speed floor, because "did something hit the car hard" and "should
+            // this crunch" are different questions.
+            FeedCargo(n, normalSpeed);
+
+            if (Mathf.Abs(Vector3.Dot(n, Vector3.up)) > LandingNormalDot) return;
             if (normalSpeed < minImpactSpeed) return;
 
             bool hard = incidence >= GlancingIncidence;
@@ -144,6 +158,41 @@ namespace PSXRacing
                 ChaseCamera.Active.AddTrauma(Mathf.Clamp01(normalSpeed / (hard ? 10f : 22f)));
         }
 
+        /// <summary>
+        /// Hand the pizza load the velocity the car just gained from a wall.
+        ///
+        /// PhysX removes the closing speed along the contact normal, and on a
+        /// hard hit <see cref="OnCollisionEnter"/> then scrubs some of the
+        /// tangential component itself; both are velocity the CAR got and the
+        /// cargo did not. Only the normal part is known at this point, which is
+        /// the dominant term and the one a side slam is made of.
+        /// </summary>
+        void FeedCargo(Vector3 n, float normalSpeed)
+        {
+            // GATED ON THE SIDEWAYS SHOVE, which is the quantity a box on a
+            // seat actually feels. A pure angle test has to choose between
+            // admitting a bank — 26 to 45 degrees off vertical is a wall as far
+            // as the load is concerned — and rejecting a hard landing on one.
+            // Asking directly means a steep landing registers only in
+            // proportion to how much of it went sideways.
+            Vector3 delta = n * normalSpeed;
+            if (Vector3.ProjectOnPlane(delta, Vector3.up).magnitude < CargoJoltMinSpeed) return;
+            if (Mathf.Abs(Vector3.Dot(n, Vector3.up)) > CargoLandingDot) return;
+            var cargo = PizzaCargo.Instance;
+            if (cargo == null || cargo.Car != car) return;
+            cargo.InjectImpact(n * normalSpeed);
+        }
+
+        /// <summary>Closing speed, m/s, that counts as a crash for the LOAD —
+        /// about 7 km/h square into something. Above a parking nudge and well
+        /// below anything a kerb produces along a horizontal normal.</summary>
+        const float CargoJoltMinSpeed = 2.0f;
+        /// <summary>How far off vertical a normal has to be before the cargo
+        /// treats it as a wall rather than as ground: 25 degrees, against the
+        /// 45 the audio and damage paths use. A barrier with a banked foot is
+        /// still a barrier as far as a box on a seat is concerned.</summary>
+        const float CargoLandingDot = 0.9f;
+
         void OnCollisionStay(Collision c)
         {
             if (!Classify(c, out float normalSpeed, out float incidence, out Vector3 n)) return;
@@ -176,6 +225,22 @@ namespace PSXRacing
         /// </summary>
         bool Classify(Collision c, out float normalSpeed, out float incidence, out Vector3 normal)
         {
+            if (!Measure(c, out normalSpeed, out incidence, out normal)) return false;
+            // A near-vertical normal is a landing or a kerb, which the suspension
+            // already handles — crunching metal every time the car settles would
+            // be the loudest bug in the game.
+            return Mathf.Abs(Vector3.Dot(normal, Vector3.up)) <= LandingNormalDot;
+        }
+
+        /// <summary>
+        /// The measurement half of <see cref="Classify"/>, with no landing test.
+        ///
+        /// Split out because the cargo needs a different verdict from the same
+        /// numbers: what makes a noise and what throws an unrestrained box
+        /// across a seat are not the same threshold — see <see cref="FeedCargo"/>.
+        /// </summary>
+        bool Measure(Collision c, out float normalSpeed, out float incidence, out Vector3 normal)
+        {
             normalSpeed = 0f; incidence = 0f; normal = Vector3.zero;
             int count = c.contactCount;
             if (count == 0) return false;
@@ -184,11 +249,6 @@ namespace PSXRacing
             for (int i = 0; i < count; i++) sum += c.GetContact(i).normal;
             if (sum.sqrMagnitude < 0.0001f) return false;
             normal = sum.normalized;
-
-            // A near-vertical normal is a landing or a kerb, which the suspension
-            // already handles — crunching metal every time the car settles would
-            // be the loudest bug in the game.
-            if (Mathf.Abs(Vector3.Dot(normal, Vector3.up)) > LandingNormalDot) return false;
 
             Vector3 approach = c.relativeVelocity;
             float vMag = approach.magnitude;
