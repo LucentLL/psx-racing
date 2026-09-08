@@ -2635,7 +2635,16 @@ namespace PSXRacing
             }
             else if (Drifting)
             {
-                if (rearSlip < DriftExitSlip && bodySlip < DriftExitBodySlip && !ebrakeActive)
+                // A GESTURE WINDOW HOLDS THE STATE, both of them. Without the
+                // clutch-kick term this exits on the very next tick whenever
+                // the kick has not yet loosened the rear, the entry branch
+                // sets it again the tick after, and the flag chatters at 25 Hz
+                // — refreshing postDriftTimer the whole time, so a kick that
+                // did not take locks the player out of a drift for half a
+                // second afterwards. Exactly the feature they asked for,
+                // failing quietly.
+                if (rearSlip < DriftExitSlip && bodySlip < DriftExitBodySlip &&
+                    !ebrakeActive && clutchKickTimer <= 0f)
                 {
                     Drifting = false;
                     postDriftTimer = PostDriftLockout;
