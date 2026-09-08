@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -140,7 +140,14 @@ namespace PSXRacing.EditorTools
                         // belongs is TrackObstacleAudit's question, and it
                         // measures the barrier line directly.
                         // "Wall" on a circuit; "WallColl" boxes on the stage.
-                        if (col.name.StartsWith("Wall")) continue;
+                        //
+                        // ...but only OUTSIDE the carriageway. A wall standing
+                        // ON the road is still a wall, and excusing it by name
+                        // is how a guard-rail chord over a 22 m ramp radius
+                        // crossed both Charlotte freeways and reached the
+                        // owner unplayed (2026-09-08).
+                        if (col.name.StartsWith("Wall") &&
+                            Mathf.Abs(off) > def.roadWidth * 0.5f) continue;
 
                         string key = Key(col.transform);
                         if (!hits.TryGetValue(key, out var h))

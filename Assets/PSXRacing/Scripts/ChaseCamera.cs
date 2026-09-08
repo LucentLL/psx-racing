@@ -109,7 +109,7 @@ namespace PSXRacing
         /// both. 0.12 puts a first-gear launch at ~0.6 g = 5.9 m/s^2 at 0.7 m
         /// and 0.9 g of braking at -1.06 m, inside the +/-25% limit below.
         /// </summary>
-        public float accelDistPerMps2 = 0.12f;
+        public float accelDistPerMps2 = 0.05f;
         public float accelDistLimitFrac = 0.25f;
         /// <summary>Smoothing on the acceleration read, 1/s. Forward speed
         /// changes once a physics tick, so the per-frame difference is spiky;
@@ -125,8 +125,8 @@ namespace PSXRacing
         /// <see cref="DriftSwingClampRad"/> (34 deg) so a spin does not orbit
         /// the lens round the car. Starting value.
         /// </summary>
-        public float driftSwing = 1.4f;
-        public float driftSwingLag = 4f;
+        public float driftSwing = 0.5f;
+        public float driftSwingLag = 2.5f;
         public const float DriftSwingClampRad = 0.6f;
 
         // ---- roll bias, Sh2dow's NFS.CameraMod constants (research B6) ------
@@ -140,10 +140,10 @@ namespace PSXRacing
         // gripping corner barely tilts. Chase views only; the camera banks
         // INTO the turn, the UG2 lean.
         public const float LatGScale = 0.16f;
-        public const float LatGStart = 1.0f;
+        public const float LatGStart = 2.6f;   // ordinary steering at 30 m/s makes ~1 g of this measure, so a 1.0 threshold wound the roll in and out on every correction
         public const float LatGFull = 5.5f;
-        public const float MaxRollDeg = 8f;
-        public const float RollWindIn = 7f;
+        public const float MaxRollDeg = 3f;
+        public const float RollWindIn = 3.5f;
         public const float RollUnwind = 11f;
         public const float RollSlewDegPerSec = 45f;
 
@@ -165,9 +165,9 @@ namespace PSXRacing
         public float speedShakeDeg = DefaultSpeedShakeDeg;
         public float speedShakePos = 0.03f;
         public float speedShakeHz = 11f;
-        public const float DefaultSpeedShakeStartMps = 38f;
+        public const float DefaultSpeedShakeStartMps = 47f;
         public const float DefaultSpeedShakeSpanMps = 25f;
-        public const float DefaultSpeedShakeDeg = 0.25f;
+        public const float DefaultSpeedShakeDeg = 0.10f;
         public const float OffroadShakeMul = 2.5f;
         public const float CockpitShakeMul = 0.5f;
 

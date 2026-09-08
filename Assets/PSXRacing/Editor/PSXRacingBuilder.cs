@@ -491,7 +491,7 @@ namespace PSXRacing.EditorTools
             stagePrefix = null,                     // off the track's stageData, as Bogue does
             stageForest = false,
             stageUrban = true,
-            stageWallAlways = freeway,
+            stageWallAlways = false,   // NOT freeway: the stage wall is the mountain guard rail, built from chords between stations, and on a 22 m ramp radius a chord cuts across the carriageway. Flat ground needs none; bridges still get theirs from bridgeBlend
             stageBridgeDig = true,
             stageBanks = false,
             fogScale = 3.2f,                        // the skyline is the point
@@ -503,7 +503,18 @@ namespace PSXRacing.EditorTools
             // Reflector posts every 16 m behind the barrier, both sides.
             postEvery = 4,
             gasStation = false,
-            stageHomes = true,
+            // OFF (2026-09-08). The CityProps building prefabs carry a baked
+            // "Solid" box that is neither centred on nor sized to the building
+            // it stands for — AddSolidBox wrote a WORLD bounds centre into a
+            // LOCAL position, and on these prefabs the box also spans far more
+            // than the model — so the three Charlotte venues shipped with
+            // invisible walls across the carriageway: "invisible walls causing
+            // cars to crash in the middle of the road." Re-seating the box on
+            // the instance and dropping any lot that still reached the road
+            // removed a third of them and not the rest, so the skyline waits
+            // for the prefabs to be re-baked against a correct AddSolidBox.
+            // A bare freeway is a freeway; a wall across it is not a game.
+            stageHomes = false,
             stageProps = props,
         };
 
@@ -1039,7 +1050,7 @@ namespace PSXRacing.EditorTools
             }
             WriteTexture(SpeedStreaksTexPath, StreakSheetW, StreakSheetH, (x, y) =>
                 on[y * StreakSheetW + x] ? new Color32(255, 255, 255, 255)
-                                          : new Color32(0, 0, 0, 255));
+                                          : new Color32(255, 255, 255, 0));   // TRANSPARENT where there is no streak: this sheet reached the screen once on a plain UI material and painted the whole frame black with white bars
         }
 
         /// <summary>Write a PNG, but only when it would differ from the one

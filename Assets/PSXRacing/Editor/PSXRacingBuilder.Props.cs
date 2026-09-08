@@ -166,7 +166,12 @@ namespace PSXRacing.EditorTools
             if (b.size.sqrMagnitude < 0.01f) return;
             var solid = new GameObject("Solid");
             solid.transform.SetParent(inst.transform, false);
-            solid.transform.localPosition = b.center;
+            // RendererBounds is WORLD space. Assigning its centre as a local
+            // position is only correct while the prop stands at the origin,
+            // and every prop baked anywhere else got an invisible box
+            // displaced by exactly how far it stood from there — the
+            // Charlotte "invisible walls" of 2026-09-07. Convert.
+            solid.transform.localPosition = inst.transform.InverseTransformPoint(b.center);
             solid.layer = SolidLayer;
             var bc = solid.AddComponent<BoxCollider>();
             // A shave off the plan footprint so a kerbside mailbox or porch
@@ -495,6 +500,79 @@ namespace PSXRacing.EditorTools
                 go.transform.rotation = rot * Quaternion.Euler(0f, def.yawOffsetDeg, 0f);
                 foreach (var t in go.GetComponentsInChildren<Transform>(true))
                     t.gameObject.isStatic = true;
+
+                // AND NOW ASK THE COLLIDER, not the catalogue.
+                //
+                // Every clearance above is computed from def.w/def.d — the
+                // dimensions the prop was BAKED at. A prefab whose Solid box
+                // is bigger than that, or whose pivot is not its centre, lands
+                // wherever it lands, and on 2026-09-07 that put invisible
+                // building colliders 0.0 m off the centreline of both
+                // Charlotte freeways: "invisible walls causing cars to crash
+                // in the middle of the road", on a venue that had passed every
+                // audit because the sweep excused colliders by name and this
+                // one is a building.
+                //
+                // So the last word belongs to the geometry that will actually
+                // hit the car. Anything reaching inside the barrier line is
+                // not moved or shrunk — it is DROPPED. A missing building is a
+                // bare lot; a building on the road is the game.
+                // RE-SEAT THE SOLID BOX ON THE BUILDING IT BELONGS TO.
+                //
+                // AddSolidBox measures the model's RendererBounds — world
+                // space — and assigns that centre as a LOCAL position. Baked
+                // at the origin the two agree and nobody noticed; baked
+                // anywhere else the invisible box sits displaced by however
+                // far the prop stood from (0,0,0), which is how buildings
+                // whose walls are politely set back off the verge came to
+                // have their colliders lying across both Charlotte freeways
+                // ("invisible walls causing cars to crash in the middle of
+                // the road"). Fixed at the source too, but every prefab
+                // already baked carries it, so it is corrected here on the
+                // instance: put the box back over the geometry it is meant to
+                // stand for.
+                foreach (var box in go.GetComponentsInChildren<BoxCollider>(true))
+                {
+                    if (box.name != "Solid") continue;
+                    var rb = RendererBounds(go);
+                    if (rb.size.sqrMagnitude < 0.01f) continue;
+                    var owner = box.transform.parent != null ? box.transform.parent : go.transform;
+                    box.transform.position = rb.center;
+                    box.transform.rotation = owner.rotation;
+                    box.center = Vector3.zero;
+                }
+
+                // Measured through the collider's OWN TRANSFORM, never through
+                // Collider.bounds: bounds are a physics-side cache that Unity
+                // does not refresh until the scene syncs, so the first version
+                // of this check read every freshly instantiated building at
+                // the pose it had before it was moved, found it miles from the
+                // road, and passed all three venues unchanged.
+                Physics.SyncTransforms();
+                float intrude = 0f;
+                foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                {
+                    var ct = col.transform;
+                    Vector3 c, e;
+                    if (col is BoxCollider box) { c = box.center; e = box.size * 0.5f; }
+                    else { var lb = col.bounds; c = ct.InverseTransformPoint(lb.center); e = lb.extents; }
+                    // A box that straddles the road has a corner on each side,
+                    // so the centre alone would not catch it.
+                    for (int cx = -1; cx <= 1; cx += 2)
+                        for (int cz = -1; cz <= 1; cz += 2)
+                        {
+                            Vector3 w = ct.TransformPoint(c + new Vector3(cx * e.x, 0f, cz * e.z));
+                            w.y = 0f;
+                            intrude = Mathf.Max(intrude, wantClear - PlanDistanceToPath(pts, w));
+                        }
+                }
+                if (intrude > 0f)
+                {
+                    Object.DestroyImmediate(go);
+                    crowded++;
+                    continue;
+                }
+
                 usedTo[sideIdx] = m + halfAlong;
                 if (towerKinds.Contains(kind)) towers++;
                 else if (blockKinds.Contains(kind)) blocks++;

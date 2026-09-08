@@ -5931,15 +5931,22 @@ namespace PSXRacing.EditorTools
             Check(Mathf.Approximately(ChaseCamera.RollDegFor(9f), ChaseCamera.MaxRollDeg),
                   "and 8 deg at full (Sh2dow's MaxRollDeg)", ChaseCamera.RollDegFor(9f));
             float rollLimit = ChaseCamera.RollDegFor(1.3f * 9.81f * ChaseCamera.LatGScale);
-            Check(rollLimit > 0.8f && rollLimit < 2f, "a 1.3 g grip-limit corner rolls about a degree",
+            // ORDINARY CORNERING MUST NOT ROLL. The owner drove the first
+            // version and reported the lens "swings with every micro
+            // adjustment to the steering wheel like its a drone following a
+            // drift event": at LatGStart 1.0 a normal corner sat astride the
+            // threshold and wound the roll in and out on every correction.
+            // The roll is now a DRIFT cue and nothing else.
+            Check(rollLimit == 0f, "a 1.3 g grip-limit corner does not roll the camera at all",
                   rollLimit.ToString("0.0"));
             float rollDrift = ChaseCamera.RollDegFor(1f * 30f * ChaseCamera.LatGScale);
-            Check(rollDrift > 6f, "and a 1 rad/s drift at 30 m/s rolls hard — the roll is a drift cue",
+            Check(rollDrift > 2f, "and a 1 rad/s drift at 30 m/s still leans the lens — the roll is a drift cue",
                   rollDrift.ToString("0.0"));
 
             Check(ChaseCamera.SpeedShakeDeg(30f, true) == 0f, "no road noise at 108 km/h");
-            Check(ChaseCamera.SpeedShakeDeg(80f, true) <= 0.3f && ChaseCamera.SpeedShakeDeg(80f, true) > 0.1f,
-                  "road noise tops out between 0.1 and 0.3 deg on tarmac", ChaseCamera.SpeedShakeDeg(80f, true));
+            Check(ChaseCamera.SpeedShakeDeg(80f, true) <= 0.15f && ChaseCamera.SpeedShakeDeg(80f, true) >= 0.05f,
+                  "road noise tops out around a tenth of a degree on tarmac — the car jerked at a quarter",
+                  ChaseCamera.SpeedShakeDeg(80f, true));
             Check(ChaseCamera.SpeedShakeDeg(80f, false) <= 0.9f, "and at most 3x that on gravel",
                   ChaseCamera.SpeedShakeDeg(80f, false));
             Check(3.4f >= 10f * ChaseCamera.DefaultSpeedShakeDeg,

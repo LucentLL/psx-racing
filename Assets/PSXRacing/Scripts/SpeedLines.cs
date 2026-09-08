@@ -23,7 +23,14 @@ namespace PSXRacing
         {
             get
             {
-                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 1);
+                // SHIPS OFF (2026-09-08). It shipped ON and reached the owner
+                // as a black screen with white bars: the streak sheet was
+                // opaque, so any frame that drew it on a plain UI material
+                // painted the whole picture. The sheet has an alpha channel
+                // now, but a cosmetic flourish does not get to be the thing
+                // that can make the game unplayable — it is a switch in
+                // OPTIONS, and the player turns it on.
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 0);
                 return cached != 0;
             }
             set
