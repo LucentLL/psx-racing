@@ -1063,6 +1063,22 @@ namespace PSXRacing.EditorTools
         /// 2:1 cut — steeper than earth stands but exactly what a blasted
         /// Appalachian road cut looks like.</summary>
         const float BankBatter = 0.5f;
+        /// <summary>
+        /// How much of the face is VERTICAL before the batter starts.
+        ///
+        /// A battered face and a box collider disagree by construction: the
+        /// rock leans away with height and the box does not, so a collider
+        /// seated on the toe stands half a metre in front of the stone by the
+        /// time you reach a car's shoulder line, and one seated where the rock
+        /// is at shoulder height lets a bumper into the base of it. 1.4 m of
+        /// vertical plinth is the band a car on its wheels can touch at all, so
+        /// inside that band the drawn rock and the solid rock are one surface
+        /// and the argument goes away. Above it the batter carries on exactly
+        /// as before, which is the part you look at rather than hit — and a
+        /// blasted cut is near-vertical at the base in any case, with the
+        /// batter reading as the weathered slope above it.
+        /// </summary>
+        const float BankPlinth = 1.4f;
         /// <summary>Where the toe of the bank sits, past the barrier line. Far
         /// enough out that its collider face never reaches the audit's reach
         /// band (barrier line minus 0.4), close enough that there is nothing to
@@ -1169,7 +1185,12 @@ namespace PSXRacing.EditorTools
             {
                 // A metre PAST the top of the face, so the cut bites into the
                 // hill rather than balancing on the surface of it.
-                float probe = BankToe + h * BankBatter + 1f;
+                // The bottom BankPlinth of the face carries the top no
+                // further out, because that part of it is vertical, and the
+                // probe has to know: solved against the full batter, every
+                // face is sized for a hillside 0.7 m further back than the one
+                // it is then built against.
+                float probe = BankToe + Mathf.Max(0f, h - BankPlinth) * BankBatter + 1f;
                 float px = pts[i].x + right.x * side * probe;
                 float pz = pts[i].z + right.z * side * probe;
                 h = Mathf.Clamp(StageDemY(px, pz) - pts[i].y, 0f, BankMaxH);
@@ -1186,15 +1207,28 @@ namespace PSXRacing.EditorTools
             var uvs = new List<Vector2>();
             var tris = new List<int>();
             float dist = 0f;
+
+            // HOW TALL THE DRAWN FACE IS HERE. The collider below calls the
+            // same function; it used to work out its own height, and a barrier
+            // whose collider does not know how tall its rock is is an invisible
+            // wall by construction.
+            //
+            // Tapered into the ground over four stations at both ends. A cut
+            // face that simply stops leaves a vertical edge standing in open
+            // hillside, which reads as a missing chunk of world.
+            float FaceH(int st)
+            {
+                int idx = Mathf.Min(from + st, pts.Count - 1);
+                float t = Mathf.Min(Mathf.InverseLerp(-0.5f, 3.5f, st),
+                                    Mathf.InverseLerp(-0.5f, 3.5f, stations - 1 - st));
+                return Mathf.Max(0.15f, h[idx] * Mathf.SmoothStep(0f, 1f, t));
+            }
+
             for (int k = 0; k < stations; k++)
             {
                 int i = Mathf.Min(from + k, pts.Count - 1);
-                // Taper both ends into the ground over four stations. A cut
-                // face that simply stops leaves a vertical edge standing in
-                // open hillside, which reads as a missing chunk of world.
-                float taper = Mathf.Min(Mathf.InverseLerp(-0.5f, 3.5f, k),
-                                        Mathf.InverseLerp(-0.5f, 3.5f, stations - 1 - k));
-                float hh = Mathf.Max(0.15f, h[i] * Mathf.SmoothStep(0f, 1f, taper));
+                float hh = FaceH(k);
+                float plinth = Mathf.Min(hh, BankPlinth);
 
                 Vector3 right = RightAt(pts, i);
                 Vector3 toe = pts[i] + right * side * BankToe;
@@ -1202,19 +1236,38 @@ namespace PSXRacing.EditorTools
                 // the guard wall has one: a coarse ground facet must never be
                 // able to show daylight under the bottom of it.
                 toe.y = pts[i].y - 0.5f;
-                Vector3 top = pts[i] + right * side * (BankToe + hh * BankBatter);
+                // The plinth stands directly over the toe, so the stretch of
+                // face a car can reach is a plane a box collider can be.
+                Vector3 shoulder = pts[i] + right * side * BankToe;
+                shoulder.y = pts[i].y + plinth;
+                Vector3 top = pts[i] + right * side * (BankToe + (hh - plinth) * BankBatter);
                 top.y = pts[i].y + hh;
 
                 int v = verts.Count;
-                verts.Add(toe); verts.Add(top);
+                verts.Add(toe); verts.Add(shoulder); verts.Add(top);
+                // v runs up the FACE rather than up the elevation, so the rock
+                // does not stretch where it leans back.
+                float vSh = (0.5f + plinth) / 4.5f;
+                float vTop = vSh + (hh - plinth) * Mathf.Sqrt(1f + BankBatter * BankBatter) / 4.5f;
                 uvs.Add(new Vector2(dist / 4.5f, 0f));
-                uvs.Add(new Vector2(dist / 4.5f, (hh + 0.5f) / 4.5f));
+                uvs.Add(new Vector2(dist / 4.5f, vSh));
+                uvs.Add(new Vector2(dist / 4.5f, vTop));
                 if (k > 0)
                 {
                     // Facing the road, one winding, like the wall — the back of
-                    // a cut face is inside the mountain.
-                    if (side < 0f) tris.AddRange(new[] { v - 2, v - 1, v, v - 1, v + 1, v });
-                    else tris.AddRange(new[] { v - 2, v, v - 1, v - 1, v, v + 1 });
+                    // a cut face is inside the mountain. Two courses: the
+                    // plinth, and the battered face standing on it.
+                    int a0 = v - 3, a1 = v - 2, a2 = v - 1;
+                    if (side < 0f)
+                    {
+                        tris.AddRange(new[] { a0, a1, v, a1, v + 1, v });
+                        tris.AddRange(new[] { a1, a2, v + 1, a2, v + 2, v + 1 });
+                    }
+                    else
+                    {
+                        tris.AddRange(new[] { a0, v, a1, a1, v, v + 1 });
+                        tris.AddRange(new[] { a1, v + 1, a2, a2, v + 1, v + 2 });
+                    }
                 }
                 dist += Spacing;
 
@@ -1224,9 +1277,40 @@ namespace PSXRacing.EditorTools
                 if (k + 1 < stations)
                 {
                     int j = Mathf.Min(from + k + 1, pts.Count - 1);
-                    Vector3 a = pts[i] + RightAt(pts, i) * side * (BankToe + 0.3f);
-                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (BankToe + 0.3f);
-                    float ch = Mathf.Max(hh, StageWallCollH);
+                    // Seated so the box's INNER face lands on the drawn toe
+                    // — 0.05 m inside it, so the collider never leads the visual
+                    // — and every millimetre of the extra depth grows into the
+                    // hill. That is the guard wall's own seating rule (see
+                    // StageWallCollThick); the bank pass copied the thickness
+                    // and not the seating, so at BankToe + 0.3 the contact face
+                    // of a 1.2 m box stood 0.3 m out in the gravel and a car
+                    // stopped a foot short of rock it could see.
+                    float seat = BankToe + StageWallCollThick * 0.5f - 0.05f;
+                    Vector3 a = pts[i] + RightAt(pts, i) * side * seat;
+                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * seat;
+                    // AS TALL AS THE ROCK IS AND NO TALLER.
+                    //
+                    // This was Max(hh, StageWallCollH) — the guard wall's 1.7 m
+                    // collider height, borrowed on the reasoning that a barrier
+                    // ought to be a barrier. On a WALL that floor is honest:
+                    // the stone is there, the collider is merely taller than
+                    // it, and you can see the thing you hit. On a cut bank it
+                    // is a force field, because a bank is drawn as tall as the
+                    // hillside it bites into and the taper fades it to nothing
+                    // at both ends of every run. Measured off the built scenes:
+                    // 1.0 km of Mount Mitchell's shoulder carried a collider
+                    // taller than its rock, and 180 m of that stood where the
+                    // drawn face is 0.15 m — a 1.7 m box in open gravel.
+                    // Reported as "invisible wall on edge of road that knocked
+                    // me off the track", from a car that ended up out on the
+                    // open shoulder just past a bank run that had already
+                    // tapered away.
+                    //
+                    // The MIN of the two stations it spans: the box is a
+                    // straight chord where the drawn ribbon is a ramp, so
+                    // erring short leaves at worst a hand's breadth of rock you
+                    // cannot quite touch, and erring tall puts the fault back.
+                    float ch = Mathf.Min(FaceH(k), FaceH(k + 1));
                     var seg = new GameObject("BankColl");
                     seg.transform.SetParent(parent, false);
                     seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (ch * 0.5f - 0.3f);

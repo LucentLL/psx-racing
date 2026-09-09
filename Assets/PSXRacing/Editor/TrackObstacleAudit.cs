@@ -118,6 +118,7 @@ namespace PSXRacing.EditorTools
             AuditVerge(def, path, trackHalf, reachHalf, log);
             AuditSurface(path, trackHalf, log);
             AuditPosts(def, path, trackHalf, log);
+            AuditGhostBarriers(def, path, colliders, trackHalf, log);
 
             foreach (var col in colliders)
             {
@@ -784,6 +785,462 @@ namespace PSXRacing.EditorTools
                 return true;
             }
             return false;
+        }
+
+
+        // ==================================================================
+        //  Is the barrier you hit the barrier you can see?
+        // ==================================================================
+        //
+        // EVERYTHING ELSE IN THIS FILE STOPS AT THE BARRIER LINE, because
+        // outside it the world is SUPPOSED to be solid. That is exactly where
+        // this fault lives: not something standing in the run-off, but the
+        // barrier itself, solid in a place where nothing is drawn.
+        //
+        // Reported from the car as "invisible wall on edge of road that knocked
+        // me off the track" on Mount Mitchell, and the cause was a cut bank
+        // whose collider height was floored at the guard wall's 1.7 m while the
+        // drawn rock face tapered to 0.15 m at the end of every run: 1.0 km of
+        // that stage's shoulder carried a collider taller than its rock and
+        // 180 m of it stood in open gravel. Nothing here would have said a
+        // word, because a bank collider is 5.8 m off the centreline and every
+        // band this file measures ends at 5.25.
+        //
+        // TWO QUESTIONS, and they are different questions:
+        //
+        //   GAP       — at the height a car touches it, how far out from the
+        //               contact face is the nearest thing that is drawn? This
+        //               is the everyday form of the fault: you stop a foot
+        //               short of rock you can see, every time, all the way
+        //               down the mountain.
+        //   OVERSHOOT — how far does the collider carry on above the top of
+        //               the drawn barrier? A guard wall is allowed some: the
+        //               parkway's stone is 0.85 m and its collider 1.7, and
+        //               that extra is deliberately what stops a car arriving at
+        //               120 km/h from stepping over a low wall into a gorge. It
+        //               coincides with a wall you can see and hit, so it reads
+        //               as the wall. A metre and a half of it standing where
+        //               NOTHING is drawn does not.
+        //
+        // Measured by ray against the triangles of everything the player can
+        // actually see — not against collider bounds, which is the same answer
+        // to a different question.
+
+        /// <summary>Highest a car on its wheels can touch. Sampling above the
+        /// roofline would report the top of every tall cut face, which no car
+        /// will ever reach, as an invisible wall.</summary>
+        const float GhostSampleTop = 1.4f;
+        /// <summary>Sample pitch up the contact face.</summary>
+        const float GhostStep = 0.2f;
+        /// <summary>How far outward to look for something drawn before calling
+        /// it nothing. Four metres past the barrier line is well into the
+        /// hillside on one side of a stage and out over the valley on the
+        /// other.</summary>
+        const float GhostReach = 4f;
+        /// <summary>Start the ray this far back INSIDE the contact face. A
+        /// circuit barrier is drawn exactly coplanar with its collider, and a
+        /// ray starting on that plane misses it — which would report every
+        /// wall on every circuit as a ghost.</summary>
+        const float GhostBack = 0.15f;
+        /// <summary>How far a car may be stopped in front of the nearest drawn
+        /// surface. Half a metre is about a bumper; past that you are being
+        /// held off something by nothing.</summary>
+        const float GhostGap = 0.5f;
+        /// <summary>How far a collider may stand above the drawn barrier it
+        /// belongs to. The parkway wall spends 0.85 of its 1.7 m above its own
+        /// stone on purpose (see StageWallCollH); this is the line between that
+        /// and a collider with no barrier under it at all.</summary>
+        const float GhostOver = 1.0f;
+        /// <summary>How far outside the barrier line a collider can be and
+        /// still be this venue's barrier rather than scenery.</summary>
+        const float GhostOut = 5f;
+
+        static void AuditGhostBarriers(TrackCatalog.TrackDef def, TrackPath path,
+                                       Collider[] colliders, float trackHalf, StringBuilder log)
+        {
+            float barrier = PSXRacingBuilder.WallOffsetFor(def);
+            var world = new DrawnWorld(path, barrier + GhostOut + GhostReach + 2f);
+            if (world.Triangles == 0)
+            {
+                log.AppendLine("  BARRIER FACES: nothing drawn is readable here — not measured");
+                return;
+            }
+
+            var faults = new Dictionary<string, GhostFault>();
+            int measured = 0;
+
+            foreach (var col in colliders)
+            {
+                if (col == null || col.isTrigger) continue;
+                if (col.gameObject.layer == 2) continue;
+                if (col.GetComponentInParent<CarController>() != null) continue;
+                // A concave mesh has no ClosestPoint, and is a surface anyway.
+                var mc = col as MeshCollider;
+                if (mc != null && !mc.convex) continue;
+
+                int i = path.NearestIndex(col.bounds.center);
+                Vector3 road = path.GetPoint(i);
+                Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+                Vector3 near = col.ClosestPoint(road);
+                float lat = Vector3.Dot(near - road, right);
+                float side = lat >= 0f ? 1f : -1f;
+                float reach = Mathf.Abs(lat);
+                // Inside the barrier line is the main pass's business; well
+                // outside it is scenery no car reaches.
+                if (reach < trackHalf || reach > barrier + GhostOut) continue;
+                float top = col.bounds.max.y - road.y;
+                // A kerb is not a barrier: nothing under 0.3 m holds a car off
+                // anything, and half the furniture beside a road is a kerb.
+                if (top < 0.3f) continue;
+                measured++;
+
+                // THE TEST IS FACE-LOCAL: every plan face of the collider,
+                // outward from each, nearest wins.
+                //
+                // The obvious version asks the road which way is out — the
+                // waypoint's right vector, or the direction from the waypoint
+                // to the collider — and on an interchange there is no answer.
+                // A wall box beside the 277 belt is often NEAREST to a
+                // waypoint on the ramp running alongside it, so "away from the
+                // road" comes out pointing ALONG the wall; the ray then flies
+                // four metres parallel to the stone it was sent to find, hits
+                // a lamp post, and the report says 0.86 m of air. Sixty-one
+                // times round Uptown, every one of them a wall that is there.
+                //
+                // A collider does not need the road to know where its own
+                // faces are. Asking every face and keeping the nearest answers
+                // the question that matters — when a car touches this thing,
+                // is there something drawn where it touches — and it cannot be
+                // fooled by geometry that runs beside itself.
+                var faces = new List<(Vector3 origin, Vector3 dir)>(4);
+                {
+                    Vector3 c = col.bounds.center;
+                    var box = col as BoxCollider;
+                    if (box != null)
+                    {
+                        // EACH RAY STARTS OUTSIDE ITS FACE AND FIRES INWARD,
+                        // through the collider. Not outward: a barrier's
+                        // drawn surface lives just INSIDE its box — the stage
+                        // wall's stone is 0.05 m in from the contact face, and
+                        // the collider is deliberately thicker than it — so a
+                        // ray leaving the face travels away from the only
+                        // thing it was sent to find and reports the far side
+                        // of the world.
+                        c = box.transform.TransformPoint(box.center);
+                        Vector3 sx = Vector3.Scale(box.size, box.transform.lossyScale);
+                        Vector3 ax = box.transform.right, az = box.transform.forward;
+                        faces.Add((c + ax * (sx.x * 0.5f + GhostBack), -ax));
+                        faces.Add((c - ax * (sx.x * 0.5f + GhostBack), ax));
+                        faces.Add((c + az * (sx.z * 0.5f + GhostBack), -az));
+                        faces.Add((c - az * (sx.z * 0.5f + GhostBack), az));
+                    }
+                    else
+                    {
+                        // Anything else is measured off the road: start just
+                        // inside the nearest point and fire outward.
+                        Vector3 o = right * side;
+                        faces.Add((near - o * GhostBack, o));
+                    }
+                }
+                for (int f2 = 0; f2 < faces.Count; f2++)
+                {
+                    var d = faces[f2].dir; d.y = 0f;
+                    if (d.sqrMagnitude < 1e-4f) { faces.RemoveAt(f2--); continue; }
+                    faces[f2] = (faces[f2].origin, d.normalized);
+                }
+                if (faces.Count == 0) continue;
+                // SAMPLE THE HEIGHTS THIS COLLIDER ACTUALLY OCCUPIES.
+                //
+                // Starting at road level and walking up assumes the barrier
+                // starts at the road, which a barrier does and a building on a
+                // raised lot does not: the beach houses stand on their highest
+                // corner with a skirt below, so a ray fired at bumper height
+                // passes UNDER the house and finds nothing, and the house is
+                // then reported as a force field. The band is the overlap of
+                // what a car can reach with what the collider is.
+                float lo = Mathf.Max(GhostStep, col.bounds.min.y - road.y + 0.05f);
+                float hi = Mathf.Min(top, GhostSampleTop);
+                if (hi < lo) continue;      // overhead, or buried under the road
+                float drawnTop = lo - GhostStep, worstGap = 0f;
+                bool anyDrawn = false;
+                string hitName = null;
+                for (float y = lo; y <= hi + 1e-3f; y += GhostStep)
+                {
+                    string who = null;
+                    float hit = -1f;
+                    foreach (var fc in faces)
+                    {
+                        Vector3 o = fc.origin; o.y = road.y + y;
+                        string w2;
+                        float h2 = world.RayOut(o, fc.dir, GhostReach + GhostBack, out w2);
+                        if (h2 < 0f) continue;
+                        if (hit < 0f || h2 < hit) { hit = h2; who = w2; }
+                    }
+                    // The first height with nothing in front of it is the top
+                    // of the drawn barrier. Everything above that is overshoot,
+                    // whether or not something reappears higher up.
+                    if (hit < 0f) break;
+                    anyDrawn = true;
+                    drawnTop = y;
+                    float gap = Mathf.Max(0f, hit - GhostBack);
+                    if (gap > worstGap) { worstGap = gap; hitName = who; }
+                }
+                float over = hi - drawnTop;
+
+                if (worstGap <= GhostGap && over <= GhostOver) continue;
+
+                string key = Key(col.transform);
+                GhostFault f;
+                if (!faults.TryGetValue(key, out f))
+                    faults[key] = f = new GhostFault { key = key, waypoint = i };
+                f.count++;
+                if (worstGap > f.gap) { f.gap = worstGap; f.nearest = hitName; }
+                if (over > f.over)
+                {
+                    f.over = over;
+                    f.top = top;
+                    f.drawn = anyDrawn ? drawnTop : -1f;
+                    f.waypoint = i;
+                    f.where = col.bounds.center;
+                }
+            }
+
+            if (faults.Count == 0)
+            {
+                log.AppendLine("  BARRIER FACES OK — all " + measured +
+                               " barrier colliders have the thing they stand for drawn " +
+                               "where a car meets them" + world.Note);
+                return;
+            }
+
+            var sorted = new List<GhostFault>(faults.Values);
+            sorted.Sort((a, b) => (b.over + b.gap).CompareTo(a.over + a.gap));
+            log.AppendLine("  GHOST BARRIERS — " + faults.Count + " of " + measured +
+                           " barrier colliders are solid where nothing is drawn" +
+                           world.Note + ":");
+            foreach (var f in sorted)
+            {
+                log.AppendLine("    " + f.key + "  x" + f.count +
+                               (f.gap > GhostGap
+                                  ? "  held off by " + f.gap.ToString("0.00") + " m of air"
+                                  : "") +
+                               (f.over > GhostOver
+                                  ? "  collider " + f.top.ToString("0.00") + " m tall over " +
+                                    (f.drawn < 0f ? "NOTHING drawn" : f.drawn.ToString("0.0") +
+                                     " m of drawn barrier")
+                                  : "") +
+                               (f.nearest != null ? "  (nearest drawn: " + f.nearest + ")" : "") +
+                               "  near wp " + f.waypoint +
+                               "  at " + f.where.x.ToString("0") + "," +
+                               f.where.y.ToString("0") + "," + f.where.z.ToString("0"));
+            }
+        }
+
+        class GhostFault
+        {
+            public string key, nearest;
+            public int count, waypoint;
+            public float gap, over, top, drawn;
+            public Vector3 where;
+        }
+
+        /// <summary>
+        /// Every triangle the player can see, in world space, in a coarse XZ
+        /// hash so a four-metre ray touches a handful of them instead of half a
+        /// million.
+        ///
+        /// Only what is DRAWN goes in: a renderer that is off is not there,
+        /// cars are traffic, and the foliage layer is billboards with no
+        /// collider — a tree standing behind an invisible wall does not make
+        /// the wall visible.
+        ///
+        /// Only the corridor goes in, too. A stage carries 2.3 km of far
+        /// terrain either side of the route and none of it is within reach of a
+        /// barrier, so the waypoints stamp a band of interesting cells first
+        /// and a triangle outside it is never even transformed.
+        /// </summary>
+        class DrawnWorld
+        {
+            const float Cell = 4f;
+            readonly Dictionary<long, List<int>> grid = new Dictionary<long, List<int>>();
+            readonly List<Vector3> va = new List<Vector3>();
+            readonly List<Vector3> vb = new List<Vector3>();
+            readonly List<Vector3> vc = new List<Vector3>();
+            readonly List<int> owner = new List<int>();
+            readonly List<string> names = new List<string>();
+
+            int unreadable;
+
+            public int Triangles { get { return va.Count; } }
+            /// <summary>What this could only measure as a box, for the report,
+            /// because an audit that quietly downgrades its own resolution is
+            /// worse than one that says so.</summary>
+            public string Note
+            {
+                get
+                {
+                    return unreadable == 0 ? "" :
+                        " (" + unreadable + " imported meshes measured as their bounding box — " +
+                        "not readable)";
+                }
+            }
+
+            /// <summary>The 12 triangles of a box, wound over the corner order
+            /// used above (bit 0 = x, bit 1 = y, bit 2 = z).</summary>
+            static readonly int[] BoxTris =
+            {
+                0,1,3, 0,3,2,   4,7,5, 4,6,7,     // -z, +z
+                0,4,5, 0,5,1,   2,7,6, 2,3,7,     // -y, +y
+                0,2,6, 0,6,4,   1,5,7, 1,7,3      // -x, +x
+            };
+
+            static long K(int x, int z) { return ((long)x << 32) ^ (uint)z; }
+            static int C(float v) { return Mathf.FloorToInt(v / Cell); }
+
+            public DrawnWorld(TrackPath path, float band)
+            {
+                var interest = new HashSet<long>();
+                int r = Mathf.CeilToInt(band / Cell);
+                for (int i = 0; i < path.Count; i++)
+                {
+                    Vector3 p = path.GetPoint(i);
+                    int cx = C(p.x), cz = C(p.z);
+                    for (int x = -r; x <= r; x++)
+                        for (int z = -r; z <= r; z++)
+                            interest.Add(K(cx + x, cz + z));
+                }
+
+                foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+                {
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    if (!mf.gameObject.activeInHierarchy) continue;
+                    int layer = mf.gameObject.layer;
+                    if (layer == 2 || layer == 10) continue;          // cars, foliage
+                    var ren = mf.GetComponent<MeshRenderer>();
+                    if (ren == null || !ren.enabled) continue;
+                    if (mf.GetComponentInParent<CarController>() != null) continue;
+                    var mesh = mf.sharedMesh;
+                    var xf = mf.transform;
+                    int me = names.Count;
+                    names.Add(Key(xf));
+                    Vector3[] world;
+                    int[] tri;
+                    if (mesh.isReadable)
+                    {
+                        var verts = mesh.vertices;
+                        world = new Vector3[verts.Length];
+                        for (int v = 0; v < verts.Length; v++) world[v] = xf.TransformPoint(verts[v]);
+                        tri = mesh.triangles;
+                    }
+                    else
+                    {
+                        // AN IMPORTED MODEL IS NOT READABLE, AND ITS BOX IS THE
+                        // HONEST ANSWER. Every .obj in this project imports with
+                        // Read/Write off, so a building's triangles cannot be
+                        // walked at all — and a house that cannot be walked
+                        // reads as a house that is not drawn, which is how the
+                        // first run of this pass reported 114 perfectly solid
+                        // buildings as force fields. Their box colliders ARE
+                        // the local mesh bounds, so the oriented bounding box
+                        // is exactly the surface those colliders stand for.
+                        // Mesh.bounds is serialised and needs no read flag.
+                        unreadable++;
+                        var bb = mesh.bounds;
+                        world = new Vector3[8];
+                        for (int c = 0; c < 8; c++)
+                            world[c] = xf.TransformPoint(bb.center + Vector3.Scale(
+                                bb.extents,
+                                new Vector3((c & 1) == 0 ? -1f : 1f,
+                                            (c & 2) == 0 ? -1f : 1f,
+                                            (c & 4) == 0 ? -1f : 1f)));
+                        tri = BoxTris;
+                    }
+                    for (int t = 0; t + 2 < tri.Length; t += 3)
+                    {
+                        Vector3 a = world[tri[t]], b = world[tri[t + 1]], c = world[tri[t + 2]];
+                        int x0 = C(Mathf.Min(a.x, Mathf.Min(b.x, c.x)));
+                        int x1 = C(Mathf.Max(a.x, Mathf.Max(b.x, c.x)));
+                        int z0 = C(Mathf.Min(a.z, Mathf.Min(b.z, c.z)));
+                        int z1 = C(Mathf.Max(a.z, Mathf.Max(b.z, c.z)));
+                        // A far-terrain triangle is 60 m across, and one that
+                        // big is never a barrier face.
+                        if ((x1 - x0 + 1) * (z1 - z0 + 1) > 256) continue;
+                        bool want = false;
+                        for (int x = x0; x <= x1 && !want; x++)
+                            for (int z = z0; z <= z1 && !want; z++)
+                                if (interest.Contains(K(x, z))) want = true;
+                        if (!want) continue;
+
+                        int id = va.Count;
+                        va.Add(a); vb.Add(b); vc.Add(c); owner.Add(me);
+                        for (int x = x0; x <= x1; x++)
+                            for (int z = z0; z <= z1; z++)
+                            {
+                                long k = K(x, z);
+                                List<int> bucket;
+                                if (!grid.TryGetValue(k, out bucket))
+                                    grid[k] = bucket = new List<int>();
+                                bucket.Add(id);
+                            }
+                    }
+                }
+            }
+
+            /// <summary>Metres along <paramref name="dir"/> to the first drawn
+            /// triangle, or -1 if there is nothing within <paramref
+            /// name="len"/>. Two-sided: a barrier ribbon is drawn facing the
+            /// road, and this ray is travelling away from it.</summary>
+            public float RayOut(Vector3 origin, Vector3 dir, float len, out string who)
+            {
+                who = null;
+                float best = -1f;
+                int bestOwner = -1;
+                var seen = new HashSet<int>();
+                int steps = Mathf.CeilToInt(len / (Cell * 0.5f)) + 1;
+                for (int s = 0; s <= steps; s++)
+                {
+                    float walked = len * s / steps;
+                    Vector3 p = origin + dir * walked;
+                    int cx = C(p.x), cz = C(p.z);
+                    for (int x = -1; x <= 1; x++)
+                        for (int z = -1; z <= 1; z++)
+                        {
+                            List<int> bucket;
+                            if (!grid.TryGetValue(K(cx + x, cz + z), out bucket)) continue;
+                            foreach (int id in bucket)
+                            {
+                                if (!seen.Add(id)) continue;
+                                float t;
+                                if (!RayTri(origin, dir, va[id], vb[id], vc[id], out t)) continue;
+                                if (t > len) continue;
+                                if (best < 0f || t < best) { best = t; bestOwner = owner[id]; }
+                            }
+                        }
+                    // Everything nearer than the cells already walked has been
+                    // seen, so the nearest hit is final once it is behind us.
+                    if (best >= 0f && best <= walked) break;
+                }
+                if (bestOwner >= 0) who = names[bestOwner];
+                return best;
+            }
+
+            static bool RayTri(Vector3 o, Vector3 d, Vector3 a, Vector3 b, Vector3 c, out float t)
+            {
+                t = 0f;
+                Vector3 e1 = b - a, e2 = c - a;
+                Vector3 pv = Vector3.Cross(d, e2);
+                float det = Vector3.Dot(e1, pv);
+                if (Mathf.Abs(det) < 1e-9f) return false;   // parallel; either facing counts
+                float inv = 1f / det;
+                Vector3 tv = o - a;
+                float u = Vector3.Dot(tv, pv) * inv;
+                if (u < -1e-5f || u > 1f + 1e-5f) return false;
+                Vector3 qv = Vector3.Cross(tv, e1);
+                float v = Vector3.Dot(d, qv) * inv;
+                if (v < -1e-5f || u + v > 1f + 1e-5f) return false;
+                t = Vector3.Dot(e2, qv) * inv;
+                return t > 1e-4f;
+            }
         }
 
         class Offense
