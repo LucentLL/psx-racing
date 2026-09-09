@@ -71,7 +71,23 @@ namespace PSXRacing.EditorTools
             // PALEST greens in the pack (090, 089, 092) and a cluster reads as
             // new growth catching the light. Nothing here measures above zero
             // pink.
-            new[] { "tree084", "tree118", "tree090", "tree085", "tree083", "tree089",
+            //
+            // SECOND PASS, and the same structural mistake as the first. The
+            // pink went, and tree090 and tree089 went into cells 2 and 5 as
+            // "pale silvery-green" — which measure 19% and 28% washed-out, and
+            // cells 2 and 5 are the CLUSTERED ones. So instead of magenta
+            // hillsides there were grey-white ones: "I see a lot of gray/white
+            // trees in May, I assume these are meant to be winter trees."
+            //
+            // The lesson is about the SLOTS, not the colours. RedGroup is
+            // where a whole noise clump lands, so anything distinctive put
+            // there arrives as a patch of it. Spring has no dramatic second
+            // colour to give those cells — an Appalachian April is a dozen
+            // greens at once — so they now hold ordinary greens that differ
+            // only in shade, and a cluster reads as new growth rather than as
+            // another species. Nothing in this row measures above 7% pale or
+            // above zero pink.
+            new[] { "tree084", "tree118", "tree080", "tree085", "tree083", "tree114",
                     "tree087", "tree092", "tree098", "tree018", "tree093", "tree106",
                     "tree066", "tree057", "tree061", "tree010" },
             // Summer: full canopy.

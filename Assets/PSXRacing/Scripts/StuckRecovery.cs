@@ -248,9 +248,15 @@ namespace PSXRacing
             if (!trapped)
             {
                 stuckTimer = 0f;
+                // Not stuck, but possibly not on the road either — and a car
+                // that is driving perfectly well on the wrong side of a
+                // barrier is invisible to every test above, because all three
+                // of them are about a car that has STOPPED.
+                if (UpdateOffTrack(Time.deltaTime)) return;
                 Prompt = null;
                 return;
             }
+            offTrackTimer = 0f;     // being stuck is the more urgent news
 
             stuckTimer += Time.deltaTime;
             float limit = rolled ? rolledSeconds : pinned ? pinnedSeconds : beachedSeconds;
@@ -268,6 +274,69 @@ namespace PSXRacing
             Prompt = "STUCK — " + ResetControlName() + "\nAUTO-RESET IN " +
                      Mathf.CeilToInt(untilReset);
         }
+
+        /// <summary>How far off the centreline stops being "running wide" and
+        /// starts being "not on the road", on top of half the road's own width.
+        /// Twenty metres puts it well outside the barrier line on every venue
+        /// — a circuit walls at ten — so running onto the grass never trips
+        /// it and being over a wall does.</summary>
+        const float OffTrackMarginM = 20f;
+        /// <summary>Seconds out there before the banner. Long enough that a
+        /// wide moment through a corner never earns it.</summary>
+        const float OffTrackSeconds = 4f;
+        float offTrackTimer;
+
+        /// <summary>
+        /// THE WAY BACK, and only that: a banner, never a teleport.
+        ///
+        /// "It's easy to get off the track, but then it often feels like
+        /// you're stuck outside of a barrier and can't get back on." Both
+        /// halves are true and only the second is a bug. A guard wall is
+        /// one-directional by construction — it is there to stop you leaving
+        /// the road, and it stops you rejoining it just as well — so a car
+        /// that gets past one can drive for kilometres with no way back. The
+        /// three states above cannot see this, because all three are about a
+        /// car that has stopped moving, and this one has not.
+        ///
+        /// It only ever SAYS so. The reset control has existed all along and
+        /// is simply invisible (R, X/Square, or the pause menu), which is the
+        /// whole problem; naming it is the fix. Taking the car away from
+        /// someone who is still driving it is the exact complaint this
+        /// component was written to answer, and a lap that runs wide past a
+        /// forecourt must not end in a teleport.
+        /// </summary>
+        /// <returns>True if this owns the prompt on this frame.</returns>
+        bool UpdateOffTrack(float dt)
+        {
+            var mgr = RaceManager.Instance;
+            var path = mgr != null ? mgr.path : null;
+            if (path == null || path.Count < 2 || car == null)
+            { offTrackTimer = 0f; return false; }
+
+            float limit = path.roadWidth * 0.5f + OffTrackMarginM;
+            pathHint = path.NearestIndex(transform.position, pathHint);
+            float lateral = Lateral(path, pathHint);
+            if (lateral >= limit)
+            {
+                // Confirm against a FULL search before believing it. The
+                // hinted one walks a 25-station window, so a hint left behind
+                // by a spin measures the distance to the wrong part of the
+                // road — and on a course that doubles back, to a part of it
+                // the car is nowhere near. Only paid for while apparently off
+                // track, which is rare.
+                pathHint = path.NearestIndex(transform.position);
+                lateral = Lateral(path, pathHint);
+            }
+            if (lateral < limit) { offTrackTimer = 0f; return false; }
+
+            offTrackTimer += dt;
+            if (offTrackTimer < OffTrackSeconds) return false;
+            Prompt = "OFF TRACK — " + ResetControlName();
+            return true;
+        }
+
+        float Lateral(TrackPath path, int idx) =>
+            Vector3.ProjectOnPlane(transform.position - path.GetPoint(idx), Vector3.up).magnitude;
 
         /// <summary>
         /// Name the control the player actually has. Telling a pad player to

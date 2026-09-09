@@ -866,10 +866,28 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  Reflector posts along the guard walls (sense of speed)
         // ------------------------------------------------------------------
-        /// <summary>Post centre, metres OUTSIDE the wall line. The collider
-        /// box sits at +0.15 with 0.4 m of thickness, so its outer face is at
-        /// +0.35; the post stands clear of it on the shelf, which is dead
-        /// level out to StageVergeFlat = +0.7.</summary>
+        /// <summary>
+        /// HOW DEEP A GUARD WALL IS TO THE SOLVER, as opposed to how deep it
+        /// looks. 1.2 m, matching the circuits' WallCollThick, and grown
+        /// entirely OUTWARD so the surface the player touches does not move.
+        ///
+        /// It was 0.4 — the drawn thickness — and the circuits' own wall pass
+        /// says in as many words why that is not enough: "the collider is far
+        /// thicker than the drawn wall and grows only OUTWARD, so the contact
+        /// surface is unchanged while a fast car has real depth to catch
+        /// against." The stages never got it. At 40 m/s a car covers 0.8 m in
+        /// one physics step, so a 0.4 m box is thinner than a single tick of
+        /// travel and a corner arriving at a seam between two of them can find
+        /// the far side. Reported as "walls don't have thickness like they
+        /// should — it's easy to get off the track".
+        /// </summary>
+        const float StageWallCollThick = 1.2f;
+
+        /// <summary>Post centre, metres OUTSIDE the wall line. The wall's
+        /// collider now reaches out past this (see StageWallCollThick), which
+        /// costs nothing: the posts are one combined mesh with no colliders of
+        /// their own, and the shelf under both is dead level out to
+        /// StageVergeFlat = +0.7.</summary>
         const float StagePostBack = 0.45f;
         const float StagePostW = 0.10f;
         /// <summary>How far the post shows above the wall's top. The stone is
@@ -977,8 +995,14 @@ namespace PSXRacing.EditorTools
                 if (k + 1 < stations)
                 {
                     int j = Mathf.Min(from + k + 1, pts.Count - 1);
-                    Vector3 a = pts[i] + RightAt(pts, i) * side * (StageWallOffset + 0.15f);
-                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (StageWallOffset + 0.15f);
+                    // Centred so the INNER face stays where the drawn wall is
+                    // and all the extra depth grows OUTWARD — see
+                    // StageWallCollThick. The old +0.15 put a 0.4 m box's
+                    // inner face at -0.05; the same face now sits under a box
+                    // this much thicker.
+                    float half = StageWallCollThick * 0.5f;
+                    Vector3 a = pts[i] + RightAt(pts, i) * side * (StageWallOffset - 0.05f + half);
+                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (StageWallOffset - 0.05f + half);
                     var seg = new GameObject("WallColl");
                     seg.transform.SetParent(parent, false);
                     seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (StageWallCollH * 0.5f - 0.2f);
@@ -986,7 +1010,8 @@ namespace PSXRacing.EditorTools
                     if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
                     seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
                     var box = seg.AddComponent<BoxCollider>();
-                    box.size = new Vector3(0.4f, StageWallCollH + 0.4f, dir.magnitude + 0.5f);
+                    box.size = new Vector3(StageWallCollThick, StageWallCollH + 0.4f,
+                                           dir.magnitude + 0.5f);
                     box.sharedMaterial = phys;
                     seg.layer = SolidLayer;
                     seg.isStatic = true;
