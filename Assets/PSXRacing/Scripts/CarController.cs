@@ -481,6 +481,12 @@ namespace PSXRacing
         /// creeping at walking pace is not parked and must not be seized.
         /// </summary>
         const float ParkHoldSpeed = 0.3f;
+        /// <summary>How long the car has to have been still, with nothing
+        /// asked of it, before the hold latches by itself — see the parkHold
+        /// line in TireForces. Short: it should be continuous with the brake
+        /// that stopped the car, not a pause the gradient can use.</summary>
+        const float ParkAutoSeconds = 0.5f;
+        float parkRestTimer;
 
         /// <summary>Damping on the parked hold, in 1/s of the mass each tyre
         /// carries. It is NOT what holds the car — the gravity cancellation is
@@ -2354,8 +2360,27 @@ namespace PSXRacing
             // spinning on the spot is not parked either.
             bool atRest = Body.linearVelocity.magnitude <= ParkHoldSpeed &&
                           Body.angularVelocity.magnitude <= ParkHoldSpin;
+            // AND IT LATCHES ON ITS OWN once the car has been still for a
+            // moment, which is the whole of "car still rolls away when
+            // parked". The hold only ever engaged while a pedal or the lever
+            // was HELD, so the instant the player let go of both — which is
+            // what parking is — nothing was holding the car and any gradient
+            // took it. And it could not re-engage afterwards: once the roll
+            // passes ParkHoldSpeed, atRest is false and the test can never
+            // become true again.
+            //
+            // Cheap to get right because the timer runs while braking too, so
+            // a car brought to a stop on the pedal has already earned the
+            // latch by the time the pedal comes up, and the hold is continuous
+            // with no moment of freewheel in between. Any throttle drops it on
+            // the same tick — accelPedal gates the whole expression — so
+            // pulling away is unaffected, and a driver who wants to roll a
+            // slope just touches the pedal.
+            if (atRest && accelPedal < 0.02f) parkRestTimer += dt;
+            else parkRestTimer = 0f;
             bool parkHold = atRest && accelPedal < 0.02f &&
-                            (handbrakeInput || brakePedal > 0.5f);
+                            (handbrakeInput || brakePedal > 0.5f ||
+                             parkRestTimer >= ParkAutoSeconds);
             int groundedAll = 0;
             for (int i = 0; i < 4; i++) if (wheelGrounded[i]) groundedAll++;
             // Shared over the wheels holding the car up, so a car with a wheel
@@ -2914,6 +2939,37 @@ namespace PSXRacing
         /// of this number would drift.</summary>
         public const float ResetLift = 0.4f;
 
+        /// <summary>
+        /// SEAT A RESET ON THE SURFACE rather than trusting the Y it was
+        /// handed, which is the whole of "the car flies 15 ft off the ground
+        /// going to a new area".
+        ///
+        /// Two callers were handing over a Y that was never the road, and they
+        /// produced the same symptom by different routes. TownReturn stores
+        /// <c>car.transform.position</c> when you step into a venue and hands
+        /// it straight back on the way out, so the 0.3 m its caller adds and
+        /// the ResetLift added here were BAKED INTO THE STORED POSITION and
+        /// paid again on the next visit: 0.7 m compounding per trip, which is
+        /// fifteen feet after ten of them. TownEdge.ArrivalSpot is worse in one
+        /// go — it derives the arrival point from its trigger volume's BOUNDS
+        /// CENTRE, and a zone line tall enough to catch a car is metres deep,
+        /// so its centre is metres above the tarmac.
+        ///
+        /// Fixing it here rather than at the two call sites is deliberate:
+        /// "put the car back" means on the ground in every caller, and the
+        /// next one to pass a hopeful Y should not have to know that. A miss
+        /// keeps the Y it was given, which is what every caller got before.
+        /// </summary>
+        static Vector3 GroundedResetPos(Vector3 position)
+        {
+            const float ProbeUp = 6f, ProbeDown = 80f;
+            if (Physics.Raycast(position + Vector3.up * ProbeUp, Vector3.down,
+                                out var hit, ProbeUp + ProbeDown,
+                                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                return new Vector3(position.x, hit.point.y + ResetLift, position.z);
+            return position + Vector3.up * ResetLift;
+        }
+
         public void ResetTo(Vector3 position, Quaternion rotation)
         {
             Body.linearVelocity = Vector3.zero;
@@ -2924,7 +2980,7 @@ namespace PSXRacing
             // represent and throws the order across the seat — for a stop the
             // player did not make. See PizzaCargo.ForgetMotion.
             PizzaCargo.Instance?.ForgetMotion();
-            transform.SetPositionAndRotation(position + Vector3.up * ResetLift, rotation);
+            transform.SetPositionAndRotation(GroundedResetPos(position), rotation);
             currentGear = 1;
             currentRPM = idleRPM;
             wheelSpin = 0f;

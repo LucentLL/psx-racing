@@ -522,6 +522,18 @@ namespace PSXRacing
         /// <summary>One throw per crash — matches CollisionResponder's own
         /// incident window.</summary>
         const float InjectWindow = 0.6f;
+        /// <summary>
+        /// And the same window across BOTH channels, injected and polled.
+        ///
+        /// InjectImpact deduplicates its own side, but the polled fallback had
+        /// nothing: it fires on any tick where the responder says "in contact"
+        /// and the car's velocity moved more than JoltMinSpeed, and both of
+        /// those are true on every tick of a scrape. Fifty unfiltered
+        /// VelocityChanges a second is not a jolt channel, it is a rocket
+        /// motor. This is the one guard both branches share.
+        /// </summary>
+        const float JoltCooldown = 0.6f;
+        float lastJoltTime = -10f;
         Transform tray;
         Rigidbody trayBody;
 
@@ -551,7 +563,14 @@ namespace PSXRacing
         /// or the difference across it reads as an enormous shove. Drops any
         /// pending injected impulse for the same reason: a crash the car has
         /// just been recovered from is one the load is no longer in.</summary>
-        public void ForgetMotion() { haveLastVel = false; pendingJolt = Vector3.zero; }
+        public void ForgetMotion()
+        {
+            haveLastVel = false;
+            pendingJolt = Vector3.zero;
+            // The cooldown is about ONE crash, and a teleport ends it: the
+            // next contact is a new incident wherever the car has been put.
+            lastJoltTime = -10f;
+        }
         /// <summary>How many boxes this order is, known before any of them are
         /// built — the seat's walls have to be tall enough for the whole stack
         /// and they are put up first.</summary>
@@ -1412,19 +1431,32 @@ namespace PSXRacing
             // channel stays underneath it as the fallback for anything that
             // changes the car's speed hard without going through
             // CollisionResponder at all.
+            //
+            // AND ONCE. The polled branch below had no cooldown of any kind:
+            // InWallContact is a rolling 0.25 s window that OnCollisionStay
+            // re-stamps every tick, so ANY sustained contact whose per-step
+            // velocity difference cleared 1.2 m/s fired a fresh 7 m/s
+            // VelocityChange into every box, fifty times a second. Bumping a
+            // kerb at walking pace and holding against it is exactly that, and
+            // it is why "I bumped the road at 5mph and the pizza box flew away
+            // at 100mph" — the box was not thrown by the bump, it was thrown
+            // by a hundred of them. A crash is one event; so is a scrape.
             Vector3 jolt = Vector3.zero;
+            bool joltReady = Time.time - lastJoltTime >= JoltCooldown;
             if (pendingJolt.sqrMagnitude > 1e-6f)
             {
-                jolt = pendingJolt;
+                if (joltReady) { jolt = pendingJolt; lastJoltTime = Time.time; }
+                // Consumed either way: a jolt refused for being too soon is
+                // spent, not queued behind the cooldown to fire late.
                 pendingJolt = Vector3.zero;
-                // Cleared WITH the jolt. Left standing it goes on refusing
-                // every smaller impact for the rest of the window, and the
-                // second wall of a crash is usually the smaller of the two —
-                // exactly the hit a player would notice missing.
                 lastInjectSqr = 0f;
             }
-            else if (responder != null && responder.InWallContact && deltaV.magnitude >= JoltMinSpeed)
+            else if (joltReady && responder != null && responder.InWallContact &&
+                     deltaV.magnitude >= JoltMinSpeed)
+            {
                 jolt = car.transform.InverseTransformDirection(deltaV);
+                lastJoltTime = Time.time;
+            }
 
             // The breadcrumb — see DebugJolts. Logged for every CANDIDATE, not
             // just the armed ones: "big velocity change, responder said no"
