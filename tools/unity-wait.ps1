@@ -1,4 +1,4 @@
-# Run one Unity batchmode job in the sandbox and DO NOT RETURN UNTIL IT IS DONE.
+﻿# Run one Unity batchmode job in the sandbox and DO NOT RETURN UNTIL IT IS DONE.
 #
 # Dot-source it:  . "$PSScriptRoot\unity-wait.ps1"
 # then:           Invoke-UnityJob -UnityArgs @(...) -Log "$proj\build.log"
@@ -23,17 +23,42 @@
 # hand back whether the log says the job finished.
 $ErrorActionPreference = "Stop"
 
+# ONLY THE PIDS WORKING ON *THIS* PROJECT.
+#
+# Every waiter here used to ask "which Unity processes were not running when I
+# started?", and treat all of them as the job. That is wrong the moment a
+# second Unity exists for any reason, and the obvious reason is the owner
+# opening their own editor while a build runs. 2026-09-09: a WebGL build
+# finished at 23:58, the editor was opened at 00:05, and the publish sat
+# waiting on it -- a complete, correct, verified build undeployed for the whole
+# of its forty-minute deadline, looking from the outside exactly like a hang.
+#
+# The command line is the discriminator and it is exact: the sandbox job runs
+# -projectPath C:\Users\mcgee\PSXBuild and the owner's editor does not. A
+# process whose CommandLine we cannot read is counted IN, because the failure
+# that matters is calling a job done while it is still running -- two jobs on
+# one sandbox is the trap unity-wait.ps1 exists for.
+function Get-UnityPids([string]$ProjectPath) {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name='Unity.exe'" -ErrorAction SilentlyContinue)
+    if ($procs.Count -eq 0) { return @() }
+    $leaf = Split-Path -Leaf $ProjectPath
+    @($procs | Where-Object {
+        $null -eq $_.CommandLine -or $_.CommandLine -like "*$leaf*"
+    } | ForEach-Object { $_.ProcessId })
+}
+
 function Invoke-UnityJob {
     param(
         [Parameter(Mandatory = $true)][string[]]$UnityArgs,
         [Parameter(Mandatory = $true)][string]$Log,
         [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe",
-        [int]$MaxMinutes = 40
+        [int]$MaxMinutes = 40,
+        [string]$Project = "C:\Users\mcgee\PSXBuild"
     )
 
     if (Test-Path $Log) { Remove-Item $Log -Force }
 
-    $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
+    $before = @(Get-UnityPids $Project)
     Start-Process -FilePath $Unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
 
     # Phase one: wait for a Unity process that was not there before. Up to two
@@ -43,7 +68,7 @@ function Invoke-UnityJob {
     $spawnDeadline = (Get-Date).AddMinutes(2)
     while ((Get-Date) -lt $spawnDeadline) {
         Start-Sleep -Seconds 2
-        $now = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
+        $now = @(Get-UnityPids $Project)
         if (@($now | Where-Object { $before -notcontains $_ })) { $appeared = $true; break }
     }
     if (-not $appeared) {
@@ -62,7 +87,7 @@ function Invoke-UnityJob {
     $quiet = 0
     $deadline = (Get-Date).AddMinutes($MaxMinutes)
     while ((Get-Date) -lt $deadline) {
-        $now = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
+        $now = @(Get-UnityPids $Project)
         if (@($now | Where-Object { $before -notcontains $_ })) { $quiet = 0 }
         else {
             $quiet++

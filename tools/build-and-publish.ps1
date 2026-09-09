@@ -1,4 +1,4 @@
-# Rebuild PSX Racing and publish it to https://lucentll.github.io/psx-racing/
+﻿# Rebuild PSX Racing and publish it to https://lucentll.github.io/psx-racing/
 #
 #   powershell -ExecutionPolicy Bypass -File tools\build-and-publish.ps1
 #   ...            -File tools\build-and-publish.ps1 -SkipBuild    (republish last build)
@@ -39,13 +39,16 @@ function Invoke-Git([string[]]$GitArgs) {
     }
 }
 
+# THIS PUBLISH ONLY WAITS ON ITS OWN SANDBOX. Get-UnityPids (unity-wait.ps1)
+# filters by command line, so the owner opening their editor mid-build no
+# longer holds the deploy hostage -- see the note on that function.
 function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 40) {
-    $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
+    $before = @(Get-UnityPids $proj)
     Start-Process -FilePath $unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 5
     $deadline = (Get-Date).AddMinutes($MaxMinutes)
     while ((Get-Date) -lt $deadline) {
-        $now = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
+        $now = @(Get-UnityPids $proj)
         if (-not @($now | Where-Object { $before -notcontains $_ })) { return $true }
         Start-Sleep -Seconds 5
     }
