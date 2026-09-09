@@ -56,9 +56,23 @@ namespace PSXRacing.EditorTools
             new[] { "tree001", "tree002", "tree003", "tree005", "tree006", "tree007",
                     "tree009", "tree047", "tree012", "tree013", "tree015", "tree004",
                     "tree057", "tree061", "tree063", "tree008" },
-            // Spring: fresh greens and blossom.
-            new[] { "tree084", "tree069", "tree073", "tree085", "tree083", "tree068",
-                    "tree087", "tree071", "tree090", "tree018", "tree093", "tree089",
+            // Spring: fresh greens, and NOT blossom.
+            //
+            // The first pass put the pack's flowering trees here — tree069,
+            // tree068 and tree071, which measure 90%, 50% and 64% pink by the
+            // blue-over-green test — and two of the three landed in the RED
+            // cells. Those are the CLUSTERED slots (PickSpecies sends a whole
+            // noise clump to RedGroup), so entire hillsides came out magenta:
+            // "the trees are too pink and purple, that is very uncommon in NC
+            // Appalachian mountains". It is: redbud is a piedmont tree and
+            // serviceberry and dogwood are scattered understory, not canopy.
+            // What a Carolina ridge actually does in April is turn a dozen
+            // shades of new green at once, so the red cells now carry the
+            // PALEST greens in the pack (090, 089, 092) and a cluster reads as
+            // new growth catching the light. Nothing here measures above zero
+            // pink.
+            new[] { "tree084", "tree118", "tree090", "tree085", "tree083", "tree089",
+                    "tree087", "tree092", "tree098", "tree018", "tree093", "tree106",
                     "tree066", "tree057", "tree061", "tree010" },
             // Summer: full canopy.
             new[] { "tree116", "tree099", "tree110", "tree097", "tree100", "tree088",
@@ -183,8 +197,10 @@ namespace PSXRacing.EditorTools
             // Winter: leaf litter and bare crowns, spruce in the hollows.
             new[] { new Color32(112, 98, 80, 255), new Color32(96, 84, 70, 255), new Color32(86, 78, 66, 255),
                     new Color32(72, 68, 58, 255), new Color32(44, 58, 42, 255) },
-            // Spring: fresh greens, a blush of blossom in the brightest clumps.
-            new[] { new Color32(150, 124, 136, 255), new Color32(140, 164, 90, 255), new Color32(120, 150, 80, 255),
+            // Spring: fresh greens. The brightest band was a pink-grey to
+            // match the blossom the atlas no longer has, and at 150 m it was
+            // painting whole distant ridges lilac. New growth instead.
+            new[] { new Color32(158, 176, 96, 255), new Color32(140, 164, 90, 255), new Color32(120, 150, 80, 255),
                     new Color32(92, 120, 66, 255), new Color32(48, 66, 42, 255) },
             // Summer: canopy.
             new[] { new Color32(88, 124, 56, 255), new Color32(70, 112, 50, 255), new Color32(58, 98, 46, 255),

@@ -532,7 +532,12 @@ namespace PSXRacing.EditorTools
                 float band = track.stageWaterY > 0f ? NearCoverage : ColliderBand;
                 if (mid < band + NearChunk * 0.71f)
                 {
-                    go.AddComponent<MeshCollider>().sharedMesh = mesh;
+                    var col = go.AddComponent<MeshCollider>();
+                    col.sharedMesh = mesh;
+                    // The verge beside a mountain road is the surface a player
+                    // rides the edge of, and it is the car's SHELL that touches
+                    // it — see CarSlideFriction.
+                    col.sharedMaterial = SlidePhys();
                     withColl++;
                 }
                 nearChunks++;

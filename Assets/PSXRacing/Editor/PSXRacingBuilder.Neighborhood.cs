@@ -260,7 +260,7 @@ namespace PSXRacing.EditorTools
                 Vector3.right, HomeRoadW);
 
             // ---- the player, on their own drive, pointing down the street ----
-            var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
+            var physMat = GetOrCreatePhysMat("CarPhys", CarSlideFriction, 0.05f);
             var blobMat = MakeBlobShadowMaterial();
             var carsRoot = new GameObject("Cars");
             var player = BuildOneCar(carsRoot.transform, CarSetups[0], isPlayer: true,

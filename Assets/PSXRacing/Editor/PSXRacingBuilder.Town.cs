@@ -135,7 +135,7 @@ namespace PSXRacing.EditorTools
             BuildTownBounds(root.transform);
 
             // ---- the player, on their own drive, pointing at the street ----
-            var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
+            var physMat = GetOrCreatePhysMat("CarPhys", CarSlideFriction, 0.05f);
             var blobMat = MakeBlobShadowMaterial();
             var carsRoot = new GameObject("Cars");
             // ARRIVING FROM HOME, at the west end, pointing up the street.

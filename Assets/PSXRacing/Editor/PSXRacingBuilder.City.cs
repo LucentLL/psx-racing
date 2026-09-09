@@ -62,7 +62,7 @@ namespace PSXRacing.EditorTools
             var spawnRot = Quaternion.LookRotation(new Vector3(tan2.x, 0f, tan2.y), Vector3.up);
             Log($"spawn: {e.name} at ({spawnPos.x:0}, {spawnPos.z:0})");
 
-            var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
+            var physMat = GetOrCreatePhysMat("CarPhys", CarSlideFriction, 0.05f);
             var blobMat = MakeBlobShadowMaterial();
             var carsRoot = new GameObject("Cars");
             var player = BuildOneCar(carsRoot.transform, CarSetups[0], isPlayer: true,

@@ -2202,6 +2202,24 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// Friction on the car's own BODY collider, and through the Minimum
+        /// combine the CEILING on friction against anything it touches.
+        ///
+        /// The wheels are raycast, not colliders, so this number never touches
+        /// grip — it is purely how the shell behaves against scenery, and the
+        /// scenery is supposed to let go. 0.15 was enough to drag on a cut bank
+        /// while CollisionResponder's scrub was doing the rest of the damage;
+        /// 0.06 is a rail. Speed loss belongs in the responder, where it can be
+        /// angle-aware, and not in a friction coefficient that cannot tell a
+        /// three-degree brush from a thirty-degree scrape.
+        /// </summary>
+        public const float CarSlideFriction = 0.06f;
+
+        /// <summary>Ground and road meshes the car's BODY can touch. Same
+        /// reasoning as CarSlideFriction: nothing here is a tyre.</summary>
+        static PhysicsMaterial SlidePhys() => GetOrCreatePhysMat("SlidePhys", 0.04f, 0f);
+
         static PhysicsMaterial GetOrCreatePhysMat(string name, float friction, float bounce)
         {
             string p = GenDir + "/" + name + ".asset";
@@ -2285,7 +2303,9 @@ namespace PSXRacing.EditorTools
             // racing line is the ground you can see, hills and gorge included —
             // a flat plate under a mountain pass would have a car that ran wide
             // driving along thin air at valley height.
-            go.AddComponent<MeshCollider>().sharedMesh = mesh;
+            var groundCol = go.AddComponent<MeshCollider>();
+            groundCol.sharedMesh = mesh;
+            groundCol.sharedMaterial = SlidePhys();
             go.isStatic = true;
         }
 
@@ -4674,7 +4694,7 @@ namespace PSXRacing.EditorTools
 
         static List<CarController> BuildCars(List<Vector3> pts)
         {
-            var physMat = GetOrCreatePhysMat("CarPhys", 0.15f, 0.05f);
+            var physMat = GetOrCreatePhysMat("CarPhys", CarSlideFriction, 0.05f);
             var blobMat = MakeBlobShadowMaterial();
 
             var cars = new List<CarController>();
