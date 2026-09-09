@@ -162,16 +162,29 @@ namespace PSXRacing.EditorTools
         /// a wall to a car whichever porch it hides behind.</summary>
         static void AddSolidBox(GameObject inst, CityProps.Def def)
         {
-            var b = RendererBounds(inst);
+            // MEASURED IN THE PROP'S OWN SPACE, not in the world's.
+            //
+            // Renderer.bounds is a world AABB, and a world AABB of a ROTATED
+            // house is not the house: at 45 degrees it is half as big again in
+            // plan, and the box built from it is then applied back in the
+            // prop's own frame, so it stands out past the walls by metres at
+            // each end. That is an invisible wall beside the road, and the new
+            // barrier-face pass in TrackObstacleAudit named four of them along
+            // the Emerald Isle beach town before anybody drove into one.
+            //
+            // It is also the re-bake this box has been waiting for: the
+            // Charlotte skyline is switched OFF (see stageHomes in the city
+            // theme) because its baked prefabs carry a Solid box that "spans
+            // far more than the model", which is this, from here.
+            //
+            // The displaced-centre bug the previous version fixed is fixed by
+            // construction now: measured in local space, the centre IS a local
+            // position.
+            var b = LocalRendererBounds(inst);
             if (b.size.sqrMagnitude < 0.01f) return;
             var solid = new GameObject("Solid");
             solid.transform.SetParent(inst.transform, false);
-            // RendererBounds is WORLD space. Assigning its centre as a local
-            // position is only correct while the prop stands at the origin,
-            // and every prop baked anywhere else got an invisible box
-            // displaced by exactly how far it stood from there — the
-            // Charlotte "invisible walls" of 2026-09-07. Convert.
-            solid.transform.localPosition = inst.transform.InverseTransformPoint(b.center);
+            solid.transform.localPosition = b.center;
             solid.layer = SolidLayer;
             var bc = solid.AddComponent<BoxCollider>();
             // A shave off the plan footprint so a kerbside mailbox or porch
@@ -285,6 +298,40 @@ namespace PSXRacing.EditorTools
             mr.sharedMaterial = mat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
+        }
+
+        /// <summary>
+        /// The prop's drawn extent IN ITS OWN SPACE — an oriented box rather
+        /// than a world one, so a rotated model gets a collider the shape of
+        /// the model instead of the shape of its shadow on the world axes.
+        ///
+        /// Mesh.bounds rather than Renderer.bounds on purpose: Renderer.bounds
+        /// is the world AABB, which is the very thing being avoided, and
+        /// Mesh.bounds is serialised so it works on the imported models here,
+        /// none of which are readable.
+        /// </summary>
+        static Bounds LocalRendererBounds(GameObject go)
+        {
+            bool any = false;
+            var acc = new Bounds();
+            foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var mf = r.GetComponent<MeshFilter>();
+                if (mf == null || mf.sharedMesh == null) continue;
+                var lb = mf.sharedMesh.bounds;
+                for (int c = 0; c < 8; c++)
+                {
+                    Vector3 corner = lb.center + Vector3.Scale(lb.extents,
+                        new Vector3((c & 1) == 0 ? -1f : 1f,
+                                    (c & 2) == 0 ? -1f : 1f,
+                                    (c & 4) == 0 ? -1f : 1f));
+                    Vector3 p = go.transform.InverseTransformPoint(
+                                    r.transform.TransformPoint(corner));
+                    if (!any) { acc = new Bounds(p, Vector3.zero); any = true; }
+                    else acc.Encapsulate(p);
+                }
+            }
+            return any ? acc : new Bounds(Vector3.zero, Vector3.zero);
         }
 
         static Bounds RendererBounds(GameObject go)
