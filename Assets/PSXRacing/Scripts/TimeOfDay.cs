@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace PSXRacing
 {
@@ -230,6 +230,15 @@ namespace PSXRacing
             Current = index;
             var p = All[index];
 
+            // THE WEATHER RIDES ON TOP OF THE HOUR. The preset is a struct,
+            // so this is a copy being adjusted and the table stays the table:
+            // overcast darkens the sky and the ambient, everything but clear
+            // air closes the fog in and runs the lights. See Seasons.
+            var weather = Seasons.CurrentWeather;
+            p.skyExposure *= Seasons.SkyMul(weather);
+            p.ambient *= Seasons.AmbientMul(weather);
+            bool lights = p.lightsOn || Seasons.LightsOn(weather);
+
             if (sun != null)
             {
                 sun.transform.rotation = Quaternion.Euler(p.sunEuler);
@@ -247,13 +256,13 @@ namespace PSXRacing
                 // table, and a venue that wants to see further (the mountain
                 // stage) bakes the multiplier into its PSXGlobals instead of
                 // into seven copied presets.
-                float s = Mathf.Max(0.01f, globals.fogScale);
+                float s = Mathf.Max(0.01f, globals.fogScale) * Seasons.FogMul(weather);
                 globals.fogNear = p.fogNear * s;
                 globals.fogFar = p.fogFar * s;
             }
 
             ApplySky(p, sun);
-            CarLights.SetAll(p.lightsOn);
+            CarLights.SetAll(lights);
             NightGlow.SetAll(p.lightsOn);
         }
 

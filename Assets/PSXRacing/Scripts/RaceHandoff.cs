@@ -1,4 +1,4 @@
-namespace PSXRacing
+﻿namespace PSXRacing
 {
     /// <summary>
     /// Static mailbox between the LifeSim menu scene and the race scene.
@@ -37,6 +37,15 @@ namespace PSXRacing
         /// that slot covers, so two morning races on different days do not look
         /// identical.</summary>
         public static int TimeOfDayIndex = TimeOfDay.Sunset;
+        /// <summary>
+        /// The LifeSim's absolute day, for the season and the weather. Stamped
+        /// by the home screen every time it draws itself, and DELIBERATELY not
+        /// touched by ClearAll: it is the state of the world, not a payload
+        /// for one car, and a scene that loads with it at zero (the editor
+        /// pressing Play) gets the fall every scene was baked as. See
+        /// <see cref="Seasons"/>.
+        /// </summary>
+        public static int CalendarDay;
         /// <summary>Which circuit, as an index into
         /// <see cref="TrackCatalog.All"/>. The scene is loaded from this, so it
         /// is the one field that decides where the car ends up.</summary>

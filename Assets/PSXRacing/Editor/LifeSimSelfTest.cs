@@ -1126,6 +1126,7 @@ namespace PSXRacing.EditorTools
             TestTownScene();
             TestNeighborhoodScene();
             TestReverseGrid();
+            TestSeasons();
             TestReversedStageDistance();
             TestDeliverySprint();
             TestNoDeletedMeshes();
@@ -1773,6 +1774,93 @@ namespace PSXRacing.EditorTools
             foreach (var d in TrackCatalog.All)
                 if (d.Reversed && d.reverseOf == fwd.id) return d;
             return null;
+        }
+
+        /// <summary>
+        /// The calendar's hold on the world: the season arithmetic, the
+        /// weather roll, and — on the built scenes — that every forest stage
+        /// actually carries the five-way wardrobe the builder is meant to
+        /// bake. "Moved the calendar forward to May and all the trees were
+        /// still orange": the first two blocks say what May IS; the third
+        /// says the scene has a May to show.
+        /// </summary>
+        static void TestSeasons()
+        {
+            Line("seasons:");
+            Check(Seasons.OfMonth(1) == Season.Winter && Seasons.OfMonth(5) == Season.Spring &&
+                  Seasons.OfMonth(7) == Season.Summer && Seasons.OfMonth(10) == Season.Fall,
+                  "January is winter, May is spring, July is summer, October is fall");
+            Check(Seasons.OfMonth(11) == Season.Fall && Seasons.OfMonth(12) == Season.Winter,
+                  "colour holds through November and the ridges are bare from December");
+            Check(Seasons.Of(0) == Season.Fall && Seasons.WeatherFor(0) == Weather.Clear,
+                  "day 0 — no LifeSim, the editor pressing Play — is the fall every scene was baked as, and clear");
+            Check(Seasons.DressIndex(Season.Winter, Weather.Snow) == Seasons.DressSnow &&
+                  Seasons.DressIndex(Season.Summer, Weather.Rain) == (int)Season.Summer,
+                  "snow picks the snow dress; rain keeps the season's own");
+
+            // Ten years of weather, rolled twice.
+            const int days = 3650;
+            int snow = 0, fog = 0, rain = 0, snowOutOfSeason = 0;
+            bool deterministic = true;
+            for (int d = 1; d <= days; d++)
+            {
+                var w = Seasons.WeatherFor(d);
+                if (Seasons.WeatherFor(d) != w) deterministic = false;
+                int m = LifeRules.MonthOf(d);
+                if (w == Weather.Snow) { snow++; if (m >= 4 && m <= 10) snowOutOfSeason++; }
+                else if (w == Weather.Fog) fog++;
+                else if (w == Weather.Rain) rain++;
+            }
+            Check(deterministic, "the same day always rolls the same weather");
+            Check(snowOutOfSeason == 0, "and it never snows between April and October", snowOutOfSeason);
+            Check(rain > days * 0.08f && rain < days * 0.25f, "rain on 8-25% of days", rain + "/" + days);
+            Check(fog > days * 0.05f && fog < days * 0.20f, "fog on 5-20% of days", fog + "/" + days);
+            Check(snow > days * 0.02f && snow < days * 0.10f, "snow on 2-10% of days", snow + "/" + days);
+            Check(Seasons.GripMult(Weather.Snow, true) < Seasons.GripMult(Weather.Rain, true) &&
+                  Seasons.GripMult(Weather.Rain, true) < 1f && Seasons.GripMult(Weather.Clear, true) == 1f,
+                  "snow costs more grip than rain, which costs some, and clear costs none");
+            Check(Seasons.FogMul(Weather.Fog) < Seasons.FogMul(Weather.Rain) && Seasons.FogMul(Weather.Clear) == 1f,
+                  "fog closes the fog band in further than rain does");
+
+            // The built scenes: a forest stage has a forest for every season.
+            var scenes = EditorBuildSettings.scenes;
+            foreach (string id in new[] { "BlueRidge", "MtMitchell", "BeechGap" })
+            {
+                int t = TrackCatalog.IndexOf(id);
+                if (t < 0) { Check(false, id + " is in the catalog"); continue; }
+                int sceneIdx = TrackCatalog.SceneIndex(t);
+                if (sceneIdx >= scenes.Length || !System.IO.File.Exists(scenes[sceneIdx].path))
+                {
+                    Check(false, id + ": scene not built yet");
+                    continue;
+                }
+                UnityEditor.SceneManagement.EditorSceneManager.OpenScene(scenes[sceneIdx].path);
+                var dress = Object.FindFirstObjectByType<SeasonDress>();
+                if (dress == null || dress.entries == null) { Check(false, id + ": scene has a season dress"); continue; }
+                bool forest = false, ground = false, far = false, textured = true;
+                foreach (var e in dress.entries)
+                {
+                    if (e == null || e.baseMat == null || e.variants == null || e.variants.Length != Seasons.DressCount)
+                    { textured = false; continue; }
+                    if (e.role == "forest")
+                    {
+                        forest = true;
+                        var fall = e.variants[(int)Season.Fall].mainTexture;
+                        for (int d = 0; d < Seasons.DressCount; d++)
+                        {
+                            var v = e.variants[d];
+                            if (v == null || v.mainTexture == null) { textured = false; continue; }
+                            if (d != (int)Season.Fall && v.mainTexture == fall) textured = false;
+                        }
+                    }
+                    else if (e.role == "ground") ground = true;
+                    else if (e.role == "far") far = true;
+                }
+                Check(forest && ground && far,
+                      id + ": the forest, the near ground and the far slopes all have a wardrobe",
+                      (forest ? "forest " : "") + (ground ? "ground " : "") + (far ? "far" : ""));
+                Check(textured, id + ": every forest dress is its own atlas, none of them missing");
+            }
         }
 
         static void TestReverseGrid()
@@ -5637,6 +5725,7 @@ namespace PSXRacing.EditorTools
                 new[] { "cgHeight", "DefaultCgHeight" },
                 new[] { "maxSteerLowSpeedDeg", "DefaultMaxSteerLowSpeedDeg" },
                 new[] { "maxSteerHighSpeedDeg", "DefaultMaxSteerHighSpeedDeg" },
+                new[] { "steerSpeedFalloff", "DefaultSteerSpeedFalloff" },
                 new[] { "maxSteerDriftDeg", "DefaultMaxSteerDriftDeg" },
                 new[] { "steerRateDeg", "DefaultSteerRateDeg" },
                 new[] { "steerRateDriftDeg", "DefaultSteerRateDriftDeg" },
@@ -6173,7 +6262,8 @@ namespace PSXRacing.EditorTools
             for (float v = 0f; v <= 60f; v += 1f)
             {
                 float lockDeg = Mathf.Lerp(CarController.DefaultMaxSteerLowSpeedDeg,
-                                           CarController.DefaultMaxSteerHighSpeedDeg, Mathf.Clamp01(v / 55f));
+                                           CarController.DefaultMaxSteerHighSpeedDeg,
+                                           Mathf.Clamp01(v / CarController.DefaultSteerSpeedFalloff));
                 float actuatorUnitsPerSec = CarController.DefaultSteerRateDeg / lockDeg;
                 if (PlayerCarInput.ReleaseRateAt(v, PlayerCarInput.DefaultSteerReleaseRate) > actuatorUnitsPerSec)
                     underActuator = false;

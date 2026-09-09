@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -160,6 +160,7 @@ namespace PSXRacing.EditorTools
 
         public static string BuildNeighborhoodScene()
         {
+            ClearSeasonEntries();
             townPizzaKerb = townDealerDoor =
                 townYardGate = townHomeDoor = townMechanicDoor = townPaintDoor = null;
             townPizzaHooks = null;
@@ -178,6 +179,8 @@ namespace PSXRacing.EditorTools
 
             var root = new GameObject("Neighborhood");
             var mats = TownMaterials();
+            // The lawns turn with the year like everything else outdoors.
+            RegisterSeasonalGround("TownGrass", TownHouseTex + "/Grass.jpg", mats.grass, Color.white, "grass");
 
             BuildNbGround(root.transform, mats);
             var homeDrive = BuildTownHome(root.transform, mats);
@@ -306,6 +309,7 @@ namespace PSXRacing.EditorTools
             world.blockMaterial = MakeMat("TownCinder", null,
                 tint: new Color(0.56f, 0.56f, 0.52f));
 
+            AttachSeasonDress();
             EditorSceneManager.SaveScene(scene, NeighborhoodScenePath);
             Log("[Neighborhood] Scene saved: " + NeighborhoodScenePath);
             return NeighborhoodScenePath;

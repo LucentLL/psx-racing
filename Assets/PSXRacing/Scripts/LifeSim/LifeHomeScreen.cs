@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -715,6 +715,10 @@ namespace PSXRacing.LifeSim
 
         void Rebuild()
         {
+            // The world's date, for whichever scene loads next. Here rather
+            // than at each launch site because there are five of those and
+            // the season is not a property of a race.
+            RaceHandoff.CalendarDay = S.day;
             // Before the page it points at stops existing. Every button on
             // these screens ends in a Rebuild, so without this the cursor was
             // thrown back to the top of the page on every single press — which
@@ -733,8 +737,10 @@ namespace PSXRacing.LifeSim
             body = MenuKit.ScrollBody(bodyViewport);
 
             moneyText.text = MenuKit.Money(S.money);
+            string weather = Seasons.WeatherLabel(Seasons.WeatherFor(S.day));
             dateText.text = LifeRules.DateLabel(S.day) + "  ·  " +
                             LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0, 2)] +
+                            (weather != null ? "  ·  " + weather : "") +
                             (S.debugMode ? "  ·  DEBUG" : "");
             healthText.text = "HEALTH " + Mathf.RoundToInt(S.health) + " (" + LifeRules.HealthLabel(S.health) + ")" +
                               "   REP " + Mathf.RoundToInt(S.streetRep) + " (" + LifeRules.StreetTier(S.streetRep).name + ")";

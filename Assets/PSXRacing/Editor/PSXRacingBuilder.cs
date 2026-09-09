@@ -717,6 +717,7 @@ namespace PSXRacing.EditorTools
             // Clearing per track keeps the key namespace per track as well.
             matByTex.Clear();
             matByKey.Clear();
+            ClearSeasonEntries();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -801,6 +802,8 @@ namespace PSXRacing.EditorTools
                 forecourt.raceCamera = psxCam.GetComponent<Camera>();
                 forecourt.chase = psxCam.GetComponent<ChaseCamera>();
             }
+
+            AttachSeasonDress();
 
             string scenePath = ScenePathFor(def);
             EditorSceneManager.SaveScene(scene, scenePath);
@@ -1899,9 +1902,11 @@ namespace PSXRacing.EditorTools
             // The ground texture, darkened: this IS cut earth and aggregate
             // under a wearing course, and at PSX resolution one material does
             // for both halves of that.
-            go.AddComponent<MeshRenderer>().sharedMaterial =
-                MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f,
-                        tint: new Color(0.42f, 0.39f, 0.36f));
+            var edgeMat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f,
+                                  tint: new Color(0.42f, 0.39f, 0.36f));
+            go.AddComponent<MeshRenderer>().sharedMaterial = edgeMat;
+            RegisterSeasonalGround(MeshPrefix + "RoadEdge", theme.ground, edgeMat,
+                                   new Color(0.42f, 0.39f, 0.36f), "edge");
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
         }
@@ -2273,8 +2278,9 @@ namespace PSXRacing.EditorTools
             go.transform.SetParent(parent, false);
             go.transform.position = new Vector3(b.center.x, 0f, b.center.z);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial =
-                MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f);
+            var groundMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f);
+            go.AddComponent<MeshRenderer>().sharedMaterial = groundMat;
+            RegisterSeasonalGround(MeshPrefix + "Ground", theme.ground, groundMat, Color.white, "ground");
             // A box no longer describes it. The ground the wheels find off the
             // racing line is the ground you can see, hills and gorge included —
             // a flat plate under a mountain pass would have a car that ran wide
@@ -4944,6 +4950,9 @@ namespace PSXRacing.EditorTools
             car.steerRateDriftDeg = CarController.DefaultSteerRateDriftDeg;
             car.maxSteerLowSpeedDeg = CarController.DefaultMaxSteerLowSpeedDeg;
             car.maxSteerHighSpeedDeg = CarController.DefaultMaxSteerHighSpeedDeg;
+            car.steerSpeedFalloff = CarController.DefaultSteerSpeedFalloff;
+            car.tireMuFront = CarController.DefaultTireMuFront;
+            car.tireMuRear = CarController.DefaultTireMuRear;
             car.maxSteerDriftDeg = CarController.DefaultMaxSteerDriftDeg;
             car.lateralDampGrip = CarController.DefaultLateralDampGrip;
             car.lateralDampDrift = CarController.DefaultLateralDampDrift;

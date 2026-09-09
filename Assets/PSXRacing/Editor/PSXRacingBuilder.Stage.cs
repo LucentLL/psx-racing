@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -474,6 +474,15 @@ namespace PSXRacing.EditorTools
                                            string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
                                            affine: 0f) : null;
             var nearMats = sandy ? new[] { nearMat, sandMat, marshMat } : new[] { nearMat };
+            if (theme.stageForest)
+                RegisterSeasonalTexture(MeshPrefix + "Ground", nearMat, DressTurfPath, "ground");
+            else
+                RegisterSeasonalGround(MeshPrefix + "Ground", theme.ground, nearMat,
+                                       (sandy ? (Color?)null : theme.groundTint) ?? Color.white, "ground");
+            if (marshMat != null)
+                RegisterSeasonalGround(MeshPrefix + "Marsh",
+                                       string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
+                                       marshMat, Color.white, "ground");
             // Far: the mountain paints its distance as autumn forest. An island
             // has no distance to paint — what is out there is water, and the
             // sea plane covers it — so the far ring reuses the near ground.
@@ -492,6 +501,8 @@ namespace PSXRacing.EditorTools
                 : string.IsNullOrEmpty(theme.sand)
                 ? MakeMat(MeshPrefix + "GroundFar", StageGenDir + "/FallMottle.png", affine: 0f)
                 : MakeMat(MeshPrefix + "GroundFar", theme.ground, affine: 0f);
+            if (string.IsNullOrEmpty(theme.farGround) && string.IsNullOrEmpty(theme.sand))
+                RegisterSeasonalTexture(MeshPrefix + "GroundFar", farMat, DressMottlePath, "far");
 
             var b = new Bounds(pts[0], Vector3.zero);
             foreach (var p in pts) b.Encapsulate(p);
@@ -1278,6 +1289,7 @@ namespace PSXRacing.EditorTools
                 copied++;
             }
             if (copied > 0) Log($"Copied {copied} tree billboards from the CC0 pack.");
+            EnsureSeasonTrees();
         }
 
         /// <summary>The 4x4, 512px tree atlas, composed from the copied pack
@@ -1316,6 +1328,9 @@ namespace PSXRacing.EditorTools
                 UnityEngine.Object.DestroyImmediate(tex);
                 Log("Tree atlas composed: " + atlasPath);
             }
+            // And the other four seasons of it, plus their grounds.
+            ComposeSeasonAtlases();
+            WriteSeasonGroundTextures();
 
             // The far slopes: an autumn mottle so terrain past the tree band
             // still reads as forest. Low-frequency colour clumps, like the
@@ -1544,6 +1559,7 @@ namespace PSXRacing.EditorTools
             root.transform.SetParent(parent, false);
 
             var mat = MakeMat(MeshPrefix + "Forest", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f);
+            RegisterSeasonalTexture(MeshPrefix + "Forest", mat, DressAtlasPath, "forest", cutoff: 0.5f);
             var rng = new System.Random(41);
             var b = new Bounds(pts[0], Vector3.zero);
             foreach (var p in pts) b.Encapsulate(p);

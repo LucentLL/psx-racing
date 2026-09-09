@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing.City
@@ -266,7 +266,8 @@ namespace PSXRacing.City
         Material MatFor(CityMeshes.Slot slot)
         {
             int i = (int)slot;
-            if (materials != null && i < materials.Length && materials[i] != null) return materials[i];
+            if (materials != null && i < materials.Length && materials[i] != null)
+                return SeasonDress.Substitute(materials[i]);
             return null;
         }
 

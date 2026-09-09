@@ -109,7 +109,13 @@ namespace PSXRacing
         /// first and second at high revs (7.6 and 4.4 kN asked) and never in
         /// third (3.0 kN, 37%).
         /// </summary>
-        public const float EngineBrakeRearCircleShare = 0.45f;
+        public const float EngineBrakeRearCircleShare = 0.30f;
+        // Was 0.45, which left the rear 89% of its lateral grip on a lift. On
+        // a long descent that lift is the whole road: the engine brakes the
+        // rear axle for eleven kilometres and the rear is the weak end of the
+        // car the entire way down, before the pedal is even touched. 0.30
+        // keeps 95%, and the pedal's own budget (RearBrakeLockShare) is what
+        // bounds the two together now.
         /// <summary>Peak of the STOCK torque curve, Nm — what the two fractions
         /// multiply. Derived, never configured: the default curve's 314 for the
         /// built-in car, the spec's own peak after ApplySpec. Stock rather than
@@ -208,8 +214,8 @@ namespace PSXRacing
         /// <summary>Staggered tires (235 front / 255 rear) give the rear more
         /// grip than the front, so the front saturates first. That is the FD's
         /// designed limit understeer, and it is what keeps the car catchable.</summary>
-        public float tireMuFront = 1.010f;
-        public float tireMuRear = 1.030f;
+        public float tireMuFront = DefaultTireMuFront;
+        public float tireMuRear = DefaultTireMuRear;
         /// <summary>Longitudinal speed floor in the slip-angle denominator (m/s).
         /// Too large and the car feels numb turning in at low speed.</summary>
         public float slipEpsilon = 0.30f;
@@ -294,13 +300,13 @@ namespace PSXRacing
 
         [Header("Steering")]
         public float maxSteerLowSpeedDeg = 34f;
-        public float maxSteerHighSpeedDeg = 12f;
+        public float maxSteerHighSpeedDeg = DefaultMaxSteerHighSpeedDeg;
         /// <summary>At 34 deg falling to 22 at speed, a deep slide is
         /// mathematically uncatchable: the front wheel cannot make its slip
         /// angle change sign, so counter-steer is cosmetic. This is not a grip
         /// cheat — the friction circle still bounds lateral force.</summary>
         public float maxSteerDriftDeg = 45f;
-        public float steerSpeedFalloff = 55f;
+        public float steerSpeedFalloff = DefaultSteerSpeedFalloff;
         /// <summary>Steering actuator rate, deg/s. 220 -> 260: at 30 m/s the
         /// front axle saturates at only 6.6 deg of the 22 deg available (the
         /// rest is dead travel), so this is 30 ms to saturation rather than 25 —
@@ -361,6 +367,13 @@ namespace PSXRacing
         /// loads rather than the fixed hardware bias — see the brake block in
         /// TireForces. 0 is the old fixed-fraction behaviour.</summary>
         public const float BrakeLoadSensitivity = 0.5f;
+        /// <summary>The most of its friction circle a wheel may spend on
+        /// stopping, engine braking included — the ABS. See the brake block
+        /// in TireForces. Front 0.92 keeps sqrt(1 - 0.92^2) = 39% of its
+        /// cornering force at the limit; rear 0.75 keeps 66%, so the rear is
+        /// never the axle that lets go under the pedal.</summary>
+        public const float FrontBrakeLockShare = 0.92f;
+        public const float RearBrakeLockShare = 0.75f;
 
         /// <summary>Layer holding the drivable road surface. Checked by layer
         /// rather than by collider name: reading Collider.name allocates a
@@ -1506,13 +1519,29 @@ namespace PSXRacing
         /// garage's BrakeBalance range is this +/- 0.15, so a player who wants
         /// the loose car can still dial 51% front.</summary>
         public const float DefaultBrakeFrontShare = 0.66f;
-        public const float DefaultTireMuFront = 1.010f;
-        public const float DefaultTireMuRear = 1.030f;
+        /// <summary>Front 1.00 / rear 1.05 (was 1.01 / 1.03). A 2% stagger
+        /// is inside the noise of one wheel finding the verge; 5% means the
+        /// front reliably lets go first, which is understeer at the limit —
+        /// the stable end of the car goes wide and the driver lifts. The
+        /// rear's engine-braking penalty on a descent used to be larger than
+        /// this stagger, which flipped the car to oversteer whenever the road
+        /// went downhill in gear.</summary>
+        public const float DefaultTireMuFront = 1.000f;
+        public const float DefaultTireMuRear = 1.050f;
         public const float DefaultCorneringStiffness = 11.0f;
         public const float DefaultRestLength = 0.30f;
         public const float DefaultCgHeight = 0.465f;
         public const float DefaultMaxSteerLowSpeedDeg = 34f;
-        public const float DefaultMaxSteerHighSpeedDeg = 12f;
+        /// <summary>9, down from 12, and the speed it is reached at 50 m/s,
+        /// down from 55. A neutral-steer car at 40 m/s reaches its cornering
+        /// limit at about 1 degree of road wheel; 18 degrees of lock there
+        /// meant 94% of the stick was past the limit, and every adjustment
+        /// was a demand for more than the tyres had — "every adjustment to
+        /// steering made the car want to go sideways". Black Box cars take
+        /// most of the lock away at speed for exactly this reason. Low-speed
+        /// lock is untouched; hairpins keep their 34.</summary>
+        public const float DefaultMaxSteerHighSpeedDeg = 9f;
+        public const float DefaultSteerSpeedFalloff = 50f;
         public const float DefaultMaxSteerDriftDeg = 45f;
         public const float DefaultSteerRateDeg = 260f;
         public const float DefaultSteerRateDriftDeg = 400f;
@@ -2129,8 +2158,15 @@ namespace PSXRacing
         const float ClutchKickBase = 0.55f;      // rad/s at full overrun and full lock
         const float ClutchKickMinOverrun = 0.25f;
 
+        /// <summary>Today's weather, as the two grip multipliers the wheel
+        /// loop reads. Refreshed once a tick — Seasons memoises by day, but
+        /// four wheels a tick is still four lookups.</summary>
+        float weatherRoadGrip = 1f, weatherOffroadGrip = 1f;
+
         void SuspensionAndLoads(float dt)
         {
+            weatherRoadGrip = Seasons.RoadGripMult;
+            weatherOffroadGrip = Seasons.OffroadGripMult;
             anyWheelGrounded = false;
             int roadHits = 0, hits = 0;
             float rayLength = restLength + wheelRadius;
@@ -2169,7 +2205,11 @@ namespace PSXRacing
 
                     bool isRoad = hit.collider != null && hit.collider.gameObject.layer == roadLayer;
                     if (isRoad) roadHits++;
-                    wheelGrip[i] = isRoad ? roadGrip : offroadGrip;
+                    // The weather's cut, on top of the surface's. Rain and
+                    // snow are a day's property, not a scene's, so this is
+                    // read here rather than baked into roadGrip — see Seasons.
+                    wheelGrip[i] = (isRoad ? roadGrip : offroadGrip) *
+                                   (isRoad ? weatherRoadGrip : weatherOffroadGrip);
 
                     wheelContacts[i].point = hit.point;
                     wheelContacts[i].normal = hit.normal;
@@ -2486,6 +2526,42 @@ namespace PSXRacing
                     int brakeWheels = Mathf.Max(1, front ? groundedFront : groundedRear);
                     brakeDemand = brakeForceTotal * share / brakeWheels;
                     fLong -= Mathf.Sign(vLong) * Mathf.Min(brakeDemand, longCap);
+                }
+                // THE BRAKES NEVER LOCK A WHEEL, and this is the whole of
+                // "every tap on the brake made the car want to go sideways"
+                // coming down Beech Gap.
+                //
+                // Engine braking lands in fLong first (up to
+                // EngineBrakeRearCircleShare of the circle, on the driven
+                // axle), and the pedal is then SUBTRACTED on top of it with no
+                // second look at the circle -- so the two together could ask a
+                // rear wheel for more longitudinal force than it has, and
+                // latCap = sqrt(circle^2 - fLong^2) below then came out at
+                // exactly ZERO. Not reduced: zero. On a 7% descent in gear the
+                // rear axle is carrying engine braking the whole way down, so
+                // a firm pedal there removed every newton of the rear's
+                // cornering force in one tick, while the front -- no engine
+                // braking, more load -- kept most of its own. That is a car
+                // that oversteers on every brake application, and it is worse
+                // the faster and the steeper the road.
+                //
+                // A real car has ABS; a Black Box car has perfect ABS. So the
+                // TOTAL braking demand on a wheel is held under a share of its
+                // circle, lower on the rear than the front, which leaves the
+                // rear more cornering force than the front under hard braking
+                // -- hard braking into a corner now understeers, which is the
+                // stable, catchable, NFS answer. The share is on the total, so
+                // engine braking spends the same budget the pedal does rather
+                // than a budget of its own.
+                //
+                // On braking only. Traction is left alone: wheelspin is the
+                // yaw injector's input and the burnout is the smokiest thing
+                // in the game on purpose.
+                {
+                    bool braking = Mathf.Sign(fLong) != Mathf.Sign(vLong) && Mathf.Abs(vLong) > 0.3f;
+                    float lockShare = front ? FrontBrakeLockShare : RearBrakeLockShare;
+                    if (braking && Mathf.Abs(fLong) > longCap * lockShare)
+                        fLong = -Mathf.Sign(vLong) * longCap * lockShare;
                 }
                 // PARKED: this tyre holds its share of the car, full stop. It
                 // REPLACES the demand rather than adding to it — a parked wheel

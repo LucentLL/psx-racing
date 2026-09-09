@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -30,6 +30,7 @@ namespace PSXRacing.EditorTools
 
         static string BuildCityScene(TrackCatalog.TrackDef def)
         {
+            ClearSeasonEntries();
             track = def;
             matByTex.Clear();
             matByKey.Clear();
@@ -73,6 +74,8 @@ namespace PSXRacing.EditorTools
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
             world.materials = CityMaterials();
+            RegisterSeasonalGround("CityGround", CityTexDir + "/city_grass.png",
+                                   world.materials[(int)CityMeshes.Slot.Ground], Color.white, "grass");
 
             BuildCameraAndHUD(player, cars, null, lightGO.GetComponent<Light>());
 
@@ -92,6 +95,8 @@ namespace PSXRacing.EditorTools
             systems.AddComponent<TouchControls>();
             var menu = systems.AddComponent<PauseMenu>();
             menu.playerCar = player;
+
+            AttachSeasonDress();
 
             string scenePath = ScenePathFor(def);
             EditorSceneManager.SaveScene(scene, scenePath);

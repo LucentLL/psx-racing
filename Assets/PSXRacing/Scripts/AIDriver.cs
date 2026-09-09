@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace PSXRacing
 {
@@ -137,7 +137,9 @@ namespace PSXRacing
             float steer = Mathf.Clamp(Mathf.Atan2(local.x, Mathf.Max(local.z, 0.5f)) * 1.4f, -1f, 1f);
 
             // ---- target speed from curvature ahead ----
-            float mu = 1.0f * skill;
+            // Scaled by the weather with the same number the tyres get, so a
+            // wet field brakes for the corner it can actually take.
+            float mu = 1.0f * skill * Seasons.RoadGripMult;
             float curvNow = Mathf.Max(path.MaxCurvatureAhead(nearestIdx, 6), 0.0005f);
             float cornerSpeed = Mathf.Sqrt(mu * 9.81f / curvNow) * 0.92f;
             // The player's SPEC top speed: DeriveDrag solves the car to its
