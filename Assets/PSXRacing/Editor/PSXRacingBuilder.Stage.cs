@@ -1234,7 +1234,13 @@ namespace PSXRacing.EditorTools
                     if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
                     seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
                     var box = seg.AddComponent<BoxCollider>();
-                    box.size = new Vector3(0.6f, ch + 0.6f, dir.magnitude + 0.5f);
+                    // The same depth the guard walls get, and for the same
+                    // reason — see StageWallCollThick. A cut bank is the OTHER
+                    // thing a player leans on down a mountain road, and 0.6 m
+                    // is still under one physics step of travel at speed. What
+                    // is behind it is the hillside, so the extra depth grows
+                    // into solid ground and reaches nothing.
+                    box.size = new Vector3(StageWallCollThick, ch + 0.6f, dir.magnitude + 0.5f);
                     box.sharedMaterial = phys;
                     seg.layer = SolidLayer;
                     seg.isStatic = true;
