@@ -508,6 +508,25 @@ namespace PSXRacing.EditorTools
                     if (ai != null) allOn &= OnRoad(path, ai.transform.position);
                 Check(allOn, def.id + ": baked grid is on the road");
 
+                // EVERY car is interpolated, and this is a BAKED value, so the
+                // scene is the only place it can be checked. Physics is pinned
+                // at 60 Hz (PSXBootstrap) and a browser draws at the display's
+                // refresh: on a 120 Hz phone a body at None repeats its last
+                // pose every other frame, standing still and then jumping two
+                // steps. The builder baked it on the player alone until
+                // 2026-09-10, which is what "the AI are jittery, like they load
+                // into each spot" was. See PSXRacingBuilder.BuildOneCar.
+                int stepped = 0;
+                var drawn = new List<CarController>(applier.aiCars) { applier.playerCar };
+                foreach (var c in drawn)
+                {
+                    if (c == null) continue;
+                    var rb = c.GetComponent<Rigidbody>();
+                    if (rb != null && rb.interpolation == RigidbodyInterpolation.None) stepped++;
+                }
+                Check(stepped == 0, def.id + ": every car on the grid is interpolated",
+                      stepped + " drawn at the physics rate");
+
                 if (applier.aiCars.Count > 0 && applier.aiCars[0] != null)
                 {
                     var rival = applier.aiCars[0].transform;

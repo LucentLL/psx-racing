@@ -733,6 +733,18 @@ namespace PSXRacing
             if (Body.collisionDetectionMode == CollisionDetectionMode.Discrete)
                 Body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
 
+            // Interpolation, unlike the mode above, is NOT a per-car choice:
+            // every car is drawn, and a body left at None repeats its last pose
+            // on any rendered frame that lands inside a physics step already
+            // drawn — which on a 120 Hz phone against PSXBootstrap's 60 Hz
+            // physics is every other frame. The builder bakes Interpolate on
+            // all four now; this is the floor for a car that never went through
+            // the builder and for a scene baked before it did, because a
+            // serialised field is inert until a rebake and "the AI are jerky"
+            // is not a symptom anybody should have to diagnose twice.
+            if (Body.interpolation == RigidbodyInterpolation.None)
+                Body.interpolation = RigidbodyInterpolation.Interpolate;
+
             // Everything except cars (layer 2) and solid scenery.
             suspensionMask = ~((1 << 2) | (1 << solidLayer));
 

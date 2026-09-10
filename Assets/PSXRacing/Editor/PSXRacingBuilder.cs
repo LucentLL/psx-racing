@@ -4803,7 +4803,21 @@ namespace PSXRacing.EditorTools
 
                 var rb = root.AddComponent<Rigidbody>();
                 rb.mass = 1280f;
-                rb.interpolation = isPlayer ? RigidbodyInterpolation.Interpolate : RigidbodyInterpolation.None;
+                // EVERY car is interpolated, not just the one the camera is
+                // behind. PSXBootstrap pins physics at 60 Hz and asks for 60
+                // frames, but a BROWSER draws at the display's refresh whatever
+                // it is asked for, and the phones this ships to refresh at 120:
+                // a body left at None then repeats its last pose on every other
+                // frame — the car stands still, then jumps two steps' worth.
+                // Baked on the player alone, that is exactly what the three AI
+                // looked like: "jittery/jerky ... like they are loading into
+                // each spot rather than smoothly driving."
+                //
+                // It also puts the whole field on ONE clock. An interpolated
+                // body is drawn a step behind a raw one, so a player running
+                // wheel-to-wheel at 200 km/h was drawn 0.9 m out of step with
+                // the car beside him.
+                rb.interpolation = RigidbodyInterpolation.Interpolate;
                 // 1.6 m of travel per tick at top speed against 1.2 m barriers.
                 // The player sweeps against other cars too (ContinuousDynamic);
                 // the AI get the cheaper speculative mode, which still catches
