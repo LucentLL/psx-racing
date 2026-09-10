@@ -241,9 +241,11 @@ namespace PSXRacing
             // A 1v1 lines up SIDE BY SIDE. The grid staggers four cars over four
             // rows with the player at the back, so retiring two of them leaves
             // the challenger starting twenty metres up the road — which reads as
-            // the game cheating rather than as a grudge race. Set the transform
-            // directly instead of going through ResetTo: nothing has stepped
-            // yet, and ResetTo's ride-height nudge would stack on the grid's own.
+            // the game cheating rather than as a grudge race. TeleportTo rather
+            // than ResetTo: nothing has stepped yet, and ResetTo's ride-height
+            // nudge would stack on the grid's own — and rather than a bare
+            // transform write, which the player's interpolated body ignores.
+            // See CarController.TeleportTo.
             if (ids.Length == 1 && playerCar != null && aiCars.Count > 0 && aiCars[0] != null)
             {
                 var rival = aiCars[0].transform;
@@ -264,12 +266,12 @@ namespace PSXRacing
                     Vector3 right = rot * Vector3.right;
                     float lane = Mathf.Min(path.roadWidth / 6f, 2.75f);
                     Vector3 lift = Vector3.up * (rival.position.y - centre.y);
-                    rival.SetPositionAndRotation(centre - right * lane + lift, rot);
-                    playerCar.transform.SetPositionAndRotation(centre + right * lane + lift, rot);
+                    aiCars[0].TeleportTo(centre - right * lane + lift, rot);
+                    playerCar.TeleportTo(centre + right * lane + lift, rot);
                 }
                 else
                 {
-                    playerCar.transform.SetPositionAndRotation(
+                    playerCar.TeleportTo(
                         rival.position + rival.right * RivalGridGapM, rival.rotation);
                 }
             }
@@ -519,17 +521,14 @@ namespace PSXRacing
                 PointAlong(path, datum, back,
                            out Vector3 centre, out Vector3 fwd, out Vector3 right);
 
-                // Straight onto the transform, not through ResetTo, for the
-                // reason the 1v1 restage below gives: nothing has stepped yet,
-                // and ResetTo's ride-height lift would stack on the grid's own.
-                car.transform.SetPositionAndRotation(
-                    centre + right * lateral + Vector3.up * GridLiftM,
-                    Quaternion.LookRotation(fwd, Vector3.up));
-                if (car.Body != null)
-                {
-                    car.Body.linearVelocity = Vector3.zero;
-                    car.Body.angularVelocity = Vector3.zero;
-                }
+                // TeleportTo, not ResetTo: nothing has stepped yet, and
+                // ResetTo's ride-height lift would stack on the grid's own.
+                // Not a bare transform write either — the player's is the one
+                // INTERPOLATED body in the field, and it paints its own baked
+                // pose back over anything written from outside a physics step.
+                // See CarController.TeleportTo.
+                car.TeleportTo(centre + right * lateral + Vector3.up * GridLiftM,
+                               Quaternion.LookRotation(fwd, Vector3.up));
 
                 // The AI caches its path index in Start, and Start has no
                 // defined order against RaceManager's. One that already ran is

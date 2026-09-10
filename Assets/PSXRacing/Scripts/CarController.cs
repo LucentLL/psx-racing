@@ -2970,6 +2970,46 @@ namespace PSXRacing
             return position + Vector3.up * ResetLift;
         }
 
+        /// <summary>
+        /// Put the car EXACTLY here, standing still — no ground probe, no ride-
+        /// height lift, none of <see cref="ResetTo"/>'s driveline reset. The
+        /// staging teleport, as opposed to the recovery one.
+        ///
+        /// IT GOES THROUGH THE RIGIDBODY, and that is the whole reason it
+        /// exists. The builder interpolates the body of the car the camera
+        /// follows and leaves the three AI at None, so the player's is the only
+        /// INTERPOLATED body on the grid — and an interpolated body owns its
+        /// transform: every frame it writes a pose derived from its own
+        /// internal one, so a plain transform.position written before the first
+        /// physics step is simply painted over with the pose the scene was
+        /// baked at. Three cars moved and the fourth did not.
+        ///
+        /// That is what stranded the player on the FORWARD grid of a reversed
+        /// venue: on Beech Gap II the field lined up 6.3 km away at the top of
+        /// the mountain while the car sat at the bottom, facing back down the
+        /// road it was supposed to be climbing — which the wrong-way watchdog,
+        /// correctly, called out. Every symptom of that bug was one car in the
+        /// field behaving differently from the other three for a reason that
+        /// has nothing to do with racing.
+        ///
+        /// Interpolation is toggled OFF and back ON around the write because
+        /// that is what drops the pose history: without it the body still
+        /// smears from where it was to where it now is, over the first frames
+        /// of the countdown.
+        /// </summary>
+        public void TeleportTo(Vector3 position, Quaternion rotation)
+        {
+            transform.SetPositionAndRotation(position, rotation);
+            if (Body == null) return;
+            var interp = Body.interpolation;
+            Body.interpolation = RigidbodyInterpolation.None;
+            Body.position = position;
+            Body.rotation = rotation;
+            Body.linearVelocity = Vector3.zero;
+            Body.angularVelocity = Vector3.zero;
+            Body.interpolation = interp;
+        }
+
         public void ResetTo(Vector3 position, Quaternion rotation)
         {
             Body.linearVelocity = Vector3.zero;
@@ -2980,7 +3020,10 @@ namespace PSXRacing
             // represent and throws the order across the seat — for a stop the
             // player did not make. See PizzaCargo.ForgetMotion.
             PizzaCargo.Instance?.ForgetMotion();
-            transform.SetPositionAndRotation(GroundedResetPos(position), rotation);
+            // Through the teleport, not straight onto the transform: the
+            // player's body is interpolated, and see TeleportTo for what that
+            // does to a pose written from outside the physics step.
+            TeleportTo(GroundedResetPos(position), rotation);
             currentGear = 1;
             currentRPM = idleRPM;
             wheelSpin = 0f;
