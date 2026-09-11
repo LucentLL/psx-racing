@@ -44,6 +44,7 @@ import {
   tightestPlan, radiusFloorMessage, minSelfClearance, waypointBridgeFlags,
   smoothHeights, profileStats, bridgeSpans, bakeGrid, writeDemMeta, writeStage,
 } from '../roads/lib.mjs';
+import { chainByIds, routeByAnchors, onewayOf, bridgeOf, lanesOf } from '../roads/route.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cacheDir = join(here, 'cache');                       // gitignored
@@ -56,7 +57,12 @@ mkdirSync(cacheDir, { recursive: true });
 // ------------------------------------------------------------ constants
 const SPACING = 4;                 // TrackCatalog.Spacing
 const RADIUS_FLOOR_M = 12;         // the self-test's stage floor (the CAR's)
-const MIN_BRIDGE_M = 40, BRIDGE_MERGE_M = 30;
+// A span has to be longer than the builder's two approach ramps
+// (2 x TrackCatalog.BridgeRampM = 52 m) or the gorge under it never reaches
+// full depth and the deck spans a saucer; the self-test refuses shorter
+// ones. Blowing Rock's 40 m and 48 m culvert bridges were the first to fall
+// between the old 40 m floor and that rule (2026-09-11).
+const MIN_BRIDGE_M = 56, BRIDGE_MERGE_M = 30;
 const NEAR_CELL = 12, NEAR_MARGIN = 1200;
 const FAR_CELL = 60, FAR_MARGIN = 9000;
 /// The fuel ceiling: the thirstiest stage-4 car in the catalog (the Escudo)
@@ -171,61 +177,12 @@ const CFG = VENUES[KEY];
 const BBOX = CFG.bbox;
 console.log('=== ' + CFG.name + ' (' + KEY + (CFG.loop ? ', loop' : '') + ') ===');
 
-// ---------------------------------------------------------------- tags
-const bridgeOf = w => !!(w.tags && (w.tags.bridge === 'yes' || w.tags.bridge === 'viaduct'));
-/// OSM's ways of saying "one direction only". A motorway is one-way by
-/// definition and mappers mostly leave the tag off it.
-const onewayOf = w => {
-  const t = w.tags || {};
-  if (t.oneway === '-1') return -1;
-  if (t.oneway === 'yes' || t.oneway === '1' || t.oneway === 'true') return 1;
-  if (t.junction === 'roundabout' || t.highway === 'motorway') return 1;
-  return 0;
-};
-const lanesOf = w => { const n = parseInt((w.tags || {}).lanes, 10); return Number.isFinite(n) ? n : 0; };
-
-// -------------------------------------------------------- way-id chain
-/// Chain the listed ways IN ORDER. Each way's geometry is flipped when its
-/// far end is the one that touches the chain; a flip on a way OSM tags as
-/// one-way is reported, because it means the list drives against traffic.
-function chainByIds(overpass, ids, proj) {
-  const byId = new Map(overpass.elements.filter(e => e.type === 'way').map(w => [w.id, w]));
-  const missing = ids.filter(id => !byId.has(id));
-  if (missing.length) throw new Error('Overpass returned no geometry for way(s) ' + missing.join(','));
-  const m = (a, b) => Math.sqrt(dist2(proj.toXZ(a.lat, a.lon), proj.toXZ(b.lat, b.lon)));
-
-  const chain = [], flag = [], wayOf = [];
-  let flippedOneway = 0, joins = 0, worstJoin = 0;
-  for (let k = 0; k < ids.length; k++) {
-    const w = byId.get(ids[k]);
-    let g = w.geometry.slice();
-    if (!chain.length) {
-      // Orient the first way by the second: whichever end of it the next
-      // way touches is its tail.
-      if (ids.length > 1) {
-        const nx = byId.get(ids[1]).geometry;
-        const tailFits = Math.min(m(g.at(-1), nx[0]), m(g.at(-1), nx.at(-1)));
-        const headFits = Math.min(m(g[0], nx[0]), m(g[0], nx.at(-1)));
-        if (headFits < tailFits) g.reverse();
-      }
-    } else {
-      const tail = chain.at(-1);
-      const d0 = m(g[0], tail), d1 = m(g.at(-1), tail);
-      if (d1 < d0) { g.reverse(); if (onewayOf(w) === 1) flippedOneway++; }
-      else if (onewayOf(w) === -1) flippedOneway++;
-      const gap = Math.min(d0, d1);
-      if (gap > 30) throw new Error(`way ${w.id} (#${k}) does not join the chain: ${gap.toFixed(0)} m gap`);
-      if (gap > 0.5) { joins++; worstJoin = Math.max(worstJoin, gap); }
-      else g = g.slice(1);          // the shared node is already the tail
-    }
-    for (const p of g) { chain.push({ lat: p.lat, lon: p.lon }); flag.push(bridgeOf(w)); wayOf.push(w); }
-  }
-  if (flippedOneway)
-    console.log(`  WARNING: ${flippedOneway} one-way way(s) are traversed against their tag`);
-  if (joins) console.log(`  ${joins} join(s) had a gap (worst ${worstJoin.toFixed(1)} m) — the ends are bridged by a straight`);
-  console.log(`chained ${ids.length} ways, ${chain.length} vertices`);
-  return { chain, flag, wayOf };
-}
+// ------------------------------------------------- tags, chain, router
+// All of it lives in tools/roads/route.mjs now (2026-09-11), shared with the
+// Parkway loop bake. The tag readers, the way-id chainer and the oneway-
+// respecting router below were this file's; the loop bake would have been a
+// third copy of them. Every behaviour is unchanged: the three Charlotte bakes
+// re-run byte-identical through the shared module.
 
 // ---------------------------------------------------- carriageway jogs
 // WHERE A TWO-WAY STREET DIVIDES, OSM STEPS SIDEWAYS. North Tryon is one
@@ -318,189 +275,6 @@ function taperCarriagewayJogs(cut, flag, wayOf, mph) {
   return { cut: cut.filter(keep), flag: flag.filter(keep), wayOf: wayOf.filter(keep) };
 }
 
-// ------------------------------------------------------------- router
-// Per-class cost per metre, from tools/bogue/route.mjs — the multipliers keep
-// a route on the highway unless the highway genuinely does not go there.
-const CLASS_COST = {
-  motorway: 1.0, trunk: 1.0, primary: 1.0,
-  motorway_link: 1.2, trunk_link: 1.2, primary_link: 1.2,
-  secondary: 1.15, secondary_link: 1.3, tertiary: 1.4,
-  unclassified: 3.0, residential: 4.0,
-};
-/// Off-preference roads cost this much more per metre. Strong enough that
-/// the router stays on I-277 round three quarters of a ring, weak enough
-/// that a ramp it has to take is still cheaper than a 19 km detour.
-const OFF_PREFERENCE = 8;
-const ANCHOR_REACH_M = 400, ANCHOR_CANDIDATES = 12;
-
-function isPreferred(tags) {
-  if (!tags) return false;
-  const name = (tags.name || '').toLowerCase();
-  for (const n of CFG.prefer.names) if (n && name.includes(n)) return true;
-  const refs = (tags.ref || '').toUpperCase().split(';').map(r => r.replace(/\s+/g, ''));
-  for (const r of CFG.prefer.refs) if (refs.includes(r.replace(/\s+/g, '').toUpperCase())) return true;
-  return false;
-}
-
-function buildGraph(overpass, proj) {
-  const key = (lat, lon) => lat.toFixed(7) + ',' + lon.toFixed(7);
-  const nodes = new Map(), nodeLL = [], nodeXZ = [], adj = [], onPreferred = [];
-  const idOf = (lat, lon) => {
-    const k = key(lat, lon);
-    let i = nodes.get(k);
-    if (i === undefined) {
-      i = nodeLL.length; nodes.set(k, i);
-      nodeLL.push({ lat, lon }); nodeXZ.push(proj.toXZ(lat, lon)); adj.push([]); onPreferred.push(false);
-    }
-    return i;
-  };
-  const ways = [];
-  for (const e of overpass.elements) {
-    if (e.type !== 'way' || !e.geometry || !e.tags) continue;
-    const cls = e.tags.highway;
-    const cost = CLASS_COST[cls];
-    if (cost === undefined) continue;
-    if (CFG.classes && !CFG.classes.includes(cls)) continue;
-    const pref = isPreferred(e.tags);
-    const mult = cost * (pref ? 1 : OFF_PREFERENCE);
-    const dir = onewayOf(e);
-    const wayIdx = ways.length;
-    ways.push(e);
-    const g = e.geometry;
-    for (let i = 1; i < g.length; i++) {
-      const a = idOf(g[i - 1].lat, g[i - 1].lon), b = idOf(g[i].lat, g[i].lon);
-      if (a === b) continue;
-      if (pref) { onPreferred[a] = onPreferred[b] = true; }
-      const m = Math.sqrt(dist2(nodeXZ[a], nodeXZ[b]));
-      if (dir >= 0) adj[a].push({ to: b, cost: m * mult, wayIdx });
-      if (dir <= 0) adj[b].push({ to: a, cost: m * mult, wayIdx });
-    }
-  }
-  return { ways, nodeLL, nodeXZ, adj, onPreferred };
-}
-
-function dijkstra(g, from) {
-  const N = g.nodeLL.length;
-  const dist = new Float64Array(N).fill(Infinity);
-  const prev = new Int32Array(N).fill(-1);
-  const prevWay = new Int32Array(N).fill(-1);
-  dist[from] = 0;
-  const heap = [[0, from]];
-  const push = (d, n) => {
-    heap.push([d, n]);
-    let i = heap.length - 1;
-    while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break;
-      [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; }
-  };
-  const pop = () => {
-    const top = heap[0], last = heap.pop();
-    if (heap.length) { heap[0] = last; let i = 0;
-      for (;;) { const l = i * 2 + 1, r = l + 1; let s = i;
-        if (l < heap.length && heap[l][0] < heap[s][0]) s = l;
-        if (r < heap.length && heap[r][0] < heap[s][0]) s = r;
-        if (s === i) break; [heap[s], heap[i]] = [heap[i], heap[s]]; i = s; } }
-    return top;
-  };
-  const done = new Uint8Array(N);
-  while (heap.length) {
-    const [d, u] = pop();
-    if (done[u]) continue;
-    done[u] = 1;
-    for (const e of g.adj[u]) {
-      const nd = d + e.cost;
-      if (nd < dist[e.to]) { dist[e.to] = nd; prev[e.to] = u; prevWay[e.to] = e.wayIdx; push(nd, e.to); }
-    }
-  }
-  return { dist, prev, prevWay };
-}
-
-/// Candidate graph nodes for an anchor: the nearest few ON A PREFERRED WAY
-/// within reach, else the single nearest routable node. Several, because on
-/// a divided road the nearest node is on one carriageway or the other and
-/// only the whole route can say which was right.
-function anchorCandidates(g, a) {
-  const p = proj0.toXZ(a.lat, a.lon);
-  const scored = [];
-  let nearestAny = -1, nearestD = Infinity;
-  for (let i = 0; i < g.nodeXZ.length; i++) {
-    if (!g.adj[i].length) continue;
-    const d = Math.sqrt(dist2(g.nodeXZ[i], p));
-    if (d < nearestD) { nearestD = d; nearestAny = i; }
-    if (g.onPreferred[i] && d <= ANCHOR_REACH_M) scored.push([d, i]);
-  }
-  scored.sort((x, y) => x[0] - y[0]);
-  const out = scored.slice(0, ANCHOR_CANDIDATES).map(s => s[1]);
-  return out.length ? out : [nearestAny];
-}
-
-function routeByAnchors(overpass, proj) {
-  const g = buildGraph(overpass, proj);
-  console.log(`graph: ${g.nodeLL.length} nodes, ${g.ways.length} ways`);
-  const cands = CFG.anchors.map(a => anchorCandidates(g, a));
-  // One Dijkstra per candidate, then a DP over the anchor sequence — and for
-  // a loop, back to the first anchor's own candidate so the ring closes on
-  // the carriageway it left from.
-  const runs = cands.map(cs => cs.map(c => dijkstra(g, c)));
-  const K = cands.length;
-  let best = null;
-  for (let c0 = 0; c0 < cands[0].length; c0++) {
-    // cost[k][j]: cheapest way to reach candidate j of anchor k from c0
-    let cost = cands[0].map((_, j) => (j === c0 ? 0 : Infinity));
-    let choice = [cands[0].map(() => -1)];
-    for (let k = 1; k < K; k++) {
-      const next = cands[k].map(() => Infinity), from = cands[k].map(() => -1);
-      for (let i = 0; i < cands[k - 1].length; i++) {
-        if (!Number.isFinite(cost[i])) continue;
-        for (let j = 0; j < cands[k].length; j++) {
-          const d = cost[i] + runs[k - 1][i].dist[cands[k][j]];
-          if (d < next[j]) { next[j] = d; from[j] = i; }
-        }
-      }
-      cost = next; choice.push(from);
-    }
-    // Close the ring, or stop at the last anchor.
-    let endJ = -1, endCost = Infinity;
-    for (let j = 0; j < cands[K - 1].length; j++) {
-      const d = CFG.loop ? cost[j] + runs[K - 1][j].dist[cands[0][c0]] : cost[j];
-      if (d < endCost) { endCost = d; endJ = j; }
-    }
-    if (endJ < 0 || !Number.isFinite(endCost)) continue;
-    if (!best || endCost < best.cost) {
-      // unwind the choices into a candidate index per anchor
-      const picks = new Array(K);
-      picks[K - 1] = endJ;
-      for (let k = K - 1; k > 0; k--) picks[k - 1] = choice[k][picks[k]];
-      best = { cost: endCost, picks, c0 };
-    }
-  }
-  if (!best) throw new Error('no route joins the anchors (oneway or class filter too strict?)');
-
-  // Reconstruct leg by leg from the stored searches.
-  const legs = [];
-  for (let k = 1; k < K; k++) legs.push([k - 1, best.picks[k - 1], cands[k][best.picks[k]]]);
-  if (CFG.loop) legs.push([K - 1, best.picks[K - 1], cands[0][best.c0]]);
-  const chain = [], flag = [], wayOf = [];
-  for (const [k, i, to] of legs) {
-    const r = runs[k][i];
-    const path = [];
-    for (let u = to; u !== -1; u = r.prev[u]) path.push(u);
-    path.reverse();
-    for (let n = 0; n < path.length; n++) {
-      if (chain.length && n === 0) continue;         // the leg starts where the last ended
-      const u = path[n];
-      const wi = r.prevWay[u] >= 0 ? r.prevWay[u] : (n + 1 < path.length ? r.prevWay[path[n + 1]] : -1);
-      const w = wi >= 0 ? g.ways[wi] : null;
-      chain.push({ lat: g.nodeLL[u].lat, lon: g.nodeLL[u].lon });
-      flag.push(w ? bridgeOf(w) : false);
-      wayOf.push(w);
-    }
-  }
-  const used = new Set(wayOf.filter(Boolean).map(w => w.id));
-  console.log(`routed ${chain.length} vertices over ${used.size} ways` +
-              ` (cost ${(best.cost / 1000).toFixed(2)} km-equivalent)`);
-  return { chain, flag, wayOf };
-}
-
 // ------------------------------------------------------------------ main
 const useRouter = FORCE_ROUTE || !CFG.wayIds || !CFG.wayIds.length;
 const overpass = useRouter
@@ -518,8 +292,9 @@ const elevAt = await srtmSampler(BBOX, srtmCache);
 // A rough projection about the bbox centre for the chaining and routing;
 // re-projected about the route's own centroid once it is known.
 const proj0 = makeProjection((BBOX.s + BBOX.n) / 2, (BBOX.w + BBOX.e) / 2);
-const { chain, flag, wayOf } = useRouter ? routeByAnchors(overpass, proj0)
-                                         : chainByIds(overpass, CFG.wayIds, proj0);
+const { chain, flag, wayOf } = useRouter
+  ? routeByAnchors(overpass, proj0, { anchors: CFG.anchors, loop: CFG.loop, classes: CFG.classes, prefer: CFG.prefer })
+  : chainByIds(overpass, CFG.wayIds, proj0);
 
 // Project about the route centroid so numbers stay small.
 const cLat = chain.reduce((a, p) => a + p.lat, 0) / chain.length;

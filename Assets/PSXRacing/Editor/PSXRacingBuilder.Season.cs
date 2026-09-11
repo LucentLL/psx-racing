@@ -115,7 +115,7 @@ namespace PSXRacing.EditorTools
                 if (files == null) continue;
                 foreach (var f in files)
                 {
-                    string dst = ProjectRootPath(StageArtDir + "/Trees/" + f + ".png");
+                    string dst = ProjectRootPath(StageTreesDir + "/" + f + ".png");
                     if (File.Exists(dst)) continue;
                     string src = Path.Combine(TreesSrcDir, f + ".png");
                     if (!File.Exists(src)) throw new System.Exception("Tree source missing: " + src);
@@ -158,7 +158,7 @@ namespace PSXRacing.EditorTools
                 int col = i % 4, row = i / 4;
                 bool lift = liftBare && i < 12;
                 var src = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                src.LoadImage(File.ReadAllBytes(ProjectRootPath(StageArtDir + "/Trees/" + files[i] + ".png")));
+                src.LoadImage(File.ReadAllBytes(ProjectRootPath(StageTreesDir + "/" + files[i] + ".png")));
                 var sp = src.GetPixels32();
                 int sw = src.width, sh = src.height;
                 for (int y = 0; y < cellPx; y++)

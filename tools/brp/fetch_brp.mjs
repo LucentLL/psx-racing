@@ -54,7 +54,12 @@ const STATION = 10;           // metres between DEM samples pre-smoothing
 // honest about every crest the road actually has.
 const SMOOTH_SIGMA = 85;      // metres, gaussian along-path height smoothing
 const MAX_GRADE = 0.085;      // clamp anything steeper (SRTM noise on cliffs)
-const MIN_BRIDGE_M = 40;      // spans shorter than this are culverts
+// A span has to be longer than the builder's two approach ramps
+// (2 x TrackCatalog.BridgeRampM = 52 m) or the gorge under it never reaches
+// full depth and the deck spans a saucer; the self-test refuses shorter
+// ones. Blowing Rock's 40 m and 48 m culvert bridges were the first to fall
+// between the old 40 m floor and that rule (2026-09-11).
+const MIN_BRIDGE_M = 56;      // spans shorter than this are culverts
 const BRIDGE_MERGE_M = 30;    // gaps smaller than this merge two spans
 
 const NEAR_CELL = 12, NEAR_MARGIN = 1200;

@@ -214,6 +214,11 @@ namespace PSXRacing.EditorTools
             /// barrier island 1200 m up the Blue Ridge.</summary>
             public string stageDir = Root + "/Art/BRP";
             public string stagePrefix = "brp";
+            /// <summary>Another stage's folder to take the GENERATED art and
+            /// the copied tree billboards from, or null for this stage's own.
+            /// Every forest stage composes the same atlases from the same
+            /// pack; three copies were three megabytes of build each.</summary>
+            public string artShareDir;
             /// <summary>Plant the billboard forest. Off on sand — the tree pass
             /// is the single most expensive thing a stage does, and a barrier
             /// island's vegetation is knee-high scrub nobody sees at 200 km/h.
@@ -251,6 +256,14 @@ namespace PSXRacing.EditorTools
             /// A freeway has one; the mountain's rule ("only where the land
             /// falls five metres") would leave the 277 belt open.</summary>
             public bool stageWallAlways;
+            /// <summary>Wall an OPEN verge as well as a falling one: where
+            /// the real land stays level with the road six metres past the
+            /// tarmac (a plateau, a village, a gentle uphill too shallow for
+            /// a cut bank), that level ground is run-off, and a mountain
+            /// road has a wall or a fence there. Never on the inside of a
+            /// tight bend. On for the mountain themes; the city keeps its
+            /// flat verges (see stageWallAlways's note on ramp chords).</summary>
+            public bool stageWallOpenVerge;
             /// <summary>Dig the ground out under each bridge span by the
             /// track's bridgeDepth, the way a circuit's field does. It can
             /// only ever LOWER ground. OFF on the mountains on purpose: their
@@ -367,6 +380,7 @@ namespace PSXRacing.EditorTools
             // PlaceTrees, and every other scatter pass stays off.
             ["BlueRidge"] = new Theme
             {
+                stageWallOpenVerge = true,
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
                 wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — the parkway's own guard wall
                 groundTile = 13f,
@@ -388,6 +402,7 @@ namespace PSXRacing.EditorTools
             // top all by itself: the tree pass reads the DEM.
             ["MtMitchell"] = new Theme
             {
+                stageWallOpenVerge = true,
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
                 wall = Root + "/Art/Roads/T (3).jpg",
                 groundTile = 13f,
@@ -400,6 +415,7 @@ namespace PSXRacing.EditorTools
                 gasStation = false,
                 stageDir = Root + "/Art/MtMitchell",
                 stagePrefix = "mtm",
+                artShareDir = Root + "/Art/BRP",
             },
 
             // NC 215 off the Parkway at Beech Gap. It wears the Parkway's look
@@ -408,6 +424,7 @@ namespace PSXRacing.EditorTools
             // it reads, which is the whole of what a stage theme decides.
             ["BeechGap"] = new Theme
             {
+                stageWallOpenVerge = true,
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
                 wall = Root + "/Art/Roads/T (3).jpg",
                 groundTile = 13f,
@@ -420,7 +437,15 @@ namespace PSXRacing.EditorTools
                 gasStation = false,
                 stageDir = Root + "/Art/BeechGap",
                 stagePrefix = "beech",
+                artShareDir = Root + "/Art/BRP",
             },
+
+            // The two Parkway LOOPS: a section of the Parkway and the roads
+            // that meet it, closed into a ring. Same mountain look as the
+            // three stages above — the DEM folder is the only thing that is
+            // theirs.
+            ["BlowingRock"] = MountainLoopTheme(Root + "/Art/BlowingRock", "brock"),
+            ["LittleSwitzerland"] = MountainLoopTheme(Root + "/Art/Switzerland", "swiss"),
 
             // Bogue Banks. One look, three venues: pale sand, scrub behind the
             // dune line, water on both sides of everything. All three share a
@@ -556,6 +581,22 @@ namespace PSXRacing.EditorTools
             t.stageHomes = true;
             return t;
         }
+
+        /// <summary>The Parkway's look, pointed at a loop's own DEM folder.</summary>
+        static Theme MountainLoopTheme(string dir, string prefix) => new Theme
+        {
+            stageWallOpenVerge = true,
+            ground = Root + "/Art/GasStation/Textures/Ground.jpg",
+            wall = Root + "/Art/Roads/T (3).jpg",
+            groundTile = 13f,
+            relief = 0f,
+            buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
+            postEvery = 4,
+            gasStation = false,
+            stageDir = dir,
+            stagePrefix = prefix,
+            artShareDir = Root + "/Art/BRP",
+        };
 
         static Theme DragTheme() => new Theme
         {
@@ -771,6 +812,7 @@ namespace PSXRacing.EditorTools
             else BuildWalls(waypoints, pathGO.transform);
             if (def.stage) BuildStageGround(waypoints, pathGO.transform);
             else BuildGround(waypoints, pathGO.transform);
+            if (def.stage) BuildStageTunnels(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
             BuildStartLine(waypoints, pathGO.transform);
             if (def.stage && theme.stageForest) BuildStageForest(waypoints, pathGO.transform);
@@ -1632,6 +1674,24 @@ namespace PSXRacing.EditorTools
             return Vector3.Cross(Vector3.up, fwd.normalized).normalized;
         }
 
+        /// <summary>Meshes the car never touches with a wheel, which may be
+        /// quantised in the build. Matched on the prefixed asset name.
+        ///
+        /// What Medium actually does, read back from the saved asset
+        /// (2026-09-11): positions to 16 bits of the mesh's own range (1.5 cm
+        /// on a 240 m ground chunk; the terrain audit's tightest clearance
+        /// moved from 0.245 to 0.233 m and nothing else), UVs to as many bits
+        /// as their range needs (18 on a tiled ground chunk, 10 on a
+        /// billboard: a pixel of the atlas), normals to 8. Roads, kerbs,
+        /// decks and aprons stay exact because a wheel reads them.</summary>
+        static bool CompressibleMesh(string name)
+        {
+            foreach (var key in new[] { "StageGround", "StageForest", "StageSea", "GroundMesh", "TreeMesh",
+                                        "Posts", "PostMesh", "StageWall", "StageBank", "WallMesh", "Tunnel" })
+                if (name.Contains(key)) return true;
+            return false;
+        }
+
         static Mesh SaveMesh(Mesh m, string name)
         {
             // Prefixed with the circuit id: four scenes each want their own
@@ -1646,6 +1706,34 @@ namespace PSXRacing.EditorTools
             var existingNormals = m.normals;
             if (existingNormals == null || existingNormals.Length != m.vertexCount)
                 m.RecalculateNormals();
+
+            // SIZE. Two levers, both invisible from the driving seat:
+            //
+            //  * 16-bit indices wherever the mesh has under 65k vertices.
+            //    Every generated mesh here declared UInt32, and a 12 m ground
+            //    chunk of 441 vertices carries 2,400 indices — at four bytes
+            //    each that is 40% of the chunk. The build stores the index
+            //    buffer at its declared width.
+            //  * Vertex compression (positions, normals, uvs quantised at
+            //    build time) on everything nobody DRIVES on: ground, forest,
+            //    sea, walls, banks, posts, tubes. Medium keeps 16-bit uvs; a
+            //    240 m chunk's positions land on ~4 mm. The road, the kerbs,
+            //    the decks and the aprons stay exact — a 7 km ribbon at 16
+            //    bits is a 10 cm staircase.
+            //
+            // The shipped data file was 83 MB against GitHub's 100 MB wall
+            // with 54 MB of it in these meshes; two more mountain loops did
+            // not fit without this.
+            if (m.vertexCount <= 65000 && m.indexFormat == UnityEngine.Rendering.IndexFormat.UInt32)
+            {
+                var subs = new int[m.subMeshCount][];
+                for (int sIdx = 0; sIdx < m.subMeshCount; sIdx++) subs[sIdx] = m.GetTriangles(sIdx);
+                m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt16;
+                m.subMeshCount = subs.Length;
+                for (int sIdx = 0; sIdx < subs.Length; sIdx++) m.SetTriangles(subs[sIdx], sIdx);
+            }
+            if (CompressibleMesh(name))
+                MeshUtility.SetMeshCompression(m, ModelImporterMeshCompression.Medium);
             // Guard: this exact failure shipped once already. Double-sided
             // triangles cancel in RecalculateNormals and the surface goes unlit.
             //
@@ -2840,6 +2928,25 @@ namespace PSXRacing.EditorTools
             tris.Add(a); tris.Add(c); tris.Add(d);
         }
 
+        /// <summary>Is <paramref name="at"/> within <paramref name="minDist"/>
+        /// (in plan) of a station that is another part of the route — more
+        /// than forty stations from <paramref name="i"/>, the short way round
+        /// on a loop?</summary>
+        static bool NearOtherRoute(List<Vector3> pts, int i, Vector3 at, float minDist)
+        {
+            int n = pts.Count;
+            float min2 = minDist * minDist;
+            for (int j = 0; j < n; j++)
+            {
+                int sep = Mathf.Abs(i - j);
+                if (Loop) sep = Mathf.Min(sep, n - sep);
+                if (sep <= 40) continue;
+                float dx = pts[j].x - at.x, dz = pts[j].z - at.z;
+                if (dx * dx + dz * dz < min2) return true;
+            }
+            return false;
+        }
+
         static int BuildPiers(List<Vector3> pts, int from, int stations,
                               Transform parent, Material mat)
         {
@@ -2862,6 +2969,12 @@ namespace PSXRacing.EditorTools
                 // this wide needs and what makes the span read as spanning.
                 foreach (float side in new[] { -1f, 1f })
                 {
+                    // NOT IN THE ROAD BELOW. Where a span carries the route
+                    // over ITSELF (both Parkway loops pass under their own
+                    // bridge), a pier planted on the deck's grid lands on the
+                    // lower carriageway: a concrete column on the racing line.
+                    Vector3 foot = new Vector3(pts[i].x, 0f, pts[i].z) + right * side * (DeckHalfWidth * 0.55f);
+                    if (NearOtherRoute(pts, i, foot, RoadWidth * 0.5f + KerbWidth + PierHalf + 1f)) continue;
                     var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
                     go.name = "Pier";
                     go.transform.SetParent(parent, false);
@@ -3462,7 +3575,9 @@ namespace PSXRacing.EditorTools
                 wheel.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
                 wheel.transform.localScale = Vector3.one * def.wheelMeshScale;
                 wheel.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
-                wheel.AddComponent<MeshRenderer>().sharedMaterial = wheelMat;
+                var wmr = wheel.AddComponent<MeshRenderer>();
+                wmr.sharedMaterial = wheelMat;
+                CarPaint.DullWheels(wmr);
             }
         }
 

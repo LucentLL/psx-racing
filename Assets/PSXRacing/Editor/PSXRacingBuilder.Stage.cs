@@ -130,7 +130,68 @@ namespace PSXRacing.EditorTools
         /// sharing the folder would have loaded the mountain's DEM and put a
         /// barrier island 1200 m up the Blue Ridge.</summary>
         static string StageArtDir => theme.stageDir;
-        static string StageGenDir => theme.stageDir + "/Gen";
+        /// <summary>Where the GENERATED art (atlases, mottles, turf, the
+        /// cut-bank and shoulder tiles) and the copied tree billboards live.
+        /// The theme may point several stages at one folder: every forest
+        /// stage composes the same sixteen billboards into the same five
+        /// atlases, and three copies of them were three megabytes of build
+        /// each — with two of the three clamped to 256 px by the importer's
+        /// one-folder exemption, so their trees were half the Parkway's.</summary>
+        static string StageShareDir => string.IsNullOrEmpty(theme.artShareDir) ? theme.stageDir : theme.artShareDir;
+        static string StageGenDir => StageShareDir + "/Gen";
+        static string StageTreesDir => StageShareDir + "/Trees";
+
+        /// <summary>Per station: inside a tunnel span. Built with the DEM;
+        /// null on a stage with no tunnels.</summary>
+        static bool[] tunnelIn;
+        static bool hasTunnels;
+
+        /// <summary>Station index normaliser for the stage passes: modulo on
+        /// a loop, clamped on a route with ends. The wall, bank and post
+        /// passes clamped everywhere, which on a LOOP stage left a gap in
+        /// every run that crossed the start line.</summary>
+        static int WrapIdx(int i, int n) => Loop ? ((i % n) + n) % n : Mathf.Clamp(i, 0, n - 1);
+
+        /// <summary>Stations apart along the route, the short way round on a loop.</summary>
+        static int StationSep(int i, int j, int n)
+        {
+            int d = Mathf.Abs(i - j);
+            return Loop ? Mathf.Min(d, n - d) : d;
+        }
+
+        /// <summary>
+        /// Maximal runs of wanted stations, with the three-clear hysteresis
+        /// every stage pass uses (two clear stations inside a run do not end
+        /// it; the trailing clears are not part of it). On a LOOP the scan
+        /// starts at a station that is NOT wanted, so a run that crosses the
+        /// start line is one run rather than two ending at the seam.
+        /// </summary>
+        static List<(int from, int len)> StationRuns(bool[] want, int minLen)
+        {
+            int n = want.Length;
+            var runs = new List<(int from, int len)>();
+            int origin = 0;
+            if (Loop)
+            {
+                while (origin < n && want[origin]) origin++;
+                if (origin >= n) { runs.Add((0, n)); return runs; }
+            }
+            for (int k = 0; k < n; )
+            {
+                int i = (origin + k) % n;
+                if (!want[i]) { k++; continue; }
+                int len = 1, clear = 0;
+                while (k + len < n && clear < 3)
+                {
+                    if (want[(origin + k + len) % n]) clear = 0; else clear++;
+                    len++;
+                }
+                len -= clear;
+                if (len >= minLen) runs.Add((i, len));
+                k += len + clear;
+            }
+            return runs;
+        }
         const string TreesSrcDir =
             @"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\ultimate_retro_tree_pack\ultimate_retro_tree_pack\textures";
 
@@ -161,6 +222,7 @@ namespace PSXRacing.EditorTools
             demNear = demFar = null;
             surfNear = null;
             stageWp = null; stageHash = null;
+            tunnelIn = null; hasTunnels = false;
         }
 
         /// <summary>Load the fetch script's bake and copy/generate the stage
@@ -205,6 +267,17 @@ namespace PSXRacing.EditorTools
                 list.Add(i);
             }
             stageDemLoaded = true;
+
+            // The tunnel table: which stations the road passes UNDER the
+            // mountain at. Read off the bake's spans, loop-aware.
+            tunnelIn = new bool[stageWp.Count];
+            hasTunnels = false;
+            for (int i = 0; i < stageWp.Count; i++)
+            {
+                tunnelIn[i] = TrackCatalog.InTunnel(track, i * Spacing);
+                hasTunnels |= tunnelIn[i];
+            }
+            if (hasTunnels) Log("Stage tunnels: " + track.tunnels.Length + " span(s).");
 
             EnsureStageArt();
             GenerateStageTextures();
@@ -279,12 +352,27 @@ namespace PSXRacing.EditorTools
         /// that station carries. False when the route is further than reach.
         /// </summary>
         static bool StageCorridor(float x, float z, float reach,
-                                  out float d, out float roadY, out float bridge)
+                                  out float d, out float roadY, out float bridge) =>
+            StageCorridor(x, z, reach, out d, out roadY, out bridge, out _);
+
+        /// <summary>Stations either side of a station that count as the SAME
+        /// piece of road. Past this a nearby station is the route coming back
+        /// on itself: a parallel stretch, or a grade separation.</summary>
+        const int OverlapSep = 40;
+        /// <summary>How far below the nearest road another part of the route
+        /// has to be, at the same spot in plan, for the ground to follow it
+        /// instead. A grade separation clears by 6.5 m; parallel roads on a
+        /// hillside differ by less.</summary>
+        const float OverlapDropM = 3f;
+
+        static bool StageCorridor(float x, float z, float reach,
+                                  out float d, out float roadY, out float bridge, out float station)
         {
-            d = float.MaxValue; roadY = 0f; bridge = 0f;
+            d = float.MaxValue; roadY = 0f; bridge = 0f; station = 0f;
             int cells = Mathf.CeilToInt(reach / StageHashCell);
             int cx = Mathf.FloorToInt(x / StageHashCell);
             int cz = Mathf.FloorToInt(z / StageHashCell);
+            int n = stageWp.Count;
             int best = -1; float bestD2 = reach * reach;
             for (int oz = -cells; oz <= cells; oz++)
                 for (int ox = -cells; ox <= cells; ox++)
@@ -300,17 +388,67 @@ namespace PSXRacing.EditorTools
                 }
             if (best < 0) return false;
 
-            // Refine on the two segments touching the nearest waypoint, same
-            // as the circuit field does — the shelf must follow the LINE, not
-            // step from waypoint to waypoint.
+            Refine(best, x, z, Mathf.Sqrt(bestD2), out d, out roadY, out station);
+            bridge = BridgeAt(station);
+            return true;
+        }
+
+        /// <summary>How much deck a fractional station carries (0 on the
+        /// ground, 1 at mid-span), from the per-station BridgeBlend.</summary>
+        static float BridgeAt(float station)
+        {
+            if (bridgeBlend == null) return 0f;
+            int s0 = Mathf.Clamp(Mathf.FloorToInt(station), 0, bridgeBlend.Length - 1);
+            int s1 = Loop ? (s0 + 1) % bridgeBlend.Length : Mathf.Min(s0 + 1, bridgeBlend.Length - 1);
+            return Mathf.Lerp(bridgeBlend[s0], bridgeBlend[s1], station - s0);
+        }
+
+        /// <summary>The nearest station of ANOTHER piece of road: more than
+        /// OverlapSep stations along the route from <paramref name="near"/>,
+        /// within <paramref name="reach"/> in plan, refined onto its two
+        /// segments. False when no other road comes that close.</summary>
+        static bool OtherRoadNear(float x, float z, float reach, int near,
+                                  out float d, out float roadY, out float station)
+        {
+            d = float.MaxValue; roadY = 0f; station = 0f;
+            int cells = Mathf.CeilToInt(reach / StageHashCell);
+            int cx = Mathf.FloorToInt(x / StageHashCell);
+            int cz = Mathf.FloorToInt(z / StageHashCell);
             int n = stageWp.Count;
-            d = Mathf.Sqrt(bestD2);
+            int alt = -1; float altD2 = reach * reach;
+            for (int oz = -cells; oz <= cells; oz++)
+                for (int ox = -cells; ox <= cells; ox++)
+                {
+                    long k = ((long)(cx + ox) << 32) ^ (uint)(cz + oz);
+                    if (!stageHash.TryGetValue(k, out var list)) continue;
+                    foreach (int i in list)
+                    {
+                        if (StationSep(i, near, n) <= OverlapSep) continue;
+                        float dx = stageWp[i].x - x, dz = stageWp[i].z - z;
+                        float d2 = dx * dx + dz * dz;
+                        if (d2 < altD2) { altD2 = d2; alt = i; }
+                    }
+                }
+            if (alt < 0) return false;
+            Refine(alt, x, z, Mathf.Sqrt(altD2), out d, out roadY, out station);
+            return d < reach;
+        }
+
+        /// <summary>Refine a nearest-station answer onto the two segments
+        /// touching it, same as the circuit field does: the shelf must
+        /// follow the LINE, not step from waypoint to waypoint. Wraps on a
+        /// loop, so the closing segment is a segment too.</summary>
+        static void Refine(int best, float x, float z, float d0,
+                           out float d, out float roadY, out float station)
+        {
+            int n = stageWp.Count;
+            d = d0;
             roadY = stageWp[best].y;
-            float station = best;
+            station = best;
             for (int o = -1; o <= 0; o++)
             {
-                int a = Mathf.Clamp(best + o, 0, n - 1);
-                int b = Mathf.Min(a + 1, n - 1);
+                int a = WrapIdx(best + o, n);
+                int b = WrapIdx(a + 1, n);
                 if (a == b) continue;
                 float ax = stageWp[a].x, az = stageWp[a].z;
                 float ex = stageWp[b].x - ax, ez = stageWp[b].z - az;
@@ -326,13 +464,17 @@ namespace PSXRacing.EditorTools
                     station = a + t;
                 }
             }
-            if (bridgeBlend != null)
-            {
-                int s0 = Mathf.Clamp(Mathf.FloorToInt(station), 0, bridgeBlend.Length - 1);
-                int s1 = Mathf.Min(s0 + 1, bridgeBlend.Length - 1);
-                bridge = Mathf.Lerp(bridgeBlend[s0], bridgeBlend[s1], station - s0);
-            }
-            return true;
+        }
+
+        /// <summary>Inside a tunnel's footprint: within the tube's width of a
+        /// station the road passes under the mountain at. The ground mesh
+        /// leaves a hole here (the tube is the floor's roof), and the corridor
+        /// stops pinning the hillside down around it.</summary>
+        static bool InTunnelHole(float x, float z)
+        {
+            if (!hasTunnels) return false;
+            if (!StageCorridor(x, z, RoadWidth * 0.5f + TunnelHoleMargin, out _, out _, out _, out float st)) return false;
+            return tunnelIn[Mathf.Clamp(Mathf.RoundToInt(st), 0, tunnelIn.Length - 1)];
         }
 
         /// <summary>
@@ -345,7 +487,52 @@ namespace PSXRacing.EditorTools
         {
             float dem = StageDemY(x, z);
             if (!StageCorridor(x, z, CorridorR + CorridorBlend + 4f,
-                    out float d, out float roadY, out float f))
+                    out float d, out float roadY, out float f, out float station))
+                return dem;
+            float g = GroundFromCorridor(dem, d, roadY, f, station);
+
+            // THE OTHER ROAD. Where the route crosses itself at a grade
+            // separation (both loops pass under their own Parkway bridge)
+            // the stations of the two roads share a spot in plan, and on the
+            // lower road's tarmac "nearest" can be the deck overhead: its pin
+            // releases to the raw DEM at mid-span, and SRTM noise comes up
+            // through the lower road as a hump. So UNDER A DECK (f past a
+            // half) the ground is what the road beneath wants -- its own
+            // shelf, fall and blend -- faded in over the second half of the
+            // deck's blend so the abutments keep their embankments, and still
+            // capped under the soffit.
+            //
+            // Only under a deck. The first cut of this asked "is another part
+            // of the route lower, within reach" EVERYWHERE, which is also what
+            // a hairpin's upper leg and a parallel stretch's higher road look
+            // like, and took the pin off both: three buried probes on Mount
+            // Mitchell, thirty-four on Little Switzerland's ridge, and a flat
+            // apron on four stages' shoulders (2026-09-11).
+            if (f > 0.5f
+                && OtherRoadNear(x, z, CorridorR + CorridorBlend,
+                                 WrapIdx(Mathf.RoundToInt(station), stageWp.Count),
+                                 out float dA, out float yA, out float sA)
+                && yA < roadY - OverlapDropM && BridgeAt(sA) < 0.5f)
+            {
+                float under = GroundFromCorridor(dem, dA, yA, BridgeAt(sA), sA);
+                g = Mathf.Lerp(g, under, Mathf.InverseLerp(0.5f, 1f, f));
+                if (d < DeckHalfWidth + 2f) g = Mathf.Min(g, roadY - DeckThick - 0.4f);
+            }
+            return g;
+        }
+
+        /// <summary>The ground the corridor wants at a point, given the road
+        /// it is measured from: the nearest station's distance, height, deck
+        /// factor and fractional index. Split out so the road UNDER a deck
+        /// can be asked the same question.</summary>
+        static float GroundFromCorridor(float dem, float d, float roadY, float f, float station)
+        {
+            // THE MOUNTAIN STANDS OVER A TUNNEL. The corridor pin would dig
+            // the ridge out into a trench thirty metres deep; inside a
+            // tunnel span the ground is simply the real land, and the road
+            // runs under it in its tube (BuildStageTunnels). The ground mesh
+            // has no quads over the road there, so nothing rises through it.
+            if (hasTunnels && tunnelIn[Mathf.Clamp(Mathf.RoundToInt(station), 0, tunnelIn.Length - 1)])
                 return dem;
 
             float blend = Mathf.SmoothStep(0f, 1f,
@@ -685,6 +872,7 @@ namespace PSXRacing.EditorTools
             var uvs = new Vector2[verts.Length];
             var surf = sandy ? new Surf[verts.Length] : null;
             var routeD = dropInside > 0f ? new float[verts.Length] : null;
+            var hole = hasTunnels ? new bool[verts.Length] : null;
             var tris = new List<int>(cells * cells * 6);
             var sandTris = sandy ? new List<int>(cells * cells * 2) : null;
             var marshTris = sandy ? new List<int>(cells * cells * 2) : null;
@@ -696,6 +884,7 @@ namespace PSXRacing.EditorTools
                     uvs[v] = new Vector2(wx / tile, wz / tile);
                     if (surf != null) surf[v] = StageSurfAt(wx, wz);
                     if (routeD != null) routeD[v] = RouteDistanceCoarse(wx, wz);
+                    if (hole != null) hole[v] = InTunnelHole(wx, wz);
                     // Central differences at half a cell: a function of world
                     // position alone, so both sides of a chunk border compute
                     // the identical normal.
@@ -714,6 +903,12 @@ namespace PSXRacing.EditorTools
                     // two grids overlap by a cell and the seam stays sealed.
                     if (routeD != null && routeD[a] < dropInside && routeD[b] < dropInside &&
                         routeD[c] < dropInside && routeD[e2] < dropInside) continue;
+                    // ANY corner over a tunnel: the quad goes. A quad that
+                    // straddles the tube's edge would run its diagonal from
+                    // the ridge above down through the road inside the tube,
+                    // with a collider on it. The tube's own walls and the
+                    // portal face cover what the hole leaves open.
+                    if (hole != null && (hole[a] || hole[b] || hole[c] || hole[e2])) continue;
                     var into = tris;
                     if (sandy)
                     {
@@ -819,6 +1014,37 @@ namespace PSXRacing.EditorTools
         /// a guard wall to appear. Sampled from the RAW dem 30 m out —
         /// sampling the pinned field would measure the corridor's own shelf.</summary>
         const float WallDropM = 5.0f;
+        /// <summary>How far from road level the ground may sit, three and six
+        /// metres past the tarmac, before the verge stops being "open" (see
+        /// StageWallWanted). Equal to BankRiseM on purpose: what is not a cut
+        /// and not a fall is a verge, and the terrain audit's own edge is a
+        /// metre.</summary>
+        const float OpenVergeM = 0.9f;
+        /// <summary>Bends tighter than this keep the open-verge wall off their
+        /// INSIDE. A wall collider is a box per station, and where the heading
+        /// turns 4 m / R per station its ends swing inward by about
+        /// 2.25 * 4 / R: 0.65 m on a 13.7 m hairpin, onto the kerb. The
+        /// obstacle audit found 22 of those on the Blowing Rock loop the first
+        /// time the open-verge rule ran; the drop test had never met this,
+        /// because an inside is a cut and it walls falls.</summary>
+        const float OpenVergeMinR = 80f;
+
+        /// <summary>Is <paramref name="side"/> the inside of a bend of radius
+        /// under <see cref="OpenVergeMinR"/> at station i? Radius from the
+        /// chord over six stations and its sagitta; the inside is the side
+        /// the chord's midpoint lies on.</summary>
+        static bool InsideOfTightBend(List<Vector3> pts, int i, float side)
+        {
+            int n = pts.Count;
+            Vector3 a = pts[WrapIdx(i - 3, n)], b = pts[i], c = pts[WrapIdx(i + 3, n)];
+            Vector3 chord = c - a; chord.y = 0f;
+            Vector3 toMid = (a + c) * 0.5f - b; toMid.y = 0f;
+            float len = chord.magnitude, sag = toMid.magnitude;
+            if (len < 1e-3f || sag < 1e-4f) return false;
+            float r = len * len / (8f * sag);
+            if (r >= OpenVergeMinR) return false;
+            return Vector3.Dot(toMid, RightAt(pts, i) * side) > 0f;
+        }
 
         static void BuildStageWalls(List<Vector3> pts, Transform parent)
         {
@@ -838,24 +1064,11 @@ namespace PSXRacing.EditorTools
                 // becoming a picket line of two-metre stubs.
                 var want = new bool[n];
                 for (int i = 0; i < n; i++) want[i] = StageWallWanted(pts, i, side);
-                for (int i = 0; i < n; )
+                foreach (var run in StationRuns(want, 4))
                 {
-                    if (!want[i]) { i++; continue; }
-                    int len = 1;
-                    int clear = 0;
-                    while (i + len < n && clear < 3)
-                    {
-                        if (want[i + len]) clear = 0; else clear++;
-                        len++;
-                    }
-                    len -= clear;
-                    if (len >= 4)
-                    {
-                        BuildOneStageWall(pts, i, len, side, root.transform, mat, phys, runs++);
-                        wallRuns.Add((i, len, side));
-                        walled += len;
-                    }
-                    i += len + clear;
+                    BuildOneStageWall(pts, run.from, run.len, side, root.transform, mat, phys, runs++);
+                    wallRuns.Add((run.from, run.len, side));
+                    walled += run.len;
                 }
             }
             Log($"Stage guard walls: {runs} runs covering {walled * Spacing:0} m of shoulder " +
@@ -920,7 +1133,7 @@ namespace PSXRacing.EditorTools
             {
                 for (int k = 1; k < run.len; k += theme.postEvery)
                 {
-                    int i = Mathf.Min(run.from + k, pts.Count - 1);
+                    int i = WrapIdx(run.from + k, pts.Count);
                     if (bridgeBlend != null && i < bridgeBlend.Length && bridgeBlend[i] > 0.35f)
                     { spans++; continue; }
                     Vector3 right = RightAt(pts, i);
@@ -941,13 +1154,66 @@ namespace PSXRacing.EditorTools
         /// bank pass so the two can never claim the same station.</summary>
         static bool StageWallWanted(List<Vector3> pts, int i, float side)
         {
+            // The tube is the wall inside a tunnel.
+            if (hasTunnels && tunnelIn[i]) return false;
             // A freeway is walled end to end whatever the ground does.
             if (theme.stageWallAlways) return true;
             if (bridgeBlend != null && bridgeBlend[i] > 0.35f) return true;
             Vector3 right = RightAt(pts, i);
+            // AN OPEN VERGE IS WALLED TOO. The drop test below walls the fill
+            // side where the mountain falls away; where it does not fall -- a
+            // plateau, the village at Blowing Rock, a gentle uphill too
+            // shallow for a cut bank -- the corridor's shelf lands on the real
+            // ground and stays level, and level ground beside a road is
+            // run-off: the terrain audit read "shoulder is drivable for
+            // 14.8 m past the tarmac" on the loop and 2.5 m on average on the
+            // parkway itself (2026-09-11). Asked of the ground the builder
+            // will make, at three and six metres past the tarmac: still
+            // within OpenVergeM of the road at both, and the shoulder gets
+            // the wall. A fill batter has dropped past that by six metres and
+            // a cut has risen past it; neither is open. The bank pass defers
+            // to this the way it defers to every wall -- which is why the
+            // question is asked of the REAL land (StageDemY) and not of the
+            // corridor's shelf: the shelf is level beside every cut as well,
+            // and asking it claimed the cut side of five stages and took
+            // every bank with it ("Stage cut banks: 0 runs"). And never on
+            // the inside of a tight bend (InsideOfTightBend), where a wall
+            // collider's ends swing onto the kerb.
+            if (theme.stageWallOpenVerge && !InsideOfTightBend(pts, i, side))
+            {
+                float half = RoadWidth * 0.5f;
+                bool open = true;
+                foreach (float o in new[] { 3f, 6f })
+                {
+                    float ox = pts[i].x + right.x * side * (half + o);
+                    float oz = pts[i].z + right.z * side * (half + o);
+                    if (Mathf.Abs(StageDemY(ox, oz) - pts[i].y) > OpenVergeM) { open = false; break; }
+                }
+                if (open) return true;
+            }
             float px = pts[i].x + right.x * side * 30f;
             float pz = pts[i].z + right.z * side * 30f;
             return pts[i].y - StageDemY(px, pz) > WallDropM;
+        }
+
+        /// <summary>How far a one-station chord of the wall line on
+        /// <paramref name="side"/> sags toward the road at station i: zero on
+        /// a straight and on the inside of a bend, c^2 / 8R on the outside,
+        /// with R from the two neighbouring stations. Capped at half a metre
+        /// so a kink in the data cannot throw a box into the forest.</summary>
+        static float WallChordSag(List<Vector3> pts, int i, float side)
+        {
+            int n = pts.Count;
+            Vector3 a = pts[WrapIdx(i - 1, n)], b = pts[i], c = pts[WrapIdx(i + 1, n)];
+            Vector3 toMid = (a + c) * 0.5f - b; toMid.y = 0f;
+            float sag2 = toMid.magnitude;                 // the two-station chord's sag
+            if (sag2 < 1e-4f) return 0f;
+            // The bend turns toward toMid; this side is the OUTSIDE when it
+            // faces the other way.
+            if (Vector3.Dot(toMid, RightAt(pts, i) * side) > 0f) return 0f;
+            // sag(c) = c^2 / 8R, and sag2 = (2c)^2 / 8R, so a one-station
+            // chord sags a quarter of what the two-station one does.
+            return Mathf.Min(0.5f, sag2 * 0.25f);
         }
 
         static void BuildOneStageWall(List<Vector3> pts, int from, int stations, float side,
@@ -960,7 +1226,7 @@ namespace PSXRacing.EditorTools
             int rings = 0;
             for (int k = 0; k < stations; k++)
             {
-                int i = Mathf.Min(from + k, pts.Count - 1);
+                int i = WrapIdx(from + k, pts.Count);
                 Vector3 right = RightAt(pts, i);
                 Vector3 basePos = pts[i] + right * side * StageWallOffset;
                 // Seated on the corridor shelf, which is pinned to the road —
@@ -994,15 +1260,23 @@ namespace PSXRacing.EditorTools
                 // still: single-sided contacts, cars nosing through.)
                 if (k + 1 < stations)
                 {
-                    int j = Mathf.Min(from + k + 1, pts.Count - 1);
+                    int j = WrapIdx(from + k + 1, pts.Count);
                     // Centred so the INNER face stays where the drawn wall is
                     // and all the extra depth grows OUTWARD — see
                     // StageWallCollThick. The old +0.15 put a 0.4 m box's
                     // inner face at -0.05; the same face now sits under a box
                     // this much thicker.
                     float half = StageWallCollThick * 0.5f;
-                    Vector3 a = pts[i] + RightAt(pts, i) * side * (StageWallOffset - 0.05f + half);
-                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (StageWallOffset - 0.05f + half);
+                    // THE CHORD SAGS TOWARD THE ROAD ON THE OUTSIDE OF A BEND,
+                    // by c^2 / 8R: the 7 cm above is the old stages' 27 m
+                    // floor, and the Parkway loops turn through 14 m
+                    // hairpins, where it is 14 cm and the obstacle audit
+                    // reported the box's face on the kerb. So each end of
+                    // the box moves OUT by the sag its station's bend gives
+                    // a 4 m chord. Outward only: on the inside of a bend the
+                    // chord already lies away from the road.
+                    Vector3 a = pts[i] + RightAt(pts, i) * side * (StageWallOffset - 0.05f + half + WallChordSag(pts, i, side));
+                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (StageWallOffset - 0.05f + half + WallChordSag(pts, j, side));
                     var seg = new GameObject("WallColl");
                     seg.transform.SetParent(parent, false);
                     seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (StageWallCollH * 0.5f - 0.2f);
@@ -1130,25 +1404,13 @@ namespace PSXRacing.EditorTools
                 var want = new bool[n];
                 for (int i = 0; i < n; i++) want[i] = h[i] > 0f;
 
-                for (int i = 0; i < n; )
+                // Same four-station floor the walls use: a cut that lasts
+                // twelve metres is a bump in the DEM, not a road cut, and
+                // building it gives the shoulder a picket line of stubs.
+                foreach (var run in StationRuns(want, 4))
                 {
-                    if (!want[i]) { i++; continue; }
-                    int len = 1, clear = 0;
-                    while (i + len < n && clear < 3)
-                    {
-                        if (want[i + len]) clear = 0; else clear++;
-                        len++;
-                    }
-                    len -= clear;
-                    // Same four-station floor the walls use: a cut that lasts
-                    // twelve metres is a bump in the DEM, not a road cut, and
-                    // building it gives the shoulder a picket line of stubs.
-                    if (len >= 4)
-                    {
-                        BuildOneStageBank(pts, i, len, side, sm, root.transform, mat, phys, runs++);
-                        banked += len;
-                    }
-                    i += len + clear;
+                    BuildOneStageBank(pts, run.from, run.len, side, sm, root.transform, mat, phys, runs++);
+                    banked += run.len;
                 }
             }
             Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder.");
@@ -1177,6 +1439,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static float StageBankHeight(List<Vector3> pts, int i, float side)
         {
+            if (hasTunnels && tunnelIn[i]) return 0f;
             if (bridgeBlend != null && bridgeBlend[i] > 0.05f) return 0f;
             if (StageWallWanted(pts, i, side)) return 0f;
             Vector3 right = RightAt(pts, i);
@@ -1218,7 +1481,7 @@ namespace PSXRacing.EditorTools
             // hillside, which reads as a missing chunk of world.
             float FaceH(int st)
             {
-                int idx = Mathf.Min(from + st, pts.Count - 1);
+                int idx = WrapIdx(from + st, pts.Count);
                 float t = Mathf.Min(Mathf.InverseLerp(-0.5f, 3.5f, st),
                                     Mathf.InverseLerp(-0.5f, 3.5f, stations - 1 - st));
                 return Mathf.Max(0.15f, h[idx] * Mathf.SmoothStep(0f, 1f, t));
@@ -1226,7 +1489,7 @@ namespace PSXRacing.EditorTools
 
             for (int k = 0; k < stations; k++)
             {
-                int i = Mathf.Min(from + k, pts.Count - 1);
+                int i = WrapIdx(from + k, pts.Count);
                 float hh = FaceH(k);
                 float plinth = Mathf.Min(hh, BankPlinth);
 
@@ -1276,7 +1539,7 @@ namespace PSXRacing.EditorTools
                 // up inside the kerb band on the stage's tightest radius.
                 if (k + 1 < stations)
                 {
-                    int j = Mathf.Min(from + k + 1, pts.Count - 1);
+                    int j = WrapIdx(from + k + 1, pts.Count);
                     // Seated so the box's INNER face lands on the drawn toe
                     // — 0.05 m inside it, so the collider never leads the visual
                     // — and every millimetre of the extra depth grows into the
@@ -1340,6 +1603,163 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
+        //  Tunnels
+        // ------------------------------------------------------------------
+        /// <summary>Height of the tube's ceiling over the road, and how far
+        /// its walls stand outside the tarmac edge: the verge strip, and a
+        /// little. The Little Switzerland Tunnel is a two-lane bore.</summary>
+        const float TunnelH = 5.2f, TunnelWallOut = 1.1f;
+        /// <summary>How far past the tube's wall the ground hole reaches, so
+        /// no ground quad can straddle the tube.</summary>
+        const float TunnelHoleMargin = 7f;
+        /// <summary>The portal face: a rock front either side of the mouth and
+        /// over it, big enough to hide the ground's step from the approach
+        /// cut to the ridge.</summary>
+        const float PortalHalfW = 18f, PortalH = 16f;
+        const float TunnelTexM = 6f;
+
+        /// <summary>
+        /// A tube round the road wherever it passes under the mountain: two
+        /// walls, a ceiling, a rock portal face at each mouth, and a collider
+        /// chord per station down each wall. The road, its kerb strips and
+        /// its colliders run through unchanged — the tube is what the ground
+        /// mesh's hole (GridChunkMesh) is covered by from inside, and the
+        /// portal faces are what covers it from outside.
+        /// </summary>
+        static void BuildStageTunnels(List<Vector3> pts, Transform parent)
+        {
+            if (!hasTunnels) return;
+            var runs = StationRuns(tunnelIn, 3);
+            if (runs.Count == 0) return;
+            string tex = File.Exists(ProjectRootPath(StageGenDir + "/CutBank.png"))
+                       ? StageGenDir + "/CutBank.png" : theme.wall;
+            var mat = MakeMat(MeshPrefix + "Tunnel", tex, affine: 0f, tint: new Color(0.62f, 0.60f, 0.58f));
+            var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
+            var root = new GameObject("Tunnels");
+            root.transform.SetParent(parent, false);
+            int no = 0, metres = 0;
+            foreach (var run in runs)
+            {
+                BuildOneTunnel(pts, run.from, run.len, root.transform, mat, phys, no++);
+                metres += run.len * (int)Spacing;
+            }
+            Log($"Stage tunnels: {no} tube(s), {metres} m bored.");
+        }
+
+        static void BuildOneTunnel(List<Vector3> pts, int from, int stations, Transform parent,
+                                   Material mat, PhysicsMaterial phys, int no)
+        {
+            int n = pts.Count;
+            float halfW = RoadWidth * 0.5f + TunnelWallOut;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            float dist = 0f;
+            var ring = new int[stations, 4];
+
+            for (int k = 0; k < stations; k++)
+            {
+                int i = WrapIdx(from + k, n);
+                Vector3 right = RightAt(pts, i);
+                Vector3 c = pts[i];
+                float y0 = c.y - 0.45f, y1 = c.y + TunnelH;
+                Vector3 l = c - right * halfW, r = c + right * halfW;
+                float u = dist / TunnelTexM;
+                ring[k, 0] = verts.Count; verts.Add(new Vector3(l.x, y0, l.z)); uvs.Add(new Vector2(u, 0f));
+                ring[k, 1] = verts.Count; verts.Add(new Vector3(l.x, y1, l.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM));
+                ring[k, 2] = verts.Count; verts.Add(new Vector3(r.x, y1, r.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM + halfW * 2f / TunnelTexM));
+                ring[k, 3] = verts.Count; verts.Add(new Vector3(r.x, y0, r.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM * 2f + halfW * 2f / TunnelTexM));
+                dist += Spacing;
+
+                if (k > 0)
+                {
+                    // Every face turned INWARD: the player is inside the tube.
+                    Vector3 inwardL = right, inwardR = -right, down = Vector3.down;
+                    QuadFacing(verts, tris, ring[k - 1, 0], ring[k - 1, 1], ring[k, 1], ring[k, 0], inwardL);
+                    QuadFacing(verts, tris, ring[k - 1, 1], ring[k - 1, 2], ring[k, 2], ring[k, 1], down);
+                    QuadFacing(verts, tris, ring[k - 1, 2], ring[k - 1, 3], ring[k, 3], ring[k, 2], inwardR);
+
+                    // Collider chords down both walls, seated exactly on the
+                    // drawn face and grown OUTWARD — the guard wall's rule.
+                    int j = WrapIdx(from + k - 1, n);
+                    foreach (float side in new[] { -1f, 1f })
+                    {
+                        float seat = halfW + StageWallCollThick * 0.5f - 0.05f;
+                        Vector3 a = pts[j] + RightAt(pts, j) * side * seat;
+                        Vector3 b = pts[i] + RightAt(pts, i) * side * seat;
+                        var seg = new GameObject("WallTunnel");
+                        seg.transform.SetParent(parent, false);
+                        seg.transform.position = (a + b) * 0.5f + Vector3.up * (TunnelH * 0.5f - 0.2f);
+                        Vector3 dir = b - a; dir.y = 0f;
+                        if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
+                        seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+                        var box = seg.AddComponent<BoxCollider>();
+                        box.size = new Vector3(StageWallCollThick, TunnelH + 0.4f, dir.magnitude + 0.5f);
+                        box.sharedMaterial = phys;
+                        seg.layer = SolidLayer;
+                        seg.isStatic = true;
+                    }
+                }
+            }
+
+            // The portals: a rock face across the mouth with the tube's
+            // opening left in it. Facing OUT of the mountain at each end.
+            Portal(pts, WrapIdx(from, n), -1f, halfW, verts, uvs, tris);
+            Portal(pts, WrapIdx(from + stations - 1, n), 1f, halfW, verts, uvs, tris);
+
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
+            };
+            SaveMesh(mesh, "Tunnel" + no);
+            var go = new GameObject("Tunnel" + no);
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            go.isStatic = true;
+        }
+
+        /// <summary>The face at one mouth: two side panels from the tube wall
+        /// out to PortalHalfW, and a lintel over the opening up to PortalH,
+        /// all in the station's own plane, all facing <paramref name="dir"/>
+        /// along the road (-1 back toward the approach at the entry mouth,
+        /// +1 onward at the exit).</summary>
+        static void Portal(List<Vector3> pts, int i, float dir, float halfW,
+                           List<Vector3> verts, List<Vector2> uvs, List<int> tris)
+        {
+            Vector3 right = RightAt(pts, i);
+            Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
+            Vector3 face = fwd * dir;
+            Vector3 c = pts[i];
+            float yBase = c.y - 1.5f, yTop = c.y + PortalH, yLintel = c.y + TunnelH;
+            void Panel(float x0, float x1, float y0, float y1)
+            {
+                int v = verts.Count;
+                verts.Add(new Vector3(c.x + right.x * x0, y0, c.z + right.z * x0)); uvs.Add(new Vector2(x0 / TunnelTexM, y0 / TunnelTexM));
+                verts.Add(new Vector3(c.x + right.x * x0, y1, c.z + right.z * x0)); uvs.Add(new Vector2(x0 / TunnelTexM, y1 / TunnelTexM));
+                verts.Add(new Vector3(c.x + right.x * x1, y1, c.z + right.z * x1)); uvs.Add(new Vector2(x1 / TunnelTexM, y1 / TunnelTexM));
+                verts.Add(new Vector3(c.x + right.x * x1, y0, c.z + right.z * x1)); uvs.Add(new Vector2(x1 / TunnelTexM, y0 / TunnelTexM));
+                QuadFacing(verts, tris, v, v + 1, v + 2, v + 3, face);
+            }
+            Panel(-PortalHalfW, -halfW, yBase, yTop);
+            Panel(halfW, PortalHalfW, yBase, yTop);
+            Panel(-halfW, halfW, yLintel, yTop);
+        }
+
+        /// <summary>Two triangles for a quad, wound so the face points the
+        /// way <paramref name="wantNormal"/> does. Corner order is otherwise
+        /// free — which is the whole point: every inside-out strip this
+        /// project has shipped came from a winding chosen by hand.</summary>
+        static void QuadFacing(List<Vector3> verts, List<int> tris, int a, int b, int c, int d, Vector3 wantNormal)
+        {
+            Vector3 nrm = Vector3.Cross(verts[b] - verts[a], verts[c] - verts[a]);
+            bool flip = Vector3.Dot(nrm, wantNormal) < 0f;
+            if (!flip) { tris.AddRange(new[] { a, b, c, a, c, d }); }
+            else { tris.AddRange(new[] { a, c, b, a, d, c }); }
+        }
+
+        // ------------------------------------------------------------------
         //  Forest
         // ------------------------------------------------------------------
         /// <summary>One species: where it sits in the 4x4 atlas, what shape it
@@ -1391,17 +1811,17 @@ namespace PSXRacing.EditorTools
                     Path.GetDirectoryName(StageArtDir).Replace('\\', '/'),
                     Path.GetFileName(StageArtDir));
             if (!AssetDatabase.IsValidFolder(StageGenDir))
-                AssetDatabase.CreateFolder(StageArtDir, "Gen");
+                AssetDatabase.CreateFolder(StageShareDir, "Gen");
             // The CC0 tree pack is 16 PNGs copied out of a folder on this
             // machine. A stage with no forest must not need it to exist — the
             // island builds on a checkout that has never seen the pack.
             if (!theme.stageForest) return;
-            if (!AssetDatabase.IsValidFolder(StageArtDir + "/Trees"))
-                AssetDatabase.CreateFolder(StageArtDir, "Trees");
+            if (!AssetDatabase.IsValidFolder(StageTreesDir))
+                AssetDatabase.CreateFolder(StageShareDir, "Trees");
             int copied = 0;
             foreach (var s in StageTrees)
             {
-                string dst = ProjectRootPath(StageArtDir + "/Trees/" + s.file + ".png");
+                string dst = ProjectRootPath(StageTreesDir + "/" + s.file + ".png");
                 if (File.Exists(dst)) continue;
                 string src = Path.Combine(TreesSrcDir, s.file + ".png");
                 if (!File.Exists(src)) throw new Exception("Tree source missing: " + src);
@@ -1428,7 +1848,7 @@ namespace PSXRacing.EditorTools
                 foreach (var s in StageTrees)
                 {
                     var src = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    src.LoadImage(File.ReadAllBytes(ProjectRootPath(StageArtDir + "/Trees/" + s.file + ".png")));
+                    src.LoadImage(File.ReadAllBytes(ProjectRootPath(StageTreesDir + "/" + s.file + ".png")));
                     var sp = src.GetPixels32();
                     int sw = src.width, sh = src.height;
                     for (int y = 0; y < cellPx; y++)

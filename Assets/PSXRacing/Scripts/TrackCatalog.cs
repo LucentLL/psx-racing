@@ -61,6 +61,16 @@ namespace PSXRacing
             /// that condition is never true by accident. A bridge is a decision.
             /// </summary>
             public Vector2[] bridges;
+            /// <summary>Spans, in metres along the lap, where the road runs
+            /// UNDER the mountain. The builder leaves the ridge standing over
+            /// the road there and puts a tube round it. From the bake.</summary>
+            public Vector2[] tunnels;
+            /// <summary>Where the route crosses ITSELF at a grade separation:
+            /// pairs of (metres of the upper road, metres of the lower road).
+            /// Both Parkway loops pass under their own bridge once. From the
+            /// bake, which also lifts the upper road and forces a span there;
+            /// kept for the record and the self-test.</summary>
+            public Vector2[] crossings;
             /// <summary>How far the ground falls away beneath a bridge span.
             /// Deep enough that the piers read as structure rather than as
             /// kerbstones.</summary>
@@ -696,6 +706,50 @@ namespace PSXRacing
                 dragLabel = "US 74",
                 bridgeDepth = 6f,
             },
+
+            // ----------------------------------------------------------------
+            //  Two Parkway LOOPS — "more mountain races, but circuits": a
+            //  section of the Blue Ridge Parkway and the roads that meet it,
+            //  closed into a ring, baked by tools/roads/fetch_loop.mjs from
+            //  OpenStreetMap + SRTM. Both pass under their own Parkway bridge
+            //  once (the bake lifts the Parkway over the road it crosses and
+            //  the builder keeps the lower road's corridor), and Little
+            //  Switzerland runs through the Parkway's tunnel. Appended after
+            //  Charlotte because a saved career stores its venue by index —
+            //  and the twins move again, which save v12 remaps.
+            // ----------------------------------------------------------------
+            new TrackDef
+            {
+                id = "BlowingRock",
+                name = "BLOWING ROCK — MOSES CONE LOOP",
+                blurb = "The Parkway west from the US 321 interchange to Moses Cone, down " +
+                        "Cone Road to US 221, Main Street through the village, and back " +
+                        "under the Parkway's own bridge. 9.9 km. Map (c) OpenStreetMap contributors.",
+                roadWidth = 10f,
+                laps = 1,
+                speedLimitKmh = 56f,    // 35 mph through the village; the Parkway is 45
+                stage = true,
+                loop = true,
+                stageData = "brock_stage",
+                dragLabel = "MOSES CONE",
+                bridgeDepth = 6f,
+            },
+            new TrackDef
+            {
+                id = "LittleSwitzerland",
+                name = "LITTLE SWITZERLAND — GILLESPIE GAP",
+                blurb = "The Parkway west from Gillespie Gap through the Little Switzerland " +
+                        "Tunnel, the village links onto NC 226A, and NC 226A back along the " +
+                        "ridge under the Parkway bridge. 9.7 km. Map (c) OpenStreetMap contributors.",
+                roadWidth = 9.5f,
+                laps = 1,
+                speedLimitKmh = 56f,    // NC 226A is posted 35 mph
+                stage = true,
+                loop = true,
+                stageData = "swiss_stage",
+                dragLabel = "THE TUNNEL",
+                bridgeDepth = 6f,
+            },
         };
 
         /// <summary>
@@ -716,6 +770,8 @@ namespace PSXRacing
             controlPoints = f.controlPoints,
             controlHeights = f.controlHeights,
             bridges = f.bridges,
+            tunnels = f.tunnels,
+            crossings = f.crossings,
             bridgeDepth = f.bridgeDepth,
             roadWidth = f.roadWidth,
             // The one field that is NOT about the place's shape and still has
@@ -805,6 +861,22 @@ namespace PSXRacing
         {
             if (oldIndex < V10AuthoredCount) return Mathf.Max(0, oldIndex);
             int twin = oldIndex - V10AuthoredCount;
+            return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
+        }
+
+        /// <summary>How many venues the authored list held under save v11:
+        /// the thirteen of v10 plus the three Charlotte venues. The two
+        /// Parkway loops (2026-09-11) went on after them and moved every twin
+        /// two places along. A constant, for the reason V10AuthoredCount is.</summary>
+        public const int V11AuthoredCount = 16;
+
+        /// <summary>A venue index from a version-11 save, in today's list.
+        /// Same shape as <see cref="RemapV10Index"/>: authored indices stand,
+        /// the k-th twin is still the k-th twin.</summary>
+        public static int RemapV11Index(int oldIndex)
+        {
+            if (oldIndex < V11AuthoredCount) return Mathf.Max(0, oldIndex);
+            int twin = oldIndex - V11AuthoredCount;
             return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
         }
 
@@ -899,6 +971,33 @@ namespace PSXRacing
             public float cityX0, cityZ0;
             public float[] xyz;       // interleaved x,y,z per waypoint
             public float[] bridges;   // interleaved fromM,toM per span
+            public float[] tunnels;   // interleaved fromM,toM per bore
+            public float[] crossings; // interleaved upperM,lowerM per self-crossing
+        }
+
+        static Vector2[] Pairs(float[] flat)
+        {
+            if (flat == null || flat.Length < 2) return null;
+            var out2 = new Vector2[flat.Length / 2];
+            for (int i = 0; i < out2.Length; i++) out2[i] = new Vector2(flat[i * 2], flat[i * 2 + 1]);
+            return out2;
+        }
+
+        /// <summary>Is a point <paramref name="metres"/> along the lap inside
+        /// a tunnel? Loop-aware the way BridgeBlend is: a bore may wrap past
+        /// the start line in the bake's table.</summary>
+        public static bool InTunnel(TrackDef def, float metres)
+        {
+            if (def == null || def.tunnels == null) return false;
+            float lap = Mathf.Max(def.LengthM, 1f);
+            foreach (var span in def.tunnels)
+            {
+                float from, len;
+                if (def.stage && !def.loop) { len = span.y - span.x; from = metres - span.x; }
+                else { from = Mathf.Repeat(metres - span.x, lap); len = Mathf.Repeat(span.y - span.x, lap); }
+                if (from >= 0f && from <= len) return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -953,6 +1052,8 @@ namespace PSXRacing
                     spans[i] = new Vector2(j.bridges[i * 2], j.bridges[i * 2 + 1]);
                 def.bridges = spans;
             }
+            def.tunnels = Pairs(j.tunnels);
+            def.crossings = Pairs(j.crossings);
         }
 
         /// <summary>
@@ -1134,6 +1235,48 @@ namespace PSXRacing
         static readonly Dictionary<string, Texture2D> thumbs = new Dictionary<string, Texture2D>();
 
         /// <summary>
+        /// How a map of a venue maps the WORLD onto its own pixels: one
+        /// scale for both axes and an offset per axis, texture origin at the
+        /// bottom-left with +Z north up the page. The picker draws the road
+        /// with it and the race HUD puts the cars on the same picture with
+        /// it — two drawings of one place have to share one projection or
+        /// the dot drives beside the line.
+        /// </summary>
+        public struct MapFrame
+        {
+            public float scale, ox, oz;
+            public int size;
+            public float X(float worldX) => worldX * scale + ox;
+            public float Y(float worldZ) => worldZ * scale + oz;
+        }
+
+        static readonly Dictionary<string, MapFrame> mapFrames = new Dictionary<string, MapFrame>();
+
+        /// <summary>The projection a <paramref name="size"/>-pixel map of
+        /// this venue uses. False for the city, which has no centreline to
+        /// frame.</summary>
+        public static bool MapFrameFor(TrackDef def, int size, out MapFrame f)
+        {
+            f = default;
+            if (def == null || def.city) return false;
+            string key = def.id + "|" + size;
+            if (mapFrames.TryGetValue(key, out f)) return true;
+
+            var pts = Sample(def, Spacing);
+            var b = new Bounds(pts[0], Vector3.zero);
+            foreach (var p in pts) b.Encapsulate(p);
+            // ONE scale for both axes: a 660 m long circuit should read as long,
+            // not be stretched to fill the same square as a compact one.
+            float span = Mathf.Max(b.size.x, b.size.z);
+            f.size = size;
+            f.scale = (size - 12) / Mathf.Max(span, 1f);
+            f.ox = size * 0.5f - b.center.x * f.scale;
+            f.oz = size * 0.5f - b.center.z * f.scale;
+            mapFrames[key] = f;
+            return true;
+        }
+
+        /// <summary>
         /// A map of the circuit, drawn from the same centreline the road mesh is
         /// built from. Generated rather than authored: four hand-drawn PNGs
         /// would be four things to redraw the moment a corner moves, and the
@@ -1142,9 +1285,16 @@ namespace PSXRacing
         /// Cached per track — a menu rebuild happens on every button press, and
         /// rasterising four circuits per press is not free.
         /// </summary>
-        public static Texture2D Thumbnail(TrackDef def, int size = 128)
+        /// <param name="hud">The race HUD's colours: a white road with a dark
+        /// halo, readable over any world, instead of the picker's amber.</param>
+        public static Texture2D Thumbnail(TrackDef def, int size = 128, bool hud = false)
         {
-            if (thumbs.TryGetValue(def.id, out var hit) && hit != null) return hit;
+            // Keyed by size and style: the picker asks for 128, the HUD for
+            // whatever a third of the framebuffer is, and the self-test for
+            // 96 — one cache slot per id handed the second caller the first
+            // caller's picture at the wrong size.
+            string cacheKey = def.id + "|" + size + (hud ? "|hud" : "");
+            if (thumbs.TryGetValue(cacheKey, out var hit) && hit != null) return hit;
 
             if (def.city)
             {
@@ -1152,7 +1302,7 @@ namespace PSXRacing
                 // 1.5 MB of city JSON to draw a menu chip would be the wrong
                 // trade. Missing asset just means no map on the button.
                 var baked = Resources.Load<Texture2D>("charlotte_thumb");
-                if (baked != null) thumbs[def.id] = baked;
+                if (baked != null) thumbs[cacheKey] = baked;
                 return baked;
             }
 
@@ -1166,18 +1316,11 @@ namespace PSXRacing
             for (int i = 0; i < px.Length; i++) px[i] = clear;
 
             var pts = Sample(def, Spacing);
-            var b = new Bounds(pts[0], Vector3.zero);
-            foreach (var p in pts) b.Encapsulate(p);
+            MapFrameFor(def, size, out var frame);
+            float scale = frame.scale, ox = frame.ox, oz = frame.oz;
 
-            // ONE scale for both axes: a 660 m long circuit should read as long,
-            // not be stretched to fill the same square as a compact one.
-            float span = Mathf.Max(b.size.x, b.size.z);
-            float scale = (size - 12) / Mathf.Max(span, 1f);
-            float ox = size * 0.5f - b.center.x * scale;
-            float oz = size * 0.5f - b.center.z * scale;
-
-            var line = new Color32(255, 204, 64, 255);
-            var halo = new Color32(92, 70, 30, 255);
+            var line = hud ? new Color32(255, 255, 255, 255) : new Color32(255, 204, 64, 255);
+            var halo = hud ? new Color32(0, 0, 0, 170) : new Color32(92, 70, 30, 255);
             // A route with ENDS must not close back onto itself: on a strip the
             // phantom closing segment hides inside the strip, on a 7 km stage
             // it is a chord drawn straight across the map.
@@ -1233,7 +1376,7 @@ namespace PSXRacing
 
             tex.SetPixels32(px);
             tex.Apply();
-            thumbs[def.id] = tex;
+            thumbs[cacheKey] = tex;
             return tex;
         }
 

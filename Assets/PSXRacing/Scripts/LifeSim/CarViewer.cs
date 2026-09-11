@@ -331,6 +331,7 @@ namespace PSXRacing.LifeSim
                 t.localScale = Vector3.one * def.wheelMeshScale;
                 wheelFilters[i].sharedMesh = def.wheelMesh;
                 wheelRenderers[i].sharedMaterial = wheelMat;
+                CarPaint.DullWheels(wheelRenderers[i]);
             }
 
             if (shadow != null)

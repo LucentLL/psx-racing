@@ -150,7 +150,12 @@ const SPACING = 4;            // TrackCatalog.Spacing — waypoint spacing
 const STATION = 10;           // metres between DEM samples pre-smoothing
 const SMOOTH_SIGMA = CFG.smoothSigma;
 const MAX_GRADE = CFG.maxGrade;
-const MIN_BRIDGE_M = 40;
+// A span has to be longer than the builder's two approach ramps
+// (2 x TrackCatalog.BridgeRampM = 52 m) or the gorge under it never reaches
+// full depth and the deck spans a saucer; the self-test refuses shorter
+// ones. Blowing Rock's 40 m and 48 m culvert bridges were the first to fall
+// between the old 40 m floor and that rule (2026-09-11).
+const MIN_BRIDGE_M = 56;
 const BRIDGE_MERGE_M = 30;
 const NEAR_CELL = 12, NEAR_MARGIN = 1200;
 const FAR_CELL = 60, FAR_MARGIN = 9000;

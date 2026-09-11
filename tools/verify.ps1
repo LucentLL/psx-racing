@@ -4,6 +4,17 @@
 #   -> terrain audit -> obstacle audit -> reference screenshots
 #
 #   powershell -ExecutionPolicy Bypass -File tools\verify.ps1
+#   powershell -ExecutionPolicy Bypass -File tools\verify.ps1 -NoMirror
+#
+# -NoMirror is for the second run of an afternoon: the sandbox already holds
+# this source's mirror and shell bake, and only a few files have moved since.
+# Code folders are still MIRRORED (a renamed or deleted script must not linger
+# and compile against its replacement); art and data are copied over the top
+# (a stale extra texture is harmless, a stale extra script is not); the shell
+# prefabs survive because nothing deletes them, so the bake is skipped. The
+# .meta files the sandbox generated for new source files must be in the
+# source first (tools\*-sync-back.ps1), or the mirror deletes them and every
+# reference to their GUIDs is reborn.
 #
 # Order is not arbitrary. The shell prefabs are build output and the mirror
 # deletes them, so the bake goes first; the scene build consumes those prefabs;
@@ -11,13 +22,27 @@
 # come after a build that actually finished. Auditing a mirrored sandbox
 # without rebuilding reads the stale scenes from source and reports whatever
 # the project looked like the last time somebody committed them.
+param([switch]$NoMirror)
 $ErrorActionPreference = "Stop"
 $proj = "C:\Users\mcgee\PSXBuild"
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 
-foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
-    robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+if ($NoMirror) {
+    if (-not (Test-Path "$proj\Assets\PSXRacing\Generated")) {
+        Write-Host "-NoMirror needs a sandbox that has been built before; run without it." -ForegroundColor Red
+        exit 1
+    }
+    foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
+        robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+    }
+    foreach ($d in @("Assets\PSXRacing\Art", "Assets\PSXRacing\Resources")) {
+        robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+    }
+} else {
+    foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
+        robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+    }
 }
 
 # Every report is deleted before the run that writes it. A tool that throws
@@ -28,13 +53,17 @@ foreach ($f in @("PSXRacing_terrain_audit.txt", "PSXRacing_selftest_log.txt",
     if (Test-Path "$proj\$f") { Remove-Item "$proj\$f" -Force }
 }
 
-Write-Host "[1/5] Baking car shells..." -ForegroundColor Cyan
-Invoke-UnityJob -Log "$proj\bake.log" -UnityArgs @(
-    "-quit","-batchmode","-nographics","-projectPath",$proj,
-    "-executeMethod","PSXRacing.EditorTools.CarModelBaker.BakeMenu",
-    "-logFile","$proj\bake.log","-accept-apiupdate") | Out-Null
-Select-String -Path "$proj\bake.log" -Pattern "FAIL |error CS" |
-    Select-Object -First 10 | ForEach-Object { $_.Line }
+if ($NoMirror) {
+    Write-Host "[1/5] Car shells kept from the sandbox's last bake." -ForegroundColor Cyan
+} else {
+    Write-Host "[1/5] Baking car shells..." -ForegroundColor Cyan
+    Invoke-UnityJob -Log "$proj\bake.log" -UnityArgs @(
+        "-quit","-batchmode","-nographics","-projectPath",$proj,
+        "-executeMethod","PSXRacing.EditorTools.CarModelBaker.BakeMenu",
+        "-logFile","$proj\bake.log","-accept-apiupdate") | Out-Null
+    Select-String -Path "$proj\bake.log" -Pattern "FAIL |error CS" |
+        Select-Object -First 10 | ForEach-Object { $_.Line }
+}
 
 Write-Host "[2/5] Building circuits..." -ForegroundColor Cyan
 if (-not (Invoke-SceneBuild -Proj $proj)) {

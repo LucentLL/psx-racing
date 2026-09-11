@@ -392,6 +392,9 @@ namespace PSXRacing
             // The pause menu owns the pad while it is open; cycling the camera
             // from under it would fight the menu's own north/east bindings.
             if (PauseMenu.IsOpen) return;
+            // On a replay the same keys cycle the DIRECTOR's cameras, which
+            // include this rig's views; RaceReplay drives them by PreviewView.
+            if (RaceReplay.Playing) return;
 
             var kb = Keyboard.current;
             if (kb != null)

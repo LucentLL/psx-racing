@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: mustang_67_daytona_red
-  m_Shader: {fileID: 4800000, guid: 8e5fd0c4978b3af46a27d1b2ff8b281b, type: 3}
+  m_Shader: {fileID: 4800000, guid: f6c0dfc7e80b0564dacbd7b9dfb6db5d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -29,9 +29,14 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _Affine: 1
+    - _Affine: 0
     - _Cutoff: 0
     - _Emission: 0
+    - _GlassBoost: 1.8
+    - _GlassLum: 0.22
+    - _Gloss: 28
+    - _Reflect: 0.34
+    - _SpecStrength: 0.55
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

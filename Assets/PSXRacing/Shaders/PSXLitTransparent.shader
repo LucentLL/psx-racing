@@ -57,6 +57,10 @@ Shader "PSX/LitTransparent"
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
             fixed4 _PSXAmbient;
+            // The ambient for faces that look UP: the hour's own sky colour
+            // at the ambient's brightness (PSXGlobals.skyAmbient). Equal to
+            // _PSXAmbient in any scene that never applied an hour.
+            fixed4 _PSXSkyAmbient;
             fixed4 _PSXFogColor;
             float _PSXFogNear;
             float _PSXFogFar;
@@ -97,7 +101,12 @@ Shader "PSX/LitTransparent"
                 float nl2 = dot(rawN, rawN);
                 float3 n = nl2 > 1e-8 ? rawN * rsqrt(nl2) : float3(0, 1, 0);
                 float ndl = saturate(dot(n, normalize(_PSXLightDir.xyz)));
-                fixed3 lighting = _PSXAmbient.rgb + _PSXLightColor.rgb * ndl;
+                // Hemispheric: the sky's colour from above, the plain ambient
+                // from the side and below. A cheap per-vertex lerp, and the
+                // one thing that makes a roof under a blue sky read as being
+                // under a blue sky.
+                fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
+                fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
                 o.light = fixed4(saturate(lighting), 1);
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);

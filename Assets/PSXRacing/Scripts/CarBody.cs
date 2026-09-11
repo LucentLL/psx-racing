@@ -111,6 +111,7 @@ namespace PSXRacing
             {
                 if (wheelFilters[i] != null) wheelFilters[i].sharedMesh = def.wheelMesh;
                 if (wheelRenderers[i] != null && wheelMat != null) wheelRenderers[i].sharedMaterial = wheelMat;
+                CarPaint.DullWheels(wheelRenderers[i]);
                 if (wheelHolders[i] != null)
                     wheelHolders[i].localScale = Vector3.one * def.wheelMeshScale;
             }

@@ -294,7 +294,17 @@ namespace PSXRacing.EditorTools
             // approach for having water 4 m down and 38 m out, which is also
             // just the island. On an embankment both sides are equally low, so
             // the difference between them is what tells the two apart.
-            if (def.stage)
+            if (def.stage && def.stageInCity)
+            {
+                // A street venue's verge is the city's: three lanes and a
+                // paved shoulder on the 277, and the CLT theme builds no wall
+                // on flat ground BY DESIGN (a wall chord cuts across a 22 m
+                // ramp). Measured against a mountain road's shoulder it read
+                // 6.4 m on the loop and 6.2 m on Independence, which is what
+                // a freeway verge is, not a builder fault.
+                log.AppendLine("  ..   a city street keeps its verge — shoulder not measured");
+            }
+            else if (def.stage)
             {
                 float roadHalf = path.roadWidth * 0.5f;
                 double total = 0.0;

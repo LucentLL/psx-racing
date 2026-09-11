@@ -79,7 +79,12 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(MatDir);
             Directory.CreateDirectory(GenDir);
 
-            var shader = Shader.Find("PSX/Lit");
+            // The bodywork shader, not the world's: PSX/CarPaint is PSX/Lit
+            // plus the sun's highlight and the hour's sky in the paint. The
+            // wheels share the sheet and the material; CarPaint.DullWheels
+            // takes the shine off them per renderer.
+            var shader = Shader.Find("PSX/CarPaint");
+            if (shader == null) shader = Shader.Find("PSX/Lit");
             if (shader == null) throw new Exception("PSX/Lit shader not found — did shaders compile?");
 
             foreach (var m in CarModelLibrary.Models)
@@ -569,6 +574,14 @@ namespace PSXRacing.EditorTools
                 // the chase camera moves, which is the one place the player is
                 // guaranteed to be looking.
                 mat.SetFloat("_Affine", 0f);
+                // The paint's shine. Every skin the same: a sheet is a colour,
+                // not a finish, and the glass mask inside the shader is what
+                // tells a window from a door.
+                if (mat.HasProperty("_Reflect")) mat.SetFloat("_Reflect", CarPaint.Reflect);
+                if (mat.HasProperty("_GlassLum")) mat.SetFloat("_GlassLum", CarPaint.GlassLum);
+                if (mat.HasProperty("_GlassBoost")) mat.SetFloat("_GlassBoost", CarPaint.GlassBoost);
+                if (mat.HasProperty("_Gloss")) mat.SetFloat("_Gloss", CarPaint.Gloss);
+                if (mat.HasProperty("_SpecStrength")) mat.SetFloat("_SpecStrength", CarPaint.SpecStrength);
                 EditorUtility.SetDirty(mat);
 
                 // A sheet named "wheel" is exactly that — the one model in the

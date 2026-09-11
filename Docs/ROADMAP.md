@@ -5,6 +5,234 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE RACE MAP, THE REPLAY, TWO PARKWAY LOOPS, AND THE SKY IN THE PAINT (2026-09-11)
+
+Four things in one ask, with two Gran Turismo screenshots for the brief: "I
+would like to add race map and replay mode like Gran Turismo. I'd also like
+more mountain races, but circuits. They can be roads that meet the blue ridge
+parkway and use part of the parkway as a section of track, or based on cities
+from the area. Some enhanced lighting that matches the skyboxes would be nice,
+too. The current paint and windows are very flat."
+
+### The race map
+
+The circuit as a white line with the field on it, mid-left of the frame, on
+the 240-line HUD canvas so it dithers with the world. Drawn from the same
+centreline the road was built from (`TrackCatalog.Thumbnail`, now cached by
+size and style) and placed with the same projection (`TrackCatalog.MapFrame`,
+the one scale-and-offset both the picker and the HUD use), so the dot is on
+the road because the road is where the dot's maths says it is. Built at
+runtime by `RaceHUD` rather than by the scene builder: it reaches every venue
+without a rebake and follows the framebuffer's line count. The player is the
+red dot with the white ring, drawn last; rivals are grey. Above the tach on a
+desktop layout and above the touch wheel on a phone, under the lap counter on
+both. Off during a replay, off on foot. The screenshot tool builds it in edit
+mode through `RaceHUD.PreviewMap`, so a reference shot shows the HUD the game
+shows. `TestRaceMap` holds every venue's road inside its own picture.
+
+### The replay
+
+`Scripts/Replay/RaceReplay.cs` records every car on the grid thirty times a
+second from the countdown to four seconds past the flag: pose, body lean,
+steer angle, wheel roll, revs, gear, throttle, brake, slip, slide, lap and
+position, in a struct per sample (a few megabytes for a long race, capped at
+fifteen minutes). Created at runtime by `RaceManager` on the settled field
+(after the handoff has retired cars), so it reaches every venue without a
+rebake.
+
+Playback puts every rigidbody in kinematic mode and moves it with
+`MovePosition`/`MoveRotation` on the physics step, which keeps the
+interpolation the cars already run and gives the audio sources a velocity to
+doppler with; a seek goes through `CarController.TeleportTo`, which drops the
+interpolation history. The controller, driver, watchdog, tank, thermostat,
+lean and collision responder are switched off; the engine, tyre and wind
+audio, the lights and the smoke stay on and read fields the replay writes
+from the recording (`WheelContact` is a struct: read, edit, WRITE BACK). The
+cluster is hidden, the speed lines paused, the pause menu refuses to open, and
+`ChaseCamera` hands over its keys. Ending restores every pose, body and
+component and gives the lens back.
+
+The director (`ReplayCamera.cs`) is the reference's whole look: fixed lenses
+planted every ~150 m on the OUTSIDE of the corner ahead, at a height taken
+from the ground under them, moved to the other shoulder or lifted when the
+road is not in clear view, one in four a low wide lens by the kerb. Each pans
+to hold the car with a tripod's lag and zooms to keep it in frame (8 to 56
+degrees), and cuts to the next lens once the car is six stations past it.
+Trackside, then chase, hood, bumper and cockpit through the car's own rig.
+Controls: A / space play-pause, d-pad or arrows skip ten seconds and change
+the car, Y / C camera, B / Esc exit; on a phone the wheel and pedals stand
+down for a five-button bar and CONTINUE becomes EXIT REPLAY. Offered from the
+results screen (V, X/Square, or the REPLAY button) and it loops. Two rules
+keep the results screen honest: `RaceManager` stands down while it plays, and
+for one frame after (the touch CONTINUE that exits it reports pressed for two
+frames and would otherwise send the player home). `TestReplay` pins the
+interpolation and the planner; `tools/replay-check.ps1` plays a race headless,
+plays it back, and checks the cars sit on their recorded poses, the lens
+stands off the car and points at it, the clock runs, pause holds, and
+everything is put back.
+
+### Two Parkway loops
+
+"More mountain races, but circuits": a section of the Blue Ridge Parkway and
+the roads that meet it, closed into a ring. Found with `tools/roads/
+probe_loops.mjs` (Parkway access points as nodes shared with other roads, then
+closed routes measured through anchors) and baked by `tools/roads/
+fetch_loop.mjs`:
+
+- **BLOWING ROCK — MOSES CONE LOOP** (`BlowingRock`, 9.88 km, 1046..1217 m,
+  8.2%, tightest 13.7 m): the Parkway west from the US 321 interchange to the
+  Moses Cone access, the Cone Manor access road and Cone Road down to US 221,
+  Yonahlossee Road and Main Street through the village, Valley Boulevard and
+  the Holshouser Highway back, the ramp up, and under the Parkway's own bridge
+  over US 321 to close. Reverse twin BLOWING ROCK II.
+- **LITTLE SWITZERLAND — GILLESPIE GAP** (`LittleSwitzerland`, 9.68 km,
+  855..1058 m, 9.6%, tightest 13.7 m): the Parkway west from Gillespie Gap
+  through the 188 m Little Switzerland Tunnel to the village access, the
+  village links onto NC 226A, and NC 226A back east along the ridge (within
+  22 m of the Parkway for a kilometre) to NC 226 and under the Parkway's
+  bridge to close. Reverse twin LITTLE SWITZERLAND II.
+
+What the bake needed that no earlier road did, each learned the slow way:
+
+- **Anchors snapped ONTO a node of the road they name** (or a way id for an
+  unnamed ramp) and held to exactly that node: twelve preferred nodes within
+  400 m of a spot where two roads run parallel includes the other road, and
+  the router took it every time. The first three runs of every loop were
+  out-and-backs.
+- **`tertiary_link` was not in the router's cost table**, so the Cone access
+  road was not in the graph, and the router walked nine kilometres round
+  through the village to cover 130 m — read as an OSM gap and "stitched"
+  before the class was noticed. (The stitch stayed in `route.mjs`; the Cone
+  bake does not use it.) Per-leg reporting in the router is what made it
+  visible.
+- **Junction fillets**: OSM draws a T-junction turn as a spike, which the
+  spline reads as a 3 m radius. Any vertex turning more than 22 degrees is
+  replaced by an arc tangent to both legs at 14 m, the tangent points found
+  by WALKING THE POLYLINE and the vertices the arc swallows dropped. Not the
+  smoothing pass the roads memory forbids: a mountain hairpin turns through
+  its vertices a few degrees at a time and never trips the threshold. The
+  first version returned the near vertex and never dropped the corner
+  itself, which left every junction exactly as tight as before.
+- **Reversal spikes** (a ramp overshooting the ramp it merges into by four
+  metres; a Y-junction whose shared end the router walks to and back out of)
+  are cut 18 m either side and the corner that leaves is filleted.
+- **A self-crossing at a grade separation.** Both loops pass under their own
+  Parkway bridge once. SRTM reads the same height for both roads there; the
+  bake finds the crossing in plan, takes OSM's bridge tag (else the Parkway)
+  as the upper road, lifts its profile by whatever 6.5 m of clearance needs
+  on a cosine ramp at under 5.5%, forces a span around it, and writes the
+  pair out as `crossings`. In the builder, UNDER THE DECK the ground is
+  what the road beneath wants (its own shelf, fall and blend), faded in
+  over the second half of the deck's blend and still capped under the
+  soffit (`StageGroundHeightAt` + `OtherRoadNear`); piers keep off any road
+  the deck crosses (`NearOtherRoute`), and the self-test's self-clearance
+  exempts pairs 4.5 m apart in height. The upper deck clears the lower
+  tarmac by 6.5 m on both. The first cut of that rule asked "is another
+  part of the route lower, within reach" EVERYWHERE, which is also what a
+  hairpin's upper leg and a parallel stretch's higher road look like: it
+  took the pin off both, and the terrain audit found three buried probes on
+  Mount Mitchell, thirty-four on Little Switzerland's ridge and flat aprons
+  on four stages' shoulders. Under a deck only, and all of it went away.
+- **A tunnel.** Inside a tunnel-tagged span the road's height is the line
+  between its portals, not the ridge SRTM reads over it; the span is written
+  out as `tunnels`. The builder leaves the ridge standing (the corridor pin
+  is off wherever the nearest station is in a tunnel), leaves a hole in the
+  ground mesh over the tube's footprint (any quad with a corner in it goes,
+  so no diagonal can run from the ridge down through the road), and builds
+  a tube — two walls and a ceiling facing inward, a rock portal face at each
+  mouth, and a collider chord per station down each wall, named `WallTunnel`
+  so the audits treat it as a barrier. No guard walls, banks or replay lenses
+  inside it.
+- **Two roads side by side**: where NC 226A rides the same ridge as the
+  Parkway their centrelines came within 19.7 m against a barrier-line need
+  of 21.3; the later road is nudged sideways by the shortfall, tapered over
+  100 m, after the crossing lift so a grade separation is not "nudged"
+  twenty metres off its road (the first cut did exactly that).
+- **The stage passes wrap.** Walls, banks and posts clamped every index to
+  the list's end, so on a LOOP every run that crossed the start line had a
+  gap at the seam. `WrapIdx` and `StationRuns` (which starts its scan at a
+  station that is not wanted, the way `BuildBridges` already did).
+- **The router is shared.** `tools/roads/route.mjs` holds what
+  `fetch_clt.mjs` had grown (tag readers, way-id chainer, oneway-respecting
+  Dijkstra with class costs and preferences) with per-anchor reach, stitches
+  and per-leg reporting added; `fetch_clt.mjs` imports it and its three dry
+  runs diff empty against the old file.
+
+The catalog rows are appended after Charlotte (a save stores its venue by
+index), which moves every reverse twin two places along again: save v12
+remaps twin indices through `TrackCatalog.RemapV11Index`, and
+`TestParkwayLoops` pins the crossing clearance, the span under it, the
+tunnel's spans and the remap. Two more things the first verify caught: each
+`RemapV<n>Index` lands on TODAY's list, so a v10 save must not be run
+through v10's remap and then v11's (RIDGE PASS II came out as BLUE RIDGE
+PARKWAY II), and the bake's 40 m bridge floor sat below the self-test's
+rule that a span be longer than its two 26 m approach ramps, which Blowing
+Rock's two culvert bridges (40 m and 48 m) were the first to fall between.
+The floor is 56 m in every bake now.
+
+And the terrain audit's shoulder rule ("drivable for N m past the tarmac")
+read 3.2 m on the Blowing Rock loop and 2.5 m on the Parkway itself: where
+the mountain neither falls (a wall) nor rises (a cut bank), the corridor's
+shelf lands on the real ground and stays level, and a level verge is
+run-off. So the mountain themes wall an OPEN verge too
+(`Theme.stageWallOpenVerge`, `StageWallWanted`): where the REAL land sits
+within 0.9 m of the road at three and six metres past the tarmac, the
+shoulder gets the stone wall, the way the reference Parkway has one. Two
+things the first cut of that got wrong: it asked the corridor's shelf
+rather than the land, and the shelf is level beside every cut as well, so
+it claimed the cut side of five stages and took every bank with it; and it
+walled the inside of hairpins, where a wall collider's ends swing onto the
+kerb (the obstacle audit found twenty-two on the loop), so a bend under
+80 m keeps its inside open to the bank. And the wall COLLIDER is a straight
+4 m chord of a curved wall: on the outside of a bend it sags toward the
+road by c²/8R, 7 cm at the old stages' 27 m floor and 14 cm at the loops'
+14 m hairpins, which put the box's face on the kerb; each box end now moves
+outward by its station's sag (`WallChordSag`). The city street venues keep their
+flat verges by design (a wall chord cuts across a 22 m ramp), so the audit
+no longer measures a street venue against a mountain road's shoulder.
+
+### The size wall
+
+The shipped data file was 83 MB against GitHub's 100 MB limit, 54 MB of it
+in generated meshes, and two more mountains did not fit as things stood.
+Two levers in `SaveMesh`, both invisible from the driving seat: 16-bit
+indices wherever a mesh has under 65k vertices (every generated mesh declared
+UInt32; a 12 m ground chunk's indices were 40% of it), and vertex compression
+(`ModelImporterMeshCompression.Medium`) on everything nobody drives on:
+ground, forest, sea, walls, banks, posts, tubes, trees. Roads, kerbs, decks
+and aprons stay exact. (What Medium does, read back from the saved asset:
+positions to 16 bits of the mesh's own range, 1.5 cm on a 240 m chunk, and
+the terrain audit's tightest clearance moved from 0.245 to 0.233 m and
+nothing else; UVs to as many bits as their range needs, 18 on a tiled
+chunk and 10 on a billboard; normals to 8.) And the three mountain stages now share the Parkway's
+generated art (`Theme.artShareDir`): every forest stage composed the same
+sixteen billboards into the same five atlases, three copies were three
+megabytes each, and two of them were clamped to 256 px by the importer's
+one-folder exemption, so Mount Mitchell's and Beech Gap's trees were half the
+Parkway's.
+
+### The sky in the paint
+
+"The current paint and windows are very flat." They were: `PSX/Lit` is
+ambient plus one lambert term. Two changes:
+
+- **`PSX/CarPaint`** for every livery (the baker writes it): the sun's
+  Blinn-Phong highlight per pixel, and the HOUR'S OWN SKY reflected in the
+  bodywork, fresnel-weighted, sampled from the same panorama, rotation and
+  tint `TimeOfDay.ApplySky` hands the sky material (as `_PSXSky*` globals),
+  so the reflection on a bonnet and the sky behind the car are one picture
+  and a sunset runs orange along the flank. Glass is FOUND, not declared: the
+  pack paints windows as near-black pixels on the same sheet as the paint,
+  and darkness is the mask (a black car is a mirror too, which it is). Wheels
+  share the sheet, so `CarPaint.DullWheels` turns the shine down per renderer
+  with a property block, from all four shell assemblers. Below the horizon the
+  reflection is the fog colour, which is what the ground is in this renderer.
+- **Hemispheric ambient** in `PSX/Lit` and `PSX/LitTransparent`: faces that
+  look up take `_PSXSkyAmbient` — the hour's ambient pulled toward its sky's
+  colour at the same luminance (`TimeOfDay.SkyAmbientFor`) — so a roof under
+  a blue sky reads as being under a blue sky. Equal to the plain ambient in
+  any scene that never applies an hour, so nothing else moved.
+
 ## CHARLOTTE ON THE MAP — THREE STREET VENUES (2026-09-07)
 
 Three real Charlotte roads join the catalog, baked from OpenStreetMap + SRTM

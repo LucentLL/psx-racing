@@ -68,6 +68,9 @@ namespace PSXRacing
 
         void SetOpen(bool v)
         {
+            // The replay has its own exit (and its own use for START/ESC);
+            // RESTART and EXIT from under it would abandon a finished race.
+            if (v && RaceReplay.Playing) return;
             open = v;
             IsOpen = v;
             if (panel != null) panel.SetActive(v);

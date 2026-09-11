@@ -3,12 +3,21 @@
 #   powershell -ExecutionPolicy Bypass -File tools\build-and-publish.ps1
 #   ...            -File tools\build-and-publish.ps1 -SkipBuild    (republish last build)
 #   ...            -File tools\build-and-publish.ps1 -SkipDeploy   (build only)
+#   ...            -File tools\build-and-publish.ps1 -SkipScenes   (see below)
+#
+# -SkipScenes builds the WebGL player from the sandbox EXACTLY AS IT STANDS:
+# no mirror, no scene build. For the case where tools\verify.ps1 has just
+# mirrored, built and verified every scene and nothing in the source has
+# changed since -- the mirror would overwrite those fresh scenes with the
+# stale source copies and the builder would spend 25 minutes making them
+# again. It refuses to run without a green scene-build marker in the sandbox,
+# and it is the caller's job to know that the source has not moved.
 #
 # Builds happen in a SANDBOX COPY rather than this project, for two reasons:
 # the Unity editor holds a lock on an open project, and a WebGL build would tie
 # it up for several minutes. The sandbox also lives on a short path because
 # IL2CPP fails on long ones.
-param([switch]$SkipBuild, [switch]$SkipDeploy)
+param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes)
 
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
@@ -60,12 +69,21 @@ if (-not $SkipBuild) {
     # only question that matters — "is this output from THIS run?" — instead of
     # guessing from how long ago it was written.
     $runStart = Get-Date
+    if ($SkipScenes) {
+        $marker = "$proj\PSXRacing_build_log.txt"
+        if (-not (Test-Path $marker) -or -not (Select-String -Path $marker -Pattern "BUILD OK" -Quiet)) {
+            Write-Host "-SkipScenes needs a green scene build in the sandbox (no BUILD OK in $marker) - run tools\verify.ps1 first." -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "[1/3] Sandbox kept as verified (scene build marker: $((Get-Item $marker).LastWriteTime))" -ForegroundColor Cyan
+    } else {
     Write-Host "[1/3] Mirroring project to sandbox..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force $proj | Out-Null
     foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
         # Never mirror Library: copying one from a live editor corrupts the
         # artifact database. The sandbox builds its own and keeps it warm.
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+    }
     }
 
     # Delete the success marker BEFORE building. It is the only thing the check
@@ -81,10 +99,12 @@ if (-not $SkipBuild) {
     # Every pass gets further, and the marker file is deleted first so a stale
     # BUILD OK cannot certify a build that never ran, which would ship the
     # PREVIOUS set of circuits inside a player reporting itself as new.
-    if (-not (Invoke-SceneBuild -Proj $proj)) {
-        Write-Host "SCENE BUILD FAILED - not building a player around stale scenes." -ForegroundColor Red
-        Get-Content "$proj\scenebuild.log" -Tail 6
-        exit 1
+    if (-not $SkipScenes) {
+        if (-not (Invoke-SceneBuild -Proj $proj)) {
+            Write-Host "SCENE BUILD FAILED - not building a player around stale scenes." -ForegroundColor Red
+            Get-Content "$proj\scenebuild.log" -Tail 6
+            exit 1
+        }
     }
     Get-Content "$proj\PSXRacing_build_log.txt" -Tail 3
 

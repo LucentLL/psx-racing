@@ -103,6 +103,13 @@ namespace PSXRacing
             // table is built from it.
             GetComponent<RaceHandoffApplier>()?.Apply(allCars);
 
+            // The replay recorder, on the SETTLED field: Apply can retire
+            // cars, and a recording of a car that is not racing is a car
+            // parked on the grid for the whole replay.
+            var replay = GetComponent<RaceReplay>();
+            if (replay == null) replay = gameObject.AddComponent<RaceReplay>();
+            replay.BeginRecording(allCars);
+
             // A delivery on a loop circuit is a SPRINT to a door part-way round
             // the lap. Decided after Apply because a reverse twin has just
             // turned the list round — the count is the same either way (the
@@ -184,6 +191,13 @@ namespace PSXRacing
                 }
                 return;
             }
+
+            // While a replay plays the cars are the replay's: no laps counted,
+            // no standings moved, and the continue keys stand down — for the
+            // frame after it ends as well, because the touch CONTINUE that
+            // exits the replay reports pressed for two frames and would
+            // otherwise also send the player home.
+            if (RaceReplay.Playing || Time.frameCount <= RaceReplay.EndedFrame + 1) return;
 
             if (State == RaceState.Racing && playerCar != null && playerCar.Drifting &&
                 Mathf.Abs(playerCar.forwardSpeed) > DriftWearMinSpeed)

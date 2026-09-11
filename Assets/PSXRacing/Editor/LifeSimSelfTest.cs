@@ -57,6 +57,9 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestRaceField), TestRaceField);
             Guard(nameof(TestBlacklist), TestBlacklist);
             Guard(nameof(TestTracks), TestTracks);
+            Guard(nameof(TestParkwayLoops), TestParkwayLoops);
+            Guard(nameof(TestReplay), TestReplay);
+            Guard(nameof(TestRaceMap), TestRaceMap);
             Guard(nameof(TestTimeOfDay), TestTimeOfDay);
             Guard(nameof(TestCameraViews), TestCameraViews);
             Guard(nameof(TestToolbox), TestToolbox);
@@ -4004,6 +4007,12 @@ namespace PSXRacing.EditorTools
         /// is a bridge — which none of these layouts has, because they are polar
         /// loops and cannot self-intersect. Counting vertical separation as
         /// clearance would let one in silently.</summary>
+        /// <summary>Height apart at which two stretches of road close in plan
+        /// are a grade separation rather than a collision: the bake lifts a
+        /// crossing road 6.5 m; a parallel pair on a hillside sit within a
+        /// metre or two of each other.</summary>
+        const float GradeSepM = 4.5f;
+
         static float MinSelfClearance(List<Vector3> pts)
         {
             int n = pts.Count;
@@ -4012,6 +4021,8 @@ namespace PSXRacing.EditorTools
                 for (int j = i + 22; j < n; j++)
                 {
                     if (Mathf.Min(j - i, n - (j - i)) < 22) continue;
+                    // A road passing OVER another is not running into it.
+                    if (Mathf.Abs(pts[i].y - pts[j].y) >= GradeSepM) continue;
                     min = Mathf.Min(min, Vector3.Distance(Flat(pts[i]), Flat(pts[j])));
                 }
             return min == float.MaxValue ? 9999f : min;
@@ -4061,6 +4072,175 @@ namespace PSXRacing.EditorTools
             }
             Check(bandsHold, "every slot stays inside its own band over 40 days");
             Check(TimeOfDay.ForSlot(0, 7) == TimeOfDay.ForSlot(0, 7), "the same day picks the same hour");
+        }
+
+        // ---------------------------------------------------------------
+        //  The Parkway loops
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// What a loop through a Parkway interchange owes on top of what
+        /// every stage owes: its one self-crossing is a grade separation
+        /// (the upper road clears the lower by the bake's clearance) sitting
+        /// inside a bridge span, and a tunnel span reads back as one.
+        /// </summary>
+        static void TestParkwayLoops()
+        {
+            Line("parkway loops:");
+            foreach (var id in new[] { "BlowingRock", "LittleSwitzerland" })
+            {
+                int idx = TrackCatalog.IndexOf(id);
+                Check(idx >= 0, id + " is in the catalog");
+                if (idx < 0) continue;
+                var t = TrackCatalog.At(idx);
+                Check(t.stage && t.loop, id + " is a loop stage");
+                Check(t.CanReverse, id + " is offered backwards");
+                var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
+                Check(t.crossings != null && t.crossings.Length >= 1, id + " crosses itself once", t.crossings?.Length ?? 0);
+                if (t.crossings != null)
+                    foreach (var c in t.crossings)
+                    {
+                        int up = Mathf.RoundToInt(c.x / TrackCatalog.Spacing) % pts.Count;
+                        int lo = Mathf.RoundToInt(c.y / TrackCatalog.Spacing) % pts.Count;
+                        float gap = pts[up].y - pts[lo].y;
+                        Check(gap >= 6f, id + " upper road clears the lower at the crossing", gap.ToString("0.0") + " m");
+                        Check(TrackCatalog.BridgeBlend(t, c.x) > 0.98f, id + " crossing sits on a span",
+                              TrackCatalog.BridgeBlend(t, c.x).ToString("0.00"));
+                        Check(Vector3.Distance(Flat(pts[up]), Flat(pts[lo])) < 6f,
+                              id + " crossing pair meets in plan",
+                              Vector3.Distance(Flat(pts[up]), Flat(pts[lo])).ToString("0.0") + " m");
+                    }
+            }
+            var ls = TrackCatalog.At(TrackCatalog.IndexOf("LittleSwitzerland"));
+            Check(ls.tunnels != null && ls.tunnels.Length == 1, "Little Switzerland has its tunnel", ls.tunnels?.Length ?? 0);
+            if (ls.tunnels != null && ls.tunnels.Length == 1)
+            {
+                var span = ls.tunnels[0];
+                Check(span.y - span.x > 150f && span.y - span.x < 250f, "the tunnel is about 190 m", (span.y - span.x).ToString("0"));
+                Check(TrackCatalog.InTunnel(ls, (span.x + span.y) * 0.5f), "InTunnel reads true inside it");
+                Check(!TrackCatalog.InTunnel(ls, span.x - 40f), "and false before it");
+                Check(!TrackCatalog.InTunnel(ls, span.y + 40f), "and false after it");
+            }
+            var br = TrackCatalog.At(TrackCatalog.IndexOf("BlowingRock"));
+            Check(br.tunnels == null || br.tunnels.Length == 0, "Blowing Rock has no tunnel");
+            Check(!TrackCatalog.InTunnel(br, 100f), "and InTunnel says so");
+            // The twins landed two places on: a v11 save's first twin is
+            // today's first twin, whichever index that is now.
+            Check(TrackCatalog.RemapV11Index(TrackCatalog.V11AuthoredCount) == TrackCatalog.SceneCount,
+                  "a v11 save's first twin is today's first twin",
+                  TrackCatalog.RemapV11Index(TrackCatalog.V11AuthoredCount));
+            Check(TrackCatalog.RemapV11Index(3) == 3, "and authored indices stand");
+        }
+
+        // ---------------------------------------------------------------
+        //  The replay
+        // ---------------------------------------------------------------
+        /// <summary>The pure half of the replay: frames interpolate, the
+        /// clock clamps, and a director plans lenses beside a road rather
+        /// than on it. The play-mode half is tools/replay-check.ps1.</summary>
+        static void TestReplay()
+        {
+            Line("replay:");
+            var go = new GameObject("ReplayTest");
+            try
+            {
+                var rp = go.AddComponent<RaceReplay>();
+                var times = new List<float> { 0f, 1f, 2f };
+                var frames = new List<RaceReplay.Frame>
+                {
+                    new RaceReplay.Frame { pos = new Vector3(0f, 0f, 0f), rot = Quaternion.identity, rpm = 1000f, gear = 1, place = 3 },
+                    new RaceReplay.Frame { pos = new Vector3(10f, 0f, 0f), rot = Quaternion.identity, rpm = 3000f, gear = 2, place = 2 },
+                    new RaceReplay.Frame { pos = new Vector3(20f, 0f, 0f), rot = Quaternion.Euler(0f, 90f, 0f), rpm = 5000f, gear = 3, place = 1 },
+                };
+                rp.InjectForTest(null, times, frames);
+                Check(Mathf.Approximately(rp.Duration, 2f), "duration is the last sample's clock", rp.Duration);
+                var mid = rp.SampleForTest(0.5f);
+                Check(Mathf.Abs(mid.pos.x - 5f) < 1e-3f, "a pose halfway between two samples is halfway", mid.pos.x);
+                Check(Mathf.Abs(mid.rpm - 2000f) < 1e-2f, "and so are the revs", mid.rpm);
+                Check(mid.gear == 2, "the gear snaps to the nearer sample", mid.gear);
+                var late = rp.SampleForTest(1.75f);
+                Check(late.place == 1, "so does the position", late.place);
+                Check(Mathf.Abs(rp.SampleForTest(-1f).pos.x) < 1e-3f, "before the first sample is the first sample");
+                Check(Mathf.Abs(rp.SampleForTest(9f).pos.x - 20f) < 1e-3f, "after the last is the last");
+                var turned = rp.SampleForTest(1.5f);
+                Check(Mathf.Abs(Mathf.DeltaAngle(turned.rot.eulerAngles.y, 45f)) < 0.5f,
+                      "rotation slerps between samples", turned.rot.eulerAngles.y);
+                Check(!rp.Available, "a synthetic recording of two seconds is exactly the floor", rp.Available);
+            }
+            finally { Object.DestroyImmediate(go); }
+
+            // The director, on a synthetic 200 m ring of 4 m stations.
+            var tgo = new GameObject("ReplayRing");
+            try
+            {
+                var path = tgo.AddComponent<TrackPath>();
+                int n = 314;
+                path.waypoints = new Vector3[n];
+                for (int i = 0; i < n; i++)
+                {
+                    float a = i / (float)n * Mathf.PI * 2f;
+                    path.waypoints[i] = new Vector3(Mathf.Cos(a) * 200f, 0f, Mathf.Sin(a) * 200f);
+                }
+                path.curvatures = new float[n];
+                path.spacing = 4f; path.roadWidth = 9.5f;
+                var plan = ReplayCamera.Plan(path, 9.5f, (x, z) => 0f, (a, b) => false);
+                int expect = Mathf.Max(1, n / Mathf.Max(8, Mathf.RoundToInt(ReplayCamera.StationEveryM / 4f)));
+                Check(plan.Count == expect, "one lens per " + ReplayCamera.StationEveryM + " m of road", plan.Count + " vs " + expect);
+                bool offRoad = true, onGround = true, lowsExist = false, ordered = true;
+                for (int i = 0; i < plan.Count; i++)
+                {
+                    var st = plan[i];
+                    float r = new Vector2(st.pos.x, st.pos.z).magnitude;
+                    // Off the tarmac by at least the road's half width plus the
+                    // low lens's stand-off, and never further than the high one.
+                    if (Mathf.Abs(r - 200f) < 9.5f * 0.5f + ReplayCamera.LowStandoffM - 0.5f ||
+                        Mathf.Abs(r - 200f) > 9.5f * 0.5f + ReplayCamera.HighStandoffM + 0.5f) offRoad = false;
+                    float eye = st.low ? ReplayCamera.LowEyeM : ReplayCamera.HighEyeM;
+                    if (Mathf.Abs(st.pos.y - eye) > 0.01f) onGround = false;
+                    if (st.low) lowsExist = true;
+                    if (i > 0 && st.idx <= plan[i - 1].idx) ordered = false;
+                }
+                Check(offRoad, "every lens stands beside the road, not on it");
+                Check(onGround, "every lens stands at its eye height over the ground");
+                Check(lowsExist, "some lenses are the low, wide, by-the-kerb kind");
+                Check(ordered, "lenses are planted in route order");
+                // A lens told to avoid the first quarter never stands there.
+                var avoided = ReplayCamera.Plan(path, 9.5f, (x, z) => 0f, (a, b) => false, idx => idx < n / 4);
+                bool none = true;
+                foreach (var st in avoided) if (st.idx < n / 4) none = false;
+                Check(none && avoided.Count < plan.Count, "a lens is never planted where it is told not to", avoided.Count);
+            }
+            finally { Object.DestroyImmediate(tgo); }
+        }
+
+        // ---------------------------------------------------------------
+        //  The race map
+        // ---------------------------------------------------------------
+        /// <summary>The HUD's map and the picker's use one projection, and it
+        /// puts every station of the road inside the picture with a margin.</summary>
+        static void TestRaceMap()
+        {
+            Line("race map:");
+            int checkedVenues = 0;
+            foreach (var t in TrackCatalog.Scened)
+            {
+                if (t.city) continue;
+                if (!TrackCatalog.MapFrameFor(t, 72, out var f)) { Check(false, t.id + " has a map frame"); continue; }
+                var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var p in pts)
+                {
+                    lo = Mathf.Min(lo, Mathf.Min(f.X(p.x), f.Y(p.z)));
+                    hi = Mathf.Max(hi, Mathf.Max(f.X(p.x), f.Y(p.z)));
+                }
+                Check(lo >= 4f && hi <= 68f, t.id + " map keeps the whole road inside the picture",
+                      lo.ToString("0.0") + ".." + hi.ToString("0.0"));
+                var hud = TrackCatalog.Thumbnail(t, 72, hud: true);
+                var pick = TrackCatalog.Thumbnail(t, 128);
+                Check(hud != null && hud.width == 72 && pick != null && pick.width == 128,
+                      t.id + " HUD and picker maps are cached apart");
+                checkedVenues++;
+            }
+            Check(checkedVenues >= 10, "every venue with a centreline was mapped", checkedVenues);
         }
 
         static void TestCameraViews()

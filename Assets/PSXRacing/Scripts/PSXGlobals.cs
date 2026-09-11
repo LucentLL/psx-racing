@@ -23,6 +23,20 @@ namespace PSXRacing
         /// venue would drift apart the first time one of them was tuned.
         /// </summary>
         public float fogScale = 1f;
+        /// <summary>
+        /// THE AMBIENT FROM ABOVE. PSX/Lit used to light every unlit face the
+        /// same colour whichever way it pointed, so a roof and a floor sat
+        /// under the same grey, and the sky above it, once it became a real
+        /// photograph, had a colour the world beneath it never picked up.
+        /// Faces that look UP now take this instead of <see cref="ambient"/>,
+        /// blended by the normal's upness, so a bonnet under a noon sky is a
+        /// touch blue and one under a sunset a touch orange. TimeOfDay writes
+        /// it from the hour's own sky stops (see TimeOfDay.SkyAmbientFor); a
+        /// scene that never applies an hour keeps it equal to the ambient,
+        /// which is exactly the old picture. Left alpha-zero here so Apply
+        /// can tell "never set" from "set to black".
+        /// </summary>
+        public Color skyAmbient = new Color(0f, 0f, 0f, 0f);
 
         /// <summary>
         /// PS1 vertex jitter: quantise every vertex to the framebuffer grid.
@@ -66,6 +80,7 @@ namespace PSXRacing
             Shader.SetGlobalVector("_PSXLightDir", dir);
             Shader.SetGlobalColor("_PSXLightColor", lightCol);
             Shader.SetGlobalColor("_PSXAmbient", ambient);
+            Shader.SetGlobalColor("_PSXSkyAmbient", skyAmbient.a > 0f ? skyAmbient : ambient);
             Shader.SetGlobalColor("_PSXFogColor", fogColor);
             Shader.SetGlobalFloat("_PSXFogNear", fogNear);
             Shader.SetGlobalFloat("_PSXFogFar", fogFar);

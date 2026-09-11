@@ -259,11 +259,31 @@ namespace PSXRacing
                 float s = Mathf.Max(0.01f, globals.fogScale) * Seasons.FogMul(weather);
                 globals.fogNear = p.fogNear * s;
                 globals.fogFar = p.fogFar * s;
+                globals.skyAmbient = SkyAmbientFor(p);
             }
 
             ApplySky(p, sun);
             CarLights.SetAll(lights);
             NightGlow.SetAll(p.lightsOn);
+        }
+
+        /// <summary>
+        /// The ambient light an upward face gets: the hour's ambient, pulled
+        /// toward the colour of its own sky at the same brightness. Same
+        /// luminance as the plain ambient on purpose: this changes the HUE
+        /// of the light from above, not how much of it there is, so no scene
+        /// gets brighter or darker than it was tuned to be. PSXGlobals hands
+        /// it to the shaders as _PSXSkyAmbient.
+        /// </summary>
+        public static Color SkyAmbientFor(Preset p)
+        {
+            Color sky = p.skyTop * 0.55f + p.skyHorizon * 0.45f;
+            float lumA = p.ambient.r * 0.30f + p.ambient.g * 0.59f + p.ambient.b * 0.11f;
+            float lumS = sky.r * 0.30f + sky.g * 0.59f + sky.b * 0.11f;
+            Color skyAtAmbient = lumS > 1e-3f ? sky * (lumA / lumS) : p.ambient;
+            var c = Color.Lerp(p.ambient, skyAtAmbient, 0.55f);
+            c.a = 1f;
+            return c;
         }
 
         static Material skyInstance;
@@ -341,12 +361,28 @@ namespace PSXRacing
             if (skyInstance.HasProperty("_MainTex"))
             {
                 var tex = SkyTexture(p.skyTex);
+                float rot = SkyRotationFor(p, sun);
                 skyInstance.SetTexture("_MainTex", tex);
                 skyInstance.SetFloat("_PanoAmount", tex != null ? 1f : 0f);
-                skyInstance.SetFloat("_Rotation", SkyRotationFor(p, sun));
+                skyInstance.SetFloat("_Rotation", rot);
                 skyInstance.SetFloat("_Tint", p.skyTint);
                 skyInstance.SetFloat("_Exposure", Mathf.Max(0.01f, p.skyExposure));
                 skyInstance.SetFloat("_Stars", p.skyStars);
+
+                // THE SAME SKY, FOR THE PAINT. PSX/CarPaint reflects the
+                // panorama the sky material is showing: this texture, this
+                // rotation, this hour tint, so the reflection on a bonnet
+                // and the sky behind it are one picture. Globals rather than
+                // per-material properties, because a race carries several
+                // dozen car materials and none of them is instanced.
+                Shader.SetGlobalTexture("_PSXSkyTex", tex != null ? (Texture)tex : Texture2D.blackTexture);
+                Shader.SetGlobalFloat("_PSXSkyAmount", tex != null ? 1f : 0f);
+                Shader.SetGlobalFloat("_PSXSkyRotation", rot);
+                Shader.SetGlobalFloat("_PSXSkyTint", p.skyTint);
+                Shader.SetGlobalFloat("_PSXSkyExposure", Mathf.Max(0.01f, p.skyExposure));
+                Shader.SetGlobalColor("_PSXSkyTop", p.skyTop);
+                Shader.SetGlobalColor("_PSXSkyHorizon", p.skyHorizon);
+                Shader.SetGlobalFloat("_PSXSkySharpness", p.skySharpness);
             }
             RenderSettings.skybox = skyInstance;
         }

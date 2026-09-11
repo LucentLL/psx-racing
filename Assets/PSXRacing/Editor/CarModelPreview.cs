@@ -130,7 +130,9 @@ namespace PSXRacing.EditorTools
                 wheel.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
                 wheel.transform.localScale = Vector3.one * def.wheelMeshScale;
                 wheel.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
-                wheel.AddComponent<MeshRenderer>().sharedMaterial = wheelMat;
+                var wmr = wheel.AddComponent<MeshRenderer>();
+                wmr.sharedMaterial = wheelMat;
+                CarPaint.DullWheels(wmr);
             }
         }
 

@@ -215,6 +215,77 @@ namespace PSXRacing
                 actionBtn.gameObject.SetActive(show);
         }
 
+        // ------------------------------------------------------------------
+        //  The replay bar
+        // ------------------------------------------------------------------
+        /// <summary>The replay's five verbs, on a phone. The wheel and the
+        /// pedals go away for the duration — nothing is driving — and a row
+        /// of buttons takes the bottom edge; CONTINUE stays where it was and
+        /// becomes the way out.</summary>
+        public enum ReplayKey { Back = 0, PlayPause = 1, Forward = 2, Car = 3, Camera = 4 }
+        static readonly string[] ReplayLabels = { "<< 10s", "PLAY / PAUSE", "10s >>", "CAR", "CAM" };
+
+        TouchButton[] replayBtns;
+        readonly bool[] replayWas = new bool[5];
+        GameObject replayBar;
+        bool replayMode;
+
+        public void SetReplayMode(bool on)
+        {
+            if (replayMode == on) return;
+            replayMode = on;
+            if (on && replayBar == null) BuildReplayBar();
+            if (wheel != null) wheel.gameObject.SetActive(!on);
+            if (gasPedal != null) gasPedal.gameObject.SetActive(!on);
+            if (brakePedal != null) brakePedal.gameObject.SetActive(!on);
+            if (ebrakePedal != null) ebrakePedal.gameObject.SetActive(!on);
+            if (shifter != null) shifter.gameObject.SetActive(!on);
+            if (replayBar != null) replayBar.SetActive(on);
+            if (continueBtn != null)
+            {
+                var t = continueBtn.GetComponentInChildren<Text>();
+                if (t != null) t.text = on ? "EXIT REPLAY" : "CONTINUE";
+            }
+            for (int i = 0; i < replayWas.Length; i++) replayWas[i] = false;
+        }
+
+        void BuildReplayBar()
+        {
+            var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            replayBar = new GameObject("ReplayBar", typeof(RectTransform));
+            replayBar.transform.SetParent(canvas.transform, false);
+            var rt = (RectTransform)replayBar.transform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = new Vector2(0f, 18f);
+            rt.sizeDelta = new Vector2(1000f, 70f);
+            replayBtns = new TouchButton[ReplayLabels.Length];
+            float w = 176f, gap = 14f;
+            float x0 = -(ReplayLabels.Length * w + (ReplayLabels.Length - 1) * gap) * 0.5f;
+            for (int i = 0; i < ReplayLabels.Length; i++)
+            {
+                replayBtns[i] = MakeButton(replayBar.transform, "Replay" + i, ReplayLabels[i], font,
+                                           new Vector2(0.5f, 0f), new Vector2(x0 + i * (w + gap) + w * 0.5f, 0f),
+                                           new Vector2(w, 70f), new Color(0.12f, 0.12f, 0.14f, 0.85f), 22);
+                // MakeButton pivots on the anchor; centre each cell on its slot.
+                var brt = replayBtns[i].GetComponent<RectTransform>();
+                brt.pivot = new Vector2(0.5f, 0f);
+            }
+        }
+
+        /// <summary>One press of a replay button. Edge-detected on the HELD
+        /// state, because TouchButton.PressedThisFrame stays true for two
+        /// frames by design and a skip read raw would skip twice.</summary>
+        public bool ReplayPressed(ReplayKey k)
+        {
+            int i = (int)k;
+            if (!replayMode || replayBtns == null || i >= replayBtns.Length || replayBtns[i] == null) return false;
+            bool now = replayBtns[i].gameObject.activeInHierarchy && replayBtns[i].Pressed;
+            bool edge = now && !replayWas[i];
+            replayWas[i] = now;
+            return edge;
+        }
+
         void BuildWheel(Transform parent)
         {
             // The hit area is the full square, corners included — the source

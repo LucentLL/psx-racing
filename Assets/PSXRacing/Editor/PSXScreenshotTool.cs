@@ -862,8 +862,14 @@ namespace PSXRacing.EditorTools
             // is the one part of it that is new.
             foreach (var c in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None))
                 c.Build();
+            // The race map builds itself on the first Update, which never
+            // comes here; a reference shot without it would be a shot of
+            // the HUD the game does not show.
             foreach (var h in Object.FindObjectsByType<RaceHUD>(FindObjectsSortMode.None))
+            {
+                h.PreviewMap();
                 HudOnTop.Apply(h.gameObject);
+            }
             // And the cabin, which is the same story with the opposite default:
             // it builds itself visible and only Update hides it, so every shot
             // in every sweep would be taken through a dashboard.

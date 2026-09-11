@@ -306,6 +306,13 @@ namespace PSXRacing.LifeSim
                 s.saveVersion = 10;
             }
 
+            // VENUE INDICES ARE REMAPPED ONCE, from the layout the save was
+            // written against straight to today's list. Each RemapV<n>Index
+            // lands on the CURRENT layout (it counts twins from where the
+            // twins start now), so running v10's remap and then v11's on the
+            // same save would move a twin twice: a v10 RIDGE PASS II came out
+            // as BLUE RIDGE PARKWAY II that way on 2026-09-11.
+            int written = s.saveVersion;
             if (s.saveVersion < 11)
             {
                 // v11 appended three Charlotte venues to the AUTHORED list.
@@ -322,6 +329,22 @@ namespace PSXRacing.LifeSim
                     foreach (var b in s.bookings)
                         if (b != null) b.trackIndex = TrackCatalog.RemapV10Index(b.trackIndex);
                 s.saveVersion = 11;
+            }
+
+            if (s.saveVersion < 12)
+            {
+                // v12 appended the two Parkway loops to the authored list,
+                // and the twins moved two places along again. Same remap,
+                // one layout later -- for a save WRITTEN under v11. A v10
+                // save has already landed on today's list above.
+                if (written >= 11)
+                {
+                    s.trackIndex = TrackCatalog.RemapV11Index(s.trackIndex);
+                    if (s.bookings != null)
+                        foreach (var b in s.bookings)
+                            if (b != null) b.trackIndex = TrackCatalog.RemapV11Index(b.trackIndex);
+                }
+                s.saveVersion = 12;
             }
         }
 

@@ -279,6 +279,283 @@ namespace PSXRacing
                 ? "(TRIANGLE / Y)" : "(PRESS C)";
         }
 
+        // =================== the race map ===================
+        //
+        // Gran Turismo's corner map: the circuit as a white line with the
+        // field on it, drawn from the same centreline the road was built
+        // from (TrackCatalog.Thumbnail) and placed with the same projection,
+        // so the dot is on the road because the road is where the dot's
+        // maths says it is. Built at runtime rather than by the scene
+        // builder so it reaches every venue without a rebake and can follow
+        // the framebuffer's line count, which the player can change.
+
+        /// <summary>Map height as a fraction of the frame height. About the
+        /// size the reference draws it.</summary>
+        public float mapFrac = 0.30f;
+        /// <summary>Where the map's centre sits up the left edge, as a
+        /// fraction of the frame height. Above the tach on a desktop layout
+        /// and above the touch wheel on a phone, under the lap counter on
+        /// both.</summary>
+        public float mapCentreYFrac = 0.60f;
+
+        GameObject mapRoot;
+        RectTransform playerDot;
+        readonly System.Collections.Generic.List<RectTransform> rivalDots =
+            new System.Collections.Generic.List<RectTransform>();
+        TrackCatalog.MapFrame mapFrame;
+        bool mapValid;
+        int mapBuiltPx = -1;
+        static readonly Color PlayerDotColor = new Color(1f, 0.28f, 0.22f);
+        static readonly Color RivalDotColor = new Color(0.92f, 0.92f, 0.92f);
+
+        int FrameHeight()
+        {
+            var rt = transform as RectTransform;
+            float h = rt != null ? rt.rect.height : 0f;
+            return h < 32f ? 240 : Mathf.RoundToInt(h);
+        }
+
+        /// <summary>The venue this race is on. The handoff's index when the
+        /// race came from the LifeSim; the scene's own name otherwise, so an
+        /// editor race on Beech Gap does not draw the city circuit's map.</summary>
+        internal static TrackCatalog.TrackDef VenueDef()
+        {
+            if (RaceHandoff.FromLifeSim) return TrackCatalog.At(RaceHandoff.TrackIndex);
+            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            foreach (var t in TrackCatalog.Scened) if (t.id == scene) return t;
+            return TrackCatalog.At(RaceHandoff.TrackIndex);
+        }
+
+        void EnsureMap()
+        {
+            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * mapFrac));
+            if (mapRoot != null && px == mapBuiltPx) return;
+            if (mapRoot != null)
+            {
+                if (Application.isPlaying) Destroy(mapRoot); else DestroyImmediate(mapRoot);
+            }
+            rivalDots.Clear();
+            mapBuiltPx = px;
+
+            var def = VenueDef();
+            mapValid = TrackCatalog.MapFrameFor(def, px, out mapFrame);
+            if (!mapValid) return;
+            var tex = TrackCatalog.Thumbnail(def, px, hud: true);
+
+            mapRoot = new GameObject("TrackMap", typeof(RectTransform));
+            mapRoot.transform.SetParent(transform, false);
+            var rt = (RectTransform)mapRoot.transform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0f, mapCentreYFrac);
+            rt.pivot = new Vector2(0f, 0.5f);
+            rt.anchoredPosition = new Vector2(4f, 0f);
+            rt.sizeDelta = new Vector2(px, px);
+
+            var imgGO = new GameObject("Road", typeof(RectTransform));
+            imgGO.transform.SetParent(mapRoot.transform, false);
+            var img = imgGO.AddComponent<RawImage>();
+            img.texture = tex;
+            img.raycastTarget = false;
+            var irt = img.rectTransform;
+            irt.anchorMin = Vector2.zero; irt.anchorMax = Vector2.one;
+            irt.offsetMin = Vector2.zero; irt.offsetMax = Vector2.zero;
+
+            int dot = Mathf.Max(3, Mathf.RoundToInt(px * 0.07f));
+            playerDot = MakeDot(mapRoot.transform, dot, PlayerDotColor, outline: true);
+            HudOnTop.Apply(mapRoot);
+        }
+
+        static RectTransform MakeDot(Transform parent, int size, Color color, bool outline)
+        {
+            var go = new GameObject("Dot", typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = Vector2.zero;
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(size + (outline ? 2 : 0), size + (outline ? 2 : 0));
+            var img = go.AddComponent<Image>();
+            img.color = outline ? Color.white : color;
+            img.raycastTarget = false;
+            if (outline)
+            {
+                var inner = new GameObject("Fill", typeof(RectTransform));
+                inner.transform.SetParent(go.transform, false);
+                var ir = (RectTransform)inner.transform;
+                ir.anchorMin = ir.anchorMax = new Vector2(0.5f, 0.5f);
+                ir.pivot = new Vector2(0.5f, 0.5f);
+                ir.sizeDelta = new Vector2(size, size);
+                var ii = inner.AddComponent<Image>();
+                ii.color = color;
+                ii.raycastTarget = false;
+            }
+            return rt;
+        }
+
+        /// <summary>Build the map and put every car in the scene on it,
+        /// outside play mode — for the screenshot tool, which otherwise
+        /// photographs a HUD with no map because nothing calls Update.</summary>
+        public void PreviewMap()
+        {
+            EnsureMap();
+            if (!mapValid || mapRoot == null) return;
+            mapRoot.SetActive(true);
+            int rivals = 0;
+            foreach (var c in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
+            {
+                RectTransform dot;
+                if (c == car) dot = playerDot;
+                else
+                {
+                    if (rivals >= rivalDots.Count)
+                        rivalDots.Add(MakeDot(mapRoot.transform,
+                            Mathf.Max(2, Mathf.RoundToInt(mapBuiltPx * 0.045f)), RivalDotColor, outline: false));
+                    dot = rivalDots[rivals++];
+                }
+                if (dot == null) continue;
+                Vector3 p = c.transform.position;
+                dot.anchoredPosition = new Vector2(mapFrame.X(p.x), mapFrame.Y(p.z));
+            }
+            if (playerDot != null) playerDot.SetAsLastSibling();
+            HudOnTop.Apply(mapRoot);
+        }
+
+        void UpdateMap(RaceManager rm)
+        {
+            EnsureMap();
+            if (!mapValid || mapRoot == null) return;
+            if (!mapRoot.activeSelf) mapRoot.SetActive(true);
+
+            int rivals = 0;
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || !c.gameObject.activeInHierarchy) continue;
+                RectTransform dot;
+                if (c == car) dot = playerDot;
+                else
+                {
+                    if (rivals >= rivalDots.Count)
+                        rivalDots.Add(MakeDot(mapRoot.transform,
+                            Mathf.Max(2, Mathf.RoundToInt(mapBuiltPx * 0.045f)), RivalDotColor, outline: false));
+                    dot = rivalDots[rivals++];
+                    // Under the player's, always: the dot that matters is the
+                    // one drawn last.
+                    dot.SetAsFirstSibling();
+                }
+                if (dot == null) continue;
+                Vector3 p = c.transform.position;
+                dot.anchoredPosition = new Vector2(mapFrame.X(p.x), mapFrame.Y(p.z));
+            }
+            if (playerDot != null) playerDot.SetAsLastSibling();
+            for (int i = rivals; i < rivalDots.Count; i++)
+                if (rivalDots[i].gameObject.activeSelf) rivalDots[i].gameObject.SetActive(false);
+            for (int i = 0; i < rivals; i++)
+                if (!rivalDots[i].gameObject.activeSelf) rivalDots[i].gameObject.SetActive(true);
+        }
+
+        // =================== the replay readout ===================
+        //
+        // While the replay plays the HUD is the spectator's: the lap, clock
+        // and position of the car being watched at the moment being watched,
+        // REPLAY and the car's name in the corner the reference put them in,
+        // and none of the driver's things — no fuel, no map, no cluster.
+
+        bool replayWasOn;
+        Text replayText, replayCarText;
+
+        Text MakeHudText(string name, Vector2 anchor, Vector2 pos, int size, TextAnchor align)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(transform, false);
+            var t = go.AddComponent<Text>();
+            t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            t.fontSize = size;
+            t.color = Color.white;
+            t.alignment = align;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.raycastTarget = false;
+            var sh = go.AddComponent<Shadow>();
+            sh.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            sh.effectDistance = new Vector2(1f, -1f);
+            var rt = t.rectTransform;
+            rt.anchorMin = anchor; rt.anchorMax = anchor;
+            rt.pivot = new Vector2(anchor.x, 0.5f);
+            rt.anchoredPosition = pos;
+            rt.sizeDelta = new Vector2(200f, 30f);
+            HudOnTop.Apply(go);
+            return t;
+        }
+
+        void OnReplayToggled(bool on)
+        {
+            if (on)
+            {
+                if (replayText == null)
+                {
+                    replayText = MakeHudText("Replay", new Vector2(0f, 0f), new Vector2(10f, 30f), 12, TextAnchor.MiddleLeft);
+                    replayCarText = MakeHudText("ReplayCar", new Vector2(0f, 0f), new Vector2(10f, 16f), 10, TextAnchor.MiddleLeft);
+                    replayCarText.color = new Color(0.85f, 0.85f, 0.85f);
+                }
+                replayText.gameObject.SetActive(true);
+                replayCarText.gameObject.SetActive(true);
+                if (fuelFill != null && fuelFill.parent != null) fuelFill.parent.gameObject.SetActive(false);
+                Set(fuelText, "");
+                if (mapRoot != null) mapRoot.SetActive(false);
+                var touch = TouchControls.Instance;
+                if (touch != null) { touch.SetAction(false); touch.SetContinue(true); }
+            }
+            else
+            {
+                if (replayText != null) replayText.gameObject.SetActive(false);
+                if (replayCarText != null) replayCarText.gameObject.SetActive(false);
+                if (fuelFill != null && fuelFill.parent != null) fuelFill.parent.gameObject.SetActive(true);
+                // Every change-gate reset, so the race's own readouts repaint.
+                lastLap = int.MinValue; lastPos = int.MinValue;
+                lastTimeCentis = int.MinValue; lastBest = -1f;
+                lastCenter = null; lastCam = null; lastTipLine = null;
+                lastFuelPct = int.MinValue;
+                lastFuelColor = new Color(-1f, -1f, -1f, -1f);
+            }
+        }
+
+        void UpdateReplay(RaceManager rm)
+        {
+            var rp = RaceReplay.Instance;
+            if (rp == null) return;
+            var f = rp.FocusFrame;
+            bool ends = rm.path != null && rm.path.HasEnds;
+            Set(lapText, ends ? rm.path.dragLabel : "LAP " + Mathf.Max(1, (int)f.lap) + "/" + rm.totalLaps);
+            int centis = Mathf.FloorToInt(rp.ReplayTime * 100f);
+            if (centis != lastTimeCentis) { lastTimeCentis = centis; Set(timeText, FormatTime(rp.ReplayTime)); }
+            Set(lastLapText, "");
+            Set(posText, RaceHandoff.Delivery ? "" : "POS " + Mathf.Max(1, (int)f.place) + "/" + rm.allCars.Count);
+            Set(centerText, rp.Paused ? "PAUSED" : "");
+            Set(replayText, "REPLAY");
+            Set(replayCarText, rp.FocusName);
+            string cam = Time.unscaledTime - rp.ModeChangedAt < CamFlashSeconds
+                ? RaceReplay.CamNames[(int)rp.Mode]
+                : ReplayHowTo();
+            Set(camText, cam);
+        }
+
+        /// <summary>The replay's controls, named for the device in hand.</summary>
+        static string ReplayHowTo()
+        {
+            if (TouchControls.Instance != null && TouchControls.Instance.Visible) return "";
+            return UnityEngine.InputSystem.Gamepad.current != null
+                ? "A PLAY/PAUSE   D-PAD SKIP / CAR   Y CAMERA   B EXIT"
+                : "SPACE PLAY/PAUSE   ARROWS SKIP / CAR   C CAMERA   ESC EXIT";
+        }
+
+        /// <summary>The line under the results that offers the replay.</summary>
+        static string ReplayOffer(bool touch)
+        {
+            var rp = RaceReplay.Instance;
+            if (rp == null || !rp.Available) return "";
+            if (touch) return "\nTAP REPLAY TO WATCH IT BACK";
+            return UnityEngine.InputSystem.Gamepad.current != null
+                ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY";
+        }
+
         void Awake() => HudOnTop.Apply(gameObject);
 
         /// <summary>Whether the last frame was drawn for somebody on foot.
@@ -303,6 +580,7 @@ namespace PSXRacing
                 Set(lapText, ""); Set(timeText, ""); Set(lastLapText, "");
                 Set(posText, ""); Set(centerText, ""); Set(camText, "");
                 Set(fuelText, "");
+                if (mapRoot != null) mapRoot.SetActive(false);
                 if (fuelFill != null && fuelFill.parent != null)
                     fuelFill.parent.gameObject.SetActive(false);
                 var touch = TouchControls.Instance;
@@ -334,6 +612,10 @@ namespace PSXRacing
                 return;
             }
             var p = rm.GetProgress(car);
+
+            bool replaying = RaceReplay.Playing;
+            if (replaying != replayWasOn) { replayWasOn = replaying; OnReplayToggled(replaying); }
+            if (replaying) { UpdateReplay(rm); return; }
 
             // A dead instrument cluster ($350 to fix) blanks the readouts rather
             // than hiding the widgets: the player should see that the gauges are
@@ -409,6 +691,7 @@ namespace PSXRacing
             }
             else if (pos != lastPos) { lastPos = pos; Set(posText, "POS " + pos + "/" + rm.allCars.Count); }
 
+            UpdateMap(rm);
             UpdateFuel();
 
             // Unscaled: the pause menu freezes time, and a view switched just
@@ -493,7 +776,8 @@ namespace PSXRacing
                         : ladder + "FINISH!  P" + pos + sheet;
                     center = head +
                              "\n\n" + how +
-                             (RaceHandoff.FromLifeSim ? " TO GO HOME" : " TO RESTART");
+                             (RaceHandoff.FromLifeSim ? " TO GO HOME" : " TO RESTART") +
+                             ReplayOffer(touch);
                     break;
             }
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
@@ -700,7 +984,13 @@ namespace PSXRacing
                 bool over = RaceManager.Instance != null &&
                             RaceManager.Instance.State == RaceManager.RaceState.Finished;
                 if (ownsActionButton)
-                    touch.SetAction(!over && GasPump.AtPump && GasPump.Prompt != null, "FUEL");
+                {
+                    // The one contextual button offers the replay once the
+                    // race is over and there is one to offer.
+                    bool replayOffer = over && RaceReplay.Instance != null && RaceReplay.Instance.Available;
+                    if (replayOffer) touch.SetAction(true, "REPLAY");
+                    else touch.SetAction(!over && GasPump.AtPump && GasPump.Prompt != null, "FUEL");
+                }
                 touch.SetContinue(over);
             }
         }
