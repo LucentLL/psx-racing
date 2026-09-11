@@ -577,11 +577,8 @@ namespace PSXRacing.EditorTools
                 // The paint's shine. Every skin the same: a sheet is a colour,
                 // not a finish, and the glass mask inside the shader is what
                 // tells a window from a door.
-                if (mat.HasProperty("_Reflect")) mat.SetFloat("_Reflect", CarPaint.Reflect);
-                if (mat.HasProperty("_GlassLum")) mat.SetFloat("_GlassLum", CarPaint.GlassLum);
-                if (mat.HasProperty("_GlassBoost")) mat.SetFloat("_GlassBoost", CarPaint.GlassBoost);
-                if (mat.HasProperty("_Gloss")) mat.SetFloat("_Gloss", CarPaint.Gloss);
-                if (mat.HasProperty("_SpecStrength")) mat.SetFloat("_SpecStrength", CarPaint.SpecStrength);
+                // The paint's look is the shader's own (PSX/CarPaint's
+                // #defines), not a per-material number: nothing to write here.
                 EditorUtility.SetDirty(mat);
 
                 // A sheet named "wheel" is exactly that — the one model in the

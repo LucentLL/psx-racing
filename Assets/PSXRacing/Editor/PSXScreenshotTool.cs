@@ -118,6 +118,18 @@ namespace PSXRacing.EditorTools
         /// seven-hour sweep per attempt.
         /// </summary>
         [MenuItem("PSX Racing/Capture Camera Views")]
+        /// <summary>The car close up, every view and every hour, on the
+        /// first circuit: the paint pass's reference shots, without the
+        /// eighteen-venue sweep. ~2 minutes.</summary>
+        public static void CapturePaintOnly()
+        {
+            Directory.CreateDirectory(OutDir);
+            var def = TrackCatalog.At(0);
+            CaptureCameras(def);
+            CaptureHours(def);
+            Debug.Log("[PSXShot] Paint shots written to " + OutDir);
+        }
+
         public static void CaptureCamerasOnly()
         {
             Directory.CreateDirectory(OutDir);

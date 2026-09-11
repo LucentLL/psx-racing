@@ -233,6 +233,30 @@ ambient plus one lambert term. Two changes:
   a blue sky reads as being under a blue sky. Equal to the plain ambient in
   any scene that never applies an hour, so nothing else moved.
 
+The first cut of the paint was not enough. The owner's verdict on the
+screenshots — "matte blobs of polygons dipped in flour" — was right: eight
+percent of sky face-on, a pin-point highlight and a per-vertex lambert under
+a bright ambient is invisible at 240 lines, and the pack's sheets are flat
+colour (the silver RX-7 is one grey value with its windows and tyres dark),
+so every bit of shape has to come from the light. The second cut lights per
+pixel with a hemisphere ambient whose underside is half the ambient and
+whose paint takes 70% of it (the shadow side stays a shadow), takes a TENTH
+of the sky face-on rising to half at the silhouette — a third face-on was
+the next verdict, "these cars look like they're made out of glass", because
+a bright noon sky laid over every panel facing the camera is glass; paint
+reflects a few percent head-on and goes mirror-like only at the edges —
+tints that reflection with the paint colour (an orange car reflects orange)
+but not on the glass, darkens the
+ground half of the reflection the way the reference games' environment maps
+did (a bright ground in the paint washes the sills pale; a dark one is the
+top-to-bottom gradient that reads as gloss), and puts a broad sun sheen
+under a tight highlight. THE LOOK LIVES IN THE SHADER as `#define`s, not in
+material properties: a property is baked into 138 livery materials and needs
+a scene build to change, while a shader edit is `tools/paint-shots.ps1` —
+the car in every view and every hour on the first circuit in three minutes
+(`PSXScreenshotTool.CapturePaintOnly`) — and a WebGL build. The one property
+left is `_Dull`, set on wheel renderers by `CarPaint.DullWheels`.
+
 ## CHARLOTTE ON THE MAP — THREE STREET VENUES (2026-09-07)
 
 Three real Charlotte roads join the catalog, baked from OpenStreetMap + SRTM
