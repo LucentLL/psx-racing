@@ -1,51 +1,56 @@
-// PSX/Lit for a car's bodywork: the same per-vertex lambert, snap, affine
-// premultiply and manual fog as PSX/Lit — copied, which is the house style in
-// this folder — plus the two things the reference games put on their cars
-// and this one did not: a SUN HIGHLIGHT and the SKY IN THE PAINT.
+// PSX/Lit for a car's bodywork: the same snap, affine premultiply and manual
+// fog as PSX/Lit — copied, which is the house style in this folder — with
+// the lighting done PER PIXEL and built around ONE LIGHT SOURCE.
 //
-// "The current paint and windows are very flat." They were: PSX/Lit is
-// ambient plus one lambert term, and a car under that is a matte shape with
-// no idea where the light is. Gran Turismo's cars on the same hardware were
-// the shiniest thing on screen, and it did it with an environment map — a
-// small sky texture looked up by the reflected view vector, added over the
-// paint, strongest at grazing angles and on the glass. That is what this
-// shader does, with two differences that fall out of this game already
-// having the right ingredients:
+// THE THIRD CUT, and what the first two got wrong. The owner's verdicts were
+// "matte blobs of polygons dipped in flour" and then "still covered in flour
+// or glazed... this does not reflect real lighting", against a Gran Turismo 2
+// frame where the sun is on the right of the sky, the right of the car is lit
+// and the left is in shadow. That frame is the spec. What the second cut did
+// instead, and why each of these is gone:
 //
-//   * THE ENVIRONMENT IS THE ACTUAL SKY. TimeOfDay hangs a photographic
-//     panorama for the hour and turns it to face the sun; the same texture,
-//     the same rotation and the same hour tint reach this shader as globals
-//     (_PSXSky*), so a sunset reflects orange along the flank and a noon sky
-//     reflects blue across the roof. The reflection and the sky behind the
-//     car can never disagree, because they are one texture.
-//   * THE GLASS IS FOUND, NOT DECLARED. The pack paints a whole car from one
-//     128 px sheet with the windows as near-black pixels, and there is no
-//     glass submesh to give a second material to. Dark paint is mirror-like
-//     and so is glass, so darkness IS the mask: the reflection is scaled up
-//     where the sheet is dark (window glass, black trim, a black car), and
-//     sampled from a sharper mip there so glass reads as glass and paint
-//     reads as paint.
+//   * IT LERPED THE SKY OVER THE PAINT. Half the sky at the silhouette,
+//     replacing the diffuse — so every edge of every panel went pale sky
+//     colour whichever side of the car the sun was on. That was the glaze.
+//     A reflection is ADDED, the way the PS1 drew its environment maps (a
+//     second additive pass), and it is small: a tenth of what it was face-on.
+//   * IT HAD A BROAD SHEEN. pow(N.H, 10) at 22% is a pale wash over every
+//     panel that faces halfway between the sun and the camera, which from a
+//     chase camera is most of the car. That was the flour. Only the tight
+//     highlight survives.
+//   * ITS SHADOWS WERE NOT DARK. The ambient share was 0.7 of the hour's
+//     ambient on the sides — and this project renders in LINEAR colour, where
+//     0.19 of light is 0.47 on the display. A shadow side at 47% grey next to
+//     a lit side at 90% is a two-to-one picture, and the reference is closer
+//     to four. Vertical panels now take 0.4 of the ambient, the underside
+//     0.14, and the paint takes 0.8 of all of it: a car in shadow is darker
+//     than the road in shadow, as it is in every reference frame.
+//   * ITS LIT SIDE CLIPPED. amb + sun at noon is 1.7 and saturate() made the
+//     whole sun-facing half of the car one flat white-ish tone with no
+//     gradient across it — the "polygon blob". A soft knee (1 - exp(-1.5x))
+//     keeps the curve: 0.19 stays 0.25, 1.0 becomes 0.78, 1.7 becomes 0.92,
+//     and a bonnet that curves away from the sun darkens as it curves.
 //
-// Everything is computed per PIXEL against the interpolated normal. The
-// PS1 did its env-maps per vertex on hundreds of triangles; on three hundred
-// the per-vertex version is a blotch that jumps between polygons as the car
-// turns, and the whole picture is dithered down to 240 lines afterwards
-// anyway. The diffuse is per pixel too, with a hemisphere ambient whose
-// underside is half the ambient: a car reads as a solid when its sun side is
-// bright, its shadow side dark and its sills darker still, and the first cut
-// of this (vertex lambert, 8% of sky face-on, a pin-point highlight) came
-// out as "matte blobs of polygons dipped in flour" -- which it was.
+// What is kept from the first cut, because it was right: the glass is FOUND
+// from the sheet's dark pixels (there is no glass submesh in the pack), it
+// reflects harder and sharper than paint and takes a tighter highlight; the
+// environment is the actual hour's sky panorama through the _PSXSky* globals
+// (TimeOfDay.ApplySky), turned to face the same sun the diffuse uses, so the
+// reflection and the light can never disagree; below the horizon the
+// reflection is a dark ground; metallic paint tints what it reflects.
 //
 // THE LOOK IS THE SHADER'S. The numbers are the #defines below, not material
 // properties, so changing them never means rebaking three hundred livery
 // materials; the one property a renderer can set is _Dull, which
 // CarPaint.DullWheels puts on the wheels through a property block.
 //
-// Below the horizon the reflection is the fog colour — the ground is fog
-// colour at any distance in this renderer, so that is what a bonnet
-// reflects. With no panorama set (_PSXSkyAmount = 0: a scene that never
-// applied an hour) the sky is a two-tone hemisphere built from the ambient
-// and the sun, which is a dull sheen rather than nothing.
+// The car also takes the headlights of the car behind it (PSXHeadlights.cginc),
+// added to the light before the knee like the sun.
+//
+// _PSXPaintDebug (a global the screenshot tool sets) swaps the output for one
+// term at a time: 1 = N.L, 2 = the normal, 3 = the light before the knee,
+// 4 = the reflection alone, 5 = the sheet. When a picture disagrees with the
+// arithmetic, this is how to find out which of them is lying.
 Shader "PSX/CarPaint"
 {
     Properties
@@ -70,6 +75,7 @@ Shader "PSX/CarPaint"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "PSXHeadlights.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -79,21 +85,26 @@ Shader "PSX/CarPaint"
             float _Affine;
             float _Dull;
 
-            // THE LOOK, tuned against the reference shots (psx_cam_*,
-            // psx_hour_*) at 240 lines.
-            #define PAINT_REFLECT      0.50   // sky in the paint at a grazing angle...
-            #define PAINT_REFLECT_FACE 0.22   // ...and this fraction of it face-on (a tenth of the sky:
-                                              //   a third made the cars "look like they're made out of glass")
-            #define PAINT_METALLIC     0.65   // how much the paint tints what it reflects (a red car reflects red)
+            // THE LOOK. Linear-space numbers; see the header for what each
+            // one is answering.
+            #define SIDE_AMBIENT       0.32   // a vertical panel's share of the hour's ambient
+            #define UNDER_AMBIENT      0.10   // the underside's share (sills, the underside of a wing)
+            #define PAINT_AMBIENT      0.80   // the paint's share of all of it
+            #define PAINT_SUN          1.5    // the sun's weight on the paint: the pack's sheets are mid
+                                              //   greys (the "silver" RX-7 is 0.25 linear), and at 1.0 a lit
+                                              //   side could never reach the reference's brightness
+            #define SUN_KNEE           1.6    // soft clip with headroom: light = KNEE * (1 - exp(-raw / KNEE)),
+                                              //   so 0.13 stays 0.125, 1.0 becomes 0.75, 2.2 becomes 1.2
+            #define PAINT_REFLECT      0.45   // the sky in the paint at the silhouette...
+            #define PAINT_REFLECT_FACE 0.12   // ...and this fraction of it face-on
+            #define PAINT_METALLIC     0.70   // how much the paint tints what it reflects (a red car reflects red)
             #define GLASS_LUM          0.22   // sheet luminance under which a pixel is glass or trim
-            #define GLASS_BOOST        1.6    // extra reflection on glass, as a multiple
-            #define SUN_SHEEN          0.22   // broad sun sheen over the lit side (exponent 10)
-            #define SUN_SPEC           1.00   // tight sun highlight (exponent 48)
-            #define UNDER_AMBIENT      0.45   // the underside's share of the ambient
-            #define PAINT_AMBIENT      0.70   // the paint's share of the ambient: its shadow side stays a shadow
+            #define GLASS_BOOST        2.2    // glass reflects (1 + this) times what paint does
+            #define SUN_SPEC           0.90   // the sun's highlight...
+            #define SUN_SPEC_POW       36.0   // ...and how tight it is (doubled on glass)
             #define DULL_REFLECT       0.10   // a wheel's reflection, as a fraction
             #define DULL_SPEC          0.20   // a wheel's highlight, as a fraction
-            #define GROUND_REFLECT     0.30   // how bright the ground is in the paint (x fog colour)
+            #define GROUND_REFLECT     0.25   // how bright the ground is in the paint (x fog colour)
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -103,6 +114,7 @@ Shader "PSX/CarPaint"
             float _PSXFogNear;
             float _PSXFogFar;
             float _PSXSnap;         // 1 = vertex snapping on
+            float _PSXPaintDebug;   // 0 in the game
 
             // The hour's sky, as TimeOfDay.ApplySky hands it to the sky
             // material — see PSXSky.shader for what each one means there.
@@ -126,7 +138,6 @@ Shader "PSX/CarPaint"
             {
                 float4 pos : SV_POSITION;
                 float3 uvw : TEXCOORD0;
-                fixed4 light : COLOR0;
                 fixed fog : TEXCOORD1;
                 float3 wnrm : TEXCOORD2;
                 float3 wpos : TEXCOORD3;
@@ -150,12 +161,7 @@ Shader "PSX/CarPaint"
 
                 float3 rawN = UnityObjectToWorldNormal(v.normal);
                 float nl2 = dot(rawN, rawN);
-                float3 n = nl2 > 1e-8 ? rawN * rsqrt(nl2) : float3(0, 1, 0);
-                float ndl = saturate(dot(n, normalize(_PSXLightDir.xyz)));
-                fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
-                fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
-                o.light = fixed4(saturate(lighting), 1);
-                o.wnrm = n;
+                o.wnrm = nl2 > 1e-8 ? rawN * rsqrt(nl2) : float3(0, 1, 0);
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
@@ -166,20 +172,20 @@ Shader "PSX/CarPaint"
             /// What the sky looks like in direction R — the same lookup and
             /// the same hour tint PSXSky.shader applies, at a blur picked by
             /// the caller (paint is a soft reflection, glass a sharper one).
-            fixed3 SkyIn(float3 R, float lod)
+            float3 SkyIn(float3 R, float lod)
             {
                 float y = R.y;
                 float above = pow(saturate(y), 1.0 / max(_PSXSkySharpness, 0.5) * 4.0);
-                fixed3 grad = lerp(_PSXSkyHorizon.rgb, _PSXSkyTop.rgb, above);
-                fixed3 col;
+                float3 grad = lerp(_PSXSkyHorizon.rgb, _PSXSkyTop.rgb, above);
+                float3 col;
                 if (_PSXSkyAmount > 0.001)
                 {
                     float u = atan2(R.z, R.x) * (0.5 / UNITY_PI) + 0.5 + _PSXSkyRotation / 360.0;
                     float v = 0.5 + asin(clamp(y, -1.0, 1.0)) / UNITY_PI;
                     // Explicit LOD: no derivatives, so the equirect seam that
                     // PSXSky has to fight with tex2Dgrad cannot happen here.
-                    fixed3 pano = tex2Dlod(_PSXSkyTex, float4(u, v, 0, lod)).rgb * _PSXSkyExposure;
-                    fixed3 tinted = pano * grad * 2.0;
+                    float3 pano = tex2Dlod(_PSXSkyTex, float4(u, v, 0, lod)).rgb * _PSXSkyExposure;
+                    float3 tinted = pano * grad * 2.0;
                     col = lerp(pano, tinted, _PSXSkyTint);
                 }
                 else
@@ -190,13 +196,11 @@ Shader "PSX/CarPaint"
                 }
                 // The ground is fog colour in this renderer, so the ground a
                 // bonnet reflects is too — and the horizon band meets it the
-                // way the sky's own horizon does.
+                // way the sky's own horizon does...
                 float hz = saturate(1.0 - abs(y) * 8.0);
                 col = lerp(col, _PSXFogColor.rgb, hz * hz);
                 // ...and below it the reflection goes DARK, the way the
-                // reference games' environment maps did: a bright ground in
-                // the paint washes the sills and the shadow side pale, and a
-                // dark one is the top-to-bottom gradient that reads as gloss.
+                // reference games' environment maps did.
                 col = lerp(col, _PSXFogColor.rgb * GROUND_REFLECT, saturate(-y * 4.0));
                 return col;
             }
@@ -215,35 +219,56 @@ Shader "PSX/CarPaint"
                 float glass = saturate((GLASS_LUM - lum) / GLASS_LUM);
                 float dull = _Dull;
 
-                // Diffuse, per pixel: a hemisphere ambient (the sky's colour
-                // from above, half the ambient from below) and the sun's
-                // lambert, so the car has a lit side and a shadow side.
-                float up = saturate(N.y * 0.5 + 0.5);
-                fixed3 amb = lerp(_PSXAmbient.rgb * UNDER_AMBIENT, _PSXSkyAmbient.rgb, up) * PAINT_AMBIENT;
+                // THE ONE LIGHT. A hemisphere ambient — the sky's colour from
+                // above, less from the side, least from below — and the sun's
+                // lambert with a real terminator: the side that faces the sun
+                // is lit, the side that does not is not. The headlights of
+                // whoever is behind add to the same light.
+                float up = N.y;
+                float3 sideA = _PSXAmbient.rgb * SIDE_AMBIENT;
+                float3 amb = up >= 0.0 ? lerp(sideA, _PSXSkyAmbient.rgb, up)
+                                       : lerp(sideA, _PSXAmbient.rgb * UNDER_AMBIENT, -up);
+                amb *= PAINT_AMBIENT;
                 float ndl = saturate(dot(N, L));
-                fixed3 lit = tex.rgb * lerp(amb + _PSXLightColor.rgb * ndl, fixed3(1,1,1), _Emission);
+                float3 rawLight = amb + _PSXLightColor.rgb * (ndl * PAINT_SUN) + PSXHeadlights(i.wpos, N);
+                // The knee: the lit side keeps its gradient instead of
+                // clipping to one tone, and can go a little over 1 where
+                // the sun is full on it.
+                float3 light = SUN_KNEE * (1.0 - exp(-rawLight / SUN_KNEE));
+                float3 lit = tex.rgb * lerp(light, float3(1, 1, 1), _Emission);
 
-                // The sky in the paint: nearly half of it face-on, all of it
-                // at the silhouette, more on the glass, a tenth on a wheel.
+                // THE SKY IN THE PAINT, added: a little face-on, more at the
+                // silhouette, most on the glass, a tenth of it on a wheel.
                 float ndv = saturate(dot(N, V));
-                float fres = pow(1.0 - ndv, 3.0);
+                float fres = pow(1.0 - ndv, 4.0);
                 float k = PAINT_REFLECT * (PAINT_REFLECT_FACE + (1.0 - PAINT_REFLECT_FACE) * fres);
                 k *= 1.0 + glass * GLASS_BOOST;
                 k *= lerp(1.0, DULL_REFLECT, dull);
                 float3 R = reflect(-V, N);
-                fixed3 sky = SkyIn(R, lerp(2.0, 0.6, glass));
+                float3 sky = SkyIn(R, lerp(2.5, 0.8, glass));
                 // Metallic paint tints what it reflects; glass does not.
-                fixed3 tint = lerp(fixed3(1,1,1), saturate(tex.rgb * 1.6), PAINT_METALLIC * (1.0 - glass));
-                fixed3 col = lerp(lit, sky * tint, saturate(k));
+                float3 tint = lerp(float3(1, 1, 1), saturate(tex.rgb * 1.6), PAINT_METALLIC * (1.0 - glass));
+                float3 refl = sky * tint * k;
 
-                // The sun: a broad sheen over the lit side and a tight
-                // highlight, in the sun's colour, brighter toward the edges,
-                // tighter and brighter on the glass.
+                // THE SUN'S HIGHLIGHT: tight, in the sun's colour, tighter
+                // and brighter on the glass. No broad sheen.
                 float3 H = normalize(L + V);
                 float ndh = saturate(dot(N, H));
-                float sheen = pow(ndh, 10.0) * SUN_SHEEN;
-                float spec = pow(ndh, 48.0 * (1.0 + glass)) * SUN_SPEC * (1.0 + glass * 0.6);
-                col += _PSXLightColor.rgb * (sheen + spec) * (0.6 + 0.4 * fres) * lerp(1.0, DULL_SPEC, dull);
+                float spec = pow(ndh, SUN_SPEC_POW * (1.0 + glass)) * SUN_SPEC * (1.0 + glass * 0.8);
+                spec *= lerp(1.0, DULL_SPEC, dull);
+                float3 hi = _PSXLightColor.rgb * spec;
+
+                float3 col = lit + refl + hi;
+
+                if (_PSXPaintDebug > 0.5)
+                {
+                    if (_PSXPaintDebug < 1.5) col = float3(ndl, ndl, ndl);
+                    else if (_PSXPaintDebug < 2.5) col = N * 0.5 + 0.5;
+                    else if (_PSXPaintDebug < 3.5) col = rawLight;
+                    else if (_PSXPaintDebug < 4.5) col = refl;
+                    else col = tex.rgb;
+                    return fixed4(col, 1);
+                }
 
                 col = lerp(col, _PSXFogColor.rgb, i.fog);
                 return fixed4(col, tex.a);

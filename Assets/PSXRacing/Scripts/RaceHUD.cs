@@ -306,7 +306,23 @@ namespace PSXRacing
         bool mapValid;
         int mapBuiltPx = -1;
         static readonly Color PlayerDotColor = new Color(1f, 0.28f, 0.22f);
-        static readonly Color RivalDotColor = new Color(0.92f, 0.92f, 0.92f);
+        // SOLID, AND NOT WHITE. The road is drawn as a white line, and the
+        // first cut put the rivals on it as 92% white with no edge - on the
+        // line they vanished, off it they read as a smudge, and the owner
+        // called them "white or transparent", which is what they were. Green
+        // with a dark edge is what the reference game used for the field.
+        static readonly Color RivalDotColor = new Color(0.30f, 0.95f, 0.40f);
+        static readonly Color RivalEdgeColor = new Color(0.05f, 0.12f, 0.06f);
+        /// <summary>
+        /// Dot sizes as a fraction of the map's width. They were 0.07 and
+        /// 0.045 - on a HUD drawn at device resolution that is a 25 px
+        /// player marker on a track line two pixels wide, a marker wider than
+        /// the road it is on. The reference draws its dots at about a
+        /// thirtieth of the map; these are a shade over that so they survive
+        /// the framebuffer's dither, and the outline is fixed at a pixel.
+        /// </summary>
+        const float PlayerDotFrac = 0.034f, RivalDotFrac = 0.027f;
+        int RivalDotPx() => Mathf.Max(2, Mathf.RoundToInt(mapBuiltPx * RivalDotFrac));
 
         int FrameHeight()
         {
@@ -359,34 +375,35 @@ namespace PSXRacing
             irt.anchorMin = Vector2.zero; irt.anchorMax = Vector2.one;
             irt.offsetMin = Vector2.zero; irt.offsetMax = Vector2.zero;
 
-            int dot = Mathf.Max(3, Mathf.RoundToInt(px * 0.07f));
-            playerDot = MakeDot(mapRoot.transform, dot, PlayerDotColor, outline: true);
+            int dot = Mathf.Max(3, Mathf.RoundToInt(px * PlayerDotFrac));
+            playerDot = MakeDot(mapRoot.transform, dot, PlayerDotColor, Color.white);
             HudOnTop.Apply(mapRoot);
         }
 
-        static RectTransform MakeDot(Transform parent, int size, Color color, bool outline)
+        /// <summary>A filled square of <paramref name="size"/> pixels with a
+        /// one-pixel edge in <paramref name="edge"/> around it. Every marker
+        /// has an edge: a dot with no edge disappears the moment it crosses
+        /// a line of its own colour.</summary>
+        static RectTransform MakeDot(Transform parent, int size, Color color, Color edge)
         {
             var go = new GameObject("Dot", typeof(RectTransform));
             go.transform.SetParent(parent, false);
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = Vector2.zero;
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(size + (outline ? 2 : 0), size + (outline ? 2 : 0));
+            rt.sizeDelta = new Vector2(size + 2, size + 2);
             var img = go.AddComponent<Image>();
-            img.color = outline ? Color.white : color;
+            img.color = edge;
             img.raycastTarget = false;
-            if (outline)
-            {
-                var inner = new GameObject("Fill", typeof(RectTransform));
-                inner.transform.SetParent(go.transform, false);
-                var ir = (RectTransform)inner.transform;
-                ir.anchorMin = ir.anchorMax = new Vector2(0.5f, 0.5f);
-                ir.pivot = new Vector2(0.5f, 0.5f);
-                ir.sizeDelta = new Vector2(size, size);
-                var ii = inner.AddComponent<Image>();
-                ii.color = color;
-                ii.raycastTarget = false;
-            }
+            var inner = new GameObject("Fill", typeof(RectTransform));
+            inner.transform.SetParent(go.transform, false);
+            var ir = (RectTransform)inner.transform;
+            ir.anchorMin = ir.anchorMax = new Vector2(0.5f, 0.5f);
+            ir.pivot = new Vector2(0.5f, 0.5f);
+            ir.sizeDelta = new Vector2(size, size);
+            var ii = inner.AddComponent<Image>();
+            ii.color = color;
+            ii.raycastTarget = false;
             return rt;
         }
 
@@ -406,8 +423,7 @@ namespace PSXRacing
                 else
                 {
                     if (rivals >= rivalDots.Count)
-                        rivalDots.Add(MakeDot(mapRoot.transform,
-                            Mathf.Max(2, Mathf.RoundToInt(mapBuiltPx * 0.045f)), RivalDotColor, outline: false));
+                        rivalDots.Add(MakeDot(mapRoot.transform, RivalDotPx(), RivalDotColor, RivalEdgeColor));
                     dot = rivalDots[rivals++];
                 }
                 if (dot == null) continue;
@@ -433,8 +449,7 @@ namespace PSXRacing
                 else
                 {
                     if (rivals >= rivalDots.Count)
-                        rivalDots.Add(MakeDot(mapRoot.transform,
-                            Mathf.Max(2, Mathf.RoundToInt(mapBuiltPx * 0.045f)), RivalDotColor, outline: false));
+                        rivalDots.Add(MakeDot(mapRoot.transform, RivalDotPx(), RivalDotColor, RivalEdgeColor));
                     dot = rivalDots[rivals++];
                     // Under the player's, always: the dot that matters is the
                     // one drawn last.

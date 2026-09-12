@@ -5,6 +5,8 @@
 # forty-minute build. Graphics ON: these render through the pipeline.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\paint-shots.ps1
+#   PSX_PAINT_DEBUG=1 in the environment adds psx_debug_{1..5}_*.png: the
+#   paint shader's N.L, normal, raw light, reflection and sheet, one per frame.
 $ErrorActionPreference = "Stop"
 $proj = "C:\Users\mcgee\PSXBuild"
 $src  = Split-Path -Parent $PSScriptRoot
@@ -15,6 +17,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\
 }
 Remove-Item "$proj\Screenshots\psx_cam_*.png" -ErrorAction SilentlyContinue
 Remove-Item "$proj\Screenshots\psx_hour_*.png" -ErrorAction SilentlyContinue
+Remove-Item "$proj\Screenshots\psx_debug_*.png" -ErrorAction SilentlyContinue
 
 Invoke-UnityJob -Log "$proj\paintshots.log" -MaxMinutes 15 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,

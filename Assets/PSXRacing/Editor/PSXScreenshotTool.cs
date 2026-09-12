@@ -127,7 +127,28 @@ namespace PSXRacing.EditorTools
             var def = TrackCatalog.At(0);
             CaptureCameras(def);
             CaptureHours(def);
+            // PSX_PAINT_DEBUG=1 in the environment adds the shader's debug
+            // views (see _PSXPaintDebug in PSXCarPaint.shader): when the
+            // picture and the arithmetic disagree, one of them is lying and
+            // these say which.
+            if (!string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("PSX_PAINT_DEBUG")))
+                CapturePaintDebug(def);
             Debug.Log("[PSXShot] Paint shots written to " + OutDir);
+        }
+
+        static void CapturePaintDebug(TrackCatalog.TrackDef def)
+        {
+            if (!Open(def, out var cam, out var player)) return;
+            var t = player.transform;
+            Vector3 grid = t.TransformPoint(new Vector3(3.6f, 1.6f, 6.0f));
+            var rot = Quaternion.LookRotation(t.position + Vector3.up * 0.6f - grid);
+            string[] names = { "ndl", "normal", "light", "reflect", "sheet" };
+            for (int m = 1; m <= names.Length; m++)
+            {
+                Shader.SetGlobalFloat("_PSXPaintDebug", m);
+                Shot(cam, "debug_" + m + "_" + names[m - 1], grid, rot);
+            }
+            Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
         }
 
         public static void CaptureCamerasOnly()
@@ -702,11 +723,31 @@ namespace PSXRacing.EditorTools
                     HudOnTop.Apply(hud.gameObject);
 
                 Vector3 eye = t.position - t.forward * 8f + Vector3.up * 2.6f;
-                Shot(cam, "hour_" + h + "_" + hour.name.ToLower(), eye,
-                    Quaternion.LookRotation(t.position + Vector3.up * 0.8f + t.forward * 20f - eye));
+                var chaseRot = Quaternion.LookRotation(t.position + Vector3.up * 0.8f + t.forward * 20f - eye);
+                Shot(cam, "hour_" + h + "_" + hour.name.ToLower(), eye, chaseRot);
+
+                // Three-quarter front, every hour: the one view that shows a
+                // lit side AND a shadow side of the same car at once, which
+                // is the whole question the paint has to answer.
+                Vector3 grid = t.TransformPoint(new Vector3(3.6f, 1.6f, 6.0f));
+                Shot(cam, "hour_" + h + "_" + hour.name.ToLower() + "_34", grid,
+                    Quaternion.LookRotation(t.position + Vector3.up * 0.6f - grid));
+
+                // The brake lights, on a picture. PreviewBuild's brake flag
+                // holds the pedal down; one daylight hour and one dark one,
+                // because the lamps are the same either way and the
+                // question is only whether they are visible.
+                if (h == TimeOfDay.Noon || h == TimeOfDay.Dusk)
+                {
+                    foreach (var lights in Object.FindObjectsByType<CarLights>(FindObjectsSortMode.None))
+                        lights.PreviewBuild(hour.lightsOn, brake: true);
+                    Shot(cam, "hour_" + h + "_" + hour.name.ToLower() + "_brake", eye, chaseRot);
+                    foreach (var lights in Object.FindObjectsByType<CarLights>(FindObjectsSortMode.None))
+                        lights.PreviewBuild(hour.lightsOn, brake: false);
+                }
 
                 // From in front, once the lamps are lit. Whether a headlight
-                // quad ends up buried in the bodywork, or its pool lands under
+                // quad ends up buried in the bodywork, or its beam lands under
                 // the car instead of down the road, is only visible from here.
                 if (!hour.lightsOn) continue;
                 Vector3 front = t.position + t.forward * 11f + Vector3.up * 1.7f;
@@ -975,12 +1016,18 @@ namespace PSXRacing.EditorTools
                 request.destination = rt;
                 RenderPipeline.SubmitRenderRequest(cam, request);
 
+                // THROUGH THE DITHER. The game shows this buffer through
+                // PSX/Blit (5-bit quantize, Bayer dither); a shot that skips
+                // that pass is a picture of a renderer the player does not
+                // have — and the pass is exactly where the darks are decided.
+                var shown = Dithered(rt);
                 var prev = RenderTexture.active;
-                RenderTexture.active = rt;
+                RenderTexture.active = shown;
                 var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
                 tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                 tex.Apply();
                 RenderTexture.active = prev;
+                if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
 
                 var big = PointDouble(tex);
                 File.WriteAllBytes(Path.Combine(OutDir, "psx_" + name + ".png"), big.EncodeToPNG());
@@ -992,6 +1039,30 @@ namespace PSXRacing.EditorTools
             rt.Release();
             Object.DestroyImmediate(rt);
             cam.transform.SetPositionAndRotation(oldPos, oldRot);
+        }
+
+        /// <summary>
+        /// The framebuffer as the player sees it: through the scene's own
+        /// PSX/Blit material at the quality setting's depth and dither. The
+        /// source comes back untouched when the scene has no display material
+        /// to borrow (the caller then reads the raw render, as before).
+        /// </summary>
+        static RenderTexture Dithered(RenderTexture src)
+        {
+            var output = Object.FindFirstObjectByType<PSXCameraOutput>();
+            var mat = output != null && output.display != null ? output.display.material : null;
+            if (mat == null || !mat.HasProperty("_ColorDepth")) return src;
+            var tmp = new Material(mat) { hideFlags = HideFlags.HideAndDontSave };
+            tmp.SetFloat("_ColorDepth", PSXQuality.ColorDepth);
+            tmp.SetFloat("_DitherStrength", PSXQuality.Dither);
+            var dst = new RenderTexture(src.width, src.height, 0, RenderTextureFormat.ARGB32)
+            {
+                filterMode = FilterMode.Point,
+            };
+            dst.Create();
+            Graphics.Blit(src, dst, tmp);
+            Object.DestroyImmediate(tmp);
+            return dst;
         }
 
         static Texture2D PointDouble(Texture2D src)

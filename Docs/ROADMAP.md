@@ -257,6 +257,76 @@ the car in every view and every hour on the first circuit in three minutes
 (`PSXScreenshotTool.CapturePaintOnly`) — and a WebGL build. The one property
 left is `_Dull`, set on wheel renderers by `CarPaint.DullWheels`.
 
+### One light source, halogen beams, and the lamps that were inside the car
+
+The third verdict on the paint, with the second cut's screenshot beside a
+Gran Turismo 2 frame: "still covered in flour or glazed... this does not
+reflect real lighting or even modern retro lighting. Notice how in Gran
+Turismo 2 the sun is on the right side of the sky and the right side of the
+car is receiving light, while the left side is more shaded. There should be a
+single light source (sun or moon)." Four things were wrong, and one of them
+was under every shader in the game:
+
+- **The blit quantized in LINEAR space.** The project renders linear; the
+  framebuffer sample `PSX/Blit` dithers to five bits is linear light, and
+  the first of 31 linear steps above black is already 19% grey on the
+  display. Every shadow in the game was a two-level speckle between black
+  and that — the dark side of a car, the sills, a night road — and read as
+  flat because it was. The PS1's 15-bit framebuffer was gamma-encoded and its
+  steps were perceptually even; the blit now converts to gamma, quantizes,
+  and converts back. `PSXScreenshotTool.Shot` also runs the capture THROUGH
+  the blit now — the reference shots had been skipping the one pass where
+  the darks are decided, a picture of a renderer the player does not have.
+- **`PSX/CarPaint`, third cut.** The second lerped half the sky over the
+  paint at the silhouette (the glaze), laid a pow-10 sheen across every
+  panel facing halfway between sun and camera (the flour), gave vertical
+  panels 0.7 of the ambient (47% grey on the display, next to a lit side at
+  90%: two-to-one where the reference is four) and clipped the whole lit
+  side to one tone. Now: a hemisphere ambient at 0.4 of the ambient on the
+  sides and 0.14 underneath, the paint taking 0.8 of it; one lambert with a
+  real terminator; a soft knee `1 - exp(-1.5x)` instead of `saturate` so a
+  bonnet darkens as it curves away from the sun; the sky reflection ADDED,
+  at a tenth of what it was face-on, the way the PS1 drew its env-map as a
+  second additive pass; the sheen gone and only the tight highlight kept.
+  The hour table now has exactly one light source at every hour: dusk's sun
+  was five degrees BELOW the horizon and called its flatness the effect, and
+  it is now the afterglow at two and a half degrees up. `_PSXPaintDebug`
+  (`PSX_PAINT_DEBUG=1 tools/paint-shots.ps1`) renders N.L, the normal, the
+  light, the reflection and the sheet one at a time, for the next time a
+  picture and the arithmetic disagree.
+- **The brake lights were inside the bodywork.** "Brake lights seem to be
+  missing from the game now." `CarLights` hung every lens three centimetres
+  outside the car's BoxCollider, and `CarModelBaker` fits a pack car's box
+  to 95.5% of its mesh — seven centimetres inside the bumper of a 4.5 m
+  car, behind an opaque body. Every pack car had its head AND tail lamps
+  buried since the pack was wired in; only the built-in RX-7 (verbatim box)
+  ever showed them. The lamps are measured off the shell's own mesh bounds
+  now, pushed through the body's yaw and offsets into the car's frame, and
+  hang under the body root so they dive and roll with it. `CapturePaintOnly`
+  shoots a `_brake` frame at noon and dusk so this cannot go quietly again.
+- **Real headlight beams, halogen.** "Projecting actual beams to light the
+  road and volume in front of them... this game is based in 1999 so all
+  headlights should be halogen." The additive disc on the tarmac is gone.
+  `Shaders/PSXHeadlights.cginc` is a per-pixel low-beam term included by
+  `PSX/Lit`, `PSX/LitTransparent` and `PSX/CarPaint`: up to eight lamps
+  (position, axis, spread, colour as `_PSXHead*` globals that `CarLights`
+  fills nearest-camera-first, two per car, and zeroes when the last lit car
+  leaves), each a wide cone with a flat top just above its axis, a 75 m
+  reach, and a grazing-angle term that lets the road light the way a real
+  one does under a lamp of that intensity. It is the only per-pixel light
+  in the game and costs nothing at 240 lines. The volume is `PSX/Beam`: an
+  elliptical cone mesh from each lens, additive, both walls, thick through
+  the middle and thin at the silhouette, faded out by daylight so only dusk
+  and night show it. One halogen colour (`CarLights.Halogen`, warm and a
+  shade of yellow) for the lens, the beam on the world and the beam in the
+  air. `PSX/Beam` has to be in GraphicsSettings' always-included shaders —
+  nothing in a scene references it — and the self-test checks the GUID is
+  there.
+- **The race map's dots** were 7% and 4.5% of the map on a two-pixel line,
+  and the rivals were 92% white on a white road ("should not be white or
+  transparent"). 3.4% and 2.7% now, the player red with a white edge, the
+  field green with a dark one, every marker edged.
+
 ## CHARLOTTE ON THE MAP — THREE STREET VENUES (2026-09-07)
 
 Three real Charlotte roads join the catalog, baked from OpenStreetMap + SRTM

@@ -140,12 +140,18 @@ namespace PSXRacing
             },
             new Preset
             {
-                // Blue hour: the sun is BELOW the horizon, so almost everything
-                // is ambient and the shading goes flat. That flatness is the
-                // effect, not a bug in it.
+                // Blue hour. The sun is down, but the light is not gone: the
+                // afterglow on the western horizon is still ONE direction,
+                // and a car at dusk has a side that faces it and a side that
+                // does not. This used to put the sun five degrees BELOW the
+                // horizon and call the flatness the effect; the owner's
+                // screenshot of that hour was the one that read as "covered
+                // in flour". Two and a half degrees up keeps it a single
+                // light source (every hour has exactly one: a sun or a moon)
+                // and puts a sliver of it on the roof.
                 name = "DUSK", clock = "20:25",
-                sunEuler = new Vector3(-5f, 116f, 0f),
-                sunColor = new Color(0.62f, 0.56f, 0.82f), sunIntensity = 0.55f,
+                sunEuler = new Vector3(2.5f, 116f, 0f),
+                sunColor = new Color(0.72f, 0.58f, 0.80f), sunIntensity = 0.62f,
                 ambient = new Color(0.26f, 0.26f, 0.38f),
                 fogColor = new Color(0.30f, 0.26f, 0.40f), fogNear = 58f, fogFar = 215f,
                 skyTop = new Color(0.09f, 0.09f, 0.24f),

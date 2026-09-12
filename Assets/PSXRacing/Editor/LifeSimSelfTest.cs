@@ -6344,6 +6344,24 @@ namespace PSXRacing.EditorTools
             Check(SpeedLines.MaxIntensity <= 0.35f && SpeedLines.IntensityFor(300f) <= SpeedLines.MaxIntensity,
                   "and never over 0.35 of the frame", SpeedLines.IntensityFor(300f).ToString("0.00"));
             Check(Shader.Find("PSX/SpeedLines") != null, "PSX/SpeedLines compiles and is found");
+
+            // ---- the headlights ---------------------------------------------
+            Check(Shader.Find("PSX/Beam") != null, "PSX/Beam compiles and is found");
+            // Nothing in any scene references PSX/Beam (CarLights makes its
+            // material at runtime), so a player build would strip it and
+            // Shader.Find would hand back null on the phone alone. The
+            // always-included list is the only thing keeping it in.
+            var gfx = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(Application.dataPath, "..", "ProjectSettings", "GraphicsSettings.asset"));
+            Check(gfx.Contains("26c3a241d27b43d1a8b9585a3a9b7713"),
+                  "PSX/Beam is in GraphicsSettings' always-included shaders");
+            Check(CarLights.MaxLights == 8, "eight headlight slots in the table");
+            Check(CarLights.BeamRange >= 60f && CarLights.BeamRange <= 100f,
+                  "a halogen low beam reaches 60-100 m", CarLights.BeamRange);
+            Check(CarLights.Halogen.r > CarLights.Halogen.g && CarLights.Halogen.g > CarLights.Halogen.b,
+                  "the lamps are halogen-warm (r > g > b), not LED white");
+            Check(CarLights.BeamOuterDeg > CarLights.BeamInnerDeg && CarLights.BeamOuterDeg <= 45f,
+                  "the beam spreads wider than its core and under 45 degrees a side");
             var streaks = AssetDatabase.LoadAssetAtPath<Texture2D>(PSXRacingBuilder.SpeedStreaksTexPath);
             Check(streaks != null, "the streak sheet is baked (run the scene build)");
             if (streaks != null)

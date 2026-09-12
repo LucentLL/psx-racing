@@ -39,6 +39,8 @@ Shader "PSX/Lit"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // The one per-pixel light in the game: the cars' headlights.
+            #include "PSXHeadlights.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -76,6 +78,9 @@ Shader "PSX/Lit"
                 float3 uvw : TEXCOORD0;
                 fixed4 light : COLOR0;
                 fixed fog : TEXCOORD1;
+                // For the headlights only. The sun stays per vertex.
+                float3 wpos : TEXCOORD2;
+                float3 wnrm : TEXCOORD3;
             };
 
             v2f vert (appdata v)
@@ -110,6 +115,8 @@ Shader "PSX/Lit"
                 fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
                 fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
                 o.light = fixed4(saturate(lighting), 1);
+                o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.wnrm = n;
 
                 // Manual linear fog by view distance
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
@@ -121,7 +128,10 @@ Shader "PSX/Lit"
             {
                 fixed4 tex = tex2D(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
                 clip(tex.a - _Cutoff);
-                fixed3 lit = tex.rgb * lerp(i.light.rgb, fixed3(1,1,1), _Emission);
+                // Headlights are added to the vertex light, not to the
+                // result: a beam on a texture lights the texture.
+                float3 light = i.light.rgb + PSXHeadlights(i.wpos, normalize(i.wnrm));
+                fixed3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 fixed3 col = lerp(lit, _PSXFogColor.rgb, i.fog);
                 return fixed4(col, tex.a);
             }

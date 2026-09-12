@@ -47,6 +47,22 @@ Shader "PSX/Blit"
             {
                 fixed4 col = tex2D(_MainTex, i.uv);
 
+                // QUANTIZE IN GAMMA SPACE. The project renders in linear
+                // colour, so the framebuffer sample here is linear, and 31
+                // steps of LINEAR light are nothing like the PS1's 31 steps:
+                // the first step above black is already 19% grey on the
+                // display and everything darker than that is a dither between
+                // black and it. That crushed every shadow in the game to a
+                // speckle - the dark side of a car, a night road, the sills -
+                // and reads as "flat" because it IS flat: the darks have two
+                // levels. The PS1's 15-bit framebuffer was gamma-encoded, so
+                // its steps were perceptually even. Convert, quantize, convert
+                // back; the display encode at the end of the pipeline then
+                // lands the values where the console would have put them.
+                #ifndef UNITY_COLORSPACE_GAMMA
+                col.rgb = LinearToGammaSpace(col.rgb);
+                #endif
+
                 // Dither in source-pixel space so the pattern is 1:1 with the low-res buffer
                 float2 srcPixel = floor(i.uv * _MainTex_TexelSize.zw);
                 int idx = (int)(fmod(srcPixel.x, 4.0)) + 4 * (int)(fmod(srcPixel.y, 4.0));
@@ -55,6 +71,10 @@ Shader "PSX/Blit"
                 float levels = pow(2.0, _ColorDepth) - 1.0;
                 col.rgb += threshold * (_DitherStrength / levels);
                 col.rgb = floor(col.rgb * levels + 0.5) / levels;
+
+                #ifndef UNITY_COLORSPACE_GAMMA
+                col.rgb = GammaToLinearSpace(col.rgb);
+                #endif
                 return fixed4(col.rgb, 1);
             }
             ENDCG

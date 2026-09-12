@@ -46,6 +46,9 @@ Shader "PSX/LitTransparent"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // The one per-pixel light in the game: the cars' headlights. A
+            // shop window at night takes the beam like the wall beside it.
+            #include "PSXHeadlights.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -79,6 +82,8 @@ Shader "PSX/LitTransparent"
                 float3 uvw : TEXCOORD0;
                 fixed4 light : COLOR0;
                 fixed fog : TEXCOORD1;
+                float3 wpos : TEXCOORD2;
+                float3 wnrm : TEXCOORD3;
             };
 
             v2f vert (appdata v)
@@ -108,6 +113,8 @@ Shader "PSX/LitTransparent"
                 fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
                 fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
                 o.light = fixed4(saturate(lighting), 1);
+                o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.wnrm = n;
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 o.fog = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
@@ -117,7 +124,8 @@ Shader "PSX/LitTransparent"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed4 tex = tex2D(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
-                fixed3 lit = tex.rgb * lerp(i.light.rgb, fixed3(1,1,1), _Emission);
+                float3 light = i.light.rgb + PSXHeadlights(i.wpos, normalize(i.wnrm));
+                fixed3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 fixed3 col = lerp(lit, _PSXFogColor.rgb, i.fog);
                 // Fog also closes the glass: at full fog a window is as opaque
                 // as the wall beside it, because both are simply haze by then.
