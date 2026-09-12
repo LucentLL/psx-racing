@@ -324,7 +324,243 @@ namespace PSXRacing.EditorTools
             }
             Check(houses > 5, "a suburb tile fills its blocks with houses", houses);
 
+            DriveAudit(map, trims, buildings);
+
             Finish();
+        }
+
+        /// <summary>A freeway-to-freeway interchange: the centroid of the
+        /// crossings between two named roads, clustered by place (I-77 meets
+        /// I-485 twice), with the mainline edge nearest the middle.</summary>
+        public struct Interchange { public Vector2 at; public CityMap.Edge mainline; public float s; public int crossings; }
+
+        public static List<Interchange> Interchanges(CityMap map, string nameA, string nameB)
+        {
+            bool Is(CityMap.Edge e, string n) => e.name == n || (n.Length > 4 && e.name.Contains(n));
+            var clusters = new List<(Vector2 sum, int n, List<Vector2> pts)>();
+            foreach (var c in map.crossings)
+            {
+                var o = map.edges[c.over]; var u = map.edges[c.under];
+                if (!((Is(o, nameA) && Is(u, nameB)) || (Is(o, nameB) && Is(u, nameA)))) continue;
+                int hit = -1;
+                for (int i = 0; i < clusters.Count; i++)
+                    if (Vector2.Distance(clusters[i].sum / clusters[i].n, c.at) < 1100f) { hit = i; break; }
+                if (hit < 0) clusters.Add((c.at, 1, new List<Vector2> { c.at }));
+                else { var cl = clusters[hit]; cl.pts.Add(c.at); clusters[hit] = (cl.sum + c.at, cl.n + 1, cl.pts); }
+            }
+            var result = new List<Interchange>();
+            foreach (var cl in clusters)
+            {
+                var at = cl.sum / cl.n;
+                CityMap.Edge best = null; float bd = float.MaxValue, bs = 0f;
+                foreach (var e in map.edges)
+                {
+                    if (e.link || !Is(e, nameA)) continue;
+                    if (Vector2.Distance(e.PointAt(e.length * 0.5f), at) > 1500f) continue;
+                    CityElevation.ProjectOn(e, at, out float s);
+                    float d = Vector2.Distance(e.PointAt(s), at);
+                    if (d < bd) { bd = d; best = e; bs = s; }
+                }
+                if (best != null) result.Add(new Interchange { at = at, mainline = best, s = bs, crossings = cl.n });
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// THE DRIVE AUDIT. Everything above reasons about numbers; this one
+        /// stands real tiles up with their colliders and asks the questions
+        /// the car asks: is there a surface under every lane, is it where
+        /// the solver said, does it step, and is anything solid standing
+        /// across the lane at wheel height. Rays, not arithmetic — a second
+        /// copy of the builder's sums agrees with the first while both are
+        /// wrong. Runs on the tiles that have been wrong before: uptown, the
+        /// West 5th Street bridge, the I-277/I-77 interchanges, a ramp merge
+        /// and a piece of I-485.
+        /// </summary>
+        static void DriveAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
+        {
+            var spots = new List<(string name, Vector2 at)> { ("uptown", map.uptown) };
+            foreach (var e in map.edges)
+                if (e.bridge && e.name == "West 5th Street") { spots.Add(("w5th", e.PointAt(e.length * 0.5f))); break; }
+            foreach (var ic in Interchanges(map, "I-277", "I-77")) spots.Add(("i277_i77", ic.at));
+            foreach (var ic in Interchanges(map, "I-77", "I-485")) { spots.Add(("i77_i485", ic.at)); break; }
+            foreach (var e in map.edges)
+                if (e.link && e.cls >= 5 && Vector2.Distance(map.nodes[e.b], map.uptown) > 3000f) { spots.Add(("gore", map.nodes[e.b])); break; }
+            foreach (var e in map.edges)
+                if (e.name == "I-485" && !e.link && e.length > 300f) { spots.Add(("i485", e.PointAt(e.length * 0.5f))); break; }
+
+            int walls = 0, steps = 0, holes = 0, off = 0, probes = 0;
+            var notes = new List<(float sev, string what)>();
+            void Note(float sev, string what) { notes.Add((sev, what)); }
+            string Path(Collider c)
+            {
+                var t = c.transform; var sb = new StringBuilder(t.name);
+                while (t.parent != null && !t.parent.name.StartsWith("~")) { t = t.parent; sb.Insert(0, t.name + "/"); }
+                return sb.ToString();
+            }
+            // whose geometry is that: the nearest OTHER edge to a hit point
+            string Owner(Vector3 at, int notEdge)
+            {
+                var p2 = new Vector2(at.x, at.z);
+                var near = new HashSet<int>();
+                map.EdgeSegsInRect(p2 - Vector2.one * 25f, p2 + Vector2.one * 25f, near);
+                float bd = float.MaxValue; int bi = -1; float bs = 0f;
+                foreach (var packed in near)
+                {
+                    int oi = packed >> 12, si = packed & 0xFFF;
+                    if (oi == notEdge) continue;
+                    var o = map.edges[oi];
+                    Vector2 q0 = o.pts[si], dq = o.pts[si + 1] - q0;
+                    float L2 = dq.sqrMagnitude;
+                    float tt = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p2 - q0, dq) / L2) : 0f;
+                    float dd = Vector2.Distance(p2, q0 + dq * tt);
+                    if (dd < bd) { bd = dd; bi = oi; bs = o.s[si] + Mathf.Sqrt(L2) * tt; }
+                }
+                if (bi < 0) return " (no other edge near)";
+                var oe = map.edges[bi];
+                return $" nearest other: e{bi} '{oe.name}'{(oe.link ? " L" : "")}{(oe.bridge ? " B" : "")} cls{oe.cls} hw {trims.HalfWidthAt(oe, bs):0.0} at {bd:0.0} m, its y {oe.YAt(bs):0.00}, elev {oe.ElevatedAt(bs)}";
+            }
+
+            var sectionDumps = new List<string>();
+            var root = new GameObject("~driveAudit");
+            try
+            {
+                var segs = new HashSet<int>();
+                foreach (var (spot, at) in spots)
+                {
+                    int ptx = Mathf.FloorToInt(at.x / CityMeshes.TileSize);
+                    int ptz = Mathf.FloorToInt(at.y / CityMeshes.TileSize);
+                    var tiles = new List<GameObject>();
+                    // the centre tile LAST, so CityMeshes' per-tile clip table
+                    // describes the tile the probes run on
+                    for (int k = 0; k < 9; k++)
+                        {
+                            int dx = k < 8 ? (k % 3) - 1 : 0, dz = k < 8 ? (k / 3) - 1 : 0;
+                            if (k < 8 && dx == 0 && dz == 0) continue;
+                            var tm = CityMeshes.Build(map, trims, buildings, ptx + dx, ptz + dz);
+                            var go = new GameObject($"tile_{ptx + dx}_{ptz + dz}");
+                            go.transform.SetParent(root.transform, false);
+                            go.transform.position = tm.origin;
+                            CityWorld.Attach(go, tm, null);
+                            tiles.Add(go);
+                        }
+                    Physics.SyncTransforms();
+
+                    var min = new Vector2(ptx * CityMeshes.TileSize, ptz * CityMeshes.TileSize);
+                    var max = min + Vector2.one * CityMeshes.TileSize;
+                    segs.Clear();
+                    map.EdgeSegsInRect(min, max, segs);
+                    var edges = new HashSet<int>();
+                    foreach (var p in segs) edges.Add(p >> 12);
+                    int wallsHere = 0, stepsHere = 0, holesHere = 0, offHere = 0;
+                    foreach (var ei in edges)
+                    {
+                        var e = map.edges[ei];
+                        float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
+                        if (sMax - sMin < 1f) continue;
+                        var prevY = new[] { float.NaN, float.NaN, float.NaN };
+                        int stepN = 0;
+                        for (float s = sMin; s <= sMax + 0.01f; s += 0.5f, stepN++)
+                        {
+                            var p = e.PointAt(s);
+                            if (p.x < min.x || p.x >= max.x || p.y < min.y || p.y >= max.y)
+                            { prevY[0] = prevY[1] = prevY[2] = float.NaN; continue; }
+                            var tan = e.TangentAt(s);
+                            var right = new Vector2(-tan.y, tan.x);
+                            float y = e.YAt(s);
+                            CityMeshes.LaneExtents(map, trims, e, s, out float hwL, out float hwR);
+                            float hw = Mathf.Min(hwL, hwR);
+                            if (hwL + hwR < 1.2f) { prevY[0] = prevY[1] = prevY[2] = float.NaN; continue; }   // collapsed into its host
+                            // three probes INSIDE the drawn ribbon: half a metre in
+                            // from each edge and the middle of what is drawn (a
+                            // clipped wedge's middle is not the centreline)
+                            for (int k = 0; k < 3; k++)
+                            {
+                                float lat;
+                                if (k == 0) { if (hwL < 1.1f) { prevY[k] = float.NaN; continue; } lat = -(hwL - 0.55f); }
+                                else if (k == 2) { if (hwR < 1.1f) { prevY[k] = float.NaN; continue; } lat = hwR - 0.55f; }
+                                else lat = (hwR - hwL) * 0.5f;
+                                var w = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
+                                probes++;
+                                if (!Physics.Raycast(w, Vector3.down, out var hit, 6.5f))
+                                {
+                                    holes++; holesHere++;
+                                    Note(3f, $"HOLE  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} at ({w.x:0},{w.z:0}) roadY {y:0.00}{CityMeshes.DescribeClip(map, trims, e, s)}");
+                                    prevY[k] = float.NaN;
+                                    continue;
+                                }
+                                float d = hit.point.y - y;
+                                if (Mathf.Abs(d) > 0.35f)
+                                {
+                                    off++; offHere++;
+                                    Note(Mathf.Abs(d), $"OFF   {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} surface {d:+0.00;-0.00} m from the solve, hit {Path(hit.collider)} at ({w.x:0},{w.z:0}){CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
+                                }
+                                if (!float.IsNaN(prevY[k]) && Mathf.Abs(hit.point.y - prevY[k]) > 0.12f)
+                                {
+                                    steps++; stepsHere++;
+                                    Note(Mathf.Abs(hit.point.y - prevY[k]) + 1f, $"STEP  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} {hit.point.y - prevY[k]:+0.00;-0.00} m over 0.5 m, on {Path(hit.collider)} at ({w.x:0},{w.z:0}) deg{map.nodeEdges[e.a].Count}/{map.nodeEdges[e.b].Count} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0}{CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
+                                }
+                                prevY[k] = hit.point.y;
+                            }
+                            if (stepN % 4 != 0) continue;
+                            // not on the end lines: a mitred rail end lies exactly there
+                            if (s < sMin + 1.5f || s > sMax - 1.5f) continue;
+                            // a deck's rail stands 0.3 m INSIDE the deck edge
+                            if (hwL + hwR < 2.0f) continue;
+                            var a = new Vector3(p.x - right.x * (hwL - 0.6f), y + 0.5f, p.y - right.y * (hwL - 0.6f));
+                            var b = new Vector3(p.x + right.x * (hwR - 0.6f), y + 0.5f, p.y + right.y * (hwR - 0.6f));
+                            var dir = b - a; float len = dir.magnitude;
+                            if (len < 0.6f) continue;
+                            dir /= len;
+                            if (Physics.Raycast(a, dir, out var h1, len) || Physics.Raycast(b, -dir, out h1, len))
+                            {
+                                walls++; wallsHere++;
+                                Note(2f, $"WALL  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0}/{e.length:0} hw {hwL:0.0}/{hwR:0.0} across the lane: {Path(h1.collider)} at ({h1.point.x:0},{h1.point.z:0}) y {h1.point.y:0.00} (road {y:0.00}) lateral {Vector2.Dot(new Vector2(h1.point.x, h1.point.z) - p, right):+0.0;-0.0}{Owner(h1.point, ei)}");
+                            }
+                        }
+                    }
+                    Line($"drive {spot} at ({at.x:0},{at.y:0}): {edges.Count} edges, walls {wallsHere}, steps {stepsHere}, holes {holesHere}, off-surface {offHere}");
+                    // the sections of the worst two edges on this tile, as drawn
+                    var worst = new List<(float sev, int ei)>();
+                    foreach (var (sev, what) in notes)
+                    {
+                        if (!what.Contains(" " + spot + " e")) continue;
+                        int i0 = what.IndexOf(" e", what.IndexOf(spot)) + 2;
+                        int i1 = what.IndexOf(' ', i0);
+                        if (int.TryParse(what.Substring(i0, i1 - i0), out int wei) && !worst.Exists(w => w.ei == wei))
+                            worst.Add((sev, wei));
+                    }
+                    worst.Sort((x, z) => z.sev.CompareTo(x.sev));
+                    for (int wi = 0; wi < Mathf.Min(2, worst.Count); wi++)
+                    {
+                        var we = map.edges[worst[wi].ei];
+                        sectionDumps.Add(CityMeshes.DescribeSections(map, trims, we));
+                        // ...and the road it runs beside, if any
+                        int hei = CityMeshes.HostEdgeAt(we, we.length * 0.5f);
+                        if (hei >= 0) sectionDumps.Add(CityMeshes.DescribeSections(map, trims, map.edges[hei]));
+                    }
+                    foreach (var t in tiles) Object.DestroyImmediate(t);
+                }
+            }
+            finally { Object.DestroyImmediate(root); }
+
+            Line($"drive audit: {probes} probes on {spots.Count} tiles");
+            Check(walls == 0, "nothing solid stands across any lane (drive audit)", walls);
+            Check(steps == 0, "no lane surface steps more than 12 cm in half a metre (drive audit)", steps);
+            Check(holes == 0, "every lane has a surface under it (drive audit)", holes);
+            Check(off == 0, "every lane surface is where the solve put it (drive audit)", off);
+            notes.Sort((p, q) => q.sev.CompareTo(p.sev));
+            var seen = new HashSet<string>();
+            int shown = 0;
+            foreach (var (sev, what) in notes)
+            {
+                // one line per edge and kind, worst first
+                string key = what.Substring(0, Mathf.Min(what.Length, what.IndexOf(" s=") > 0 ? what.IndexOf(" s=") : what.Length));
+                if (!seen.Add(key)) continue;
+                Line("    " + what);
+                if (++shown >= 24) break;
+            }
+            foreach (var dump in sectionDumps) Line(dump.TrimEnd());
         }
 
         static int VCount(Mesh m) => m == null ? 0 : m.vertexCount;

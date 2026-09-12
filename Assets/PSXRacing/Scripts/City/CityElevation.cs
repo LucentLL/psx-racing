@@ -43,11 +43,15 @@ namespace PSXRacing.City
         /// so the road's own side always reaches down to it.</summary>
         public const float CorridorSink = 0.18f;
         public const float CorridorBlend = 26f;
-        /// <summary>Above the base ground by this much = on structure. Wider
-        /// than it was on the noise terrain: a road profile smoothed over
-        /// 25 m sits a little proud of a real dip, and a deck across every
-        /// hollow in the county is not what that means.</summary>
-        public const float ElevMarginM = 1.4f;
+        /// <summary>Above the base ground by this much = on structure, as a
+        /// LAST RESORT. It was 1.4 m and it decided most of the decks in the
+        /// city: the SRTM grid was min-filtered (6.6 m low on average, 20 m
+        /// low beside every valley), so a road on any hillside stood proud
+        /// of the "ground" and became a floating slab with rails. Decks now
+        /// come from the facts (<see cref="MarkStructure"/>); a road merely
+        /// above the terrain is an EMBANKMENT and the ground is graded up to
+        /// it. This margin only catches an untagged viaduct.</summary>
+        public const float ElevMarginM = 3.5f;
 
         const float ApproachGrade = 0.045f;
         /// <summary>A crossing closer than this to the end of the freeway
@@ -265,17 +269,9 @@ namespace PSXRacing.City
             }
             SnapNodesToEnds(map);
 
-            // 9. mark structure LAST, so lifted approaches near reconciled
-            // nodes get decks and lose their ground pin too.
-            foreach (var e in map.edges)
-            {
-                for (int i = 0; i < e.stS.Length; i++)
-                {
-                    if (e.stElev[i]) continue;
-                    var p = e.PointAt(e.stS[i]);
-                    if (e.stY[i] > BaseY(p.x, p.y) + ElevMarginM) e.stElev[i] = true;
-                }
-            }
+            // 9. mark structure LAST, from the facts: decks over crossings,
+            // embankments everywhere else.
+            MarkStructure(map);
 
             // 10. lakes get one flat surface each; the shore owns the level
             foreach (var w in map.waters)
@@ -410,6 +406,56 @@ namespace PSXRacing.City
                 }
                 else BlendEndsToNodes(map, e);
             }
+        }
+
+        /// <summary>
+        /// Which stations are a DECK (no ground under them) and which are an
+        /// EMBANKMENT (the ground graded up to them). A tagged bridge and a
+        /// water span were marked as they were solved; here every enforced
+        /// crossing marks its OVER road as structure across the under road's
+        /// whole corridor and blend, both sides (<see cref="DeckReach"/>), so
+        /// the under road's verge is never pinned up into a bank by the road
+        /// crossing it. Beyond that reach the approach is a fill. Anything
+        /// still standing more than <see cref="ElevMarginM"/> above the
+        /// terrain is taken for an untagged viaduct.
+        /// </summary>
+        static void MarkStructure(CityMap map)
+        {
+            for (int ci = 0; ci < map.crossings.Length; ci++)
+            {
+                if (crossingOn != null && ci < crossingOn.Length && !crossingOn[ci]) continue;
+                var c = map.crossings[ci];
+                var over = map.edges[c.over];
+                var under = map.edges[c.under];
+                ProjectOn(over, c.at, out float sO);
+                ProjectOn(under, c.at, out float sU);
+                float reach = DeckReach(over, under, sO, sU);
+                for (int i = 0; i < over.stS.Length; i++)
+                    if (Mathf.Abs(over.stS[i] - sO) <= reach) over.stElev[i] = true;
+            }
+            foreach (var e in map.edges)
+            {
+                for (int i = 0; i < e.stS.Length; i++)
+                {
+                    if (e.stElev[i]) continue;
+                    var p = e.PointAt(e.stS[i]);
+                    if (e.stY[i] > BaseY(p.x, p.y) + ElevMarginM) e.stElev[i] = true;
+                }
+            }
+        }
+
+        /// <summary>How far along the over road, either side of the crossing
+        /// point, its deck must run to clear the under road's graded
+        /// corridor: the under road's corridor and most of its blend plus
+        /// the over road's own corridor, stretched for an oblique crossing.</summary>
+        public static float DeckReach(CityMap.Edge over, CityMap.Edge under, float sO, float sU)
+        {
+            var tO = over.TangentAt(sO);
+            var tU = under.TangentAt(sU);
+            float cos = Vector2.Dot(tO, tU);
+            float sin = Mathf.Max(0.4f, Mathf.Sqrt(Mathf.Max(0f, 1f - cos * cos)));
+            float across = under.CorridorHalf + CorridorBlend * 0.85f + over.CorridorHalf;
+            return across / sin;
         }
 
         /// <summary>A tagged bridge holds at least the straight line between

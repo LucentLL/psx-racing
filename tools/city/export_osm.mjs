@@ -668,7 +668,30 @@ function gauss(src, sigma) {
   }
   return out;
 }
-dem = gauss(minFilter(dem, 2), 1.1);
+function maxFilter(src, r) {
+  const out = new Float32Array(src.length);
+  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
+    let m = -Infinity;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      const x = Math.min(demNX - 1, Math.max(0, ix + dx)), z = Math.min(demNZ - 1, Math.max(0, iz + dz));
+      m = Math.max(m, src[z * demNX + x]);
+    }
+    out[iz * demNX + ix] = m;
+  }
+  return out;
+}
+// A bare MIN filter (the first cut) took the roofs out and the hills with
+// them: 6.6 m low on average, 20 m low beside every valley, so every road
+// on a hillside stood proud of the "ground" and was built as a deck. A
+// morphological OPENING (erode, then dilate back) removes only what is
+// narrower than the kernel — the towers — and returns the surface
+// everywhere else (2 m mean, and Trade & Tryon lands at 227 m ASL, which
+// is right); the CLOSING after it fills the one-pixel pits the radar left.
+{
+  const opened = maxFilter(minFilter(dem, 2), 2);
+  const closed = minFilter(maxFilter(opened, 1), 1);
+  dem = gauss(closed, 1.1);
+}
 let demMin = Infinity, demMax = -Infinity;
 for (const v of dem) { demMin = Math.min(demMin, v); demMax = Math.max(demMax, v); }
 const demBase = Math.floor(demMin) - 2;
@@ -890,6 +913,11 @@ const buildings = [];
   let dropped = 0;
   const addPoly = (geom, t) => {
     if (SKIP_TYPES.has(t.building)) { dropped++; return; }
+    // An ELEVATED structure — a skywalk over the street (uptown's
+    // Overstreet Mall), a building on stilts, anything with a floor above
+    // the ground — extruded from the pavement is a wall across the road.
+    if (t.building === 'bridge' || parseInt(t['building:min_level'], 10) > 0 ||
+        parseHeight(t.min_height) > 1.5 || parseInt(t.layer, 10) > 0) { dropped++; return; }
     let pts = geom.map(g => [toX(g.lon), toZ(g.lat)]);
     if (pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.05) pts.pop();
     pts = rdp(pts, 0.35);
@@ -926,6 +954,42 @@ const buildings = [];
     else if (el.type === 'relation' && el.tags && el.members) {
       for (const m of el.members) if (m.role === 'outer' && m.geometry) addPoly(m.geometry, el.tags);
     }
+  }
+  // A footprint a road runs THROUGH (in one side and out the other) is a
+  // structure over the road or a mapping error; either way a wall across
+  // the lane. A road that merely ENDS inside one is a garage entrance.
+  {
+    let through = 0;
+    const keep = [];
+    for (const b of buildings) {
+      let x0 = 1e18, x1 = -1e18, z0 = 1e18, z1 = -1e18;
+      for (const p of b.pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+      let straddled = false;
+      const seenSeg = new Set();
+      outer:
+      for (let cx = Math.floor(x0 / SEGCELL); cx <= Math.floor(x1 / SEGCELL); cx++)
+        for (let cz = Math.floor(z0 / SEGCELL); cz <= Math.floor(z1 / SEGCELL); cz++) {
+          const l = segHash.get(cellKey(cx, cz));
+          if (!l) continue;
+          for (const packed of l) {
+            if (seenSeg.has(packed)) continue;
+            seenSeg.add(packed);
+            const e = edges[packed >> 12], i = packed & 4095;
+            const [ax, az] = e.pts[i - 1], [bx, bz] = e.pts[i];
+            let hits = 0;
+            for (let k = 0; k < b.pts.length; k++) {
+              const p = b.pts[k], q = b.pts[(k + 1) % b.pts.length];
+              if (segX(ax, az, bx, bz, p[0], p[1], q[0], q[1])) hits++;
+            }
+            if (hits >= 2) { straddled = true; break outer; }
+          }
+        }
+      if (straddled) through++; else keep.push(b);
+    }
+    buildings.length = 0;
+    for (const b of keep) buildings.push(b);
+    dropped += through;
+    console.log(`  ${through} footprints straddling a road dropped`);
   }
   const styles = [0, 0, 0, 0, 0];
   for (const b of buildings) styles[b.style]++;

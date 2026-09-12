@@ -199,6 +199,60 @@ are retired.
   south — top-down and at street level, to `Screenshots/City`.
 - The live URL is the real test.
 
+## The 2026-09-12 pass: floating roads, ledges, invisible walls
+
+Reported after the rebuild: "a lot of roads still floating in air, not
+connecting, don't properly transition lane counts; invisible walls; bridges
+have ledges blocking entrance; 277 and the 77/85-to-485 clovers need special
+attention". Every item had a concrete cause, and the plan geometry was never
+one of them (it is OpenStreetMap's, and it matches the satellite view by
+construction). What changed:
+
+- **The ground.** The DEM was a bare 5x5 min filter of SRTM: 6.6 m low on
+  average and 20 m low beside every valley, so every hillside road stood in
+  the air. It is a morphological opening now (erode, dilate back; a closing
+  after it fills the radar's one-pixel pits): 2 m mean, and Trade & Tryon
+  lands at 227 m ASL.
+- **Decks from facts only.** A station is on structure when it is a tagged
+  bridge, a water span, a trench deck, or the OVER road of a crossing within
+  `DeckReach` of it (the under road's corridor and most of its blend, plus
+  its own corridor, stretched for an oblique crossing). Everything else that
+  stands above the terrain is an EMBANKMENT and the ground grades up to it;
+  the old "1.4 m above the DEM" rule is a 3.5 m last resort.
+- **Faces.** Kerbs, deck fascias and soffits were wound inward: a bridge seen
+  from beside or below was a paper ribbon with rails. Nothing draws a raw
+  vertical quad any more (`Wall`, `WallSloped`, `Down`).
+- **Junctions.** A node's arms are a THROUGH PAIR plus BRANCHES (anything
+  within 60 degrees of another arm: the ramp, else the lower class, else the
+  narrower). A through road with only branches beside it draws no fan: it
+  runs on mitred and each branch is CLIPPED against it — while its inner
+  edge is inside the host it is cut back to the host's edge along its own
+  cross-line, at the host's height; while the whole ribbon is inside it
+  collapses to a point on that edge. Both roads are chains (a mainline is cut
+  at every ramp node; so is the ramp), projected onto as one polyline, and
+  the branch is sampled at every host vertex and wherever the cut changes
+  state. The host's barrier and both roads' rails stand down for the whole
+  attachment; the painted gore fills 0-4.5 m of separation. Anything else is
+  a fan whose corners sit at each arm's OWN height (the flat fan was the
+  ledge at every bridge mouth) with one trim per node, chosen so the corner
+  cones never interleave.
+- **Widths.** The wider of two through arms tapers to the narrower over
+  25-80 m (30 m per lane) at every mitred node — plain continuations and
+  merges alike. Parallel roads mapped closer than their widths (I-77's
+  express lanes beside its general lanes) split the space between their
+  centrelines in proportion and share one barrier or rail.
+- **Colliders.** Buildings collide as the walls you see (a MeshCollider on
+  the tile's building mesh) instead of an oriented box that reached into the
+  street wherever a footprint was not a rectangle. Piers nudge along the
+  deck to stay out of the road below.
+- **The drive audit** (`CityAudit.DriveAudit`) stands real tiles up with
+  their colliders and rays every lane every half metre: holes, surfaces off
+  the solve, steps over 12 cm, and anything solid across the lane at wheel
+  height. The rewritten builder's first run scored 388 walls / 60 steps /
+  148 off-surface across seven tiles; it ships at 0 / 18 / 37, all of the
+  remainder under 0.45 m at ramp seams where OSM draws the ramp a lane
+  inside its mainline at a different height.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, lane-level turn markings at junctions, lamps and signal heads,

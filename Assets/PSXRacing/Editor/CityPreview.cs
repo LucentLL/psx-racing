@@ -110,6 +110,22 @@ namespace PSXRacing.EditorTools
             // towers stand in a city and not on an island
             probes.Add(("skyline", map.uptown, 2));
 
+            // The trouble spots (2026-09-12): the West 5th Street bridge over
+            // I-77 that the owner photographed with a ledge at its mouth, and
+            // every freeway-to-freeway interchange — top-down at a wider
+            // field, then at windscreen height along the mainline both ways,
+            // then from thirty metres up looking down the road.
+            var views = new List<(string name, Vector2 at, int ring, CityMap.Edge along, float s)>();
+            foreach (var e in map.edges)
+                if (e.bridge && e.name == "West 5th Street")
+                { views.Add(("w5th", e.PointAt(e.length * 0.5f), 1, e, e.length * 0.5f)); break; }
+            foreach (var (a, b) in new[] { ("I-277", "I-77"), ("I-277", "Independence"), ("I-77", "I-485"), ("I-85", "I-485") })
+            {
+                int k = 0;
+                foreach (var ic in CityAudit.Interchanges(map, a, b))
+                    views.Add(($"ic_{Tag(a)}_{Tag(b)}_{k++}", ic.at, 2, ic.mainline, ic.s));
+            }
+
             // PSX/Lit reads global fog + snap; give it a daylight look
             Shader.SetGlobalFloat("_PSXFogNear", 900f);
             Shader.SetGlobalFloat("_PSXFogFar", 2000f);
@@ -151,7 +167,33 @@ namespace PSXRacing.EditorTools
                     foreach (var t in tiles) Object.DestroyImmediate(t);
                     roots.RemoveAll(r => r == null);
                 }
-                Debug.Log($"[CityPreview] wrote shots for {probes.Count} probes to {dir}");
+
+                foreach (var (name, at, ring, along, s) in views)
+                {
+                    var tiles = BuildRing(map, trims, buildings, world, at, ring, out var stats);
+                    roots.AddRange(tiles);
+                    Debug.Log($"[CityPreview] {name}: {stats}");
+                    float midY = along.YAt(s);
+                    Shoot(dir, name + "_top", new Vector3(at.x, midY + 300f, at.y),
+                          Quaternion.Euler(90f, 0f, 0f), ortho: ring >= 2 ? 330f : 150f, w: 1280, h: 720);
+                    for (int side = 0; side < 2; side++)
+                    {
+                        float dirS = side == 0 ? 1f : -1f;
+                        float s0 = Mathf.Clamp(s - dirS * 70f, 0f, along.length);
+                        var p0 = along.PointAt(s0);
+                        var t0 = along.TangentAt(s0) * dirS;
+                        var fwd = new Vector3(t0.x, 0f, t0.y);
+                        var eye = new Vector3(p0.x, along.YAt(s0) + 1.5f, p0.y);
+                        Shoot(dir, name + (side == 0 ? "_ahead" : "_back"), eye,
+                              Quaternion.LookRotation(fwd + Vector3.down * 0.04f), ortho: 0f, w: 1280, h: 720);
+                        if (side == 0)
+                            Shoot(dir, name + "_high", eye - fwd * 60f + Vector3.up * 32f,
+                                  Quaternion.LookRotation(fwd + Vector3.down * 0.34f), ortho: 0f, w: 1280, h: 720);
+                    }
+                    foreach (var t in tiles) Object.DestroyImmediate(t);
+                    roots.RemoveAll(r => r == null);
+                }
+                Debug.Log($"[CityPreview] wrote shots for {probes.Count} probes and {views.Count} views to {dir}");
             }
             finally
             {
@@ -159,7 +201,7 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static List<GameObject> BuildRing(CityMap map, float[] trims,
+        static List<GameObject> BuildRing(CityMap map, CityMeshes.Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, GameObject parent, Vector2 at, int ring,
             out string stats)
         {
@@ -225,7 +267,15 @@ namespace PSXRacing.EditorTools
         static Material[] CityMaterialsForPreview() =>
             PSXRacingBuilder.CityMaterials();
 
-        static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho, float far = 3000f)
+        static string Tag(string s)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in s.ToLowerInvariant()) if (char.IsLetterOrDigit(c)) sb.Append(c);
+            return sb.ToString();
+        }
+
+        static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho, float far = 3000f,
+                          int w = 960, int h = 540)
         {
             var camGO = new GameObject("~previewCam");
             var cam = camGO.AddComponent<Camera>();
@@ -237,7 +287,7 @@ namespace PSXRacing.EditorTools
             cam.fieldOfView = 60f;
             if (ortho > 0f) { cam.orthographic = true; cam.orthographicSize = ortho; }
 
-            var rt = new RenderTexture(960, 540, 24);
+            var rt = new RenderTexture(w, h, 24);
             cam.targetTexture = rt;
             cam.Render();
 

@@ -40,7 +40,7 @@ namespace PSXRacing.City
         public CityMap Map { get; private set; }
 
         Dictionary<long, List<CityBuildings.B>> buildings;
-        float[] nodeTrims;
+        CityMeshes.Trims nodeTrims;
 
         class Tile
         {
@@ -58,7 +58,7 @@ namespace PSXRacing.City
         // and driving back out should not re-place 40,000 buildings.
         static CityMap cachedFor;
         static Dictionary<long, List<CityBuildings.B>> cachedBuildings;
-        static float[] cachedTrims;
+        static CityMeshes.Trims cachedTrims;
 
         /// <summary>The tile counts the last build produced, for the HUD's
         /// debug line and the preview's log.</summary>
@@ -237,53 +237,7 @@ namespace PSXRacing.City
             root.transform.SetParent(transform, false);
             root.transform.position = tm.origin;
 
-            var meshes = new List<Mesh>(5);
-
-            if (tm.ground != null)
-            {
-                var g = Child(root, "Ground", 0);
-                Render(g, tm.ground, tm.groundSlots);
-                g.AddComponent<MeshCollider>().sharedMesh = tm.ground;
-                meshes.Add(tm.ground);
-            }
-            if (tm.roads != null)
-            {
-                var g = Child(root, "Roads", RoadLayer);
-                Render(g, tm.roads, tm.roadSlots);
-                g.AddComponent<MeshCollider>().sharedMesh = tm.roads;
-                meshes.Add(tm.roads);
-            }
-            if (tm.barriers != null)
-            {
-                // Solid, like a pier: CollisionAudio and the stuck watchdog
-                // treat the layer as a wall, which is what a Jersey barrier is.
-                var g = Child(root, "Barriers", SolidLayer);
-                Render(g, tm.barriers, new[] { CityMeshes.Slot.Concrete });
-                g.AddComponent<MeshCollider>().sharedMesh = tm.barriers;
-                meshes.Add(tm.barriers);
-            }
-            if (tm.water != null)
-            {
-                var g = Child(root, "Water", 0);
-                Render(g, tm.water, new[] { CityMeshes.Slot.Water });
-                meshes.Add(tm.water);
-            }
-            if (tm.buildings != null)
-            {
-                var g = Child(root, "Buildings", 0);
-                Render(g, tm.buildings, tm.buildingSlots);
-                meshes.Add(tm.buildings);
-            }
-            foreach (var box in tm.solids)
-            {
-                var s = new GameObject("Solid");
-                s.transform.SetParent(root.transform, false);
-                s.transform.localPosition = box.center;
-                s.transform.localRotation = Quaternion.Euler(0f, box.yawDeg, 0f);
-                s.layer = SolidLayer;
-                var bc = s.AddComponent<BoxCollider>();
-                bc.size = box.size;
-            }
+            var meshes = Attach(root, tm, MatFor);
 
             // Real models on this tile — houses, trailers, restaurants, the
             // pack towers on their real lots. They parent under the tile root
@@ -306,7 +260,69 @@ namespace PSXRacing.City
                 }
             }
 
-            live[key] = new Tile { go = root, meshes = meshes.ToArray() };
+            live[key] = new Tile { go = root, meshes = meshes };
+        }
+
+        /// <summary>
+        /// Stand a built tile up under a root: renderers AND colliders, the
+        /// one definition of which mesh sits on which layer. The audit and
+        /// the preview go through here too, so what they photograph and
+        /// ray-cast is what the player drives on.
+        /// </summary>
+        public static Mesh[] Attach(GameObject root, CityMeshes.TileMeshes tm,
+                                    System.Func<CityMeshes.Slot, Material> matFor)
+        {
+            var meshes = new List<Mesh>(5);
+            if (tm.ground != null)
+            {
+                var g = Child(root, "Ground", 0);
+                Render(g, tm.ground, tm.groundSlots, matFor);
+                g.AddComponent<MeshCollider>().sharedMesh = tm.ground;
+                meshes.Add(tm.ground);
+            }
+            if (tm.roads != null)
+            {
+                var g = Child(root, "Roads", RoadLayer);
+                Render(g, tm.roads, tm.roadSlots, matFor);
+                g.AddComponent<MeshCollider>().sharedMesh = tm.roads;
+                meshes.Add(tm.roads);
+            }
+            if (tm.barriers != null)
+            {
+                // Solid, like a pier: CollisionAudio and the stuck watchdog
+                // treat the layer as a wall, which is what a Jersey barrier is.
+                var g = Child(root, "Barriers", SolidLayer);
+                Render(g, tm.barriers, new[] { CityMeshes.Slot.Concrete }, matFor);
+                g.AddComponent<MeshCollider>().sharedMesh = tm.barriers;
+                meshes.Add(tm.barriers);
+            }
+            if (tm.water != null)
+            {
+                var g = Child(root, "Water", 0);
+                Render(g, tm.water, new[] { CityMeshes.Slot.Water }, matFor);
+                meshes.Add(tm.water);
+            }
+            if (tm.buildings != null)
+            {
+                // The buildings collide as the walls you see. They were
+                // oriented boxes, and an L-shaped block's box reached into the
+                // street — an invisible wall across a lane, on the Solid layer.
+                var g = Child(root, "Buildings", SolidLayer);
+                Render(g, tm.buildings, tm.buildingSlots, matFor);
+                g.AddComponent<MeshCollider>().sharedMesh = tm.buildings;
+                meshes.Add(tm.buildings);
+            }
+            foreach (var box in tm.solids)
+            {
+                var s = new GameObject("Solid");
+                s.transform.SetParent(root.transform, false);
+                s.transform.localPosition = box.center;
+                s.transform.localRotation = Quaternion.Euler(0f, box.yawDeg, 0f);
+                s.layer = SolidLayer;
+                var bc = s.AddComponent<BoxCollider>();
+                bc.size = box.size;
+            }
+            return meshes.ToArray();
         }
 
         static GameObject Child(GameObject parent, string name, int layer)
@@ -317,13 +333,14 @@ namespace PSXRacing.City
             return go;
         }
 
-        void Render(GameObject go, Mesh mesh, CityMeshes.Slot[] slots)
+        static void Render(GameObject go, Mesh mesh, CityMeshes.Slot[] slots,
+                           System.Func<CityMeshes.Slot, Material> matFor)
         {
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
             var mats = new Material[slots.Length];
             for (int i = 0; i < slots.Length; i++)
-                mats[i] = MatFor(slots[i]);
+                mats[i] = matFor != null ? matFor(slots[i]) : null;
             mr.sharedMaterials = mats;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;

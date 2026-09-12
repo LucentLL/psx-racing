@@ -50,7 +50,7 @@ namespace PSXRacing.EditorTools
             {
                 if (shown++ >= 12) break;
                 var e = map.edges[ei];
-                float sMin = trims[e.a], sMax = e.length - trims[e.b];
+                float sMin = trims.atA[e.index], sMax = e.length - trims.atB[e.index];
                 float midS = (sMin + sMax) * 0.5f;
                 var p = e.PointAt(midS);
                 float roadY = e.YAt(midS);
@@ -84,7 +84,7 @@ namespace PSXRacing.EditorTools
             foreach (var ei in edges)
             {
                 var e = map.edges[ei];
-                float mS = (trims[e.a] + e.length - trims[e.b]) * 0.5f;
+                float mS = (trims.atA[e.index] + e.length - trims.atB[e.index]) * 0.5f;
                 var mp = e.PointAt(mS);
                 if (!(mp.x >= min.x && mp.x < max.x && mp.y >= min.y && mp.y < max.y)) continue;
                 sb.AppendLine($"stations of e{ei} '{e.name}':");
