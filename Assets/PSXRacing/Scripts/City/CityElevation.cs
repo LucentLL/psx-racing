@@ -196,6 +196,15 @@ namespace PSXRacing.City
             // LOWER a freeway, and every raise below reads the lowered height.
             SinkTrenches(map);
 
+            // 2b. every ramp beside its mainline IS the mainline there. Seated
+            // now, so no junction below reads a ramp end that disagrees with
+            // the road it joins; locked, so no raise lifts it off again; and
+            // re-seated after every pass that moves a host.
+            var seatClock = System.Diagnostics.Stopwatch.StartNew();
+            PrepareSeats(map);
+            SeatPrepMs = seatClock.ElapsedMilliseconds;
+            SeatBranches(map);
+
             // 3-7. structure and junction agreement, to a fixed point.
             //
             // Two forces both only push roads UP: a crossing lifts its OVER
@@ -211,6 +220,7 @@ namespace PSXRacing.City
                 HoldWaterSpans(map);
                 HoldBridges(map);
                 float moved = ReconcileNodes(map);
+                SeatBranches(map);
                 if (moved < 0.05f) break;
             }
 
@@ -233,13 +243,17 @@ namespace PSXRacing.City
                 float g = Mathf.Max(MaxGrade(e) * 1.6f, ends * 1.05f);
                 for (int pass = 0; pass < 2; pass++)
                 {
+                    // A seated station is a fixed point the sweep eases
+                    // TOWARD, never one it moves.
                     for (int i = 1; i < e.stY.Length - 1; i++)
                     {
+                        if (e.SeatedAt(i)) continue;
                         float ds = e.stS[i] - e.stS[i - 1];
                         e.stY[i] = Mathf.Clamp(e.stY[i], e.stY[i - 1] - g * ds, e.stY[i - 1] + g * ds);
                     }
                     for (int i = e.stY.Length - 2; i >= 1; i--)
                     {
+                        if (e.SeatedAt(i)) continue;
                         float ds = e.stS[i + 1] - e.stS[i];
                         e.stY[i] = Mathf.Clamp(e.stY[i], e.stY[i + 1] - g * ds, e.stY[i + 1] + g * ds);
                     }
@@ -255,6 +269,7 @@ namespace PSXRacing.City
             RaiseAllCrossings(map, fresh: true);
             RaiseAllCrossings(map, fresh: true);
             RaiseAllCrossings(map, fresh: true);
+            SeatBranches(map);
 
             // THE ENDS MUST MEET, AND THE APPROACH MUST HAVE ROOM. The fresh
             // raises lift some edge ends; the snap takes the highest at each
@@ -272,17 +287,23 @@ namespace PSXRacing.City
             // crossing raise until nothing moves, ending on the cones so the
             // ends are exact (the audit's clearance margin covers the few
             // centimetres a final cone can take from a deck's underside).
-            for (int k = 0; k < 8; k++)
+            // A seat can move a ramp's FAR end (see ClimbOut), and that end's
+            // node and neighbours are this loop's business: iterate until
+            // neither the cones nor the seats move anything.
+            for (int k = 0; k < 12; k++)
             {
                 RaiseAllCrossings(map, fresh: true);
                 SnapNodesToEnds(map);
-                if (RaiseConesFromNodes(map) == 0) break;
+                int seatMoves = SeatBranches(map);
+                if (RaiseConesFromNodes(map) == 0 && seatMoves == 0) break;
             }
             SnapNodesToEnds(map);
+            SeatBranches(map);
 
             // 9. mark structure LAST, from the facts: decks over crossings,
             // embankments everywhere else.
             MarkStructure(map);
+            InheritSeatStructure(map);
             MeasureCrests(map);
 
             // 10. lakes get one flat surface each; the shore owns the level
@@ -518,6 +539,244 @@ namespace PSXRacing.City
             }
         }
 
+        // ------------------------------------------------------------------
+        //  Ramps beside their mainlines
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// THE RAMP IS THE MAINLINE UNTIL IT LEAVES IT.
+        ///
+        /// Reported as "entrance ramps going up through the centre of a road
+        /// like a staircase in the centre of a house". OSM joins a ramp to its
+        /// carriageway at the END of the taper, so for its last hundred metres
+        /// or so a ramp's ribbon lies inside the mainline's; CityMeshes clips
+        /// it against the host there (see EmitBranch) — but only while the two
+        /// are within 0.6 m in height, and nothing here ever made them so.
+        /// Every edge was solved on its own profile and they met at the NODE,
+        /// so a ramp still climbing toward its overpass, or a mainline dug
+        /// into a trench under a suburban bridge, left the ramp standing up to
+        /// five metres out of the lanes it was drawn inside: the clip let go,
+        /// and the ramp's sliver climbed through the air like a stair
+        /// stringer. The census counted 5.7 km of it city-wide, 2.3 km of it
+        /// more than a metre off.
+        ///
+        /// So a branch station inside its host's gore (CityMeshes.BranchSeats,
+        /// the tile's own walk in plan) is SEATED: it takes the host's height
+        /// under it, every pass that raises roads leaves it alone, and it is
+        /// put back on the host after every pass that moves hosts. Beyond the
+        /// last seated station the branch CLIMBS OUT at its class's grade (or
+        /// the grade its far end demands, if steeper), which is where a real
+        /// ramp starts to separate vertically: after it has separated in plan.
+        /// </summary>
+        static readonly List<(int edge, int st, int host, float hostS)> seated = new List<(int, int, int, float)>(4096);
+        /// <summary>Each seated run's last station and which way leads away
+        /// from the host (+1 toward the edge's b end).</summary>
+        static readonly List<(int edge, int boundary, int dir)> climbs = new List<(int, int, int)>(1024);
+
+        /// <summary>Seated stations, per solve: pure plan geometry.</summary>
+        public static int SeatedStationCount => seated.Count;
+        /// <summary>What finding the seats cost this solve, for the load log.</summary>
+        public static long SeatPrepMs { get; private set; }
+
+        /// <summary>For the audit: which stations of an edge are seated and on
+        /// what, and where it climbs out.</summary>
+        public static string DescribeSeats(int edge)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var (ei, st, h, hs) in seated)
+                if (ei == edge) sb.Append($" st{st}->e{h}@{hs:0}");
+            foreach (var (ei, b, d) in climbs)
+                if (ei == edge) sb.Append($" climb from st{b} dir{d}");
+            return sb.Length == 0 ? " (no seats)" : sb.ToString();
+        }
+
+        static void PrepareSeats(CityMap map)
+        {
+            seated.Clear();
+            climbs.Clear();
+            foreach (var e in map.edges) e.stSeat = null;
+            var seats = CityMeshes.BranchSeats(map, CityMeshes.ComputeTrims(map));
+            foreach (var seat in seats)
+                foreach (var (ei, s0, s1, dir) in seat.pieces)
+                {
+                    var e = map.edges[ei];
+                    int n = e.stS.Length;
+                    int first = -1, last = -1;
+                    for (int i = 0; i < n; i++)
+                        if (e.stS[i] >= s0 - 0.01f && e.stS[i] <= s1 + 0.01f) { if (first < 0) first = i; last = i; }
+                    if (first < 0) continue;
+                    // ONE station past the far end of the run: the height
+                    // between the last seated station and the next is a lerp,
+                    // and a climb starting inside the run lifts its last few
+                    // metres off the host before the tile stops clipping them.
+                    if (dir > 0 && last < n - 1) last++;
+                    if (dir < 0 && first > 0) first--;
+                    int added = 0;
+                    for (int i = first; i <= last; i++)
+                    {
+                        int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
+                        if (h < 0 || h == ei) continue;
+                        e.stSeat ??= new bool[n];
+                        if (e.stSeat[i]) continue;      // already seated from its other end
+                        e.stSeat[i] = true;
+                        seated.Add((ei, i, h, hs));
+                        added++;
+                    }
+                    if (added == 0) continue;
+                    int boundary = dir > 0 ? last : first;
+                    if ((dir > 0 && boundary < n - 1) || (dir < 0 && boundary > 0))
+                        climbs.Add((ei, boundary, dir));
+                }
+        }
+
+        /// <summary>Put every seated station back on its host, meet the
+        /// nodes the seated runs end at, and grade each climb out. Returns
+        /// how many far ends the climbs had to move, for the loop that
+        /// reconciles nodes after it.</summary>
+        static int SeatBranches(CityMap map)
+        {
+            if (seated.Count == 0) return 0;
+            foreach (var (ei, st, h, hs) in seated)
+                map.edges[ei].stY[st] = map.edges[h].YAt(hs);
+            foreach (var (ei, st, h, hs) in seated)
+            {
+                var e = map.edges[ei];
+                if (st == 0) SeatNode(map, e.a, e.stY[0]);
+                else if (st == e.stY.Length - 1) SeatNode(map, e.b, e.stY[st]);
+            }
+            int moves = 0;
+            foreach (var (ei, boundary, dir) in climbs) moves += ClimbOut(map, map.edges[ei], boundary, dir, farEnds: true);
+            return moves;
+        }
+
+        /// <summary>A node a seated run ends at takes the run's height, and so
+        /// does every other RAMP end there (with its own climb out). A through
+        /// road's end is never moved from here — at a merge node those ends
+        /// are the host the run was seated on — and a higher one keeps the
+        /// node up with it.</summary>
+        static void SeatNode(CityMap map, int node, float y)
+        {
+            float ny = y;
+            foreach (var oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                if (o.a == o.b) continue;
+                bool atA = o.a == node;
+                int st = atA ? 0 : o.stY.Length - 1;
+                if (o.SeatedAt(st)) continue;
+                if (!o.link) { ny = Mathf.Max(ny, o.stY[st]); continue; }
+                if (Mathf.Abs(o.stY[st] - y) < 0.01f) continue;
+                o.stY[st] = y;
+                ClimbOut(map, o, st, atA ? 1 : -1, farEnds: false);
+            }
+            map.nodeY[node] = ny;
+        }
+
+        /// <summary>
+        /// From a fixed station, away along the edge: no steeper than the
+        /// class allows, unless the next fixed height (a seated station or the
+        /// far end) needs steeper, and then exactly as steep as that.
+        ///
+        /// A long ramp beside its mainline is seated to within a station of its
+        /// far end, and that end's node was solved without it: a collector
+        /// road on the I-277 bridge for 70 of its 81 m had 10 m left to drop
+        /// 4.6 m to a node at ground level (50%), and one lying in the 277 cut
+        /// for all 261 m had a junction 2.7 m above the cut at its far end. So
+        /// with <paramref name="farEnds"/>, a far END out of reach of
+        /// <see cref="ClimbReach"/> is moved into it: RAISED when it is too low
+        /// (the node and its other arms follow through the solver's own snap
+        /// and cones, which is why the caller counts the move), and LOWERED
+        /// when it is too high but only where nothing but ground put it there
+        /// (<see cref="LowerFarNode"/>). Anything else keeps the steep climb,
+        /// which is what the geometry honestly is.
+        /// </summary>
+        static int ClimbOut(CityMap map, CityMap.Edge e, int from, int dir, bool farEnds)
+        {
+            int n = e.stY.Length;
+            int far = from + dir;
+            while (far > 0 && far < n - 1 && !e.SeatedAt(far)) far += dir;
+            far = Mathf.Clamp(far, 0, n - 1);
+            if (far == from) return 0;
+            float yZ = e.stY[from];
+            float span = Mathf.Abs(e.stS[far] - e.stS[from]);
+            if (span < 0.5f) return 0;
+            int moves = 0;
+            if (farEnds && (far == 0 || far == n - 1) && !e.SeatedAt(far) && e.link)
+            {
+                float reach = ClimbReach(e) * span;
+                int farNode = far == 0 ? e.a : e.b;
+                if (e.stY[far] < yZ - reach - 0.02f)
+                {
+                    e.stY[far] = yZ - reach;
+                    moves++;
+                }
+                else if (e.stY[far] > yZ + reach + 0.02f && LowerFarNode(map, farNode, e, yZ + reach))
+                    moves++;
+            }
+            float g = Mathf.Max(MaxGrade(e), Mathf.Abs(e.stY[far] - yZ) / span * 1.05f);
+            for (int i = from + dir; i != far; i += dir)
+            {
+                float d = Mathf.Abs(e.stS[i] - e.stS[from]);
+                e.stY[i] = Mathf.Clamp(e.stY[i], yZ - g * d, yZ + g * d);
+            }
+            return moves;
+        }
+
+        /// <summary>The host a seated station sits on, or -1. A scan: only the
+        /// rare refused-or-not lowering asks.</summary>
+        static int SeatHostOf(int edge, int station)
+        {
+            foreach (var (ei, st, h, _) in seated)
+                if (ei == edge && st == station) return h;
+            return -1;
+        }
+
+        /// <summary>The steepest a ramp may leave its host at before its far
+        /// end is moved instead: one and a half times its class's grade (12%
+        /// on a link) — the relax pass's own ceiling.</summary>
+        static float ClimbReach(CityMap.Edge e) => MaxGrade(e) * 1.5f;
+
+        /// <summary>
+        /// Lower a ramp junction to <paramref name="y"/>, with every arm, IF
+        /// nothing but the ground put it where it is: at its own terrain (not
+        /// raised for a crossing or an approach), not pinned by a trench, every
+        /// arm a ramp (a street would be dragged into a dip), no arm on
+        /// structure or seated at that end. Every other arm eases down to it at
+        /// its own grade. False when refused.
+        /// </summary>
+        static bool LowerFarNode(CityMap map, int node, CityMap.Edge from, float y)
+        {
+            if (map.nodeY[node] > BaseY(map.nodes[node].x, map.nodes[node].y) + 0.5f) return false;
+            if (pinnedNodeY != null && !float.IsNaN(pinnedNodeY[node])) return false;
+            foreach (var oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                if (!o.link || o.a == o.b) return false;
+                int st = o.a == node ? 0 : o.stY.Length - 1;
+                if (o.stElev[st]) return false;
+                // Seated on some other road, that end is not ours to move; seated
+                // on the very ramp being lowered, it follows it anyway.
+                if (o.SeatedAt(st) && SeatHostOf(oi, st) != from.index) return false;
+            }
+            map.nodeY[node] = y;
+            foreach (var oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                bool atA = o.a == node;
+                int st = atA ? 0 : o.stY.Length - 1;
+                o.stY[st] = y;
+                if (o != from) ClimbOut(map, o, st, atA ? 1 : -1, farEnds: false);
+            }
+            return true;
+        }
+
+        /// <summary>A seated station stands on whatever its host stands on: a
+        /// ramp inside a bridge deck's pavement is on the deck.</summary>
+        static void InheritSeatStructure(CityMap map)
+        {
+            foreach (var (ei, st, h, hs) in seated)
+                if (map.edges[h].ElevatedAt(hs)) map.edges[ei].stElev[st] = true;
+        }
+
         /// <summary>How far along the over road, either side of the crossing
         /// point, its deck must run to clear the under road's graded
         /// corridor: the under road's corridor and most of its blend plus
@@ -543,6 +802,7 @@ namespace PSXRacing.City
                 float y0 = e.stY[0], y1 = e.stY[e.stY.Length - 1];
                 for (int i = 1; i < e.stY.Length - 1; i++)
                 {
+                    if (e.SeatedAt(i)) continue;
                     float hold = Mathf.Lerp(y0, y1, e.stS[i] / e.length);
                     if (e.stY[i] < hold) e.stY[i] = hold;
                 }
@@ -652,7 +912,7 @@ namespace PSXRacing.City
                 float y0 = e.YAt(s0), y1 = e.YAt(s1);
                 for (int i = 0; i < e.stS.Length; i++)
                 {
-                    if (e.stS[i] < s0 || e.stS[i] > s1) continue;
+                    if (e.stS[i] < s0 || e.stS[i] > s1 || e.SeatedAt(i)) continue;
                     float t = (e.stS[i] - s0) / (s1 - s0);
                     float hold = Mathf.Lerp(y0, y1, t);
                     if (e.stY[i] < hold) e.stY[i] = hold;
@@ -696,6 +956,9 @@ namespace PSXRacing.City
                 // A stub or a fragment with one end in a cut is a ramp out
                 // of the cut, however short; levelling it would lift the cut.
                 if (pinnedNodeY != null && (!float.IsNaN(pinnedNodeY[e.a]) || !float.IsNaN(pinnedNodeY[e.b]))) continue;
+                // ...and one seated on a host has the host's heights, whatever
+                // they disagree by; levelling it lifts a node off the host.
+                if (e.stSeat != null) continue;
                 if (e.length < RigidStubM)
                 {
                     float d = Mathf.Abs(map.nodeY[e.a] - map.nodeY[e.b]);
@@ -752,15 +1015,22 @@ namespace PSXRacing.City
                 {
                     var e = map.edges[ei];
                     bool fromA = e.a == n;
-                    bool moved = false;
-                    for (int i = 0; i < e.stS.Length; i++)
+                    bool moved = false, seatedOn = false;
+                    int count = e.stS.Length;
+                    // Walked AWAY from the node, and stopped by the first
+                    // seated station: an embankment does not run through a
+                    // ramp that is lying on its mainline, and it must not
+                    // come out of the far side and lift the mainline's node.
+                    for (int k = 0; k < count; k++)
                     {
+                        int i = fromA ? k : count - 1 - k;
+                        if (e.SeatedAt(i)) { seatedOn = true; break; }
                         float dist = fromA ? e.stS[i] : e.length - e.stS[i];
                         float want = ny - dist * ApproachGrade;
                         if (e.stY[i] < want - 0.02f) { e.stY[i] = want; moved = true; }
                     }
-                    if (!moved) continue;
-                    any = true;
+                    if (moved) any = true;
+                    if (!moved || seatedOn) continue;
                     int far = fromA ? e.b : e.a;
                     float farWant = ny - e.length * ApproachGrade;
                     if (farWant > map.nodeY[far] + 0.02f) coneQueue.Add((far, farWant));
@@ -888,6 +1158,8 @@ namespace PSXRacing.City
             // terrain on its own; distant stations are a comparison and a no-op.
             for (int i = 0; i < e.stS.Length; i++)
             {
+                // A seated station is its host's; the host takes its own hump.
+                if (e.SeatedAt(i)) continue;
                 float want = targetY - Mathf.Abs(e.stS[i] - sAt) * ApproachGrade;
                 if (e.stY[i] < want) e.stY[i] = want;
             }

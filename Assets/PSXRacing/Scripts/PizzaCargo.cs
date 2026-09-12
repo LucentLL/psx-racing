@@ -680,6 +680,39 @@ namespace PSXRacing
         /// </summary>
         readonly List<Rigidbody> loose = new List<Rigidbody>();
 
+        /// <summary>The bottles, as transforms. They are in <see cref="loose"/>
+        /// as bodies, but that list grows as boxes open, and the replay needs
+        /// the island's parts in an order that never changes.</summary>
+        readonly List<Transform> bottles = new List<Transform>();
+
+        /// <summary>
+        /// EVERY PART OF THE LOAD A REPLAY HAS TO PUT BACK WHERE IT WAS: the
+        /// seat, the boxes, the bottles, then each box's pizza and lid.
+        ///
+        /// The replay used to switch this component off and leave the island
+        /// alone, so the Pizza Cam showed the whole run with the load exactly
+        /// where it had come to rest at the flag — a box that went into the
+        /// footwell on the first corner was already in the footwell on the
+        /// grid, which is the one thing a delivery replay is for.
+        ///
+        /// PARENTS FIRST. A shut box's pizza and lid are its children, so the
+        /// box has to be placed before them or placing it drags them off the
+        /// pose just written; after a box opens they belong to the island
+        /// root, and the same world pose is right either way. Fixed at build:
+        /// nothing on the island is created after BuildIsland (opening a box
+        /// adds components to transforms that already exist).
+        /// </summary>
+        public List<Transform> ReplayParts()
+        {
+            var parts = new List<Transform>();
+            if (tray != null) parts.Add(tray);
+            foreach (var s in slots) if (s.box != null) parts.Add(s.box.transform);
+            foreach (var b in bottles) if (b != null) parts.Add(b);
+            foreach (var s in slots) if (s.pizza != null) parts.Add(s.pizza);
+            foreach (var s in slots) if (s.lid != null) parts.Add(s.lid);
+            return parts;
+        }
+
         /// <summary>The order, worst-case first is NOT how it is reported: the
         /// customer opens every box, so the mean is what the tip is graded on.
         /// One ruined pizza in three is a third of an order ruined.</summary>
@@ -1142,6 +1175,7 @@ namespace PSXRacing
             // to sleep, and a sleeping body eats the crash impulse.
             rb.sleepThreshold = 0f;
             loose.Add(rb);
+            bottles.Add(go.transform);
         }
 
         Slot BuildBox(GameObject boxPrefab, int topping, Vector3 localPos, float boxH)

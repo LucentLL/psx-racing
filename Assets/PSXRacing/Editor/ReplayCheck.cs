@@ -113,12 +113,44 @@ namespace PSXRacing.EditorTools
             ReplayCheck.Check(rp != null, "and a replay recorder on it");
             if (rm == null || rp == null) { Done(); yield break; }
 
+            // A DELIVERY'S LOAD, riding in an AI car: the player never drives
+            // in this check, and a load on a parked car records nothing worth
+            // replaying. The recorder attaches to it on its next sample.
+            CarController carrier = null;
+            foreach (var c in rm.allCars) if (c != null && c != rm.playerCar) { carrier = c; break; }
+            var cargo = carrier != null ? PizzaCargo.Spawn(carrier, new[] { 0, 3, 6 }, 2) : null;
+            ReplayCheck.Check(cargo != null && cargo.BoxCount == 3, "a three-box load rides in an AI car",
+                              cargo != null ? cargo.BoxCount : 0);
+            var trace = cargo != null ? gameObject.AddComponent<CargoTrace>() : null;
+            if (trace != null) trace.cargo = cargo;
+
             // The player never touches a key; the AI race on. Twelve seconds
-            // is a grid, a countdown and eight seconds of driving.
+            // is a grid, a countdown and eight seconds of driving — and at
+            // JoltAt a crash, so the load is somewhere different at the end
+            // of the recording from where it was before it.
             float t0 = Time.time;
-            while (Time.time - t0 < RecordSeconds) yield return null;
+            bool jolted = false;
+            float joltClock = -1f;
+            while (Time.time - t0 < RecordSeconds)
+            {
+                if (!jolted && cargo != null && Time.time - t0 >= JoltAt)
+                {
+                    jolted = true;
+                    joltClock = Time.fixedTime - rp.RecordStartFixedTime;
+                    cargo.InjectImpact(-carrier.transform.forward * 6f);
+                }
+                yield return null;
+            }
             ReplayCheck.Check(rp.FrameCount > (RecordSeconds - 2f) * RaceReplay.SampleHz,
                               "the recorder kept up", rp.FrameCount + " samples");
+            ReplayCheck.Check(rp.CargoSamples > 0 && rp.CargoFirstSample >= 0 &&
+                              rp.CargoFirstSample + rp.CargoSamples == rp.FrameCount,
+                              "the load was sampled on every step the cars were",
+                              rp.CargoSamples + " from sample " + rp.CargoFirstSample + " of " + rp.FrameCount);
+            var parts = cargo != null ? cargo.ReplayParts() : new List<Transform>();
+            var partPosBefore = new List<Vector3>();
+            var partRotBefore = new List<Quaternion>();
+            foreach (var p in parts) { partPosBefore.Add(p.position); partRotBefore.Add(p.rotation); }
 
             // Where everybody is right now, and where they were four seconds ago.
             var before = new Dictionary<CarController, Vector3>();
@@ -214,10 +246,58 @@ namespace PSXRacing.EditorTools
             float tP = rp.ReplayTime;
             for (int i = 0; i < 20; i++) yield return null;
             ReplayCheck.Check(Mathf.Abs(rp.ReplayTime - tP) < 1e-4f, "pause holds the clock");
+
+            // THE LOAD REPLAYS ITS OWN PAST. Still paused, so the pose written
+            // is the sample's own: once a second before the crash, once near
+            // the end, each compared against the trace taken live on the same
+            // physics step — and the two against each other, because a replay
+            // that shows the load where it ended passes the first comparison
+            // at the end and fails it everywhere else.
+            if (cargo != null && trace != null && parts.Count > 1)
+            {
+                int bodies = 0, kinematic = 0;
+                foreach (var b in cargo.GetComponentsInChildren<Rigidbody>(true))
+                { bodies++; if (b.isKinematic) kinematic++; }
+                ReplayCheck.Check(bodies > 3 && kinematic == bodies, "every body on the load is kinematic in the replay",
+                                  kinematic + "/" + bodies);
+
+                int kBefore = Mathf.Clamp(Mathf.RoundToInt((joltClock - 1f) * RaceReplay.SampleHz), 0, rp.FrameCount - 1);
+                int kAfter = Mathf.Max(0, rp.FrameCount - 8);
+                var shown = new Vector3[2][];
+                int[] ks = { kBefore, kAfter };
+                for (int q = 0; q < 2; q++)
+                {
+                    float clock = rp.SampleClock(ks[q]);
+                    rp.Seek(clock, hard: true);
+                    yield return null;
+                    shown[q] = new Vector3[parts.Count];
+                    for (int j = 0; j < parts.Count; j++) shown[q][j] = parts[j].position;
+                    float worst = 0f;
+                    bool found = trace.TryAt(rp.RecordStartFixedTime + clock, out var live);
+                    if (found)
+                        for (int j = 0; j < parts.Count && j < live.Length; j++)
+                            worst = Mathf.Max(worst, Vector3.Distance(shown[q][j], live[j]));
+                    ReplayCheck.Check(found && worst < 0.01f,
+                                      (q == 0 ? "before the crash" : "after it") + ", the load sits where it was on that step",
+                                      found ? worst.ToString("0.0000") + " m worst part (t " + clock.ToString("0.00") + " s)" : "no live trace at " + clock.ToString("0.00"));
+                }
+                float moved = 0f;
+                for (int j = 1; j < parts.Count; j++) moved = Mathf.Max(moved, Vector3.Distance(shown[0][j], shown[1][j]));
+                ReplayCheck.Check(moved > 0.05f, "and the replay shows it moving between the two, not parked at the flag",
+                                  moved.ToString("0.00") + " m");
+            }
             pauseField.SetValue(rp, false);
 
             // End: everything back.
             rp.End();
+            // The load is read THE MOMENT the replay ends, before physics has
+            // stepped it: a put-back is exact or it is wrong.
+            float cargoOff = 0f, cargoTurned = 0f;
+            for (int j = 0; j < parts.Count; j++)
+            {
+                cargoOff = Mathf.Max(cargoOff, Vector3.Distance(parts[j].position, partPosBefore[j]));
+                cargoTurned = Mathf.Max(cargoTurned, Quaternion.Angle(parts[j].rotation, partRotBefore[j]));
+            }
             yield return null;
             yield return new WaitForFixedUpdate();
             yield return null;
@@ -236,13 +316,82 @@ namespace PSXRacing.EditorTools
             var chase = cam != null ? cam.GetComponent<ChaseCamera>() : null;
             ReplayCheck.Check(chase != null && chase.enabled, "the chase camera has the lens back");
 
+            if (cargo != null && parts.Count > 1)
+            {
+                ReplayCheck.Check(cargoOff < 1e-3f && cargoTurned < 0.1f, "the load is back where the replay found it",
+                                  cargoOff.ToString("0.0000") + " m, " + cargoTurned.ToString("0.00") + " deg worst part");
+                // And a few steps later it has not been fired across the car: a
+                // body handed back kinematic flags in the wrong order, or a pose
+                // without its velocity, jumps by metres. A box still sliding at
+                // a metre or two a second when the replay began legitimately
+                // carries on — 8.6 cm on the first run — so the bar is set well
+                // above a slide and well below a launch.
+                float drift = 0f;
+                for (int j = 0; j < parts.Count; j++)
+                    drift = Mathf.Max(drift, Vector3.Distance(parts[j].position, partPosBefore[j]));
+                ReplayCheck.Check(drift < 0.30f, "and stays there once physics has it again", drift.ToString("0.000") + " m");
+                int dynamic = 0, boxes = 0;
+                for (int j = 1; j <= cargo.BoxCount && j < parts.Count; j++)
+                {
+                    var b = parts[j].GetComponent<Rigidbody>();
+                    if (b == null) continue;
+                    boxes++;
+                    if (!b.isKinematic) dynamic++;
+                }
+                ReplayCheck.Check(boxes == 3 && dynamic == boxes, "every box is dynamic again", dynamic + "/" + boxes);
+                ReplayCheck.Check(cargo.enabled, "and the load's driver is awake again");
+            }
+
             Done();
         }
+
+        /// <summary>Seconds into the recording at which the load is thrown.</summary>
+        const float JoltAt = 7f;
 
         static void Done()
         {
             ReplayCheck.Finish();
             EditorApplication.Exit(ReplayCheck.failures == 0 ? 0 : 1);
+        }
+    }
+
+    /// <summary>
+    /// The load's parts, traced LIVE on every physics step, for comparison with
+    /// what the replay draws. Taken in FixedUpdate like the recorder's own
+    /// sample, so both read the poses the same step produced whatever order the
+    /// two FixedUpdates run in: nothing moves a body between the scripts and the
+    /// simulation.
+    /// </summary>
+    public class CargoTrace : MonoBehaviour
+    {
+        public PizzaCargo cargo;
+        readonly List<float> clock = new List<float>();
+        readonly List<Vector3[]> poses = new List<Vector3[]>();
+
+        void FixedUpdate()
+        {
+            if (cargo == null || RaceReplay.Playing) return;
+            var parts = cargo.ReplayParts();
+            var p = new Vector3[parts.Count];
+            for (int j = 0; j < parts.Count; j++) p[j] = parts[j].position;
+            clock.Add(Time.fixedTime);
+            poses.Add(p);
+        }
+
+        /// <summary>The trace at the step whose fixed time is nearest
+        /// <paramref name="fixedTime"/>, if one is within half a step.</summary>
+        public bool TryAt(float fixedTime, out Vector3[] pose)
+        {
+            pose = null;
+            int best = -1; float bestD = float.MaxValue;
+            for (int i = 0; i < clock.Count; i++)
+            {
+                float d = Mathf.Abs(clock[i] - fixedTime);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best < 0 || bestD > Time.fixedDeltaTime * 0.5f) return false;
+            pose = poses[best];
+            return true;
         }
     }
 }

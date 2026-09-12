@@ -29,6 +29,10 @@ namespace PSXRacing
     /// Everything is put back exactly when the replay ends, including the
     /// poses the cars were in when it began.
     ///
+    /// A DELIVERY'S LOAD IS RECORDED TOO — the seat, every box, bottle,
+    /// pizza and lid, on the same clock as the cars — and played back into
+    /// the Pizza Cam. See <see cref="CargoTrack"/>.
+    ///
     /// Created at runtime by RaceManager rather than baked into the scenes:
     /// a replay is a property of a race, not of a circuit, and adding it
     /// here is one line that reaches every venue without a rebake.
@@ -100,6 +104,45 @@ namespace PSXRacing
         }
 
         readonly List<CarTrack> tracks = new List<CarTrack>();
+
+        /// <summary>
+        /// THE LOAD ON THE PASSENGER SEAT, per sample.
+        ///
+        /// Reported as "the replay of a delivery does not track where items
+        /// were in the seat at the time, but where they were at the end".
+        /// Playback switched PizzaCargo off and recorded nothing of it, so the
+        /// Pizza Cam spent the whole replay looking at the load as it lay at
+        /// the flag. Now every part of the island (PizzaCargo.ReplayParts) is
+        /// sampled on the cars' step, in world space, and written back on the
+        /// replay clock with every body on the island kinematic — the same
+        /// shape as the cars, with transforms rather than MovePosition because
+        /// half the parts (a shut box's pizza and lid) are not bodies at all.
+        ///
+        /// Its own FIRST sample index, because a load is not guaranteed to
+        /// exist on the recorder's first step; before it, the first frame
+        /// holds. The condition rides along so the Pizza Cam's caption goes
+        /// amber at the moment in the replay it went amber in the race.
+        /// </summary>
+        class CargoTrack
+        {
+            public PizzaCargo cargo;
+            public Transform[] parts;
+            /// <summary>Index into <c>times</c> of this track's first sample.</summary>
+            public int first;
+            /// <summary>parts.Length entries per sample, parts in order.</summary>
+            public readonly List<Vector3> pos = new List<Vector3>(8192);
+            public readonly List<Quaternion> rot = new List<Quaternion>(8192);
+            public readonly List<float> condition = new List<float>(1024);
+            public int Samples => condition.Count;
+            // Restored on End.
+            public Vector3[] savedPos; public Quaternion[] savedRot;
+            public Rigidbody[] bodies;
+            public bool[] savedKinematic;
+            public RigidbodyInterpolation[] savedInterp;
+            public CollisionDetectionMode[] savedCcd;
+            public Vector3[] savedVel, savedSpin;
+        }
+        CargoTrack cargoTrack;
         /// <summary>Race clock per sample, seconds since the recording
         /// began. Frames are evenly spaced so this is index / SampleHz, but
         /// stored anyway: a dropped fixed step must not silently stretch the
@@ -178,6 +221,7 @@ namespace PSXRacing
             recordT0 = -1f;
             stepCounter = 0;
             tailLeft = -1f;
+            cargoTrack = null;
         }
 
         /// <summary>The car's catalog name, or the built-in car's.</summary>
@@ -219,6 +263,34 @@ namespace PSXRacing
             times.Add(t);
             foreach (var tr in tracks)
                 tr.frames.Add(Capture(tr, rm));
+            CaptureCargo();
+        }
+
+        /// <summary>One sample of the load, taken on the same step as the
+        /// cars'. Attaches to the load the first time one exists; a load that
+        /// has since been destroyed simply stops adding samples and the replay
+        /// holds its last one.</summary>
+        void CaptureCargo()
+        {
+            var cargo = PizzaCargo.Instance;
+            if (cargoTrack == null)
+            {
+                if (cargo == null || cargo.BoxCount == 0) return;
+                cargoTrack = new CargoTrack
+                {
+                    cargo = cargo,
+                    parts = cargo.ReplayParts().ToArray(),
+                    first = times.Count - 1,
+                };
+            }
+            var ct = cargoTrack;
+            if (ct.cargo == null || ct.cargo != cargo) return;
+            foreach (var p in ct.parts)
+            {
+                ct.pos.Add(p != null ? p.position : Vector3.zero);
+                ct.rot.Add(p != null ? p.rotation : Quaternion.identity);
+            }
+            ct.condition.Add(cargo.Condition);
         }
 
         static Frame Capture(CarTrack tr, RaceManager rm)
@@ -308,8 +380,7 @@ namespace PSXRacing
                 }
                 c.throttleInput = 0f; c.brakeInput = 0f; c.handbrakeInput = false;
             }
-            var cargo = PizzaCargo.Instance;
-            if (cargo != null) cargo.enabled = false;
+            BeginCargo();
 
             // The lens. The chase rig stands down; the director takes the
             // same camera and the same AudioListener.
@@ -374,8 +445,7 @@ namespace PSXRacing
                 if (tr.paused != null) foreach (var b in tr.paused) if (b != null) b.enabled = true;
                 c.throttleInput = 0f; c.brakeInput = 0f; c.handbrakeInput = false;
             }
-            var cargo = PizzaCargo.Instance;
-            if (cargo != null) cargo.enabled = true;
+            EndCargo();
 
             if (replayCam != null) replayCam.enabled = false;
             if (chase != null)
@@ -495,6 +565,7 @@ namespace PSXRacing
             }
             if (replayCam != null) replayCam.Retarget();
             ApplyVisuals();
+            ApplyCargo(replayTime);
         }
 
         void StepPlayback()
@@ -571,6 +642,162 @@ namespace PSXRacing
             if (mesh != null) mesh.localRotation = Quaternion.Euler(deg, 0f, 0f);
         }
 
+        // ------------------------------------------------------------------
+        //  The load
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// Freeze the island for playback. The component that drives it goes
+        /// to sleep, as it always did; what is new is that every body on the
+        /// island goes KINEMATIC, because a dynamic box the replay writes a
+        /// pose into is a box gravity and the solver immediately take back.
+        /// Interpolation off so a transform write is what gets drawn, and
+        /// speculative contacts first because PhysX refuses swept CCD on a
+        /// kinematic body and says so on every step.
+        /// </summary>
+        void BeginCargo()
+        {
+            var live = PizzaCargo.Instance;
+            if (live != null) live.enabled = false;
+            var ct = cargoTrack;
+            if (ct == null || ct.cargo == null || ct.Samples == 0) return;
+
+            int n = ct.parts.Length;
+            ct.savedPos = new Vector3[n];
+            ct.savedRot = new Quaternion[n];
+            for (int j = 0; j < n; j++)
+                if (ct.parts[j] != null)
+                { ct.savedPos[j] = ct.parts[j].position; ct.savedRot[j] = ct.parts[j].rotation; }
+
+            // Asked for NOW, not at attach: opening a box adds the bodies of
+            // its pizza and lid, and those have to stand still too.
+            ct.bodies = ct.cargo.GetComponentsInChildren<Rigidbody>(true);
+            int m = ct.bodies.Length;
+            ct.savedKinematic = new bool[m];
+            ct.savedInterp = new RigidbodyInterpolation[m];
+            ct.savedCcd = new CollisionDetectionMode[m];
+            ct.savedVel = new Vector3[m];
+            ct.savedSpin = new Vector3[m];
+            for (int i = 0; i < m; i++)
+            {
+                var b = ct.bodies[i];
+                if (b == null) continue;
+                ct.savedKinematic[i] = b.isKinematic;
+                ct.savedInterp[i] = b.interpolation;
+                ct.savedCcd[i] = b.collisionDetectionMode;
+                if (!b.isKinematic) { ct.savedVel[i] = b.linearVelocity; ct.savedSpin[i] = b.angularVelocity; }
+                b.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+                b.isKinematic = true;
+                b.interpolation = RigidbodyInterpolation.None;
+            }
+        }
+
+        /// <summary>Put the load back exactly as the replay found it — poses,
+        /// body flags and the velocities it had — and wake its driver with
+        /// its motion memory wiped, because the car it rides in has just been
+        /// teleported back from wherever the replay left it.</summary>
+        void EndCargo()
+        {
+            var ct = cargoTrack;
+            if (ct != null && ct.cargo != null && ct.bodies != null && ct.savedPos != null)
+            {
+                // Poses FIRST, while every body is still kinematic and nothing
+                // can argue with the write.
+                for (int j = 0; j < ct.parts.Length; j++)
+                    if (ct.parts[j] != null)
+                        ct.parts[j].SetPositionAndRotation(ct.savedPos[j], ct.savedRot[j]);
+                for (int i = 0; i < ct.bodies.Length; i++)
+                {
+                    var b = ct.bodies[i];
+                    if (b == null) continue;
+                    b.position = b.transform.position;
+                    b.rotation = b.transform.rotation;
+                    b.isKinematic = ct.savedKinematic[i];
+                    b.collisionDetectionMode = ct.savedCcd[i];
+                    b.interpolation = ct.savedInterp[i];
+                    if (!b.isKinematic) { b.linearVelocity = ct.savedVel[i]; b.angularVelocity = ct.savedSpin[i]; }
+                }
+                ct.bodies = null;
+                ct.savedPos = null;
+            }
+            var live = PizzaCargo.Instance;
+            if (live != null)
+            {
+                live.ForgetMotion();
+                live.enabled = true;
+            }
+        }
+
+        /// <summary>The clock the cars are DRAWN at. They are moved on the
+        /// physics step and interpolated, which shows the pose one step behind
+        /// the step's own and slides toward it over the frames between — so
+        /// the load, which is written directly, samples the same moment or it
+        /// leads the car by a step.</summary>
+        float DrawnReplayTime()
+        {
+            if (paused) return replayTime;
+            float dt = Time.fixedDeltaTime;
+            float into = Mathf.Clamp(Time.time - Time.fixedTime, 0f, dt);
+            return Mathf.Clamp(replayTime - dt + into, 0f, Mathf.Max(0f, Duration));
+        }
+
+        void LateUpdate()
+        {
+            if (playing) ApplyCargo(DrawnReplayTime());
+        }
+
+        /// <summary>Write the load's recorded pose at replay time
+        /// <paramref name="t"/>, parents before children.</summary>
+        void ApplyCargo(float t)
+        {
+            var ct = cargoTrack;
+            if (ct == null || ct.cargo == null || ct.bodies == null) return;
+            if (!CargoSampleAt(ct, t, out int k0, out int k1, out float u)) return;
+            int n = ct.parts.Length;
+            for (int j = 0; j < n; j++)
+            {
+                var p = ct.parts[j];
+                if (p == null) continue;
+                int a = k0 * n + j, b = k1 * n + j;
+                p.SetPositionAndRotation(Vector3.Lerp(ct.pos[a], ct.pos[b], u),
+                                         Quaternion.Slerp(ct.rot[a], ct.rot[b], u));
+            }
+        }
+
+        /// <summary>The two cargo samples either side of replay time t, as
+        /// indices into the track's own lists, and how far between them.</summary>
+        bool CargoSampleAt(CargoTrack ct, float t, out int k0, out int k1, out float u)
+        {
+            k0 = k1 = 0; u = 0f;
+            int samples = ct.Samples;
+            if (samples == 0 || ct.parts.Length == 0 || times.Count == 0) return false;
+            int i;
+            if (times.Count == 1 || t <= times[0]) { i = 0; u = 0f; }
+            else if (t >= times[times.Count - 1]) { i = times.Count - 1; u = 0f; }
+            else
+            {
+                i = IndexAt(t);
+                float t0 = times[i], t1 = times[i + 1];
+                u = t1 > t0 ? Mathf.Clamp01((t - t0) / (t1 - t0)) : 0f;
+            }
+            k0 = Mathf.Clamp(i - ct.first, 0, samples - 1);
+            k1 = Mathf.Clamp(i + 1 - ct.first, 0, samples - 1);
+            if (k0 == k1) u = 0f;
+            return true;
+        }
+
+        /// <summary>The load's condition at the replay clock, when a replay
+        /// with a recorded load is on screen — what the Pizza Cam's caption
+        /// reads instead of the load's condition at the flag.</summary>
+        public bool TryCargoCondition(out float condition)
+        {
+            condition = 1f;
+            var ct = cargoTrack;
+            if (!playing || ct == null || !CargoSampleAt(ct, replayTime, out int k0, out int k1, out float u))
+                return false;
+            condition = Mathf.Lerp(ct.condition[k0], ct.condition[k1], u);
+            return true;
+        }
+
         /// <summary>The car's state at a replay time, interpolated between
         /// the two samples either side of it.</summary>
         Frame Sample(CarTrack tr, float t)
@@ -631,8 +858,18 @@ namespace PSXRacing
             times.AddRange(t);
             tracks.Add(new CarTrack { car = car, frames = frames, name = "TEST" });
             recording = false;
+            cargoTrack = null;
         }
         public Frame SampleForTest(float t) => tracks.Count > 0 ? Sample(tracks[0], t) : default;
         public int FrameCount => times.Count;
+        /// <summary>For the play-mode check: the Time.fixedTime of the first
+        /// sample, so a trace taken on the same steps can be lined up with
+        /// the replay clock; and the clock of sample k.</summary>
+        public float RecordStartFixedTime => recordT0;
+        public float SampleClock(int k) => times[Mathf.Clamp(k, 0, times.Count - 1)];
+        /// <summary>How many samples of a load were recorded (0 = none), and
+        /// the recorder sample index the first of them was taken on.</summary>
+        public int CargoSamples => cargoTrack != null ? cargoTrack.Samples : 0;
+        public int CargoFirstSample => cargoTrack != null ? cargoTrack.first : -1;
     }
 }

@@ -18,7 +18,11 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
 # the city data too: the check plays the graph that ships
-robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+# /XO: never copy a source file OLDER than the sandbox's. Resources holds BAKED
+# output (the pizza cargo, the city props) that the scene build rewrites in the
+# sandbox; a plain /E put the source's Aug 30 cargo prefabs back over the Sep 11
+# re-bake, their material GUIDs no longer existed, and the shipped pizzas were pink.
+robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E /XO /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 
 # Delete the marker first: a tool that throws never writes its log, and a stale
 # one certifies the previous run just as convincingly as a fresh one.

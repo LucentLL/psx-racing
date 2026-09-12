@@ -141,63 +141,7 @@ namespace PSXRacing.EditorTools
             }
             Check(wetFails == 0, "every water crossing carries a deck", wetFails);
 
-            // ---- grades stay drivable ------------------------------------
-            int gradeFails = 0, stubSteep = 0;
-            float worstGrade = 0f;
-            var badG = new List<(float g, CityMap.Edge e, float at)>();
-            foreach (var e in map.edges)
-            {
-                bool stub = e.length < 30f;
-                for (int i = 1; i < e.stS.Length; i++)
-                {
-                    float ds = e.stS[i] - e.stS[i - 1];
-                    if (ds < 0.5f) continue;
-                    float g = Mathf.Abs(e.stY[i] - e.stY[i - 1]) / ds;
-                    if (g > 0.16f)
-                    {
-                        if (stub) { stubSteep++; continue; }
-                        gradeFails++;
-                        badG.Add((g, e, e.stS[i]));
-                    }
-                    if (g > worstGrade && !stub) worstGrade = g;
-                }
-            }
-            Check(gradeFails == 0, "no station-to-station grade past 16% (sub-30 m slivers exempt)",
-                  $"{gradeFails} over (+{stubSteep} on slivers), worst {(worstGrade * 100f):0.0}%");
-            if (gradeFails > 0)
-            {
-                badG.Sort((a, b) => b.g.CompareTo(a.g));
-                foreach (var (g, e, at) in badG.GetRange(0, Mathf.Min(6, badG.Count)))
-                {
-                    var p = e.PointAt(at);
-                    Line($"    grade {(g * 100f):0}% on e{e.index} '{e.name}' L{e.layer} cls{e.cls} len{e.length:0} at s={at:0} ({p.x:0},{p.y:0})" +
-                         (e.bridge ? " BRIDGE" : "") + (e.link ? " LINK" : ""));
-                    // The whole profile and both ends' company, so the next
-                    // run explains itself instead of naming an edge.
-                    var sb = new StringBuilder("      y:");
-                    for (int i = 0; i < e.stY.Length; i++) sb.Append(' ').Append(e.stY[i].ToString("0.0")).Append(e.stElev[i] ? "^" : "");
-                    Line(sb.ToString());
-                    foreach (var n in new[] { e.a, e.b })
-                    {
-                        var nb = new StringBuilder($"      node {n} y={map.nodeY[n]:0.0} base={CityElevation.BaseY(map.nodes[n].x, map.nodes[n].y):0.0}:");
-                        foreach (var oi in map.nodeEdges[n])
-                        {
-                            var o = map.edges[oi];
-                            float endY = o.a == n ? o.stY[0] : o.stY[o.stY.Length - 1];
-                            nb.Append($" e{oi}'{o.name}'{(o.link ? "L" : "")}{(o.bridge ? "B" : "")} len{o.length:0} end{endY:0.0}");
-                        }
-                        Line(nb.ToString());
-                    }
-                    for (int ci = 0; ci < map.crossings.Length; ci++)
-                    {
-                        var c = map.crossings[ci];
-                        if (c.over != e.index && c.under != e.index) continue;
-                        var o = map.edges[c.over == e.index ? c.under : c.over];
-                        CityElevation.ProjectOn(e, c.at, out float sc);
-                        Line($"      {(c.over == e.index ? "OVER" : "UNDER")} e{o.index} '{o.name}'{(o.link ? "L" : "")} at s={sc:0}{(CityElevation.TrenchedCrossings[ci] ? " TRENCH" : "")}{(mask != null && !mask[ci] ? " pruned" : "")}");
-                    }
-                }
-            }
+            GradeAudit(map);
 
             // ---- the race routes chain through the graph -----------------
             foreach (var r in map.routes)
@@ -348,10 +292,25 @@ namespace PSXRacing.EditorTools
             }
             Check(houses > 5, "a suburb tile fills its blocks with houses", houses);
 
+            // ---- no road stands up out of another road's lanes ----------
+            var census = new OverlapStats();
+            OverlapCensus(map, trims, false, null, census);
+            Check(census.branchPastAttach <= 60f,
+                  "no ramp stands off its mainline inside the mainline's pavement (overlap census)",
+                  $"{census.branchPastAttach:0} m of branch more than {BranchAttachDy} m off its host " +
+                  $"(over 3100 m before ramps were seated); {census.metres:0} m of all ribbons at a wrong height, " +
+                  $"{CityElevation.SeatedStationCount} stations seated");
+
             DriveAudit(map, trims, buildings);
 
             Finish();
         }
+
+        /// <summary>What the overlap census measured, for a check.</summary>
+        public class OverlapStats { public float metres, branchMetres, branchPastAttach; }
+        /// <summary>CityMeshes' AttachDy: past this a tile stops clipping a
+        /// branch against its host, and the branch is drawn whole inside it.</summary>
+        const float BranchAttachDy = 0.6f;
 
         /// <summary>A freeway-to-freeway interchange: the centroid of the
         /// crossings between two named roads, clustered by place (I-77 meets
@@ -636,6 +595,267 @@ namespace PSXRacing.EditorTools
             foreach (var dump in sectionDumps) Line(dump.TrimEnd());
         }
 
+        /// <summary>No station-to-station grade past 16% outside a sub-30 m
+        /// sliver; the worst dozen dumped with their seats, nodes and
+        /// crossings, so a failure explains itself.</summary>
+        static void GradeAudit(CityMap map)
+        {
+            var mask = CityElevation.EnforcedCrossings;
+            int gradeFails = 0, stubSteep = 0;
+            float worstGrade = 0f;
+            var badG = new List<(float g, CityMap.Edge e, float at)>();
+            foreach (var e in map.edges)
+            {
+                bool stub = e.length < 30f;
+                for (int i = 1; i < e.stS.Length; i++)
+                {
+                    float ds = e.stS[i] - e.stS[i - 1];
+                    if (ds < 0.5f) continue;
+                    float g = Mathf.Abs(e.stY[i] - e.stY[i - 1]) / ds;
+                    if (g > 0.16f)
+                    {
+                        if (stub) { stubSteep++; continue; }
+                        gradeFails++;
+                        badG.Add((g, e, e.stS[i]));
+                    }
+                    if (g > worstGrade && !stub) worstGrade = g;
+                }
+            }
+            Check(gradeFails == 0, "no station-to-station grade past 16% (sub-30 m slivers exempt)",
+                  $"{gradeFails} over (+{stubSteep} on slivers), worst {(worstGrade * 100f):0.0}%");
+            if (gradeFails == 0) return;
+            badG.Sort((a, b) => b.g.CompareTo(a.g));
+            var shownEdges = new HashSet<int>();
+            foreach (var (g, e, at) in badG)
+            {
+                if (!shownEdges.Add(e.index)) continue;
+                if (shownEdges.Count > 12) break;
+                var p = e.PointAt(at);
+                Line($"    grade {(g * 100f):0}% on e{e.index} '{e.name}' L{e.layer} cls{e.cls} len{e.length:0} at s={at:0} ({p.x:0},{p.y:0}) {LatLon(p.x, p.y)}" +
+                     (e.bridge ? " BRIDGE" : "") + (e.link ? " LINK" : ""));
+                var sb = new StringBuilder("      y:");
+                for (int i = 0; i < e.stY.Length; i++)
+                    sb.Append(' ').Append(e.stY[i].ToString("0.0")).Append(e.stElev[i] ? "^" : "").Append(e.SeatedAt(i) ? "s" : "");
+                Line(sb.ToString());
+                Line("      seats:" + CityElevation.DescribeSeats(e.index));
+                foreach (var n in new[] { e.a, e.b })
+                {
+                    var nb = new StringBuilder($"      node {n} y={map.nodeY[n]:0.0} base={CityElevation.BaseY(map.nodes[n].x, map.nodes[n].y):0.0}:");
+                    foreach (var oi in map.nodeEdges[n])
+                    {
+                        var o = map.edges[oi];
+                        bool atA = o.a == n;
+                        float endY = atA ? o.stY[0] : o.stY[o.stY.Length - 1];
+                        bool endSeat = o.SeatedAt(atA ? 0 : o.stY.Length - 1);
+                        nb.Append($" e{oi}'{o.name}'{(o.link ? "L" : "")}{(o.bridge ? "B" : "")} len{o.length:0} end{endY:0.0}{(endSeat ? "s" : "")}");
+                    }
+                    Line(nb.ToString());
+                }
+                for (int ci = 0; ci < map.crossings.Length; ci++)
+                {
+                    var c = map.crossings[ci];
+                    if (c.over != e.index && c.under != e.index) continue;
+                    var o = map.edges[c.over == e.index ? c.under : c.over];
+                    CityElevation.ProjectOn(e, c.at, out float sc);
+                    Line($"      {(c.over == e.index ? "OVER" : "UNDER")} e{o.index} '{o.name}'{(o.link ? "L" : "")} at s={sc:0}{(CityElevation.TrenchedCrossings[ci] ? " TRENCH" : "")}{(mask != null && !mask[ci] ? " pruned" : "")}");
+                }
+            }
+        }
+
+        /// <summary>Headless entry for the overlap census alone: the graph,
+        /// the solve and the trims, no tiles. Seconds, not minutes.</summary>
+        public static void RunOverlaps()
+        {
+            outLog = new StringBuilder();
+            failures = 0;
+            var map = CityMap.Get();
+            if (map == null) { Fail("charlotte_city.bytes missing from Resources"); Finish(); return; }
+            GradeAudit(map);
+            OverlapCensus(map, CityMeshes.ComputeTrims(map), writeCsv: true);
+            Finish();
+        }
+
+        /// <summary>Game (x, z) to latitude/longitude, for checking a spot
+        /// against satellite imagery.</summary>
+        public static string LatLon(float x, float z) =>
+            $"{35.18456 + z / 111132.0:0.000000},{-80.81770 + x / (111320.0 * System.Math.Cos(35.18456 * System.Math.PI / 180.0)):0.000000}";
+
+        /// <summary>
+        /// THE STAIRCASE CENSUS. Two paved ribbons that overlap in plan must
+        /// either be one surface (the same height, give or take a seam) or a
+        /// grade separation (one a clearance above the other). Anything in
+        /// between is a road standing up out of another road's lanes — "an
+        /// entrance ramp going up through the centre of a road like a staircase
+        /// in the centre of a house". City-wide, every 4 m of every ribbon,
+        /// against every other ribbon it overlaps; junction patches excused
+        /// (the fan owns that ground). Returns the overlapping metres.
+        /// </summary>
+        public static float OverlapCensus(CityMap map, CityMeshes.Trims trims, bool writeCsv)
+            => OverlapCensus(map, trims, writeCsv, null, null);
+
+        public static float OverlapCensus(CityMap map, CityMeshes.Trims trims, bool writeCsv, List<OverlapPair> worstOut)
+            => OverlapCensus(map, trims, writeCsv, worstOut, null);
+
+        /// <summary>A pair of overlapping ribbons, for the preview: the two
+        /// edges, where the worst sample is, how long and how far apart.</summary>
+        public struct OverlapPair { public int e, o; public Vector2 at; public float len, worst; public bool branch; }
+
+        public static float OverlapCensus(CityMap map, CityMeshes.Trims trims, bool writeCsv, List<OverlapPair> worstOut,
+                                          OverlapStats stats)
+        {
+            const float Step = 4f, MinDy = 0.25f, MaxDy = CityElevation.ClearanceM - 0.4f;
+            var csv = writeCsv ? new StringBuilder("e,s,o,sO,dy,dist,dot,hwE,hwO,shared,branch,crossing,link_e,link_o,cls_e,cls_o,elev_e,elev_o,bridge_e,bridge_o,x,z,latlon,name_e,name_o\n") : null;
+            var crossPairs = new HashSet<long>();
+            foreach (var c in map.crossings) crossPairs.Add(PairKey(c.over, c.under));
+            var segs = new HashSet<int>();
+            var bestPer = new Dictionary<int, (float dist, float sO)>();
+            float metres = 0f, metresBranch = 0f, metresBig = 0f;
+            int samples = 0;
+            var pairs = new Dictionary<long, (float len, float worst, int e, int o, Vector2 at, bool branch)>();
+            foreach (var e in map.edges)
+            {
+                float s0 = trims.atA[e.index], s1 = e.length - trims.atB[e.index];
+                for (float s = s0; s <= s1; s += Step)
+                {
+                    var p = e.PointAt(s);
+                    float hwE = trims.HalfWidthAt(e, s);
+                    float y = e.YAt(s);
+                    segs.Clear();
+                    map.EdgeSegsInRect(p - Vector2.one * (hwE + 13f), p + Vector2.one * (hwE + 13f), segs);
+                    bestPer.Clear();
+                    foreach (var packed in segs)
+                    {
+                        int oi = packed >> 12, si = packed & 0xFFF;
+                        if (oi <= e.index) continue;
+                        var o = map.edges[oi];
+                        Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                        float L2 = d.sqrMagnitude;
+                        float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+                        float dist = Vector2.Distance(p, a + d * t);
+                        float sO = o.s[si] + Mathf.Sqrt(L2) * t;
+                        if (!bestPer.TryGetValue(oi, out var bp) || dist < bp.dist) bestPer[oi] = (dist, sO);
+                    }
+                    foreach (var kv in bestPer)
+                    {
+                        var o = map.edges[kv.Key];
+                        float sO = kv.Value.sO, dist = kv.Value.dist;
+                        if (sO < trims.atA[o.index] || sO > o.length - trims.atB[o.index]) continue;
+                        // Off the END of the other road is not inside it: a
+                        // sample just past a mitred node projects onto the
+                        // continuing edge's first point and reads its height.
+                        if (sO < 0.5f || sO > o.length - 0.5f) continue;
+                        float hwO = trims.HalfWidthAt(o, sO);
+                        if (dist > hwE + hwO - 0.5f) continue;
+                        float dy = o.YAt(sO) - y;
+                        // the fan at a shared node owns the ground around it
+                        int shared = e.a == o.a || e.a == o.b ? e.a : e.b == o.a || e.b == o.b ? e.b : -1;
+                        bool branch = trims.branchA[e.index] == o.index || trims.branchB[e.index] == o.index ||
+                                      trims.branchA[o.index] == e.index || trims.branchB[o.index] == e.index;
+                        // A branch beside its own host is one pavement at ANY
+                        // height difference; only an unrelated pair may be a
+                        // separation.
+                        if (Mathf.Abs(dy) < MinDy || (!branch && Mathf.Abs(dy) > MaxDy)) continue;
+                        if (shared >= 0)
+                        {
+                            var np = map.nodes[shared];
+                            float trim = Mathf.Max(trims.TrimAt(e, shared), trims.TrimAt(o, shared));
+                            if (Vector2.Distance(p, np) < trim + hwO + 2f) continue;
+                        }
+                        float dot = Mathf.Abs(Vector2.Dot(e.TangentAt(s), o.TangentAt(sO)));
+                        samples++;
+                        metres += Step;
+                        if (branch && (e.link || o.link))
+                        {
+                            if (stats != null) stats.branchMetres += Step;
+                            if (stats != null && Mathf.Abs(dy) > BranchAttachDy) stats.branchPastAttach += Step;
+                        }
+                        if (e.link != o.link && dot > 0.85f) metresBranch += Step;
+                        if (Mathf.Abs(dy) > 1f) metresBig += Step;
+                        long key = PairKey(e.index, o.index);
+                        pairs.TryGetValue(key, out var pr);
+                        bool worse = Mathf.Abs(dy) > pr.worst;
+                        pairs[key] = (pr.len + Step, Mathf.Max(pr.worst, Mathf.Abs(dy)), e.index, o.index, worse ? p : pr.at, branch);
+                        csv?.Append($"{e.index},{s:0.0},{o.index},{sO:0.0},{dy:0.00},{dist:0.0},{dot:0.00},{hwE:0.0},{hwO:0.0},{shared},{(branch ? 1 : 0)},{(crossPairs.Contains(PairKey(e.index, o.index)) ? 1 : 0)}," +
+                                    $"{(e.link ? 1 : 0)},{(o.link ? 1 : 0)},{e.cls},{o.cls},{(e.ElevatedAt(s) ? 1 : 0)},{(o.ElevatedAt(sO) ? 1 : 0)}," +
+                                    $"{(e.bridge ? 1 : 0)},{(o.bridge ? 1 : 0)},{p.x:0},{p.y:0},\"{LatLon(p.x, p.y)}\",\"{e.name}\",\"{o.name}\"\n");
+                    }
+                }
+            }
+            int bigPairs = 0;
+            var worst = new List<(float score, long key)>();
+            foreach (var kv in pairs)
+            {
+                if (kv.Value.worst > 1f) bigPairs++;
+                worst.Add((kv.Value.len * kv.Value.worst, kv.Key));
+            }
+            worst.Sort((a, b) => b.score.CompareTo(a.score));
+            Line($"overlap census: {metres:0} m of ribbon inside another ribbon at a height between {MinDy} m and {MaxDy} m " +
+                 $"({samples} samples, {pairs.Count} pairs, {bigPairs} pairs past 1 m; {metresBranch:0} m ramp-beside-road, {metresBig:0} m past 1 m)");
+            for (int i = 0; i < Mathf.Min(20, worst.Count); i++)
+            {
+                var v = pairs[worst[i].key];
+                var e = map.edges[v.e]; var o = map.edges[v.o];
+                Line($"    {v.len:0} m, worst {v.worst:0.00} m: e{e.index} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} / e{o.index} '{o.name}'{(o.link ? " L" : "")} cls{o.cls} at ({v.at.x:0},{v.at.y:0}) {LatLon(v.at.x, v.at.y)}");
+            }
+            if (writeCsv)
+                for (int i = 0; i < Mathf.Min(6, worst.Count); i++)
+                {
+                    var v = pairs[worst[i].key];
+                    Line("  pair " + i + ":");
+                    DescribeEdge(map, trims, map.edges[v.e]);
+                    DescribeEdge(map, trims, map.edges[v.o]);
+                }
+            if (csv != null)
+                File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_overlaps.csv"), csv.ToString());
+            if (stats != null) stats.metres = metres;
+            if (worstOut != null)
+                foreach (var (score, key) in worst)
+                {
+                    var v = pairs[key];
+                    worstOut.Add(new OverlapPair { e = v.e, o = v.o, at = v.at, len = v.len, worst = v.worst, branch = v.branch });
+                }
+            return metres;
+        }
+
+        static long PairKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+        /// <summary>Everything the solver knew about one edge: its tags, its
+        /// profile station by station (^ = structure), both nodes with every
+        /// arm's end height, its branch hosts, and every crossing it is in.</summary>
+        public static void DescribeEdge(CityMap map, CityMeshes.Trims trims, CityMap.Edge e)
+        {
+            var mask = CityElevation.EnforcedCrossings;
+            Line($"    e{e.index} '{e.name}'{(e.link ? " LINK" : "")}{(e.bridge ? " BRIDGE" : "")}{(e.tunnel ? " TUNNEL" : "")} cls{e.cls} layer{e.layer} len{e.length:0} w{e.width:0.0} " +
+                 $"branchA e{trims.branchA[e.index]} branchB e{trims.branchB[e.index]} trims {trims.atA[e.index]:0.0}/{trims.atB[e.index]:0.0}");
+            var sb = new StringBuilder("      y:");
+            for (int i = 0; i < e.stY.Length; i++)
+            {
+                var p = e.PointAt(e.stS[i]);
+                sb.Append(' ').Append(e.stY[i].ToString("0.0")).Append(e.stElev[i] ? "^" : "")
+                  .Append('(').Append((e.stY[i] - CityElevation.BaseY(p.x, p.y)).ToString("+0.0;-0.0")).Append(')');
+            }
+            Line(sb.ToString());
+            foreach (var n in new[] { e.a, e.b })
+            {
+                var nb = new StringBuilder($"      node {n} y={map.nodeY[n]:0.0} base={CityElevation.BaseY(map.nodes[n].x, map.nodes[n].y):0.0}:");
+                foreach (var oi in map.nodeEdges[n])
+                {
+                    var o = map.edges[oi];
+                    float endY = o.a == n ? o.stY[0] : o.stY[o.stY.Length - 1];
+                    nb.Append($" e{oi}'{o.name}'{(o.link ? "L" : "")}{(o.bridge ? "B" : "")} len{o.length:0} end{endY:0.0}");
+                }
+                Line(nb.ToString());
+            }
+            for (int ci = 0; ci < map.crossings.Length; ci++)
+            {
+                var c = map.crossings[ci];
+                if (c.over != e.index && c.under != e.index) continue;
+                var o = map.edges[c.over == e.index ? c.under : c.over];
+                CityElevation.ProjectOn(e, c.at, out float sc);
+                Line($"      {(c.over == e.index ? "OVER" : "UNDER")} e{o.index} '{o.name}'{(o.link ? "L" : "")} layer{o.layer} at s={sc:0} ({c.at.x:0},{c.at.y:0}){(c.forced ? "" : " unforced")}{(CityElevation.TrenchedCrossings[ci] ? " TRENCH" : "")}{(mask != null && !mask[ci] ? " pruned" : "")}");
+            }
+        }
+
         static int VCount(Mesh m) => m == null ? 0 : m.vertexCount;
 
         static void Check(bool ok, string what, object detail = null)
@@ -645,7 +865,7 @@ namespace PSXRacing.EditorTools
         }
 
         static void Fail(string what) { failures++; Line("  FAIL " + what); }
-        static void Line(string s) { outLog.AppendLine(s); Debug.Log("[CityAudit] " + s); }
+        static void Line(string s) { outLog?.AppendLine(s); Debug.Log("[CityAudit] " + s); }
 
         static void Finish()
         {

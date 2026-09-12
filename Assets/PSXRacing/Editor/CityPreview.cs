@@ -209,6 +209,110 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// THE STAIRCASES: the worst places the overlap census found a road
+        /// standing up out of another road's lanes, photographed from above,
+        /// from the windscreen of the road being intruded on, and from the
+        /// side. The spots come from PSX_CITY_SPOTS ("x,z;x,z;...") when it is
+        /// set, so a fix can be shot from exactly where the fault was; else
+        /// from the census, and the list is written beside the shots.
+        /// </summary>
+        public static void RunStaircases()
+        {
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[CityPreview] no city data"); return; }
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City");
+            Directory.CreateDirectory(dir);
+            PSXRacingBuilder.EnsureCityTextures();
+            var trims = CityMeshes.NodeTrims(map);
+            var buildings = CityBuildings.Precompute(map);
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+            // (x, z, host edge, the other edge)
+            var spots = new List<(Vector2 at, int host, int other)>();
+            string env = System.Environment.GetEnvironmentVariable("PSX_CITY_SPOTS");
+            if (!string.IsNullOrEmpty(env))
+                foreach (var part in env.Split(';'))
+                {
+                    var f = part.Split(',');
+                    if (f.Length == 4 && float.TryParse(f[0], System.Globalization.NumberStyles.Float, inv, out float x)
+                                      && float.TryParse(f[1], System.Globalization.NumberStyles.Float, inv, out float z)
+                                      && int.TryParse(f[2], out int h) && int.TryParse(f[3], out int o))
+                        spots.Add((new Vector2(x, z), h, o));
+                }
+            else
+            {
+                var worst = new List<CityAudit.OverlapPair>();
+                CityAudit.OverlapCensus(map, trims, false, worst);
+                foreach (var w in worst)
+                {
+                    if (!w.branch) continue;
+                    if (spots.Exists(q => Vector2.Distance(q.at, w.at) < 250f)) continue;
+                    var e = map.edges[w.e]; var o = map.edges[w.o];
+                    // the host is the through road: not the link, else the wider
+                    bool eHost = e.link != o.link ? !e.link : e.width >= o.width;
+                    spots.Add((w.at, eHost ? w.e : w.o, eHost ? w.o : w.e));
+                    if (spots.Count >= 8) break;
+                }
+                var sb = new System.Text.StringBuilder();
+                foreach (var q in spots)
+                    sb.Append(sb.Length > 0 ? ";" : "").Append(q.at.x.ToString("0", inv)).Append(',').Append(q.at.y.ToString("0", inv))
+                      .Append(',').Append(q.host).Append(',').Append(q.other);
+                File.WriteAllText(Path.Combine(dir, "staircase_spots.txt"), sb.ToString());
+            }
+
+            Shader.SetGlobalFloat("_PSXFogNear", 900f);
+            Shader.SetGlobalFloat("_PSXFogFar", 2000f);
+            Shader.SetGlobalColor("_PSXFogColor", new Color(0.72f, 0.78f, 0.86f));
+            Shader.SetGlobalFloat("_PSXSnap", 0f);
+            Shader.SetGlobalColor("_PSXAmbient", new Color(0.55f, 0.55f, 0.6f));
+            Shader.SetGlobalVector("_PSXLightDir", new Vector4(-0.4f, 0.8f, -0.3f, 0f).normalized);
+            Shader.SetGlobalColor("_PSXLightColor", new Color(0.9f, 0.87f, 0.8f));
+
+            var world = new GameObject("~CityStairWorld");
+            try
+            {
+                for (int i = 0; i < spots.Count; i++)
+                {
+                    var (at, hi, oi) = spots[i];
+                    if (hi < 0 || hi >= map.edges.Length || oi < 0 || oi >= map.edges.Length) continue;
+                    var host = map.edges[hi];
+                    var other = map.edges[oi];
+                    CityElevation.ProjectOn(host, at, out float hs);
+                    CityElevation.ProjectOn(other, at, out float os);
+                    var tiles = BuildRing(map, trims, buildings, world, at, 1, out var stats);
+                    Debug.Log($"[CityPreview] stair{i} at ({at.x:0},{at.y:0}) {CityAudit.LatLon(at.x, at.y)} host e{hi} '{host.name}' y {host.YAt(hs):0.00} / e{oi} '{other.name}'{(other.link ? " L" : "")} y {other.YAt(os):0.00}: {stats}");
+                    float y = host.YAt(hs);
+                    Shoot(dir, $"stair{i}_top", new Vector3(at.x, y + 200f, at.y), Quaternion.Euler(90f, 0f, 0f), ortho: 70f, w: 1280, h: 720);
+                    // along the host, both ways, from 70 m out at the windscreen
+                    foreach (var (tag, back) in new[] { ("ahead", 70f), ("behind", -70f) })
+                    {
+                        float s0 = Mathf.Clamp(hs - back, 0f, host.length);
+                        var p0 = host.PointAt(s0);
+                        var fwd2 = (host.PointAt(hs) - p0);
+                        if (fwd2.sqrMagnitude < 1f) fwd2 = host.TangentAt(hs) * Mathf.Sign(back);
+                        fwd2.Normalize();
+                        var fwd = new Vector3(fwd2.x, 0f, fwd2.y);
+                        var eye = new Vector3(p0.x, host.YAt(s0) + 1.4f, p0.y);
+                        Shoot(dir, $"stair{i}_{tag}", eye, Quaternion.LookRotation(fwd + Vector3.down * 0.03f), ortho: 0f, w: 1280, h: 720);
+                    }
+                    // across the host at the other road, from the far side, low
+                    var t = host.TangentAt(hs);
+                    var right = new Vector2(-t.y, t.x);
+                    float sideOf = Mathf.Sign(Vector2.Dot(other.PointAt(os) - host.PointAt(hs), right));
+                    if (sideOf == 0f) sideOf = 1f;
+                    var hp = host.PointAt(hs);
+                    var eyeP = hp - right * sideOf * 40f - t * 25f;
+                    var eyeL = new Vector3(eyeP.x, y + 6f, eyeP.y);
+                    var target = new Vector3(at.x, y + 1f, at.y);
+                    Shoot(dir, $"stair{i}_side", eyeL, Quaternion.LookRotation(target - eyeL), ortho: 0f, w: 1280, h: 720);
+                    foreach (var tile in tiles) Object.DestroyImmediate(tile);
+                }
+            }
+            finally { Object.DestroyImmediate(world); }
+            Debug.Log($"[CityPreview] staircases: {spots.Count} spots shot to {dir}");
+        }
+
         static List<GameObject> BuildRing(CityMap map, CityMeshes.Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, GameObject parent, Vector2 at, int ring,
             out string stats)

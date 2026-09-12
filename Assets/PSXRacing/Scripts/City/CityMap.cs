@@ -72,6 +72,12 @@ namespace PSXRacing.City
             /// between its vertices and the road bends here, so the land
             /// under a crest is sunk by this much extra.</summary>
             public float[] stCrest;
+            /// <summary>Stations SEATED on a host road: a branch running inside
+            /// its host's pavement takes the host's height there, and no raise
+            /// may lift it off. Null on an edge with none. See
+            /// CityElevation.SeatBranches.</summary>
+            public bool[] stSeat;
+            public bool SeatedAt(int station) => stSeat != null && stSeat[station];
 
             /// <summary>How far either side of the centreline the land is
             /// graded to the road. Wider than the pavement so the verge and
@@ -378,7 +384,9 @@ namespace PSXRacing.City
 
             if (bld != null) map.ParseFootprints(bld);
             map.BuildHashes();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             CityElevation.Solve(map);
+            Debug.Log($"[City] elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
             return map;
         }
 

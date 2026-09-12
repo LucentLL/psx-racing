@@ -108,6 +108,18 @@ if (-not $SkipBuild) {
     }
     Get-Content "$proj\PSXRacing_build_log.txt" -Tail 3
 
+    # NOTHING THAT SHIPS MAY POINT AT A MISSING ASSET. On 2026-09-12 the pizza
+    # boxes shipped magenta: the scene build re-baked Resources/PizzaCargo
+    # against freshly minted material GUIDs, a later additive copy put the
+    # source's older prefabs back over the bake, and -SkipScenes built exactly
+    # that. Seconds, and no Unity: every scene in the build settings, every
+    # Resources asset, and every YAML asset they reference.
+    & py "$PSScriptRoot\guid-audit.py" $proj
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "GUID AUDIT FAILED - a shipped asset references a missing GUID (it would render magenta or not at all). Run the scene build, then tools\cargo-sync-back.ps1." -ForegroundColor Red
+        exit 1
+    }
+
     # Same waiter as everything else now: the local Invoke-UnityWait sleeps five
     # seconds and then polls once for a new Unity PID, which is a race the child
     # editor loses under load — and losing it here means checking build_ok.txt

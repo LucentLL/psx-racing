@@ -5,6 +5,64 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## PINK PIZZAS, A REPLAY OF THE LOAD, AND THE RAMP THAT CLIMBED OUT OF THE LANES (2026-09-12, third pass)
+
+Reported, with a screenshot of the carried stack drawn solid magenta inside
+Tony's: "Pizzas are pink when carrying and driving during delivery. The
+replay of a delivery does not track where items were in the seat at the
+time, but where they were at the end of the delivery. Highways are decent,
+but entrance/exit ramps still need work. A lot of instances of entrance ramps
+going up through the center of a road like a staircase in the center of a
+house."
+
+- **Pink = a prefab pointing at a material that no longer existed.** The
+  cargo prefabs in `Resources/PizzaCargo` were committed on Aug 30 wearing
+  `scenery_Pizza*` materials whose `.mat` files were never committed — only
+  their `.meta`s. Every full sandbox mirror orphaned those metas, Unity
+  deleted them, and the scene build minted new GUIDs for the regenerated
+  materials and re-baked the prefabs against them. Then the Charlotte cycle
+  scripts' additive copy of `Resources` put the source's Aug 30 prefabs back
+  over the bake (robocopy copies OLDER files too), and a `-SkipScenes`
+  publish shipped that. The bottles were fine only because they had never
+  been synced back, so nothing overwrote them. Four fixes: the bake and its
+  materials are committed (`tools/cargo-sync-back.ps1`), so the GUIDs
+  survive a mirror; the additive copies are `/XO`; `tools/guid-audit.py`
+  (seconds, no Unity) fails the publish if any scene in the build, any
+  Resources asset, or anything they reference points at a missing GUID — it
+  names exactly the 21 prefabs; and the self-test asserts every material
+  slot of every Resources prefab resolves to a real shader.
+- **The replay never recorded the load.** Playback switched `PizzaCargo`
+  off and the Pizza Cam watched the island as it lay at the flag.
+  `RaceReplay.CargoTrack` samples every part of the load
+  (`PizzaCargo.ReplayParts`: seat, boxes, bottles, then each box's pizza and
+  lid — parents first, because a shut box's pizza and lid are its children)
+  on the cars' step, makes every island body kinematic for playback, writes
+  the poses on the clock the cars are DRAWN at, and puts poses, flags and
+  velocities back exactly afterwards. The caption reads the recorded
+  condition too. `tools/replay-check.ps1` now carries a three-box load in an
+  AI car, throws it with an injected crash, and compares the replayed load
+  against a trace taken live on the same physics steps: 0.0000 m before the
+  crash and after it, 1.78 m apart from each other.
+- **The staircase = a ramp standing up out of the mainline it is drawn
+  inside.** OSM joins a ramp at the end of the taper, so its last hundred
+  metres or so lie inside the mainline's pavement; the tile clips it there
+  only while the two are within 0.6 m in height, and nothing in the solver
+  ever made them so. Every edge had its own profile and they met at the NODE:
+  a ramp still climbing toward its overpass, or — the biggest single cause —
+  a suburban freeway sunk 5.5 m by the TRENCH rule under a street bridge
+  while the ramp beside it kept the ground's height, left the ramp's clipped
+  sliver climbing through the air like a stair stringer. A new city-wide
+  OVERLAP CENSUS (every 4 m of every ribbon against every ribbon it
+  overlaps) counted over 3.1 km of ramp more than the attach limit off its
+  host. Ramp stations inside the host's gore are now SEATED on it
+  (`CityElevation.SeatBranches`, from the tile's own walk in plan,
+  `CityMeshes.BranchSeats`): locked against every raise, re-seated after
+  every pass that moves hosts, and graded out at the ramp's own grade once
+  it has left in plan — with a too-low far end raised into reach and a
+  too-high ground-level ramp junction lowered into it. 20 m left, the drive
+  audit's last 17 steps and 25 off-surface probes went to zero with it, and
+  the city audit is green end to end for the first time.
+
 ## THE CAR ON THE STREET, THE STREET ON THE MAP (2026-09-12, second pass)
 
 Asked for, after the junction pass shipped: "Each time I free roam Charlotte

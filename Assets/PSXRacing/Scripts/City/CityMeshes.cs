@@ -708,7 +708,7 @@ namespace PSXRacing.City
 
         /// <summary>A road as one polyline: an edge and its through-
         /// continuations, walked away from a node.</summary>
-        class Chain
+        internal class Chain
         {
             public readonly List<Vector2> pts = new List<Vector2>(64);
             public readonly List<CityMap.Edge> seg = new List<CityMap.Edge>(64);   // per segment
@@ -979,6 +979,104 @@ namespace PSXRacing.City
 
         static int SharedNode(CityMap.Edge e, CityMap.Edge prev) =>
             e.a == prev.a || e.a == prev.b ? e.a : e.b;
+
+        /// <summary>
+        /// Where one branch runs BESIDE its host, in plan only: the pieces of
+        /// the branch chain, walked away from the node, over the arc each lies
+        /// within a gore of the host's pavement, and the host chain to ask
+        /// for the host's surface under any point of them.
+        ///
+        /// The elevation solver needs this before any tile exists. The walk is
+        /// EmitBranch's own — same chains, same step, same gore width — with
+        /// two differences: no height test (making the heights agree is the
+        /// point of asking), and the host's UNSQUEEZED half width (a squeeze
+        /// needs heights too). The unsqueezed host is never narrower, so this
+        /// zone is never shorter than the one a tile clips, which is the
+        /// direction that matters: a ramp the tile still calls attached must
+        /// already be seated.
+        /// </summary>
+        public class Seat
+        {
+            public int node;
+            /// <summary>Branch pieces beside the host: edge, arc range, and
+            /// which way the chain walks it (+1 = from its a end).</summary>
+            public readonly List<(int edge, float s0, float s1, int dir)> pieces = new List<(int, float, float, int)>(2);
+            internal Chain host;
+
+            /// <summary>The host edge and arc under a plan point, or -1 where
+            /// the host chain has run out.</summary>
+            public int HostAt(Vector2 p, out float hostS)
+            {
+                host.Project(p, out var H, out hostS, out _, out _, out bool atEnd);
+                return atEnd ? -1 : H.index;
+            }
+        }
+
+        /// <summary>Every branch end's <see cref="Seat"/>, from the trims'
+        /// branch table. Plan geometry only; deterministic.</summary>
+        public static List<Seat> BranchSeats(CityMap map, Trims trims)
+        {
+            var result = new List<Seat>();
+            for (int ei = 0; ei < map.edges.Length; ei++)
+                for (int end = 0; end < 2; end++)
+                {
+                    int hostIdx = end == 0 ? trims.branchA[ei] : trims.branchB[ei];
+                    if (hostIdx < 0) continue;
+                    var L = map.edges[ei];
+                    // RAMPS ONLY. A street fork's two carriageways are branches
+                    // too, but seating one on the other copied the other's
+                    // short-sliver cliffs onto a hundred metres of Parkwood
+                    // Avenue; the staircase that was reported is a ramp.
+                    if (!L.link) continue;
+                    var seat = SeatOf(map, trims, L, map.edges[hostIdx], end == 0 ? L.a : L.b);
+                    if (seat != null) result.Add(seat);
+                }
+            return result;
+        }
+
+        static Seat SeatOf(CityMap map, Trims trims, CityMap.Edge L, CityMap.Edge M, int node)
+        {
+            var host = BuildChain(map, M, node, linkChain: false, GoreReach + 60f, null);
+            var br = BuildChain(map, L, node, linkChain: true, GoreReach + 10f, host);
+            int side = 0;
+            var on = new Dictionary<int, (float s0, float s1)>();
+            for (int k = 0; k <= 70; k++)
+            {
+                float travelled = k * GoreStep;
+                if (travelled > GoreReach) break;
+                if (!br.Walk(travelled, out var E, out float sE, out var p, out var dirL)) break;
+                host.Project(p, out var H, out float sM, out var q, out var dirM, out bool hostOut);
+                if (hostOut) break;
+                var rM = new Vector2(-dirM.y, dirM.x);
+                float off = Vector2.Dot(p - q, rM);
+                int sideNow = off >= 0f ? 1 : -1;
+                if (side == 0 && Mathf.Abs(off) > 0.4f) side = sideNow;
+                var rL = new Vector2(-dirL.y, dirL.x);
+                float mHalf = trims.HalfWidthAt(H, sM);
+                float lHalf = trims.HalfWidthAt(E, sE);
+                var outer = q + rM * (side * mHalf);
+                float lSign = Vector2.Dot(rL, rM) >= 0f ? -side : side;
+                var inner = p + rL * (lSign * lHalf);
+                float gap = side == 0 ? 0f : Vector2.Dot(inner - outer, rM) * side;
+                bool beside = (gap <= GoreMaxGap && sideNow == side) || Mathf.Abs(off) < 0.4f;
+                if (!beside) break;
+                on[E.index] = on.TryGetValue(E.index, out var r)
+                    ? (Mathf.Min(r.s0, sE), Mathf.Max(r.s1, sE)) : (sE, sE);
+            }
+            if (on.Count == 0) return null;
+            var seat = new Seat { node = node, host = host };
+            for (int i = 0; i < br.edges.Count; i++)
+            {
+                var E = br.edges[i];
+                if (!on.TryGetValue(E.index, out var r)) continue;
+                // extended back to the node end it shares with the piece
+                // before, exactly as a tile's clip range is
+                int nodeEnd = i == 0 ? node : SharedNode(E, br.edges[i - 1]);
+                int dir = E.a == nodeEnd ? 1 : -1;
+                seat.pieces.Add((E.index, dir > 0 ? 0f : r.s0, dir > 0 ? r.s1 : E.length, dir));
+            }
+            return seat;
+        }
 
         static bool InGoreGap(int edge, int side, float s0, float s1)
         {

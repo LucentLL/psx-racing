@@ -3334,6 +3334,33 @@ namespace PSXRacing.EditorTools
                   w.ToString("0.000") + " m");
             Check(bs.y > 0.01f && bs.y < 0.12f, "with a box's thickness", bs.y.ToString("0.000"));
 
+            // NOTHING THE RUNTIME LOADS IS PINK. The shipped pizzas were drawn
+            // with Unity's error shader: the sandbox's scene build re-baked
+            // these prefabs against materials whose GUIDs it had just minted,
+            // and a later additive copy put the source's months-old prefabs
+            // back over them, pointing at GUIDs that no longer existed. A
+            // missing material loads as a NULL slot, which is what this counts.
+            foreach (var resDir in new[] { dir, "Assets/PSXRacing/Resources/CityProps/" })
+            {
+                int slots = 0, broken = 0; string firstBroken = "";
+                foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { resDir.TrimEnd('/') }))
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    if (prefab == null) continue;
+                    foreach (var r in prefab.GetComponentsInChildren<Renderer>(true))
+                        foreach (var m in r.sharedMaterials)
+                        {
+                            slots++;
+                            if (m != null && m.shader != null && m.shader.name != "Hidden/InternalErrorShader") continue;
+                            broken++;
+                            if (firstBroken.Length == 0) firstBroken = System.IO.Path.GetFileNameWithoutExtension(path) + "/" + r.name;
+                        }
+                }
+                Check(slots > 0 && broken == 0, "every material slot in " + resDir + " resolves to a real shader",
+                      broken + " broken of " + slots + (broken > 0 ? ", first " + firstBroken : ""));
+            }
+
             // Every topping the order can roll has to exist, or a delivery
             // hands the player an empty box and nothing says why.
             int missing = 0; string firstMissing = "";

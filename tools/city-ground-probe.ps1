@@ -12,7 +12,11 @@ $src  = Split-Path -Parent $PSScriptRoot
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
-robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+# /XO: never copy a source file OLDER than the sandbox's. Resources holds BAKED
+# output (the pizza cargo, the city props) that the scene build rewrites in the
+# sandbox; a plain /E put the source's Aug 30 cargo prefabs back over the Sep 11
+# re-bake, their material GUIDs no longer existed, and the shipped pizzas were pink.
+robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E /XO /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 
 Remove-Item "$proj\city_ground_probe.txt" -ErrorAction SilentlyContinue
 if ($At) { $env:PSX_PROBE = $At } else { Remove-Item Env:PSX_PROBE -ErrorAction SilentlyContinue }

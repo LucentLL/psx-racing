@@ -37,7 +37,11 @@ if ($NoMirror) {
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
     }
     foreach ($d in @("Assets\PSXRacing\Art", "Assets\PSXRacing\Resources")) {
-        robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+        # /XO: never copy a source file OLDER than the sandbox's. Resources holds BAKED
+        # output (the pizza cargo, the city props) that the scene build rewrites in the
+        # sandbox; a plain /E put the source's Aug 30 cargo prefabs back over the Sep 11
+        # re-bake, their material GUIDs no longer existed, and the shipped pizzas were pink.
+        robocopy "$src\$d" "$proj\$d" /E /XO /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
     }
 } else {
     foreach ($d in @("Assets", "Packages", "ProjectSettings")) {

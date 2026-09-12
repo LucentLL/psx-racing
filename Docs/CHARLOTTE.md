@@ -336,6 +336,70 @@ a map to view where I'm at in the city."
   scene needs no rebake. `tools/city-ground-probe.ps1` prints, for a point,
   every corridor that has a say in the ground height round it.
 
+## The third 2026-09-12 pass: ramps that are the mainline until they leave it
+
+Reported: "entrance ramps going up through the center of a road like a
+staircase in the center of a house". Preview shots from the freeway's own
+windscreen (`CityPreview.RunStaircases`) showed exactly that: a thin concrete
+sliver rising out of I-485's lanes past the Johnston Road overpass, and one
+climbing out of US 74's cut.
+
+- **The cause.** OSM joins a ramp to its carriageway at the END of the
+  taper, so a ramp's last hundred metres or so lie inside the mainline's
+  pavement. `CityMeshes.EmitBranch` clips it against the host there — but
+  only while the two are within `AttachDy` (0.6 m) in height, and the solver
+  never tried to make them so: every edge was solved on its own profile and
+  two edges met only at their shared NODE. So wherever the ramp and its host
+  diverged vertically before they diverged in plan, the clip let go and the
+  ramp's ribbon stood inside the host's lanes at its own height. The worst
+  and commonest case was the TRENCH rule — written for uptown's cuts, it
+  sinks a freeway 5.5 m under every street bridge city-wide (230 of them), so
+  the ramps passing under the same suburban overpass beside I-485 and I-85
+  stood four to five metres above the dipped mainline. The rest were approach
+  cones and terrain lifting a ramp still inside its host.
+- **The instrument: the overlap census** (`CityAudit.OverlapCensus`,
+  `CityAudit.RunOverlaps` — seconds, no tiles). Every 4 m of every ribbon,
+  against every other ribbon it overlaps in plan, excusing the junction fan
+  and anything off the end of the other road: two overlapping pavements must
+  be one surface or a clearance apart. It writes `city_overlaps.csv` and
+  dumps the worst pairs' profiles, nodes and crossings. First run: 19.7 km
+  of ribbon at a wrong height, 7.2 km of it ramp beside road, over 3.1 km of
+  ramp more than 0.6 m off its host. The city audit now FAILS past 60 m of
+  the last number.
+- **The fix: seats** (`CityElevation.PrepareSeats` / `SeatBranches`).
+  `CityMeshes.BranchSeats` walks every ramp end exactly as `EmitBranch` does
+  — same chains, same 6 m step, same 4.5 m gore — without the height test
+  and with the host's unsqueezed width, so the solver's zone is never shorter
+  than the tile's. Every ramp station inside it (plus one past its far end,
+  so the lerp to the next station does not lift the run's last metres) is
+  SEATED: it takes the host's height under it; `RaiseHump`, `RaiseCone`,
+  the relax sweep and the bridge/water holds leave it alone (a cone stops at
+  the first seated station and never comes out of the far side to lift the
+  mainline's node); and it is re-seated after the trench pass, inside the
+  raise/reconcile loop, after the relax and after every cone round. Seated
+  stations inherit the host's structure (a ramp inside a deck's pavement is
+  on the deck).
+- **The climb out** (`ClimbOut`): past the last seated station the ramp
+  leaves at its class's grade, or exactly as steep as its next fixed height
+  needs. A collector road seated on the I-277 bridge for 70 of its 81 m had
+  10 m left to drop 4.6 m (50% on the uptown race route), and one lying in
+  the 277 cut for all 261 m had a junction 2.7 m above the cut at its far
+  end. So a far END out of reach of 1.5x the class grade is moved: RAISED
+  when too low (the node and its neighbours follow through the solver's own
+  snap and cones, and the cone loop now also runs until the seats stop
+  moving ends), LOWERED when too high only if the node is a plain
+  ground-level junction of ramps (`LowerFarNode`: at its terrain, not a
+  trench pin, every arm a ramp, none on structure). Ramps only: seating one
+  carriageway of a divided STREET on the other copied that host's short
+  cliffs onto a hundred metres of Parkwood Avenue.
+- **Results.** Ramp overlap past the attach limit 20 m (from over 3.1 km);
+  all ribbon mis-heights 6.3 km (from 19.7, what is left mostly a freeway's
+  two carriageways squeezed together 0.3-0.9 m apart — real on hillsides);
+  no station grade past 16%; every clearance holds (worst 4.54 m); the drive
+  audit's remaining 17 steps and 25 off-surface probes, which were ramp
+  seams, went to zero. 15,915 ramp stations seated; the whole solve is
+  ~0.85 s, the seat search 0.11 s of it.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

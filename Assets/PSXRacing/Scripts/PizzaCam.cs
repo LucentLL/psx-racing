@@ -242,6 +242,9 @@ namespace PSXRacing
 
             if (caption == null || cargo == null) return;
             float c = cargo.Condition;
+            // In a replay the caption reads the RECORDED load, like the picture
+            // does, not the load as it lies at the flag.
+            if (RaceReplay.Playing && RaceReplay.Instance.TryCargoCondition(out float replayed)) c = replayed;
             string label = cargo.BoxCount > 1
                 ? "PIZZA CAM  x" + cargo.BoxCount
                 : "PIZZA CAM";
