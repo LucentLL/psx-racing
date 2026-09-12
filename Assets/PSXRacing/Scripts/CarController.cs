@@ -3012,14 +3012,24 @@ namespace PSXRacing
         public void TeleportTo(Vector3 position, Quaternion rotation)
         {
             transform.SetPositionAndRotation(position, rotation);
-            if (Body == null) return;
-            var interp = Body.interpolation;
-            Body.interpolation = RigidbodyInterpolation.None;
-            Body.position = position;
-            Body.rotation = rotation;
-            Body.linearVelocity = Vector3.zero;
-            Body.angularVelocity = Vector3.zero;
-            Body.interpolation = interp;
+            // BEFORE THIS CAR'S OWN AWAKE, Body is still null. A city race
+            // stands its grid from CityMode.Awake, and Awake order between
+            // two objects in one scene is a coin flip; an early return here
+            // wrote the transform and left the rigidbody at its baked pose,
+            // and the interpolated body painted that pose straight back over
+            // the transform on the first physics step. The player started
+            // the 277 race at the free-roam spawn in uptown, exactly as if it
+            // were free roam. The component may not have woken yet, but the
+            // rigidbody is already there to be asked for.
+            var body = Body != null ? Body : GetComponent<Rigidbody>();
+            if (body == null) return;
+            var interp = body.interpolation;
+            body.interpolation = RigidbodyInterpolation.None;
+            body.position = position;
+            body.rotation = rotation;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.interpolation = interp;
         }
 
         public void ResetTo(Vector3 position, Quaternion rotation)

@@ -66,6 +66,12 @@ namespace PSXRacing.City
             public float[] stY;      // road surface height
             public bool[] stElev;    // true where the road is ON STRUCTURE
                                      // (bridge/overpass): deck mesh, no ground pin
+            /// <summary>How far each station stands above the chord of its
+            /// neighbours — the crest of a grade break, measured by
+            /// CityElevation.MeasureCrests. The ground lattice is straight
+            /// between its vertices and the road bends here, so the land
+            /// under a crest is sunk by this much extra.</summary>
+            public float[] stCrest;
 
             /// <summary>How far either side of the centreline the land is
             /// graded to the road. Wider than the pavement so the verge and
@@ -115,6 +121,24 @@ namespace PSXRacing.City
                 float seg = stS[lo + 1] - stS[lo];
                 float t = seg > 1e-6f ? (at - stS[lo]) / seg : 0f;
                 return Mathf.LerpUnclamped(stY[lo], stY[lo + 1], t);
+            }
+
+            /// <summary>The crest allowance at an arc position (see
+            /// <see cref="stCrest"/>): zero on a straight grade.</summary>
+            public float CrestAt(float at)
+            {
+                if (stCrest == null || stCrest.Length == 0) return 0f;
+                at = Mathf.Clamp(at, 0f, length);
+                int lo = 0, hi = stS.Length - 2;
+                if (hi < 0) return stCrest[0];
+                while (lo < hi)
+                {
+                    int mid = (lo + hi + 1) >> 1;
+                    if (stS[mid] <= at) lo = mid; else hi = mid - 1;
+                }
+                float seg = stS[lo + 1] - stS[lo];
+                float t = seg > 1e-6f ? (at - stS[lo]) / seg : 0f;
+                return Mathf.LerpUnclamped(stCrest[lo], stCrest[lo + 1], t);
             }
 
             public bool ElevatedAt(float at)
@@ -182,6 +206,9 @@ namespace PSXRacing.City
         public Vector2 uptown;
         public Vector2[] nodes;
         public float[] nodeY;
+        /// <summary>The crest allowance at each junction: a node is a
+        /// station every arm shares (CityElevation.MeasureCrests).</summary>
+        public float[] nodeCrest;
         public int[] nodeControl;         // 0 none, 1 yield, 2 stop, 4 signal
         public Edge[] edges;
         public List<int>[] nodeEdges;     // edges touching each node

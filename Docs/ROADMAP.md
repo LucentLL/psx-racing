@@ -5,6 +5,66 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE CAR ON THE STREET, THE STREET ON THE MAP (2026-09-12, second pass)
+
+Asked for, after the junction pass shipped: "Each time I free roam Charlotte
+my car is dropped from the sky. When I race on 277 track it drops me in the
+center of Charlotte, just like free roam. A lot of areas where grass is
+coming up through the roads or concrete. A lot of areas (like I77) where the
+lines and road zigzag back and forth unrealistically — DOT would never
+approve that. A lot of roads and highways have outside shoulder walls that
+they don't have in real life. I'd like a map to view where I'm at in the
+city." And the direction: race tracks made from the city, traffic, gas
+stations, parking lots, mechanic shops, neighborhoods.
+
+Six items, six causes, all in `Docs/CHARLOTTE.md` ("the second 2026-09-12
+pass"). The short form:
+
+- **Dropped from the sky = a stale bake.** The city is solved from the
+  shipped data at every load; the scene's car was baked at a height solved
+  the night BEFORE the DEM changed. `CityMode.SeatOnStreet` seats the player
+  on the nearest street at the graph's own height at load. The bake is a
+  hint now, not a pose.
+- **The 277 race at the free-roam spawn = a teleport before Awake.** The
+  grid is stood in `CityMode.Awake`; `CarController.TeleportTo` skipped the
+  rigidbody while the car's own Awake had not cached it, and the
+  interpolated body repainted the baked pose one step later. The teleport
+  asks the GameObject for the body now. `tools/city-play-check.ps1` plays
+  both scenes and checks the poses after physics — the class of bug the
+  edit-mode self-test cannot see — and its first run found the third
+  fault: the route path lerped heights between OSM vertices instead of
+  the solved stations, so the whole field stood 1.5 m over the 277 at the
+  green. `BuildPath` samples the stations; the audit holds every waypoint
+  to the road it lies on.
+- **Grass through the tarmac** = the straight 8 m ground lattice over a road
+  that bends at its stations (a crest allowance per station and per node
+  now sinks the land exactly there), decks tagged `bridge=yes` over land
+  the 60 m DEM calls level (structure caps the land 1.2 m under its
+  soffit), and the weighted-mean blend between a road and a taller one
+  beside it (the lower road's cap now reaches a lattice cell past its
+  corridor). The drive audit's new GRASS probe counts all three, and
+  reports zero on nine tiles.
+- **The I-77 zigzag = the 2019 express lanes**, mapped as a second
+  carriageway 5.5 m away and squeezed against the general lanes. The game is
+  1999: every `toll=yes` way is dropped by the exporter (177 ways plus four
+  orphaned ramp pieces), and a remaining squeeze crops the painted profile
+  instead of compressing it.
+- **Outside shoulder walls** = the barrier rule drew both edges. Median side
+  only now; the outside gets a wall only in a cut deeper than 2 m (the 277
+  trench's retaining walls are real).
+- **The map** = `CityMinimap`, the streets within 340 m as heading-up line
+  geometry off the graph's spatial hash, rebuilt as the car moves, in the
+  race map's slot. No rebake: the HUD builds it at runtime.
+
+Follow-ups the direction implies, in order: traffic on the graph (the edges
+carry lanes and one-way, and every junction its control), then gas
+stations / parking / shops as CityProps on real lots, then more
+neighbourhoods (one Overpass box each), then player-drawn city routes
+(`charlotte_routes.json` is already the menu's copy of a route; a route is
+an edge chain). The one-sided MUTCD lane taper stays on the list: OSM's
+lines showed no systematic re-centring at lane changes, so the symmetric
+taper is not wrong, only not DOT.
+
 ## CHARLOTTE, READ RAW: EVERY LANE, EVERY BRIDGE, EVERY RAMP, AND THE RACES ON THE SAME MAP (2026-09-11)
 
 Asked for, with four phone screenshots of Google Maps' satellite view over

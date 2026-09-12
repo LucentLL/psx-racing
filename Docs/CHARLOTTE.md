@@ -196,7 +196,14 @@ are retired.
 - `CityPreview` (PSX Racing/Preview Charlotte): uptown, a freeway viaduct, a
   trench, a water bridge, a gore, I-485, the prefab suburb, a footprint
   neighbourhood, a filled block, the restaurants, and the skyline from 600 m
-  south — top-down and at street level, to `Screenshots/City`.
+  south — top-down and at street level, to `Screenshots/City`; plus the
+  drive-along views (top, ahead, back, high) of the West 5th bridge, every
+  freeway-to-freeway interchange, I-77 north of uptown and an overpass.
+- `tools/city-play-check.ps1` (PSX Racing/Check City Spawns): PLAYS free
+  roam and the 277 race headless and checks the car poses after physics —
+  the two spawn bugs of 2026-09-12 were invisible to everything above.
+- `tools/city-ground-probe.ps1 -At "x,z"`: which corridors set the ground
+  height round a point, for chasing a GRASS note from the drive audit.
 - The live URL is the real test.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
@@ -253,9 +260,86 @@ construction). What changed:
   remainder under 0.45 m at ramp seams where OSM draws the ramp a lane
   inside its mainline at a different height.
 
+## The second 2026-09-12 pass: the spawn, the grass, the walls, the map
+
+Reported after the first pass shipped: "each time I free roam Charlotte my
+car is dropped from the sky; when I race on the 277 it drops me in the
+center of Charlotte, just like free roam; grass coming up through the roads
+or concrete; on I-77 the lines and road zigzag back and forth; roads and
+highways have outside shoulder walls they don't have in real life; I'd like
+a map to view where I'm at in the city."
+
+- **The spawn was a stale bake.** The scene bakes the car at the spawn's
+  solved height, and the solve moved with the DEM on the morning of the
+  12th while the shipped scenes were baked the night before — the city is
+  solved again from the shipped data at every load, the scene is not.
+  `CityMode.SeatOnStreet` now puts the player on the nearest street at the
+  graph's own height at load, through `TeleportTo`, and the baked pose is
+  only a hint. A bake can never go stale on this again.
+- **The race grid was written before the car woke.** `SetupRace` runs in
+  `CityMode.Awake`; `CarController.TeleportTo` returned early while `Body`
+  was null (the car's own Awake had not run — Awake order between objects
+  is a coin flip), so only the transform moved and the interpolated body
+  painted its baked pose back on the first step. The teleport now asks the
+  GameObject for its rigidbody when the component has not cached one yet.
+  `tools/city-play-check.ps1` (`CityPlayCheck`) plays both scenes headless
+  and asserts the poses after a physics step: on a street, at street
+  height, still there two seconds later; the field at the line and nowhere
+  near the free-roam spawn. Its first run found a third fault: `BuildPath`
+  lerped heights between OSM polyline VERTICES, and the solve lives at the
+  10 m stations, so between two vertices 200 m apart the path ran straight
+  while the road humped — the whole field stood 1.0-1.7 m over the 277 at
+  the green. The path samples vertices and stations now, and the audit
+  checks every waypoint against the solved surface of the route edge it
+  lies on (0 of 2,299 off by more than 15 cm).
+- **Grass through the tarmac, three causes.** (0) The land between two
+  corridors is a weighted MEAN of their heights; a lattice vertex just
+  outside the Independence Expressway's corridor, inside the blend of an
+  overpass abutment four metres higher and twenty away, stood 1.2 m proud
+  and the cell it cornered rose through the outside lane (found with
+  `tools/city-ground-probe.ps1`). The "never above the lowest tarmac" cap
+  now reaches `CapReach` (5 m, a lattice cell's diagonal) past the
+  corridor. (1) The ground under a road is
+  an 8 m lattice sampled from the road's solved height, straight between its
+  vertices, while the road bends at its 10 m stations: where the profile
+  breaks OVER (a cone meeting the flat, a trench mouth, a crest at a
+  junction) the straight ground ran above the bent road by up to half the
+  break. `CityElevation.MeasureCrests` records each station's height above
+  its neighbours' chord (and each node's, between its two steepest arms),
+  and the corridor pin sinks the land by that much extra there; the kerb
+  face reaches down through it. A straight grade keeps its 20 cm kerb. (2)
+  A deck over land the DEM calls level — 790 edges tagged `bridge=yes`, most
+  over creeks and railway cuts a 60 m grid cannot see — had the ground
+  running through the concrete. Structure now CAPS the land at
+  `UnderDeckAir` (1.2 m) under the soffit; never a raise, so a real valley
+  keeps its depth. The drive audit gained a GRASS probe: the first collider
+  a lane ray meets must be the road, whatever the height difference.
+- **The zigzag was the express lanes.** OSM maps the I-77 Express Lanes
+  (2019) as a second carriageway 5.5 m from the general lanes, so the two
+  ribbons were squeezed against each other and the paint slalomed wherever
+  the mapped lines drifted. The game is set in 1999: the exporter drops
+  every `toll=yes` way (I-77 Express, I-485 Express, the Monroe Expressway,
+  their ramps — 177 ways) and the four ramp pieces that then led nowhere.
+  Where a squeeze remains (tight divided arterials, frontage roads) the
+  ribbon now CROPS the painted profile instead of compressing it: texture U
+  comes from each vertex's true lateral offset.
+- **Walls on the median side only.** A Jersey barrier stood on both edges of
+  every freeway carriageway. The outside shoulder is open verge now, and
+  gets a wall only where the DEM stands more than 2 m above the road beside
+  it — the retaining walls of the 277 trench and the I-77 cut are real.
+- **The city map.** `CityMinimap`: a MaskableGraphic that re-tessellates the
+  streets within 340 m of the car into line quads (freeways amber and wide,
+  arterials pale, streets grey, water blue — the thumbnail's palette),
+  heading up with a north tick on the rim, rebuilt when the car has moved
+  1.5 m or turned 1.5 degrees, ten times a second at most. It sits where
+  the race map sits, mid-left; the HUD builds it at runtime, so the shipped
+  scene needs no rebake. `tools/city-ground-probe.ps1` prints, for a point,
+  every corridor that has a say in the ground height round it.
+
 ## Not in v1 (in order of likely next)
 
-Traffic, lane-level turn markings at junctions, lamps and signal heads,
-in-city gas stations, footprints beyond the core, a skyline backdrop past the
-fog, city races beyond the three (a SouthPark loop needs the junction-arc
-pass), the ROVAL.
+Traffic, gas stations / parking lots / mechanic shops in the city,
+neighbourhoods beyond the 8 km core (each 8 x 8 km box is one Overpass
+fetch), city race tracks drawn on the graph by the player, lane-level turn
+markings at junctions, lamps and signal heads, a skyline backdrop past the
+fog, a one-sided (MUTCD) lane taper on one-way carriageways, the ROVAL.

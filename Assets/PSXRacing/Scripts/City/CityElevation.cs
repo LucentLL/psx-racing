@@ -41,8 +41,19 @@ namespace PSXRacing.City
         /// <summary>How far below the tarmac the land sits inside a road
         /// corridor: a real kerb height. The skirt CityMeshes cuts is deeper
         /// so the road's own side always reaches down to it.</summary>
-        public const float CorridorSink = 0.18f;
+        public const float CorridorSink = 0.20f;
         public const float CorridorBlend = 26f;
+        /// <summary>Air between a deck's soffit and the land under it. A
+        /// bridge is OVER something, and the 60 m DEM sees neither the creek
+        /// nor the railway cut it was built to cross: 800 decks tagged
+        /// bridge=yes stood on land the DEM called level, and the grass grew
+        /// up through the concrete. The land under structure is capped this
+        /// far below the soffit, and never raised.</summary>
+        public const float UnderDeckAir = 1.2f;
+        /// <summary>How far past a grounded corridor its "never above the
+        /// tarmac" cap still holds: the diagonal of an 8 m lattice cell, so
+        /// no vertex that can touch the pavement's cells sits above it.</summary>
+        public const float CapReach = 5f;
         /// <summary>Above the base ground by this much = on structure, as a
         /// LAST RESORT. It was 1.4 m and it decided most of the decks in the
         /// city: the SRTM grid was min-filtered (6.6 m low on average, 20 m
@@ -272,6 +283,7 @@ namespace PSXRacing.City
             // 9. mark structure LAST, from the facts: decks over crossings,
             // embankments everywhere else.
             MarkStructure(map);
+            MeasureCrests(map);
 
             // 10. lakes get one flat surface each; the shore owns the level
             foreach (var w in map.waters)
@@ -441,6 +453,68 @@ namespace PSXRacing.City
                     var p = e.PointAt(e.stS[i]);
                     if (e.stY[i] > BaseY(p.x, p.y) + ElevMarginM) e.stElev[i] = true;
                 }
+            }
+        }
+
+        /// <summary>
+        /// How far each station stands ABOVE the chord of its neighbours: the
+        /// crest of a grade break, kept on the edge (and per node, since a
+        /// node is a station every arm shares).
+        ///
+        /// The ground under a road is an 8 m lattice sampled from the road's
+        /// own height, and a lattice is straight between its vertices while
+        /// the road bends at its stations. Where the profile breaks OVER —
+        /// an approach cone meeting the flat, the mouth of a trench, a hill
+        /// street cresting at a junction — the straight ground between two
+        /// vertices runs above the bent road between them, by up to half the
+        /// break, and the grass came up through the tarmac. The corridor pin
+        /// sinks the land by this much extra there and nowhere else, so a
+        /// straight grade keeps its 20 cm kerb. Half the chord height:
+        /// stations are 10 m apart and lattice cells 8, and the overshoot of
+        /// an 8 m chord is at most two fifths of a 10 m one's; half leaves a
+        /// margin.
+        /// </summary>
+        static void MeasureCrests(CityMap map)
+        {
+            foreach (var e in map.edges)
+            {
+                int n = e.stY.Length;
+                e.stCrest = new float[n];
+                for (int i = 1; i < n - 1; i++)
+                {
+                    float span = e.stS[i + 1] - e.stS[i - 1];
+                    if (span < 1e-3f) continue;
+                    float chord = Mathf.Lerp(e.stY[i - 1], e.stY[i + 1], (e.stS[i] - e.stS[i - 1]) / span);
+                    e.stCrest[i] = Mathf.Max(0f, e.stY[i] - chord) * 0.5f;
+                }
+            }
+            // A node crests between the two arms that fall away from it
+            // fastest: a lattice cell straddling the junction spans four
+            // metres down each.
+            map.nodeCrest = new float[map.nodes.Length];
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                float y = map.nodeY[n];
+                float d1 = 0f, d2 = 0f;   // drop per metre, the largest two
+                foreach (var ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (e.stS.Length < 2 || e.a == e.b) continue;
+                    bool fromA = e.a == n;
+                    int j = fromA ? 1 : e.stS.Length - 2;
+                    float ds = fromA ? e.stS[1] - e.stS[0] : e.stS[e.stS.Length - 1] - e.stS[e.stS.Length - 2];
+                    if (ds < 0.5f) continue;
+                    float drop = (y - e.stY[j]) / ds;
+                    if (drop > d1) { d2 = d1; d1 = drop; }
+                    else if (drop > d2) d2 = drop;
+                }
+                map.nodeCrest[n] = Mathf.Max(0f, (d1 + d2) * 0.5f * 4f);
+            }
+            foreach (var e in map.edges)
+            {
+                if (e.stCrest.Length == 0 || e.a == e.b) continue;
+                e.stCrest[0] = Mathf.Max(e.stCrest[0], map.nodeCrest[e.a]);
+                e.stCrest[e.stCrest.Length - 1] = Mathf.Max(e.stCrest[e.stCrest.Length - 1], map.nodeCrest[e.b]);
             }
         }
 
@@ -887,6 +961,7 @@ namespace PSXRacing.City
             map.EdgeSegsInRect(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
 
             float wSum = 0f, tSum = 0f, wMax = 0f, tMin = float.MaxValue;
+            float capW = 0f, capY = float.MaxValue;
             foreach (var packed in segScratch)
             {
                 int ei = packed >> 12, si = packed & 0xFFF;
@@ -899,14 +974,34 @@ namespace PSXRacing.City
                 float ch = Mathf.Min(e.CorridorHalf, MaxCorridorHalf);
                 if (dist > ch + CorridorBlend) continue;
                 float at = e.s[si] + Mathf.Sqrt(L2) * t;
-                if (e.ElevatedAt(at)) continue;        // structure does not pin the land
-                float target = e.YAt(at) - CorridorSink;
                 float w = dist <= ch ? 1f
                     : 1f - (dist - ch) / CorridorBlend;
                 w = w * w * (3f - 2f * w);
+                if (e.ElevatedAt(at))
+                {
+                    // Structure does not pin the land — but the land may not
+                    // reach it either. A deck is over SOMETHING; where the DEM
+                    // shows nothing to cross, the ground is dug to leave
+                    // UnderDeckAir under the soffit. A cap, never a raise:
+                    // under a real viaduct the valley is already deeper.
+                    float capT = e.YAt(at) - DeckThick - UnderDeckAir;
+                    if (w > capW) capW = w;
+                    if (dist <= ch + CorridorBlend * 0.5f && capT < capY) capY = capT;
+                    continue;
+                }
+                // the crest allowance: extra sink where the profile breaks
+                // over, so the straight lattice never rises above the bent road
+                float target = e.YAt(at) - CorridorSink - e.CrestAt(at);
                 wSum += w; tSum += target * w;
                 if (w > wMax) wMax = w;
-                if (dist <= ch && target < tMin) tMin = target;
+                // The cap below reaches CapReach past the corridor: a lattice
+                // vertex up to a cell outside it still shapes the cells under
+                // the pavement, and one beside the Independence Expressway —
+                // just outside its corridor, inside the blend of Briar Creek
+                // Road's abutment four metres higher and twenty away — took
+                // the mean of the two and stood 1.2 m proud. The cell it
+                // cornered rose through the expressway's outside lane.
+                if (dist <= ch + CapReach && target < tMin) tMin = target;
             }
             if (wSum > 1e-4f)
             {
@@ -918,6 +1013,8 @@ namespace PSXRacing.City
                 // them, which is above the lower road.
                 if (tMin < float.MaxValue) baseY = Mathf.Min(baseY, tMin);
             }
+            if (capW > 1e-4f && capY < float.MaxValue)
+                baseY = Mathf.Min(baseY, Mathf.Lerp(baseY, capY, capW));
             return baseY;
         }
 

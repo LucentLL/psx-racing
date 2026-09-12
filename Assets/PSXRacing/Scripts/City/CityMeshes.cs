@@ -140,7 +140,8 @@ namespace PSXRacing.City
             SlotOf(e.profile, SurfaceOf(e, elevated));
 
         /// <summary>A freeway carriageway on the ground carries a barrier
-        /// both sides. Expressway carriageways too; ramps and two-way roads
+        /// on its median side (and on the outside only in a cut — see the
+        /// span loop). Expressway carriageways too; ramps and two-way roads
         /// do not (a ramp's edge is where its gore is).</summary>
         public static bool Barriered(CityMap.Edge e) =>
             !e.link && ((e.cls >= 5) || (e.cls == 4 && e.oneway));
@@ -1005,6 +1006,15 @@ namespace PSXRacing.City
             /// structure there: the two share one barrier or one rail.</summary>
             public int nbL, nbR;
             public bool nbElevL, nbElevR;
+            /// <summary>Texture U at each vertex, from its TRUE lateral
+            /// offset. A squeezed or clipped ribbon crops the painted
+            /// profile instead of compressing it, so the lane lines stay
+            /// where the lanes are; compressed, they slalomed wherever a
+            /// neighbour's mapped line wandered.</summary>
+            public float uL, uR;
+            /// <summary>How deep this section's kerb face reaches: the kerb
+            /// plus the crest allowance the ground was sunk by here.</summary>
+            public float kerb;
         }
         /// <summary>Edge pairs that are host and branch: they overlap by
         /// design and are never squeezed against each other.</summary>
@@ -1173,8 +1183,8 @@ namespace PSXRacing.City
                     // (near-left, far-left, far-right, near-right) is the
                     // verified face-up order.
                     bk.Quad(A.L, B.L, B.R, A.R,
-                        new Vector2(1f, v0), new Vector2(1f, v1),
-                        new Vector2(0f, v1), new Vector2(0f, v0));
+                        new Vector2(A.uL, v0), new Vector2(B.uL, v1),
+                        new Vector2(B.uR, v1), new Vector2(A.uR, v0));
 
                     bool gapL = InGoreGap(e.index, -1, A.s, B.s) || (A.innerSide == -1 && (A.clippedIn || A.collapsed)) || (B.innerSide == -1 && (B.clippedIn || B.collapsed));
                     bool gapR = InGoreGap(e.index, 1, A.s, B.s) || (A.innerSide == 1 && (A.clippedIn || A.collapsed)) || (B.innerSide == 1 && (B.clippedIn || B.collapsed));
@@ -1203,10 +1213,22 @@ namespace PSXRacing.City
                         EmitKerb(con, A, B, v0, v1, kerbL: !gapL, kerbR: !gapR);
                         if (barrier)
                         {
+                            // THE MEDIAN SIDE ONLY. A Jersey wall stood on
+                            // both edges of every freeway carriageway, and
+                            // the outside shoulder of a real interstate is
+                            // open verge — the owner named it at once:
+                            // "outside shoulder walls they don't have in
+                            // real life". R is the LEFT of travel (see
+                            // BuildSections), which on a one-way carriageway
+                            // is the median. The outside gets a wall only
+                            // where the road runs in a CUT — the retaining
+                            // walls of the 277 trench and of I-77 through the
+                            // near west side are real, and a car off the
+                            // shoulder there would be inside the hill.
                             var outL = -A.right;
                             bool nbBarL = (A.nbL >= 0 && Barriered(map.edges[A.nbL])) || (B.nbL >= 0 && Barriered(map.edges[B.nbL]));
                             bool nbBarR = (A.nbR >= 0 && Barriered(map.edges[A.nbR])) || (B.nbR >= 0 && Barriered(map.edges[B.nbR]));
-                            if (!gapL && !(shareL && nbBarL)) EmitBarrier(A.L, B.L, outL, v0, v1);
+                            if (!gapL && !(shareL && nbBarL) && InCut(tm, A, B, outL)) EmitBarrier(A.L, B.L, outL, v0, v1);
                             if (!gapR && !(shareR && nbBarR)) EmitBarrier(A.R, B.R, A.right, v0, v1);
                         }
                     }
@@ -1371,6 +1393,15 @@ namespace PSXRacing.City
                 var clip = ClipAt(e, s);
                 if (clip != null) ClipSection(map, trims, tm, e, s, p, right, hw, y, clip, ref sec);
                 SqueezeSection(map, trims, tm, e, p, right, hw, y, ref sec);
+                // U from where the vertex actually is: 1 at the nominal L
+                // edge (-hw), 0 at the nominal R edge (+hw), so a vertex
+                // moved inward by a squeeze or a clip shows the painted
+                // profile CROPPED at that lateral, not squashed into the gap.
+                float latL = Vector2.Dot(new Vector2(sec.L.x + tm.origin.x, sec.L.z + tm.origin.z) - p, right);
+                float latR = Vector2.Dot(new Vector2(sec.R.x + tm.origin.x, sec.R.z + tm.origin.z) - p, right);
+                sec.uL = hw > 0.05f ? Mathf.Clamp01(0.5f - latL / (2f * hw)) : 1f;
+                sec.uR = hw > 0.05f ? Mathf.Clamp01(0.5f - latR / (2f * hw)) : 0f;
+                sec.kerb = KerbDepth + e.CrestAt(s);
                 sections.Add(sec);
             }
         }
@@ -1467,6 +1498,24 @@ namespace PSXRacing.City
             return true;
         }
 
+        /// <summary>The natural ground stands this far above the tarmac
+        /// beside the outside edge = the road is in a cut, and the outside
+        /// edge gets a retaining wall.</summary>
+        public const float CutWallM = 2.0f;
+
+        /// <summary>Is the land beside this span's outside edge well above
+        /// the road? Sampled from the raw DEM a few metres out from the
+        /// pavement, at mid-span — the corridor grading has pulled the
+        /// lattice down to the road there, but the DEM still says what the
+        /// hill was.</summary>
+        static bool InCut(TileMeshes tm, Section A, Section B, Vector2 outward)
+        {
+            var m = (A.L + B.L) * 0.5f;
+            float wx = m.x + tm.origin.x + outward.x * 4f;
+            float wz = m.z + tm.origin.z + outward.y * 4f;
+            return CityElevation.BaseY(wx, wz) - m.y > CutWallM;
+        }
+
         /// <summary>A Jersey barrier along one edge of a span: inner face, top
         /// and outer face, standing on the pavement edge and reaching outward.</summary>
         static void EmitBarrier(Vector3 a, Vector3 b, Vector2 outward, float v0, float v1)
@@ -1485,11 +1534,13 @@ namespace PSXRacing.City
         /// grass is a kerb the car hits without warning.</summary>
         static void EmitKerb(Bucket con, Section A, Section B, float v0, float v1, bool kerbL, bool kerbR)
         {
+            // each section's own depth: the kerb reaches down through the
+            // crest allowance the ground was sunk by there
             if (kerbL)
-                con.WallSloped(A.L, B.L, A.L.y - KerbDepth, A.L.y, B.L.y - KerbDepth, B.L.y, -A.right,
+                con.WallSloped(A.L, B.L, A.L.y - A.kerb, A.L.y, B.L.y - B.kerb, B.L.y, -A.right,
                                v0, v1, 0f, 0.15f);
             if (kerbR)
-                con.WallSloped(A.R, B.R, A.R.y - KerbDepth, A.R.y, B.R.y - KerbDepth, B.R.y, A.right,
+                con.WallSloped(A.R, B.R, A.R.y - A.kerb, A.R.y, B.R.y - B.kerb, B.R.y, A.right,
                                v0, v1, 0f, 0.15f);
         }
 
@@ -1678,7 +1729,9 @@ namespace PSXRacing.City
                     var midOut = new Vector2((k0.pos.x + k1.pos.x) * 0.5f + tm.origin.x - np.x,
                                              (k0.pos.z + k1.pos.z) * 0.5f + tm.origin.z - np.y);
                     if (midOut.sqrMagnitude < 1e-4f) continue;
-                    con.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbDepth, k0.pos.y, k1.pos.y - KerbDepth, k1.pos.y,
+                    // through the junction's own crest allowance, like a ribbon's kerb
+                    float kd = KerbDepth + (map.nodeCrest != null ? map.nodeCrest[n] : 0f);
+                    con.WallSloped(k0.pos, k1.pos, k0.pos.y - kd, k0.pos.y, k1.pos.y - kd, k1.pos.y,
                                    midOut, 0f, 0.6f, 0f, 0.15f);
                 }
             }

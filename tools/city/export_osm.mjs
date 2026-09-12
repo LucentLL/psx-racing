@@ -141,6 +141,8 @@ console.log(`raw: ${rawWays.length} arterial ways, ${rawMinor.length} minor ways
 // ------------------------------------------------------------- ways -> edges
 const ways = [];
 const seenWay = new Set();
+let tollDropped = 0;
+const tollNodes = new Set();   // every node a dropped toll way touched
 function keepWay(w, minor) {
   if (seenWay.has(w.id)) return;
   const t = w.tags;
@@ -149,6 +151,14 @@ function keepWay(w, minor) {
   const link = hw.endsWith('_link');
   const base = link ? hw.slice(0, -5) : hw;
   if (!(base in CLS_RANK)) return;
+  // NO TOLL ROADS. Every toll=yes way in this snapshot is post-2015: the
+  // I-77 Express Lanes (2019), the I-485 Express Lanes (2019) and the Monroe
+  // Expressway (2018), plus their slip ramps. The game is set in 1999, and
+  // the express lanes were also the "zigzag" on I-77: OSM maps them as a
+  // second carriageway 5.5 m from the general lanes, so both ribbons were
+  // squeezed against each other and the paint slalomed wherever the two
+  // mapped lines drifted apart or together.
+  if (t.toll === 'yes') { tollDropped++; for (const id of w.nodes) tollNodes.add(id); return; }
   if (minor) {
     // Named service roads are streets (a shopping-centre ring road); the
     // unnamed ones are car-park aisles and loading bays and would clutter
@@ -199,7 +209,32 @@ function keepWay(w, minor) {
 }
 for (const w of rawWays) keepWay(w, false);
 for (const w of rawMinor) keepWay(w, true);
-console.log(`kept ${ways.length} ways`);
+console.log(`kept ${ways.length} ways (dropped ${tollDropped} toll ways: the 2018-19 express lanes)`);
+
+// A slip ramp that only ever led to a dropped toll lane now ends in mid-air:
+// an untolled link whose free end is a node only the toll lanes shared. Drop
+// those too, and keep dropping until no ramp leads nowhere (a two-piece ramp
+// loses its far piece first, then its near one).
+{
+  let stubs = 0;
+  for (;;) {
+    const use = new Map();
+    for (const w of ways) for (const id of w.nodes) use.set(id, (use.get(id) || 0) + 1);
+    let dropped = false;
+    for (let i = ways.length - 1; i >= 0; i--) {
+      const w = ways[i];
+      if (!w.link) continue;
+      const first = w.nodes[0], last = w.nodes[w.nodes.length - 1];
+      const stubAt = id => use.get(id) === 1 && tollNodes.has(id);
+      if (!stubAt(first) && !stubAt(last)) continue;
+      for (const id of w.nodes) tollNodes.add(id);
+      ways.splice(i, 1);
+      stubs++; dropped = true;
+    }
+    if (!dropped) break;
+  }
+  console.log(`dropped ${stubs} ramp pieces that led only to the toll lanes`);
+}
 
 // junction nodes: any OSM node two kept ways share, plus every way's ends
 const nodeUse = new Map();

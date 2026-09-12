@@ -97,6 +97,7 @@ namespace PSXRacing.City
         {
             if (player != null)
             {
+                SeatOnStreet();
                 spawnPos = player.transform.position;
                 spawnRot = player.transform.rotation;
                 var input = player.GetComponent<PlayerCarInput>();
@@ -134,6 +135,47 @@ namespace PSXRacing.City
                 var name = world.StreetNameAt(player.transform.position);
                 if (!string.IsNullOrEmpty(name)) CurrentStreet = name;
             }
+        }
+
+        /// <summary>Metres above the solved road surface a car is set down
+        /// at: the builder's own spawn lift, so the wheels settle rather
+        /// than start inside the tarmac.</summary>
+        const float SpawnLiftM = 0.45f;
+
+        /// <summary>
+        /// Put the player ON the street at load, whatever the scene says.
+        ///
+        /// The scene bakes the car at the spawn's solved height — solved from
+        /// the DEM and the graph AS THEY WERE WHEN THE SCENE WAS BUILT. The
+        /// city is solved again at every load from the data that ships, so a
+        /// data change (the 2026-09-12 DEM alone moved the land by metres)
+        /// leaves the baked pose in the air, or under the tarmac, until the
+        /// next rebake — and "each time I free roam Charlotte my car is
+        /// dropped from the sky" is what a stale bake reads as. The graph is
+        /// the authority here as it is for a race grid: nearest street to the
+        /// baked spot, the road's own solved height there, the tiles under it
+        /// built first, and the pose written through TeleportTo so the
+        /// interpolated body takes it.
+        /// </summary>
+        void SeatOnStreet()
+        {
+            if (world == null || world.Map == null) return;   // the town: a baked map, its own spawn
+            var map = world.Map;
+            var p = player.transform.position;
+            if (!map.NearestRoadPoint(new Vector2(p.x, p.z), 120f, skipLinks: true,
+                    out int ei, out float at, out _) &&
+                !map.NearestRoadPoint(new Vector2(p.x, p.z), 600f, skipLinks: false,
+                    out ei, out at, out _))
+                return;
+            var e = map.edges[ei];
+            var q = e.PointAt(at);
+            var t2 = e.TangentAt(at);
+            var fwd = new Vector3(t2.x, 0f, t2.y);
+            // the way the scene pointed it, unless the street only goes one way
+            if (!e.oneway && Vector3.Dot(player.transform.forward, fwd) < 0f) fwd = -fwd;
+            var pos = new Vector3(q.x, e.YAt(at) + SpawnLiftM, q.y);
+            world.EnsureRing(pos, 1);
+            player.TeleportTo(pos, Quaternion.LookRotation(fwd, Vector3.up));
         }
 
         // ==================================================================
@@ -208,19 +250,35 @@ namespace PSXRacing.City
             var ys = new List<float>(4096);
             var arcs = new List<float>(4096);
             float acc = 0f;
+            var marks = new List<float>(64);
             for (int k = 0; k < route.edges.Length; k++)
             {
                 var e = map.edges[route.edges[k]];
                 bool fwd = route.dirs[k] >= 0;
-                int n = e.pts.Length;
+                // Every polyline vertex AND every elevation station, in
+                // order along the edge. The height is solved at the 10 m
+                // stations; sampled at the vertices alone, the path ran
+                // straight between two OSM vertices 200 m apart while the
+                // road under it humped and dipped, and the grid stood a
+                // metre and a half in the air over the 277 (the whole field
+                // was dropped onto the deck at the green).
+                marks.Clear();
+                for (int i = 0; i < e.s.Length; i++) marks.Add(e.s[i]);
+                if (e.stS != null) for (int i = 0; i < e.stS.Length; i++) marks.Add(e.stS[i]);
+                marks.Sort();
+                int m = 0;
+                for (int i = 1; i < marks.Count; i++)
+                    if (marks[i] - marks[m] > 0.05f) marks[++m] = marks[i];
+                marks.RemoveRange(m + 1, marks.Count - m - 1);
+                int n = marks.Count;
                 for (int i = 0; i < n; i++)
                 {
-                    int pi = fwd ? i : n - 1 - i;
+                    float sAt = fwd ? marks[i] : marks[n - 1 - i];
                     if (k > 0 && i == 0) continue;   // shared node with the previous edge
-                    var p = e.pts[pi];
+                    var p = e.PointAt(sAt);
                     if (pts.Count > 0) acc += Vector2.Distance(pts[pts.Count - 1], p);
                     pts.Add(p);
-                    ys.Add(e.YAt(e.s[pi]));
+                    ys.Add(e.YAt(sAt));
                     arcs.Add(acc);
                 }
             }

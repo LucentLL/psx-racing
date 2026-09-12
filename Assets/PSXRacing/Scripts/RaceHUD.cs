@@ -136,6 +136,7 @@ namespace PSXRacing
                 cluster.hideGauges = hideGauges;
                 cluster.rpmFlutter = rpmFlutter;
             }
+            EnsureCityMap();
 
             // The venue's own name, not a literal: this same HUD serves the
             // town, and a street called CHARLOTTE two hundred miles from
@@ -264,6 +265,27 @@ namespace PSXRacing
         /// <summary>The city world, for the attribution gate above. Wired by
         /// the city scene builder; null on every circuit.</summary>
         public City.CityWorld world;
+
+        /// <summary>
+        /// The free-roam street map (CityMinimap), where the race map sits
+        /// on a circuit — "I'd like a map to view where I'm at in the city".
+        /// Built here at runtime like the race map, so it reaches the shipped
+        /// Charlotte scene without a rebake, and rebuilt when the frame's
+        /// line count changes. Only where there is a road graph to draw: the
+        /// town shares this HUD and has none.
+        /// </summary>
+        City.CityMinimap cityMap;
+        int cityMapPx = -1;
+
+        void EnsureCityMap()
+        {
+            if (world == null || world.Map == null || car == null) return;
+            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * mapFrac));
+            if (cityMap != null && px == cityMapPx) return;
+            if (cityMap != null && cityMap.Root != null) Destroy(cityMap.Root);
+            cityMapPx = px;
+            cityMap = City.CityMinimap.Create(transform, px, mapCentreYFrac, world.Map, car.transform);
+        }
 
         /// <summary>
         /// Name the control the player actually HAS. On a phone there is no C

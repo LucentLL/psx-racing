@@ -125,6 +125,14 @@ namespace PSXRacing.EditorTools
                 foreach (var ic in CityAudit.Interchanges(map, a, b))
                     views.Add(($"ic_{Tag(a)}_{Tag(b)}_{k++}", ic.at, 2, ic.mainline, ic.s));
             }
+            // The 2026-09-12 pass: I-77 north of uptown, where the express
+            // lanes were (the paint must run straight, and the outside
+            // shoulder must be open), and a creek bridge the DEM cannot see
+            // (the deck must stand over a dip, not in the grass).
+            if (CityAudit.FindI77North(map, out var i77n))
+                views.Add(("i77n", i77n.PointAt(i77n.length * 0.5f), 1, i77n, i77n.length * 0.5f));
+            if (CityAudit.FindCreekBridge(map, out var creek))
+                views.Add(("creek", creek.PointAt(creek.length * 0.5f), 1, creek, creek.length * 0.5f));
 
             // PSX/Lit reads global fog + snap; give it a daylight look
             Shader.SetGlobalFloat("_PSXFogNear", 900f);

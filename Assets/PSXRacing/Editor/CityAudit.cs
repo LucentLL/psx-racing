@@ -46,7 +46,9 @@ namespace PSXRacing.EditorTools
                  $"crossings {map.crossings.Length} ({CityElevation.TrenchCount} trenched), wspans {map.wspans.Length}, " +
                  $"footprints {map.footprints.Length}, routes {map.routes.Length}, DEM {(CityElevation.HasDem ? "yes" : "NO")}");
             Check(map.edges.Length > 20000, "edge count in expected range", map.edges.Length);
-            Check(map.crossings.Length > 800, "grade separations present", map.crossings.Length);
+            // 928 with the express lanes in the graph, 783 without them
+            // (they crossed under and over a hundred ramps of their own)
+            Check(map.crossings.Length > 700, "grade separations present", map.crossings.Length);
             Check(map.wspans.Length > 200, "water bridge spans present", map.wspans.Length);
             Check(map.footprints.Length > 20000, "building footprints loaded", map.footprints.Length);
             Check(CityElevation.HasDem, "the SRTM height grid loaded");
@@ -249,6 +251,28 @@ namespace PSXRacing.EditorTools
                 }
                 Check(worstStep < 0.16f, "route " + r.id + " path grade stays drivable",
                       (worstStep * 100f).ToString("0.0") + "%" + where);
+
+                // THE PATH IS ON THE ROAD. Its heights come from the route's
+                // own edges, and a height lerped between two OSM vertices
+                // 200 m apart is not the road's between them — the grid stood
+                // 1.5 m in the air over the 277 before BuildPath sampled the
+                // stations too. Every waypoint against the solved surface of
+                // the route edge it lies on.
+                var routeEdges = new HashSet<int>(r.edges);
+                float worstFloat = 0f; int floatAt = -1, floating = 0, judged = 0;
+                for (int i = 0; i < tp.Count; i++)
+                {
+                    var wp = tp.waypoints[i];
+                    if (!map.NearestRoadPoint(new Vector2(wp.x, wp.z), 12f, false, out int wei, out float wat, out _)) continue;
+                    if (!routeEdges.Contains(wei)) continue;
+                    judged++;
+                    float dy = Mathf.Abs(wp.y - map.edges[wei].YAt(wat));
+                    if (dy > 0.15f) floating++;
+                    if (dy > worstFloat) { worstFloat = dy; floatAt = i; }
+                }
+                string fwhere = floatAt >= 0 ? $" at wp {floatAt} ({tp.waypoints[floatAt].x:0},{tp.waypoints[floatAt].z:0})" : "";
+                Check(floating == 0 && judged > tp.Count / 2, "route " + r.id + " path sits on the solved road",
+                      $"{floating} of {judged} waypoints off by more than 15 cm, worst {worstFloat:0.00} m{fwhere}");
                 if (worstStep >= 0.16f && worstAt >= 0)
                 {
                     // The chain around the step: each edge's length, its two
@@ -377,6 +401,40 @@ namespace PSXRacing.EditorTools
         /// West 5th Street bridge, the I-277/I-77 interchanges, a ramp merge
         /// and a piece of I-485.
         /// </summary>
+        /// <summary>A creek bridge with no traced water under it: the DEM
+        /// calls the land level there and the deck must still stand over a
+        /// dip. A street-class tagged bridge of a few dozen metres within
+        /// the core, off every water span.</summary>
+        public static bool FindCreekBridge(CityMap map, out CityMap.Edge found)
+        {
+            found = null;
+            var wet = new HashSet<int>();
+            foreach (var ws in map.wspans) wet.Add(ws.edge);
+            foreach (var e in map.edges)
+            {
+                if (!e.bridge || e.link || e.cls > 3 || e.length < 40f || e.length > 160f) continue;
+                if (wet.Contains(e.index)) continue;
+                if (Vector2.Distance(e.PointAt(e.length * 0.5f), map.uptown) > 6000f) continue;
+                found = e; return true;
+            }
+            return false;
+        }
+
+        /// <summary>I-77 north of uptown, where the express lanes ran beside
+        /// the general lanes until the 2026-09-12 export dropped them.</summary>
+        public static bool FindI77North(CityMap map, out CityMap.Edge found)
+        {
+            found = null;
+            foreach (var e in map.edges)
+            {
+                if (e.name != "I-77" || e.link || e.length < 250f) continue;
+                var m = e.PointAt(e.length * 0.5f);
+                if (m.y - map.uptown.y < 3000f || m.y - map.uptown.y > 9000f) continue;
+                found = e; return true;
+            }
+            return false;
+        }
+
         static void DriveAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
         {
             var spots = new List<(string name, Vector2 at)> { ("uptown", map.uptown) };
@@ -388,8 +446,10 @@ namespace PSXRacing.EditorTools
                 if (e.link && e.cls >= 5 && Vector2.Distance(map.nodes[e.b], map.uptown) > 3000f) { spots.Add(("gore", map.nodes[e.b])); break; }
             foreach (var e in map.edges)
                 if (e.name == "I-485" && !e.link && e.length > 300f) { spots.Add(("i485", e.PointAt(e.length * 0.5f))); break; }
+            if (FindCreekBridge(map, out var creek)) spots.Add(("creek", creek.PointAt(creek.length * 0.5f)));
+            if (FindI77North(map, out var i77n)) spots.Add(("i77n", i77n.PointAt(i77n.length * 0.5f)));
 
-            int walls = 0, steps = 0, holes = 0, off = 0, probes = 0;
+            int walls = 0, steps = 0, holes = 0, off = 0, grass = 0, probes = 0;
             var notes = new List<(float sev, string what)>();
             void Note(float sev, string what) { notes.Add((sev, what)); }
             string Path(Collider c)
@@ -452,7 +512,7 @@ namespace PSXRacing.EditorTools
                     map.EdgeSegsInRect(min, max, segs);
                     var edges = new HashSet<int>();
                     foreach (var p in segs) edges.Add(p >> 12);
-                    int wallsHere = 0, stepsHere = 0, holesHere = 0, offHere = 0;
+                    int wallsHere = 0, stepsHere = 0, holesHere = 0, offHere = 0, grassHere = 0;
                     foreach (var ei in edges)
                     {
                         var e = map.edges[ei];
@@ -490,6 +550,18 @@ namespace PSXRacing.EditorTools
                                     continue;
                                 }
                                 float d = hit.point.y - y;
+                                // THE LAND OVER THE TARMAC. The first thing
+                                // a wheel meets in a lane must be the road:
+                                // ground (or water) on top is grass through
+                                // the pavement, however few centimetres of
+                                // it — the OFF test below only sees it past
+                                // 35 cm, and the owner sees it at two.
+                                string hp = Path(hit.collider);
+                                if (hp.EndsWith("/Ground") || hp.EndsWith("/Water"))
+                                {
+                                    grass++; grassHere++;
+                                    Note(1.5f + Mathf.Abs(d), $"GRASS {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} land {d:+0.00;-0.00} m from the solve and ON TOP of the tarmac: {hp} at ({w.x:0},{w.z:0}){(e.ElevatedAt(s) ? " deck" : "")} crest {e.CrestAt(s):0.00}{Owner(hit.point, ei)}");
+                                }
                                 if (Mathf.Abs(d) > 0.35f)
                                 {
                                     off++; offHere++;
@@ -519,7 +591,7 @@ namespace PSXRacing.EditorTools
                             }
                         }
                     }
-                    Line($"drive {spot} at ({at.x:0},{at.y:0}): {edges.Count} edges, walls {wallsHere}, steps {stepsHere}, holes {holesHere}, off-surface {offHere}");
+                    Line($"drive {spot} at ({at.x:0},{at.y:0}): {edges.Count} edges, walls {wallsHere}, steps {stepsHere}, holes {holesHere}, off-surface {offHere}, grass {grassHere}");
                     // the sections of the worst two edges on this tile, as drawn
                     var worst = new List<(float sev, int ei)>();
                     foreach (var (sev, what) in notes)
@@ -549,6 +621,7 @@ namespace PSXRacing.EditorTools
             Check(steps == 0, "no lane surface steps more than 12 cm in half a metre (drive audit)", steps);
             Check(holes == 0, "every lane has a surface under it (drive audit)", holes);
             Check(off == 0, "every lane surface is where the solve put it (drive audit)", off);
+            Check(grass == 0, "no land stands on top of any lane (drive audit)", grass);
             notes.Sort((p, q) => q.sev.CompareTo(p.sev));
             var seen = new HashSet<string>();
             int shown = 0;
