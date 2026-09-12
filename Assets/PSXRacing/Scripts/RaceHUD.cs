@@ -679,7 +679,12 @@ namespace PSXRacing
                 // anyway — and hands the slot back by resetting the change-
                 // gate, so it repaints on the next frame rather than waiting
                 // for a best lap that a point-to-point run never sets.
-                if (stageVenue == null) stageVenue = TrackCatalog.At(RaceHandoff.TrackIndex).stage;
+                if (stageVenue == null)
+                {
+                    // A city race is on OpenStreetMap data too.
+                    var venue = TrackCatalog.At(RaceHandoff.TrackIndex);
+                    stageVenue = venue.stage || venue.IsCityRace;
+                }
                 bool attribution = stageVenue.Value && p.raceTime < AttributionSeconds;
                 if (attribution != lastAttribution) { lastAttribution = attribution; lastBest = -1f; }
                 if (attribution)

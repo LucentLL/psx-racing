@@ -36,5 +36,7 @@ tools/brp/cache/
 # 15 MB and up per road, all of it re-fetchable, none of it source.
 tools/roads/cache/
 
-# Overpass bodies for the Charlotte street venues (tools/clt/fetch_clt.mjs)
-tools/clt/cache/
+# Overpass bodies + SRTM for the Charlotte city bake (tools/city/export_osm.mjs), and
+# its debug plots, which it redraws in five seconds
+tools/city/cache/
+tools/city/charlotte_*.png

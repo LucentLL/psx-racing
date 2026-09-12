@@ -289,7 +289,7 @@ namespace PSXRacing.LifeSim
             {
                 int idx = (start + i) % n;
                 var t = all[idx];
-                if (t.city || t.drag) continue;
+                if (t.IsRoam || t.drag) continue;
                 if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
                 return idx;
             }
@@ -307,7 +307,7 @@ namespace PSXRacing.LifeSim
                 // cheapest run in the catalog by a mile — and the venue the
                 // roll refuses on principle would be the one a dry tank
                 // always gets.
-                if (all[i].city || all[i].drag) continue;
+                if (all[i].IsRoam || all[i].drag) continue;
                 float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
                 if (need < least) { least = need; cheapest = i; }
             }
@@ -383,7 +383,7 @@ namespace PSXRacing.LifeSim
             if (t == null) return 0f;
             // A LOOP stage (the 277 belt) has no ends: it is a lap, and the
             // door is a fraction of it like any circuit's.
-            if (t.drag || (t.stage && !t.loop)) return t.RaceMeters;
+            if (t.drag || (t.stage && !t.loop) || (t.IsCityRace && !t.loop)) return t.RaceMeters;
             return t.LengthM * Mathf.Clamp(dropFraction, DeliveryDropMin, 1f);
         }
 

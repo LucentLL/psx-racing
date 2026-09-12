@@ -4,15 +4,19 @@ using UnityEngine;
 namespace PSXRacing.City
 {
     /// <summary>
-    /// Where the city's buildings stand, decided once at load from road
-    /// frontage — RG2 has no footprint data, so this is generation, not
-    /// tracing (see Docs/CHARLOTTE.md). Deterministic by construction: every
-    /// choice hashes off (edge index, slot index), so the same tile always
-    /// builds the same street, on every device, in every session.
+    /// Where the city's PROCEDURAL buildings stand, decided once at load from
+    /// road frontage — plus which real footprints trade their extruded prism
+    /// for one of the owner's skyscraper models. Deterministic by
+    /// construction: every choice hashes off (edge index, slot index), so the
+    /// same tile always builds the same street, on every device.
     ///
-    /// The shape of the city comes from three dials against distance-to-
-    /// uptown: towers inside ~900 m (the 277 loop), midrise to ~2.6 km,
-    /// low suburbia thinning out toward the 485 belt.
+    /// Inside <see cref="CityMap.footprintBounds"/> (the 8 x 8 km core that
+    /// OpenStreetMap has buildings for) the frontage pass stands down: the
+    /// real buildings are the buildings, and CityMeshes extrudes them. Out
+    /// here the shape of the city comes from three dials against distance-
+    /// to-uptown: midrise to ~2.6 km, low suburbia thinning out toward the
+    /// 485 belt — and CityMeshes.BuildHouses fills the blocks between the
+    /// arterials with gabled boxes.
     /// </summary>
     public static class CityBuildings
     {
@@ -22,10 +26,15 @@ namespace PSXRacing.City
             public float yaw;       // radians, facing the road
             public float w, d, h;   // metres
             public byte style;      // material slot selector (see CityMeshes)
-            /// <summary>0 = procedural facade box (CityMeshes emits it).
+            /// <summary>0 = procedural box (CityMeshes emits it).
             /// Anything else is a CityProps prefab kind — the mesh pass skips
             /// it and CityWorld instantiates the model instead.</summary>
             public byte kind;
+            /// <summary>A pitched roof rather than a flat one: a house.</summary>
+            public bool gable;
+            /// <summary>Non-unit for a prefab fitted onto a real footprint —
+            /// a pack tower stretched to the lot it stands on. Zero means one.</summary>
+            public Vector3 scale;
         }
 
         public const float TileSize = 256f;
@@ -42,11 +51,13 @@ namespace PSXRacing.City
             // Restaurants first, so their lots claim occupancy before the
             // frontage loop fills the street with houses.
             int landmarks = PlaceLandmarks(map, byTile, occupied, scratch);
+            int towers = SubstituteTowers(map, byTile);
 
             foreach (var e in map.edges)
             {
                 if (e.link) continue;                       // no frontage on a ramp
                 if (e.cls >= 5) continue;                   // or on a freeway mainline
+                if (e.cls == 4 && e.oneway) continue;       // or an expressway carriageway
                 if (e.length < 30f) continue;
 
                 for (int side = -1; side <= 1; side += 2)
@@ -62,7 +73,7 @@ namespace PSXRacing.City
                         float bw, bd, bh;
                         byte style;
                         Pick(e, distUp, e.index, slot * 2 + (side + 1) / 2,
-                             out bw, out bd, out bh, out style, out float keepP);
+                             out bw, out bd, out bh, out style, out float keepP, out bool gable);
 
                         // A slot can trade its procedural box for a real model:
                         // houses (and the odd trailer) own the outer suburbs,
@@ -80,6 +91,9 @@ namespace PSXRacing.City
                         float setback = e.width * 0.5f + 4f + bd * 0.5f
                                       + Hash01(e.index, slot, 5) * 5f;
                         var c = p + nrm * setback;
+
+                        // The real buildings own the core.
+                        if (map.footprintBounds.Contains(c)) { at += step; continue; }
 
                         // never inside another road's corridor
                         scratch.Clear();
@@ -105,9 +119,7 @@ namespace PSXRacing.City
                         if (scratch.Count > 0) { at += step; continue; }
 
                         // one building per 18 m occupancy cell; a real model
-                        // claims every cell under its lot, because two houses
-                        // from the SAME prefab intersecting reads as a glitch
-                        // where two different procedural boxes just read dense
+                        // claims every cell under its lot
                         if (kind == 0)
                         {
                             long occ = (((long)Mathf.FloorToInt(c.x / 18f)) << 24) ^ (Mathf.FloorToInt(c.y / 18f) & 0xFFFFFF);
@@ -119,7 +131,7 @@ namespace PSXRacing.City
                         {
                             pos = c,
                             yaw = Mathf.Atan2(-nrm.x, -nrm.y),   // face back toward the road
-                            w = bw, d = bd, h = bh, style = style, kind = kind,
+                            w = bw, d = bd, h = bh, style = style, kind = kind, gable = gable && kind == 0,
                         };
                         int tx = Mathf.FloorToInt(c.x / TileSize), tz = Mathf.FloorToInt(c.y / TileSize);
                         long key = TileKey(tx, tz);
@@ -131,8 +143,57 @@ namespace PSXRacing.City
                     }
                 }
             }
-            Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants)");
+            Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants, {towers} pack towers on real lots, {map.footprints.Length} footprints)");
             return byTile;
+        }
+
+        /// <summary>
+        /// The owner's skyscraper pack, stood on the real lots that fit it.
+        ///
+        /// Uptown was all pack towers before the footprints arrived; now a
+        /// square-ish footprint between 20 and 70 m across and 30 to 130 m
+        /// tall has a fair chance of wearing the nearest model, scaled onto
+        /// the lot (never more than 40% either way — a tower stretched past
+        /// that reads as a stretched tower). The rest stay extruded prisms,
+        /// which is what a downtown looks like: a few detailed landmarks in a
+        /// crowd of plainer slabs. Deterministic per footprint index.
+        /// </summary>
+        static int SubstituteTowers(CityMap map, Dictionary<long, List<B>> byTile)
+        {
+            int n = 0;
+            for (int i = 0; i < map.footprints.Length; i++)
+            {
+                var f = map.footprints[i];
+                if (f.style > 1 || f.gable) continue;
+                if (f.h < 30f || f.h > 135f) continue;
+                float wide = f.hv * 2f, deep = f.hu * 2f;
+                if (wide < 20f || deep > 72f || deep / wide > 1.35f) continue;
+                if (Hash01(i, 0, 31) > 0.55f) continue;
+
+                byte best = 0; float bestErr = float.MaxValue; Vector3 bestScale = Vector3.one;
+                for (int k = 0; k < CityProps.TowerCount; k++)
+                {
+                    var def = CityProps.Defs[(byte)(CityProps.Tower0 + k)];
+                    float sx = wide / def.w, sz = deep / def.d, sy = f.h / def.h;
+                    if (sx < 0.72f || sx > 1.4f || sz < 0.72f || sz > 1.4f || sy < 0.72f || sy > 1.4f) continue;
+                    float err = Mathf.Abs(Mathf.Log(sx)) + Mathf.Abs(Mathf.Log(sz)) + Mathf.Abs(Mathf.Log(sy)) * 1.5f;
+                    if (err < bestErr) { bestErr = err; best = (byte)(CityProps.Tower0 + k); bestScale = new Vector3(sx, sy, sz); }
+                }
+                if (best == 0) continue;
+                f.propKind = best;
+                var b = new B
+                {
+                    pos = f.centre,
+                    yaw = Mathf.Atan2(f.u.x, f.u.y),
+                    w = wide, d = deep, h = f.h, style = 0, kind = best, scale = bestScale,
+                };
+                int tx = Mathf.FloorToInt(f.centre.x / TileSize), tz = Mathf.FloorToInt(f.centre.y / TileSize);
+                long key = TileKey(tx, tz);
+                if (!byTile.TryGetValue(key, out var list)) byTile[key] = list = new List<B>(24);
+                list.Add(b);
+                n++;
+            }
+            return n;
         }
 
         /// <summary>
@@ -145,20 +206,7 @@ namespace PSXRacing.City
                              ref float w, ref float d, ref float h)
         {
             byte kind = 0;
-            if (distUp < 900f)
-            {
-                // Uptown belongs to the skyscraper pack. Not every slot, and
-                // deliberately not: a tower whose footprint will not clear the
-                // surrounding corridors is REJECTED outright by the caller
-                // rather than downgraded back to a box, so the slot produces
-                // nothing at all. Offering one everywhere would hollow out the
-                // middle of the city; a little under half leaves the
-                // procedural blocks to fill in between them, which is what a
-                // downtown actually looks like.
-                if (Hash01(a, b, 24) < 0.42f)
-                    kind = TowerPick[(int)(Hash01(a, b, 25) * (TowerPick.Length - 0.001f))];
-            }
-            else if (distUp > 2600f && e.lanes < 4)
+            if (distUp > 2600f && e.lanes < 4)
             {
                 // the suburbs: half the frontage becomes real houses, and past
                 // 5 km the odd lot is a trailer instead
@@ -181,30 +229,6 @@ namespace PSXRacing.City
             }
             return 0;
         }
-
-        /// <summary>
-        /// Which towers get offered uptown, and how often.
-        ///
-        /// Weighted by REPEATS rather than by a branch, because the thing being
-        /// balanced is how likely a pick is to survive the corridor test. A
-        /// 33 m floorplate needs about 22 m of clearance from every road and
-        /// fits a normal downtown block; the 49 m and 65 m ones need 30 and 40
-        /// and only land mid-block on the big lots, so they appear once each —
-        /// often enough to be landmarks, rarely enough that they do not spend
-        /// slots failing.
-        /// </summary>
-        static readonly byte[] TowerPick =
-        {
-            (byte)(CityProps.Tower0 + 0),  (byte)(CityProps.Tower0 + 1),    // 25 m
-            (byte)(CityProps.Tower0 + 6),  (byte)(CityProps.Tower0 + 7),    // 29 m
-            (byte)(CityProps.Tower0 + 4),  (byte)(CityProps.Tower0 + 5),    // 33 m
-            (byte)(CityProps.Tower0 + 8),  (byte)(CityProps.Tower0 + 9),
-            (byte)(CityProps.Tower0 + 10), (byte)(CityProps.Tower0 + 11),
-            (byte)(CityProps.Tower0 + 12), (byte)(CityProps.Tower0 + 13),
-            (byte)(CityProps.Tower0 + 14), (byte)(CityProps.Tower0 + 15),
-            (byte)(CityProps.Tower0 + 2),  (byte)(CityProps.Tower0 + 3),    // 49 m
-            (byte)(CityProps.Tower0 + 16), (byte)(CityProps.Tower0 + 17),   // 65 m
-        };
 
         /// <summary>Claim every 18 m occupancy cell under a w×d lot centred at
         /// c. All-or-nothing: on any collision nothing is claimed and the slot
@@ -239,7 +263,7 @@ namespace PSXRacing.City
             foreach (var e in map.edges)
             {
                 if (sites.Count >= Want) break;
-                if (e.link || e.cls >= 5 || e.lanes < 4 || e.length < 90f) continue;
+                if (e.link || e.cls >= 4 || e.lanes < 4 || e.length < 90f) continue;
 
                 float at = e.length * (0.35f + Hash01(e.index, 1, 22) * 0.3f);
                 var p = e.PointAt(at);
@@ -259,6 +283,9 @@ namespace PSXRacing.City
                 var nrm = new Vector2(-tan.y, tan.x) * side;
                 float setback = e.width * 0.5f + 6f + def.d * 0.5f;
                 var c = p + nrm * setback;
+
+                // a real building already on the lot wins
+                if (map.AnyFootprintNear(c, Mathf.Max(def.w, def.d) * 0.6f + 4f)) continue;
 
                 // same corridor test the frontage loop applies, on the real lot
                 scratch.Clear();
@@ -303,9 +330,10 @@ namespace PSXRacing.City
         }
 
         static void Pick(CityMap.Edge e, float distUp, int a, int b,
-            out float w, out float d, out float h, out byte style, out float keepP)
+            out float w, out float d, out float h, out byte style, out float keepP, out bool gable)
         {
             float r1 = Hash01(a, b, 11), r2 = Hash01(a, b, 12), r3 = Hash01(a, b, 13);
+            gable = false;
             if (distUp < 900f)
             {
                 // uptown: towers, denser on bigger streets
@@ -324,10 +352,13 @@ namespace PSXRacing.City
             }
             else
             {
+                // the suburbs: a low box on a big road is a shop; on a small
+                // one it is a house with a roof
                 w = 9f + r1 * 9f; d = 7f + r2 * 6f;
                 h = 3.6f + r3 * 4.5f;
                 style = (byte)(r1 < 0.25f ? 2 : 3);    // brick / shop-street low
                 keepP = Mathf.Clamp01(1.25f - distUp / 9000f) * (e.lanes >= 4 ? 0.75f : 0.55f);
+                if (e.lanes < 4) { gable = true; h = 4.4f + r3 * 1.6f; w = 9f + r1 * 5f; d = 7.5f + r2 * 3f; }
             }
             // ground-floor retail takes over on big surface streets in the core
             if (distUp < 1800f && e.lanes >= 4 && h < 26f && Hash01(a, b, 14) < 0.5f)
@@ -337,10 +368,9 @@ namespace PSXRacing.City
         /// <summary>
         /// Ground height a prefab lot should SEAT at: the highest GroundY under
         /// its footprint (centre + four corners). A model cannot stretch its
-        /// walls into a bank the way the procedural boxes do, so the first pass
-        /// — seating on the CENTRE sample — buried whole ground floors where
-        /// the corridor blend fell away from the road. The high corner wins and
-        /// the baked foundation skirt covers whatever the low corner exposes.
+        /// walls into a bank the way the procedural boxes do; the high corner
+        /// wins and the baked foundation skirt covers whatever the low corner
+        /// exposes.
         /// </summary>
         public static float SeatY(CityMap map, Vector2 pos, float w, float d, float yaw)
         {

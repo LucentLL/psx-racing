@@ -1061,7 +1061,7 @@ namespace PSXRacing.LifeSim
         void BuildVenueBlock(ref float y, float x, float w)
         {
             var t = TrackCatalog.At(S.trackIndex);
-            if (t.city) { S.trackIndex = 0; t = TrackCatalog.At(0); }   // saves never point races at the city
+            if (t.IsRoam) { S.trackIndex = 0; t = TrackCatalog.At(0); }   // saves never point races at the open city
             const float MapSize = 92f;
 
             var mapPanel = MenuKit.Rect(body, "TrackMap",
@@ -1135,7 +1135,7 @@ namespace PSXRacing.LifeSim
                        ? Mathf.RoundToInt(t.RaceMeters) + " m"
                        : (t.RaceMeters / 1000f).ToString("0.00") + " km")
                   + "  ·  " + t.dragLabel
-            : t.stage
+            : (t.stage || t.IsCityRace)
                 ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " + t.dragLabel +
                   // A loop stage (the 277 belt) is a lap, not a run with ends.
                   (t.loop ? "  ·  " + t.laps + (t.laps == 1 ? " lap" : " laps")
@@ -1146,7 +1146,7 @@ namespace PSXRacing.LifeSim
         {
             int idx = S.trackIndex;
             do { idx = (idx + step + TrackCatalog.Count) % TrackCatalog.Count; }
-            while (TrackCatalog.At(idx).city);   // the city is not a race venue — FREE ROAM is its door
+            while (TrackCatalog.At(idx).IsRoam);   // the open city is not a race venue — FREE ROAM is its door
             S.trackIndex = idx;
             LifeSimManager.Save();
             Rebuild();
@@ -3671,7 +3671,7 @@ namespace PSXRacing.LifeSim
                       ? Mathf.RoundToInt(t.RaceMeters) + " m"
                       : (t.RaceMeters / 1000f).ToString("0.00") + " km")
                   + "  ·  " + t.dragLabel
-            : t.stage
+            : (t.stage || t.IsCityRace)
                 ? (t.RaceMeters / 1000f).ToString("0.0") + " km  ·  " +
                   (t.loop ? t.laps + (t.laps == 1 ? " lap" : " laps") : "point to point")
                 : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps";
@@ -3686,7 +3686,7 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < n; i++)
             {
                 calVenue = ((calVenue + step) % n + n) % n;
-                if (!TrackCatalog.At(calVenue).city) return;
+                if (!TrackCatalog.At(calVenue).IsRoam) return;
             }
         }
 

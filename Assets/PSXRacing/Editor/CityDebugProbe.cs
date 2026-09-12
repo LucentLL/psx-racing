@@ -98,7 +98,7 @@ namespace PSXRacing.EditorTools
             {
                 if (ei >= map.edges.Length) continue;
                 var e = map.edges[ei];
-                sb.AppendLine($"e{ei} '{e.name}' z{e.z} len {e.length:0.0} nodes {e.a}(y={map.nodeY[e.a]:0.00} deg{map.nodeEdges[e.a].Count})" +
+                sb.AppendLine($"e{ei} '{e.name}' z{e.layer} len {e.length:0.0} nodes {e.a}(y={map.nodeY[e.a]:0.00} deg{map.nodeEdges[e.a].Count})" +
                               $" -> {e.b}(y={map.nodeY[e.b]:0.00} deg{map.nodeEdges[e.b].Count})");
                 var line = new StringBuilder("   y: ");
                 for (int i = 0; i < e.stY.Length; i++) line.Append($"{e.stY[i]:0.0} ");
@@ -109,7 +109,7 @@ namespace PSXRacing.EditorTools
                         {
                             var o = map.edges[oi];
                             float endY = o.a == n ? o.stY[0] : o.stY[o.stY.Length - 1];
-                            sb.AppendLine($"     nbr@{n}: e{oi} '{o.name}' z{o.z} len {o.length:0} endY {endY:0.00}");
+                            sb.AppendLine($"     nbr@{n}: e{oi} '{o.name}' z{o.layer} len {o.length:0} endY {endY:0.00}");
                         }
             }
 

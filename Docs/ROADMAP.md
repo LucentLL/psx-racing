@@ -5,6 +5,161 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## CHARLOTTE, READ RAW: EVERY LANE, EVERY BRIDGE, EVERY RAMP, AND THE RACES ON THE SAME MAP (2026-09-11)
+
+Asked for, with four phone screenshots of Google Maps' satellite view over
+the I-485 / Beatties Ford interchange, a diverging-diamond at Oakdale Road,
+the whole beltway and uptown: "Charlotte should have a complete road system
+of major roads. Refer to actual map for lane counts, which roads go over
+others with bridges, how highway entrance/exit ramps work. I want the full
+city built with skyscrapers and buildings, houses. Not 100% accuracy, but
+recognizable. The free roam and race tracks in Charlotte should be on the
+same map."
+
+The first Charlotte (2026-08-25) read Racing-Game-2's baked rows: whole named
+roads, both carriageways of every divided road merged into one painted
+ribbon, real lane counts collapsed into a class index, junctions GUESSED
+from geometric crossings, bridge extents inferred from "higher than the
+terrain", and a value-noise terrain. Every one of those was a compromise
+the raw OpenStreetMap download in RG2's fixtures never needed, so this pass
+replaced the pipeline end to end. `Docs/CHARLOTTE.md` is rewritten; the
+short form:
+
+### The road system
+
+`tools/city/export_osm.mjs` reads the raw Overpass ways (refetched today so
+the arterials, the core's minor streets and the buildings come from one
+snapshot). A junction is a node two ways share, BY ID — nothing is inferred
+from crossings any more. 25,250 edges between 20,359 nodes, 3,966 km: every
+motorway, trunk, primary, secondary and tertiary road inside the beltway
+with its ramps, plus the residential grid of the 8 x 8 km core.
+
+- **Lanes from the map.** Every edge carries OSM's `lanes` (or
+  `lanes:forward + backward`), and an odd count on an undivided road is a
+  centre turn lane. A divided road is TWO one-way edges with the ground
+  showing between them, each with its own count: I-485 is three lanes a
+  carriageway with a grass median, the Belk four with a barrier. Widths are
+  derived from `RoadProfiles`, a closed table of twenty rows (two-way
+  2/3T/4/5T/6; one-way street 1-4; ramp 1-3; expressway 2-4; motorway 2-6)
+  with asymmetric shoulders in the direction of travel — 3 m outside, 1.2
+  inside on a freeway. The painter draws one texture per row: white edge
+  lines just inside the pavement, dashed lane lines, the double yellow, the
+  TWLTL pair (solid outside, dashed inside), and a YELLOW left edge on
+  every one-way roadway, which is the MUTCD rule and the thing that makes a
+  carriageway read as one side of a freeway.
+- **Bridges from the map.** `bridge=yes` marks the exact extent of 838 decks
+  (56.5 km); a crossing with no shared node is a grade separation and OSM's
+  `layer` / `bridge` / `tunnel` tags say which road is on top — all 928 of
+  them, the class-rank fallback never fired. The solver holds a tagged deck
+  to at least the line between its ends and lifts it clear of whatever it
+  crosses; humps merge into viaducts.
+- **TRENCHES.** Charlotte's inner freeways run in cuts under streets that
+  stay at grade, and the old solver raised every cross street onto an
+  embankment — the whole uptown grid humped. Now a freeway mainline crossed
+  by a surface street is DUG under it (5 m + deck at 4.5% approaches), and
+  the cut RUNS THROUGH THE INTERCHANGES — the first cut only trenched a
+  crossing 150 m clear of the next ramp node, which in uptown is almost
+  none of them, and humped North Caldwell Street 6.6 m onto a 58 m bridge
+  with 36 m approaches. The trough is carried through the freeway's own
+  nodes, those nodes are pinned to the cut, and the ramps are cut down
+  along an 8% cone of their own; 285 crossings solve that way, every one on
+  the Belk, Brookshire and I-77 through the core. Freeway over freeway,
+  ramp over anything, or a mainline carrying a water span keeps the hump.
+  The ground pins to the sunk carriageway and the cut appears by itself.
+- **Ramps from the map.** Every `_link` way, joined at the node OSM joins it
+  at, with a MERGE GORE drawn by the tile builder: the wedge between the
+  ramp's inner edge and the carriageway's outer edge, filled for as long as
+  the two pavements run within 4.5 m of each other. The first cut drew zero
+  gores in the whole city, because OSM puts a merge node at the END of the
+  taper — the ramp's last hundred metres lie beside the mainline edge
+  ARRIVING at the node, not the one leaving, and every projection onto the
+  leaving edge clamped to the node itself.
+- **Barriers.** A Jersey barrier (81 cm, half a metre thick) along both
+  edges of every grounded freeway and expressway carriageway, its own mesh
+  and collider on the Solid layer, with gaps where the gores attach. It is
+  what keeps a race on the freeway and what a freeway looks like.
+- **Real ground.** A 60 m SRTM grid over the whole beltway, min-filtered
+  over 120 m so uptown's roofs (200 m radar returns) read as street level,
+  then blurred. Road profiles are Gaussian-smoothed over 25 m.
+
+### The city
+
+35,112 building elements fetched for the core; 31,870 footprints kept
+(styles glass / midrise / brick / house / shops, gabled where the polygon is
+a house's; every tower in uptown carries its real height — Bank of America
+Corporate Center 265 m, 550 South Tryon 240, Truist 200). The tile builder
+extrudes them: walls panelled against affine warp (eight panels up a tower),
+flat roofs by ear clipping, gable roofs on a ridge along the lot's long axis,
+a two-step crown on anything over 120 m, the shopfront atlas on the wall
+that faces the nearest street, a drawn curtain wall (the pack has no glass)
+and drawn siding-with-a-window for houses, the pack's roof tiles on every
+gable. About half of the square-ish 30-135 m lots wear one of the owner's
+skyscraper models scaled onto the lot instead. Inside the footprint bounds
+the procedural frontage pass stands down and the ground is PAVEMENT (a
+downtown is paved edge to edge — the first preview stood the skyline on a
+lawn). Outside it: the frontage boxes and prefab lots as before, plus an
+interior fill of gabled house boxes on a 24 m grid between the arterials,
+aligned to the nearest street and thinning with distance from uptown, so a
+subdivision reads as a subdivision across the fog.
+
+### The races on the same map
+
+The three Charlotte venues were baked STAGES with their own SRTM terrain,
+concrete barriers and a separate street front — a different Charlotte from
+the one FREE ROAM drove. They are city routes now: `TrackDef.cityRoute`
+names an edge chain the exporter baked through the same graph (the verified
+way-id lists from `tools/clt/fetch_clt.mjs`, every id still present:
+Uptown Loop 9.20 km, Tryon 6.02, Independence 7.02). The scene is a
+Charlotte scene plus three AI cars, an empty `TrackPath`, a `RaceManager`
+and the applier; `CityMode.Awake` resamples the route at 4 m with the
+city's solved heights, stands the grid on it, registers the AI as streaming
+anchors (a 3x3 of tiles under each, or a car that pulls away falls through
+the world) and steps aside so `CityMode.Instance` stays null and everything
+sees a RaceManager race. `charlotte_routes.json` gives the menu the length,
+the line and a map polyline without parsing the 2.5 MB graph. `IsRoam` is
+what every picker skips; `IsCityRace` is a venue. The CLT bakes, their DEMs
+and their themes are gone.
+
+### What the tools caught
+
+- The audit's clearance, bridge and route checks passed first time. What
+  did not: a 25% step at the first station of a 124 m piece of I-277 whose
+  nodes sat 9.7 m apart — the interior relax pass pins its forward sweep to
+  the start and its backward sweep to the end, and where the ends disagree
+  by more than the clamp can span the two sweeps meet in a cliff. The clamp
+  is now never steeper than the edge's own end-to-end grade.
+- Then the first race path built through the graph found the rest: a 4.6 m
+  step across a ONE-METRE sliver between a raised freeway bridge and a
+  pinned cut node, a 19 m bridge piece of Tryon climbing 5.4 m, the 37%
+  Caldwell approaches. A lift that lands on a node was spread over that
+  node's own edges and nothing further, and a short edge cannot absorb it.
+  The solver now ends on APPROACH CONES: every node standing above the
+  ground seeds a 4.5% cone through the graph, on through any junction it
+  still stands above (`RaiseCone`), alternating with fresh raises until
+  nothing moves. The three race paths came out at 6.4%, 4.5% and 4.5%
+  worst; the station audit at zero over 16%.
+- Every wall the emitter draws checks its own normal against the outward
+  direction it was given; the tile counts the misses and the audit fails
+  the build on one. Zero, on every tile the preview built.
+- The creek under the "bridge" probe was invisible: its surface sat half a
+  metre above the bed's centreline and the 8 m ground lattice buried it
+  everywhere but the one vertex that hit the centreline. 1.4 m up the bank
+  now.
+- The freeway probe found no "I-485": OSM names it Governor James G Martin
+  Freeway for one stretch and Craig Lawing Freeway for the next. A freeway
+  is called by its number now, everywhere.
+
+Cost: `charlotte_city.bytes` 2.5 MB (a versioned binary; the JSON would have
+been 9 MB), `charlotte_dem.bytes` 1.4 MB, `charlotte_bld.bytes` 1.7 MB —
+against the 2.4 MB of CLT DEMs and 115 KB of stage JSON they replace. New
+scripts: `tools/city/export_osm.mjs` (5 s), `tools/city-cycle.ps1` (code +
+data into the warm sandbox, then the audit and the preview shots, ~5 min).
+
+Follow-ups: traffic; turn-lane markings and stop lines at junctions; lamps
+and signal heads; in-city pumps; footprints beyond the core; a skyline
+backdrop past the fog; more city races (SouthPark needs the junction-arc
+pass); the ROVAL.
+
 ## THE RACE MAP, THE REPLAY, TWO PARKWAY LOOPS, AND THE SKY IN THE PAINT (2026-09-11)
 
 Four things in one ask, with two Gran Turismo screenshots for the brief: "I

@@ -821,7 +821,7 @@ namespace PSXRacing.EditorTools
                 // laps); a one-way road is never offered backwards — "UPTOWN
                 // LOOP II" would be the 277 belt against traffic, every ramp
                 // the wrong way up.
-                Check(!t.loop || t.stage, t.id + " loop is a stage");
+                Check(!t.loop || t.stage || t.IsCityRace, t.id + " loop is a stage or a city route");
                 Check(!t.oneWay || t.noReverse, t.id + " one-way road is not offered backwards");
                 if (t.Reversed)
                 {
@@ -848,6 +848,50 @@ namespace PSXRacing.EditorTools
                     var cityThumb = TrackCatalog.Thumbnail(t, 96);
                     Check(cityThumb != null && OpaquePixels(cityThumb) > 200,
                           t.id + " draws a map", cityThumb != null ? OpaquePixels(cityThumb) : 0);
+                    if (t.IsCityRace)
+                    {
+                        // A city race is a route through the graph: the menu
+                        // quotes it off charlotte_routes.json and the scene
+                        // builds it off charlotte_city.bytes, and both have to
+                        // hold the same road.
+                        TrackCatalog.EnsureRoute(t);
+                        Check(t.routeLengthM > 3000f, t.id + " route has a real length", t.routeLengthM.ToString("0") + " m");
+                        Check(t.RaceMeters > 3000f && t.RaceMeters <= t.routeLengthM * t.laps + 1f,
+                              t.id + " races a sane distance", t.RaceMeters.ToString("0") + " m");
+                        Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
+                        Check(!string.IsNullOrEmpty(t.stageAttribution), t.id + " carries its map attribution");
+                        var cityMap = PSXRacing.City.CityMap.Get();
+                        var route = cityMap != null ? cityMap.RouteById(t.cityRoute) : null;
+                        Check(route != null, t.id + " route exists in the city graph", t.cityRoute);
+                        if (route != null)
+                        {
+                            Check(Mathf.Abs(route.lengthM - t.routeLengthM) < 2f,
+                                  t.id + " menu and graph agree on the length",
+                                  route.lengthM.ToString("0") + " vs " + t.routeLengthM.ToString("0"));
+                            Check(route.loop == t.loop, t.id + " loop flag matches the bake");
+                            var go = new GameObject("~routeProbe");
+                            var tp = go.AddComponent<TrackPath>();
+                            PSXRacing.City.CityMode.BuildPath(cityMap, route, tp);
+                            Check(tp.Count > 500, t.id + " builds a race path", tp.Count);
+                            if (t.loop)
+                            {
+                                float seam = Vector3.Distance(tp.waypoints[tp.Count - 1], tp.waypoints[0]);
+                                Check(seam <= TrackCatalog.Spacing * 1.5f, t.id + " path closes into a ring", seam.ToString("0.00") + " m");
+                                Check(tp.finishIndex == -1, t.id + " has no finish line");
+                            }
+                            else
+                            {
+                                Check(tp.finishIndex > 20 && tp.finishIndex < tp.Count - 20,
+                                      t.id + " has a finish with shutdown beyond it", tp.finishIndex + " of " + tp.Count);
+                                Check(t.FinishIndex == tp.finishIndex, t.id + " catalog and path agree on the finish");
+                            }
+                            float worst = 0f;
+                            for (int i = 1; i < tp.Count; i++)
+                                worst = Mathf.Max(worst, Mathf.Abs(tp.waypoints[i].y - tp.waypoints[i - 1].y) / TrackCatalog.Spacing);
+                            Check(worst < 0.16f, t.id + " path grade stays drivable", (worst * 100f).ToString("0.0") + "%");
+                            Object.DestroyImmediate(go);
+                        }
+                    }
                     continue;
                 }
                 Check(PSXRacingBuilder.HasTheme(t.id), t.id + " has a builder theme");
@@ -898,9 +942,9 @@ namespace PSXRacing.EditorTools
                     // The Charlotte bakes register into the city's frame (that
                     // is how the street front finds uptown); a bake that says
                     // it is in the city must put its origin inside the city.
-                    bool clt = t.id == "UptownLoop" || t.id == "TryonSprint" || t.id == "IndependenceSprint";
-                    Check(t.stageInCity == clt,
-                          t.id + (clt ? " registers into Charlotte's frame" : " is not in Charlotte"));
+                    // No stage is in Charlotte any more: the three city
+                    // venues race on the streamed city itself.
+                    Check(!t.stageInCity, t.id + " is not in Charlotte");
                     if (t.stageInCity)
                         Check(t.stageCityOrigin.magnitude < 20000f,
                               t.id + " origin is inside the city", t.stageCityOrigin);
@@ -2777,7 +2821,7 @@ namespace PSXRacing.EditorTools
                     s.day = day; s.slotIndex = slot;
                     int t = LifeRules.DeliveryTrackIndex(s);
                     if (t < 0 || t >= TrackCatalog.Count) { everCity = true; break; }
-                    if (TrackCatalog.At(t).city) everCity = true;
+                    if (TrackCatalog.At(t).IsRoam) everCity = true;
                     if (TrackCatalog.At(t).drag) everStrip = true;
                 }
             Check(!everCity, "no delivery is ever routed to the open city");
@@ -2827,7 +2871,7 @@ namespace PSXRacing.EditorTools
                 // ROAD — and the eighth mile, which is cheaper than any of
                 // them, must not be what a dry tank always gets.
                 for (int i = 0; i < TrackCatalog.Count; i++)
-                    if (!TrackCatalog.At(i).city && !TrackCatalog.At(i).drag)
+                    if (!TrackCatalog.At(i).IsRoam && !TrackCatalog.At(i).drag)
                         cheapest = Mathf.Min(cheapest,
                                    LifeRules.RequiredFuelPct(TrackCatalog.At(i), s.ActiveCar));
                 Check(cheapest > 0f, "an empty tank really does fit nowhere",
@@ -2875,7 +2919,7 @@ namespace PSXRacing.EditorTools
             string worst = "";
             for (int t = 0; t < TrackCatalog.Count; t++)
             {
-                if (TrackCatalog.At(t).city) continue;
+                if (TrackCatalog.At(t).IsRoam) continue;
                 float par = LifeRules.DeliveryParSeconds(t);
                 if (par < parLo) { parLo = par; worst = TrackCatalog.At(t).name; }
                 parHi = Mathf.Max(parHi, par);
@@ -2900,10 +2944,11 @@ namespace PSXRacing.EditorTools
             for (int t = 0; t < TrackCatalog.Count; t++)
             {
                 var def = TrackCatalog.At(t);
-                if (def.city || def.drag) continue;
+                if (def.IsRoam || def.drag) continue;
                 // A LOOP stage is a lap and takes the circuit's sprint rules
-                // below; only a stage with ENDS is its whole baked run.
-                if (def.stage && !def.loop)
+                // below; only a stage with ENDS is its whole baked run. A
+                // city route with ends is the same shape.
+                if ((def.stage || def.IsCityRace) && !def.loop)
                 {
                     Check(Mathf.Approximately(LifeRules.DeliveryMeters(def, LifeRules.DeliveryDropMin),
                                               def.RaceMeters),
@@ -4223,7 +4268,7 @@ namespace PSXRacing.EditorTools
             int checkedVenues = 0;
             foreach (var t in TrackCatalog.Scened)
             {
-                if (t.city) continue;
+                if (t.IsRoam) continue;
                 if (!TrackCatalog.MapFrameFor(t, 72, out var f)) { Check(false, t.id + " has a map frame"); continue; }
                 var pts = TrackCatalog.Sample(t, TrackCatalog.Spacing);
                 float lo = float.MaxValue, hi = float.MinValue;

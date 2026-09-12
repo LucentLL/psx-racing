@@ -1,10 +1,11 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing.City
 {
     /// <summary>
-    /// Streams the Charlotte tiles around the player.
+    /// Streams the Charlotte tiles around the player — and, in a race, around
+    /// the AI field too.
     ///
     /// This is the project's first runtime-generated world: circuits are baked
     /// whole into their scenes, but a 31 km city cannot be, so the Charlotte
@@ -16,7 +17,9 @@ namespace PSXRacing.City
     /// Budget: at most one tile build per frame — a car crossing a tile row at
     /// 280 km/h leaves ~3 s to build 5 tiles, and the budget builds 60 in that
     /// time. The tile under the car is force-built synchronously as a last
-    /// resort so the ground can never lose the race.
+    /// resort so the ground can never lose the race. An AI car that pulls
+    /// away from the player keeps a 3x3 of its own under it for the same
+    /// reason: a rigidbody over an unbuilt tile falls through the world.
     /// </summary>
     public class CityWorld : MonoBehaviour
     {
@@ -26,9 +29,13 @@ namespace PSXRacing.City
         [Tooltip("One material per CityMeshes.Slot, in enum order.")]
         public Material[] materials;
         public Transform player;
+        /// <summary>Other cars the world must exist under: the AI field in a
+        /// city race. Each keeps a 3x3 ring of tiles built around it.</summary>
+        public List<Transform> anchors = new List<Transform>();
 
         /// <summary>Tiles kept in each direction around the player's tile.</summary>
         public int ring = 2;
+        const int AnchorRing = 1;
 
         public CityMap Map { get; private set; }
 
@@ -53,8 +60,22 @@ namespace PSXRacing.City
         static Dictionary<long, List<CityBuildings.B>> cachedBuildings;
         static float[] cachedTrims;
 
-        void Awake()
+        /// <summary>The tile counts the last build produced, for the HUD's
+        /// debug line and the preview's log.</summary>
+        public int LiveTiles => live.Count;
+
+        void Awake() => EnsureInit();
+
+        bool inited;
+        /// <summary>Load the map and the placement tables. Idempotent, and
+        /// called from every entry point rather than trusted to Awake: a
+        /// city race's CityMode.Awake asks this world for the tiles under
+        /// the grid, and Awake order between two components on one object
+        /// is not something to build a race start on.</summary>
+        void EnsureInit()
         {
+            if (inited) return;
+            inited = true;
             Map = CityMap.Get();
             if (Map == null) { enabled = false; return; }
             if (cachedFor != Map)
@@ -69,10 +90,7 @@ namespace PSXRacing.City
         }
 
         /// <summary>Every restaurant in the city, flattened out of the tile
-        /// buckets once. Ten of them across 2,574 km of road, and the far
-        /// plane is 360 m: without an index there is nothing to point at, and
-        /// without something pointing at them a player can drive for twenty
-        /// minutes past nine thousand houses and never find a drive-thru.</summary>
+        /// buckets once, so the HUD has something to point at.</summary>
         readonly List<(byte kind, Vector2 pos)> food = new List<(byte, Vector2)>();
 
         void BuildFoodIndex()
@@ -107,14 +125,20 @@ namespace PSXRacing.City
         void Start()
         {
             // the spawn ring exists before the first physics step
-            if (player != null)
-            {
-                int tx = Mathf.FloorToInt(player.position.x / CityMeshes.TileSize);
-                int tz = Mathf.FloorToInt(player.position.z / CityMeshes.TileSize);
-                for (int dz = -1; dz <= 1; dz++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        EnsureTile(tx + dx, tz + dz);
-            }
+            if (player != null) EnsureRing(player.position, 1);
+            foreach (var a in anchors) if (a != null) EnsureRing(a.position, 1);
+        }
+
+        /// <summary>Build every tile within <paramref name="r"/> of the tile
+        /// under a point, synchronously. The grid of a city race calls this
+        /// before the countdown so nobody starts over thin air.</summary>
+        public void EnsureRing(Vector3 at, int r)
+        {
+            int tx = Mathf.FloorToInt(at.x / CityMeshes.TileSize);
+            int tz = Mathf.FloorToInt(at.z / CityMeshes.TileSize);
+            for (int dz = -r; dz <= r; dz++)
+                for (int dx = -r; dx <= r; dx++)
+                    EnsureTile(tx + dx, tz + dz);
         }
 
         void Update()
@@ -124,18 +148,33 @@ namespace PSXRacing.City
             int ptx = Mathf.FloorToInt(p.x / CityMeshes.TileSize);
             int ptz = Mathf.FloorToInt(p.z / CityMeshes.TileSize);
 
-            // the ground under the car is not allowed to be missing
+            // the ground under the car is not allowed to be missing — nor
+            // under any car the race is timing
             EnsureTile(ptx, ptz);
+            foreach (var a in anchors)
+            {
+                if (a == null || !a.gameObject.activeInHierarchy) continue;
+                EnsureTile(Mathf.FloorToInt(a.position.x / CityMeshes.TileSize),
+                           Mathf.FloorToInt(a.position.z / CityMeshes.TileSize));
+            }
 
-            // drop tiles outside the ring (+1 hysteresis so the boundary
+            // drop tiles outside every ring (+1 hysteresis so the boundary
             // does not thrash while driving along it)
             toDrop.Clear();
             foreach (var kv in live)
             {
                 int tx = (int)(kv.Key >> 24);
                 int tz = (int)((kv.Key << 40) >> 40);
-                if (Mathf.Abs(tx - ptx) > ring + 1 || Mathf.Abs(tz - ptz) > ring + 1)
-                    toDrop.Add(kv.Key);
+                if (Mathf.Abs(tx - ptx) <= ring + 1 && Mathf.Abs(tz - ptz) <= ring + 1) continue;
+                bool held = false;
+                foreach (var a in anchors)
+                {
+                    if (a == null || !a.gameObject.activeInHierarchy) continue;
+                    int ax = Mathf.FloorToInt(a.position.x / CityMeshes.TileSize);
+                    int az = Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
+                    if (Mathf.Abs(tx - ax) <= AnchorRing + 1 && Mathf.Abs(tz - az) <= AnchorRing + 1) { held = true; break; }
+                }
+                if (!held) toDrop.Add(kv.Key);
             }
             foreach (var k in toDrop) DropTile(k);
 
@@ -150,6 +189,21 @@ namespace PSXRacing.City
                     float cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
                     wanted.Add((tx, tz, cx * cx + cz * cz));
                 }
+            foreach (var a in anchors)
+            {
+                if (a == null || !a.gameObject.activeInHierarchy) continue;
+                int ax = Mathf.FloorToInt(a.position.x / CityMeshes.TileSize);
+                int az = Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
+                for (int dz = -AnchorRing; dz <= AnchorRing; dz++)
+                    for (int dx = -AnchorRing; dx <= AnchorRing; dx++)
+                    {
+                        int tx = ax + dx, tz = az + dz;
+                        if (live.ContainsKey(Key(tx, tz))) continue;
+                        float cx = (tx + 0.5f) * CityMeshes.TileSize - a.position.x;
+                        float cz = (tz + 0.5f) * CityMeshes.TileSize - a.position.z;
+                        wanted.Add((tx, tz, cx * cx + cz * cz));
+                    }
+            }
             if (wanted.Count > 0)
             {
                 wanted.Sort((a, b) => a.d2.CompareTo(b.d2));
@@ -171,8 +225,10 @@ namespace PSXRacing.City
             foreach (var m in t.meshes) if (m != null) Destroy(m);
         }
 
-        void EnsureTile(int tx, int tz)
+        public void EnsureTile(int tx, int tz)
         {
+            EnsureInit();
+            if (Map == null) return;
             long key = Key(tx, tz);
             if (live.ContainsKey(key)) return;
 
@@ -181,12 +237,12 @@ namespace PSXRacing.City
             root.transform.SetParent(transform, false);
             root.transform.position = tm.origin;
 
-            var meshes = new List<Mesh>(4);
+            var meshes = new List<Mesh>(5);
 
             if (tm.ground != null)
             {
                 var g = Child(root, "Ground", 0);
-                Render(g, tm.ground, new[] { CityMeshes.Slot.Ground });
+                Render(g, tm.ground, tm.groundSlots);
                 g.AddComponent<MeshCollider>().sharedMesh = tm.ground;
                 meshes.Add(tm.ground);
             }
@@ -196,6 +252,15 @@ namespace PSXRacing.City
                 Render(g, tm.roads, tm.roadSlots);
                 g.AddComponent<MeshCollider>().sharedMesh = tm.roads;
                 meshes.Add(tm.roads);
+            }
+            if (tm.barriers != null)
+            {
+                // Solid, like a pier: CollisionAudio and the stuck watchdog
+                // treat the layer as a wall, which is what a Jersey barrier is.
+                var g = Child(root, "Barriers", SolidLayer);
+                Render(g, tm.barriers, new[] { CityMeshes.Slot.Concrete });
+                g.AddComponent<MeshCollider>().sharedMesh = tm.barriers;
+                meshes.Add(tm.barriers);
             }
             if (tm.water != null)
             {
@@ -220,10 +285,10 @@ namespace PSXRacing.City
                 bc.size = box.size;
             }
 
-            // Real models on this tile — houses, trailers, restaurants. They
-            // parent under the tile root so streaming drops them with it, and
-            // they seat on the same GroundY the meshes were built from, so a
-            // porch meets its lawn on every slope in the county.
+            // Real models on this tile — houses, trailers, restaurants, the
+            // pack towers on their real lots. They parent under the tile root
+            // so streaming drops them with it, and they seat on the same
+            // GroundY the meshes were built from.
             if (buildings != null && buildings.TryGetValue(key, out var lots))
             {
                 foreach (var b in lots)
@@ -237,6 +302,7 @@ namespace PSXRacing.City
                     go.transform.position = new Vector3(b.pos.x, gy - def.sink, b.pos.y);
                     go.transform.rotation = Quaternion.Euler(
                         0f, b.yaw * Mathf.Rad2Deg + def.yawOffsetDeg, 0f);
+                    if (b.scale.sqrMagnitude > 0.01f) go.transform.localScale = b.scale;
                 }
             }
 

@@ -9,118 +9,87 @@ namespace PSXRacing.City
     /// and TILE-LOCAL: vertices are relative to the tile's origin corner, so
     /// float precision never depends on how far from uptown the tile sits.
     ///
-    /// Ownership rule at tile seams: a road span, river span or junction
-    /// belongs to the tile that contains its MIDPOINT (or node), so no strip
-    /// is ever emitted twice. Adjacent tiles derive shared boundary vertices
-    /// from the same stations and the same GroundY, so edges meet exactly.
+    /// Ownership rule at tile seams: a road span, river span, junction or
+    /// building belongs to the tile that contains its MIDPOINT (or node, or
+    /// footprint centre), so nothing is ever emitted twice. Adjacent tiles
+    /// derive shared boundary vertices from the same stations and the same
+    /// GroundY, so edges meet exactly.
+    ///
+    /// WINDING, ONCE. Two helpers decide which way every face points so no
+    /// call site has to: <see cref="Bucket.Up"/> orders a horizontal quad so
+    /// it faces UP (its corners read counter-clockwise in map view), and
+    /// <see cref="Bucket.Wall"/> orders a vertical quad so it faces the
+    /// OUTWARD normal it is given. The inside-out buildings and the roads
+    /// visible only from underneath were both per-call-site winding errors;
+    /// the road ribbon and the deck code below predate the helpers and keep
+    /// their verified order.
     /// </summary>
     public static class CityMeshes
     {
         public const float TileSize = 256f;
         public const int GroundRes = 32;          // 8 m cells
-        /// <summary>
-        /// Metres of road per texture repeat — and therefore the length of ONE
-        /// DASH CYCLE, because the painter draws the broken lane line as the
-        /// first quarter of the repeat.
-        ///
-        /// 12.192 m is 40 feet, which is the US standard cycle: a 10 ft stripe
-        /// and a 30 ft gap. It was 18 m with a 56% duty, so the dashes were
-        /// long, close together and nothing like a road — one of the two things
-        /// behind "the proportions for road lines and lane widths are not
-        /// realistic". Changing the tile rather than the dash test is what
-        /// keeps the number honest: the cycle IS the repeat, so there is no
-        /// second place to get it wrong.
-        /// </summary>
+        /// <summary>Metres of road per texture repeat — and therefore the
+        /// length of ONE DASH CYCLE, because the painter draws the broken lane
+        /// line as the first quarter of the repeat. 12.192 m is 40 feet, the
+        /// US standard: a 10 ft stripe and a 30 ft gap.</summary>
         public const float RoadVTile = 12.192f;
         public const float RailH = 0.95f;
         public const float RailW = 0.3f;
         public const float PierEvery = 26f;
         public const float BuildingSink = 0.55f;
-
-        /// <summary>How far the tarmac hangs below its own surface at the edge.
-        /// A road ribbon used to be a zero-thickness quad, so it read as a decal
-        /// painted on the grass and the 8 m ground grid punched through it
-        /// wherever the interpolation ran high - reported as roads with no depth
-        /// and ground clipping through them. Deeper than
-        /// <see cref="CityElevation.CorridorSink"/> on purpose: the kerb has to
-        /// still be there when the ground between two grid samples wobbles a
-        /// few centimetres above the pinned height.
-        ///
-        /// A KERB, not a cliff. The first cut of this paired a 0.45 m skirt
-        /// with a 0.30 m corridor sink, which sealed the seam perfectly and
-        /// left a 30 cm vertical face round every road in Charlotte - and the
-        /// roads mesh carries the collider, so coming back onto the tarmac off
-        /// the grass would have been a wall rather than a bump. 18 cm is what
-        /// a real kerb is; the skirt overshoots it so the last few centimetres
-        /// are simply buried.</summary>
+        /// <summary>A Jersey barrier: 81 cm tall, half a metre thick, on the
+        /// paved edge of every freeway carriageway that is on the ground
+        /// (decks carry rails). It is what keeps a race on the freeway and
+        /// what a freeway looks like.</summary>
+        public const float BarrierH = 0.81f;
+        public const float BarrierW = 0.5f;
+        /// <summary>How far the tarmac hangs below its own surface at the
+        /// edge. A KERB, not a cliff — the roads mesh carries the collider,
+        /// so this face is what the car climbs back onto the road over.</summary>
         public const float KerbDepth = 0.32f;
 
-        /// <summary>Longest edge of one facade panel, in metres.
-        ///
-        /// Affine texture mapping warps in proportion to how much w varies
-        /// across a triangle, so a 40 m tower wall drawn as ONE quad spans
-        /// near-to-far and street-to-sky in a single interpolation and the
-        /// texture visibly swims as you drive past it. PS1 content solved this
-        /// by subdividing large surfaces rather than by turning the warp off,
-        /// and that is the right answer here too: the look is the point, it is
-        /// only the SIZE of the triangle that makes it read as a bug.</summary>
+        /// <summary>Longest edge of one facade panel, in metres. Affine warp is
+        /// proportional to how much a triangle spans, so a 40 m wall as one
+        /// quad swims; PS1 content subdivided, and so does this.</summary>
         const float FacadePanelMax = 9f;
-        /// <summary>Panels per axis, so a downtown tower cannot quietly cost a
-        /// streamed tile thirty times its vertex budget. Four and nine metres
-        /// is a 16-quad wall at worst against the one quad it was: the warp
-        /// falls by the ratio of the panel to the wall, so most of the win is
-        /// in the first few splits and the rest is vertices for nothing.</summary>
         const int FacadePanelCap = 4;
-
-        /// <summary>What a stretch of road is PAINTED like: how many lanes,
-        /// where the median sits, which markings it carries.</summary>
-        public enum RoadClass
-        {
-            Minor = 0, Major, DividedGrass, DividedAsphalt, Motorway, Ramp,
-            Junction,
-        }
-        public const int RoadClassCount = 7;
+        /// <summary>Up a TOWER the cap is doubled: four panels over a 200 m
+        /// wall are 50 m each, and the curtain wall visibly bowed in every
+        /// preview. Only walls past this height pay for it.</summary>
+        const float TallWallM = 40f;
+        const int TallPanelCap = 8;
 
         /// <summary>What a stretch of road is MADE of, which is a separate
-        /// question from what is painted on it — the same four-lane divided
-        /// carriageway can be fresh blacktop on the ground and poured concrete
-        /// where it crosses a river. Ported from RG2's (material x age) pair;
-        /// the colours live in the builder's palette.</summary>
+        /// question from what is painted on it: the same carriageway is fresh
+        /// blacktop on the ground and poured concrete where it crosses a
+        /// river. Ported from RG2's (material x age) pair.</summary>
         public enum Surface { AsphaltNew = 0, AsphaltOld, ConcreteNew, ConcreteOld }
         public const int SurfaceCount = 4;
 
+        /// <summary>Driving surfaces are one row per RoadProfiles entry plus
+        /// the unpainted junction slab, times four surfaces.</summary>
+        public const int JunctionProfile = RoadProfiles.ProfileCount;
+        public const int RoadClassCount = RoadProfiles.ProfileCount + 1;
+
         public enum Slot
         {
-            Ground = 0, Concrete, Water,
+            Ground = 0, Concrete, Water, Pavement,
             FacadeTower, FacadeMid, FacadeBrick, Shops,
-            // Driving surfaces, laid out as RoadFirst + class * SurfaceCount +
-            // surface. Arithmetic rather than twenty-eight named members, so
-            // adding a surface is a constant and not a merge conflict.
+            FacadeGlass, FacadeHouse, RoofTiles, RoofFlat,
+            // Driving surfaces, laid out as RoadFirst + profile * SurfaceCount +
+            // surface. Arithmetic rather than eighty named members.
             RoadFirst,
             COUNT = RoadFirst + RoadClassCount * SurfaceCount,
         }
 
-        public static Slot SlotOf(RoadClass cls, Surface surf) =>
-            (Slot)((int)Slot.RoadFirst + (int)cls * SurfaceCount + (int)surf);
-
-        public static RoadClass ClassOf(CityMap.Edge e)
-        {
-            if (e.link) return RoadClass.Ramp;
-            if (e.cls >= 5) return RoadClass.Motorway;
-            if (e.median > 0.5f) return e.medianGrass ? RoadClass.DividedGrass : RoadClass.DividedAsphalt;
-            return e.lanes >= 4 ? RoadClass.Major : RoadClass.Minor;
-        }
+        public static Slot SlotOf(int profile, Surface surf) =>
+            (Slot)((int)Slot.RoadFirst + profile * SurfaceCount + (int)surf);
 
         /// <summary>
         /// Has this stretch been resurfaced recently? RG2's own _roadAge hash,
-        /// ported constant for constant: the coordinates are scaled by 100 and
-        /// run through xorshift plus the Murmur3 finalizer, because the simpler
-        /// x*73 + y*131 it started as clustered visibly on grid-aligned road
-        /// coordinates and whole neighbourhoods came out the same age.
-        ///
-        /// 40% new, and deterministic from position alone - so a road is the
-        /// same age on every visit, across a tile unload, and in both
-        /// directions, with nothing to store and nothing to keep in sync.
+        /// ported constant for constant. 40% new, deterministic from position
+        /// alone — so a road is the same age on every visit, across a tile
+        /// unload, with nothing to store.
         /// </summary>
         public static bool IsFresh(Vector2 seed)
         {
@@ -138,8 +107,7 @@ namespace PSXRacing.City
         }
 
         /// <summary>Concrete where the road is on structure, asphalt where it
-        /// is on the ground. A bridge deck IS poured concrete, and the city and
-        /// the circuits were both driving over blacktop out there.</summary>
+        /// is on the ground. A bridge deck IS poured concrete.</summary>
         public static Surface SurfaceOf(CityMap.Edge e, bool elevated)
         {
             bool fresh = IsFresh(e.pts[0]);
@@ -148,7 +116,13 @@ namespace PSXRacing.City
         }
 
         public static Slot RoadSlot(CityMap.Edge e, bool elevated) =>
-            SlotOf(ClassOf(e), SurfaceOf(e, elevated));
+            SlotOf(e.profile, SurfaceOf(e, elevated));
+
+        /// <summary>A freeway carriageway on the ground carries a barrier
+        /// both sides. Expressway carriageways too; ramps and two-way roads
+        /// do not (a ramp's edge is where its gore is).</summary>
+        public static bool Barriered(CityMap.Edge e) =>
+            !e.link && ((e.cls >= 5) || (e.cls == 4 && e.oneway));
 
         // facade texture footprints in metres (how much wall one repeat covers)
         static readonly Vector2[] FacadeMeters =
@@ -157,8 +131,12 @@ namespace PSXRacing.City
             new Vector2(10.5f, 13.5f),  // FacadeMid
             new Vector2(6.5f, 6.5f),    // FacadeBrick
             new Vector2(24.0f, 4.2f),   // Shops (the atlas carries FOUR 6 m fronts per repeat)
+            new Vector2(8.0f, 8.0f),    // FacadeGlass: 4x4 panes of 2 m
+            new Vector2(6.0f, 3.1f),    // FacadeHouse: siding, one window per repeat, one storey tall
         };
         const float ShopFloorH = 4.2f;
+        const float RoofTileM = 3.5f;
+        const float RoofFlatM = 8f;
 
         public class SolidBox
         {
@@ -170,12 +148,17 @@ namespace PSXRacing.City
         public class TileMeshes
         {
             public Vector3 origin;
-            public Mesh ground;
+            public Mesh ground;     public Slot[] groundSlots;
             public Mesh roads;      public Slot[] roadSlots;
+            public Mesh barriers;   // concrete, its own collider
             public Mesh water;
             public Mesh buildings;  public Slot[] buildingSlots;
             public List<SolidBox> solids = new List<SolidBox>();
             public List<Vector4> lamps = new List<Vector4>(); // xyz + yaw, future use
+            /// <summary>Walls the emitter caught pointing the wrong way. Zero,
+            /// or the audit fails the build.</summary>
+            public int wallFacingErrors;
+            public int footprintCount, houseCount, goreCount;
         }
 
         // ---- growable buckets, one per slot, reused across tiles ----------
@@ -187,6 +170,9 @@ namespace PSXRacing.City
             public void Clear() { v.Clear(); uv.Clear(); t.Clear(); }
             public int Count => v.Count;
 
+            /// <summary>Raw quad: emits (a,c,b)+(a,d,c). Shows the side from
+            /// which a→b→c→d reads anticlockwise. Prefer <see cref="Up"/> and
+            /// <see cref="Wall"/>, which decide that for you.</summary>
             public void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d,
                              Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
             {
@@ -196,9 +182,54 @@ namespace PSXRacing.City
                 t.Add(i); t.Add(i + 2); t.Add(i + 1);
                 t.Add(i); t.Add(i + 3); t.Add(i + 2);
             }
+
+            public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
+            {
+                int i = v.Count;
+                v.Add(a); v.Add(b); v.Add(c);
+                uv.Add(ua); uv.Add(ub); uv.Add(uc);
+                t.Add(i); t.Add(i + 2); t.Add(i + 1);
+            }
+
+            /// <summary>A horizontal-ish quad that faces UP whatever order
+            /// its corners arrive in: the map-view signed area decides.</summary>
+            public void Up(Vector3 a, Vector3 b, Vector3 c, Vector3 d,
+                           Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
+            {
+                float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)
+                           + (c.x - a.x) * (d.z - a.z) - (d.x - a.x) * (c.z - a.z);
+                if (area >= 0f) Quad(a, b, c, d, ua, ub, uc, ud);
+                else Quad(a, d, c, b, ua, ud, uc, ub);
+            }
+
+            /// <summary>A vertical quad between two plan points, facing the
+            /// side <paramref name="outward"/> points to. u runs along the
+            /// wall from p to q, v up.</summary>
+            public void Wall(Vector3 p, Vector3 q, float y0, float y1, Vector2 outward,
+                             float u0, float u1, float v0, float v1)
+            {
+                // a wall from a to c faces the LEFT of a→c in map view
+                Vector2 d = new Vector2(q.x - p.x, q.z - p.z);
+                Vector2 left = new Vector2(-d.y, d.x);
+                if (Vector2.Dot(left, outward) < 0f) { var t = p; p = q; q = t; var tu = u0; u0 = u1; u1 = tu; }
+                Quad(new Vector3(p.x, y0, p.z), new Vector3(p.x, y1, p.z),
+                     new Vector3(q.x, y1, q.z), new Vector3(q.x, y0, q.z),
+                     new Vector2(u0, v0), new Vector2(u0, v1), new Vector2(u1, v1), new Vector2(u1, v0));
+            }
+
+            /// <summary>Normal of the most recent triangle, for the emitter's
+            /// own facing check.</summary>
+            public Vector3 LastNormal()
+            {
+                int n = t.Count;
+                if (n < 3) return Vector3.zero;
+                Vector3 a = v[t[n - 3]], b = v[t[n - 2]], c = v[t[n - 1]];
+                return Vector3.Cross(b - a, c - a);
+            }
         }
 
         static readonly Bucket[] buckets = NewBuckets();
+        static readonly Bucket barrierBucket = new Bucket();
         static Bucket[] NewBuckets()
         {
             var b = new Bucket[(int)Slot.COUNT];
@@ -236,29 +267,38 @@ namespace PSXRacing.City
             var max = min + new Vector2(TileSize, TileSize);
 
             foreach (var b in buckets) b.Clear();
+            barrierBucket.Clear();
+            goreGaps.Clear();
 
             BuildGround(map, tm, min);
+            BuildGores(map, nodeTrims, tm, min, max);
             BuildRoadsAndDecks(map, nodeTrims, tm, min, max);
             BuildJunctions(map, nodeTrims, tm, min, max);
             BuildWater(map, tm, min, max);
             BuildBuildings(map, buildings, tm, tx, tz);
+            BuildFootprints(map, tm, tx, tz);
+            BuildHouses(map, tm, tx, tz);
 
-            tm.ground = MeshFrom("ground", new[] { Slot.Ground }, out _);
+            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots);
+            tm.groundSlots = gSlots;
             tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots);
             tm.roadSlots = roadSlots;
+            tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.water = MeshFrom("water", new[] { Slot.Water }, out _);
-            tm.buildings = MeshFrom("bld", new[]
-            {
-                Slot.FacadeTower, Slot.FacadeMid, Slot.FacadeBrick, Slot.Shops,
-            }, out var bSlots);
+            tm.buildings = MeshFrom("bld", BuildingSlots, out var bSlots);
             tm.buildingSlots = bSlots;
             return tm;
         }
 
+        static readonly Slot[] BuildingSlots =
+        {
+            Slot.FacadeTower, Slot.FacadeMid, Slot.FacadeBrick, Slot.Shops,
+            Slot.FacadeGlass, Slot.FacadeHouse, Slot.RoofTiles, Slot.RoofFlat,
+        };
+
         /// <summary>Every driving surface plus the structural concrete, in slot
-        /// order. Built once: MeshFrom drops the empty ones, so a tile with two
-        /// road classes on it still ends up with two submeshes and not
-        /// twenty-nine.</summary>
+        /// order. MeshFrom drops the empty ones, so a tile with two profiles on
+        /// it still ends up with two submeshes and not eighty.</summary>
         static readonly Slot[] RoadAndStructureSlots = BuildRoadSlotList();
         static Slot[] BuildRoadSlotList()
         {
@@ -299,10 +339,32 @@ namespace PSXRacing.City
             return mesh;
         }
 
+        static Mesh MeshFromBucket(string name, Bucket bk)
+        {
+            if (bk.Count == 0) return null;
+            var mesh = new Mesh { name = name };
+            if (bk.Count > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            mesh.SetVertices(bk.v);
+            mesh.SetUVs(0, bk.uv);
+            mesh.SetTriangles(bk.t, 0, false);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // ------------------------------------------------------------------
+        /// <summary>
+        /// The ground, one quad per 8 m cell, grass or PAVEMENT. A downtown is
+        /// paved edge to edge, and the first preview stood the skyline on a
+        /// lawn: a cell within a kilometre of Trade & Tryon, or within 20 m of
+        /// any real building that is not a house, is concrete. Per-cell quads
+        /// rather than a shared lattice so a cell can change bucket; four
+        /// times the ground vertices of a tile, which is still nothing.
+        /// </summary>
         static void BuildGround(CityMap map, TileMeshes tm, Vector2 min)
         {
-            var bk = buckets[(int)Slot.Ground];
+            var grass = buckets[(int)Slot.Ground];
+            var pave = buckets[(int)Slot.Pavement];
             int res = GroundRes;
             float cell = TileSize / res;
             int stride = res + 1;
@@ -312,20 +374,154 @@ namespace PSXRacing.City
                     heights[z * stride + x] =
                         CityElevation.GroundY(map, min.x + x * cell, min.y + z * cell);
 
-            int i0 = bk.v.Count;
-            for (int z = 0; z <= res; z++)
-                for (int x = 0; x <= res; x++)
-                {
-                    bk.v.Add(new Vector3(x * cell, heights[z * stride + x], z * cell));
-                    bk.uv.Add(new Vector2((min.x + x * cell) / 24f, (min.y + z * cell) / 24f));
-                }
             for (int z = 0; z < res; z++)
                 for (int x = 0; x < res; x++)
                 {
-                    int a = i0 + z * stride + x;
-                    bk.t.Add(a); bk.t.Add(a + stride); bk.t.Add(a + 1);
-                    bk.t.Add(a + 1); bk.t.Add(a + stride); bk.t.Add(a + stride + 1);
+                    var c = new Vector2(min.x + (x + 0.5f) * cell, min.y + (z + 0.5f) * cell);
+                    bool paved = Vector2.Distance(c, map.uptown) < 1000f ||
+                                 map.AnyFootprintNear(c, 20f, nonHouseOnly: true);
+                    var bk = paved ? pave : grass;
+                    float tile = paved ? 6f : 24f;
+                    Vector3 P(int dx, int dz) => new Vector3((x + dx) * cell, heights[(z + dz) * stride + x + dx], (z + dz) * cell);
+                    Vector2 U(int dx, int dz) => new Vector2((min.x + (x + dx) * cell) / tile, (min.y + (z + dz) * cell) / tile);
+                    bk.Up(P(0, 0), P(0, 1), P(1, 1), P(1, 0), U(0, 0), U(0, 1), U(1, 1), U(1, 0));
                 }
+        }
+
+        // ------------------------------------------------------------------
+        //  Merge gores: where a ramp meets its mainline, the pavement between
+        //  them is filled for as long as they run side by side. OSM joins the
+        //  ramp to the carriageway at the END of the taper; the ramp's own
+        //  geometry then diverges at a shallow angle, and the wedge between its
+        //  inner edge and the mainline's outer edge is the acceleration lane
+        //  and the painted gore. Filled from the junction trim outward until
+        //  the two pavements are more than a few metres apart.
+        // ------------------------------------------------------------------
+        const float GoreStep = 6f;
+        const float GoreReach = 190f;
+        const float GoreMaxGap = 4.5f;
+        const float GoreCos = 0.82f;    // ~35 degrees between ramp and mainline
+
+        /// <summary>Barrier gaps: (edge, side, s0, s1) — where a gore attaches
+        /// to a barriered mainline, the barrier stands down.</summary>
+        static readonly List<(int edge, int side, float s0, float s1)> goreGaps = new List<(int, int, float, float)>();
+
+        static void BuildGores(CityMap map, float[] trims, TileMeshes tm, Vector2 min, Vector2 max)
+        {
+            // Nodes within reach of the tile: a gore starting outside can end
+            // inside, and a barrier gap inside can come from a node outside.
+            segScratch.Clear();
+            map.EdgeSegsInRect(min - Vector2.one * (GoreReach + 20f), max + Vector2.one * (GoreReach + 20f), segScratch);
+            edgeScratch.Clear();
+            foreach (var packed in segScratch) edgeScratch.Add(packed >> 12);
+            var nodesSeen = new HashSet<int>();
+            foreach (var ei in edgeScratch)
+            {
+                var L = map.edges[ei];
+                if (!L.link) continue;
+                for (int end = 0; end < 2; end++)
+                {
+                    int n = end == 0 ? L.a : L.b;
+                    if (trims[n] <= 0f) continue;
+                    if (!nodesSeen.Add((ei << 1) | end)) continue;
+                    var np = map.nodes[n];
+                    if (np.x < min.x - GoreReach - 20f || np.x > max.x + GoreReach + 20f ||
+                        np.y < min.y - GoreReach - 20f || np.y > max.y + GoreReach + 20f) continue;
+                    bool merge = end == 1;   // the ramp ARRIVES at this node
+                    Vector2 tL = merge ? L.TangentAt(L.length) : L.TangentAt(0f);
+                    // The mainline edge the ramp runs ALONGSIDE. OSM puts a
+                    // merge node at the END of the taper, so the ramp's last
+                    // hundred metres lie beside the mainline edge ARRIVING at
+                    // that node; a diverge node is at the start of its
+                    // taper, beside the edge LEAVING. The first cut looked
+                    // the other way and every projection clamped onto the
+                    // node itself: zero gores in the whole city.
+                    CityMap.Edge M = null; float best = GoreCos;
+                    foreach (var mi in map.nodeEdges[n])
+                    {
+                        var c = map.edges[mi];
+                        if (c.link || c.cls < 3 || c == L) continue;
+                        Vector2 tM;
+                        if (merge) { if (c.b != n) continue; tM = c.TangentAt(c.length); }
+                        else { if (c.a != n) continue; tM = c.TangentAt(0f); }
+                        float d = Vector2.Dot(tL, tM);
+                        if (d > best) { best = d; M = c; }
+                    }
+                    if (M == null) continue;
+                    EmitGore(map, trims, tm, min, max, L, M, n, merge);
+                }
+            }
+        }
+
+        static void EmitGore(CityMap map, float[] trims, TileMeshes tm, Vector2 min, Vector2 max,
+                             CityMap.Edge L, CityMap.Edge M, int node, bool merge)
+        {
+            float trim = trims[node];
+            float sL0 = merge ? L.length - trim : trim;   // where the ramp ribbon starts
+            float dirL = merge ? -1f : 1f;                // walking AWAY from the node along L
+            bool prevOk = false;
+            Vector3 prevIn = default, prevOut = default;
+            float prevSM = 0f, gapStart = -1f, gapEnd = -1f;
+            int side = 0;
+            float travelled = 0f;
+            int quads = 0;
+            for (int k = 0; k <= 40; k++)
+            {
+                float sL = sL0 + dirL * k * GoreStep;
+                if (sL < 0f || sL > L.length) break;
+                travelled = k * GoreStep;
+                if (travelled > GoreReach) break;
+                var p = L.PointAt(sL);
+                CityElevation.ProjectOn(M, p, out float sM);
+                var q = M.PointAt(sM);
+                var tM = M.TangentAt(sM);
+                var rM = new Vector2(-tM.y, tM.x);     // M's "right" in the ribbon's sense (left of travel)
+                float off = Vector2.Dot(p - q, rM);     // signed: which side of M the ramp is on
+                int sideNow = off >= 0f ? 1 : -1;
+                if (side == 0) side = sideNow;
+                if (sideNow != side) break;
+                var tL = L.TangentAt(sL);
+                var rL = new Vector2(-tL.y, tL.x);
+                // the ramp's edge that faces the mainline, and the mainline's
+                // edge that faces the ramp
+                float mHalf = M.width * 0.5f, lHalf = L.width * 0.5f;
+                var outer = q + rM * (side * mHalf);
+                float lSign = Vector2.Dot(rL, rM) >= 0f ? -side : side;
+                var inner = p + rL * (lSign * lHalf);
+                float gap = Vector2.Dot(inner - outer, rM) * side;
+                bool ok = gap > -0.5f && gap < GoreMaxGap && sM > 0.5f && sM < M.length - 0.5f
+                          && Mathf.Abs(sM - (merge ? M.length : 0f)) < GoreReach + trim + 5f;
+                if (!ok) { if (prevOk) break; prevOk = false; continue; }
+                float yIn = L.YAt(sL), yOut = M.YAt(sM);
+                var vIn = new Vector3(inner.x - tm.origin.x, yIn, inner.y - tm.origin.z);
+                var vOut = new Vector3(outer.x - tm.origin.x, yOut, outer.y - tm.origin.z);
+                if (prevOk)
+                {
+                    var mid = (inner + outer + (new Vector2(prevIn.x, prevIn.z) + new Vector2(prevOut.x, prevOut.z) + new Vector2(tm.origin.x, tm.origin.z) * 2f)) * 0.25f;
+                    if (mid.x >= min.x && mid.x < max.x && mid.y >= min.y && mid.y < max.y)
+                    {
+                        bool elev = M.ElevatedAt(sM);
+                        var bk = buckets[(int)SlotOf(JunctionProfile, SurfaceOf(M, elev))];
+                        float v0 = prevSM / 12f, v1 = sM / 12f;
+                        bk.Up(prevOut, vOut, vIn, prevIn,
+                              new Vector2(0f, v0), new Vector2(0f, v1), new Vector2(1f, v1), new Vector2(1f, v0));
+                        quads++;
+                    }
+                    if (gapStart < 0f) gapStart = Mathf.Min(prevSM, sM);
+                    gapEnd = Mathf.Max(prevSM, sM);
+                }
+                prevOk = true; prevIn = vIn; prevOut = vOut; prevSM = sM;
+            }
+            if (gapStart >= 0f && Barriered(M))
+                goreGaps.Add((M.index, side, gapStart - 1f, gapEnd + 1f));
+            if (quads > 0) tm.goreCount++;
+        }
+
+        static bool InGoreGap(int edge, int side, float s0, float s1)
+        {
+            foreach (var g in goreGaps)
+                if (g.edge == edge && g.side == side && s1 > g.s0 && s0 < g.s1) return true;
+            return false;
         }
 
         // ------------------------------------------------------------------
@@ -344,6 +540,7 @@ namespace PSXRacing.City
                 if (sMax - sMin < 0.6f) continue;   // junction patch owns all of it
 
                 var con = buckets[(int)Slot.Concrete];
+                bool barrier = Barriered(e);
 
                 // walk stations, clipped to the trims; sections at every
                 // station boundary plus the exact ends
@@ -360,6 +557,16 @@ namespace PSXRacing.City
 
                     var p = e.PointAt(s);
                     var tan = e.TangentAt(s);
+                    // (-tan.y, tan.x) is tan turned 90 degrees COUNTER-clockwise
+                    // in map view, which is the LEFT of travel. So the vertex
+                    // called L below (p - right*hw) sits on the RIGHT of
+                    // travel and R on the left; the ribbon's winding is
+                    // verified with the names as they are, so the names stay
+                    // and the texture U is mirrored to match: u = 0, the
+                    // painter's left shoulder, goes on R. With symmetric
+                    // textures nobody could tell; with a 3 m outside shoulder
+                    // and a yellow inside edge line, the first cut put both on
+                    // the wrong side of every carriageway.
                     var right = new Vector2(-tan.y, tan.x);
                     float y = e.YAt(s);
                     float hw = e.width * 0.5f;
@@ -375,19 +582,17 @@ namespace PSXRacing.City
                         {
                             // Per SPAN, not per edge: a road that climbs onto a
                             // viaduct halfway along is asphalt up to the
-                            // abutment and concrete over the water, and picking
-                            // the bucket once per edge would surface the whole
-                            // road as whichever end won.
+                            // abutment and concrete over the water.
                             var bk = buckets[(int)RoadSlot(e, prevElev || elev)];
                             float v0 = prevS / RoadVTile, v1 = s / RoadVTile;
-                            // corner order near-left, far-left, far-right,
-                            // near-right — clockwise from above, which is the
-                            // face Unity draws. The first cut of this went the
-                            // other way round and every street in the city
-                            // rendered only from underneath.
+                            // U = 0 on the left of travel (the L vertex), so a
+                            // one-way carriageway's narrow inside shoulder and
+                            // wide outside shoulder land where the painter put
+                            // them. The winding (near-left, far-left, far-right,
+                            // near-right) is the verified face-up order.
                             bk.Quad(prevL, L, R, prevR,
-                                new Vector2(0f, v0), new Vector2(0f, v1),
-                                new Vector2(1f, v1), new Vector2(1f, v0));
+                                new Vector2(1f, v0), new Vector2(1f, v1),
+                                new Vector2(0f, v1), new Vector2(0f, v0));
 
                             if (prevElev || elev)
                             {
@@ -404,6 +609,12 @@ namespace PSXRacing.City
                                 // Grounded span: give the tarmac a side. An
                                 // elevated one already has a whole deck box.
                                 EmitKerb(con, prevL, L, prevR, R, v0, v1);
+                                if (barrier)
+                                {
+                                    var outL = new Vector2(-right.x, -right.y);
+                                    if (!InGoreGap(e.index, -1, prevS, s)) EmitBarrier(prevL, L, outL, v0, v1);
+                                    if (!InGoreGap(e.index, 1, prevS, s)) EmitBarrier(prevR, R, right, v0, v1);
+                                }
                             }
                         }
                     }
@@ -413,15 +624,24 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>A Jersey barrier along one edge of a span: inner face, top
+        /// and outer face, standing on the pavement edge and reaching outward.</summary>
+        static void EmitBarrier(Vector3 a, Vector3 b, Vector2 outward, float v0, float v1)
+        {
+            var bk = barrierBucket;
+            var o = new Vector3(outward.x, 0f, outward.y) * BarrierW;
+            var up = Vector3.up * BarrierH;
+            bk.Wall(a, b, a.y, a.y + BarrierH, -outward, v0, v1, 0.3f, 0.45f);            // inner face
+            bk.Wall(a + o, b + o, a.y, a.y + BarrierH, outward, v0, v1, 0.3f, 0.45f);    // outer face
+            bk.Up(a + up, b + up, b + o + up, a + o + up,
+                  new Vector2(0.45f, v0), new Vector2(0.45f, v1), new Vector2(0.5f, v1), new Vector2(0.5f, v0));
+        }
+
         /// <summary>
         /// The two outward faces that turn a road ribbon into a slab.
-        ///
-        /// Winding, which is per-call-site here as everywhere else in this
-        /// file: <see cref="Bucket.Quad"/> emits (a,c,b), so the face it draws
-        /// points along Cross(c - a, b - a). For the LEFT edge that means
+        /// Winding per call-site here, verified: for the LEFT edge that means
         /// walking top-near, top-far, bottom-far, bottom-near; the right edge is
-        /// the mirror of it. Getting either backwards leaves a kerb you can only
-        /// see from inside the roadbed, which looks exactly like no kerb at all.
+        /// the mirror of it.
         /// </summary>
         static void EmitKerb(Bucket con, Vector3 prevL, Vector3 L,
                              Vector3 prevR, Vector3 R, float v0, float v1)
@@ -429,8 +649,6 @@ namespace PSXRacing.City
             var drop = Vector3.down * KerbDepth;
             var pLd = prevL + drop; var Ld = L + drop;
             var pRd = prevR + drop; var Rd = R + drop;
-            // Same 0..0.15 concrete band the bridge fascia uses, so a kerb and a
-            // deck edge are cut from the same strip of the texture.
             con.Quad(prevL, L, Ld, pLd,
                 new Vector2(0f, v0), new Vector2(0f, v1),
                 new Vector2(0.15f, v1), new Vector2(0.15f, v0));
@@ -515,7 +733,16 @@ namespace PSXRacing.City
             // mouth would put a concrete slab across the lane you drive in on.
             var corners = new List<(float ang, Vector3 pos, int edge)>(12);
 
-            for (int n = 0; n < map.nodes.Length; n++)
+            segScratch.Clear();
+            map.EdgeSegsInRect(min - Vector2.one * 4f, max + Vector2.one * 4f, segScratch);
+            var nodesHere = new HashSet<int>();
+            foreach (var packed in segScratch)
+            {
+                var e = map.edges[packed >> 12];
+                nodesHere.Add(e.a); nodesHere.Add(e.b);
+            }
+
+            foreach (var n in nodesHere)
             {
                 if (trims[n] <= 0f) continue;
                 var np = map.nodes[n];
@@ -523,9 +750,8 @@ namespace PSXRacing.City
 
                 // Intersections are resurfaced on their own schedule, so a
                 // junction takes its age from the NODE rather than inheriting
-                // one of its arms' - which would also make the answer depend on
-                // which arm the loop happened to see first.
-                var bk = buckets[(int)SlotOf(RoadClass.Junction,
+                // one of its arms'.
+                var bk = buckets[(int)SlotOf(JunctionProfile,
                     IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld)];
 
                 float y = map.nodeY[n] + 0.012f;   // a hair proud of the arm ends
@@ -563,16 +789,9 @@ namespace PSXRacing.City
                     bk.t.Add(centerI); bk.t.Add(bI); bk.t.Add(aI);
                 }
 
-                // Skirt the perimeter, minus the road mouths - a junction is
-                // the biggest flat patch in the city and without a side it
-                // floats on the grass exactly the way the ribbons did. The two
-                // corners of one arm sort adjacent (they are the same road seen
-                // from the node), so a same-edge pair IS the mouth; the pairs
-                // BETWEEN arms are the ones facing open ground.
-                //
-                // The fan above runs centre, next, current - it walks the ring
-                // BACKWARDS relative to the corner order - so the outward skirt
-                // quad starts from the NEXT corner, not the current one.
+                // Skirt the perimeter, minus the road mouths. The two corners
+                // of one arm sort adjacent, so a same-edge pair IS the mouth;
+                // the pairs BETWEEN arms are the ones facing open ground.
                 for (int i = 0; i < corners.Count; i++)
                 {
                     var k0 = corners[i];
@@ -626,7 +845,7 @@ namespace PSXRacing.City
                     polyScratch.AddRange(w.pts);
                     ClipPoly(polyScratch, min, max);
                     if (polyScratch.Count >= 3)
-                        EarcutInto(bk, polyScratch, w.surfaceY, tm.origin);
+                        EarcutInto(bk, polyScratch, w.surfaceY, tm.origin, 26f);
                 }
             }
         }
@@ -664,9 +883,10 @@ namespace PSXRacing.City
             poly.AddRange(clipScratch);
         }
 
-        static void EarcutInto(Bucket bk, List<Vector2> poly, float y, Vector3 origin)
+        /// <summary>Simple ear clipping, faces UP. Fine for the clipped lake
+        /// pieces and for building roofs, which are small simple polygons.</summary>
+        static void EarcutInto(Bucket bk, List<Vector2> poly, float y, Vector3 origin, float uvMeters)
         {
-            // simple ear clipping; the clipped lake pieces are small
             var idx = new List<int>(poly.Count);
             float area = 0f;
             for (int i = 0; i < poly.Count; i++)
@@ -681,7 +901,7 @@ namespace PSXRacing.City
             foreach (var p in poly)
             {
                 bk.v.Add(new Vector3(p.x - origin.x, y, p.y - origin.z));
-                bk.uv.Add(new Vector2(p.x / 26f, p.y / 26f));
+                bk.uv.Add(new Vector2(p.x / uvMeters, p.y / uvMeters));
             }
 
             int guard = poly.Count * poly.Count + 16;
@@ -726,6 +946,9 @@ namespace PSXRacing.City
         }
 
         // ------------------------------------------------------------------
+        //  Procedural frontage boxes (outside the footprint data) — CityWorld
+        //  instantiates the prefab lots itself.
+        // ------------------------------------------------------------------
         static void BuildBuildings(CityMap map, Dictionary<long, List<CityBuildings.B>> buildings,
                                    TileMeshes tm, int tx, int tz)
         {
@@ -734,8 +957,6 @@ namespace PSXRacing.City
 
             foreach (var b in list)
             {
-                // Prefab lots are CityWorld's to instantiate — no facade box,
-                // no solid; the model carries its own collider.
                 if (b.kind != 0) continue;
 
                 float cy = Mathf.Cos(b.yaw), sy = Mathf.Sin(b.yaw);
@@ -752,25 +973,28 @@ namespace PSXRacing.City
                 float y0 = g - BuildingSink;
                 float y1 = y0 + b.h + BuildingSink;
 
-                bool shopFront = b.style == 3 && b.h > ShopFloorH + 1.5f;
-                // walls: front (c1-c2, facing road), right, back, left
-                EmitWall(tm, b, c2, c1, y0, y1, shopFront, frontWall: true);
-                EmitWall(tm, b, c1, c4, y0, y1, shopFront, frontWall: false);
-                EmitWall(tm, b, c4, c3, y0, y1, shopFront, frontWall: false);
-                EmitWall(tm, b, c3, c2, y0, y1, shopFront, frontWall: false);
+                if (b.gable)
+                {
+                    // a suburban house: the long side faces the road
+                    EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, y0 + b.h * 0.7f, y1, Slot.FacadeHouse);
+                    continue;
+                }
 
-                // Flat roof, facing UP. Walked c2 -> c3 -> c4 -> c1, which is
-                // the same direction round the box that the road ribbon uses
-                // and the OPPOSITE of the corner order the walls are emitted
-                // in. Going round with the walls put every roof face down: it
-                // was culled from the street and visible only from inside, so a
-                // building read as an open-topped box you could see the far
-                // walls through. See EmitFacadeQuad — this is the same bug.
-                var con = buckets[(int)Slot.FacadeBrick];
-                con.Quad(
-                    L(c2, y1, tm), L(c3, y1, tm), L(c4, y1, tm), L(c1, y1, tm),
-                    new Vector2(0f, 0.94f), new Vector2(0.08f, 0.94f),
-                    new Vector2(0.08f, 0.99f), new Vector2(0f, 0.99f));
+                // Style 0 on a tall box is glass — a forty-storey slab wearing
+                // a photographed brick office reads as a painted block.
+                Slot wallSlot = b.style == 0 ? (b.h > 40f ? Slot.FacadeGlass : Slot.FacadeTower)
+                              : b.style == 1 ? Slot.FacadeMid : Slot.FacadeBrick;
+                bool shopFront = b.style == 3 && b.h > ShopFloorH + 1.5f;
+                // walls: front (facing road), right, back, left — outward normals
+                EmitWallStyled(tm, c2, c1, y0, y1, fwd, b.style == 3, shopFront, wallSlot);
+                EmitWallStyled(tm, c1, c4, y0, y1, rgt, b.style == 3, false, wallSlot);
+                EmitWallStyled(tm, c4, c3, y0, y1, -fwd, b.style == 3, false, wallSlot);
+                EmitWallStyled(tm, c3, c2, y0, y1, -rgt, b.style == 3, false, wallSlot);
+
+                var roof = buckets[(int)Slot.RoofFlat];
+                roof.Up(L(c2, y1, tm), L(c3, y1, tm), L(c4, y1, tm), L(c1, y1, tm),
+                    new Vector2(c2.x / RoofFlatM, c2.y / RoofFlatM), new Vector2(c3.x / RoofFlatM, c3.y / RoofFlatM),
+                    new Vector2(c4.x / RoofFlatM, c4.y / RoofFlatM), new Vector2(c1.x / RoofFlatM, c1.y / RoofFlatM));
 
                 tm.solids.Add(new SolidBox
                 {
@@ -784,87 +1008,52 @@ namespace PSXRacing.City
         static Vector3 L(Vector2 p, float y, TileMeshes tm) =>
             new Vector3(p.x - tm.origin.x, y, p.y - tm.origin.z);
 
-        static void EmitWall(TileMeshes tm, CityBuildings.B b, Vector2 a, Vector2 c,
-                             float y0, float y1, bool shopFront, bool frontWall)
+        /// <summary>One wall of a retail-or-not box: a shopfront on the
+        /// ground floor where asked, brick above and elsewhere.</summary>
+        static void EmitWallStyled(TileMeshes tm, Vector2 a, Vector2 c, float y0, float y1,
+                                   Vector2 outward, bool retail, bool shopFront, Slot wallSlot)
         {
             float wallW = Vector2.Distance(a, c);
-            var style = (Slot)((int)Slot.FacadeTower + Mathf.Clamp(b.style, 0, 3));
-
-            if (b.style == 3)
+            if (retail)
             {
-                // retail: shopfront on the ground floor of the FRONT wall only,
-                // brick everywhere else and above
                 float split = Mathf.Min(y0 + BuildingSink + ShopFloorH, y1);
-                if (frontWall && shopFront)
+                if (shopFront)
                 {
-                    var shops = buckets[(int)Slot.Shops];
                     float reps = Mathf.Max(1f, Mathf.Round(wallW / FacadeMeters[3].x));
-                    // Outward winding and panelling — see EmitPanels.
-                    EmitPanels(shops, tm, a, c, y0 + BuildingSink, split, reps, 1f);
+                    EmitPanels(tm, Slot.Shops, a, c, y0 + BuildingSink, split, outward, reps, 1f);
                 }
-                else
-                {
-                    EmitFacadeQuad(tm, Slot.FacadeBrick, a, c, y0, split, wallW);
-                }
-                if (y1 > split + 0.2f)
-                    EmitFacadeQuad(tm, Slot.FacadeBrick, a, c, split, y1, wallW);
+                else EmitFacadeQuad(tm, Slot.FacadeMid, a, c, y0, split, outward);
+                if (y1 > split + 0.2f) EmitFacadeQuad(tm, Slot.FacadeMid, a, c, split, y1, outward);
                 return;
             }
-
-            EmitFacadeQuad(tm, style, a, c, y0, y1, wallW);
+            EmitFacadeQuad(tm, wallSlot, a, c, y0, y1, outward);
         }
 
-        /// <summary>
-        /// One wall, facing OUT of the building.
-        ///
-        /// The corner order matters and is easy to get backwards, because
-        /// <see cref="Bucket.Quad"/> emits (a,c,b)+(a,d,c) — so the face it
-        /// draws is the side from which a-b-c-d reads anticlockwise. Walking
-        /// bottom-left, bottom-right, top-right, top-left (the order this was
-        /// written in, and the order the perimeter walk hands the corners over
-        /// in) faces every wall INWARD: the near wall was culled, the far
-        /// wall's inside face was not, and a city block rendered as an open box
-        /// you could see straight through. The roof had the same bug from the
-        /// same cause. Going up the near edge first — bottom-left, TOP-LEFT,
-        /// top-right, bottom-right — is what turns it round.
-        /// </summary>
         static void EmitFacadeQuad(TileMeshes tm, Slot style, Vector2 a, Vector2 c,
-                                   float y0, float y1, float wallW)
+                                   float y0, float y1, Vector2 outward)
         {
-            var bk = buckets[(int)style];
             var fm = FacadeMeters[(int)style - (int)Slot.FacadeTower];
+            float wallW = Vector2.Distance(a, c);
             float u = Mathf.Max(1f, Mathf.Round(wallW / fm.x));
             float v = Mathf.Max(1f, Mathf.Round((y1 - y0) / fm.y));
-            EmitPanels(bk, tm, a, c, y0, y1, u, v);
+            EmitPanels(tm, style, a, c, y0, y1, outward, u, v);
         }
 
-        /// <summary>Panels per axis for a wall this many metres across. Kept in
-        /// one place so a wall and the shopfront under it are cut the same
-        /// way.</summary>
         static int PanelCount(float meters) =>
-            Mathf.Clamp(Mathf.CeilToInt(meters / FacadePanelMax), 1, FacadePanelCap);
+            Mathf.Clamp(Mathf.CeilToInt(meters / FacadePanelMax), 1, meters > TallWallM ? TallPanelCap : FacadePanelCap);
 
         /// <summary>
-        /// One wall, facing OUT of the building, subdivided into affine-sized
-        /// panels. The total UV span is unchanged - the repeats are handed out
-        /// ACROSS the panels rather than stretched over one quad - so this is
-        /// purely a tessellation change and every wall lands on the same pixels
-        /// it did before.
-        ///
-        /// The corner order matters and is easy to get backwards, because
-        /// <see cref="Bucket.Quad"/> emits (a,c,b)+(a,d,c) — so the face it
-        /// draws is the side from which a-b-c-d reads anticlockwise. Walking
-        /// bottom-left, bottom-right, top-right, top-left (the order this was
-        /// written in, and the order the perimeter walk hands the corners over
-        /// in) faces every wall INWARD: the near wall was culled, the far
-        /// wall's inside face was not, and a city block rendered as an open box
-        /// you could see straight through. The roof had the same bug from the
-        /// same cause. Going up the near edge first — bottom-left, TOP-LEFT,
-        /// top-right, bottom-right — is what turns it round.
+        /// One wall, facing <paramref name="outward"/>, subdivided into
+        /// affine-sized panels with the UV repeats handed out ACROSS the panels.
+        /// The emitter checks its own work: if the first panel's normal points
+        /// against the outward direction it was given, the tile counts a
+        /// facing error and the audit fails the build. That is the whole
+        /// history of the inside-out buildings, made into an assertion.
         /// </summary>
-        static void EmitPanels(Bucket bk, TileMeshes tm, Vector2 a, Vector2 c,
-                               float y0, float y1, float uReps, float vReps)
+        static void EmitPanels(TileMeshes tm, Slot slot, Vector2 a, Vector2 c,
+                               float y0, float y1, Vector2 outward, float uReps, float vReps)
         {
+            var bk = buckets[(int)slot];
             int nx = PanelCount(Vector2.Distance(a, c));
             int ny = PanelCount(y1 - y0);
             for (int j = 0; j < ny; j++)
@@ -875,12 +1064,242 @@ namespace PSXRacing.City
                 {
                     float s0 = (float)i / nx, s1 = (float)(i + 1) / nx;
                     Vector2 pa = Vector2.Lerp(a, c, s0), pc = Vector2.Lerp(a, c, s1);
-                    bk.Quad(L(pa, ya, tm), L(pa, yb, tm), L(pc, yb, tm), L(pc, ya, tm),
-                        new Vector2(uReps * s0, vReps * t0),
-                        new Vector2(uReps * s0, vReps * t1),
-                        new Vector2(uReps * s1, vReps * t1),
-                        new Vector2(uReps * s1, vReps * t0));
+                    bk.Wall(L(pa, 0f, tm), L(pc, 0f, tm), ya, yb, outward,
+                            uReps * s0, uReps * s1, vReps * t0, vReps * t1);
+                    if (i == 0 && j == 0)
+                    {
+                        var n = bk.LastNormal();
+                        if (Vector3.Dot(n, new Vector3(outward.x, 0f, outward.y)) < 0f) tm.wallFacingErrors++;
+                    }
                 }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  Real buildings from OSM footprints
+        // ------------------------------------------------------------------
+        static readonly List<Vector2> roofScratch = new List<Vector2>(32);
+
+        static void BuildFootprints(CityMap map, TileMeshes tm, int tx, int tz)
+        {
+            var list = map.FootprintsInTile(tx, tz);
+            if (list == null) return;
+            foreach (var fi in list)
+            {
+                var f = map.footprints[fi];
+                if (f.propKind != 0) continue;   // a model stands here; CityWorld places it
+                float g = float.MaxValue;
+                foreach (var p in f.pts) g = Mathf.Min(g, CityElevation.GroundY(map, p.x, p.y));
+                float y0 = g - BuildingSink;
+                float top = y0 + BuildingSink + f.h;
+
+                if (f.gable)
+                {
+                    float eave = y0 + BuildingSink + f.h * 0.68f;
+                    EmitGableHouse(tm, f.centre, f.u, f.hu, f.hv, y0, eave, top, Slot.FacadeHouse);
+                    tm.footprintCount++;
+                    continue;
+                }
+
+                Slot wallSlot = f.style == 0 ? Slot.FacadeGlass
+                              : f.style == 1 ? Slot.FacadeTower
+                              : f.style == 3 ? Slot.FacadeHouse
+                              : Slot.FacadeMid;
+                // A shopfront goes on the wall that faces the nearest street.
+                int frontWall = -1;
+                if (f.style == 4 && f.h > ShopFloorH + 1.5f &&
+                    map.NearestRoadPoint(f.centre, 70f, skipLinks: true, out int rei, out float rs, out _))
+                {
+                    var q = map.edges[rei].PointAt(rs);
+                    var toRoad = (q - f.centre).normalized;
+                    float bestDot = 0.5f;
+                    for (int i = 0; i < f.pts.Length; i++)
+                    {
+                        var d = f.pts[(i + 1) % f.pts.Length] - f.pts[i];
+                        if (d.sqrMagnitude < 4f) continue;
+                        var n = new Vector2(d.y, -d.x).normalized;   // outward, for a CCW polygon
+                        float dt = Vector2.Dot(n, toRoad);
+                        if (dt > bestDot) { bestDot = dt; frontWall = i; }
+                    }
+                }
+                int n0 = f.pts.Length;
+                for (int i = 0; i < n0; i++)
+                {
+                    var a = f.pts[i]; var c = f.pts[(i + 1) % n0];
+                    var d = c - a;
+                    if (d.sqrMagnitude < 0.04f) continue;
+                    var outward = new Vector2(d.y, -d.x).normalized;
+                    EmitWallStyled(tm, a, c, y0, top, outward, f.style == 4, i == frontWall, wallSlot);
+                }
+
+                roofScratch.Clear();
+                roofScratch.AddRange(f.pts);
+                EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
+
+                // A tall tower gets a crown: a smaller prism on top, then a
+                // smaller one still — enough silhouette to tell the Bank of
+                // America Corporate Center from a box, at a distance, in fog.
+                if (f.h > 120f) EmitCrown(map, tm, f, top, wallSlot);
+
+                tm.solids.Add(new SolidBox
+                {
+                    center = new Vector3(f.centre.x - tm.origin.x, (y0 + top) * 0.5f, f.centre.y - tm.origin.z),
+                    size = new Vector3(f.hv * 2f, top - y0, f.hu * 2f),
+                    yawDeg = Mathf.Atan2(f.u.x, f.u.y) * Mathf.Rad2Deg,
+                });
+                tm.footprintCount++;
+            }
+        }
+
+        static void EmitCrown(CityMap map, TileMeshes tm, CityMap.Footprint f, float top, Slot slot)
+        {
+            float hu = f.hu, hv = f.hv;
+            var v = new Vector2(-f.u.y, f.u.x);
+            float y = top;
+            for (int step = 0; step < 2; step++)
+            {
+                hu *= 0.62f; hv *= 0.62f;
+                float h = f.h * (step == 0 ? 0.09f : 0.07f);
+                var c1 = f.centre + f.u * hu + v * hv; var c2 = f.centre - f.u * hu + v * hv;
+                var c3 = f.centre - f.u * hu - v * hv; var c4 = f.centre + f.u * hu - v * hv;
+                EmitFacadeQuad(tm, slot, c2, c1, y, y + h, v);
+                EmitFacadeQuad(tm, slot, c1, c4, y, y + h, f.u);
+                EmitFacadeQuad(tm, slot, c4, c3, y, y + h, -v);
+                EmitFacadeQuad(tm, slot, c3, c2, y, y + h, -f.u);
+                var roof = buckets[(int)Slot.RoofFlat];
+                roof.Up(L(c2, y + h, tm), L(c3, y + h, tm), L(c4, y + h, tm), L(c1, y + h, tm),
+                    new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f));
+                y += h;
+            }
+        }
+
+        /// <summary>
+        /// A gabled house on an oriented box: four walls to the eave, two roof
+        /// planes to a ridge along the long axis, a gable triangle at each end.
+        /// The same routine builds a real footprint's house and the interior
+        /// fill's, so they cannot look like two kinds of house.
+        /// </summary>
+        static void EmitGableHouse(TileMeshes tm, Vector2 centre, Vector2 u, float hu, float hv,
+                                   float y0, float eave, float ridge, Slot wallSlot)
+        {
+            var v = new Vector2(-u.y, u.x);
+            var c1 = centre + u * hu + v * hv;   // +u +v
+            var c2 = centre - u * hu + v * hv;   // -u +v
+            var c3 = centre - u * hu - v * hv;   // -u -v
+            var c4 = centre + u * hu - v * hv;   // +u -v
+            EmitFacadeQuad(tm, wallSlot, c2, c1, y0, eave, v);
+            EmitFacadeQuad(tm, wallSlot, c1, c4, y0, eave, u);
+            EmitFacadeQuad(tm, wallSlot, c4, c3, y0, eave, -v);
+            EmitFacadeQuad(tm, wallSlot, c3, c2, y0, eave, -u);
+
+            var rN = centre + u * hu;   // ridge ends
+            var rS = centre - u * hu;
+            var roof = buckets[(int)Slot.RoofTiles];
+            float uRep = Mathf.Max(1f, Mathf.Round(hu * 2f / RoofTileM));
+            float vRep = Mathf.Max(1f, Mathf.Round(Mathf.Sqrt(hv * hv + (ridge - eave) * (ridge - eave)) / RoofTileM));
+            // +v plane and -v plane, both facing up (Up() settles the order)
+            roof.Up(L(rS, ridge, tm), L(rN, ridge, tm), L(c1, eave, tm), L(c2, eave, tm),
+                    new Vector2(0f, 0f), new Vector2(uRep, 0f), new Vector2(uRep, vRep), new Vector2(0f, vRep));
+            roof.Up(L(c3, eave, tm), L(c4, eave, tm), L(rN, ridge, tm), L(rS, ridge, tm),
+                    new Vector2(0f, vRep), new Vector2(uRep, vRep), new Vector2(uRep, 0f), new Vector2(0f, 0f));
+
+            // gable ends: vertical triangles facing +u and -u
+            var wall = buckets[(int)wallSlot];
+            EmitGableTri(wall, tm, c1, rN, c4, eave, ridge, u);
+            EmitGableTri(wall, tm, c3, rS, c2, eave, ridge, -u);
+
+            tm.solids.Add(new SolidBox
+            {
+                center = new Vector3(centre.x - tm.origin.x, (y0 + ridge) * 0.5f, centre.y - tm.origin.z),
+                size = new Vector3(hv * 2f, ridge - y0, hu * 2f),
+                yawDeg = Mathf.Atan2(u.x, u.y) * Mathf.Rad2Deg,
+            });
+        }
+
+        static void EmitGableTri(Bucket bk, TileMeshes tm, Vector2 a, Vector2 apex, Vector2 c,
+                                 float eave, float ridge, Vector2 outward)
+        {
+            // a triangle from a to c faces the LEFT of a->c, like a wall
+            Vector2 d = c - a;
+            Vector2 left = new Vector2(-d.y, d.x);
+            if (Vector2.Dot(left, outward) < 0f) { var t = a; a = c; c = t; }
+            var fm = FacadeMeters[(int)Slot.FacadeHouse - (int)Slot.FacadeTower];
+            float uRep = Mathf.Max(1f, Mathf.Round(Vector2.Distance(a, c) / fm.x));
+            bk.Tri(L(a, eave, tm), L(apex, ridge, tm), L(c, eave, tm),
+                   new Vector2(0f, 0f), new Vector2(uRep * 0.5f, (ridge - eave) / fm.y), new Vector2(uRep, 0f));
+        }
+
+        // ------------------------------------------------------------------
+        //  Interior fill: houses between the arterials, where OSM gave us
+        //  roads but no footprints. A deterministic grid per tile, aligned to
+        //  the nearest street, thinning with distance from uptown and from the
+        //  road. Cheap gable boxes in the tile mesh — one draw call for a
+        //  whole subdivision.
+        // ------------------------------------------------------------------
+        const float HouseCell = 24f;
+
+        static void BuildHouses(CityMap map, TileMeshes tm, int tx, int tz)
+        {
+            var min = new Vector2(tx * TileSize, tz * TileSize);
+            int cells = Mathf.RoundToInt(TileSize / HouseCell);
+            for (int cz = 0; cz < cells; cz++)
+                for (int cx = 0; cx < cells; cx++)
+                {
+                    int gx = tx * cells + cx, gz = tz * cells + cz;
+                    var c = new Vector2(min.x + (cx + 0.5f) * HouseCell + (Hash01(gx, gz, 1) - 0.5f) * 9f,
+                                        min.y + (cz + 0.5f) * HouseCell + (Hash01(gx, gz, 2) - 0.5f) * 9f);
+                    if (map.footprintBounds.Contains(c)) continue;
+
+                    // nearest street, and the corridor test against every road
+                    segScratch.Clear();
+                    map.EdgeSegsInRect(c - Vector2.one * 260f, c + Vector2.one * 260f, segScratch);
+                    float dRoad = float.MaxValue; Vector2 tanRoad = Vector2.right;
+                    bool blocked = false;
+                    foreach (var packed in segScratch)
+                    {
+                        int ei = packed >> 12, si = packed & 0xFFF;
+                        var e = map.edges[ei];
+                        Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
+                        float L2 = d.sqrMagnitude;
+                        float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(c - a, d) / L2) : 0f;
+                        float dist = Vector2.Distance(c, a + d * t);
+                        if (dist < e.CorridorHalf + 24f) { blocked = true; break; }
+                        if (!e.link && e.cls < 5 && dist < dRoad) { dRoad = dist; tanRoad = d.normalized; }
+                    }
+                    if (blocked || dRoad > 250f) continue;
+
+                    float distUp = Vector2.Distance(c, map.uptown);
+                    float keep = distUp < 7000f ? 0.62f : distUp < 12000f ? 0.42f : distUp < 16000f ? 0.22f : 0.07f;
+                    keep *= Mathf.Lerp(1f, 0.3f, Mathf.Clamp01((dRoad - 110f) / 140f));
+                    if (Hash01(gx, gz, 3) > keep) continue;
+
+                    segScratch.Clear();
+                    map.WaterSegsInRect(c - Vector2.one * 30f, c + Vector2.one * 30f, segScratch);
+                    if (segScratch.Count > 0) continue;
+
+                    float hu = 4.6f + Hash01(gx, gz, 4) * 2.2f;   // half length, along the street
+                    float hv = 3.8f + Hash01(gx, gz, 5) * 1.6f;   // half depth
+                    float eaveH = 3.0f + Hash01(gx, gz, 6) * 0.6f;
+                    float riseH = 1.7f + Hash01(gx, gz, 7) * 0.9f;
+                    var u = tanRoad;
+                    var v = new Vector2(-u.y, u.x);
+                    float g = float.MaxValue;
+                    foreach (var corner in new[] { c + u * hu + v * hv, c - u * hu + v * hv, c - u * hu - v * hv, c + u * hu - v * hv })
+                        g = Mathf.Min(g, CityElevation.GroundY(map, corner.x, corner.y));
+                    float y0 = g - BuildingSink;
+                    EmitGableHouse(tm, c, u, hu, hv, y0, y0 + BuildingSink + eaveH, y0 + BuildingSink + eaveH + riseH, Slot.FacadeHouse);
+                    tm.houseCount++;
+                }
+        }
+
+        static float Hash01(int x, int y, int salt)
+        {
+            unchecked
+            {
+                uint h = (uint)(x * 374761393 + y * 668265263 + salt * 2246822519) + 1442695041u;
+                h = (h ^ (h >> 13)) * 1274126177u;
+                h ^= h >> 16;
+                return (h & 0xFFFFFF) / 16777215f;
             }
         }
     }

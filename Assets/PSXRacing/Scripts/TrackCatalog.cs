@@ -136,6 +136,32 @@ namespace PSXRacing
             public bool city;
 
             /// <summary>
+            /// A RACE through the streamed city: the id of a route baked into
+            /// charlotte_city.bytes (an edge chain through the same graph
+            /// FREE ROAM drives). The scene is a Charlotte scene like the
+            /// free-roam one, and CityMode turns the route into the TrackPath
+            /// RaceManager races on. Null on the open city and on every
+            /// venue outside it. The three Charlotte venues were baked stages
+            /// with their own SRTM terrain until 2026-09-11; now the race and
+            /// free roam are the same map, which is what the owner asked for.
+            /// </summary>
+            public string cityRoute;
+
+            /// <summary>The open city with no race in it: FREE ROAM's door,
+            /// skipped by every picker. This is what "city" used to mean
+            /// everywhere before the city races existed.</summary>
+            public bool IsRoam => city && string.IsNullOrEmpty(cityRoute);
+            /// <summary>A race venue whose scene is the streamed city.</summary>
+            public bool IsCityRace => city && !string.IsNullOrEmpty(cityRoute);
+
+            // Loaded lazily out of charlotte_routes.json by EnsureRoute: the
+            // menu's copy of the route (length, line, finish, a 4 m polyline
+            // for the map), so the front end never parses the 2.5 MB graph.
+            [System.NonSerialized] public bool routeLoaded;
+            [System.NonSerialized] public float routeLengthM, routeStartM, routeFinishM;
+            [System.NonSerialized] public Vector3[] routePts;
+
+            /// <summary>
             /// A point-to-point STAGE on a real road: the centreline comes out
             /// of a baked Resources JSON (real map data, real elevation) rather
             /// than from control points, and the run has ENDS like a drag strip
@@ -213,7 +239,8 @@ namespace PSXRacing
             {
                 get
                 {
-                    if (city) return 0f;   // an open city has no lap to measure
+                    if (IsRoam) return 0f;   // an open city has no lap to measure
+                    if (IsCityRace) { EnsureRoute(this); return routeLengthM; }
                     if (length < 0f) length = Sample(this, Spacing).Count * Spacing;
                     return length;
                 }
@@ -237,6 +264,13 @@ namespace PSXRacing
                     // a race the player will time at 402.
                     // A loop stage has no finish line to measure to: it is
                     // a lap, raced <see cref="laps"/> times like a circuit.
+                    if (IsCityRace)
+                    {
+                        // Same shape as a stage: a loop is a lap times laps, a
+                        // route with ends is line to finish.
+                        EnsureRoute(this);
+                        return loop ? routeLengthM * laps : routeFinishM - routeStartM;
+                    }
                     if (stage && loop) { EnsureStage(this); return LengthM * laps; }
                     if (stage) { EnsureStage(this); return dragMeters - stageStartLineM; }
                     return drag ? dragMeters : LengthM * laps;
@@ -249,6 +283,11 @@ namespace PSXRacing
             {
                 get
                 {
+                    if (IsCityRace)
+                    {
+                        EnsureRoute(this);
+                        return loop ? -1 : Mathf.RoundToInt(routeFinishM / Spacing);
+                    }
                     if (stage && loop) return -1;    // a lap has no traps
                     if (stage) { EnsureStage(this); return Mathf.RoundToInt(dragMeters / Spacing); }
                     return drag ? Mathf.RoundToInt(dragMeters / Spacing) : -1;
@@ -299,7 +338,7 @@ namespace PSXRacing
             /// not the bridge and beach runs, which are drag events on real
             /// roads; and not the city, which has no centreline at all.
             /// </summary>
-            public bool CanReverse => !drag && !dragEvent && !city && !noReverse && !Reversed;
+            public bool CanReverse => !drag && !dragEvent && !IsRoam && !noReverse && !Reversed;
         }
 
         /// <summary>Waypoint spacing, metres. The scene builder reads its own
@@ -664,17 +703,15 @@ namespace PSXRacing
                 // tank check is what pins it.
                 laps = 1,
                 speedLimitKmh = 80f,    // I-277 is posted 50 mph
-                stage = true,
+                // Raced ON THE CITY: the same streamed streets, buildings and
+                // terrain as FREE ROAM, with the route as a chain of the
+                // city graph's own edges (tools/city/export_osm.mjs).
+                city = true,
+                cityRoute = "uptown",
                 loop = true,
                 oneWay = true,
                 noReverse = true,       // a freeway backwards is the wrong way up every ramp
-                stageData = "clt_uptown",
                 dragLabel = "THE 277",
-                // The urban bridge dig: how far the ground drops under each
-                // overpass so the deck has daylight beneath it. Six metres is
-                // a street under a freeway, and what the terrain audit wants
-                // to see under every full-blend span (it asks for three).
-                bridgeDepth = 6f,
             },
             new TrackDef
             {
@@ -685,10 +722,9 @@ namespace PSXRacing
                 roadWidth = 15.5f,      // two lanes a side plus parking, uptown's own width
                 laps = 1,
                 speedLimitKmh = 56f,    // 35 mph north of the core (25 through it)
-                stage = true,
-                stageData = "clt_tryon",
+                city = true,
+                cityRoute = "tryon",
                 dragLabel = "NODA",
-                bridgeDepth = 6f,       // the Belk runs in a cut under Tryon
             },
             new TrackDef
             {
@@ -699,12 +735,11 @@ namespace PSXRacing
                 roadWidth = 16f,        // three lanes and a full shoulder each way
                 laps = 1,
                 speedLimitKmh = 89f,    // 55 mph on the motorway section
-                stage = true,
+                city = true,
+                cityRoute = "independence",
                 oneWay = true,
                 noReverse = true,       // an eastbound expressway has no westbound
-                stageData = "clt_independence",
                 dragLabel = "US 74",
-                bridgeDepth = 6f,
             },
 
             // ----------------------------------------------------------------
@@ -790,6 +825,7 @@ namespace PSXRacing
             dragLabel = f.dragLabel,
             dragEvent = f.dragEvent,
             city = f.city,
+            cityRoute = f.cityRoute,
             stage = f.stage,
             stageData = f.stageData,
             reverseOf = f.id,
@@ -1056,6 +1092,93 @@ namespace PSXRacing
             def.crossings = Pairs(j.crossings);
         }
 
+        [System.Serializable]
+        class RoutesJson
+        {
+            public string attribution = "";
+            public RouteJson[] routes;
+        }
+        [System.Serializable]
+        class RouteJson
+        {
+            public string id = "", name = "";
+            public int loop, oneway;
+            public float roadWidth, speed, lengthM, startM, finishM;
+            public float[] pts;   // interleaved x,z every ~20 m along the route
+        }
+        static RoutesJson routesJson;
+
+        /// <summary>
+        /// Pull a city route's menu-side facts out of Resources, once: length,
+        /// start line, finish and a polyline for the map. The small JSON the
+        /// exporter writes beside the graph — the front end must never have
+        /// to parse the 2.5 MB city blob to quote a race distance.
+        /// </summary>
+        public static void EnsureRoute(TrackDef def)
+        {
+            if (!def.IsCityRace || def.routeLoaded) return;
+            def.routeLoaded = true;
+            if (routesJson == null)
+            {
+                var ta = Resources.Load<TextAsset>("charlotte_routes");
+                if (ta == null)
+                {
+                    Debug.LogError("charlotte_routes.json missing from Resources - run tools/city/export_osm.mjs");
+                    routesJson = new RoutesJson { routes = new RouteJson[0] };
+                }
+                else routesJson = JsonUtility.FromJson<RoutesJson>(ta.text);
+            }
+            RouteJson r = null;
+            foreach (var cand in routesJson.routes) if (cand.id == def.cityRoute) { r = cand; break; }
+            if (r == null)
+            {
+                Debug.LogError("City route missing from charlotte_routes.json: " + def.cityRoute);
+                def.routeLengthM = Spacing; def.routeStartM = 0f; def.routeFinishM = Spacing;
+                def.routePts = new[] { Vector3.zero, new Vector3(Spacing, 0f, 0f) };
+                return;
+            }
+            def.routeLengthM = r.lengthM;
+            def.routeStartM = r.startM;
+            def.routeFinishM = r.finishM;
+            // The reversed-finish remap reads the start line off this field
+            // for stages; a city route with ends is the same shape.
+            def.stageStartLineM = r.startM;
+            def.stageAttribution = routesJson.attribution ?? "";
+            if (r.loop != 0 && !def.loop)
+            {
+                Debug.LogError("City route " + r.id + " is a loop but TrackDef." + def.id + " is not");
+                def.loop = true;
+            }
+
+            // Resample the coarse polyline at Spacing so every index-based
+            // consumer (the map's finish marker, the reversed start) can treat
+            // it exactly like a stage's waypoint list. A loop starts at the
+            // line, like the race scene's own path.
+            int n = r.pts.Length / 2;
+            var raw = new List<Vector2>(n + 1);
+            for (int i = 0; i < n; i++) raw.Add(new Vector2(r.pts[i * 2], r.pts[i * 2 + 1]));
+            if (r.loop != 0 && raw.Count > 1) raw.Add(raw[0]);
+            var arcs = new List<float>(raw.Count) { 0f };
+            for (int i = 1; i < raw.Count; i++) arcs.Add(arcs[i - 1] + Vector2.Distance(raw[i - 1], raw[i]));
+            float total = arcs[arcs.Count - 1];
+            int count = r.loop != 0 ? Mathf.Max(2, Mathf.RoundToInt(total / Spacing))
+                                    : Mathf.Max(2, Mathf.FloorToInt(total / Spacing) + 1);
+            float step = r.loop != 0 ? total / count : Spacing;   // a whole number of stations round a loop
+            var pts = new Vector3[count];
+            int seg = 0;
+            for (int i = 0; i < count; i++)
+            {
+                float s = r.loop != 0 ? Mathf.Repeat(r.startM + i * step, total) : Mathf.Min(i * Spacing, total);
+                if (s < arcs[seg]) seg = 0;
+                while (seg < arcs.Count - 2 && arcs[seg + 1] < s) seg++;
+                float segL = arcs[seg + 1] - arcs[seg];
+                float t = segL > 1e-5f ? Mathf.Clamp01((s - arcs[seg]) / segL) : 0f;
+                var p = Vector2.LerpUnclamped(raw[seg], raw[seg + 1], t);
+                pts[i] = new Vector3(p.x, 0f, p.y);
+            }
+            def.routePts = pts;
+        }
+
         /// <summary>
         /// Dense Catmull-Rom through the control points, then an arc-length
         /// resample at <paramref name="spacing"/> metres. This IS the track: the
@@ -1067,8 +1190,17 @@ namespace PSXRacing
             // A city has no centreline. Nothing should ask for one; a caller
             // that does gets a token stub rather than a NullReference deep in
             // spline maths it has no business reaching.
-            if (def.city)
+            if (def.IsRoam)
                 return new List<Vector3> { Vector3.zero, new Vector3(spacing, 0f, 0f) };
+            // A city race's line is the route polyline the menu carries,
+            // already at Spacing (EnsureRoute resamples it). Heights are zero
+            // here: the map only needs the plan, and the race scene builds its
+            // real path from the graph (CityMode.BuildPath).
+            if (def.IsCityRace)
+            {
+                EnsureRoute(def);
+                return new List<Vector3>(def.routePts);
+            }
 
             // A stage is pre-sampled at Spacing by its bake. Callers get a
             // copy — waypoint lists get handed around and this one is shared.
@@ -1258,7 +1390,7 @@ namespace PSXRacing
         public static bool MapFrameFor(TrackDef def, int size, out MapFrame f)
         {
             f = default;
-            if (def == null || def.city) return false;
+            if (def == null || def.IsRoam) return false;
             string key = def.id + "|" + size;
             if (mapFrames.TryGetValue(key, out f)) return true;
 
@@ -1296,7 +1428,7 @@ namespace PSXRacing
             string cacheKey = def.id + "|" + size + (hud ? "|hud" : "");
             if (thumbs.TryGetValue(cacheKey, out var hit) && hit != null) return hit;
 
-            if (def.city)
+            if (def.IsRoam)
             {
                 // Baked at scene-build time from the real road graph — parsing
                 // 1.5 MB of city JSON to draw a menu chip would be the wrong
@@ -1324,7 +1456,7 @@ namespace PSXRacing
             // A route with ENDS must not close back onto itself: on a strip the
             // phantom closing segment hides inside the strip, on a 7 km stage
             // it is a chord drawn straight across the map.
-            bool ends = def.drag || (def.stage && !def.loop);
+            bool ends = def.drag || (def.stage && !def.loop) || (def.IsCityRace && !def.loop);
             int segs = ends ? pts.Count - 1 : pts.Count;
             for (int i = 0; i < segs; i++)
             {

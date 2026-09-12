@@ -1,183 +1,207 @@
-# Charlotte (2026-08-25)
+# Charlotte (2026-08-25, rebuilt 2026-09-11)
 
 Asked for: base the game on a real city the way Midnight Club used Atlanta/LA —
-a 3D Charlotte, ported from the extensive road network already built in the
-HTML game (Racing-Game-2, scaled 1:6 there), "as close to scale as possible
-while maintaining LoD, draw distance, and 60-100+ FPS", with two standing
-rules: **every road crossing water gets a bridge, and every highway crossing a
-road goes over it**. Minor roads are missing from the data and need to be
-connected.
+a 3D Charlotte "as close to scale as possible while maintaining LoD, draw
+distance, and 60-100+ FPS", with two standing rules: **every road crossing
+water gets a bridge, and every highway crossing a road goes over it**.
 
-## The source: two datasets, one each for land and water
+Then, 2026-09-11: "Charlotte should have a complete road system of major
+roads. Refer to actual map for lane counts, which roads go over others with
+bridges, how highway entrance/exit ramps work. I want the full city built with
+skyscrapers and buildings, houses. Not 100% accuracy, but recognizable. The
+free roam and race tracks in Charlotte should be on the same map." That pass
+replaced the data pipeline end to end; this document describes what stands.
 
-RG2 carries TWO Charlottes. The hand-traced one (the `Maps/*.png` layers →
-`baselineRoads.ts`, 109 roads) is what the reference images render — and it is
-the only home of the WATER: 30 creeks and the two Lake Wylie arms
-(`baselineWater.ts`). The second is a full OSM import
-(`fixtures/osm/charlotte_rows.json`): 3,076 rows / 16,660 verts, every road
-named, with lane counts, one-way flags, `divided`, real bridge `deck` spans,
-840+ real interchange ramp rows, and 2,389 intersections tagged
-signal/stop/yield — geo-registered and invertible to lat/lon.
+## The source: OpenStreetMap, read raw
 
-The port takes ROADS from the OSM bake (richer, welded, junction-split, ramps
-real) and WATER from the traced set, co-registered into the OSM frame by
-fitting the one shape both datasets share: the I-485 loop. Attribution: OSM
-data is ODbL — "Map data © OpenStreetMap contributors" must be user-visible,
-and goes on the Charlotte loading/menu surface.
+The first port read Racing-Game-2's baked rows: whole named roads, dual
+carriageways merged into one painted ribbon, lane counts collapsed to a class
+index, junctions guessed from geometric crossings. `tools/city/export_osm.mjs`
+reads the raw Overpass ways instead (cached under `tools/city/cache/`, all
+© OpenStreetMap contributors, ODbL — the attribution is on the HUD's opening
+seconds and in every venue blurb):
 
-True residential streets exist in NEITHER set (the Overpass fetch stopped at
-tertiary). The secondary+tertiary net (1,371 rows) is the connected minor
-network for now; the full residential grid is a one-line filter change in
-RG2's `tools/osm/fetch.mjs` plus a re-download, offered as a follow-up.
+- `ways_all.json` — every motorway/trunk/primary/secondary/tertiary way and
+  their `_link` ramps inside the I-485 beltway bbox (18,628 ways), with per-node
+  ids and every tag: `lanes`, `lanes:forward/backward`, `oneway`, `bridge`,
+  `tunnel`, `layer`, `maxspeed`, `junction=roundabout`.
+- `streets_core.json` — residential/unclassified/living streets and NAMED
+  service roads in an 8 x 8 km core round uptown, so the uptown grid and the
+  streetcar suburbs are complete where the player spends most of their time.
+- `buildings_core.json` — 35,112 building elements in the same core, with
+  `height` / `building:levels` where mapped (every tower in uptown is).
+- `nodes_all.json` — signal / stop / yield nodes, matched to graph nodes BY ID.
+- SRTM 1-arcsecond (`tools/roads/cache/*.hgt.gz`, via `tools/roads/lib.mjs`).
+- The water still comes from RG2's hand-traced creeks and Lake Wylie
+  (`baselineWater.ts`), co-registered onto the OSM frame by ICP against RG2's
+  own merged I-485 row (23 m residual).
+
+What the exporter makes of it:
+
+- **Real topology.** A junction is a node two ways share, by id. Ways are cut
+  at those nodes into 25,250 edges between 20,359 nodes (3,966 km). Dead ends
+  within 2.5 m of another edge are welded onto it (one, in this snapshot —
+  the arterial and minor-street fetches share their nodes).
+- **Real carriageways.** A divided road is two one-way edges with the ground
+  showing between them. Each carries its own lane count (`lanes`, or
+  `lanes:forward + backward`, or a per-class default), and a two-way road with
+  an odd count has a centre turn lane (the TWLTL on every undivided Charlotte
+  arterial).
+- **Real grade separations.** A crossing with no shared node IS a separation
+  and OSM says which road is on top: `tunnel < layer < bridge`. 928 of them,
+  every one decided by a tag; the class-rank fallback never fired.
+- **Real bridges.** `bridge=yes` marks the exact extent of every deck (56.5 km
+  of them), separately from the 275 water spans found geometrically.
+- **Three race routes** as edge chains through this graph, from the way-id
+  lists `tools/clt/fetch_clt.mjs` verified on 2026-09-07 (every id still
+  present). Uptown Loop 9.20 km (loop, 1.61 km on structure), Tryon Street
+  Sprint 6.02 km, Independence Sprint 7.02 km.
+- **The ground**: a 60 m SRTM grid over the whole beltway, min-filtered over a
+  120 m reach (uptown's roofs are 200 m radar returns) and blurred, stored as
+  metres above a datum a little under the county's lowest point.
+- **31,870 footprints** (styles glass / midrise / brick / house / shops,
+  gabled where the polygon is a house's), counter-clockwise, with heights.
+
+Outputs (all in `Assets/PSXRacing/Resources`): `charlotte_city.bytes` (2.5 MB
+graph + water + separations + spans + routes; a versioned binary the runtime
+reads through a BinaryReader — the JSON equivalent was 9 MB), `charlotte_dem.bytes`
+(1.4 MB), `charlotte_bld.bytes` (1.7 MB), `charlotte_routes.json` (the menu's
+copy of the routes: lengths, lines, a 20 m polyline each). Debug plots land in
+`tools/city/charlotte_*.png`.
 
 ## Scale: the layout scales, the streets do not
 
-The car is a real-size object (a 4.29 m Charger), so nothing that the car
-touches can shrink: lane widths, bridge clearances, building doors are 1:1 at
-ANY city scale. RG2 already works this way — layout at 17.212 real m/tile
-(the ÷6), cross-sections at the true 2.8687 m/tile — and the port keeps the
-two currencies separate, with the layout compression dialled from 1:6 to
-**1:1**. One knob, `LayoutScale`, applied to graph geometry only. At 1.0 the
-I-485 loop is ~31 km across, the origin sits at the loop's centroid (how the
-OSM bake is registered), and the far edge lands ~16 km out, where a float32
-world position quantizes at ~2 mm — inside the wobble a PSX renderer adds on
-purpose. If far-edge physics jitter shows up on the live build, the knob
-drops (0.5 halves every drive time and every coordinate) without touching
-data, which is stored in real metres.
+The car is a real-size object, so nothing the car touches can shrink: lane
+widths, bridge clearances, building doors are 1:1 at ANY city scale. Layout
+metres (node positions, `CityMap.LayoutScale`, the one knob, at 1.0) and
+section metres (a lane is 3.6576 m, never scaled) are different currencies.
 
-Widths come from RG2's lane ladder (`laneStandardizedWidth`), resolved in the
-EXPORTER so Unity never re-implements it: the `w` in a row is a class index,
-not a width — w=12 is 8 lanes + shoulders ≈ 33 m of interstate, w=5 is a
-7.3 m two-lane street, and I-485's profile is keyed by NAME in RG2, which is
-exactly the kind of rule that must be baked out, not ported.
-
-Perf does not depend on the knob: fog closes at ≤355 m and the far plane is
-360, so the streamed ring is the same ~25 tiles at any scale. Scale only
-changes how much WORLD there is, not how much of it exists at once.
+Widths are DERIVED from `RoadProfiles`, a closed table of twenty rows
+(two-way 2/3T/4/5T/6 lanes; one-way street 1-4; ramp 1-3; expressway
+carriageway 2-4; motorway carriageway 2-6) each with its shoulders — a
+freeway's outside shoulder is 3 m and its inside one 1.2 m, in the direction
+of travel. The mesh, the painter and the material table all read that one
+row, so the paint and the pavement cannot disagree, and OSM's `lanes` tag
+only ever picks a row.
 
 ## The inversion: this project's first runtime world
 
 Every circuit is baked whole into a scene by the editor builder; a city that
-size cannot be (15,000 tiles worth of mesh). So `Charlotte.unity` is baked
-nearly EMPTY — lighting, camera+HUD, the player car, and one `CityWorld`
-component — and the world is generated at runtime, per 256 m tile, from a
-road-graph JSON in Resources (the `rg2_cars.json` pattern; synchronous
-`Resources.Load` is the one loading path this project trusts on WebGL).
+size cannot be. `Charlotte.unity` is baked nearly EMPTY — lighting, camera+HUD,
+the player car, one `CityWorld` — and the world is generated at runtime, per
+256 m tile, from the graph. A ring of tiles within ~640 m of the car exists;
+everything else is data. One tile build per frame while moving, the tile under
+the car force-built synchronously. Tile meshes are TILE-LOCAL so precision
+never depends on distance from origin.
 
-Per tile: ground grid graded to the roads, road ribbons with drawn per-class
-surfaces, intersection patches, water ribbons, bridge decks, buildings,
-lamps. A ring of tiles within ~640 m of the car exists; everything else is
-data. Budget: one tile build per frame while moving (a tile crossing takes
-~4-10 s, a full new row is 5 tiles — never close), and the tile under the car
-is force-built synchronously if the budget ever loses that race. Tile
-meshes are built in TILE-LOCAL coordinates so vertex precision never depends
-on distance from origin; only transforms carry the offset.
+Per tile (`CityMeshes.Build`): ground grid graded to the roads, road ribbons
+in the profile's painted surface (asphalt or concrete, new or old, hashed from
+position), kerb skirts, MERGE GORES where a ramp meets its mainline (the wedge
+between the ramp's inner edge and the carriageway's outer edge, filled for as
+long as they run within 4.5 m of each other), Jersey barriers along every
+grounded freeway and expressway carriageway (their own mesh and collider,
+with gaps where the gores attach), junction fan patches, bridge decks with
+rails and piers, water, the real footprints (extruded prisms with flat roofs,
+crowns on anything over 120 m, gabled houses with a ridge along the lot's
+long axis), the procedural frontage boxes outside the footprint data, and the
+interior fill — gabled house boxes on a 24 m grid between the arterials,
+aligned to the nearest street, thinning with distance from uptown and from
+the road.
 
-`GroundHeightAt` cannot come along: it is a Gaussian mean over EVERY waypoint,
-O(track) per vertex, and a city has ~10⁵ road samples. The city height field
-is tile-local by construction: an O(1) analytic base terrain (long-wavelength
-relief, ~12 m amplitude), plus corridor pinning against only the road edges
-registered in the queried tile's spatial-hash cell — same shelf / sink /
-blend shape as the circuits, different lookup.
+`GroundHeightAt` cannot come along: the city height field is the DEM plus
+corridor pinning against the road edges registered in the queried tile's
+spatial-hash cell — same shelf / sink / blend shape as the circuits.
 
-## The graph, and the two bridge rules as geometry passes
+## Elevation: solved from facts
 
-Load order: JSON → nodes/edges (polylines, class ∈ interstate / ramp / major /
-minor, lanes, one-way, name) → **crossing solve** → elevation profiles →
-tile index.
+Load order: bytes → graph → **crossing facts** → elevation profiles → tile
+index. `CityElevation.Solve`:
 
-The crossing solve is where the user's two rules live, as rules. The OSM
-bake already did the hard classification (junction-split at real shared
-nodes; "same-level crossings with no shared node are never real junctions"
-got one chain lifted; real bridges carry `deck`; z ∈ {0,4,5,6,7} records who
-stacks over whom) — the Unity side turns those DISCRETE facts into
-CONTINUOUS elevation:
+1. Every edge follows the DEM, Gaussian-smoothed over 25 m, grade-limited
+   (4% freeways, 5% expressways, 6.5% streets, 8% ramps and local streets).
+   A tagged bridge is structure end to end and holds at least the line
+   between its ends.
+2. **Trenches.** A freeway mainline crossed by a surface street is DUG under
+   it (5 m + deck, 4.5% approaches). Charlotte's inner freeways (the Belk,
+   Brookshire) run in cuts under streets that stay at grade; raising every
+   cross street onto an embankment would hump the whole uptown grid. THE CUT
+   RUNS THROUGH THE INTERCHANGES: the trough is carried through the freeway's
+   own nodes into the next mainline edge, those nodes are pinned to the cut
+   (the one place the max-of-ends rule yields), and the ramps meeting them
+   are cut down along an 8% cone of their own — 285 crossings solve this way.
+   Freeway over freeway, ramp over anything, or a mainline carrying a water
+   span keeps the hump rule. The street's OSM bridge tag makes it a deck; a
+   bare `layer=1` gets its stations over the cut marked structure by the
+   trench pass, or it would pin the ground up under itself and float.
+3. Raises: every separation lifts its OVER edge clear of the under road by
+   5 m + deck at 4.5% approaches; humps that overlap merge into viaducts.
+   Water spans hold their line. Junction nodes take their highest incident
+   end. Iterated to a fixed point, then the interiors relax (never steeper
+   than an edge's own ends), then fresh raises alternate with APPROACH CONES:
+   every node standing above the ground seeds a 4.5% cone through the graph
+   (RaiseCone), on through any junction it still stands above, so a lifted
+   bridge's embankment runs back through the blocks behind it instead of
+   ending in a 37% ramp on a 36 m approach edge. Nothing that can lower a
+   road runs after the relax.
+4. Structure = tagged bridge, water span, trench-crossing stations, or more
+   than 1.4 m above the DEM.
 
-1. Default: every edge follows the base terrain. A freeway is NOT 14 m in the
-   air its whole length — real Charlotte freeways run at grade and rise at
-   crossings, and z is a stacking ORDER, not an altitude.
-2. Crossing that shares a node → at-grade intersection: ribbons trimmed
-   back, a flat patch fills the junction (which also kills z-fighting by
-   construction — overlapping ribbons never coexist). Control type
-   (signal/stop) comes from the isect overlay.
-3. Crossing without a shared node → grade separation: the higher-z edge (tie:
-   higher class) takes a **raise constraint** at that arc position — clear
-   the lower road by 5.1 m — and the profile solver lifts a hump with ≤4%
-   approaches. Consecutive humps that overlap merge into a viaduct (which is
-   what I-277 through uptown becomes, automatically). Ground pinning is
-   disabled under the elevated run; the road below pins the ground; piers
-   connect; a deck mesh spans it. That is the "every highway over a road gets
-   a bridge" rule, held by the solver rather than by authored spans.
-4. Road × water crossing (geometric, against the co-registered creeks, OR'd
-   with the OSM `deck` spans) → **bridge**: the road's profile holds its
-   smoothed line, the terrain carves the creek bed under it, deck + rails +
-   piers span it. Same carve/deck contract as the circuit bridges: both read
-   the same span so they cannot drift.
-5. Interchanges need no invention: the 840+ `*_link` rows are the real
-   ramps, already snapped to their mainlines. Their endpoint nodes inherit
-   the heights of what they join, so a ramp climbs because its ends do.
+## Buildings
 
-Elevation profile per edge: sample base terrain along arc length → smooth →
-grade-limit (4% freeways, 6% streets) → apply raise constraints and deck
-locks → blend approaches. Node heights are shared so junctions meet exactly.
+Inside `CityMap.footprintBounds` (the 8 x 8 km core) the real footprints are
+the buildings; the procedural frontage pass stands down there, and the
+restaurants only take a lot no footprint is on. About half of the square-ish
+30-135 m footprints wear one of the owner's skyscraper-pack models scaled onto
+the lot (never more than 40% either way); the rest are extruded with a drawn
+curtain-wall texture (the pack has no glass), the photographed brick office
+and mid-rise facades, or the drawn siding-and-window for houses, with the
+pack's roof tiles on every gable. Retail footprints put the shopfront atlas on
+the wall that faces the nearest street.
 
-## Minor roads: the tertiary net now, residential later
+Outside the core: the frontage boxes and prefab lots as before (houses,
+trailers, the pizzeria pack's blocks, the two restaurants), plus the interior
+fill, so a subdivision reads as a subdivision across the fog.
 
-Residential/service streets were never fetched from Overpass (the filter
-stopped at tertiary) — that is the missing detail. What DOES exist and ships
-now: 583 secondary + 788 tertiary rows, junction-split and connected, which
-at city scale is the minor-collector network. The graph invariant stands
-regardless: the self-test asserts one connected component reachable from
-spawn. The true residential grid is a follow-up = widen one regex in RG2's
-`tools/osm/fetch.mjs`, re-fetch, re-bake, re-export (needs the owner's nod —
-it is a large Overpass download).
+## Races on the same map
 
-## What a city street is (vs a circuit)
+A venue with `TrackDef.cityRoute` set is a Charlotte scene like the free-roam
+one plus three AI cars, an empty `TrackPath`, a `RaceManager` and the handoff
+applier. At load `CityMode.Awake` resamples the route's edge chain at 4 m with
+the city's solved heights into the path, stands the grid on it (AI rows first,
+player at the back, measured back from the line), registers the AI as
+streaming anchors so the world exists under them, and steps aside —
+`CityMode.Instance` stays null, so DriveSession, the HUD and the pause menu
+see a RaceManager race exactly as on a circuit. A loop route's waypoint 0 is
+its start line; a route with ends keeps a 60 m lead-in and a shutdown, exactly
+as a stage bake did, so the reverse twin (Tryon II) and the finish remap need
+no new rules. `charlotte_routes.json` gives the menu the length, the line and
+a map polyline without parsing the graph. `IsRoam` (city with no route) is
+what every picker skips; `IsCityRace` is a venue.
 
-No barrier ribbon, no kerb strip, no walls-every-4 m (a circuit's 800
-BoxColliders per track cannot scale and a city does not want walls). A street
-is: road ribbon (layer 8 Road — grip comes from layer), painted per-class
-surface drawn by code (the punch-clock rule: never source a marking, draw
-it — interstate lanes + shoulders, 4-lane arterial with center turn lane,
-2-lane minor), sidewalk strip in the core, buildings seated at real setbacks
-with one BoxCollider each (Solid), ground everywhere else (MeshCollider,
-default layer = offroad grip). Driving off-road is legal Midnight Club
-behaviour; grass grip is the penalty.
-
-Buildings: procedural boxes from road frontage — uptown tower cluster inside
-the 277 loop (facade textures building_01..11 from the OneDrive pack, tiled
-by storey), shop strips along core majors (Shops_00..31 ground floor + brick
-upper), low suburbia outward. Heights from distance-to-uptown with hash
-jitter. v2 replaces the placement with RG2 footprints if/when traced.
-
-## Mode wiring
-
-City = a `TrackCatalog` entry with `city = true`, appended LAST (after the
-drag strips) so every existing SceneIndex holds; the garage moves up one,
-which the formula and self-test absorb. `PSXRacingBuilder.Build` branches to
-`BuildCityScene` for it. Everything loop-shaped is gated the way `drag`
-already gates: resample/corner-radius/self-clearance tests exempt,
-lap HUD off, `RaceManager` lap logic off. FREE ROAM launches from the
-LifeHome MAIN tab like a practice session (no purse, no opponents, fuel and
-odometer real), lands at the uptown spawn, and exits via the pause menu.
-Respawn/stuck recovery re-target the nearest graph edge sample instead of a
-TrackPath index.
+The three CLT stage bakes (`Resources/clt_*.json`, `Art/CLT`, `tools/clt`)
+are retired.
 
 ## Verification
 
-- `PSX Racing/Preview Charlotte`: builds tiles around N probe points in edit
-  mode, renders top-down + street-level PNGs (the no-play-mode preview
-  pattern; runtime-built worlds are invisible until photographed).
-- `CityAudit` (self-test section): graph is one component from spawn; every
-  water crossing carries a deck; every grade separation clears 4.6 m
-  measured deck-underside to road; no edge grade over limit; every tile
-  build is deterministic (same tile twice → same vertex count).
-- The live URL is the real test (WebGL-only failure modes are the norm here).
+- `tools/city-cycle.ps1`: code + data into the warm sandbox, then
+  `CityAudit` and `CityPreview`, no scene build (~4 min).
+- `CityAudit` (menu: PSX Racing/Audit City): graph counts, DEM loaded,
+  separations decided by tags, trenches present, connectivity from spawn,
+  every enforced separation clears, every tagged bridge on structure, every
+  water span decked, grades under 16%, every route chains and closes and
+  builds a path of the right length, tile determinism, real footprints in
+  the uptown tile, barriers on a freeway tile, a gore at a ramp merge, houses
+  in a suburb tile, and ZERO walls facing inward — the emitter checks each
+  wall's normal against the outward direction it was given.
+- `CityPreview` (PSX Racing/Preview Charlotte): uptown, a freeway viaduct, a
+  trench, a water bridge, a gore, I-485, the prefab suburb, a footprint
+  neighbourhood, a filled block, the restaurants, and the skyline from 600 m
+  south — top-down and at street level, to `Screenshots/City`.
+- The live URL is the real test.
 
 ## Not in v1 (in order of likely next)
 
-Traffic (needs the graph — which now exists — plus spawn/despawn ring and
-yield rules), city races (point-to-point checkpoints through the graph),
-minimap, gas stations in-city (fuel truck covers stranding until then),
-skyline backdrop beyond fog, real minor-road traces, building footprint
-traces, interchange ramp geometry beyond diamond slips.
+Traffic, lane-level turn markings at junctions, lamps and signal heads,
+in-city gas stations, footprints beyond the core, a skyline backdrop past the
+fog, city races beyond the three (a SouthPark loop needs the junction-arc
+pass), the ROVAL.
