@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -94,6 +95,112 @@ namespace PSXRacing.EditorTools
             CaptureNeighborhood();
             Debug.Log("[PSXShot] Screenshots written to " + OutDir);
         }
+
+        /// <summary>
+        /// THE ROAD'S EDGE AS A CAR THAT LEFT IT SEES IT, at fixed places so a
+        /// before and an after can be laid side by side (2026-09-13, "difficult
+        /// to drive back onto tracks, especially mountain tracks because of
+        /// their walls ... all sections of bridges should have walls").
+        ///
+        /// Per venue in PSX_SHOT_ONLY (all Scened venues otherwise):
+        ///   edge_back_&lt;wp&gt;_&lt;side&gt; — from 3 m outside the tarmac edge at a
+        ///       low eye, looking back up at the road at thirty degrees: is there
+        ///       a slab face, a lip, a wall between the car and the lane?
+        ///   pocket_&lt;wp&gt;_&lt;side&gt; — from 3 m BEHIND where the measured pocket
+        ///       walls stood (PSX_EDGE_WP="wp:side,wp:side" adds places);
+        ///   deckend_&lt;span&gt;_&lt;end&gt;_&lt;side&gt; — from the shoulder 20 m before each
+        ///       deck end, looking along the edge onto the deck: does the
+        ///       parapet start before the drop does?
+        /// Menu: PSX Racing/Capture Road Edges.
+        /// </summary>
+        [MenuItem("PSX Racing/Capture Road Edges")]
+        public static void CaptureEdges()
+        {
+            Directory.CreateDirectory(OutDir);
+            string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_ONLY");
+            var want = string.IsNullOrEmpty(only) ? null : new HashSet<string>(only.Split(','));
+            foreach (var def in TrackCatalog.Scened)
+            {
+                if (want != null && !want.Contains(def.id)) continue;
+                if (!File.Exists("Assets/PSXRacing/Scenes/" + def.id + ".unity")) continue;
+                if (!Open(def, out var cam, out _)) continue;
+                var path = Object.FindFirstObjectByType<TrackPath>();
+                if (path == null || path.Count < 12) continue;
+                string tag = "edge_" + def.id;
+                float roadHalf = path.roadWidth * 0.5f;
+
+                var places = new List<(int wp, float side, string kind)>();
+                foreach (float f in new[] { 0.2f, 0.45f, 0.7f })
+                {
+                    int i = Mathf.Clamp(Mathf.RoundToInt(path.Count * f), 2, path.Count - 3);
+                    places.Add((i, -1f, "back")); places.Add((i, 1f, "back"));
+                }
+                if (EdgePockets.TryGetValue(def.id, out var pockets))
+                    foreach (var (wp, side) in pockets) places.Add((wp, side, "pocket"));
+                string extra = System.Environment.GetEnvironmentVariable("PSX_EDGE_WP");
+                if (!string.IsNullOrEmpty(extra))
+                    foreach (var part in extra.Split(','))
+                    {
+                        var ws = part.Split(':');
+                        if (ws.Length == 3 && ws[0] == def.id && int.TryParse(ws[1], out int w))
+                            places.Add((w, ws[2] == "L" ? -1f : 1f, "pocket"));
+                    }
+
+                foreach (var (wp, side, kind) in places)
+                {
+                    int i = path.Wrap(wp);
+                    Vector3 here = path.GetPoint(i);
+                    Vector3 fwd = path.GetTangent(i);
+                    Vector3 right = Vector3.Cross(Vector3.up, fwd).normalized * side;
+                    // outside the edge: 3 m past the tarmac for "back", 3 m past the
+                    // barrier line for "pocket"; seated on whatever surface is there
+                    float d = kind == "back" ? roadHalf + 3f : PSXRacingBuilder.WallOffsetFor(def) + 3f;
+                    Vector3 foot = here + right * d;
+                    float y = here.y;
+                    foreach (var h in Physics.RaycastAll(foot + Vector3.up * 8f, Vector3.down, 40f))
+                        if (h.normal.y > 0.5f && (y == here.y || h.point.y > y)) y = h.point.y;
+                    Vector3 eye = new Vector3(foot.x, y + 0.9f, foot.z) - fwd * 2f;
+                    Vector3 aim = here + fwd * 6f + Vector3.up * 0.3f;
+                    Shot(cam, tag + "_" + kind + "_" + wp + "_" + (side < 0 ? "L" : "R"), eye, Quaternion.LookRotation(aim - eye));
+                }
+
+                if (def.bridges != null)
+                {
+                    float lap = Mathf.Max(def.LengthM, 1f);
+                    for (int b = 0; b < def.bridges.Length; b++)
+                    {
+                        var span = def.bridges[b];
+                        foreach (var (s, dir, end) in new[] { (span.x, 1f, "in"), (span.y, -1f, "out") })
+                        {
+                            int i = path.Wrap(Mathf.RoundToInt(Mathf.Repeat(s, lap) / path.spacing));
+                            Vector3 at = path.GetPoint(i);
+                            Vector3 fwd = path.GetTangent(i) * dir;
+                            foreach (float side in new[] { -1f, 1f })
+                            {
+                                Vector3 right = Vector3.Cross(Vector3.up, fwd).normalized * side;
+                                Vector3 eye = at - fwd * 20f + right * (roadHalf - 0.5f) + Vector3.up * 1.2f;
+                                Vector3 aim = at + fwd * 8f + right * (roadHalf + 1.5f) - Vector3.up * 0.6f;
+                                Shot(cam, tag + "_deckend_" + b + "_" + end + "_" + (side < 0 ? "L" : "R"),
+                                     eye, Quaternion.LookRotation(aim - eye));
+                            }
+                        }
+                    }
+                }
+            }
+            Debug.Log("[PSXShot] edge shots written to " + OutDir);
+        }
+
+        /// <summary>The longest pocket runs EdgeProbe found behind stage walls
+        /// on 2026-09-13, before the DOT pass: the same places, shot again after
+        /// it, are the comparison.</summary>
+        static readonly Dictionary<string, (int wp, float side)[]> EdgePockets = new Dictionary<string, (int, float)[]>
+        {
+            { "BlueRidge", new[] { (1060, 1f), (60, 1f), (620, 1f) } },
+            { "MtMitchell", new[] { (820, -1f), (1080, 1f) } },
+            { "BeechGap", new[] { (150, 1f), (1190, -1f) } },
+            { "BlowingRock", new[] { (720, 1f), (1940, 1f) } },
+            { "LittleSwitzerland", new[] { (2140, -1f), (1380, -1f) } },
+        };
 
         /// <summary>
         /// The garage on its own. The full pass opens six circuits, sweeps

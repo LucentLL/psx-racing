@@ -168,7 +168,54 @@ if (-not $SkipBuild) {
     Write-Host ("Rebuilt this run: {0}" -f (($fresh | ForEach-Object { $_.Name }) -join ", "))
 }
 
+# WHAT THIS DEPLOY IS SHIPPING PAST. The owner has standing authorisation to
+# deploy without being asked and tests only on the live URL, so an audit
+# failure does NOT stop a publish -- but it is never silent either. The last
+# tools\verify.ps1 run writes its verdict and every failing line to the
+# sandbox; when that file is missing, failed, or older than the source it
+# claims to cover, the whole list is printed here as the waiver this deploy is
+# made under. (Until 2026-09-13 nothing was checked at all, and a stage with
+# open deck ends shipped with every audit report on disk saying so.)
+function Show-AuditWaiver {
+    $result = "$proj\PSXRacing_verify_result.txt"
+    $bar = "=" * 72
+    $problem = $null
+    $lines = @()
+    if (-not (Test-Path $result)) {
+        $problem = "NO VERIFY RESULT in the sandbox ($result): tools\verify.ps1 has not run to the end on this sandbox."
+    } else {
+        $lines = @(Get-Content $result)
+        $verdict = if ($lines.Count -gt 0) { $lines[0] } else { "" }
+        $newest = Get-ChildItem "$src\Assets\PSXRacing\Scripts", "$src\Assets\PSXRacing\Editor", "$src\Assets\PSXRacing\Shaders" `
+                      -Recurse -File -ErrorAction SilentlyContinue |
+                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        $stamp = (Get-Item $result).LastWriteTime
+        if ($verdict -cnotmatch '^VERIFY PASS') {
+            $problem = "THE LAST VERIFY FAILED ($verdict, $stamp)."
+        } elseif ($newest -and $newest.LastWriteTime -gt $stamp) {
+            $problem = "THE LAST VERIFY PASSED, BUT BEFORE THE SOURCE CHANGED: $($newest.Name) was written $($newest.LastWriteTime), the verify finished $stamp."
+        }
+    }
+    if ($null -eq $problem) {
+        Write-Host "Audits: the last tools\verify.ps1 passed on this source." -ForegroundColor Green
+        return
+    }
+    Write-Host $bar -ForegroundColor Yellow
+    Write-Host " AUDIT WAIVER - publishing without a passing tools\verify.ps1" -ForegroundColor Yellow
+    Write-Host " $problem" -ForegroundColor Yellow
+    Write-Host " Deploying anyway under the owner's standing authorisation. Shipped past:" -ForegroundColor Yellow
+    $failures = $false
+    $listed = 0
+    foreach ($l in $lines) {
+        if ($failures) { Write-Host "   $l" -ForegroundColor Yellow; $listed++ }
+        elseif ($l -ceq "failures:") { $failures = $true }
+    }
+    if ($listed -eq 0) { Write-Host "   (nothing measured against this source: run tools\verify.ps1 for the list)" -ForegroundColor Yellow }
+    Write-Host $bar -ForegroundColor Yellow
+}
+
 if (-not $SkipDeploy) {
+    Show-AuditWaiver
     Write-Host "[3/3] Publishing to gh-pages..." -ForegroundColor Cyan
     $build = "$proj\Build\WebGL"
     if (-not (Test-Path "$build\index.html")) { Write-Host "No build to deploy." -ForegroundColor Red; exit 1 }

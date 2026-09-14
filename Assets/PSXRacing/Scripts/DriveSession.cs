@@ -117,7 +117,12 @@ namespace PSXRacing
                 return false;
             }
 
-            car.ResetTo(new Vector3(centre.x, y, centre.z), rot);
+            // SEATED: y is the surface this probe found (or, on a miss, the
+            // caller's road datum), and the clearance test above ran at exactly
+            // y + ResetLift. Unseated, ResetTo would probe again from six metres
+            // up — past a Charlotte deck 5.55 m over this street — and put the
+            // car on the overpass, where no clearance test ran.
+            car.ResetTo(new Vector3(centre.x, y, centre.z), rot, seated: true);
             return true;
         }
     }

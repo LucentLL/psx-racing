@@ -95,7 +95,11 @@ namespace PSXRacing.EditorTools
         /// length and no lot in the street ever showed one. At 1.5 m the
         /// transition is a face rather than a slope, the retaining wall stands
         /// in front of it, and "houses are often built on hills, but use
-        /// concrete foundations to level them out" is a thing you can see.</summary>
+        /// concrete foundations to level them out" is a thing you can see.
+        ///
+        /// It is now the width of the street edge and of every GARDEN edge that
+        /// cannot be graded to 1V:3H in the room it has; the ones that can are
+        /// wider, and have no wall to bury (NbEdgesOf).</summary>
         const float NbBatter = 1.5f;
         /// <summary>The steepest drive the grader will build. 15% is steep for
         /// a residential drive and not rare on a hill; past it a loaded car
@@ -169,6 +173,9 @@ namespace PSXRacing.EditorTools
             matByTex.Clear();
             matByKey.Clear();
             nbGarageChecked = false;
+            // Re-graded from the functions on every build, so an edit to the
+            // street's constants is never built on last run's table.
+            nbPlotEdges = null;
             // Same reason the town clears it: BuildLighting reads `track` for
             // the fog scale, and a stage's three-kilometre band on a suburban
             // street would show the far bound wall with sky under it.
@@ -432,12 +439,127 @@ namespace PSXRacing.EditorTools
         /// number, so bounding it here bounds the wall heights and the cut
         /// depths too.
         /// </summary>
+        /// <remarks>
+        /// CLAMPED AGAINST THE ROAD WHERE THE DRIVE ACTUALLY LEAVES IT. This
+        /// read NbRoadY(plotZ - 4.5) — where the drive was before it moved to
+        /// the garage — while the ramp in NbGroundY starts from the road AT the
+        /// drive, NbDriveZ. On the -x side the two are 0.43 m apart; on the +x
+        /// side 9.43 m, on a street falling up to 12.6%, and the difference
+        /// was added to the 15% allowance: every +x drive came out at 17-24%
+        /// down to a plot 1.8-2.2 m under the street. Measured on the replica
+        /// after the fix, the worst drive centreline on either side is 15.0%.
+        /// (A drive's two EDGES still reach 16-17.7% on the +x side: each
+        /// starts from the road at its own z, 5 m apart on a street falling up
+        /// to 12.6%, so the slab warps across its width. That is NbGroundY's
+        /// ramp, not this clamp.)
+        /// </remarks>
         static float NbPadY(int side, float plotZ)
         {
             float raw = NbLandY(HomeStreetX + side * (NbSetback + 2f), plotZ);
-            float edge = NbRoadY(plotZ - 4.5f);
+            float edge = NbRoadY(NbDriveZ(side, plotZ));
             float reach = NbDriveGrade * NbDriveRun;
             return Mathf.Clamp(raw, edge - reach, edge + reach);
+        }
+
+        /// <summary>
+        /// How wide each of a plot's garden edges is graded, and whether it
+        /// could be graded at all.
+        ///
+        /// "Plot edges graded at 1V:3H where the land allows." Every edge of
+        /// every bench used to fall into the hillside over NbBatter's 1.5 m —
+        /// faces up to 6.5 m tall, 23 facets past 45 degrees that nothing can
+        /// climb — because a wide batter buries the retaining wall the owner
+        /// asked to see. Both are honoured now, edge by edge:
+        ///   * where a batter of RoadsideRules.TraversableSlope fits in the
+        ///     room the edge has, it is graded (and there is no wall to bury);
+        ///   * where it does not, the edge keeps its 1.5 m face and its
+        ///     retaining wall, which is solid if the fall is critical
+        ///     (BuildNbPlots).
+        ///
+        /// Smoothstep peaks at 1.5x its average slope and the land under the
+        /// batter has a slope of its own, so the width asked for is
+        /// NbGradePeak x drop / (1/3) — 1.75 measured on the replica, which
+        /// holds the graded batters at 26-32% (14 of the 36 garden edges on
+        /// the street grade; the other 22 keep their walls, 11 of them solid).
+        ///
+        /// THE ROOM is what keeps the ground continuous. Which plot a point
+        /// belongs to switches half a pitch from its centre (NbGroundY), so a
+        /// side edge's batter must finish within NbPlotPitch/2 - NbBenchD/2 or
+        /// the ground steps at the switch. The back edge runs toward the
+        /// boundary wall and stops NbBackRoomMargin short of it. The street
+        /// edge is not graded here at all: it is where the drive lands, and
+        /// NbBenchOut — which NbPadY's reach is measured over — reads its width.
+        /// </summary>
+        struct NbPlotEdges
+        {
+            public float back, zLo, zHi;
+            public bool backGraded, zLoGraded, zHiGraded;
+        }
+        const float NbGradePeak = 1.75f;
+        const float NbBackRoomMargin = 3.5f;
+        static NbPlotEdges[] nbPlotEdges;
+
+        static NbPlotEdges NbEdgesOf(int plot, int side)
+        {
+            if (nbPlotEdges == null)
+            {
+                var table = new NbPlotEdges[NbPlotCount * 2];
+                float roomZ = NbPlotPitch * 0.5f - NbBenchD * 0.5f;
+                float roomBack = NbHalfWidth - (NbSetback + 2f + NbBenchW * 0.5f) - NbBackRoomMargin;
+                for (int i = 0; i < NbPlotCount; i++)
+                    for (int s = -1; s <= 1; s += 2)
+                    {
+                        var e = new NbPlotEdges();
+                        e.backGraded = NbGradeEdge(i, s, 0, roomBack, out e.back);
+                        e.zLoGraded = NbGradeEdge(i, s, -1, roomZ, out e.zLo);
+                        e.zHiGraded = NbGradeEdge(i, s, 1, roomZ, out e.zHi);
+                        table[i * 2 + (s > 0 ? 1 : 0)] = e;
+                    }
+                nbPlotEdges = table;
+            }
+            return nbPlotEdges[plot * 2 + (side > 0 ? 1 : 0)];
+        }
+
+        /// <summary>A point on one of a plot's garden edges, <paramref
+        /// name="past"/> metres beyond the bench, <paramref name="t"/> from -1
+        /// to 1 along it. <paramref name="which"/>: 0 the back, -1 / +1 the
+        /// low- and high-z sides.</summary>
+        static Vector2 NbEdgePoint(int side, float plotZ, int which, float past, float t)
+        {
+            float cx = NbSetback + 2f;
+            return which == 0
+                ? new Vector2(HomeStreetX + side * (cx + NbBenchW * 0.5f + past),
+                              plotZ + t * NbBenchD * 0.5f)
+                : new Vector2(HomeStreetX + side * (cx + t * NbBenchW * 0.5f),
+                              plotZ + which * (NbBenchD * 0.5f + past));
+        }
+
+        /// <summary>The widest drop (or rise) between the bench and the raw
+        /// land along an edge, out to <paramref name="reach"/>.</summary>
+        static float NbEdgeRelief(int plot, int side, int which, float reach)
+        {
+            float pz = NbPlotZ(plot), pad = NbPadY(side, pz), worst = 0f;
+            for (float s = 0f; s <= reach + 1e-3f; s += 0.5f)
+                for (int k = -10; k <= 10; k++)
+                {
+                    var p = NbEdgePoint(side, pz, which, s, k / 10f);
+                    worst = Mathf.Max(worst, Mathf.Abs(pad - NbLandY(p.x, p.y)));
+                }
+            return worst;
+        }
+
+        static bool NbGradeEdge(int plot, int side, int which, float room, out float batter)
+        {
+            batter = NbBatter;
+            for (int it = 0; it < 6; it++)
+            {
+                float need = Mathf.Max(NbBatter, NbGradePeak * NbEdgeRelief(plot, side, which, batter)
+                                                 / RoadsideRules.TraversableSlope);
+                if (need > room) { batter = NbBatter; return false; }
+                if (need <= batter + 1e-3f) return true;
+                batter = need;
+            }
+            return true;
         }
 
         /// <summary>How far out from the street's centreline the kerb is, and
@@ -603,8 +725,9 @@ namespace PSXRacing.EditorTools
         ///
         /// Which plot a point belongs to is arithmetic, not a search: the plots
         /// are a regular grid, and the nearest one is the only one that can
-        /// reach — a bench plus its batter is 21 m across against a 27 m pitch,
-        /// so no point is ever on two.
+        /// reach — a bench's side batters are held inside half a pitch
+        /// (NbEdgesOf), so they have finished by the line where the next plot
+        /// takes over and no point is ever on two.
         /// </summary>
         static float NbGroundY(float x, float z)
         {
@@ -618,11 +741,16 @@ namespace PSXRacing.EditorTools
             float padY = NbPadY(side, pz);
 
             // The BENCH: level ground where the house stands, eased out into
-            // the hillside over the batter.
+            // the hillside over the batter — each garden edge over its own
+            // width (NbEdgesOf), the street edge over NbBatter as ever.
+            var edges = NbEdgesOf(i, side);
+            float toBack = (x - cx) * side;
+            float batterX = toBack > 0f ? edges.back : NbBatter;
+            float batterZ = z > pz ? edges.zHi : edges.zLo;
             float kBench = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Max(
-                Mathf.InverseLerp(NbBenchW * 0.5f, NbBenchW * 0.5f + NbBatter,
-                                  Mathf.Abs(x - cx)),
-                Mathf.InverseLerp(NbBenchD * 0.5f, NbBenchD * 0.5f + NbBatter,
+                Mathf.InverseLerp(NbBenchW * 0.5f, NbBenchW * 0.5f + batterX,
+                                  Mathf.Abs(toBack)),
+                Mathf.InverseLerp(NbBenchD * 0.5f, NbBenchD * 0.5f + batterZ,
                                   Mathf.Abs(z - pz))));
 
             // THE DRIVE IS GRADED TOO, and it has to be its own corridor rather
@@ -665,6 +793,228 @@ namespace PSXRacing.EditorTools
             return Mathf.Lerp(land, target, k);
         }
         // ------------------------------------------------------------------
+        //  The lawn, the street, and where they meet
+        // ------------------------------------------------------------------
+        /// <summary>The lawn mesh: how far past the street it runs, and its cell.</summary>
+        const float NbGroundSizeX = 240f, NbGroundOverZ = 220f, NbGroundCell = 3f;
+        const float NbStreetCell = 2f, NbBulbCell = 2f;
+        /// <summary>The street's and the turning head's surfaces over NbRoadY.
+        /// The head a centimetre proud of the street where the two overlap —
+        /// two coplanar road surfaces are a z-fight.</summary>
+        const float NbStreetLift = 0.02f, NbBulbLift = 0.03f;
+        /// <summary>How far the lawn mesh is sunk under the height field, for
+        /// the same grazing-angle band of grass the town's is sunk against.</summary>
+        const float NbLawnSink = 0.06f;
+        /// <summary>
+        /// The least the lawn mesh may come within any driven surface above it
+        /// — street, kerb, head, drive. Less than the 8 cm the sink designs in,
+        /// so a lattice that does what the function says is left alone; the
+        /// solver only moves vertices whose CHORDS climb toward a surface.
+        /// Tighter than RoadsideRules.CityHideMarginM (0.10) because the lawn
+        /// here is a 3 m lattice following a smooth field, not an 8 m one
+        /// following a DEM.
+        /// </summary>
+        const float NbHideMarginM = 0.06f;
+        /// <summary>
+        /// A drive's surface over the graded field: 3 cm, where it was 5. At
+        /// the street end the field IS the road (the ramp starts from
+        /// NbRoadY), so the drive mouth sits a centimetre over the tarmac at
+        /// NbStreetLift instead of three — flush, and inside the owner's inch.
+        /// </summary>
+        const float NbDriveLift = 0.03f;
+        const float NbDriveW = 5f, NbDriveCell = 1.5f;
+
+        static float NbStreetLen => NbBulbThroatZ - NbStreetEnd;
+        static float NbStreetMidZ => (NbBulbThroatZ + NbStreetEnd) * 0.5f;
+
+        /// <summary>The drive slab of one plot, as the grid it is built on.</summary>
+        static WorldKit.SlabGrid NbDriveGrid(int side, float plotZ)
+        {
+            float kerbX = HomeStreetX + side * NbKerbOut;
+            float houseX = HomeStreetX + side * NbGarageFaceOut;
+            return new WorldKit.SlabGrid(new Vector3((kerbX + houseX) * 0.5f, 0f, NbDriveZ(side, plotZ)),
+                                         Mathf.Abs(houseX - kerbX), NbDriveW, NbDriveCell);
+        }
+
+        static float NbDriveSurfaceY(float x, float z) => NbGroundY(x, z) + NbDriveLift;
+
+        /// <summary>The lawn mesh as built: its grid, and the world Y of every
+        /// vertex after SolveNbLattice.</summary>
+        static WorldKit.SlabGrid nbLattice;
+        static float[] nbLatticeY;
+
+        /// <summary>The height of the lawn's COLLIDER at a world point — its
+        /// triangles, not the field it sampled. What every feather on the
+        /// street tucks under.</summary>
+        static float NbLatticeAt(float x, float z) => nbLattice.SurfaceY(nbLatticeY, x, z);
+
+        /// <summary>
+        /// THE LAWN MESH, HELD UNDER EVERYTHING DRIVEN ON.
+        ///
+        /// The lawn is a 3 m lattice sampling NbGroundY, and between its
+        /// vertices it is a chord, not the field. Where the field bends
+        /// upward under a surface — a downhill drive's 15% ramp landing on its
+        /// level bench — the chord stands above the bend. Measured on the
+        /// replica: the lawn came through the edge of every +x drive by up to
+        /// 16 cm at the bench, and through the tarmac's last 20 cm by 2 cm
+        /// where an uphill drive's corridor lifts the verge. Grass drawn on
+        /// the concrete, and a lip a lowered car finds.
+        ///
+        /// So every lattice cell that lies under a driven surface is sampled
+        /// seven by seven against that surface's own triangles, and where the
+        /// chord comes within NbHideMarginM its four vertices are sunk by the
+        /// excess, until nothing does. One pass settles it on this street; the
+        /// loop is there so a steeper one cannot ship half-solved. The cost is
+        /// a soft dip one cell wide in the lawn beside a sunk crease, which the
+        /// feathers follow because they are measured against THIS surface.
+        /// </summary>
+        static void SolveNbLattice()
+        {
+            var g = new WorldKit.SlabGrid(new Vector3(HomeStreetX, 0f, NbStreetMidZ),
+                                          NbGroundSizeX, NbStreetLen + NbGroundOverZ, NbGroundCell);
+            nbLattice = g;
+            nbLatticeY = new float[g.VertexCount];
+            for (int j = 0; j <= g.nz; j++)
+                for (int i = 0; i <= g.nx; i++)
+                    nbLatticeY[g.Index(i, j)] = NbGroundY(g.WorldX(i), g.WorldZ(j)) - NbLawnSink;
+
+            // The driven surfaces, as the triangles BuildNbPlots will lay.
+            var drives = new List<(WorldKit.SlabGrid grid, float[] y, Rect foot)>();
+            for (int p = 0; p < NbPlotCount; p++)
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var dg = NbDriveGrid(side, NbPlotZ(p));
+                    var dy = new float[dg.VertexCount];
+                    for (int j = 0; j <= dg.nz; j++)
+                        for (int i = 0; i <= dg.nx; i++)
+                            dy[dg.Index(i, j)] = NbDriveSurfaceY(dg.WorldX(i), dg.WorldZ(j));
+                    drives.Add((dg, dy, Rect.MinMaxRect(
+                        dg.centre.x - dg.sizeX * 0.5f, dg.centre.z - dg.sizeZ * 0.5f,
+                        dg.centre.x + dg.sizeX * 0.5f, dg.centre.z + dg.sizeZ * 0.5f)));
+                }
+            // The street reaches to the back of its kerb: the kerb's ramp
+            // collider rises from the street's own height across that width.
+            float streetHalf = HomeRoadW * 0.5f + WorldKit.KerbWidthM;
+            float headReach = NbBulbR + WorldKit.KerbWidthM;
+            var near = new List<Rect>
+            {
+                Rect.MinMaxRect(HomeStreetX - streetHalf, NbStreetEnd, HomeStreetX + streetHalf, NbBulbThroatZ),
+                Rect.MinMaxRect(HomeStreetX - headReach, NbBulbCz - headReach,
+                                HomeStreetX + headReach, NbBulbCz + headReach),
+            };
+            foreach (var d in drives) near.Add(d.foot);
+
+            // INCLUSIVE BY A MILLIMETRE. The replica lost the whole back edge of
+            // the kerb to this: |x - crown| at the band's edge came out
+            // 4.950000000000003, the sample fell outside, and the lawn was left
+            // 2 cm under a kerb it should have been 6 cm under.
+            const float Eps = 0.001f;
+            float Ceiling(float x, float z)
+            {
+                float c = float.PositiveInfinity;
+                if (Mathf.Abs(x - HomeStreetX) <= streetHalf + Eps &&
+                    z >= NbStreetEnd - Eps && z <= NbBulbThroatZ + Eps)
+                    c = Mathf.Min(c, NbRoadY(z) + NbStreetLift);
+                float hx = x - HomeStreetX, hz = z - NbBulbCz;
+                if (hx * hx + hz * hz <= (headReach + Eps) * (headReach + Eps))
+                    c = Mathf.Min(c, NbRoadY(z) + NbBulbLift);
+                foreach (var d in drives)
+                    if (x >= d.foot.xMin - Eps && x <= d.foot.xMax + Eps &&
+                        z >= d.foot.yMin - Eps && z <= d.foot.yMax + Eps)
+                        c = Mathf.Min(c, d.grid.SurfaceY(d.y, x, z));
+                return c - NbHideMarginM;
+            }
+
+            // WHERE TO LOOK. Both surfaces are piecewise linear, so how far the
+            // lawn climbs toward a surface peaks on a line where one of them
+            // folds: a footprint's edge, a drive's own vertex rows and columns,
+            // the lattice's diagonal. A regular grid of samples alone missed
+            // 4.6 cm at the edge of a drive, between two samples a quarter of a
+            // metre either side of the fold. So each cell is sampled on a 0.5 m
+            // grid PLUS every such line that crosses it, plus where the cell's
+            // diagonal crosses each of those lines.
+            var linesX = new List<float>
+            {
+                HomeStreetX - streetHalf, HomeStreetX - HomeRoadW * 0.5f,
+                HomeStreetX + HomeRoadW * 0.5f, HomeStreetX + streetHalf,
+            };
+            var linesZ = new List<float> { NbStreetEnd, NbBulbThroatZ };
+            foreach (var d in drives)
+            {
+                for (int i = 0; i <= d.grid.nx; i++) linesX.Add(d.grid.WorldX(i));
+                for (int j = 0; j <= d.grid.nz; j++) linesZ.Add(d.grid.WorldZ(j));
+            }
+            const int Samples = 6;
+            var xs = new List<float>();
+            var zs = new List<float>();
+            var total = new float[g.VertexCount];
+            float lastWorst = 0f;
+            for (int pass = 0; pass < 4; pass++)
+            {
+                var sink = new float[g.VertexCount];
+                float worst = 0f;
+                for (int j = 0; j < g.nz; j++)
+                    for (int i = 0; i < g.nx; i++)
+                    {
+                        float x0 = g.WorldX(i), x1 = g.WorldX(i + 1);
+                        float z0 = g.WorldZ(j), z1 = g.WorldZ(j + 1);
+                        var cell = Rect.MinMaxRect(Mathf.Min(x0, x1), Mathf.Min(z0, z1),
+                                                   Mathf.Max(x0, x1), Mathf.Max(z0, z1));
+                        bool under = false;
+                        foreach (var r in near) if (r.Overlaps(cell)) { under = true; break; }
+                        if (!under) continue;
+                        xs.Clear();
+                        zs.Clear();
+                        for (int a = 0; a <= Samples; a++)
+                        {
+                            xs.Add(Mathf.Lerp(x0, x1, a / (float)Samples));
+                            zs.Add(Mathf.Lerp(z0, z1, a / (float)Samples));
+                        }
+                        foreach (float lx in linesX) if (lx >= cell.xMin && lx <= cell.xMax) xs.Add(lx);
+                        foreach (float lz in linesZ) if (lz >= cell.yMin && lz <= cell.yMax) zs.Add(lz);
+                        float excess = 0f;
+                        void Try(float sx, float sz)
+                        {
+                            float c = Ceiling(sx, sz);
+                            if (float.IsPositiveInfinity(c)) return;
+                            excess = Mathf.Max(excess, NbLatticeAt(sx, sz) - c);
+                        }
+                        foreach (float sx in xs)
+                        {
+                            foreach (float sz in zs) Try(sx, sz);
+                            // the cell's diagonal, (x0,z0) to (x1,z1), crossing this column
+                            Try(sx, z0 + (sx - x0) / (x1 - x0) * (z1 - z0));
+                        }
+                        foreach (float sz in zs)
+                            Try(x0 + (sz - z0) / (z1 - z0) * (x1 - x0), sz);
+                        if (excess <= 0.001f) continue;
+                        worst = Mathf.Max(worst, excess);
+                        int v00 = g.Index(i, j), v10 = g.Index(i + 1, j);
+                        int v01 = g.Index(i, j + 1), v11 = g.Index(i + 1, j + 1);
+                        sink[v00] = Mathf.Max(sink[v00], excess);
+                        sink[v10] = Mathf.Max(sink[v10], excess);
+                        sink[v01] = Mathf.Max(sink[v01], excess);
+                        sink[v11] = Mathf.Max(sink[v11], excess);
+                    }
+                lastWorst = worst;
+                if (worst <= 0.001f) break;
+                for (int v = 0; v < sink.Length; v++)
+                {
+                    nbLatticeY[v] -= sink[v];
+                    total[v] += sink[v];
+                }
+            }
+            int sunk = 0;
+            float deepest = 0f;
+            foreach (float t in total)
+                if (t > 0f) { sunk++; deepest = Mathf.Max(deepest, t); }
+            Log("[Neighborhood] lawn held " + NbHideMarginM.ToString("0.00") +
+                " m under the street, head and drives: " + sunk + " vertices sunk, deepest " +
+                deepest.ToString("0.000") + " m" +
+                (lastWorst > 0.001f ? "  WARN: still " + lastWorst.ToString("0.000") +
+                                      " m through after four passes" : ""));
+        }
+
         static void BuildNbGround(Transform parent, TownMats m)
         {
             // THE STREET ENDS AT THE THROAT and the turning head carries the
@@ -673,8 +1023,8 @@ namespace PSXRacing.EditorTools
             // centimetre proud over the overlap because two coplanar road
             // surfaces are a z-fight, and a centimetre is a hundredth of the
             // kerb beside them.
-            float streetLen = NbBulbThroatZ - NbStreetEnd;
-            float midZ = (NbBulbThroatZ + NbStreetEnd) * 0.5f;
+            float streetLen = NbStreetLen;
+            float midZ = NbStreetMidZ;
 
             // Past the fog wall in every direction, and SUNK below the tarmac
             // for the reason the town's is: at the grazing angle you see a
@@ -686,9 +1036,11 @@ namespace PSXRacing.EditorTools
             // 3 m cells, not 4. This mesh CARRIES THE BENCHES now, and a bench
             // is 17 m across: at 4 m the levelled part of a garden was four
             // cells wide and its edge landed wherever the grid happened to be.
-            WorldKit.GridSlab(parent, "NbGround", new Vector3(HomeStreetX, 0f, midZ),
-                240f, streetLen + 220f, 3f, m.grass, true, 16f, 0,
-                (x, z) => NbGroundY(x, z) - 0.06f);
+            // AND IT IS THE SOLVED LATTICE, not the field: see SolveNbLattice.
+            SolveNbLattice();
+            WorldKit.GridSlab(parent, "NbGround", nbLattice.centre,
+                nbLattice.sizeX, nbLattice.sizeZ, NbGroundCell, m.grass, true, 16f, 0,
+                (x, z) => nbLatticeY[nbLattice.Index(nbLattice.NearestX(x), nbLattice.NearestZ(z))]);
 
             // The street itself, on the ROAD LAYER — CarController decides
             // onRoad by layer number, so tarmac left on layer 0 is a whole
@@ -698,16 +1050,16 @@ namespace PSXRacing.EditorTools
             // has to be a curve rather than a pair of ramps meeting at a hinge.
             WorldKit.GridSlab(parent, "NbStreet",
                 new Vector3(HomeStreetX, 0f, midZ),
-                HomeRoadW, streetLen, 2f, m.road, true, 12f, WorldKit.RoadLayer,
-                (x, z) => NbRoadY(z) + 0.02f);
+                HomeRoadW, streetLen, NbStreetCell, m.road, true, 12f, WorldKit.RoadLayer,
+                (x, z) => NbRoadY(z) + NbStreetLift);
 
             // The turning head. Its surface is the street's own profile, so it
             // drains across itself the way a real one does — NbRoadY is a
             // function of z alone, which over the head's twenty metres is a
             // 1.6% cross-fall, and that is a feature rather than a compromise.
             WorldKit.Disc(parent, "NbBulb", new Vector3(HomeStreetX, 0f, NbBulbCz),
-                NbBulbR, 2f, m.road, true, 12f, WorldKit.RoadLayer,
-                (x, z) => NbRoadY(z) + 0.03f);
+                NbBulbR, NbBulbCell, m.road, true, 12f, WorldKit.RoadLayer,
+                (x, z) => NbRoadY(z) + NbBulbLift);
 
             // NO CENTRE LINE. There was one — 23 yellow dashes down the middle
             // — and the comment justifying it argued only about whether it
@@ -717,83 +1069,275 @@ namespace PSXRacing.EditorTools
             // what makes a 9 m carriageway read as a highway with houses
             // improbably close to it. The town's main street keeps its own.
 
-            // THE KERB IS SEGMENTED, because a kerb is a box and a box cannot
-            // bend. One 212 m cube laid on a street that falls eleven metres
-            // either buries itself in the hill or floats off it; eight-metre
-            // lengths, each seated and pitched to the road under it, read as a
-            // kerb the whole way. The pitch matters as much as the height — a
-            // level box on a slope shows a wedge of daylight at one end.
-            //
-            // AND IT IS DROPPED AT EVERY DRIVE. It used to run unbroken past
-            // all fourteen of them, so each driveway crossed a 16 cm kerb on
-            // its way to the road — visible in every screenshot down the
-            // street, and the real version of the hazard the driveway overlap
-            // was flailing at. The kerb has no collider, so this was never
-            // something a wheel climbed; it was something a wheel drove
-            // straight through, which is worse to look at and easier to fix.
-            for (int side = -1; side <= 1; side += 2)
+            BuildNbKerbs(parent, m);
+            BuildNbStreetEnd(parent, m);
+        }
+
+        /// <summary>
+        /// THE KERB, down both sides of the street and round the head: raised
+        /// stone, a ramp a car can mount, and the lawn graded up behind it,
+        /// dropped flush at every drive.
+        ///
+        /// It was 192 render-only boxes: eight-metre then two-metre lengths
+        /// pitched to the fall, and chords yawed round the head. No collider,
+        /// so a car drove straight through a drawn 14 cm kerb onto a lawn
+        /// 8 cm under the tarmac, and back across an 8 cm step. One continuous
+        /// stone per side now (WorldKit.Kerb), laid on the street's own edge
+        /// vertices and then on the disc's own rim vertices — so its foot is
+        /// the tarmac's edge exactly, with no daylight under a box and no slot
+        /// between a true circle and the 31-gon the head really is. (In plan
+        /// exactly; in height, for the first NbBulbCell past each throat the
+        /// foot climbs from the street's lift to the head's and runs up to a
+        /// centimetre under the head's rim — see THE HEAD'S CENTIMETRE below.)
+        ///
+        /// DROPPED AT EVERY DRIVE, per side, exactly the drive's width, with a
+        /// transition either side (WorldKit.KerbTaperM) — and at the south end,
+        /// where the street simply stops, and over the top of the head where
+        /// your own drive leaves it.
+        /// </summary>
+        static void BuildNbKerbs(Transform parent, TownMats m)
+        {
+            var root = new GameObject("NbKerbs");
+            root.transform.SetParent(parent, false);
+            var street = new WorldKit.SlabGrid(new Vector3(HomeStreetX, 0f, NbStreetMidZ),
+                                               HomeRoadW, NbStreetLen, NbStreetCell);
+            int sectors = WorldKit.DiscSectors(NbBulbR, NbBulbCell);
+            float sectorA = 2f * Mathf.PI / sectors;
+            int built = 0;
+            for (int s = -1; s <= 1; s += 2)
             {
-                int seg = 0;
-                for (float z = NbStreetEnd; z < NbBulbThroatZ; z += 2f)
+                int side = s;
+                var edge = new List<Vector3>();
+                var outward = new List<Vector3>();
+                for (int j = 0; j <= street.nz; j++)
                 {
-                    float z0 = z, z1 = Mathf.Min(z + 2f, NbBulbThroatZ);
-                    float mid = (z0 + z1) * 0.5f;
-                    if (NbInDriveway(side, mid)) continue;
-                    float pitch = Mathf.Atan2(NbRoadY(z1) - NbRoadY(z0), z1 - z0) * Mathf.Rad2Deg;
-                    var kerb = WorldKit.Box(parent, "NbKerb" + side + "_" + (seg++),
-                        new Vector3(HomeStreetX + side * (HomeRoadW * 0.5f + 0.2f),
-                                    NbRoadY(mid) + 0.08f, mid),
-                        new Vector3(0.4f, 0.16f, (z1 - z0) + 0.15f), m.kerb, false);
-                    // Pitched about X, which is across the street: the kerb runs
-                    // along z, so it is the z-slope it has to lie along.
-                    kerb.transform.rotation = Quaternion.Euler(-pitch, 0f, 0f);
+                    float z = street.WorldZ(j);
+                    edge.Add(new Vector3(HomeStreetX + side * HomeRoadW * 0.5f, NbRoadY(z) + NbStreetLift, z));
+                    outward.Add(new Vector3(side, 0f, 0f));
+                }
+
+                // Round the head on the disc's rim vertices, from the throat
+                // toward the top — this side's way round — until one lands
+                // inside your drive, which is where the run ends.
+                float throat = Mathf.Atan2(NbBulbThroatZ - NbBulbCz, side * HomeRoadW * 0.5f);
+                var rim = new List<(float swept, float a)>();
+                for (int k = 0; k < sectors; k++)
+                {
+                    float a = k * sectorA;
+                    float swept = side > 0 ? Mathf.Repeat(a - throat, 2f * Mathf.PI)
+                                           : Mathf.Repeat(throat - a, 2f * Mathf.PI);
+                    if (swept > 1e-3f && swept < Mathf.PI) rim.Add((swept, a));
+                }
+                rim.Sort((p, q) => p.swept.CompareTo(q.swept));
+                // Where the rim's chord crosses the END of the street, if it
+                // crosses inside the carriageway: the third corner of the notch
+                // filled by NbThroatPlate below.
+                Vector3? notch = null;
+                foreach (var r in rim)
+                {
+                    var p = new Vector3(HomeStreetX + Mathf.Cos(r.a) * NbBulbR, 0f,
+                                        NbBulbCz + Mathf.Sin(r.a) * NbBulbR);
+                    p.y = NbRoadY(p.z) + NbBulbLift;
+                    if (edge.Count == street.nz + 1)
+                    {
+                        // THE CORNER AT THE THROAT, turned where the disc's rim
+                        // actually crosses the street's edge line — not at the
+                        // throat. The street's last edge vertex is on the TRUE
+                        // circle, but the head there is a chord from the rim
+                        // vertex before the throat to this one, sagging inside
+                        // the circle. Laid straight from the throat to this
+                        // vertex the stone's foot stood off the tarmac over a
+                        // slot of lawn 8 cm down: 5.1 cm wide on the east side,
+                        // 1.0 on the west (the disc's sectors start at +x, so
+                        // the two throats cut their chords differently). So the
+                        // foot runs on up the edge line to the chord before it
+                        // turns onto the rim.
+                        //
+                        // Both ends of that few centimetres carry the MITRE.
+                        // With the street's own +x at the first, the stone's back
+                        // edge would run south while its foot runs north — a
+                        // folded quad, two kerb tops in one plane z-fighting.
+                        float prevA = r.a - side * sectorA;
+                        float px0 = HomeStreetX + Mathf.Cos(prevA) * NbBulbR;
+                        float pz0 = NbBulbCz + Mathf.Sin(prevA) * NbBulbR;
+                        float lineX = HomeStreetX + side * HomeRoadW * 0.5f;
+                        float t = (lineX - px0) / (p.x - px0);
+                        Vector3 chordOut = new Vector3(Mathf.Cos((prevA + r.a) * 0.5f), 0f,
+                                                       Mathf.Sin((prevA + r.a) * 0.5f));
+                        Vector3 mitre = (new Vector3(side, 0f, 0f) + chordOut).normalized;
+                        outward[street.nz] = mitre;
+                        float zc = Mathf.Lerp(pz0, p.z, t);
+                        if (t > 0f && t < 1f && zc > edge[street.nz].z + 1e-3f)
+                        {
+                            edge.Add(new Vector3(lineX, NbRoadY(zc) + NbBulbLift, zc));
+                            outward.Add(mitre);
+
+                            // AND THE TARMAC SIDE OF THE SAME SAG. Running the foot
+                            // up the edge line closed the slot under the STONE; the
+                            // chord still crosses the street's end row inside the
+                            // carriageway, so between that row, the chord and the
+                            // foot a triangle of neither surface was left — 11 cm
+                            // by 5.6 cm on the east side, lawn 8.8 cm down, right
+                            // where a wheel runs along the gutter (measured off
+                            // the built meshes, by a replica of TownProbe's lip
+                            // scan, which fails it).
+                            Vector3 end = edge[street.nz];
+                            float u = (end.z - pz0) / (p.z - pz0);
+                            float xb = Mathf.Lerp(px0, p.x, u);
+                            if (u > 0f && u < 1f && (xb - lineX) * side < 0f)
+                                notch = new Vector3(xb, end.y, end.z);
+                        }
+                    }
+                    edge.Add(p);
+                    outward.Add(new Vector3(Mathf.Cos(r.a), 0f, Mathf.Sin(r.a)));
+                    if (p.z > NbBulbCz && Mathf.Abs(p.x - HomeStreetX) < HomeDriveW * 0.5f) break;
+                }
+
+                // THE HEAD'S CENTIMETRE, TAKEN OVER A FACET OF IT. The head is
+                // laid NbBulbLift - NbStreetLift proud of the street, and the
+                // foot used to take that whole step between the street's last
+                // edge vertex and the station where the rim's chord crosses the
+                // edge line — 1.2 cm apart on the west side. A 1 cm rise in
+                // 1.2 cm of foot tilts the ramp collider's two triangles there
+                // to a 0.64 normal, past CollisionResponder's 0.7 landing test:
+                // two faces of the one collider this kerb promises has none
+                // (the self-test's "2 of 480 triangles steeper than a landing").
+                // So the foot's lift is blended from the street's to the head's
+                // over the first NbBulbCell of arc past the throat — the length
+                // of one of the disc's own facets — and the step becomes a 0.5%
+                // grade along the gutter. Where the foot runs under the head's
+                // rim by that blend it is at most the centimetre, and the head
+                // is the higher of the two: a wheel leaving the head steps down
+                // it onto the ramp, well inside the owner's inch.
+                float arc = 0f;
+                for (int k = street.nz + 1; k < edge.Count; k++)
+                {
+                    Vector3 was = edge[k - 1], at = edge[k];
+                    arc += Mathf.Sqrt((at.x - was.x) * (at.x - was.x) + (at.z - was.z) * (at.z - was.z));
+                    at.y = NbRoadY(at.z) + Mathf.Lerp(NbStreetLift, NbBulbLift, Mathf.Clamp01(arc / NbBulbCell));
+                    edge[k] = at;
+                }
+                // After the blend, so the plate's corner on the edge line is the
+                // foot's own point.
+                if (notch.HasValue)
+                    NbThroatPlate(parent, m, "NbStreetThroat" + (side < 0 ? "W" : "E"),
+                                  edge[street.nz], notch.Value, edge[street.nz + 1]);
+
+                bool InGap(Vector3 p)
+                {
+                    if (p.z > NbBulbCz && Mathf.Abs(p.x - HomeStreetX) < HomeDriveW * 0.5f) return true;
+                    return p.z <= NbBulbThroatZ + 1e-3f && NbInDriveway(side, p.z);
+                }
+                var runs = WorldKit.KerbRuns(edge, outward, InGap, WorldKit.KerbHeightM,
+                                             taperStart: true, taperEnd: true, maxPitch: 4f);
+                string tag = side < 0 ? "W" : "E";
+                for (int r = 0; r < runs.Count; r++)
+                {
+                    WorldKit.Kerb(root.transform, "NbKerb" + tag + r, runs[r], m.kerb, WorldKit.RoadLayer);
+                    WorldKit.KerbVerge(root.transform, "NbVerge" + tag + r, runs[r],
+                                       NbLatticeAt, m.grass, 16f);
+                    built++;
                 }
             }
+            Log("[Neighborhood] kerbs: " + built + " runs, dropped at " + (NbPlotCount * 2) +
+                " drives and your own");
+        }
 
-            // THE KERB ROUND THE HEAD, in chords, for the reason the straight
-            // one is in lengths: a box cannot bend. Yawed to the tangent as
-            // well as pitched to the fall, and opened twice — once at the
-            // throat where the street comes in, once at the top where the
-            // player's drive goes out. A ring with no gaps would be a moat.
-            int arcs = Mathf.RoundToInt(2f * Mathf.PI * NbBulbR / 2.2f);
-            for (int i = 0; i < arcs; i++)
+        /// <summary>
+        /// The corner of tarmac the turning head's polygon leaves out at the
+        /// throat: one triangle on the ROAD LAYER, drawn in the street's own
+        /// material on its world UVs, between the street's last edge vertex
+        /// (<paramref name="corner"/>), the point where the rim's chord crosses
+        /// the street's end row (<paramref name="onEnd"/>) and the kerb foot's
+        /// station where the same chord crosses the edge line
+        /// (<paramref name="onLine"/>).
+        ///
+        /// A plate rather than a longer street, because the street's length is
+        /// also the lawn lattice's (SolveNbLattice sizes its grid off
+        /// NbStreetLen) and every bench, footing and feather on the street is
+        /// measured against that lattice; and rather than a rounder head,
+        /// because no sector count puts a rim vertex on both throats. Its three
+        /// corners are points the street, the head and the kerb foot already
+        /// have, so it meets each of them edge to edge and shares a plane with
+        /// none: level with the street's end row and with the kerb's foot, and
+        /// along the head's chord a centimetre under its rim — the same
+        /// NbBulbLift - NbStreetLift step the head stands over the street
+        /// everywhere the two overlap, climbed inward from the plate. A notch smaller than a coin — the west side's is 1.9 cm by
+        /// 1.2 — is still built: a sliver triangle is a MeshCollider PhysX
+        /// cooks, while one with no area is one it refuses.
+        /// </summary>
+        static void NbThroatPlate(Transform parent, TownMats m, string name,
+                                  Vector3 corner, Vector3 onEnd, Vector3 onLine)
+        {
+            Vector3 n = Vector3.Cross(onEnd - corner, onLine - corner);
+            if (n.magnitude * 0.5f < 1e-5f) return;
+            // Wound to face up whichever side of the street this is.
+            var verts = n.y >= 0f ? new[] { corner, onEnd, onLine } : new[] { corner, onLine, onEnd };
+            var mesh = new Mesh { name = name };
+            mesh.vertices = verts;
+            mesh.uv = System.Array.ConvertAll(verts, v => new Vector2(v.x / 12f, v.z / 12f));
+            mesh.triangles = new[] { 0, 1, 2 };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            WorldKit.SaveMesh(mesh, name);
+
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.isStatic = true;
+            go.layer = WorldKit.RoadLayer;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = m.road;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            go.AddComponent<MeshCollider>().sharedMesh = mesh;
+        }
+
+        /// <summary>
+        /// Where the street simply stops, at the run-off: the lawn graded up to
+        /// the end of the tarmac and round both corners into the verges.
+        ///
+        /// The end was an 8 cm square edge onto grass, reachable by anyone who
+        /// turns back at the junction line and drives on — and it is the edge a
+        /// car coming back up out of the run-off meets head on.
+        /// </summary>
+        static void BuildNbStreetEnd(Transform parent, TownMats m)
+        {
+            float y = NbRoadY(NbStreetEnd) + NbStreetLift;
+            float half = HomeRoadW * 0.5f + WorldKit.KerbWidthM;
+            var edge = new List<Vector3>();
+            var outward = new List<Vector3>();
+            void Fan(float x, Vector3 from, Vector3 to)
             {
-                float a0 = i * 2f * Mathf.PI / arcs, a1 = (i + 1) * 2f * Mathf.PI / arcs;
-                float am = (a0 + a1) * 0.5f;
-                float rr = NbBulbR + 0.2f;
-                Vector3 mid = new Vector3(HomeStreetX + Mathf.Cos(am) * rr,
-                                          0f, NbBulbCz + Mathf.Sin(am) * rr);
-                // The throat: the street's own width, plus the kerb.
-                if (mid.z < NbBulbCz && Mathf.Abs(mid.x - HomeStreetX) < HomeRoadW * 0.5f + 0.9f)
-                    continue;
-                // The drive out, which leaves over the top of the head.
-                if (mid.z > NbBulbCz && Mathf.Abs(mid.x - HomeStreetX) < 2.6f) continue;
-
-                Vector3 p0 = new Vector3(HomeStreetX + Mathf.Cos(a0) * rr,
-                                         0f, NbBulbCz + Mathf.Sin(a0) * rr);
-                Vector3 p1 = new Vector3(HomeStreetX + Mathf.Cos(a1) * rr,
-                                         0f, NbBulbCz + Mathf.Sin(a1) * rr);
-                float chord = Vector3.Distance(p0, p1);
-                var ring = WorldKit.Box(parent, "NbBulbKerb" + i,
-                    new Vector3(mid.x, NbRoadY(mid.z) + 0.08f, mid.z),
-                    new Vector3(0.4f, 0.16f, chord + 0.15f), m.kerb, false);
-                // Yaw so the chord lies along the rim, then pitch so it lies on
-                // the fall. Order matters: yaw first, in world, then pitch about
-                // the box's own long axis.
-                float yaw = Mathf.Atan2(p1.x - p0.x, p1.z - p0.z) * Mathf.Rad2Deg;
-                float drop = Mathf.Atan2(NbRoadY(p1.z) - NbRoadY(p0.z), chord) * Mathf.Rad2Deg;
-                ring.transform.rotation = Quaternion.Euler(0f, yaw, 0f)
-                                        * Quaternion.Euler(-drop, 0f, 0f);
+                for (int f = 0; f <= 4; f++)
+                {
+                    edge.Add(new Vector3(x, y, NbStreetEnd));
+                    outward.Add(Vector3.Slerp(from, to, f / 4f).normalized);
+                }
             }
+            // Round the west corner from the verge's direction to the end's,
+            // across, and round the east corner back to the verge's. The kerb
+            // is dropped to flush at the end (taperStart in BuildNbKerbs), so
+            // the corners are at the street's own height.
+            Fan(HomeStreetX - half, Vector3.left, Vector3.back);
+            int steps = Mathf.CeilToInt(half);
+            for (int k = 1; k < steps; k++)
+            {
+                edge.Add(new Vector3(HomeStreetX - half + 2f * half * k / steps, y, NbStreetEnd));
+                outward.Add(Vector3.back);
+            }
+            Fan(HomeStreetX + half, Vector3.back, Vector3.right);
+            WorldKit.Feather(parent, "NbStreetEndVerge", edge, outward, NbLatticeAt, m.grass, 16f);
         }
 
         /// <summary>
         /// Is this station of THIS SIDE of the street inside a driveway
         /// entrance?
         ///
-        /// Two metres of kerb at a time rather than eight, so a dropped kerb
-        /// lands within half a metre of the drive's real edge instead of taking
-        /// a quarter of the frontage out with it.
+        /// Exactly the drive's own width: the kerb is not built at all across
+        /// it (the drive runs out to the tarmac's edge) and falls to flush over
+        /// WorldKit.KerbTaperM either side, so the stone never ends standing up
+        /// beside the concrete.
         ///
         /// PER SIDE. Dropping both sides wherever either had a drive sounded
         /// tidy and took 84 of 200 segments out — the two rows' drives are
@@ -804,7 +1348,7 @@ namespace PSXRacing.EditorTools
         static bool NbInDriveway(int side, float z)
         {
             for (int i = 0; i < NbPlotCount; i++)
-                if (Mathf.Abs(z - NbDriveZ(side, NbPlotZ(i))) < 2.9f) return true;
+                if (Mathf.Abs(z - NbDriveZ(side, NbPlotZ(i))) < NbDriveW * 0.5f) return true;
             return false;
         }
 
@@ -855,48 +1399,46 @@ namespace PSXRacing.EditorTools
                     // already sloping where the garden is, and the two cannot
                     // disagree because they are the same function.
                     float padY = NbPadY(side, z);
-                    float benchX = x + side * 2f;
 
-                    // THE RETAINING WALL, and it is the only thing left that
-                    // has to be measured. The bench stands proud of the land it
-                    // was cut into by a different amount at each corner — on a
-                    // cross-slope the low corner is not the low side — so the
-                    // wall is sized off the worst of the four, out where the
-                    // land is its own again. A bench that happens to land level
-                    // gets no wall at all, which is why this is a measurement
-                    // and not a constant.
+                    // THE RETAINING WALLS, one per garden edge that could not be
+                    // graded (NbEdgesOf) — a graded edge has nothing to retain.
+                    // Each is sized off the worst drop along ITS face, at the
+                    // batter's toe: on a cross-slope the low corner is not the
+                    // low side, and a face that happens to land level gets no
+                    // wall at all.
                     //
-                    // IT STOPS WHERE THE DRIVE STOPS. The wall wraps the two
-                    // sides and the back of the bench and leaves the street
-                    // face open, which is both what the lot needs and what the
-                    // geometry needs: the drive comes up that face, and a wall
-                    // across it would be a wall across the driveway. Nothing is
-                    // lost by it — the street edge is the one edge held near
-                    // road level by NbPadY, so it is the one with almost no
-                    // drop to retain.
-                    float wallInner = 18.5f;                            // where the drive ends
+                    // They were one box under the whole bench, and they are its
+                    // RIM now — the batter's width, along each face — because a
+                    // graded edge beside a walled one would otherwise have shown
+                    // the box's side standing up out of the graded slope.
+                    //
+                    // THEY STOP WHERE THE DRIVE STOPS. The walls wrap the two
+                    // sides and the back and leave the street face open: the
+                    // drive comes up that face, and the street edge is the one
+                    // NbPadY holds near road level, so it has almost no drop to
+                    // retain.
+                    //
+                    // AND A CRITICAL ONE IS SOLID. A stretch of face whose fall
+                    // RoadsideRules.IsCriticalFall calls critical is a real
+                    // retaining wall — the one barrier the owner's rule warrants
+                    // off the road — so what a car meets below it is the concrete
+                    // it can see rather than a 66-degree grass facet it cannot
+                    // climb, and what it rolls onto from the garden is the wall's
+                    // top. Lesser stretches stay drawing only, as every footing
+                    // was; see NbFooting for why the fall is the FINISHED ground's.
+                    var edges = NbEdgesOf(pi, side);
+                    float wallInner = 18.5f;                            // where the walls start
                     float wallOuter = NbSetback + 2f + NbBenchW * 0.5f + NbBatter;
                     float wallHalfZ = NbBenchD * 0.5f + NbBatter;
-                    float drop = 0f;
-                    for (int cx = 0; cx <= 1; cx++)
-                        for (int cz = -1; cz <= 1; cz += 2)
-                            drop = Mathf.Max(drop, padY - NbLandY(
-                                HomeStreetX + side * (cx == 0 ? wallInner : wallOuter),
-                                z + cz * wallHalfZ));
-                    if (drop > 0.12f)
-                    {
-                        // Its TOP sits 5 cm under the bench, so the lawn draws
-                        // over it and only the faces the land has fallen away
-                        // from are ever seen; 40 cm deeper than the worst corner
-                        // at the bottom, so no facet of the ground grid can
-                        // surface under it and show daylight beneath the house.
-                        float wallH = drop + 0.45f;
-                        WorldKit.Box(lots.transform, "NbFooting" + tag,
-                            new Vector3(HomeStreetX + side * (wallInner + wallOuter) * 0.5f,
-                                        padY - 0.05f - wallH * 0.5f, z),
-                            new Vector3(wallOuter - wallInner, wallH, wallHalfZ * 2f),
-                            m.drive, false);
-                    }
+                    if (!edges.backGraded)
+                        NbFooting(lots.transform, m, "NbFooting" + tag + "Back", padY,
+                            side, z, 0, wallOuter - NbBatter, wallOuter, -wallHalfZ, wallHalfZ);
+                    if (!edges.zLoGraded)
+                        NbFooting(lots.transform, m, "NbFooting" + tag + "ZLo", padY,
+                            side, z, -1, wallInner, wallOuter, -wallHalfZ, -wallHalfZ + NbBatter);
+                    if (!edges.zHiGraded)
+                        NbFooting(lots.transform, m, "NbFooting" + tag + "ZHi", padY,
+                            side, z, 1, wallInner, wallOuter, wallHalfZ - NbBatter, wallHalfZ);
 
                     // TURNED THE RIGHT WAY ROUND, AND STANDING ON ITS OWN BENCH.
                     //
@@ -970,7 +1512,7 @@ namespace PSXRacing.EditorTools
                     //
                     // The lawn hazard the comment feared is real, but it lives
                     // one metre further out and the fix for it is the dropped
-                    // kerb in BuildNbGround, not a wider slab.
+                    // kerb in BuildNbKerbs, not a wider slab.
                     //
                     // AND IT ENDS AT THE GARAGE DOOR. It ended at a flat 18.5,
                     // which was a guess at "the front of the house" and is two
@@ -980,9 +1522,9 @@ namespace PSXRacing.EditorTools
                     // Bounded by the measurement now, like everything else on
                     // this street.
                     float kerbX = HomeStreetX + side * NbKerbOut;
-                    float houseX = HomeStreetX + side * NbGarageFaceOut;
-                    float driveX = (kerbX + houseX) * 0.5f;
                     float driveZ = NbDriveZ(side, z);
+                    // The same grid SolveNbLattice held the lawn under.
+                    var driveGrid = NbDriveGrid(side, z);
                     // THE DRIVE RAMPS, because it has to: it starts at the kerb
                     // and ends on a pad that is not at kerb height. Interpolated
                     // across its own width, from the road's own surface at the
@@ -1010,11 +1552,33 @@ namespace PSXRacing.EditorTools
                     // crosses at speed — and the house end is inside the
                     // building.
                     WorldKit.GridSlab(lots.transform, "NbDrive" + tag,
-                        new Vector3(driveX, 0f, driveZ),
-                        Mathf.Abs(houseX - kerbX), 5.0f, 1.5f,
+                        driveGrid.centre, driveGrid.sizeX, driveGrid.sizeZ, NbDriveCell,
                         m.drive, true, 5f, WorldKit.RoadLayer,
-                        (px, pz) => NbGroundY(px, pz) + 0.05f,
+                        NbDriveSurfaceY,
                         WorldKit.SlabEdge.SidesZ);
+
+                    // AND THE LAWN GRADED UP TO BOTH OF THOSE EDGES. A drive
+                    // with a side to it still stood 9 cm over the lawn along its
+                    // whole length — more where the lawn mesh had to be sunk
+                    // under a crease — and its skirt has no collider, so what a
+                    // car met coming back onto it was the slab's edge. A feather
+                    // on each side (WorldKit.Feather), on the drive's own edge
+                    // vertices, from the kerb line to the garage. NOT named
+                    // "NbDrive…": the self-test finds drives by that prefix.
+                    for (int e = -1; e <= 1; e += 2)
+                    {
+                        var edge = new List<Vector3>();
+                        var outs = new List<Vector3>();
+                        int row = e < 0 ? 0 : driveGrid.nz;
+                        for (int c = 0; c <= driveGrid.nx; c++)
+                        {
+                            float wx = driveGrid.WorldX(c), wz = driveGrid.WorldZ(row);
+                            edge.Add(new Vector3(wx, NbDriveSurfaceY(wx, wz), wz));
+                            outs.Add(new Vector3(0f, 0f, e));
+                        }
+                        WorldKit.Feather(lots.transform, "NbVergeDrive" + tag + (e < 0 ? "S" : "N"),
+                                         edge, outs, NbLatticeAt, m.grass, 16f);
+                    }
 
                     // Two plots in three get a car, on the drive or at the
                     // kerb. Not all of them: a street where every house has a
@@ -1035,7 +1599,7 @@ namespace PSXRacing.EditorTools
                             float parkX = HomeStreetX + side * 12f;
                             Vector3 at = onDrive
                                 ? new Vector3(parkX,
-                                              NbGroundY(parkX, driveZ) + 0.07f, driveZ)
+                                              NbDriveSurfaceY(parkX, driveZ) + 0.02f, driveZ)
                                 // AT the kerb means ON the tarmac, inboard of
                                 // it. This was kerbX + side * 2.2, which is two
                                 // metres OUTSIDE the carriageway — every
@@ -1079,6 +1643,96 @@ namespace PSXRacing.EditorTools
                 }
             }
             Log("[Neighborhood] " + parked + " cars parked along the street.");
+        }
+
+        /// <summary>A face shorter than this gets no wall: the lawn batter
+        /// shows instead.</summary>
+        const float NbFootingMinDrop = 0.12f;
+        /// <summary>A wall's top sits this far under the DRAWN lawn — which is
+        /// NbLawnSink under the bench — so the grass draws over it where the
+        /// bench is level and only the faces the land has fallen away from
+        /// show. (It sat 5 cm under the bench's design height, which is 1 cm
+        /// ABOVE the drawn lawn: every footing's top poked through the garden.)</summary>
+        const float NbFootingUnderLawn = 0.05f;
+        /// <summary>How far under the worst of the land a wall's foot goes, so
+        /// no facet of the 3 m lawn lattice surfaces under it and shows daylight
+        /// beneath the house.</summary>
+        const float NbFootingBuried = 0.5f;
+
+        /// <summary>Stations along a footing's face at which its drop is
+        /// measured: about one a metre on the 17.5 m side walls.</summary>
+        const int NbFootingSamples = 16;
+
+        /// <summary>
+        /// One retaining wall on one garden edge of a bench: the rim of the
+        /// old footing box along that face, from the bench's edge to the
+        /// batter's toe.
+        ///
+        /// ITS DROP IS WHAT IT STANDS OVER — the FINISHED ground at the toe,
+        /// not the raw hillside. On the side of a plot its drive runs up, the
+        /// drive corridor (NbGroundY) holds the land up across that whole edge,
+        /// and the hillside overstated the fall there by up to 2.5 m (measured on
+        /// the replica): plot 0's east drive-side wall read 1.91 m against the
+        /// land, went solid end to end, and stands over at most 1.05 m of real
+        /// fall; plot 1's put a 44 cm concrete face 1.6 m off the side of its
+        /// drive, over ground only 0.6 m down — a wall standing on a slope a car
+        /// rolls off that drive onto and back from.
+        ///
+        /// And A WALL IS SOLID ONLY ALONG THE STRETCH WHOSE FALL IS CRITICAL
+        /// (RoadsideRules.IsCriticalFall at each station): the box is drawn
+        /// whole and the collider covers each critical run of the face. The
+        /// rest of it is drawing only, as every footing's lesser face is.
+        /// </summary>
+        /// <param name="which">The face the drop is measured on: 0 the back,
+        /// -1 / +1 the low- and high-z sides.</param>
+        /// <param name="out0">The wall's extent, in metres out from the street's
+        /// crown (<paramref name="out0"/>..<paramref name="out1"/>) and in z
+        /// from the plot's centre (<paramref name="z0"/>..<paramref name="z1"/>).</param>
+        static void NbFooting(Transform parent, TownMats m, string name, float padY,
+                              int side, float plotZ, int which,
+                              float out0, float out1, float z0, float z1)
+        {
+            // The drop along the face, out at the batter's toe.
+            var drops = new float[NbFootingSamples + 1];
+            float drop = 0f;
+            for (int k = 0; k <= NbFootingSamples; k++)
+            {
+                float t = k / (float)NbFootingSamples;
+                float ox = which == 0 ? out1 : Mathf.Lerp(out0, out1, t);
+                float oz = which == 0 ? Mathf.Lerp(z0, z1, t) : which * (NbBenchD * 0.5f + NbBatter);
+                drops[k] = padY - NbGroundY(HomeStreetX + side * ox, plotZ + oz);
+                drop = Mathf.Max(drop, drops[k]);
+            }
+            if (drop <= NbFootingMinDrop) return;
+            float top = padY - NbLawnSink - NbFootingUnderLawn;
+            float bottom = padY - drop - NbFootingBuried;
+            WorldKit.Box(parent, name,
+                new Vector3(HomeStreetX + side * (out0 + out1) * 0.5f, (top + bottom) * 0.5f,
+                            plotZ + (z0 + z1) * 0.5f),
+                new Vector3(out1 - out0, top - bottom, z1 - z0), m.drive, solid: false);
+
+            // The colliders: one box per run of critical stations, reaching half
+            // a station past each end of the run (and no further than the face).
+            int solid = 0;
+            for (int k = 0; k <= NbFootingSamples; k++)
+            {
+                if (!RoadsideRules.IsCriticalFall(drops[k], NbBatter)) continue;
+                int k0 = k;
+                while (k < NbFootingSamples && RoadsideRules.IsCriticalFall(drops[k + 1], NbBatter)) k++;
+                float t0 = Mathf.Max(0f, (k0 - 0.5f) / NbFootingSamples);
+                float t1 = Mathf.Min(1f, (k + 0.5f) / NbFootingSamples);
+                // Along the face: out from the crown for a side wall, z for the back.
+                float a0 = which == 0 ? out0 : Mathf.Lerp(out0, out1, t0);
+                float a1 = which == 0 ? out1 : Mathf.Lerp(out0, out1, t1);
+                float b0 = which == 0 ? Mathf.Lerp(z0, z1, t0) : z0;
+                float b1 = which == 0 ? Mathf.Lerp(z0, z1, t1) : z1;
+                var col = new GameObject(name + "Solid" + solid++);
+                col.transform.SetParent(parent, false);
+                col.transform.position = new Vector3(HomeStreetX + side * (a0 + a1) * 0.5f,
+                                                     (top + bottom) * 0.5f, plotZ + (b0 + b1) * 0.5f);
+                col.isStatic = true;
+                col.AddComponent<BoxCollider>().size = new Vector3(a1 - a0, top - bottom, b1 - b0);
+            }
         }
 
         static void BuildNbBounds(Transform parent)

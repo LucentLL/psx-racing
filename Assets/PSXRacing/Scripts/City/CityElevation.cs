@@ -38,10 +38,19 @@ namespace PSXRacing.City
         public const float StationStep = 10f;
         public const float ClearanceM = 5.0f;   // under-side of deck over road below
         public const float DeckThick = 0.55f;
-        /// <summary>How far below the tarmac the land sits inside a road
-        /// corridor: a real kerb height. The skirt CityMeshes cuts is deeper
-        /// so the road's own side always reaches down to it.</summary>
-        public const float CorridorSink = 0.20f;
+        /// <summary>How far below the tarmac the coarse 8 m lattice sits
+        /// inside a road corridor. NOT a kerb any more: it was 0.20 m and the
+        /// road's side was a 0.32 m vertical collider face, which made a
+        /// 20 cm wall the length of every street in Charlotte (the owner:
+        /// "roads sitting cm above the ground do not need rails/walls, they
+        /// should meet the ground properly by DOT standards"). The lattice is
+        /// now only HIDDEN under the exact verge surface CityMeshes lays
+        /// beside every grounded edge (RoadsideRules.CityHideMarginM), and it
+        /// is the verge, flush with the tarmac, that the car meets. Half the
+        /// old sink is safe only because the allowance under it is now
+        /// measured where the lattice actually overshoots: at a SAG
+        /// (<see cref="MeasureSags"/>).</summary>
+        public const float CorridorSink = RoadsideRules.CityHideMarginM;
         public const float CorridorBlend = 26f;
         /// <summary>Air between a deck's soffit and the land under it. A
         /// bridge is OVER something, and the 60 m DEM sees neither the creek
@@ -54,6 +63,34 @@ namespace PSXRacing.City
         /// tarmac" cap still holds: the diagonal of an 8 m lattice cell, so
         /// no vertex that can touch the pavement's cells sits above it.</summary>
         public const float CapReach = 5f;
+        /// <summary>How far outside a DECK's own half width the land is dug
+        /// to <see cref="UnderDeckAir"/> under its soffit. It was the whole
+        /// corridor plus half the blend (hw + 19.5 m), measured from CLAMPED
+        /// segment projections, so every elevated polyline vertex was a disc
+        /// that dug 1.75 m pits 15-25 m along the grounded approach beyond
+        /// the rails (1,427 approach ends city-wide). The dig is the deck's
+        /// footprint now, from true perpendicular feet (and the outer wedge
+        /// of a bend INSIDE the structure, which no true foot reaches); past it a deck's
+        /// pavement is protected like any other (never under land, the same
+        /// <see cref="CapReach"/> band), which is all the at-grade decks
+        /// needed.</summary>
+        public const float CapPadM = 2f;
+        /// <summary>How far past its pavement a grounded road's land holds
+        /// at the road's own pin before it may fall away (at 1V:3H,
+        /// RoadsideRules.TraversableSlope) toward a lower neighbour. The
+        /// corridor MEAN used to average a street's verge halfway down to a
+        /// trench or a ramp 20-40 m away (-2.3 m 30 m from the 277 cut), so
+        /// the upper road stood on a ledge. One lattice diagonal past the
+        /// pavement, the same band <see cref="CapReach"/> protects a LOWER
+        /// road with: every lattice cell the verge can lie on has all four
+        /// corners at the pin. Where two roads are closer than both bands the
+        /// lower road's pavement still wins (grass through tarmac is worse),
+        /// and CityMeshes puts a warranted barrier on the upper edge.</summary>
+        public const float FloorFlatM = 6.5f + CapReach;
+        /// <summary>The longest run, along a road, between two corners of
+        /// one 8 m lattice triangle: the cell diagonal. The sag allowance is
+        /// measured over chords this long (it bounds the 8 m chords too).</summary>
+        public const float SagChordM = 8f * 1.41421356f;
         /// <summary>Above the base ground by this much = on structure, as a
         /// LAST RESORT. It was 1.4 m and it decided most of the decks in the
         /// city: the SRTM grid was min-filtered (6.6 m low on average, 20 m
@@ -304,7 +341,7 @@ namespace PSXRacing.City
             // embankments everywhere else.
             MarkStructure(map);
             InheritSeatStructure(map);
-            MeasureCrests(map);
+            MeasureSags(map);
 
             // 10. lakes get one flat surface each; the shore owns the level
             foreach (var w in map.waters)
@@ -478,64 +515,70 @@ namespace PSXRacing.City
         }
 
         /// <summary>
-        /// How far each station stands ABOVE the chord of its neighbours: the
-        /// crest of a grade break, kept on the edge (and per node, since a
-        /// node is a station every arm shares).
+        /// The SAG at every station: how much the grade INCREASES there
+        /// (grade out minus grade in, never negative), kept on the edge.
+        /// <see cref="CityMap.Edge.SagAt"/> turns it into the extra sink the
+        /// corridor pin needs at any arc position.
         ///
-        /// The ground under a road is an 8 m lattice sampled from the road's
-        /// own height, and a lattice is straight between its vertices while
-        /// the road bends at its stations. Where the profile breaks OVER —
-        /// an approach cone meeting the flat, the mouth of a trench, a hill
-        /// street cresting at a junction — the straight ground between two
-        /// vertices runs above the bent road between them, by up to half the
-        /// break, and the grass came up through the tarmac. The corridor pin
-        /// sinks the land by this much extra there and nowhere else, so a
-        /// straight grade keeps its 20 cm kerb. Half the chord height:
-        /// stations are 10 m apart and lattice cells 8, and the overshoot of
-        /// an 8 m chord is at most two fifths of a 10 m one's; half leaves a
-        /// margin.
+        /// The ground under a road is an 8 m lattice pinned from the road's
+        /// own height, and a lattice is straight between its corners while
+        /// the road bends at its stations. On a straight road the corners and
+        /// the road points share one affine projection, so by Jensen the
+        /// straight lattice runs ABOVE the bent road only where the profile is
+        /// convex from below — a dip, the foot of an approach cone, a trench
+        /// floor — and BELOW it at a crest. This measured the other way round
+        /// until 2026-09-13: humps were sunk (up to 0.66 m of 20 cm kerb over
+        /// a 6.5%/6.5% crest) and dips got nothing, and a replica of the
+        /// lattice put grass 15 cm through the lanes of a 6.5% dip even with
+        /// the old 0.20 m sink. With this allowance it holds exactly 0.10 m
+        /// under the tarmac on every orientation and phase the replica tried
+        /// (dip, cone foot, smooth sag, dip-then-crest, two dips).
+        ///
+        /// A node is a break too: the chord from one arm through the node to
+        /// another sees the rise of both, so an edge END carries the worst
+        /// pair it forms with any other arm there (a flat side street meeting
+        /// a hill road is a sag for the path onto the hill; a straight grade
+        /// through a node is not).
         /// </summary>
-        static void MeasureCrests(CityMap map)
+        static void MeasureSags(CityMap map)
         {
             foreach (var e in map.edges)
             {
                 int n = e.stY.Length;
-                e.stCrest = new float[n];
+                e.stSag = new float[n];
                 for (int i = 1; i < n - 1; i++)
                 {
-                    float span = e.stS[i + 1] - e.stS[i - 1];
-                    if (span < 1e-3f) continue;
-                    float chord = Mathf.Lerp(e.stY[i - 1], e.stY[i + 1], (e.stS[i] - e.stS[i - 1]) / span);
-                    e.stCrest[i] = Mathf.Max(0f, e.stY[i] - chord) * 0.5f;
+                    float d1 = e.stS[i] - e.stS[i - 1], d2 = e.stS[i + 1] - e.stS[i];
+                    if (d1 < 0.5f || d2 < 0.5f) continue;
+                    float gIn = (e.stY[i] - e.stY[i - 1]) / d1;
+                    float gOut = (e.stY[i + 1] - e.stY[i]) / d2;
+                    e.stSag[i] = Mathf.Max(0f, gOut - gIn);
                 }
             }
-            // A node crests between the two arms that fall away from it
-            // fastest: a lattice cell straddling the junction spans four
-            // metres down each.
-            map.nodeCrest = new float[map.nodes.Length];
+            var rises = new List<(CityMap.Edge e, bool atA, float rise)>(8);
             for (int n = 0; n < map.nodes.Length; n++)
             {
-                float y = map.nodeY[n];
-                float d1 = 0f, d2 = 0f;   // drop per metre, the largest two
+                rises.Clear();
                 foreach (var ei in map.nodeEdges[n])
                 {
                     var e = map.edges[ei];
-                    if (e.stS.Length < 2 || e.a == e.b) continue;
+                    int last = e.stS.Length - 1;
+                    if (last < 1 || e.a == e.b) continue;
                     bool fromA = e.a == n;
-                    int j = fromA ? 1 : e.stS.Length - 2;
-                    float ds = fromA ? e.stS[1] - e.stS[0] : e.stS[e.stS.Length - 1] - e.stS[e.stS.Length - 2];
+                    float ds = fromA ? e.stS[1] - e.stS[0] : e.stS[last] - e.stS[last - 1];
                     if (ds < 0.5f) continue;
-                    float drop = (y - e.stY[j]) / ds;
-                    if (drop > d1) { d2 = d1; d1 = drop; }
-                    else if (drop > d2) d2 = drop;
+                    float rise = fromA ? (e.stY[1] - e.stY[0]) / ds : (e.stY[last - 1] - e.stY[last]) / ds;
+                    rises.Add((e, fromA, rise));
                 }
-                map.nodeCrest[n] = Mathf.Max(0f, (d1 + d2) * 0.5f * 4f);
-            }
-            foreach (var e in map.edges)
-            {
-                if (e.stCrest.Length == 0 || e.a == e.b) continue;
-                e.stCrest[0] = Mathf.Max(e.stCrest[0], map.nodeCrest[e.a]);
-                e.stCrest[e.stCrest.Length - 1] = Mathf.Max(e.stCrest[e.stCrest.Length - 1], map.nodeCrest[e.b]);
+                for (int i = 0; i < rises.Count; i++)
+                {
+                    float worst = 0f;
+                    for (int j = 0; j < rises.Count; j++)
+                        if (j != i) worst = Mathf.Max(worst, rises[i].rise + rises[j].rise);
+                    var (e, atA, _) = rises[i];
+                    int st = atA ? 0 : e.stSag.Length - 1;
+                    e.stSag[st] = Mathf.Max(e.stSag[st], worst);
+                }
             }
         }
 
@@ -1187,8 +1230,55 @@ namespace PSXRacing.City
 
         public const float MaxCorridorHalf = 24f;
 
-        public static float GroundY(CityMap map, float x, float z)
+        /// <summary>Which rule set a ground height, for the audit's pit
+        /// census: the DEM (after water), the corridor blend, the highest
+        /// road FLOOR, the lowest PROTECTED pavement, and the two deck caps.
+        /// Values are NaN and edges -1 where the rule did not apply.</summary>
+        public struct GroundTerms
         {
+            public float dem, blended, result;
+            public float floor; public int floorEdge;
+            public float protect; public int protectEdge;
+            public float deckProtect, deckCap; public int deckEdge;
+            /// <summary>The highest floor among GROUNDED roads whose pavement
+            /// is within <see cref="PitReachM"/>: the design a pit is judged
+            /// against.</summary>
+            public float nearFloor; public int nearEdge; public float nearDist;
+        }
+        /// <summary>How far from a grounded ribbon's pavement the pit census
+        /// looks.</summary>
+        public const float PitReachM = 25f;
+
+        public static float GroundY(CityMap map, float x, float z) => Ground(map, x, z, out _);
+
+        /// <summary>
+        /// The ground height at a point, and why. In order:
+        ///
+        ///   1. the DEM, carved by creeks and sunk by lakes;
+        ///   2. blended toward the MEAN of every grounded corridor's pin
+        ///      (tarmac - <see cref="CorridorSink"/> - the sag allowance);
+        ///   3. raised to the highest road FLOOR: each grounded road holds its
+        ///      own pin out to <see cref="FloorFlatM"/> past its pavement,
+        ///      then lets it fall at 1V:3H — so a road's verge is never
+        ///      averaged down onto a neighbour's ledge;
+        ///   4. lowered to the lowest pin whose pavement this point's lattice
+        ///      cells can touch (<see cref="CapReach"/>): grass never comes
+        ///      through a lower road's lanes, and where 3 and 4 disagree the
+        ///      two roads cannot be graded apart at 8 m, the upper edge stands
+        ///      over a drop, and the tile puts a warranted rail on it;
+        ///   5. under structure: no higher than any deck's pavement minus the
+        ///      sink within the same band, and dug to UnderDeckAir under the
+        ///      soffit within <see cref="CapPadM"/> of the deck — both from
+        ///      TRUE perpendicular feet on an elevated stretch, or from the
+        ///      vertex of a bend inside one (<see cref="InStructureWedge"/>).
+        /// </summary>
+        public static float Ground(CityMap map, float x, float z, out GroundTerms terms)
+        {
+            terms = new GroundTerms
+            {
+                floor = float.NaN, protect = float.NaN, deckProtect = float.NaN, deckCap = float.NaN, nearFloor = float.NaN,
+                floorEdge = -1, protectEdge = -1, deckEdge = -1, nearEdge = -1,
+            };
             float baseY = BaseY(x, z);
 
             // creeks carve, lakes sink
@@ -1232,15 +1322,17 @@ namespace PSXRacing.City
             float reachR = MaxCorridorHalf + CorridorBlend;
             map.EdgeSegsInRect(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
 
-            float wSum = 0f, tSum = 0f, wMax = 0f, tMin = float.MaxValue;
-            float capW = 0f, capY = float.MaxValue;
+            float wSum = 0f, tSum = 0f, wMax = 0f, tMin = float.MaxValue, floorMax = float.MinValue;
+            float deckProtect = float.MaxValue, deckCap = float.MaxValue;
+            terms.dem = baseY;
             foreach (var packed in segScratch)
             {
                 int ei = packed >> 12, si = packed & 0xFFF;
                 var e = map.edges[ei];
                 Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
                 float L2 = d.sqrMagnitude;
-                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p2 - a, d) / L2) : 0f;
+                float tRaw = L2 > 1e-8f ? Vector2.Dot(p2 - a, d) / L2 : 0f;
+                float t = Mathf.Clamp01(tRaw);
                 Vector2 q = a + d * t;
                 float dist = Vector2.Distance(p2, q);
                 float ch = Mathf.Min(e.CorridorHalf, MaxCorridorHalf);
@@ -1252,42 +1344,120 @@ namespace PSXRacing.City
                 if (e.ElevatedAt(at))
                 {
                     // Structure does not pin the land — but the land may not
-                    // reach it either. A deck is over SOMETHING; where the DEM
-                    // shows nothing to cross, the ground is dug to leave
-                    // UnderDeckAir under the soffit. A cap, never a raise:
-                    // under a real viaduct the valley is already deeper.
-                    float capT = e.YAt(at) - DeckThick - UnderDeckAir;
-                    if (w > capW) capW = w;
-                    if (dist <= ch + CorridorBlend * 0.5f && capT < capY) capY = capT;
+                    // reach it either. Only BESIDE the deck, at a true
+                    // perpendicular foot: a clamped projection turned every
+                    // polyline vertex and node of a structure run into a disc
+                    // that dug the grounded approach beyond the rails. The one
+                    // clamped foot kept is the OUTER WEDGE of a bend inside the
+                    // structure, which no segment's true foot covers: without
+                    // it a lattice corner there took the DEM, and a replica of
+                    // an at-grade deck bending 8 degrees at a vertex put the
+                    // land 0.30 m over its surface wherever the DEM stood that
+                    // far above the road (see InStructureWedge).
+                    if ((tRaw <= 0f || tRaw >= 1f) && !InStructureWedge(map, e, si, tRaw <= 0f, p2)) continue;
+                    float deckY = e.YAt(at);
+                    // A deck is over SOMETHING; where the DEM shows nothing to
+                    // cross, its footprint is dug to leave UnderDeckAir under
+                    // the soffit. A cap, never a raise: under a real viaduct
+                    // the valley is already deeper.
+                    if (dist <= e.width * 0.5f + CapPadM && deckY - DeckThick - UnderDeckAir < deckCap)
+                    { deckCap = deckY - DeckThick - UnderDeckAir; terms.deckEdge = ei; }
+                    // ...and its pavement is protected like any road's: the
+                    // lattice cells it touches never stand above it.
+                    if (dist <= ch + CapReach && deckY - CorridorSink < deckProtect)
+                    { deckProtect = deckY - CorridorSink; if (terms.deckEdge < 0) terms.deckEdge = ei; }
                     continue;
                 }
-                // the crest allowance: extra sink where the profile breaks
-                // over, so the straight lattice never rises above the bent road
-                float target = e.YAt(at) - CorridorSink - e.CrestAt(at);
+                // the sag allowance: extra sink where the profile is convex
+                // from below, so the straight lattice never rises above the
+                // bent road (see MeasureSags)
+                float target = e.YAt(at) - CorridorSink - e.SagAt(at);
                 wSum += w; tSum += target * w;
                 if (w > wMax) wMax = w;
-                // The cap below reaches CapReach past the corridor: a lattice
-                // vertex up to a cell outside it still shapes the cells under
-                // the pavement, and one beside the Independence Expressway —
-                // just outside its corridor, inside the blend of Briar Creek
-                // Road's abutment four metres higher and twenty away — took
-                // the mean of the two and stood 1.2 m proud. The cell it
-                // cornered rose through the expressway's outside lane.
-                if (dist <= ch + CapReach && target < tMin) tMin = target;
+                // The protection below reaches CapReach past the corridor: a
+                // lattice vertex up to a cell outside it still shapes the cells
+                // under the pavement, and one beside the Independence
+                // Expressway — just outside its corridor, inside the blend of
+                // Briar Creek Road's abutment four metres higher and twenty
+                // away — took the mean of the two and stood 1.2 m proud. The
+                // cell it cornered rose through the expressway's outside lane.
+                if (dist <= ch + CapReach && target < tMin) { tMin = target; terms.protectEdge = ei; }
+                // The floor: this road's own pin, flat to FloorFlatM past its
+                // pavement and then a 1V:3H batter — but never more than this
+                // road alone would grade the point to, so it fades with the
+                // blend exactly as a lone road's embankment does.
+                float hw = e.width * 0.5f;
+                float floor = Mathf.Min(target - Mathf.Max(0f, dist - hw - FloorFlatM) * RoadsideRules.TraversableSlope,
+                                        Mathf.Lerp(baseY, target, w));
+                if (floor > floorMax) { floorMax = floor; terms.floorEdge = ei; }
+                if (dist - hw <= PitReachM && (float.IsNaN(terms.nearFloor) || floor > terms.nearFloor))
+                { terms.nearFloor = floor; terms.nearEdge = ei; terms.nearDist = dist - hw; }
             }
             if (wSum > 1e-4f)
             {
                 float target = tSum / wSum;
                 baseY = Mathf.Lerp(baseY, target, wMax);
+                terms.blended = baseY;
+                // The blend is a weighted MEAN, so where two roads at different
+                // heights share a corridor it settles BETWEEN them: below the
+                // upper road's verge, above the lower road's lanes. The upper
+                // road keeps its floor...
+                baseY = Mathf.Max(baseY, floorMax);
+                terms.floor = floorMax;
                 // ...and never above the LOWEST tarmac this point is actually
-                // under. The blend above is a weighted MEAN, so where two roads
-                // at different heights share a corridor it settles BETWEEN
-                // them, which is above the lower road.
-                if (tMin < float.MaxValue) baseY = Mathf.Min(baseY, tMin);
+                // beside.
+                if (tMin < float.MaxValue) { baseY = Mathf.Min(baseY, tMin); terms.protect = tMin; }
             }
-            if (capW > 1e-4f && capY < float.MaxValue)
-                baseY = Mathf.Min(baseY, Mathf.Lerp(baseY, capY, capW));
+            else terms.blended = baseY;
+            if (deckProtect < float.MaxValue) { baseY = Mathf.Min(baseY, deckProtect); terms.deckProtect = deckProtect; }
+            if (deckCap < float.MaxValue) { baseY = Mathf.Min(baseY, deckCap); terms.deckCap = deckCap; }
+            terms.result = baseY;
             return baseY;
+        }
+
+        /// <summary>
+        /// Is <paramref name="p"/>, whose projection on segment
+        /// <paramref name="si"/> clamps to one of its ends, in the outer wedge
+        /// of a bend that is structure on BOTH sides? The wedge outside a
+        /// polyline vertex is exactly the set of points with no true
+        /// perpendicular foot on either segment meeting there. At an interior
+        /// vertex the other segment is this edge's own; at a node every other
+        /// arm must be on structure at its end (a viaduct split into OSM ways,
+        /// a fan on a deck) and give no true foot either. A structure END — a
+        /// node with a grounded arm, the edge's run stopping at the vertex — is
+        /// not a wedge: that is the disc that dug the approaches.
+        /// </summary>
+        static bool InStructureWedge(CityMap map, CityMap.Edge e, int si, bool atStart, Vector2 p)
+        {
+            int vi = atStart ? si : si + 1;
+            int last = e.pts.Length - 1;
+            if (vi > 0 && vi < last)
+            {
+                int oj = atStart ? si - 1 : si + 1;
+                return !TrueFoot(e.pts[oj], e.pts[oj + 1], p) && e.ElevatedAt(e.s[vi] + (atStart ? -0.5f : 0.5f));
+            }
+            int node = vi == 0 ? e.a : e.b;
+            bool any = false;
+            foreach (var oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                if (o == e || o.a == o.b || o.pts.Length < 2) continue;
+                bool fromA = o.a == node;
+                if (!o.ElevatedAt(fromA ? 0f : o.length)) return false;
+                int n = o.pts.Length;
+                if (fromA ? TrueFoot(o.pts[0], o.pts[1], p) : TrueFoot(o.pts[n - 2], o.pts[n - 1], p)) return false;
+                any = true;
+            }
+            return any;
+        }
+
+        static bool TrueFoot(Vector2 a, Vector2 b, Vector2 p)
+        {
+            var d = b - a;
+            float L2 = d.sqrMagnitude;
+            if (L2 < 1e-8f) return false;
+            float t = Vector2.Dot(p - a, d) / L2;
+            return t > 0f && t < 1f;
         }
 
         static float DistToSeg(Vector2[] pts, int si, Vector2 p)

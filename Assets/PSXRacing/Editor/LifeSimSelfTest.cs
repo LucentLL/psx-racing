@@ -1187,6 +1187,7 @@ namespace PSXRacing.EditorTools
             TestPizzaCargo();
             TestParkedCarHolds();
             TestVertexSnapOff();
+            TestRoadsideRules();
             TestKerbBuild();
             TestWalkInScenesRender();
             TestTownScene();
@@ -2134,9 +2135,9 @@ namespace PSXRacing.EditorTools
                 Check(col.isTrigger, v.kind + " is a trigger, not a wall");
 
                 Vector3 at = v.transform.position;
-                bool found = Physics.Raycast(at + Vector3.up * 40f, Vector3.down,
-                                             out var hit, 120f, ~0,
-                                             QueryTriggerInteraction.Ignore);
+                // This scene's ground, and not the car parked over it — see
+                // RaycastInScene.
+                bool found = RaycastInScene(scene, at + Vector3.up * 40f, 120f, out var hit);
                 if (!found) { Check(false, v.kind + " has ground under it"); continue; }
                 // Where the middle of a car's body sits when it is parked here.
                 Check(col.bounds.Contains(hit.point + Vector3.up * 0.7f),
@@ -2207,7 +2208,193 @@ namespace PSXRacing.EditorTools
 
             TestDrivesReachTheirGarages(scene);
 
+            // ---- the road's edge ----
+            CheckMountableKerbs(scene, "NbKerb", "your street");
+            CheckRespawnsOnRoad(scene, mode, "your street");
+            CheckThroatsClosed(scene);
+            // A GARDEN FOOTING IS SOLID ONLY WHERE THE FALL IS. Each is drawn
+            // whole; its colliders are the separate "...Solid<n>" boxes over the
+            // runs of its face where the finished ground drops a critical fall
+            // (RoadsideRules.IsCriticalFall). A collider on the drawn box stood
+            // 15-43 cm of concrete lip beside a drive over lawn that was not a
+            // fall at all.
+            int solidRuns = 0, drawnSolid = 0;
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var tr in go.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!tr.name.StartsWith("NbFooting")) continue;
+                    int cols = tr.GetComponents<Collider>().Length;
+                    if (tr.name.Contains("Solid")) solidRuns += cols;
+                    else drawnSolid += cols;
+                }
+            Check(drawnSolid == 0,
+                  "a garden footing is drawn whole and solid only along a critical fall",
+                  solidRuns + " solid run(s), " + drawnSolid + " collider(s) on drawn footings");
+
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+        }
+
+        /// <summary>
+        /// A RAISED KERB A CAR CAN MOUNT. The town's kerbs were 280 m
+        /// BoxColliders standing 14 cm over the road and 22 cm over the lawn,
+        /// unbroken past every entrance — a snag for a stock car from the grass
+        /// and a wall for a lowered one. WorldKit.Kerb draws the stone and
+        /// collides as a ramp; this holds every kerb in the scene to that: no
+        /// box, and no collider triangle a car would meet as a wall.
+        /// </summary>
+        static void CheckMountableKerbs(UnityEngine.SceneManagement.Scene scene, string prefix, string who)
+        {
+            int kerbs = 0, boxes = 0, ramps = 0, tris = 0, walls = 0;
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var tr in go.GetComponentsInChildren<Transform>(true))
+                {
+                    // The run objects and their "...Ramp" children; not the
+                    // "TownKerbs"/"NbKerbs" folder that holds them.
+                    if (!tr.name.StartsWith(prefix) || tr.name == prefix + "s") continue;
+                    kerbs++;
+                    boxes += tr.GetComponents<BoxCollider>().Length;
+                    foreach (var mc in tr.GetComponents<MeshCollider>())
+                    {
+                        ramps++;
+                        CountWallTriangles(mc.sharedMesh, mc.transform, ref tris, ref walls);
+                    }
+                }
+            Check(kerbs > 0 && boxes == 0, who + " kerbs are never a solid box a car stops dead against",
+                  kerbs + " kerb objects, " + boxes + " boxes");
+            Check(ramps > 0 && walls == 0, who + " kerb colliders are ramps a car mounts, with no vertical face",
+                  walls + " of " + tris + " triangles steeper than a landing, on " + ramps + " ramps");
+        }
+
+        /// <summary>
+        /// THE TURNING HEAD MEETS THE STREET WITH NO HOLE. The street ends at
+        /// the throat, where the TRUE circle is exactly the carriageway wide;
+        /// the head is a 31-gon whose chord there sags inside that circle, so
+        /// between the street's end row, the chord and the kerb's foot a
+        /// triangle of neither surface was left — 11 cm by 5.6 cm on the east
+        /// side, with the lawn 8.8 cm down (measured off the built meshes), and
+        /// nothing asked because every check here is about an edge, not about
+        /// the tarmac inside one. PSXRacingBuilder.NbThroatPlate fills it.
+        ///
+        /// Asked of the colliders, not of the builder's arithmetic: every 5 mm
+        /// over the quarter-metre inside each carriageway line, from 10 cm
+        /// short of the street's end to 40 cm into the head, has to stand over
+        /// a ROAD-layer collider of this scene. The west notch was 1.9 cm by
+        /// 1.2, which a centimetre grid can step over.
+        /// </summary>
+        static void CheckThroatsClosed(UnityEngine.SceneManagement.Scene scene)
+        {
+            Collider street = null, head = null;
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var c in go.GetComponentsInChildren<Collider>(true))
+                {
+                    if (c.name == "NbStreet") street = c;
+                    else if (c.name == "NbBulb") head = c;
+                }
+            if (street == null || head == null)
+            {
+                Check(false, "your street has a street and a turning head to join",
+                      (street == null ? "no NbStreet collider " : "") + (head == null ? "no NbBulb collider" : ""));
+                return;
+            }
+            var sb = street.bounds;
+            int samples = 0, holes = 0;
+            string first = null;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float line = side < 0 ? sb.min.x : sb.max.x;
+                for (int i = 1; i <= 50; i++)
+                    for (int j = -20; j < 80; j++)
+                    {
+                        // Half a pitch off the street's end row, so no sample
+                        // lands exactly on the seam two colliders share and
+                        // reads a float crack as a hole.
+                        var at = new Vector3(line - side * i * 0.005f, sb.max.y + 2f,
+                                             sb.max.z + (j + 0.5f) * 0.005f);
+                        samples++;
+                        if (RaycastInScene(scene, at, 6f, out var hit) &&
+                            hit.collider.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer)
+                            continue;
+                        holes++;
+                        if (first == null)
+                            first = "(" + at.x.ToString("0.000") + ", " + at.z.ToString("0.000") + ") over " +
+                                    (hit.collider != null ? hit.collider.name : "nothing");
+                    }
+            }
+            Check(holes == 0, "your street's turning head meets the street with no hole at either throat",
+                  holes + " of " + samples + " points off the tarmac" + (first != null ? ", first " + first : ""));
+        }
+
+        /// <summary>Every place a stuck car is put back stands over a road
+        /// collider. The town's RespawnHome stood on the lawn 30 m north of the
+        /// road, left over from when the home street branched off there, so a
+        /// car stuck in that corner of the map was put back on grass facing a
+        /// kerb.
+        ///
+        /// THE SCENE'S OWN COLLIDERS, and only those. The scene under test is
+        /// opened ADDITIVELY, and a raycast answers out of every scene loaded:
+        /// TestParkedCarHolds runs first and leaves ParkedCarSim's hill — a
+        /// 60 x 400 m box tilted 15% about the origin — in the runner's active
+        /// scene, and the town's Respawn3 stands at x 0. Its ray met that hill
+        /// 42 cm up, 40 cm over the town's tarmac, and the check reported
+        /// "7 of 8 (first off it: Respawn3)" about a respawn standing in the
+        /// middle of the eastbound lane. A collider that is not in the scene is
+        /// not something the car can be put back onto, so it is not asked (see
+        /// <see cref="RaycastInScene"/>); and a miss names what the ray DID
+        /// meet, so the next one is not a hunt. Inside the scene only the
+        /// player's own car goes unasked — it is on Ignore Raycast, and it is
+        /// the car being put back.</summary>
+        static void CheckRespawnsOnRoad(UnityEngine.SceneManagement.Scene scene,
+                                        PSXRacing.City.CityMode mode, string who)
+        {
+            if (mode == null || mode.respawnPoints == null || mode.respawnPoints.Length == 0) return;
+            int total = 0, onRoad = 0;
+            string miss = null;
+            foreach (var rp in mode.respawnPoints)
+            {
+                if (rp == null) continue;
+                total++;
+                bool found = RaycastInScene(scene, rp.position + Vector3.up * 2f, 6f, out var hit);
+                if (found && hit.collider.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer)
+                    onRoad++;
+                else if (miss == null)
+                    miss = rp.name + " over " + (found
+                        ? hit.collider.name + " (layer " + hit.collider.gameObject.layer + ")" : "nothing");
+            }
+            Check(onRoad == total, "every respawn on " + who + " stands over a road collider",
+                  onRoad + " of " + total + (miss != null ? " (first off it: " + miss + ")" : ""));
+        }
+
+        /// <summary>
+        /// The nearest solid collider straight down from <paramref name="from"/>
+        /// that belongs to <paramref name="scene"/>.
+        ///
+        /// The town and the street are opened ADDITIVELY, into a runner whose
+        /// active scene holds whatever the tests before them left there — and
+        /// Physics.Raycast answers out of all of it. ParkedCarSim's 15% hill
+        /// stands about the origin in that scene for the rest of the run, and
+        /// it is what failed the town's middle respawn. Every downward "what is
+        /// under this" in the town and street checks asks through here, so an
+        /// answer is always about the map being checked.
+        ///
+        /// Default layers, so the player's car (Ignore Raycast) is never the
+        /// answer either. The street's HOME check asked with every layer and
+        /// read "surface 1.57 m" for a drive that is level with the lot: the
+        /// roof of the car parked on it, which happened to leave a body's
+        /// middle inside the trigger and passed for the wrong reason.
+        /// </summary>
+        static bool RaycastInScene(UnityEngine.SceneManagement.Scene scene, Vector3 from,
+                                   float distance, out RaycastHit nearest)
+        {
+            Physics.SyncTransforms();
+            nearest = default;
+            bool found = false;
+            foreach (var h in Physics.RaycastAll(from, Vector3.down, distance,
+                                                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                if (h.collider.gameObject.scene != scene) continue;
+                if (!found || h.distance < nearest.distance) { nearest = h; found = true; }
+            }
+            return found;
         }
 
         /// <summary>
@@ -2281,8 +2468,7 @@ namespace PSXRacing.EditorTools
 
             // SEATED. A literal Y is a bug waiting for the ground to move —
             // this street already moved once under the junction volume.
-            bool found = Physics.Raycast(b.center + Vector3.up * 20f, Vector3.down,
-                                         out var hit, 60f, ~0, QueryTriggerInteraction.Ignore);
+            bool found = RaycastInScene(scene, b.center + Vector3.up * 20f, 60f, out var hit);
             Check(found && Mathf.Abs(b.min.y - hit.point.y) <= 0.25f,
                   "and its foot is on the tarmac, neither floating nor buried",
                   found ? "foot " + b.min.y.ToString("0.00") + " m, road " +
@@ -2584,10 +2770,21 @@ namespace PSXRacing.EditorTools
                 var col = e.GetComponent<Collider>();
                 Check(col != null && col.isTrigger,
                       "a road end is a trigger you drive through, not a wall", e.name);
+                // THE WHOLE MAP ACROSS, like the neighbourhood's line. It was
+                // the road plus 4 m either side, 19 m of a 140 m map, so a car
+                // on the lawn drove round the end of it into the boundary wall.
+                if (col != null)
+                    Check(col.bounds.size.z >= 140f,
+                          e.name + " spans the whole map, so the lawn is not a way round it",
+                          col.bounds.size.z.ToString("0") + " m");
                 // And the line the player actually sees, on the main street's
                 // 11 m carriageway.
                 CheckZoneLine(scene, e, 11f, e.name);
             }
+
+            // ---- the road's edge ----
+            CheckMountableKerbs(scene, "TownKerb", "the town");
+            CheckRespawnsOnRoad(scene, mode, "the town");
 
             // ---- the car you actually own ----
             // The town had no RaceHandoffApplier at all, so every drive into it
@@ -3852,10 +4049,13 @@ namespace PSXRacing.EditorTools
         /// texture that misses ConfigureTextureImporters ships bilinear and
         /// mipmapped, and the first thing a mip averages away is a 2 px
         /// joint.
+        ///
+        /// And, while each scene is open, the roadside beyond the kerb
+        /// (<see cref="CheckRoadside"/>) — one open per venue, not two.
         /// </summary>
         static void TestKerbBuild()
         {
-            Line("kerbs:");
+            Line("kerbs and roadsides:");
             var imp = AssetImporter.GetAtPath(PSXRacingBuilder.StreetKerbTexPath) as TextureImporter;
             Check(imp != null, "StreetKerb.png is drawn by GenerateTrackTextures",
                   PSXRacingBuilder.StreetKerbTexPath);
@@ -3947,6 +4147,8 @@ namespace PSXRacing.EditorTools
                                               : " runs unbroken (no driveway on this side)"),
                               minRise.ToString("0.000"));
                     }
+
+                    CheckRoadside(t, trackRoot);
                 }
                 finally
                 {
@@ -3954,6 +4156,533 @@ namespace PSXRacing.EditorTools
                 }
             }
             Check(missing == 0, "every circuit scene was there to read its kerb", missing + " missing");
+        }
+
+        // ---------------------------------------------------------------
+        //  THE ROADSIDE: how a road meets the ground, and where it is railed
+        // ---------------------------------------------------------------
+        /// <summary>CollisionResponder.LandingNormalDot (0.7, private there):
+        /// a contact whose normal is nearer horizontal than this is a crash,
+        /// not a landing — to the car, a wall.</summary>
+        const float WallNormalY = 0.7f;
+        /// <summary>Slack on a designed grade read back off world vertices. A
+        /// mountain stage stands 2 km up and several km out, where a float32
+        /// is good to a few tenths of a millimetre, and the shortest ribbon
+        /// step is 10 cm.</summary>
+        const float GradeSlack = 0.005f;
+        /// <summary>Where the clear zone ends, metres past the tarmac edge:
+        /// the 0.9 m strip, the stage's 0.2 m paved shoulder (StageShoulderM,
+        /// private to PSXRacingBuilder.Stage.cs), then RoadsideRules.ClearZoneM.
+        /// A circuit's run-off meets its wall well inside it.</summary>
+        static float ClearZoneEndE => PSXRacingBuilder.KerbWidth + 0.2f + RoadsideRules.ClearZoneM;
+        /// <summary>The deck test BuildBridges and PlanStageRoadside share
+        /// (PSXRacingBuilder.DeckBlendMin, private there).</summary>
+        const float DeckBlendMin = 0.001f;
+        /// <summary>How far past a stage's tarmac edge a deck station's rail
+        /// is looked for: the obstacle audit's edge-profile reach. The stone's
+        /// collider face stands 1.1 m out, flared as far as a rock toe (2.94 m)
+        /// where an approach run hands over to a cut.</summary>
+        const float StageRailReachM = 8f;
+
+        /// <summary>
+        /// THE CONTRACT ITSELF (RoadsideRules), before anything built to it.
+        /// Every builder and every audit reads that one table, so a constant
+        /// nudged out of order there moves the whole game's roadside at once
+        /// and no single scene check would say which number did it. These are
+        /// the orderings the design depends on, and the two mountable-curb
+        /// ramps measured against them.
+        /// </summary>
+        static void TestRoadsideRules()
+        {
+            Line("roadside rules:");
+            Check(RoadsideRules.EdgeDropM > 0f && RoadsideRules.EdgeDropM < RoadsideRules.EdgeDropFailM
+                  && RoadsideRules.EdgeDropFailM <= RoadsideRules.CarClearanceFloorM,
+                  "the inch at the edge sits under its ceiling, and the ceiling under the lowest body clearance",
+                  RoadsideRules.EdgeDropM + " < " + RoadsideRules.EdgeDropFailM + " <= " + RoadsideRules.CarClearanceFloorM);
+            Check(RoadsideRules.RecoverableSlope < RoadsideRules.SteepestRecoverableSlope
+                  && RoadsideRules.SteepestRecoverableSlope < RoadsideRules.TraversableSlope
+                  && RoadsideRules.BackSlope <= RoadsideRules.TraversableSlope,
+                  "slopes run recoverable < steepest recoverable < traversable, and a backslope is no steeper");
+            Check(RoadsideRules.ToeTuckM / RoadsideRules.ToeTuckRunM <= RoadsideRules.SteepestRecoverableSlope + 1e-4f,
+                  "a shoulder's toe tuck is itself a recoverable slope",
+                  (RoadsideRules.ToeTuckM / RoadsideRules.ToeTuckRunM).ToString("0.000"));
+            Check(RoadsideRules.CityHideMarginM > 0f && RoadsideRules.CityHideMarginM <= RoadsideRules.HideMarginM,
+                  "the lattice is held under every shoulder, the city's 8 m grid no deeper than the coarse grids'",
+                  RoadsideRules.CityHideMarginM + " / " + RoadsideRules.HideMarginM);
+            // What the edge audit calls a FACE has to be more than what the
+            // rules allow a car to meet: the legal inch, and the steepest slope
+            // still called traversable, both over the face's own run.
+            float traversableRise = RoadsideRules.TraversableSlope * RoadsideRules.FaceRunM;
+            Check(RoadsideRules.EdgeDropFailM < RoadsideRules.FaceRiseFailM
+                  && traversableRise < RoadsideRules.FaceRiseFailM
+                  && RoadsideRules.FaceRiseFailM < RoadsideRules.CarClearanceFloorM,
+                  "a legal edge and a traversable slope both read as less than a face, and a face as less than the body's clearance",
+                  "edge " + RoadsideRules.EdgeDropFailM + ", 1V:3H " + traversableRise.ToString("0.000") +
+                  ", face " + RoadsideRules.FaceRiseFailM);
+            // The two raised kerbs the owner kept ("concrete textured curbs")
+            // are drawn as stone and COLLIDE as a ramp; the ramp is the part
+            // a lowered car has to be able to climb.
+            float streetCurb = PSXRacingBuilder.StreetKerbHeight / PSXRacingBuilder.StreetKerbRamp;
+            float townCurb = WorldKit.KerbHeightM / WorldKit.KerbWidthM;
+            Check(streetCurb <= RoadsideRules.TraversableSlope + 1e-4f && townCurb <= RoadsideRules.TraversableSlope + 1e-4f,
+                  "the circuit street curb's and the town kerb's ramp colliders are mountable, 1V:3H or gentler",
+                  (streetCurb * 100f).ToString("0.0") + "% / " + (townCurb * 100f).ToString("0.0") + "%");
+            float deep = RoadsideRules.CriticalFallM + 0.5f;
+            Check(RoadsideRules.IsCriticalFall(deep, 1f)
+                  && !RoadsideRules.IsCriticalFall(RoadsideRules.CriticalFallM - 0.1f, 0f)
+                  && !RoadsideRules.IsCriticalFall(deep, deep / RoadsideRules.TraversableSlope + 0.5f),
+                  "a deep steep fall warrants a barrier; a shallow drop, or a deep one graded traversable, does not");
+            var rays = RoadsideRules.BarrierRayHeights;
+            bool raysOk = rays != null && rays.Length > 0 && rays[0] > RoadsideRules.FaceRiseFailM;
+            for (int i = 1; raysOk && i < rays.Length; i++) raysOk = rays[i] > rays[i - 1];
+            Check(raysOk, "barriers are looked for above any legal face, lowest height first");
+            // A deck is carried one station onto each approach, and an approach
+            // run's last EndFlareStations chords flare and sink: the full-height
+            // stone has to reach past the carried station before that starts.
+            Check(RoadsideRules.ApproachRailStations - RoadsideRules.EndFlareStations >= 2,
+                  "an approach rail stands full height past the station each deck is carried onto",
+                  RoadsideRules.ApproachRailStations + " stations, " + RoadsideRules.EndFlareStations + " flaring");
+            Check(RoadsideRules.EndFlareRatio > 0f && RoadsideRules.EndFlareRatio <= 0.1f,
+                  "a barrier terminal flares as a taper, not a kink", RoadsideRules.EndFlareRatio.ToString("0.000"));
+            Check(Mathf.Abs(PSXRacingBuilder.KerbStripLift) < 0.001f
+                  && PSXRacingBuilder.DeckTopBelowTarmac >= 0f
+                  && PSXRacingBuilder.DeckTopBelowTarmac < RoadsideRules.EdgeDropFailM,
+                  "the kerb strip is flush with the tarmac, and a deck's top within an edge drop under it",
+                  PSXRacingBuilder.KerbStripLift + " / " + PSXRacingBuilder.DeckTopBelowTarmac);
+            Check(Mathf.Approximately(PSXRacing.City.CityElevation.CorridorSink, RoadsideRules.CityHideMarginM),
+                  "Charlotte sinks its lattice by the city hide margin", PSXRacing.City.CityElevation.CorridorSink);
+            Check(PSXRacing.City.CityMeshes.RailW + PSXRacing.City.CityMeshes.RailOverhangM >= 0.6f,
+                  "a Charlotte rail's collider is at least 0.6 m deep, like a stage wall's footing",
+                  PSXRacing.City.CityMeshes.RailW + PSXRacing.City.CityMeshes.RailOverhangM);
+        }
+
+        /// <summary>
+        /// THE ROADSIDE OF ONE BUILT VENUE, read off its saved meshes and
+        /// colliders with no physics query, so it answers in a sandbox whose
+        /// edit-mode physics scene never populated (the obstacle audit's
+        /// physics pass is the other half, and needs one).
+        ///
+        /// The owner, 2026-09-13: "difficult to drive back onto tracks,
+        /// especially mountain tracks because of their walls ... all sections
+        /// of bridges should have walls", and the rule behind it, "roads
+        /// sitting cm above the ground do not need rails/walls, they should
+        /// meet the ground properly by DOT standards". So, per venue:
+        ///   * no kerb collider has a face a car meets as a wall;
+        ///   * the shoulder ribbon is there, collides, faces up, starts flush
+        ///     on the kerb strip, and inside the clear zone neither falls
+        ///     steeper than 1V:4H nor rises steeper than 1V:3H for more than an
+        ///     edge drop — its toe tuck and skirt excepted, which lie under the
+        ///     ground by design;
+        ///   * every bridge span station, the station its deck is carried onto
+        ///     and (on a stage) the full-height part of each approach run has a
+        ///     barrier collider on BOTH sides at both barrier heights;
+        ///   * a stage's rock cuts have solid tops, its tunnel mouths solid
+        ///     portals, and its sea no collider at the height StuckRecovery reads.
+        /// </summary>
+        static void CheckRoadside(TrackCatalog.TrackDef t, Transform trackRoot)
+        {
+            var path = trackRoot.GetComponent<TrackPath>();
+            bool hasPath = path != null && path.waypoints != null && path.waypoints.Length > 2;
+            Check(hasPath, t.id + " Track root carries the path it was built from");
+            if (!hasPath) return;
+            if (t.stage) TrackCatalog.EnsureStage(t);   // bridges and water come from the bake
+
+            var wp = path.waypoints;
+            int n = wp.Length;
+            // PSXRacingBuilder.Loop and RightAt, restated: a row of the shoulder
+            // is found by where the builder put its first vertex, so the
+            // arithmetic has to be the builder's to the float.
+            bool loop = !t.drag && !(t.stage && !t.loop);
+            var right = new Vector3[n];
+            for (int i = 0; i < n; i++)
+            {
+                int a = loop ? (i - 1 + n) % n : Mathf.Max(0, i - 1);
+                int b = loop ? (i + 1) % n : Mathf.Min(n - 1, i + 1);
+                right[i] = Vector3.Cross(Vector3.up, (wp[b] - wp[a]).normalized).normalized;
+            }
+            float half = path.roadWidth * 0.5f;
+
+            CheckKerbColliders(t, trackRoot);
+            CheckShoulderRibbon(t, trackRoot, wp, right, half);
+            CheckDeckRails(t, trackRoot, wp, right, loop, half);
+            if (t.stage) CheckStageFurniture(t, trackRoot);
+        }
+
+        /// <summary>Count a mesh collider's triangles, and those of them a car
+        /// would meet as a wall (either winding: a concave collider is hit from
+        /// both sides).</summary>
+        static void CountWallTriangles(Mesh mesh, Transform xf, ref int tris, ref int walls)
+        {
+            if (mesh == null) return;
+            var v = mesh.vertices;
+            var t = mesh.triangles;
+            for (int i = 0; i + 2 < t.Length; i += 3)
+            {
+                Vector3 a = xf.TransformPoint(v[t[i]]);
+                Vector3 nrm = Vector3.Cross(xf.TransformPoint(v[t[i + 1]]) - a, xf.TransformPoint(v[t[i + 2]]) - a);
+                if (nrm.sqrMagnitude < 1e-10f) continue;
+                tris++;
+                if (Mathf.Abs(nrm.normalized.y) < WallNormalY) walls++;
+            }
+        }
+
+        /// <summary>
+        /// NO KERB COLLIDER HAS A FACE. The picture of a street curb is a 15 cm
+        /// battered stone; what the car collides with is a ramp, because the
+        /// body box meets any vertical lip before a wheel ray lifts it. A
+        /// flat racing or verge strip collides on the mesh it draws.
+        /// </summary>
+        static void CheckKerbColliders(TrackCatalog.TrackDef t, Transform trackRoot)
+        {
+            int boxes = 0, tris = 0, walls = 0;
+            foreach (var name in new[] { "KerbL", "KerbR" })
+            {
+                var kerb = trackRoot.Find(name);
+                if (kerb == null) continue;   // TestKerbBuild has already said so
+                boxes += kerb.GetComponentsInChildren<BoxCollider>(true).Length;
+                foreach (var mc in kerb.GetComponentsInChildren<MeshCollider>(true))
+                    CountWallTriangles(mc.sharedMesh, mc.transform, ref tris, ref walls);
+            }
+            Check(boxes == 0 && tris > 0 && walls == 0,
+                  t.id + " kerb colliders have no vertical face (a ramp or a flat strip, never a box)",
+                  boxes + " boxes, " + walls + " of " + tris + " triangles steeper than a landing");
+        }
+
+        /// <summary>
+        /// THE SHOULDER RIBBON, row by row. BuildShoulders lays each station
+        /// and side as one run of vertices — the profile, the slope carried on
+        /// to its catch where it ends on one, the toe tuck, the skirt — and
+        /// every run starts exactly on the kerb strip's outer edge, so a row is
+        /// recognised by that first vertex and its station read off it.
+        /// </summary>
+        static void CheckShoulderRibbon(TrackCatalog.TrackDef t, Transform trackRoot,
+                                        Vector3[] wp, Vector3[] right, float half)
+        {
+            var chunks = new List<MeshFilter>();
+            foreach (Transform c in trackRoot)
+                if (c.name.StartsWith("RoadEdge") && c.GetComponent<MeshFilter>() is MeshFilter f && f.sharedMesh != null)
+                    chunks.Add(f);
+            Check(chunks.Count > 0, t.id + " has a shoulder ribbon (RoadEdge) beside its tarmac", chunks.Count);
+            if (chunks.Count == 0) return;
+
+            int n = wp.Length;
+            bool street = PSXRacingBuilder.KerbStyleFor(t) == PSXRacingBuilder.KerbStyle.Street;
+            // Where every row would start: one metre cells, 3x3 lookup.
+            var starts = new Dictionary<long, List<int>>();
+            long Cell(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
+            Vector3 StartOf(int packed) =>
+                wp[packed >> 1] + right[packed >> 1] * ((packed & 1) == 0 ? -1f : 1f) * (half + PSXRacingBuilder.KerbWidth);
+            for (int i = 0; i < n; i++)
+                for (int s = 0; s < 2; s++)
+                {
+                    Vector3 p = StartOf(i * 2 + s);
+                    long key = Cell(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.z));
+                    if (!starts.TryGetValue(key, out var list)) starts[key] = list = new List<int>(2);
+                    list.Add(i * 2 + s);
+                }
+            int MatchStart(Vector3 v)
+            {
+                int cx = Mathf.FloorToInt(v.x), cz = Mathf.FloorToInt(v.z);
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        if (!starts.TryGetValue(Cell(cx + dx, cz + dz), out var list)) continue;
+                        foreach (int packed in list)
+                        {
+                            Vector3 p = StartOf(packed);
+                            float ddx = p.x - v.x, ddz = p.z - v.z;
+                            if (ddx * ddx + ddz * ddz < 0.005f * 0.005f) return packed;
+                        }
+                    }
+                return -1;
+            }
+
+            int maxRowsPerChunk = 2 * (Mathf.FloorToInt(240f / TrackCatalog.Spacing) + 1);
+            int badCollider = 0, down = 0, triCount = 0, rows = 0, widest = 0;
+            int unparsed = 0, backwards = 0, offStrip = 0, foreslopes = 0, faces = 0;
+            float worstFall = 0f, worstRise = 0f, worstStrip = 0f;
+            string whereFall = "", whereRise = "", whereStrip = "", whereOrder = "";
+            foreach (var mf in chunks)
+            {
+                var mesh = mf.sharedMesh;
+                var mc = mf.GetComponent<MeshCollider>();
+                if (mc == null || mc.sharedMesh != mesh || mf.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer)
+                    badCollider++;
+
+                var xf = mf.transform;
+                var local = mesh.vertices;
+                var vs = new Vector3[local.Length];
+                for (int k = 0; k < local.Length; k++) vs[k] = xf.TransformPoint(local[k]);
+                var tr = mesh.triangles;
+                for (int k = 0; k + 2 < tr.Length; k += 3)
+                {
+                    Vector3 nrm = Vector3.Cross(vs[tr[k + 1]] - vs[tr[k]], vs[tr[k + 2]] - vs[tr[k]]);
+                    if (nrm.sqrMagnitude < 1e-10f) continue;
+                    triCount++;
+                    if (nrm.y < 0f) down++;
+                }
+
+                int rowStart = -1, rowPacked = -1, chunkRows = 0;
+                for (int k = 0; k <= vs.Length; k++)
+                {
+                    int packed = k < vs.Length ? MatchStart(vs[k]) : -1;
+                    if (k < vs.Length && packed < 0) continue;
+                    if (rowStart < 0) unparsed += k;   // vertices before the first row this chunk
+                    else
+                    {
+                        chunkRows++;
+                        rows++;
+                        int i = rowPacked >> 1;
+                        float side = (rowPacked & 1) == 0 ? -1f : 1f;
+                        string where = "wp " + i + (side < 0f ? " left" : " right");
+                        int count = k - rowStart;
+                        if (count < 3) { unparsed += count; }
+                        else
+                        {
+                            Vector3 outw = right[i] * side;
+                            float roadY = wp[i].y + PSXRacingBuilder.RoadLift;
+                            float prevE = 0f, prevDy = 0f, fallRun = 0f, riseRun = 0f;
+                            bool rowFall = false, rowRise = false, rowOrder = false;
+                            for (int q = 0; q < count; q++)
+                            {
+                                Vector3 v = vs[rowStart + q];
+                                float e = (v.x - wp[i].x) * outw.x + (v.z - wp[i].z) * outw.z - half;
+                                float dy = v.y - roadY;
+                                if (q == 0)
+                                {
+                                    // Flush on the strip: its top is KerbStripLift
+                                    // over the tarmac, plus a street curb's lift.
+                                    float top = dy - PSXRacingBuilder.KerbStripLift;
+                                    float over = Mathf.Max(-top, top - (street ? PSXRacingBuilder.StreetKerbHeight : 0f));
+                                    if (over > 0.002f)
+                                    {
+                                        offStrip++;
+                                        if (over > worstStrip) { worstStrip = over; whereStrip = where; }
+                                    }
+                                }
+                                else
+                                {
+                                    float run = e - prevE;
+                                    if (run < 0.005f) rowOrder = true;
+                                    // The surface a car drives on: every point but
+                                    // the last two (the toe tuck and the skirt,
+                                    // which lie under the ground lattice).
+                                    else if (q < count - 2 && prevE < ClearZoneEndE)
+                                    {
+                                        float fall = prevDy - dy;
+                                        fallRun = fall > run * (RoadsideRules.SteepestRecoverableSlope + GradeSlack) ? fallRun + fall : 0f;
+                                        riseRun = -fall > run * (RoadsideRules.TraversableSlope + GradeSlack) ? riseRun - fall : 0f;
+                                        if (fallRun > RoadsideRules.EdgeDropFailM)
+                                        {
+                                            rowFall = true;
+                                            if (fallRun > worstFall) { worstFall = fallRun; whereFall = where + " at e " + prevE.ToString("0.00"); }
+                                        }
+                                        if (riseRun > RoadsideRules.EdgeDropFailM)
+                                        {
+                                            rowRise = true;
+                                            if (riseRun > worstRise) { worstRise = riseRun; whereRise = where + " at e " + prevE.ToString("0.00"); }
+                                        }
+                                    }
+                                }
+                                prevE = e; prevDy = dy;
+                            }
+                            if (rowFall) foreslopes++;
+                            if (rowRise) faces++;
+                            if (rowOrder) { backwards++; if (whereOrder == "") whereOrder = where; }
+                        }
+                    }
+                    rowStart = k;
+                    rowPacked = packed;
+                }
+                widest = Mathf.Max(widest, chunkRows);
+            }
+
+            Check(badCollider == 0,
+                  t.id + " every shoulder chunk collides on the mesh it draws, off the Road layer",
+                  badCollider + " of " + chunks.Count + " chunks wrong");
+            Check(down == 0, t.id + " no shoulder triangle faces down", down + " of " + triCount);
+            Check(rows > 0 && unparsed == 0 && backwards == 0,
+                  t.id + " every shoulder row starts on the kerb strip's outer edge and runs strictly outward",
+                  rows + " rows, " + unparsed + " vertices outside a row, " + backwards + " rows folding back" +
+                  (whereOrder != "" ? " (first " + whereOrder + ")" : ""));
+            Check(widest <= maxRowsPerChunk, t.id + " no shoulder chunk carries more than 240 m of road",
+                  widest / 2 + " stations in the widest");
+            Check(offStrip == 0, t.id + " every shoulder starts flush on the kerb strip's top",
+                  offStrip == 0 ? rows + " rows" : offStrip + " rows off it, worst " + worstStrip.ToString("0.000") + " m at " + whereStrip);
+            Check(foreslopes == 0,
+                  t.id + " inside the clear zone no shoulder falls steeper than 1V:4H for more than an edge drop",
+                  foreslopes == 0 ? rows + " rows" : foreslopes + " rows, worst " + worstFall.ToString("0.000") + " m at " + whereFall);
+            Check(faces == 0,
+                  t.id + " inside the clear zone no shoulder rises steeper than 1V:3H for more than an edge drop",
+                  faces == 0 ? rows + " rows" : faces + " rows, worst " + worstRise.ToString("0.000") + " m at " + whereRise);
+        }
+
+        /// <summary>
+        /// "ALL SECTIONS OF BRIDGES SHOULD HAVE WALLS." Every station a span
+        /// covers (the deck's own blend test), the station the deck is carried
+        /// onto either side, and on a stage the full-height part of each
+        /// approach run (ApproachRailStations less the flaring terminal), cast
+        /// outward from the tarmac edge at both barrier heights on both sides,
+        /// at the station and mid-chord: each cast must cross a barrier box.
+        /// Geometric, against the boxes' own transforms, so it needs no physics.
+        /// </summary>
+        static void CheckDeckRails(TrackCatalog.TrackDef t, Transform trackRoot,
+                                   Vector3[] wp, Vector3[] right, bool loop, float half)
+        {
+            int n = wp.Length;
+            if (t.drag || t.bridges == null || t.bridges.Length == 0) return;
+            float lap = Mathf.Max(t.LengthM, 1f);
+            var span = new bool[n];
+            int spans = 0;
+            for (int i = 0; i < n; i++)
+                if (TrackCatalog.BridgeBlend(t, Mathf.Repeat(i * TrackCatalog.Spacing, lap)) > DeckBlendMin)
+                { span[i] = true; spans++; }
+            if (spans == 0) return;
+
+            int carry = t.stage ? RoadsideRules.ApproachRailStations - RoadsideRules.EndFlareStations : 1;
+            var need = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (!span[i]) continue;
+                for (int o = -carry; o <= carry; o++)
+                {
+                    int j = i + o;
+                    if (loop) j = (j % n + n) % n;
+                    else if (j < 0 || j >= n) continue;
+                    need[j] = true;
+                }
+            }
+
+            // The barrier boxes: a stage's guard walls, tunnel walls and
+            // portals and rock faces, a circuit's perimeter wall. 16 m cells.
+            var cells = new Dictionary<long, List<BoxCollider>>();
+            long Cell(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
+            foreach (var box in trackRoot.GetComponentsInChildren<BoxCollider>(true))
+            {
+                string nm = box.name;
+                if (box.isTrigger || !(nm == "WallColl" || nm == "WallTunnel" || nm == "WallPortal" ||
+                                       nm == "BankColl" || nm == "Wall")) continue;
+                Vector3 c = box.transform.TransformPoint(box.center);
+                long key = Cell(Mathf.FloorToInt(c.x / 16f), Mathf.FloorToInt(c.z / 16f));
+                if (!cells.TryGetValue(key, out var list)) cells[key] = list = new List<BoxCollider>();
+                list.Add(box);
+            }
+            bool Barred(Vector3 a, Vector3 b)
+            {
+                Vector3 mid = (a + b) * 0.5f;
+                int cx = Mathf.FloorToInt(mid.x / 16f), cz = Mathf.FloorToInt(mid.z / 16f);
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dz = -1; dz <= 1; dz++)
+                        if (cells.TryGetValue(Cell(cx + dx, cz + dz), out var list))
+                            foreach (var box in list)
+                                if (SegmentCrossesBox(box, a, b)) return true;
+                return false;
+            }
+
+            float reach = t.stage ? StageRailReachM : PSXRacingBuilder.WallOffsetFor(t) - half + 1.5f;
+            int casts = 0, open = 0;
+            string firstOpen = null;
+            for (int i = 0; i < n; i++)
+            {
+                if (!need[i]) continue;
+                int nx = loop ? (i + 1) % n : i + 1;
+                bool chord = nx < n && need[nx];
+                for (int m = 0; m < (chord ? 2 : 1); m++)
+                {
+                    Vector3 c = m == 0 ? wp[i] : (wp[i] + wp[nx]) * 0.5f;
+                    Vector3 r = m == 0 ? right[i] : (right[i] + right[nx]).normalized;
+                    foreach (float side in new[] { -1f, 1f })
+                        foreach (float h in RoadsideRules.BarrierRayHeights)
+                        {
+                            Vector3 a = c + Vector3.up * (PSXRacingBuilder.RoadLift + h) + r * (side * half);
+                            casts++;
+                            if (Barred(a, a + r * (side * reach))) continue;
+                            open++;
+                            if (firstOpen == null)
+                                firstOpen = "wp " + i + (m == 1 ? "+half" : "") + (side < 0f ? " left" : " right") +
+                                            " at +" + h.ToString("0.00") + " m";
+                        }
+                }
+            }
+            Check(open == 0,
+                  t.id + " every bridge span station" + (t.stage ? ", its carried deck end and its approach" : " and its carried deck end") +
+                  " has a barrier collider on both sides",
+                  open == 0 ? spans + " span stations, " + casts + " casts"
+                            : open + " of " + casts + " casts open (first " + firstOpen + ")");
+        }
+
+        /// <summary>Does the segment a-b pass through the box? A slab test in
+        /// the box's own frame.</summary>
+        static bool SegmentCrossesBox(BoxCollider box, Vector3 a, Vector3 b)
+        {
+            var xf = box.transform;
+            Vector3 la = xf.InverseTransformPoint(a) - box.center;
+            Vector3 d = xf.InverseTransformPoint(b) - box.center - la;
+            Vector3 h = box.size * 0.5f;
+            float t0 = 0f, t1 = 1f;
+            for (int ax = 0; ax < 3; ax++)
+            {
+                if (Mathf.Abs(d[ax]) < 1e-6f)
+                {
+                    if (la[ax] < -h[ax] || la[ax] > h[ax]) return false;
+                    continue;
+                }
+                float u0 = (-h[ax] - la[ax]) / d[ax], u1 = (h[ax] - la[ax]) / d[ax];
+                if (u0 > u1) { float swap = u0; u0 = u1; u1 = swap; }
+                t0 = Mathf.Max(t0, u0);
+                t1 = Mathf.Min(t1, u1);
+                if (t0 > t1) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// A stage's furniture that has to be SOLID where it is drawn: every
+        /// rock cut carries a rock top whose collider is the top and the face
+        /// (at a cut's tapered ends no box stands, so it is the whole of the
+        /// rock there); every tunnel has a portal box either side of each
+        /// mouth; and the sea is a plane with NO collider at the height the
+        /// bake says, because StuckRecovery finds it by the name "Sea" and
+        /// recovers a car that goes under it — a collider would let a car
+        /// drive on the water, and a missing plane turns the rule off
+        /// silently.
+        /// </summary>
+        static void CheckStageFurniture(TrackCatalog.TrackDef t, Transform trackRoot)
+        {
+            int banks = 0, topless = 0, tunnels = 0, portals = 0;
+            Transform sea = null;
+            foreach (var tr in trackRoot.GetComponentsInChildren<Transform>(true))
+            {
+                string nm = tr.name;
+                if (nm == "WallPortal") portals++;
+                else if (nm == "Sea") sea = tr;
+                else if (nm.Length > 6 && nm.StartsWith("Tunnel") && char.IsDigit(nm[6])) tunnels++;
+                else if (nm.Length > 4 && nm.StartsWith("Bank") && char.IsDigit(nm[4]))
+                {
+                    banks++;
+                    var top = tr.parent != null ? tr.parent.Find("BankTop" + nm.Substring(4)) : null;
+                    var mc = top != null ? top.GetComponent<MeshCollider>() : null;
+                    if (mc == null || mc.sharedMesh == null || top.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer)
+                        topless++;
+                }
+            }
+            if (banks > 0)
+                Check(topless == 0, t.id + " every rock cut has a solid rock top (BankTop, off the Road layer)",
+                      banks + " cuts, " + topless + " without");
+            if (tunnels > 0)
+                Check(portals == 4 * tunnels, t.id + " every tunnel mouth is solid either side of the bore",
+                      portals + " portal boxes for " + tunnels + " tube(s)");
+            if (t.stageWaterY > 0f || sea != null)
+            {
+                var r = sea != null ? sea.GetComponent<Renderer>() : null;
+                bool ok = sea != null && sea.gameObject.activeInHierarchy && r != null &&
+                          sea.GetComponent<Collider>() == null &&
+                          Mathf.Abs(r.bounds.center.y - t.stageWaterY) < 0.05f;
+                Check(ok, t.id + " has an active Sea plane with no collider at the bake's water height",
+                      sea == null ? "no Sea" : r == null ? "no renderer"
+                          : "plane " + r.bounds.center.y.ToString("0.00") + " m, bake " + t.stageWaterY.ToString("0.00") + " m" +
+                            (sea.GetComponent<Collider>() != null ? ", HAS A COLLIDER" : ""));
+            }
         }
 
         /// <summary>Circumradius of waypoint triples, two apart so a single
@@ -6644,8 +7373,11 @@ namespace PSXRacing.EditorTools
             Check(s.cars.Count == 1, "a car to trade from", s.cars.Count);
 
             // Buying: cash path, garage cap, and the value model.
+            // The classifieds are rolled from the whole catalog, so the first
+            // listing can be a $741,000 exotic; the purse has to cover whatever
+            // it is, or this checks the dice instead of the cash path.
             s.garageSlots = 2;
-            s.money = 500000;
+            s.money = 50000000;
             var listing = s.newspaper[0];
             var cash = CarMarket.FinanceOptions(s, listing)[0];
             string err = CarMarket.Buy(s, listing, cash);

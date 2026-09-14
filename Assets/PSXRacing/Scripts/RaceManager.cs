@@ -495,7 +495,11 @@ namespace PSXRacing
                 return;
             }
 
-            car.ResetTo(path.GetPoint(start), path.GetRotation(start));
+            // Seated on the waypoint itself — the road datum, RoadLift under the
+            // tarmac, so the car lands 0.28 m over it. ResetTo's own probe from
+            // six metres up would take the first surface under that: a deck
+            // crossing overhead, or the hillside over a tunnel.
+            car.ResetTo(path.GetPoint(start), path.GetRotation(start), seated: true);
             if (p != null) p.nearestIdx = start;
         }
     }

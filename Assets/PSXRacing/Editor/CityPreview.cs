@@ -332,6 +332,9 @@ namespace PSXRacing.EditorTools
                     Wrap(root, tm.ground, mats, tm.groundSlots);
                     Wrap(root, tm.roads, mats, tm.roadSlots);
                     Wrap(root, tm.barriers, mats, new[] { CityMeshes.Slot.Concrete });
+                    // The kerb faces are their own render-only mesh now (no
+                    // collider), exactly as CityWorld stands them up.
+                    Wrap(root, tm.kerbs, mats, new[] { CityMeshes.Slot.Concrete });
                     Wrap(root, tm.water, mats, new[] { CityMeshes.Slot.Water });
                     Wrap(root, tm.buildings, mats, tm.buildingSlots);
                     roadV += tm.roads != null ? tm.roads.vertexCount : 0;

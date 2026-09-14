@@ -41,6 +41,29 @@ namespace PSXRacing.EditorTools
         // inside twenty seconds of every other one.
         const float TownStreetHalf = 140f;   // main street runs +/- this in x
         const float TownRoadW = 11f;
+        /// <summary>The main street's surface, and the lawn's. The lawn is
+        /// SUNK 8 cm under the tarmac — see BuildTownGround for why it cannot
+        /// come up — and every edge between the two is a kerb and verge or a
+        /// feather, so that sink is something nobody drives into.</summary>
+        const float TownRoadY = 0.02f;
+        const float TownGrassY = -0.06f;
+        /// <summary>The concrete aprons, a few millimetres under the road they
+        /// meet so the two never share a plane.</summary>
+        const float TownApronY = 0.015f;
+        /// <summary>Where the boundary walls stand: past each end of the
+        /// street, and the two long sides.</summary>
+        const float TownBoundsOut = 18f;
+        const float TownBoundsS = -58f, TownBoundsN = 82f;
+        /// <summary>
+        /// Half the TARMAC's length: out to the boundary walls, not to the end
+        /// of the street. The street's end at +/-140 was reachable — a car that
+        /// turns back at the edge line can drive on past it — and it was a
+        /// square 8 cm step onto the lawn. Run under the wall, the road has no
+        /// end a car can reach, and its kerbs and verges none either.
+        /// </summary>
+        const float TownRoadHalf = TownStreetHalf + TownBoundsOut;
+        /// <summary>How far above the tarmac a respawn point stands.</summary>
+        const float TownRespawnLift = 0.38f;
         const float HomeStreetX = -110f;     // the turning to your street
         /// <summary>Where your street ENDS. Below the house, not past it —
         /// the road ran through the building on the first cut, and a house
@@ -49,6 +72,19 @@ namespace PSXRacing.EditorTools
         const float HomeStreetTop = 44f;
         const float HomeRoadW = 9f;
         const float TownHouseZ = 63f;        // your house, past the end of the road
+        /// <summary>Your own drive's width — see BuildTownHome for why 3.9 —
+        /// and therefore the gap the turning head's kerb is dropped across.</summary>
+        const float HomeDriveW = 3.9f;
+        /// <summary>
+        /// How far your drive runs back over the turning head, and how far
+        /// above it. The head is a 31-sided polygon (WorldKit.Disc) whose top
+        /// chords sit up to 23 cm inside the true circle the drive used to
+        /// stop at, so a slot of lawn 9 cm deep lay across the mouth of your
+        /// own drive. A quarter of a metre closes it; the centimetre is the
+        /// street/head overlap's own rule — two coplanar road surfaces are a
+        /// z-fight, and a centimetre is well inside the owner's inch.
+        /// </summary>
+        const float HomeDriveOverlapM = 0.25f, HomeDriveLift = 0.04f;
 
         const string TownHouseDir = Root + "/Art/LifeSim/House";
         const string TownHouseTex = TownHouseDir + "/Textures";
@@ -89,6 +125,11 @@ namespace PSXRacing.EditorTools
         /// the frontage, the doorway, and a step inside it. An ARRAY because
         /// one was not enough — see BuildTownStrip.</summary>
         static Transform[] townPizzaHooks;
+        /// <summary>Every lot entrance on the main street, as (side of the
+        /// road, x from, x to): where the kerb is DROPPED. Filled by TownPad as
+        /// each lot lays its concrete out to the road, read by BuildTownKerbs
+        /// once they all have — which is why the kerbs are built last.</summary>
+        static List<(int side, float x0, float x1)> townEntrances;
 
         static Transform TownAnchor(Transform parent, string name, Vector3 at, Vector3 facing)
         {
@@ -106,6 +147,7 @@ namespace PSXRacing.EditorTools
             townPizzaKerb = townDealerDoor =
                 townYardGate = townHomeDoor = townMechanicDoor = townPaintDoor = null;
             townPizzaHooks = null;
+            townEntrances = new List<(int side, float x0, float x1)>();
             psxLit = Shader.Find("PSX/Lit");
             if (psxLit == null) throw new System.Exception("PSX/Lit not found");
             matByTex.Clear();
@@ -131,7 +173,10 @@ namespace PSXRacing.EditorTools
             BuildTownTrade(root.transform, mats);
             var dealerAnchors = BuildTownDealer(root.transform, mats);
             var yardAnchors = BuildTownYard(root.transform, mats);
-            BuildTownStation(root.transform);
+            BuildTownStation(root.transform, mats);
+            // LAST of the ground: the kerbs are dropped at every entrance, and
+            // an entrance is only known once its lot has laid its concrete.
+            BuildTownKerbs(root.transform, mats);
             BuildTownBounds(root.transform);
 
             // ---- the player, on their own drive, pointing at the street ----
@@ -283,27 +328,134 @@ namespace PSXRacing.EditorTools
             // not enough: a big ground triangle's interpolated depth crosses
             // the road's somewhere in the middle distance and a BAND OF GRASS
             // appears across the carriageway, moving as you drive. Eight
-            // centimetres is four times the margin and reads as a kerb.
-            WorldKit.GridSlab(parent, "TownGround", new Vector3(0f, -0.06f, 20f),
+            // centimetres is four times the margin.
+            //
+            // AND IT STAYS SUNK. The eight centimetres used to be a square step
+            // at every edge of every slab in town — "most roads aren't more
+            // than an inch above the shoulder dirt" — and bringing the lawn up
+            // would bring the band back. The lawn is graded up to each edge by
+            // a feather instead (WorldKit.Feather), which is a strip of this
+            // same grass, on this same world UV, laid over the gap.
+            WorldKit.GridSlab(parent, "TownGround", new Vector3(0f, TownGrassY, 20f),
                 TownStreetHalf * 2f + 200f, 320f, 4f, m.grass, true, 16f);
 
-            // Main street, and the turning up to your house. Both on the ROAD
-            // LAYER — CarController decides onRoad by layer number, so tarmac
-            // left on layer 0 is tarmac the car drives on with off-road grip
-            // for the whole session and nothing on screen says so.
-            WorldKit.GridSlab(parent, "TownMain", new Vector3(0f, 0.02f, 0f),
-                TownStreetHalf * 2f, TownRoadW, 4f, m.road, true, 12f, WorldKit.RoadLayer);
+            // Main street, on the ROAD LAYER — CarController decides onRoad by
+            // layer number, so tarmac left on layer 0 is tarmac the car drives
+            // on with off-road grip for the whole session and nothing on screen
+            // says so. Out under the boundary walls; see TownRoadHalf.
+            WorldKit.GridSlab(parent, "TownMain", new Vector3(0f, TownRoadY, 0f),
+                TownRoadHalf * 2f, TownRoadW, 4f, m.road, true, 12f, WorldKit.RoadLayer);
 
-            // Centre line on the main street, and kerbs either side of it.
-            // The line is PAINT, not surface: no collider, and off the road
-            // layer, because a 22 cm strip standing 1.5 cm proud of the tarmac
-            // is something a wheel steps onto.
-            WorldKit.GridSlab(parent, "TownCentreLine", new Vector3(0f, 0.035f, 0f),
+            // Centre line on the main street. It is PAINT, not surface: no
+            // collider, and off the road layer, because a 22 cm strip standing
+            // 1.5 cm proud of the tarmac is something a wheel steps onto.
+            // (The kerbs either side are BuildTownKerbs', built after the lots
+            // that decide where they are dropped.)
+            WorldKit.GridSlab(parent, "TownCentreLine", new Vector3(0f, TownRoadY + 0.015f, 0f),
                 TownStreetHalf * 2f, 0.22f, 8f, m.line, false, 6f);
+        }
+
+        /// <summary>The town lawn's collider height anywhere: flat, a box top.</summary>
+        static float TownGroundAt(float x, float z) => TownGrassY;
+
+        /// <summary>
+        /// THE MAIN STREET'S KERBS: raised stone, a ramp a car can mount, and the
+        /// lawn graded up behind them — dropped flush at every lot entrance.
+        ///
+        /// They were two solid 280 m boxes, 14 cm over the road and 22 cm over
+        /// the lawn, unbroken past all six entrances: the body box met the face
+        /// before a wheel did, a lowered car could not leave the street, and
+        /// every forecourt, the dealer's drive and the yard gate were reached
+        /// over a kerb standing up through their own concrete. The stone stays
+        /// — a town street has a kerb — but what a car meets is the 31% ramp
+        /// under it and, behind it, a verge falling at 1V:8H to the lawn, so
+        /// there is no berm-then-drop on the way back either.
+        /// </summary>
+        static void BuildTownKerbs(Transform parent, TownMats m)
+        {
+            var root = new GameObject("TownKerbs");
+            root.transform.SetParent(parent, false);
+            int stones = 0;
             for (int s = -1; s <= 1; s += 2)
-                WorldKit.Box(parent, "TownKerb" + s,
-                    new Vector3(0f, 0.08f, s * (TownRoadW * 0.5f + 0.2f)),
-                    new Vector3(TownStreetHalf * 2f, 0.16f, 0.4f), m.kerb);
+            {
+                int side = s;
+                float zEdge = side * TownRoadW * 0.5f;
+                var edge = new List<Vector3>
+                {
+                    new Vector3(-TownRoadHalf, TownRoadY, zEdge),
+                    new Vector3(TownRoadHalf, TownRoadY, zEdge),
+                };
+                var outward = new List<Vector3> { new Vector3(0f, 0f, side), new Vector3(0f, 0f, side) };
+                // No taper at either end: both are under the boundary walls.
+                var runs = WorldKit.KerbRuns(edge, outward,
+                    p => InTownEntrance(side, p.x), WorldKit.KerbHeightM,
+                    taperStart: false, taperEnd: false, maxPitch: 4f);
+                string tag = side < 0 ? "S" : "N";
+                for (int r = 0; r < runs.Count; r++)
+                {
+                    WorldKit.Kerb(root.transform, "TownKerb" + tag + r, runs[r], m.kerb, WorldKit.RoadLayer);
+                    WorldKit.KerbVerge(root.transform, "TownVerge" + tag + r, runs[r],
+                                       TownGroundAt, m.grass, 16f);
+                    stones++;
+                }
+            }
+            Log("[Town] kerbs: " + stones + " runs, dropped at " + townEntrances.Count + " entrances");
+        }
+
+        static bool InTownEntrance(int side, float x)
+        {
+            foreach (var e in townEntrances)
+                if (e.side == side && x > e.x0 && x < e.x1) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// A lot's CONCRETE: a flat slab on the road layer, an inch of skirt
+        /// and a feather on each of its lawn edges, and — if its road-side
+        /// edge lies on the kerb line — an entrance, so the kerb is dropped
+        /// across it.
+        ///
+        /// One function because every lot in town got at least one of these
+        /// wrong on its own: the dealer's and the yard's drives ran UNDER the
+        /// kerb (the yard's with a negative depth, wound face-down and drawn by
+        /// nobody), the forecourt's apron lay two millimetres under half the
+        /// carriageway, and every outer edge was a square 7.5 cm step.
+        /// </summary>
+        /// <param name="lawnEdges">The edges that meet LAWN. Leave out the one
+        /// on the road and any that stand against a wall.</param>
+        static void TownPad(Transform parent, TownMats m, string name,
+                            float minX, float maxX, float minZ, float maxZ, float y,
+                            Material mat, float tile, float cell,
+                            WorldKit.SlabEdge lawnEdges, params WorldKit.SlabCut[] cuts)
+        {
+            float roadEdge = TownRoadW * 0.5f;
+            int side = maxZ <= 0f ? -1 : 1;
+            float roadSideZ = side < 0 ? maxZ : minZ;
+            var roadFlag = side < 0 ? WorldKit.SlabEdge.MaxZ : WorldKit.SlabEdge.MinZ;
+            // Positive: short of the road. Negative: lying on the carriageway.
+            float shortBy = Mathf.Abs(roadSideZ) - roadEdge;
+            if (Mathf.Abs(shortBy) < 0.01f)
+                townEntrances.Add((side, minX, maxX));
+            else if (shortBy < 0f)
+                // The unit apron's 14 m floor would do this to a unit moved
+                // toward the road: concrete a few millimetres under the tarmac,
+                // and a kerb standing up through it.
+                Log("[Town] WARN: " + name + " runs " + (-shortBy).ToString("0.00") +
+                    " m onto the carriageway; its kerb is not dropped.");
+            else if ((lawnEdges & roadFlag) == 0)
+            {
+                // A pad that stops short of the road has a lawn edge there too,
+                // and a feather on it rather than a strip of grass and a step.
+                lawnEdges |= roadFlag;
+                Log("[Town] WARN: " + name + " stops " + shortBy.ToString("0.00") +
+                    " m short of the road; its kerb is not dropped.");
+            }
+
+            WorldKit.GridSlab(parent, name, new Vector3((minX + maxX) * 0.5f, y, (minZ + maxZ) * 0.5f),
+                maxX - minX, maxZ - minZ, cell, mat, true, tile, WorldKit.RoadLayer,
+                skirt: lawnEdges);
+            WorldKit.FeatherRect(parent, name + "Verge", minX, maxX, minZ, maxZ, y,
+                lawnEdges, TownGroundAt, m.grass, 16f, cuts);
         }
 
         /// <summary>
@@ -447,20 +599,22 @@ namespace PSXRacing.EditorTools
             // kerb across the head of the street, only the two side kerbs the
             // drive never reaches, so the overlap bridged nothing and simply
             // laid 10 square metres of drive on the carriageway — 2 cm proud of
-            // it, on a flat box collider, over tarmac that now slopes.
+            // it, on a flat box collider, over tarmac that now slopes. (It
+            // reaches HomeDriveOverlapM back over the head now, for the
+            // polygon's sake — see the constant — and that is all.)
             float driveTopZ = doorZ;
             // Down to the RIM OF THE TURNING HEAD, which is what the street
             // ends in now — not to HomeStreetTop, which is a line inside it.
-            float driveBotZ = NbBulbCz + NbBulbR;
+            float driveBotZ = NbBulbCz + NbBulbR - HomeDriveOverlapM;
             WorldKit.GridSlab(home.transform, "HomeDrive",
                 new Vector3(doorX, 0f, (driveTopZ + driveBotZ) * 0.5f),
-                3.9f, driveTopZ - driveBotZ, 3f, m.drive, true, 5f, WorldKit.RoadLayer,
+                HomeDriveW, driveTopZ - driveBotZ, 3f, m.drive, true, 5f, WorldKit.RoadLayer,
                 // Follows the street's own profile at the bottom. NbRoadY is
                 // clamped to zero for z >= HomeStreetTop, so the whole drive is
-                // flat at 0.03 exactly as before and only its last metres could
-                // ever bend — but they bend correctly if the head of the street
-                // ever moves, instead of hanging where a literal put them.
-                (px, pz) => NbRoadY(pz) + 0.03f,
+                // flat exactly as before and only its last metres could ever
+                // bend — but they bend correctly if the head of the street ever
+                // moves, instead of hanging where a literal put them.
+                (px, pz) => NbRoadY(pz) + HomeDriveLift,
                 // AND IT HAS A SIDE TO IT. Your own drive is the one the
                 // player stands beside every time they get out of the car, so
                 // it is the one whose zero thickness was most visible. The
@@ -468,6 +622,35 @@ namespace PSXRacing.EditorTools
                 // it is against the garage and the bottom runs into the
                 // turning head, and neither wants a lip.
                 WorldKit.SlabEdge.SidesX);
+            // AND THE LAWN COMES UP TO MEET THOSE SIDES, the way it does beside
+            // every drive on the street (see BuildNbPlots): an inch of skirt,
+            // then grass, from the drive's own bottom edge to the door. From
+            // the bottom edge and not the true rim: the head's kerb stops on the
+            // rim's chord a quarter-metre further down, and a feather that began
+            // at the circle left a 5 cm slot of lawn, 10 cm deep, between the
+            // stone's end and the concrete.
+            // Beside the house's own forecourt the feather runs under the
+            // planting beds: its inner edge is an inch under the drive, which
+            // puts it 1.5 cm over the ground the house is seated on, and it
+            // falls away from there — beneath the soil the beds are modelled
+            // on, rather than up through the shrubs.
+            for (int e = -1; e <= 1; e += 2)
+            {
+                var edge = new List<Vector3>();
+                var outs = new List<Vector3>();
+                float ex = doorX + e * HomeDriveW * 0.5f;
+                float z0 = driveBotZ, z1 = driveTopZ;
+                int steps = Mathf.Max(1, Mathf.CeilToInt((z1 - z0) / 1.5f));
+                for (int k = 0; k <= steps; k++)
+                {
+                    float ez = Mathf.Lerp(z0, z1, k / (float)steps);
+                    edge.Add(new Vector3(ex, NbRoadY(ez) + HomeDriveLift, ez));
+                    outs.Add(new Vector3(e, 0f, 0f));
+                }
+                if (z1 > z0)
+                    WorldKit.Feather(home.transform, "HomeDriveVerge" + (e < 0 ? "W" : "E"),
+                                     edge, outs, NbLatticeAt, m.grass, 16f);
+            }
 
             // Where the car is parked at the start of a session, facing OUT.
             // Two metres clear of the door so the nose is not inside the house.
@@ -562,8 +745,12 @@ namespace PSXRacing.EditorTools
             // the far edge of this model's bounds is its AWNING, which
             // overhangs the pavement by a good stride. Concrete costs nothing
             // and a building standing on it is a building on a pavement.
-            WorldKit.GridSlab(strip.transform, "PizzaApron", new Vector3(-6f, 0.015f, -14f),
-                26f, 16f, 3f, m.drive, true, 6f, WorldKit.RoadLayer);
+            // OUT TO THE ROAD, where it used to stop at the back of the kerb
+            // with a 10 cm strip of lawn between the two: the whole frontage
+            // is the entrance, so the kerb is dropped across it.
+            TownPad(strip.transform, m, "PizzaApron", -19f, 7f, -22f, -TownRoadW * 0.5f,
+                TownApronY, m.drive, 6f, 3f,
+                WorldKit.SlabEdge.MinX | WorldKit.SlabEdge.MaxX | WorldKit.SlabEdge.MinZ);
             // THE WHOLE APRON, not a box in the middle of it. The volume used
             // to be 12 x 9 on a 26 x 14 forecourt, so a car parked on the east
             // half of the shop's own frontage was offered nothing at all —
@@ -724,14 +911,21 @@ namespace PSXRacing.EditorTools
             // concrete stops six metres short of the road is a lot you reach
             // across a lawn, and it reads as scenery dropped on the map rather
             // than a unit built beside the street.
-            // Front wall to kerb. Both units stand SOUTH of the main street, so
-            // the kerb is the low-z edge of the carriageway and the apron runs
-            // up in +z; the Max is a floor rather than a case, so a unit moved
-            // to the far side gets a forecourt rather than an inside-out one.
-            float apronDepth = Mathf.Max(14f, -(TownRoadW * 0.5f + 0.4f) - fz);
-            WorldKit.GridSlab(unit.transform, name + "Apron",
-                new Vector3(at.x, 0.015f, fz + apronDepth * 0.5f), w + 8f, apronDepth, 3f,
-                m.drive, true, 6f, WorldKit.RoadLayer);
+            // Front wall to the ROAD. Both units stand SOUTH of the main street,
+            // so the road's edge is the low-z edge of the carriageway and the
+            // apron runs up in +z; the Max is a floor rather than a case, so a
+            // unit moved to the far side gets a forecourt rather than an
+            // inside-out one. It stopped at the back of the kerb, which then
+            // stood 14 cm up out of the unit's own driveway.
+            float apronDepth = Mathf.Max(14f, -(TownRoadW * 0.5f) - fz);
+            // Lawn on three sides; the south one is the building's front along
+            // its width (walls and all), and the unit's floor carries on there.
+            TownPad(unit.transform, m, name + "Apron",
+                at.x - (w + 8f) * 0.5f, at.x + (w + 8f) * 0.5f, fz, fz + apronDepth,
+                TownApronY, m.drive, 6f, 3f,
+                WorldKit.SlabEdge.MinX | WorldKit.SlabEdge.MaxX | WorldKit.SlabEdge.MinZ,
+                new WorldKit.SlabCut(WorldKit.SlabEdge.MinZ,
+                                     at.x - (w + wall) * 0.5f, at.x + (w + wall) * 0.5f));
             // AND A FLOOR INSIDE. The shutters are 5.4 m openings you can drive
             // through, and without this the inside of a workshop is the town's
             // grass — off-road grip under a roof, which is exactly the trap
@@ -824,15 +1018,28 @@ namespace PSXRacing.EditorTools
             lot.transform.SetParent(parent, false);
             const float cx = 62f, cz = 27f;
 
-            WorldKit.GridSlab(lot.transform, "DealerApron", new Vector3(cx, 0.015f, cz),
-                48f, 30f, 3f, m.drive, true, 6f, WorldKit.RoadLayer);
+            // Where the drive in meets the lot: the stretch of the apron's south
+            // edge that is concrete on both sides, and gets no feather.
+            const float inHalfW = 5.5f;
+            float inX = cx - 8f;
             // AND A WAY IN. The apron stopped six metres short of the kerb and
             // the only route onto it was across the lawn — which works, drives
             // fine, and reads as the lot having been dropped on the map rather
             // than built beside the road.
-            WorldKit.GridSlab(lot.transform, "DealerIn",
-                new Vector3(cx - 8f, 0.016f, (cz - 15f + 4f) * 0.5f),
-                11f, cz - 15f - 4f, 3f, m.drive, true, 6f, WorldKit.RoadLayer);
+            // FROM THE ROAD'S EDGE. It started 1.5 m in under the tarmac, with
+            // the kerb box standing up through it, and a millimetre over the
+            // apron where the two met — which is why it is 0.016 and not the
+            // apron's 0.015: they abut rather than overlap now, and the
+            // millimetre keeps the seam from ever sharing a plane.
+            TownPad(lot.transform, m, "DealerIn", inX - inHalfW, inX + inHalfW,
+                TownRoadW * 0.5f, cz - 15f, TownApronY + 0.001f, m.drive, 6f, 3f,
+                WorldKit.SlabEdge.SidesX);
+            // The lot. West and north are walled (below); south is lawn except
+            // where the drive comes in, east is lawn.
+            TownPad(lot.transform, m, "DealerApron", cx - 24f, cx + 24f, cz - 15f, cz + 15f,
+                TownApronY, m.drive, 6f, 3f,
+                WorldKit.SlabEdge.MinZ | WorldKit.SlabEdge.MaxX,
+                new WorldKit.SlabCut(WorldKit.SlabEdge.MinZ, inX - inHalfW, inX + inHalfW));
             var show = WorldKit.PlaceTall(lot.transform, TownBlocks[0].fbx, "Showroom",
                 new Vector3(cx + 14f, 0f, cz + 12f), Vector3.back, TownBlocks[0].tall,
                 glass: true);
@@ -912,9 +1119,13 @@ namespace PSXRacing.EditorTools
             // A WAY IN, from the road. The gate used to be in the SOUTH fence,
             // which is the far side from the street: the only route to it was
             // forty metres across a lawn and round the back of the compound.
-            WorldKit.GridSlab(yard.transform, "YardIn",
-                new Vector3(cx, 0.016f, (cz + halfZ + 4f) * 0.5f),
-                10f, cz + halfZ - 4f, 3f, m.dirt, true, 8f, WorldKit.RoadLayer);
+            // From the yard's fence line to the ROAD'S EDGE. It was built with a
+            // negative depth — cz + halfZ - 4 is -18 — which ran it from the
+            // fence out across the whole carriageway to z +4, wound its mesh
+            // face-down so nothing drew it, and left its box collider giving
+            // road grip on what looked like lawn.
+            TownPad(yard.transform, m, "YardIn", cx - 5f, cx + 5f, cz + halfZ, -TownRoadW * 0.5f,
+                0.016f, m.dirt, 8f, 3f, WorldKit.SlabEdge.SidesX);
 
             // Fence: three closed sides and a gate in the fourth, on the road
             // side. 2.4 m, which is a real yard fence and tall enough to hide a
@@ -1041,7 +1252,7 @@ namespace PSXRacing.EditorTools
         /// whole thing off the height of a Fuel_pump — the only object in the
         /// model with a size the real world agrees about.
         /// </summary>
-        static void BuildTownStation(Transform parent)
+        static void BuildTownStation(Transform parent, TownMats m)
         {
             var root = SpawnStation("GasStation", out var pumps);
             root.transform.SetParent(parent, false);
@@ -1105,11 +1316,18 @@ namespace PSXRacing.EditorTools
             // a lawn with its shop fittings in the grass. Sized off the trimmed
             // lot itself rather than typed in, because SpawnStation scales the
             // whole pack off pump height and the lot is whatever that leaves.
-            WorldKit.GridSlab(parent, "StationApron",
-                new Vector3(b.center.x, 0.018f, b.center.z),
-                Mathf.Max(24f, b.size.x + 6f), Mathf.Max(24f, b.size.z + 6f), 4f,
-                MakeMat("TownForecourt", TownHouseTex + "/ConcreteBare.jpg"),
-                true, 6f, WorldKit.RoadLayer);
+            //
+            // CLIPPED AT THE ROAD'S EDGE. Centred on the lot, its south third
+            // lay two millimetres under the north half of the carriageway —
+            // a z-fight across the street and a slab the kerb stood up through.
+            // Its road edge is the entrance now, and the kerb is dropped along
+            // the whole forecourt.
+            float sx = Mathf.Max(24f, b.size.x + 6f), sz = Mathf.Max(24f, b.size.z + 6f);
+            TownPad(parent, m, "StationApron",
+                b.center.x - sx * 0.5f, b.center.x + sx * 0.5f,
+                Mathf.Max(b.center.z - sz * 0.5f, TownRoadW * 0.5f), b.center.z + sz * 0.5f,
+                0.018f, MakeMat("TownForecourt", TownHouseTex + "/ConcreteBare.jpg"), 6f, 4f,
+                WorldKit.SlabEdge.MinX | WorldKit.SlabEdge.MaxX | WorldKit.SlabEdge.MaxZ);
             Log("[Town] forecourt: " + pumps.Count + " pump(s), apron " +
                 b.size.x.ToString("0") + " x " + b.size.z.ToString("0") + " m");
         }
@@ -1126,11 +1344,11 @@ namespace PSXRacing.EditorTools
                 go.layer = WorldKit.SolidLayer;
                 go.AddComponent<BoxCollider>().size = size;
             }
-            float hx = TownStreetHalf + 18f;
+            float hx = TownStreetHalf + TownBoundsOut;
             Wall("W", new Vector3(-hx, 3f, 12f), new Vector3(1f, 6f, 170f));
             Wall("E", new Vector3(hx, 3f, 12f), new Vector3(1f, 6f, 170f));
-            Wall("S", new Vector3(0f, 3f, -58f), new Vector3(hx * 2f, 6f, 1f));
-            Wall("N", new Vector3(0f, 3f, 82f), new Vector3(hx * 2f, 6f, 1f));
+            Wall("S", new Vector3(0f, 3f, TownBoundsS), new Vector3(hx * 2f, 6f, 1f));
+            Wall("N", new Vector3(0f, 3f, TownBoundsN), new Vector3(hx * 2f, 6f, 1f));
 
             // AND THE TWO ENDS OF THE ROAD, which are where a delivery leaves
             // from. Both ends, because "drive to the end of the road" should not
@@ -1145,7 +1363,16 @@ namespace PSXRacing.EditorTools
                 go.transform.position = new Vector3(s * (TownStreetHalf - 6f), 1.6f, 0f);
                 var col = go.AddComponent<BoxCollider>();
                 col.isTrigger = true;
-                col.size = new Vector3(7f, 4f, TownRoadW + 8f);
+                // THE WHOLE MAP ACROSS, the way the neighbourhood's DepartEdge
+                // is. It was the road plus 4 m either side — 19 m of a 140 m
+                // map — so a car on the lawn drove round the end of the line,
+                // pinned itself on the end wall, and StuckRecovery read that
+                // as stuck. Symmetric about the road (z 0) rather than about
+                // the map, because TownEdge.ArrivalSpot puts an arriving car
+                // at the volume's centre line and that has to stay on the
+                // tarmac.
+                float spanZ = 2f * Mathf.Max(-TownBoundsS, TownBoundsN) + 2f;
+                col.size = new Vector3(7f, 4f, spanZ);
                 var edge = go.AddComponent<PSXRacing.Town.TownEdge>();
                 // Into town is toward the middle of the street. The WEST end
                 // is where the road home leaves from — the player spawns at
@@ -1154,42 +1381,15 @@ namespace PSXRacing.EditorTools
                 edge.inward = new Vector3(-s, 0f, 0f);
                 edge.homeSide = s < 0;
                 // THE LINE, on the face the car crosses first: the inner one.
-                // At the ROAD SURFACE — the TownMain slab's 0.02 — because
+                // At the ROAD SURFACE — the TownMain slab's TownRoadY — because
                 // the marker seats its own parts; the old 0.55 was the lift
-                // for a row of floating knots.
+                // for a row of floating knots. Across the carriageway only:
+                // the volume is the whole map, the line is where the road is.
                 EdgeMarkers(go.transform,
-                    new Vector3(s * (TownStreetHalf - 6f - 3.5f), 0.02f, 0f),
+                    new Vector3(s * (TownStreetHalf - 6f - 3.5f), TownRoadY, 0f),
                     Vector3.forward, TownRoadW);
             }
         }
-
-        // ---- the zone line's dimensions ----
-        // All starting values for tuning; the derivations are the chase rig
-        // (5.4 m back, 1.8 m up, 58 deg vertical) at the game's own 240 and
-        // 480 lines: 4.14 and 8.28 px per degree.
-        /// <summary>2.8 m: twice a car roof, so it reads as a wall and not a
-        /// fence, and from the chase rig at 100 m it subtends ~5 deg = 22 px
-        /// at 240 lines (45 at 480); at 30 m, ~150 px.</summary>
-        const float ZoneCurtainHeight = 2.8f;
-        /// <summary>One metre past each kerb, so the curtain is seen to end
-        /// on the verge rather than at the tarmac's edge. Both triggers are
-        /// wider still (the town's 19 m across, the junction's the whole map),
-        /// so nothing of it stands outside the volume it marks.</summary>
-        const float ZoneCurtainOverhang = 1.0f;
-        /// <summary>The on-road bar: 0.5 m wide, 8 cm tall, centred 7 cm up so
-        /// its top sits at +11 cm — above the town's 3.5 cm centre-line paint
-        /// and below the 16 cm kerbs, never coplanar with the road.</summary>
-        const float ZoneBarWidth = 0.5f, ZoneBarHeight = 0.08f, ZoneBarLift = 0.07f;
-        /// <summary>Posts: 3 m tall, 30 cm across, standing 0.6 m past the
-        /// kerb line — the kerb boxes reach width/2 + 0.4, so a 15 cm radius
-        /// clears them by 5 cm — with a 0.4 m cap. The cap is what reads from
-        /// far away; the shaft is ~2.5 px at 100 m / 480 lines.</summary>
-        const float ZonePostHeight = 3.0f, ZonePostDiameter = 0.30f,
-                    ZonePostOut = 0.6f, ZoneCapSize = 0.4f;
-        /// <summary>Near-white for the bar and caps, the curtain's blue for the
-        /// posts. Emissive, so these ARE the colours on screen before fog.</summary>
-        static readonly Color ZoneBarTint = new Color(0.85f, 0.97f, 1.0f);
-        static readonly Color ZonePostTint = new Color(0.12f, 0.30f, 0.90f);
 
         /// <summary>
         /// THE ZONE LINE YOU CAN SEE.
@@ -1217,7 +1417,7 @@ namespace PSXRacing.EditorTools
         ///
         /// So, three parts, each the answer to a way the last cut failed:
         ///   - the CURTAIN: one quad the road width plus a metre over each
-        ///     kerb, ZoneCurtainHeight tall, alpha-blended (PSX/ZoneLine) so
+        ///     kerb, 2.8 m tall, alpha-blended (PSX/ZoneLine) so
         ///     it can DARKEN a bright sky; white at the base, blue above,
         ///     fading to nothing at the top.
         ///   - the BAR: an opaque emissive white strip on the tarmac, so the
@@ -1303,16 +1503,20 @@ namespace PSXRacing.EditorTools
                 var go = new GameObject("Respawn" + (i + 3));
                 go.transform.SetParent(root.transform, false);
                 go.transform.SetPositionAndRotation(
-                    new Vector3(i * 40f, 0.4f, -2.5f),
+                    new Vector3(i * 40f, TownRoadY + TownRespawnLift, -TownRoadW * 0.25f),
                     Quaternion.LookRotation(Vector3.right, Vector3.up));
                 list.Add(go.transform);
             }
-            var up = new GameObject("RespawnHome");
-            up.transform.SetParent(root.transform, false);
-            up.transform.SetPositionAndRotation(
-                new Vector3(HomeStreetX, 0.4f, 30f),
-                Quaternion.LookRotation(Vector3.back, Vector3.up));
-            list.Add(up.transform);
+            // ON THE STREET, at the home end, in the westbound lane. It stood on
+            // the lawn 30 m north of the road — left over from when your street
+            // branched off the town at HomeStreetX — so a car stuck in the
+            // north-west of the map was put back on grass, facing a kerb.
+            var home = new GameObject("RespawnHome");
+            home.transform.SetParent(root.transform, false);
+            home.transform.SetPositionAndRotation(
+                new Vector3(HomeStreetX, TownRoadY + TownRespawnLift, TownRoadW * 0.25f),
+                Quaternion.LookRotation(Vector3.left, Vector3.up));
+            list.Add(home.transform);
             return list.ToArray();
         }
 

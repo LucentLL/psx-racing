@@ -66,12 +66,12 @@ namespace PSXRacing.City
             public float[] stY;      // road surface height
             public bool[] stElev;    // true where the road is ON STRUCTURE
                                      // (bridge/overpass): deck mesh, no ground pin
-            /// <summary>How far each station stands above the chord of its
-            /// neighbours — the crest of a grade break, measured by
-            /// CityElevation.MeasureCrests. The ground lattice is straight
-            /// between its vertices and the road bends here, so the land
-            /// under a crest is sunk by this much extra.</summary>
-            public float[] stCrest;
+            /// <summary>How much the grade INCREASES at each station (a sag;
+            /// never negative), end stations carrying their node's worst arm
+            /// pair — measured by CityElevation.MeasureSags. The ground
+            /// lattice is straight between its corners and the road bends
+            /// here, so the land near a sag is sunk by <see cref="SagAt"/>.</summary>
+            public float[] stSag;
             /// <summary>Stations SEATED on a host road: a branch running inside
             /// its host's pavement takes the host's height there, and no raise
             /// may lift it off. Null on an edge with none. See
@@ -129,22 +129,43 @@ namespace PSXRacing.City
                 return Mathf.LerpUnclamped(stY[lo], stY[lo + 1], t);
             }
 
-            /// <summary>The crest allowance at an arc position (see
-            /// <see cref="stCrest"/>): zero on a straight grade.</summary>
-            public float CrestAt(float at)
+            /// <summary>
+            /// The sag allowance at an arc position: how far a lattice corner
+            /// pinned here must sit below the tarmac (beyond the plain sink)
+            /// so that no straight lattice chord through a sag within
+            /// <see cref="CityElevation.SagChordM"/> rises above the road.
+            ///
+            /// For one break of dg at distance d, a chord of length C with an
+            /// end here overshoots the bent road by at most dg * d (C - d) / C,
+            /// and interpolating that allowance between the corners of any
+            /// chord or lattice triangle no longer than C covers the overshoot
+            /// at every point between them (breaks superpose). Zero on a
+            /// straight grade and over a crest.
+            /// </summary>
+            public float SagAt(float at)
             {
-                if (stCrest == null || stCrest.Length == 0) return 0f;
+                if (stSag == null || stSag.Length == 0) return 0f;
                 at = Mathf.Clamp(at, 0f, length);
                 int lo = 0, hi = stS.Length - 2;
-                if (hi < 0) return stCrest[0];
                 while (lo < hi)
                 {
                     int mid = (lo + hi + 1) >> 1;
                     if (stS[mid] <= at) lo = mid; else hi = mid - 1;
                 }
-                float seg = stS[lo + 1] - stS[lo];
-                float t = seg > 1e-6f ? (at - stS[lo]) / seg : 0f;
-                return Mathf.LerpUnclamped(stCrest[lo], stCrest[lo + 1], t);
+                float c = CityElevation.SagChordM, sum = 0f;
+                for (int i = lo; i >= 0; i--)
+                {
+                    float d = at - stS[i];
+                    if (d >= c) break;
+                    if (stSag[i] > 0f) sum += stSag[i] * d * (c - d) / c;
+                }
+                for (int i = lo + 1; i < stS.Length; i++)
+                {
+                    float d = stS[i] - at;
+                    if (d >= c) break;
+                    if (stSag[i] > 0f) sum += stSag[i] * d * (c - d) / c;
+                }
+                return sum;
             }
 
             public bool ElevatedAt(float at)
@@ -212,9 +233,6 @@ namespace PSXRacing.City
         public Vector2 uptown;
         public Vector2[] nodes;
         public float[] nodeY;
-        /// <summary>The crest allowance at each junction: a node is a
-        /// station every arm shares (CityElevation.MeasureCrests).</summary>
-        public float[] nodeCrest;
         public int[] nodeControl;         // 0 none, 1 yield, 2 stop, 4 signal
         public Edge[] edges;
         public List<int>[] nodeEdges;     // edges touching each node

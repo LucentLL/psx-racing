@@ -107,11 +107,12 @@ namespace PSXRacing.EditorTools
             // contribute its colliders to the slope test, and the self-test
             // calls this between passes that open the town and the street.
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            GameObject slope = null;
             try
             {
                 Physics.simulationMode = SimulationMode.Script;
                 Time.fixedDeltaTime = Dt;
-                BuildSlope();
+                slope = BuildSlope();
                 return new[]
                 {
                     Case("handbrake", handbrake: true,  brake: 0f),
@@ -135,6 +136,15 @@ namespace PSXRacing.EditorTools
             }
             finally
             {
+                // THE HILL GOES WHEN THE TEST DOES. The empty scene above is the
+                // runner's active scene for the rest of the self-test, and every
+                // later pass opens its own scene ADDITIVELY beside it, so a
+                // 60 x 400 m tilted box left here stood in all of them: the
+                // town's Respawn3 check (x 0, z -2.75) raycast onto its top, 40
+                // cm over the tarmac, and failed a respawn that was on the road
+                // (2026-09-13). Anything a later physics query near the origin
+                // asks — a circuit is centred on it — would have met it too.
+                if (slope != null) Object.DestroyImmediate(slope);
                 Physics.simulationMode = prevMode;
                 Time.fixedDeltaTime = prevDt;
             }
@@ -144,9 +154,9 @@ namespace PSXRacing.EditorTools
         /// The hill. A single tilted box, big enough that a car which runs away
         /// stays on it for the whole six seconds — a car that falls off the end
         /// reports the distance to the edge, which looks like a pass the
-        /// steeper the test gets.
+        /// steeper the test gets. Returned so Run can take it down again.
         /// </summary>
-        static void BuildSlope()
+        static GameObject BuildSlope()
         {
             float deg = Mathf.Atan(Grade) * Mathf.Rad2Deg;
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -158,6 +168,7 @@ namespace PSXRacing.EditorTools
             // ~((1 << 2) | (1 << solidLayer)) — everything except cars and
             // solid scenery — so the default layer is what its wheels can see.
             go.layer = 0;
+            return go;
         }
 
         static Reading Case(string name, bool handbrake, float brake, bool reverse = true)

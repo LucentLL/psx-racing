@@ -302,6 +302,7 @@ namespace PSXRacing.EditorTools
                   $"{CityElevation.SeatedStationCount} stations seated");
 
             DriveAudit(map, trims, buildings);
+            RoadsideAudit(map, trims, buildings);
 
             Finish();
         }
@@ -519,7 +520,7 @@ namespace PSXRacing.EditorTools
                                 if (hp.EndsWith("/Ground") || hp.EndsWith("/Water"))
                                 {
                                     grass++; grassHere++;
-                                    Note(1.5f + Mathf.Abs(d), $"GRASS {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} land {d:+0.00;-0.00} m from the solve and ON TOP of the tarmac: {hp} at ({w.x:0},{w.z:0}){(e.ElevatedAt(s) ? " deck" : "")} crest {e.CrestAt(s):0.00}{Owner(hit.point, ei)}");
+                                    Note(1.5f + Mathf.Abs(d), $"GRASS {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} land {d:+0.00;-0.00} m from the solve and ON TOP of the tarmac: {hp} at ({w.x:0},{w.z:0}){(e.ElevatedAt(s) ? " deck" : "")} sag {e.SagAt(s):0.00}{Owner(hit.point, ei)}");
                                 }
                                 if (Mathf.Abs(d) > 0.35f)
                                 {
@@ -593,6 +594,430 @@ namespace PSXRacing.EditorTools
                 if (++shown >= 24) break;
             }
             foreach (var dump in sectionDumps) Line(dump.TrimEnd());
+        }
+
+        // ==================================================================
+        /// <summary>
+        /// THE ROADSIDE AUDIT (2026-09-13). The drive audit fires every ray
+        /// INSIDE the lanes, so it never saw what a car meets past the edge:
+        /// a 20 cm kerb collider along every street, a pit beside every
+        /// structure approach, open deck edges at wedges, noses and fans.
+        /// This stands up the tiles the three race routes cross and the most
+        /// elevated tiles in the city, and asks the car's questions from
+        /// OUTSIDE the edge (RoadsideRules is the one table of thresholds):
+        ///
+        ///   VERGE  on a grounded edge that no rail, wall or other road
+        ///          claims: the surface 5 cm out is within EdgeDropFailM of
+        ///          the tarmac, and a ray at the body box's lowest clearance
+        ///          over the ground a metre out, fired back at the edge, meets
+        ///          no face steeper than a landing (normal.y 0.7).
+        ///   RAILS  every metre of every ribbon side, fan chord and gore nose:
+        ///          where the surface 1.5 m out is more than OpenDropM down, a
+        ///          Solid-layer collider must stand across the edge — and across
+        ///          any road surface carrying on flush beyond it — at wheel to
+        ///          hip height (an overlap box, so a ray starting on a rail's
+        ///          face cannot miss it the way CityEdgeProbe's did).
+        ///   LANES  counted, not failed: land or a barrier over any lane probed.
+        ///   PITS   every lattice corner within PitReachM of a grounded
+        ///          ribbon more than half a metre under that ribbon's own
+        ///          design, labelled by the rule that put it there.
+        /// </summary>
+        const int RoadsideTopElevatedTiles = 12;
+        /// <summary>Tiles kept standing at once while the probe walks the
+        /// routes (a route's tiles are contiguous, so neighbours are reused).</summary>
+        const int RoadsideLiveTiles = 40;
+
+        static long TileKey(int tx, int tz) => ((long)tx << 32) | (uint)tz;
+
+        /// <summary>The tiles the roadside audit probes: every tile a race
+        /// route's edges cross, then the most elevated tiles in the city.</summary>
+        public static List<(int tx, int tz, string why)> RoadsideTiles(CityMap map, int topElevated)
+        {
+            var tiles = new List<(int tx, int tz, string why)>();
+            var seen = new HashSet<long>();
+            void Add(Vector2 p, string why)
+            {
+                int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
+                if (seen.Add(TileKey(tx, tz))) tiles.Add((tx, tz, why));
+            }
+            foreach (var r in map.routes)
+                foreach (var ei in r.edges)
+                {
+                    var e = map.edges[ei];
+                    for (float s = 0f; s < e.length; s += 16f) Add(e.PointAt(s), "route " + r.id);
+                    Add(e.PointAt(e.length), "route " + r.id);
+                }
+            var elevM = new Dictionary<long, (float m, Vector2 at)>();
+            foreach (var e in map.edges)
+                for (int i = 0; i + 1 < e.stS.Length; i++)
+                {
+                    if (!e.stElev[i] && !e.stElev[i + 1]) continue;
+                    var p = e.PointAt((e.stS[i] + e.stS[i + 1]) * 0.5f);
+                    long k = TileKey(Mathf.FloorToInt(p.x / CityMeshes.TileSize), Mathf.FloorToInt(p.y / CityMeshes.TileSize));
+                    elevM.TryGetValue(k, out var v);
+                    elevM[k] = (v.m + e.stS[i + 1] - e.stS[i], p);
+                }
+            var ranked = new List<(float m, Vector2 at)>(elevM.Values);
+            ranked.Sort((a, b) => b.m.CompareTo(a.m));
+            for (int i = 0; i < Mathf.Min(topElevated, ranked.Count); i++) Add(ranked[i].at, $"elevated {ranked[i].m:0} m");
+            return tiles;
+        }
+
+        static void RoadsideAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
+        {
+            var probeTiles = RoadsideTiles(map, RoadsideTopElevatedTiles);
+            var root = new GameObject("~roadsideAudit");
+            var live = new Dictionary<long, (GameObject go, int used)>();
+            int clock = 0;
+            int solidMask = 1 << CityWorld.SolidLayer;
+
+            int vergePoints = 0, vergeStepFails = 0, faceFails = 0, railPoints = 0, gapRuns = 0, nosesBuilt = 0;
+            float gapMetres = 0f, dropMetres = 0f, vergeBuilt = 0f, railBuilt = 0f;
+            var gapByKind = new Dictionary<string, float>();
+            var pitByCause = new Dictionary<string, int>();
+            int pits = 0, pitsUnexplained = 0;
+            var notes = new List<(float sev, string what)>();
+            // Each failing kind keeps its own list: sorted together, forty
+            // OPEN and PIT lines crowded out every FACE line the audit found.
+            var lipNotes = new List<(float sev, string what)>();
+            var faceNotes = new List<(float sev, string what)>();
+            var laneNotes = new List<(float sev, string what)>();
+            int lanePoints = 0, laneLand = 0, laneSolid = 0;
+            string HitPath(RaycastHit h) => (h.collider.transform.parent != null ? h.collider.transform.parent.name + "/" : "") + h.collider.name;
+            string NodeNote(CityMap.Edge e, float s) =>
+                $"node {Mathf.Min(s, e.length - s):0} m deg{map.nodeEdges[e.a].Count}/{map.nodeEdges[e.b].Count} trims {trims.atA[e.index]:0.0}/{trims.atB[e.index]:0.0}";
+
+            void DropTile(long k)
+            {
+                if (!live.TryGetValue(k, out var t)) return;
+                foreach (var mf in t.go.GetComponentsInChildren<MeshFilter>()) Object.DestroyImmediate(mf.sharedMesh);
+                Object.DestroyImmediate(t.go);
+                live.Remove(k);
+            }
+            void StandTm(int tx, int tz, CityMeshes.TileMeshes tm)
+            {
+                var go = new GameObject($"tile_{tx}_{tz}");
+                go.transform.SetParent(root.transform, false);
+                go.transform.position = tm.origin;
+                CityWorld.Attach(go, tm, null);
+                live[TileKey(tx, tz)] = (go, ++clock);
+            }
+            void Discard(CityMeshes.TileMeshes tm)
+            {
+                foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.buildings })
+                    if (m != null) Object.DestroyImmediate(m);
+            }
+
+            // the highest surface under a point, any layer, triggers ignored
+            bool Highest(Vector3 from, float reach, out RaycastHit best)
+            {
+                best = default; bool found = false;
+                foreach (var h in Physics.RaycastAll(from, Vector3.down, reach, ~0, QueryTriggerInteraction.Ignore))
+                    if (!found || h.point.y > best.point.y) { best = h; found = true; }
+                return found;
+            }
+            bool Claimed(RaycastHit h) => h.collider.gameObject.layer == CityWorld.SolidLayer || h.collider.name == "Roads";
+
+            // One probe point on a drawn edge: is it an unguarded drop?
+            // Returns 0 = no drop, 1 = guarded drop, 2 = OPEN drop.
+            int RailProbe(Vector3 edge, Vector2 outw, Vector2 along)
+            {
+                railPoints++;
+                var o3 = new Vector3(outw.x, 0f, outw.y);
+                float drop = 80f;
+                if (Highest(edge + o3 * 1.5f + Vector3.up * 1.0f, 81f, out var h))
+                {
+                    if (h.collider.gameObject.layer == CityWorld.SolidLayer) return 1;
+                    drop = edge.y - h.point.y;
+                }
+                if (drop <= RoadsideRules.OpenDropM) return 0;
+                // WHERE THE CAR WOULD FALL FROM. Past a host's edge in its gore
+                // gap the surface carries on as the branch's own pavement, flush,
+                // for as far as the branch is wide, and the branch's outer rail
+                // stands at ITS edge: the fall is past that rail. A box that only
+                // spanned the host's edge called 20 of those seams open deck (a
+                // ramp sliver 0.6-1.5 m wide has its rail beyond the box and the
+                // drop beyond the 1.5 m probe). So walk out over road surface
+                // within a decimetre of this edge's height first, and look for a
+                // barrier across the whole walk. A real hole — no surface, or a
+                // step — stops the walk at the edge, as before.
+                float reach = CityMeshes.RailOverhangM;
+                for (float d = 0.1f; d < 1.45f; d += 0.1f)
+                {
+                    if (!Highest(edge + o3 * d + Vector3.up * 0.3f, 0.6f, out var hs) || hs.collider.name != "Roads" ||
+                        Mathf.Abs(hs.point.y - edge.y) > 0.1f) break;
+                    reach = d + CityMeshes.RailOverhangM;
+                }
+                // across the walk from RailW inside the edge to RailOverhangM
+                // past its end, from the lower barrier ray height to the upper
+                float lo = RoadsideRules.BarrierRayHeights[0], hi = RoadsideRules.BarrierRayHeights[RoadsideRules.BarrierRayHeights.Length - 1];
+                var centre = edge + o3 * ((reach - 0.6f) * 0.5f) + Vector3.up * ((lo + hi) * 0.5f);
+                var half = new Vector3((reach + 0.6f) * 0.5f, (hi - lo) * 0.5f, 0.45f);
+                var rot = Quaternion.LookRotation(new Vector3(along.x, 0f, along.y), Vector3.up);
+                return Physics.CheckBox(centre, half, rot, solidMask, QueryTriggerInteraction.Ignore) ? 1 : 2;
+            }
+
+            try
+            {
+                var segs = new HashSet<int>();
+                var chords = new List<(Vector3 a, Vector3 b, Vector2 outward)>();
+                foreach (var (tx, tz, why) in probeTiles)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dz == 0) continue;
+                            long nk = TileKey(tx + dx, tz + dz);
+                            if (live.TryGetValue(nk, out var t)) { live[nk] = (t.go, ++clock); continue; }
+                            StandTm(tx + dx, tz + dz, CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz));
+                        }
+                    // the centre LAST: CityMeshes' clip and gore tables are then this tile's
+                    var tmC = CityMeshes.Build(map, trims, buildings, tx, tz);
+                    vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count;
+                    long ck = TileKey(tx, tz);
+                    if (live.TryGetValue(ck, out var ct)) { live[ck] = (ct.go, ++clock); Discard(tmC); }
+                    else StandTm(tx, tz, tmC);
+                    while (live.Count > RoadsideLiveTiles)
+                    {
+                        long oldest = 0; int ou = int.MaxValue;
+                        foreach (var kv in live)
+                        {
+                            long kx = kv.Key >> 32, kz = (int)(kv.Key & 0xFFFFFFFF);
+                            if (Mathf.Abs(kx - tx) <= 1 && Mathf.Abs(kz - tz) <= 1) continue;
+                            if (kv.Value.used < ou) { ou = kv.Value.used; oldest = kv.Key; }
+                        }
+                        if (ou == int.MaxValue) break;
+                        DropTile(oldest);
+                    }
+                    Physics.SyncTransforms();
+
+                    var min = new Vector2(tx * CityMeshes.TileSize, tz * CityMeshes.TileSize);
+                    var max = min + Vector2.one * CityMeshes.TileSize;
+                    bool In(Vector2 p) => p.x >= min.x && p.x < max.x && p.y >= min.y && p.y < max.y;
+                    segs.Clear();
+                    map.EdgeSegsInRect(min, max, segs);
+                    var edges = new HashSet<int>();
+                    foreach (var p in segs) edges.Add(p >> 12);
+
+                    // ---- ribbon sides ----------------------------------------
+                    foreach (var ei in edges)
+                    {
+                        var e = map.edges[ei];
+                        float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
+                        if (sMax - sMin < 2f) continue;
+                        var ends = CityMeshes.StructureEndsOf(map, trims, e);
+                        float[] run = { 0f, 0f };
+                        string[] runKind = { "", "" };
+                        Vector3[] runAt = { default, default };
+                        void CloseRun(int si)
+                        {
+                            if (run[si] >= RoadsideRules.DeckRailGapFailM)
+                            {
+                                gapRuns++; gapMetres += run[si];
+                                gapByKind.TryGetValue(runKind[si], out float gm); gapByKind[runKind[si]] = gm + run[si];
+                                CityElevation.ProjectOn(e, new Vector2(runAt[si].x, runAt[si].z), out float sAt);
+                                notes.Add((run[si], $"OPEN  {run[si]:0} m of {runKind[si]} edge over a drop, e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} side {(si == 0 ? "L" : "R")} ending at s={sAt:0} ({runAt[si].x:0},{runAt[si].z:0}) tile {tx},{tz}{CityMeshes.DescribeClip(map, trims, e, sAt)}{CityMeshes.DescribeSide(map, trims, e, sAt, si == 0 ? -1 : 1)}"));
+                            }
+                            run[si] = 0f;
+                        }
+                        for (float s = sMin + 0.5f; s <= sMax - 0.5f; s += 1f)
+                        {
+                            var p = e.PointAt(s);
+                            if (!In(p)) { CloseRun(0); CloseRun(1); continue; }
+                            var tan = e.TangentAt(s);
+                            var right = new Vector2(-tan.y, tan.x);
+                            float y = e.YAt(s);
+                            CityMeshes.LaneExtents(map, trims, e, s, out float hwL, out float hwR);
+                            bool elev = e.ElevatedAt(s);
+                            bool approach = false;
+                            foreach (var se in ends) if (Mathf.Abs(s - se) < CityMeshes.ApproachRailM) { approach = true; break; }
+                            string kind = elev ? "deck" : approach ? "approach" : "grounded ledge";
+                            bool probeVerge = !elev && (int)(s - sMin) % 2 == 0;   // every other metre
+                            // THE LANES, EVERYWHERE THE ROADSIDE IS PROBED. The
+                            // drive audit asks its lane questions on nine tiles;
+                            // a verge, seam or rail laid over the next road's
+                            // lanes can be anywhere two ribbons are drawn into
+                            // each other. Counted, not failed: overlapping
+                            // ribbons are the elevation solve's to separate.
+                            // Decks too, every other metre: a rail standing in
+                            // a lane is worst on a bridge, and the verge probe's
+                            // "grounded only" had no reason to apply here.
+                            if ((int)(s - sMin) % 2 == 0 && hwL + hwR >= 1.2f)
+                                for (int k = 0; k < 3; k++)
+                                {
+                                    float lat;
+                                    if (k == 0) { if (hwL < 1.1f) continue; lat = -(hwL - 0.55f); }
+                                    else if (k == 2) { if (hwR < 1.1f) continue; lat = hwR - 0.55f; }
+                                    else lat = (hwR - hwL) * 0.5f;
+                                    var w = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
+                                    lanePoints++;
+                                    if (!Physics.Raycast(w, Vector3.down, out var lh, 6.5f, ~0, QueryTriggerInteraction.Ignore)) continue;
+                                    float dl = lh.point.y - y;
+                                    bool land = lh.collider.name == "Ground";
+                                    bool solid = lh.collider.gameObject.layer == CityWorld.SolidLayer && dl > 0.35f;
+                                    if (!land && !solid) continue;
+                                    if (land) laneLand++; else laneSolid++;
+                                    laneNotes.Add((Mathf.Abs(dl), $"LANE  {(land ? "land" : "a barrier")} {dl:+0.00;-0.00} m over lane{k} of e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} on {HitPath(lh)} at ({w.x:0},{w.z:0}) tile {tx},{tz}{CityMeshes.DescribeClip(map, trims, e, s)}"));
+                                }
+                            for (int si = 0; si < 2; si++)
+                            {
+                                int side = si == 0 ? -1 : 1;
+                                float hw = side < 0 ? hwL : hwR;
+                                if (hw < 0.3f) { CloseRun(si); continue; }   // clipped to nothing: the host's edge is the edge
+                                var outw = right * side;
+                                var edgeW = new Vector3(p.x + outw.x * hw, y, p.y + outw.y * hw);
+
+                                int r = RailProbe(edgeW, outw, tan);
+                                if (r == 2) { dropMetres += 1f; run[si] += 1f; runKind[si] = kind; runAt[si] = edgeW; }
+                                else CloseRun(si);
+                                if (r != 0) continue;
+
+                                if (!probeVerge) continue;
+                                var o3 = new Vector3(outw.x, 0f, outw.y);
+                                if (!Highest(edgeW + o3 * 0.05f + Vector3.up * 1.2f, 4f, out var h0) || Claimed(h0)) continue;
+                                vergePoints++;
+                                float step = y - h0.point.y;
+                                if (step > RoadsideRules.EdgeDropFailM)
+                                {
+                                    vergeStepFails++;
+                                    lipNotes.Add((step, $"LIP   {step:0.00} m 5 cm past the edge, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} hw {hw:0.00} on {HitPath(h0)} at ({edgeW.x:0.0},{edgeW.z:0.0}) tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
+                                }
+                                // the body box coming back: a ray at its lowest
+                                // clearance over the ground a metre out
+                                if (!Highest(edgeW + o3 * 1.0f + Vector3.up * 1.2f, 6f, out var h1) || Claimed(h1)) continue;
+                                var from = new Vector3(edgeW.x + outw.x, h1.point.y + RoadsideRules.CarClearanceFloorM + 0.01f, edgeW.z + outw.y);
+                                bool back = Physics.queriesHitBackfaces;
+                                Physics.queriesHitBackfaces = true;
+                                try
+                                {
+                                    foreach (var hf in Physics.RaycastAll(from, -o3, 1.0f, ~0, QueryTriggerInteraction.Ignore))
+                                    {
+                                        if (hf.collider.gameObject.layer == CityWorld.SolidLayer || Mathf.Abs(hf.normal.y) >= 0.7f) continue;
+                                        faceFails++;
+                                        faceNotes.Add((hf.point.y - h1.point.y, $"FACE  normal.y {hf.normal.y:0.00} {Vector3.Distance(from, hf.point):0.00} m in from 1 m out, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} on {HitPath(hf)} at ({hf.point.x:0.0},{hf.point.z:0.0}) y {hf.point.y - y:+0.00;-0.00}, ground 1 m out {h1.point.y - y:+0.00;-0.00} on {HitPath(h1)}, tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
+                                        break;
+                                    }
+                                }
+                                finally { Physics.queriesHitBackfaces = back; }
+                            }
+                        }
+                        CloseRun(0); CloseRun(1);
+                    }
+
+                    // ---- fan chords ------------------------------------------
+                    var nodes = new HashSet<int>();
+                    foreach (var ei in edges) { nodes.Add(map.edges[ei].a); nodes.Add(map.edges[ei].b); }
+                    foreach (var n in nodes)
+                    {
+                        if (!In(map.nodes[n])) continue;
+                        bool onStructure = CityMeshes.FanPerimeter(map, trims, n, chords);
+                        foreach (var (a, b, outw) in chords)
+                        {
+                            float len = Vector3.Distance(a, b);
+                            float openRun = 0f;
+                            var along = new Vector2(b.x - a.x, b.z - a.z).normalized;
+                            for (float d = 0.5f; d < len; d += 1f)
+                            {
+                                if (RailProbe(Vector3.Lerp(a, b, d / len), outw, along) == 2) { openRun += 1f; dropMetres += 1f; }
+                            }
+                            if (openRun >= RoadsideRules.DeckRailGapFailM)
+                            {
+                                string kind = onStructure ? "fan chord on structure" : "fan chord";
+                                gapRuns++; gapMetres += openRun;
+                                gapByKind.TryGetValue(kind, out float gm); gapByKind[kind] = gm + openRun;
+                                notes.Add((openRun, $"OPEN  {openRun:0} m of {kind} over a drop at node {n} ({a.x:0},{a.z:0})-({b.x:0},{b.z:0}) tile {tx},{tz}"));
+                            }
+                        }
+                    }
+
+                    // ---- gore noses ------------------------------------------
+                    foreach (var (a, b, fwd, elevNose) in tmC.goreNoses)
+                    {
+                        float len = Vector3.Distance(a, b);
+                        var outw = new Vector2(fwd.x, fwd.z);
+                        var along = new Vector2(b.x - a.x, b.z - a.z).normalized;
+                        float openRun = 0f;
+                        for (float d = 0.25f; d < len; d += 0.5f)
+                            if (RailProbe(Vector3.Lerp(a, b, d / len), outw, along) == 2) { openRun += 0.5f; dropMetres += 0.5f; }
+                        if (openRun >= RoadsideRules.DeckRailGapFailM)
+                        {
+                            string kind = elevNose ? "gore nose on structure" : "gore nose";
+                            gapRuns++; gapMetres += openRun;
+                            gapByKind.TryGetValue(kind, out float gm); gapByKind[kind] = gm + openRun;
+                            notes.Add((openRun, $"OPEN  {openRun:0.0} m of {kind} over a drop ({a.x:0},{a.z:0})-({b.x:0},{b.z:0}) tile {tx},{tz}"));
+                        }
+                    }
+
+                    // ---- pits ----------------------------------------------
+                    float cell = CityMeshes.TileSize / CityMeshes.GroundRes;
+                    for (int iz = 0; iz <= CityMeshes.GroundRes; iz++)
+                        for (int ix = 0; ix <= CityMeshes.GroundRes; ix++)
+                        {
+                            float x = min.x + ix * cell, z = min.y + iz * cell;
+                            float gy = CityElevation.Ground(map, x, z, out var gt);
+                            if (gt.nearEdge < 0 || float.IsNaN(gt.nearFloor) || gt.nearFloor - gy <= 0.5f) continue;
+                            pits++;
+                            string cause;
+                            if (!float.IsNaN(gt.deckCap) && Mathf.Abs(gy - gt.deckCap) < 1e-3f) cause = "dug under a deck";
+                            else if (!float.IsNaN(gt.deckProtect) && Mathf.Abs(gy - gt.deckProtect) < 1e-3f) cause = "held under a deck's pavement";
+                            else if (!float.IsNaN(gt.protect) && Mathf.Abs(gy - gt.protect) < 1e-3f) cause = "held under a lower road's pavement (conflict)";
+                            else if (gt.dem < CityElevation.BaseY(x, z) - 0.05f) cause = "water";
+                            else { cause = "UNEXPLAINED"; pitsUnexplained++; }
+                            pitByCause.TryGetValue(cause, out int pc); pitByCause[cause] = pc + 1;
+                            if (cause == "UNEXPLAINED" || notes.Count < 400)
+                                notes.Add((0.1f + gt.nearFloor - gy, $"PIT   {gt.nearFloor - gy:0.00} m under e{gt.nearEdge} '{map.edges[gt.nearEdge].name}' ({gt.nearDist:0.0} m past its pavement) at ({x:0},{z:0}) tile {tx},{tz}: {cause}{(gt.protectEdge >= 0 && cause.StartsWith("held under a lower") ? $" e{gt.protectEdge} '{map.edges[gt.protectEdge].name}'" : "")}"));
+                        }
+                }
+            }
+            finally
+            {
+                foreach (var k in new List<long>(live.Keys)) DropTile(k);
+                Object.DestroyImmediate(root);
+            }
+
+            Line($"roadside audit: {probeTiles.Count} tiles (routes + {RoadsideTopElevatedTiles} most elevated) built {vergeBuilt / 1000f:0.0} km of verge, {railBuilt / 1000f:0.0} km of rail, {nosesBuilt} gore noses; " +
+                 $"{vergePoints} verge points, {railPoints} rail probe points, {dropMetres:0} m of edge over a drop > {RoadsideRules.OpenDropM} m without a barrier");
+            foreach (var kv in gapByKind) Line($"    open {kv.Key}: {kv.Value:0} m");
+            var pitLine = new StringBuilder($"    pits (lattice > 0.5 m under a grounded ribbon's design within {CityElevation.PitReachM} m): {pits}");
+            foreach (var kv in pitByCause) pitLine.Append($"; {kv.Key} {kv.Value}");
+            Line(pitLine.ToString());
+            Check(vergeStepFails == 0, "every grounded edge meets its verge within " + RoadsideRules.EdgeDropFailM + " m (roadside audit)",
+                  $"{vergeStepFails} of {vergePoints} points step more");
+            Check(faceFails == 0, "no face stops the body box coming back onto a grounded edge (roadside audit)", faceFails);
+            Check(gapRuns == 0, "no edge over a drop past " + RoadsideRules.OpenDropM + " m is without a barrier: decks, approaches, ledges, fan chords, gore noses (rail census)",
+                  $"{gapRuns} runs, {gapMetres:0} m");
+            Check(pitsUnexplained == 0, "every pit beside a grounded ribbon has a rule that put it there (pit census)", pitsUnexplained);
+            Line($"    lane survey (not a check): {lanePoints} lane probes on the roadside tiles, land on top of a lane {laneLand}, a barrier over a lane {laneSolid}");
+            // every OPEN run (they are metres, and few), then the worst of each
+            // other kind, one line per edge and side
+            void Print(List<(float sev, string what)> list, int cap, string title, bool perEdge)
+            {
+                if (list.Count == 0) return;
+                list.Sort((p, q) => q.sev.CompareTo(p.sev));
+                var shown = new HashSet<string>();
+                var lines = new List<string>(cap);
+                foreach (var (sev, what) in list)
+                {
+                    if (perEdge)
+                    {
+                        var edge = System.Text.RegularExpressions.Regex.Match(what, @" (e\d+|node \d+) ");
+                        var side = System.Text.RegularExpressions.Regex.Match(what, @" side [LR]");
+                        if (edge.Success && !shown.Add(edge.Value + side.Value)) continue;
+                    }
+                    lines.Add(what);
+                    if (lines.Count >= cap) break;
+                }
+                Line($"    -- {title}: {list.Count}{(lines.Count < list.Count ? $", {lines.Count} shown{(perEdge ? " (the worst per edge and side)" : "")}" : "")}");
+                foreach (var what in lines) Line("    " + what);
+            }
+            // two OPEN runs on one edge side are two holes, not one line
+            var openNotes = notes.FindAll(n => n.what.StartsWith("OPEN"));
+            var pitNotes = notes.FindAll(n => n.what.StartsWith("PIT"));
+            Print(openNotes, 60, "open edges over a drop", false);
+            Print(faceNotes, 30, "faces in the body box's way", true);
+            Print(lipNotes, 30, "lips past a grounded edge", true);
+            Print(laneNotes, 12, "land or a barrier over a lane", true);
+            Print(pitNotes, 10, "pits", true);
         }
 
         /// <summary>No station-to-station grade past 16% outside a sub-30 m

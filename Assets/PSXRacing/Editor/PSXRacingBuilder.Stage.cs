@@ -26,9 +26,13 @@ namespace PSXRacing.EditorTools
     ///     (12 m cells, colliders) carry the drivable world; far chunks (60 m
     ///     cells, no colliders, painted as autumn forest) carry the vista and
     ///     sit 0.4 m low so the overlap ring never z-fights.
-    ///   - WALLS are the parkway's own low stone guard walls, and only where
-    ///     the mountain actually falls away — plus both sides of every bridge
-    ///     deck. The uphill side is open: the slope is the barrier.
+    ///   - THE ROADSIDE is graded the way a DOT section is (RoadsideRules):
+    ///     a flush shoulder, a recoverable foreslope that meets the real land,
+    ///     a ditch and a rock face where the road is cut into the hill. WALLS
+    ///     are the parkway's own low stone guard walls, and only where one is
+    ///     WARRANTED — every bridge deck and its approaches, a fall grading
+    ///     cannot make recoverable, water, a tunnel mouth. PlanStageRoadside
+    ///     decides all of it once, and every pass below reads that plan.
     ///   - The FOREST is the point. Thousands of crossed-quad billboards from
     ///     the CC0 retro tree pack, merged per chunk into one mesh on one
     ///     atlas material, on the Foliage layer so StageCulling can clip them
@@ -41,31 +45,122 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  Stage constants
         // ------------------------------------------------------------------
-        /// <summary>Metres of verge between the tarmac edge and the stage's
-        /// guard wall. The parkway's wall hugs the shoulder, and most of this
-        /// is the kerb strip, so what is left is a hand's breadth of gravel.
-        /// </summary>
+        /// <summary>Metres between the tarmac edge and a warranted guard wall's
+        /// drawn stone: the 0.9 m verge strip, a 0.2 m paved shoulder, and the
+        /// 5 cm the stone stands behind its own collider face. Where a wall is
+        /// warranted it still hugs the shoulder, which is also why the decks
+        /// (DeckHalfWidth derives from this) have not moved.</summary>
         internal const float StageVerge = 1.15f;
 
-        /// <summary>How far from the centreline the corridor shelf stays dead
-        /// level: the tarmac, its kerb strip, the slab batter, the guard wall,
-        /// and a hand's breadth of gravel behind it. Everything further out is
-        /// hillside.</summary>
-        static float StageVergeFlat => StageWallOffset + 0.7f;
-
+        // ------------------------------------------------------------------
+        //  The graded roadside — numbers local to the stage section. The
+        //  rules themselves (slopes, clear zone, hide margin, warrant) are
+        //  RoadsideRules'; these are the dimensions this section builds them
+        //  to.
+        // ------------------------------------------------------------------
+        /// <summary>Shoulder past the verge strip: the strip's top (the
+        /// shoulder emitter's KerbStripLift, flush with the tarmac), the
+        /// Safety Edge bevel down RoadsideRules.EdgeDropM, then
+        /// RoadsideRules.ShoulderCrossFall. Ends exactly on the wall face
+        /// (StageVerge - StageWallFaceIn), so a walled and an open side share
+        /// their first 1.1 m.</summary>
+        const float StageShoulderM = 0.2f;
+        /// <summary>How far in front of the drawn stone a wall's collider face
+        /// stands (the obstacle audit's GhostBack reads this gap).</summary>
+        const float StageWallFaceIn = 0.05f;
+        /// <summary>Drawn thickness of a guard wall: the stone has a top and a
+        /// back now, so a wall seen from the valley, or from the end of a run,
+        /// is masonry rather than a sheet with nothing behind it. Half a metre
+        /// so the shoulder ribbon's toe tuck and skirt, which the emitter lays
+        /// 0.5 m past the profile's last point (the collider face), end inside
+        /// the stone rather than hanging out of its back.</summary>
+        const float StageWallDrawThick = 0.5f;
         /// <summary>
-        /// How fast the shoulder falls away past <see cref="StageVergeFlat"/>,
-        /// in metres down per metre out. 0.55 is about 1 in 1.8 — the batter a
-        /// highway fill is built to, and steep enough that a car which leaves
-        /// the road is leaving it rather than parking beside it.
+        /// The highest the ground beside a graded section may stand, tarmac-
+        /// relative: where the land RISES the section is graded down to this
+        /// and no further, and the corridor carries it back up to the hill
+        /// past CorridorR as it always has.
+        ///
+        /// Why a floor at all: the ground under the section is a 12 m lattice,
+        /// and its facets run straight from a vertex under the tarmac (the
+        /// roadbed dig, -0.45) to one beside the road. A beside-the-road vertex
+        /// at road level would put a chord 5 cm under a shoulder in a sag; at
+        /// -0.30 the chord keeps the hide margin it is meant to have (python
+        /// replica of the lattice over all eight stages: under the first 1.1 m
+        /// of every open section the lattice sits at least 0.22 m below the
+        /// ribbon, p50 0.39-0.41 m).
         /// </summary>
-        const float StageVergeSlope = 0.55f;
-
-        /// <summary>Metres the shoulder has dropped by distance <paramref
-        /// name="d"/> from the centreline, before the mountain has its say.
-        /// </summary>
-        static float StageVergeFallAt(float d) =>
-            d <= StageVergeFlat ? 0f : (d - StageVergeFlat) * StageVergeSlope;
+        const float StageBenchDy = -0.30f;
+        /// <summary>RoadsideRules.TraversableSlope run past WarrantReachM: a
+        /// fill the 1V:6H/1V:4H section cannot catch within the reach may
+        /// still be graded at 1V:3H if the land flattens within this — the
+        /// "traversable only with a runout" clause. Past it the side is
+        /// critical.</summary>
+        const float StageTraversableRunM = 3f;
+        /// <summary>Metres inside an open section's catch over which the hide
+        /// margin fades to nothing, so the lattice meets the ribbon's toe at
+        /// its own height and the two CROSS there (RoadsideRules.ToeTuckM)
+        /// instead of the toe standing a hide margin proud of the land.</summary>
+        const float StageHideFadeM = 1.5f;
+        /// <summary>Extra hide (over RoadsideRules.HideMarginM) under an open
+        /// section's outer foreslope. Measured with a python replica of the
+        /// lattice and of the terrain audit's shoulder probe: lattice within
+        /// 3 cm of the ribbon outside the designed crossing fell from 34 to 19
+        /// probes on Blowing Rock (of ~27,000) and grass through it from 14
+        /// to 6; the remainder is DEM dips narrower than a cell, which no hide
+        /// in the FIELD reaches — the field is only sampled at the vertices.
+        /// PrepareStageLattice takes that remainder, on the triangles
+        /// themselves.</summary>
+        const float StageOuterHideM = 0.2f;
+        /// <summary>Behind a wall the ground holds the shoulder's height for
+        /// this far past the collider face (under the stone and its footing),
+        /// then falls at <see cref="StageFillBatter"/> until it meets the real
+        /// land. The same shelf-and-batter the old verge had, now only where a
+        /// wall stands in front of it.</summary>
+        const float StageWallBackFlatM = 0.75f;
+        /// <summary>1 in 1.8 — the batter a highway fill is built to. Only
+        /// ever behind a wall now: an open side is graded at the RoadsideRules
+        /// slopes instead.</summary>
+        const float StageFillBatter = 0.55f;
+        /// <summary>The COMPACT cut (synthesis 7.1): 0.8 m of foreslope at
+        /// RoadsideRules.SteepestRecoverableSlope into a ditch 0.4 m wide, then
+        /// RoadsideRules.BackSlope up to the rock face's toe at road level —
+        /// which lands the toe about 3 m past the tarmac edge, so the face
+        /// stays close enough to the road to read as a parkway cut.</summary>
+        const float CutForeslopeRunM = 0.8f, CutDitchFloorM = 0.4f;
+        /// <summary>Water the coast walls a side for: deeper than this, within
+        /// this far of the tarmac edge (the RDG's 0.6 m / 6 m).</summary>
+        const float StageWaterReachM = 6f, StageWaterDepthM = 0.6f;
+        /// <summary>Stations a tunnel mouth is guarded for on each side that
+        /// has no rock face running into it: the portal face stops a car, but
+        /// the ground beside the approach is holed for a lattice cell in front
+        /// of it (see GridChunkMesh) and nothing may be able to reach that.
+        /// Four stations is the measured hole (LittleSwitzerland 995-997 and
+        /// 1046-1049).</summary>
+        const int PortalGuardStations = 4;
+        /// <summary>Shortest warranted wall worth building.</summary>
+        const int MinWallRunStations = 4;
+        /// <summary>Where the hill behind a cut face is released to the real
+        /// land: held down for BankPinM past the toe, blended up over
+        /// BankReleaseM. Measured, not chosen: a python replica of the 12 m
+        /// lattice put facets through the ditch (up to +0.62 m) at 8/8, while
+        /// at 12/12 the lattice under the cut section stays below the ribbon
+        /// on all but 0.1% of samples across the five mountains (worst +0.03 m;
+        /// the exception is one Mount Mitchell switchback, wp 1494, where the
+        /// upper leg's fill stands 7 m over the ditch). A lattice vertex weighs
+        /// on points up to one cell diagonal (17 m) away.</summary>
+        const float BankPinM = 12f, BankReleaseM = 12f;
+        /// <summary>The rock top's last metres, over which it comes down onto
+        /// the released lattice and tucks under it. With pin and release at
+        /// 12/12 the lattice is within about 0.3 m of the DEM (p50) by the
+        /// tail's end, 30 m past the toe, so the tail is a gentle slope onto
+        /// it rather than a step.</summary>
+        const float BankTopTailM = 6f;
+        /// <summary>Stations over which the release (and the rock top that
+        /// covers it) fades in from each end of a bank run: the neighbouring
+        /// station's section is held down, and its lattice facets reach a
+        /// cell along the road as well as across it.</summary>
+        const int BankReleaseFadeStations = 5;
 
         /// <summary>
         /// Barrier line for a stage, measured from ITS road.
@@ -161,8 +256,9 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// Maximal runs of wanted stations, with the three-clear hysteresis
-        /// every stage pass uses (two clear stations inside a run do not end
-        /// it; the trailing clears are not part of it). On a LOOP the scan
+        /// the tunnel and cut-face passes use (two clear stations inside a run
+        /// do not end it; the trailing clears are not part of it). Warranted
+        /// walls do NOT use it — see MaximalRuns. On a LOOP the scan
         /// starts at a station that is NOT wanted, so a run that crosses the
         /// start line is one run rather than two ending at the seam.
         /// </summary>
@@ -205,6 +301,7 @@ namespace PSXRacing.EditorTools
         static short[] demNear, demFar;          // decimetres above baseM
         static DemGridMeta demNearMeta, demFarMeta;
         static List<Vector3> stageWp;            // the waypoints, world space
+        static Vector3[] stageRight;             // RightAt per waypoint
         static Dictionary<long, List<int>> stageHash;
         const float StageHashCell = 48f;
 
@@ -221,8 +318,9 @@ namespace PSXRacing.EditorTools
             stageDemLoaded = false;
             demNear = demFar = null;
             surfNear = null;
-            stageWp = null; stageHash = null;
+            stageWp = null; stageHash = null; stageRight = null;
             tunnelIn = null; hasTunnels = false;
+            ClearStageRoadside();
         }
 
         /// <summary>Load the fetch script's bake and copy/generate the stage
@@ -259,6 +357,13 @@ namespace PSXRacing.EditorTools
             // does not depend on call order.
             TrackCatalog.EnsureStage(track);
             stageWp = new List<Vector3>(track.stagePts);
+            // The previous venue's roadside plan is keyed by station index,
+            // and two stages can have the same station count.
+            ClearStageRoadside();
+            // Per station, so the ground field can tell which SIDE of the road
+            // a point is on without re-deriving the tangent a million times.
+            stageRight = new Vector3[stageWp.Count];
+            for (int i = 0; i < stageWp.Count; i++) stageRight[i] = RightAt(stageWp, i);
             stageHash = new Dictionary<long, List<int>>();
             for (int i = 0; i < stageWp.Count; i++)
             {
@@ -346,14 +451,31 @@ namespace PSXRacing.EditorTools
             return DemBilinear(demFar, demFarMeta, x, z);
         }
 
+        /// <summary>Where a point stands against the centreline: plan
+        /// distance, the road height at its foot, the segment the foot lies on
+        /// (s0 to s1, t along it; <see cref="station"/> = s0 + t) and which
+        /// SIDE of the road the point is on (-1 left, +1 right, as RightAt
+        /// points). The side is what lets the ground field grade a fill on one
+        /// shoulder and a cut on the other.</summary>
+        struct RoadFoot
+        {
+            public float d, roadY, station, t, side;
+            public int s0, s1;
+        }
+
         /// <summary>
         /// Nearest point on the centreline within <paramref name="reach"/>:
         /// distance, the road height there, and how much bridge (BridgeBlend)
         /// that station carries. False when the route is further than reach.
         /// </summary>
         static bool StageCorridor(float x, float z, float reach,
-                                  out float d, out float roadY, out float bridge) =>
-            StageCorridor(x, z, reach, out d, out roadY, out bridge, out _);
+                                  out float d, out float roadY, out float bridge)
+        {
+            bool hit = StageCorridor(x, z, reach, out RoadFoot foot);
+            d = foot.d; roadY = foot.roadY;
+            bridge = hit ? BridgeAt(foot.station) : 0f;
+            return hit;
+        }
 
         /// <summary>Stations either side of a station that count as the SAME
         /// piece of road. Past this a nearby station is the route coming back
@@ -365,10 +487,9 @@ namespace PSXRacing.EditorTools
         /// hillside differ by less.</summary>
         const float OverlapDropM = 3f;
 
-        static bool StageCorridor(float x, float z, float reach,
-                                  out float d, out float roadY, out float bridge, out float station)
+        static bool StageCorridor(float x, float z, float reach, out RoadFoot foot)
         {
-            d = float.MaxValue; roadY = 0f; bridge = 0f; station = 0f;
+            foot = new RoadFoot { d = float.MaxValue, side = 1f };
             int cells = Mathf.CeilToInt(reach / StageHashCell);
             int cx = Mathf.FloorToInt(x / StageHashCell);
             int cz = Mathf.FloorToInt(z / StageHashCell);
@@ -388,8 +509,7 @@ namespace PSXRacing.EditorTools
                 }
             if (best < 0) return false;
 
-            Refine(best, x, z, Mathf.Sqrt(bestD2), out d, out roadY, out station);
-            bridge = BridgeAt(station);
+            Refine(best, x, z, Mathf.Sqrt(bestD2), out foot);
             return true;
         }
 
@@ -407,10 +527,9 @@ namespace PSXRacing.EditorTools
         /// OverlapSep stations along the route from <paramref name="near"/>,
         /// within <paramref name="reach"/> in plan, refined onto its two
         /// segments. False when no other road comes that close.</summary>
-        static bool OtherRoadNear(float x, float z, float reach, int near,
-                                  out float d, out float roadY, out float station)
+        static bool OtherRoadNear(float x, float z, float reach, int near, out RoadFoot foot)
         {
-            d = float.MaxValue; roadY = 0f; station = 0f;
+            foot = new RoadFoot { d = float.MaxValue, side = 1f };
             int cells = Mathf.CeilToInt(reach / StageHashCell);
             int cx = Mathf.FloorToInt(x / StageHashCell);
             int cz = Mathf.FloorToInt(z / StageHashCell);
@@ -430,21 +549,22 @@ namespace PSXRacing.EditorTools
                     }
                 }
             if (alt < 0) return false;
-            Refine(alt, x, z, Mathf.Sqrt(altD2), out d, out roadY, out station);
-            return d < reach;
+            Refine(alt, x, z, Mathf.Sqrt(altD2), out foot);
+            return foot.d < reach;
         }
 
         /// <summary>Refine a nearest-station answer onto the two segments
         /// touching it, same as the circuit field does: the shelf must
         /// follow the LINE, not step from waypoint to waypoint. Wraps on a
         /// loop, so the closing segment is a segment too.</summary>
-        static void Refine(int best, float x, float z, float d0,
-                           out float d, out float roadY, out float station)
+        static void Refine(int best, float x, float z, float d0, out RoadFoot foot)
         {
             int n = stageWp.Count;
-            d = d0;
-            roadY = stageWp[best].y;
-            station = best;
+            foot = new RoadFoot
+            {
+                d = d0, roadY = stageWp[best].y, station = best,
+                s0 = best, s1 = WrapIdx(best + 1, n), t = 0f, side = 1f,
+            };
             for (int o = -1; o <= 0; o++)
             {
                 int a = WrapIdx(best + o, n);
@@ -457,39 +577,113 @@ namespace PSXRacing.EditorTools
                 float t = Mathf.Clamp01(((x - ax) * ex + (z - az) * ez) / len2);
                 float px = ax + ex * t, pz = az + ez * t;
                 float dd = Mathf.Sqrt((px - x) * (px - x) + (pz - z) * (pz - z));
-                if (dd < d)
+                if (dd < foot.d)
                 {
-                    d = dd;
-                    roadY = Mathf.Lerp(stageWp[a].y, stageWp[b].y, t);
-                    station = a + t;
+                    foot.d = dd;
+                    foot.roadY = Mathf.Lerp(stageWp[a].y, stageWp[b].y, t);
+                    foot.station = a + t;
+                    foot.s0 = a; foot.s1 = b; foot.t = t;
                 }
+            }
+            // Which side: the offset from the foot against the right vector
+            // interpolated along the segment, so the answer turns with the
+            // road rather than flipping at each waypoint.
+            if (stageRight != null)
+            {
+                Vector3 pa = stageWp[foot.s0], pb = stageWp[foot.s1];
+                Vector3 r = Vector3.Lerp(stageRight[foot.s0], stageRight[foot.s1], foot.t);
+                float fx = Mathf.Lerp(pa.x, pb.x, foot.t), fz = Mathf.Lerp(pa.z, pb.z, foot.t);
+                foot.side = (x - fx) * r.x + (z - fz) * r.z >= 0f ? 1f : -1f;
             }
         }
 
-        /// <summary>Inside a tunnel's footprint: within the tube's width of a
-        /// station the road passes under the mountain at. The ground mesh
-        /// leaves a hole here (the tube is the floor's roof), and the corridor
-        /// stops pinning the hillside down around it.</summary>
+        /// <summary>Inside a tunnel's own footprint: within the tube's walls
+        /// (and a metre) of a station the road passes under the mountain at.
+        /// No ground vertex may stand here — the tube is the floor's roof.
+        ///
+        /// This reached RoadWidth/2 + 7 m, and because a quad is dropped when
+        /// ANY corner is a hole, the ground was missing out to ~20 m beside
+        /// the tube and a lattice cell in front of each portal, with nothing
+        /// under a car that left the approach. The wide reach is still what
+        /// catches a quad STRADDLING the mouth (see <see cref="InTunnelZone"/>
+        /// and GridChunkMesh); only the vertex hole is the tube's width now.
+        /// </summary>
         static bool InTunnelHole(float x, float z)
         {
             if (!hasTunnels) return false;
-            if (!StageCorridor(x, z, RoadWidth * 0.5f + TunnelHoleMargin, out _, out _, out _, out float st)) return false;
-            return tunnelIn[Mathf.Clamp(Mathf.RoundToInt(st), 0, tunnelIn.Length - 1)];
+            if (!StageCorridor(x, z, RoadWidth * 0.5f + TunnelWallOut + TunnelFootprintMarginM, out RoadFoot foot))
+                return false;
+            return tunnelIn[Mathf.Clamp(Mathf.RoundToInt(foot.station), 0, tunnelIn.Length - 1)];
+        }
+
+        /// <summary>Near a tunnel: within the old hole reach of a tunnel
+        /// station. A ground quad with a corner in here has to pass
+        /// <see cref="TunnelQuadClear"/> to be built.</summary>
+        static bool InTunnelZone(float x, float z)
+        {
+            if (!hasTunnels) return false;
+            if (!StageCorridor(x, z, RoadWidth * 0.5f + TunnelHoleMargin, out RoadFoot foot)) return false;
+            return tunnelIn[Mathf.Clamp(Mathf.RoundToInt(foot.station), 0, tunnelIn.Length - 1)];
+        }
+
+        /// <summary>Samples per side of a quad TunnelQuadClear reads.</summary>
+        const int TunnelQuadSamples = 5;
+
+        /// <summary>
+        /// Do a near-tube lattice quad's own triangles keep out of the tube and
+        /// out of the approach? Sampled on a 5x5 grid over the quad, read the
+        /// way GridChunkMesh triangulates it: over the bore (within the tube's
+        /// wall, and half a metre) the facet must clear the ceiling by
+        /// TunnelCoverM; beside a station that is NOT a tunnel's — the approach
+        /// and its graded roadside — it may stand no higher than the field there
+        /// plus the hide margin, which under a shoulder ribbon is the ribbon.
+        /// Python replica, Little Switzerland: of the 56 quads the old any-corner
+        /// rule dropped, 12 pass (the ridge beside the bore) and none of those
+        /// touches the tube or an approach section.
+        /// </summary>
+        static bool TunnelQuadClear(float x0, float z0, float cell, float ha, float hb, float hc, float he)
+        {
+            float reach = RoadWidth * 0.5f + TunnelHoleMargin;
+            for (int iu = 0; iu < TunnelQuadSamples; iu++)
+                for (int iw = 0; iw < TunnelQuadSamples; iw++)
+                {
+                    float u = iu / (TunnelQuadSamples - 1f), w = iw / (TunnelQuadSamples - 1f);
+                    float y = w >= u ? ha + (hc - hb) * u + (hb - ha) * w
+                                     : ha + (he - ha) * u + (hc - he) * w;
+                    float x = x0 + u * cell, z = z0 + w * cell;
+                    if (!StageCorridor(x, z, reach, out RoadFoot foot)) continue;
+                    if (tunnelIn[Mathf.Clamp(Mathf.RoundToInt(foot.station), 0, tunnelIn.Length - 1)])
+                    {
+                        if (foot.d <= RoadWidth * 0.5f + TunnelWallOut + 0.5f && y < foot.roadY + TunnelH + TunnelCoverM)
+                            return false;
+                    }
+                    else if (y > StageGroundHeightAt(x, z) + RoadsideRules.HideMarginM)
+                        return false;
+                }
+            return true;
         }
 
         /// <summary>
         /// Ground height on the stage: the real DEM, with the road corridor
-        /// pinned exactly the way the circuits pin theirs — and released back
-        /// to the real slope through a bridge span, where the deck carries the
-        /// road and the mountainside is allowed to fall away underneath.
+        /// pinned exactly the way the circuits pin theirs — graded at the
+        /// roadside to the plan's section — and released back to the real
+        /// slope through a bridge span, where the deck carries the road and
+        /// the mountainside is allowed to fall away underneath.
         /// </summary>
         static float StageGroundHeightAt(float x, float z)
         {
             float dem = StageDemY(x, z);
-            if (!StageCorridor(x, z, CorridorR + CorridorBlend + 4f,
-                    out float d, out float roadY, out float f, out float station))
+            // The roadside plan is what the field is graded to. PlanStageRoadside
+            // runs from Build() before the road; this only covers a caller
+            // that asks for ground first, and only once the bridge table is
+            // this venue's.
+            if (rsKind == null && bridgeBlend != null && bridgeBlend.Length == stageWp.Count)
+                PlanStageRoadside(stageWp);
+            if (!StageCorridor(x, z, CorridorR + CorridorBlend + 4f, out RoadFoot foot))
                 return dem;
-            float g = GroundFromCorridor(dem, d, roadY, f, station);
+            float g = GroundFromCorridor(dem, foot);
+            float f = BridgeAt(foot.station);
+            float roadY = foot.roadY, d = foot.d;
 
             // THE OTHER ROAD. Where the route crosses itself at a grade
             // separation (both loops pass under their own Parkway bridge)
@@ -510,11 +704,11 @@ namespace PSXRacing.EditorTools
             // apron on four stages' shoulders (2026-09-11).
             if (f > 0.5f
                 && OtherRoadNear(x, z, CorridorR + CorridorBlend,
-                                 WrapIdx(Mathf.RoundToInt(station), stageWp.Count),
-                                 out float dA, out float yA, out float sA)
-                && yA < roadY - OverlapDropM && BridgeAt(sA) < 0.5f)
+                                 WrapIdx(Mathf.RoundToInt(foot.station), stageWp.Count),
+                                 out RoadFoot below)
+                && below.roadY < roadY - OverlapDropM && BridgeAt(below.station) < 0.5f)
             {
-                float under = GroundFromCorridor(dem, dA, yA, BridgeAt(sA), sA);
+                float under = GroundFromCorridor(dem, below);
                 g = Mathf.Lerp(g, under, Mathf.InverseLerp(0.5f, 1f, f));
                 if (d < DeckHalfWidth + 2f) g = Mathf.Min(g, roadY - DeckThick - 0.4f);
             }
@@ -522,11 +716,11 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The ground the corridor wants at a point, given the road
-        /// it is measured from: the nearest station's distance, height, deck
-        /// factor and fractional index. Split out so the road UNDER a deck
-        /// can be asked the same question.</summary>
-        static float GroundFromCorridor(float dem, float d, float roadY, float f, float station)
+        /// it is measured from. Split out so the road UNDER a deck can be
+        /// asked the same question.</summary>
+        static float GroundFromCorridor(float dem, in RoadFoot foot)
         {
+            float d = foot.d, roadY = foot.roadY, station = foot.station;
             // THE MOUNTAIN STANDS OVER A TUNNEL. The corridor pin would dig
             // the ridge out into a trench thirty metres deep; inside a
             // tunnel span the ground is simply the real land, and the road
@@ -535,46 +729,13 @@ namespace PSXRacing.EditorTools
             if (hasTunnels && tunnelIn[Mathf.Clamp(Mathf.RoundToInt(station), 0, tunnelIn.Length - 1)])
                 return dem;
 
+            float f = BridgeAt(station);
             float blend = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(CorridorR, CorridorR + CorridorBlend, d));
 
-            // The bench the corridor holds level under and beside the road:
-            // the roadbed dig under the pavement, the shoulder shelf outside
-            // it. Written out rather than folded into the Lerp below because
-            // the verge fall has to be measured from it.
-            float shelf = roadY - RoadbedSinkAt(d);
-
-            // THE SHOULDER FALLS AWAY. THE MOUNTAIN DECIDES HOW FAR.
-            //
-            // The corridor holds a flat shelf out to CorridorR — sixteen
-            // metres, on a road nine and a half wide — and it held it whatever
-            // the mountain was doing, so the parkway ran down the middle of an
-            // eleven-metre gravel apron on each side. "Most of the blue ridge
-            // does not have big runoff areas to drive onto", and the reference
-            // photograph is the Linn Cove Viaduct: two lanes, a stone wall, and
-            // then nothing at all.
-            //
-            // Two lines, and the second is what makes it a road rather than a
-            // trench. The fall is a 1-in-1.8 fill batter starting just behind
-            // the guard wall; the clamp says it may never dig BELOW the real
-            // mountainside, so:
-            //
-            //   * where the land drops away, the shoulder drops with it and
-            //     meets the real slope within a few metres — no apron;
-            //   * where the land is gentle, the shelf lands on the DEM almost
-            //     at once and simply becomes the hillside;
-            //   * where the land RISES — the cut side — Min picks the shelf and
-            //     the fall cancels itself, because you do not dig a five-metre
-            //     ditch beside a hill. That side is closed by the cut bank
-            //     instead (BuildStageBanks).
-            //
-            // It can only ever LOWER the shelf, so every clearance the roadbed
-            // had under the tarmac it still has. That is the whole reason it is
-            // written as a subtraction with a floor rather than as a narrower
-            // CorridorR: a narrower corridor would let the coarse ground grid
-            // reach up through the road, and this cannot.
-            float fall = StageVergeFallAt(d);
-            if (fall > 0f) shelf = Mathf.Max(shelf - fall, Mathf.Min(dem, shelf));
+            // The dig under the pavement (RoadbedSinkAt), then the graded
+            // roadside the plan asked for beside it.
+            float shelf = GradedRoadside(roadY - RoadbedSinkAt(d), dem, foot);
 
             float pinned = Mathf.Lerp(shelf, dem, blend);
 
@@ -625,6 +786,1669 @@ namespace PSXRacing.EditorTools
             if (theme.stageBridgeDig)
                 released = Mathf.Min(released, roadY - track.bridgeDepth * f * (1f - blend));
             return Mathf.Min(released, pinned);
+        }
+
+        /// <summary>
+        /// The shelf beside the road, graded to the plan's section at the two
+        /// stations either side of the foot and blended between them along the
+        /// segment — which is exactly how the shoulder ribbon between those two
+        /// stations is laid, so the lattice and the ribbon are sampled from
+        /// the same surface.
+        ///
+        /// Under the section the lattice is held <see cref="RoadsideRules.HideMarginM"/>
+        /// under it (the coarse grid may stay sunk under an exact surface; it
+        /// may not poke through one). Everywhere it only ever LOWERS the
+        /// roadbed shelf, so the dig under the tarmac and every clearance it
+        /// buys are unchanged — except behind a cut face, where the whole point
+        /// is to let the hill come back up (see <see cref="RoadsideDy"/>).
+        /// </summary>
+        static float GradedRoadside(float shelf, float dem, in RoadFoot foot)
+        {
+            if (rsKind == null) return shelf;
+            int s = SideIx(foot.side);
+            float e = foot.d - RoadWidth * 0.5f;
+            float tarmac = foot.roadY + RoadLift;
+            float demDy = dem - tarmac;
+            float g0 = RoadsideDy(foot.s0, s, e, demDy, out bool rel0);
+            float g1 = RoadsideDy(foot.s1, s, e, demDy, out bool rel1);
+            float g = tarmac + Mathf.Lerp(g0, g1, foot.t);
+            return rel0 || rel1 ? g : Mathf.Min(shelf, g);
+        }
+
+        /// <summary>
+        /// Tarmac-relative height the ground wants at <paramref name="e"/>
+        /// metres past the tarmac edge of station <paramref name="st"/>, on
+        /// side index <paramref name="s"/>. <paramref name="released"/> says
+        /// the answer may stand ABOVE the roadbed shelf (behind a cut face).
+        /// </summary>
+        static float RoadsideDy(int st, int s, float e, float demDy, out bool released)
+        {
+            released = false;
+            float hide = RoadsideRules.HideMarginM;
+            e = Mathf.Max(e, KerbWidth);
+            // Where the land rises, the graded side goes no higher than the
+            // bench (see StageBenchDy); where it falls, it is the land.
+            float land = Mathf.Min(demDy, StageBenchDy);
+            var kind = GradedKind(s, st);
+            switch (kind)
+            {
+                case Roadside.Open:
+                {
+                    // Full hide under the section — deeper past the clear
+                    // zone's first metre, where a long foreslope runs down
+                    // into a dip the lattice's chords bridge over — fading to
+                    // none AT the catch: the lattice arrives at the ribbon's
+                    // toe at the toe's own height and the two cross
+                    // (RoadsideRules.ToeTuckM) rather than the toe standing a
+                    // hide margin proud of the land.
+                    float ec = rsCatchE[s][st];
+                    float keep = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(ec - StageHideFadeM, ec, e));
+                    float depth = hide + StageOuterHideM * Mathf.InverseLerp(ShoulderEndE + 1f,
+                                      ShoulderEndE + RoadsideRules.ClearZoneM, e);
+                    return Mathf.Max(OpenSectionDy(e) - depth * keep, land);
+                }
+                case Roadside.Cut:
+                {
+                    if (e <= CutToeE) return CutSectionDy(e) - hide;
+                    // BEHIND THE FACE THE HILL COMES BACK.
+                    //
+                    // The old corridor held the shelf flat to CorridorR behind
+                    // every cut: a bench 9.65 m wide on the Parkway, at -0.32 m,
+                    // hidden behind a face drawn from one side only. It cannot
+                    // simply be the DEM, because a lattice vertex a cell
+                    // diagonal (17 m) away still weighs on the ditch; so it is
+                    // held for BankPinM, released over BankReleaseM (faded in
+                    // from each run end), and the rock top BuildStageBanks lays
+                    // from the crest back over it is what a car finds there.
+                    float pin = Mathf.Min(CutDitchDy, StageBenchDy) - hide;
+                    float r = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(CutToeE + BankPinM,
+                                  CutToeE + BankPinM + BankReleaseM, e)) * rsRelease[s][st];
+                    released = true;
+                    return Mathf.Min(Mathf.Lerp(pin, demDy, r), Mathf.Max(demDy, pin));
+                }
+                default:
+                {
+                    // Walled (standing stone — a buried terminal is graded
+                    // Open, see BuriedTerminal), Deck (the parapet) and Tunnel
+                    // (the tube's wall): the shoulder to the face, then — under
+                    // the stone and past it — the old shelf-and-fill-batter,
+                    // never below the land.
+                    float ew = kind == Roadside.Walled ? rsWallE[s][st]
+                             : kind == Roadside.Tunnel ? TunnelWallOut : WallFaceE;
+                    float dw = e <= ew ? ShoulderDy(e)
+                             : ShoulderDy(ew) - Mathf.Max(0f, e - ew - StageWallBackFlatM) * StageFillBatter;
+                    float keep = 1f - Mathf.Clamp01((e - ew) / StageWallDrawThick);
+                    return Mathf.Max(dw, land) - hide * keep;
+                }
+            }
+        }
+
+        /// <summary>The height of the built near-ground LATTICE at a point —
+        /// the 12 m grid GridChunkMesh triangulates, read back the same way
+        /// (vertices on multiples of NearCell, the a-c diagonal, each vertex as
+        /// <see cref="StageLatticeVertexY"/> has it once PrepareStageLattice
+        /// has solved it) — rather than the smooth field it samples. What a
+        /// wall's footing, a rock top's tuck and the shoulder emitter's toe
+        /// (ShoulderLatticeY) are measured against: between vertices the
+        /// lattice can be a metre off the field on a falling verge.</summary>
+        static float StageLatticeY(float x, float z)
+        {
+            int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
+            float u = x / NearCell - gx, w = z / NearCell - gz;
+            float ha = StageLatticeVertexY(gx, gz), hc = StageLatticeVertexY(gx + 1, gz + 1);
+            if (w >= u)
+            {
+                float hb = StageLatticeVertexY(gx, gz + 1);
+                return ha + (hc - hb) * u + (hb - ha) * w;
+            }
+            float he = StageLatticeVertexY(gx + 1, gz);
+            return ha + (he - ha) * u + (hc - he) * w;
+        }
+
+        // ------------------------------------------------------------------
+        //  The near lattice under the road and shoulder
+        // ------------------------------------------------------------------
+        /// <summary>The stage field at each near-grid vertex (keyed by
+        /// <see cref="LatticeKey"/>), read once the plan is final
+        /// (<see cref="StageLatticeSolved"/>). The field is a hash walk, a
+        /// segment refinement and a DEM read per call, and the solve, the
+        /// toes, the walls, the rock tops and the ground mesh all ask for the
+        /// same vertices over and over.</summary>
+        static Dictionary<long, float> stageLatticeField;
+        /// <summary>How far <see cref="PrepareStageLattice"/> lowered each
+        /// near-grid vertex below the field. Absent is not at all.</summary>
+        static Dictionary<long, float> stageLatticeSink;
+        /// <summary>Per vertex: does a near-tube quad's clearance test read
+        /// it (<see cref="StageLatticeNearTube"/>)?</summary>
+        static Dictionary<long, bool> stageLatticeTube;
+        /// <summary>The plan table and the waypoint list the solve ran under.
+        /// A new venue loads a new route, a re-plan makes a new table, and
+        /// either one retires the solve and everything cached against it.</summary>
+        static object stageLatticePlan, stageLatticeRoute;
+
+        /// <summary>Samples along each station's own cross-section are at most
+        /// this far apart — the terrain audit's ShoulderPitchM — with one more
+        /// on every profile point and every lattice crease between them
+        /// (<see cref="StageLatticeCreases"/>), so the line the audit rays is
+        /// held along its whole length, wherever its probes happen to land.</summary>
+        const float StageLatticeLinePitchM = 0.25f;
+        /// <summary>Across-pitch of the samples between two stations, where
+        /// the ribbon is the zipper of two sections.</summary>
+        const float StageLatticeQuadPitchM = 0.5f;
+        /// <summary>Samples per station gap along the road, counting the
+        /// station line itself as the first: every metre of a 4 m gap.</summary>
+        const int StageLatticeAlong = 4;
+        /// <summary>
+        /// The least margin a section that ends on a slope keeps over the
+        /// lattice, all the way to its last point (see StageLatticeHold).
+        ///
+        /// RoadsideDy fades the field's hide to nothing at an open section's
+        /// catch (StageHideFadeM) so the lattice meets the ribbon's toe there
+        /// and the two cross. Held to that, a sample a few centimetres inside
+        /// the catch is legitimately "lattice within 3 cm", and the terrain
+        /// audit only excuses such a probe while it trails unbroken into the
+        /// toe — a toe the emitter may have carried a metre further on, past
+        /// a probe that has the margin, after which the close ones count.
+        /// Five centimetres is the audit's 3 cm, the stage chunk's own vertex
+        /// quantisation (16 bits over the chunk's whole range, world height
+        /// included: a 1.2 cm step, so up to 6 mm either way, on Beech Gap's
+        /// 776 m summit) and a centimetre to spare; below a 1V:4H carried slope
+        /// it moves the crossing 0.2 m out.
+        /// </summary>
+        const float StageCatchHoldM = 0.05f;
+        /// <summary>Added to every correction so a sample the solve fixed is
+        /// not left a float's width over its target.</summary>
+        const float StageLatticeSolveSlackM = 0.002f;
+
+        static long LatticeKey(int gx, int gz) => ((long)gx << 32) ^ (uint)gz;
+
+        /// <summary>
+        /// Has PrepareStageLattice run for the roadside plan and the route now
+        /// loaded? Until it has, the lattice is simply the field, read fresh
+        /// every time and never cached: the plan itself reads the lattice while
+        /// it is still deciding (the fall walk reads it after each laying, and
+        /// a wall that walk adds grades the field behind its stone differently
+        /// on the next; FinishStageCuts lands every crest on it), so a value
+        /// cached then would be a value from a plan that no longer exists.
+        /// From the solve on the plan is final, and a new venue or a re-plan
+        /// (a new route list, a new plan table) puts it back to unsolved.
+        /// </summary>
+        static bool StageLatticeSolved =>
+            stageLatticeField != null && ReferenceEquals(stageLatticePlan, rsKind)
+            && ReferenceEquals(stageLatticeRoute, stageWp);
+
+        /// <summary>
+        /// One near-grid vertex of the lattice: the stage field at
+        /// (gx, gz) x NearCell, less whatever PrepareStageLattice took off it.
+        /// GridChunkMesh builds the near ground from exactly this, and
+        /// StageLatticeY reads it back, so the ground a toe or a footing was
+        /// measured against is the ground that gets built.
+        /// </summary>
+        static float StageLatticeVertexY(int gx, int gz)
+        {
+            if (!StageLatticeSolved) return StageGroundHeightAt(gx * NearCell, gz * NearCell);
+            long k = LatticeKey(gx, gz);
+            if (!stageLatticeField.TryGetValue(k, out float h))
+                stageLatticeField[k] = h = StageGroundHeightAt(gx * NearCell, gz * NearCell);
+            return stageLatticeSink.TryGetValue(k, out float sink) ? h - sink : h;
+        }
+
+        /// <summary>Does any of the four quads round this vertex have a corner
+        /// within a tunnel's zone (<see cref="InTunnelZone"/>) — is any of the
+        /// nine vertices from (gx-1, gz-1) to (gx+1, gz+1) in it? Such a quad
+        /// is built only if TunnelQuadClear passes its own facets over the
+        /// bore, so a vertex it reads is not the solve's to move.</summary>
+        static bool StageLatticeNearTube(int gx, int gz)
+        {
+            if (!hasTunnels) return false;
+            long k = LatticeKey(gx, gz);
+            bool cache = StageLatticeSolved;
+            if (cache && stageLatticeTube.TryGetValue(k, out bool known)) return known;
+            bool near = false;
+            for (int oz = -1; oz <= 1 && !near; oz++)
+                for (int ox = -1; ox <= 1 && !near; ox++)
+                    near = InTunnelZone((gx + ox) * NearCell, (gz + oz) * NearCell);
+            if (cache) stageLatticeTube[k] = near;
+            return near;
+        }
+
+        /// <summary>
+        /// THE NEAR LATTICE STAYS UNDER THE SHOULDER BETWEEN ITS VERTICES TOO.
+        ///
+        /// RoadsideDy holds the FIELD HideMarginM under every graded section
+        /// (StageOuterHideM more under a long foreslope), but the field is only
+        /// what the lattice samples: GridChunkMesh puts a vertex on it every
+        /// 12 m and a flat triangle between, and the triangle is what a wheel
+        /// and an eye meet. Over a gully in the DEM, across a crest, and where
+        /// a switchback's lower roadside lies under a triangle whose far vertex
+        /// the upper leg's hillside holds up, that triangle crosses above the
+        /// shoulder between vertices that each kept the margin. The terrain
+        /// audit on the round-one bake: 1 to 82 probes of grass through the
+        /// ribbon on every mountain and on the coast, worst 0.86 m in the
+        /// ditch at Mount Mitchell wp 1494 R — measured off the saved meshes,
+        /// a facet rising from the kerb (+0.03 m) to +2.6 m 8 m out, over a
+        /// ditch 0.23 m under the tarmac.
+        ///
+        /// So the stage does what PrepareCircuitLattice does: sample every
+        /// designed surface — the tarmac and strip, and each station's section
+        /// along its own cross-section line at the audit's quarter metre and on
+        /// every lattice crease it crosses, and between stations every metre —
+        /// and wherever the lattice triangle
+        /// over a sample stands higher than the surface less its margin, lower
+        /// that triangle's vertices until it does not. Each vertex takes its
+        /// least-squares share of the excess (excess x w / sum of w squared),
+        /// so the vertex the sample sits on carries the correction and one a
+        /// cell away barely moves: the hide stays a trough under the roadside
+        /// rather than a pit round it. The largest share asked of a vertex
+        /// wins, which satisfies every sample at once; a second pass takes the
+        /// float residue. It only ever LOWERS, so nothing loses clearance, and
+        /// it runs before a single toe is placed (BuildShoulders), so the toes,
+        /// the walls' footings, the rock tops' tucks and the ground mesh all
+        /// read the solved lattice. The margin is <see cref="StageLatticeHold"/>'s:
+        /// the full hide, fading to StageCatchHoldM where a section ends on a
+        /// slope and its toe is meant to cross the land.
+        ///
+        /// Python replica on the saved round-one meshes (the built ribbon
+        /// standing in for the design surface, the chunks' vertices for the
+        /// field): grass through the ribbon and lattice within 3 cm of it both
+        /// went to zero on all seven stages, moving 54 (Langston) to 1,156
+        /// (Blowing Rock) vertices, p50 under 1.5 cm, p90 4-23 cm. (That
+        /// replica held the lattice under everything a station's audit line
+        /// crossed; this holds it under the designed sections only, and the
+        /// toes are laid on it afterwards. On the round-one bake the counted
+        /// probes it does not reach were other stations' toes — Blowing Rock's
+        /// deck stations over its own lower road, three insides of bends on
+        /// Little Switzerland — which the audit no longer reads as this
+        /// station's shoulder: TerrainAudit.OwnSection.) The deepest,
+        /// 0.5-1.45 m, are mostly vertices 5-8 m from the centreline — under
+        /// the road's edge or its shoulder, where the tarmac and the ribbon
+        /// cover what moved — whose triangles reach land two metres above or
+        /// below (Mount Mitchell wp 1494's dig vertex, next to one 6.7 m up the
+        /// released hill behind the cut).
+        ///
+        /// Not inside a tunnel (the mountain stands over the road there on
+        /// purpose), and not at a vertex a near-tube quad is measured by.
+        /// </summary>
+        static void PrepareStageLattice(List<Vector3> pts)
+        {
+            // The plan is final from here (BuildShoulders has just read every
+            // section out of it): start the caches clean, against it.
+            stageLatticeField = new Dictionary<long, float>();
+            stageLatticeSink = new Dictionary<long, float>();
+            stageLatticeTube = new Dictionary<long, bool>();
+            stageLatticePlan = rsKind;
+            stageLatticeRoute = stageWp;
+            if (shoulderProfiles == null || pts == null || pts.Count < 2) return;
+
+            var want = new Dictionary<long, float>();
+            int samples = 0, nearTube = 0;
+            float worst = 0f;
+            long worstKey = 0;
+            void Want(long k, float v)
+            {
+                if (v > 0f && (!want.TryGetValue(k, out float had) || v > had)) want[k] = v;
+            }
+            for (int pass = 0; pass < 2; pass++)
+            {
+                want.Clear();
+                bool first = pass == 0;
+                ForEachStageLatticeSample(pts, (x, z, target) =>
+                {
+                    if (first) samples++;
+                    int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
+                    float u = x / NearCell - gx, w = z / NearCell - gz;
+                    // GridChunkMesh's two triangles per cell, weighted the way
+                    // StageLatticeY interpolates them.
+                    int bx, bz;
+                    float wa, wb, wc;
+                    if (w >= u) { bx = gx; bz = gz + 1; wa = 1f - w; wb = w - u; wc = u; }
+                    else { bx = gx + 1; bz = gz; wa = 1f - u; wb = u - w; wc = w; }
+                    float excess = StageLatticeVertexY(gx, gz) * wa + StageLatticeVertexY(bx, bz) * wb
+                                 + StageLatticeVertexY(gx + 1, gz + 1) * wc - target;
+                    if (excess <= 0f) return;
+                    if (StageLatticeNearTube(gx, gz) || StageLatticeNearTube(bx, bz)
+                        || StageLatticeNearTube(gx + 1, gz + 1))
+                    {
+                        if (first) nearTube++;
+                        return;
+                    }
+                    excess += StageLatticeSolveSlackM;
+                    float sw2 = wa * wa + wb * wb + wc * wc;
+                    Want(LatticeKey(gx, gz), excess * wa / sw2);
+                    Want(LatticeKey(bx, bz), excess * wb / sw2);
+                    Want(LatticeKey(gx + 1, gz + 1), excess * wc / sw2);
+                });
+                if (want.Count == 0) break;
+                foreach (var kv in want)
+                {
+                    stageLatticeSink.TryGetValue(kv.Key, out float had);
+                    stageLatticeSink[kv.Key] = had + kv.Value;
+                    if (had + kv.Value > worst) { worst = had + kv.Value; worstKey = kv.Key; }
+                }
+            }
+            // Where the deepest one is, so a bake log can be checked against
+            // the ground there without a replica.
+            float wx = (int)(worstKey >> 32) * NearCell, wz = (int)(uint)worstKey * NearCell;
+            Log(stageLatticeSink.Count == 0
+                ? $"Stage ground lattice: already {RoadsideRules.HideMarginM:0.00} m under the road and shoulder " +
+                  $"between its vertices ({samples} samples)."
+                : $"Stage ground lattice: {stageLatticeSink.Count} near-grid vertices lowered (up to {worst:0.000} m, " +
+                  $"at {wx:0},{wz:0}) so every facet sits {RoadsideRules.HideMarginM:0.00} m under the road and " +
+                  $"shoulder ({StageCatchHoldM:0.00} m at a catch), from {samples} samples" +
+                  (nearTube > 0 ? $"; {nearTube} samples over a tunnel's measured quads left to TunnelQuadClear." : "."));
+        }
+
+        /// <summary>
+        /// The margin the lattice keeps under a section at <paramref name="e"/>:
+        /// the full RoadsideRules.HideMarginM, except on a section that ENDS ON
+        /// A SLOPE (the emitter's own test, ShoulderSlopedEnd) — a foreslope
+        /// falling onto its catch, a backslope climbing to a toe or a graded
+        /// crest — where it fades over StageHideFadeM the way RoadsideDy fades
+        /// an open section's field, to <see cref="StageCatchHoldM"/> rather
+        /// than to nothing: that is where the ribbon's toe is meant to cross
+        /// the land, so the solve must not dig the land away from it. A flat
+        /// end (a wall's face, a tube's wall) keeps the full margin to its last
+        /// point, as the field does under it.
+        /// </summary>
+        static float StageLatticeHold(List<Vector2> prof, float e)
+        {
+            int m = prof.Count;
+            if (m < 2) return RoadsideRules.HideMarginM;
+            float eLast = prof[m - 1].x;
+            float slope = (prof[m - 2].y - prof[m - 1].y) / Mathf.Max(eLast - prof[m - 2].x, 1e-5f);
+            if (Mathf.Abs(slope) < ShoulderSlopedEnd) return RoadsideRules.HideMarginM;
+            float keep = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(eLast - StageHideFadeM, eLast, e));
+            return Mathf.Max(StageCatchHoldM, RoadsideRules.HideMarginM * keep);
+        }
+
+        /// <summary>
+        /// Every point PrepareStageLattice holds the lattice under, with the
+        /// height it may reach there: the tarmac and strip (at the tarmac's
+        /// height) and each station's section along its own cross-section
+        /// line out to its last point; then between each pair of stations the
+        /// same, out to the shorter section. The designed surface only — never
+        /// a toe, which is placed from the solved lattice. Nothing at a tunnel
+        /// station.
+        /// </summary>
+        static void ForEachStageLatticeSample(List<Vector3> pts, Action<float, float, float> visit)
+        {
+            int n = pts.Count, last = Loop ? n : n - 1;
+            float half = RoadWidth * 0.5f;
+            int roadSteps = Mathf.CeilToInt((half + KerbWidth) / 1.5f);
+            var right = new Vector3[n];
+            for (int i = 0; i < n; i++) right[i] = RightAt(pts, i);
+            bool Tube(int i) => hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i];
+            var across = new List<float>();
+
+            // Each station's own line: what the terrain audit rays.
+            for (int i = 0; i < n; i++)
+            {
+                if (Tube(i)) continue;
+                float roadY = pts[i].y + RoadLift;
+                for (int s = 0; s < 2; s++)
+                {
+                    Vector3 outw = right[i] * (s == 0 ? -1f : 1f);
+                    for (int k = 0; k <= roadSteps; k++)
+                    {
+                        Vector3 p = pts[i] + outw * (half + (-half + (half + KerbWidth) * k / roadSteps));
+                        visit(p.x, p.z, roadY - RoadsideRules.HideMarginM);
+                    }
+                    var prof = shoulderProfiles[s][i];
+                    if (prof == null || prof.Count == 0) continue;
+                    across.Clear();
+                    AddLatticeAcross(across, prof, prof[prof.Count - 1].x, StageLatticeLinePitchM);
+                    for (int k = 0; k < across.Count; k++)
+                    {
+                        float e = across[k];
+                        // And every lattice crease the line crosses since the
+                        // last sample, so the line is held exactly, not only
+                        // at its quarter metres.
+                        if (k > 0)
+                            StageLatticeCreases(pts[i], outw, half, across[k - 1], e, prof, roadY, visit);
+                        float dy = EvalShoulderProfile(prof, e, false);
+                        if (float.IsNaN(dy)) continue;
+                        Vector3 p = pts[i] + outw * (half + e);
+                        visit(p.x, p.z, roadY + dy - StageLatticeHold(prof, e));
+                    }
+                }
+            }
+
+            // Between stations, a metre apart along the road.
+            for (int i = 0; i < last; i++)
+            {
+                int a = i, b = Loop ? (i + 1) % n : i + 1;
+                if (Tube(a) || Tube(b)) continue;
+                float ya = pts[a].y + RoadLift, yb = pts[b].y + RoadLift;
+                for (int s = 0; s < 2; s++)
+                {
+                    float side = s == 0 ? -1f : 1f;
+                    var pa = shoulderProfiles[s][a];
+                    var pb = shoulderProfiles[s][b];
+                    across.Clear();
+                    for (int k = 0; k <= roadSteps; k++)
+                        across.Add(-half + (half + KerbWidth) * k / roadSteps);
+                    int roadCount = across.Count;
+                    if (pa != null && pb != null && pa.Count > 0 && pb.Count > 0)
+                    {
+                        float reach = Mathf.Min(pa[pa.Count - 1].x, pb[pb.Count - 1].x);
+                        AddLatticeAcross(across, pa, reach, StageLatticeQuadPitchM);
+                        AddLatticeAcross(across, pb, reach, StageLatticeQuadPitchM);
+                    }
+                    for (int k = 0; k < across.Count; k++)
+                    {
+                        float e = across[k];
+                        float dyA = 0f, dyB = 0f, hold = RoadsideRules.HideMarginM;
+                        if (k >= roadCount)
+                        {
+                            dyA = EvalShoulderProfile(pa, e, false);
+                            dyB = EvalShoulderProfile(pb, e, false);
+                            if (float.IsNaN(dyA) || float.IsNaN(dyB)) continue;
+                            hold = Mathf.Min(StageLatticeHold(pa, e), StageLatticeHold(pb, e));
+                        }
+                        Vector3 pA = pts[a] + right[a] * (side * (half + e));
+                        Vector3 pB = pts[b] + right[b] * (side * (half + e));
+                        for (int q = 1; q < StageLatticeAlong; q++)
+                        {
+                            float t = q / (float)StageLatticeAlong;
+                            visit(Mathf.Lerp(pA.x, pB.x, t), Mathf.Lerp(pA.z, pB.z, t),
+                                  Mathf.Lerp(ya + dyA, yb + dyB, t) - hold);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The creases of the near lattice that a station's line crosses
+        /// between two of its samples (<paramref name="e0"/>,
+        /// <paramref name="e1"/>), visited as samples themselves.
+        ///
+        /// GridChunkMesh splits each 12 m cell on its a-c diagonal, so the
+        /// plane under a point changes only where x or z is a multiple of
+        /// NearCell or x - z is. Between two creases the lattice is one plane,
+        /// and between two consecutive samples the section is one line
+        /// (AddLatticeAcross puts a sample on every profile point), so the gap
+        /// between them is least at a sample or at a crease. Held only at the
+        /// quarter-metre samples, a ridge crease between two of them stands up
+        /// to an eighth of a metre times the change of slope across it closer
+        /// than either — about 3 cm where a dig vertex meets a hillside one,
+        /// which under a catch's <see cref="StageCatchHoldM"/> is the terrain
+        /// audit's whole margin.
+        /// </summary>
+        static void StageLatticeCreases(Vector3 at, Vector3 outw, float half, float e0, float e1,
+                                        List<Vector2> prof, float roadY, Action<float, float, float> visit)
+        {
+            if (e1 <= e0) return;
+            Vector3 p0 = at + outw * (half + e0), p1 = at + outw * (half + e1);
+            for (int family = 0; family < 3; family++)
+            {
+                // x / cell, z / cell, then (x - z) / cell: integer on a crease.
+                float f0 = (family == 0 ? p0.x : family == 1 ? p0.z : p0.x - p0.z) / NearCell;
+                float f1 = (family == 0 ? p1.x : family == 1 ? p1.z : p1.x - p1.z) / NearCell;
+                if (Mathf.Abs(f1 - f0) < 1e-6f) continue;
+                int lo = Mathf.FloorToInt(Mathf.Min(f0, f1)) + 1, hi = Mathf.CeilToInt(Mathf.Max(f0, f1)) - 1;
+                for (int c = lo; c <= hi; c++)
+                {
+                    float e = Mathf.Lerp(e0, e1, (c - f0) / (f1 - f0));
+                    float dy = EvalShoulderProfile(prof, e, false);
+                    if (float.IsNaN(dy)) continue;
+                    Vector3 p = at + outw * (half + e);
+                    visit(p.x, p.z, roadY + dy - StageLatticeHold(prof, e));
+                }
+            }
+        }
+
+        /// <summary>Every point of a profile out to <paramref name="reach"/>,
+        /// enough between them that none is more than
+        /// <paramref name="pitch"/> from the next, and the reach itself.</summary>
+        static void AddLatticeAcross(List<float> into, List<Vector2> p, float reach, float pitch)
+        {
+            float lastAdded = float.NegativeInfinity;
+            for (int k = 0; k < p.Count; k++)
+            {
+                float e0 = p[k].x;
+                if (e0 > reach) break;
+                into.Add(lastAdded = e0);
+                float e1 = k + 1 < p.Count ? Mathf.Min(p[k + 1].x, reach) : e0;
+                int parts = Mathf.CeilToInt((e1 - e0) / pitch);
+                for (int q = 1; q < parts; q++) into.Add(lastAdded = e0 + (e1 - e0) * q / parts);
+            }
+            if (reach > lastAdded + 1e-3f && p.Count > 0 && reach <= p[p.Count - 1].x) into.Add(reach);
+        }
+
+        // ------------------------------------------------------------------
+        //  The roadside plan
+        // ------------------------------------------------------------------
+        // HOW THE ROAD MEETS THE MOUNTAIN, DECIDED ONCE.
+        //
+        // The owner, 2026-09-13: "Roads sitting cm above the ground do not need
+        // rails/walls, they should meet the ground properly by DOT standards."
+        // What the stage had instead, measured on the built scenes that day:
+        //
+        //   * the shoulder was a 0.46 m slab face at 61 degrees on every
+        //     unwalled station (a collider, and wall class to the car);
+        //   * walls stood on LEVEL land wherever the DEM stayed within 0.9 m
+        //     of the road — the "open verge" rule a shoulder-width audit had
+        //     pushed onto 9.2 km of mountain — so about half of every
+        //     mountain's walled half-sections had drivable ground behind
+        //     stone drawn from one side only;
+        //   * every cut bank hid a flat bench out to 16 m, and ended in a
+        //     collider 3 cm over the tarmac: passable outward, a ledge back;
+        //   * a deck began at bridge blend 0.001 and its parapet at 0.35,
+        //     leaving ~7.75 m of unrailed deck edge at each affected span end.
+        //
+        // So each shoulder is a SECTION, per station and side, and the walls,
+        // the cut faces, the ground lattice, the posts, the forest and the
+        // shoulder ribbon all read this one plan:
+        //
+        //   Open    shoulder, 1V:6H through the clear zone, 1V:4H to the reach,
+        //           1V:3H for a short runout, until it meets the land. No wall.
+        //   Walled  a WARRANTED wall: every deck station, ApproachRailStations
+        //           past each deck end, a fill the Open section cannot catch,
+        //           water, a tunnel mouth. The shoulder runs to its face;
+        //           at a run's buried terminal the open section runs past it.
+        //   Cut     the land rises a face's height: the compact cut to the
+        //           face's toe, the face, a solid rock top back into the hill.
+        //   Deck    the deck is the surface, and it is walled.
+        //   Tunnel  the tube's wall is the wall.
+
+        enum Roadside : byte { Open, Walled, Cut, Deck, Tunnel }
+
+        /// <summary>The plan, per [side][station]; side 0 is left (-1),
+        /// 1 is right (+1).</summary>
+        static Roadside[][] rsKind;
+        /// <summary>Open: where the graded section meets the land, in metres
+        /// past the tarmac edge.</summary>
+        static float[][] rsCatchE;
+        /// <summary>Walled: e of the wall's collider face — WallFaceE, or
+        /// further out through an end flare.</summary>
+        static float[][] rsWallE;
+        /// <summary>Walled: how much of the stone stands. 1 is full height, 0
+        /// buried into the shoulder at a run's terminal.</summary>
+        static float[][] rsWallUp;
+        /// <summary>Cut: drawn face height over the waypoint plane, smoothed
+        /// and tapered at the run ends that meet land.</summary>
+        static float[][] rsFaceH;
+        /// <summary>Cut: how far the lattice behind the face is released, 0 at
+        /// a run end to 1 BankReleaseFadeStations in.</summary>
+        static float[][] rsRelease;
+        /// <summary>Cut: GRADED rather than faced — the ditch's backslope
+        /// carries on at RoadsideRules.BackSlope up to the crest
+        /// (<see cref="CutCrestE"/>), and no rock stands vertical. Decided by
+        /// FinishStageCuts once the face heights have been landed on the hill
+        /// behind them.</summary>
+        static bool[][] rsCutGraded;
+        /// <summary>Cut: this station's release fades toward a run end that
+        /// runs INTO something — a warranted wall or a tunnel portal — rather
+        /// than tapering into graded land, so its rock top holds the crest
+        /// instead of stepping down onto a lattice that is not released yet.
+        /// </summary>
+        static bool[][] rsCutHold;
+        static Vector3[] rsRight;
+        static List<(int from, int len, float side)> rsWallRuns;
+        static List<(int[] stations, float side)> rsBankRuns;
+        /// <summary>The rock top laid over each Cut station — (e, world y)
+        /// outward from the crest — keyed side * RsStationKey + station. The
+        /// forest stands its trees on it.</summary>
+        static Dictionary<int, Vector2[]> rsBankTop;
+        const int RsStationKey = 1 << 20;
+
+        static void ClearStageRoadside()
+        {
+            rsKind = null;
+            rsCatchE = rsWallE = rsWallUp = rsFaceH = rsRelease = null;
+            rsCutGraded = rsCutHold = null;
+            rsRight = null;
+            rsWallRuns = null; rsBankRuns = null; rsBankTop = null;
+        }
+
+        static void EnsureStageRoadside(List<Vector3> pts)
+        {
+            if (rsKind == null || rsKind[0].Length != pts.Count) PlanStageRoadside(pts);
+        }
+
+        static int SideIx(float side) => side < 0f ? 0 : 1;
+
+        /// <summary>
+        /// A warranted run's BURIED TERMINAL: a station whose stone is going
+        /// down into the ground at a run end beside graded land (rsWallUp
+        /// under 1). Its section is the OPEN one, not the walled shoulder, and
+        /// the stone stands in that foreslope.
+        ///
+        /// Graded as a walled shoulder, a terminal was the one place the
+        /// walled section's shortcuts showed. That section ends at the wall
+        /// face in a skirt and leaves everything behind it to the stone — the
+        /// 12 m lattice under a fill runs well below its own field there — and
+        /// at a terminal the stone is sinking out of the way. Python replica
+        /// of the plan, the lattice and the shoulder emitter's toe: the ribbon
+        /// ended 0.57-0.73 m (p50) over the lattice at every terminal of Blue
+        /// Ridge, Blowing Rock and Mount Mitchell, 100% of them deeper than
+        /// 0.2 m — a drop off the end of the shoulder where the stone no
+        /// longer guards it, and a face a car could not climb back up. Graded
+        /// open, the foreslope is carried down to the lattice as everywhere
+        /// else: p50 0.00-0.05 m, 5-10% deeper than 0.2 m.
+        /// </summary>
+        static bool BuriedTerminal(int s, int st) =>
+            rsKind[s][st] == Roadside.Walled && rsWallUp[s][st] < 0.999f;
+
+        /// <summary>The section a station and side is GRADED to — the ground
+        /// field and the shoulder profile ask this, the walls and faces the
+        /// plan's own kind: a buried terminal is walled and graded open.</summary>
+        static Roadside GradedKind(int s, int st) =>
+            BuriedTerminal(s, st) ? Roadside.Open : rsKind[s][st];
+
+        // ---- the sections, tarmac-relative, e metres past the tarmac edge ----
+        static float ShoulderEndE => KerbWidth + StageShoulderM;
+        /// <summary>A warranted wall's collider face, un-flared.</summary>
+        static float WallFaceE => StageVerge - StageWallFaceIn;
+        /// <summary>End of the Safety Edge bevel off the strip.</summary>
+        static float BevelEndE => KerbWidth + SafetyEdgeRunM;
+        /// <summary>The shoulder: the strip's top, the bevel down the owner's
+        /// inch, then the cross-fall.</summary>
+        static float ShoulderDy(float e)
+        {
+            if (e <= KerbWidth) return KerbStripLift;
+            if (e <= BevelEndE)
+                return KerbStripLift - RoadsideRules.EdgeDropM * Mathf.InverseLerp(KerbWidth, BevelEndE, e);
+            return KerbStripLift - RoadsideRules.EdgeDropM - (e - BevelEndE) * RoadsideRules.ShoulderCrossFall;
+        }
+        static float ShoulderEndDy => ShoulderDy(ShoulderEndE);
+        static float CutDitchDy => ShoulderEndDy - CutForeslopeRunM * RoadsideRules.SteepestRecoverableSlope;
+        /// <summary>The rock face's toe: the ditch's backslope back up to road
+        /// level, about 3 m past the tarmac edge.</summary>
+        static float CutToeE => ShoulderEndE + CutForeslopeRunM + CutDitchFloorM
+                                - CutDitchDy / RoadsideRules.BackSlope;
+
+        /// <summary>The open section: shoulder, RecoverableSlope for the clear
+        /// zone, SteepestRecoverableSlope to the warrant reach, TraversableSlope
+        /// beyond. Continues past any catch, so the lattice's Max against the
+        /// land is the section "filled up to, never below".</summary>
+        static float OpenSectionDy(float e)
+        {
+            float e0 = ShoulderEndE;
+            if (e <= e0) return ShoulderDy(e);
+            float run = e - e0, cz = RoadsideRules.ClearZoneM, reach = RoadsideRules.WarrantReachM;
+            float y = ShoulderEndDy - Mathf.Min(run, cz) * RoadsideRules.RecoverableSlope;
+            if (run > cz) y -= (Mathf.Min(run, reach) - cz) * RoadsideRules.SteepestRecoverableSlope;
+            if (run > reach) y -= (run - reach) * RoadsideRules.TraversableSlope;
+            return y;
+        }
+
+        /// <summary>The compact cut: shoulder, foreslope, ditch, backslope to
+        /// the toe, level after it (the face stands there).</summary>
+        static float CutSectionDy(float e)
+        {
+            float e0 = ShoulderEndE;
+            if (e <= e0) return ShoulderDy(e);
+            float e1 = e0 + CutForeslopeRunM;
+            if (e <= e1) return ShoulderEndDy - (e - e0) * RoadsideRules.SteepestRecoverableSlope;
+            float e2 = e1 + CutDitchFloorM;
+            if (e <= e2) return CutDitchDy;
+            return Mathf.Min(0f, CutDitchDy + (e - e2) * RoadsideRules.BackSlope);
+        }
+
+        /// <summary>How far a Cut station's crest stands over the tarmac: the
+        /// top of its rock face or, where the cut is graded, where its
+        /// backslope stops climbing. Never under the toe, which is at road
+        /// level: the ditch's backslope always climbs that far, and the field
+        /// under it is held to the section.</summary>
+        static float CutRiseDy(int s, int st) => Mathf.Max(0f, rsFaceH[s][st] - RoadLift);
+
+        /// <summary>e of a Cut station's crest: past a face's vertical plinth by
+        /// its batter, or past a graded cut's toe by the run a
+        /// RoadsideRules.BackSlope takes to climb its rise.</summary>
+        static float CutCrestE(int s, int st) =>
+            rsCutGraded != null && rsCutGraded[s][st]
+                ? CutToeE + CutRiseDy(s, st) / RoadsideRules.BackSlope
+                : CutToeE + Mathf.Max(0f, rsFaceH[s][st] - BankPlinth) * BankBatter;
+
+        /// <summary>The land an open section has to meet at e, tarmac-relative:
+        /// the DEM along the station's right vector, no higher than the bench.
+        /// </summary>
+        static float RoadsideLandDy(List<Vector3> pts, int i, float side, float e)
+        {
+            Vector3 p = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + e));
+            return Mathf.Min(StageDemY(p.x, p.z) - (pts[i].y + RoadLift), StageBenchDy);
+        }
+
+        const float CatchStepM = 0.25f;
+
+        /// <summary>
+        /// THE ONE HELPER BOTH THE PROFILE AND THE WARRANT ASK. Walk the open
+        /// section out from the shoulder until it meets the land; the catch is
+        /// where the ribbon ends. True — CRITICAL, the side is walled — when
+        /// the land at the warrant reach is already a RoadsideRules
+        /// IsCriticalFall below the shoulder, or when even the 1V:3H runout
+        /// has not met it <see cref="StageTraversableRunM"/> past the reach.
+        /// </summary>
+        static bool OpenSideCritical(List<Vector3> pts, int i, float side, out float catchE)
+        {
+            float e0 = ShoulderEndE;
+            float reachE = e0 + RoadsideRules.WarrantReachM;
+            float lastE = reachE + StageTraversableRunM;
+            // The land is never above the bench, so at the shoulder the gap is
+            // always positive and the first crossing is a real catch.
+            float prevE = e0, prevGap = OpenSectionDy(e0) - RoadsideLandDy(pts, i, side, e0);
+            for (int k = 1; ; k++)
+            {
+                float e = Mathf.Min(e0 + k * CatchStepM, lastE);
+                float gap = OpenSectionDy(e) - RoadsideLandDy(pts, i, side, e);
+                if (gap <= 0f)
+                {
+                    catchE = Mathf.Lerp(prevE, e, prevGap / (prevGap - gap));
+                    return false;
+                }
+                if (prevE < reachE && e >= reachE - 1e-3f
+                    && RoadsideRules.IsCriticalFall(ShoulderEndDy - RoadsideLandDy(pts, i, side, reachE),
+                                                    RoadsideRules.WarrantReachM))
+                {
+                    catchE = reachE;
+                    return true;
+                }
+                if (e >= lastE) { catchE = lastE; return true; }
+                prevE = e; prevGap = gap;
+            }
+        }
+
+        /// <summary>Open water deeper than StageWaterDepthM within
+        /// StageWaterReachM of the tarmac edge — the coast's warrant. The
+        /// bake holds land 0.4 m over the sea plane and the seabed 4 m under
+        /// it, so the DEM answers this without the surface mask.</summary>
+        static bool WaterBeside(List<Vector3> pts, int i, float side)
+        {
+            if (track.stageWaterY <= 0f) return false;
+            for (float e = 0f; e <= StageWaterReachM + 1e-3f; e += 1f)
+            {
+                Vector3 p = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + e));
+                if (StageDemY(p.x, p.z) < track.stageWaterY - StageWaterDepthM) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Maximal runs of wanted stations with no hysteresis — a
+        /// graded gap between two warranted runs stays open. Loop-aware the
+        /// way StationRuns is.</summary>
+        static List<(int from, int len)> MaximalRuns(bool[] want, int minLen)
+        {
+            int n = want.Length;
+            var runs = new List<(int from, int len)>();
+            int origin = 0;
+            if (Loop)
+            {
+                while (origin < n && want[origin]) origin++;
+                if (origin >= n) { if (n >= minLen) runs.Add((0, n)); return runs; }
+            }
+            for (int k = 0; k < n; )
+            {
+                int i = (origin + k) % n;
+                if (!want[i]) { k++; continue; }
+                int len = 1;
+                while (k + len < n && want[(origin + k + len) % n]) len++;
+                if (len >= minLen) runs.Add((i, len));
+                k += len;
+            }
+            return runs;
+        }
+
+        static bool[] RunMask(List<(int from, int len)> runs, int n)
+        {
+            var mask = new bool[n];
+            foreach (var run in runs)
+                for (int k = 0; k < run.len; k++) mask[WrapIdx(run.from + k, n)] = true;
+            return mask;
+        }
+
+        /// <summary>The station a run ends on (end 0 its first, 1 its last)
+        /// and the station just past it. False at the end of a route with
+        /// ends, and for a run that is the whole loop.</summary>
+        static bool RunEnd((int from, int len) run, int end, int n, out int endSt, out int beyond)
+        {
+            endSt = end == 0 ? run.from : WrapIdx(run.from + run.len - 1, n);
+            beyond = endSt;
+            if (run.len >= n) return false;
+            int b = end == 0 ? run.from - 1 : run.from + run.len;
+            if (!Loop && (b < 0 || b >= n)) return false;
+            beyond = WrapIdx(b, n);
+            return true;
+        }
+
+        /// <summary>
+        /// How tall a cut face would be here, or 0 where the land does not rise.
+        ///
+        /// THE TOP OF A CUT LANDS ON THE HILLSIDE. That is the whole shape of
+        /// the thing: you take a bite out of a slope, and the face is exactly
+        /// as tall as the slope is where the face stops. Sizing it off a rise
+        /// measured at some fixed distance instead gives a wall standing a
+        /// metre proud of a hill that is not there yet — a lip along the top,
+        /// visible from the road, on every gentle gradient.
+        ///
+        /// So it is solved rather than sampled: h is the height at which the
+        /// top of a battered face of height h meets the real DEM, a metre past
+        /// the top so the cut bites into the hill. The iteration converges from
+        /// below in three or four passes because the DEM rises with distance
+        /// and the batter is shallower than 1:1; six is free and covers the
+        /// odd bench. The bottom BankPlinth of the face carries the top no
+        /// further out, because that part of it is vertical.
+        ///
+        /// Pure terrain: whether a face is BUILT here (not on a deck, a tube,
+        /// or a station a wall has) is the plan's business, not this one's.
+        /// </summary>
+        static float StageBankSolve(List<Vector3> pts, int i, float side)
+        {
+            Vector3 right = rsRight[i];
+            float h = 0f;
+            for (int it = 0; it < 6; it++)
+            {
+                float probe = RoadWidth * 0.5f + CutToeE + Mathf.Max(0f, h - BankPlinth) * BankBatter + 1f;
+                float px = pts[i].x + right.x * side * probe;
+                float pz = pts[i].z + right.z * side * probe;
+                h = Mathf.Clamp(StageDemY(px, pz) - pts[i].y, 0f, BankMaxH);
+                if (h <= 0f) return 0f;
+            }
+            return h;
+        }
+
+        /// <summary>How many times the plan is laid and then walked against
+        /// the section it will build (<see cref="BuiltSectionCritical"/>). A
+        /// walk that finds a fall walls it, flare and all, and the plan is laid
+        /// again; a new wall grades the ground behind it differently, which
+        /// can move a neighbour's lattice, so the next walk looks again — but
+        /// only near what changed.</summary>
+        const int StageWarrantPasses = 3;
+        /// <summary>Stations either side of a station whose section changed
+        /// that the next walk reads again: a lattice cell is three stations,
+        /// and a vertex weighs on points a cell diagonal away.</summary>
+        const int StageWarrantNearStations = 5;
+        /// <summary>
+        /// Fall slack on the plan's walk (RoadsideRules.WorstCriticalFall).
+        /// The plan reads the lattice before a shoulder exists, and
+        /// PrepareStageLattice, which runs once one does, only ever LOWERS
+        /// vertices under the ribbon; the stage chunks are also quantised to a
+        /// few millimetres. Five centimetres of fall is what the builder
+        /// concedes, so that where it stops a wall the audit — walking the
+        /// built meshes with no slack — agrees.
+        /// </summary>
+        const float StageWarrantSlackM = 0.05f;
+        /// <summary>The walk's pitch across the section — the edge audit's own
+        /// 5 cm, so the pairs it can choose are the pairs the audit chooses.
+        /// The lattice is read exactly at every one of them, off vertices
+        /// cached for the laying (BuiltSectionCritical).</summary>
+        const float StageWarrantPitchM = 0.05f;
+
+        /// <summary>
+        /// CONTRACT C3. Decide, per station and side, what the roadside is —
+        /// warranted walls (parapets and approach runs included) with their
+        /// flared, buried ends; cut faces with their overlap and tapers; the
+        /// open section's catch — into the rs* tables that BuildStageWalls,
+        /// BuildStageBanks, PlaceStagePosts, StageGroundHeightAt,
+        /// StageEdgeProfile and the forest read. Called from Build() for a
+        /// stage after PlanFuelStop and before BuildRoad.
+        ///
+        /// Laid from bridgeBlend, the tunnel table and the raw DEM. Then — and
+        /// only then, once the tables exist to grade it — it reads the ground
+        /// it grades (StageLatticeY) twice over: it walks every open section
+        /// against the fall warrant exactly as the edge audit will
+        /// (<see cref="BuiltSectionCritical"/>), walling what that finds, and it
+        /// lands every cut's crest on the hill behind it, grading the ones too
+        /// low to be a face (<see cref="FinishStageCuts"/>).
+        /// </summary>
+        internal static void PlanStageRoadside(List<Vector3> pts)
+        {
+            ClearStageRoadside();
+            if (!stageDemLoaded || pts == null || pts.Count < 2) return;
+            int n = pts.Count;
+            var rightAt = new Vector3[n];
+            for (int i = 0; i < n; i++) rightAt[i] = RightAt(pts, i);
+            rsRight = rightAt;
+
+            // ONE SPAN TEST for the deck, the parapet, the bank cut-off and
+            // the posts: the deck's own (BuildBridges builds a deck wherever
+            // blend > 0.001). The parapet used to wait for 0.35.
+            var deck = new bool[n];
+            var tube = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                deck[i] = bridgeBlend != null && i < bridgeBlend.Length && bridgeBlend[i] > DeckBlendMin;
+                tube[i] = hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i];
+            }
+            // A coast has no rock to cut: its sections are shoulder and
+            // foreslope to the sand, which is also what removes the 104 m of
+            // cut face Emerald Isle's dunes used to get.
+            bool banksOn = theme.stageBanks && track.stageWaterY <= 0f;
+            var deckRuns = MaximalRuns(deck, 1);
+            var tubeRuns = MaximalRuns(tube, 1);
+
+            // THE TERRAIN, READ ONCE: the face solve, the DEM's own warrant,
+            // water and the open catch depend on nothing the plan decides, and
+            // the plan may be laid more than once below.
+            var riseBy = new float[2][];
+            var cutBy = new bool[2][];
+            var demCriticalBy = new bool[2][];
+            var waterBy = new bool[2][];
+            var catchBy = new float[2][];
+            for (int si = 0; si < 2; si++)
+            {
+                float sd = si == 0 ? -1f : 1f;
+                riseBy[si] = new float[n]; cutBy[si] = new bool[n]; demCriticalBy[si] = new bool[n];
+                waterBy[si] = new bool[n]; catchBy[si] = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    if (deck[i] || tube[i]) continue;
+                    if (banksOn)
+                    {
+                        riseBy[si][i] = StageBankSolve(pts, i, sd);
+                        cutBy[si][i] = riseBy[si][i] >= BankRiseM;
+                    }
+                    demCriticalBy[si][i] = OpenSideCritical(pts, i, sd, out catchBy[si][i]);
+                    waterBy[si][i] = WaterBeside(pts, i, sd);
+                }
+            }
+            // Stations the walk over the built section found critical that the
+            // DEM's own test did not (BuiltSectionCritical), per side.
+            var builtCriticalBy = new[] { new bool[n], new bool[n] };
+
+            // walled metres by warrant, indexed like `reason`
+            var metresBy = new float[8];
+            float openM = 0f, cutM = 0f;
+            int flaredOpen = 0, flaredRock = 0;
+            var catches = new List<float>();
+
+            // One laying of the plan, from the terrain above and whatever the
+            // walk below has found so far.
+            void LayPlan()
+            {
+                rsKind = new Roadside[2][];
+                rsCatchE = new float[2][]; rsWallE = new float[2][]; rsWallUp = new float[2][];
+                rsFaceH = new float[2][]; rsRelease = new float[2][]; rsCutHold = new bool[2][];
+                rsCutGraded = null;
+                rsWallRuns = new List<(int from, int len, float side)>();
+                rsBankRuns = new List<(int[] stations, float side)>();
+                rsBankTop = new Dictionary<int, Vector2[]>();
+                Array.Clear(metresBy, 0, metresBy.Length);
+                openM = cutM = 0f;
+                flaredOpen = flaredRock = 0;
+                catches.Clear();
+
+                for (int s = 0; s < 2; s++)
+                {
+                    float side = s == 0 ? -1f : 1f;
+                    var rise = riseBy[s];
+                    var cut = cutBy[s];
+                    var water = waterBy[s];
+                    var catchE = catchBy[s];
+                    var builtCritical = builtCriticalBy[s];
+                    var critical = new bool[n];
+                    for (int i = 0; i < n; i++) critical[i] = demCriticalBy[s][i] || builtCritical[i];
+
+                    // Where a face WOULD stand with no wall in front of it: what the
+                    // wall pass needs to know which of its run ends lead into rock.
+                    var tentBank = RunMask(StationRuns(cut, 4), n);
+
+                    // THE WARRANT. reason: 1 deck, 2 critical fill, 3 water,
+                    // 4 approach, 5 tunnel mouth, 6 the theme walls everything,
+                    // 7 a critical fall only the walk over the built section found.
+                    var reason = new byte[n];
+                    void Want(int j, byte why) { if (!tube[j] && reason[j] == 0) reason[j] = why; }
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (deck[i]) reason[i] = 1;
+                        else if (theme.stageWallAlways) Want(i, 6);
+                    }
+                    // A fill grading cannot catch, and water: the station and
+                    // EndFlareStations either side, so every critical station has
+                    // full-height stone and a run's flared, buried terminals lie
+                    // OUTSIDE the critical length, over land the section grades. A
+                    // station the DEM calls a cut is left to its face — unless the
+                    // walk over what will actually be built there found the fall.
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (!(critical[i] || water[i]) || (cut[i] && !builtCritical[i])) continue;
+                        byte why = demCriticalBy[s][i] ? (byte)2 : builtCritical[i] ? (byte)7 : (byte)3;
+                        for (int o = -RoadsideRules.EndFlareStations; o <= RoadsideRules.EndFlareStations; o++)
+                        {
+                            int j = i + o;
+                            if (!Loop && (j < 0 || j >= n)) continue;
+                            Want(WrapIdx(j, n), why);
+                        }
+                    }
+                    // Past each deck end, onto the approach: "all sections of
+                    // bridges should have walls", and the abutment is where a car
+                    // gets outboard of a parapet.
+                    foreach (var run in deckRuns)
+                        for (int dir = -1; dir <= 1; dir += 2)
+                            for (int o = 1; o <= RoadsideRules.ApproachRailStations; o++)
+                            {
+                                int j = dir < 0 ? run.from - o : run.from + run.len - 1 + o;
+                                if (!Loop && (j < 0 || j >= n)) break;
+                                j = WrapIdx(j, n);
+                                if (tube[j]) break;
+                                Want(j, 4);
+                            }
+                    // Beside a tunnel mouth, wherever no rock face runs into it.
+                    foreach (var run in tubeRuns)
+                        for (int dir = -1; dir <= 1; dir += 2)
+                            for (int o = 1; o <= PortalGuardStations; o++)
+                            {
+                                int j = dir < 0 ? run.from - o : run.from + run.len - 1 + o;
+                                if (!Loop && (j < 0 || j >= n)) break;
+                                j = WrapIdx(j, n);
+                                if (tube[j]) break;
+                                if (!tentBank[j]) Want(j, 5);
+                            }
+
+                    var want = new bool[n];
+                    for (int i = 0; i < n; i++) want[i] = reason[i] != 0;
+                    // No hysteresis: a gap between two warranted runs is graded
+                    // land, and under the owner's rule graded land is left open.
+                    // A run into a portal is kept however short — the portal face
+                    // closes its other end.
+                    var wallRuns = new List<(int from, int len)>();
+                    foreach (var run in MaximalRuns(want, 1))
+                    {
+                        bool portal = (RunEnd(run, 0, n, out _, out int b0) && tube[b0])
+                                   || (RunEnd(run, 1, n, out _, out int b1) && tube[b1]);
+                        if (run.len >= MinWallRunStations || portal) wallRuns.Add(run);
+                    }
+                    var wall = RunMask(wallRuns, n);
+
+                    // WALL AND FACE OVERLAP BY A STATION where one hands over to the
+                    // other, so there is no station with neither.
+                    var overlap = new bool[n];
+                    foreach (var run in wallRuns)
+                        for (int end = 0; end < 2; end++)
+                            if (RunEnd(run, end, n, out int endSt, out int beyond) && !tube[beyond] && tentBank[beyond])
+                                overlap[endSt] = true;
+
+                    // Cut faces defer to BUILT walls (not wanted ones: a wanted
+                    // station in a run too short to build used to take the face
+                    // away and give nothing back).
+                    var faceWant = new bool[n];
+                    for (int i = 0; i < n; i++)
+                        faceWant[i] = !deck[i] && !tube[i] && ((cut[i] && !wall[i]) || overlap[i]);
+                    var bankRuns = new List<int[]>();
+                    var cur = new List<int>();
+                    foreach (var run in StationRuns(faceWant, 4))
+                    {
+                        // StationRuns bridges two-station holes, which must not
+                        // carry a face through a wall it defers to.
+                        cur.Clear();
+                        for (int k = 0; k <= run.len; k++)
+                        {
+                            int st = k < run.len ? WrapIdx(run.from + k, n) : -1;
+                            if (st >= 0 && !(wall[st] && !overlap[st]) && !deck[st] && !tube[st]) { cur.Add(st); continue; }
+                            if (cur.Count >= 4) bankRuns.Add(cur.ToArray());
+                            cur.Clear();
+                        }
+                    }
+                    var banked = new bool[n];
+                    foreach (var r in bankRuns) foreach (int st in r) banked[st] = true;
+
+                    // Face heights: smooth the solved rise along the road (the DEM
+                    // is 30 m posts read bilinearly, which saws at the scale a 4 m
+                    // ring samples it), then put a wobble BACK, because a smoothed
+                    // top edge is a milled one — two incommensurate periods, 80 m
+                    // and 33 m, deterministic in the station index.
+                    var faceH = new float[n];
+                    var release = new float[n];
+                    var hold = new bool[n];
+                    foreach (var run in bankRuns)
+                    {
+                        int L = run.Length;
+                        // A face runs full height into a wall that overlaps it or a
+                        // portal; anywhere else it tapers into the land over four
+                        // stations, and its release fades in from the end.
+                        bool taper0 = !(RunEnd((run[0], L), 0, n, out _, out int b0) && (wall[b0] || tube[b0]));
+                        bool taper1 = !(RunEnd((run[0], L), 1, n, out _, out int b1) && (wall[b1] || tube[b1]));
+                        for (int k = 0; k < L; k++)
+                        {
+                            int i = run[k];
+                            float sum = 0f;
+                            for (int o = -3; o <= 3; o++)
+                            {
+                                int j = WrapIdx(i + o, n);
+                                if (cut[j]) sum += rise[j];
+                            }
+                            float sm = sum / 7f * (1f + 0.11f * Mathf.Sin(i * 0.37f + 1.1f)
+                                                      + 0.06f * Mathf.Sin(i * 0.91f));
+                            float t0 = taper0 ? Mathf.InverseLerp(-0.5f, 3.5f, k) : 1f;
+                            float t1 = taper1 ? Mathf.InverseLerp(-0.5f, 3.5f, L - 1 - k) : 1f;
+                            faceH[i] = sm * Mathf.SmoothStep(0f, 1f, Mathf.Min(t0, t1));
+                            release[i] = Mathf.SmoothStep(0f, 1f,
+                                Mathf.Min(k, L - 1 - k) / (float)BankReleaseFadeStations);
+                            // Which end the release fades toward: one that runs into
+                            // a wall or a portal keeps its face, so its top must
+                            // hold that height (rsCutHold); one that tapers into
+                            // land lowers its face onto what the top can reach.
+                            int toLand = Mathf.Min(taper0 ? k : int.MaxValue, taper1 ? L - 1 - k : int.MaxValue);
+                            int toStop = Mathf.Min(taper0 ? int.MaxValue : k, taper1 ? int.MaxValue : L - 1 - k);
+                            hold[i] = toStop < toLand && toStop < BankReleaseFadeStations;
+                        }
+                        rsBankRuns.Add((run, side));
+                        cutM += L * Spacing;
+                    }
+
+                    // WALL ENDS. A run that ends beside graded land flares away
+                    // from the road at EndFlareRatio over its last EndFlareStations
+                    // chords and is buried into the foreslope, the way a guardrail
+                    // terminal is: a car running along the shoulder meets a ramp of
+                    // stone angled away from it, not a square end, and the ground
+                    // round the sinking stone is the open section (BuriedTerminal),
+                    // not a shoulder that stops at it. One that ends at
+                    // a rock face flares all the way out to the face's toe line —
+                    // steeper where the run is short — so the ditch in front of the
+                    // face leads into the wall's face rather than its end. Into a
+                    // portal, or at the end of the route, it is carried square.
+                    var wallE = new float[n];
+                    var wallUp = new float[n];
+                    for (int i = 0; i < n; i++) { wallE[i] = WallFaceE; wallUp[i] = 1f; }
+                    foreach (var run in wallRuns)
+                    {
+                        for (int end = 0; end < 2; end++)
+                        {
+                            if (!RunEnd(run, end, n, out int endSt, out int beyond) || tube[beyond]) continue;
+                            bool rock = banked[beyond];
+                            int stations;
+                            float offset;
+                            if (rock)
+                            {
+                                offset = CutToeE - StageWallFaceIn - WallFaceE;
+                                stations = Mathf.Min(Mathf.CeilToInt(offset / (RoadsideRules.EndFlareRatio * Spacing)),
+                                                     run.len / 2);
+                                flaredRock++;
+                            }
+                            else
+                            {
+                                stations = Mathf.Min(RoadsideRules.EndFlareStations, run.len / 2);
+                                offset = stations * RoadsideRules.EndFlareRatio * Spacing;
+                                flaredOpen++;
+                            }
+                            if (stations <= 0) continue;
+                            for (int j = 0; j <= stations; j++)
+                            {
+                                int st = WrapIdx(endSt + (end == 0 ? j : -j), n);
+                                if (deck[st]) break;
+                                float frac = (stations - j) / (float)stations;   // 1 on the end station
+                                wallE[st] = Mathf.Max(wallE[st], WallFaceE + offset * frac);
+                                if (!rock) wallUp[st] = Mathf.Min(wallUp[st], 1f - frac);
+                            }
+                        }
+                        rsWallRuns.Add((run.from, run.len, side));
+                    }
+
+                    var kind = new Roadside[n];
+                    for (int i = 0; i < n; i++)
+                    {
+                        kind[i] = tube[i] ? Roadside.Tunnel
+                                : deck[i] ? Roadside.Deck
+                                : wall[i] ? Roadside.Walled
+                                : banked[i] ? Roadside.Cut
+                                : Roadside.Open;
+                        if (wall[i]) metresBy[reason[i]] += Spacing;
+                        if (kind[i] == Roadside.Open) { openM += Spacing; catches.Add(catchE[i]); }
+                    }
+                    rsKind[s] = kind; rsCatchE[s] = catchE; rsWallE[s] = wallE; rsWallUp[s] = wallUp;
+                    rsFaceH[s] = faceH; rsRelease[s] = release; rsCutHold[s] = hold;
+                }
+            }
+
+            // LAY, WALK, LAY AGAIN. The plan's own fall test reads the DEM at
+            // the warrant reach; what a car goes over — and what the edge
+            // audit measures — is the section as built on the 12 m lattice,
+            // which sags under the DEM on a falling verge. On the round-one
+            // bake eight barrier run ends stopped short of a critical fall the
+            // plan had not seen (BlueRidge wp 1237 L; Little Switzerland wp
+            // 612 L, 843 R, 854 R, 904 R; Blowing Rock wp 1616 R and 1623 R
+            // among them), most of them one station short — the fall under the
+            // run's own sinking terminal, just past the last stone the barrier
+            // rays still meet. So every open section, and every buried terminal
+            // (which is graded open), is walked the audit's way once the tables
+            // exist to grade it; what that finds is walled with its
+            // EndFlareStations either side, which carries the terminal out past
+            // the fall.
+            int passes = 0, builtFound = 0, stillCritical = 0;
+            Roadside[][] walked = null;
+            float[][] walkedUp = null, walkedE = null;
+            for (int pass = 0; pass < StageWarrantPasses; pass++)
+            {
+                LayPlan();
+                passes = pass + 1;
+                int found = MarkBuiltSectionFalls(pts, builtCriticalBy, walked, walkedUp, walkedE);
+                if (found == 0) break;
+                if (pass + 1 == StageWarrantPasses) { stillCritical = found; break; }
+                builtFound += found;
+                walked = new Roadside[2][];
+                for (int si = 0; si < 2; si++)
+                {
+                    walked[si] = new Roadside[n];
+                    for (int i = 0; i < n; i++) walked[si][i] = GradedKind(si, i);
+                }
+                // LayPlan allocates fresh tables, so these stay the walked plan's.
+                walkedUp = rsWallUp;
+                walkedE = rsWallE;
+            }
+
+            FinishStageCuts(pts, out float facedM, out float gradedM, out int lowered);
+
+            catches.Sort();
+            float wallM = 0f;
+            foreach (float m in metresBy) wallM += m;
+            Log($"Stage roadside plan: {rsWallRuns.Count} warranted wall runs over {wallM:0} m " +
+                $"(deck {metresBy[1]:0}, approach {metresBy[4]:0}, critical fill {metresBy[2]:0}, " +
+                $"critical on the built section {metresBy[7]:0}, " +
+                $"water {metresBy[3]:0}, tunnel mouth {metresBy[5]:0}" +
+                (metresBy[6] > 0f ? $", theme {metresBy[6]:0}" : "") + $"); " +
+                $"{flaredOpen} run ends flared and buried into graded land, {flaredRock} flared into a rock face; " +
+                $"{rsBankRuns.Count} cut faces over {cutM:0} m ({facedM:0} m faced in rock, " +
+                $"{gradedM:0} m graded to a 1V:{1f / RoadsideRules.BackSlope:0}H backslope; " +
+                $"{lowered} face heights landed lower on the hill behind them); " +
+                $"{openM:0} m of open graded roadside" +
+                (catches.Count > 0
+                    ? $" meeting the land {catches[catches.Count / 2]:0.00} m (p50) / {catches[catches.Count - 1]:0.00} m (max) past the tarmac edge"
+                    : "") +
+                $"; the walk over the built section found {builtFound} critical half-section(s) the DEM test missed " +
+                $"in {passes} pass(es)" +
+                (stillCritical > 0
+                    ? $", and {stillCritical} more on its last pass that this plan does NOT wall (raise StageWarrantPasses)."
+                    : "."));
+        }
+
+        /// <summary>
+        /// Walk every half-section graded OPEN — open sides and the buried
+        /// terminals of warranted runs — against the fall warrant as it will be
+        /// built (<see cref="BuiltSectionCritical"/>) and mark the critical
+        /// ones in <paramref name="built"/>. With <paramref name="walked"/>
+        /// (the graded kinds the last walk saw) and <paramref name="walkedUp"/>
+        /// and <paramref name="walkedE"/> (that plan's rsWallUp and rsWallE —
+        /// a terminal's stone is part of what is walked, and a run end that
+        /// moves re-flares the far end of a short run too), only stations near
+        /// one whose section has changed since are read again. Returns how
+        /// many it marked.
+        /// </summary>
+        static int MarkBuiltSectionFalls(List<Vector3> pts, bool[][] built, Roadside[][] walked,
+                                         float[][] walkedUp, float[][] walkedE)
+        {
+            int n = pts.Count, found = 0;
+            float reachE = KerbWidth + RoadsideRules.WarrantReachM;
+            var ys = new float[Mathf.RoundToInt(reachE / StageWarrantPitchM) + 1];
+            // The field under the lattice's vertices is fixed for this laying.
+            var vertexY = new Dictionary<long, float>();
+            var near = walked != null ? new bool[n] : null;
+            for (int s = 0; s < 2; s++)
+            {
+                float side = s == 0 ? -1f : 1f;
+                if (near != null)
+                {
+                    Array.Clear(near, 0, n);
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (GradedKind(s, i) == walked[s][i]
+                            && Mathf.Abs(rsWallUp[s][i] - walkedUp[s][i]) < 1e-4f
+                            && Mathf.Abs(rsWallE[s][i] - walkedE[s][i]) < 1e-4f) continue;
+                        for (int o = -StageWarrantNearStations; o <= StageWarrantNearStations; o++)
+                        {
+                            int j = i + o;
+                            if (!Loop && (j < 0 || j >= n)) continue;
+                            near[WrapIdx(j, n)] = true;
+                        }
+                    }
+                }
+                for (int i = 0; i < n; i++)
+                {
+                    if (built[s][i] || (near != null && !near[i]) || GradedKind(s, i) != Roadside.Open) continue;
+                    if (!BuiltSectionCritical(pts, i, side, ys, vertexY)) continue;
+                    built[s][i] = true;
+                    found++;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Does the open section at station <paramref name="i"/>, AS BUILT,
+        /// warrant a barrier? The same walk as the edge audit's EDGE FALL
+        /// (RoadsideRules.WorstCriticalFall), over the same span — the tarmac
+        /// edge out to the kerb strip plus RoadsideRules.WarrantReachM — at the
+        /// same 5 cm pitch, over the surfaces the audit's rays will land on as
+        /// far as a plan can know them:
+        ///   * the flush strip, then the open section's ribbon to its last
+        ///     point (its catch, or where TidyShoulderProfile clips it on the
+        ///     inside of a bend) — the lattice is solved to stay under it;
+        ///   * past that, the ribbon's slope CARRIED ON exactly as
+        ///     ShoulderStation carries a sloped end (never gentler than 1V:4H,
+        ///     no deeper than ShoulderCarryMaxM, stopping at the first
+        ///     ShoulderCatchStepM where it has met the lattice) and its toe
+        ///     tuck, each over the lattice where the lattice is higher;
+        ///   * then the lattice alone, read at every sample on its own facet
+        ///     the way StageLatticeY reads it (a 0.5 m read with a lerp between
+        ///     cut the corner of every facet crease it crossed by up to an
+        ///     eighth of the change in grade — more than the slack);
+        ///   * and at a buried terminal the top of its sinking stone's collider
+        ///     over the stone's width (StageWallRing's height), wherever that
+        ///     top is under the lower barrier ray and so is ground the audit's
+        ///     profile rides over rather than a barrier that stops it: 7 cm
+        ///     over the tarmac on the station one short of a three-station
+        ///     flare's end, which is more than the slack, and that station is
+        ///     the first one past the last stone the barrier rays meet — the
+        ///     first a RUN END looks at.
+        /// <paramref name="vertexY"/> caches the lattice's vertices for one
+        /// laying of the plan (the field under them is fixed until the next).
+        /// </summary>
+        static bool BuiltSectionCritical(List<Vector3> pts, int i, float side, float[] ys,
+                                         Dictionary<long, float> vertexY)
+        {
+            int s = SideIx(side);
+            float half = RoadWidth * 0.5f;
+            float tarmac = pts[i].y + RoadLift;
+            Vector3 outw = rsRight[i] * side;
+
+            float Vertex(int gx, int gz)
+            {
+                long key = LatticeKey(gx, gz);
+                if (!vertexY.TryGetValue(key, out float h)) vertexY[key] = h = StageLatticeVertexY(gx, gz);
+                return h;
+            }
+            // StageLatticeY's triangulation (GridChunkMesh's a-c diagonal),
+            // tarmac-relative, over the cached vertices.
+            float Ground(float e)
+            {
+                Vector3 p = pts[i] + outw * (half + e);
+                int gx = Mathf.FloorToInt(p.x / NearCell), gz = Mathf.FloorToInt(p.z / NearCell);
+                float u = p.x / NearCell - gx, w = p.z / NearCell - gz;
+                float ha = Vertex(gx, gz), hc = Vertex(gx + 1, gz + 1);
+                if (w >= u)
+                {
+                    float hb = Vertex(gx, gz + 1);
+                    return ha + (hc - hb) * u + (hb - ha) * w - tarmac;
+                }
+                float he = Vertex(gx + 1, gz);
+                return ha + (he - ha) * u + (hc - he) * w - tarmac;
+            }
+
+            // The open profile's last point, as the emitter is given it.
+            float bendReach = ShoulderBendReach(pts, i, side);
+            float endE = Mathf.Min(rsCatchE[s][i], Mathf.Max(bendReach, KerbWidth));
+            float endDy = OpenSectionDy(endE);
+            // Its end slope (ShoulderSlopedEnd): the 4% shoulder is flat, the
+            // foreslope past it is 1V:6H, 1V:4H or 1V:3H by where it ends.
+            float run0 = endE - ShoulderEndE;
+            float slope = run0 <= 0.01f ? RoadsideRules.ShoulderCrossFall
+                        : run0 <= RoadsideRules.ClearZoneM ? RoadsideRules.RecoverableSlope
+                        : run0 <= RoadsideRules.WarrantReachM ? RoadsideRules.SteepestRecoverableSlope
+                        : RoadsideRules.TraversableSlope;
+            bool sloped = slope >= ShoulderSlopedEnd;
+            float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
+            float carryE = endE;
+            if (sloped && Ground(endE) < endDy)
+            {
+                float carryRun = Mathf.Min(ShoulderCarryMaxM / fall, bendReach - endE);
+                int steps = Mathf.FloorToInt(carryRun / ShoulderCatchStepM);
+                for (int q = 1; q <= steps; q++)
+                {
+                    float d = q * ShoulderCatchStepM;
+                    if (endDy - fall * d > Ground(endE + d) && q < steps) continue;
+                    carryE = endE + d;
+                    break;
+                }
+            }
+            float carryDy = endDy - fall * (carryE - endE);
+            float tuckE = carryE + RoadsideRules.ToeTuckRunM;
+            float tuckDy = carryDy - RoadsideRules.ToeTuckM;
+            if (sloped)
+                tuckDy = Mathf.Min(tuckDy, Mathf.Max(carryDy - ShoulderSkirtMaxM, Ground(tuckE) - RoadsideRules.ToeTuckM));
+
+            // A buried terminal's stone, where it is ground to the audit.
+            float stoneFrom = float.PositiveInfinity, stoneTo = float.NegativeInfinity, stoneDy = 0f;
+            if (BuriedTerminal(s, i))
+            {
+                float faceE = rsWallE[s][i];
+                float buryDy = OpenSectionDy(faceE + StageWallFaceIn + StageWallDrawThick);
+                stoneDy = Mathf.Lerp(buryDy - 0.05f, StageWallH - RoadLift, rsWallUp[s][i]);
+                if (stoneDy < RoadsideRules.BarrierRayHeights[0])
+                {
+                    stoneFrom = faceE;
+                    stoneTo = faceE + StageWallCollThick;
+                }
+            }
+
+            for (int k = 0; k < ys.Length; k++)
+            {
+                float e = k * StageWarrantPitchM;
+                float y;
+                if (e <= KerbWidth) y = KerbStripLift;
+                else if (e <= endE) y = OpenSectionDy(e);
+                else if (e <= carryE) y = Mathf.Max(endDy - fall * (e - endE), Ground(e));
+                else if (e <= tuckE)
+                    y = Mathf.Max(Mathf.Lerp(carryDy, tuckDy, (e - carryE) / RoadsideRules.ToeTuckRunM), Ground(e));
+                else y = Ground(e);
+                if (e >= stoneFrom && e <= stoneTo) y = Mathf.Max(y, stoneDy);
+                ys[k] = y;
+            }
+            return RoadsideRules.WorstCriticalFall(ys, 0, ys.Length - 1, StageWarrantPitchM,
+                                                   StageWarrantSlackM, out _) > 0f;
+        }
+
+        /// <summary>
+        /// Shortest run of stations that stands as a KERB-HIGH rock face — one
+        /// under BankRiseM, a face only because its land sits a few centimetres
+        /// past what a 1V:3H backslope reaches by the rock top's first sample.
+        /// A face like that one or two stations long between graded ones is a
+        /// nub of rock in a backslope, and the chords either side of it slant;
+        /// graded, its backslope simply climbs a little further (to 2.3 m past
+        /// the toe at most) and it is one more stretch of backslope. A nub a
+        /// metre or more tall is a real outcrop and keeps its face, and so does
+        /// a face held into a wall or a portal.
+        ///
+        /// (The first cut of this demoted only faces the backslope already
+        /// reached — which by construction are never faces, since reaching
+        /// means land under 0.67 m and a face that tall or taller cannot. It
+        /// never fired.)
+        /// </summary>
+        const int CutFaceMinStations = 3;
+
+        /// <summary>
+        /// THE TOP OF A CUT LANDS ON WHAT IS BEHIND IT — after the smoothing,
+        /// the wobble, the taper and the release fade have had their say, not
+        /// only in StageBankSolve.
+        ///
+        /// The round-one bake measured what happened where they disagreed. A
+        /// run's face tapers over four stations and its rock top's release
+        /// fades over five, and the top was lerped toward a lattice still
+        /// pinned 0.45 m under the tarmac: one station in from every run end
+        /// that met land, a face 0.33-0.38 m tall stood 2.9 m out with its top
+        /// just under the lower barrier ray (EDGE FACE, 23 of them) and the
+        /// rock top falling away behind it at 1V:2.6H to 1V:3.6H (EDGE SLOPE,
+        /// 25); a station or two further in, a box-backed face over rock top
+        /// that came back down to road height 1.5 m behind it (UNWARRANTED
+        /// BARRIER, ~19). A ridge, a moat and a kerb-high face — the shape of
+        /// none of the things a cut is.
+        ///
+        /// So each face is lowered until the rock top at its first two samples
+        /// stands at least as high as its crest — reading the release the top
+        /// will really have, or the full hill where the run holds its height
+        /// into a wall or a portal. Then, per station, the AASHTO question:
+        /// can a RoadsideRules.BackSlope (1V:3H) backslope climbing out of the
+        /// ditch reach the land right behind the toe by the rock top's first
+        /// sample?
+        ///   * Yes, and the face left is under BankRiseM (under a metre it is a
+        ///     kerb, not a cut): GRADED. The ditch's backslope carries on up to
+        ///     that land and daylights into the rock top, with no vertical rock
+        ///     and no box — the crest is the land, so there is no lip either.
+        ///   * No — the land rises faster than the backslope can follow: a
+        ///     FACE, at least BankRiseM tall, whose hill behind holds its crest:
+        ///     a natural barrier, never a pocket.
+        /// A kerb-high face run shorter than <see cref="CutFaceMinStations"/>
+        /// is graded too, its backslope carried up to its land: run
+        /// hysteresis, so a cut does not flicker between rock and slope a
+        /// station at a time where its land hovers at the backslope's reach.
+        /// </summary>
+        static void FinishStageCuts(List<Vector3> pts, out float facedM, out float gradedM, out int lowered)
+        {
+            facedM = gradedM = 0f;
+            lowered = 0;
+            int n = pts.Count;
+            rsCutGraded = new[] { new bool[n], new bool[n] };
+            if (rsBankRuns == null) return;
+            var face = new List<bool>();
+            var kerbHigh = new List<bool>();
+            var landDy = new List<float>();
+            foreach (var (run, side) in rsBankRuns)
+            {
+                int s = SideIx(side), L = run.Length;
+                face.Clear(); kerbHigh.Clear(); landDy.Clear();
+                for (int k = 0; k < L; k++)
+                {
+                    int i = run[k];
+                    float h0 = rsFaceH[s][i], h = h0;
+                    float keep = rsCutHold[s][i] ? 1f : rsRelease[s][i];
+                    // Twice: a lower crest moves the batter's limit on the hill
+                    // and, for a tall face, the samples themselves.
+                    //
+                    // The whole ring, and each of its first two samples no higher
+                    // than the shaped top's line down to its last point: where
+                    // the top stops early — a switchback's other leg owns the
+                    // hillside a few metres back, or a tight inside — that line
+                    // pulls the top down right behind the crest, and a face
+                    // landed on the raw base there had road-height land behind
+                    // it again.
+                    float holds = h, firstE = CutToeE + BankTopSampleE[0];
+                    for (int it = 0; it < 2; it++)
+                    {
+                        float crestE = CutToeE + Mathf.Max(0f, h - BankPlinth) * BankBatter;
+                        var ring = BankTopRing(pts, i, side, Mathf.Max(h, RoadLift), crestE, keep, false, false);
+                        Vector2 far = ring[ring.Length - 1];
+                        float y1 = Mathf.Min(ring[1].y, far.y + (far.x - ring[1].x) * RoadsideRules.TraversableSlope);
+                        float y2 = Mathf.Min(ring[2].y, far.y + (far.x - ring[2].x) * RoadsideRules.TraversableSlope);
+                        holds = Mathf.Min(y1, y2) - pts[i].y;
+                        firstE = ring[1].x;
+                        if (holds >= h) break;
+                        h = holds;
+                    }
+                    // The land right behind the toe, over the tarmac, and whether
+                    // a backslope out of the ditch gets there by the first sample.
+                    float land = holds - RoadLift;
+                    bool reach = land <= (firstE - CutToeE) * RoadsideRules.BackSlope;
+                    h = Mathf.Max(h, RoadLift);
+                    if (!reach && h < BankRiseM) h = Mathf.Min(holds, BankRiseM);
+                    if (h < h0 - 0.01f) lowered++;
+                    rsFaceH[s][i] = h;
+                    face.Add(h >= BankRiseM || !reach);
+                    // Under BankRiseM a face stands only because the land is
+                    // just out of the backslope's reach (land under 0.78 m).
+                    kerbHigh.Add(h < BankRiseM && !rsCutHold[s][i]);
+                    landDy.Add(land);
+                }
+                // Hysteresis: no kerb-high face shorter than CutFaceMinStations;
+                // its backslope climbs the extra few centimetres instead.
+                for (int k = 0; k < L; )
+                {
+                    if (!face[k]) { k++; continue; }
+                    int len = 1;
+                    while (k + len < L && face[k + len]) len++;
+                    if (len < CutFaceMinStations)
+                        for (int q = k; q < k + len; q++)
+                            if (kerbHigh[q]) face[q] = false;
+                    k += len;
+                }
+                for (int k = 0; k < L; k++)
+                {
+                    int i = run[k];
+                    rsCutGraded[s][i] = !face[k];
+                    if (face[k]) { facedM += Spacing; continue; }
+                    // A graded crest IS the land behind it (never under the toe),
+                    // so the rock top leaves it level.
+                    rsFaceH[s][i] = RoadLift + Mathf.Max(0f, landDy[k]);
+                    gradedM += Spacing;
+                }
+            }
+        }
+
+        /// <summary>
+        /// CONTRACT C4 (C1's EdgeProfileFn). The section beside station
+        /// <paramref name="idx"/> on <paramref name="side"/> as (e, dy) points
+        /// ordered outward: e metres past the tarmac edge, dy over the tarmac
+        /// surface. Starts at the verge strip's outer edge, at its top; empty
+        /// on a deck, where the deck is the surface. The emitter adds the toe
+        /// tuck and the collider.
+        /// </summary>
+        internal static void StageEdgeProfile(List<Vector3> pts, int idx, float side, List<Vector2> profile)
+        {
+            profile.Clear();
+            EnsureStageRoadside(pts);
+            if (rsKind == null) return;
+            int s = SideIx(side);
+            var kind = GradedKind(s, idx);
+            if (kind == Roadside.Deck) return;
+            // Every section starts on the strip and bevels down the inch.
+            profile.Add(new Vector2(KerbWidth, KerbStripLift));
+            switch (kind)
+            {
+                case Roadside.Tunnel:
+                    profile.Add(new Vector2(BevelEndE, ShoulderDy(BevelEndE)));
+                    profile.Add(new Vector2(TunnelWallOut, ShoulderDy(TunnelWallOut)));
+                    return;
+                case Roadside.Walled:
+                {
+                    // The shoulder runs to the wall's face and ends in it — out
+                    // through a flare into a rock face too, so the shoulder
+                    // widens with the stone. (A buried terminal never gets
+                    // here: it is graded Open.) At the station a deck is carried onto
+                    // (DeckCoversStation) it runs at the deck's top instead, so
+                    // the concrete's leading edge and end cap are flush with it
+                    // rather than a centimetre proud.
+                    //
+                    // It ends where the car meets the wall's COLLIDER, not its
+                    // drawn face: on the outside of a bend the chord boxes stand
+                    // out by their sag (StageWallContactE), and a shoulder that
+                    // stopped at the drawing tucked down into the gap in front of
+                    // the box — measured as a 0.09-0.25 m EDGE DROP 1.10 m out on
+                    // four mountains. The extra centimetres run under the stone.
+                    float ew = StageWallContactE(pts, idx, s, side);
+                    if (DeckCoversStation(idx))
+                    {
+                        profile.Add(new Vector2(BevelEndE, -DeckTopBelowTarmac));
+                        profile.Add(new Vector2(ew, -DeckTopBelowTarmac));
+                        return;
+                    }
+                    profile.Add(new Vector2(BevelEndE, ShoulderDy(BevelEndE)));
+                    profile.Add(new Vector2(ew, ShoulderDy(ew)));
+                    return;
+                }
+                case Roadside.Cut:
+                {
+                    float e1 = ShoulderEndE + CutForeslopeRunM, e2 = e1 + CutDitchFloorM;
+                    profile.Add(new Vector2(BevelEndE, ShoulderDy(BevelEndE)));
+                    profile.Add(new Vector2(ShoulderEndE, ShoulderEndDy));
+                    profile.Add(new Vector2(e1, CutDitchDy));
+                    profile.Add(new Vector2(e2, CutDitchDy));
+                    profile.Add(new Vector2(CutToeE, 0f));
+                    // A GRADED cut (FinishStageCuts): the backslope carries on at
+                    // the same RoadsideRules.BackSlope up to the crest its rock
+                    // top starts from, so the section climbs out of the ditch
+                    // onto the hill with no lip. A faced cut stops at the toe,
+                    // where its rock stands.
+                    if (rsCutGraded != null && rsCutGraded[s][idx])
+                    {
+                        float crestE = CutCrestE(s, idx);
+                        if (crestE > CutToeE + 0.01f) profile.Add(new Vector2(crestE, CutRiseDy(s, idx)));
+                    }
+                    return;
+                }
+                default:
+                {
+                    // The land an open section meets is never above the bench,
+                    // so the catch is always well past the shoulder (2.7 m at
+                    // the nearest).
+                    float ec = rsCatchE[s][idx];
+                    float e0 = ShoulderEndE;
+                    profile.Add(new Vector2(BevelEndE, ShoulderDy(BevelEndE)));
+                    profile.Add(new Vector2(e0, ShoulderEndDy));
+                    float cz = e0 + RoadsideRules.ClearZoneM, reach = e0 + RoadsideRules.WarrantReachM;
+                    if (cz < ec - 0.01f) profile.Add(new Vector2(cz, OpenSectionDy(cz)));
+                    if (reach < ec - 0.01f) profile.Add(new Vector2(reach, OpenSectionDy(reach)));
+                    profile.Add(new Vector2(ec, OpenSectionDy(ec)));
+                    return;
+                }
+            }
         }
 
         // ------------------------------------------------------------------
@@ -873,6 +2697,7 @@ namespace PSXRacing.EditorTools
             var surf = sandy ? new Surf[verts.Length] : null;
             var routeD = dropInside > 0f ? new float[verts.Length] : null;
             var hole = hasTunnels ? new bool[verts.Length] : null;
+            var zone = hasTunnels ? new bool[verts.Length] : null;
             var tris = new List<int>(cells * cells * 6);
             var sandTris = sandy ? new List<int>(cells * cells * 2) : null;
             var marshTris = sandy ? new List<int>(cells * cells * 2) : null;
@@ -880,11 +2705,24 @@ namespace PSXRacing.EditorTools
                 for (int gx = 0; gx <= cells; gx++, v++)
                 {
                     float wx = ox + gx * cell, wz = oz + gz * cell;
-                    verts[v] = new Vector3(gx * cell, StageGroundHeightAt(wx, wz) + yOffset, gz * cell);
+                    // The near grid is the LATTICE the shoulder's toes, the
+                    // walls' footings and the rock tops were measured against:
+                    // the field less PrepareStageLattice's sink, read through
+                    // the same vertex function StageLatticeY reads. (Chunk
+                    // origins are multiples of the cell, so the world index is
+                    // exact.) The far grid is the field, sunk.
+                    float groundY = cell == NearCell && yOffset == 0f
+                        ? StageLatticeVertexY(Mathf.RoundToInt(wx / NearCell), Mathf.RoundToInt(wz / NearCell))
+                        : StageGroundHeightAt(wx, wz);
+                    verts[v] = new Vector3(gx * cell, groundY + yOffset, gz * cell);
                     uvs[v] = new Vector2(wx / tile, wz / tile);
                     if (surf != null) surf[v] = StageSurfAt(wx, wz);
                     if (routeD != null) routeD[v] = RouteDistanceCoarse(wx, wz);
-                    if (hole != null) hole[v] = InTunnelHole(wx, wz);
+                    if (hole != null)
+                    {
+                        hole[v] = InTunnelHole(wx, wz);
+                        zone[v] = InTunnelZone(wx, wz);
+                    }
                     // Central differences at half a cell: a function of world
                     // position alone, so both sides of a chunk border compute
                     // the identical normal.
@@ -903,12 +2741,31 @@ namespace PSXRacing.EditorTools
                     // two grids overlap by a cell and the seam stays sealed.
                     if (routeD != null && routeD[a] < dropInside && routeD[b] < dropInside &&
                         routeD[c] < dropInside && routeD[e2] < dropInside) continue;
-                    // ANY corner over a tunnel: the quad goes. A quad that
-                    // straddles the tube's edge would run its diagonal from
-                    // the ridge above down through the road inside the tube,
-                    // with a collider on it. The tube's own walls and the
-                    // portal face cover what the hole leaves open.
-                    if (hole != null && (hole[a] || hole[b] || hole[c] || hole[e2])) continue;
+                    // ANY corner inside the tube's footprint: the quad goes.
+                    // A quad that straddles the tube's edge would run its
+                    // diagonal from the ridge above down through the road
+                    // inside the tube, with a collider on it.
+                    //
+                    // A quad merely NEAR the tube is measured rather than
+                    // dropped on sight: kept only if its own triangles clear
+                    // the tube's ceiling everywhere over the bore and stand no
+                    // higher than the field (by the hide margin) everywhere
+                    // over the approach (<see cref="TunnelQuadClear"/>). That
+                    // keeps the mountain beside the bore and still drops the
+                    // diagonal from the ridge down across a mouth, and the
+                    // facet under a thin-covered exit where SRTM puts the hill
+                    // 1.2-3.8 m over the road, UNDER the 5.2 m roof. The tube's
+                    // walls, the portal face and its colliders, and the guard
+                    // or rock face carried to the mouth, cover what is left.
+                    if (hole != null)
+                    {
+                        if (hole[a] || hole[b] || hole[c] || hole[e2]) continue;
+                        if ((zone[a] || zone[b] || zone[c] || zone[e2])
+                            && !TunnelQuadClear(ox + gx * cell, oz + gz * cell, cell,
+                                                verts[a].y - yOffset, verts[b].y - yOffset,
+                                                verts[c].y - yOffset, verts[e2].y - yOffset))
+                            continue;
+                    }
                     var into = tris;
                     if (sandy)
                     {
@@ -1008,77 +2865,10 @@ namespace PSXRacing.EditorTools
         /// <summary>Collider height above the visible stone. Low walls stop
         /// bumpers, not cars arriving at 120 km/h and 15 degrees — the extra
         /// (invisible) collider is what keeps a race on the mountain, and it
-        /// coincides with a visible wall so it never reads as a force field.</summary>
+        /// coincides with a visible wall so it never reads as a force field.
+        /// None of it over a buried terminal's lowered stone: a collider
+        /// taller than its drawing is an invisible wall.</summary>
         const float StageWallCollH = 1.7f;
-        /// <summary>The mountain must fall at least this far, this close, for
-        /// a guard wall to appear. Sampled from the RAW dem 30 m out —
-        /// sampling the pinned field would measure the corridor's own shelf.</summary>
-        const float WallDropM = 5.0f;
-        /// <summary>How far from road level the ground may sit, three and six
-        /// metres past the tarmac, before the verge stops being "open" (see
-        /// StageWallWanted). Equal to BankRiseM on purpose: what is not a cut
-        /// and not a fall is a verge, and the terrain audit's own edge is a
-        /// metre.</summary>
-        const float OpenVergeM = 0.9f;
-        /// <summary>Bends tighter than this keep the open-verge wall off their
-        /// INSIDE. A wall collider is a box per station, and where the heading
-        /// turns 4 m / R per station its ends swing inward by about
-        /// 2.25 * 4 / R: 0.65 m on a 13.7 m hairpin, onto the kerb. The
-        /// obstacle audit found 22 of those on the Blowing Rock loop the first
-        /// time the open-verge rule ran; the drop test had never met this,
-        /// because an inside is a cut and it walls falls.</summary>
-        const float OpenVergeMinR = 80f;
-
-        /// <summary>Is <paramref name="side"/> the inside of a bend of radius
-        /// under <see cref="OpenVergeMinR"/> at station i? Radius from the
-        /// chord over six stations and its sagitta; the inside is the side
-        /// the chord's midpoint lies on.</summary>
-        static bool InsideOfTightBend(List<Vector3> pts, int i, float side)
-        {
-            int n = pts.Count;
-            Vector3 a = pts[WrapIdx(i - 3, n)], b = pts[i], c = pts[WrapIdx(i + 3, n)];
-            Vector3 chord = c - a; chord.y = 0f;
-            Vector3 toMid = (a + c) * 0.5f - b; toMid.y = 0f;
-            float len = chord.magnitude, sag = toMid.magnitude;
-            if (len < 1e-3f || sag < 1e-4f) return false;
-            float r = len * len / (8f * sag);
-            if (r >= OpenVergeMinR) return false;
-            return Vector3.Dot(toMid, RightAt(pts, i) * side) > 0f;
-        }
-
-        static void BuildStageWalls(List<Vector3> pts, Transform parent)
-        {
-            int n = pts.Count;
-            var mat = MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
-            var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
-            var root = new GameObject("Walls");
-            root.transform.SetParent(parent, false);
-
-            int runs = 0, walled = 0;
-            var wallRuns = new List<(int from, int len, float side)>();
-            foreach (float side in new[] { -1f, 1f })
-            {
-                // Decide per waypoint, then emit maximal runs. The drop test
-                // hysteresis (two clear waypoints end a run) is what keeps a
-                // wall that flickers on and off along a marginal slope from
-                // becoming a picket line of two-metre stubs.
-                var want = new bool[n];
-                for (int i = 0; i < n; i++) want[i] = StageWallWanted(pts, i, side);
-                foreach (var run in StationRuns(want, 4))
-                {
-                    BuildOneStageWall(pts, run.from, run.len, side, root.transform, mat, phys, runs++);
-                    wallRuns.Add((run.from, run.len, side));
-                    walled += run.len;
-                }
-            }
-            Log($"Stage guard walls: {runs} runs covering {walled * Spacing:0} m of shoulder " +
-                $"(of {n * Spacing * 2:0} m of roadside).");
-            PlaceStagePosts(pts, wallRuns, parent);
-        }
-
-        // ------------------------------------------------------------------
-        //  Reflector posts along the guard walls (sense of speed)
-        // ------------------------------------------------------------------
         /// <summary>
         /// HOW DEEP A GUARD WALL IS TO THE SOLVER, as opposed to how deep it
         /// looks. 1.2 m, matching the circuits' WallCollThick, and grown
@@ -1095,115 +2885,158 @@ namespace PSXRacing.EditorTools
         /// should — it's easy to get off the track".
         /// </summary>
         const float StageWallCollThick = 1.2f;
+        /// <summary>A wall's footing goes this far under the lattice BEHIND
+        /// it, and never deeper than StageWallMaxFoot under the waypoint plane.
+        /// It stood at a fixed plane - 0.45, and on a fill the 12 m lattice
+        /// right behind the stone runs a metre and more under that (a chord
+        /// across a falling verge lies below the field it samples), so from
+        /// the valley the wall floated — and its collider, which stopped at
+        /// plane - 0.4, left a window under itself.</summary>
+        const float StageWallFootSink = 0.3f, StageWallMaxFoot = 6f;
+        /// <summary>A buried terminal's chord with less stone than this over
+        /// the foreslope at its face gets no box: what is left is a kerb of
+        /// stone the shoulder ribbon rides over.</summary>
+        const float StageWallCollMinH = 0.1f;
+        /// <summary>
+        /// Bends tighter than this get half-station chords on their inside.
+        ///
+        /// A wall collider is a box per station chord, and where the heading
+        /// turns 4 m / R per station its ends, which overlap the next box,
+        /// swing toward the road: the obstacle audit found 22 on the Blowing
+        /// Rock loop's hairpins the first time a wall stood on an inside. The
+        /// answer then was to leave insides unwalled. A warranted wall cannot
+        /// be left out, so its inside chords are halved (a ring on the offset
+        /// curve between the stations) and set back by their own sag and end
+        /// overlap, and the drawn stone takes the same rings.
+        /// </summary>
+        const float StageTightBendR = 80f;
 
-        /// <summary>Post centre, metres OUTSIDE the wall line. The wall's
-        /// collider now reaches out past this (see StageWallCollThick), which
-        /// costs nothing: the posts are one combined mesh with no colliders of
-        /// their own, and the shelf under both is dead level out to
-        /// StageVergeFlat = +0.7.</summary>
-        const float StagePostBack = 0.45f;
+        /// <summary>Is <paramref name="side"/> the inside of a bend tighter
+        /// than <see cref="StageTightBendR"/> at station i, and how tight?
+        /// Radius from the chord over six stations and its sagitta; the
+        /// inside is the side the chord's midpoint lies on.
+        ///
+        /// SYMMETRIC, OR NOT AT ALL. On a point-to-point route WrapIdx clamps a
+        /// neighbour past either end to the end station itself, so the "chord"
+        /// at wp 0 ran from the station to three stations on and its midpoint
+        /// stood 6 m off it: a 3 m radius (8 m at wp 1, 25 m at wp 2) on a
+        /// straight, and bogus set-back half chords built at both ends of
+        /// Mount Mitchell and Blue Ridge (an EDGE FACE on WallColl at 1.10 m,
+        /// the box 0.3 m off the shoulder). Near an end the chord is narrowed
+        /// to what fits either side — r = c^2 / 8 sag holds for a symmetric
+        /// chord of any span — and at the end station itself there is no bend
+        /// to read.</summary>
+        static bool TightInside(List<Vector3> pts, int i, float side, out float radius)
+        {
+            int n = pts.Count;
+            radius = 0f;
+            int span = Loop ? 3 : Mathf.Min(3, Mathf.Min(i, n - 1 - i));
+            if (span < 1) return false;
+            Vector3 a = pts[WrapIdx(i - span, n)], b = pts[i], c = pts[WrapIdx(i + span, n)];
+            Vector3 chord = c - a; chord.y = 0f;
+            Vector3 toMid = (a + c) * 0.5f - b; toMid.y = 0f;
+            float len = chord.magnitude, sag = toMid.magnitude;
+            if (len < 1e-3f || sag < 1e-4f) return false;
+            float r = len * len / (8f * sag);
+            if (r >= StageTightBendR || Vector3.Dot(toMid, rsRight[i] * side) <= 0f) return false;
+            radius = r;
+            return true;
+        }
+
+        static void BuildStageWalls(List<Vector3> pts, Transform parent)
+        {
+            EnsureStageRoadside(pts);
+            if (rsWallRuns == null) return;
+            int n = pts.Count;
+            var mat = MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
+            var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
+            var root = new GameObject("Walls");
+            root.transform.SetParent(parent, false);
+
+            int runs = 0, walled = 0;
+            foreach (var run in rsWallRuns)
+            {
+                BuildOneStageWall(pts, run.from, run.len, run.side, root.transform, mat, phys, runs++);
+                walled += run.len;
+            }
+            Log($"Stage guard walls: {runs} warranted runs covering {walled * Spacing:0} m of shoulder " +
+                $"(of {n * Spacing * 2:0} m of roadside).");
+            PlaceStagePosts(pts, parent);
+        }
+
+        // ------------------------------------------------------------------
+        //  Reflector posts along the guard walls (sense of speed)
+        // ------------------------------------------------------------------
+        /// <summary>Gap between the drawn wall's back and a post's face.</summary>
+        const float StagePostGap = 0.05f;
         const float StagePostW = 0.10f;
         /// <summary>How far the post shows above the wall's top. The stone is
         /// 0.85 m; a parkway reflector post stands about 1.5 m, so 0.65 m of
         /// white-and-red rises behind the wall.</summary>
         const float StagePostAboveWall = 0.65f;
-        /// <summary>Sunk into the shelf like the wall's own skirt, so a coarse
-        /// facet can never show daylight under the foot.</summary>
+        /// <summary>Sunk into the ground like the wall's own footing, so a
+        /// coarse facet can never show daylight under the foot.</summary>
         const float StagePostSink = 0.1f;
 
         /// <summary>
         /// Reflector posts down every guard-wall run, one combined mesh, no
         /// colliders. Only where there IS a wall: the stage keeps its
-        /// "nothing built" rule everywhere else, and a run of posts along a
-        /// shoulder that falls into a valley is exactly what the real road
-        /// has. Not on the spans — a bridge's shelf is its deck, and the deck
-        /// does not reach 0.45 m past the parapet.
+        /// "nothing built" rule everywhere else. Not where a deck covers the
+        /// station (the deck's own test, DeckCoversStation — a post there
+        /// would hang through the concrete to the ground under it), not on
+        /// a buried terminal, where there is no wall top to stand behind, and
+        /// not where the wall hands over to a rock face (the station both
+        /// stand at), where the post would come up through the rock top.
+        /// Each post follows its wall out through a flare and stands on the
+        /// lattice behind the stone, which on a fill is well under the road.
         /// </summary>
-        static void PlaceStagePosts(List<Vector3> pts, List<(int from, int len, float side)> runs,
-                                    Transform parent)
+        static void PlaceStagePosts(List<Vector3> pts, Transform parent)
         {
-            if (theme.postEvery <= 0 || runs.Count == 0) return;
+            if (theme.postEvery <= 0 || rsWallRuns == null || rsWallRuns.Count == 0) return;
             var mat = MakeMat("RoadPost", PostTexPath, affine: 0f);
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
-            float height = StagePostSink + 0.45f + StageWallH + StagePostAboveWall;
-            int placed = 0, spans = 0;
-            foreach (var run in runs)
+            int n = pts.Count;
+            float half = RoadWidth * 0.5f;
+            int placed = 0, spans = 0, terminals = 0;
+            foreach (var run in rsWallRuns)
             {
+                int s = SideIx(run.side);
                 for (int k = 1; k < run.len; k += theme.postEvery)
                 {
-                    int i = WrapIdx(run.from + k, pts.Count);
-                    if (bridgeBlend != null && i < bridgeBlend.Length && bridgeBlend[i] > 0.35f)
-                    { spans++; continue; }
-                    Vector3 right = RightAt(pts, i);
-                    Vector3 baseP = pts[i] + right * run.side * (StageWallOffset + StagePostBack);
-                    // The wall's own base: the shelf is pinned to the road.
-                    baseP.y = pts[i].y - 0.45f - StagePostSink;
-                    AppendPost(verts, uvs, tris, baseP, right, StagePostW, height);
+                    int i = WrapIdx(run.from + k, n);
+                    if (DeckCoversStation(i)) { spans++; continue; }
+                    if (rsWallUp[s][i] < 0.999f || rsFaceH[s][i] > 0f) { terminals++; continue; }
+                    Vector3 right = rsRight[i];
+                    float postE = rsWallE[s][i] + StageWallFaceIn + StageWallDrawThick + StagePostGap + StagePostW * 0.5f;
+                    Vector3 baseP = pts[i] + right * (run.side * (half + postE));
+                    float ground = StageLatticeY(baseP.x, baseP.z);
+                    baseP.y = Mathf.Max(Mathf.Min(pts[i].y - 0.45f, ground), pts[i].y - StageWallMaxFoot) - StagePostSink;
+                    float top = pts[i].y + StageWallH + StagePostAboveWall;
+                    AppendPost(verts, uvs, tris, baseP, right, StagePostW, top - baseP.y);
                     placed++;
                 }
             }
             CombinedPosts(verts, uvs, tris, "StagePosts", "StagePosts", mat, parent);
-            Log($"Placed {placed} reflector posts along the guard walls ({spans} span stations skipped).");
-        }
-
-        /// <summary>Does the parkway have a guard wall on this shoulder? Both
-        /// sides of every span, and anywhere the mountain falls
-        /// <see cref="WallDropM"/> within thirty metres. Shared with the cut
-        /// bank pass so the two can never claim the same station.</summary>
-        static bool StageWallWanted(List<Vector3> pts, int i, float side)
-        {
-            // The tube is the wall inside a tunnel.
-            if (hasTunnels && tunnelIn[i]) return false;
-            // A freeway is walled end to end whatever the ground does.
-            if (theme.stageWallAlways) return true;
-            if (bridgeBlend != null && bridgeBlend[i] > 0.35f) return true;
-            Vector3 right = RightAt(pts, i);
-            // AN OPEN VERGE IS WALLED TOO. The drop test below walls the fill
-            // side where the mountain falls away; where it does not fall -- a
-            // plateau, the village at Blowing Rock, a gentle uphill too
-            // shallow for a cut bank -- the corridor's shelf lands on the real
-            // ground and stays level, and level ground beside a road is
-            // run-off: the terrain audit read "shoulder is drivable for
-            // 14.8 m past the tarmac" on the loop and 2.5 m on average on the
-            // parkway itself (2026-09-11). Asked of the ground the builder
-            // will make, at three and six metres past the tarmac: still
-            // within OpenVergeM of the road at both, and the shoulder gets
-            // the wall. A fill batter has dropped past that by six metres and
-            // a cut has risen past it; neither is open. The bank pass defers
-            // to this the way it defers to every wall -- which is why the
-            // question is asked of the REAL land (StageDemY) and not of the
-            // corridor's shelf: the shelf is level beside every cut as well,
-            // and asking it claimed the cut side of five stages and took
-            // every bank with it ("Stage cut banks: 0 runs"). And never on
-            // the inside of a tight bend (InsideOfTightBend), where a wall
-            // collider's ends swing onto the kerb.
-            if (theme.stageWallOpenVerge && !InsideOfTightBend(pts, i, side))
-            {
-                float half = RoadWidth * 0.5f;
-                bool open = true;
-                foreach (float o in new[] { 3f, 6f })
-                {
-                    float ox = pts[i].x + right.x * side * (half + o);
-                    float oz = pts[i].z + right.z * side * (half + o);
-                    if (Mathf.Abs(StageDemY(ox, oz) - pts[i].y) > OpenVergeM) { open = false; break; }
-                }
-                if (open) return true;
-            }
-            float px = pts[i].x + right.x * side * 30f;
-            float pz = pts[i].z + right.z * side * 30f;
-            return pts[i].y - StageDemY(px, pz) > WallDropM;
+            Log($"Placed {placed} reflector posts along the guard walls " +
+                $"({spans} span stations and {terminals} terminal or rock hand-over stations skipped).");
         }
 
         /// <summary>How far a one-station chord of the wall line on
         /// <paramref name="side"/> sags toward the road at station i: zero on
         /// a straight and on the inside of a bend, c^2 / 8R on the outside,
         /// with R from the two neighbouring stations. Capped at half a metre
-        /// so a kink in the data cannot throw a box into the forest.</summary>
+        /// so a kink in the data cannot throw a box into the forest. Zero at
+        /// either end of a point-to-point route: the clamped neighbour there
+        /// is the station itself, which read half a chord along the road as a
+        /// 0.5 m sag and stood the first and last boxes 0.3-0.5 m off the
+        /// shoulder (a 1 m EDGE DROP at wp 0 L on Blue Ridge and Mount
+        /// Mitchell).</summary>
         static float WallChordSag(List<Vector3> pts, int i, float side)
         {
             int n = pts.Count;
+            if (!Loop && (i <= 0 || i >= n - 1)) return 0f;
             Vector3 a = pts[WrapIdx(i - 1, n)], b = pts[i], c = pts[WrapIdx(i + 1, n)];
             Vector3 toMid = (a + c) * 0.5f - b; toMid.y = 0f;
             float sag2 = toMid.magnitude;                 // the two-station chord's sag
@@ -1216,82 +3049,249 @@ namespace PSXRacing.EditorTools
             return Mathf.Min(0.5f, sag2 * 0.25f);
         }
 
+        /// <summary>
+        /// Where a car meets a guard wall's COLLIDER at station i, as e past the
+        /// tarmac edge: the drawn face (rsWallE) moved out by what
+        /// BuildOneStageWall moves the chord boxes out by — the one-station
+        /// chord's sag on the outside of a bend, a half chord's sag and end
+        /// swing on a tight inside. The walled shoulder runs to here, so the
+        /// surface in front of the box is shoulder all the way to it.
+        /// </summary>
+        static float StageWallContactE(List<Vector3> pts, int i, int s, float side)
+        {
+            float faceE = rsWallE[s][i];
+            float extra = WallChordSag(pts, i, side);
+            if (TightInside(pts, i, side, out float r))
+            {
+                // BuildOneStageWall's set-back for a half chord (overlap 0.25 m)
+                // on the wall line, whose radius is the bend's less the offset.
+                float rw = Mathf.Max(r - (RoadWidth * 0.5f + faceE), 1f);
+                float c = Spacing * 0.5f * rw / Mathf.Max(r, 1f);
+                extra = Mathf.Max(extra, c * c / (8f * rw) + 0.25f * 0.5f * c / rw);
+            }
+            return faceE + extra;
+        }
+
+        /// <summary>One cross-section of a guard wall. The drawing and the
+        /// collider are both built from these, which is what keeps a collider
+        /// from ever standing taller or further in than its stone.</summary>
+        struct WallRing
+        {
+            public Vector3 centre, right;
+            /// <summary>Collider face (e past the tarmac edge), how much stone
+            /// stands, footing, stone top, collider top, the shoulder's height
+            /// at the face, the outside-of-bend chord sag, and the inside-of-
+            /// bend radius (0 when not a tight inside).</summary>
+            public float faceE, up, baseY, topY, collTopY, groundY, sag, tightR;
+            public bool mid;
+        }
+
+        static WallRing StageWallRing(List<Vector3> pts, int i, int s, float side)
+        {
+            var g = new WallRing
+            {
+                centre = pts[i], right = rsRight[i],
+                faceE = rsWallE[s][i], up = rsWallUp[s][i],
+                sag = WallChordSag(pts, i, side),
+            };
+            if (TightInside(pts, i, side, out float r)) g.tightR = r;
+            // What a car meets at the collider face: the walled shoulder, or at
+            // a buried terminal the open foreslope the stone is sinking into.
+            bool terminal = BuriedTerminal(s, i);
+            float faceDy = terminal ? OpenSectionDy(g.faceE) : ShoulderDy(g.faceE);
+            g.groundY = pts[i].y + RoadLift + faceDy;
+            // On a deck (and the station either end it is carried onto) the
+            // stone stands IN the deck; anywhere else its footing goes under
+            // the lattice behind it.
+            g.baseY = pts[i].y - 0.45f;
+            if (!DeckCoversStation(i))
+            {
+                Vector3 behind = pts[i] + g.right * (side * (RoadWidth * 0.5f + g.faceE + StageWallFaceIn
+                                                              + StageWallDrawThick + StageWallFootSink));
+                float lattice = StageLatticeY(behind.x, behind.z);
+                g.baseY = Mathf.Max(Mathf.Min(g.baseY, lattice - StageWallFootSink), pts[i].y - StageWallMaxFoot);
+            }
+            // A buried terminal's stone goes down to just under the foreslope —
+            // measured at the stone's BACK, the lower edge of a falling slope,
+            // so no lip of its flat top pokes out behind — and the invisible
+            // extra over the stone stands only where the stone is full height:
+            // a chord's box takes the lower of its two rings, so on a terminal
+            // it never stands over its drawing.
+            float buryDy = terminal
+                ? OpenSectionDy(g.faceE + StageWallFaceIn + StageWallDrawThick) : faceDy;
+            g.topY = Mathf.Lerp(pts[i].y + RoadLift + buryDy - 0.05f, pts[i].y + StageWallH, g.up);
+            g.collTopY = g.up >= 0.999f ? g.topY + (StageWallCollH - StageWallH) : g.topY;
+            return g;
+        }
+
+        static WallRing MidWallRing(in WallRing a, in WallRing b) => new WallRing
+        {
+            centre = (a.centre + b.centre) * 0.5f,
+            right = (a.right + b.right).normalized,
+            faceE = (a.faceE + b.faceE) * 0.5f,
+            up = (a.up + b.up) * 0.5f,
+            baseY = Mathf.Min(a.baseY, b.baseY),
+            topY = (a.topY + b.topY) * 0.5f,
+            collTopY = Mathf.Min(a.collTopY, b.collTopY),
+            groundY = (a.groundY + b.groundY) * 0.5f,
+            tightR = Mathf.Max(a.tightR, b.tightR),
+            mid = true,
+        };
+
+        static void WallQuad(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+                             Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3,
+                             Vector2 u0, Vector2 u1, Vector2 u2, Vector2 u3, Vector3 facing)
+        {
+            int v = verts.Count;
+            verts.Add(p0); verts.Add(p1); verts.Add(p2); verts.Add(p3);
+            uvs.Add(u0); uvs.Add(u1); uvs.Add(u2); uvs.Add(u3);
+            QuadFacing(verts, tris, v, v + 1, v + 2, v + 3, facing);
+        }
+
         static void BuildOneStageWall(List<Vector3> pts, int from, int stations, float side,
                                       Transform parent, Material mat, PhysicsMaterial phys, int no)
         {
+            int n = pts.Count, s = SideIx(side);
+            float half = RoadWidth * 0.5f;
+
+            // The rings: one per station, a half-station ring on a tight
+            // inside, and — where the run ends into a tunnel — one on the
+            // portal's plane, so the stone meets the portal face instead of
+            // stopping a chord short of it.
+            var rings = new List<WallRing>(stations + 4);
+            var (before, after) = (-1, -1);
+            if (RunEnd((from, stations), 0, n, out _, out int b0) && hasTunnels && tunnelIn[b0]) before = b0;
+            if (RunEnd((from, stations), 1, n, out _, out int b1) && hasTunnels && tunnelIn[b1]) after = b1;
+            void Add(WallRing ring)
+            {
+                if (rings.Count > 0)
+                {
+                    var prev = rings[rings.Count - 1];
+                    if (prev.tightR > 0f || ring.tightR > 0f) rings.Add(MidWallRing(prev, ring));
+                }
+                rings.Add(ring);
+            }
+            if (before >= 0) Add(StageWallRing(pts, before, s, side));
+            for (int k = 0; k < stations; k++) Add(StageWallRing(pts, WrapIdx(from + k, n), s, side));
+            if (after >= 0) Add(StageWallRing(pts, after, s, side));
+
+            int R = rings.Count;
+            var fb = new Vector3[R]; var ft = new Vector3[R];
+            var bt = new Vector3[R]; var bb = new Vector3[R];
+            var along = new float[R];
+            for (int k = 0; k < R; k++)
+            {
+                var g = rings[k];
+                Vector3 outw = g.right * side;
+                Vector3 front = g.centre + outw * (half + g.faceE + StageWallFaceIn);
+                Vector3 back = front + outw * StageWallDrawThick;
+                fb[k] = new Vector3(front.x, g.baseY, front.z);
+                ft[k] = new Vector3(front.x, g.topY, front.z);
+                bt[k] = new Vector3(back.x, g.topY, back.z);
+                bb[k] = new Vector3(back.x, g.baseY, back.z);
+                if (k > 0)
+                {
+                    Vector3 step = ft[k] - ft[k - 1]; step.y = 0f;
+                    along[k] = along[k - 1] + step.magnitude;
+                }
+            }
+
+            // THE STONE HAS A FRONT, A TOP AND A BACK, each on its own vertices
+            // (both windings on one ribbon cancel in RecalculateNormals — see
+            // BuildWalls). It was a single road-facing sheet: invisible from
+            // the valley, from the end of a run, and from anywhere a car that
+            // got behind it could be.
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
-            float dist = 0f;
-            int rings = 0;
-            for (int k = 0; k < stations; k++)
+            const float Tex = 3.2f;
+            Vector2 UV(float u, Vector3 p, int k) => new Vector2(u / Tex, (p.y - (rings[k].centre.y - 0.45f)) / Tex);
+            for (int k = 1; k < R; k++)
             {
-                int i = WrapIdx(from + k, pts.Count);
-                Vector3 right = RightAt(pts, i);
-                Vector3 basePos = pts[i] + right * side * StageWallOffset;
-                // Seated on the corridor shelf, which is pinned to the road —
-                // minus a skirt so a coarse ground facet can never show
-                // daylight under the masonry.
-                basePos.y = pts[i].y - 0.45f;
-                Vector3 top = basePos + Vector3.up * (0.45f + StageWallH);
-                int v = verts.Count;
-                verts.Add(basePos); verts.Add(top);
-                uvs.Add(new Vector2(dist / 3.2f, 0f));
-                uvs.Add(new Vector2(dist / 3.2f, (0.45f + StageWallH) / 3.2f));
-                if (k > 0)
-                {
-                    // One winding, facing the ROAD. The far face looks over the
-                    // valley where no camera goes; the crossed-quad trick the
-                    // trees use does not apply, but nothing ever sees it.
-                    if (side < 0f) { tris.AddRange(new[] { v - 2, v - 1, v, v - 1, v + 1, v }); }
-                    else { tris.AddRange(new[] { v - 2, v, v - 1, v - 1, v, v + 1 }); }
-                }
-                dist += Spacing;
-                rings++;
-
-                // Collider boxes PER STATION, one 4 m chord each: a box
-                // spanning four stations cuts the corner — at the stage's
-                // 27 m minimum radius a 16 m chord sags 1.2 m inside the wall
-                // line, which the obstacle audit correctly reported as an
-                // invisible face reaching into the kerb band at 151 spots.
-                // A 4 m chord sags 7 cm. The box also sits slightly OUTSIDE
-                // the stone (6.05 vs 5.9) so its face never leads the visual.
-                // (A MeshCollider on the single-sided ribbon would be worse
-                // still: single-sided contacts, cars nosing through.)
-                if (k + 1 < stations)
-                {
-                    int j = WrapIdx(from + k + 1, pts.Count);
-                    // Centred so the INNER face stays where the drawn wall is
-                    // and all the extra depth grows OUTWARD — see
-                    // StageWallCollThick. The old +0.15 put a 0.4 m box's
-                    // inner face at -0.05; the same face now sits under a box
-                    // this much thicker.
-                    float half = StageWallCollThick * 0.5f;
-                    // THE CHORD SAGS TOWARD THE ROAD ON THE OUTSIDE OF A BEND,
-                    // by c^2 / 8R: the 7 cm above is the old stages' 27 m
-                    // floor, and the Parkway loops turn through 14 m
-                    // hairpins, where it is 14 cm and the obstacle audit
-                    // reported the box's face on the kerb. So each end of
-                    // the box moves OUT by the sag its station's bend gives
-                    // a 4 m chord. Outward only: on the inside of a bend the
-                    // chord already lies away from the road.
-                    Vector3 a = pts[i] + RightAt(pts, i) * side * (StageWallOffset - 0.05f + half + WallChordSag(pts, i, side));
-                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * (StageWallOffset - 0.05f + half + WallChordSag(pts, j, side));
-                    var seg = new GameObject("WallColl");
-                    seg.transform.SetParent(parent, false);
-                    seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (StageWallCollH * 0.5f - 0.2f);
-                    Vector3 dir = bPos - a; dir.y = 0f;
-                    if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
-                    seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                    var box = seg.AddComponent<BoxCollider>();
-                    box.size = new Vector3(StageWallCollThick, StageWallCollH + 0.4f,
-                                           dir.magnitude + 0.5f);
-                    box.sharedMaterial = phys;
-                    seg.layer = SolidLayer;
-                    seg.isStatic = true;
-                }
+                Vector3 toRoad = -(rings[k - 1].right + rings[k].right) * side;
+                Vector3 away = -toRoad;
+                WallQuad(verts, uvs, tris, fb[k - 1], ft[k - 1], ft[k], fb[k],
+                         UV(along[k - 1], fb[k - 1], k - 1), UV(along[k - 1], ft[k - 1], k - 1),
+                         UV(along[k], ft[k], k), UV(along[k], fb[k], k), toRoad);
+                WallQuad(verts, uvs, tris, ft[k - 1], bt[k - 1], bt[k], ft[k],
+                         new Vector2(along[k - 1] / Tex, 0f), new Vector2(along[k - 1] / Tex, StageWallDrawThick / Tex),
+                         new Vector2(along[k] / Tex, StageWallDrawThick / Tex), new Vector2(along[k] / Tex, 0f), Vector3.up);
+                WallQuad(verts, uvs, tris, bb[k - 1], bt[k - 1], bt[k], bb[k],
+                         UV(along[k - 1], bb[k - 1], k - 1), UV(along[k - 1], bt[k - 1], k - 1),
+                         UV(along[k], bt[k], k), UV(along[k], bb[k], k), away);
             }
-            var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
+            // End caps, so the run's end reads as a block of masonry.
+            for (int e = 0; e < 2; e++)
+            {
+                int k = e == 0 ? 0 : R - 1, k2 = e == 0 ? Mathf.Min(1, R - 1) : Mathf.Max(R - 2, 0);
+                Vector3 outward = ft[k] - ft[k2]; outward.y = 0f;
+                if (outward.sqrMagnitude < 1e-6f) continue;
+                WallQuad(verts, uvs, tris, fb[k], ft[k], bt[k], bb[k],
+                         UV(0f, fb[k], k), UV(0f, ft[k], k),
+                         UV(StageWallDrawThick, bt[k], k), UV(StageWallDrawThick, bb[k], k), outward);
+            }
+
+            // Collider boxes PER CHORD. A box spanning four stations cuts the
+            // corner — at the stage's 27 m minimum radius a 16 m chord sags
+            // 1.2 m inside the wall line, which the obstacle audit reported as
+            // an invisible face in the kerb band at 151 spots. (A MeshCollider
+            // on the single-sided ribbon would be worse still: single-sided
+            // contacts, cars nosing through.)
+            float halfT = StageWallCollThick * 0.5f;
+            for (int k = 1; k < R; k++)
+            {
+                var A = rings[k - 1];
+                var B = rings[k];
+                bool halfChord = A.mid || B.mid;
+                float overlap = halfChord ? 0.25f : 0.5f;
+                // Where the box's contact face goes: the drawn wall line, moved
+                // OUT by what the chord would otherwise lead the stone by.
+                //  * Outside of a bend: the chord sags toward the road by
+                //    c^2 / 8R — 14 cm on a 14 m hairpin, which the obstacle
+                //    audit found on the kerb — so each end moves out by the
+                //    sag its station's bend gives a 4 m chord.
+                //  * Tight inside: the chord lies away from the road already,
+                //    but its overlap swings the ends toward it; a half chord
+                //    sets back by its sag plus that swing.
+                float extraA = A.mid ? 0f : A.sag, extraB = B.mid ? 0f : B.sag;
+                float tightR = Mathf.Max(A.tightR, B.tightR);
+                if (tightR > 0f)
+                {
+                    Vector3 wa = A.centre + A.right * (side * (half + A.faceE));
+                    Vector3 wb = B.centre + B.right * (side * (half + B.faceE));
+                    wa.y = wb.y = 0f;
+                    float c = Vector3.Distance(wa, wb);
+                    float rw = Mathf.Max(tightR - (half + (A.faceE + B.faceE) * 0.5f), 1f);
+                    float setBack = c * c / (8f * rw) + overlap * 0.5f * c / rw;
+                    extraA = Mathf.Max(extraA, setBack);
+                    extraB = Mathf.Max(extraB, setBack);
+                }
+                Vector3 a = A.centre + A.right * (side * (half + A.faceE + halfT + extraA));
+                Vector3 b = B.centre + B.right * (side * (half + B.faceE + halfT + extraB));
+                // As tall as the lower end's stone allows (plus the invisible
+                // extra where the stone is up), down to below the deeper
+                // footing: never taller than its drawing, never a window under.
+                float bottom = Mathf.Min(A.baseY, B.baseY) - 0.1f;
+                float top = Mathf.Min(A.collTopY, B.collTopY);
+                if (top - Mathf.Max(A.groundY, B.groundY) < StageWallCollMinH) continue;
+                Vector3 dir = b - a; dir.y = 0f;
+                if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
+                var seg = new GameObject("WallColl");
+                seg.transform.SetParent(parent, false);
+                Vector3 mid = (a + b) * 0.5f;
+                seg.transform.position = new Vector3(mid.x, (bottom + top) * 0.5f, mid.z);
+                seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+                var box = seg.AddComponent<BoxCollider>();
+                box.size = new Vector3(StageWallCollThick, top - bottom, dir.magnitude + overlap);
+                box.sharedMaterial = phys;
+                seg.layer = SolidLayer;
+                seg.isStatic = true;
+            }
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
+            };
             SaveMesh(mesh, "StageWall" + no);
             var go = new GameObject("Wall" + no);
             go.transform.SetParent(parent, false);
@@ -1305,29 +3305,29 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         // THE OTHER SIDE OF THE ROAD.
         //
-        // A mountain road has a valley on one side and a hillside on the other,
-        // and until this pass only the valley was closed: the guard wall went
-        // up where the land fell away, and where the land ROSE the corridor
-        // held eleven metres of dead-level bench either side of the tarmac that
-        // you could drive onto, through the trees, and sit on. "Most of the
-        // blue ridge does not have big runoff areas to drive onto" — that bench
-        // was most of them.
+        // A mountain road has a valley on one side and a hillside on the other.
+        // Where the land RISES the road is cut into it, and a cut has a shape:
+        // the compact section's ditch at the foot, a face of blasted rock, and
+        // the hill carrying on up from the face's crest.
         //
-        // It cannot be fixed in the height field. The corridor shelf is what
-        // stops the coarse ground grid (12 m cells on a 9.5 m road) pushing a
-        // facet up through the tarmac between its own vertices, so nothing
-        // inside CorridorR is allowed to rise. A cut bank is ADDED geometry
-        // standing on the shelf, exactly like the guard wall, so it closes the
-        // shoulder without touching that guarantee at all.
+        // It used to be only the face — a ribbon drawn from the road side,
+        // standing on the corridor's flat shelf — so behind every cut lay a
+        // level bench out to 16 m that you could not see from the road and
+        // could not see the rock from, and every run ended in a collider chord
+        // 3 cm over the tarmac. Now the face stands at the foot of the ditch
+        // (CutToeE), the lattice behind it is released back to the hill
+        // (RoadsideDy), and a solid rock top covers the ground in between: from
+        // the crest back over the hillside, down onto the released lattice at
+        // its far edge. A run's ends taper the face into the land and fade the
+        // top in, rather than stopping at a box.
         //
-        // Where the wall and the bank could both claim a shoulder the wall wins
-        // — StageBankHeight asks the wall's own question first — so no station is
-        // ever built twice.
+        // Walls win where both could stand (the plan defers faces to BUILT
+        // walls), and a face and a wall overlap by a station where one hands
+        // over to the other.
 
         /// <summary>Shortest face worth building. Under a metre it is a kerb
         /// rather than a cut — you would drive up it — and a hillside that
-        /// gentle is a shoulder you can see over, which is a lot of the
-        /// parkway and should stay that way.</summary>
+        /// gentle is graded instead (StageBenchDy).</summary>
         const float BankRiseM = 0.9f;
         /// <summary>Tallest face built. Past this you are looking at a rock
         /// wall the fog will hide the top of anyway, and the collider becomes
@@ -1335,7 +3335,8 @@ namespace PSXRacing.EditorTools
         const float BankMaxH = 5.5f;
         /// <summary>Metres the face leans back per metre of height. 0.5 is a
         /// 2:1 cut — steeper than earth stands but exactly what a blasted
-        /// Appalachian road cut looks like.</summary>
+        /// Appalachian road cut looks like. The rock top rises no steeper than
+        /// this from the crest either.</summary>
         const float BankBatter = 0.5f;
         /// <summary>
         /// How much of the face is VERTICAL before the batter starts.
@@ -1353,253 +3354,433 @@ namespace PSXRacing.EditorTools
         /// batter reading as the weathered slope above it.
         /// </summary>
         const float BankPlinth = 1.4f;
-        /// <summary>Where the toe of the bank sits, past the barrier line. Far
-        /// enough out that its collider face never reaches the audit's reach
-        /// band (barrier line minus 0.4), close enough that there is nothing to
-        /// park on in front of it.</summary>
-        static float BankToe => StageWallOffset + 0.45f;
+        /// <summary>A chord whose lower end has less face than this gets no
+        /// box: the face there is a tapered end, and the rock top's own
+        /// MeshCollider (which carries the face too) is the whole of it. The
+        /// old floor was a 0.15 m box on every run end — 3 cm over the tarmac,
+        /// passable outward and a ledge coming back.</summary>
+        const float BankCollMinH = 0.5f;
+        /// <summary>Where the rock top is sampled, metres past the face's toe.
+        /// The last is where it has come down onto the released lattice
+        /// (BankPinM + BankReleaseM + BankTopTailM).</summary>
+        static readonly float[] BankTopSampleE = { 2f, 4f, 6f, 9f, 12f, 15f, 18f, 21f, 24f, 27f, 30f };
+        /// <summary>A rock-top point belongs to this station's hillside only
+        /// while the nearest road to it is within this many stations and on
+        /// the same side. Past that it is another leg of a switchback, whose
+        /// own section the lattice follows there.</summary>
+        const int BankTopOwnStations = 8;
 
         static void BuildStageBanks(List<Vector3> pts, Transform parent)
         {
-            int n = pts.Count;
+            EnsureStageRoadside(pts);
+            if (rsBankRuns == null) return;
             string tex = System.IO.File.Exists(StageGenDir + "/CutBank.png")
                        ? StageGenDir + "/CutBank.png" : theme.wall;
             var mat = MakeMat(MeshPrefix + "Bank", tex, affine: 0f);
+            // The rock top IS the hillside: the near ground's own material
+            // (BuildStageGround makes the same asset and registers its
+            // seasons, which SeasonDress applies to every renderer wearing it)
+            // and the same world-metre UVs, so the top and the lattice beyond
+            // it are one surface to look at.
+            bool sandy = surfNear != null && !string.IsNullOrEmpty(theme.sand);
+            var topMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f,
+                                 tint: sandy ? (Color?)null : theme.groundTint);
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Banks");
             root.transform.SetParent(parent, false);
 
             int runs = 0, banked = 0;
-            foreach (float side in new[] { -1f, 1f })
+            foreach (var run in rsBankRuns)
             {
-                var h = new float[n];
-                for (int i = 0; i < n; i++)
-                {
-                    float face = StageBankHeight(pts, i, side);
-                    h[i] = face >= BankRiseM ? face : 0f;
-                }
-                // Smooth the top line. The DEM is 30 m posts read through a
-                // bilinear filter, so raw station-to-station rise is noisy at
-                // exactly the scale a 4 m ring samples it — an unsmoothed top
-                // edge saws visibly along a cut that is, on the ground, one
-                // continuous face.
-                var sm = new float[n];
-                for (int i = 0; i < n; i++)
-                {
-                    float sum = 0f; int cnt = 0;
-                    for (int o = -3; o <= 3; o++)
-                    {
-                        int j = Mathf.Clamp(i + o, 0, n - 1);
-                        sum += h[j]; cnt++;
-                    }
-                    // ...and then put a wobble BACK, because a smoothed top
-                    // edge is a milled one. Two incommensurate periods, 80 m
-                    // and 33 m, which are the scales a rock face actually
-                    // varies at — and deterministic in the station index, so
-                    // the same bake gives the same mountain every time.
-                    sm[i] = sum / cnt * (1f + 0.11f * Mathf.Sin(i * 0.37f + 1.1f)
-                                            + 0.06f * Mathf.Sin(i * 0.91f));
-                }
-
-                var want = new bool[n];
-                for (int i = 0; i < n; i++) want[i] = h[i] > 0f;
-
-                // Same four-station floor the walls use: a cut that lasts
-                // twelve metres is a bump in the DEM, not a road cut, and
-                // building it gives the shoulder a picket line of stubs.
-                foreach (var run in StationRuns(want, 4))
-                {
-                    BuildOneStageBank(pts, run.from, run.len, side, sm, root.transform, mat, phys, runs++);
-                    banked += run.len;
-                }
+                BuildOneStageBank(pts, run.stations, run.side, root.transform, mat, topMat, phys, runs++);
+                banked += run.stations.Length;
             }
-            Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder.");
+            Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder, " +
+                "each with a solid rock top over its released hillside.");
+        }
+
+        /// <summary>Is <paramref name="p"/> still this station's own hillside —
+        /// nearest to a station within BankTopOwnStations, on this side?</summary>
+        static bool BankTopOwns(Vector3 p, int i, float side)
+        {
+            float reach = RoadWidth * 0.5f + CutToeE + BankTopSampleE[BankTopSampleE.Length - 1] + 8f;
+            if (!StageCorridor(p.x, p.z, reach, out RoadFoot foot)) return true;
+            int near = WrapIdx(Mathf.RoundToInt(foot.station), stageWp.Count);
+            return foot.side == side && StationSep(near, i, stageWp.Count) <= BankTopOwnStations;
         }
 
         /// <summary>
-        /// How tall the cut face is here, or 0 where a bank would be wrong.
+        /// The rock top over one station, as (e, world y) from the crest at
+        /// <paramref name="crestE"/> outward. It follows the hill (never rising
+        /// steeper than the face's batter from the crest), comes down over
+        /// BankTopTailM onto the lattice and tucks RoadsideRules.ToeTuckM under
+        /// it, so a car that reaches it from the hillside rides one surface onto
+        /// the other. Where the lattice is not yet released (a run's ends) the
+        /// base keeps to the lattice instead. It stops early — collapsing onto
+        /// its last point — at a tight inside, and where the hillside becomes
+        /// another road's.
         ///
-        /// THE TOP OF A CUT LANDS ON THE HILLSIDE. That is the whole shape of
-        /// the thing: you take a bite out of a slope, and the face is exactly
-        /// as tall as the slope is where the face stops. Sizing it off a rise
-        /// measured at some fixed distance instead gives a wall standing a
-        /// metre proud of a hill that is not there yet — a lip along the top,
-        /// visible from the road, on every gentle gradient.
-        ///
-        /// So it is solved rather than sampled: h is the height at which the
-        /// top of a battered face of height h meets the real DEM. The
-        /// iteration converges from below in three or four passes because the
-        /// DEM rises with distance and the batter is shallower than 1:1; six
-        /// is free and covers the odd bench.
-        ///
-        /// Zero over a span and its approaches (a deck has a parapet, and the
-        /// abutment cuts sit five metres above the tarmac — a bank there would
-        /// be a wall across the bridge mouth), and zero wherever the guard wall
-        /// already wants this shoulder.
+        /// SHAPED (the default), the base is then held between two lines:
+        ///   * it never drops off its own crest faster than
+        ///     RoadsideRules.RecoverableSlope — or at all, where the run
+        ///     <paramref name="hold"/>s its height into a wall or a portal —
+        ///     because a top that fell away behind its crest toward a lattice
+        ///     still pinned under the road was a ridge with a moat behind it:
+        ///     EDGE SLOPE 1V:2.6H-3.6H from 3.0 m out, and road-height land
+        ///     1.5 m behind a face;
+        ///   * it comes down to its own last point no steeper than
+        ///     RoadsideRules.TraversableSlope, so where it stops early the edge
+        ///     it stops at is a slope onto the lattice and not a step.
+        /// The second line binds the samples, not the crest: FinishStageCuts
+        /// lands every crest no higher than the first two samples under it, so
+        /// the top never drops off the crest to meet it.
+        /// Unshaped, it is the raw base: what FinishStageCuts lands a crest on
+        /// (with the second line applied there), and a closing station's
+        /// section under its lattice.
         /// </summary>
-        static float StageBankHeight(List<Vector3> pts, int i, float side)
+        static Vector2[] BankTopRing(List<Vector3> pts, int i, float side, float hh, float crestE, float release,
+                                     bool hold, bool shaped = true)
         {
-            if (hasTunnels && tunnelIn[i]) return 0f;
-            if (bridgeBlend != null && bridgeBlend[i] > 0.05f) return 0f;
-            if (StageWallWanted(pts, i, side)) return 0f;
-            Vector3 right = RightAt(pts, i);
-            float h = 0f;
-            for (int it = 0; it < 6; it++)
+            float half = RoadWidth * 0.5f;
+            int count = BankTopSampleE.Length;
+            var ring = new Vector2[count + 1];
+            float crestY = pts[i].y + hh;
+            ring[0] = new Vector2(crestE, crestY);
+            float farE = CutToeE + BankTopSampleE[BankTopSampleE.Length - 1];
+            float limitE = farE;
+            if (TightInside(pts, i, side, out float r)) limitE = Mathf.Min(limitE, r - half - 1f);
+            float lastE = crestE, lastY = crestY;
+            bool stopped = false;
+            for (int k = 0; k < count; k++)
             {
-                // A metre PAST the top of the face, so the cut bites into the
-                // hill rather than balancing on the surface of it.
-                // The bottom BankPlinth of the face carries the top no
-                // further out, because that part of it is vertical, and the
-                // probe has to know: solved against the full batter, every
-                // face is sized for a hillside 0.7 m further back than the one
-                // it is then built against.
-                float probe = BankToe + Mathf.Max(0f, h - BankPlinth) * BankBatter + 1f;
-                float px = pts[i].x + right.x * side * probe;
-                float pz = pts[i].z + right.z * side * probe;
-                h = Mathf.Clamp(StageDemY(px, pz) - pts[i].y, 0f, BankMaxH);
-                if (h <= 0f) return 0f;
+                float e = Mathf.Max(CutToeE + BankTopSampleE[k], crestE + 0.5f * (k + 1));
+                Vector3 p = pts[i] + rsRight[i] * (side * (half + e));
+                if (!stopped && (e > limitE || !BankTopOwns(p, i, side)))
+                {
+                    stopped = true;
+                    Vector3 q = pts[i] + rsRight[i] * (side * (half + lastE));
+                    lastY = Mathf.Min(lastY, StageLatticeY(q.x, q.z) - RoadsideRules.ToeTuckM);
+                }
+                if (stopped) { ring[k + 1] = new Vector2(lastE, lastY); continue; }
+                float lattice = StageLatticeY(p.x, p.z);
+                float hill = Mathf.Min(StageDemY(p.x, p.z), crestY + (e - crestE) / BankBatter);
+                float keep = release * (1f - Mathf.SmoothStep(0f, 1f,
+                                 Mathf.InverseLerp(farE - BankTopTailM, farE, e)));
+                float y = Mathf.Lerp(lattice - RoadsideRules.ToeTuckM, hill, keep);
+                ring[k + 1] = new Vector2(e, y);
+                lastE = e; lastY = y;
             }
-            return h;
+            if (!shaped) return ring;
+
+            // The last point is the anchor both lines are drawn to — the tail
+            // tucked under the lattice, or the point an early stop collapsed
+            // onto — and stays where it is.
+            Vector2 far = ring[count];
+            float fall = hold ? 0f : RoadsideRules.RecoverableSlope;
+            for (int k = 1; k < count; k++)
+            {
+                float y = Mathf.Max(ring[k].y, crestY - (ring[k].x - crestE) * fall);
+                ring[k].y = Mathf.Min(y, far.y + (far.x - ring[k].x) * RoadsideRules.TraversableSlope);
+            }
+            return ring;
         }
 
-        static void BuildOneStageBank(List<Vector3> pts, int from, int stations, float side,
-                                      float[] h, Transform parent, Material mat,
-                                      PhysicsMaterial phys, int no)
+        static void BuildOneStageBank(List<Vector3> pts, int[] run, float side, Transform parent,
+                                      Material mat, Material topMat, PhysicsMaterial phys, int no)
         {
+            int n = pts.Count, s = SideIx(side);
+            float half = RoadWidth * 0.5f;
+
+            // The stations the cut is drawn at: the run; a portal's plane where
+            // the run ends into a tunnel (full height to the portal face, its
+            // top held there); and, where the run ends into open graded land, a
+            // CLOSING station one past it — that station's cross-section with
+            // every point tucked under its own lattice — so the rock top comes
+            // down along the road onto the land the cut ends in, rather than
+            // ending in an edge that stands over it.
+            //
+            // A run that ends into a WALL closes the same way. Its end is held
+            // (rsCutHold): the top stands at the crest all the way back to the
+            // tail, over a lattice that is still pinned under the road there
+            // and over the bench RoadsideDy grades behind the wall's stone — so
+            // left open, the last station's top was a sheet edge metres over
+            // the ground behind the wall, with a cave under it a car behind the
+            // stone could drive into. Closed, the top and the end of the face
+            // come down along the road onto that ground inside one chord,
+            // behind (and through) the flared stone that stands in front of
+            // them.
+            var st = new List<int>(run.Length + 2);
+            var hh = new List<float>(run.Length + 2);
+            var rel = new List<float>(run.Length + 2);
+            var graded = new List<bool>(run.Length + 2);
+            var held = new List<bool>(run.Length + 2);
+            var closing = new List<bool>(run.Length + 2);
+            void Station(int i, float h, float r, bool g, bool hold, bool close)
+            {
+                st.Add(i); hh.Add(h); rel.Add(r); graded.Add(g); held.Add(hold); closing.Add(close);
+            }
+            int first = run[0], last = run[run.Length - 1];
+            if (RunEnd((run[0], run.Length), 0, n, out _, out int b0))
+            {
+                if (hasTunnels && tunnelIn[b0]) Station(b0, rsFaceH[s][first], 0f, rsCutGraded[s][first], true, false);
+                else if (rsKind[s][b0] == Roadside.Open || rsKind[s][b0] == Roadside.Walled)
+                    Station(b0, 0f, 0f, true, false, true);
+            }
+            foreach (int i in run) Station(i, rsFaceH[s][i], rsRelease[s][i], rsCutGraded[s][i], rsCutHold[s][i], false);
+            if (RunEnd((run[0], run.Length), 1, n, out _, out int b1))
+            {
+                if (hasTunnels && tunnelIn[b1]) Station(b1, rsFaceH[s][last], 0f, rsCutGraded[s][last], true, false);
+                else if (rsKind[s][b1] == Roadside.Open || rsKind[s][b1] == Roadside.Walled)
+                    Station(b1, 0f, 0f, true, false, true);
+            }
+            int R = st.Count;
+
+            // The face: toe (a skirt under the ditch's backslope), the top of
+            // the vertical plinth, the battered crest — all three ON the crest
+            // where the cut is graded, which the shoulder's own backslope climbs
+            // to. v runs up the FACE so the rock does not stretch where it
+            // leans back.
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
+            // The rock top's collider carries the face as well: where no box
+            // stands (a graded station either end of the chord, or less rock
+            // than BankCollMinH) the face that is drawn must still be solid.
+            var cVerts = new List<Vector3>();
+            var cTris = new List<int>();
+            var tVerts = new List<Vector3>();
+            var tUvs = new List<Vector2>();
+            var tTris = new List<int>();
+            int M = BankTopSampleE.Length + 1;
             float dist = 0f;
-
-            // HOW TALL THE DRAWN FACE IS HERE. The collider below calls the
-            // same function; it used to work out its own height, and a barrier
-            // whose collider does not know how tall its rock is is an invisible
-            // wall by construction.
-            //
-            // Tapered into the ground over four stations at both ends. A cut
-            // face that simply stops leaves a vertical edge standing in open
-            // hillside, which reads as a missing chunk of world.
-            float FaceH(int st)
+            var toe = new Vector3[R]; var plinthTop = new Vector3[R]; var crest = new Vector3[R];
+            for (int k = 0; k < R; k++)
             {
-                int idx = WrapIdx(from + st, pts.Count);
-                float t = Mathf.Min(Mathf.InverseLerp(-0.5f, 3.5f, st),
-                                    Mathf.InverseLerp(-0.5f, 3.5f, stations - 1 - st));
-                return Mathf.Max(0.15f, h[idx] * Mathf.SmoothStep(0f, 1f, t));
-            }
+                int i = st[k];
+                float h = hh[k];
+                Vector3 outw = rsRight[i] * side;
+                Vector3 atToe = pts[i] + outw * (half + CutToeE);
+                Vector2[] ring;
+                if (closing[k])
+                {
+                    float y = StageLatticeY(atToe.x, atToe.z) - RoadsideRules.ToeTuckM;
+                    toe[k] = plinthTop[k] = crest[k] = new Vector3(atToe.x, y, atToe.z);
+                    ring = BankTopRing(pts, i, side, y - pts[i].y, CutToeE, 0f, false, false);
+                }
+                else if (graded[k])
+                {
+                    float rise = Mathf.Max(0f, h - RoadLift);
+                    float crestE = CutToeE + rise / RoadsideRules.BackSlope;
+                    crest[k] = pts[i] + outw * (half + crestE);
+                    crest[k].y = pts[i].y + RoadLift + rise;
+                    toe[k] = plinthTop[k] = crest[k];
+                    ring = BankTopRing(pts, i, side, RoadLift + rise, crestE, rel[k], held[k]);
+                }
+                else
+                {
+                    float plinth = Mathf.Min(h, BankPlinth);
+                    float crestE = CutToeE + (h - plinth) * BankBatter;
+                    toe[k] = atToe; toe[k].y = pts[i].y - 0.5f;
+                    plinthTop[k] = atToe; plinthTop[k].y = pts[i].y + plinth;
+                    crest[k] = pts[i] + outw * (half + crestE);
+                    crest[k].y = pts[i].y + h;
+                    ring = BankTopRing(pts, i, side, h, crestE, rel[k], held[k]);
+                }
 
-            for (int k = 0; k < stations; k++)
-            {
-                int i = WrapIdx(from + k, pts.Count);
-                float hh = FaceH(k);
-                float plinth = Mathf.Min(hh, BankPlinth);
-
-                Vector3 right = RightAt(pts, i);
-                Vector3 toe = pts[i] + right * side * BankToe;
-                // Half a metre of skirt below the shelf, for the same reason
-                // the guard wall has one: a coarse ground facet must never be
-                // able to show daylight under the bottom of it.
-                toe.y = pts[i].y - 0.5f;
-                // The plinth stands directly over the toe, so the stretch of
-                // face a car can reach is a plane a box collider can be.
-                Vector3 shoulder = pts[i] + right * side * BankToe;
-                shoulder.y = pts[i].y + plinth;
-                Vector3 top = pts[i] + right * side * (BankToe + (hh - plinth) * BankBatter);
-                top.y = pts[i].y + hh;
-
+                if (k > 0)
+                {
+                    Vector3 step = toe[k] - toe[k - 1]; step.y = 0f;
+                    dist += step.magnitude;
+                }
                 int v = verts.Count;
-                verts.Add(toe); verts.Add(shoulder); verts.Add(top);
-                // v runs up the FACE rather than up the elevation, so the rock
-                // does not stretch where it leans back.
-                float vSh = (0.5f + plinth) / 4.5f;
-                float vTop = vSh + (hh - plinth) * Mathf.Sqrt(1f + BankBatter * BankBatter) / 4.5f;
+                verts.Add(toe[k]); verts.Add(plinthTop[k]); verts.Add(crest[k]);
+                float vSh = (plinthTop[k].y - toe[k].y) / 4.5f;
+                float vTop = vSh + Vector3.Distance(plinthTop[k], crest[k]) / 4.5f;
                 uvs.Add(new Vector2(dist / 4.5f, 0f));
                 uvs.Add(new Vector2(dist / 4.5f, vSh));
                 uvs.Add(new Vector2(dist / 4.5f, vTop));
                 if (k > 0)
                 {
-                    // Facing the road, one winding, like the wall — the back of
-                    // a cut face is inside the mountain. Two courses: the
-                    // plinth, and the battered face standing on it.
-                    int a0 = v - 3, a1 = v - 2, a2 = v - 1;
-                    if (side < 0f)
-                    {
-                        tris.AddRange(new[] { a0, a1, v, a1, v + 1, v });
-                        tris.AddRange(new[] { a1, a2, v + 1, a2, v + 2, v + 1 });
-                    }
-                    else
-                    {
-                        tris.AddRange(new[] { a0, v, a1, a1, v, v + 1 });
-                        tris.AddRange(new[] { a1, v + 1, a2, a2, v + 1, v + 2 });
-                    }
+                    // Facing the road: the back of the face is inside the rock
+                    // top now, which is drawn and solid. Between two graded
+                    // stations there is no face, and nothing is drawn.
+                    QuadFacingSkipFlat(verts, tris, v - 3, v - 2, v + 1, v, -outw);
+                    QuadFacingSkipFlat(verts, tris, v - 2, v - 1, v + 2, v + 1, -outw);
                 }
-                dist += Spacing;
+
+                int c = cVerts.Count;
+                cVerts.Add(toe[k]); cVerts.Add(plinthTop[k]); cVerts.Add(crest[k]);
+                if (k > 0)
+                {
+                    QuadFacingSkipFlat(cVerts, cTris, c - 3, c - 2, c + 1, c, -outw);
+                    QuadFacingSkipFlat(cVerts, cTris, c - 2, c - 1, c + 2, c + 1, -outw);
+                }
+
+                // The rock top over this station — the forest's too, except
+                // over a tube. A closing station's ring (under its lattice) is
+                // registered as well, never over a cut's own: without it the
+                // forest read the end station's top across the whole closing
+                // chord, and a held top stands metres over the slope that
+                // actually comes down there — trees in the air.
+                int topKey = s * RsStationKey + i;
+                if (!(hasTunnels && tunnelIn[i]) && !(closing[k] && rsBankTop.ContainsKey(topKey)))
+                    rsBankTop[topKey] = ring;
+                int t = tVerts.Count;
+                for (int j = 0; j < M; j++)
+                {
+                    Vector3 p = pts[i] + outw * (half + ring[j].x);
+                    p.y = ring[j].y;
+                    if (j == 0) p = crest[k];
+                    tVerts.Add(p);
+                    tUvs.Add(new Vector2(p.x / theme.groundTile, p.z / theme.groundTile));
+                }
+                if (k > 0)
+                    for (int j = 0; j + 1 < M; j++)
+                        QuadFacingSkipFlat(tVerts, tTris, t - M + j, t - M + j + 1, t + j + 1, t + j, Vector3.up);
 
                 // One box per station chord, for the reason the wall's comment
                 // gives: a box spanning four stations cuts the corner and ends
-                // up inside the kerb band on the stage's tightest radius.
-                if (k + 1 < stations)
+                // up inside the kerb band on the stage's tightest radius. Only
+                // between two FACED stations: a graded one has no rock at the
+                // toe to stand a box in front of, and a box there would be an
+                // invisible wall across a backslope.
+                if (k > 0 && !graded[k] && !graded[k - 1])
                 {
-                    int j = WrapIdx(from + k + 1, pts.Count);
-                    // Seated so the box's INNER face lands on the drawn toe
-                    // — 0.05 m inside it, so the collider never leads the visual
-                    // — and every millimetre of the extra depth grows into the
-                    // hill. That is the guard wall's own seating rule (see
-                    // StageWallCollThick); the bank pass copied the thickness
-                    // and not the seating, so at BankToe + 0.3 the contact face
-                    // of a 1.2 m box stood 0.3 m out in the gravel and a car
-                    // stopped a foot short of rock it could see.
-                    float seat = BankToe + StageWallCollThick * 0.5f - 0.05f;
-                    Vector3 a = pts[i] + RightAt(pts, i) * side * seat;
-                    Vector3 bPos = pts[j] + RightAt(pts, j) * side * seat;
+                    int j = st[k - 1];
                     // AS TALL AS THE ROCK IS AND NO TALLER.
                     //
                     // This was Max(hh, StageWallCollH) — the guard wall's 1.7 m
                     // collider height, borrowed on the reasoning that a barrier
-                    // ought to be a barrier. On a WALL that floor is honest:
-                    // the stone is there, the collider is merely taller than
-                    // it, and you can see the thing you hit. On a cut bank it
-                    // is a force field, because a bank is drawn as tall as the
-                    // hillside it bites into and the taper fades it to nothing
-                    // at both ends of every run. Measured off the built scenes:
-                    // 1.0 km of Mount Mitchell's shoulder carried a collider
-                    // taller than its rock, and 180 m of that stood where the
-                    // drawn face is 0.15 m — a 1.7 m box in open gravel.
+                    // ought to be a barrier. On a cut bank it is a force field,
+                    // because the face tapers to nothing at both ends of every
+                    // run: measured off the built scenes, 1.0 km of Mount
+                    // Mitchell's shoulder carried a collider taller than its
+                    // rock, 180 m of it where the drawn face was 0.15 m.
                     // Reported as "invisible wall on edge of road that knocked
-                    // me off the track", from a car that ended up out on the
-                    // open shoulder just past a bank run that had already
-                    // tapered away.
-                    //
-                    // The MIN of the two stations it spans: the box is a
-                    // straight chord where the drawn ribbon is a ramp, so
-                    // erring short leaves at worst a hand's breadth of rock you
-                    // cannot quite touch, and erring tall puts the fault back.
-                    float ch = Mathf.Min(FaceH(k), FaceH(k + 1));
-                    var seg = new GameObject("BankColl");
-                    seg.transform.SetParent(parent, false);
-                    seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (ch * 0.5f - 0.3f);
-                    Vector3 dir = bPos - a; dir.y = 0f;
-                    if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
-                    seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                    var box = seg.AddComponent<BoxCollider>();
-                    // The same depth the guard walls get, and for the same
-                    // reason — see StageWallCollThick. A cut bank is the OTHER
-                    // thing a player leans on down a mountain road, and 0.6 m
-                    // is still under one physics step of travel at speed. What
-                    // is behind it is the hillside, so the extra depth grows
-                    // into solid ground and reaches nothing.
-                    box.size = new Vector3(StageWallCollThick, ch + 0.6f, dir.magnitude + 0.5f);
-                    box.sharedMaterial = phys;
-                    seg.layer = SolidLayer;
-                    seg.isStatic = true;
+                    // me off the track". The MIN of the two stations it spans:
+                    // the box is a straight chord where the drawn ribbon is a
+                    // ramp, so erring short leaves at worst a hand's breadth of
+                    // rock the box does not reach (the rock top's collider
+                    // does), and erring tall puts the fault back.
+                    float ch = Mathf.Min(hh[k - 1], h);
+                    if (ch >= BankCollMinH)
+                    {
+                        // Seated so the box's INNER face lands 0.05 m inside the
+                        // drawn toe, and every millimetre of its depth grows
+                        // into the hill (StageWallCollThick's seating rule).
+                        float seat = half + CutToeE + StageWallCollThick * 0.5f - 0.05f;
+                        Vector3 a = pts[j] + rsRight[j] * (side * seat);
+                        Vector3 bPos = pts[i] + rsRight[i] * (side * seat);
+                        var seg = new GameObject("BankColl");
+                        seg.transform.SetParent(parent, false);
+                        seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (ch * 0.5f - 0.3f);
+                        Vector3 dir = bPos - a; dir.y = 0f;
+                        if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
+                        seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+                        var box = seg.AddComponent<BoxCollider>();
+                        box.size = new Vector3(StageWallCollThick, ch + 0.6f, dir.magnitude + 0.5f);
+                        box.sharedMaterial = phys;
+                        seg.layer = SolidLayer;
+                        seg.isStatic = true;
+                    }
                 }
             }
-            var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
+
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
+            };
             SaveMesh(mesh, "StageBank" + no);
             var go = new GameObject("Bank" + no);
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
             go.isStatic = true;
+
+            // THE ROCK TOP: drawn in the hillside's material, and solid — its
+            // collider is the top AND the face, so nothing about this cut is a
+            // surface drawn from one side only.
+            if (tTris.Count == 0) return;
+            var top = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = tVerts.ToArray(), uv = tUvs.ToArray(), triangles = tTris.ToArray(),
+            };
+            // "BankTopMesh", not "StageBank...": a surface a car can drive on
+            // stays out of CompressibleMesh's 16-bit quantisation.
+            SaveMesh(top, "BankTopMesh" + no);
+            int off = cVerts.Count;
+            cVerts.AddRange(tVerts);
+            foreach (int ix in tTris) cTris.Add(ix + off);
+            var coll = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = cVerts.ToArray(), triangles = cTris.ToArray(),
+            };
+            SaveMesh(coll, "BankTopColl" + no);
+            var topGo = new GameObject("BankTop" + no);
+            topGo.transform.SetParent(parent, false);
+            topGo.AddComponent<MeshFilter>().sharedMesh = top;
+            topGo.AddComponent<MeshRenderer>().sharedMaterial = topMat;
+            var mc = topGo.AddComponent<MeshCollider>();
+            mc.sharedMesh = coll;
+            // The shell's friction off the road, like the ground it continues.
+            mc.sharedMaterial = SlidePhys();
+            topGo.isStatic = true;
+        }
+
+        /// <summary><see cref="QuadFacing"/>, skipping a quad with no area —
+        /// a rock top that stopped early collapses its last samples onto one
+        /// point, and a MeshCollider has no use for slivers.
+        ///
+        /// The winding is chosen by the WHOLE quad's normal (both triangles'
+        /// crosses summed), not QuadFacing's first triangle alone. A cut's
+        /// quads are routinely half degenerate — a graded station's toe,
+        /// plinth and crest are one point, and so is a closing station's whole
+        /// section — and where the degenerate half came first its zero normal
+        /// could not say which way to wind the half that is real: a rock face
+        /// wedge wound away from the road, unlit from it and invisible to a
+        /// ray cast from it (queries do not hit back faces). For a planar quad
+        /// the sum points the same way the first cross does, so nothing that
+        /// was right changes. The degenerate half itself is left out: a
+        /// triangle with no area lights nothing, collides with nothing, and
+        /// leaves its lone vertex a zero normal for SaveMesh to warn about.</summary>
+        static void QuadFacingSkipFlat(List<Vector3> verts, List<int> tris, int a, int b, int c, int d, Vector3 wantNormal)
+        {
+            Vector3 n1 = Vector3.Cross(verts[b] - verts[a], verts[c] - verts[a]);
+            Vector3 n2 = Vector3.Cross(verts[c] - verts[a], verts[d] - verts[a]);
+            bool t1 = n1.sqrMagnitude >= 1e-8f, t2 = n2.sqrMagnitude >= 1e-8f;
+            if (!t1 && !t2) return;
+            bool keep = Vector3.Dot(n1 + n2, wantNormal) >= 0f;
+            if (t1) { if (keep) tris.AddRange(new[] { a, b, c }); else tris.AddRange(new[] { a, c, b }); }
+            if (t2) { if (keep) tris.AddRange(new[] { a, c, d }); else tris.AddRange(new[] { a, d, c }); }
+        }
+
+        /// <summary>The rock top's height at a point on the stage, or negative
+        /// infinity off any rock top — the forest stands its trees on the
+        /// higher of this and the lattice.</summary>
+        static float StageBankTopY(in RoadFoot foot)
+        {
+            if (rsBankTop == null || rsBankTop.Count == 0) return float.NegativeInfinity;
+            int s = SideIx(foot.side);
+            float e = foot.d - RoadWidth * 0.5f;
+            float y0 = rsBankTop.TryGetValue(s * RsStationKey + foot.s0, out var r0) ? RingY(r0, e) : float.NegativeInfinity;
+            float y1 = rsBankTop.TryGetValue(s * RsStationKey + foot.s1, out var r1) ? RingY(r1, e) : float.NegativeInfinity;
+            if (float.IsNegativeInfinity(y0) || float.IsNegativeInfinity(y1)) return Mathf.Max(y0, y1);
+            return Mathf.Lerp(y0, y1, foot.t);
+        }
+
+        static float RingY(Vector2[] ring, float e)
+        {
+            if (e < ring[0].x) return float.NegativeInfinity;
+            for (int j = 1; j < ring.Length; j++)
+            {
+                if (e > ring[j].x) continue;
+                float span = ring[j].x - ring[j - 1].x;
+                return span < 1e-4f ? ring[j - 1].y : Mathf.Lerp(ring[j - 1].y, ring[j].y, (e - ring[j - 1].x) / span);
+            }
+            return float.NegativeInfinity;
         }
 
         // ------------------------------------------------------------------
@@ -1609,13 +3790,24 @@ namespace PSXRacing.EditorTools
         /// its walls stand outside the tarmac edge: the verge strip, and a
         /// little. The Little Switzerland Tunnel is a two-lane bore.</summary>
         const float TunnelH = 5.2f, TunnelWallOut = 1.1f;
-        /// <summary>How far past the tube's wall the ground hole reaches, so
-        /// no ground quad can straddle the tube.</summary>
+        /// <summary>How far past the tarmac edge a ground quad is still "near
+        /// the tube" (<see cref="InTunnelZone"/>) and has to be measured
+        /// before it is built (<see cref="TunnelQuadClear"/>).</summary>
         const float TunnelHoleMargin = 7f;
+        /// <summary>Past the tube's wall, how far the vertex hole itself
+        /// reaches (<see cref="InTunnelHole"/>).</summary>
+        const float TunnelFootprintMarginM = 1f;
+        /// <summary>How far over the tube's ceiling a kept near-tube facet
+        /// must stand wherever it is over the bore.</summary>
+        const float TunnelCoverM = 1f;
         /// <summary>The portal face: a rock front either side of the mouth and
         /// over it, big enough to hide the ground's step from the approach
         /// cut to the ridge.</summary>
         const float PortalHalfW = 18f, PortalH = 16f;
+        /// <summary>How high over the road a portal's side panels are solid —
+        /// well past anything a car can reach; the rest of the face is
+        /// scenery.</summary>
+        const float PortalCollH = TunnelH + 1.5f;
         const float TunnelTexM = 6f;
 
         /// <summary>
@@ -1706,6 +3898,8 @@ namespace PSXRacing.EditorTools
             // opening left in it. Facing OUT of the mountain at each end.
             Portal(pts, WrapIdx(from, n), -1f, halfW, verts, uvs, tris);
             Portal(pts, WrapIdx(from + stations - 1, n), 1f, halfW, verts, uvs, tris);
+            PortalColliders(pts, WrapIdx(from, n), -1f, halfW, parent, phys);
+            PortalColliders(pts, WrapIdx(from + stations - 1, n), 1f, halfW, parent, phys);
 
             var mesh = new Mesh
             {
@@ -1745,6 +3939,37 @@ namespace PSXRacing.EditorTools
             Panel(-PortalHalfW, -halfW, yBase, yTop);
             Panel(halfW, PortalHalfW, yBase, yTop);
             Panel(-halfW, halfW, yLintel, yTop);
+        }
+
+        /// <summary>
+        /// The portal's side panels, solid. They were drawn only: a car that
+        /// left the approach beside the mouth drove straight through the rock
+        /// face into the ground hole behind it and out of the world. A box per
+        /// panel, from the tube's wall out to PortalHalfW, its contact face on
+        /// the drawn plane and its depth grown INTO the mountain (the guard
+        /// wall's seating rule), so the drawing and the solid are one surface.
+        /// </summary>
+        static void PortalColliders(List<Vector3> pts, int i, float dir, float halfW,
+                                    Transform parent, PhysicsMaterial phys)
+        {
+            Vector3 right = RightAt(pts, i);
+            Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
+            Vector3 into = -fwd * dir;          // the face looks along fwd * dir
+            float width = PortalHalfW - halfW;
+            float y0 = pts[i].y - 1.5f, y1 = pts[i].y + PortalCollH;
+            foreach (float side in new[] { -1f, 1f })
+            {
+                Vector3 p = pts[i] + right * (side * (halfW + width * 0.5f)) + into * (StageWallCollThick * 0.5f);
+                var seg = new GameObject("WallPortal");
+                seg.transform.SetParent(parent, false);
+                seg.transform.position = new Vector3(p.x, (y0 + y1) * 0.5f, p.z);
+                seg.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up);
+                var box = seg.AddComponent<BoxCollider>();
+                box.size = new Vector3(width, y1 - y0, StageWallCollThick);
+                box.sharedMaterial = phys;
+                seg.layer = SolidLayer;
+                seg.isStatic = true;
+            }
         }
 
         /// <summary>Two triangles for a quad, wound so the face points the
@@ -2093,6 +4318,37 @@ namespace PSXRacing.EditorTools
                  + 0.4f * Mathf.Sin((x + z) * 0.0061f + 0.8f);
         }
 
+        /// <summary>Clear of the trunk of the nearest tree past the section.</summary>
+        const float StageTreeClearM = 1f;
+
+        /// <summary>Is a point on the roadside the plan graded — a shoulder
+        /// and foreslope out to their catch, a wall with its posts, a cut's
+        /// ditch and face up to the crest? No tree stands there: the section is
+        /// the clear zone, and its lattice is held under a ribbon a trunk
+        /// would stand beneath.</summary>
+        static bool OnGradedRoadside(in RoadFoot foot)
+        {
+            if (rsKind == null) return false;
+            int s = SideIx(foot.side);
+            int st = WrapIdx(Mathf.RoundToInt(foot.station), stageWp.Count);
+            float e = foot.d - RoadWidth * 0.5f, clear;
+            switch (rsKind[s][st])
+            {
+                case Roadside.Open: clear = rsCatchE[s][st]; break;
+                case Roadside.Walled:
+                    clear = rsWallE[s][st] + StageWallFaceIn + StageWallDrawThick + StagePostGap + StagePostW;
+                    // A buried terminal is graded open out to its catch.
+                    if (BuriedTerminal(s, st)) clear = Mathf.Max(clear, rsCatchE[s][st]);
+                    break;
+                case Roadside.Cut:
+                    // To the crest: past a graded cut's backslope as well.
+                    clear = CutCrestE(s, st);
+                    break;
+                default: return false;
+            }
+            return e < clear + StageTreeClearM;
+        }
+
         static void BuildStageForest(List<Vector3> pts, Transform parent)
         {
             var root = new GameObject("Forest");
@@ -2123,15 +4379,27 @@ namespace PSXRacing.EditorTools
                         float wx = ox + (gx + 0.18f + (float)rng.NextDouble() * 0.64f) * ForestPitch;
                         float wz = oz + (gz + 0.18f + (float)rng.NextDouble() * 0.64f) * ForestPitch;
 
-                        if (!StageCorridor(wx, wz, ForestBand + 10f,
-                                out float d, out float roadY, out float f)) continue;
+                        if (!StageCorridor(wx, wz, ForestBand + 10f, out RoadFoot foot)) continue;
+                        float d = foot.d, roadY = foot.roadY, f = BridgeAt(foot.station);
                         if (d > ForestBand) continue;
 
                         // thin the outer band — the mottle takes over anyway
                         if (d > 90f && rng.NextDouble() <
                             Mathf.InverseLerp(90f, ForestBand, d) * 0.55f) continue;
 
-                        float ground = StageGroundHeightAt(wx, wz);
+                        // On a cut's rock top where there is one: the lattice
+                        // under it is held down for a dozen metres behind the
+                        // face, and a tree stood on that is buried to its crown.
+                        //
+                        // And on the LATTICE, not the field it samples: the
+                        // built near ground is flat triangles between 12 m
+                        // vertices, which on a falling verge lie a metre off the
+                        // field between them, and PrepareStageLattice has since
+                        // lowered some near-road vertices by up to a metre and a
+                        // half. A trunk stood on the field there floated past its
+                        // own sink. ForestBand is well inside NearCoverage, so
+                        // every tree stands on a near chunk.
+                        float ground = Mathf.Max(StageLatticeY(wx, wz), StageBankTopY(foot));
 
                         // True cliffs stay bare — the boulder fields and rock
                         // faces under Grandfather are real, and 50 degrees is
@@ -2156,11 +4424,15 @@ namespace PSXRacing.EditorTools
                             // is fine; the tree is metres BELOW the road.
                             underDeck++;
                         }
-                        else if (d < roadHalf + 2.6f || (d < StageWallOffset + 1.2f && f > 0.35f))
+                        else if (d < roadHalf + 2.6f || (d < StageWallOffset + 1.2f && f > 0.35f)
+                                 || OnGradedRoadside(foot))
                         {
                             // On the tarmac, the shoulder, or through a
                             // parapet. 2.6 m past the kerb is the same margin
-                            // the circuits give their tree line.
+                            // the circuits give their tree line — and past that,
+                            // nothing on the graded roadside the plan laid out
+                            // (a foreslope's clear zone, a wall and its posts,
+                            // a cut's ditch and face).
                             continue;
                         }
 

@@ -2971,6 +2971,17 @@ namespace PSXRacing
         /// "put the car back" means on the ground in every caller, and the
         /// next one to pass a hopeful Y should not have to know that. A miss
         /// keeps the Y it was given, which is what every caller got before.
+        ///
+        /// BUT ONLY FOR A HOPEFUL Y. A caller that has already found the
+        /// surface passes <c>seated</c> to <see cref="ResetTo"/> and never
+        /// reaches this, because the probe takes the FIRST upward-facing hit
+        /// under a point six metres up — and a road crossing overhead is
+        /// closer than that. Charlotte's deck top stands ClearanceM 5.0 +
+        /// DeckThick 0.55 = 5.55 m over the road beneath it. DriveSession's
+        /// recovery probes from only 3 m precisely so it finds the lower road
+        /// and runs its clearance test THERE; handing that height on to this
+        /// probe puts the car on the overpass instead — where no clearance
+        /// test ran, on a road the player was not driving.
         /// </summary>
         static Vector3 GroundedResetPos(Vector3 position)
         {
@@ -2981,6 +2992,25 @@ namespace PSXRacing
                 return new Vector3(position.x, hit.point.y + ResetLift, position.z);
             return position + Vector3.up * ResetLift;
         }
+
+        /// <summary>
+        /// How many times <see cref="TeleportTo"/> has moved this car — every
+        /// reset, respawn, grid stand and replay restore goes through it.
+        ///
+        /// For anything that remembers facts about where the car WAS. The
+        /// wheel contacts are the physics step's, so for the frames between a
+        /// teleport and the next step they still describe the old place: a
+        /// watchdog that asks "how long since a wheel touched a road, and how
+        /// far has it dropped since" reads the old answer against the new
+        /// position — StuckRecovery's fall test, handed a reset (R, or the
+        /// stuck countdown) that lands a car on a street under a deck, would
+        /// see a car 3 m below its last road AND below the deck overhead, and
+        /// throw it straight back up onto the overpass.
+        ///
+        /// A counter rather than an event so nothing has to subscribe before
+        /// Awake — the city grid teleports before it.
+        /// </summary>
+        public int TeleportCount { get; private set; }
 
         /// <summary>
         /// Put the car EXACTLY here, standing still — no ground probe, no ride-
@@ -3011,6 +3041,7 @@ namespace PSXRacing
         /// </summary>
         public void TeleportTo(Vector3 position, Quaternion rotation)
         {
+            TeleportCount++;
             transform.SetPositionAndRotation(position, rotation);
             // BEFORE THIS CAR'S OWN AWAKE, Body is still null. A city race
             // stands its grid from CityMode.Awake, and Awake order between
@@ -3032,7 +3063,18 @@ namespace PSXRacing
             body.interpolation = interp;
         }
 
-        public void ResetTo(Vector3 position, Quaternion rotation)
+        /// <summary>
+        /// The recovery teleport: stand the car still on the road at
+        /// <paramref name="position"/>, <see cref="ResetLift"/> up, with the
+        /// driveline reset to first gear at idle.
+        /// </summary>
+        /// <param name="seated">True when <paramref name="position"/>'s Y IS
+        /// the surface — the caller probed for it, or read it off the road
+        /// graph — so it is kept exactly. False (every caller that hands over
+        /// a stored or authored point) seats it with
+        /// <see cref="GroundedResetPos"/>, which looks for the surface from
+        /// six metres up and so cannot tell a road from the deck above it.</param>
+        public void ResetTo(Vector3 position, Quaternion rotation, bool seated = false)
         {
             Body.linearVelocity = Vector3.zero;
             Body.angularVelocity = Vector3.zero;
@@ -3045,7 +3087,8 @@ namespace PSXRacing
             // Through the teleport, not straight onto the transform: the
             // player's body is interpolated, and see TeleportTo for what that
             // does to a pose written from outside the physics step.
-            TeleportTo(GroundedResetPos(position), rotation);
+            TeleportTo(seated ? position + Vector3.up * ResetLift : GroundedResetPos(position),
+                       rotation);
             currentGear = 1;
             currentRPM = idleRPM;
             wheelSpin = 0f;

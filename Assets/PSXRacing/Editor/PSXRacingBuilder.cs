@@ -79,10 +79,11 @@ namespace PSXRacing.EditorTools
 
         // ------------------------------------------------------------------
         //  The street curb (KerbStyle.Street). Built INSIDE KerbWidth: the
-        //  roadbed dig (RoadbedToe), the verge batter (VergeOuter), the
-        //  forecourt overlap (PadRoadOverlap) and TrackObstacleAudit's track
-        //  half-width all key on that 0.9 m, so the curb stone and the
-        //  pavement behind it share the footprint and nothing else moves.
+        //  roadbed dig (RoadbedToe), the shoulder profile's first point
+        //  (EdgeProfileFn), the forecourt overlap (PadRoadOverlap) and
+        //  TrackObstacleAudit's track half-width all key on that 0.9 m, so
+        //  the curb stone and the pavement behind it share the footprint and
+        //  nothing else moves.
         // ------------------------------------------------------------------
         /// <summary>Height of the curb stone's face above the tarmac: a 6 in
         /// US barrier curb. NOT a solid step to the car's BODY — the player
@@ -94,11 +95,11 @@ namespace PSXRacing.EditorTools
         /// stone.</summary>
         internal const float StreetKerbHeight = 0.15f;
         /// <summary>How far the top of the face leans OUT over its foot. Real
-        /// curb stones are battered, and it is also what keeps
-        /// TrackObstacleAudit.AuditFacing green: a perfectly vertical face on
-        /// an object named KerbL has normal.y == 0 and fails its `&lt;= 0`
-        /// test; 3 cm over 15 gives the face triangles normal.y ~ +0.19.
-        /// Remove the batter and that audit must change to `&lt; 0`.</summary>
+        /// curb stones are battered; 3 cm over 15 gives the face triangles
+        /// normal.y ~ +0.19. (TrackObstacleAudit.AuditFacing no longer needs
+        /// it: it skips near-vertical triangles, |normal.y| under 0.05, and
+        /// flags only a face turned DOWN. The face is drawing only — the
+        /// collider is the ramp below.)</summary>
         internal const float StreetKerbFaceBatter = 0.03f;
         /// <summary>Width of the curb stone's top, measured from the tarmac
         /// edge and including the face. The rest of <see cref="KerbWidth"/>
@@ -112,8 +113,10 @@ namespace PSXRacing.EditorTools
         /// CollisionResponder.LandingNormalDot (0.7), so a body touch is a
         /// landing and never a crash; under the body's 0.13 m overhang the
         /// ramp has risen 4.3 cm against ~9 cm of clearance at stock ride
-        /// height; and AuditVerge's 0.25 m probe sees 0.083 m per step
-        /// against its 0.17 limit. Starting value for tuning — 0.6 (25%)
+        /// height; and the obstacle audit's edge pass sees 0.043 m of rise over
+        /// RoadsideRules.FaceRunM (0.13 m) against FaceRiseFailM (0.06), so
+        /// it is a mountable curb and not an EDGE FACE. Starting value for
+        /// tuning — 0.6 (25%)
         /// buys a slammed setup margin at the cost of the wheel visibly
         /// sinking further into the curb stone.</summary>
         internal const float StreetKerbRamp = 0.45f;
@@ -256,14 +259,6 @@ namespace PSXRacing.EditorTools
             /// A freeway has one; the mountain's rule ("only where the land
             /// falls five metres") would leave the 277 belt open.</summary>
             public bool stageWallAlways;
-            /// <summary>Wall an OPEN verge as well as a falling one: where
-            /// the real land stays level with the road six metres past the
-            /// tarmac (a plateau, a village, a gentle uphill too shallow for
-            /// a cut bank), that level ground is run-off, and a mountain
-            /// road has a wall or a fence there. Never on the inside of a
-            /// tight bend. On for the mountain themes; the city keeps its
-            /// flat verges (see stageWallAlways's note on ramp chords).</summary>
-            public bool stageWallOpenVerge;
             /// <summary>Dig the ground out under each bridge span by the
             /// track's bridgeDepth, the way a circuit's field does. It can
             /// only ever LOWER ground. OFF on the mountains on purpose: their
@@ -380,7 +375,6 @@ namespace PSXRacing.EditorTools
             // PlaceTrees, and every other scatter pass stays off.
             ["BlueRidge"] = new Theme
             {
-                stageWallOpenVerge = true,
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
                 wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — the parkway's own guard wall
                 groundTile = 13f,
@@ -402,7 +396,6 @@ namespace PSXRacing.EditorTools
             // top all by itself: the tree pass reads the DEM.
             ["MtMitchell"] = new Theme
             {
-                stageWallOpenVerge = true,
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
                 wall = Root + "/Art/Roads/T (3).jpg",
                 groundTile = 13f,
@@ -424,7 +417,6 @@ namespace PSXRacing.EditorTools
             // it reads, which is the whole of what a stage theme decides.
             ["BeechGap"] = new Theme
             {
-                stageWallOpenVerge = true,
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
                 wall = Root + "/Art/Roads/T (3).jpg",
                 groundTile = 13f,
@@ -500,7 +492,6 @@ namespace PSXRacing.EditorTools
         /// <summary>The Parkway's look, pointed at a loop's own DEM folder.</summary>
         static Theme MountainLoopTheme(string dir, string prefix) => new Theme
         {
-            stageWallOpenVerge = true,
             ground = Root + "/Art/GasStation/Textures/Ground.jpg",
             wall = Root + "/Art/Roads/T (3).jpg",
             groundTile = 13f,
@@ -720,6 +711,13 @@ namespace PSXRacing.EditorTools
             // can be done to geometry after it has been generated.
             PlanFuelStop(waypoints);
 
+            // A stage decides its roadside — which stations are warranted a
+            // wall, a bridge parapet or its approach run, a cut, a graded
+            // fill — before anything is built from that decision: the
+            // shoulder profile BuildRoad emits, the ground, the walls, the
+            // banks and the posts all read it.
+            if (def.stage) PlanStageRoadside(waypoints);
+
             BuildRoad(waypoints, pathGO.transform);
             BuildKerbs(waypoints, pathGO.transform);
             if (def.stage) { BuildStageWalls(waypoints, pathGO.transform);
@@ -917,7 +915,7 @@ namespace PSXRacing.EditorTools
                 // repeat's joint at x 0-1 and a second at 32-33), the seam
                 // against the curb stone (row 16) and the back edge (row 31)
                 // both dark so the slab has an edge instead of fading into the
-                // batter.
+                // run-off behind it.
                 float p = g - 18f;
                 if (x < 2 || x == 32 || x == 33 || y == 16 || y == 31) p -= 34f;
                 return new Color32(Chan(fresh.r, p), Chan(fresh.g, p), Chan(fresh.b, p + 2f), 255);
@@ -1702,7 +1700,7 @@ namespace PSXRacing.EditorTools
             {
                 float lap = Mathf.Max(track.LengthM, 1f);
                 for (int i = 0; i < n; i++)
-                    onDeck[i] = TrackCatalog.BridgeBlend(track, Mathf.Repeat(i * Spacing, lap)) > 0.001f;
+                    onDeck[i] = TrackCatalog.BridgeBlend(track, Mathf.Repeat(i * Spacing, lap)) > DeckBlendMin;
             }
 
             for (int i = 0; i <= last; i++)
@@ -1729,6 +1727,10 @@ namespace PSXRacing.EditorTools
                     // A quad counts as deck if EITHER end stands on one, so the
                     // concrete reaches the abutment rather than stopping a
                     // waypoint short of it with a stripe of tarmac in mid-air.
+                    // That is exactly the length BuildBridges lays the deck
+                    // to — one station past each end of the span
+                    // (DeckCoversStation) — so the concrete ribbon and the
+                    // structure under it still start and stop together.
                     int nxt = Loop ? (i + 1) % n : i + 1;
                     var into = (onDeck[idx] || onDeck[nxt]) ? deckTris : tris;
                     into.AddRange(new[] { a, a + 2, a + 1, a + 1, a + 2, a + 3 });
@@ -1773,145 +1775,925 @@ namespace PSXRacing.EditorTools
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
 
-            BuildRoadEdge(pts, parent);
+            // The stage's section is its own (PSXRacingBuilder.Stage.cs,
+            // planned by PlanStageRoadside); a circuit's is a graded run-off
+            // to its perimeter wall.
+            BuildShoulders(pts, parent, track != null && track.stage
+                ? (EdgeProfileFn)StageEdgeProfile
+                : CircuitEdgeProfile);
         }
 
-        /// <summary>
-        /// How far out the verge batter runs before it meets the graded ground.
-        ///
-        /// Bounded by the barrier line, so a stage — whose guard wall stands
-        /// less than a metre off the tarmac — keeps the near-vertical slab face
-        /// it has always had, and a circuit with four metres of run-off gets a
-        /// real slope. Never inside the kerb: the strip caps the slab and there
-        /// must be no seam on the driving surface.
-        /// </summary>
-        static float VergeOuter()
-        {
-            float kerbOuter = RoadWidth * 0.5f + KerbWidth;
-            float want = Mathf.Min(RoadbedToe + RoadbedRamp, WallOffsetFor(track) - 0.6f);
-            return Mathf.Max(kerbOuter + RoadSlabBatter, want);
-        }
+        // ------------------------------------------------------------------
+        //  The shoulder: how the road meets the ground
+        // ------------------------------------------------------------------
+        //
+        //  This was BuildRoadEdge: a batter from the back of the kerb strip
+        //  down to the bottom of the roadbed slab, 0.33 m under the waypoint
+        //  plane, textured as dark cut earth and given a collider. On a
+        //  circuit it came out a 22-31% slope from a berm (0.46-0.59 m of climb
+        //  to the street curb's pavement), and on a stage, where the guard
+        //  wall line left it 0.25 m of run, it was a 0.46 m face at 61 degrees
+        //  on every unwalled station — a wall to the car's body box, which is
+        //  what "difficult to drive back onto tracks" and "thick roads
+        //  sticking out of the ground" both were.
+        //
+        //  The owner's rule (RoadsideRules): the road meets the ground by DOT
+        //  practice. So the slab stays UNDER the paved width, where it keeps
+        //  the coarse ground lattice out of the tarmac, and beside the tarmac
+        //  there is now an exact SHOULDER surface: a per-station cross-section
+        //  each venue family describes (EdgeProfileFn), laid on the same 4 m
+        //  stations and the same RightAt vectors as the road so it shares the
+        //  kerb strip's outer edge in plan, carrying its own collider. The
+        //  lattice is held under it (HideMarginM) and its outer toe tucks
+        //  under the lattice (ToeTuckM), so the two surfaces CROSS rather than
+        //  abut, and a car rides the higher of two continuous surfaces.
 
         /// <summary>
-        /// The shoulder: the fill batter from the outer edge of the kerb strip
-        /// down to the graded ground beside it.
+        /// A roadside cross-section at one station and side — the contract the
+        /// circuit (<see cref="CircuitEdgeProfile"/>) and the stage
+        /// (StageEdgeProfile) both build to.
         ///
-        /// This used to be the CUT FACE of the roadbed — a 45 cm drop over
-        /// 25 cm of batter, with no collider, because it was thought of as
-        /// something you look at rather than something you drive on. That is
-        /// true right up until a car runs wide, and then it is a wall: the
-        /// ground beside the tarmac is dug to the bottom of the slab
-        /// (<see cref="RoadbedSinkAt"/>), so a car in the gravel sits half a
-        /// metre below the road with a step taller than its own wheels between
-        /// it and the way back. That is what "some sections of track are almost
-        /// impossible to drive back onto" was, and it was on both sides of
-        /// every circuit.
-        ///
-        /// Now it lands ON the graded ground rather than in the trench, which
-        /// makes it a ramp of a few degrees, and it CARRIES A COLLIDER so a
-        /// wheel finds it. The outer edge is dropped three centimetres under
-        /// the ground it meets, so the two interpenetrate instead of fighting
-        /// for the same pixels.
-        ///
-        /// Where the land genuinely falls away — an embankment, the end of a
-        /// bridge approach — the ground goes with it and the full section still
-        /// shows, which is what made this worth drawing in the first place.
+        /// Fills <paramref name="profile"/> with (e, dy) points ordered
+        /// OUTWARD: e is metres outward from the TARMAC edge (RoadWidth / 2),
+        /// dy is metres relative to the tarmac surface (pts[idx].y +
+        /// <see cref="RoadLift"/>), negative below. The first point is at
+        /// e = <see cref="KerbWidth"/> — the outer edge of the strip
+        /// BuildKerbs draws — at that strip's top. An EMPTY profile means no
+        /// shoulder at this station and side (a deck, where the deck is the
+        /// surface). The emitter adds the toe tuck, the skirt and the
+        /// collider; a profile describes only the surface a car drives on.
         /// </summary>
-        static void BuildRoadEdge(List<Vector3> pts, Transform parent)
+        internal delegate void EdgeProfileFn(List<Vector3> pts, int idx, float side, List<Vector2> profile);
+
+        /// <summary>Height of the kerb strip's top over the tarmac, in every
+        /// style (a street curb's lift is added to it). Was +0.01, "so it
+        /// reads as a raised kerb and cannot z-fight" — but the strip starts
+        /// where the road mesh stops, so the two never overlapped in plan and
+        /// there was nothing to fight; what the centimetre did buy was a 1 cm
+        /// step up at every tarmac edge. Flush, the drop from the strip to the
+        /// shoulder is the whole of RoadsideRules.EdgeDropM.</summary>
+        internal const float KerbStripLift = 0f;
+
+        /// <summary>Horizontal run of the bevel that takes the shoulder down
+        /// its <see cref="RoadsideRules.EdgeDropM"/> from the strip: a 30
+        /// degree face, the FHWA "Safety Edge" angle, so even the inch is a
+        /// slope a tyre climbs (0.025 / tan 30 = 0.043 m) rather than a
+        /// square lip.</summary>
+        const float SafetyEdgeRunM = RoadsideRules.EdgeDropM * 1.7320508f;
+
+        /// <summary>Cross-fall of a circuit's run-off ribbon from the bevel
+        /// to the wall: 2%. Half <see cref="RoadsideRules.ShoulderCrossFall"/>
+        /// on purpose — that 4% is a gravel road shoulder draining a crowned
+        /// lane, and a circuit's run-off is a graded apron to a perimeter
+        /// wall three to four metres out, where 4% would put the wall foot
+        /// 13 cm under the tarmac for no reason a driver can see.</summary>
+        const float RunoffCrossFall = 0.02f;
+
+        /// <summary>How far short of the wall face a circuit's run-off ribbon
+        /// stops. Its toe tuck then passes through the wall plane below the
+        /// ribbon, inside the wall's collider box, so the end of the surface
+        /// is never a thing a car can reach.</summary>
+        const float RunoffWallGapM = 0.05f;
+
+        /// <summary>
+        /// Past the tuck, a near-vertical SKIRT down to below the lattice.
+        ///
+        /// RoadsideRules.ToeTuckM (0.10 over 0.40 m, 1V:4H) is what a car
+        /// meets where the lattice is within a tuck of the surface's end (the
+        /// section's last point, or where its slope was carried on to —
+        /// <see cref="ShoulderSlopedEnd"/>) — the crossing lands inside the
+        /// tuck and the face is a recoverable slope. Where the lattice is
+        /// lower than that (a flat end against a barrier), a tuck
+        /// alone would leave its outer edge floating over the ground with
+        /// daylight under it: a lip, and a slot a wheel ray can drop through.
+        /// The skirt closes it. Its run (0.1 m) keeps every face's normal
+        /// pointing up and out, which is what AuditFacing asserts of RoadEdge.
+        ///
+        /// ON A FLAT END ONLY THE SKIRT GOES DOWN. The tuck used to follow the
+        /// lattice too, as deep as <see cref="ShoulderSkirtMaxM"/>, and on a
+        /// stage's walled fill — where the 12 m lattice runs a metre under
+        /// the shoulder — that was a metre of fall over 0.4 m starting at the
+        /// shoulder's last point. The guard wall's collider does not stand on
+        /// that point: on the outside of a bend each chord box is moved out
+        /// by its sag (BuildOneStageWall), so at a station the face stood 5-30
+        /// cm past the shoulder, and the slot between was an EDGE DROP of 0.09-
+        /// 0.25 m "at 1.10 m past the tarmac edge, onto RoadEdge" in eight
+        /// runs on four mountains (a wheel ray drops into it; the body box
+        /// stops on the wall). The walled section now runs on to the collider
+        /// itself (StageEdgeProfile, StageWallContactE); this is the other
+        /// half, for wherever a box still stands off the shoulder's end. A
+        /// plain tuck is 1V:4H for its whole 0.4 m, so whatever part of it lies
+        /// in front of a face is a slope, and the dive is the skirt's, 0.4 m
+        /// further out, inside the stone.
+        /// </summary>
+        const float ShoulderSkirtRunM = 0.1f;
+        /// <summary>Extra depth under the lattice the skirt reaches. Both
+        /// lattices are read exactly — the circuit's solved by
+        /// PrepareCircuitLattice and the stage's by PrepareStageLattice before
+        /// any toe is placed — so this is slack for the ground mesh's own
+        /// quantisation and for a toe whose lattice triangle differs across
+        /// its skirt's 0.1 m.</summary>
+        const float ShoulderSkirtSlackM = 0.25f;
+        /// <summary>Deepest a tuck or skirt goes below the surface's end.
+        /// RoadsideRules.OpenDropM (1.0 m): ground further down than
+        /// that past a shoulder is not a toe to tuck under, it is a drop, and
+        /// closing a drop is the barrier warrant's job. It is also what keeps
+        /// a toe over a gorge inside a 1.3 m deck box instead of hanging out
+        /// of its soffit.</summary>
+        const float ShoulderSkirtMaxM = RoadsideRules.OpenDropM;
+        /// <summary>
+        /// Deepest a sloped end is carried on down, below the section's own
+        /// last point, to find the lattice: RoadsideRules.CriticalFallM.
+        ///
+        /// It was <see cref="ShoulderSkirtMaxM"/>, and a slope that had not
+        /// met the lattice a metre down stopped where it was and dived the
+        /// rest as a tuck — a face at the catch. Blowing Rock 1168-1170 R
+        /// (an open section beside the flared end of a critical-fill wall)
+        /// measured off the built meshes: the 1V:6H foreslope caught the DEM
+        /// at 2.71 m, the 12 m lattice under it was 0.88 m lower and falling
+        /// at 1V:9.5H, so the 1V:4H carry needed 6.1 m and 1.5 m of depth;
+        /// capped at 1.0 it stopped, and the obstacle audit found a 0.33 m
+        /// face "climbing back in" at 2.90 m. A 1V:4H slope is recoverable
+        /// at any height (RoadsideRules.IsCriticalFall asks for steeper than
+        /// 1V:3H), so the carry may go as deep as the warrant's own fall
+        /// before the ground under it is called a drop; and where even that
+        /// does not reach the lattice, it is carried to its full run anyway,
+        /// so what is left of the dive is the part the land really falls
+        /// away by, as far from the road as the recoverable slope reaches.
+        /// </summary>
+        const float ShoulderCarryMaxM = RoadsideRules.CriticalFallM;
+        /// <summary>
+        /// A section that ENDS ON A SLOPE — a foreslope falling to its catch,
+        /// a backslope climbing to a rock toe — was graded to meet the land
+        /// there, and where the coarse lattice is lower than that land the
+        /// slope carries on down until it crosses the lattice, and only then
+        /// tucks. Steeper than this either way (as rise over run) is a slope;
+        /// flatter is a shoulder or run-off at its cross-fall
+        /// (RoadsideRules.ShoulderCrossFall 4%, the circuit run-off's 2%),
+        /// which ends against something that stops a car — a wall's face, a
+        /// tube's wall, a circuit's perimeter wall — and is left to it.
+        ///
+        /// Why a tuck alone was not enough: the stage lattice is 12 m cells,
+        /// and a chord from a vertex under the roadbed dig to one down the
+        /// fill runs BELOW the land the section was graded to, right where
+        /// the section ends. Tucking straight down to that chord from the
+        /// section's last point is a face. Python replica of the stage plan
+        /// and lattice (lane C's), every station of all eight stages: a face
+        /// rising more than RoadsideRules.FaceRiseFailM within FaceRunM at
+        /// 28-45% of open half-sections (p90 0.07-0.15 m, max 0.33 m); with
+        /// the slope carried on, 0-2.6% (what is left is lattice sagging a
+        /// metre and more under a catch, which no toe can meet).
+        /// </summary>
+        const float ShoulderSlopedEnd = 0.1f;
+        /// <summary>Pitch at which a carried-on slope looks for the lattice.</summary>
+        const float ShoulderCatchStepM = 0.1f;
+        /// <summary>Road metres per shoulder mesh. The stage ground's own
+        /// chunk (NearChunk): short enough that a chunk is culled with the
+        /// hillside it sits on. Kept EXACT (not in CompressibleMesh) — a
+        /// wheel reads it, and a quantised first vertex would open a crack
+        /// against the exact kerb strip beside it.</summary>
+        const float ShoulderChunkM = 240f;
+        /// <summary>On the inside of a bend, how far out a profile may reach
+        /// as a fraction of the local turning radius. Adjacent stations'
+        /// cross-section lines meet at the centre of the turn, and a shoulder
+        /// that ran past it would fold its triangles over each other. At 0.8
+        /// the last points of neighbouring stations are still 0.2 x Spacing
+        /// apart.</summary>
+        const float ShoulderInsideBendReach = 0.8f;
+        /// <summary>Least outward step between two profile points: a profile
+        /// that repeats an e would draw a vertical face, and a vertical face
+        /// is exactly what a shoulder is not.</summary>
+        const float ShoulderMinStepM = 0.01f;
+
+        /// <summary>
+        /// Per side (0 = left, 1 = right) per station, the profile BuildShoulders
+        /// was given, tidied. Kept for the rest of the build so the ground
+        /// lattice (<see cref="PrepareCircuitLattice"/>), the forecourt apron
+        /// and the verge posts read the SAME section the ribbon was built from
+        /// rather than three copies of it. Null until BuildShoulders runs.
+        /// </summary>
+        static List<Vector2>[][] shoulderProfiles;
+
+        /// <summary>
+        /// Emit the shoulder ribbon down both sides of the road from a
+        /// per-station profile. Replaces BuildRoadEdge.
+        ///
+        /// Each station and side's profile, plus its slope carried on to the
+        /// lattice where it ends on one, a toe tuck and a skirt, is
+        /// stitched to the next station's with a zipper that advances by e,
+        /// so two stations may carry sections with different point counts (a
+        /// cut beside a fill, a ramp beside a flat) and still share one
+        /// surface. A quad whose either end is empty is not drawn: that is
+        /// a deck.
+        ///
+        /// GameObjects are all named "RoadEdge", whatever chunk they are, so
+        /// the audits that exempt or check the shoulder by that exact name
+        /// (TrackSweepAudit, AuditFacing) still find every one. Off the road
+        /// layer on purpose: grip is decided by that layer, and a shoulder
+        /// that gripped like tarmac would make running wide free.
+        /// </summary>
+        static void BuildShoulders(List<Vector3> pts, Transform parent, EdgeProfileFn profile)
         {
-            int n = pts.Count, last = Loop ? n : n - 1;
-            var verts = new List<Vector3>();
-            var uvs = new List<Vector2>();
-            var tris = new List<int>();
+            shoulderProfiles = null;
+            int n = pts != null ? pts.Count : 0;
+            if (n < 2 || profile == null) return;
+            int last = Loop ? n : n - 1;
 
-            float kerbOuter = RoadWidth * 0.5f + KerbWidth;
-            float outer = VergeOuter();
-            float run = outer - kerbOuter;
-            // The toe stays at the BOTTOM of the slab, as deep as it always
-            // was; only the batter got longer. That depth is what makes the
-            // result robust: the graded ground beside the road is never lower
-            // than the slab bottom, so the batter is never left standing proud
-            // of it with a lip at its outer end — the two surfaces simply cross
-            // somewhere in the middle and the car rides whichever is higher,
-            // continuously, all the way in.
-            const float ToeDrop = RoadSlabDepth - RoadLift;
-
-            foreach (float side in new[] { -1f, 1f })
+            shoulderProfiles = new List<Vector2>[2][];
+            int bent = 0;
+            for (int s = 0; s < 2; s++)
             {
-                float dist = 0f;
-                for (int i = 0; i <= last; i++)
+                float side = s == 0 ? -1f : 1f;
+                var row = shoulderProfiles[s] = new List<Vector2>[n];
+                for (int idx = 0; idx < n; idx++)
                 {
-                    int idx = Loop ? i % n : i;
-                    Vector3 outw = RightAt(pts, idx) * side;
-                    // The top starts where the kerb strip ENDS — which on a
-                    // street venue is the back edge of the pavement, 15 cm up
-                    // (0 across a driveway). Lifting this vertex is the whole
-                    // of how the shoulder meets the raised curb: a vertical
-                    // back face on the kerb instead would be a 0.18-0.20 m
-                    // step against the already-fallen batter and fail the
-                    // re-entry audit (VergeMaxStep 0.17). Lifted, the batter
-                    // falls 0.61 m over its 2.0-2.75 m run, 22-30%, which the
-                    // 0.25 m probe sees as 0.076 m per step. Its top at +0.28
-                    // does overlap the sweep audit's box floor (+0.27) by a
-                    // centimetre, and TrackSweepAudit exempts RoadEdge by name
-                    // for it — a surface a wheel rolls on, like Ground.
-                    Vector3 top = pts[idx] + Vector3.up * (RoadLift + 0.01f + KerbLiftAt(idx, n, side))
-                                + outw * kerbOuter;
-                    Vector3 toe = pts[idx] + Vector3.down * ToeDrop + outw * outer;
-                    int v = verts.Count;
-                    verts.Add(top); verts.Add(toe);
-                    uvs.Add(new Vector2(dist / 6f, 1f));
-                    uvs.Add(new Vector2(dist / 6f, 1f - run / 6f));
-                    dist += Spacing;
-                    // The batter runs THROUGH the forecourt driveway too.
-                    //
-                    // It was skipped there at first, on the reasoning that the
-                    // pad is graded flush with the road and two surfaces in the
-                    // same place would fight. They do not overlap: the pad's
-                    // near edge is at WallOffset - PadRoadOverlap, which on the
-                    // airfield is 8.3 m, and the kerb ends at 7.9 — so skipping
-                    // left a 40 cm strip of open trench across the one place on
-                    // the circuit a car is MEANT to leave the road, and the
-                    // run-off audit found it on exactly the handful of stations
-                    // the driveway spans. Where they do meet the pad sits
-                    // higher and simply wins.
-                    if (i < last)
+                    var p = new List<Vector2>();
+                    profile(pts, idx, side, p);
+                    if (TidyShoulderProfile(pts, idx, side, p)) bent++;
+                    row[idx] = p;
+                }
+            }
+
+            // The ground lattice is solved against these profiles BEFORE a toe
+            // is placed, so every toe reads the ground it will actually meet:
+            // the circuit's one grid here, the stage's 12 m near grid in
+            // PSXRacingBuilder.Stage.cs (which its ground pass then builds).
+            if (!stageDemLoaded) PrepareCircuitLattice(pts);
+            else PrepareStageLattice(pts);
+
+            var pos = new Vector3[2][][];
+            var es = new float[2][][];
+            int toesDeep = 0, toesCaught = 0;
+            for (int s = 0; s < 2; s++)
+            {
+                float side = s == 0 ? -1f : 1f;
+                pos[s] = new Vector3[n][];
+                es[s] = new float[n][];
+                for (int idx = 0; idx < n; idx++)
+                {
+                    if (ShoulderStation(pts, idx, side, shoulderProfiles[s][idx],
+                                        out pos[s][idx], out es[s][idx], out bool caught))
+                        toesDeep++;
+                    if (caught) toesCaught++;
+                }
+            }
+
+            // Looks like the ground beside it, because it IS that ground now:
+            // the same texture, the same tint and the same world-metre UVs as
+            // the lattice it meets (BuildGround / GridChunkMesh), so the seam
+            // where the two cross is a crossing and not a border. The old
+            // 0.42 darkening drew the batter as the road's slab — the "thick
+            // road" the owner could see.
+            // And it changes with the season the way that ground does: a forest
+            // stage's near ground swaps to the season's turf texture
+            // (BuildStageGround), everything else re-tints its own.
+            Color tint = track.stage && string.IsNullOrEmpty(theme.sand)
+                ? (theme.groundTint ?? Color.white) : Color.white;
+            var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
+            if (track.stage && theme.stageForest)
+                RegisterSeasonalTexture(MeshPrefix + "RoadEdge", mat, DressTurfPath, "edge");
+            else
+                RegisterSeasonalGround(MeshPrefix + "RoadEdge", theme.ground, mat, tint, "edge");
+            float tile = Mathf.Max(theme.groundTile, 0.01f);
+            GroundUvOrigin(pts, out float uox, out float uoz);
+            var phys = SlidePhys();
+
+            int per = Mathf.Max(1, Mathf.FloorToInt(ShoulderChunkM / Spacing));
+            int chunks = 0, faces = 0;
+            for (int c0 = 0; c0 < last; c0 += per)
+            {
+                int c1 = Mathf.Min(last, c0 + per);
+                var verts = new List<Vector3>();
+                var uvs = new List<Vector2>();
+                var tris = new List<int>();
+                for (int s = 0; s < 2; s++)
+                {
+                    float side = s == 0 ? -1f : 1f;
+                    int prevStart = -1, prevIdx = -1;
+                    for (int i = c0; i <= c1; i++)
                     {
-                        // Wound to face UPWARD and outward on each side — the
-                        // underside is buried in the subgrade and nothing is
-                        // ever in there.
-                        if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
-                        else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
+                        int idx = Loop ? i % n : i;
+                        var w = pos[s][idx];
+                        int start = -1;
+                        if (w != null)
+                        {
+                            start = verts.Count;
+                            foreach (var v in w)
+                            {
+                                verts.Add(v);
+                                uvs.Add(new Vector2((v.x - uox) / tile, (v.z - uoz) / tile));
+                            }
+                        }
+                        if (prevStart >= 0 && start >= 0)
+                            ZipShoulder(tris, prevStart, es[s][prevIdx], start, es[s][idx], side);
+                        prevStart = start;
+                        prevIdx = idx;
+                    }
+                }
+                if (tris.Count == 0) continue;
+
+                var mesh = new Mesh
+                {
+                    indexFormat = verts.Count > 65000
+                        ? UnityEngine.Rendering.IndexFormat.UInt32
+                        : UnityEngine.Rendering.IndexFormat.UInt16,
+                };
+                mesh.SetVertices(verts);
+                mesh.SetUVs(0, uvs);
+                mesh.SetTriangles(tris, 0);
+                mesh.RecalculateNormals();
+                SaveMesh(mesh, "RoadEdgeMesh_" + chunks);
+
+                var go = new GameObject("RoadEdge");
+                go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                var col = go.AddComponent<MeshCollider>();
+                col.sharedMesh = mesh;
+                // The car's SHELL is what touches a shoulder face, and the
+                // shoulder is ground — see SlidePhys.
+                col.sharedMaterial = phys;
+                go.isStatic = true;
+                chunks++;
+                faces += tris.Count / 3;
+            }
+
+            // What an earlier bake left: the one-piece RoadEdgeMesh, and any
+            // chunk past this build's count (a shorter venue, fewer chunks).
+            string legacy = GenDir + "/" + MeshPrefix + "RoadEdgeMesh.asset";
+            if (AssetDatabase.LoadAssetAtPath<Mesh>(legacy) != null) AssetDatabase.DeleteAsset(legacy);
+            for (int k = chunks; ; k++)
+            {
+                string stale = GenDir + "/" + MeshPrefix + "RoadEdgeMesh_" + k + ".asset";
+                if (AssetDatabase.LoadAssetAtPath<Mesh>(stale) == null) break;
+                AssetDatabase.DeleteAsset(stale);
+            }
+
+            Log($"Shoulders: {chunks} RoadEdge chunk(s), {faces} faces; " +
+                $"{bent} half-section(s) clipped on the inside of a tight bend; " +
+                $"{toesCaught} sloped end(s) carried on down to meet the ground lattice (or to the end of a recoverable run); " +
+                $"{toesDeep} toe(s) skirted deeper than a tuck to get under the ground.");
+        }
+
+        /// <summary>
+        /// One station and side of the ribbon in world space: the profile's
+        /// points, the slope carried on to its catch where the section ends
+        /// on one (<see cref="ShoulderSlopedEnd"/>), then the toe tuck, then
+        /// the skirt, with each point's e alongside for the zipper. Returns
+        /// false for an empty profile's null arrays AND for a toe that stayed
+        /// within a plain tuck; true when the lattice was lower than the tuck
+        /// and the toe had to go further down (the tuck itself on a sloped
+        /// end, only the skirt on a flat one). <paramref name="caught"/> says
+        /// the slope was carried on. BuildShoulders counts both.
+        /// </summary>
+        static bool ShoulderStation(List<Vector3> pts, int idx, float side, List<Vector2> prof,
+                                    out Vector3[] pos, out float[] es, out bool caught)
+        {
+            pos = null; es = null; caught = false;
+            if (prof == null || prof.Count == 0) return false;
+            float half = RoadWidth * 0.5f;
+            Vector3 outw = RightAt(pts, idx) * side;
+            float roadY = pts[idx].y + RoadLift;
+            int m = prof.Count;
+            // On a deck the thing the toe crosses is the concrete box, which
+            // is always under a tuck (DeckTopBelowTarmac down, DeckThick deep).
+            // The "ground" there is the gorge floor, and reading it would carry
+            // a slope on or drop the skirt out through the soffit.
+            bool onDeck = DeckCoversStation(idx);
+
+            float eEnd = prof[m - 1].x, yEnd = roadY + prof[m - 1].y;
+            // Which kind of end this is decides the toe below: a slope is
+            // carried on to the lattice and tucks from there; a flat end
+            // keeps a plain tuck and lets only the skirt go down.
+            bool slopedEnd = false;
+            if (!onDeck && m >= 2)
+            {
+                float slope = (prof[m - 2].y - prof[m - 1].y) /
+                              Mathf.Max(prof[m - 1].x - prof[m - 2].x, 1e-5f);   // + falls outward
+                slopedEnd = Mathf.Abs(slope) >= ShoulderSlopedEnd;
+                Vector3 endP = pts[idx] + outw * (half + eEnd);
+                if (slopedEnd && ShoulderLatticeY(endP.x, endP.z) < yEnd)
+                {
+                    // Down at the section's own fall, never gentler than the
+                    // steepest recoverable slope (a backslope climbing to a
+                    // rock toe turns down under the rock at that); no deeper
+                    // than ShoulderCarryMaxM, and not past where the inside of
+                    // a bend folds. A lattice still further down than that is
+                    // a drop: the slope is carried to the end of its run
+                    // regardless, and what is left below is the tuck's.
+                    float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
+                    float run = Mathf.Min(ShoulderCarryMaxM / fall, ShoulderBendReach(pts, idx, side) - eEnd);
+                    int steps = Mathf.FloorToInt(run / ShoulderCatchStepM);
+                    for (int k = 1; k <= steps; k++)
+                    {
+                        float d = k * ShoulderCatchStepM;
+                        Vector3 q = pts[idx] + outw * (half + eEnd + d);
+                        if (yEnd - fall * d > ShoulderLatticeY(q.x, q.z) && k < steps) continue;
+                        eEnd += d;
+                        yEnd -= fall * d;
+                        caught = true;
+                        break;
                     }
                 }
             }
 
-            var mesh = new Mesh
+            int tail = m + (caught ? 1 : 0);
+            pos = new Vector3[tail + 2];
+            es = new float[tail + 2];
+            for (int k = 0; k < m; k++)
             {
-                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
-                vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
-            };
-            mesh.RecalculateNormals();
-            SaveMesh(mesh, "RoadEdgeMesh");
+                Vector3 p = pts[idx] + outw * (half + prof[k].x);
+                p.y = roadY + prof[k].y;
+                pos[k] = p;
+                es[k] = prof[k].x;
+            }
+            if (caught)
+            {
+                Vector3 c = pts[idx] + outw * (half + eEnd);
+                c.y = yEnd;
+                pos[m] = c;
+                es[m] = eEnd;
+            }
 
-            var go = new GameObject("RoadEdge");
-            go.transform.SetParent(parent, false);
-            // Deliberately NOT on the road layer, even though a wheel now rolls
-            // on it: grip is decided by that layer, and a gravel shoulder that
-            // gripped like tarmac would make running wide free. Off the road
-            // layer it supports the car and gives it offroadGrip, which is what
-            // a shoulder is.
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            // The ground texture, darkened: this IS cut earth and aggregate
-            // under a wearing course, and at PSX resolution one material does
-            // for both halves of that.
-            var edgeMat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f,
-                                  tint: new Color(0.42f, 0.39f, 0.36f));
-            go.AddComponent<MeshRenderer>().sharedMaterial = edgeMat;
-            RegisterSeasonalGround(MeshPrefix + "RoadEdge", theme.ground, edgeMat,
-                                   new Color(0.42f, 0.39f, 0.36f), "edge");
-            go.AddComponent<MeshCollider>().sharedMesh = mesh;
-            go.isStatic = true;
+            float eTuck = eEnd + RoadsideRules.ToeTuckRunM, eSkirt = eTuck + ShoulderSkirtRunM;
+            Vector3 tuck = pts[idx] + outw * (half + eTuck);
+            Vector3 skirt = pts[idx] + outw * (half + eSkirt);
+            float yTuck = yEnd - RoadsideRules.ToeTuckM, ySkirt = yTuck;
+            bool deeper = false;
+            if (!onDeck)
+            {
+                float floor = yEnd - ShoulderSkirtMaxM;
+                float latTuck = ShoulderLatticeY(tuck.x, tuck.z) - RoadsideRules.ToeTuckM;
+                // A sloped end's tuck follows the lattice down (it has just
+                // been carried to it, so the two are within a tuck); a flat
+                // end's stays a plain tuck in front of whatever stops a car
+                // there, and the skirt alone goes under the ground.
+                if (latTuck < yTuck)
+                {
+                    if (slopedEnd) yTuck = Mathf.Max(floor, latTuck);
+                    deeper = true;
+                }
+                ySkirt = Mathf.Max(floor,
+                    Mathf.Min(yTuck, ShoulderLatticeY(skirt.x, skirt.z) - RoadsideRules.ToeTuckM)
+                    - ShoulderSkirtSlackM);
+            }
+            tuck.y = yTuck;
+            skirt.y = ySkirt;
+            pos[tail] = tuck; es[tail] = eTuck;
+            pos[tail + 1] = skirt; es[tail + 1] = eSkirt;
+            return deeper;
+        }
+
+        /// <summary>
+        /// Triangles between two stations' point runs, advancing along
+        /// whichever run's NEXT point is nearer the road. The winding is the
+        /// old RoadEdge quad's, per side (the corner order flips with `side`
+        /// because `outw` does), so every face points up and out.
+        /// </summary>
+        static void ZipShoulder(List<int> tris, int a0, float[] ea, int b0, float[] eb, float side)
+        {
+            int i = 0, j = 0, na = ea.Length, nb = eb.Length;
+            while (i < na - 1 || j < nb - 1)
+            {
+                bool stepA = j >= nb - 1 || (i < na - 1 && ea[i + 1] <= eb[j + 1]);
+                if (stepA)
+                {
+                    if (side < 0f) { tris.Add(a0 + i); tris.Add(a0 + i + 1); tris.Add(b0 + j); }
+                    else { tris.Add(a0 + i); tris.Add(b0 + j); tris.Add(a0 + i + 1); }
+                    i++;
+                }
+                else
+                {
+                    if (side < 0f) { tris.Add(a0 + i); tris.Add(b0 + j + 1); tris.Add(b0 + j); }
+                    else { tris.Add(a0 + i); tris.Add(b0 + j); tris.Add(b0 + j + 1); }
+                    j++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Make a profile safe to emit: finite points only, strictly outward
+        /// by <see cref="ShoulderMinStepM"/>, its first point ON the strip's
+        /// outer edge, and on the inside of a bend cut short of where the
+        /// neighbouring cross-sections meet. Returns true when the bend cut it.
+        ///
+        /// The first point is pinned rather than trusted because the strip's
+        /// height is this file's fact (KerbStripLift, KerbLiftAt) and a
+        /// profile written elsewhere can only copy it: a copy one centimetre
+        /// out is a centimetre-tall crack along the whole road, which is the
+        /// one place the ribbon must be exact.
+        /// </summary>
+        static bool TidyShoulderProfile(List<Vector3> pts, int idx, float side, List<Vector2> p)
+        {
+            p.RemoveAll(v => float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsInfinity(v.x) || float.IsInfinity(v.y));
+            if (p.Count == 0) return false;
+            if (Mathf.Abs(p[0].x - KerbWidth) < 0.05f)
+                p[0] = new Vector2(KerbWidth, KerbStripLift + KerbLiftAt(idx, pts.Count, side));
+            for (int k = 1; k < p.Count; k++)
+                if (p[k].x < p[k - 1].x + ShoulderMinStepM)
+                    p[k] = new Vector2(p[k - 1].x + ShoulderMinStepM, p[k].y);
+
+            float reach = Mathf.Max(ShoulderBendReach(pts, idx, side), p[0].x);
+            if (p[p.Count - 1].x <= reach) return false;
+            for (int k = 1; k < p.Count; k++)
+            {
+                if (p[k].x <= reach) continue;
+                float t = Mathf.InverseLerp(p[k - 1].x, p[k].x, reach);
+                float y = Mathf.Lerp(p[k - 1].y, p[k].y, t);
+                p.RemoveRange(k, p.Count - k);
+                if (reach > p[k - 1].x + ShoulderMinStepM) p.Add(new Vector2(reach, y));
+                break;
+            }
+            return true;
+        }
+
+        /// <summary>Largest e a shoulder may reach at this station and side
+        /// before its cross-section line meets a neighbour's — the inside of a
+        /// bend, where the two lines converge at the turning radius. Infinite
+        /// on the outside of a bend and on a straight.</summary>
+        static float ShoulderBendReach(List<Vector3> pts, int idx, float side)
+        {
+            int n = pts.Count;
+            float half = RoadWidth * 0.5f;
+            float reach = float.MaxValue;
+            Vector3 outHere = RightAt(pts, idx) * side;
+            for (int o = -1; o <= 1; o += 2)
+            {
+                int j = Loop ? ((idx + o) % n + n) % n : idx + o;
+                if (j < 0 || j >= n) continue;
+                Vector3 step = pts[j] - pts[idx];
+                step.y = 0f;
+                float len = step.magnitude;
+                if (len < 1e-3f) continue;
+                // The two lines close up toward j when the outward vectors
+                // turn against the direction of travel; they meet at about
+                // len / |turn| metres out.
+                Vector3 turn = RightAt(pts, j) * side - outHere;
+                if (Vector3.Dot(turn, step) >= 0f) continue;
+                float mag = turn.magnitude;
+                if (mag < 1e-5f) continue;
+                reach = Mathf.Min(reach, ShoulderInsideBendReach * len / mag - half);
+            }
+            return reach;
+        }
+
+        /// <summary>
+        /// dy of a profile at <paramref name="e"/>: linear between its points,
+        /// the first point's height inside it (the strip), and past its last
+        /// point either carried on along the last segment
+        /// (<paramref name="extend"/>) or NaN.
+        /// </summary>
+        static float EvalShoulderProfile(List<Vector2> p, float e, bool extend)
+        {
+            int m = p != null ? p.Count : 0;
+            if (m == 0) return float.NaN;
+            if (e <= p[0].x) return p[0].y;
+            for (int k = 1; k < m; k++)
+                if (e <= p[k].x)
+                    return Mathf.Lerp(p[k - 1].y, p[k].y, Mathf.InverseLerp(p[k - 1].x, p[k].x, e));
+            if (!extend) return float.NaN;
+            if (m == 1) return p[0].y;
+            float slope = (p[m - 1].y - p[m - 2].y) / Mathf.Max(p[m - 1].x - p[m - 2].x, 1e-5f);
+            return p[m - 1].y + slope * (e - p[m - 1].x);
+        }
+
+        /// <summary>
+        /// The designed surface beside the road at a world point, from the
+        /// profiles BuildShoulders kept: the tarmac's height over the road,
+        /// the profile (carried on past its last point) beside it. e is the
+        /// point's distance past the tarmac edge, eLast where that station
+        /// pair's shoulder ends. False when there is no shoulder to ask (no
+        /// profiles yet, or a deck quad with no ribbon).
+        /// </summary>
+        static bool ShoulderDesignAt(List<Vector3> pts, float x, float z,
+                                     out float y, out float e, out float eLast)
+        {
+            y = 0f; e = 0f; eLast = 0f;
+            int n = pts != null ? pts.Count : 0;
+            if (shoulderProfiles == null || n < 2) return false;
+            int last = Loop ? n : n - 1;
+            int a = -1;
+            float bestD2 = float.MaxValue, bestT = 0f;
+            for (int i = 0; i < last; i++)
+            {
+                int j = Loop ? (i + 1) % n : i + 1;
+                float ax = pts[i].x, az = pts[i].z;
+                float ex = pts[j].x - ax, ez = pts[j].z - az;
+                float len2 = ex * ex + ez * ez;
+                float t = len2 < 1e-6f ? 0f : Mathf.Clamp01(((x - ax) * ex + (z - az) * ez) / len2);
+                float dx = ax + ex * t - x, dz = az + ez * t - z;
+                float d2 = dx * dx + dz * dz;
+                if (d2 < bestD2) { bestD2 = d2; a = i; bestT = t; }
+            }
+            if (a < 0) return false;
+            int b = Loop ? (a + 1) % n : a + 1;
+            Vector3 seg = pts[b] - pts[a];
+            seg.y = 0f;
+            if (seg.sqrMagnitude < 1e-6f) return false;
+            Vector3 right = Vector3.Cross(Vector3.up, seg.normalized);
+            Vector3 foot = Vector3.Lerp(pts[a], pts[b], bestT);
+            float lateral = (x - foot.x) * right.x + (z - foot.z) * right.z;
+            e = Mathf.Abs(lateral) - RoadWidth * 0.5f;
+            float roadY = foot.y + RoadLift;
+            if (e <= 0f) { y = roadY; eLast = float.MaxValue; return true; }
+            int s = lateral < 0f ? 0 : 1;
+            var pa = shoulderProfiles[s][a];
+            var pb = shoulderProfiles[s][b];
+            if (pa.Count == 0 || pb.Count == 0) return false;
+            y = roadY + Mathf.Lerp(EvalShoulderProfile(pa, e, true), EvalShoulderProfile(pb, e, true), bestT);
+            eLast = Mathf.Lerp(pa[pa.Count - 1].x, pb[pb.Count - 1].x, bestT);
+            return true;
+        }
+
+        /// <summary>
+        /// A circuit's roadside: a graded run-off from the kerb strip to the
+        /// perimeter wall, whose face hides where it ends.
+        ///
+        ///   strip top (Racing: the tarmac; Street: the pavement, 15 cm up,
+        ///   0 across a driveway) -> the Safety Edge bevel down EdgeDropM ->
+        ///   2% fall to RunoffWallGapM short of the wall face.
+        ///
+        /// The Street curb keeps its picture and its 33% mountable ramp
+        /// collider (the owner: "concrete textured curbs" on a street), and
+        /// the run-off behind it is graded to the PAVEMENT, so leaving and
+        /// rejoining is one curb, not a berm and then a batter. At the
+        /// forecourt driveways KerbLiftAt drops the curb and the run-off
+        /// starts flush; the apron then lies over it (BuildApron).
+        ///
+        /// On a deck (DeckCoversStation) the deck top is the surface:
+        ///   * a Racing strip bevels straight onto the concrete — EMPTY over
+        ///     the span itself, and at the station either end (where the deck
+        ///     is carried onto solid ground) out to the wall at the deck top
+        ///     exactly, so the run-off arriving from the approach meets the
+        ///     deck's leading edge with no step;
+        ///   * a Street pavement ramps down 1V:6H (RecoverableSlope) to the
+        ///     deck top — the berm-then-drop the pavement would otherwise
+        ///     be on every bridge — ending just under the concrete over the
+        ///     span, and running on flush with it at the end stations.
+        /// </summary>
+        static void CircuitEdgeProfile(List<Vector3> pts, int idx, float side, List<Vector2> profile)
+        {
+            profile.Clear();
+            int n = pts.Count;
+            float top = KerbStripLift + KerbLiftAt(idx, n, side);
+            float bevelE = KerbWidth + SafetyEdgeRunM;
+            float bevelY = top - RoadsideRules.EdgeDropM;
+            float endE = Mathf.Max(bevelE, WallOffset - RunoffWallGapM - RoadWidth * 0.5f);
+
+            if (DeckCoversStation(idx))
+            {
+                bool span = bridgeBlend[idx] > DeckBlendMin;
+                float deckDy = -DeckTopBelowTarmac;
+                if (bevelY <= deckDy)
+                {
+                    if (span) return;
+                    profile.Add(new Vector2(KerbWidth, top));
+                    profile.Add(new Vector2(bevelE, deckDy));
+                    if (endE > bevelE) profile.Add(new Vector2(endE, deckDy));
+                    return;
+                }
+                // Over the span the ramp ends DeckHideM under the concrete,
+                // so its flat never lies in the deck's own plane.
+                float floorDy = span ? deckDy - DeckHideM : deckDy;
+                float slope = RoadsideRules.RecoverableSlope;
+                float footE = Mathf.Min(endE, bevelE + (bevelY - floorDy) / slope);
+                profile.Add(new Vector2(KerbWidth, top));
+                profile.Add(new Vector2(bevelE, bevelY));
+                if (footE > bevelE)
+                    profile.Add(new Vector2(footE, Mathf.Max(floorDy, bevelY - (footE - bevelE) * slope)));
+                if (!span && endE > footE) profile.Add(new Vector2(endE, deckDy));
+                return;
+            }
+
+            profile.Add(new Vector2(KerbWidth, top));
+            profile.Add(new Vector2(bevelE, bevelY));
+            if (endE > bevelE)
+                profile.Add(new Vector2(endE, bevelY - (endE - bevelE) * RunoffCrossFall));
+        }
+
+        // ------------------------------------------------------------------
+        //  The ground lattice under the shoulder
+        // ------------------------------------------------------------------
+        /// <summary>Cells a side in the circuit ground grid. 144 since the
+        /// ground started following the road: a cell is about 9 m across, and
+        /// the whole reason CorridorR is six metres wider than the barrier
+        /// line is that a cell that size cannot be trusted to land anywhere
+        /// in particular.</summary>
+        const int GroundCells = 144;
+        /// <summary>The circuit ground mesh's vertex heights, row by row
+        /// ((GroundCells+1)^2), solved by <see cref="PrepareCircuitLattice"/>
+        /// before the shoulder's toes are placed and consumed by BuildGround.
+        /// Null on a stage and before the first road of a track.</summary>
+        static float[] circuitLattice;
+        static float circuitGroundOx, circuitGroundOz, circuitGroundSize;
+
+        /// <summary>The circuit ground mesh's frame: centred on the route's
+        /// plan bounds, 380 m of apron past its furthest waypoint each way.
+        /// One function for BuildGround and the lattice solve, so the grid the
+        /// toes read IS the grid that gets built.</summary>
+        static void CircuitGroundFrame(List<Vector3> pts, out float ox, out float oz, out float size)
+        {
+            var b = new Bounds(pts[0], Vector3.zero);
+            foreach (var p in pts) b.Encapsulate(p);
+            ox = b.center.x;
+            oz = b.center.z;
+            size = Mathf.Max(b.size.x, b.size.z) + 760f;
+        }
+
+        /// <summary>World-metre UV origin shared by the ground and the
+        /// shoulder: the circuit ground mesh is local to its centre, the
+        /// stage's chunks are in world metres.</summary>
+        static void GroundUvOrigin(List<Vector3> pts, out float ox, out float oz)
+        {
+            ox = oz = 0f;
+            if (track != null && track.stage) return;
+            CircuitGroundFrame(pts, out ox, out oz, out _);
+        }
+
+        /// <summary>
+        /// Heights of the circuit ground mesh, with every vertex under a
+        /// designed surface — tarmac, kerb strip, shoulder — held at least
+        /// <see cref="RoadsideRules.HideMarginM"/> below it.
+        ///
+        /// Before, the only thing keeping the lattice down was the roadbed dig
+        /// and the corridor sink, and the circuits reader measured what a 9 m
+        /// cell does with them: a triangle with one vertex in the dig
+        /// (-0.33) and one out in the relief blend smears the verge anywhere
+        /// from -0.20 to -0.43 under the plane. That was invisible under a
+        /// batter; under a flush run-off 1-8 cm below the tarmac it is 7-14 cm
+        /// of margin on a good day and ground through the shoulder on a bad
+        /// one (Ridge Pass's 13 m of relief, a crest).
+        ///
+        /// So the design surface is SAMPLED — every 4/3 m along each quad,
+        /// at every profile point and at most a metre apart across it — and
+        /// wherever the lattice triangle under a sample comes within the
+        /// margin, that triangle's three vertices go down by the excess. The
+        /// weights under any point sum to one, so that sample is then exactly
+        /// satisfied; a second pass takes the residue between samples. It only
+        /// ever LOWERS ground, so nothing that cleared the tarmac before stops
+        /// clearing it, and it is a no-op wherever the corridor already held.
+        /// </summary>
+        static void PrepareCircuitLattice(List<Vector3> pts)
+        {
+            CircuitGroundFrame(pts, out circuitGroundOx, out circuitGroundOz, out circuitGroundSize);
+            int stride = GroundCells + 1;
+            var h = new float[stride * stride];
+            for (int y = 0; y <= GroundCells; y++)
+                for (int x = 0; x <= GroundCells; x++)
+                {
+                    float wx = (x / (float)GroundCells - 0.5f) * circuitGroundSize;
+                    float wz = (y / (float)GroundCells - 0.5f) * circuitGroundSize;
+                    h[y * stride + x] = GroundHeightAt(wx + circuitGroundOx, wz + circuitGroundOz);
+                }
+            circuitLattice = h;
+            if (shoulderProfiles == null) return;
+
+            var want = new float[h.Length];
+            var moved = new bool[h.Length];
+            float worst = 0f;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Array.Clear(want, 0, want.Length);
+                bool any = false;
+                ForEachShoulderSample(pts, (x, z, top) =>
+                {
+                    if (!CircuitLatticeTri(x, z, out int i0, out int i1, out int i2,
+                                           out float w0, out float w1, out float w2)) return;
+                    float excess = h[i0] * w0 + h[i1] * w1 + h[i2] * w2 - (top - RoadsideRules.HideMarginM);
+                    if (excess <= 0f) return;
+                    any = true;
+                    if (excess > want[i0]) want[i0] = excess;
+                    if (excess > want[i1]) want[i1] = excess;
+                    if (excess > want[i2]) want[i2] = excess;
+                });
+                if (!any) break;
+                for (int v = 0; v < h.Length; v++)
+                {
+                    if (want[v] <= 0f) continue;
+                    h[v] -= want[v];
+                    moved[v] = true;
+                    worst = Mathf.Max(worst, want[v]);
+                }
+            }
+            int count = 0;
+            foreach (bool m in moved) if (m) count++;
+            Log(count == 0
+                ? $"Ground lattice: already {RoadsideRules.HideMarginM:0.00} m under every road and shoulder surface."
+                : $"Ground lattice: {count} vertices lowered (up to {worst:0.000} m) to sit " +
+                  $"{RoadsideRules.HideMarginM:0.00} m under the road and shoulder.");
+        }
+
+        /// <summary>
+        /// Points on every designed surface beside the road, with the height
+        /// the surface has there: the tarmac and kerb strip (at the tarmac's
+        /// own height, which is the lower of the two on every style), and each
+        /// shoulder quad between two non-empty profiles out to the shorter
+        /// one's last point.
+        /// </summary>
+        static void ForEachShoulderSample(List<Vector3> pts, Action<float, float, float> visit)
+        {
+            int n = pts.Count, last = Loop ? n : n - 1;
+            float half = RoadWidth * 0.5f;
+            var across = new List<float>();
+            for (int i = 0; i < last; i++)
+            {
+                int a = i, b = Loop ? (i + 1) % n : i + 1;
+                Vector3 ra = RightAt(pts, a), rb = RightAt(pts, b);
+                float ya = pts[a].y + RoadLift, yb = pts[b].y + RoadLift;
+                for (int s = 0; s < 2; s++)
+                {
+                    float side = s == 0 ? -1f : 1f;
+                    var pa = shoulderProfiles[s][a];
+                    var pb = shoulderProfiles[s][b];
+
+                    across.Clear();
+                    // The road and the strip, centreline out, a metre and a
+                    // half apart at most.
+                    int roadSteps = Mathf.CeilToInt((half + KerbWidth) / 1.5f);
+                    for (int k = 0; k <= roadSteps; k++)
+                        across.Add(-half + (half + KerbWidth) * k / roadSteps);
+                    int roadCount = across.Count;
+                    if (pa.Count > 0 && pb.Count > 0)
+                    {
+                        float reach = Mathf.Min(pa[pa.Count - 1].x, pb[pb.Count - 1].x);
+                        AddAcross(across, pa, reach);
+                        AddAcross(across, pb, reach);
+                    }
+
+                    for (int k = 0; k < across.Count; k++)
+                    {
+                        float e = across[k];
+                        float dyA = 0f, dyB = 0f;
+                        if (k >= roadCount)
+                        {
+                            dyA = EvalShoulderProfile(pa, e, false);
+                            dyB = EvalShoulderProfile(pb, e, false);
+                            if (float.IsNaN(dyA) || float.IsNaN(dyB)) continue;
+                        }
+                        Vector3 pA = pts[a] + ra * side * (half + e);
+                        Vector3 pB = pts[b] + rb * side * (half + e);
+                        for (int q = 0; q < 3; q++)
+                        {
+                            float t = q / 3f;
+                            visit(Mathf.Lerp(pA.x, pB.x, t), Mathf.Lerp(pA.z, pB.z, t),
+                                  Mathf.Lerp(ya + dyA, yb + dyB, t));
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>Every point of a profile out to <paramref name="reach"/>,
+        /// and enough between them that no two are more than a metre
+        /// apart.</summary>
+        static void AddAcross(List<float> into, List<Vector2> p, float reach)
+        {
+            for (int k = 0; k < p.Count; k++)
+            {
+                float e0 = p[k].x;
+                if (e0 > reach) break;
+                into.Add(e0);
+                float e1 = k + 1 < p.Count ? Mathf.Min(p[k + 1].x, reach) : e0;
+                int parts = Mathf.CeilToInt((e1 - e0) / 1f);
+                for (int q = 1; q < parts; q++) into.Add(e0 + (e1 - e0) * q / parts);
+            }
+        }
+
+        /// <summary>The circuit ground-mesh triangle under a world point, as
+        /// three vertex indices and their barycentric weights. The same
+        /// diagonal BuildGround's two triangles per cell use: (x,y)-(x,y+1)-
+        /// (x+1,y+1) above it, (x,y)-(x+1,y)-(x+1,y+1) below.</summary>
+        static bool CircuitLatticeTri(float x, float z, out int i0, out int i1, out int i2,
+                                      out float w0, out float w1, out float w2)
+        {
+            i0 = i1 = i2 = 0; w0 = w1 = w2 = 0f;
+            float gx = ((x - circuitGroundOx) / circuitGroundSize + 0.5f) * GroundCells;
+            float gz = ((z - circuitGroundOz) / circuitGroundSize + 0.5f) * GroundCells;
+            int ix = Mathf.FloorToInt(gx), iz = Mathf.FloorToInt(gz);
+            if (ix < 0 || iz < 0 || ix >= GroundCells || iz >= GroundCells) return false;
+            float fu = gx - ix, fw = gz - iz;
+            int stride = GroundCells + 1;
+            int v00 = iz * stride + ix, v01 = v00 + stride, v11 = v01 + 1, v10 = v00 + 1;
+            if (fw > fu) { i0 = v00; w0 = 1f - fw; i1 = v01; w1 = fw - fu; i2 = v11; w2 = fu; }
+            else { i0 = v00; w0 = 1f - fu; i1 = v10; w1 = fu - fw; i2 = v11; w2 = fw; }
+            return true;
+        }
+
+        /// <summary>
+        /// Height of the ground MESH a car would land on at a world point —
+        /// not the analytic field, which is only the same thing at the
+        /// vertices. The circuit's is the solved lattice exactly; the stage's
+        /// is its 12 m near grid, read back by the stage's own
+        /// StageLatticeY so the toes and the stage's walls and rock tops
+        /// measure against one lattice; anything else falls back to the field.
+        /// </summary>
+        static float ShoulderLatticeY(float x, float z)
+        {
+            if (stageDemLoaded) return StageLatticeY(x, z);
+            if (circuitLattice != null &&
+                CircuitLatticeTri(x, z, out int i0, out int i1, out int i2, out float w0, out float w1, out float w2))
+                return circuitLattice[i0] * w0 + circuitLattice[i1] * w1 + circuitLattice[i2] * w2;
+            return GroundHeightAt(x, z);
         }
 
         /// <summary>
@@ -1930,8 +2712,8 @@ namespace PSXRacing.EditorTools
         /// render-only skirts and the neighbourhood's collider-less kerb were
         /// both built to avoid). Dropped across the forecourt driveways
         /// (<see cref="KerbLiftAt"/>). Same 0.9 m footprint in every style:
-        /// the strip is also what visually seals the corridor-sink lip at the
-        /// road edge, and four other constants key on its width.
+        /// the shoulder profile starts at its outer edge (EdgeProfileFn), and
+        /// four other constants key on its width.
         /// </summary>
         static void BuildKerbs(List<Vector3> pts, Transform parent)
         {
@@ -1975,7 +2757,7 @@ namespace PSXRacing.EditorTools
                 // shoulder and should not. The street curb stays ON it: the
                 // pavement is concrete, not gravel, and the road layer is also
                 // what keeps TrackSweepAudit skipping this object — its top at
-                // +0.28 is a centimetre into the sweep box's floor. A pavement
+                // +0.27 is level with the sweep box's floor. A pavement
                 // that should punish running wide would need to come off the
                 // layer AND be exempted there by name, like RoadEdge.
                 if (style != KerbStyle.Verge) go.layer = RoadLayer;
@@ -1991,7 +2773,7 @@ namespace PSXRacing.EditorTools
         /// vertex at <paramref name="v"/> and the one after it to their
         /// counterparts a station on. Opposite winding on the two sides,
         /// because `outw` flips with `side` and the corner order goes with it
-        /// — the same branch BuildRoadEdge has always had, and which the kerb
+        /// — the same branch the old RoadEdge batter always had, and which the kerb
         /// strip once never got. Without it the LEFT kerb faced downward: it
         /// was invisible from the car (which is why every screenshot of this
         /// game had a kerb on one side only), and once the strip carried a
@@ -2010,9 +2792,9 @@ namespace PSXRacing.EditorTools
             else tris.AddRange(new[] { v, v + stride, v + 1, v + 1, v + stride, v + stride + 1 });
         }
 
-        /// <summary>The Racing/Verge ribbon: two verts per station, 1 cm
-        /// above the road, u along the road at one repeat per 2 m (the
-        /// classic red/white dashing), v across.</summary>
+        /// <summary>The Racing/Verge ribbon: two verts per station, flush
+        /// with the road (<see cref="KerbStripLift"/>), u along the road at
+        /// one repeat per 2 m (the classic red/white dashing), v across.</summary>
         static Mesh FlatKerbMesh(List<Vector3> pts, float side)
         {
             int n = pts.Count, last = Loop ? n : n - 1;
@@ -2025,9 +2807,10 @@ namespace PSXRacing.EditorTools
             {
                 int idx = Loop ? i % n : i;
                 Vector3 outw = RightAt(pts, idx) * side;
-                // 1 cm above the road ribbon so it reads as a raised kerb and
-                // cannot z-fight; the road mesh ends exactly at 6 m.
-                Vector3 inner = pts[idx] + Vector3.up * (RoadLift + 0.01f) + outw * (RoadWidth * 0.5f);
+                // Flush with the road ribbon, which ends exactly where this
+                // begins: they share an edge and never an area, so there is no
+                // depth to fight over.
+                Vector3 inner = pts[idx] + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
                 Vector3 outer = inner + outw * KerbWidth;
                 int v = verts.Count;
                 verts.Add(inner); verts.Add(outer);
@@ -2043,7 +2826,7 @@ namespace PSXRacing.EditorTools
         /// <summary>
         /// The Street section, per station and side, four verts A-B-C-D:
         ///
-        ///   A  foot of the face, tarmac edge, +0.13 (as the flat strip)  v 0
+        ///   A  foot of the face, tarmac edge, flush (as the flat strip)  v 0
         ///   B  top of the face: A + lift, leaned out by the batter         v 0.25
         ///   C  back of the curb stone's top, StreetKerbTop out            v 0.5
         ///   D  back edge of the pavement, KerbWidth out                   v 1
@@ -2051,7 +2834,8 @@ namespace PSXRacing.EditorTools
         /// u = dist / StreetKerbUTile on all four, so the bands of
         /// StreetKerb.png land on face, top and pavement. `lift` is the
         /// curb height here (0 across a driveway) and the same number
-        /// BuildRoadEdge lifts its top vertex by.
+        /// CircuitEdgeProfile starts the run-off at, so the run-off behind
+        /// the curb is graded to the pavement.
         ///
         /// The COLLIDER is a second mesh on three verts: A, then R = A + lift
         /// at StreetKerbRamp out, then D — a 33% ramp and a flat top. Over the
@@ -2075,7 +2859,7 @@ namespace PSXRacing.EditorTools
                 int idx = Loop ? i % n : i;
                 Vector3 outw = RightAt(pts, idx) * side;
                 Vector3 rise = Vector3.up * KerbLiftAt(idx, n, side);
-                Vector3 a = pts[idx] + Vector3.up * (RoadLift + 0.01f) + outw * (RoadWidth * 0.5f);
+                Vector3 a = pts[idx] + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
                 Vector3 b = a + rise + outw * StreetKerbFaceBatter;
                 Vector3 c = a + rise + outw * StreetKerbTop;
                 Vector3 d = a + rise + outw * KerbWidth;
@@ -2176,9 +2960,27 @@ namespace PSXRacing.EditorTools
                             // (WallCollThick vs WallThick) and grows only
                             // OUTWARD, so the contact surface is unchanged while
                             // a fast car has real depth to catch against.
-                            Vector3 mid = (basePos + next) * 0.5f
-                                        + Vector3.up * (WallHeight * 0.5f)
-                                        + outw * (WallCollThick * 0.5f);
+                            //
+                            // And DOWNWARD, below the wall it is drawn as. The
+                            // box used to start at the waypoint plane, and the
+                            // ground under a wall is not the plane: the corridor
+                            // sink puts it 0.1-0.3 m lower everywhere, and at a
+                            // bridge abutment the coarse lattice smears the
+                            // gorge dig under the wall line — 1.25-2.28 m of
+                            // window under the box on Ridge Pass, taller than
+                            // the car. The drawn face is unchanged; only what a
+                            // car can pass under is closed. Not where the deck
+                            // lies under the whole segment: the deck box is the
+                            // floor there, and "the ground" is the gorge floor.
+                            float planeY = (basePos.y + next.y) * 0.5f;
+                            float bottomY = planeY - WallCollDepthM;
+                            if (NearBridgeSpan(idx, WallSpanReach) &&
+                                !(DeckCoversStation(idx) && DeckCoversStation(nxt)))
+                                bottomY = Mathf.Min(bottomY,
+                                    WallFootLatticeMin(basePos, next, outw) - WallCollUnderGroundM);
+                            float topY = planeY + WallHeight;
+                            Vector3 mid = (basePos + next) * 0.5f + outw * (WallCollThick * 0.5f);
+                            mid.y = (topY + bottomY) * 0.5f;
                             var col = new GameObject("Wall");
                             col.transform.SetParent(wallRoot.transform, false);
                             col.layer = SolidLayer;
@@ -2189,7 +2991,7 @@ namespace PSXRacing.EditorTools
                             // meeting exactly edge-to-edge leave a hairline seam
                             // the solver can catch a corner on, which reads as
                             // the car snagging on nothing.
-                            box.size = new Vector3(WallCollThick, WallHeight, dir.magnitude + WallCollOverlap);
+                            box.size = new Vector3(WallCollThick, topY - bottomY, dir.magnitude + WallCollOverlap);
                             box.sharedMaterial = physMat;
                         }
                     }
@@ -2203,6 +3005,58 @@ namespace PSXRacing.EditorTools
                 meshGO.AddComponent<MeshRenderer>().sharedMaterial = wallMat;
                 meshGO.isStatic = true;
             }
+        }
+
+        /// <summary>How far below the waypoint plane every circuit wall
+        /// collider reaches: under the corridor sink (0.1 m), the run-off's
+        /// toe and skirt, and the lattice's ordinary smear, with the car's
+        /// 1 m box still unable to fit beneath.</summary>
+        const float WallCollDepthM = 0.6f;
+        /// <summary>Near a span, how far under the LOWEST ground beneath the
+        /// box it reaches instead — the abutment, where the lattice falls
+        /// toward the gorge under the wall line.</summary>
+        const float WallCollUnderGroundM = 0.5f;
+        /// <summary>Stations either side of a span that count as its
+        /// abutment for the wall's depth: the one station the deck is carried
+        /// onto the approach (DeckCoversStation) and one more.</summary>
+        const int WallSpanReach = 2;
+
+        /// <summary>Is the wall segment from station <paramref name="idx"/> to
+        /// the next within <paramref name="reach"/> stations of a bridge
+        /// span?</summary>
+        static bool NearBridgeSpan(int idx, int reach)
+        {
+            if (bridgeBlend == null || track == null || track.drag) return false;
+            int n = bridgeBlend.Length;
+            for (int o = -reach; o <= reach + 1; o++)
+            {
+                int j = Loop ? ((idx + o) % n + n) % n : idx + o;
+                if (j < 0 || j >= n) continue;
+                if (bridgeBlend[j] > DeckBlendMin) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Lowest ground MESH under a wall collider's footprint:
+        /// along the chord (and its overlap past each end), across the box's
+        /// whole thickness.</summary>
+        static float WallFootLatticeMin(Vector3 a, Vector3 b, Vector3 outw)
+        {
+            Vector3 along = b - a;
+            along.y = 0f;
+            float len = along.magnitude;
+            Vector3 dir = len > 1e-4f ? along / len : Vector3.zero;
+            float lo = float.MaxValue;
+            for (int k = 0; k <= 4; k++)
+            {
+                Vector3 p = a + dir * Mathf.Lerp(-WallCollOverlap * 0.5f, len + WallCollOverlap * 0.5f, k / 4f);
+                for (int q = 0; q <= 2; q++)
+                {
+                    Vector3 at = p + outw * (WallCollThick * q * 0.5f);
+                    lo = Mathf.Min(lo, ShoulderLatticeY(at.x, at.z));
+                }
+            }
+            return lo;
         }
 
         /// <summary>
@@ -2249,10 +3103,10 @@ namespace PSXRacing.EditorTools
             //
             // 380 m of apron past the furthest waypoint: the camera's far plane
             // is 360 and the fog closes well before that, so anything more is
-            // vertices nobody will ever see.
-            var b = new Bounds(pts[0], Vector3.zero);
-            foreach (var p in pts) b.Encapsulate(p);
-            float size = Mathf.Max(b.size.x, b.size.z) + 760f;
+            // vertices nobody will ever see. (CircuitGroundFrame, shared with
+            // the lattice solve, so the grid the shoulder toes read is this
+            // one.)
+            CircuitGroundFrame(pts, out float ox, out float oz, out float size);
             float tile = theme.groundTile;
             // 45 cells meant 20 m triangles. Affine UVs distort in proportion to
             // triangle size and depth contrast, which is worst on ground right
@@ -2261,26 +3115,26 @@ namespace PSXRacing.EditorTools
             // this finer grid is for the per-vertex fog and lighting gradient,
             // and now for the hills as well.
             //
-            // 144 rather than 120 since the ground started following the road.
-            // A cell is about 9 m across, and the whole reason CorridorR is six
-            // metres wider than the barrier line is that a cell that size cannot
-            // be trusted to land anywhere in particular: every vertex within the
-            // corridor is pinned dead level with the road, so the coarse grid
-            // has no way to push a corner up through the tarmac.
-            const int cells = 144;
+            // GroundCells (144) since the ground started following the road.
+            const int cells = GroundCells;
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
+            // The heights PrepareCircuitLattice solved when the shoulder was
+            // built — the field, lowered wherever a coarse triangle came within
+            // the hide margin of the tarmac or the run-off. The field itself
+            // only when no shoulder was laid first.
+            bool solved = circuitLattice != null && circuitLattice.Length == (cells + 1) * (cells + 1);
             // The mesh is local to a GameObject parked at the circuit's centre,
             // so the height field — which is a function of WORLD position — has
             // to be asked about the world point, not the local one.
-            float ox = b.center.x, oz = b.center.z;
             for (int y = 0; y <= cells; y++)
                 for (int x = 0; x <= cells; x++)
                 {
                     float fx = x / (float)cells - 0.5f, fy = y / (float)cells - 0.5f;
                     float wx = fx * size, wz = fy * size;
-                    verts.Add(new Vector3(wx, GroundHeightAt(wx + ox, wz + oz), wz));
+                    float h = solved ? circuitLattice[y * (cells + 1) + x] : GroundHeightAt(wx + ox, wz + oz);
+                    verts.Add(new Vector3(wx, h, wz));
                     uvs.Add(new Vector2(wx / tile, wz / tile));
                 }
             for (int y = 0; y < cells; y++)
@@ -2297,7 +3151,7 @@ namespace PSXRacing.EditorTools
 
             var go = new GameObject("Ground");
             go.transform.SetParent(parent, false);
-            go.transform.position = new Vector3(b.center.x, 0f, b.center.z);
+            go.transform.position = new Vector3(ox, 0f, oz);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var groundMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f);
             go.AddComponent<MeshRenderer>().sharedMaterial = groundMat;
@@ -2353,15 +3207,21 @@ namespace PSXRacing.EditorTools
         /// subgrade is dug to the bottom of the slab under the paved
         /// footprint, so there is 45 cm between the tarmac and the land rather
         /// than the 22 cm the lift and the shelf sink used to buy between
-        /// them. It is also what you SEE where the land falls away — a road
-        /// edge with a section, instead of a ribbon one polygon thick.
+        /// them.
+        ///
+        /// It is NOT something to see. It used to be — the slab's cut face was
+        /// drawn and collided as the road edge, and that face was the "thick
+        /// road sticking out of the ground" and the half-metre lip a car could
+        /// not climb back over. The slab now stays under the paved width, and
+        /// the shoulder surface (BuildShoulders) is what meets the land.
         /// </summary>
         internal const float RoadSlabDepth = 0.45f;
 
-        /// <summary>Batter on the slab's cut face. Nearly vertical, because
-        /// there is nowhere to put a real fill slope: the stage's guard wall
-        /// stands 1.15 m off the tarmac edge, and anything wider than this
-        /// would push the roadbed out through the masonry.</summary>
+        /// <summary>How far past the kerb strip the full-depth dig continues
+        /// before RoadbedRamp brings it back up: the footprint of the slab's
+        /// edge, under the shoulder's bevel and first quarter-metre. Nothing is
+        /// drawn at it any more; it only shapes the ground under the
+        /// shoulder.</summary>
         internal const float RoadSlabBatter = 0.25f;
 
         /// <summary>How far outside the slab the dig ramps back up to the
@@ -2371,8 +3231,8 @@ namespace PSXRacing.EditorTools
         /// moved.</summary>
         const float RoadbedRamp = 2.5f;
 
-        /// <summary>Outer edge of the paved footprint: tarmac, shoulder strip
-        /// and the batter that finishes the slab.</summary>
+        /// <summary>Outer edge of the dug footprint: tarmac, kerb strip and
+        /// the slab's edge.</summary>
         static float RoadbedToe => RoadWidth * 0.5f + KerbWidth + RoadSlabBatter;
 
         /// <summary>
@@ -2421,6 +3281,10 @@ namespace PSXRacing.EditorTools
         static void BuildTerrainField(List<Vector3> pts)
         {
             terrainPts = pts;
+            // The previous venue's shoulder and solved lattice describe
+            // another road; BuildShoulders lays this one's.
+            shoulderProfiles = null;
+            circuitLattice = null;
             terrainRelief = theme.relief;
             // Deterministic per circuit: the same track has to bake to the same
             // hills every time or the scenery walks between builds.
@@ -2607,6 +3471,44 @@ namespace PSXRacing.EditorTools
         const float ConcreteTile = 4f;
         /// <summary>Depth of the deck box under the tarmac.</summary>
         const float DeckThick = 1.3f;
+
+        /// <summary>Bridge blend above which a station is part of a span —
+        /// the deck's, the concrete ribbon's and the shoulder's one test.</summary>
+        const float DeckBlendMin = 0.001f;
+        /// <summary>
+        /// How far the deck top sits under the tarmac: two centimetres, inside
+        /// RoadsideRules.EdgeDropM, so what a car rolls off the kerb strip onto
+        /// is the owner's inch and not a step.
+        ///
+        /// It was four (+0.08 over the plane under a +0.12 ribbon), "so the
+        /// two never fight for the same pixels" — which two centimetres also
+        /// does at every distance the fog lets you see a deck from (the depth
+        /// buffer resolves about 2 mm at 100 m against the stage's far clip).
+        /// </summary>
+        internal const float DeckTopBelowTarmac = 0.02f;
+        /// <summary>The deck top over the waypoint plane.</summary>
+        internal const float DeckTopLift = RoadLift - DeckTopBelowTarmac;
+        /// <summary>How far under the deck top a shoulder surface that runs
+        /// over a span finishes, so it never lies in the concrete's own
+        /// plane.</summary>
+        const float DeckHideM = 0.03f;
+
+        /// <summary>
+        /// Does the deck cover this station? Every station of a span, and the
+        /// one station either side of it: BuildBridges carries each deck one
+        /// station onto solid ground, so its end cap stands on the approach
+        /// rather than over the coarse ground's abutment pit.
+        /// </summary>
+        internal static bool DeckCoversStation(int idx)
+        {
+            if (bridgeBlend == null || track == null || track.drag) return false;
+            int n = bridgeBlend.Length;
+            if (idx < 0 || idx >= n) return false;
+            if (bridgeBlend[idx] > DeckBlendMin) return true;
+            int a = Loop ? (idx - 1 + n) % n : idx - 1;
+            int b = Loop ? (idx + 1) % n : idx + 1;
+            return (a >= 0 && bridgeBlend[a] > DeckBlendMin) || (b < n && bridgeBlend[b] > DeckBlendMin);
+        }
         /// <summary>Metres between piers. Real short-span viaducts sit around
         /// 25-30 m; closer than that and the gorge fills up with columns.</summary>
         const float PierEvery = 26f;
@@ -2623,10 +3525,18 @@ namespace PSXRacing.EditorTools
         /// piers holding the whole thing over the gorge.
         ///
         /// Built from the same BridgeBlend the terrain carve reads, so the deck
-        /// and the hole in the ground are guaranteed to be the same length as
-        /// each other. Two thresholds would drift, and the failure — a deck
-        /// ending ten metres short of the abutment — is invisible from the
-        /// driving line and obvious from anywhere else.
+        /// and the hole in the ground are the same span. Two thresholds would
+        /// drift, and the failure — a deck ending ten metres short of the
+        /// abutment — is invisible from the driving line and obvious from
+        /// anywhere else.
+        ///
+        /// Then carried ONE STATION further at each end (DeckCoversStation).
+        /// The span's first station already has some blend (0.057 on Ridge
+        /// Pass: 0.8 m of dig on the centreline), and the 7-10 m ground cells
+        /// smear that dig into the verge a station before the deck began: an
+        /// abutment pit 0.5-2.3 m deep beside the wall, a half-metre toe lip
+        /// on one side of it and a deck end cap up to 2.1 m tall on the other.
+        /// Extended, the end cap stands on ground the dig has not reached.
         /// </summary>
         static void BuildBridges(List<Vector3> pts, Transform parent)
         {
@@ -2659,19 +3569,32 @@ namespace PSXRacing.EditorTools
             // waypoint 0 is one run rather than two half-decks with an abutment
             // in the middle of it.
             int origin = 0;
-            while (origin < n && blend[origin] > 0.001f) origin++;
+            while (origin < n && blend[origin] > DeckBlendMin) origin++;
             if (origin >= n) origin = 0;     // the whole lap is elevated
 
             int spanNo = 0, piers = 0;
             var jointIdx = new List<int>();
             for (int k = 0; k < n; )
             {
-                if (blend[(origin + k) % n] <= 0.001f) { k++; continue; }
+                if (blend[(origin + k) % n] <= DeckBlendMin) { k++; continue; }
                 int len = 1;
-                while (k + len < n && blend[(origin + k + len) % n] > 0.001f) len++;
+                while (k + len < n && blend[(origin + k + len) % n] > DeckBlendMin) len++;
 
                 int from = (origin + k) % n;
-                BuildOneDeck(pts, from, len, root.transform, deckMat, physMat, ++spanNo);
+                // The deck one station longer at each end; the piers and the
+                // joints stay on the span itself. A strip's ends clamp, and a
+                // span that is the whole lap has no ends to carry.
+                int deckFrom = from, deckLen = len;
+                if (len < n)
+                {
+                    if (Loop) { deckFrom = (from - 1 + n) % n; deckLen = Mathf.Min(n, len + 2); }
+                    else if (from + len <= n)
+                    {
+                        deckFrom = Mathf.Max(0, from - 1);
+                        deckLen = Mathf.Min(n - 1, from + len) - deckFrom + 1;
+                    }
+                }
+                BuildOneDeck(pts, deckFrom, deckLen, root.transform, deckMat, physMat, ++spanNo);
                 piers += BuildPiers(pts, from, len, root.transform, pierMat);
                 CollectJoints(from, len, n, jointIdx);
                 k += len;
@@ -2779,11 +3702,11 @@ namespace PSXRacing.EditorTools
             {
                 int i = (from + k) % n;
                 Vector3 right = RightAt(pts, i);
-                // The deck top sits just UNDER the road ribbon (which is at
-                // +0.12) so the two never fight for the same pixels, and the
-                // kerb at +0.13 still stands proud of both.
-                Vector3 c = pts[i] + Vector3.up * 0.08f;
-                Vector3 under = pts[i] + Vector3.up * (0.08f - DeckThick);
+                // The deck top sits just UNDER the road ribbon and the kerb
+                // strip (DeckTopBelowTarmac), so the two never fight for the
+                // same pixels and a car leaving the strip drops an inch.
+                Vector3 c = pts[i] + Vector3.up * DeckTopLift;
+                Vector3 under = pts[i] + Vector3.up * (DeckTopLift - DeckThick);
 
                 // Concrete tiles by the METRE in both directions. The old UVs
                 // ran 0..1 across the deck whatever its width, which on a 23 m
@@ -2871,7 +3794,7 @@ namespace PSXRacing.EditorTools
             for (int k = 0; k < stations; k += step)
             {
                 int i = (from + k) % n;
-                float deckBottom = pts[i].y + 0.08f - DeckThick;
+                float deckBottom = pts[i].y + DeckTopLift - DeckThick;
                 float ground = GroundHeightAt(pts[i].x, pts[i].z);
                 float h = deckBottom - ground;
                 // Nothing to hold up at the abutments, where the ramp has
@@ -3028,10 +3951,18 @@ namespace PSXRacing.EditorTools
                         Vector3 baseP = pts[i] + right * side * (kerbOuter + PostVergeOffset);
                         // Not across the forecourt entrance.
                         if (OnFuelPad(baseP, 1.5f)) continue;
-                        // Seated like the lamps: its own patch of ground, or
-                        // the deck over a gorge.
-                        baseP.y = OverGorge(i) ? pts[i].y + 0.08f
-                                               : GroundHeightAt(baseP.x, baseP.z);
+                        // Seated on the shoulder it stands in — the run-off,
+                        // or the Street pavement's ramp onto a deck — where
+                        // there is one here; the deck over a gorge, or its own
+                        // patch of ground, where there is not. The ground
+                        // lattice is held HideMarginM and more under the
+                        // shoulder, so a post seated on it was buried.
+                        var prof = shoulderProfiles != null ? shoulderProfiles[side < 0f ? 0 : 1][i] : null;
+                        float postE = KerbWidth + PostVergeOffset;
+                        float onShoulder = prof != null ? EvalShoulderProfile(prof, postE, false) : float.NaN;
+                        baseP.y = !float.IsNaN(onShoulder) ? pts[i].y + RoadLift + onShoulder
+                                : OverGorge(i) ? pts[i].y + DeckTopLift
+                                : GroundHeightAt(baseP.x, baseP.z);
                         AppendPost(verts, uvs, tris, baseP, right, PostW,
                                    PostShaftH + PostCapH);
                         vergePosts++;
@@ -3176,8 +4107,8 @@ namespace PSXRacing.EditorTools
                 // ground is ten metres down and the thing to stand on is the
                 // deck. The lamp line sits at WallOffset + 0.8, inside the deck
                 // edge at WallOffset + 1.4, so there is something under it.
-                baseP.y = OverGorge(i) ? pts[i].y + 0.08f
-                                       : GroundHeightAt(baseP.x, baseP.z);
+                baseP.y = OverGorge(i) ? pts[i].y + DeckTopLift
+                                       : ShoulderLatticeY(baseP.x, baseP.z);
 
                 var post = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 UnityEngine.Object.DestroyImmediate(post.GetComponent<Collider>());
@@ -3217,9 +4148,21 @@ namespace PSXRacing.EditorTools
 
                 var pool = new GameObject("Pool");
                 pool.transform.SetParent(nightRoot.transform, false);
-                // The pool of light lands on whatever the lamp is standing on.
-                float poolY = OverGorge(i) ? pts[i].y + 0.14f
-                                           : GroundHeightAt(headP.x, headP.z);
+                // The pool of light lands on whatever is under the head: the
+                // deck where there is one, otherwise the higher of the ground
+                // and the road or shoulder surface there. The head leans in
+                // over the run-off (a circuit) or the kerb strip (a stage), and
+                // the ground under either is held under that surface — a pool
+                // laid on the ground alone is a depth-tested quad drawn
+                // underneath the thing it is meant to light.
+                float poolY;
+                if (DeckCoversStation(i)) poolY = pts[i].y + DeckTopLift + 0.06f;
+                else
+                {
+                    poolY = GroundHeightAt(headP.x, headP.z);
+                    if (ShoulderDesignAt(pts, headP.x, headP.z, out float surfY, out _, out _))
+                        poolY = Mathf.Max(poolY, surfY);
+                }
                 pool.transform.position = new Vector3(headP.x, poolY + 0.15f, headP.z);
                 pool.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
                 pool.transform.localScale = new Vector3(16f, 16f, 1f);
@@ -3447,7 +4390,10 @@ namespace PSXRacing.EditorTools
                 Vector3 parkAt = pts[i] + right * side * (WallOffsetFor(track) + 1.5f);
                 // The forecourt is the one stretch of verge that is a road.
                 if (OnFuelPad(parkAt, 2f)) { UnityEngine.Object.DestroyImmediate(go); continue; }
-                parkAt.y = GroundHeightAt(parkAt.x, parkAt.z);
+                // On the ground MESH, a metre and a half behind the wall: where
+                // the lattice was lowered under the run-off beside it, the
+                // field above the mesh would leave the car standing on air.
+                parkAt.y = ShoulderLatticeY(parkAt.x, parkAt.z);
                 go.transform.position = parkAt;
                 // Nose-to-tail along the kerb, some facing the other way, and a
                 // couple of degrees off true — a row of perfectly aligned cars
@@ -3784,28 +4730,49 @@ namespace PSXRacing.EditorTools
             if (n == 0) return 0;
             int start = (int)(n * 0.62f);
             int span = Mathf.Max(1, Mathf.RoundToInt(PadHalfAcross / Spacing));
+            // Every station the forecourt touches — its driveways lie inside
+            // the apron, the apron inside the pad, and the pad's flattening
+            // fades out over PadBlend past that — plus the station the deck
+            // is carried onto the approach.
+            int clear = Mathf.CeilToInt((PadHalfAcross + PadBlend) / Spacing) + 1;
 
-            int best = start;
-            float bestRelief = float.MaxValue;
-            for (int k = 0; k < n; k++)
+            // Strict first: no bridge anywhere under the pad or its driveways.
+            // Only a lap with no such site at all falls back to the old test.
+            for (int strict = 1; strict >= 0; strict--)
             {
-                int idx = (start + k) % n;
-                // Never out over a gorge. A forecourt is a slab on the ground,
-                // and 62% of the way round HarborPoint is the channel.
-                if (OverGorge(idx)) continue;
-
-                float lo = float.MaxValue, hi = float.MinValue;
-                for (int o = -span; o <= span; o++)
+                int best = -1;
+                float bestRelief = float.MaxValue;
+                for (int k = 0; k < n; k++)
                 {
-                    int j = Loop ? ((idx + o) % n + n) % n : Mathf.Clamp(idx + o, 0, n - 1);
-                    lo = Mathf.Min(lo, pts[j].y);
-                    hi = Mathf.Max(hi, pts[j].y);
+                    int idx = (start + k) % n;
+                    // Never out over a gorge. A forecourt is a slab on the ground,
+                    // and 62% of the way round HarborPoint is the channel.
+                    if (OverGorge(idx)) continue;
+                    // And never beside one. This tested the pad CENTRE only, so
+                    // a centre on solid ground 20 m from an abutment passed with
+                    // a driveway — a twenty-metre gap in the wall — opening onto
+                    // the deck approach, or onto the deck itself with a 9-14 m
+                    // drop past its edge. Latent on the shipped circuits, and
+                    // one moved span away from being real.
+                    if (strict == 1 && NearBridgeSpan(idx, clear)) continue;
+
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    for (int o = -span; o <= span; o++)
+                    {
+                        int j = Loop ? ((idx + o) % n + n) % n : Mathf.Clamp(idx + o, 0, n - 1);
+                        lo = Mathf.Min(lo, pts[j].y);
+                        hi = Mathf.Max(hi, pts[j].y);
+                    }
+                    float relief = hi - lo;
+                    if (relief < bestRelief) { bestRelief = relief; best = idx; }
+                    if (relief <= FuelStopFlatEnough) return idx;
                 }
-                float relief = hi - lo;
-                if (relief < bestRelief) { bestRelief = relief; best = idx; }
-                if (relief <= FuelStopFlatEnough) return idx;
+                if (best >= 0) return best;
+                if (strict == 1)
+                    Log("WARN: no forecourt site clear of every bridge on this lap — " +
+                        "falling back to one that is only clear of the gorge.");
             }
-            return best;
+            return start;
         }
 
         // ------------------------------------------------------------------
@@ -4274,8 +5241,8 @@ namespace PSXRacing.EditorTools
         /// 0.12-per-0.35 m rule, where a square cut is a 0.15 m step along
         /// the edge lane and fails it.
         ///
-        /// Read by BuildKerbs for the strip AND by BuildRoadEdge for the
-        /// batter behind it, so the two can never disagree about the height
+        /// Read by BuildKerbs for the strip AND by CircuitEdgeProfile for the
+        /// run-off behind it, so the two can never disagree about the height
         /// of the pavement's back edge.
         /// </summary>
         static float KerbLiftAt(int idx, int n, float side)
@@ -4398,36 +5365,200 @@ namespace PSXRacing.EditorTools
             return b;
         }
 
+        /// <summary>Metres the apron stands over the ground it is laid on, and
+        /// over a shoulder it covers.</summary>
+        const float ApronLiftM = 0.03f;
+        /// <summary>The least it may stand over the ground anywhere, grading
+        /// included: the ground mesh must never show through the tarmac.</summary>
+        const float ApronGroundClearM = 0.01f;
+        /// <summary>The steepest the apron grades from the edge that meets the
+        /// road's shoulder to the pad: 1V:12H, a driveway apron's slope.</summary>
+        const float ApronGrade = 1f / 12f;
+        /// <summary>How far inside the run-off's own end the apron's road-side
+        /// row is brought (<see cref="ApronRowOntoShoulder"/>): enough that the
+        /// straight edge between two row vertices a station apart stays on the
+        /// run-off across a bend, where the run-off's end is a curve.</summary>
+        const float ApronRowInsetM = 0.3f;
+
+        /// <summary>
+        /// THE FORECOURT'S ROAD EDGE LIES ON THE RUN-OFF, ALL THE WAY ALONG.
+        ///
+        /// The apron is a straight grid in the pad's frame, its road-side row
+        /// PadRoadOverlap inside the barrier line at the pad's own station. On
+        /// a bend the road curves away from a straight row, and on City
+        /// Circuit's forecourt (pad on the outside of a ~130 m bend) the row
+        /// was 1.3 m past the tarmac edge at the pad and 4.7 m past it at the
+        /// far driveway's last station — beyond the run-off's end (3.95 m).
+        /// There its vertices could not meet the shoulder, stood on the
+        /// run-off's plane carried on, and the edge between them crossed the
+        /// run-off's toe tuck in open air: read off the saved meshes, the
+        /// apron's rim 0.27 m over the tuck beside it at wp 188 R, which the
+        /// obstacle audit failed as a 0.21 m EDGE FACE onto the Forecourt at
+        /// 4.30 m. Sliding each such row vertex toward the road until it is on
+        /// the run-off (<see cref="ApronRowInsetM"/> inside its end) lets it
+        /// MEET the shoulder like every other row vertex, so the edge is flush
+        /// from one driveway to the other and the tuck is under tarmac.
+        ///
+        /// Along the pad's own road-ward axis, so the grid keeps its shape. The
+        /// row is the grid's road-most, so the slide only ever opens its last
+        /// cell (it cannot fold over the row behind it); half a cell is a bound
+        /// on a bend so sharp that the row would otherwise chase the run-off
+        /// round it.
+        /// </summary>
+        static Vector3 ApronRowOntoShoulder(List<Vector3> pts, Vector3 p, float cellDeep)
+        {
+            float moved = 0f, most = cellDeep * 0.5f;
+            for (int it = 0; it < 4; it++)
+            {
+                if (!ShoulderDesignAt(pts, p.x, p.z, out _, out float e, out float eLast)) break;
+                float over = e - (eLast - ApronRowInsetM);
+                if (over <= 0.005f || e <= 0f) break;
+                float step = Mathf.Min(over, most - moved);
+                if (step <= 0f) break;
+                p += padToRoad * step;
+                moved += step;
+            }
+            return p;
+        }
+
         /// <summary>
         /// The tarmac. On the ROAD layer, because the wheels tell tarmac from
         /// grass by layer and a forecourt the car slides across at field grip
         /// is one nobody can stop on.
+        ///
+        /// It MEETS THE SHOULDER. Laid at the ground plus three centimetres,
+        /// its road edge was the roadbed dig — 0.42 m under the tarmac — and
+        /// the old batter crossed it at 8.8 m: every driveway on every circuit
+        /// was a 34 cm bowl in and out. Now:
+        ///
+        ///   * its edge vertices that lie on the run-off (the road-side row,
+        ///     and the side columns inside the wall line) are set to the
+        ///     run-off's own height, so the car rolls from one to the other,
+        ///     and the first side-column vertex past the run-off's end stays
+        ///     on that plane;
+        ///   * the vertices over the rest of the run-off, and one apron cell
+        ///     past its toe, are held ApronLiftM above it, so the run-off —
+        ///     whose end is open across a driveway, where there is no wall to
+        ///     hide it — is always under the tarmac and never pokes through
+        ///     (a centimetre and a half of it can, along the road-side row
+        ///     where a street curb's one-station drop kinks the run-off
+        ///     between two apron vertices);
+        ///   * everything else is the pad as before, graded no steeper than
+        ///     1V:12H away from that edge (a cone out of the edge vertices, then
+        ///     lifted until no two neighbours differ by more).
         /// </summary>
         static void BuildApron(Transform parent)
         {
             const int cells = 16;
+            int stride = cells + 1;
+            var pts = terrainPts;
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
+            var y = new float[stride * stride];
+            var least = new float[y.Length];
+            var meets = new bool[y.Length];
+            float cellAcross = 2f * ApronHalfAcross / cells, cellDeep = 2f * PadHalfDeep / cells;
+            // A whole cell's diagonal past the toe: every apron triangle that
+            // covers any of the tuck or the skirt then has all three corners
+            // held, whichever way the pad frame sits against the road.
+            float holdPast = RoadsideRules.ToeTuckRunM + ShoulderSkirtRunM +
+                             Mathf.Sqrt(cellAcross * cellAcross + cellDeep * cellDeep);
+            float rimHoldPast = RoadsideRules.ToeTuckRunM + ShoulderSkirtRunM + Mathf.Max(cellAcross, cellDeep);
+            int met = 0, held = 0;
 
             for (int j = 0; j <= cells; j++)
                 for (int i = 0; i <= cells; i++)
                 {
+                    int v = j * stride + i;
                     float along = Mathf.Lerp(-ApronHalfAcross, ApronHalfAcross, i / (float)cells);
                     float deep = Mathf.Lerp(-PadHalfDeep, PadHalfDeep, j / (float)cells);
                     Vector3 p = padCentre + padAlong * along + padToRoad * deep;
+                    if (j == cells && pts != null) p = ApronRowOntoShoulder(pts, p, cellDeep);
                     // Three centimetres proud of THE GROUND AT THIS POINT, not
                     // of the pad's own flat plane. The two are the same
                     // everywhere the pad is at full strength, and they are not
-                    // the same at its edges — where the flattening is fading out
-                    // and, at the road end, where the corridor sink still
-                    // applies. Taking the plane would leave the apron's inner
-                    // edge standing over the verge as a lip the car has to bump
-                    // up; taking the ground makes the entrance a ramp.
-                    p.y = GroundHeightAt(p.x, p.z) + 0.03f;
+                    // the same at its edges, where the flattening is fading out.
+                    float ground = GroundHeightAt(p.x, p.z);
+                    y[v] = ground + ApronLiftM;
+                    least[v] = ground + ApronGroundClearM;
+                    // deep = +PadHalfDeep (j == cells) is the edge toward the road.
+                    if (pts != null && ShoulderDesignAt(pts, p.x, p.z, out float sy, out float e, out float eLast))
+                    {
+                        bool rim = j == cells || i == 0 || i == cells;
+                        if (rim && e <= eLast)
+                        {
+                            y[v] = sy;
+                            meets[v] = true;
+                            met++;
+                        }
+                        else if (rim && e <= eLast + rimHoldPast)
+                        {
+                            // The first edge vertex past the run-off's end
+                            // stays on its plane (no lift: it is an edge), or
+                            // the edge from the last vertex that meets it would
+                            // cut under the run-off — 9-16 cm of run-off stood
+                            // through the apron's corner in the offline replica.
+                            y[v] = Mathf.Max(y[v], sy);
+                            least[v] = Mathf.Max(least[v], sy);
+                        }
+                        else if (!rim && e <= eLast + holdPast)
+                        {
+                            y[v] = Mathf.Max(y[v], sy + ApronLiftM);
+                            least[v] = Mathf.Max(least[v], sy + ApronLiftM);
+                            held++;
+                        }
+                    }
                     verts.Add(p);
                     uvs.Add(new Vector2(along / 8f, deep / 8f));
                 }
+
+            // Never climb away from the edge that meets the shoulder faster
+            // than the grade: a cone down out of every such vertex caps the
+            // rest (except where that would put tarmac under the ground).
+            for (int v = 0; v < y.Length; v++)
+            {
+                if (meets[v]) continue;
+                float cap = float.MaxValue;
+                for (int f = 0; f < y.Length; f++)
+                {
+                    if (!meets[f]) continue;
+                    float dx = (v % stride - f % stride) * cellAcross;
+                    float dz = (v / stride - f / stride) * cellDeep;
+                    cap = Mathf.Min(cap, y[f] + Mathf.Sqrt(dx * dx + dz * dz) * ApronGrade);
+                }
+                if (cap < y[v]) y[v] = Mathf.Max(cap, least[v]);
+            }
+            // ...and never fall away faster either: lift any vertex its
+            // neighbours are above by more than the grade. Only ever raises, so
+            // it cannot put the tarmac under the ground or under the shoulder.
+            for (int pass = 0; pass < 4 * stride; pass++)
+            {
+                bool changed = false;
+                for (int v = 0; v < y.Length; v++)
+                {
+                    if (meets[v]) continue;
+                    int vi = v % stride, vj = v / stride;
+                    for (int dj = -1; dj <= 1; dj++)
+                        for (int di = -1; di <= 1; di++)
+                        {
+                            int ni = vi + di, nj = vj + dj;
+                            if ((di == 0 && dj == 0) || ni < 0 || nj < 0 || ni >= stride || nj >= stride) continue;
+                            float dx = di * cellAcross, dz = dj * cellDeep;
+                            float want = y[nj * stride + ni] - Mathf.Sqrt(dx * dx + dz * dz) * ApronGrade;
+                            if (want > y[v] + 1e-4f) { y[v] = want; changed = true; }
+                        }
+                }
+                if (!changed) break;
+            }
+            for (int v = 0; v < y.Length; v++)
+            {
+                var p = verts[v];
+                p.y = y[v];
+                verts[v] = p;
+            }
+            Log($"Forecourt apron: {met} edge vertices meet the shoulder, {held} held over it, " +
+                $"graded no steeper than 1:{1f / ApronGrade:0} away from it.");
 
             for (int j = 0; j < cells; j++)
                 for (int i = 0; i < cells; i++)

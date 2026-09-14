@@ -210,16 +210,92 @@ namespace PSXRacing.EditorTools
 
         /// <summary>How far a skirt hangs below the surface it edges.
         ///
-        /// NOT the thickness anybody sees. A drive is laid 5 cm proud of a
-        /// ground mesh that is itself sunk 6 cm, so about 11 cm of the skirt —
-        /// four inches, which is what a concrete drive actually is — stands
-        /// above the lawn and the rest is buried in it. The burial is the
-        /// point: the ground under a drive is a 3 m grid on a 15% ramp, and
-        /// its facets rise several centimetres above their own sample points
-        /// between vertices. A skirt cut to the visible 11 cm would show
-        /// daylight under the drive wherever that happened.
+        /// NOT the thickness anybody sees. Every lawn edge of a DRIVABLE slab
+        /// (the town's and the street's; the seller's walk-in drive has no
+        /// collider to meet) has a <see cref="Feather"/> graded up to it,
+        /// stopping the owner's inch (<see cref="RoadsideRules.EdgeDropM"/>)
+        /// below the slab's top, so an inch of skirt is what shows and the rest
+        /// hangs behind the feather.
+        /// The depth is still the point: the lawn mesh under a slab is a 3 m
+        /// grid, it is sunk further wherever its chords would reach the slab
+        /// (see PSXRacingBuilder.SolveNbLattice), and a skirt cut to the
+        /// visible inch would show daylight wherever that happened.
         /// </summary>
         public const float SkirtDepth = 0.30f;
+
+        /// <summary>How many cells GridSlab cuts a side of this length into.
+        /// ONE definition, because the neighbourhood samples the lawn mesh's
+        /// own triangles (<see cref="SlabGrid"/>) and a second copy of this
+        /// rounding that disagreed by one cell would measure a surface that
+        /// was never built.</summary>
+        public static int GridCount(float size, float cell) =>
+            Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(size) / cell));
+
+        /// <summary>
+        /// THE GRID A GridSlab IS MADE OF, as numbers rather than a mesh: where
+        /// its vertices are and which way each quad is split.
+        ///
+        /// It exists so a builder can ask what the ground mesh ACTUALLY is at a
+        /// point — the triangle surface, not the height function it sampled.
+        /// The two disagree between vertices by the chord sag, and on a 3 m
+        /// lattice over a 15% drive meeting a level bench that is 16 cm: the
+        /// lawn stood through the edge of every downhill driveway on the
+        /// street, and a function-based check called it 9 cm under the
+        /// concrete. A feather that has to tuck under the lawn, and a solver
+        /// that has to hold the lawn under a road, both need the triangles.
+        /// </summary>
+        public readonly struct SlabGrid
+        {
+            public readonly Vector3 centre;
+            public readonly float sizeX, sizeZ;
+            public readonly int nx, nz;
+
+            public SlabGrid(Vector3 centre, float sizeX, float sizeZ, float cell)
+            {
+                this.centre = centre;
+                this.sizeX = sizeX;
+                this.sizeZ = sizeZ;
+                nx = GridCount(sizeX, cell);
+                nz = GridCount(sizeZ, cell);
+            }
+
+            public int VertexCount => (nx + 1) * (nz + 1);
+            /// <summary>Z major, X minor — GridSlab's own vertex order.</summary>
+            public int Index(int x, int z) => z * (nx + 1) + x;
+            /// <summary>A vertex column's offset from the centre, exactly as
+            /// GridSlab lays it out.</summary>
+            public float LocalX(int x) => (x / (float)nx - 0.5f) * sizeX;
+            public float LocalZ(int z) => (z / (float)nz - 0.5f) * sizeZ;
+            public float WorldX(int x) => LocalX(x) + centre.x;
+            public float WorldZ(int z) => LocalZ(z) + centre.z;
+            /// <summary>The vertex column nearest a world x — how a height
+            /// function handed GridSlab's world points finds its own table.</summary>
+            public int NearestX(float worldX) =>
+                Mathf.Clamp(Mathf.RoundToInt(((worldX - centre.x) / sizeX + 0.5f) * nx), 0, nx);
+            public int NearestZ(float worldZ) =>
+                Mathf.Clamp(Mathf.RoundToInt(((worldZ - centre.z) / sizeZ + 0.5f) * nz), 0, nz);
+
+            /// <summary>
+            /// The height of the TRIANGLE over a world point, given the world Y
+            /// of every vertex. GridSlab splits each quad along the diagonal
+            /// from (x, z) to (x+1, z+1): triangles (x,z)(x,z+1)(x+1,z+1) and
+            /// (x,z)(x+1,z+1)(x+1,z), which in cell coordinates are the halves
+            /// above and below u = w. Points off the grid read its edge.
+            /// </summary>
+            public float SurfaceY(float[] worldY, float worldX, float worldZ)
+            {
+                float u = ((worldX - centre.x) / sizeX + 0.5f) * nx;
+                float w = ((worldZ - centre.z) / sizeZ + 0.5f) * nz;
+                int i = Mathf.Clamp(Mathf.FloorToInt(u), 0, nx - 1);
+                int j = Mathf.Clamp(Mathf.FloorToInt(w), 0, nz - 1);
+                float fu = Mathf.Clamp01(u - i), fw = Mathf.Clamp01(w - j);
+                float h00 = worldY[Index(i, j)], h10 = worldY[Index(i + 1, j)];
+                float h01 = worldY[Index(i, j + 1)], h11 = worldY[Index(i + 1, j + 1)];
+                return fw >= fu
+                    ? h00 + (h11 - h01) * fu + (h01 - h00) * fw
+                    : h00 + (h10 - h00) * fu + (h11 - h10) * fw;
+            }
+        }
 
         /// <summary>A horizontal ground plane, subdivided into ~<paramref
         /// name="cell"/>-metre squares. UVs are WORLD-anchored so two slabs
@@ -231,11 +307,11 @@ namespace PSXRacing.EditorTools
         /// they should be a few inches thick."
         ///
         /// The skirt is a SEPARATE, RENDER-ONLY object. It gets no collider,
-        /// deliberately: a baked catalog car's box sits about 9 cm above the
-        /// surface it drives on, so a solid 11 cm lip along the side of a drive
-        /// is a wall the car stops dead against instead of bumping down off.
-        /// The surface keeps its own collider and the car keeps driving off the
-        /// edge of a drive exactly as it did.</param>
+        /// deliberately: the player's body box sits 8-12 cm over the surface
+        /// at the lowest ride height (RoadsideRules.CarClearanceFloorM), so a
+        /// solid lip along the side of a drive is a wall the car stops dead
+        /// against. What a car meets at a lawn edge is the <see cref="Feather"/>
+        /// the builder grades up to it, which carries the collider.</param>
         /// <param name="heightAt">Optional. Given a WORLD (x, z), returns the
         /// world Y this slab should reach there. Null keeps the slab dead flat,
         /// which is what it always was.
@@ -254,18 +330,18 @@ namespace PSXRacing.EditorTools
                                           System.Func<float, float, float> heightAt = null,
                                           SlabEdge skirt = SlabEdge.None)
         {
-            int nx = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeX) / cell));
-            int nz = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(sizeZ) / cell));
-            var verts = new Vector3[(nx + 1) * (nz + 1)];
+            var grid = new SlabGrid(centre, sizeX, sizeZ, cell);
+            int nx = grid.nx, nz = grid.nz;
+            var verts = new Vector3[grid.VertexCount];
             var uvs = new Vector2[verts.Length];
             var tris = new int[nx * nz * 6];
 
             for (int z = 0; z <= nz; z++)
                 for (int x = 0; x <= nx; x++)
                 {
-                    float fx = (x / (float)nx - 0.5f) * sizeX;
-                    float fz = (z / (float)nz - 0.5f) * sizeZ;
-                    int v = z * (nx + 1) + x;
+                    float fx = grid.LocalX(x);
+                    float fz = grid.LocalZ(z);
+                    int v = grid.Index(x, z);
                     // LOCAL, so the height function is asked about the world
                     // point and the answer is stored relative to the slab's own
                     // origin — the transform carries centre.y, and adding it
@@ -276,11 +352,13 @@ namespace PSXRacing.EditorTools
                     verts[v] = new Vector3(fx, wy, fz);
                     uvs[v] = new Vector2((fx + centre.x) / tile, (fz + centre.z) / tile);
                 }
+            // The split SlabGrid.SurfaceY reads: (x,z)(x,z+1)(x+1,z+1) and
+            // (x,z)(x+1,z+1)(x+1,z). Change one, change both.
             int t = 0;
             for (int z = 0; z < nz; z++)
                 for (int x = 0; x < nx; x++)
                 {
-                    int v = z * (nx + 1) + x;
+                    int v = grid.Index(x, z);
                     tris[t++] = v; tris[t++] = v + nx + 1; tris[t++] = v + nx + 2;
                     tris[t++] = v; tris[t++] = v + nx + 2; tris[t++] = v + 1;
                 }
@@ -468,7 +546,7 @@ namespace PSXRacing.EditorTools
                                       System.Func<float, float, float> heightAt = null)
         {
             int rings = Mathf.Max(2, Mathf.RoundToInt(radius / cell));
-            int sectors = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / cell));
+            int sectors = DiscSectors(radius, cell);
 
             var verts = new Vector3[1 + rings * sectors];
             var uvs = new Vector2[verts.Length];
@@ -549,6 +627,574 @@ namespace PSXRacing.EditorTools
                 mc.sharedMesh = mesh;
             }
             return go;
+        }
+
+        /// <summary>How many sectors <see cref="Disc"/> cuts a circle into, and
+        /// therefore how many vertices its rim has. Public because a kerb
+        /// round a turning head has to stand on the rim the disc ACTUALLY has
+        /// — a polygon whose chords sag 5 cm inside the true circle at a 10 m
+        /// radius — or a slot of lawn opens between the two.</summary>
+        public static int DiscSectors(float radius, float cell) =>
+            Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / cell));
+
+        // ------------------------------------------------------------------
+        //  Where a surface meets the lawn: kerbs and feathers
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// The kerb's face above the tarmac: 14 cm, the drawn height the town
+        /// and the street have always had (the old kerb boxes stood 16 cm
+        /// over a road laid at 2 cm). PSXRacingBuilder.StreetKerbHeight's
+        /// 15 cm US barrier curb is the circuits' version of the same stone.
+        /// </summary>
+        public const float KerbHeightM = 0.14f;
+        /// <summary>
+        /// The kerb's width, and the length of its collider's climb.
+        ///
+        /// 0.45 m for the reason PSXRacingBuilder.StreetKerbRamp is 0.45: a
+        /// 0.14 m face climbed over 0.45 m is a 31% ramp whose normal is 0.95
+        /// from vertical, above CollisionResponder's 0.7 landing test, so a
+        /// body touch is a landing and never a crash. The drawn stone was
+        /// 0.40 wide, which would have made the climb 35% — past the 33%
+        /// every mountable kerb in this project is held to — so the stone
+        /// grew 5 cm rather than the ramp outrunning it.
+        /// </summary>
+        public const float KerbWidthM = 0.45f;
+        /// <summary>How far the top of the drawn face leans out over its foot
+        /// — PSXRacingBuilder.StreetKerbFaceBatter's 3 cm. Real kerb stones
+        /// are battered, and a face with a hair of lean never reads as a
+        /// degenerate vertical sliver when it shrinks to nothing at a
+        /// dropped kerb.</summary>
+        public const float KerbFaceBatterM = 0.03f;
+        /// <summary>
+        /// A DROPPED KERB's transition: the stone falls from full height to
+        /// flush over this length on either side of an entrance. Real
+        /// transition kerbs are about a metre; half again that, because the
+        /// end of a raised stone is otherwise a 14 cm block standing across
+        /// the line of a wheel running along the gutter.
+        /// </summary>
+        public const float KerbTaperM = 1.5f;
+        /// <summary>How far the drawn back face hangs below the verge it meets,
+        /// so no angle shows daylight under the stone.</summary>
+        const float KerbBackHangM = 0.10f;
+
+        /// <summary>
+        /// The steepest a <see cref="Feather"/> falls from a surface's edge to
+        /// the lawn: 1V:8H, 12.5%. Under RoadsideRules.RecoverableSlope (1V:6H)
+        /// and under the 13% the town slabs were specified to feather at, so a
+        /// feather is recoverable ground whatever it borders.
+        /// </summary>
+        public const float FeatherGrade = 0.125f;
+        /// <summary>A feather is never narrower than this, however little it
+        /// has to fall — a 5 cm drop over less would still be a visible
+        /// bevel rather than lawn meeting concrete.</summary>
+        public const float FeatherMinRunM = 0.6f;
+        /// <summary>...nor wider than this. A feather that would need more is
+        /// standing over a hole in the lawn, and past here it steepens rather
+        /// than wandering across the garden.</summary>
+        public const float FeatherMaxRunM = 2.5f;
+        /// <summary>Columns across a feather before its toe. The lawn under
+        /// it is a 3 m lattice with creases; five samples across a 1.6 m
+        /// verge follow a crease closely enough that the two surfaces only
+        /// ever cross at the toe.</summary>
+        const int FeatherColumns = 4;
+        /// <summary>A feather's stations are no further apart than this along
+        /// a straight edge.</summary>
+        const float FeatherStationPitchM = 2f;
+
+        /// <summary>One cross-section of a kerb run.</summary>
+        public struct EdgeStation
+        {
+            /// <summary>The kerb's foot: on the edge of the surface it borders,
+            /// at that surface's height there.</summary>
+            public Vector3 foot;
+            /// <summary>Horizontal, unit, away from the surface.</summary>
+            public Vector3 outward;
+            /// <summary>The face's height here: <see cref="KerbHeightM"/> on a
+            /// run, falling to zero at a dropped kerb.</summary>
+            public float lift;
+            /// <summary>The top of the stone at its back edge, where the
+            /// verge behind it takes over.</summary>
+            public Vector3 BackTop => foot + outward * KerbWidthM + Vector3.up * lift;
+        }
+
+        /// <summary>
+        /// SPLIT A SURFACE'S EDGE INTO KERB RUNS, dropped at every entrance.
+        ///
+        /// The edge is a polyline ON the surface — its boundary vertices, so
+        /// the stone's foot lies on the tarmac's own edge and no sliver opens
+        /// between them — with an outward vector at each point. Wherever
+        /// <paramref name="inGap"/> says a point is inside an entrance there
+        /// is no kerb at all (the entrance's own slab runs out to the road),
+        /// and for <see cref="KerbTaperM"/> either side the stone falls to
+        /// flush, so a run never ENDS standing up.
+        ///
+        /// Gaps are found by walking the edge at 5 cm and bisecting each change
+        /// to a millimetre, not by testing the polyline's vertices — a 5 m
+        /// driveway between two 2 m street stations would otherwise land its
+        /// dropped kerb up to a metre off the concrete.
+        /// </summary>
+        /// <param name="taperStart">Drop the kerb to flush at the first point
+        /// too — a street that simply ends.</param>
+        public static List<List<EdgeStation>> KerbRuns(IList<Vector3> edge, IList<Vector3> outward,
+                                                       System.Func<Vector3, bool> inGap, float height,
+                                                       bool taperStart, bool taperEnd, float maxPitch)
+        {
+            int n = edge.Count;
+            var runs = new List<List<EdgeStation>>();
+            if (n < 2) return runs;
+            var arc = new float[n];
+            for (int i = 1; i < n; i++)
+                arc[i] = arc[i - 1] + HorizontalDistance(edge[i - 1], edge[i]);
+            float total = arc[n - 1];
+
+            void At(float a, out Vector3 p, out Vector3 o)
+            {
+                int k = 1;
+                while (k < n - 1 && arc[k] < a) k++;
+                float span = arc[k] - arc[k - 1];
+                float t = span > 1e-6f ? Mathf.Clamp01((a - arc[k - 1]) / span) : 0f;
+                p = Vector3.Lerp(edge[k - 1], edge[k], t);
+                o = Vector3.Lerp(outward[k - 1], outward[k], t);
+                o.y = 0f;
+                o = o.sqrMagnitude > 1e-8f ? o.normalized : outward[k].normalized;
+            }
+            bool Gap(float a) { At(a, out var p, out _); return inGap(p); }
+
+            // ---- the entrances, as arc intervals ----
+            const float Walk = 0.05f;
+            var gaps = new List<Vector2>();
+            bool open = Gap(0f);
+            float from = 0f;
+            for (float a = Walk; ; a += Walk)
+            {
+                float here = Mathf.Min(a, total);
+                bool g = Gap(here);
+                if (g != open)
+                {
+                    float lo = here - Walk, hi = here;
+                    for (int it = 0; it < 14; it++)
+                    {
+                        float mid = (lo + hi) * 0.5f;
+                        if (Gap(mid) == open) lo = mid; else hi = mid;
+                    }
+                    float edgeAt = (lo + hi) * 0.5f;
+                    if (open) gaps.Add(new Vector2(from, edgeAt));
+                    else from = edgeAt;
+                    open = g;
+                }
+                if (here >= total) break;
+            }
+            if (open) gaps.Add(new Vector2(from, total));
+
+            bool InGapArc(float a)
+            {
+                foreach (var g in gaps) if (a > g.x && a < g.y) return true;
+                return false;
+            }
+            float Lift(float a)
+            {
+                float d = float.MaxValue;
+                foreach (var g in gaps)
+                {
+                    if (g.x > 0f) d = Mathf.Min(d, Mathf.Abs(a - g.x));
+                    if (g.y < total) d = Mathf.Min(d, Mathf.Abs(a - g.y));
+                }
+                if (taperStart) d = Mathf.Min(d, a);
+                if (taperEnd) d = Mathf.Min(d, total - a);
+                return height * Mathf.Clamp01(d / KerbTaperM);
+            }
+
+            // ---- every place the section changes ----
+            var breaks = new List<float> { 0f, total };
+            breaks.AddRange(arc);
+            foreach (var g in gaps)
+            {
+                breaks.Add(g.x); breaks.Add(g.y);
+                breaks.Add(g.x - KerbTaperM); breaks.Add(g.y + KerbTaperM);
+            }
+            if (taperStart) breaks.Add(KerbTaperM);
+            if (taperEnd) breaks.Add(total - KerbTaperM);
+            breaks.RemoveAll(b => b < 0f || b > total);
+            breaks.Sort();
+            var stations = new List<float>();
+            foreach (float b in breaks)
+            {
+                if (stations.Count > 0 && b - stations[stations.Count - 1] < 1e-3f) continue;
+                if (stations.Count > 0)
+                {
+                    float prev = stations[stations.Count - 1];
+                    int split = Mathf.CeilToInt((b - prev) / Mathf.Max(0.1f, maxPitch));
+                    for (int s = 1; s < split; s++) stations.Add(prev + (b - prev) * s / split);
+                }
+                stations.Add(b);
+            }
+
+            // ---- runs: the stretches between entrances ----
+            List<EdgeStation> run = null;
+            for (int i = 0; i + 1 < stations.Count; i++)
+            {
+                float a0 = stations[i], a1 = stations[i + 1];
+                if (InGapArc((a0 + a1) * 0.5f)) { run = null; continue; }
+                if (run == null)
+                {
+                    run = new List<EdgeStation>();
+                    runs.Add(run);
+                    At(a0, out var p0, out var o0);
+                    run.Add(new EdgeStation { foot = p0, outward = o0, lift = Lift(a0) });
+                }
+                At(a1, out var p1, out var o1);
+                run.Add(new EdgeStation { foot = p1, outward = o1, lift = Lift(a1) });
+            }
+            return runs;
+        }
+
+        static float HorizontalDistance(Vector3 a, Vector3 b) =>
+            Mathf.Sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z));
+
+        /// <summary>
+        /// A RAISED KERB THAT A CAR CAN MOUNT: the stone you see, and a ramp
+        /// under it that the car actually meets.
+        ///
+        /// The town's two kerbs were 280 m BoxColliders — WorldKit.Box is solid
+        /// unless told otherwise, and nobody told it — standing 14 cm over the
+        /// road and 22 cm over the lawn, unbroken past all six lot entrances.
+        /// The car's body box leads every wheel ray, so it met the vertical
+        /// face first: a snag for a stock FD from the grass, a wall for a
+        /// lowered one, and a lowered car could not leave the street at all.
+        ///
+        /// So the two halves of a kerb are two meshes, the way the circuits'
+        /// street curb already works:
+        ///   * the STONE, render-only: a battered face, a flat top, and a back
+        ///     face hanging below the verge behind it;
+        ///   * the RAMP, a child MeshCollider on <paramref name="colliderLayer"/>:
+        ///     from the foot straight to the back of the top, a 31% climb
+        ///     (<see cref="KerbWidthM"/>). Over its first 30 cm a wheel sits a
+        ///     few centimetres into the drawn stone; at 240 lines from the chase
+        ///     camera that is the same compromise as the render-only skirts.
+        /// Where the lift is zero the stone is a flat strip at the road's
+        /// height and the ramp a flat collider — which is exactly what a dropped
+        /// kerb is.
+        /// </summary>
+        public static GameObject Kerb(Transform parent, string name, List<EdgeStation> run,
+                                      Material mat, int colliderLayer)
+        {
+            if (run == null || run.Count < 2) return null;
+            var v = new List<Vector3>();
+            var uv = new List<Vector2>();
+            var tri = new List<int>();
+            var cv = new List<Vector3>();
+            var ctri = new List<int>();
+            float dist = 0f;
+            for (int i = 0; i < run.Count; i++)
+            {
+                var st = run[i];
+                if (i > 0) dist += HorizontalDistance(run[i - 1].foot, st.foot);
+                Vector3 up = Vector3.up;
+                Vector3 a = st.foot;
+                Vector3 b = st.foot + st.outward * KerbFaceBatterM + up * st.lift;
+                Vector3 c = st.BackTop;
+                Vector3 d = c - up * (RoadsideRules.EdgeDropM + KerbBackHangM);
+                float u = dist / 2f;
+                v.Add(a); v.Add(b); v.Add(c); v.Add(d);
+                uv.Add(new Vector2(u, 0f)); uv.Add(new Vector2(u, 0.25f));
+                uv.Add(new Vector2(u, 0.5f)); uv.Add(new Vector2(u, 1f));
+                cv.Add(a); cv.Add(c);
+            }
+            for (int i = 0; i + 1 < run.Count; i++)
+            {
+                int s0 = i * 4, s1 = (i + 1) * 4;
+                Vector3 o = run[i].outward;
+                // Face toward the road, top up, back toward the verge. The
+                // desired directions carry a little UP so a face that has shrunk
+                // to a flat strip at a dropped kerb still resolves to facing
+                // the sky rather than a coin flip.
+                Quad(v, tri, s0 + 0, s1 + 0, s1 + 1, s0 + 1, (-o + Vector3.up * 0.2f));
+                Quad(v, tri, s0 + 1, s1 + 1, s1 + 2, s0 + 2, Vector3.up);
+                Quad(v, tri, s0 + 2, s1 + 2, s1 + 3, s0 + 3, (o + Vector3.up * 0.2f));
+                Quad(cv, ctri, i * 2, (i + 1) * 2, (i + 1) * 2 + 1, i * 2 + 1, Vector3.up);
+            }
+
+            var mesh = new Mesh { name = name };
+            mesh.SetVertices(v);
+            mesh.SetUVs(0, uv);
+            mesh.SetTriangles(tri, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            SaveMesh(mesh, name);
+
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.isStatic = true;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (mat != null) mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+
+            var ramp = new Mesh { name = name + "Ramp" };
+            ramp.SetVertices(cv);
+            ramp.SetTriangles(ctri, 0);
+            ramp.RecalculateNormals();
+            ramp.RecalculateBounds();
+            SaveMesh(ramp, name + "Ramp");
+            var col = new GameObject(name + "Ramp");
+            col.transform.SetParent(go.transform, false);
+            col.isStatic = true;
+            col.layer = colliderLayer;
+            col.AddComponent<MeshCollider>().sharedMesh = ramp;
+            return go;
+        }
+
+        /// <summary>The ground a surface's lawn edges meet, for
+        /// <see cref="Feather"/>: a world (x, z) to the height of the lawn's
+        /// COLLIDER there.</summary>
+        public delegate float GroundAt(float x, float z);
+
+        /// <summary>
+        /// THE LAWN GRADED UP TO A SURFACE'S EDGE.
+        ///
+        /// "Most roads aren't more than an inch above the shoulder dirt", and
+        /// the owner's rule behind it: roads that sit centimetres above the
+        /// ground meet it properly, not with a wall. Every slab in the town
+        /// and on the street was a flat skin 7-11 cm over a lawn sunk to keep
+        /// it from z-fighting the tarmac — a square step along every edge, and
+        /// a face the body box of a lowered car met before its wheels did.
+        ///
+        /// Raising the lawn is not the answer: it was sunk because a big
+        /// ground triangle's depth crosses the road's somewhere in the middle
+        /// distance and draws a band of grass across the carriageway. So the
+        /// lawn stays where it is and a strip of it is added over the gap, per
+        /// station along the edge:
+        ///   * its inner edge the owner's inch (<see cref="RoadsideRules.EdgeDropM"/>)
+        ///     under the surface's edge — the skirt shows that inch;
+        ///   * falling at <see cref="FeatherGrade"/> until it reaches the lawn,
+        ///     measured against the lawn's COLLIDER (<paramref name="groundAt"/>),
+        ///     and closing on it column by column, so a lattice crease under the
+        ///     feather is followed rather than cut through;
+        ///   * then its toe TUCKED under the lawn (<see cref="RoadsideRules.ToeTuckM"/>
+        ///     over <see cref="RoadsideRules.ToeTuckRunM"/>), so the two surfaces
+        ///     CROSS instead of abutting. A car rides the higher of two continuous
+        ///     surfaces, which is continuous: there is no lip to find.
+        /// Grass material with the lawn's own world UVs, so where the two do
+        /// fight for depth at the crossing, identical texels fight.
+        ///
+        /// A MeshCollider, off the road layer, named by the caller so audits
+        /// can tell it from the lawn. Stations that repeat an inner point with
+        /// a turning outward vector make a corner fan; the degenerate triangles
+        /// that leaves are dropped.
+        /// </summary>
+        /// <param name="edge">The surface's edge, AT the surface's height.</param>
+        public static GameObject Feather(Transform parent, string name, IList<Vector3> edge,
+                                         IList<Vector3> outward, GroundAt groundAt,
+                                         Material mat, float tile, int layer = 0)
+        {
+            int n = edge.Count;
+            if (n < 2) return null;
+            int per = FeatherColumns + 2;
+            var v = new List<Vector3>(n * per);
+            var uv = new List<Vector2>(n * per);
+            for (int k = 0; k < n; k++)
+            {
+                Vector3 o = outward[k]; o.y = 0f; o.Normalize();
+                Vector3 p0 = edge[k] - Vector3.up * RoadsideRules.EdgeDropM;
+                float above = p0.y - groundAt(p0.x, p0.z);
+                float run = Mathf.Clamp(above / FeatherGrade, FeatherMinRunM, FeatherMaxRunM);
+                for (int c = 0; c <= FeatherColumns; c++)
+                {
+                    float u = c / (float)FeatherColumns;
+                    Vector3 p = p0 + o * (run * u);
+                    // u = 0 is the edge exactly, whatever the lawn does.
+                    p.y = c == 0 ? p0.y : groundAt(p.x, p.z) + above * (1f - u);
+                    v.Add(p);
+                    uv.Add(new Vector2(p.x / tile, p.z / tile));
+                }
+                Vector3 toe = p0 + o * (run + RoadsideRules.ToeTuckRunM);
+                toe.y = groundAt(toe.x, toe.z) - RoadsideRules.ToeTuckM;
+                v.Add(toe);
+                uv.Add(new Vector2(toe.x / tile, toe.z / tile));
+            }
+            var tri = new List<int>();
+            for (int k = 0; k + 1 < n; k++)
+                for (int c = 0; c + 1 < per; c++)
+                    Quad(v, tri, k * per + c, (k + 1) * per + c, (k + 1) * per + c + 1,
+                         k * per + c + 1, Vector3.up);
+            if (tri.Count == 0) return null;
+
+            var mesh = new Mesh { name = name };
+            mesh.SetVertices(v);
+            mesh.SetUVs(0, uv);
+            mesh.SetTriangles(tri, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            AssertFacesUp(mesh, name);
+            SaveMesh(mesh, name);
+
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.isStatic = true;
+            go.layer = layer;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            if (mat != null) mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            go.AddComponent<MeshCollider>().sharedMesh = mesh;
+            return go;
+        }
+
+        /// <summary>The verge behind a kerb run: a <see cref="Feather"/> from
+        /// the back of the stone's top, station for station with the stone.</summary>
+        public static GameObject KerbVerge(Transform parent, string name, List<EdgeStation> run,
+                                           GroundAt groundAt, Material mat, float tile)
+        {
+            if (run == null || run.Count < 2) return null;
+            var edge = new List<Vector3>(run.Count);
+            var outs = new List<Vector3>(run.Count);
+            foreach (var st in run) { edge.Add(st.BackTop); outs.Add(st.outward); }
+            return Feather(parent, name, edge, outs, groundAt, mat, tile);
+        }
+
+        /// <summary>A stretch of a slab's edge that is NOT lawn — a building
+        /// standing on it, or another slab carrying on from it. In the world
+        /// coordinate that edge runs along: x for a Z edge, z for an X edge.</summary>
+        public readonly struct SlabCut
+        {
+            public readonly SlabEdge edge;
+            public readonly float from, to;
+            public SlabCut(SlabEdge edge, float from, float to)
+            {
+                this.edge = edge;
+                this.from = Mathf.Min(from, to);
+                this.to = Mathf.Max(from, to);
+            }
+        }
+
+        /// <summary>
+        /// Feathers round the lawn edges of a FLAT, axis-aligned slab: the
+        /// town's aprons, pads and lot entrances.
+        ///
+        /// The edges in <paramref name="edges"/>, less every <see cref="SlabCut"/>,
+        /// walked round the rectangle in one direction. Where two feathered
+        /// edges meet at a corner the strip carries on round it as a fan, so a
+        /// car cutting the corner diagonally meets graded lawn and not the
+        /// 7 cm point of the slab that the two straight feathers would have
+        /// left standing in the gap between them.
+        /// </summary>
+        public static void FeatherRect(Transform parent, string name,
+                                       float minX, float maxX, float minZ, float maxZ, float topY,
+                                       SlabEdge edges, GroundAt groundAt, Material mat, float tile,
+                                       params SlabCut[] cuts)
+        {
+            // Round the rectangle: MinZ west to east, MaxX south to north,
+            // MaxZ east to west, MinX north to south.
+            var flags = new[] { SlabEdge.MinZ, SlabEdge.MaxX, SlabEdge.MaxZ, SlabEdge.MinX };
+            var starts = new[] { new Vector3(minX, topY, minZ), new Vector3(maxX, topY, minZ),
+                                 new Vector3(maxX, topY, maxZ), new Vector3(minX, topY, maxZ) };
+            var outs = new[] { Vector3.back, Vector3.right, Vector3.forward, Vector3.left };
+            float[] lens = { maxX - minX, maxZ - minZ, maxX - minX, maxZ - minZ };
+
+            // Each side's feathered intervals, as distances from its start corner.
+            var spans = new List<(int side, float t0, float t1)>();
+            for (int s = 0; s < 4; s++)
+            {
+                if ((edges & flags[s]) == 0) continue;
+                var parts = new List<Vector2> { new Vector2(0f, lens[s]) };
+                foreach (var cut in cuts)
+                {
+                    if (cut.edge != flags[s]) continue;
+                    // World coordinate along the side -> distance from its start.
+                    float a, b;
+                    switch (s)
+                    {
+                        case 0: a = cut.from - minX; b = cut.to - minX; break;
+                        case 1: a = cut.from - minZ; b = cut.to - minZ; break;
+                        case 2: a = maxX - cut.to; b = maxX - cut.from; break;
+                        default: a = maxZ - cut.to; b = maxZ - cut.from; break;
+                    }
+                    var next = new List<Vector2>();
+                    foreach (var p in parts)
+                    {
+                        if (b <= p.x || a >= p.y) { next.Add(p); continue; }
+                        if (a > p.x) next.Add(new Vector2(p.x, a));
+                        if (b < p.y) next.Add(new Vector2(b, p.y));
+                    }
+                    parts = next;
+                }
+                foreach (var p in parts)
+                    if (p.y - p.x > 0.05f) spans.Add((s, p.x, p.y));
+            }
+            if (spans.Count == 0) return;
+
+            bool Joins(int i)          // does span i carry on round a corner into span i+1?
+            {
+                var a = spans[i];
+                var b = spans[(i + 1) % spans.Count];
+                return b.side == (a.side + 1) % 4 && a.t1 >= lens[a.side] - 1e-3f && b.t0 <= 1e-3f;
+            }
+            // Start the walk at a span nothing runs into, unless the ring is closed.
+            int first = 0;
+            bool closed = true;
+            for (int i = 0; i < spans.Count; i++)
+                if (!Joins((i - 1 + spans.Count) % spans.Count)) { first = i; closed = false; break; }
+
+            var edge = new List<Vector3>();
+            var outward = new List<Vector3>();
+            int chain = 0;
+            void Flush()
+            {
+                if (edge.Count >= 2)
+                    Feather(parent, name + chain++, edge, outward, groundAt, mat, tile);
+                edge.Clear();
+                outward.Clear();
+            }
+            for (int k = 0; k < spans.Count; k++)
+            {
+                int i = (first + k) % spans.Count;
+                var sp = spans[i];
+                Vector3 dir = (starts[(sp.side + 1) % 4] - starts[sp.side]).normalized;
+                int steps = Mathf.Max(1, Mathf.CeilToInt((sp.t1 - sp.t0) / FeatherStationPitchM));
+                for (int st = 0; st <= steps; st++)
+                {
+                    edge.Add(starts[sp.side] + dir * Mathf.Lerp(sp.t0, sp.t1, st / (float)steps));
+                    outward.Add(outs[sp.side]);
+                }
+                bool last = k == spans.Count - 1;
+                if (Joins(i) && (!last || closed))
+                {
+                    // The fan: the corner point again, the outward vector turned
+                    // a quarter of the way at a time toward the next side's.
+                    Vector3 corner = edge[edge.Count - 1];
+                    Vector3 nextOut = outs[(sp.side + 1) % 4];
+                    for (int f = 1; f < 4; f++)
+                    {
+                        edge.Add(corner);
+                        outward.Add(Vector3.Slerp(outs[sp.side], nextOut, f / 4f).normalized);
+                    }
+                    if (last) { edge.Add(edge[0]); outward.Add(outward[0]); }
+                }
+                else Flush();
+            }
+            Flush();
+        }
+
+        /// <summary>
+        /// Two triangles over a quad, each wound to face <paramref name="want"/>
+        /// and dropped if it has no area — the fan at a corner and a kerb face
+        /// at a dropped kerb both produce triangles with two vertices in the
+        /// same place, and a MeshCollider has no use for them.
+        /// </summary>
+        static void Quad(List<Vector3> v, List<int> tri, int a, int b, int c, int d, Vector3 want)
+        {
+            Tri(v, tri, a, b, c, want);
+            Tri(v, tri, a, c, d, want);
+        }
+
+        static void Tri(List<Vector3> v, List<int> tri, int a, int b, int c, Vector3 want)
+        {
+            Vector3 n = Vector3.Cross(v[b] - v[a], v[c] - v[a]);
+            if (n.sqrMagnitude < 1e-10f) return;
+            if (Vector3.Dot(n, want) < 0f) { tri.Add(a); tri.Add(c); tri.Add(b); }
+            else { tri.Add(a); tri.Add(b); tri.Add(c); }
         }
 
         /// <summary>A box. Sizes are FULL extents, the way a person measures a

@@ -23,6 +23,10 @@ namespace PSXRacing
     ///   beached  — stationary while asking for throttle or brake, in clear air.
     ///              Usually a kerb or the scenery.
     ///   rolled   — on the roof or on a side. Nothing the player does helps.
+    ///
+    /// And three ways to have LEFT THE ROAD for good, recovered at once with
+    /// no warning (see <see cref="LeftTheRoad"/>): under the world's floor,
+    /// in the sea, or fallen below the road onto something that is not one.
     /// </summary>
     [RequireComponent(typeof(CarController))]
     public class StuckRecovery : MonoBehaviour
@@ -117,8 +121,84 @@ namespace PSXRacing
         /// Derived from the route rather than a constant, because "too low"
         /// means something different on a sea-level island and a mountain
         /// 1200 m up.
+        ///
+        /// THE BACKSTOP, not the rule. Almost nothing that goes over an edge
+        /// ever reaches it: a circuit keeps terrain under its spans, a stage
+        /// span releases to the land, and Bogue Banks collides a seabed 4 m under
+        /// the sound across its whole 340 m near band — so a car that dropped
+        /// off a deck landed well above this, on its wheels, and was never
+        /// recovered at all unless it also rolled or the player found the
+        /// reset. <see cref="FellBelowTheRoad"/> and <see cref="seaY"/> are
+        /// what catch those; this still catches whatever falls past them.
         /// </summary>
         float floorY = float.NegativeInfinity;
+
+        // ------------------------------------------------------------------
+        //  Fallen below the road
+        // ------------------------------------------------------------------
+        /// <summary>How far under the road a car has to be before it has
+        /// FALLEN rather than run wide. A graded stage fill (RoadsideRules:
+        /// RecoverableSlope 1V:6H across ClearZoneM 3.5 m from the shoulder at
+        /// 1.1 m, SteepestRecoverableSlope 1V:4H beyond) is only 0.59 m down
+        /// at the edge of the clear zone and does not reach 3 m until 14.2 m
+        /// past the tarmac, off the recoverable roadside altogether;
+        /// and it is well short of any deck — Bogue's bridge stands 20 m over
+        /// the water, a Charlotte deck 5.55 m over the road beneath it.</summary>
+        const float FellBelowRoadM = 3f;
+        /// <summary>Metres past half the road's width within which "below the
+        /// road" is measured: room for a car that went over an edge at speed
+        /// and carried on across the land under it, but not so much that a
+        /// road on the far side of a valley is ever the one it is said to
+        /// have fallen from.</summary>
+        const float FellLateralMarginM = 30f;
+        /// <summary>Seconds with no wheel on the Road layer before a fall is
+        /// believed. A car airborne off a crest is back down inside a second;
+        /// a car that went over a parapet 20 m up is still falling.</summary>
+        const float FellNoRoadSeconds = 1.5f;
+        /// <summary>How often the geometric half of the test is asked once the
+        /// cheap half passes. The city's asks the road graph, which is not a
+        /// per-frame query on a phone; a quarter of a second is imperceptible
+        /// next to the one and a half already waited.</summary>
+        const float FellPollSeconds = 0.25f;
+        /// <summary>Search radius for the nearest Charlotte street: past the
+        /// lateral margin plus half the widest carriageway RoadProfiles builds
+        /// (a seven-lane street, about 13 m), so a miss is never a street the
+        /// test would have counted.</summary>
+        const float CityFellSearchM = 60f;
+
+        /// <summary>Seconds since any wheel last stood on the Road layer.</summary>
+        float sinceRoadContact;
+        /// <summary>The car's height when it last did — or when it was last
+        /// teleported, since every teleport puts it on a road (a respawn, a
+        /// grid, the city's seat on its street). Negative infinity until the
+        /// first of either, so a car that has never been on a road cannot be
+        /// said to have fallen off one.</summary>
+        float lastRoadY = float.NegativeInfinity;
+        float fellPoll;
+        /// <summary><see cref="CarController.TeleportCount"/> as last seen.</summary>
+        int seenTeleports;
+
+        // ------------------------------------------------------------------
+        //  In the sea
+        // ------------------------------------------------------------------
+        /// <summary>The stage builder's water plane is a GameObject by this
+        /// name (PSXRacingBuilder.Stage.cs, BuildStageSea). It has NO
+        /// collider, on purpose: its comment names this component as what
+        /// brings a car back out of it.</summary>
+        const string SeaObjectName = "Sea";
+        /// <summary>How far under the water plane a car's origin has to be
+        /// before it is in the sea rather than on the beach. The Bogue bake
+        /// holds marsh — the lowest land it builds — 0.35 m above the plane,
+        /// other land 0.4 m and the road 0.6 m (tools/bogue/fetch_bogue.mjs).
+        /// A car's origin can be pressed under the surface it stands on only
+        /// until its body box meets it: about 0.25 m on the FD, 0.42 m on the
+        /// van, 0.6 m on the Land Rover — so even the tallest shell bottoming
+        /// out on marsh stays a quarter of a metre clear of this. Half a
+        /// metre under the plane, the sills are under water.</summary>
+        const float SeaDepthM = 0.5f;
+        /// <summary>The water plane's height in this scene, or negative
+        /// infinity where there is no sea.</summary>
+        float seaY = float.NegativeInfinity;
 
         void Awake()
         {
@@ -143,6 +223,16 @@ namespace PSXRacing
                 // nothing that is still in the world can reach it.
                 floorY = lowest - 60f;
             }
+
+            // The drawn plane, not the catalog's number for it: TrackIndex
+            // names whatever venue the menu last chose, which a scene opened
+            // straight from the editor never set, and the height the water is
+            // DRAWN at is the one a player sees the car go under. Renderer bounds
+            // rather than the mesh, which static batching replaces; a flat
+            // plane's box has no height, so its centre is the surface.
+            var sea = GameObject.Find(SeaObjectName);
+            var seaRenderer = sea != null ? sea.GetComponent<Renderer>() : null;
+            if (seaRenderer != null) seaY = seaRenderer.bounds.center.y;
         }
 
         void Update()
@@ -150,13 +240,19 @@ namespace PSXRacing
             bool live = DriveSession.Live &&
                         (input == null || input.inputEnabled) && !PauseMenu.IsOpen;
 
-            // Out of the world: recover NOW, with no warning banner and no
-            // grace period. The grace exists so a player who was about to free
-            // themselves still can, and there is no freeing yourself from this
-            // — by the time the prompt could be read the car is a kilometre
-            // down. Deliberately ahead of the parked-on-purpose excuses too:
-            // nobody parks below the seabed.
-            if (live && car != null && transform.position.y < floorY)
+            // Ahead of every gate: whether a wheel is on the road is a fact
+            // about the car during a countdown or a pause as much as while
+            // live, and the fall test needs to know how long ago it last was.
+            if (car != null) TrackRoadContact(Time.deltaTime);
+
+            // Off the road for good: recover NOW, with no warning banner and
+            // no grace period. The grace exists so a player who was about to
+            // free themselves still can, and there is no freeing yourself from
+            // this — a car under the world is a kilometre down by the time the
+            // prompt could be read, and one in the sound or on a gorge floor
+            // has no road it can climb back to. Deliberately ahead of the
+            // parked-on-purpose excuses too: nobody parks below the seabed.
+            if (live && car != null && LeftTheRoad())
             {
                 DriveSession.Respawn(car);
                 stuckTimer = 0f;
@@ -166,6 +262,8 @@ namespace PSXRacing
                 // earned somewhere it no longer is; and the index hint is now
                 // a kilometre out.
                 wrongWayTimer = 0f; WrongWay = false; pathHint = -1;
+                // The fall test's own memory of the drop that fired it is
+                // cleared by the teleport itself: see TrackRoadContact.
                 return;
             }
 
@@ -273,6 +371,127 @@ namespace PSXRacing
 
             Prompt = "STUCK — " + ResetControlName() + "\nAUTO-RESET IN " +
                      Mathf.CeilToInt(untilReset);
+        }
+
+        void TrackRoadContact(float dt)
+        {
+            // A TELEPORT STARTS THE COUNT AGAIN, whoever did it: this one's
+            // respawn above, the stuck countdown's, R, the pause menu's RESET
+            // CAR. The car is on a road now, and the wheel contacts are still
+            // the last physics step's — the place it was taken FROM. Holding
+            // on to that across a reset onto a street under a deck reads as a
+            // car 3 m below its last road and below the deck overhead in plan,
+            // and throws it back up onto the overpass before its wheels have
+            // reported the street it was put on.
+            if (car.TeleportCount != seenTeleports)
+            {
+                seenTeleports = car.TeleportCount;
+                sinceRoadContact = 0f;
+                lastRoadY = transform.position.y;
+                fellPoll = 0f;
+                return;
+            }
+
+            // grounded first: onRoad is left as it was when a wheel lifts
+            var wheels = car.wheelContacts;
+            for (int i = 0; i < wheels.Length; i++)
+                if (wheels[i].grounded && wheels[i].onRoad)
+                {
+                    sinceRoadContact = 0f;
+                    lastRoadY = transform.position.y;
+                    return;
+                }
+            sinceRoadContact += dt;
+        }
+
+        /// <summary>
+        /// Has the car left the road in a way no driving brings it back from?
+        /// Under the world's floor; under the sea; or fallen below the road.
+        ///
+        /// The sea is a plane with no collider, so a car over a Bogue parapet
+        /// used to settle on the seabed 4 m down and drive about under the
+        /// sound, recovered only if it happened to roll. There is no beach
+        /// under the plane and no road either, so being under it is the whole
+        /// test. Like the floor, it stands ahead of the on-foot excuse:
+        /// nobody parks in the sea.
+        /// </summary>
+        bool LeftTheRoad()
+        {
+            float y = transform.position.y;
+            if (y < floorY || y < seaY - SeaDepthM) return true;
+            // A car with nobody in it is parked, not fallen: the same rule as
+            // the watchdog below, for the same reason.
+            return !OnFoot.ForecourtMode.OnFoot && FellBelowTheRoad(y);
+        }
+
+        /// <summary>
+        /// FELL BELOW THE ROAD: over a deck edge onto a gorge floor, off a
+        /// fill down the land under it, through a gap in a rail onto the
+        /// street beneath. The car is on its wheels, so it is neither rolled
+        /// nor beached, and it can drive, so it is never trapped; before this
+        /// it could drive about down there for as long as the player liked,
+        /// and inside the off-track banner's 20 m it was not even told how to
+        /// get out.
+        ///
+        /// Three things, all of which must hold:
+        ///
+        ///   no wheel on the Road layer for <see cref="FellNoRoadSeconds"/> —
+        ///     which is what keeps this off a car legitimately on the LOWER
+        ///     road of a grade separation, however far below the upper one
+        ///     it is. Every tarmac ribbon is on that layer, across its decks
+        ///     too, and so are the forecourts and Charlotte's streets;
+        ///   <see cref="FellBelowRoadM"/> below where the car last HAD one —
+        ///     it came off a road rather than drove out to low ground. That is
+        ///     Charlotte free roam's grass under a viaduct: level land a car
+        ///     reaches from the street beside it, where the nearest road in
+        ///     plan is the deck overhead;
+        ///   that far below the road it is beside, within
+        ///     <see cref="FellLateralMarginM"/> past half its width —
+        ///     measured against the car's OWN leg of a race (RaceManager's
+        ///     progress index as the hint), so the lower leg of a hairpin or
+        ///     the Parkway loop's road under its own bridge is never the one it
+        ///     is judged by; and in free roam against the nearest street on
+        ///     the graph, at that street's solved height.
+        /// </summary>
+        bool FellBelowTheRoad(float y)
+        {
+            if (sinceRoadContact < FellNoRoadSeconds || !(lastRoadY - y > FellBelowRoadM))
+            {
+                fellPoll = 0f;
+                return false;
+            }
+            fellPoll -= Time.deltaTime;
+            if (fellPoll > 0f) return false;
+            fellPoll = FellPollSeconds;
+
+            Vector3 pos = transform.position;
+            var mgr = RaceManager.Instance;
+            if (mgr != null)
+            {
+                var path = mgr.path;
+                if (path == null || path.Count < 2) return false;
+                // The progress index follows the car along its own leg every
+                // frame; this component's hint only moves while the car is
+                // quick or off track, and a car dropping straight down is
+                // neither. A finished car's progress stops updating.
+                var progress = mgr.GetProgress(car);
+                int hint = progress != null && !progress.finished ? progress.nearestIdx : pathHint;
+                pathHint = path.NearestIndex(pos, hint);
+                return pos.y < path.GetPoint(pathHint).y - FellBelowRoadM &&
+                       Lateral(path, pathHint) < path.roadWidth * 0.5f + FellLateralMarginM;
+            }
+
+            // Free roam. A city RACE has a RaceManager and took the branch above.
+            var city = City.CityMode.Instance;
+            var map = city != null && city.world != null ? city.world.Map : null;
+            if (map == null) return false;   // the town: no graph, and nothing to fall from
+            if (!map.NearestRoadPoint(new Vector2(pos.x, pos.z), CityFellSearchM, skipLinks: false,
+                                      out int ei, out float at, out float dist))
+                return false;
+            var edge = map.edges[ei];
+            if (edge.stS == null || edge.stS.Length == 0) return false;
+            return dist < edge.width * 0.5f + FellLateralMarginM &&
+                   pos.y < edge.YAt(at) - FellBelowRoadM;
         }
 
         /// <summary>How far off the centreline stops being "running wide" and

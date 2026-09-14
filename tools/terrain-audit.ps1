@@ -1,7 +1,8 @@
 # Mirror to the sandbox, rebuild the circuits, and drop rays onto every one of
 # them: does the ground ever come up through the tarmac, is there actually a
-# hole under each bridge, and can you see daylight under anything standing
-# beside the road.
+# hole under each bridge, can you see daylight under anything standing beside
+# the road, and does the ground lattice stay under the shoulder surface (no
+# grass through it). Exits 1 on any FAIL line.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\terrain-audit.ps1
 #
@@ -38,10 +39,15 @@ Invoke-UnityJob -Log "$proj\terrain.log" -UnityArgs @(
     "-executeMethod","PSXRacing.EditorTools.TerrainAudit.Run",
     "-logFile","$proj\terrain.log","-accept-apiupdate") | Out-Null
 
-Select-String -Path "$proj\terrain.log" -Pattern "error CS|Exception" |
+Select-String -Path "$proj\terrain.log" -Pattern "error CS|Exception" -ErrorAction SilentlyContinue |
     Select-Object -First 10 | ForEach-Object { $_.Line }
-if (Test-Path "$proj\PSXRacing_terrain_audit.txt") {
-    Get-Content "$proj\PSXRacing_terrain_audit.txt"
-} else {
+if (-not (Test-Path "$proj\PSXRacing_terrain_audit.txt")) {
     Write-Host "NO REPORT WRITTEN - the audit threw, see $proj\terrain.log"
+    exit 1
 }
+Get-Content "$proj\PSXRacing_terrain_audit.txt"
+# The same rule tools\verify.ps1 applies: any line that starts FAIL fails the
+# run, and so does the audit's own problem count (a missing scene is counted
+# there without a FAIL line).
+if (Select-String -Path "$proj\PSXRacing_terrain_audit.txt" -Pattern '^\s*FAIL|^TERRAIN AUDIT: \d+ PROBLEM' -CaseSensitive -Quiet) { exit 1 }
+exit 0

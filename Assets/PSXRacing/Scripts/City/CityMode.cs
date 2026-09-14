@@ -65,6 +65,10 @@ namespace PSXRacing.City
         float streetPoll;
         Vector3 spawnPos;
         Quaternion spawnRot;
+        /// <summary>The spawn was seated from the graph (<see cref="SeatOnStreet"/>
+        /// found a street), so its height is the road's own plus
+        /// <see cref="SpawnLiftM"/>, not a baked guess.</summary>
+        bool spawnSeated;
         bool stamped;
 
         /// <summary>The car came in THROUGH THE ZONE LINE, already rolling.</summary>
@@ -97,7 +101,7 @@ namespace PSXRacing.City
         {
             if (player != null)
             {
-                SeatOnStreet();
+                spawnSeated = SeatOnStreet();
                 spawnPos = player.transform.position;
                 spawnRot = player.transform.rotation;
                 var input = player.GetComponent<PlayerCarInput>();
@@ -157,16 +161,17 @@ namespace PSXRacing.City
         /// built first, and the pose written through TeleportTo so the
         /// interpolated body takes it.
         /// </summary>
-        void SeatOnStreet()
+        /// <returns>True if the car now stands on a street's solved height.</returns>
+        bool SeatOnStreet()
         {
-            if (world == null || world.Map == null) return;   // the town: a baked map, its own spawn
+            if (world == null || world.Map == null) return false;   // the town: a baked map, its own spawn
             var map = world.Map;
             var p = player.transform.position;
             if (!map.NearestRoadPoint(new Vector2(p.x, p.z), 120f, skipLinks: true,
                     out int ei, out float at, out _) &&
                 !map.NearestRoadPoint(new Vector2(p.x, p.z), 600f, skipLinks: false,
                     out ei, out at, out _))
-                return;
+                return false;
             var e = map.edges[ei];
             var q = e.PointAt(at);
             var t2 = e.TangentAt(at);
@@ -176,6 +181,7 @@ namespace PSXRacing.City
             var pos = new Vector3(q.x, e.YAt(at) + SpawnLiftM, q.y);
             world.EnsureRing(pos, 1);
             player.TeleportTo(pos, Quaternion.LookRotation(fwd, Vector3.up));
+            return true;
         }
 
         // ==================================================================
@@ -361,7 +367,7 @@ namespace PSXRacing.City
                 !map.NearestRoadPoint(new Vector2(p.x, p.z), 800f, skipLinks: false,
                     out ei, out at, out _))
             {
-                car.ResetTo(spawnPos, spawnRot);
+                ResetToSpawn(car);
                 return;
             }
 
@@ -387,8 +393,24 @@ namespace PSXRacing.City
                 if (s <= 0f || s >= e.length) break;
             }
 
+            // Nowhere with room: the nearest point anyway, at THIS street's
+            // solved height. Seated, because the graph already says where the
+            // tarmac is, and ResetTo's own probe from six metres up would find
+            // the deck of any road crossing over this one first (a Charlotte
+            // deck top is 5.55 m over the road beneath).
             var pt = e.PointAt(at);
-            car.ResetTo(new Vector3(pt.x, e.YAt(at) + 0.05f, pt.y), rot);
+            car.ResetTo(new Vector3(pt.x, e.YAt(at), pt.y), rot, seated: true);
+        }
+
+        /// <summary>Back to where the session started. Seated from the graph
+        /// when <see cref="SeatOnStreet"/> put it there — the same overpass
+        /// argument as the last resort in <see cref="Respawn"/> — and probed
+        /// otherwise, because the town's spawn is only the pose it was baked
+        /// at.</summary>
+        void ResetToSpawn(CarController car)
+        {
+            if (spawnSeated) car.ResetTo(spawnPos - Vector3.up * SpawnLiftM, spawnRot, seated: true);
+            else car.ResetTo(spawnPos, spawnRot);
         }
 
         /// <summary>Put a car back with no road graph to put it back ONTO: the
@@ -404,7 +426,7 @@ namespace PSXRacing.City
             foreach (var t in best)
                 if (DriveSession.TryPlace(car, t.position + Vector3.up * 0.2f, t.rotation))
                     return;
-            car.ResetTo(spawnPos, spawnRot);
+            ResetToSpawn(car);
         }
 
         /// <summary>

@@ -352,10 +352,17 @@ namespace PSXRacing.Town
             clear.Expand(ReArmMarginM * 2f);   // Expand adds half per side
             if (clear.Contains(at)) return;
             Vector3 c = box.bounds.center;
-            Vector3 entry = askedFrom - c;
-            // A car that somehow arrived dead on the centre gets the plain test:
-            // no side to go back to, so being outside is enough.
-            if (entry.sqrMagnitude < 0.01f || Vector3.Dot(at - c, entry) > 0f) asked = false;
+            // The SIDE is measured across the line (along `inward`), never as a
+            // full offset from the centre: the town's volumes span the whole map
+            // now (166 m), and a car that crossed on the lawn 40 m from the road
+            // and coasted out of the far face had an offset dominated by those
+            // 40 m, read as "back where it came in", re-armed, and was asked
+            // again on the way back up the street.
+            Vector3 across = inward.sqrMagnitude > 1e-6f ? inward.normalized : Vector3.forward;
+            float entry = Vector3.Dot(askedFrom - c, across);
+            // A car that somehow arrived dead on the line's middle gets the plain
+            // test: no side to go back to, so being outside is enough.
+            if (Mathf.Abs(entry) < 0.1f || Vector3.Dot(at - c, across) * entry > 0f) asked = false;
         }
     }
 }

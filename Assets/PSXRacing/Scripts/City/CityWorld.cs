@@ -290,11 +290,24 @@ namespace PSXRacing.City
             if (tm.barriers != null)
             {
                 // Solid, like a pier: CollisionAudio and the stuck watchdog
-                // treat the layer as a wall, which is what a Jersey barrier is.
+                // treat the layer as a wall, which is what a Jersey barrier, a
+                // retaining wall and a bridge rail all are. The rails lived in
+                // the Roads mesh until 2026-09-13, so the wheel rays (which
+                // skip only this layer) could stand a car on a rail's top.
                 var g = Child(root, "Barriers", SolidLayer);
                 Render(g, tm.barriers, new[] { CityMeshes.Slot.Concrete }, matFor);
                 g.AddComponent<MeshCollider>().sharedMesh = tm.barriers;
                 meshes.Add(tm.barriers);
+            }
+            if (tm.kerbs != null)
+            {
+                // RENDER-ONLY, deliberately: the inch of face under a grounded
+                // edge. As a collider it was a 20 cm wall along every street
+                // that the car's body box met before its wheels saw the edge;
+                // the verge in the ground mesh is what the car climbs back on.
+                var g = Child(root, "Kerbs", 0);
+                Render(g, tm.kerbs, new[] { CityMeshes.Slot.Concrete }, matFor);
+                meshes.Add(tm.kerbs);
             }
             if (tm.water != null)
             {

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEditor;
@@ -38,6 +39,7 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(OutDir);
 
             ProbeTown(log);
+            ProbeNeighborhood(log);
             ProbeSellerLot(log);
 
             File.WriteAllText("PSXRacing_townprobe.txt", log.ToString());
@@ -53,6 +55,12 @@ namespace PSXRacing.EditorTools
                 return;
             }
             EditorSceneManager.OpenScene(PSXRacingBuilder.TownScenePath, OpenSceneMode.Single);
+            Physics.SyncTransforms();
+
+            // THE EDGES FIRST, before the lot and the yard are dressed: a
+            // parked shell is a collider too, and none of them is a lip.
+            ProbeEdgeLips(log);
+            ProbeRespawns(log);
 
             // The lot and the yard are filled at RUNTIME, and AddComponent runs
             // no Start outside play mode — so without this the probe
@@ -86,7 +94,7 @@ namespace PSXRacing.EditorTools
             if (car != null)
             {
                 var from = car.transform.position + Vector3.up * 2f;
-                if (Physics.Raycast(from, Vector3.down, out var hit, 12f))
+                if (GroundUnder(from, 12f, out var hit))
                     log.AppendLine("  ground under the spawn: " + hit.collider.name +
                                    " layer " + hit.collider.gameObject.layer +
                                    " at y " + hit.point.y.ToString("0.00") +
@@ -95,11 +103,12 @@ namespace PSXRacing.EditorTools
                 else log.AppendLine("  NOTHING UNDER THE SPAWN");
             }
 
-            // WALK THE ROUTE. A picture of the junction showed a band of grass
-            // across the road that no bounds figure explained, and a photograph
-            // cannot say which collider it is looking at. This can: every four
-            // metres from the garage door to the main street, what is actually
-            // under the wheels.
+            // WALK ACROSS THE STREET. A photograph cannot say which collider it
+            // is looking at; this can: every half metre from the north verge
+            // to the south one at the spawn's x, what is actually under the
+            // wheels — lawn, verge, kerb ramp, tarmac. (It walked "the home
+            // street" from z 56 to -4 until the house moved to its own map,
+            // after which it measured a lawn.)
             // TRIGGERS OFF. The first strip reported "DepartVenue" for three
             // stations in a row and said nothing about the tarmac underneath —
             // a venue volume is a collider and a raycast hits it, so the answer
@@ -107,31 +116,30 @@ namespace PSXRacing.EditorTools
             // where you are going.
             bool wasTriggers = Physics.queriesHitTriggers;
             Physics.queriesHitTriggers = false;
-            log.AppendLine("home street, garage door to the main road:");
+            log.AppendLine("across the main street at the spawn, north verge to south verge:");
             string run = "";
             float lineX = car != null ? car.transform.position.x : -110f;
-            for (float z = 56f; z >= -4f; z -= 4f)
+            for (float z = 9f; z >= -9f; z -= 0.5f)
             {
                 var at = new Vector3(lineX, 4f, z);
                 string what = Physics.Raycast(at, Vector3.down, out var h, 12f)
                     ? h.collider.name + "(" + h.collider.gameObject.layer + ")@" +
                       h.point.y.ToString("0.000") : "NOTHING";
-                run += "z" + Mathf.RoundToInt(z) + " " + what + "   ";
+                run += "z" + z.ToString("0.0") + " " + what + "   ";
             }
             log.AppendLine("  " + run);
 
-            // EVERY surface stacked under one point in the band, with its
-            // height. A band of grass across a road that the strip says is
-            // continuous tarmac is either a second surface nobody meant to
-            // build or a depth fight, and this is the line that tells them
-            // apart.
-            var all = Physics.RaycastAll(new Vector3(lineX, 6f, 13f), Vector3.down, 14f);
+            // EVERY surface stacked under one point, with its height: the back
+            // of the north kerb, where the stone's ramp, the verge and the lawn
+            // all lie over each other and only the order says which one a
+            // wheel meets.
+            var all = Physics.RaycastAll(new Vector3(lineX, 6f, 5.9f), Vector3.down, 14f);
             System.Array.Sort(all, (a, b) => a.distance.CompareTo(b.distance));
             string stack = "";
             foreach (var h in all)
                 stack += h.collider.name + "(" + h.collider.gameObject.layer + ")@" +
                          h.point.y.ToString("0.000") + "  ";
-            log.AppendLine("  stacked at z13: " + (all.Length == 0 ? "nothing" : stack));
+            log.AppendLine("  stacked at the kerb's back: " + (all.Length == 0 ? "nothing" : stack));
             Physics.queriesHitTriggers = wasTriggers;
 
             // WHAT IS DRAWING THE GRASS. The band survived switching the ground
@@ -320,6 +328,397 @@ namespace PSXRacing.EditorTools
             // whether a lot has a way in.
             Shot("town_top", new Vector3(0f, 260f, 10f), Vector3.down, fov: 78f);
             Shot("town_top_home", new Vector3(-105f, 90f, 34f), Vector3.down, fov: 70f);
+        }
+
+        static void ProbeNeighborhood(StringBuilder log)
+        {
+            log.AppendLine();
+            log.AppendLine("=== NEIGHBOURHOOD ===");
+            if (!File.Exists(PSXRacingBuilder.NeighborhoodScenePath))
+            {
+                log.AppendLine("scene missing — run the scene build");
+                return;
+            }
+            EditorSceneManager.OpenScene(PSXRacingBuilder.NeighborhoodScenePath, OpenSceneMode.Single);
+            Physics.SyncTransforms();
+            var car = Object.FindAnyObjectByType<CarController>();
+            if (car != null && GroundUnder(car.transform.position + Vector3.up * 2f, 12f, out var hit))
+                log.AppendLine("player car on " + hit.collider.name + " layer " +
+                               hit.collider.gameObject.layer +
+                               (hit.collider.gameObject.layer == WorldKit.RoadLayer ? "  (road, good)"
+                                                                                    : "  (NOT ROAD)"));
+            else log.AppendLine(car == null ? "NO PLAYER CAR" : "NOTHING UNDER THE SPAWN");
+            ProbeEdgeLips(log);
+            ProbeRespawns(log);
+        }
+
+        // ---- the edge-lip scan ----
+        /// <summary>Metres between scanned stations along an edge.</summary>
+        const float LipStationM = 1f;
+        /// <summary>The scan runs from this far INSIDE the edge...</summary>
+        const float LipInsideM = 0.3f;
+        /// <summary>...to this far outside it: past a feather's catch and its
+        /// toe, and past a kerb's verge.</summary>
+        const float LipOutsideM = 2.5f;
+        /// <summary>Sample pitch across the edge: a centimetre, so a feather's
+        /// own 1V:8H fall adds 1.25 mm to a sample and a lip reads as the lip.
+        /// At 5 cm the owner's inch on a 45% lawn read as 3.7 cm.</summary>
+        const float LipPitchM = 0.01f;
+        /// <summary>How far over RoadsideRules.EdgeDropM a lip may read before
+        /// it WARNS: the slope a sample carries across a centimetre of steep
+        /// lawn, plus float. The FAIL line has no tolerance.</summary>
+        const float LipToleranceM = 0.005f;
+        /// <summary>Each sample's downward ray starts this far over the edge and
+        /// runs this far: it finds ground from 3 m above the road to 5 m
+        /// below it, and anything deeper reads as the ray's floor.</summary>
+        const float LipRayUpM = 3f, LipRayLengthM = 8f;
+        /// <summary>Sample pitch of the barrier-warrant walk: the circuits'
+        /// edge audit's own 5 cm. A warrant is a question about metres of
+        /// fall, not about the centimetre a lip is.</summary>
+        const float WarrantPitchM = 0.05f;
+        /// <summary>Each warrant sample's ray starts this far over the edge —
+        /// as high as a 1:1 cut can climb inside RoadsideRules.WarrantReachM,
+        /// so a bank rising beside a drive is ground and not a void under the
+        /// ray — and finds ground down to the same 5 m under the edge the lip
+        /// rays do.</summary>
+        const float WarrantRayUpM = RoadsideRules.WarrantReachM;
+
+        /// <summary>
+        /// DOES EVERY EDGE MEET WHAT IS BESIDE IT, as a car driving back onto
+        /// it would find it?
+        ///
+        /// Written for "it is difficult to drive back onto tracks … roads stick
+        /// out of the ground". The town had never been measured at all: its
+        /// kerbs were 16 cm solid boxes and every slab a square 7.5 cm step, and
+        /// no audit, probe or self-test looked, because they all run on
+        /// TrackCatalog venues.
+        ///
+        /// Every ROAD-LAYER collider's true boundary — a mesh's edges that
+        /// belong to one triangle, a box's top rectangle — every metre, scanned
+        /// outward from 30 cm inside to 2.5 m outside at 1 cm. At each sample,
+        /// the highest GROUND or ROAD collider under it (layers 0 and 8: the
+        /// lawn, feathers, verges, slabs, kerb ramps). The number is the worst
+        /// RISE between two neighbouring samples going INWARD — the step a car
+        /// coming back meets — against RoadsideRules.EdgeDropM (WARN) and
+        /// EdgeDropFailM (FAIL). A sloped surface costs a millimetre or so per
+        /// sample; a face is one jump.
+        ///
+        /// A FALL IS NOT A LIP, and they are counted apart. Where the ground
+        /// within the scan lies more than RoadsideRules.OpenDropM under the
+        /// edge — the side of a drive graded down a hillside, the outer face of
+        /// a retaining wall a metre and a half out — the question is the
+        /// barrier warrant, not the owner's inch; a step whose foot is that far
+        /// down is that fall's face and is listed as a FALL, never folded into
+        /// the lip figure (where one 2 m wall would hide every 3 cm lip on the
+        /// street behind it). Ground past the reach of the downward ray is a
+        /// fall too, not a gap in the scan.
+        ///
+        /// AND THE WARRANT ITSELF IS WALKED, separately, the way the circuits'
+        /// edge audit and the stage plan walk it: RoadsideRules.WorstCriticalFall
+        /// from the edge out to RoadsideRules.WarrantReachM, ending at the first
+        /// solid face across it. The FALL list above looks 2.5 m out, which is
+        /// where the lips are, and half the warrant's reach: it listed 1.04 m
+        /// beside the south edge of NbDrive0 (plot 0, west side) while a
+        /// replica of this walk found the same garden 1.5-1.73 m down at 4.5-5.0
+        /// m out, steeper than 1V:3H — critical under the shared rule and
+        /// invisible to a 2.5 m scan (2026-09-13, round-one meshes). And the
+        /// FALL list counts any metre of depth at any slope, where the warrant
+        /// asks for CriticalFallM over a run steeper than TraversableSlope; it
+        /// stays, as the screen for a structure edge over OpenDropM. Critical
+        /// stations are tagged WARRANT.
+        ///
+        /// A station whose edge stands inside a SOLID-layer collider (the
+        /// street running under a boundary wall) or under one (a drive's end
+        /// inside its garage — asked with back faces ON, because a pack
+        /// house's roof is one-sided and faces the sky) is not a lip anyone can
+        /// reach, and a scan stops at the first solid face across it (a
+        /// building, a lot wall).
+        /// </summary>
+        static void ProbeEdgeLips(StringBuilder log)
+        {
+            int groundMask = (1 << 0) | (1 << WorldKit.RoadLayer);
+            int solidMask = 1 << WorldKit.SolidLayer;
+            int surfaces = 0, stations = 0, walled = 0, warn = 0, fail = 0, falls = 0, critical = 0;
+            var worst = new List<(float rise, string where)>();
+            var worstFalls = new List<(float fall, string where)>();
+            var worstCritical = new List<(float fall, string where)>();
+            var failsBy = new System.Collections.Generic.Dictionary<string, int>();
+            // One buffer for every station's walk: sample 0 is the edge, and
+            // the walk never reaches past WarrantReachM.
+            var warrantY = new float[Mathf.CeilToInt(RoadsideRules.WarrantReachM / WarrantPitchM) + 2];
+
+            foreach (var col in Object.FindObjectsByType<Collider>(FindObjectsSortMode.None))
+            {
+                if (col == null || !col.enabled || col.isTrigger) continue;
+                if (col.gameObject.layer != WorldKit.RoadLayer) continue;
+                if (col.GetComponentInParent<CarController>() != null) continue;
+                var edges = EdgesOf(col);
+                if (edges.Count == 0) continue;
+                surfaces++;
+                foreach (var (a, b, outward) in edges)
+                {
+                    float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
+                    int n = Mathf.Max(1, Mathf.RoundToInt(len / LipStationM));
+                    for (int k = 0; k < n; k++)
+                    {
+                        Vector3 p = Vector3.Lerp(a, b, (k + 0.5f) / n);
+                        stations++;
+                        // Under a wall, or under a roof: the end of a drive inside
+                        // its own garage is not an edge a car comes back over.
+                        bool roofed;
+                        bool backfaces = Physics.queriesHitBackfaces;
+                        Physics.queriesHitBackfaces = true;
+                        try
+                        {
+                            roofed = Physics.Raycast(p + Vector3.up * 0.1f, Vector3.up, 12f, solidMask,
+                                                     QueryTriggerInteraction.Ignore);
+                        }
+                        finally { Physics.queriesHitBackfaces = backfaces; }
+                        if (roofed || Physics.CheckSphere(p + Vector3.up * 0.5f, 0.25f, solidMask,
+                                                          QueryTriggerInteraction.Ignore))
+                        { walled++; continue; }
+                        float reach = LipOutsideM;
+                        if (Physics.Raycast(p + Vector3.up * 0.35f - outward * LipInsideM, outward,
+                                            out var wall, LipInsideM + LipOutsideM, solidMask,
+                                            QueryTriggerInteraction.Ignore))
+                            reach = wall.distance - LipInsideM - LipPitchM;
+
+                        float prev = float.NaN, rise = 0f, riseAt = 0f, fall = 0f, fallAt = 0f;
+                        for (float e = -LipInsideM; e <= reach + 1e-4f; e += LipPitchM)
+                        {
+                            Vector3 q = p + outward * e;
+                            // Nothing within the ray is ground further down than it
+                            // reaches: a fall, recorded at the ray's own floor.
+                            float y = Physics.Raycast(new Vector3(q.x, p.y + LipRayUpM, q.z), Vector3.down,
+                                                      out var h, LipRayLengthM, groundMask,
+                                                      QueryTriggerInteraction.Ignore)
+                                ? h.point.y : p.y + LipRayUpM - LipRayLengthM;
+                            if (e > 0f && p.y - y > fall) { fall = p.y - y; fallAt = e; }
+                            // Inward is toward smaller e: the previous sample. A
+                            // step whose foot is a fall's depth down is that
+                            // fall's face, not a lip.
+                            if (!float.IsNaN(prev) && prev - y > rise && p.y - y <= RoadsideRules.OpenDropM)
+                            { rise = prev - y; riseAt = e; }
+                            prev = y;
+                        }
+                        if (fall > RoadsideRules.OpenDropM)
+                        {
+                            falls++;
+                            worstFalls.Add((fall, col.name + " at (" + p.x.ToString("0.0") + ", " +
+                                                  p.z.ToString("0.0") + ") facing (" + outward.x.ToString("0.0") +
+                                                  ", " + outward.z.ToString("0.0") + "), " +
+                                                  fallAt.ToString("0.00") + " m out"));
+                        }
+                        // THE WARRANT: sample 0 is the edge's own height (a ray
+                        // dropped exactly on a collider's boundary can fall past
+                        // it), then the highest ground every WarrantPitchM out,
+                        // NaN where there is none within reach — a void, which
+                        // WorstCriticalFall calls a fall with no bottom. A solid
+                        // face across the walk ends it: a car meets that before
+                        // the fall behind it.
+                        float warrantReach = RoadsideRules.WarrantReachM;
+                        if (Physics.Raycast(p + Vector3.up * 0.35f, outward, out var guard, warrantReach,
+                                            solidMask, QueryTriggerInteraction.Ignore))
+                            warrantReach = guard.distance - WarrantPitchM;
+                        int nw = Mathf.Clamp(Mathf.FloorToInt(warrantReach / WarrantPitchM + 1e-3f) + 1,
+                                             1, warrantY.Length);
+                        warrantY[0] = p.y;
+                        for (int w = 1; w < nw; w++)
+                        {
+                            Vector3 q = p + outward * (w * WarrantPitchM);
+                            warrantY[w] = Physics.Raycast(new Vector3(q.x, p.y + WarrantRayUpM, q.z), Vector3.down,
+                                                          out var gh, WarrantRayUpM + (LipRayLengthM - LipRayUpM),
+                                                          groundMask, QueryTriggerInteraction.Ignore)
+                                        ? gh.point.y : float.NaN;
+                        }
+                        float crit = RoadsideRules.WorstCriticalFall(warrantY, 0, nw - 1, WarrantPitchM, 0f,
+                                                                     out int footK);
+                        if (footK >= 0)
+                        {
+                            critical++;
+                            worstCritical.Add((crit, col.name + " at (" + p.x.ToString("0.0") + ", " +
+                                                     p.z.ToString("0.0") + ") facing (" + outward.x.ToString("0.0") +
+                                                     ", " + outward.z.ToString("0.0") + "), foot " +
+                                                     (footK * WarrantPitchM).ToString("0.00") + " m out" +
+                                                     (float.IsPositiveInfinity(crit) ? " (no ground under it)" : "")));
+                        }
+
+                        if (rise > RoadsideRules.EdgeDropM + LipToleranceM) warn++;
+                        if (rise > RoadsideRules.EdgeDropFailM)
+                        {
+                            fail++;
+                            failsBy.TryGetValue(col.name, out int c);
+                            failsBy[col.name] = c + 1;
+                        }
+                        worst.Add((rise, col.name + " at (" + p.x.ToString("0.0") + ", " +
+                                         p.z.ToString("0.0") + ") facing (" + outward.x.ToString("0.0") +
+                                         ", " + outward.z.ToString("0.0") + "), " +
+                                         riseAt.ToString("0.00") + " m out"));
+                    }
+                }
+            }
+
+            worst.Sort((x, y) => y.rise.CompareTo(x.rise));
+            log.AppendLine("edge lips: " + stations + " stations on " + surfaces + " road surfaces (" +
+                           walled + " under a wall)  worst climb back " +
+                           (worst.Count > 0 ? worst[0].rise.ToString("0.000") : "-") + " m" +
+                           (fail > 0 ? "  FAIL" : warn > 0 ? "  WARN" : "  OK"));
+            log.AppendLine("  over the inch (" + (RoadsideRules.EdgeDropM + LipToleranceM).ToString("0.000") +
+                           " with sampling): " + warn +
+                           "   over the fail line (" + RoadsideRules.EdgeDropFailM.ToString("0.000") +
+                           "): " + fail);
+            foreach (var kv in failsBy)
+                log.AppendLine("  FAIL on " + kv.Key + ": " + kv.Value + " station(s)");
+            for (int i = 0; i < Mathf.Min(12, worst.Count); i++)
+                log.AppendLine("  " + worst[i].rise.ToString("0.000") + " m  " + worst[i].where);
+
+            worstFalls.Sort((x, y) => y.fall.CompareTo(x.fall));
+            log.AppendLine("falls beside an edge (ground more than " + RoadsideRules.OpenDropM.ToString("0.0") +
+                           " m under it within " + LipOutsideM.ToString("0.0") + " m): " + falls + " station(s)" +
+                           (falls > 0 ? "  FALL" : "  none"));
+            for (int i = 0; i < Mathf.Min(12, worstFalls.Count); i++)
+                log.AppendLine("  " + worstFalls[i].fall.ToString("0.00") + " m  " + worstFalls[i].where);
+
+            worstCritical.Sort((x, y) => y.fall.CompareTo(x.fall));
+            log.AppendLine("barrier warrant (RoadsideRules.WorstCriticalFall to " +
+                           RoadsideRules.WarrantReachM.ToString("0.0") + " m out, or the first solid face): " +
+                           critical + " station(s) critical and unguarded" + (critical > 0 ? "  WARRANT" : "  none"));
+            for (int i = 0; i < Mathf.Min(12, worstCritical.Count); i++)
+                log.AppendLine("  " + (float.IsPositiveInfinity(worstCritical[i].fall)
+                                           ? "void" : worstCritical[i].fall.ToString("0.00") + " m") +
+                               "  " + worstCritical[i].where);
+        }
+
+        /// <summary>
+        /// The horizontal boundary of a road collider, as world segments with
+        /// an outward direction. A MeshCollider's edges that belong to exactly
+        /// one triangle (welded to the millimetre, so a strip built with
+        /// duplicate vertices still has an inside), outward away from that
+        /// triangle; a BoxCollider's top rectangle, outward from its centre.
+        /// Near-vertical edges have no outward and are skipped.
+        /// </summary>
+        static List<(Vector3 a, Vector3 b, Vector3 outward)> EdgesOf(Collider col)
+        {
+            var result = new List<(Vector3, Vector3, Vector3)>();
+            if (col is BoxCollider box)
+            {
+                var t = box.transform;
+                Vector3 c = box.center, h = box.size * 0.5f;
+                var corners = new[]
+                {
+                    t.TransformPoint(c + new Vector3(-h.x, h.y, -h.z)),
+                    t.TransformPoint(c + new Vector3(h.x, h.y, -h.z)),
+                    t.TransformPoint(c + new Vector3(h.x, h.y, h.z)),
+                    t.TransformPoint(c + new Vector3(-h.x, h.y, h.z)),
+                };
+                Vector3 mid = (corners[0] + corners[2]) * 0.5f;
+                for (int i = 0; i < 4; i++)
+                {
+                    Vector3 a = corners[i], b = corners[(i + 1) % 4];
+                    Vector3 o = Outward(a, b, mid);
+                    if (o != Vector3.zero) result.Add((a, b, o));
+                }
+                return result;
+            }
+            if (!(col is MeshCollider mc) || mc.sharedMesh == null) return result;
+            var mesh = mc.sharedMesh;
+            var verts = mesh.vertices;
+            var tris = mesh.triangles;
+            var world = new Vector3[verts.Length];
+            var key = new int[verts.Length];
+            var weld = new System.Collections.Generic.Dictionary<Vector3Int, int>();
+            for (int i = 0; i < verts.Length; i++)
+            {
+                world[i] = mc.transform.TransformPoint(verts[i]);
+                var k = Vector3Int.RoundToInt(world[i] * 1000f);
+                if (!weld.TryGetValue(k, out int id)) { id = i; weld[k] = id; }
+                key[i] = id;
+            }
+            var count = new System.Collections.Generic.Dictionary<long, (int n, int a, int b, int c)>();
+            for (int t = 0; t + 2 < tris.Length; t += 3)
+                for (int e = 0; e < 3; e++)
+                {
+                    int a = key[tris[t + e]], b = key[tris[t + (e + 1) % 3]], c = key[tris[t + (e + 2) % 3]];
+                    if (a == b) continue;
+                    long id = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                    count[id] = count.TryGetValue(id, out var was) ? (was.n + 1, a, b, c) : (1, a, b, c);
+                }
+            foreach (var kv in count)
+            {
+                if (kv.Value.n != 1) continue;
+                Vector3 a = world[kv.Value.a], b = world[kv.Value.b], c = world[kv.Value.c];
+                Vector3 o = Outward(a, b, c);
+                if (o != Vector3.zero) result.Add((a, b, o));
+            }
+            return result;
+        }
+
+        /// <summary>The horizontal unit perpendicular to a→b that points away
+        /// from <paramref name="inside"/>, or zero for an edge with no plan
+        /// length.</summary>
+        static Vector3 Outward(Vector3 a, Vector3 b, Vector3 inside)
+        {
+            Vector3 d = b - a; d.y = 0f;
+            if (d.sqrMagnitude < 1e-6f) return Vector3.zero;
+            Vector3 o = new Vector3(d.z, 0f, -d.x).normalized;
+            Vector3 toIn = inside - a; toIn.y = 0f;
+            return Vector3.Dot(o, toIn) > 0f ? -o : o;
+        }
+
+        /// <summary>
+        /// The first thing straight down from <paramref name="from"/> that a car
+        /// could stand on: every layer, triggers ignored, and never a car's own
+        /// collider. Both spawn checks asked a plain raycast, and each could
+        /// answer with something that is not ground — the town's with a zone or
+        /// venue trigger (the default query hits triggers), the street's, which
+        /// asked every layer, with the parked player car's own body box (a
+        /// "surface" 1.57 m up that the self-test's HOME check also read). Now
+        /// that verify.ps1 fails a run on "NOT ROAD", the question has to be
+        /// the one it means. ProbeRespawns asks it the same way.
+        /// </summary>
+        static bool GroundUnder(Vector3 from, float reach, out RaycastHit ground)
+        {
+            ground = default;
+            var hits = Physics.RaycastAll(from, Vector3.down, reach, ~0, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (x, y) => x.distance.CompareTo(y.distance));
+            foreach (var h in hits)
+                if (h.collider.GetComponentInParent<CarController>() == null) { ground = h; return true; }
+            return false;
+        }
+
+        /// <summary>
+        /// Does every place a stuck car is put back stand on a ROAD collider?
+        /// The town's RespawnHome stood on the lawn 30 m from the street for a
+        /// year, facing a kerb, and nothing asked.
+        /// </summary>
+        static void ProbeRespawns(StringBuilder log)
+        {
+            var mode = Object.FindAnyObjectByType<PSXRacing.City.CityMode>();
+            if (mode == null || mode.respawnPoints == null || mode.respawnPoints.Length == 0)
+            {
+                log.AppendLine("respawns: NONE — FAIL");
+                return;
+            }
+            int good = 0;
+            foreach (var t in mode.respawnPoints)
+            {
+                if (t == null) { log.AppendLine("  respawn: NULL"); continue; }
+                var hits = Physics.RaycastAll(t.position + Vector3.up * 2f, Vector3.down, 8f,
+                                              ~0, QueryTriggerInteraction.Ignore);
+                System.Array.Sort(hits, (x, y) => x.distance.CompareTo(y.distance));
+                RaycastHit? first = null;
+                foreach (var h in hits)
+                    if (h.collider.GetComponentInParent<CarController>() == null) { first = h; break; }
+                bool road = first.HasValue && first.Value.collider.gameObject.layer == WorldKit.RoadLayer;
+                if (road) good++;
+                log.AppendLine("  " + t.name + " at " + t.position.ToString("0.0") + ": " +
+                    (first.HasValue
+                        ? first.Value.collider.name + " layer " + first.Value.collider.gameObject.layer +
+                          (road ? "  (road, good)" : "  (NOT ROAD)")
+                        : "NOTHING UNDER IT"));
+            }
+            log.AppendLine("respawns: " + good + " of " + mode.respawnPoints.Length + " on a road collider" +
+                           (good == mode.respawnPoints.Length ? "  OK" : "  FAIL"));
         }
 
         static void ProbeSellerLot(StringBuilder log)

@@ -10,7 +10,7 @@ namespace PSXRacing.EditorTools
     /// Why is the ground THAT height here? For a world point (env
     /// PSX_PROBE=x,z, or the uptown spawn), print the ground lattice vertices
     /// round it with every road corridor that has a say in each: distance,
-    /// weight, the road's solved height, whether it is structure, the crest
+    /// weight, the road's solved height, whether it is structure, the sag
     /// allowance, the pin target. The drive audit says WHERE the land stands
     /// on the tarmac; this says which corridor put it there.
     /// </summary>
@@ -37,7 +37,7 @@ namespace PSXRacing.EditorTools
             if (map.NearestRoadPoint(at, 40f, false, out int nei, out float nat, out float nd))
             {
                 var ne = map.edges[nei];
-                sb.AppendLine($"  nearest road e{nei} '{ne.name}'{(ne.link ? " L" : "")} at s={nat:0.0} dist {nd:0.0}: y {ne.YAt(nat):0.00} elev {ne.ElevatedAt(nat)} crest {ne.CrestAt(nat):0.00} hw {ne.width * 0.5f:0.0}");
+                sb.AppendLine($"  nearest road e{nei} '{ne.name}'{(ne.link ? " L" : "")} at s={nat:0.0} dist {nd:0.0}: y {ne.YAt(nat):0.00} elev {ne.ElevatedAt(nat)} sag {ne.SagAt(nat):0.00} hw {ne.width * 0.5f:0.0}");
             }
 
             float cell = CityMeshes.TileSize / CityMeshes.GroundRes;
@@ -70,7 +70,7 @@ namespace PSXRacing.EditorTools
                         bool el = e.ElevatedAt(s);
                         string key = ei + ":" + Mathf.RoundToInt(s);
                         if (!seen.Add(key)) continue;
-                        rows.Add((dist, $"    e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} s={s:0.0}/{e.length:0} dist {dist:0.0} ch {ch:0.0} w {w:0.00} y {e.YAt(s):0.00} {(el ? "STRUCTURE cap " + (e.YAt(s) - CityElevation.DeckThick - CityElevation.UnderDeckAir).ToString("0.00") : "pin " + (e.YAt(s) - CityElevation.CorridorSink - e.CrestAt(s)).ToString("0.00") + " crest " + e.CrestAt(s).ToString("0.00"))}"));
+                        rows.Add((dist, $"    e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} s={s:0.0}/{e.length:0} dist {dist:0.0} ch {ch:0.0} w {w:0.00} y {e.YAt(s):0.00} {(el ? "STRUCTURE cap " + (e.YAt(s) - CityElevation.DeckThick - CityElevation.UnderDeckAir).ToString("0.00") : "pin " + (e.YAt(s) - CityElevation.CorridorSink - e.SagAt(s)).ToString("0.00") + " sag " + e.SagAt(s).ToString("0.00"))}"));
                     }
                     rows.Sort((p, q) => p.dist.CompareTo(q.dist));
                     foreach (var r in rows) sb.AppendLine(r.line);
