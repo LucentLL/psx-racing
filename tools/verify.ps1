@@ -138,10 +138,11 @@ if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
 # RoadsideRules.EdgeDropFailM ("FAIL"), a spawn or respawn off the road layer
 # ("NOT ROAD", "NOTHING UNDER"), no car, no scene. Its FALL list (any ground a
 # metre down within 2.5 m, at any slope) and its WARRANT list (the shared
-# critical-fall walk) are printed and do not fail it: FALL is a screen, not
-# the warrant, and the one critical garden it reports -- beside NbDrive0 on
-# your street, outside the street's clear zone -- waits on the owner's call
-# between regrading that plot and accepting it.
+# critical-fall walk) are printed, and FALL does not fail it: FALL is a
+# screen, not the warrant. A WARRANT summary line fails it too: the one
+# critical garden it reported, beside NbDrive0, is graded to 1V:4H by
+# NbGroundY's drive side grades (2026-09-14), so any critical station on
+# either map is a regression.
 Write-Host "[4/7] Town probe..." -ForegroundColor Cyan
 Invoke-UnityJob -Log "$proj\townprobe.log" -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
@@ -155,7 +156,7 @@ if (Test-Path "$proj\PSXRacing_townprobe.txt") {
         if ($line -cmatch '^(edge lips:|falls beside an edge|barrier warrant|respawns:)') {
             Write-Host ("[town {0}] {1}" -f $section, $line.Trim())
         }
-        if ($line -cmatch 'FAIL|NOT ROAD|NOTHING UNDER|NO PLAYER CAR|scene missing') {
+        if ($line -cmatch 'FAIL|NOT ROAD|NOTHING UNDER|NO PLAYER CAR|scene missing|unguarded  WARRANT') {
             $failLines.Add(("[town {0}] {1}" -f $section, $line.Trim()))
             $townFails++
         }

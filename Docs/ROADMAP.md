@@ -5,6 +5,66 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE ROAD MEETS THE DIRT, AND A WALL HAS TO EARN ITS PLACE (2026-09-13/14)
+
+Reported: "I still have a big issue with it being difficult to drive back
+onto tracks. Especially mountain tracks because of their walls. This issue
+extends to other areas due to the thick roads sticking out of the ground ...
+Most roads aren't more than an inch above the shoulder dirt. All sections of
+bridges should have walls." Then the rule: "Roads sitting cm above the
+ground do not need rails/walls, they should meet the ground properly by DOT
+standards." Three verified rounds (build + every audit each time).
+
+- **One contract.** `Scripts/RoadsideRules.cs` carries the FHWA/AASHTO
+  numbers (edge drop 2.5 cm, fail 5; foreslopes 1V:6H / 1V:4H / 1V:3H; back
+  slope 1V:3H; 3.5 m clear zone; hide margins; toe tuck; the 1.5 m critical
+  fall inside 5 m) and `WorstCriticalFall`, the one fall walk the stage plan,
+  TrackObstacleAudit and TownProbe all use. When the plan tested the DEM
+  at one point and the audit walked the built ground, wall runs stopped a
+  station short of real drops.
+- **Shoulders, not slabs.** `BuildShoulders` replaces the RoadEdge slab (a
+  0.46 m, 61-degree face that was the "thick road"). The shoulder starts
+  flush on the kerb strip, bevels down 2.5 cm, and grades to the land with
+  its toe tucked under the finished lattice, off the Road layer.
+  `PrepareStageLattice` lowers near-grid vertices until every FACET (not
+  every vertex) is 15 cm under road and shoulder: holding vertices only let
+  12 m triangles cross 0.86 m above the shoulder at a Mt Mitchell switchback.
+  On a hairpin's inside the carried slope goes on at 1V:3H instead of diving.
+- **Walls only where warranted** (`PlanStageRoadside`): decks and 8-station
+  approaches, critical fills, water, tunnel mouths. The open-verge walls
+  are gone. Run ends flare and bury outside the warranted length. A cut a
+  1V:3H back slope can daylight is graded (`FinishStageCuts`), not faced.
+  A wall that hands over to rock is buried in 0.9 m of real face.
+  `WallChordSag`/`TightInside` had read a route's clamped end as a hairpin.
+- **Charlotte, the town and your street.** Charlotte is covered in
+  CHARLOTTE.md. Town kerbs are ramps. Your street's drives grade their sides
+  at 1V:4H, so no garden fall warrants a rail. `ParkedCarSim` stopped
+  leaving a 60 x 400 m test slope in the self-test scene, which had failed
+  a town respawn check. `StuckRecovery` respawns a car that falls well
+  below the road.
+- **Measured, before → after round three.** Stage lip 1 m past the edge:
+  35-60 cm → 2.5-5 cm on 99% of stations. Pockets (drivable land behind a
+  wall) went BlueRidge 948 → 0, MtMitchell 988 → 0, BeechGap 1495 → 0,
+  BlowingRock 1337 → 0, LittleSwitzerland 1226 → 0. What is left is 25 and
+  3 behind bridge approach rails, which the all-bridge-sections rule
+  warrants. Round two still measured 80/30/143/19/65 with the probe's old
+  pocket test; round three found most of those were the probe's 4 m ray
+  starting inside a tall rock top, so EdgeProbe now reads pockets exactly
+  as TrackObstacleAudit does. Keep that in mind when comparing the before
+  numbers. On every
+  venue: no EDGE DROP, FACE, SLOPE, FALL, RUN END or unwarranted barrier;
+  deck rails continuous; no grass through a shoulder; SELF-TEST OK; TownProbe
+  0 lips over the inch, 0 unguarded falls, every respawn on road.
+- **Instruments.** `EdgeProbe` (stage edges every 4 m), `CityEdgeProbe`,
+  `PSXScreenshotTool` "Capture Road Edges", TrackObstacleAudit `AuditEdges`,
+  and TerrainAudit's lattice-under-shoulder check. TownProbe now runs in
+  `verify.ps1`.
+- **Left, measured.** Mountain stages stay about 55% walled and 30%
+  rock-faced, because the DEM mountainside is steeper than any recoverable
+  fill can catch. "info edge face past the reach": 46 half-sections where a
+  carried slope ends in a 6-34 cm step 8-12 m out, beyond the clear zone
+  and warrant reach.
+
 ## PINK PIZZAS, A REPLAY OF THE LOAD, AND THE RAMP THAT CLIMBED OUT OF THE LANES (2026-09-12, third pass)
 
 Reported, with a screenshot of the carried stack drawn solid magenta inside

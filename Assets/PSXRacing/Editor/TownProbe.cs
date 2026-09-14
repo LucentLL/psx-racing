@@ -425,7 +425,10 @@ namespace PSXRacing.EditorTools
         /// FALL list counts any metre of depth at any slope, where the warrant
         /// asks for CriticalFallM over a run steeper than TraversableSlope; it
         /// stays, as the screen for a structure edge over OpenDropM. Critical
-        /// stations are tagged WARRANT.
+        /// stations are tagged WARRANT. (That garden is graded now:
+        /// PSXRacingBuilder.NbGroundY holds every drive's sides to 1V:4H
+        /// falling, 2026-09-14, and LifeSimSelfTest walks the drives' sides
+        /// this same way and fails on a critical station.)
         ///
         /// A station whose edge stands inside a SOLID-layer collider (the
         /// street running under a boundary wall) or under one (a drive's end

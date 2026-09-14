@@ -191,5 +191,35 @@ namespace PSXRacing
             }
             return worst;
         }
+
+        /// <summary>The height over a lane a car's body occupies, with
+        /// margin. Anything solid lower than this over a lane is a wall in
+        /// the road (the city audit's lane survey); and two ribbons whose
+        /// surfaces are closer than this plus a deck's depth cannot pass one
+        /// over the other, so they may not overlap in plan either — the city
+        /// builder splits the space between them (a 1.1 m step used to let
+        /// I-277's two decks overlap, with their rails standing in lanes).</summary>
+        public const float CarBandM = 2.0f;
+
+        // ------------------------------------------------------------------
+        //  Where a carried slope meets the coarse lattice
+        // ------------------------------------------------------------------
+        /// <summary>The least a ground lattice may sit under a shoulder
+        /// surface before it is "one crest away from showing through" (the
+        /// terrain audit's floor). The stage lattice solve reads it too: a
+        /// carried slope that comes this close to the lattice anywhere but in
+        /// its run-in to a catch has grazed it, and the lattice is held under
+        /// it there, so the builder and the audit agree on what a catch is.
+        /// </summary>
+        public const float LatticeUnderMinM = 0.03f;
+        /// <summary>How far inward of a shoulder's toe the lattice may run
+        /// within <see cref="LatticeUnderMinM"/> of it as the designed
+        /// crossing into the tuck (the terrain audit excuses it; the stage
+        /// solve leaves a carry's run-in to its catch inside it).</summary>
+        public const float ToeCrossingMaxM = 2.0f;
+        /// <summary>Horizontal run a foreslope grade is measured over, for
+        /// <see cref="SlopeSustainM"/>: the edge audit's window, and the one
+        /// the stage solve reads a clear zone's lattice with.</summary>
+        public const float SlopeWindowM = 0.25f;
     }
 }

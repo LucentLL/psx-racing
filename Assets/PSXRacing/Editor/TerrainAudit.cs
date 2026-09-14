@@ -71,7 +71,7 @@ namespace PSXRacing.EditorTools
         /// one crest away from showing through it (RoadsideRules.HideMarginM
         /// is what the builder pins it to; this is the floor the audit holds,
         /// the same 3 cm margin as the 0.03 in synthesis 7.4).</summary>
-        const float LatticeUnderMinM = 0.03f;
+        const float LatticeUnderMinM = RoadsideRules.LatticeUnderMinM;
         /// <summary>Ground above the shoulder surface by more than this is
         /// grass through the shoulder: the first thing a ray from above meets.
         /// </summary>
@@ -98,7 +98,7 @@ namespace PSXRacing.EditorTools
         /// still failed a crest through the middle of the shoulder, a ribbon
         /// grassed end to end, and a lattice 2 cm under the whole shoulder.
         /// </summary>
-        const float CrossingMaxM = 2.0f;
+        const float CrossingMaxM = RoadsideRules.ToeCrossingMaxM;
         /// <summary>Furthest a shoulder ribbon is followed out. A fill's
         /// foreslope can run a long way to its catch.</summary>
         const float ShoulderReachM = 30f;

@@ -400,6 +400,45 @@ climbing out of US 74's cut.
   seams, went to zero. 15,915 ramp stations seated; the whole solve is
   ~0.85 s, the seat search 0.11 s of it.
 
+## The 2026-09-13/14 pass: roads meet the ground by DOT standards
+
+Reported, about every venue: getting back onto a road was hard because the
+roads stood proud of the dirt, and bridges had open gaps. Then the owner's
+rule: "Roads sitting cm above the ground do not need rails/walls, they
+should meet the ground properly by DOT standards." The shared contract is
+`Scripts/RoadsideRules.cs` (FHWA/AASHTO numbers, used by builders and audits
+alike). The city part:
+
+- **Verges instead of lips.** A grounded ribbon's edge meets a verge built
+  into the tile's Ground mesh: a 4% shoulder, 1V:6H across the clear zone,
+  then 1V:4H to the lattice (which sits `CorridorSink` = 0.10 m under the
+  corridor, with a per-station sag allowance). Kerb faces are render-only
+  (the "Kerbs" child). `DropFrom` warrants a rail only where that grading
+  cannot reach the ground inside 8 m, the step onto a lower road passes
+  `OpenDropM`, or the fall is critical. `ClearRun` tests other roads'
+  pavement AS DRAWN (outlines and fan triangles), not their nominal width.
+- **Rails where a drop warrants one, never in a lane.** Solid capped prisms
+  on elevated spans, 20 m approaches, ungraded ledges, fan chords and gore
+  noses. A host's rail gap follows the branch's OUTER-edge arc; round one
+  cut it at the branch centreline and laid rails along four ramp lanes.
+  `Squeeze` now separates carriageways up to a car's height plus a deck
+  apart, which took I-277's own rails out of its lanes over e1921.
+- **Junction fans built arm by arm** (ordered envelope, ears where a fan is
+  not star-shaped). Sorting corners by angle let a bent link split Tyvola
+  Road's mouth into a 1 m deep hole in its lanes.
+- **Instruments.** CityAudit's roadside audit (verge lips, faces, the rail
+  census, the pit census), a fan-mouth probe, a lane survey and a ledge
+  survey (both "not a check" yet), and `CityEdgeProbe` (every tile boundary
+  edge: open drops, grounded lip histogram).
+- **Results, round one → three.** Edge over a drop with no rail 145 m → 0;
+  verge steps 906 → 4 (5-6 cm pavement-to-pavement seams where two
+  solved roads touch); body-box faces 43 → 0; every lane mouth has road
+  under it; drive audit clean on all nine spots.
+- **Left:** link e14103 overlapping North Davidson e14105 at one node
+  (a rail stands in a lane for ~20 m; needs a non-ramp seat), ~9 building
+  footprints inside lanes, micro-cluster fans off the audit tiles, and ~80
+  sub-metre unguarded ledges the ledge survey lists.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

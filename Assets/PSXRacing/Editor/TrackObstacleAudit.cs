@@ -468,6 +468,18 @@ namespace PSXRacing.EditorTools
         /// rays reach when nothing stops them first. Past the clear zone
         /// (kerb + 3.5 m) and the barrier warrant (kerb + 5 m).</summary>
         const float EdgeReachM = 8f;
+        /// <summary>How far an OPEN half-section's profile is carried on past
+        /// <see cref="EdgeReachM"/>, for information only (MeasureFarFace): the
+        /// toe of the longest foreslope a stage shoulder lays — its ribbon to
+        /// the clear zone's end past the kerb strip, the slope carried on from
+        /// there no gentler than 1V:4H to RoadsideRules.CriticalFallM of depth
+        /// (ShoulderCarry), and the toe's crossing run.</summary>
+        const float FarReachM = PSXRacingBuilder.KerbWidth + RoadsideRules.ClearZoneM +
+                                RoadsideRules.CriticalFallM / RoadsideRules.SteepestRecoverableSlope +
+                                RoadsideRules.ToeCrossingMaxM;
+        /// <summary>Samples of the main profile the far walk starts with, so a
+        /// face whose top stands just past EdgeReachM is inside a window whole.</summary>
+        const int FarLead = 3;
         /// <summary>"Within 0.3 m of the strip edge": how far past the outer
         /// edge of the kerb strip a drop still counts as the EDGE's drop rather
         /// than as the slope's.</summary>
@@ -485,7 +497,7 @@ namespace PSXRacing.EditorTools
         const float EdgeDropNoiseM = 0.003f;
         /// <summary>The tarmac is read this far inside its own edge, and the
         /// barrier rays start there.</summary>
-        const float TarmacInsetM = 0.3f;
+        internal const float TarmacInsetM = 0.3f;
         /// <summary>A hit whose |normal.y| is at or under this is a WALL to the
         /// car, over it a floor. CollisionResponder.LandingNormalDot (0.7,
         /// private there): the same line the car's own crash response draws,
@@ -509,7 +521,7 @@ namespace PSXRacing.EditorTools
         /// <summary>Horizontal run a foreslope grade is measured over. Long
         /// enough that one triangle's quantisation cannot fake a grade, short
         /// against the 1 m a grade has to be sustained to fail.</summary>
-        const float SlopeWindowM = 0.25f;
+        const float SlopeWindowM = RoadsideRules.SlopeWindowM;
         /// <summary>Grade tolerance on the slope limits. Stage ground and
         /// shoulder chunks are mesh-compressed (about 4 mm over a 240 m chunk),
         /// and a design section built at exactly 1V:6H must not flicker a WARN
@@ -556,7 +568,9 @@ namespace PSXRacing.EditorTools
             public float tarmacY, barrierE = float.PositiveInfinity;
             public float drop, dropE, face, faceE, slopeFail, slopeWarn, slopeGrade, slopeE, backslope, backE;
             public float fallM, fallE, pocketDy;
-            public string barrierOn, dropOn, faceOn, fallOn, pocketOn;
+            public float farFace, farFaceE;
+            public bool farFaceIn;
+            public string barrierOn, dropOn, faceOn, fallOn, pocketOn, farFaceOn;
             public Collider barrierCol, faceCol;
             public Vector3 edge;
         }
@@ -597,6 +611,8 @@ namespace PSXRacing.EditorTools
             var ys = new float[samples];
             var ny = new float[samples];
             var on = new Collider[samples];
+            var farYs = new float[FarLead + Mathf.CeilToInt((FarReachM - EdgeReachM) / EdgePitch) + 1];
+            var farOn = new Collider[farYs.Length];
             var halves = new EdgeHalf[n, 2];
             int measured = 0, unmeasured = 0, barriers = 0;
 
@@ -621,16 +637,7 @@ namespace PSXRacing.EditorTools
                         if (DeckUnder(c + o * (half + e), h.tarmacY)) { h.deck = true; break; }
 
                     // The barrier, at the heights the body occupies.
-                    Collider barrierCol = null;
-                    float barrierH = 0f;
-                    foreach (float bh in RoadsideRules.BarrierRayHeights)
-                    {
-                        var from = new Vector3(inset.x, h.tarmacY + bh, inset.z);
-                        if (FirstBarrier(from, o, EdgeReachM + TarmacInsetM, out float d, out Collider bc) &&
-                            d - TarmacInsetM < h.barrierE)
-                        { h.barrierE = d - TarmacInsetM; barrierCol = bc; barrierH = bh; }
-                    }
-                    h.barrier = barrierCol != null;
+                    h.barrier = EdgeBarrier(inset, o, h.tarmacY, out h.barrierE, out Collider barrierCol, out float barrierH);
                     if (h.barrier) { barriers++; h.barrierOn = Key(barrierCol.transform); h.barrierCol = barrierCol; }
 
                     // The land, outward, up to the barrier's face.
@@ -661,25 +668,17 @@ namespace PSXRacing.EditorTools
                                Mathf.Abs(ny[count - 1]) <= WallNormalY)
                             count--;
                     if (count >= 2) MeasureProfile(h, ys, on, count, kerb);
+                    // and on past the reach where nothing stands in the way
+                    if (!h.barrier && count == samples && !float.IsNaN(ys[count - 1]))
+                        MeasureFarFace(h, c + o * half, o, ys, on, count, farYs, farOn);
 
                     // Behind the barrier: somewhere to stand at road height?
-                    if (h.barrier)
+                    if (h.barrier &&
+                        PocketBehind(c, o, half, inset, h.tarmacY, h.barrierE, barrierCol, barrierH,
+                                     out h.pocketDy, out Collider pocketCol))
                     {
-                        float outerE = h.barrierE;
-                        var from = new Vector3(inset.x, h.tarmacY + barrierH, inset.z) +
-                                   o * (h.barrierE + TarmacInsetM + BarrierBackM);
-                        if (barrierCol.Raycast(new Ray(from, -o), out RaycastHit back, BarrierBackM))
-                            outerE = h.barrierE + BarrierBackM - back.distance;
-                        Vector3 behind = c + o * (half + outerE + RoadsideRules.PocketBehindM);
-                        if (SurfaceBelow(new Vector3(behind.x, h.tarmacY + PocketRayHeadM, behind.z),
-                                         PocketRayHeadM + 10f, out RaycastHit land) &&
-                            land.normal.y >= WallNormalY &&
-                            Mathf.Abs(land.point.y - h.tarmacY) <= RoadsideRules.PocketBandM)
-                        {
-                            h.pocket = true;
-                            h.pocketDy = land.point.y - h.tarmacY;
-                            h.pocketOn = Key(land.collider.transform);
-                        }
+                        h.pocket = true;
+                        h.pocketOn = Key(pocketCol.transform);
                     }
                 }
             }
@@ -789,6 +788,11 @@ namespace PSXRacing.EditorTools
                 h => h.terminal, h => h.face, RoadsideRules.FaceRiseFailM,
                 h => string.Format("{0:0.00} m of sinking stone at {1:0.00} m past the tarmac edge, on {2}",
                                    h.face, h.faceE, h.faceOn));
+            EdgeRuns(runs, halves, n, loop, "info edge face past the reach", false,
+                h => h.farFace > RoadsideRules.FaceRiseFailM, h => h.farFace, RoadsideRules.FaceRiseFailM,
+                h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4}",
+                                   h.farFace, RoadsideRules.FaceRunM, h.farFaceE,
+                                   h.farFaceIn ? "climbing back in" : "running wide", h.farFaceOn));
             EdgeRuns(runs, halves, n, loop, "EDGE SLOPE", true,
                 h => h.slopeFail > RoadsideRules.SlopeSustainM, h => h.slopeFail, RoadsideRules.SlopeSustainM,
                 h => string.Format("foreslope steeper than 1V:4H for {0:0.00} m from {1:0.00} m past the tarmac edge (steepest 1V:{2:0.0}H)",
@@ -843,6 +847,11 @@ namespace PSXRacing.EditorTools
             EdgeLine(log, runs, null, "info buried terminal", sp, null,
                 "a warranted barrier run's flared end sinking into the foreslope, lower than the barrier rays " +
                 "(RoadsideRules.EndFlareStations; not counted as an edge face)", null);
+            EdgeLine(log, runs, null, "info edge face past the reach", sp, null,
+                "on an open half-section, a rise of more than " + RoadsideRules.FaceRiseFailM.ToString("0.00") + " m within " +
+                RoadsideRules.FaceRunM.ToString("0.00") + " m from " + EdgeReachM.ToString("0") + " to " +
+                FarReachM.ToString("0.0") + " m past the tarmac edge, beyond the clear zone and the warrant " +
+                "(measured, not failed: a carried foreslope's toe at its depth cap)", null);
             EdgeLine(log, runs, "EDGE SLOPE", "warn edge slope", sp,
                 "a foreslope steeper than 1V:4H for more than " + RoadsideRules.SlopeSustainM.ToString("0.0") + " m inside the clear zone",
                 "steeper than 1V:6H for more than " + RoadsideRules.SlopeSustainM.ToString("0.0") + " m",
@@ -918,10 +927,62 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// THE BARRIER beside a station, as this pass and EdgeProbe both find
+        /// it: a horizontal ray from <paramref name="inset"/> (TarmacInsetM in
+        /// from the tarmac edge) at each of RoadsideRules.BarrierRayHeights over
+        /// the tarmac, and the first thing each meets if that is a wall to the
+        /// car (<see cref="FirstBarrier"/>); the nearer of the two.
+        /// <paramref name="barrierE"/> is its face in metres past the tarmac
+        /// edge, <paramref name="rayH"/> the height that met it.
+        /// </summary>
+        internal static bool EdgeBarrier(Vector3 inset, Vector3 o, float tarmacY,
+                                         out float barrierE, out Collider col, out float rayH)
+        {
+            barrierE = float.PositiveInfinity; col = null; rayH = 0f;
+            foreach (float bh in RoadsideRules.BarrierRayHeights)
+            {
+                var from = new Vector3(inset.x, tarmacY + bh, inset.z);
+                if (FirstBarrier(from, o, EdgeReachM + TarmacInsetM, out float d, out Collider bc) &&
+                    d - TarmacInsetM < barrierE)
+                { barrierE = d - TarmacInsetM; col = bc; rayH = bh; }
+            }
+            return col != null;
+        }
+
+        /// <summary>
+        /// THE POCKET, one definition for this pass and EdgeProbe: standable
+        /// land (a hit at a floor's normal, <see cref="WallNormalY"/>) within
+        /// RoadsideRules.PocketBandM of road height, RoadsideRules.PocketBehindM
+        /// past the barrier's BACK face — found by casting back at the barrier's
+        /// own collider, because a guard wall's box is 1.2 m deep and a car
+        /// cannot stand inside it — read from <see cref="PocketRayHeadM"/> over
+        /// the road so a rock top is found rather than seen through, on every
+        /// collider. <paramref name="dy"/> is the land over the tarmac.
+        /// </summary>
+        internal static bool PocketBehind(Vector3 c, Vector3 o, float half, Vector3 inset, float tarmacY,
+                                          float barrierE, Collider barrierCol, float rayH,
+                                          out float dy, out Collider on)
+        {
+            dy = 0f; on = null;
+            float outerE = barrierE;
+            var from = new Vector3(inset.x, tarmacY + rayH, inset.z) + o * (barrierE + TarmacInsetM + BarrierBackM);
+            if (barrierCol.Raycast(new Ray(from, -o), out RaycastHit back, BarrierBackM))
+                outerE = barrierE + BarrierBackM - back.distance;
+            Vector3 behind = c + o * (half + outerE + RoadsideRules.PocketBehindM);
+            if (!SurfaceBelow(new Vector3(behind.x, tarmacY + PocketRayHeadM, behind.z), PocketRayHeadM + 10f,
+                              out RaycastHit land) ||
+                land.normal.y < WallNormalY || Mathf.Abs(land.point.y - tarmacY) > RoadsideRules.PocketBandM)
+                return false;
+            dy = land.point.y - tarmacY;
+            on = land.collider;
+            return true;
+        }
+
         /// <summary>Road-right at a waypoint from its two neighbours — the
         /// builder's RightAt shape, and square to the road on a bend where a
         /// forward difference is half a chord angle off.</summary>
-        static Vector3 RightAt(TrackPath path, int i)
+        internal static Vector3 RightAt(TrackPath path, int i)
         {
             Vector3 t = path.GetPoint(i + 1) - path.GetPoint(i - 1);
             t.y = 0f;
@@ -1137,6 +1198,55 @@ namespace PSXRacing.EditorTools
             if (dropK >= 0) h.dropOn = float.IsNaN(ys[dropK]) ? nothing : Name(on[dropK]);
             if (faceK >= 0) { h.faceOn = Name(on[faceK]); h.faceCol = on[faceK]; }
             if (fallK >= 0) h.fallOn = float.IsNaN(ys[fallK]) ? nothing : Name(on[fallK]);
+        }
+
+        /// <summary>
+        /// PAST THE REACH, for information. A stage shoulder's carried
+        /// foreslope that reaches its depth cap without meeting the lattice
+        /// ends in a tuck, and on a hillside falling faster than the carry the
+        /// drop there stands 8.7-10.9 m out (Blue Ridge 1227 L, Little
+        /// Switzerland 608-611 L in round three's replica) — past EdgeReachM,
+        /// where EDGE FACE never looked. An open half-section's profile is
+        /// carried on to <see cref="FarReachM"/>, and the biggest rise within
+        /// FaceRunM whose window reaches past the main profile is kept, so
+        /// those drops are counted before any of them is made to fail: they
+        /// lie beyond the clear zone and the warrant, which is what the DOT
+        /// asks of a roadside, but a car that ran that wide still meets them.
+        /// </summary>
+        static void MeasureFarFace(EdgeHalf h, Vector3 edge, Vector3 o, float[] ys, Collider[] on, int count,
+                                   float[] farYs, Collider[] farOn)
+        {
+            int m = 0;
+            for (int k = count - FarLead; k < count; k++, m++) { farYs[m] = ys[k]; farOn[m] = on[k]; }
+            float e0 = EdgeStartM + (count - FarLead) * EdgePitch;
+            float prevY = ys[count - 1];
+            for (; m < farYs.Length; m++)
+            {
+                float e = e0 + m * EdgePitch;
+                if (e > FarReachM + 1e-4f) break;
+                farYs[m] = ProfileAt(edge + o * e, prevY, out farOn[m], out _);
+                if (!float.IsNaN(farYs[m])) prevY = farYs[m];
+            }
+            // the same windows as MeasureProfile's EDGE FACE
+            float over = (RoadsideRules.FaceRunM - 2f * EdgePitch) / EdgePitch;
+            int topK = -1;
+            for (int k = 0; k < m; k++)
+            {
+                if (float.IsNaN(farYs[k])) continue;
+                for (int d = 1; d <= 3 && k + d < m; d++)
+                {
+                    if (float.IsNaN(farYs[k + d])) break;
+                    if (k + d < FarLead) continue;      // wholly inside the profile: judged there
+                    float y = d < 3 ? farYs[k + d] : Mathf.Lerp(farYs[k + 2], farYs[k + 3], over);
+                    float rise = y - farYs[k];
+                    if (Mathf.Abs(rise) <= h.farFace) continue;
+                    h.farFace = Mathf.Abs(rise);
+                    h.farFaceE = e0 + k * EdgePitch;
+                    h.farFaceIn = rise < 0f;
+                    topK = rise < 0f ? k : k + Mathf.Min(d, 2);
+                }
+            }
+            if (topK >= 0) h.farFaceOn = Name(farOn[topK]);
         }
 
         /// <summary>Group the half-sections a predicate picks into runs of

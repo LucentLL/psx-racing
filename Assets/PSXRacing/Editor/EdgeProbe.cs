@@ -28,7 +28,10 @@ namespace PSXRacing.EditorTools
     ///   POCKET   whether there is ground a car can stand on BEHIND that
     ///            barrier, within RoadsideRules.PocketBandM of road height —
     ///            the place a car gets to through a gap and cannot come back
-    ///            from;
+    ///            from. Asked exactly as TrackObstacleAudit asks it
+    ///            (TrackObstacleAudit.EdgeBarrier and PocketBehind), and split
+    ///            into the pockets behind a structure rail, which the audit
+    ///            reports as warranted, and the rest, which it fails;
     ///   OPEN     an edge with no barrier within 3 m and nothing to land on
     ///            within RoadsideRules.OpenDropM below the tarmac: somewhere
     ///            to fall off.
@@ -47,7 +50,6 @@ namespace PSXRacing.EditorTools
         const int Every = 1;               // waypoints between sections (every 4 m station)
         const float OpenReach = 3.0f;      // a barrier further out than this is not guarding the edge
         const float OpenDrop = RoadsideRules.OpenDropM;       // a fall at least this deep beside an unguarded edge
-        const float PocketBand = RoadsideRules.PocketBandM;   // ground behind a barrier within this of road height
         /// <summary>A hit whose normal.y is under this is a FACE, not a floor.
         /// Counted, never skipped.</summary>
         const float FaceNormalY = 0.5f;
@@ -67,7 +69,7 @@ namespace PSXRacing.EditorTools
             var only = System.Environment.GetEnvironmentVariable("PSX_PROBE_ONLY");
             var want = string.IsNullOrEmpty(only) ? null : new HashSet<string>(only.Split(','));
             var log = new StringBuilder();
-            var csv = new StringBuilder("venue,wp,side,s,bridge,tarmacY,lip025,lip05,lip1,lip2,lip3,face1,faceHits,maxStepIn,barrierD,barrierName,pocket,open\n");
+            var csv = new StringBuilder("venue,wp,side,s,bridge,tarmacY,lip025,lip05,lip1,lip2,lip3,face1,faceHits,maxStepIn,barrierD,barrierName,pocket,open,structure\n");
             foreach (var def in TrackCatalog.Scened)
             {
                 if (want != null && !want.Contains(def.id)) continue;
@@ -91,7 +93,19 @@ namespace PSXRacing.EditorTools
 
             float roadHalf = path.roadWidth * 0.5f;
             float lap = Mathf.Max(def.LengthM, 1f);
-            int sections = 0, walled = 0, pockets = 0, open = 0, openBridge = 0, bridgeSides = 0;
+            // Structure stations as TrackObstacleAudit counts them from the
+            // catalog: every span station and ApproachRailStations either side.
+            var structure = new bool[path.Count];
+            for (int i = 0; i < path.Count && !def.drag; i++)
+            {
+                if (TrackCatalog.BridgeBlend(def, Mathf.Repeat(i * path.spacing, lap)) <= 0.001f) continue;
+                for (int k = -RoadsideRules.ApproachRailStations; k <= RoadsideRules.ApproachRailStations; k++)
+                {
+                    int j = path.HasEnds ? i + k : path.Wrap(i + k);
+                    if (j >= 0 && j < path.Count) structure[j] = true;
+                }
+            }
+            int sections = 0, walled = 0, pockets = 0, structurePockets = 0, open = 0, openBridge = 0, bridgeSides = 0;
             int faceSections = 0, face1Sections = 0;
             var lipHist = new int[7];   // lip at 1 m: <2.5 cm, <5, <10, <20, <35, <60, deeper
             float worstStep = 0f; string worstStepAt = "";
@@ -106,7 +120,10 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < path.Count; i += Every)
             {
                 Vector3 c = path.GetPoint(i);
-                Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+                // The builder's cross-section direction (the chord of the two
+                // neighbours), which the audits lay their sections on too; the
+                // tangent is half a chord angle off it on a bend.
+                Vector3 right = TrackObstacleAudit.RightAt(path, i);
                 float s = i * path.spacing;
                 float bridge = TrackCatalog.BridgeBlend(def, Mathf.Repeat(s, lap));
                 for (int si = 0; si < 2; si++)
@@ -164,14 +181,37 @@ namespace PSXRacing.EditorTools
                     if (!float.IsNaN(l1))
                         lipHist[l1 < 0.025f ? 0 : l1 < 0.05f ? 1 : l1 < 0.10f ? 2 : l1 < 0.20f ? 3 : l1 < 0.35f ? 4 : l1 < 0.60f ? 5 : 6]++;
 
-                    // a pocket: somewhere to stand behind the barrier
+                    // A POCKET: somewhere to stand behind the barrier, asked the
+                    // obstacle audit's way. This probe used to measure 1.5 m and
+                    // 3 m past the barrier's FRONT face, down from 4 m over the
+                    // waypoint plane, on concave meshes only, calling anything
+                    // under normal.y 0.5 a face — and it counted 80, 30, 143, 19
+                    // and 65 pockets on the five mountains where the audit
+                    // failed 2, 0, 3, 1 and 5 (2026-09-13). Replayed against a
+                    // replica of those bakes, the difference was the probe:
+                    //   * 1.5 m past a guard wall's front face is still inside
+                    //     its 1.2 m collider, 0.3 m from the back — ground no car
+                    //     can reach, under the shelf the stone stands on;
+                    //   * a 4 m ray head starts INSIDE the rock top of a cut
+                    //     taller than that (3.3-6.3 m faces), so the ray passed
+                    //     up through the top unseen and found the lattice pinned
+                    //     under it at the ditch's level: 44 of Blue Ridge's, all
+                    //     30 of Mount Mitchell's, 139 of Beech Gap's, 17 of Blowing
+                    //     Rock's and 55 of Little Switzerland's "pockets" were
+                    //     that, on BankColl;
+                    //   * the rest were structure rails (warranted: 34 and 4),
+                    //     the audit's own UNWARRANTED lines, and one BankTop face
+                    //     read as the barrier.
+                    // The audit's reading — past the back face, from 20 m up,
+                    // every collider, a car's landing normal — is the one that
+                    // matches what a car can reach, and now both ask it once.
                     bool pocket = false;
-                    if (hasBarrier && barrierD <= roadHalf + 8f)
-                        foreach (float beyond in new[] { RoadsideRules.PocketBehindM, 3f })
-                            // standable: a face behind the barrier is not somewhere to stand
-                            if (Surface(c + o * (barrierD + beyond) + Vector3.up * 4f, 10f, out float py, out _, out bool steep) &&
-                                !steep && Mathf.Abs(py - tarmacY) <= PocketBand) { pocket = true; break; }
-                    if (pocket) pockets++;
+                    Vector3 inset = c + o * (roadHalf - TrackObstacleAudit.TarmacInsetM);
+                    if (TrackObstacleAudit.EdgeBarrier(inset, o, tarmacY, out float pocketBarrierE,
+                                                       out Collider pocketBarrier, out float pocketRayH))
+                        pocket = TrackObstacleAudit.PocketBehind(c, o, roadHalf, inset, tarmacY, pocketBarrierE,
+                                                                 pocketBarrier, pocketRayH, out _, out _);
+                    if (pocket) { pockets++; if (structure[i]) structurePockets++; }
 
                     // an open edge over a drop
                     bool isOpen = false;
@@ -187,7 +227,7 @@ namespace PSXRacing.EditorTools
                     if (isOpen) { open++; if (bridge > 0.02f) openBridge++; }
 
                     Track(ref openStart[si], ref openLast[si], isOpen, i, openRuns, side, path.spacing, bridge > 0.02f, ref openRunBridge[si]);
-                    Track(ref pocketStart[si], ref pocketLast[si], pocket, i, pocketRuns, side, path.spacing, bridge > 0.02f, ref pocketRunBridge[si]);
+                    Track(ref pocketStart[si], ref pocketLast[si], pocket, i, pocketRuns, side, path.spacing, structure[i], ref pocketRunBridge[si]);
 
                     csv.Append(def.id).Append(',').Append(i).Append(',').Append(side < 0 ? "L" : "R").Append(',')
                        .Append(s.ToString("0")).Append(',').Append(bridge.ToString("0.00")).Append(',')
@@ -197,7 +237,8 @@ namespace PSXRacing.EditorTools
                     csv.Append(',').Append(maxStep.ToString("0.000")).Append(',')
                        .Append(hasBarrier ? (barrierD - roadHalf).ToString("0.00") : "").Append(',')
                        .Append(barrierName.Replace(',', ';')).Append(',')
-                       .Append(pocket ? 1 : 0).Append(',').Append(isOpen ? 1 : 0).Append('\n');
+                       .Append(pocket ? 1 : 0).Append(',').Append(isOpen ? 1 : 0).Append(',')
+                       .Append(structure[i] ? 1 : 0).Append('\n');
                 }
             }
             for (int si = 0; si < 2; si++)
@@ -220,7 +261,11 @@ namespace PSXRacing.EditorTools
             var kinds = new StringBuilder();
             foreach (var kv in barrierKinds) kinds.Append(' ').Append(kv.Key).Append('=').Append(kv.Value);
             log.AppendLine("  barrier within " + OpenReach + " m of the edge on " + walled + " of " + sections + " (" + (sections > 0 ? 100f * walled / sections : 0f).ToString("0") + "%):" + kinds);
-            log.AppendLine("  POCKETS (standable ground behind the barrier): " + pockets + " half-sections in " + pocketRuns.Count + " runs");
+            log.AppendLine("  POCKETS (standable ground behind the barrier, TrackObstacleAudit's reading): " + pockets +
+                           " half-sections in " + pocketRuns.Count + " runs (" + structurePockets +
+                           " behind a structure rail, which the audit reports as warranted; " + (pockets - structurePockets) +
+                           " elsewhere, which on a stage it fails as UNWARRANTED BARRIER and on a circuit reports as its perimeter wall; " +
+                           "runs marked BRIDGE touch a structure station)");
             foreach (var r in Top(pocketRuns, 8)) log.AppendLine("    " + r);
             log.AppendLine("  OPEN EDGES over a " + OpenDrop + " m drop, no barrier: " + open + " half-sections (" + openBridge + " on or near a bridge, of " + bridgeSides + " bridge half-sections) in " + openRuns.Count + " runs");
             foreach (var r in Top(openRuns, 12)) log.AppendLine("    " + r);

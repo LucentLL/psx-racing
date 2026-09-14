@@ -2212,12 +2212,18 @@ namespace PSXRacing.EditorTools
             CheckMountableKerbs(scene, "NbKerb", "your street");
             CheckRespawnsOnRoad(scene, mode, "your street");
             CheckThroatsClosed(scene);
+            CheckDriveSidesWarrantNoBarrier(scene);
             // A GARDEN FOOTING IS SOLID ONLY WHERE THE FALL IS. Each is drawn
             // whole; its colliders are the separate "...Solid<n>" boxes over the
             // runs of its face where the finished ground drops a critical fall
             // (RoadsideRules.IsCriticalFall). A collider on the drawn box stood
             // 15-43 cm of concrete lip beside a drive over lawn that was not a
             // fall at all.
+            //
+            // Solid runs are still EXPECTED after the drives' side grades
+            // (2026-09-14): they stand on the backs and far sides of benches,
+            // round gardens no drive grades — ten on the replica, as before —
+            // and the one about drives is CheckDriveSidesWarrantNoBarrier above.
             int solidRuns = 0, drawnSolid = 0;
             foreach (var go in scene.GetRootGameObjects())
                 foreach (var tr in go.GetComponentsInChildren<Transform>(true))
@@ -2322,6 +2328,144 @@ namespace PSXRacing.EditorTools
             }
             Check(holes == 0, "your street's turning head meets the street with no hole at either throat",
                   holes + " of " + samples + " points off the tarmac" + (first != null ? ", first " + first : ""));
+        }
+
+        /// <summary>
+        /// NO DRIVE ON YOUR STREET NEEDS A BARRIER BESIDE IT.
+        ///
+        /// "Roads sitting cm above the ground do not need rails/walls, they
+        /// should meet the ground properly by DOT standards." Plot 0's west
+        /// drive stood over a garden 1.5-1.73 m down 4.5-5 m out, steeper than
+        /// 1V:3H — critical under RoadsideRules, so by the owner's own rule
+        /// either a wall or a regrade — and the only instrument that saw it was
+        /// TownProbe, whose warrant lines verify.ps1 prints and does not gate
+        /// on. PSXRacingBuilder.NbGroundY now grades every drive's sides to
+        /// 1V:4H falling; this holds the built scene to it.
+        ///
+        /// TownProbe's warrant walk, restricted to the drives' two long sides
+        /// and asked of THIS scene's colliders only (see
+        /// <see cref="RaycastInScene"/>): every metre along each side, the
+        /// drive's own height on its edge, then the highest ground or road
+        /// collider every 5 cm out to RoadsideRules.WarrantReachM, stopping at
+        /// the first solid face across the walk, put to
+        /// RoadsideRules.WorstCriticalFall. A station under a roof or inside a
+        /// wall — a drive's last metre inside its garage — is not an edge a car
+        /// leaves by and is not asked, exactly as the probe does not.
+        /// </summary>
+        static void CheckDriveSidesWarrantNoBarrier(UnityEngine.SceneManagement.Scene scene)
+        {
+            const float Pitch = 0.05f;
+            int roadMask = 1 << PSXRacing.EditorTools.WorldKit.RoadLayer;
+            int groundMask = (1 << 0) | roadMask;
+            int solidMask = 1 << PSXRacing.EditorTools.WorldKit.SolidLayer;
+            Collider street = null;
+            var drives = new List<Collider>();
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var c in go.GetComponentsInChildren<Collider>(true))
+                {
+                    if (c.isTrigger) continue;
+                    if (c.name == "NbStreet") street = c;
+                    else if (c.name.StartsWith("NbDrive") && !c.name.EndsWith("Edge") &&
+                             c.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer)
+                        drives.Add(c);
+                }
+            if (street == null || drives.Count == 0)
+            {
+                Check(false, "your street's drives can be walked for a barrier warrant",
+                      (street == null ? "no NbStreet collider " : "") + drives.Count + " drives");
+                return;
+            }
+
+            Physics.SyncTransforms();
+            float crown = street.bounds.center.x;
+            int samples = Mathf.CeilToInt(RoadsideRules.WarrantReachM / Pitch) + 1;
+            var y = new float[samples];
+            int stations = 0, critical = 0;
+            float worst = 0f;
+            string first = null;
+            bool backfaces = Physics.queriesHitBackfaces;
+            try
+            {
+                foreach (var d in drives)
+                {
+                    // The surface's own footprint, not a padded collider box.
+                    var r = d.GetComponent<Renderer>();
+                    Bounds b = r != null ? r.bounds : d.bounds;
+                    bool east = b.center.x > crown;
+                    float kerbX = east ? b.min.x : b.max.x;
+                    for (int e = -1; e <= 1; e += 2)
+                    {
+                        float edgeZ = e < 0 ? b.min.z : b.max.z;
+                        var outward = new Vector3(0f, 0f, e);
+                        for (float a = 0.5f; a < b.size.x; a += 1f)
+                        {
+                            float x = kerbX + (east ? a : -a);
+                            // The drive's height on its edge: a centimetre inside it,
+                            // because a ray dropped exactly on a boundary can miss.
+                            if (!CastInScene(scene, new Vector3(x, b.max.y + 1f, edgeZ - e * 0.01f), Vector3.down,
+                                             b.size.y + 2f, roadMask, out var onDrive) || onDrive.collider != d)
+                                continue;
+                            var p = new Vector3(x, onDrive.point.y, edgeZ);
+                            Physics.queriesHitBackfaces = true;
+                            bool roofed = CastInScene(scene, p + Vector3.up * 0.1f, Vector3.up, 12f, solidMask, out _);
+                            Physics.queriesHitBackfaces = backfaces;
+                            bool walled = false;
+                            foreach (var o in Physics.OverlapSphere(p + Vector3.up * 0.5f, 0.25f, solidMask,
+                                                                    QueryTriggerInteraction.Ignore))
+                                if (o.gameObject.scene == scene) { walled = true; break; }
+                            if (roofed || walled) continue;
+                            stations++;
+
+                            float reach = RoadsideRules.WarrantReachM;
+                            if (CastInScene(scene, p + Vector3.up * 0.35f, outward, reach, solidMask, out var guard))
+                                reach = guard.distance - Pitch;
+                            int n = Mathf.Clamp(Mathf.FloorToInt(reach / Pitch + 1e-3f) + 1, 1, samples);
+                            y[0] = p.y;
+                            for (int w = 1; w < n; w++)
+                            {
+                                Vector3 q = p + outward * (w * Pitch);
+                                y[w] = CastInScene(scene, new Vector3(q.x, p.y + RoadsideRules.WarrantReachM, q.z),
+                                                   Vector3.down, RoadsideRules.WarrantReachM + 5f, groundMask, out var gh)
+                                       ? gh.point.y : float.NaN;
+                            }
+                            float fall = RoadsideRules.WorstCriticalFall(y, 0, n - 1, Pitch, 0f, out int foot);
+                            if (foot < 0) continue;
+                            critical++;
+                            if (fall > worst || first == null)
+                            {
+                                worst = Mathf.Max(worst, fall);
+                                first = d.name + " at (" + x.ToString("0.0") + ", " + edgeZ.ToString("0.0") + ") " +
+                                        (float.IsPositiveInfinity(fall) ? "over a void" : fall.ToString("0.00") + " m") +
+                                        " to " + (foot * Pitch).ToString("0.00") + " m out";
+                            }
+                        }
+                    }
+                }
+            }
+            finally { Physics.queriesHitBackfaces = backfaces; }
+            Check(stations > 0 && critical == 0,
+                  "no drive on your street has a fall beside it that warrants a barrier",
+                  critical + " critical of " + stations + " stations on " + drives.Count + " drives" +
+                  (first != null ? ", worst " + first : ""));
+        }
+
+        /// <summary>The nearest non-trigger collider of <paramref name="scene"/>
+        /// on <paramref name="mask"/> along a ray, never a car's — the
+        /// any-direction, any-layer form of <see cref="RaycastInScene"/>. It
+        /// does not sync transforms: the caller casts tens of thousands of
+        /// these at a scene that is not moving, and syncs once.</summary>
+        static bool CastInScene(UnityEngine.SceneManagement.Scene scene, Vector3 from, Vector3 dir,
+                                float distance, int mask, out RaycastHit nearest)
+        {
+            nearest = default;
+            bool found = false;
+            foreach (var h in Physics.RaycastAll(from, dir, distance, mask, QueryTriggerInteraction.Ignore))
+            {
+                if (h.collider.gameObject.scene != scene) continue;
+                if (h.collider.GetComponentInParent<PSXRacing.CarController>() != null) continue;
+                if (!found || h.distance < nearest.distance) { nearest = h; found = true; }
+            }
+            return found;
         }
 
         /// <summary>Every place a stuck car is put back stands over a road

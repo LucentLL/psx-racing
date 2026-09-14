@@ -301,8 +301,11 @@ namespace PSXRacing.EditorTools
                   $"(over 3100 m before ramps were seated); {census.metres:0} m of all ribbons at a wrong height, " +
                   $"{CityElevation.SeatedStationCount} stations seated");
 
+            fanMouths = new FanMouthTally();
             DriveAudit(map, trims, buildings);
             RoadsideAudit(map, trims, buildings);
+            ReportFanMouths();
+            fanMouths = null;
 
             Finish();
         }
@@ -465,6 +468,7 @@ namespace PSXRacing.EditorTools
                             tiles.Add(go);
                         }
                     Physics.SyncTransforms();
+                    FanMouths(map, trims, ptx, ptz);
 
                     var min = new Vector2(ptx * CityMeshes.TileSize, ptz * CityMeshes.TileSize);
                     var max = min + Vector2.one * CityMeshes.TileSize;
@@ -617,7 +621,11 @@ namespace PSXRacing.EditorTools
         ///          any road surface carrying on flush beyond it — at wheel to
         ///          hip height (an overlap box, so a ray starting on a rail's
         ///          face cannot miss it the way CityEdgeProbe's did).
-        ///   LANES  counted, not failed: land or a barrier over any lane probed.
+        ///   LANES  counted, not failed: land the first thing over a lane, or
+        ///          anything solid within a car's height of it, every run
+        ///          listed with what it is and whose edge or fan chord.
+        ///   FANS   every lane mouth at a junction fan has road under it
+        ///          (with the drive audit's tiles: <see cref="FanMouths"/>).
         ///   PITS   every lattice corner within PitReachM of a grounded
         ///          ribbon more than half a metre under that ribbon's own
         ///          design, labelled by the rule that put it there.
@@ -681,8 +689,12 @@ namespace PSXRacing.EditorTools
             // OPEN and PIT lines crowded out every FACE line the audit found.
             var lipNotes = new List<(float sev, string what)>();
             var faceNotes = new List<(float sev, string what)>();
-            var laneNotes = new List<(float sev, string what)>();
-            int lanePoints = 0, laneLand = 0, laneSolid = 0;
+            var ledgeNotes = new List<(float sev, string what)>();
+            int ledges = 0;
+            int lanePoints = 0, laneLand = 0, laneSolid = 0, laneBand = 0;
+            var laneRuns = new List<LaneRun>();
+            var bandByClass = new SortedDictionary<string, int>();
+            var bandCols = new Collider[8];
             string HitPath(RaycastHit h) => (h.collider.transform.parent != null ? h.collider.transform.parent.name + "/" : "") + h.collider.name;
             string NodeNote(CityMap.Edge e, float s) =>
                 $"node {Mathf.Min(s, e.length - s):0} m deg{map.nodeEdges[e.a].Count}/{map.nodeEdges[e.b].Count} trims {trims.atA[e.index]:0.0}/{trims.atB[e.index]:0.0}";
@@ -790,6 +802,7 @@ namespace PSXRacing.EditorTools
                         DropTile(oldest);
                     }
                     Physics.SyncTransforms();
+                    FanMouths(map, trims, tx, tz);
 
                     var min = new Vector2(tx * CityMeshes.TileSize, tz * CityMeshes.TileSize);
                     var max = min + Vector2.one * CityMeshes.TileSize;
@@ -837,11 +850,21 @@ namespace PSXRacing.EditorTools
                             // drive audit asks its lane questions on nine tiles;
                             // a verge, seam or rail laid over the next road's
                             // lanes can be anywhere two ribbons are drawn into
-                            // each other. Counted, not failed: overlapping
-                            // ribbons are the elevation solve's to separate.
-                            // Decks too, every other metre: a rail standing in
-                            // a lane is worst on a bridge, and the verge probe's
-                            // "grounded only" had no reason to apply here.
+                            // each other. Decks too, every other metre: a rail
+                            // standing in a lane is worst on a bridge, and the
+                            // verge probe's "grounded only" had no reason to
+                            // apply here.
+                            //
+                            // Two questions per probe (2026-09-14). The first
+                            // thing a wheel meets from above: land is grass
+                            // through the tarmac. And whether anything SOLID
+                            // stands within a car's height of the lane surface
+                            // (RoadsideRules.CarBandM), asked with a slim column
+                            // overlap: the old "first hit from three metres up
+                            // is a barrier" counted an upper deck's rail tops a
+                            // car passes under, and missed a rail whose face
+                            // stood beside the probe with its top out of line.
+                            // Every hit is listed with what it is and whose.
                             if ((int)(s - sMin) % 2 == 0 && hwL + hwR >= 1.2f)
                                 for (int k = 0; k < 3; k++)
                                 {
@@ -851,13 +874,46 @@ namespace PSXRacing.EditorTools
                                     else lat = (hwR - hwL) * 0.5f;
                                     var w = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
                                     lanePoints++;
-                                    if (!Physics.Raycast(w, Vector3.down, out var lh, 6.5f, ~0, QueryTriggerInteraction.Ignore)) continue;
-                                    float dl = lh.point.y - y;
-                                    bool land = lh.collider.name == "Ground";
-                                    bool solid = lh.collider.gameObject.layer == CityWorld.SolidLayer && dl > 0.35f;
-                                    if (!land && !solid) continue;
-                                    if (land) laneLand++; else laneSolid++;
-                                    laneNotes.Add((Mathf.Abs(dl), $"LANE  {(land ? "land" : "a barrier")} {dl:+0.00;-0.00} m over lane{k} of e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} on {HitPath(lh)} at ({w.x:0},{w.z:0}) tile {tx},{tz}{CityMeshes.DescribeClip(map, trims, e, s)}"));
+                                    if (Physics.Raycast(w, Vector3.down, out var lh, 6.5f, ~0, QueryTriggerInteraction.Ignore))
+                                    {
+                                        float dl = lh.point.y - y;
+                                        if (lh.collider.name == "Ground")
+                                        {
+                                            laneLand++;
+                                            string owner = LaneOwner(map, trims, ei, new Vector2(lh.point.x, lh.point.z), y, out string cls);
+                                            AddLaneRun(laneRuns, "land", e, k, s, tx, tz, $"land {dl:+0.00;-0.00} m on {HitPath(lh)}", cls, owner);
+                                        }
+                                        else if (lh.collider.gameObject.layer == CityWorld.SolidLayer && dl > 0.35f) laneSolid++;
+                                    }
+                                    var bandC = new Vector3(w.x, y + (LaneBandFloorM + RoadsideRules.CarBandM) * 0.5f, w.z);
+                                    var bandH = new Vector3(LaneColumnM, (RoadsideRules.CarBandM - LaneBandFloorM) * 0.5f, LaneColumnM);
+                                    int nCols = Physics.OverlapBoxNonAlloc(bandC, bandH, bandCols, Quaternion.identity, solidMask, QueryTriggerInteraction.Ignore);
+                                    if (nCols == 0) continue;
+                                    laneBand++;
+                                    var col = bandCols[0];
+                                    string colPath = (col.transform.parent != null ? col.transform.parent.name + "/" : "") + col.name;
+                                    // how high it stands over the lane: the solid surfaces a
+                                    // vertical line through the column crosses in the band
+                                    float top = float.NaN, low = float.NaN;
+                                    Vector3 at3 = new Vector3(w.x, y + 1f, w.z);
+                                    bool back = Physics.queriesHitBackfaces;
+                                    Physics.queriesHitBackfaces = true;
+                                    try
+                                    {
+                                        foreach (var hb in Physics.RaycastAll(new Vector3(w.x, y + RoadsideRules.CarBandM, w.z), Vector3.down,
+                                                                              RoadsideRules.CarBandM - LaneBandFloorM, solidMask, QueryTriggerInteraction.Ignore))
+                                        {
+                                            if (float.IsNaN(top) || hb.point.y > top) { top = hb.point.y; at3 = hb.point; }
+                                            if (float.IsNaN(low) || hb.point.y < low) low = hb.point.y;
+                                        }
+                                    }
+                                    finally { Physics.queriesHitBackfaces = back; }
+                                    string height = float.IsNaN(top) ? "a face beside the lane line" : Mathf.Abs(top - low) < 0.02f ? $"{top - y:+0.00;-0.00} m" : $"{low - y:+0.00;-0.00}..{top - y:+0.00;-0.00} m";
+                                    string cls2 = "a building", owner2 = "";
+                                    if (col.name == "Solid") cls2 = "a pier or solid box";
+                                    else if (col.name != "Buildings") owner2 = LaneOwner(map, trims, ei, new Vector2(at3.x, at3.z), y, out cls2);
+                                    bandByClass.TryGetValue(cls2, out int bc); bandByClass[cls2] = bc + 1;
+                                    AddLaneRun(laneRuns, "band", e, k, s, tx, tz, $"{colPath} {height}", cls2, owner2);
                                 }
                             for (int si = 0; si < 2; si++)
                             {
@@ -876,11 +932,84 @@ namespace PSXRacing.EditorTools
                                 var o3 = new Vector3(outw.x, 0f, outw.y);
                                 if (!Highest(edgeW + o3 * 0.05f + Vector3.up * 1.2f, 4f, out var h0) || Claimed(h0)) continue;
                                 vergePoints++;
-                                float step = y - h0.point.y;
+                                // THE STEP FROM THE TARMAC A WHEEL LEAVES. RoadsideRules'
+                                // edge drop is tarmac surface to shoulder surface, and
+                                // that is measured from the pavement as DRAWN just
+                                // inside the edge: the ribbon is flat between its
+                                // cross-sections and mitred along a bend's bisector, so
+                                // on a grade its edge stands a few centimetres off the
+                                // solved height (a 5.4 cm lip read off a verge 2.5 cm
+                                // under the tarmac beside e9796). Where the tarmac as
+                                // drawn ends short of the analytic edge — a chord across
+                                // the outside of a bend, a squeeze between two sections —
+                                // the point 5 cm past that edge is out on the verge's
+                                // slope, so the step is measured 5-10 cm past where the
+                                // tarmac really ends instead, found by walking back in
+                                // over the verge, as RailProbe walks out over flush
+                                // pavement to find where a car would fall from. The
+                                // first point still counts: it is ground a wheel rolls
+                                // onto that far past the tarmac, and no recoverable
+                                // roadside has fallen more than 1V:4H on the way. Read
+                                // 5-10 cm past only, a squeeze strip a hand wide hid the
+                                // slot 22 cm deep beyond it (North Tryon Street's two
+                                // carriageways, e10901 beside e10819).
+                                float yTar = y;
+                                bool onTarmac = Highest(edgeW - o3 * 0.05f + Vector3.up * 0.3f, 0.6f, out var hr) && hr.collider.name == "Roads";
+                                if (onTarmac) yTar = hr.point.y;
+                                float step = yTar - h0.point.y;
+                                string measured = "5 cm past the edge";
+                                if (step > RoadsideRules.EdgeDropFailM && !onTarmac)
+                                {
+                                    // as far as the notch a bisector corner leaves on the
+                                    // outside of a right-angle bend (1.1 m on Arlington
+                                    // Avenue's, a street corner in the middle of an edge)
+                                    for (float dIn = 0.10f; dIn <= 1.501f; dIn += 0.05f)
+                                    {
+                                        if (!Highest(edgeW - o3 * dIn + Vector3.up * 0.3f, 0.6f, out var hq) || hq.collider.gameObject.layer == CityWorld.SolidLayer) break;
+                                        if (hq.collider.name != "Roads") continue;
+                                        float atEnd = Highest(edgeW - o3 * (dIn - 0.10f) + Vector3.up * 1.2f, 4f, out var hb) && !Claimed(hb) ? hq.point.y - hb.point.y : 0f;
+                                        float past = hq.point.y - h0.point.y - RoadsideRules.SteepestRecoverableSlope * dIn;
+                                        step = Mathf.Max(atEnd, past);
+                                        measured = past > atEnd
+                                            ? $"5 cm past the edge, {dIn:0.00} m past the tarmac, beyond a 1V:4H fall from it"
+                                            : $"5-10 cm past the tarmac, which ends {dIn - 0.05f:0.00} m inside the edge";
+                                        break;
+                                    }
+                                }
                                 if (step > RoadsideRules.EdgeDropFailM)
                                 {
                                     vergeStepFails++;
-                                    lipNotes.Add((step, $"LIP   {step:0.00} m 5 cm past the edge, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} hw {hw:0.00} on {HitPath(h0)} at ({edgeW.x:0.0},{edgeW.z:0.0}) tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
+                                    lipNotes.Add((step, $"LIP   {step:0.00} m {measured}, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} hw {hw:0.00} on {HitPath(h0)} at ({edgeW.x:0.0},{edgeW.z:0.0}) tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
+                                }
+                                // A LEDGE a few hands out (a survey, not a check
+                                // yet): walking out over the verge, ground that
+                                // steps LedgeMinM to a metre down onto whatever
+                                // lies below it within 1.5 m. No check here sees
+                                // one: the rail census reads the drop 1.5 m out
+                                // and a metre passes, the body-box ray below stands
+                                // down where a road lies a metre out, and the
+                                // builder's DropFrom calls a step onto a road under
+                                // OpenDropM a kerb. A harness walk found 138 on the
+                                // verge code before round three and 81 after (a
+                                // 0.92 m ledge 0.9 m off e7753, where the fin the
+                                // FACE check failed had stood in front of it).
+                                {
+                                    float prevY = float.NaN;
+                                    bool prevGround = false;
+                                    for (float dd = 0.05f; dd <= 1.5f; dd += 0.05f)
+                                    {
+                                        if (!Highest(edgeW + o3 * dd + Vector3.up * 1.2f, 4f, out var hs) || hs.collider.gameObject.layer == CityWorld.SolidLayer) break;
+                                        float fall = prevY - hs.point.y;
+                                        if (prevGround && fall > LedgeMinM && fall < RoadsideRules.OpenDropM)
+                                        {
+                                            ledges++;
+                                            ledgeNotes.Add((fall, $"LEDGE {fall:0.00} m down {dd:0.00} m past the edge onto {HitPath(hs)}, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} at ({edgeW.x:0.0},{edgeW.z:0.0}) tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
+                                            break;
+                                        }
+                                        if (hs.collider.name == "Roads" && dd > 0.1f) break;
+                                        prevY = hs.point.y;
+                                        prevGround = hs.collider.name == "Ground";
+                                    }
                                 }
                                 // the body box coming back: a ray at its lowest
                                 // clearance over the ground a metre out
@@ -987,7 +1116,20 @@ namespace PSXRacing.EditorTools
             Check(gapRuns == 0, "no edge over a drop past " + RoadsideRules.OpenDropM + " m is without a barrier: decks, approaches, ledges, fan chords, gore noses (rail census)",
                   $"{gapRuns} runs, {gapMetres:0} m");
             Check(pitsUnexplained == 0, "every pit beside a grounded ribbon has a rule that put it there (pit census)", pitsUnexplained);
-            Line($"    lane survey (not a check): {lanePoints} lane probes on the roadside tiles, land on top of a lane {laneLand}, a barrier over a lane {laneSolid}");
+            // Not checks yet. What is left (2026-09-14) is roads drawn into
+            // each other where the squeeze may not split them — junction arms
+            // and host/branch pairs a level apart: the link e14103 half a
+            // metre over North Davidson Street, the Independence Expressway
+            // coming down beside Albemarle Road on its retaining wall — a
+            // building wall standing in a street (the footprints'), and rails
+            // a hand inside a lane line at polyline bends; each run below
+            // names which.
+            var laneLine = new StringBuilder($"    lane survey (not a check): {lanePoints} lane probes on the roadside tiles; land the first thing over a lane {laneLand}; " +
+                                             $"something solid within {RoadsideRules.CarBandM} m over a lane {laneBand}");
+            foreach (var kv in bandByClass) laneLine.Append($", {kv.Key} {kv.Value}");
+            laneLine.Append($" (a solid top over 0.35 m up, seen from 3 m over the lane: {laneSolid})");
+            Line(laneLine.ToString());
+            Line($"    ledge survey (not a check): {ledges} of {vergePoints} verge points step {LedgeMinM}-{RoadsideRules.OpenDropM} m down within 1.5 m past a grounded edge, with no barrier");
             // every OPEN run (they are metres, and few), then the worst of each
             // other kind, one line per edge and side
             void Print(List<(float sev, string what)> list, int cap, string title, bool perEdge)
@@ -1016,8 +1158,215 @@ namespace PSXRacing.EditorTools
             Print(openNotes, 60, "open edges over a drop", false);
             Print(faceNotes, 30, "faces in the body box's way", true);
             Print(lipNotes, 30, "lips past a grounded edge", true);
-            Print(laneNotes, 12, "land or a barrier over a lane", true);
+            Print(ledgeNotes, 30, "ledges past a grounded edge (survey)", true);
+            int bandRuns = laneRuns.FindAll(r => r.kind == "band").Count;
+            Line($"    -- land or something solid within a car's height over a lane: {laneRuns.Count} runs ({bandRuns} solid, {laneRuns.Count - bandRuns} land), every one");
+            foreach (var r in laneRuns) Line("    " + r.Describe());
             Print(pitNotes, 10, "pits", true);
+        }
+
+        /// <summary>The least step down past a grounded edge the ledge survey
+        /// lists: well past a wheel's lip, short of the rail census's metre.</summary>
+        const float LedgeMinM = 0.3f;
+        /// <summary>The lowest point over a lane the lane survey's column
+        /// starts at: a kerb's inch and the rail's buried foot sit below it.</summary>
+        const float LaneBandFloorM = 0.15f;
+        /// <summary>Half the lane survey column's width. The lane line is
+        /// 0.55 m in from the drawn edge and a rail's traffic face RailW
+        /// inside it, so a 0.1 m column meets a rail only where it stands
+        /// in the lane.</summary>
+        const float LaneColumnM = 0.1f;
+
+        /// <summary>One lane-survey finding: consecutive probes along one lane
+        /// of one edge that met the same kind of thing, merged.</summary>
+        class LaneRun
+        {
+            public string kind, cls, what, owner, edgeName;
+            public int edge, lane, tx, tz, count;
+            public float s0, s1;
+            public string Describe() =>
+                $"LANE  {(kind == "land" ? "land over" : "solid in")} lane{lane} of e{edge} {edgeName} s={s0:0}{(s1 > s0 + 0.5f ? $"..{s1:0}" : "")} ({count} probe{(count > 1 ? "s" : "")}) tile {tx},{tz}: {what}; {cls}{owner}";
+        }
+
+        static void AddLaneRun(List<LaneRun> runs, string kind, CityMap.Edge e, int lane, float s, int tx, int tz, string what, string cls, string owner)
+        {
+            for (int i = runs.Count - 1; i >= 0 && i >= runs.Count - 6; i--)
+            {
+                var r = runs[i];
+                if (r.kind != kind || r.edge != e.index || r.lane != lane || r.cls != cls || s - r.s1 > 2.5f) continue;
+                r.s1 = s; r.count++;
+                return;
+            }
+            runs.Add(new LaneRun
+            {
+                kind = kind, edge = e.index, edgeName = $"'{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")}", lane = lane,
+                s0 = s, s1 = s, tx = tx, tz = tz, what = what, cls = cls, owner = owner, count = 1,
+            });
+        }
+
+        /// <summary>
+        /// Whose geometry stands at a point over a lane: the nearest drawn
+        /// ribbon edge within a rail's reach — the lane's own (its rail drawn
+        /// inside its lanes), another road's at the same height (two roads
+        /// drawn into each other), another road's at another height (a road
+        /// over or under this one in plan, closer than a car) — or a fan
+        /// chord. Called for findings only (it rebuilds sections).
+        /// </summary>
+        static string LaneOwner(CityMap map, CityMeshes.Trims trims, int laneEdge, Vector2 p2, float laneY, out string cls)
+        {
+            cls = "nobody's edge within 0.8 m";
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(p2 - Vector2.one * 20f, p2 + Vector2.one * 20f, segs);
+            var near = new HashSet<int>();
+            foreach (var packed in segs) near.Add(packed >> 12);
+            float best = 0.8f; int bestE = -1, bestSide = 0; float bestS = 0f;
+            foreach (var oi in near)
+            {
+                var o = map.edges[oi];
+                CityElevation.ProjectOn(o, p2, out float so);
+                if (so <= 0.01f || so >= o.length - 0.01f) continue;
+                var po = o.PointAt(so); var to = o.TangentAt(so);
+                if (Mathf.Abs(Vector2.Dot(p2 - po, to)) > 1.5f) continue;
+                float lat = Vector2.Dot(p2 - po, new Vector2(-to.y, to.x));
+                CityMeshes.LaneExtents(map, trims, o, so, out float hl, out float hr);
+                float off = Mathf.Abs(Mathf.Abs(lat) - (lat >= 0f ? hr : hl));
+                if (off >= best) continue;
+                best = off; bestE = oi; bestS = so; bestSide = lat >= 0f ? 1 : -1;
+            }
+            string desc = "";
+            if (bestE >= 0)
+            {
+                var o = map.edges[bestE];
+                float dy = o.YAt(bestS) - laneY;
+                cls = bestE == laneEdge ? "its own edge" : Mathf.Abs(dy) < 0.1f ? "another road's edge at its height" : "another road's edge at another height";
+                desc = $": e{bestE} '{o.name}'{(o.link ? " L" : "")} side {(bestSide < 0 ? "L" : "R")} s={bestS:0}, its surface {dy:+0.00;-0.00} m{CityMeshes.DescribeSide(map, trims, o, bestS, bestSide)}";
+            }
+            var chords = new List<(Vector3 a, Vector3 b, Vector2 outward)>();
+            var nodes = new HashSet<int>();
+            foreach (var oi in near) { nodes.Add(map.edges[oi].a); nodes.Add(map.edges[oi].b); }
+            foreach (var n in nodes)
+            {
+                if (!trims.patch[n] || Vector2.Distance(map.nodes[n], p2) > 30f) continue;
+                CityMeshes.FanPerimeter(map, trims, n, chords);
+                foreach (var (a, b, _) in chords)
+                {
+                    var A = new Vector2(a.x, a.z); var d = new Vector2(b.x, b.z) - A;
+                    float t = Mathf.Clamp01(Vector2.Dot(p2 - A, d) / Mathf.Max(d.sqrMagnitude, 1e-6f));
+                    float dist = Vector2.Distance(p2, A + d * t);
+                    if (dist >= best) continue;
+                    best = dist; cls = "a fan chord";
+                    desc = $": node {n}'s chord ({a.x:0},{a.z:0})-({b.x:0},{b.z:0}), its surface {Mathf.Lerp(a.y, b.y, t) - laneY:+0.00;-0.00} m";
+                }
+            }
+            return desc;
+        }
+
+        // ==================================================================
+        /// <summary>
+        /// THE JUNCTION MOUTHS (2026-09-14). The drive audit's lanes run from
+        /// trim to trim and the roadside audit walks a fan's chords; neither
+        /// looked INSIDE a fan, where Tyvola Road's lanes ran a metre past
+        /// their mouth onto the land a metre down (a link's corner had sorted
+        /// between Tyvola's two and split the fan). On every tile the audit
+        /// probes from, every arm of every fan is asked, a lane line a metre
+        /// across its drawn width, 0.3 m and 1 m back from its mouth toward the
+        /// node: the first thing under it must be road. Land or nothing there
+        /// fails. A road a level away, or a solid, is listed (overlapping
+        /// ribbons, the lane survey's to count).
+        /// </summary>
+        class FanMouthTally
+        {
+            public int fans, probes, noRoad, offLevel, solid;
+            public readonly HashSet<int> nodes = new HashSet<int>();
+            public readonly List<(float sev, string what)> notes = new List<(float, string)>();
+        }
+        static FanMouthTally fanMouths;
+        static readonly float[] FanMouthInsets = { 0.3f, 1.0f };
+        /// <summary>A fan surface this far off the arm-to-node height is some
+        /// other road's (the drive audit's OFF threshold).</summary>
+        const float FanMouthOffM = 0.35f;
+
+        /// <summary>Probe the fans whose nodes are on tile (tx, tz). Its 3x3
+        /// neighbourhood must be standing, the tile itself built last (the
+        /// clip table is what LaneExtents reads).</summary>
+        static void FanMouths(CityMap map, CityMeshes.Trims trims, int tx, int tz)
+        {
+            var t = fanMouths;
+            if (t == null) return;
+            var min = new Vector2(tx * CityMeshes.TileSize, tz * CityMeshes.TileSize);
+            var max = min + Vector2.one * CityMeshes.TileSize;
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(min, max, segs);
+            var nodes = new SortedSet<int>();
+            foreach (var packed in segs) { var e = map.edges[packed >> 12]; nodes.Add(e.a); nodes.Add(e.b); }
+            foreach (var n in nodes)
+            {
+                var np = map.nodes[n];
+                if (!trims.patch[n] || np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y) continue;
+                if (!t.nodes.Add(n)) continue;   // a tile both audits probe counts once
+                t.fans++;
+                foreach (var ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b) continue;
+                    float trim = trims.TrimAt(e, n);
+                    float at = e.a == n ? trim : e.length - trim;
+                    var tan = e.TangentAt(at);
+                    var outDir = e.a == n ? tan : -tan;
+                    var right = new Vector2(-tan.y, tan.x);
+                    CityMeshes.LaneExtents(map, trims, e, at, out float hwL, out float hwR);
+                    if (hwL + hwR < 1.2f) continue;   // clipped into its host: no lanes of its own here
+                    var p = e.PointAt(at);
+                    float yArm = e.YAt(at);
+                    foreach (float inset in FanMouthInsets)
+                    {
+                        if (inset > trim - 0.3f) continue;
+                        float yExp = Mathf.Lerp(yArm, map.nodeY[n], inset / Mathf.Max(trim, 0.01f));
+                        float l0 = -(hwL - 0.5f), l1 = hwR - 0.5f;
+                        int count = Mathf.Max(2, Mathf.CeilToInt(l1 - l0) + 1);
+                        for (int q = 0; q < count; q++)
+                        {
+                            float lat = Mathf.Lerp(l0, l1, (float)q / (count - 1));
+                            var w2 = p + right * lat - outDir * inset;
+                            var w = new Vector3(w2.x, yExp + 3f, w2.y);
+                            t.probes++;
+                            string what; float sev;
+                            if (!Physics.Raycast(w, Vector3.down, out var h, 6.5f, ~0, QueryTriggerInteraction.Ignore))
+                            { t.noRoad++; what = "nothing under it"; sev = 9f; }
+                            else
+                            {
+                                float d = h.point.y - yExp;
+                                string path = (h.collider.transform.parent != null ? h.collider.transform.parent.name + "/" : "") + h.collider.name;
+                                if (h.collider.name == "Ground") { t.noRoad++; what = $"land {d:+0.00;-0.00} m ({path})"; sev = 5f + Mathf.Abs(d); }
+                                else if (h.collider.gameObject.layer == CityWorld.SolidLayer) { t.solid++; what = $"a solid {d:+0.00;-0.00} m ({path})"; sev = 2f; }
+                                else if (Mathf.Abs(d) > FanMouthOffM) { t.offLevel++; what = $"a road {d:+0.00;-0.00} m off ({path})"; sev = Mathf.Abs(d); }
+                                else continue;
+                            }
+                            t.notes.Add((sev, $"FAN   node {n} arm e{ei} '{e.name}'{(e.link ? " L" : "")} {inset:0.0} m back from the mouth, lane line {lat:+0.0;-0.0}: {what} at ({w.x:0.0},{w.z:0.0}) tile {tx},{tz} deg{map.nodeEdges[n].Count} trim {trim:0.0}"));
+                        }
+                    }
+                }
+            }
+        }
+
+        static void ReportFanMouths()
+        {
+            var t = fanMouths;
+            if (t == null) return;
+            Line($"fan mouth probe: {t.fans} fans on the probed tiles, {t.probes} probes; land or nothing {t.noRoad}, a road a level away {t.offLevel}, a solid {t.solid}");
+            Check(t.noRoad == 0, "every lane mouth at a junction fan has road under it (fan mouth probe)", $"{t.noRoad} of {t.probes} probes");
+            t.notes.Sort((p, q) => q.sev.CompareTo(p.sev));
+            var shown = new HashSet<string>();
+            int lines = 0;
+            foreach (var (sev, what) in t.notes)
+            {
+                // one line per node and arm, its worst probe
+                int cut = what.IndexOf(" m back");
+                string key = what.Substring(0, what.LastIndexOf(' ', cut - 1));
+                if (!shown.Add(key)) continue;
+                Line("    " + what);
+                if (++lines >= 30) break;
+            }
         }
 
         /// <summary>No station-to-station grade past 16% outside a sub-30 m

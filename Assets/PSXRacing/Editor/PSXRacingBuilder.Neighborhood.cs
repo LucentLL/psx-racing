@@ -483,7 +483,7 @@ namespace PSXRacing.EditorTools
         /// the street grade; the other 22 keep their walls, 11 of them solid).
         ///
         /// THE ROOM is what keeps the ground continuous. Which plot a point
-        /// belongs to switches half a pitch from its centre (NbGroundY), so a
+        /// belongs to switches half a pitch from its centre (NbBenchedY), so a
         /// side edge's batter must finish within NbPlotPitch/2 - NbBenchD/2 or
         /// the ground steps at the switch. The back edge runs toward the
         /// boundary wall and stops NbBackRoomMargin short of it. The street
@@ -728,8 +728,145 @@ namespace PSXRacing.EditorTools
         /// reach — a bench's side batters are held inside half a pitch
         /// (NbEdgesOf), so they have finished by the line where the next plot
         /// takes over and no point is ever on two.
+        ///
+        /// AND THEN THE LAND BESIDE EVERY DRIVE IS GRADED TO IT — see
+        /// <see cref="NbSideGradeY"/>. That is the one part of this function
+        /// that does NOT belong to a single plot, because a drive's garage side
+        /// can need more room than its own plot has.
         /// </summary>
         static float NbGroundY(float x, float z)
+        {
+            float benched = NbBenchedY(x, z);
+            int side = x >= HomeStreetX ? 1 : -1;
+            float outward = (x - HomeStreetX) * side;
+            // Along the drive, to its garage end, and handed back to the benched
+            // land past it — see NbSideGradeReturnM.
+            float along = 1f - Mathf.SmoothStep(0f, 1f,
+                Mathf.InverseLerp(NbGarageFaceOut, NbGarageFaceOut + NbSideGradeReturnM, outward));
+            if (along <= 0f) return benched;
+
+            // EVERY DRIVE THAT CAN REACH, not the band's own. A garage side is
+            // 6.07 m from the line where the next plot takes over and the worst
+            // one on the street needs 7.4 m of 1V:4H to reach its own garden,
+            // so the plot that owns a point is not always the plot whose drive
+            // grades it. The band's plot and both neighbours, whichever band
+            // the point is in: the drive that drops out of that set at a band
+            // switch is 33 m away, three times NbSideGradeReachM, so the two
+            // sides of the switch add up the same grades and no seam opens.
+            int band = Mathf.Clamp(Mathf.RoundToInt((NbFirstPlotZ - z) / NbPlotPitch), 0, NbPlotCount - 1);
+            float y = benched;
+            for (int p = Mathf.Max(0, band - 1); p <= Mathf.Min(NbPlotCount - 1, band + 1); p++)
+            {
+                float driveZ = NbDriveZ(side, NbPlotZ(p));
+                float off = Mathf.Abs(z - driveZ) - NbDriveW * 0.5f;
+                if (off <= 0f || off >= NbSideGradeReachM) continue;
+                float dir = z > driveZ ? 1f : -1f;
+                float graded = NbSideGradeY(x, driveZ + dir * NbDriveW * 0.5f, dir, off);
+                float w = along * (1f - Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(NbSideGradeReachM - NbSideGradeFadeM, NbSideGradeReachM, off)));
+                y += w * (graded - benched);
+            }
+            return y;
+        }
+
+        /// <summary>How far past a drive's side edge its side grade may reach.
+        /// The next plot's bench begins 12.07 m past a garage-side edge (27 m of
+        /// pitch, less the drive's 4.93 + 2.5 and the bench's 7.5), so ten
+        /// metres keeps every grade off every bench but the drive's own. The
+        /// worst one on the street reaches 7.4 m.</summary>
+        const float NbSideGradeReachM = 10f;
+        /// <summary>...faded out over its last two, so a grade that ever did
+        /// reach that far would taper rather than stop. NbCheckSideGrades says
+        /// in the build log if one does.</summary>
+        const float NbSideGradeFadeM = 2f;
+        /// <summary>
+        /// Past the garage end of a drive the side grade hands back to the
+        /// benched land over one lawn cell.
+        ///
+        /// The drive ends inside the garage, so beside the house there is no
+        /// edge to grade to — and a grade that carried on along the house held
+        /// the side yard up at the drive's level the whole depth of the house:
+        /// 4.6 m of fill at plot 1 east's back corner, burying the foundation
+        /// wall the owner asked to see. So the fill stops at the garage. The
+        /// lattice's columns stand at whole multiples of NbGroundCell out from
+        /// the crown, so a drive's sides out to 21 m read only columns the grade
+        /// holds in full, and the return lands in the next cell: beside
+        /// plot 1 east's garage corner, the steepest on the street, it falls
+        /// 0.63 along the house where the benched land already fell 0.45 (over
+        /// two cells it came out 0.75, because the second cell is where the
+        /// land itself steepens). It is off every drive and every section the
+        /// warrant walks.
+        /// </summary>
+        const float NbSideGradeReturnM = NbGroundCell;
+        /// <summary>The pitch the side grade walks its section at.</summary>
+        const float NbSideGradeStepM = 0.25f;
+
+        /// <summary>
+        /// THE LAND BESIDE A DRIVE, GRADED THE WAY A ROAD'S SIDE SLOPE IS.
+        ///
+        /// "Roads sitting cm above the ground do not need rails/walls, they
+        /// should meet the ground properly by DOT standards." The drive
+        /// corridor below held the land up to the drive for four metres of
+        /// smoothstep either side and then let it go, whatever it had to fall:
+        /// beside NbDrive0, plot 0's west drive, the garden was 1.5-1.73 m down
+        /// 4.5-5 m out, steeper than 1V:3H — a barrier warrant under
+        /// RoadsideRules on a residential driveway, nine stations of it
+        /// (TownProbe, 2026-09-13), and a metre down within 2.5 m beside it and
+        /// beside NbDrive3's garage end. The smoothstep's own middle fell at up
+        /// to 1V:1.7H. Widening the fade was not the fix: the garage side of a
+        /// drive is 6.07 m from the line where the next plot takes over and the
+        /// worst needs 7.4 m, and a wider smoothstep is also a steeper one for
+        /// the same room.
+        ///
+        /// So a drive's side is graded as a section, the way a fill or cut
+        /// slope is set out from a shoulder: walking out from the drive's edge
+        /// at <paramref name="x"/>, the benched land (<see cref="NbBenchedY"/>,
+        /// corridor hold and all) is CUT wherever it rises
+        /// faster than RoadsideRules.BackSlope (1V:3H) and FILLED wherever it
+        /// falls faster than RoadsideRules.SteepestRecoverableSlope (1V:4H),
+        /// each measured from the graded ground already walked. Where the land
+        /// is already that gentle nothing moves; where it is not, the slope runs
+        /// at the limit until it daylights into the plot's own ground — the
+        /// garden, a bench's batter, the neighbour's lawn. A fall from any drive
+        /// is therefore at most a quarter of its distance within the warrant's
+        /// reach, which RoadsideRules.IsCriticalFall never calls critical, and
+        /// no wall is warranted. The fill is continuous across the drive's edge
+        /// (the walk starts ON the edge, at the drive's own height), the cut is
+        /// applied before the fill so a hump beside a drive cannot put a steep
+        /// fall back on top of a graded rise, and it is sampled every
+        /// <see cref="NbSideGradeStepM"/>.
+        ///
+        /// Measured on the replica against the round-two street: every drive
+        /// side within 1V:4H falling and 1V:3H rising out to 6 m, zero critical
+        /// stations and zero falls past a metre within 2.5 m, the drive
+        /// surfaces themselves unchanged to the millimetre, nothing within 7 m
+        /// of the crown changed at all, and 0.84 m the most any point moved.
+        /// </summary>
+        /// <param name="edgeZ">The drive's side edge.</param>
+        /// <param name="dir">+1 or -1: which way in z is away from the drive.</param>
+        /// <param name="off">How far past the edge the point is.</param>
+        static float NbSideGradeY(float x, float edgeZ, float dir, float off)
+        {
+            float cut = float.PositiveInfinity, fill = float.NegativeInfinity, last = 0f;
+            int n = Mathf.CeilToInt(off / NbSideGradeStepM);
+            for (int k = 0; k <= n; k++)
+            {
+                float d = Mathf.Min(k * NbSideGradeStepM, off);
+                float run = d - last;
+                float h = NbBenchedY(x, edgeZ + dir * d);
+                cut = Mathf.Min(h, cut + RoadsideRules.BackSlope * run);
+                fill = Mathf.Max(cut, fill - RoadsideRules.SteepestRecoverableSlope * run);
+                last = d;
+            }
+            return fill;
+        }
+
+        /// <summary>
+        /// The benched land: the hillside, with each plot's bench cut into it
+        /// and its drive's corridor graded up to the bench. Everything
+        /// <see cref="NbGroundY"/> is, before the side grades.
+        /// </summary>
+        static float NbBenchedY(float x, float z)
         {
             float land = NbLandY(x, z);
             int i = Mathf.RoundToInt((NbFirstPlotZ - z) / NbPlotPitch);
@@ -774,6 +911,13 @@ namespace PSXRacing.EditorTools
                                 Mathf.InverseLerp(NbSetback + 2f + NbBenchW * 0.5f,
                                                   NbSetback + 2f + NbBenchW * 0.5f + 4f,
                                                   outward)));
+            // (Four metres of SIDE HOLD either side of the concrete. Its middle
+            // falls at up to 1V:1.7H, so beside the drive what a car meets is
+            // this hold GRADED — NbGroundY walks the section and fills and cuts
+            // it (NbSideGradeY). The hold stays because near the concrete it is
+            // the gentle part, and past the garage end, where the side grade
+            // hands back, it is what the side yard has always been.)
+            //
             // From THIS station's road height, not the drive centreline's. The
             // corridor is 13 m of z and the street falls through it, so a ramp
             // that started at one fixed height would hold a flat shelf across
@@ -1015,6 +1159,79 @@ namespace PSXRacing.EditorTools
                                       " m through after four passes" : ""));
         }
 
+        /// <summary>
+        /// WHAT THE DRIVE SIDE GRADES CAME OUT AS, in the build log, before
+        /// anything is laid on them.
+        ///
+        /// Every metre along both sides of every drive, the graded field walked
+        /// out to a metre past RoadsideRules.WarrantReachM at the side grade's
+        /// own pitch: its steepest fall and rise, whether
+        /// RoadsideRules.WorstCriticalFall finds a critical fall in it, how far
+        /// the grading moved the benched land, and how much grade the reach
+        /// fade (NbSideGradeReachM) took off a slope that had not yet
+        /// daylighted. The field, not the lawn lattice — TownProbe measures the
+        /// built colliders — so this is the number to read when a constant on
+        /// the street changes and the probe has not been run: a WARN here is a
+        /// wall-warranting drop that the probe would find forty minutes later.
+        /// </summary>
+        static void NbCheckSideGrades()
+        {
+            const float Pitch = NbSideGradeStepM;
+            int n = Mathf.CeilToInt((RoadsideRules.WarrantReachM + 1f) / Pitch);
+            var y = new float[n + 1];
+            float steepFall = 0f, steepRise = 0f, fillMost = 0f, cutMost = 0f, fadedMost = 0f;
+            int stations = 0, critical = 0;
+            string criticalAt = null;
+            for (int p = 0; p < NbPlotCount; p++)
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float driveZ = NbDriveZ(side, NbPlotZ(p));
+                    for (int e = -1; e <= 1; e += 2)
+                    {
+                        float edgeZ = driveZ + e * NbDriveW * 0.5f;
+                        for (float o = NbKerbOut; o <= NbGarageFaceOut + 1e-3f; o += 1f)
+                        {
+                            float x = HomeStreetX + side * o;
+                            stations++;
+                            for (int k = 0; k <= n; k++)
+                            {
+                                float z = edgeZ + e * k * Pitch;
+                                y[k] = NbGroundY(x, z);
+                                float moved = y[k] - NbBenchedY(x, z);
+                                fillMost = Mathf.Max(fillMost, moved);
+                                cutMost = Mathf.Max(cutMost, -moved);
+                                if (k == 0) continue;
+                                float slope = (y[k] - y[k - 1]) / Pitch;
+                                steepFall = Mathf.Max(steepFall, -slope);
+                                steepRise = Mathf.Max(steepRise, slope);
+                            }
+                            if (RoadsideRules.WorstCriticalFall(y, 0, n, Pitch, 0f, out _) > 0f)
+                            {
+                                critical++;
+                                if (criticalAt == null)
+                                    criticalAt = "NbDrive" + (p * 2 + (side > 0 ? 1 : 0)) + " at (" +
+                                                 x.ToString("0.0") + ", " + edgeZ.ToString("0.0") + ")";
+                            }
+                            for (float off = NbSideGradeReachM - NbSideGradeFadeM; off < NbSideGradeReachM; off += 0.5f)
+                            {
+                                float z = edgeZ + e * off;
+                                float benched = NbBenchedY(x, z);
+                                float full = Mathf.Abs(NbSideGradeY(x, edgeZ, e, off) - benched);
+                                fadedMost = Mathf.Max(fadedMost, full - Mathf.Abs(NbGroundY(x, z) - benched));
+                            }
+                        }
+                    }
+                }
+            string Ratio(float s) => s <= 1e-4f ? "level" : "1V:" + (1f / s).ToString("0.0") + "H";
+            Log("[Neighborhood] drive side grades: " + stations + " stations on " + (NbPlotCount * 4) +
+                " drive sides, steepest fall " + Ratio(steepFall) + " and rise " + Ratio(steepRise) +
+                " within " + (RoadsideRules.WarrantReachM + 1f).ToString("0.0") + " m; " + critical +
+                " critical fall(s); most fill " + fillMost.ToString("0.00") + " m, most cut " +
+                cutMost.ToString("0.00") + " m; the reach fade took off " + fadedMost.ToString("0.000") + " m" +
+                (critical > 0 ? "  WARN: a drive warrants a barrier, first " + criticalAt : "") +
+                (fadedMost > 0.05f ? "  WARN: a side grade has not daylighted by NbSideGradeReachM" : ""));
+        }
+
         static void BuildNbGround(Transform parent, TownMats m)
         {
             // THE STREET ENDS AT THE THROAT and the turning head carries the
@@ -1037,6 +1254,7 @@ namespace PSXRacing.EditorTools
             // is 17 m across: at 4 m the levelled part of a garden was four
             // cells wide and its edge landed wherever the grid happened to be.
             // AND IT IS THE SOLVED LATTICE, not the field: see SolveNbLattice.
+            NbCheckSideGrades();
             SolveNbLattice();
             WorldKit.GridSlab(parent, "NbGround", nbLattice.centre,
                 nbLattice.sizeX, nbLattice.sizeZ, NbGroundCell, m.grass, true, 16f, 0,
@@ -1230,6 +1448,7 @@ namespace PSXRacing.EditorTools
                 }
                 var runs = WorldKit.KerbRuns(edge, outward, InGap, WorldKit.KerbHeightM,
                                              taperStart: true, taperEnd: true, maxPitch: 4f);
+                NbFlushDroppedKerbs(runs, side);
                 string tag = side < 0 ? "W" : "E";
                 for (int r = 0; r < runs.Count; r++)
                 {
@@ -1241,6 +1460,74 @@ namespace PSXRacing.EditorTools
             }
             Log("[Neighborhood] kerbs: " + built + " runs, dropped at " + (NbPlotCount * 2) +
                 " drives and your own");
+        }
+
+        /// <summary>
+        /// A DROPPED KERB IS FLUSH WITH THE DRIVE IT IS DROPPED FOR, not with
+        /// the road.
+        ///
+        /// KerbRuns falls the stone to zero lift at an entrance, which lays the
+        /// last station's ramp level with the gutter from its foot to its back,
+        /// 0.45 m out. But the drive beside it does not stay at gutter height
+        /// for 0.45 m: it starts climbing — or, on the downhill side of the
+        /// street, falling — at the kerb line, at up to 15%. Every east-side
+        /// entrance left the ramp's end standing over the concrete: 3.1 cm at
+        /// its middle where TownProbe measured it (NbKerbE2Ramp at z -82.6, one
+        /// over the inch) and 4.6-7.0 cm at its back corner, which the probe's
+        /// one station an edge does not sample and a wheel does; the west
+        /// side's uphill drives stood up to 7 cm over the ramp's end instead.
+        ///
+        /// So across the transition the lift runs from what meets the drive to
+        /// the full stone: at the entrance the ramp's back is the drive's own
+        /// surface at the back of the kerb (on the drive's edge row, where the
+        /// slab is exactly the height field), and KerbTaperM along it is
+        /// KerbHeightM as before. Only stations inside a DRIVE's transition
+        /// move — the street's end and your own drive at the head keep the
+        /// plain drop. On a downhill drive that lift is negative: the stone's
+        /// top falls with the drive, its drawn face lies along the ramp rather
+        /// than notching under the gutter (WorldKit.Kerb), and the ramp slopes
+        /// down the drive's own cross-fall, which is a landing, not a face. On
+        /// an uphill drive it is positive, and the stone keeps a drawn face of
+        /// that height over a ramp collider, as every raised stone does.
+        /// </summary>
+        static void NbFlushDroppedKerbs(List<List<WorldKit.EdgeStation>> runs, int side)
+        {
+            foreach (var run in runs)
+                for (int k = 0; k < run.Count; k++)
+                {
+                    var st = run[k];
+                    if (st.foot.z > NbBulbThroatZ + 1e-3f) continue;
+                    // 0 at the entrance, 1 once the stone is up.
+                    float t = st.lift / WorldKit.KerbHeightM;
+                    if (t >= 1f) continue;
+                    bool near = false;
+                    float edgeZ = 0f;
+                    for (int i = 0; i < NbPlotCount && !near; i++)
+                    {
+                        float driveZ = NbDriveZ(side, NbPlotZ(i));
+                        if (Mathf.Abs(st.foot.z - driveZ) >= NbDriveW * 0.5f + WorldKit.KerbTaperM + 1e-3f) continue;
+                        near = true;
+                        edgeZ = Mathf.Clamp(st.foot.z, driveZ - NbDriveW * 0.5f, driveZ + NbDriveW * 0.5f);
+                    }
+                    if (!near) continue;
+                    // FROM THE ENTRANCE'S GUTTER, not this station's. A lift is
+                    // measured from the foot under it, and the flush that fades
+                    // out over the taper is the ENTRANCE's: the run's end at this
+                    // drive, where KerbRuns dropped the stone to nothing. Taken
+                    // against a taper station's own foot it folded the street's
+                    // fall between the two into the transition — 4.3 cm off the
+                    // taper's line at worst on this street (NbKerbE1 at z -88.2:
+                    // 6.9 cm where the line is 2.6), and on a steeper street a
+                    // lift past KerbHeightM on the low side of an uphill drive, a
+                    // ramp past the 33% every mountable kerb is held to. Measured
+                    // from the entrance, a lift never leaves [flush, KerbHeightM].
+                    var entrance = Mathf.Abs(run[0].foot.z - edgeZ) <= Mathf.Abs(run[run.Count - 1].foot.z - edgeZ)
+                        ? run[0] : run[run.Count - 1];
+                    float backX = st.foot.x + st.outward.x * WorldKit.KerbWidthM;
+                    float flush = NbDriveSurfaceY(backX, edgeZ) - entrance.foot.y;
+                    st.lift = Mathf.Lerp(flush, WorldKit.KerbHeightM, t);
+                    run[k] = st;
+                }
         }
 
         /// <summary>

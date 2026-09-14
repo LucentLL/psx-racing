@@ -710,7 +710,10 @@ namespace PSXRacing.EditorTools
             /// <summary>Horizontal, unit, away from the surface.</summary>
             public Vector3 outward;
             /// <summary>The face's height here: <see cref="KerbHeightM"/> on a
-            /// run, falling to zero at a dropped kerb.</summary>
+            /// run, falling to zero at a dropped kerb — or to whatever lays the
+            /// back of the stone flush with the entrance it is dropped for,
+            /// which on a drive that falls away from the gutter is below zero
+            /// (PSXRacingBuilder.NbFlushDroppedKerbs).</summary>
             public float lift;
             /// <summary>The top of the stone at its back edge, where the
             /// verge behind it takes over.</summary>
@@ -891,7 +894,14 @@ namespace PSXRacing.EditorTools
                 if (i > 0) dist += HorizontalDistance(run[i - 1].foot, st.foot);
                 Vector3 up = Vector3.up;
                 Vector3 a = st.foot;
-                Vector3 b = st.foot + st.outward * KerbFaceBatterM + up * st.lift;
+                // A NEGATIVE lift is a dropped kerb laid flush with an entrance
+                // that falls away from the gutter (a downhill drive): there is
+                // no face to draw, so the top of the "face" sits on the ramp's
+                // own line from the foot to the back. Drawn at foot + lift it
+                // was a notch as deep as the drive's fall under the gutter, with
+                // the collider riding over it.
+                float faceLift = st.lift >= 0f ? st.lift : st.lift * (KerbFaceBatterM / KerbWidthM);
+                Vector3 b = st.foot + st.outward * KerbFaceBatterM + up * faceLift;
                 Vector3 c = st.BackTop;
                 Vector3 d = c - up * (RoadsideRules.EdgeDropM + KerbBackHangM);
                 float u = dist / 2f;

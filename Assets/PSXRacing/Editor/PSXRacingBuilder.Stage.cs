@@ -1088,6 +1088,57 @@ namespace PSXRacing.EditorTools
             {
                 if (v > 0f && (!want.TryGetValue(k, out float had) || v > had)) want[k] = v;
             }
+            // One sample: 1 when the facet over it asked its vertices to come
+            // down, -1 when it would have but a near-tube quad owns them.
+            int WantUnder(float x, float z, float target)
+            {
+                int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
+                float u = x / NearCell - gx, w = z / NearCell - gz;
+                // GridChunkMesh's two triangles per cell, weighted the way
+                // StageLatticeY interpolates them.
+                int bx, bz;
+                float wa, wb, wc;
+                if (w >= u) { bx = gx; bz = gz + 1; wa = 1f - w; wb = w - u; wc = u; }
+                else { bx = gx + 1; bz = gz; wa = 1f - u; wb = u - w; wc = w; }
+                float excess = StageLatticeVertexY(gx, gz) * wa + StageLatticeVertexY(bx, bz) * wb
+                             + StageLatticeVertexY(gx + 1, gz + 1) * wc - target;
+                if (excess <= 0f) return 0;
+                if (StageLatticeNearTube(gx, gz) || StageLatticeNearTube(bx, bz)
+                    || StageLatticeNearTube(gx + 1, gz + 1))
+                    return -1;
+                excess += StageLatticeSolveSlackM;
+                float sw2 = wa * wa + wb * wb + wc * wc;
+                Want(LatticeKey(gx, gz), excess * wa / sw2);
+                Want(LatticeKey(bx, bz), excess * wb / sw2);
+                Want(LatticeKey(gx + 1, gz + 1), excess * wc / sw2);
+                return 1;
+            }
+            HashSet<long> heldKeys = null;
+            void Apply()
+            {
+                foreach (var kv in want)
+                {
+                    stageLatticeSink.TryGetValue(kv.Key, out float had);
+                    stageLatticeSink[kv.Key] = had + kv.Value;
+                    if (had + kv.Value > worst) { worst = had + kv.Value; worstKey = kv.Key; }
+                    heldKeys?.Add(kv.Key);
+                }
+            }
+            // The same two passes over a list of extra (x, target, z) holds;
+            // how many of its samples asked anything of the lattice.
+            int SolveHolds(List<Vector3> holds)
+            {
+                int asked = 0;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    want.Clear();
+                    foreach (var h in holds)
+                        if (WantUnder(h.x, h.z, h.y) > 0 && pass == 0) asked++;
+                    if (want.Count == 0) break;
+                    Apply();
+                }
+                return asked;
+            }
             for (int pass = 0; pass < 2; pass++)
             {
                 want.Clear();
@@ -1095,48 +1146,250 @@ namespace PSXRacing.EditorTools
                 ForEachStageLatticeSample(pts, (x, z, target) =>
                 {
                     if (first) samples++;
-                    int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
-                    float u = x / NearCell - gx, w = z / NearCell - gz;
-                    // GridChunkMesh's two triangles per cell, weighted the way
-                    // StageLatticeY interpolates them.
-                    int bx, bz;
-                    float wa, wb, wc;
-                    if (w >= u) { bx = gx; bz = gz + 1; wa = 1f - w; wb = w - u; wc = u; }
-                    else { bx = gx + 1; bz = gz; wa = 1f - u; wb = u - w; wc = w; }
-                    float excess = StageLatticeVertexY(gx, gz) * wa + StageLatticeVertexY(bx, bz) * wb
-                                 + StageLatticeVertexY(gx + 1, gz + 1) * wc - target;
-                    if (excess <= 0f) return;
-                    if (StageLatticeNearTube(gx, gz) || StageLatticeNearTube(bx, bz)
-                        || StageLatticeNearTube(gx + 1, gz + 1))
-                    {
-                        if (first) nearTube++;
-                        return;
-                    }
-                    excess += StageLatticeSolveSlackM;
-                    float sw2 = wa * wa + wb * wb + wc * wc;
-                    Want(LatticeKey(gx, gz), excess * wa / sw2);
-                    Want(LatticeKey(bx, bz), excess * wb / sw2);
-                    Want(LatticeKey(gx + 1, gz + 1), excess * wc / sw2);
+                    if (WantUnder(x, z, target) < 0 && first) nearTube++;
                 });
                 if (want.Count == 0) break;
-                foreach (var kv in want)
-                {
-                    stageLatticeSink.TryGetValue(kv.Key, out float had);
-                    stageLatticeSink[kv.Key] = had + kv.Value;
-                    if (had + kv.Value > worst) { worst = had + kv.Value; worstKey = kv.Key; }
-                }
+                Apply();
             }
+            // Behind the stone, then under every carried slope: the two places
+            // a car meets the lattice that no designed section covers, each
+            // lowered only where it stood where the plan did not put it.
+            heldKeys = new HashSet<long>();
+            var holdList = new List<Vector3>();
+            int behindWalls = CollectBehindWallHolds(pts, holdList);
+            if (holdList.Count > 0) SolveHolds(holdList);
+            int grazes = 0, clearZones = 0, carryPasses = 0;
+            bool carryConverged = false;
+            for (int pass = 0; pass < StageCarryHoldPasses; pass++)
+            {
+                holdList.Clear();
+                CollectCarryHolds(pts, holdList, out int g, out int c);
+                if (pass == 0) { grazes = g; clearZones = c; }
+                if (holdList.Count == 0 || SolveHolds(holdList) == 0) { carryConverged = true; break; }
+                carryPasses = pass + 1;
+            }
+
             // Where the deepest one is, so a bake log can be checked against
             // the ground there without a replica.
             float wx = (int)(worstKey >> 32) * NearCell, wz = (int)(uint)worstKey * NearCell;
-            Log(stageLatticeSink.Count == 0
+            Log((stageLatticeSink.Count == 0
                 ? $"Stage ground lattice: already {RoadsideRules.HideMarginM:0.00} m under the road and shoulder " +
-                  $"between its vertices ({samples} samples)."
+                  $"between its vertices ({samples} samples)"
                 : $"Stage ground lattice: {stageLatticeSink.Count} near-grid vertices lowered (up to {worst:0.000} m, " +
                   $"at {wx:0},{wz:0}) so every facet sits {RoadsideRules.HideMarginM:0.00} m under the road and " +
                   $"shoulder ({StageCatchHoldM:0.00} m at a catch), from {samples} samples" +
-                  (nearTube > 0 ? $"; {nearTube} samples over a tunnel's measured quads left to TunnelQuadClear." : "."));
+                  (nearTube > 0 ? $"; {nearTube} samples over a tunnel's measured quads left to TunnelQuadClear" : "")) +
+                $"; then {heldKeys.Count} of them (further) for the fill behind {behindWalls} walled half-section(s) " +
+                $"and under {grazes} carried slope(s) that grazed it and {clearZones} clear zone(s) it fell away from " +
+                $"faster than 1V:{1f / RoadsideRules.SteepestRecoverableSlope:0}H ({carryPasses} pass(es)" +
+                (carryConverged ? ")." : ", and its last pass still asked: raise StageCarryHoldPasses)."));
         }
+
+        /// <summary>Solves of the carried-slope holds (<see cref="CollectCarryHolds"/>):
+        /// a hold lowers the lattice, which carries a slope further, which can
+        /// meet a new crease. In the replica Blue Ridge and Little Switzerland
+        /// each needed three solves (3, 2, 1 and 2, 1, 1 grazes) and a fourth
+        /// look found nothing; the rest is headroom, and the loop stops at the
+        /// first look that asks nothing — so the log can say it converged.</summary>
+        const int StageCarryHoldPasses = 5;
+        /// <summary>Pitch at which a carried slope's gap to the lattice is
+        /// read, and at which its holds are laid.</summary>
+        const float StageCarryReadPitchM = 0.05f, StageCarryHoldPitchM = 0.1f;
+        /// <summary>A graze is a carried slope within the terrain audit's
+        /// RoadsideRules.LatticeUnderMinM of the lattice and this much more —
+        /// the stage chunks' own vertex quantisation and a float's width, as
+        /// in <see cref="StageCatchHoldM"/>.</summary>
+        const float StageGrazeSlackM = 0.01f;
+        /// <summary>How much of the terrain audit's RoadsideRules.ToeCrossingMaxM
+        /// the run-in to a real catch may use before its inner end is a graze:
+        /// the audit counts that crossing from the toe, so the toe itself
+        /// (ShoulderStation's tuck and skirt, laid past the catch) comes off
+        /// it — 1.5 m.</summary>
+        const float StageCrossingAllowM = RoadsideRules.ToeCrossingMaxM - (RoadsideRules.ToeTuckRunM + ShoulderSkirtRunM);
+        /// <summary>Lattice steeper than 1V:4H for this long past a carry's
+        /// catch, inside the clear zone, is a clear zone it falls away from —
+        /// half the audit's RoadsideRules.SlopeSustainM, over its
+        /// RoadsideRules.SlopeWindowM, so the builder holds what the audit
+        /// would only be close to failing.</summary>
+        const float StageClearZoneSteepM = 0.5f;
+        /// <summary>Grade allowance over 1V:4H before a window counts as
+        /// steeper (a third of the audit's own SlopeNoise).</summary>
+        const float StageClearZoneNoise = 0.005f;
+
+        /// <summary>
+        /// THE LATTICE UNDER A CARRIED SLOPE, AND IN FRONT OF IT.
+        ///
+        /// The solve holds the lattice under what the plan DESIGNED; a sloped
+        /// end's carry (ShoulderCarry) is laid afterwards on whatever the
+        /// lattice turned out to be, and two things about that lattice showed
+        /// in the 2026-09-13 bake, both at the buried terminal of a critical
+        /// fill run, where the 12 m facets fall from a catch the solve had just
+        /// held flat to the fill's low vertices beyond:
+        ///   * A GRAZE. The carried 1V:4H line passes a facet crease a
+        ///     centimetre or two over it and goes on over steeper lattice to
+        ///     its real catch or the end of its run. The emitter calls that
+        ///     "above", the terrain audit calls it "the ground lattice within
+        ///     0.03 m of the shoulder" — not the crossing into the toe it
+        ///     excuses, because the gap opens again after it: Blue Ridge wp
+        ///     1094 L (+0.019 m at 4.53 m) and Little Switzerland wp 610 L
+        ///     (+0.011 m at 7.78 m), the only two failing probes of 66,000.
+        ///     Wherever a carried line comes within RoadsideRules
+        ///     LatticeUnderMinM (and StageGrazeSlackM) of the lattice other
+        ///     than in the last StageCrossingAllowM of its run into a real
+        ///     catch, the lattice is held StageCatchHoldM under the line up to
+        ///     that run-in — the solve's catch margin and the audit's band
+        ///     agreeing on what a catch is.
+        ///   * A CLEAR ZONE THE LAND FALLS AWAY FROM. The carry meets a facet
+        ///     the solve held at the catch and stops, and the next facet falls
+        ///     at 1V:3.1H inside the clear zone: Blue Ridge wp 1227 L, "a
+        ///     foreslope steeper than 1V:4H for 1.30 m from 3.35 m". No ribbon
+        ///     from that catch can cover it (a 1V:4H line from the catch lies
+        ///     under the flat facet all the way), so where the lattice past a
+        ///     catch inside the clear zone is steeper than 1V:4H for
+        ///     StageClearZoneSteepM, it is held StageCatchHoldM under the
+        ///     carried line to the clear zone's end and half a metre past: the
+        ///     slope then carries over it, and the clear zone is the 1V:4H
+        ///     ribbon RDG grades it to.
+        /// Only half-sections graded open (the carry of a cut's backslope goes
+        /// down under its own rock top). Python replica of the plan, walk,
+        /// lattice, solve and emitter on all five mountains: the two probes and
+        /// the one slope gone, no new face, fall or slope, 3-10 more vertices a
+        /// venue lowered by a few centimetres.
+        /// </summary>
+        static void CollectCarryHolds(List<Vector3> pts, List<Vector3> into, out int grazes, out int clearZones)
+        {
+            grazes = clearZones = 0;
+            int n = pts.Count;
+            float half = RoadWidth * 0.5f;
+            float czEnd = KerbWidth + RoadsideRules.ClearZoneM;
+            float window = RoadsideRules.SlopeWindowM;
+            var gaps = new List<Vector2>();
+            for (int i = 0; i < n; i++)
+            {
+                if ((hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i]) || DeckCoversStation(i)) continue;
+                for (int s = 0; s < 2; s++)
+                {
+                    if (GradedKind(s, i) != Roadside.Open) continue;
+                    var prof = shoulderProfiles[s][i];
+                    int m = prof != null ? prof.Count : 0;
+                    if (m < 2) continue;
+                    float slope = (prof[m - 2].y - prof[m - 1].y) / Mathf.Max(prof[m - 1].x - prof[m - 2].x, 1e-5f);
+                    if (Mathf.Abs(slope) < ShoulderSlopedEnd) continue;
+                    float side = s == 0 ? -1f : 1f;
+                    Vector3 at = pts[i], outw = rsRight[i] * side;
+                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + prof[m - 1].y;
+                    float Land(float e)
+                    {
+                        Vector3 q = at + outw * (half + e);
+                        return StageLatticeY(q.x, q.z);
+                    }
+                    if (Land(eEnd) >= yEnd) continue;
+                    float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
+                    if (!ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, i, side), ShoulderFoldReach(pts, i, side), Land,
+                                       out float kneeE, out float kneeY, out float catchE, out float catchY, out bool met, out _))
+                        continue;
+                    float Line(float e) => !float.IsNaN(kneeE) && e > kneeE
+                        ? kneeY + (catchY - kneeY) * (e - kneeE) / Mathf.Max(catchE - kneeE, 1e-5f)
+                        : yEnd - fall * (e - eEnd);
+
+                    float holdTo = eEnd;
+                    gaps.Clear();
+                    for (float e = eEnd; e < catchE; e += StageCarryReadPitchM) gaps.Add(new Vector2(e, Line(e) - Land(e)));
+                    int inner = gaps.Count;
+                    if (met)
+                        while (inner > 0 && gaps[inner - 1].y < StageCatchHoldM && catchE - gaps[inner - 1].x <= StageCrossingAllowM)
+                            inner--;
+                    bool graze = false;
+                    for (int k = 0; k < inner && !graze; k++)
+                        graze = gaps[k].y < RoadsideRules.LatticeUnderMinM + StageGrazeSlackM;
+                    if (graze) { holdTo = gaps[inner - 1].x; grazes++; }
+
+                    if (catchE < czEnd + window)
+                    {
+                        int steep = 0, sustained = Mathf.RoundToInt(StageClearZoneSteepM / StageCarryReadPitchM);
+                        for (int k = 0; catchE + k * StageCarryReadPitchM <= czEnd && steep < sustained; k++)
+                        {
+                            float e = catchE + k * StageCarryReadPitchM;
+                            steep = (Land(e) - Land(e + window)) / window > RoadsideRules.SteepestRecoverableSlope + StageClearZoneNoise
+                                ? steep + 1 : 0;
+                        }
+                        if (steep >= sustained) { holdTo = Mathf.Max(holdTo, czEnd + 0.5f); clearZones++; }
+                    }
+                    for (float e = eEnd + StageCarryReadPitchM; e <= holdTo; e += StageCarryHoldPitchM)
+                    {
+                        Vector3 q = at + outw * (half + e);
+                        into.Add(new Vector3(q.x, Line(e) - StageCatchHoldM, q.z));
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// THE FILL BEHIND A STONE IS BELOW THE ROAD.
+        ///
+        /// A wall stands where the land falls away, and RoadsideDy grades the
+        /// ground behind its stone as the fill it is: the shoulder's height
+        /// under the footing, then StageFillBatter down to the land. But the
+        /// lattice is 12 m cells, and where a warranted run ends into a cut a
+        /// vertex a few metres along the road already stands on the cut's level
+        /// land, and the facet from it lifts the ground 1.5 m behind a stone
+        /// back up to road height over a fill that is a metre and more lower —
+        /// Beech Gap wp 2167 L, "land -0.29 m from road height 1.5 m behind
+        /// Track/Walls/WallColl (2.43 m out), on GroundN_2_-5", where the land
+        /// there is 1.28 m under the tarmac. A car behind that stone would be
+        /// standing on a lattice the plan never asked for.
+        ///
+        /// So behind every walled half-section — around where a car behind it
+        /// would stand, RoadsideRules.PocketBehindM past the collider's back,
+        /// give or take StageBehindHoldM — wherever the plan graded a FILL
+        /// (the land below the bench), the lattice is held under that fill, and
+        /// no deeper than the bench less a hide margin: the level a cut pins
+        /// its hill down to behind a face, so a vertex shared with the level
+        /// land beyond is not dug into a pit. Level land behind a stone (an
+        /// approach rail over a bench, the padding of a run) is the land, and
+        /// is left alone. Python replica: nine half-sections on three
+        /// mountains, at most eight vertices a venue, lowered 0.09-0.21 m.
+        /// Returns how many half-sections asked.
+        /// </summary>
+        static int CollectBehindWallHolds(List<Vector3> pts, List<Vector3> into)
+        {
+            int n = pts.Count, asked = 0;
+            float half = RoadWidth * 0.5f;
+            for (int i = 0; i < n; i++)
+            {
+                if ((hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i]) || DeckCoversStation(i)) continue;
+                for (int s = 0; s < 2; s++)
+                {
+                    if (rsKind[s][i] != Roadside.Walled || BuriedTerminal(s, i)) continue;
+                    float side = s == 0 ? -1f : 1f;
+                    Vector3 at = pts[i], outw = rsRight[i] * side;
+                    float tarmac = at.y + RoadLift, faceE = rsWallE[s][i];
+                    float standE = StageWallContactE(pts, i, s, side) + StageWallCollThick + RoadsideRules.PocketBehindM;
+                    bool any = false;
+                    for (float e = standE - StageBehindHoldM; e <= standE + StageBehindHoldM; e += StageCarryHoldPitchM)
+                    {
+                        Vector3 q = at + outw * (half + e);
+                        float land = Mathf.Min(StageDemY(q.x, q.z) - tarmac, StageBenchDy);
+                        float fill = Mathf.Max(ShoulderDy(faceE) - Mathf.Max(0f, e - faceE - StageWallBackFlatM) * StageFillBatter, land);
+                        if (fill >= StageBenchDy - 0.005f) continue;
+                        float target = tarmac + Mathf.Max(fill, StageBenchDy - RoadsideRules.HideMarginM);
+                        // Only where the lattice stands over it: every critical
+                        // fill's stone has a fill behind it, and all but a handful
+                        // already have their lattice well down it — which is what
+                        // the count in the log is for.
+                        if (StageLatticeY(q.x, q.z) <= target) continue;
+                        into.Add(new Vector3(q.x, target, q.z));
+                        any = true;
+                    }
+                    if (any) asked++;
+                }
+            }
+            return asked;
+        }
+
+        /// <summary>How far either side of where a car behind a stone would
+        /// stand (<see cref="CollectBehindWallHolds"/>) the fill is held.</summary>
+        const float StageBehindHoldM = 0.75f;
 
         /// <summary>
         /// The margin the lattice keeps under a section at <paramref name="e"/>:
@@ -1655,6 +1908,11 @@ namespace PSXRacing.EditorTools
         /// can move a neighbour's lattice, so the next walk looks again — but
         /// only near what changed.</summary>
         const int StageWarrantPasses = 3;
+        /// <summary>How many times the plan is laid again for wall run ends
+        /// whose cut FinishStageCuts graded where they met it (softRockBy). Each laying
+        /// can only turn more ends soft, never fewer; one is what the five
+        /// mountains need (Blue Ridge wp 100 L), the rest is headroom.</summary>
+        const int StageSoftRockRelays = 3;
         /// <summary>Stations either side of a station whose section changed
         /// that the next walk reads again: a lattice cell is three stations,
         /// and a vertex weighs on points a cell diagonal away.</summary>
@@ -1746,6 +2004,11 @@ namespace PSXRacing.EditorTools
             // Stations the walk over the built section found critical that the
             // DEM's own test did not (BuiltSectionCritical), per side.
             var builtCriticalBy = new[] { new bool[n], new bool[n] };
+            // Cut stations a warranted wall run ended beside whose cut
+            // FinishStageCuts graded near the hand-over — no rock to flare the
+            // stone into — per side: the run ends there as it would beside
+            // graded land (a buried terminal), and the cut does not overlap it.
+            var softRockBy = new[] { new bool[n], new bool[n] };
 
             // walled metres by warrant, indexed like `reason`
             var metresBy = new float[8];
@@ -1852,11 +2115,15 @@ namespace PSXRacing.EditorTools
                     var wall = RunMask(wallRuns, n);
 
                     // WALL AND FACE OVERLAP BY A STATION where one hands over to the
-                    // other, so there is no station with neither.
+                    // other, so there is no station with neither — unless an
+                    // earlier laying found that cut graded where the wall meets it
+                    // (softRockBy).
+                    var softRock = softRockBy[s];
                     var overlap = new bool[n];
                     foreach (var run in wallRuns)
                         for (int end = 0; end < 2; end++)
-                            if (RunEnd(run, end, n, out int endSt, out int beyond) && !tube[beyond] && tentBank[beyond])
+                            if (RunEnd(run, end, n, out int endSt, out int beyond) && !tube[beyond] && tentBank[beyond]
+                                && !softRock[beyond])
                                 overlap[endSt] = true;
 
                     // Cut faces defer to BUILT walls (not wanted ones: a wanted
@@ -1946,7 +2213,7 @@ namespace PSXRacing.EditorTools
                         for (int end = 0; end < 2; end++)
                         {
                             if (!RunEnd(run, end, n, out int endSt, out int beyond) || tube[beyond]) continue;
-                            bool rock = banked[beyond];
+                            bool rock = banked[beyond] && !softRock[beyond];
                             int stations;
                             float offset;
                             if (rock)
@@ -2006,28 +2273,51 @@ namespace PSXRacing.EditorTools
             // EndFlareStations either side, which carries the terminal out past
             // the fall.
             int passes = 0, builtFound = 0, stillCritical = 0;
-            Roadside[][] walked = null;
-            float[][] walkedUp = null, walkedE = null;
-            for (int pass = 0; pass < StageWarrantPasses; pass++)
+            void LayAndWalk()
             {
-                LayPlan();
-                passes = pass + 1;
-                int found = MarkBuiltSectionFalls(pts, builtCriticalBy, walked, walkedUp, walkedE);
-                if (found == 0) break;
-                if (pass + 1 == StageWarrantPasses) { stillCritical = found; break; }
-                builtFound += found;
-                walked = new Roadside[2][];
-                for (int si = 0; si < 2; si++)
+                Roadside[][] walked = null;
+                float[][] walkedUp = null, walkedE = null;
+                stillCritical = 0;
+                for (int pass = 0; pass < StageWarrantPasses; pass++)
                 {
-                    walked[si] = new Roadside[n];
-                    for (int i = 0; i < n; i++) walked[si][i] = GradedKind(si, i);
+                    LayPlan();
+                    passes = pass + 1;
+                    int found = MarkBuiltSectionFalls(pts, builtCriticalBy, walked, walkedUp, walkedE);
+                    if (found == 0) break;
+                    if (pass + 1 == StageWarrantPasses) { stillCritical = found; break; }
+                    builtFound += found;
+                    walked = new Roadside[2][];
+                    for (int si = 0; si < 2; si++)
+                    {
+                        walked[si] = new Roadside[n];
+                        for (int i = 0; i < n; i++) walked[si][i] = GradedKind(si, i);
+                    }
+                    // LayPlan allocates fresh tables, so these stay the walked plan's.
+                    walkedUp = rsWallUp;
+                    walkedE = rsWallE;
                 }
-                // LayPlan allocates fresh tables, so these stay the walked plan's.
-                walkedUp = rsWallUp;
-                walkedE = rsWallE;
             }
+            LayAndWalk();
+            FinishStageCuts(pts, softRockBy, out float facedM, out float gradedM, out int lowered,
+                            out int handOvers, out int softened);
 
-            FinishStageCuts(pts, out float facedM, out float gradedM, out int lowered);
+            // A WALL THAT ENDS INTO A CUT THAT IS NOT ROCK. FinishStageCuts
+            // grades a cut whose land a backslope reaches, and where it graded
+            // every station of a cut near where a wall run flared into it, there
+            // is no face for the stone to meet: the run's end was flared full
+            // height out to a toe line with level land behind it (Blue Ridge wp 100 L,
+            // "land +0.00 m from road height 1.5 m behind WallColl (2.95 m out),
+            // on BankTop0"). That end is laid again as it would be beside any
+            // graded land — flared and buried — and walked again, because a
+            // buried terminal is graded open and the walk has to see it.
+            int softEnds = 0, relays = 0;
+            while (softened > 0 && relays < StageSoftRockRelays)
+            {
+                softEnds += softened;
+                relays++;
+                LayAndWalk();
+                FinishStageCuts(pts, softRockBy, out facedM, out gradedM, out lowered, out handOvers, out softened);
+            }
 
             catches.Sort();
             float wallM = 0f;
@@ -2037,7 +2327,11 @@ namespace PSXRacing.EditorTools
                 $"critical on the built section {metresBy[7]:0}, " +
                 $"water {metresBy[3]:0}, tunnel mouth {metresBy[5]:0}" +
                 (metresBy[6] > 0f ? $", theme {metresBy[6]:0}" : "") + $"); " +
-                $"{flaredOpen} run ends flared and buried into graded land, {flaredRock} flared into a rock face; " +
+                $"{flaredOpen} run ends flared and buried into graded land, {flaredRock} flared into a rock face " +
+                $"({handOvers} hand-over station(s) faced at least {BankRiseM:0.0} m where the cut there was graded; " +
+                $"{softEnds} end(s) laid again as buried terminals because their cut was graded where they met it" +
+                (softened > 0 ? $", and {softened} more this plan still flares into graded cut (raise StageSoftRockRelays)" : "") +
+                $"); " +
                 $"{rsBankRuns.Count} cut faces over {cutM:0} m ({facedM:0} m faced in rock, " +
                 $"{gradedM:0} m graded to a 1V:{1f / RoadsideRules.BackSlope:0}H backslope; " +
                 $"{lowered} face heights landed lower on the hill behind them); " +
@@ -2113,10 +2407,11 @@ namespace PSXRacing.EditorTools
         ///   * the flush strip, then the open section's ribbon to its last
         ///     point (its catch, or where TidyShoulderProfile clips it on the
         ///     inside of a bend) — the lattice is solved to stay under it;
-        ///   * past that, the ribbon's slope CARRIED ON exactly as
-        ///     ShoulderStation carries a sloped end (never gentler than 1V:4H,
-        ///     no deeper than ShoulderCarryMaxM, stopping at the first
-        ///     ShoulderCatchStepM where it has met the lattice) and its toe
+        ///   * past that, the ribbon's slope CARRIED ON by the emitter's own
+        ///     walk (ShoulderCarry: never gentler than 1V:4H, no deeper than
+        ///     ShoulderCarryMaxM, stopping at the first ShoulderCatchStepM
+        ///     where it has met the lattice, and on a tight bend's inside
+        ///     steepening to 1V:3H past the section's limit) and its toe
         ///     tuck, each over the lattice where the lattice is higher;
         ///   * then the lattice alone, read at every sample on its own facet
         ///     the way StageLatticeY reads it (a 0.5 m read with a lerp between
@@ -2177,20 +2472,14 @@ namespace PSXRacing.EditorTools
                         : RoadsideRules.TraversableSlope;
             bool sloped = slope >= ShoulderSlopedEnd;
             float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
-            float carryE = endE;
+            // The emitter's own carry (ShoulderCarry), knee and all.
+            float carryE = endE, carryDy = endDy, kneeE = float.NaN, kneeDy = 0f;
             if (sloped && Ground(endE) < endDy)
-            {
-                float carryRun = Mathf.Min(ShoulderCarryMaxM / fall, bendReach - endE);
-                int steps = Mathf.FloorToInt(carryRun / ShoulderCatchStepM);
-                for (int q = 1; q <= steps; q++)
-                {
-                    float d = q * ShoulderCatchStepM;
-                    if (endDy - fall * d > Ground(endE + d) && q < steps) continue;
-                    carryE = endE + d;
-                    break;
-                }
-            }
-            float carryDy = endDy - fall * (carryE - endE);
+                ShoulderCarry(endE, endDy, fall, bendReach, ShoulderFoldReach(pts, i, side), Ground,
+                              out kneeE, out kneeDy, out carryE, out carryDy, out _, out _);
+            float CarriedDy(float e) => !float.IsNaN(kneeE) && e > kneeE
+                ? kneeDy + (carryDy - kneeDy) * (e - kneeE) / Mathf.Max(carryE - kneeE, 1e-5f)
+                : endDy - fall * (e - endE);
             float tuckE = carryE + RoadsideRules.ToeTuckRunM;
             float tuckDy = carryDy - RoadsideRules.ToeTuckM;
             if (sloped)
@@ -2216,7 +2505,7 @@ namespace PSXRacing.EditorTools
                 float y;
                 if (e <= KerbWidth) y = KerbStripLift;
                 else if (e <= endE) y = OpenSectionDy(e);
-                else if (e <= carryE) y = Mathf.Max(endDy - fall * (e - endE), Ground(e));
+                else if (e <= carryE) y = Mathf.Max(CarriedDy(e), Ground(e));
                 else if (e <= tuckE)
                     y = Mathf.Max(Mathf.Lerp(carryDy, tuckDy, (e - carryE) / RoadsideRules.ToeTuckRunM), Ground(e));
                 else y = Ground(e);
@@ -2280,11 +2569,34 @@ namespace PSXRacing.EditorTools
         /// is graded too, its backslope carried up to its land: run
         /// hysteresis, so a cut does not flicker between rock and slope a
         /// station at a time where its land hovers at the backslope's reach.
+        ///
+        /// THE STATION A WALL HANDS OVER AT IS NEVER GRADED. A warranted run
+        /// that ends beside a cut flares its stone out to the face's toe line
+        /// and overlaps the cut by a station (PlanStageRoadside), so behind
+        /// that last stone is the cut's rock top. Graded, that top was the
+        /// land a backslope reaches — level with the road — held flat behind a
+        /// full-height stone: every "UNWARRANTED BARRIER ... behind
+        /// Track/Walls/WallColl (2.94-2.97 m out), on Track/Banks/BankTopN" of
+        /// the 2026-09-13 bake, ten of them at +0.00 to +0.28 m on four
+        /// mountains (Blue Ridge 1332 L, Beech Gap 21 L and 2169 L, Blowing
+        /// Rock 596 L, Little Switzerland 316 L, 494 R, 512 R, 897 R, 1054 R,
+        /// and 100 L below). A stone flared into a cut is a buried-in-backslope
+        /// terminal, and what it is buried in is rock: where the run has a
+        /// face within BankReleaseFadeStations of it, the hand-over station is
+        /// faced at least BankRiseM — as tall as the stone it receives — and
+        /// its top holds that height behind the stone
+        /// (<paramref name="handOvers"/> counts the ones that were graded).
+        /// Where it has none (Blue Ridge 100 L: a cut graded on all four
+        /// stations), there is no rock to flare into, and the cut
+        /// station beside the wall is marked in <paramref name="softRock"/> so
+        /// the plan lays that end again as a buried terminal
+        /// (<paramref name="softened"/> newly marked).
         /// </summary>
-        static void FinishStageCuts(List<Vector3> pts, out float facedM, out float gradedM, out int lowered)
+        static void FinishStageCuts(List<Vector3> pts, bool[][] softRock, out float facedM, out float gradedM,
+                                    out int lowered, out int handOvers, out int softened)
         {
             facedM = gradedM = 0f;
-            lowered = 0;
+            lowered = handOvers = softened = 0;
             int n = pts.Count;
             rsCutGraded = new[] { new bool[n], new bool[n] };
             if (rsBankRuns == null) return;
@@ -2348,6 +2660,40 @@ namespace PSXRacing.EditorTools
                         for (int q = k; q < k + len; q++)
                             if (kerbHigh[q]) face[q] = false;
                     k += len;
+                }
+                // The hand-over stations: the run's walled ones (only a wall's
+                // overlap station is both walled and in a cut run). The rock
+                // one is buried in is a face NEAR it — within the stations over
+                // which a run end holds its top into the wall — not anywhere
+                // along a run that can be 224 stations long: faced from rock
+                // half a kilometre away, a hand-over over level land would be
+                // a lone BankRiseM block, which is no backslope to bury a
+                // terminal in. (Python replica, all five mountains: every
+                // hand-over has its face within two stations.)
+                for (int k = 0; k < L; k++)
+                {
+                    int i = run[k];
+                    if (rsKind[s][i] != Roadside.Walled) continue;
+                    bool rock = false;
+                    for (int q = Mathf.Max(0, k - BankReleaseFadeStations);
+                         q <= Mathf.Min(L - 1, k + BankReleaseFadeStations) && !rock; q++)
+                        rock = face[q] && rsKind[s][run[q]] != Roadside.Walled;
+                    if (rock)
+                    {
+                        if (!face[k] || rsFaceH[s][i] < BankRiseM) handOvers++;
+                        face[k] = true;
+                        rsFaceH[s][i] = Mathf.Max(rsFaceH[s][i], BankRiseM);
+                        continue;
+                    }
+                    // The wall run's first station past its end is this one's
+                    // neighbour in the cut run.
+                    for (int o = -1; o <= 1; o += 2)
+                    {
+                        int q = k + o;
+                        if (q < 0 || q >= L || rsKind[s][run[q]] == Roadside.Walled || softRock[s][run[q]]) continue;
+                        softRock[s][run[q]] = true;
+                        softened++;
+                    }
                 }
                 for (int k = 0; k < L; k++)
                 {

@@ -1960,6 +1960,28 @@ namespace PSXRacing.EditorTools
         /// the last points of neighbouring stations are still 0.2 x Spacing
         /// apart.</summary>
         const float ShoulderInsideBendReach = 0.8f;
+        /// <summary>
+        /// How far a CARRIED slope may run on the inside of a tight bend, as a
+        /// fraction of where the neighbouring cross-section lines actually
+        /// cross — the section itself stops at <see cref="ShoulderInsideBendReach"/>
+        /// of it, and the toe (ToeTuckRunM + ShoulderSkirtRunM) still has to
+        /// fit inside this.
+        ///
+        /// A carry that stopped at the section's own limit dived to the
+        /// lattice from there, and on the inside of a hairpin — where the land
+        /// in the bend falls away under a fill — that dive was a face 6-7.5 m
+        /// out: 0.09 m at Blowing Rock wp 1024-1027 L (bend reach 6.15 m), 0.15 m
+        /// at Little Switzerland 1239-1243 L (6.49 m), 0.07 m at 2390-2392 R
+        /// (7.34 m), all "climbing back in". Past 0.8 the lines are still a
+        /// fifth of the turning radius short of crossing — 2.3-3 m on those
+        /// bends — so the slope carries on into that room at
+        /// RoadsideRules.TraversableSlope (1V:3H, 0.043 m in the audit's
+        /// 0.13 m, under its 0.06 m face) until it meets the lattice. Python
+        /// replica of the plan, lattice, solve and emitter on all three: every
+        /// half-section 0.043 m, nothing folded (no ribbon triangle faces
+        /// down), and no new face on any other hairpin inside of either loop.
+        /// </summary>
+        const float ShoulderFoldFraction = 0.95f;
         /// <summary>Least outward step between two profile points: a profile
         /// that repeats an e would draw a vertical face, and a vertical face
         /// is exactly what a shoulder is not.</summary>
@@ -1980,7 +2002,8 @@ namespace PSXRacing.EditorTools
         ///
         /// Each station and side's profile, plus its slope carried on to the
         /// lattice where it ends on one, a toe tuck and a skirt, is
-        /// stitched to the next station's with a zipper that advances by e,
+        /// stitched to the next station's with a zipper that advances by e
+        /// and zips toe to toe (ZipShoulder),
         /// so two stations may carry sections with different point counts (a
         /// cut beside a fill, a ramp beside a flat) and still share one
         /// surface. A quad whose either end is empty is not drawn: that is
@@ -2023,7 +2046,7 @@ namespace PSXRacing.EditorTools
 
             var pos = new Vector3[2][][];
             var es = new float[2][][];
-            int toesDeep = 0, toesCaught = 0;
+            int toesDeep = 0, toesCaught = 0, toesPastBend = 0;
             for (int s = 0; s < 2; s++)
             {
                 float side = s == 0 ? -1f : 1f;
@@ -2032,9 +2055,10 @@ namespace PSXRacing.EditorTools
                 for (int idx = 0; idx < n; idx++)
                 {
                     if (ShoulderStation(pts, idx, side, shoulderProfiles[s][idx],
-                                        out pos[s][idx], out es[s][idx], out bool caught))
+                                        out pos[s][idx], out es[s][idx], out bool caught, out bool pastBend))
                         toesDeep++;
                     if (caught) toesCaught++;
+                    if (pastBend) toesPastBend++;
                 }
             }
 
@@ -2131,7 +2155,8 @@ namespace PSXRacing.EditorTools
 
             Log($"Shoulders: {chunks} RoadEdge chunk(s), {faces} faces; " +
                 $"{bent} half-section(s) clipped on the inside of a tight bend; " +
-                $"{toesCaught} sloped end(s) carried on down to meet the ground lattice (or to the end of a recoverable run); " +
+                $"{toesCaught} sloped end(s) carried on down to meet the ground lattice (or to the end of a recoverable run), " +
+                $"{toesPastBend} of them on past a tight bend's inside at 1V:{1f / RoadsideRules.TraversableSlope:0}H; " +
                 $"{toesDeep} toe(s) skirted deeper than a tuck to get under the ground.");
         }
 
@@ -2144,12 +2169,14 @@ namespace PSXRacing.EditorTools
         /// within a plain tuck; true when the lattice was lower than the tuck
         /// and the toe had to go further down (the tuck itself on a sloped
         /// end, only the skirt on a flat one). <paramref name="caught"/> says
-        /// the slope was carried on. BuildShoulders counts both.
+        /// the slope was carried on, <paramref name="pastBend"/> that it went on
+        /// past a tight bend's own limit (<see cref="ShoulderCarry"/>).
+        /// BuildShoulders counts all three.
         /// </summary>
         static bool ShoulderStation(List<Vector3> pts, int idx, float side, List<Vector2> prof,
-                                    out Vector3[] pos, out float[] es, out bool caught)
+                                    out Vector3[] pos, out float[] es, out bool caught, out bool pastBend)
         {
-            pos = null; es = null; caught = false;
+            pos = null; es = null; caught = false; pastBend = false;
             if (prof == null || prof.Count == 0) return false;
             float half = RoadWidth * 0.5f;
             Vector3 outw = RightAt(pts, idx) * side;
@@ -2165,7 +2192,8 @@ namespace PSXRacing.EditorTools
             // Which kind of end this is decides the toe below: a slope is
             // carried on to the lattice and tucks from there; a flat end
             // keeps a plain tuck and lets only the skirt go down.
-            bool slopedEnd = false;
+            bool slopedEnd = false, kneed = false;
+            float kneeE = 0f, kneeY = 0f;
             if (!onDeck && m >= 2)
             {
                 float slope = (prof[m - 2].y - prof[m - 1].y) /
@@ -2176,28 +2204,31 @@ namespace PSXRacing.EditorTools
                 {
                     // Down at the section's own fall, never gentler than the
                     // steepest recoverable slope (a backslope climbing to a
-                    // rock toe turns down under the rock at that); no deeper
-                    // than ShoulderCarryMaxM, and not past where the inside of
-                    // a bend folds. A lattice still further down than that is
-                    // a drop: the slope is carried to the end of its run
-                    // regardless, and what is left below is the tuck's.
+                    // rock toe turns down under the rock at that), until it
+                    // meets the lattice: ShoulderCarry, the walk the stage
+                    // plan's fall test takes too. A lattice still further down
+                    // than it can reach is a drop, and what is left below is
+                    // the tuck's.
                     float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
-                    float run = Mathf.Min(ShoulderCarryMaxM / fall, ShoulderBendReach(pts, idx, side) - eEnd);
-                    int steps = Mathf.FloorToInt(run / ShoulderCatchStepM);
-                    for (int k = 1; k <= steps; k++)
+                    Vector3 at = pts[idx];
+                    if (ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, idx, side), ShoulderFoldReach(pts, idx, side),
+                                      e =>
+                                      {
+                                          Vector3 q = at + outw * (half + e);
+                                          return ShoulderLatticeY(q.x, q.z);
+                                      },
+                                      out kneeE, out kneeY, out float carryE, out float carryY, out _, out pastBend))
                     {
-                        float d = k * ShoulderCatchStepM;
-                        Vector3 q = pts[idx] + outw * (half + eEnd + d);
-                        if (yEnd - fall * d > ShoulderLatticeY(q.x, q.z) && k < steps) continue;
-                        eEnd += d;
-                        yEnd -= fall * d;
+                        // A knee on the section's own last point is that point.
+                        kneed = !float.IsNaN(kneeE) && kneeE > eEnd + ShoulderMinStepM;
+                        eEnd = carryE;
+                        yEnd = carryY;
                         caught = true;
-                        break;
                     }
                 }
             }
 
-            int tail = m + (caught ? 1 : 0);
+            int tail = m + (kneed ? 1 : 0) + (caught ? 1 : 0);
             pos = new Vector3[tail + 2];
             es = new float[tail + 2];
             for (int k = 0; k < m; k++)
@@ -2207,12 +2238,19 @@ namespace PSXRacing.EditorTools
                 pos[k] = p;
                 es[k] = prof[k].x;
             }
+            if (kneed)
+            {
+                Vector3 c = pts[idx] + outw * (half + kneeE);
+                c.y = kneeY;
+                pos[m] = c;
+                es[m] = kneeE;
+            }
             if (caught)
             {
                 Vector3 c = pts[idx] + outw * (half + eEnd);
                 c.y = yEnd;
-                pos[m] = c;
-                es[m] = eEnd;
+                pos[tail - 1] = c;
+                es[tail - 1] = eEnd;
             }
 
             float eTuck = eEnd + RoadsideRules.ToeTuckRunM, eSkirt = eTuck + ShoulderSkirtRunM;
@@ -2245,17 +2283,116 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// THE CARRY, walked once for the emitter (ShoulderStation) and once
+        /// for the stage plan's fall test (BuiltSectionCritical), so the slope
+        /// the plan judges is the slope that gets built. From a section's last
+        /// point (<paramref name="eEnd"/>, <paramref name="yEnd"/>) the slope
+        /// goes on down at <paramref name="fall"/> in ShoulderCatchStepM steps
+        /// until it is at or under <paramref name="land"/> (a height in the
+        /// same frame as yEnd, at e) — no deeper than ShoulderCarryMaxM and no
+        /// further than <paramref name="bendE"/>, where the inside of a bend
+        /// clips a section (ShoulderBendReach).
+        ///
+        /// Where the BEND stopped it and not the depth, it goes on into the
+        /// room left before the neighbouring lines cross (<paramref name="foldE"/>,
+        /// ShoulderFoldReach) at the steeper of its fall and
+        /// RoadsideRules.TraversableSlope — past the clear zone; inside it, at
+        /// its own fall — and the point it went on from comes back as the
+        /// knee (NaN when it did not go on; the section's own last point when
+        /// the section already ended at the bend). See <see cref="ShoulderFoldFraction"/>
+        /// for the hairpins that dived from their bend limit instead.
+        ///
+        /// False when there was no room to carry at all. <paramref name="met"/>
+        /// says the slope really reached the land; a carry that ran out of
+        /// depth or room ends where it ran out, as it always has.
+        /// </summary>
+        static bool ShoulderCarry(float eEnd, float yEnd, float fall, float bendE, float foldE, Func<float, float> land,
+                                  out float kneeE, out float kneeY, out float carryE, out float carryY,
+                                  out bool met, out bool pastBend)
+        {
+            kneeE = kneeY = float.NaN;
+            carryE = eEnd; carryY = yEnd;
+            met = pastBend = false;
+            float depthRun = ShoulderCarryMaxM / fall;
+            int steps = Mathf.FloorToInt(Mathf.Min(depthRun, bendE - eEnd) / ShoulderCatchStepM);
+            for (int k = 1; k <= steps; k++)
+            {
+                float d = k * ShoulderCatchStepM;
+                if (yEnd - fall * d > land(eEnd + d)) continue;
+                carryE = eEnd + d;
+                carryY = yEnd - fall * d;
+                met = true;
+                return true;
+            }
+            if (steps > 0)
+            {
+                carryE = eEnd + steps * ShoulderCatchStepM;
+                carryY = yEnd - fall * steps * ShoulderCatchStepM;
+            }
+            // 1V:3H is traversable, not recoverable: never inside the clear
+            // zone (a bend that tight carries on at its own fall instead).
+            // A knee a float's width past its end is still on it to the
+            // self-test, which reads the boundary back off world vertices a
+            // few km out, so the knee has to be clear of it by a step.
+            float steep = carryE >= ShoulderEndE + RoadsideRules.ClearZoneM + ShoulderMinStepM
+                ? Mathf.Max(fall, RoadsideRules.TraversableSlope) : fall;
+            int more = bendE - eEnd < depthRun
+                ? Mathf.FloorToInt(Mathf.Min((ShoulderCarryMaxM - (yEnd - carryY)) / steep, foldE - carryE) / ShoulderCatchStepM)
+                : 0;
+            if (more <= 0) return steps > 0;
+            kneeE = carryE; kneeY = carryY;
+            float e0 = carryE, y0 = carryY;
+            pastBend = true;
+            for (int k = 1; k <= more; k++)
+            {
+                float d = k * ShoulderCatchStepM;
+                met = y0 - steep * d <= land(e0 + d);
+                if (!met && k < more) continue;
+                carryE = e0 + d;
+                carryY = y0 - steep * d;
+                break;
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Triangles between two stations' point runs, advancing along
-        /// whichever run's NEXT point is nearer the road. The winding is the
-        /// old RoadEdge quad's, per side (the corner order flips with `side`
-        /// because `outw` does), so every face points up and out.
+        /// whichever run's NEXT point is nearer the road — the toes keyed
+        /// after both surfaces, below. Any order that advances both runs
+        /// outward lays the triangles side by side in plan, never over one
+        /// another, while the two stations' lines do not cross (the bend
+        /// reaches). The winding is the old RoadEdge quad's, per side (the
+        /// corner order flips with `side` because `outw` does), so every face
+        /// points up and out.
+        ///
+        /// THE TOE ZIPS TO THE TOE. Every run ends in its tuck and skirt
+        /// (ShoulderStation), and those two advance only once BOTH runs'
+        /// surfaces are done — keyed past the further of the two surface
+        /// ends by their own offsets. Advanced purely by e, a station whose
+        /// slope was carried a short way put its tuck and skirt among the
+        /// points of a neighbour carried further, and the fan from that deep
+        /// skirt up to the neighbour's surface was a trough between the two
+        /// stations with a face up its far side. A station's own line never
+        /// crosses it (it reads only its own vertices), which is why no edge
+        /// probe of that station saw it; another road's line does: Little
+        /// Switzerland wp 1790-1792 L and 715 L, two legs of the loop 22.5 m
+        /// apart whose shoulders meet in the valley between them, measured
+        /// "0.11 m rise within 0.13 m at 6.25 m (running wide), on
+        /// Track/RoadEdge" across 1790-1791's fan. Zipped toe to toe, the
+        /// surface between the stations runs from one surface end to the
+        /// other and the toes pass under it together: 0.044 m in the replica.
+        /// Where the two surfaces end at the same e this is exactly the old
+        /// order, so a circuit's run-off is unchanged.
         /// </summary>
         static void ZipShoulder(List<int> tris, int a0, float[] ea, int b0, float[] eb, float side)
         {
             int i = 0, j = 0, na = ea.Length, nb = eb.Length;
+            float endK = Mathf.Max(ea[Mathf.Max(na - 3, 0)], eb[Mathf.Max(nb - 3, 0)]);
+            float KeyA(int k) => k < na - 2 ? ea[k] : endK + (ea[k] - ea[Mathf.Max(na - 3, 0)]);
+            float KeyB(int k) => k < nb - 2 ? eb[k] : endK + (eb[k] - eb[Mathf.Max(nb - 3, 0)]);
             while (i < na - 1 || j < nb - 1)
             {
-                bool stepA = j >= nb - 1 || (i < na - 1 && ea[i + 1] <= eb[j + 1]);
+                bool stepA = j >= nb - 1 || (i < na - 1 && KeyA(i + 1) <= KeyB(j + 1));
                 if (stepA)
                 {
                     if (side < 0f) { tris.Add(a0 + i); tris.Add(a0 + i + 1); tris.Add(b0 + j); }
@@ -2311,7 +2448,19 @@ namespace PSXRacing.EditorTools
         /// before its cross-section line meets a neighbour's — the inside of a
         /// bend, where the two lines converge at the turning radius. Infinite
         /// on the outside of a bend and on a straight.</summary>
-        static float ShoulderBendReach(List<Vector3> pts, int idx, float side)
+        static float ShoulderBendReach(List<Vector3> pts, int idx, float side) =>
+            ShoulderLinesMeet(pts, idx, side, ShoulderInsideBendReach);
+
+        /// <summary>Largest e a CARRIED slope's end may reach on the inside of
+        /// a bend: <see cref="ShoulderFoldFraction"/> of the way to where the
+        /// lines cross, less the toe that is laid past it.</summary>
+        static float ShoulderFoldReach(List<Vector3> pts, int idx, float side) =>
+            ShoulderLinesMeet(pts, idx, side, ShoulderFoldFraction) - (RoadsideRules.ToeTuckRunM + ShoulderSkirtRunM);
+
+        /// <summary><paramref name="fraction"/> of the distance from the
+        /// centreline at which this station's cross-section line meets a
+        /// neighbour's, as e past the tarmac edge.</summary>
+        static float ShoulderLinesMeet(List<Vector3> pts, int idx, float side, float fraction)
         {
             int n = pts.Count;
             float half = RoadWidth * 0.5f;
@@ -2332,7 +2481,7 @@ namespace PSXRacing.EditorTools
                 if (Vector3.Dot(turn, step) >= 0f) continue;
                 float mag = turn.magnitude;
                 if (mag < 1e-5f) continue;
-                reach = Mathf.Min(reach, ShoulderInsideBendReach * len / mag - half);
+                reach = Mathf.Min(reach, fraction * len / mag - half);
             }
             return reach;
         }
