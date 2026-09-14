@@ -691,7 +691,7 @@ namespace PSXRacing.EditorTools
             var faceNotes = new List<(float sev, string what)>();
             var ledgeNotes = new List<(float sev, string what)>();
             int ledges = 0;
-            int lanePoints = 0, laneLand = 0, laneSolid = 0, laneBand = 0;
+            int lanePoints = 0, laneLand = 0, laneSolid = 0, laneBand = 0, laneBuildings = 0, footprintsCut = 0, footprintsLeftOut = 0;
             var laneRuns = new List<LaneRun>();
             var bandByClass = new SortedDictionary<string, int>();
             var bandCols = new Collider[8];
@@ -786,6 +786,7 @@ namespace PSXRacing.EditorTools
                     // the centre LAST: CityMeshes' clip and gore tables are then this tile's
                     var tmC = CityMeshes.Build(map, trims, buildings, tx, tz);
                     vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count;
+                    footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
                     long ck = TileKey(tx, tz);
                     if (live.TryGetValue(ck, out var ct)) { live[ck] = (ct.go, ++clock); Discard(tmC); }
                     else StandTm(tx, tz, tmC);
@@ -890,6 +891,12 @@ namespace PSXRacing.EditorTools
                                     int nCols = Physics.OverlapBoxNonAlloc(bandC, bandH, bandCols, Quaternion.identity, solidMask, QueryTriggerInteraction.Ignore);
                                     if (nCols == 0) continue;
                                     laneBand++;
+                                    // The building check reads EVERY collider in the
+                                    // column, not the one the class below is named
+                                    // for: a wall behind a rail in the same column
+                                    // is a wall in the lane all the same.
+                                    for (int c = 0; c < nCols; c++)
+                                        if (bandCols[c].name == "Buildings") { laneBuildings++; break; }
                                     var col = bandCols[0];
                                     string colPath = (col.transform.parent != null ? col.transform.parent.name + "/" : "") + col.name;
                                     // how high it stands over the lane: the solid surfaces a
@@ -981,26 +988,34 @@ namespace PSXRacing.EditorTools
                                     vergeStepFails++;
                                     lipNotes.Add((step, $"LIP   {step:0.00} m {measured}, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} hw {hw:0.00} on {HitPath(h0)} at ({edgeW.x:0.0},{edgeW.z:0.0}) tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
                                 }
-                                // A LEDGE a few hands out (a survey, not a check
-                                // yet): walking out over the verge, ground that
-                                // steps LedgeMinM to a metre down onto whatever
-                                // lies below it within 1.5 m. No check here sees
-                                // one: the rail census reads the drop 1.5 m out
-                                // and a metre passes, the body-box ray below stands
-                                // down where a road lies a metre out, and the
-                                // builder's DropFrom calls a step onto a road under
-                                // OpenDropM a kerb. A harness walk found 138 on the
-                                // verge code before round three and 81 after (a
-                                // 0.92 m ledge 0.9 m off e7753, where the fin the
-                                // FACE check failed had stood in front of it).
+                                // A LEDGE a few hands out: walking out over the
+                                // verge, ground that steps RoadsideRules.LedgeStepM
+                                // to a metre down onto whatever lies below it
+                                // within 1.5 m. The rail census reads the drop
+                                // 1.5 m out and a metre passes, the body-box ray
+                                // below stands down where a road lies a metre out,
+                                // and the builder's DropFrom called a step onto a
+                                // road under OpenDropM a kerb; a survey found 80
+                                // after round three (slots beside the retaining
+                                // faces of carriageways a level apart, a gore
+                                // nose's sliver, a corner fill's plate 0.9 m over
+                                // e7753's verge), and it is a check since the
+                                // builder grades or guards every one (2026-09-14).
+                                // UNGUARDED: the walk starts a rail's width inside
+                                // the edge, so a barrier standing on the edge — a
+                                // rail's traffic face is RailW inside it — is the
+                                // first thing it meets, and what lies behind it is
+                                // shielded, as the Roadside Design Guide shields a
+                                // drop (an approach rail stood between e23419's
+                                // lanes and the dug land past its grounded span).
                                 {
                                     float prevY = float.NaN;
                                     bool prevGround = false;
-                                    for (float dd = 0.05f; dd <= 1.5f; dd += 0.05f)
+                                    for (float dd = 0.05f - CityMeshes.RailW; dd <= 1.5f; dd += 0.05f)
                                     {
                                         if (!Highest(edgeW + o3 * dd + Vector3.up * 1.2f, 4f, out var hs) || hs.collider.gameObject.layer == CityWorld.SolidLayer) break;
                                         float fall = prevY - hs.point.y;
-                                        if (prevGround && fall > LedgeMinM && fall < RoadsideRules.OpenDropM)
+                                        if (prevGround && fall > RoadsideRules.LedgeStepM && fall < RoadsideRules.OpenDropM)
                                         {
                                             ledges++;
                                             ledgeNotes.Add((fall, $"LEDGE {fall:0.00} m down {dd:0.00} m past the edge onto {HitPath(hs)}, e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} s={s:0.0}/{e.length:0} side {(side < 0 ? "L" : "R")} at ({edgeW.x:0.0},{edgeW.z:0.0}) tile {tx},{tz} {NodeNote(e, s)}{CityMeshes.DescribeClip(map, trims, e, s)}{CityMeshes.DescribeSide(map, trims, e, s, side)}"));
@@ -1116,20 +1131,28 @@ namespace PSXRacing.EditorTools
             Check(gapRuns == 0, "no edge over a drop past " + RoadsideRules.OpenDropM + " m is without a barrier: decks, approaches, ledges, fan chords, gore noses (rail census)",
                   $"{gapRuns} runs, {gapMetres:0} m");
             Check(pitsUnexplained == 0, "every pit beside a grounded ribbon has a rule that put it there (pit census)", pitsUnexplained);
-            // Not checks yet. What is left (2026-09-14) is roads drawn into
-            // each other where the squeeze may not split them — junction arms
-            // and host/branch pairs a level apart: the link e14103 half a
-            // metre over North Davidson Street, the Independence Expressway
-            // coming down beside Albemarle Road on its retaining wall — a
-            // building wall standing in a street (the footprints'), and rails
-            // a hand inside a lane line at polyline bends; each run below
-            // names which.
+            // Not checks yet, but for the buildings. What is left (the second
+            // pass of 2026-09-14): a squeeze that splits two roads at one of
+            // them's cross-sections and not at the other's (I-277 and I-77
+            // beside their own carriageways and ramps, the link e7753 beside
+            // South Boulevard), a rail's overhang reaching over a 0.3 m squeeze
+            // strip, deck rails where an edge's width changes at a node, the
+            // Independence Expressway still coming down beside Albemarle Road
+            // on its retaining wall (a host and its branch; seating it on its
+            // host would put a 16% grade off its deck), and verge and seam
+            // slivers of 1-6 cm over clipped lanes; each run below names which.
+            // The buildings are fitted off the drawn pavement now
+            // (CityMeshes.FitFootprint), and a wall found in a lane is a
+            // failure: 43 probes stood in one before the fit, none after it.
             var laneLine = new StringBuilder($"    lane survey (not a check): {lanePoints} lane probes on the roadside tiles; land the first thing over a lane {laneLand}; " +
                                              $"something solid within {RoadsideRules.CarBandM} m over a lane {laneBand}");
             foreach (var kv in bandByClass) laneLine.Append($", {kv.Key} {kv.Value}");
             laneLine.Append($" (a solid top over 0.35 m up, seen from 3 m over the lane: {laneSolid})");
             Line(laneLine.ToString());
-            Line($"    ledge survey (not a check): {ledges} of {vergePoints} verge points step {LedgeMinM}-{RoadsideRules.OpenDropM} m down within 1.5 m past a grounded edge, with no barrier");
+            Check(laneBuildings == 0, "no building wall stands within a car's height over a lane (lane survey)",
+                  $"{laneBuildings} of {lanePoints} probes; {footprintsCut} footprints cut back off the drawn pavement and {footprintsLeftOut} left out on the probed tiles");
+            Check(ledges == 0, "no unguarded ledge " + RoadsideRules.LedgeStepM + "-" + RoadsideRules.OpenDropM + " m deep within 1.5 m past a grounded edge (roadside audit)",
+                  $"{ledges} of {vergePoints} verge points");
             // every OPEN run (they are metres, and few), then the worst of each
             // other kind, one line per edge and side
             void Print(List<(float sev, string what)> list, int cap, string title, bool perEdge)
@@ -1158,16 +1181,13 @@ namespace PSXRacing.EditorTools
             Print(openNotes, 60, "open edges over a drop", false);
             Print(faceNotes, 30, "faces in the body box's way", true);
             Print(lipNotes, 30, "lips past a grounded edge", true);
-            Print(ledgeNotes, 30, "ledges past a grounded edge (survey)", true);
+            Print(ledgeNotes, 30, "ledges past a grounded edge", true);
             int bandRuns = laneRuns.FindAll(r => r.kind == "band").Count;
             Line($"    -- land or something solid within a car's height over a lane: {laneRuns.Count} runs ({bandRuns} solid, {laneRuns.Count - bandRuns} land), every one");
             foreach (var r in laneRuns) Line("    " + r.Describe());
             Print(pitNotes, 10, "pits", true);
         }
 
-        /// <summary>The least step down past a grounded edge the ledge survey
-        /// lists: well past a wheel's lip, short of the rail census's metre.</summary>
-        const float LedgeMinM = 0.3f;
         /// <summary>The lowest point over a lane the lane survey's column
         /// starts at: a kerb's inch and the rail's buried foot sit below it.</summary>
         const float LaneBandFloorM = 0.15f;

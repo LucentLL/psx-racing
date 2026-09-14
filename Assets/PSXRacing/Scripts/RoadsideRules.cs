@@ -221,5 +221,22 @@ namespace PSXRacing
         /// <see cref="SlopeSustainM"/>: the edge audit's window, and the one
         /// the stage solve reads a clear zone's lattice with.</summary>
         public const float SlopeWindowM = 0.25f;
+
+        // ------------------------------------------------------------------
+        //  Ledges beside a road
+        // ------------------------------------------------------------------
+        /// <summary>A step down beside a road deeper than this is a LEDGE, not
+        /// a kerb: a wheel drops off it and the body box cannot come back up
+        /// it. Where the room beside the road cannot grade it at 1V:4H (two
+        /// carriageways a level apart, a squeeze strip, a verge stopped by the
+        /// road beside), it warrants a barrier on a retaining face, and the
+        /// city audit fails one left unguarded within 1.5 m of a grounded
+        /// edge. The same band a pocket is measured in
+        /// (<see cref="PocketBandM"/>): land within it behind a barrier makes
+        /// the barrier a trap, land deeper than it makes the barrier the
+        /// guard. Shallower steps are left to the edge drop and the face
+        /// checks; this rule must not wall a road standing a few centimetres
+        /// proud.</summary>
+        public const float LedgeStepM = PocketBandM;
     }
 }

@@ -13,7 +13,7 @@ extends to other areas due to the thick roads sticking out of the ground ...
 Most roads aren't more than an inch above the shoulder dirt. All sections of
 bridges should have walls." Then the rule: "Roads sitting cm above the
 ground do not need rails/walls, they should meet the ground properly by DOT
-standards." Three verified rounds (build + every audit each time).
+standards." Four rounds, each checked by a build and every audit.
 
 - **One contract.** `Scripts/RoadsideRules.cs` carries the FHWA/AASHTO
   numbers (edge drop 2.5 cm, fail 5; foreslopes 1V:6H / 1V:4H / 1V:3H; back
@@ -59,11 +59,43 @@ standards." Three verified rounds (build + every audit each time).
   `PSXScreenshotTool` "Capture Road Edges", TrackObstacleAudit `AuditEdges`,
   and TerrainAudit's lattice-under-shoulder check. TownProbe now runs in
   `verify.ps1`.
+- **Round four (2026-09-14).** Stages: a 1V:4H carry that runs out of
+  depth without meeting the land goes on past the warrant reach as a
+  1V:2.5H tail until it does (`PSXRacingBuilder.ShoulderTailSlope`; 52
+  half-sections on the five mountains), and EDGE FACE PAST THE REACH now
+  fails the biggest face on a half-section's own shoulder ribbon at any
+  distance, read apart from any bigger face on something else there.
+  Charlotte: building footprints are fitted 0.6 m off the drawn pavement
+  (616 cut, 41 left out city-wide) and a wall over a lane fails the audit;
+  the unguarded-ledge survey is a check (0), after squeeze half strips that
+  never saw a neighbour more than 0.5 m up, squeezed or stopped verges a
+  level above the next road (now on retaining faces, Jersey medians
+  exempt), gore-nose slivers, a fan chord's collapsed verge and a corner
+  fill's plate were fixed; touching pavements meet within the edge drop
+  (`MeetPavement`); two arms of one junction more than 0.25 m apart are
+  squeezed apart; fan-edge and gore-nose rails stand down where pavement
+  carries on past them at their height, and move out at polyline bends.
+  Fan chords are no longer railed by the ledge rule (all 13 it railed city-
+  wide stepped onto another junction's mouth, 4 of them across lanes) and
+  are probed at their corners too (node 5211's 1.95 m fall).
 - **Left, measured.** Mountain stages stay about 55% walled and 30%
   rock-faced, because the DEM mountainside is steeper than any recoverable
-  fill can catch. "info edge face past the reach": 46 half-sections where a
-  carried slope ends in a 6-34 cm step 8-12 m out, beyond the clear zone
-  and warrant reach.
+  fill can catch. Past 8 m the obstacle audit still lists, as info with
+  their owner: another leg's wall and shoulder fan at Little Switzerland
+  1788 L and 1784 L; this road's rock tops at Blowing Rock 1061-1064 L and
+  2406-2409 R (a hairpin inside stops one station's ring short of its
+  neighbour's), Beech Gap 920 R and Little Switzerland 1964 L; the lattice
+  itself at Little Switzerland 611 L. Little Switzerland 612 L's carry over
+  a gorge finds no land and keeps its 0.33 m step at 8.8 m. Not yet
+  measured by any audit: the ribbon fan behind every wall-run end, between
+  a walled station's flat end and its neighbour's long foreslope, which a
+  replica found stands 0.3-1.7 m proud on all 232 such pairs on the five
+  mountains (`ZipShoulder` keys the toes after the longer surface); the one
+  fix tried moved the ledge to six hand-over stations. In Charlotte, off
+  the audited tiles: 0.3-0.7 m steps at the 13 junctions drawn into each
+  other a level apart (the fans' to seat or split), a squeezed rail in the
+  mouths at nodes 625 and 2587, and 5-11 cm of grass at a handful of steep
+  gore noses.
 
 ## PINK PIZZAS, A REPLAY OF THE LOAD, AND THE RAMP THAT CLIMBED OUT OF THE LANES (2026-09-12, third pass)
 

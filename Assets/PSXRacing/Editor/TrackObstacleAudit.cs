@@ -432,7 +432,7 @@ namespace PSXRacing.EditorTools
         // on meets, not something to skip because it is not a floor), and the
         // thresholds from RoadsideRules — the one table the builders aim under,
         // so the rule cannot drift between the thing that builds a roadside and
-        // the thing that measures it. Seven findings per half-section:
+        // the thing that measures it. Eight findings per half-section:
         //
         //   EDGE DROP   the land beside the tarmac or kerb strip falls away at
         //               the join by more than the owner's inch (fail at two);
@@ -440,6 +440,11 @@ namespace PSXRacing.EditorTools
         //               a wall (FaceRiseFailM within FaceRunM) — except the
         //               sinking stone of a warranted run's buried terminal,
         //               which is reported as info;
+        //   EDGE FACE PAST THE REACH  the same rise further out than the
+        //               profile's reach, on the half-section's OWN shoulder
+        //               ribbon — its slope ending over the land instead of
+        //               meeting it (anything else out there is reported, with
+        //               whose it is, as info);
         //   EDGE SLOPE  a foreslope steeper than 1V:4H sustained inside the
         //               clear zone (warn past 1V:6H);
         //   EDGE FALL   a critical fall (RoadsideRules.IsCriticalFall) that no
@@ -468,15 +473,26 @@ namespace PSXRacing.EditorTools
         /// rays reach when nothing stops them first. Past the clear zone
         /// (kerb + 3.5 m) and the barrier warrant (kerb + 5 m).</summary>
         const float EdgeReachM = 8f;
-        /// <summary>How far an OPEN half-section's profile is carried on past
-        /// <see cref="EdgeReachM"/>, for information only (MeasureFarFace): the
-        /// toe of the longest foreslope a stage shoulder lays — its ribbon to
-        /// the clear zone's end past the kerb strip, the slope carried on from
-        /// there no gentler than 1V:4H to RoadsideRules.CriticalFallM of depth
-        /// (ShoulderCarry), and the toe's crossing run.</summary>
+        /// <summary>How far an OPEN half-section's profile is always carried on
+        /// past <see cref="EdgeReachM"/> (MeasureFarFace): the toe of a stage
+        /// shoulder's carried foreslope at its depth cap — its ribbon to the
+        /// clear zone's end past the kerb strip, the slope carried on from there
+        /// no gentler than 1V:4H to RoadsideRules.CriticalFallM of depth
+        /// (ShoulderCarry), and the toe's crossing run. Past it the walk goes on
+        /// only while a shoulder ribbon was underfoot within that crossing run,
+        /// so a ribbon's end is reached however far out it lies.</summary>
         const float FarReachM = PSXRacingBuilder.KerbWidth + RoadsideRules.ClearZoneM +
                                 RoadsideRules.CriticalFallM / RoadsideRules.SteepestRecoverableSlope +
                                 RoadsideRules.ToeCrossingMaxM;
+        /// <summary>The far walk's hard stop: the terrain audit's own reach
+        /// along a shoulder. The longest ribbon a stage lays ends well inside
+        /// it — a section to its catch past the warrant reach, then a tail of at
+        /// most a lattice cell (PSXRacingBuilder.ShoulderTailRunM).</summary>
+        const float FarCapM = TerrainAudit.ShoulderReachM;
+        /// <summary>Stations along the route past which the nearest centreline
+        /// to a far face is another stretch of road — the route coming back on
+        /// itself — rather than this one (PSXRacingBuilder.OverlapSep).</summary>
+        const int OtherRoadStations = 40;
         /// <summary>Samples of the main profile the far walk starts with, so a
         /// face whose top stands just past EdgeReachM is inside a window whole.</summary>
         const int FarLead = 3;
@@ -568,9 +584,9 @@ namespace PSXRacing.EditorTools
             public float tarmacY, barrierE = float.PositiveInfinity;
             public float drop, dropE, face, faceE, slopeFail, slopeWarn, slopeGrade, slopeE, backslope, backE;
             public float fallM, fallE, pocketDy;
-            public float farFace, farFaceE;
-            public bool farFaceIn;
-            public string barrierOn, dropOn, faceOn, fallOn, pocketOn, farFaceOn;
+            public float farFace, farFaceE, ownFarFace, ownFarFaceE;
+            public bool farFaceIn, ownFarFaceIn;
+            public string barrierOn, dropOn, faceOn, fallOn, pocketOn, farFaceOn, farFaceWhose, ownFarFaceOn;
             public Collider barrierCol, faceCol;
             public Vector3 edge;
         }
@@ -611,8 +627,12 @@ namespace PSXRacing.EditorTools
             var ys = new float[samples];
             var ny = new float[samples];
             var on = new Collider[samples];
-            var farYs = new float[FarLead + Mathf.CeilToInt((FarReachM - EdgeReachM) / EdgePitch) + 1];
+            var farYs = new float[FarLead + Mathf.CeilToInt((FarCapM - EdgeReachM) / EdgePitch) + 1];
             var farOn = new Collider[farYs.Length];
+            var farHits = new RaycastHit[farYs.Length];
+            var farOwn = new sbyte[farYs.Length];
+            var ribbonCols = new Dictionary<Collider, bool>();
+            var meshData = new Dictionary<Mesh, (Vector3[] verts, int[] tris)>();
             var halves = new EdgeHalf[n, 2];
             int measured = 0, unmeasured = 0, barriers = 0;
 
@@ -670,7 +690,8 @@ namespace PSXRacing.EditorTools
                     if (count >= 2) MeasureProfile(h, ys, on, count, kerb);
                     // and on past the reach where nothing stands in the way
                     if (!h.barrier && count == samples && !float.IsNaN(ys[count - 1]))
-                        MeasureFarFace(h, c + o * half, o, ys, on, count, farYs, farOn);
+                        MeasureFarFace(h, path, i, c, right, si == 0 ? -1f : 1f, half, ys, on, count, farYs, farOn,
+                                       farHits, farOwn, ribbonCols, meshData);
 
                     // Behind the barrier: somewhere to stand at road height?
                     if (h.barrier &&
@@ -788,11 +809,17 @@ namespace PSXRacing.EditorTools
                 h => h.terminal, h => h.face, RoadsideRules.FaceRiseFailM,
                 h => string.Format("{0:0.00} m of sinking stone at {1:0.00} m past the tarmac edge, on {2}",
                                    h.face, h.faceE, h.faceOn));
-            EdgeRuns(runs, halves, n, loop, "info edge face past the reach", false,
-                h => h.farFace > RoadsideRules.FaceRiseFailM, h => h.farFace, RoadsideRules.FaceRiseFailM,
+            EdgeRuns(runs, halves, n, loop, "EDGE FACE PAST THE REACH", true,
+                h => h.ownFarFace > RoadsideRules.FaceRiseFailM, h => h.ownFarFace, RoadsideRules.FaceRiseFailM,
                 h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4}",
+                                   h.ownFarFace, RoadsideRules.FaceRunM, h.ownFarFaceE,
+                                   h.ownFarFaceIn ? "climbing back in" : "running wide", h.ownFarFaceOn));
+            EdgeRuns(runs, halves, n, loop, "info edge face past the reach", false,
+                h => h.farFace > RoadsideRules.FaceRiseFailM && h.ownFarFace <= RoadsideRules.FaceRiseFailM,
+                h => h.farFace, RoadsideRules.FaceRiseFailM,
+                h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4} ({5})",
                                    h.farFace, RoadsideRules.FaceRunM, h.farFaceE,
-                                   h.farFaceIn ? "climbing back in" : "running wide", h.farFaceOn));
+                                   h.farFaceIn ? "climbing back in" : "running wide", h.farFaceOn, h.farFaceWhose));
             EdgeRuns(runs, halves, n, loop, "EDGE SLOPE", true,
                 h => h.slopeFail > RoadsideRules.SlopeSustainM, h => h.slopeFail, RoadsideRules.SlopeSustainM,
                 h => string.Format("foreslope steeper than 1V:4H for {0:0.00} m from {1:0.00} m past the tarmac edge (steepest 1V:{2:0.0}H)",
@@ -847,11 +874,16 @@ namespace PSXRacing.EditorTools
             EdgeLine(log, runs, null, "info buried terminal", sp, null,
                 "a warranted barrier run's flared end sinking into the foreslope, lower than the barrier rays " +
                 "(RoadsideRules.EndFlareStations; not counted as an edge face)", null);
-            EdgeLine(log, runs, null, "info edge face past the reach", sp, null,
+            EdgeLine(log, runs, "EDGE FACE PAST THE REACH", "info edge face past the reach", sp,
                 "on an open half-section, a rise of more than " + RoadsideRules.FaceRiseFailM.ToString("0.00") + " m within " +
-                RoadsideRules.FaceRunM.ToString("0.00") + " m from " + EdgeReachM.ToString("0") + " to " +
-                FarReachM.ToString("0.0") + " m past the tarmac edge, beyond the clear zone and the warrant " +
-                "(measured, not failed: a carried foreslope's toe at its depth cap)", null);
+                RoadsideRules.FaceRunM.ToString("0.00") + " m past " + EdgeReachM.ToString("0") +
+                " m from the tarmac edge on the half-section's own shoulder ribbon: its slope ends over the land " +
+                "instead of meeting it, beyond the clear zone but in the car's way back up",
+                "the same rise past " + EdgeReachM.ToString("0") + " m on something that is not the half-section's " +
+                "own ribbon — another stretch of road's shoulder or wall, this road's rock top, the lattice itself " +
+                "(reported with whose it is, not failed)",
+                "edge face past the reach: every open half-section's own shoulder ribbon meets the land, " +
+                "however far out it ends (walked to " + FarReachM.ToString("0.0") + " m, and on while a ribbon is underfoot)");
             EdgeLine(log, runs, "EDGE SLOPE", "warn edge slope", sp,
                 "a foreslope steeper than 1V:4H for more than " + RoadsideRules.SlopeSustainM.ToString("0.0") + " m inside the clear zone",
                 "steeper than 1V:6H for more than " + RoadsideRules.SlopeSustainM.ToString("0.0") + " m",
@@ -1023,18 +1055,24 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static float ProfileAt(Vector3 p, float prevY, out Collider on, out float normalY)
         {
-            on = null; normalY = 1f;
-            bool found = SurfaceBelow(new Vector3(p.x, prevY + ProfileHeadM, p.z), ProfileDepthM, out RaycastHit hit);
+            float y = ProfileAt(p, prevY, out RaycastHit hit);
+            on = float.IsNaN(y) ? null : hit.collider;
+            normalY = float.IsNaN(y) ? 1f : hit.normal.y;
+            return y;
+        }
+
+        /// <summary>The same sample, with the hit itself (its collider's
+        /// triangle, for whose section a face stands on).</summary>
+        static float ProfileAt(Vector3 p, float prevY, out RaycastHit hit)
+        {
+            bool found = SurfaceBelow(new Vector3(p.x, prevY + ProfileHeadM, p.z), ProfileDepthM, out hit);
             if (!found || hit.point.y < prevY - ProfileSuddenM)
             {
                 if (SurfaceBelow(new Vector3(p.x, prevY + ProfileRecastM, p.z), ProfileDepthM + ProfileRecastM,
                                  out RaycastHit high) && high.point.y >= prevY - ProfileSuddenM)
                 { hit = high; found = true; }
             }
-            if (!found) return float.NaN;
-            on = hit.collider;
-            normalY = hit.normal.y;
-            return hit.point.y;
+            return found ? hit.point.y : float.NaN;
         }
 
         /// <summary>
@@ -1201,35 +1239,100 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// PAST THE REACH, for information. A stage shoulder's carried
-        /// foreslope that reaches its depth cap without meeting the lattice
-        /// ends in a tuck, and on a hillside falling faster than the carry the
-        /// drop there stands 8.7-10.9 m out (Blue Ridge 1227 L, Little
-        /// Switzerland 608-611 L in round three's replica) — past EdgeReachM,
-        /// where EDGE FACE never looked. An open half-section's profile is
-        /// carried on to <see cref="FarReachM"/>, and the biggest rise within
-        /// FaceRunM whose window reaches past the main profile is kept, so
-        /// those drops are counted before any of them is made to fail: they
-        /// lie beyond the clear zone and the warrant, which is what the DOT
-        /// asks of a roadside, but a car that ran that wide still meets them.
+        /// PAST THE REACH. A stage shoulder's carried foreslope that reached its
+        /// depth cap without meeting the lattice ended in a tuck, and on a
+        /// hillside falling faster than the carry the drop there stood 8.7-12 m
+        /// out — past EdgeReachM, where EDGE FACE never looked. The 2026-09-14
+        /// bake counted them here as information (Blue Ridge 13 half-sections in
+        /// 7 runs, Little Switzerland 844-853 R 0.31 m) and the builder now
+        /// carries such a slope on as a tail until it meets the land
+        /// (PSXRacingBuilder.ShoulderTailSlope), so a face on the half-section's
+        /// OWN ribbon out here fails: it is that ribbon's end standing over the
+        /// land, which is exactly what a car that ran wide climbs back into.
+        ///
+        /// An open half-section's profile is carried on to <see cref="FarReachM"/>,
+        /// and further while a shoulder ribbon has been underfoot within
+        /// RoadsideRules.ToeCrossingMaxM (up to <see cref="FarCapM"/>), and over
+        /// every window within FaceRunM that reaches past the main profile two
+        /// rises are kept: the biggest of all, and the biggest whose top sample
+        /// stands on this station's OWN ribbon — the RoadEdge triangle there has
+        /// a corner on this station's cross-section line (TerrainAudit.OwnSection
+        /// — every triangle BuildShoulders zips either side of a station has
+        /// one, and no other station's triangle does; another road's triangle
+        /// only where a corner of it happens to lie within a few centimetres of
+        /// this line, and that is counted as own, the strict side). The second
+        /// is what fails. Kept apart, not read off the biggest, because the
+        /// biggest is often not a ribbon at all — another leg's wall 0.64 m
+        /// high at Little Switzerland 1788 L, a rock top 0.32 m at Blowing Rock
+        /// 1061 L — and a toe step of this ribbon nearer the road would stand
+        /// behind it unfailed (the replica, reading both, found none behind any
+        /// of them). Where no own face fails, the biggest is reported with whose
+        /// it is, named by the nearest centreline station. In round three's bake
+        /// (and its Python replica, which read the same lines) those others were
+        /// another leg's roadside 11-12 m out — Little Switzerland 1784 L on the
+        /// fan wp 721-722 zips between that leg's wall and its buried terminal,
+        /// 1788 L on wp 718's wall — and this road's own rock top, where a
+        /// hairpin stops one station's ring short of its neighbour's (Blowing
+        /// Rock 1061-1064 L, 2406-2409 R) or where it follows a hill steeper
+        /// than a face (Beech Gap 920 R): reported with whose they are, not
+        /// failed as this half-section's ribbon.
         /// </summary>
-        static void MeasureFarFace(EdgeHalf h, Vector3 edge, Vector3 o, float[] ys, Collider[] on, int count,
-                                   float[] farYs, Collider[] farOn)
+        static void MeasureFarFace(EdgeHalf h, TrackPath path, int i, Vector3 c, Vector3 right, float side, float half,
+                                   float[] ys, Collider[] on, int count, float[] farYs, Collider[] farOn,
+                                   RaycastHit[] farHits, sbyte[] farOwn,
+                                   Dictionary<Collider, bool> ribbonCols, Dictionary<Mesh, (Vector3[] verts, int[] tris)> meshData)
         {
+            Vector3 o = right * side, edge = c + o * half;
             int m = 0;
-            for (int k = count - FarLead; k < count; k++, m++) { farYs[m] = ys[k]; farOn[m] = on[k]; }
             float e0 = EdgeStartM + (count - FarLead) * EdgePitch;
+            float lastRibbonE = float.NegativeInfinity;
+            for (int k = count - FarLead; k < count; k++, m++)
+            {
+                farYs[m] = ys[k];
+                farOn[m] = on[k];
+                farOwn[m] = 0;
+                if (IsRibbon(on[k], ribbonCols)) lastRibbonE = e0 + m * EdgePitch;
+            }
             float prevY = ys[count - 1];
             for (; m < farYs.Length; m++)
             {
                 float e = e0 + m * EdgePitch;
-                if (e > FarReachM + 1e-4f) break;
-                farYs[m] = ProfileAt(edge + o * e, prevY, out farOn[m], out _);
-                if (!float.IsNaN(farYs[m])) prevY = farYs[m];
+                if (e > FarReachM + 1e-4f && e > lastRibbonE + RoadsideRules.ToeCrossingMaxM) break;
+                farOwn[m] = 0;
+                farYs[m] = ProfileAt(edge + o * e, prevY, out farHits[m]);
+                farOn[m] = float.IsNaN(farYs[m]) ? null : farHits[m].collider;
+                if (float.IsNaN(farYs[m])) continue;
+                prevY = farYs[m];
+                if (IsRibbon(farOn[m], ribbonCols)) lastRibbonE = e;
             }
+
+            // Is sample t on this station's own ribbon? Asked only of a face's
+            // top, once per sample. The walk kept its own hits; the FarLead
+            // samples came from the main profile, which did not, so theirs is
+            // cast again — and a ribbon whose triangle cannot be read back is
+            // counted as own, the strict side.
+            bool Own(int t)
+            {
+                if (farOwn[t] == 0)
+                {
+                    bool own = false;
+                    if (IsRibbon(farOn[t], ribbonCols))
+                    {
+                        RaycastHit hit = farHits[t];
+                        bool have = t >= FarLead;
+                        if (!have)
+                            have = !float.IsNaN(ProfileAt(edge + o * (e0 + t * EdgePitch), farYs[t], out hit)) &&
+                                   hit.collider == farOn[t];
+                        own = !have || TerrainAudit.OwnSection(hit, c, right, side, meshData);
+                    }
+                    farOwn[t] = (sbyte)(own ? 1 : -1);
+                }
+                return farOwn[t] > 0;
+            }
+
             // the same windows as MeasureProfile's EDGE FACE
             float over = (RoadsideRules.FaceRunM - 2f * EdgePitch) / EdgePitch;
-            int topK = -1;
+            int topK = -1, ownTopK = -1;
             for (int k = 0; k < m; k++)
             {
                 if (float.IsNaN(farYs[k])) continue;
@@ -1238,15 +1341,70 @@ namespace PSXRacing.EditorTools
                     if (float.IsNaN(farYs[k + d])) break;
                     if (k + d < FarLead) continue;      // wholly inside the profile: judged there
                     float y = d < 3 ? farYs[k + d] : Mathf.Lerp(farYs[k + 2], farYs[k + 3], over);
-                    float rise = y - farYs[k];
-                    if (Mathf.Abs(rise) <= h.farFace) continue;
-                    h.farFace = Mathf.Abs(rise);
-                    h.farFaceE = e0 + k * EdgePitch;
-                    h.farFaceIn = rise < 0f;
-                    topK = rise < 0f ? k : k + Mathf.Min(d, 2);
+                    float rise = y - farYs[k], size = Mathf.Abs(rise);
+                    int t = rise < 0f ? k : k + Mathf.Min(d, 2);
+                    if (size > h.farFace)
+                    {
+                        h.farFace = size;
+                        h.farFaceE = e0 + k * EdgePitch;
+                        h.farFaceIn = rise < 0f;
+                        topK = t;
+                    }
+                    if (size > RoadsideRules.FaceRiseFailM && size > h.ownFarFace && Own(t))
+                    {
+                        h.ownFarFace = size;
+                        h.ownFarFaceE = e0 + k * EdgePitch;
+                        h.ownFarFaceIn = rise < 0f;
+                        ownTopK = t;
+                    }
                 }
             }
-            if (topK >= 0) h.farFaceOn = Name(farOn[topK]);
+            if (ownTopK >= 0) h.ownFarFaceOn = Name(farOn[ownTopK]);
+            if (topK < 0) return;
+            h.farFaceOn = Name(farOn[topK]);
+            // Whose it is matters only to the information line, so it is not
+            // asked where there is no face (almost every walked half-section
+            // has SOME rise out here, and the answer walks the whole route) or
+            // where this ribbon's own face fails (the fail line reports that).
+            if (h.farFace <= RoadsideRules.FaceRiseFailM || h.ownFarFace > RoadsideRules.FaceRiseFailM) return;
+
+            // ProfileAt casts straight down, so the sample's plan position is its hit's.
+            Vector3 top = edge + o * (e0 + topK * EdgePitch);
+            int near = NearestStation(path, top);
+            int n = path.Count, sep = Mathf.Abs(near - i);
+            if (!path.HasEnds) sep = Mathf.Min(sep, n - sep);
+            bool other = sep > OtherRoadStations;
+            string name = farOn[topK] != null ? farOn[topK].name : "";
+            h.farFaceWhose = name.StartsWith("Ground", System.StringComparison.Ordinal) ? "the lattice itself, nearest wp " + near
+                           : IsRibbon(farOn[topK], ribbonCols)
+                               ? (other ? "another stretch of road's shoulder, wp " : "a neighbouring station's shoulder, wp ") + near
+                               : (other ? "another stretch of road's roadside, nearest wp " : "this road's roadside, nearest wp ") + near;
+        }
+
+        /// <summary>Is this collider a shoulder ribbon (BuildShoulders names
+        /// every chunk "RoadEdge")? Cached: Object.name allocates a string on
+        /// every read, and the far walk asks once per sample.</summary>
+        static bool IsRibbon(Collider col, Dictionary<Collider, bool> cache)
+        {
+            if (col == null) return false;
+            if (!cache.TryGetValue(col, out bool ribbon))
+                cache[col] = ribbon = col.name == "RoadEdge";
+            return ribbon;
+        }
+
+        /// <summary>The waypoint whose centreline point is nearest
+        /// <paramref name="p"/> in plan.</summary>
+        static int NearestStation(TrackPath path, Vector3 p)
+        {
+            int best = 0;
+            float bestD2 = float.MaxValue;
+            for (int k = 0; k < path.Count; k++)
+            {
+                Vector3 q = path.GetPoint(k);
+                float dx = q.x - p.x, dz = q.z - p.z, d2 = dx * dx + dz * dz;
+                if (d2 < bestD2) { bestD2 = d2; best = k; }
+            }
+            return best;
         }
 
         /// <summary>Group the half-sections a predicate picks into runs of

@@ -427,17 +427,61 @@ alike). The city part:
   not star-shaped). Sorting corners by angle let a bent link split Tyvola
   Road's mouth into a 1 m deep hole in its lanes.
 - **Instruments.** CityAudit's roadside audit (verge lips, faces, the rail
-  census, the pit census), a fan-mouth probe, a lane survey and a ledge
-  survey (both "not a check" yet), and `CityEdgeProbe` (every tile boundary
-  edge: open drops, grounded lip histogram).
+  census, the pit census, and since round four the unguarded-ledge check),
+  a fan-mouth probe, a lane survey ("not a check" but for its building
+  class), and `CityEdgeProbe` (every tile boundary edge: open drops,
+  grounded lip histogram).
 - **Results, round one → three.** Edge over a drop with no rail 145 m → 0;
   verge steps 906 → 4 (5-6 cm pavement-to-pavement seams where two
   solved roads touch); body-box faces 43 → 0; every lane mouth has road
   under it; drive audit clean on all nine spots.
-- **Left:** link e14103 overlapping North Davidson e14105 at one node
-  (a rail stands in a lane for ~20 m; needs a non-ramp seat), ~9 building
-  footprints inside lanes, micro-cluster fans off the audit tiles, and ~80
-  sub-metre unguarded ledges the ledge survey lists.
+- **Round four: ledges, seams, buildings, arms (2026-09-14).**
+  - *Ledges are a check* ("no unguarded 0.3-1 m ledge within 1.5 m past a
+    grounded edge", walked from a rail's width inside the edge, so a
+    barrier on the edge shields what lies behind it): 80 → 0. The causes:
+    squeeze half strips that never saw a neighbour more than 0.5 m up
+    (`ClearRun`'s overhead is now the squeeze's own height band, and a half
+    strip reaches 15 cm under the higher pavement); squeezed or stopped
+    verges a level above the next road (`RoadsideRules.LedgeStepM`, 0.3 m:
+    past it the edge stands on a retaining face with a rail, `Ungraded`,
+    Jersey medians exempt); gore-nose verges laid off the painted gore's
+    far edge; a verge collapsing along a fan chord (`FanEntry` insets the
+    perimeter edge); a corner fill's plate 0.9 m over e7753's verge.
+  - *Touching pavements meet* (`MeetPavement`): an edge vertex more than
+    the edge drop over another grounded pavement within 0.2 m steps down
+    onto it, by at most 12 cm, reading the other road without the step, so
+    the order roads are sectioned in changes nothing. The 5-6 cm seams
+    went 4 → 0. A per-tile cache of world-space sections (`RawSectionsOf`)
+    pays for it.
+  - *Buildings off the pavement* (`FitFootprint`/`FitHouse`): walls stand
+    0.6 m clear of the drawn road, houses shrink as boxes, and a building
+    split in two or cut below half its area is left out (616 cut, 41 left
+    out city-wide). 43 lane probes stood in a wall; none do, and the audit
+    fails one, counting a wall behind any other collider in the column.
+  - *Arms of one junction* more than 0.25 m apart are squeezed like any
+    two roads (`ArmsApart`): the link e14103 over North Davidson Street is
+    clear. Fan-edge and gore-nose rails stand down where pavement carries
+    on past them at their height, sampled 0.5 m apart (`PavedOnward`, the
+    Freedom Drive and Tyvola Road bridge clusters), and rails move out up
+    to 0.15 m at polyline bends (`VertexRailOut`).
+  - *Fan chords* are probed at their corners as well as between (node
+    5211's high corner stood 1.95 m over the land once the corner fill was
+    gone), and are not railed by the ledge rule: a harness census of every
+    fan found 13 chords it railed, each stepping onto another junction's
+    fan or an arm within 5 m of its trim, 4 of them standing in a lane
+    mouth. Fan-mouth solids city-wide went 45 → 26.
+- **Left:** the lane survey's 46 solids over a lane (squeeze splits at one
+  road's cross-sections and not the other's on I-277/I-77 and e7753 beside
+  South Boulevard; deck rails where an edge's width changes at a node;
+  Albemarle Road under the Independence Expressway's retaining wall, where
+  seating the branch would put 16% grades off its deck) and 10 verge or
+  seam slivers of 1-6 cm over clipped lanes. Off the audited tiles: the 13
+  junctions drawn into each other a level apart keep a 0.3-0.7 m step (the
+  fans' to seat or split, not a rail's); squeezed rails stand in the mouths
+  at node 625 (e343 beside Tyvola Road, where the squeeze ends between
+  sections) and node 2587 (e3805 beside Wilkinson Boulevard); grass stands
+  5-11 cm over the lower road at a handful of steep gore noses; 41
+  buildings are missing where a road runs through their footprint.
 
 ## Not in v1 (in order of likely next)
 

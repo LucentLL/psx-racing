@@ -1982,6 +1982,85 @@ namespace PSXRacing.EditorTools
         /// down), and no new face on any other hairpin inside of either loop.
         /// </summary>
         const float ShoulderFoldFraction = 0.95f;
+        /// <summary>
+        /// THE TAIL: how steep a STAGE's carried slope goes once it is past the
+        /// barrier warrant's reach without having met the land — 1V:2.5H.
+        ///
+        /// A 1V:4H carry that ran its ShoulderCarryMaxM without meeting the
+        /// lattice ended where it ran out, 8.7 m past the tarmac edge, and tucked
+        /// straight down to a lattice still 0.2-0.8 m under it: a ledge the body
+        /// box meets climbing back up the slope. The 2026-09-14 bake measured
+        /// them past the audit's reach, "info edge face past the reach" — Blue
+        /// Ridge 13 half-sections in 7 runs (1232-1236 L 0.19 m at 8.80 m), Mount
+        /// Mitchell 1538 R 0.27 m at 11.50 m, Beech Gap 254 L 0.16 m at 12.10 m,
+        /// Blowing Rock 1621-1622 R, Little Switzerland 844-853 R 0.31 m — most
+        /// of them the buried terminals of critical-fill walls, over lattice
+        /// falling at 1V:1.8H to 1V:5H where the carry ran out. The 12 m facets
+        /// chord under the fill section RoadsideDy grades (1V:6H, 1V:4H, 1V:3H,
+        /// each steeper than the last), so the lattice sags under a slope that
+        /// is itself gentler than the land, and the gap only grows the further
+        /// a 1V:4H slope is carried. Two ways to close
+        /// it were measured and dropped: carrying on from the depth cap at
+        /// 1V:3H (it runs parallel to such a hillside, and met it on none of
+        /// Blue Ridge 1226-1237 L within 30 m), and pulling the lattice up to
+        /// the toe (the facet under a toe has its other corners 3-5 m out,
+        /// under the section the solve holds down, so the corner beyond has to
+        /// rise 0.5-1.2 m over the field on Blue Ridge 1094, 1236, 1400 and
+        /// 1226 L — a berm across the hillside, under every station sharing it).
+        ///
+        /// Past <see cref="ShoulderTailE"/> nothing a car stands on is the
+        /// warrant's business (RoadsideRules.WorstCriticalFall walks the section
+        /// no further than the kerb strip plus that reach), and RDG practice
+        /// lets a slope beyond the clear zone be steeper than traversable.
+        /// 1V:2.5H is the steepest that is still not a face to the body box:
+        /// 0.052 m in RoadsideRules.FaceRunM against its FaceRiseFailM of 0.06 m,
+        /// on an exact ribbon (the shoulder is never mesh-compressed).
+        ///
+        /// ONLY WHERE THE CARRY FAILED. A carry that meets the land at 1V:4H is
+        /// left exactly as it was; the tail replaces only one that ran out of
+        /// depth without meeting it. Tailing every carry that passed the reach
+        /// made the neighbour of a short one steeper too, and the zipper's fan
+        /// between a 1V:4H catch and a 1V:2.5H tail four metres along the road is
+        /// steeper than either line — the replica's rasterised fans (every pair
+        /// of neighbouring sloped ends two metres and more apart, at 5 cm, along
+        /// both axes and both diagonals) went from 47 with a face on the five
+        /// mountains to 105; tailing only the failures, 33. And the plan's fall
+        /// walk never sees the tail, which turns down past its last sample.
+        ///
+        /// Python replica of the plan, lattice, solve, both holds and emitter,
+        /// own ribbon over the solved lattice to the ribbon's end, all eight
+        /// stages: faces at a ribbon's toe 17/1/1/8/21 on Blue Ridge, Mount
+        /// Mitchell, Beech Gap, Blowing Rock and Little Switzerland, 0/0/0/0/2
+        /// with the tail (Little Switzerland 612 L, <see cref="ShoulderTailRunM"/>,
+        /// and 611 L, where the lattice itself falls at 1V:1.8H just past the
+        /// toe of a tail that met it — 0.073 m on Ground, not on the ribbon);
+        /// no fall, no slope in a clear zone, no lattice within 3 cm of a shoulder,
+        /// the same walls, the carry holds converging in no more passes, no
+        /// shoulder triangle facing down. Read the way the obstacle audit reads it
+        /// — barrier rays, walls, rock tops and the other legs as triangles, on
+        /// every station of the five mountains — the round-three build gave back
+        /// its own far-face lists exactly (Blue Ridge 13 half-sections in 7 runs,
+        /// Little Switzerland 19 in 6), and with the tail none is on a station's
+        /// own ribbon.
+        /// </summary>
+        const float ShoulderTailSlope = 0.4f;
+        /// <summary>
+        /// Furthest a tail runs past its knee looking for the land: one lattice
+        /// cell (NearCell). A tail that has crossed a whole cell of facets without
+        /// meeting them is on a hillside at least as steep as itself — Little
+        /// Switzerland 612 L, a critical fill's terminal over land falling at
+        /// 1V:1.8H-1V:2.6H for 15 m — and would only end higher over it further
+        /// out, so there the carry is laid as it was, to its depth. The longest
+        /// tail that met in the replica ran 11.4 m (Mount Mitchell 1539 R, from a
+        /// section that already ended past the warrant's reach at 8.08 m, to
+        /// 19.48 m).
+        /// </summary>
+        const float ShoulderTailRunM = 12f;
+        /// <summary>Where a stage carry that has not met the land becomes the
+        /// tail (<see cref="ShoulderTailSlope"/>): the reach of the barrier
+        /// warrant past the graded shoulder, RoadsideRules.WarrantReachM — the
+        /// same point OpenSectionDy steepens its own section to 1V:3H.</summary>
+        static float ShoulderTailE => ShoulderEndE + RoadsideRules.WarrantReachM;
         /// <summary>Least outward step between two profile points: a profile
         /// that repeats an e would draw a vertical face, and a vertical face
         /// is exactly what a shoulder is not.</summary>
@@ -2046,7 +2125,7 @@ namespace PSXRacing.EditorTools
 
             var pos = new Vector3[2][][];
             var es = new float[2][][];
-            int toesDeep = 0, toesCaught = 0, toesPastBend = 0;
+            int toesDeep = 0, toesCaught = 0, toesPastBend = 0, toesTailed = 0;
             for (int s = 0; s < 2; s++)
             {
                 float side = s == 0 ? -1f : 1f;
@@ -2055,10 +2134,12 @@ namespace PSXRacing.EditorTools
                 for (int idx = 0; idx < n; idx++)
                 {
                     if (ShoulderStation(pts, idx, side, shoulderProfiles[s][idx],
-                                        out pos[s][idx], out es[s][idx], out bool caught, out bool pastBend))
+                                        out pos[s][idx], out es[s][idx], out bool caught, out bool pastBend,
+                                        out bool tailed))
                         toesDeep++;
                     if (caught) toesCaught++;
                     if (pastBend) toesPastBend++;
+                    if (tailed) toesTailed++;
                 }
             }
 
@@ -2156,7 +2237,8 @@ namespace PSXRacing.EditorTools
             Log($"Shoulders: {chunks} RoadEdge chunk(s), {faces} faces; " +
                 $"{bent} half-section(s) clipped on the inside of a tight bend; " +
                 $"{toesCaught} sloped end(s) carried on down to meet the ground lattice (or to the end of a recoverable run), " +
-                $"{toesPastBend} of them on past a tight bend's inside at 1V:{1f / RoadsideRules.TraversableSlope:0}H; " +
+                $"{toesPastBend} of them on past a tight bend's inside at 1V:{1f / RoadsideRules.TraversableSlope:0}H, " +
+                $"{toesTailed} down past the warrant's reach at 1V:{1f / ShoulderTailSlope:0.0}H to meet it; " +
                 $"{toesDeep} toe(s) skirted deeper than a tuck to get under the ground.");
         }
 
@@ -2170,13 +2252,15 @@ namespace PSXRacing.EditorTools
         /// and the toe had to go further down (the tuck itself on a sloped
         /// end, only the skirt on a flat one). <paramref name="caught"/> says
         /// the slope was carried on, <paramref name="pastBend"/> that it went on
-        /// past a tight bend's own limit (<see cref="ShoulderCarry"/>).
-        /// BuildShoulders counts all three.
+        /// past a tight bend's own limit, <paramref name="tailed"/> that it met
+        /// the land as a stage's tail (<see cref="ShoulderCarry"/>).
+        /// BuildShoulders counts all four.
         /// </summary>
         static bool ShoulderStation(List<Vector3> pts, int idx, float side, List<Vector2> prof,
-                                    out Vector3[] pos, out float[] es, out bool caught, out bool pastBend)
+                                    out Vector3[] pos, out float[] es, out bool caught, out bool pastBend,
+                                    out bool tailed)
         {
-            pos = null; es = null; caught = false; pastBend = false;
+            pos = null; es = null; caught = false; pastBend = false; tailed = false;
             if (prof == null || prof.Count == 0) return false;
             float half = RoadWidth * 0.5f;
             Vector3 outw = RightAt(pts, idx) * side;
@@ -2211,13 +2295,19 @@ namespace PSXRacing.EditorTools
                     // the tuck's.
                     float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
                     Vector3 at = pts[idx];
+                    // A stage's carry turns into the tail past the warrant's
+                    // reach (ShoulderTailSlope); a circuit's run-off keeps its
+                    // carry as it was.
+                    float tailE = stageDemLoaded ? ShoulderTailE : float.PositiveInfinity;
                     if (ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, idx, side), ShoulderFoldReach(pts, idx, side),
+                                      tailE,
                                       e =>
                                       {
                                           Vector3 q = at + outw * (half + e);
                                           return ShoulderLatticeY(q.x, q.z);
                                       },
-                                      out kneeE, out kneeY, out float carryE, out float carryY, out _, out pastBend))
+                                      out kneeE, out kneeY, out float carryE, out float carryY, out _, out pastBend,
+                                      out tailed))
                     {
                         // A knee on the section's own last point is that point.
                         kneed = !float.IsNaN(kneeE) && kneeE > eEnd + ShoulderMinStepM;
@@ -2302,13 +2392,43 @@ namespace PSXRacing.EditorTools
         /// the section already ended at the bend). See <see cref="ShoulderFoldFraction"/>
         /// for the hairpins that dived from their bend limit instead.
         ///
+        /// On a stage (<paramref name="tailE"/> finite: <see cref="ShoulderTailE"/>;
+        /// +infinity on a circuit), a carry that did NOT meet the land that way
+        /// is walked again as the tail (<see cref="ShoulderTail"/>), and where the
+        /// tail meets it, that is the carry — <paramref name="tailed"/>, with the
+        /// knee at tailE, or at the section's own last point when the section
+        /// ended past it. A carry that meets the land is never touched.
+        ///
         /// False when there was no room to carry at all. <paramref name="met"/>
         /// says the slope really reached the land; a carry that ran out of
-        /// depth or room ends where it ran out, as it always has.
+        /// depth or room, and whose tail found no land either, ends where it
+        /// ran out, as it always has.
         /// </summary>
-        static bool ShoulderCarry(float eEnd, float yEnd, float fall, float bendE, float foldE, Func<float, float> land,
+        static bool ShoulderCarry(float eEnd, float yEnd, float fall, float bendE, float foldE, float tailE,
+                                  Func<float, float> land,
                                   out float kneeE, out float kneeY, out float carryE, out float carryY,
-                                  out bool met, out bool pastBend)
+                                  out bool met, out bool pastBend, out bool tailed)
+        {
+            tailed = false;
+            bool carried = ShoulderCarryToDepth(eEnd, yEnd, fall, bendE, foldE, land,
+                                                out kneeE, out kneeY, out carryE, out carryY, out met, out pastBend);
+            if (met || !ShoulderTail(eEnd, yEnd, fall, bendE, foldE, tailE, land,
+                                     out float tailKneeE, out float tailKneeY, out float tailEndE, out float tailEndY))
+                return carried;
+            kneeE = tailKneeE; kneeY = tailKneeY;
+            carryE = tailEndE; carryY = tailEndY;
+            met = tailed = true;
+            pastBend = false;
+            return true;
+        }
+
+        /// <summary>The carry as it was laid before the tail: at its fall to the
+        /// depth or the bend, then on past a bend's own limit (see
+        /// <see cref="ShoulderCarry"/>).</summary>
+        static bool ShoulderCarryToDepth(float eEnd, float yEnd, float fall, float bendE, float foldE,
+                                         Func<float, float> land,
+                                         out float kneeE, out float kneeY, out float carryE, out float carryY,
+                                         out bool met, out bool pastBend)
         {
             kneeE = kneeY = float.NaN;
             carryE = eEnd; carryY = yEnd;
@@ -2353,6 +2473,47 @@ namespace PSXRacing.EditorTools
                 break;
             }
             return true;
+        }
+
+        /// <summary>
+        /// The stage's tail (<see cref="ShoulderTailSlope"/>), for a carry that
+        /// did not meet the land: from a knee at <paramref name="tailE"/> on the
+        /// carry's own <paramref name="fall"/> (which that carry has already
+        /// walked clear of the land out to there), or from the section's last
+        /// point where the section ended past it, on down at ShoulderTailSlope —
+        /// no further than ShoulderTailRunM and <paramref name="foldE"/> — to the
+        /// first ShoulderCatchStepM at or under the land. False where the bend or
+        /// the depth stopped the carry short of tailE, and where the tail finds
+        /// no land in its run.
+        /// </summary>
+        static bool ShoulderTail(float eEnd, float yEnd, float fall, float bendE, float foldE, float tailE,
+                                 Func<float, float> land,
+                                 out float kneeE, out float kneeY, out float carryE, out float carryY)
+        {
+            kneeE = kneeY = carryE = carryY = float.NaN;
+            if (float.IsInfinity(tailE)) return false;
+            if (eEnd < tailE)
+            {
+                if (tailE - eEnd > Mathf.Min(ShoulderCarryMaxM / fall, bendE - eEnd) + 1e-4f) return false;
+                kneeE = tailE;
+                kneeY = yEnd - fall * (tailE - eEnd);
+            }
+            else
+            {
+                kneeE = eEnd;
+                kneeY = yEnd;
+            }
+            int steps = Mathf.FloorToInt(Mathf.Min(ShoulderTailRunM, foldE - kneeE) / ShoulderCatchStepM);
+            for (int k = 1; k <= steps; k++)
+            {
+                float d = k * ShoulderCatchStepM;
+                float y = kneeY - ShoulderTailSlope * d;
+                if (y > land(kneeE + d)) continue;
+                carryE = kneeE + d;
+                carryY = y;
+                return true;
+            }
+            return false;
         }
 
         /// <summary>

@@ -100,8 +100,10 @@ namespace PSXRacing.EditorTools
         /// </summary>
         const float CrossingMaxM = RoadsideRules.ToeCrossingMaxM;
         /// <summary>Furthest a shoulder ribbon is followed out. A fill's
-        /// foreslope can run a long way to its catch.</summary>
-        const float ShoulderReachM = 30f;
+        /// foreslope can run a long way to its catch, and a stage's tail on
+        /// from there (PSXRacingBuilder.ShoulderTailRunM); the obstacle audit's
+        /// far walk stops here too.</summary>
+        internal const float ShoulderReachM = 30f;
         /// <summary>Where "is this road benched into a slope" is asked, and how
         /// far apart its two sides have to be for the answer to be yes. Past
         /// the corridor shelf and well into the blend, so what is being
@@ -631,8 +633,8 @@ namespace PSXRacing.EditorTools
         /// a mesh collider, an unreadable mesh, no triangle index), which is
         /// this pass's behaviour before the test existed.
         /// </summary>
-        static bool OwnSection(RaycastHit hit, Vector3 wp, Vector3 right, float side,
-                               Dictionary<Mesh, (Vector3[] verts, int[] tris)> cache)
+        internal static bool OwnSection(RaycastHit hit, Vector3 wp, Vector3 right, float side,
+                                        Dictionary<Mesh, (Vector3[] verts, int[] tris)> cache)
         {
             var mc = hit.collider as MeshCollider;
             if (mc == null || mc.sharedMesh == null || hit.triangleIndex < 0) return true;

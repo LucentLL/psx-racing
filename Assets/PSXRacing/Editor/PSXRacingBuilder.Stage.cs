@@ -1190,7 +1190,10 @@ namespace PSXRacing.EditorTools
         /// meet a new crease. In the replica Blue Ridge and Little Switzerland
         /// each needed three solves (3, 2, 1 and 2, 1, 1 grazes) and a fourth
         /// look found nothing; the rest is headroom, and the loop stops at the
-        /// first look that asks nothing — so the log can say it converged.</summary>
+        /// first look that asks nothing — so the log can say it converged.
+        /// Since the tail (ShoulderTailSlope) took over the carries that ran out
+        /// of depth, Blue Ridge needs three (2, 1, 1) and Little Switzerland
+        /// and Blowing Rock none: their grazes were on those carries.</summary>
         const int StageCarryHoldPasses = 5;
         /// <summary>Pitch at which a carried slope's gap to the lattice is
         /// read, and at which its holds are laid.</summary>
@@ -1285,16 +1288,28 @@ namespace PSXRacing.EditorTools
                     }
                     if (Land(eEnd) >= yEnd) continue;
                     float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
-                    if (!ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, i, side), ShoulderFoldReach(pts, i, side), Land,
-                                       out float kneeE, out float kneeY, out float catchE, out float catchY, out bool met, out _))
+                    if (!ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, i, side), ShoulderFoldReach(pts, i, side),
+                                       ShoulderTailE, Land,
+                                       out float kneeE, out float kneeY, out float catchE, out float catchY, out bool met, out _,
+                                       out bool tailed))
                         continue;
                     float Line(float e) => !float.IsNaN(kneeE) && e > kneeE
                         ? kneeY + (catchY - kneeY) * (e - kneeE) / Mathf.Max(catchE - kneeE, 1e-5f)
                         : yEnd - fall * (e - eEnd);
 
+                    // Not along a tail (ShoulderTailSlope): a 1V:2.5H tail and a
+                    // hillside nearly as steep run side by side, and holding the
+                    // lattice under the one chases the crossing down the other —
+                    // Blue Ridge 1093 L in the replica grazed and met 1.1-1.5 m
+                    // further out on every pass (9.7, 11.1, 12.4, 13.5 m) and the
+                    // holds never converged in StageCarryHoldPasses. The tail's own
+                    // crossing is exact (at or under the land), and in the
+                    // replica, left alone, no tail came within the terrain audit's
+                    // 3 cm of the lattice short of it.
+                    float readTo = tailed ? kneeE : catchE;
                     float holdTo = eEnd;
                     gaps.Clear();
-                    for (float e = eEnd; e < catchE; e += StageCarryReadPitchM) gaps.Add(new Vector2(e, Line(e) - Land(e)));
+                    for (float e = eEnd; e < readTo; e += StageCarryReadPitchM) gaps.Add(new Vector2(e, Line(e) - Land(e)));
                     int inner = gaps.Count;
                     if (met)
                         while (inner > 0 && gaps[inner - 1].y < StageCatchHoldM && catchE - gaps[inner - 1].x <= StageCrossingAllowM)
@@ -2412,7 +2427,10 @@ namespace PSXRacing.EditorTools
         ///     ShoulderCarryMaxM, stopping at the first ShoulderCatchStepM
         ///     where it has met the lattice, and on a tight bend's inside
         ///     steepening to 1V:3H past the section's limit) and its toe
-        ///     tuck, each over the lattice where the lattice is higher;
+        ///     tuck, each over the lattice where the lattice is higher. A
+        ///     stage's tail (ShoulderTailSlope) turns down at ShoulderTailE,
+        ///     past this walk's last sample, so of a carry that reaches it the
+        ///     walk reads the same slope with or without it;
         ///   * then the lattice alone, read at every sample on its own facet
         ///     the way StageLatticeY reads it (a 0.5 m read with a lerp between
         ///     cut the corner of every facet crease it crossed by up to an
@@ -2475,8 +2493,8 @@ namespace PSXRacing.EditorTools
             // The emitter's own carry (ShoulderCarry), knee and all.
             float carryE = endE, carryDy = endDy, kneeE = float.NaN, kneeDy = 0f;
             if (sloped && Ground(endE) < endDy)
-                ShoulderCarry(endE, endDy, fall, bendReach, ShoulderFoldReach(pts, i, side), Ground,
-                              out kneeE, out kneeDy, out carryE, out carryDy, out _, out _);
+                ShoulderCarry(endE, endDy, fall, bendReach, ShoulderFoldReach(pts, i, side), ShoulderTailE, Ground,
+                              out kneeE, out kneeDy, out carryE, out carryDy, out _, out _, out _);
             float CarriedDy(float e) => !float.IsNaN(kneeE) && e > kneeE
                 ? kneeDy + (carryDy - kneeDy) * (e - kneeE) / Mathf.Max(carryE - kneeE, 1e-5f)
                 : endDy - fall * (e - endE);

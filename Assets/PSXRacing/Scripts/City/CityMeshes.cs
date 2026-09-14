@@ -115,6 +115,9 @@ namespace PSXRacing.City
         /// <summary>Plan clearance a verge keeps from another road's pavement
         /// as drawn: it never lies over someone else's lanes.</summary>
         const float VergeClearPadM = 0.2f;
+        /// <summary>How far above a strip another road's pavement stands
+        /// before ClearRun calls it a deck the ground passes under.</summary>
+        const float DeckOverheadM = 0.5f;
         /// <summary>How far under the next road's pavement a CONNECTOR verge
         /// (see SolveStrip) ends, so its toe tucks out of sight beneath that
         /// road's edge instead of standing at it.</summary>
@@ -283,6 +286,9 @@ namespace PSXRacing.City
             /// or the audit fails the build.</summary>
             public int wallFacingErrors;
             public int footprintCount, houseCount, goreCount, patchCount, branchCount;
+            /// <summary>Footprints this tile cut back off the drawn pavement,
+            /// and those it left out (<see cref="FitFootprint"/>).</summary>
+            public int footprintsCut, footprintsLeftOut;
             /// <summary>For the audits: every verge span this tile laid
             /// (edge, side -1 L / +1 R, arc range), and every gore nose it
             /// owns (world-space chord, the forward direction past it, and
@@ -665,27 +671,27 @@ namespace PSXRacing.City
             barrierBucket.Clear();
             kerbBucket.Clear();
             goreGaps.Clear();
-            goreQuads.Clear();
+            goreQuads.Clear(); goreGroups.Clear();
             clips.Clear();
             latticeCache.Clear();
             pavedCache.Clear();
             fanStructure.Clear();
-            fanPolys.Clear(); outlines.Clear(); pavementVersion = -1;
+            fanPolys.Clear(); outlines.Clear(); ClearSectionCaches(); pavementVersion = -1;
             tileOrigin = tm.origin;
 
             BuildGround(map, tm, min);
-            clipPairs.Clear();
+            clipPairs.Clear(); goreEdges.Clear();
             BuildGores(map, trims, tm, min, max);
             // A gore's nose solves its verge before every branch's clip is in
             // the table: the outlines it sectioned are sectioned again with all
             // of them, and the fans it read are cornered again too (an arm's
             // clip and squeeze decide whether it has a mouth at all).
-            outlines.Clear(); fanPolys.Clear(); pavementVersion = -1;
+            outlines.Clear(); ClearSectionCaches(); fanPolys.Clear(); pavementVersion = -1;
             BuildRoadsAndDecks(map, trims, tm, min, max);
             BuildJunctions(map, trims, tm, min, max);
             BuildWater(map, tm, min, max);
             BuildBuildings(map, buildings, tm, tx, tz);
-            BuildFootprints(map, tm, tx, tz);
+            BuildFootprints(map, trims, tm, tx, tz);
             BuildHouses(map, tm, tx, tz);
 
             tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots);
@@ -908,6 +914,13 @@ namespace PSXRacing.City
         /// it (twice the widest strip a squeeze leaves at a section), and how
         /// far past the middle of the gap it reaches, under the other half.</summary>
         const float HalfGapReachM = 2.4f, HalfGapOverlapM = 0.1f;
+        /// <summary>How far a squeeze half strip runs on under a pavement
+        /// no lower than itself, past that pavement's drawn edge. The strip
+        /// is straight between cross-sections VergeStepM apart and the edge
+        /// beside it bends at its own sections, so a strip reaching only to
+        /// the edge left a slot up to 12 cm wide at the foot of a retaining
+        /// face (North Caldwell Street's e5507 beside e16681).</summary>
+        const float HalfGapUnderM = 0.15f;
         const float ClipLift = 0f;      // a clipped vertex sits ON the host's edge (a 3 cm slot swallowed a wheel probe)
         /// <summary>A branch further than this above or below its host is
         /// climbing away from it, not running beside it, whatever the plan
@@ -1212,8 +1225,11 @@ namespace PSXRacing.City
             var host = BuildChain(map, M, node, linkChain: false, GoreReach + 60f, null);
             var br = BuildChain(map, L, node, linkChain: true, GoreReach + 10f, host);
             foreach (var h in host.edges) foreach (var b in br.edges) clipPairs.Add(PairKey(b.index, h.index));
+            foreach (var h in host.edges) goreEdges.Add(h.index);
+            foreach (var b in br.edges) goreEdges.Add(b.index);
 
             int side = 0;
+            int quadsFrom = goreQuads.Count;
             bool prevOk = false, havePrev = false;
             Vector3 prevIn = default, prevOut = default;
             float prevArc = 0f;
@@ -1303,6 +1319,18 @@ namespace PSXRacing.City
                 }
                 prevOk = ok; prevIn = vIn; prevOut = vOut; prevArc = smp.hostArc; havePrev = true;
                 last = smp; lastOk = ok;
+            }
+            // the plan box round the quads this branch painted, for MeetPavement
+            if (goreQuads.Count > quadsFrom)
+            {
+                var gb = new Vector4(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
+                for (int q = quadsFrom; q < goreQuads.Count; q++)
+                {
+                    var (qa, qb, qc, qd) = goreQuads[q];
+                    gb = new Vector4(Mathf.Min(gb.x, Mathf.Min(Mathf.Min(qa.x, qb.x), Mathf.Min(qc.x, qd.x))), Mathf.Min(gb.y, Mathf.Min(Mathf.Min(qa.z, qb.z), Mathf.Min(qc.z, qd.z))),
+                                     Mathf.Max(gb.z, Mathf.Max(Mathf.Max(qa.x, qb.x), Mathf.Max(qc.x, qd.x))), Mathf.Max(gb.w, Mathf.Max(Mathf.Max(qa.z, qb.z), Mathf.Max(qc.z, qd.z))));
+                }
+                goreGroups.Add((quadsFrom, goreQuads.Count, gb));
             }
             if (attachedTo < 0f || side == 0) return;
             if (open) hostOpen.Add((openFrom, openTo, false));
@@ -1402,9 +1430,25 @@ namespace PSXRacing.City
             // On the ground the nose is warranted a block only by the same
             // drop a ribbon's side would be.
             bool warranted = elev || (DropFrom(map, trims, mid, fwd, 0.5f * (n.yIn + n.yOut), VergeShoulderM) & DropWarrant) != 0;
+            // ...and not where the V beyond it is paved at its height: where a
+            // chain of short links meets at a junction on a bridge, the nose
+            // fell inside the junction's fan and its block stood across the
+            // lanes of the arms beyond (Tyvola Road's node 14060, the Freedom
+            // Drive cluster at nodes 458 and 13286; 2026-09-14).
+            if (warranted && PavedOnward(map, trims, n.outer, n.inner, n.yOut, n.yIn, fwd, -1)) warranted = false;
             if (!warranted)
             {
-                EmitVergeLine(map, trims, tm, vOut, vIn, fwd, fwd, VergeShoulderM);
+                // Along the painted gore's far edge, which reaches GoreSeamM
+                // under each road's pavement (EmitBranch): the offsets lie
+                // along each road's own normal, so a verge laid from the two
+                // edge points themselves ran on a different line, and the
+                // sliver between the gore's last quad and the verge's first
+                // stood open to the lattice a third of a metre down (I-277's
+                // e2340 and e732, North Tryon Street's e14612).
+                var inX = n.inner - n.rL * (n.lSign * GoreSeamM);
+                var outX = n.outer - n.rM * (side * GoreSeamM);
+                EmitVergeLine(map, trims, tm, new Vector3(outX.x - o3.x, n.yOut, outX.y - o3.z),
+                              new Vector3(inX.x - o3.x, n.yIn, inX.y - o3.z), fwd, fwd, VergeShoulderM);
                 return;
             }
             float drop = elev ? CityElevation.DeckThick : RailBuryM;
@@ -1564,6 +1608,7 @@ namespace PSXRacing.City
             public float s;
             public Vector3 L, R;      // tile-local, L = right of travel (see below)
             public Vector2 right;     // map-view unit, R - L direction
+            public float hw;          // the half width it was cut from, taper and mitre applied
             public bool elev;
             public bool clippedIn;    // the inner edge was moved onto the host: no kerb there
             public bool collapsed;    // zero width: the whole ribbon is inside the host
@@ -1628,6 +1673,21 @@ namespace PSXRacing.City
                         if ((e.PointAt(sOn) - v).sqrMagnitude > 40f * 40f) continue;
                         sampleS.Add(sOn);
                     }
+                    // ...and wherever the host's grade breaks. The inner vertex
+                    // takes the host's height (ClipSection), which is straight
+                    // between the host's stations; ten metres of branch edge
+                    // straight across a sag in the host stood 5.5 cm over the
+                    // host's edge at the bottom of it (e1409 beside the East
+                    // Independence Expressway's station at 318 m).
+                    foreach (var H in c.host.edges)
+                        for (int k = 1; k + 1 < H.stS.Length; k++)
+                        {
+                            var v = H.PointAt(H.stS[k]);
+                            CityElevation.ProjectOn(e, v, out float sOn);
+                            if (sOn < c.sFrom || sOn > c.sTo || sOn <= sMin + 0.6f || sOn >= sMax - 0.6f) continue;
+                            if ((e.PointAt(sOn) - v).sqrMagnitude > 40f * 40f) continue;
+                            sampleS.Add(sOn);
+                        }
                     float from = Mathf.Max(sMin, c.sFrom), to = Mathf.Min(sMax, c.sTo);
                     int prevState = -1; float prevLam = 0f, prevS = from;
                     for (float sc = from; sc <= to + 0.01f; sc += 1f)
@@ -1977,7 +2037,8 @@ namespace PSXRacing.City
         /// Is a fan's chord between two arm corners a warranted barrier? When
         /// either arm beside it is on structure at its trim — the chord is a
         /// deck edge — or the land beyond it is a drop a verge cannot grade,
-        /// by the same test a ribbon's side takes (<see cref="DropAt"/>).
+        /// by the test a ribbon's side takes (<see cref="DropAt"/>) but for
+        /// its ledge rule (see below).
         /// Railing EVERY chord of a fan with a deck arm stood a rail across
         /// the level corner opposite the bridge at every bridge-end T: a
         /// barrier on a graded verge, which is what the owner ruled out.
@@ -1985,32 +2046,132 @@ namespace PSXRacing.City
         /// </summary>
         static bool ChordRailed(CityMap map, Trims trims, int node, FanCorner k0, FanCorner k1, Vector3 origin)
         {
-            if (ArmElevatedAtTrim(map, trims, map.edges[k0.edge], node) || ArmElevatedAtTrim(map, trims, map.edges[k1.edge], node))
-                return true;
+            bool onDeck = ArmElevatedAtTrim(map, trims, map.edges[k0.edge], node) || ArmElevatedAtTrim(map, trims, map.edges[k1.edge], node);
             var a = new Vector2(k0.pos.x + origin.x, k0.pos.z + origin.z);
             var b = new Vector2(k1.pos.x + origin.x, k1.pos.z + origin.z);
             var chord = b - a;
             float len = chord.magnitude;
-            if (len < 0.05f) return false;
+            if (len < 0.05f) return onDeck;
             // The perimeter runs anticlockwise (FanCorners): outward is the
             // chord's right, the side BuildJunctions stands the rail and lays
             // the verge on and the rail census probes. "Away from the node"
             // is the same side only on a star-shaped ring; on one cut into
             // ears a chord facing back into a notch probed the fan itself.
             var nrm = new Vector2(chord.y, -chord.x) / len;
-            // a quarter metre in from each corner, and no more than 2.5 m apart
-            // between (a chord at an oblique fan runs to 21 m)
-            float inset = Mathf.Min(0.5f, 0.25f / len);
-            int probes = Mathf.Max(2, Mathf.CeilToInt(len / VergeStepM) + 1);
-            for (int q = 0; q < probes; q++)
+            if (!onDeck)
             {
-                float t = Mathf.Lerp(inset, 1f - inset, (float)q / (probes - 1));
-                if ((DropFrom(map, trims, Vector2.Lerp(a, b, t), nrm, Mathf.Lerp(k0.pos.y, k1.pos.y, t), VergeShoulderM) & DropWarrant) != 0) return true;
+                // a quarter metre in from each corner, and no more than 2.5 m apart
+                // between (a chord at an oblique fan runs to 21 m)
+                //
+                // Not by the LEDGE rule (Ungraded's ledges false): a chord's
+                // verge stopped a pad short of a road a level below is at a
+                // junction's mouth, never beside a road running past — a
+                // harness census of every fan city-wide found 13 chords that
+                // rule railed, and every one stepped onto another junction's
+                // fan or an arm within 5 m of its trim (2026-09-14). Traffic
+                // turns across that line, and 4 of the 13 rails stood in a lane
+                // mouth (node 6824's chord in e9986's at node 6825, node 7867's
+                // in Charleston Drive's at node 4557, nodes 2638 and 7165 at
+                // their own arms' corners). Two junctions drawn into each other
+                // a level apart are the fans' to seat or split, as a road drawn
+                // into another is the squeeze's and the clip's, not a barrier's.
+                float inset = Mathf.Min(0.5f, 0.25f / len);
+                int probes = Mathf.Max(2, Mathf.CeilToInt(len / VergeStepM) + 1);
+                bool warranted = false;
+                for (int q = 0; q < probes && !warranted; q++)
+                {
+                    float t = Mathf.Lerp(inset, 1f - inset, (float)q / (probes - 1));
+                    warranted = (DropFrom(map, trims, Vector2.Lerp(a, b, t), nrm, Mathf.Lerp(k0.pos.y, k1.pos.y, t), VergeShoulderM, false) & DropWarrant) != 0;
+                }
+                // ...and at the corners themselves, which the rail census walks
+                // too. Inset probes on a chord a third of a metre long read only
+                // its middle, and the verge from node 5211's high corner (e9968's,
+                // 1.2 m over e7753's a third of a metre away) ran its whole 8 m
+                // without grading, 1.95 m over the land 5 m out: a drop left open
+                // once the corner fill that had lain over it as a plate was taken
+                // out (CornerFill). City-wide this rails that chord and node 729's
+                // (1.6 m), 4 m in all.
+                for (int q = 0; q < 2 && !warranted; q++)
+                    warranted = (DropFrom(map, trims, q == 0 ? a : b, nrm, q == 0 ? k0.pos.y : k1.pos.y, VergeShoulderM, false) & DropWarrant) != 0;
+                if (!warranted) return false;
             }
-            return false;
+            // A chord with pavement beyond it at its own height is no edge:
+            // where junctions a metre or two apart on a bridge share their
+            // stub arms, each fan's chord lies inside the next fan, and its
+            // rail stood across that fan's lane mouths (the Freedom Drive
+            // cluster at nodes 363, 458, 4106 and 13286; 2026-09-14).
+            return !PavedOnward(map, trims, a, b, k0.pos.y - FanProudM, k1.pos.y - FanProudM, nrm, node);
         }
 
         static readonly List<FanCorner> railCornerScratch = new List<FanCorner>(12);
+
+        /// <summary>How far past a fan chord or gore nose the pavement must
+        /// carry on, and how close to its height, for the line to be no edge
+        /// at all: a rail's width, and the roadside audit's own walk out over
+        /// flush pavement (RailProbe's decimetre).</summary>
+        const float PavedOnwardM = RailW, PavedOnwardDyM = 0.1f;
+        /// <summary>The most PavedOnward's samples lie apart along the line:
+        /// the shortest open run the rail census fails
+        /// (RoadsideRules.DeckRailGapFailM). At a verge step's 2.5 m, the wedge
+        /// between two arms of the next fan could lie between two samples
+        /// that each landed on an arm, and the rail stood down over it.</summary>
+        const float PavedOnwardStepM = RoadsideRules.DeckRailGapFailM;
+
+        /// <summary>
+        /// Does drawn pavement — a ribbon as drawn or a junction fan other than
+        /// <paramref name="skipNode"/>'s — carry on past the line a-b, along
+        /// its whole length, within <see cref="PavedOnwardDyM"/> of its height?
+        /// Sampled no more than <see cref="PavedOnwardStepM"/> apart, a quarter
+        /// metre in from each end, <see cref="PavedOnwardM"/> out along
+        /// <paramref name="outw"/>. Asked only of a line already warranted a
+        /// rail, and most stop at the first sample, over open land.
+        /// </summary>
+        static bool PavedOnward(CityMap map, Trims trims, Vector2 a, Vector2 b, float ya, float yb, Vector2 outw, int skipNode)
+        {
+            float len = Vector2.Distance(a, b);
+            if (len < 0.05f) return false;
+            GatherNear(map, a, b, PavedOnwardM + 0.5f);
+            GatherPavement(map, trims);
+            float inset = Mathf.Min(0.5f, 0.25f / len);
+            int probes = Mathf.Max(2, Mathf.CeilToInt(len / PavedOnwardStepM) + 1);
+            for (int q = 0; q < probes; q++)
+            {
+                float t = Mathf.Lerp(inset, 1f - inset, (float)q / (probes - 1));
+                if (!PavementAt(map, trims, Vector2.Lerp(a, b, t) + outw * PavedOnwardM, Mathf.Lerp(ya, yb, t), skipNode)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Is a plan point on pavement GatherPavement holds, within
+        /// <see cref="PavedOnwardDyM"/> of <paramref name="y"/>?</summary>
+        static bool PavementAt(CityMap map, Trims trims, Vector2 q, float y, int skipNode)
+        {
+            for (int k = 0; k < nearEdges.Count; k++)
+            {
+                var box = nearEdgeBox[k];
+                if (q.x < box.x || q.x > box.z || q.y < box.y || q.y > box.w) continue;
+                var ol = OutlineOf(map, trims, nearEdges[k]);
+                if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) continue;
+                for (int i = 1; i < ol.L.Length; i++)
+                {
+                    if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], q, Vector2.right, 0f, out _, out _) &&
+                        Mathf.Abs(TriHeight(ol.L[i - 1], ol.L[i], ol.R[i], q) - y) <= PavedOnwardDyM) return true;
+                    if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], q, Vector2.right, 0f, out _, out _) &&
+                        Mathf.Abs(TriHeight(ol.L[i - 1], ol.R[i], ol.R[i - 1], q) - y) <= PavedOnwardDyM) return true;
+                }
+            }
+            foreach (int n in nearFans)
+            {
+                if (n == skipNode) continue;
+                var fan = fanPolys[n];
+                if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) continue;
+                var T = fan.tris;
+                for (int i = 0; i + 2 < T.Length; i += 3)
+                    if (TriInterval(T[i], T[i + 1], T[i + 2], q, Vector2.right, 0f, out _, out _) &&
+                        Mathf.Abs(TriHeight(T[i], T[i + 1], T[i + 2], q) - y) <= PavedOnwardDyM) return true;
+            }
+            return false;
+        }
 
         /// <summary>Is the fan chord that meets this arm's corner railed?</summary>
         static bool FanCornerRailed(CityMap map, Trims trims, int node, CityMap.Edge e, int side)
@@ -2268,7 +2429,9 @@ namespace PSXRacing.City
         /// <see cref="DropWarrant"/> | <see cref="DropUngraded"/> bits (see
         /// <see cref="DropFrom"/>). A side squeezed against a parallel road
         /// is warranted — on a retaining face — only where that road stands
-        /// more than <see cref="SharedGuardDyM"/> below it.
+        /// more than <see cref="SharedGuardDyM"/> below it, or more than
+        /// RoadsideRules.LedgeStepM below it with no median barrier on the
+        /// strip between.
         /// </summary>
         static int DropAt(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, int k, int side)
         {
@@ -2280,9 +2443,22 @@ namespace PSXRacing.City
             {
                 var ed = sec.Edge(side);
                 if (sec.Strip(side) < 0f)
-                    drop = DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), sec.Out(side), ed.y, ShoulderOf(e, side));
-                else if (map.edges[sec.Nb(side)].YAt(sec.NbAt(side)) < ed.y - SharedGuardDyM)
-                    drop = DropWarrant | DropUngraded;
+                    drop = DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), sec.Out(side), ed.y, ShoulderOf(e, side), !MedianBarriered(e, side));
+                else
+                {
+                    // A squeeze strip is flat, so the step down to a lower
+                    // neighbour stands in the middle of it. A strip is never
+                    // wider than 1.2 m, which grades 30 cm at 1V:4H: a taller
+                    // step is a ledge a wheel drops off with nothing between
+                    // the lanes and it (North Caldwell Street's e2365, 42 cm
+                    // over e5506 across 30 cm), and it is warranted — on a
+                    // retaining face — unless a median barrier on the strip
+                    // stands between. Past SharedGuardDyM no barrier the lower
+                    // road draws guards this edge.
+                    float step = ed.y - map.edges[sec.Nb(side)].YAt(sec.NbAt(side));
+                    if (step > SharedGuardDyM || (step > RoadsideRules.LedgeStepM && !StripBarriered(map, trims, e, sec, side)))
+                        drop = DropWarrant | DropUngraded;
+                }
             }
             dropCache[key] = drop;
             return drop;
@@ -2299,7 +2475,7 @@ namespace PSXRacing.City
             var ed = (A.Edge(side) + B.Edge(side)) * 0.5f;
             var outw = A.Out(side) + B.Out(side);
             if (outw.sqrMagnitude < 1e-6f) return 0;
-            return DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), outw.normalized, ed.y, ShoulderOf(e, side));
+            return DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), outw.normalized, ed.y, ShoulderOf(e, side), !MedianBarriered(e, side));
         }
 
         /// <summary>
@@ -2328,18 +2504,12 @@ namespace PSXRacing.City
         /// ground sat 38 cm under a cell still leaning to a dug soffit, which
         /// a verge grades in two and a half metres.
         /// </summary>
-        static int DropFrom(CityMap map, Trims trims, Vector2 pW, Vector2 outw, float y, float shoulder)
+        static int DropFrom(CityMap map, Trims trims, Vector2 pW, Vector2 outw, float y, float shoulder, bool ledges = true)
         {
             GatherNear(map, pW, pW, VergeMaxRunM + RoadsideRules.ToeTuckRunM);
             var sh = new StripShape { shoulder = shoulder, maxRun = VergeMaxRunM };
             bool laid = SolveStrip(map, trims, pW, y, outw, sh, dropProf, out bool graded, out float stoppedBy);
-            // A verge stopped by a road beside that it cannot connect to is a
-            // step down onto that road — a kerb between two carriageways, not
-            // a roadside a car falls off — unless the step is itself the drop
-            // (a rail in the other road's lanes was the price of calling every
-            // such step ungraded: two South McDowell carriageways 6 cm apart).
-            if (!graded && (float.IsNaN(stoppedBy) || y - stoppedBy > RoadsideRules.OpenDropM))
-                return DropWarrant | DropUngraded;
+            if (Ungraded(laid, graded, stoppedBy, pW, y, dropProf, ledges)) return DropWarrant | DropUngraded;
             float reach = RoadsideRules.WarrantReachM;
             float yFinished = SurfaceOut(map, trims, pW, outw, y, reach);
             if (laid)
@@ -2350,6 +2520,45 @@ namespace PSXRacing.City
                     yFinished = Mathf.Max(yFinished, Mathf.Lerp(dropProf[1].y, dropProf[2].y, (reach - e1) / (e2 - e1)));
             }
             return RoadsideRules.IsCriticalFall(y - yFinished, reach) ? DropWarrant : 0;
+        }
+
+        /// <summary>
+        /// Is a verge cross-section's land one grading cannot make recoverable
+        /// (<see cref="SolveStrip"/>'s outputs for an edge point at
+        /// <paramref name="y"/>)? Then the edge is warranted a barrier on a
+        /// retaining face (<see cref="DropFrom"/>), and nothing meets that
+        /// side as a verge (<see cref="CornerFill"/>).
+        ///
+        /// A verge stopped by a road beside that it cannot connect to is a
+        /// step down onto that road — a kerb between two carriageways, not a
+        /// roadside a car falls off — unless the step is itself the drop (a
+        /// rail in the other road's lanes was the price of calling every such
+        /// step ungraded: two South McDowell carriageways 6 cm apart).
+        ///
+        /// And a kerb is an inch or two, not a ledge. Where not even the steep
+        /// connector reaches the road beside (the verge tucks straight down
+        /// short of it), a step down deeper than RoadsideRules.LedgeStepM from
+        /// the verge's last point is a ledge a wheel drops off beside the
+        /// lanes (e4242 42 cm over e1324's verge 45 cm out, e5252 43 cm over
+        /// e9986's): the land cannot be graded in the room there is, and the
+        /// DOT answer to two carriageways a level apart with no room between
+        /// for a 1V:4H slope is a barrier. Only where the verge got out from
+        /// the edge at all: a road drawn INTO this one (its pavement at the
+        /// edge already) is the squeeze's and the clip's to split, and a rail
+        /// there stood in its lanes (e14103 over North Davidson Street, North
+        /// Kings Drive over Armory Drive). And not behind a freeway's median
+        /// barrier (<paramref name="ledges"/> false): the Jersey wall on the
+        /// edge already stands between the lanes and the step, and it stood
+        /// as a rail on a retaining face along 430 m of the audited medians.
+        /// Nor on a junction fan's chord, where the road a level below is
+        /// another junction's mouth (<see cref="ChordRailed"/>).
+        /// </summary>
+        static bool Ungraded(bool laid, bool graded, float stoppedBy, Vector2 pW, float y, Vector3[] prof, bool ledges = true)
+        {
+            if (graded) return false;
+            if (float.IsNaN(stoppedBy) || y - stoppedBy > RoadsideRules.OpenDropM) return true;
+            return ledges && laid && prof[2].y - stoppedBy > RoadsideRules.LedgeStepM &&
+                   Vector2.Distance(new Vector2(prof[2].x, prof[2].z), pW) > VertexSlackM;
         }
 
         /// <summary>The surface a given distance out from an edge: another
@@ -2392,6 +2601,16 @@ namespace PSXRacing.City
             return NeighbourSideOpen(map, trims, e, sec, o, atO, out int sideO) && sideO > 0;
         }
 
+        /// <summary>Does a median barrier stand on the squeeze strip beside
+        /// this section's side — ours (a barriered road's median side,
+        /// DecideSideFlags) or the neighbour's, drawn where we can see it?</summary>
+        static bool StripBarriered(CityMap map, Trims trims, CityMap.Edge e, Section sec, int side) =>
+            MedianBarriered(e, side) || NeighbourDrawsBarrier(map, trims, e, sec, side);
+
+        /// <summary>Is this side a barriered road's median, which gets a
+        /// Jersey barrier wherever it has no rail (DecideSideFlags)?</summary>
+        static bool MedianBarriered(CityMap.Edge e, int side) => side > 0 && Barriered(e);
+
         static bool NeighbourSideOpen(CityMap map, Trims trims, CityMap.Edge e, Section sec, CityMap.Edge o, float atO, out int sideO)
         {
             sideO = 0;
@@ -2422,7 +2641,8 @@ namespace PSXRacing.City
 
             if (sf.rail)
             {
-                float outAm = flare[i - 1] + shift[i - 1], outBm = flare[i] + shift[i];
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
                 float drop = f.elev ? CityElevation.DeckThick : RailBuryM + 0.5f * Mathf.Max(outAm, outBm);
                 // A flared or eased rail stands over the verge, which falls at
                 // most 1V:6H past a 4% shoulder: half its offset buries its
@@ -2535,6 +2755,37 @@ namespace PSXRacing.City
             tm.vergeMetres += len;
         }
 
+        /// <summary>
+        /// How far out a rail stands at a polyline vertex, past the corner the
+        /// ribbon draws there. The section at a vertex is cut along the
+        /// bisector at the plain half width (see RightAt), so its corner lies
+        /// hw (1 - cos) inside each segment's own edge line, and the rail RailW
+        /// inside that corner stood that much further into the lane on a bridge
+        /// approach's bends: 0.46 m in from Bryant Street's edge (e21604), a
+        /// hand past the lane line over seven metres of e23419 (2026-09-14). At
+        /// the vertex it moves out along the bisector to where it would stand
+        /// off the segments' edge lines, no further than half its width, so its
+        /// traffic face stays over the deck a car is on (a flare's slot is what
+        /// a rail off a deck edge leaves). Not on a side squeezed against a
+        /// neighbour: the strip is the neighbour's too.
+        /// </summary>
+        static float VertexRailOut(CityMap.Edge e, Section sec, int side, Vector3 origin)
+        {
+            if (sec.Strip(side) >= 0f || sec.collapsed) return 0f;
+            int k = System.Array.BinarySearch(e.s, sec.s);
+            if (k <= 0 || k >= e.s.Length - 1) return 0f;
+            Vector2 t0 = (e.pts[k] - e.pts[k - 1]).normalized, t1 = (e.pts[k + 1] - e.pts[k]).normalized;
+            var bis = t0 + t1;
+            if (bis.sqrMagnitude < 1e-6f) return 0f;
+            float cosHalf = Vector2.Dot(bis.normalized, t0);
+            var edge = sec.Edge(side);
+            float hw = Vector2.Distance(new Vector2(edge.x + origin.x, edge.z + origin.z), e.pts[k]);
+            if (cosHalf < 0.5f) return RailVertexOutMaxM;
+            return Mathf.Min(hw * (1f / cosHalf - 1f), RailVertexOutMaxM);
+        }
+
+        const float RailVertexOutMaxM = RailW * 0.5f;
+
         /// <summary>Does span <paramref name="i"/>'s side on a span drawn as
         /// deck get a verge (EmitSide)? Only the grounded end of one: one
         /// section on structure, the span's middle on the ground, a side of
@@ -2605,6 +2856,39 @@ namespace PSXRacing.City
             if (clip.innerSide > 0) hwR = Mathf.Clamp(lam, 0f, hwR); else hwL = Mathf.Clamp(-lam, 0f, hwL);
         }
 
+        /// <summary>
+        /// Two arms of one junction that the squeeze splits like any two
+        /// roads: more than <see cref="ArmSplitDyM"/> apart in height, and
+        /// beside each other where the other arm is a ribbon (past its trim;
+        /// inside it the fan is the pavement). Arms were never split, and
+        /// where a link leaves a node beside one of the roads it joins, the
+        /// two ran on drawn into each other: the link e14103 half a metre over
+        /// North Davidson Street e14105 from node 11493, each one's approach
+        /// rail standing in the other's outside lane for twenty metres
+        /// (2026-09-14). Two arms at one height drawn into each other are one
+        /// pavement, as they always were (a harness census: 194 km of such
+        /// sides city-wide within a seam of each other, 2.4 km further
+        /// apart). A host and its branch are the clip's, as before. A fan's
+        /// corners are its arms' nominal widths, so no fan moves; the ribbons
+        /// split from the trim on (780 m narrowed city-wide, on 44 edges).
+        /// </summary>
+        static bool ArmsApart(CityMap map, Trims trims, CityMap.Edge e, Vector2 p, CityMap.Edge o, float atO, float y)
+        {
+            if (Mathf.Abs(o.YAt(atO) - y) <= ArmSplitDyM) return false;
+            if (clipPairs.Contains(PairKey(e.index, o.index))) return false;
+            // the node they share nearer this station (two carriageways can share both)
+            int n = -1;
+            float nearest = float.MaxValue;
+            if (e.a == o.a || e.a == o.b) { n = e.a; nearest = (map.nodes[e.a] - p).sqrMagnitude; }
+            if ((e.b == o.a || e.b == o.b) && (map.nodes[e.b] - p).sqrMagnitude < nearest) n = e.b;
+            float fromO = o.a == n ? atO : o.length - atO;
+            return fromO >= trims.TrimAt(o, n) - VertexSlackM;
+        }
+
+        /// <summary>The height apart past which two arms of one junction are
+        /// not one pavement: the overlap census's seam (CityAudit's MinDy).</summary>
+        const float ArmSplitDyM = 0.25f;
+
         static void Squeeze(CityMap map, Trims trims, CityMap.Edge e, Vector2 p, Vector2 right, float hw, float y,
                             ref float hwL, ref float hwR, out int nbL, out int nbR,
                             out float nbAtL, out float nbAtR, out float stripL, out float stripR)
@@ -2621,7 +2905,6 @@ namespace PSXRacing.City
                 int oi = packed >> 12, si = packed & 0xFFF;
                 if (oi == e.index) continue;
                 var o = map.edges[oi];
-                if (o.a == e.a || o.a == e.b || o.b == e.a || o.b == e.b) continue;   // arms of one junction
                 Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
                 float L2 = d.sqrMagnitude;
                 if (L2 < 1e-6f) continue;
@@ -2631,6 +2914,7 @@ namespace PSXRacing.City
                 if (Mathf.Abs(Vector2.Dot(tan, tO)) < 0.9f) continue;
                 var q = a + d * t;
                 float at = o.s[si] + Mathf.Sqrt(L2) * t;
+                if ((o.a == e.a || o.a == e.b || o.b == e.a || o.b == e.b) && !ArmsApart(map, trims, e, p, o, at, y)) continue;
                 // A different level has nothing to share only where a car
                 // fits between them. At a metre it did not: I-277's decks
                 // e1910 and e1921 run side by side 1.1 m apart, drew full
@@ -2687,10 +2971,42 @@ namespace PSXRacing.City
         static void BuildSections(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e,
                                   float sMin, float sMax)
         {
-            SamplePositions(map, e, trims, sMin, sMax);
+            var raw = RawSectionsOf(map, trims, e, sMin, sMax);
             sections.Clear();
-            foreach (var s in sampleS)
+            var o = tm.origin;
+            for (int k = 0; k < raw.Count; k++)
             {
+                var sec = raw[k];
+                if (!sec.elev && !sec.collapsed && sec.s > sMin + 1e-3f && sec.s < sMax - 1e-3f)
+                    MeetPavement(map, trims, e, ref sec);
+                sec.L -= o; sec.R -= o;
+                sections.Add(sec);
+            }
+        }
+
+        /// <summary>
+        /// A ribbon's cross-sections in world space as its tables alone decide
+        /// them — samples, taper, clip and squeeze, before MeetPavement —
+        /// computed once per tile build and read by the tile's own ribbons, by
+        /// <see cref="OutlineOf"/> for the verge solve beside them, and by
+        /// MeetPavement itself. A ribbon sectioned for the tile and again as an
+        /// outline was half of all the sectioning a tile did. Cleared with the
+        /// outlines, since BuildGores fills the clip table.
+        /// </summary>
+        static List<Section> RawSectionsOf(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax)
+        {
+            if (rawSectionCache.TryGetValue(e.index, out var list)) return list;
+            list = rawSectionPool.Count > 0 ? rawSectionPool.Pop() : new List<Section>(32);
+            list.Clear();
+            rawSectionCache[e.index] = list;
+            // SamplePositions rebuilds the structure ends a caller may be
+            // walking (DecideSideFlags, EmitSide)
+            rawSaveEnds.Clear(); rawSaveEnds.AddRange(endScratch);
+            SamplePositions(map, e, trims, sMin, sMax);
+            var tm = worldOrigin;
+            for (int k = 0; k < sampleS.Count; k++)
+            {
+                float s = sampleS[k];
                 var p = e.PointAt(s);
                 var right = RightAt(map, trims, e, s, out float widen);
                 // (-tan.y, tan.x) is tan turned 90 degrees COUNTER-clockwise
@@ -2706,9 +3022,9 @@ namespace PSXRacing.City
                 float hw = trims.HalfWidthAt(e, s) * widen;
                 var sec = new Section
                 {
-                    s = s, right = right, elev = e.ElevatedAt(s), nbL = -1, nbR = -1, stripL = -1f, stripR = -1f,
-                    L = new Vector3(p.x - right.x * hw - tm.origin.x, y, p.y - right.y * hw - tm.origin.z),
-                    R = new Vector3(p.x + right.x * hw - tm.origin.x, y, p.y + right.y * hw - tm.origin.z),
+                    s = s, right = right, hw = hw, elev = e.ElevatedAt(s), nbL = -1, nbR = -1, stripL = -1f, stripR = -1f,
+                    L = new Vector3(p.x - right.x * hw, y, p.y - right.y * hw),
+                    R = new Vector3(p.x + right.x * hw, y, p.y + right.y * hw),
                 };
                 var clip = ClipAt(e, s);
                 if (clip != null) ClipSection(map, trims, tm, e, s, p, right, hw, y, clip, ref sec);
@@ -2717,13 +3033,212 @@ namespace PSXRacing.City
                 // edge (-hw), 0 at the nominal R edge (+hw), so a vertex
                 // moved inward by a squeeze or a clip shows the painted
                 // profile CROPPED at that lateral, not squashed into the gap.
-                float latL = Vector2.Dot(new Vector2(sec.L.x + tm.origin.x, sec.L.z + tm.origin.z) - p, right);
-                float latR = Vector2.Dot(new Vector2(sec.R.x + tm.origin.x, sec.R.z + tm.origin.z) - p, right);
+                float latL = Vector2.Dot(new Vector2(sec.L.x, sec.L.z) - p, right);
+                float latR = Vector2.Dot(new Vector2(sec.R.x, sec.R.z) - p, right);
                 sec.uL = hw > 0.05f ? Mathf.Clamp01(0.5f - latL / (2f * hw)) : 1f;
                 sec.uR = hw > 0.05f ? Mathf.Clamp01(0.5f - latR / (2f * hw)) : 0f;
-                sections.Add(sec);
+                list.Add(sec);
+            }
+            endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
+            return list;
+        }
+        static readonly Dictionary<int, List<Section>> rawSectionCache = new Dictionary<int, List<Section>>();
+        static readonly Stack<List<Section>> rawSectionPool = new Stack<List<Section>>();
+        static readonly List<float> rawSaveEnds = new List<float>(8);
+        static void ClearSectionCaches()
+        {
+            foreach (var kv in rawSectionCache) rawSectionPool.Push(kv.Value);
+            rawSectionCache.Clear();
+            rawOutlines.Clear();
+        }
+
+        /// <summary>
+        /// TWO PAVEMENTS THAT TOUCH MEET. A section's edge vertex standing more
+        /// than RoadsideRules.EdgeDropM over another grounded road's pavement
+        /// as drawn within <see cref="MeetReachM"/> past it — under it, or a
+        /// verge's pad beyond — steps down onto that pavement's height, by at
+        /// most <see cref="MeetDyM"/>. Each road is drawn from its own cross-
+        /// sections and its own solve, so where two touch the seam between
+        /// them stood 5-6 cm high, past the edge drop a wheel may meet, with a
+        /// strip an inch under the lower one between them: a branch's edge
+        /// over its gore past the end of its cut (e339 beside West Morehead
+        /// Street), and a link running along North Graham Street's edge 5 cm
+        /// off it at a junction (e14090 beside e15420). The DOT answer is that
+        /// the two meet within the edge drop; the UPPER one comes down, so a
+        /// pair never moves toward each other, and its cross-section tilts by
+        /// no more than MeetDyM across its width. The other pavement is read as
+        /// sectioned WITHOUT this step (<see cref="RawOutlineOf"/>), so which
+        /// of two roads is sectioned first changes neither. Not at a trim,
+        /// where the edge meets a fan or a mitred node, nor on structure.
+        /// World space.
+        /// </summary>
+        static void MeetPavement(CityMap map, Trims trims, CityMap.Edge e, ref Section sec)
+        {
+            var p = e.PointAt(sec.s);
+            float hw = sec.hw;
+            // The roads it can touch without being drawn into it: the other
+            // arms of its two junctions, running off beside it, and the host
+            // chain it is clipped against. Two roads crossing over each other
+            // are the squeeze's and the clip's, and every road city-wide
+            // gathered per section cost a tile build a tenth.
+            meetEdges.Clear();
+            var vL = new Vector2(sec.L.x, sec.L.z);
+            var vR = new Vector2(sec.R.x, sec.R.z);
+            foreach (var (oi, node) in MeetArmsOf(map, e))
+                MeetCandidate(map, trims, e, oi, node, p, hw, vL, vR, sec.L.y, sec.R.y);
+            var clip = ClipAt(e, sec.s);
+            if (clip != null)
+                foreach (var H in clip.host.edges) MeetCandidate(map, trims, e, H.index, -1, p, hw, vL, vR, sec.L.y, sec.R.y);
+            bool gored = goreEdges.Contains(e.index);
+            if (meetEdges.Count == 0 && !gored) return;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var v = sec.Edge(side);
+                var vw = new Vector2(v.x, v.z);
+                var outw = sec.Out(side);
+                bool flush = false;
+                float best = float.NegativeInfinity;
+                for (int m = 0; m < meetEdges.Count && !flush; m++)
+                {
+                    var ol = RawOutlineOf(map, trims, meetEdges[m]);
+                    if (ol.L == null || vw.x < ol.minX - MeetReachM || vw.x > ol.maxX + MeetReachM || vw.y < ol.minZ - MeetReachM || vw.y > ol.maxZ + MeetReachM) continue;
+                    for (int i = 1; i < ol.L.Length && !flush; i++)
+                    {
+                        if (ol.elev[i - 1] || ol.elev[i]) continue;
+                        Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
+                        if (vw.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - MeetReachM || vw.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + MeetReachM ||
+                            vw.y < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) - MeetReachM || vw.y > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z)) + MeetReachM) continue;
+                        for (int tri = 0; tri < 2; tri++)
+                        {
+                            Vector3 A = aL, B = tri == 0 ? bL : bR, C = tri == 0 ? bR : aR;
+                            if (!TriInterval(A, B, C, vw, outw, MeetReachM, out float t0, out _)) continue;
+                            float h = TriHeight(A, B, C, vw + outw * t0);
+                            if (h > v.y + MeetDyM) continue;                 // not a pavement this edge meets
+                            if (h >= v.y - RoadsideRules.EdgeDropM) { flush = true; break; }
+                            if (h >= v.y - MeetDyM) best = Mathf.Max(best, h);
+                        }
+                    }
+                }
+                // and the painted gores, which lie an inch under the two roads
+                // either side: a branch's edge past the end of its cut stood
+                // over its gore at its own height, and the gore's nose verge
+                // beside it, laid at the host's, 5.7 cm down (e339)
+                for (int gg = 0; gored && gg < goreGroups.Count && !flush; gg++)
+                {
+                    var gbox = goreGroups[gg].box;
+                    if (vw.x < gbox.x - MeetReachM || vw.x > gbox.z + MeetReachM || vw.y < gbox.y - MeetReachM || vw.y > gbox.w + MeetReachM) continue;
+                    for (int g = goreGroups[gg].from; g < goreGroups[gg].to && !flush; g++)
+                    {
+                        var (ga, gb, gc, gd) = goreQuads[g];
+                        if (vw.x < Mathf.Min(Mathf.Min(ga.x, gb.x), Mathf.Min(gc.x, gd.x)) - MeetReachM || vw.x > Mathf.Max(Mathf.Max(ga.x, gb.x), Mathf.Max(gc.x, gd.x)) + MeetReachM ||
+                            vw.y < Mathf.Min(Mathf.Min(ga.z, gb.z), Mathf.Min(gc.z, gd.z)) - MeetReachM || vw.y > Mathf.Max(Mathf.Max(ga.z, gb.z), Mathf.Max(gc.z, gd.z)) + MeetReachM) continue;
+                        for (int tri = 0; tri < 2; tri++)
+                        {
+                            Vector3 A = ga, B = tri == 0 ? gb : gc, C = tri == 0 ? gc : gd;
+                            if (!TriInterval(A, B, C, vw, outw, MeetReachM, out float t0, out _)) continue;
+                            float h = TriHeight(A, B, C, vw + outw * t0) + RoadsideRules.EdgeDropM;
+                            if (h > v.y + MeetDyM) continue;
+                            if (h >= v.y - RoadsideRules.EdgeDropM) { flush = true; break; }
+                            if (h >= v.y - MeetDyM) best = Mathf.Max(best, h);
+                        }
+                    }
+                }
+                if (flush || best == float.NegativeInfinity) continue;
+                v.y = best;
+                if (side < 0) sec.L = v; else sec.R = v;
             }
         }
+
+        /// <summary>Add a road to MeetPavement's candidates if one of its
+        /// segments passes near enough to either edge vertex to touch it:
+        /// near that road's EDGE (a vertex deep in its lanes is two roads
+        /// drawn into each other), no more than a step away in height, and,
+        /// for the next arm of a junction, off the mouth the fan paves.</summary>
+        static void MeetCandidate(CityMap map, Trims trims, CityMap.Edge e, int oi, int node, Vector2 p, float hw,
+                                  Vector2 vL, Vector2 vR, float yL, float yR)
+        {
+            if (oi == e.index || meetEdges.Contains(oi)) return;
+            var o = map.edges[oi];
+            if (node >= 0)
+            {
+                float near = hw + o.width * 0.5f + MeetNodeM;
+                if ((map.nodes[node] - p).sqrMagnitude < near * near) return;
+            }
+            for (int si = 0; si + 1 < o.pts.Length; si++)
+            {
+                Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                if (L2 < 1e-6f) continue;
+                float tL = Mathf.Clamp01(Vector2.Dot(vL - a, d) / L2), tR = Mathf.Clamp01(Vector2.Dot(vR - a, d) / L2);
+                float at = o.s[si] + Mathf.Sqrt(L2) * 0.5f * (tL + tR);
+                float hwO = trims.HalfWidthAt(o, at);
+                if (Mathf.Abs(Vector2.Distance(vL, a + d * tL) - hwO) > MeetReachM + MeetSlackM &&
+                    Mathf.Abs(Vector2.Distance(vR, a + d * tR) - hwO) > MeetReachM + MeetSlackM) continue;
+                float yO = o.YAt(at);
+                if (Mathf.Abs(yO - yL) > MeetDyM + MeetSlackM && Mathf.Abs(yO - yR) > MeetDyM + MeetSlackM) continue;
+                meetEdges.Add(oi);
+                return;
+            }
+        }
+
+        /// <summary>The other arms of an edge's two junctions that run beside
+        /// it close enough to touch somewhere past the mouth the fan paves,
+        /// within <see cref="MeetArmWalkM"/> of the node. A fact of the map,
+        /// so each edge is walked once per map, not once per section.</summary>
+        static List<(int oi, int node)> MeetArmsOf(CityMap map, CityMap.Edge e)
+        {
+            if (meetMap != map) { meetMap = map; meetArms = new List<(int, int)>[map.edges.Length]; }
+            var list = meetArms[e.index];
+            if (list != null) return list;
+            list = new List<(int, int)>(0);
+            meetArms[e.index] = list;
+            for (int end = 0; end < 2; end++)
+            {
+                int n = end == 0 ? e.a : e.b;
+                foreach (int oi in map.nodeEdges[n])
+                {
+                    if (oi == e.index || list.Contains((oi, n))) continue;
+                    var o = map.edges[oi];
+                    float lim = (e.width + o.width) * 0.5f + MeetReachM + MeetSlackM;
+                    float zone = (e.width + o.width) * 0.5f + MeetNodeM;
+                    for (float w = zone; w <= Mathf.Min(o.length, MeetArmWalkM); w += MeetArmStepM)
+                    {
+                        var q = o.PointAt(o.a == n ? w : o.length - w);
+                        if ((q - map.nodes[n]).sqrMagnitude < zone * zone) continue;
+                        CityElevation.ProjectOn(e, q, out float se);
+                        if ((q - e.PointAt(se)).sqrMagnitude > lim * lim) continue;
+                        list.Add((oi, n));
+                        break;
+                    }
+                }
+            }
+            return list;
+        }
+        static CityMap meetMap;
+        static List<(int oi, int node)>[] meetArms;
+        static readonly List<int> meetEdges = new List<int>(16);
+        /// <summary>How far from a junction MeetArmsOf walks an arm, and its
+        /// step: two roads still within a hand of touching this far out
+        /// leave the node within a few degrees of each other.</summary>
+        const float MeetArmWalkM = 60f, MeetArmStepM = 1f;
+        /// <summary>How far past an edge vertex MeetPavement looks for the
+        /// pavement beside it: a verge's clearance pad, the least room a verge
+        /// or connector is ever given between two roads.</summary>
+        const float MeetReachM = VergeClearPadM;
+        /// <summary>The most an edge vertex steps down to meet the pavement
+        /// beside it: the drive audit's limit on a lane step in half a metre.
+        /// Two roads further apart in height are the squeeze's and the
+        /// clip's.</summary>
+        const float MeetDyM = 0.12f;
+        /// <summary>Slack on the distances a neighbour is gathered by: a
+        /// mitred section is wider than its half width.</summary>
+        const float MeetSlackM = 0.5f;
+        /// <summary>How far past two arms' combined half widths from their
+        /// shared node MeetPavement leaves their edges to the fan between.</summary>
+        const float MeetNodeM = 4f;
+        /// <summary>Every edge of a host or branch chain BuildGores walked: the
+        /// only ribbons a painted gore lies beside.</summary>
+        static readonly HashSet<int> goreEdges = new HashSet<int>();
 
         /// <summary>
         /// For the roadside audit: what the LAST tile built decided for the
@@ -3173,10 +3688,21 @@ namespace PSXRacing.City
                     // strip crossed e10365, drawn out of the same node beneath
                     // it. The lower road's own half reaches on to this edge,
                     // under it, so the gap stays floored.
-                    ClearRun(map, trims, s0, outw, y0, HalfGapReachM, out float gapY, out float gapRun, out _);
+                    //
+                    // The pavement beside is looked for across the squeeze's
+                    // whole height band, not a verge's half metre: a road more
+                    // than half a metre up was "a deck the ground passes under",
+                    // so the lower half stopped at 15 cm and a slot a quarter of
+                    // a metre wide stood open to the lattice 0.9 m down between
+                    // it and the retaining face its neighbour stands on (I-77's
+                    // e1891 beside e1877, 74 cm higher, and 56 more along I-77
+                    // and I-277). Nothing a car passes under stands that close
+                    // above a road (Squeeze splits the pair instead).
+                    ClearRun(map, trims, s0, outw, y0, HalfGapReachM, out float gapY, out float gapRun, out _,
+                             RoadsideRules.CarBandM + CityElevation.DeckThick);
                     if (!float.IsNaN(gapRun))
                         width = gapY - RoadsideRules.EdgeDropM >= y0
-                            ? Mathf.Max(width, gapRun - PavedInsetM)
+                            ? Mathf.Max(width, gapRun - PavedInsetM + HalfGapUnderM)
                             : Mathf.Min(Mathf.Max(width, 0.5f * gapRun + HalfGapOverlapM), gapRun - PavedInsetM);
                 }
                 if (width < 0.01f) return false;
@@ -3200,7 +3726,12 @@ namespace PSXRacing.City
                     yFar = Mathf.Min(Mathf.Min(y0 - SeamFallM, seamCeil[2]), 2f * seamCeil[1] - y0);
                 }
                 var e1 = s0 + outw * width;
-                prof[0] = new Vector3(s0.x, y0, s0.y);
+                // A half strip starts under its own pavement's edge, not on
+                // it: two meshes meeting edge-on along one line let a ray
+                // exactly on it through both, down to the lattice 0.4 m below
+                // (North Tryon Street's e18531 beside e10905).
+                var b0 = sh.halfGap ? s0 - outw * PavedInsetM : s0;
+                prof[0] = new Vector3(b0.x, y0, b0.y);
                 prof[1] = prof[2] = prof[3] = new Vector3(e1.x, yFar, e1.y);
                 return true;
             }
@@ -3302,11 +3833,21 @@ namespace PSXRacing.City
                 // stood a 40 cm face between them for the body box to meet.
                 if (Connect(SteepConnectorSlope)) return true;
                 ec = run;
+                // UNDER A HIGHER ROAD it carries on to that road's edge and
+                // tucks beneath it. Stopped a pad short, it left a slot a
+                // fifth of a metre wide down to the lattice at the foot of the
+                // retaining face that road stands on (e9986's verge 40 cm
+                // under e5252's edge); the pad is what keeps a verge off
+                // LOWER lanes it would lie on.
+                if (blocked && !float.IsNaN(edgeRun) && edgeRun > run && yOther >= Yv(edgeRun)) ec = edgeRun;
             }
             else graded = true;
             float eShoulder = Mathf.Min(shoulder, ec);
-            // stopped by another road: tuck straight down, not on into its pad
-            float eToe = !float.IsNaN(blockedBy) && ec >= run - 1e-3f ? ec : ec + RoadsideRules.ToeTuckRunM;
+            // stopped by another road: tuck straight down, not on into its
+            // pad; under a higher one, a hand in beneath its edge
+            float eToe = !float.IsNaN(blockedBy) && ec >= run - 1e-3f
+                ? (ec > run + 1e-3f ? ec + ConnectorTuckInM : ec)
+                : ec + RoadsideRules.ToeTuckRunM;
             var p1 = s0 + outw * eShoulder; var p2 = s0 + outw * ec; var p3 = s0 + outw * eToe;
             float yc = Yv(ec);
             prof[0] = new Vector3(s0.x, y0, s0.y);
@@ -3398,6 +3939,9 @@ namespace PSXRacing.City
         /// world space, whichever tile draws it (A, B, C, D as Bucket.Up
         /// takes them: triangles ABC and ACD).</summary>
         static readonly List<(Vector3 a, Vector3 b, Vector3 c, Vector3 d)> goreQuads = new List<(Vector3, Vector3, Vector3, Vector3)>(64);
+        /// <summary>The quads of <see cref="goreQuads"/> one branch painted
+        /// (from, to) and the plan box round them (min x, min z, max x, max z).</summary>
+        static readonly List<(int from, int to, Vector4 box)> goreGroups = new List<(int, int, Vector4)>(16);
 
         static void StripQuad(CityMap map, TileMeshes tm, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
         {
@@ -3481,7 +4025,12 @@ namespace PSXRacing.City
         /// nothing blocks.</param>
         /// <param name="intoFan">The blocking pavement is a junction's fan,
         /// whose triangles neither follow an arm's edge nor its height.</param>
-        static float ClearRun(CityMap map, Trims trims, Vector2 p, Vector2 outw, float y, float maxRun, out float otherY, out float edgeRun, out bool intoFan)
+        /// <param name="overhead">How far above <paramref name="y"/> a
+        /// pavement is a deck the ground passes under rather than a road it
+        /// meets. Half a metre for a verge; a squeeze's half strip passes
+        /// the squeeze's own height band (see SolveStrip).</param>
+        static float ClearRun(CityMap map, Trims trims, Vector2 p, Vector2 outw, float y, float maxRun, out float otherY, out float edgeRun, out bool intoFan,
+                              float overhead = DeckOverheadM)
         {
             float best = maxRun, oyBest = float.NaN, erBest = float.NaN;
             bool fanBest = false;
@@ -3542,7 +4091,7 @@ namespace PSXRacing.City
                             // one's outside lane.
                             if (yIn < y - 0.1f && best > 0f && InsideDeep(ol, p)) { best = 0f; oyBest = yIn; erBest = 0f; fanBest = false; }
                         }
-                        else if (yIn <= y + 0.5f)
+                        else if (yIn <= y + overhead)
                         {
                             // heading in: met where it stands
                             if (best > 0f) { best = 0f; oyBest = yIn; erBest = 0f; fanBest = false; }
@@ -3557,7 +4106,7 @@ namespace PSXRacing.City
                     float te = Mathf.Max(sp.t0, from);
                     if (te >= best + VergeClearPadM) break;
                     float fy = SpanHeight(ol, sp.tri, p + outw * (te + 1e-3f));
-                    if (fy > y + 0.5f) continue;    // a deck the ground passes under
+                    if (fy > y + overhead) continue;    // a deck the ground passes under
                     // stopped VergeClearPadM short of the pavement, or at it
                     // where the ray starts inside that pad
                     float run = te <= VergeClearPadM ? te : te - VergeClearPadM;
@@ -3572,7 +4121,7 @@ namespace PSXRacing.City
                 // nothing of it within the run
                 float along = Mathf.Clamp(Vector2.Dot(fan.centre - p, outw), 0f, best);
                 if ((p + outw * along - fan.centre).sqrMagnitude > (fan.reach + VergeClearPadM) * (fan.reach + VergeClearPadM)) continue;
-                if (!FanEntry(fan, p, outw, best + VergeClearPadM, y + 0.5f, out float tIn, out float fy)) continue;
+                if (!FanEntry(fan, p, outw, best + VergeClearPadM, y + overhead, out float tIn, out float fy)) continue;
                 // the pad as a ribbon's
                 float run = tIn <= VergeClearPadM ? tIn : tIn - VergeClearPadM;
                 if (run >= best) continue;
@@ -3709,6 +4258,33 @@ namespace PSXRacing.City
             return ol;
         }
 
+        /// <summary>A ribbon's outline without MeetPavement's step
+        /// (<see cref="RawSectionsOf"/>), for MeetPavement to read, so which
+        /// of two touching roads is sectioned first changes neither.</summary>
+        static Outline RawOutlineOf(CityMap map, Trims trims, int ei)
+        {
+            if (rawOutlines.TryGetValue(ei, out var ol)) return ol;
+            ol = new Outline();
+            rawOutlines[ei] = ol;
+            var e = map.edges[ei];
+            float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
+            if (sMax - sMin < 0.6f || (e.a == e.b && e.length < 1f)) return ol;
+            var raw = RawSectionsOf(map, trims, e, sMin, sMax);
+            int n = raw.Count;
+            if (n >= 2)
+            {
+                ol.L = new Vector3[n]; ol.R = new Vector3[n]; ol.elev = new bool[n];
+                for (int i = 0; i < n; i++)
+                {
+                    ol.L[i] = raw[i].L; ol.R[i] = raw[i].R; ol.elev[i] = raw[i].elev;
+                    ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
+                    ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
+                }
+            }
+            return ol;
+        }
+        static readonly Dictionary<int, Outline> rawOutlines = new Dictionary<int, Outline>();
+
         /// <summary>The height of one of an outline's span triangles
         /// (span * 2, + 1 for the second) over a plan point.</summary>
         static float SpanHeight(Outline ol, int tri, Vector2 q)
@@ -3749,8 +4325,19 @@ namespace PSXRacing.City
             var T = fan.tris;
             fanSpans.Clear();
             for (int i = 0; i + 2 < T.Length; i += 3)
-                if (TriInterval(T[i], T[i + 1], T[i + 2], p, dir, limit, out float t0, out float t1) && t1 - t0 > 1e-3f)
+            {
+                // The fan's own edge is inset as a ribbon's sides are, and
+                // only that edge: a centre triangle's far side, corner to
+                // corner (the sides from the node are shared with the next
+                // triangle). A verge running out from a corner ALONG a chord
+                // was inside the closed triangle all the way, "on the fan
+                // already", and collapsed onto the corner; the wedge between
+                // it and the next cross-section stood 0.7 m open beside the
+                // chord's retaining face (e5252 at node 6824).
+                float inBC = T[i].x == fan.centre.x && T[i].z == fan.centre.y ? PavedInsetM : 0f;
+                if (TriInterval(T[i], T[i + 1], T[i + 2], 0f, inBC, 0f, p, dir, limit, out float t0, out float t1) && t1 - t0 > 1e-3f)
                     fanSpans.Add((t0, t1, i));
+            }
             if (fanSpans.Count == 0) return false;
             SortSpans(fanSpans);
             float from = 0f;
@@ -4564,7 +5151,15 @@ namespace PSXRacing.City
             GatherNear(map, cW, cW, VergeMaxRunM + RoadsideRules.ToeTuckRunM);
             var shArm = new StripShape { shoulder = ShoulderOf(arm, side), maxRun = VergeMaxRunM };
             var shChord = new StripShape { shoulder = VergeShoulderM, maxRun = VergeMaxRunM };
-            if (!SolveStrip(map, trims, cW, yArm, armOut, shArm, profPrev)) return;
+            // An arm side the verge cannot grade stands on a retaining face
+            // (DropFrom): there is no arm verge for the wedge to meet, and a
+            // fill from the corner out to the chord's verge lay as a plate
+            // 0.9 m over the next road's verge (node 5211: e9968's corner a
+            // quarter of a metre from e7753's and 1.2 m above it). Asked as
+            // DropAt asks it of that side, so a freeway median behind its
+            // Jersey barrier, which keeps its verge, keeps its fill too.
+            bool armLaid = SolveStrip(map, trims, cW, yArm, armOut, shArm, profPrev, out bool armGraded, out float armStopped);
+            if (!armLaid || Ungraded(armLaid, armGraded, armStopped, cW, yArm, profPrev, !MedianBarriered(arm, side))) return;
             if (!SolveStrip(map, trims, cW, corner.y, chordOut, shChord, profCur)) return;
             for (int q = 0; q < 3; q++)
             {
@@ -4861,7 +5456,7 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         static readonly List<Vector2> roofScratch = new List<Vector2>(32);
 
-        static void BuildFootprints(CityMap map, TileMeshes tm, int tx, int tz)
+        static void BuildFootprints(CityMap map, Trims trims, TileMeshes tm, int tx, int tz)
         {
             var list = map.FootprintsInTile(tx, tz);
             if (list == null) return;
@@ -4876,11 +5471,21 @@ namespace PSXRacing.City
 
                 if (f.gable)
                 {
+                    var centre = f.centre; var u = f.u;
+                    float hu = f.hu, hv = f.hv;
+                    int fit = FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
+                    if (fit < 0) { tm.footprintsLeftOut++; continue; }
+                    if (fit > 0) tm.footprintsCut++;
                     float eave = y0 + BuildingSink + f.h * 0.68f;
-                    EmitGableHouse(tm, f.centre, f.u, f.hu, f.hv, y0, eave, top, Slot.FacadeHouse);
+                    EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse);
                     tm.footprintCount++;
                     continue;
                 }
+                fitPoly.Clear();
+                fitPoly.AddRange(f.pts);
+                int cut = FitFootprint(map, trims, fitPoly, y0, top);
+                if (cut < 0) { tm.footprintsLeftOut++; continue; }
+                if (cut > 0) tm.footprintsCut++;
 
                 Slot wallSlot = f.style == 0 ? Slot.FacadeGlass
                               : f.style == 1 ? Slot.FacadeTower
@@ -4894,19 +5499,19 @@ namespace PSXRacing.City
                     var q = map.edges[rei].PointAt(rs);
                     var toRoad = (q - f.centre).normalized;
                     float bestDot = 0.5f;
-                    for (int i = 0; i < f.pts.Length; i++)
+                    for (int i = 0; i < fitPoly.Count; i++)
                     {
-                        var d = f.pts[(i + 1) % f.pts.Length] - f.pts[i];
+                        var d = fitPoly[(i + 1) % fitPoly.Count] - fitPoly[i];
                         if (d.sqrMagnitude < 4f) continue;
                         var n = new Vector2(d.y, -d.x).normalized;   // outward, for a CCW polygon
                         float dt = Vector2.Dot(n, toRoad);
                         if (dt > bestDot) { bestDot = dt; frontWall = i; }
                     }
                 }
-                int n0 = f.pts.Length;
+                int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
-                    var a = f.pts[i]; var c = f.pts[(i + 1) % n0];
+                    var a = fitPoly[i]; var c = fitPoly[(i + 1) % n0];
                     var d = c - a;
                     if (d.sqrMagnitude < 0.04f) continue;
                     var outward = new Vector2(d.y, -d.x).normalized;
@@ -4914,16 +5519,325 @@ namespace PSXRacing.City
                 }
 
                 roofScratch.Clear();
-                roofScratch.AddRange(f.pts);
+                roofScratch.AddRange(fitPoly);
                 EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
 
                 // A tall tower gets a crown: a smaller prism on top, then a
                 // smaller one still — enough silhouette to tell the Bank of
                 // America Corporate Center from a box, at a distance, in fog.
-                if (f.h > 120f) EmitCrown(map, tm, f, top, wallSlot);
+                // (Not on one cut back off a street: it is centred on the
+                // footprint's box, and would overhang the cut.)
+                if (f.h > 120f && cut == 0) EmitCrown(map, tm, f, top, wallSlot);
 
                 tm.footprintCount++;
             }
+        }
+
+        // ------------------------------------------------------------------
+        //  Footprints off the pavement
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// How far a building's walls stand back from the pavement as the
+        /// tiles DRAW it: the verge shoulder a car running off the edge rolls
+        /// onto. An OSM footprint is traced to the back of a sidewalk, and the
+        /// street beside it is drawn at its profile's width (a residential
+        /// court is 7.9 m of tarmac), so facades stood up to 3.9 m into the
+        /// lanes — and the buildings mesh is its own collider: a wall in the
+        /// street. The lane survey found them on East 5th Street, Jacobs Lane,
+        /// Gracie Way and South Tryon Street (2026-09-14); a census of every
+        /// footprint put 370 of 31,700 on drawn pavement, 295 of them houses.
+        /// </summary>
+        const float FootprintClearM = VergeShoulderM;
+        /// <summary>A building cut to less than this share of its plan area is
+        /// left out: what would stand is a sliver of it.</summary>
+        const float FootprintKeepShare = 0.5f;
+        /// <summary>A house narrower or shallower than this after its cut is
+        /// left out.</summary>
+        const float HouseMinSideM = 3f;
+        /// <summary>Cuts one footprint may take (a building along a bend meets
+        /// one span's edge line after another) before it is left out.</summary>
+        const int FootprintCutsMax = 12;
+        static readonly List<Vector2> fitPoly = new List<Vector2>(32);
+        static readonly List<Vector2> fitClip = new List<Vector2>(32);
+        static readonly List<float> fitCross = new List<float>(8);
+        static readonly Vector2[] fitPiece = new Vector2[4];
+
+        /// <summary>
+        /// Cut a footprint back until no pavement a car can reach at the
+        /// building's height lies within <see cref="FootprintClearM"/> of its
+        /// walls: each pass takes the piece it overlaps deepest and clips the
+        /// polygon by that piece's edge line moved out by the clearance.
+        /// Returns 0 untouched, the number of cuts, or -1 to leave it out (on
+        /// the road itself, split in two, or a sliver).
+        /// </summary>
+        static int FitFootprint(CityMap map, Trims trims, List<Vector2> poly, float y0, float top)
+        {
+            float area0 = PolyArea(poly);
+            if (area0 < 1f) return 0;
+            for (int cuts = 0; ; cuts++)
+            {
+                if (!PavementCut(map, trims, poly, y0, top, out var linePt, out var lineOut)) return cuts;
+                if (cuts >= FootprintCutsMax || !ClipPolyHalf(poly, linePt, lineOut, FootprintClearM)) return -1;
+                if (PolyArea(poly) < area0 * FootprintKeepShare) return -1;
+            }
+        }
+
+        /// <summary>
+        /// The same for a gabled house, which is drawn on its oriented box:
+        /// the box shrinks along whichever of its axes lies closer to the
+        /// cut's normal, far enough that every corner clears the line, so it
+        /// stays a box with a ridge. Returns as <see cref="FitFootprint"/>,
+        /// with the box moved and resized in place.
+        /// </summary>
+        static int FitHouse(CityMap map, Trims trims, ref Vector2 centre, ref Vector2 u, ref float hu, ref float hv, float y0, float top)
+        {
+            var v = new Vector2(-u.y, u.x);
+            float u0 = -hu, u1 = hu, v0 = -hv, v1 = hv;
+            float area0 = 4f * hu * hv;
+            for (int cuts = 0; ; cuts++)
+            {
+                fitPoly.Clear();
+                fitPoly.Add(centre + u * u1 + v * v0); fitPoly.Add(centre + u * u1 + v * v1);
+                fitPoly.Add(centre + u * u0 + v * v1); fitPoly.Add(centre + u * u0 + v * v0);
+                if (!PavementCut(map, trims, fitPoly, y0, top, out var linePt, out var n))
+                {
+                    if (cuts == 0) return 0;
+                    centre += u * ((u0 + u1) * 0.5f) + v * ((v0 + v1) * 0.5f);
+                    hu = (u1 - u0) * 0.5f; hv = (v1 - v0) * 0.5f;
+                    // the ridge runs along the long side, as it was built
+                    if (hv > hu) { float t = hu; hu = hv; hv = t; u = v; }
+                    return cuts;
+                }
+                if (cuts >= FootprintCutsMax) return -1;
+                // every corner c + u a + v b must keep dot(. - linePt, n) >= clear
+                float need = FootprintClearM - Vector2.Dot(centre - linePt, n);
+                float nu = Vector2.Dot(u, n), nv = Vector2.Dot(v, n);
+                if (Mathf.Abs(nu) >= Mathf.Abs(nv))
+                {
+                    float bound = (need - Mathf.Min(v0 * nv, v1 * nv)) / nu;
+                    if (nu > 0f) u0 = Mathf.Max(u0, bound); else u1 = Mathf.Min(u1, bound);
+                }
+                else
+                {
+                    float bound = (need - Mathf.Min(u0 * nu, u1 * nu)) / nv;
+                    if (nv > 0f) v0 = Mathf.Max(v0, bound); else v1 = Mathf.Min(v1, bound);
+                }
+                if (u1 - u0 < HouseMinSideM || v1 - v0 < HouseMinSideM || (u1 - u0) * (v1 - v0) < area0 * FootprintKeepShare) return -1;
+            }
+        }
+
+        /// <summary>
+        /// The deepest overlap between a plan polygon and the pavement round
+        /// it, grown by <see cref="FootprintClearM"/>: every span of every
+        /// ribbon as drawn (<see cref="OutlineOf"/>) and every junction fan
+        /// triangle, that stands no higher than the roof and within a car's
+        /// height of the base. False when nothing is that close; otherwise the
+        /// line to cut along: a point on the piece's edge and its outward
+        /// normal. The edge is the one the polygon reaches least far past —
+        /// beside a street its side, beyond a dead end its end, on a fan its
+        /// chord (a line through the node would cut into the fan's own
+        /// pavement).
+        /// </summary>
+        static bool PavementCut(CityMap map, Trims trims, List<Vector2> poly, float y0, float top, out Vector2 linePt, out Vector2 lineOut)
+        {
+            linePt = default; lineOut = default;
+            Vector2 bMin = poly[0], bMax = poly[0];
+            foreach (var q in poly) { bMin = Vector2.Min(bMin, q); bMax = Vector2.Max(bMax, q); }
+            GatherNear(map, bMin, bMax, FootprintClearM);
+            GatherPavement(map, trims);
+            float x0 = bMin.x - FootprintClearM, x1 = bMax.x + FootprintClearM;
+            float z0 = bMin.y - FootprintClearM, z1 = bMax.y + FootprintClearM;
+            float deepest = 0f;
+            for (int k = 0; k < nearEdges.Count; k++)
+            {
+                var box = nearEdgeBox[k];
+                if (x1 < box.x || x0 > box.z || z1 < box.y || z0 > box.w) continue;
+                var ol = OutlineOf(map, trims, nearEdges[k]);
+                if (ol.L == null || x1 < ol.minX || x0 > ol.maxX || z1 < ol.minZ || z0 > ol.maxZ) continue;
+                for (int i = 1; i < ol.L.Length; i++)
+                {
+                    Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
+                    if (x1 < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) || x0 > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) ||
+                        z1 < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) || z0 > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z))) continue;
+                    if (Mathf.Min(Mathf.Min(aL.y, bL.y), Mathf.Min(bR.y, aR.y)) > top ||
+                        Mathf.Max(Mathf.Max(aL.y, bL.y), Mathf.Max(bR.y, aR.y)) + RoadsideRules.CarBandM < y0) continue;
+                    fitPiece[0] = new Vector2(aL.x, aL.z); fitPiece[1] = new Vector2(bL.x, bL.z);
+                    fitPiece[2] = new Vector2(bR.x, bR.z); fitPiece[3] = new Vector2(aR.x, aR.z);
+                    if (Convex4(fitPiece))
+                        PieceCut(poly, fitPiece, 4, 0xF, ref deepest, ref linePt, ref lineOut);
+                    else
+                    {
+                        // a twisted span, as the ribbon draws it: its two
+                        // triangles (aL, bL, bR) and (aL, bR, aR), whose
+                        // shared diagonal is no edge of the pavement
+                        PieceCut(poly, fitPiece, 3, 0x3, ref deepest, ref linePt, ref lineOut);
+                        fitPiece[1] = new Vector2(bR.x, bR.z); fitPiece[2] = new Vector2(aR.x, aR.z);
+                        PieceCut(poly, fitPiece, 3, 0x6, ref deepest, ref linePt, ref lineOut);
+                    }
+                }
+            }
+            foreach (int n in nearFans)
+            {
+                var fan = fanPolys[n];
+                if (x1 < fan.centre.x - fan.reach || x0 > fan.centre.x + fan.reach || z1 < fan.centre.y - fan.reach || z0 > fan.centre.y + fan.reach) continue;
+                var T = fan.tris;
+                for (int i = 0; i + 2 < T.Length; i += 3)
+                {
+                    if (Mathf.Min(T[i].y, Mathf.Min(T[i + 1].y, T[i + 2].y)) > top ||
+                        Mathf.Max(T[i].y, Mathf.Max(T[i + 1].y, T[i + 2].y)) + RoadsideRules.CarBandM < y0) continue;
+                    int mask = 0x7;
+                    for (int c = 0; c < 3; c++)
+                        if (T[i + c].x == fan.centre.x && T[i + c].z == fan.centre.y) mask = 1 << ((c + 1) % 3);   // only the chord opposite the node
+                    for (int c = 0; c < 3; c++) fitPiece[c] = new Vector2(T[i + c].x, T[i + c].z);
+                    PieceCut(poly, fitPiece, 3, mask, ref deepest, ref linePt, ref lineOut);
+                }
+            }
+            return deepest > 0f;
+        }
+
+        /// <summary>
+        /// Does a plan polygon come within <see cref="FootprintClearM"/> of a
+        /// convex piece (3 or 4 points, either winding)? If it does, the cut
+        /// that clears it is the least, over the edges in
+        /// <paramref name="edgeMask"/> (bit i = edge i to i + 1), of how far
+        /// the polygon reaches back past that edge's line plus the clearance;
+        /// kept when it is deeper than <paramref name="deepest"/>.
+        /// </summary>
+        static void PieceCut(List<Vector2> poly, Vector2[] piece, int count, int edgeMask, ref float deepest, ref Vector2 linePt, ref Vector2 lineOut)
+        {
+            float area = 0f;
+            for (int j = 0; j < count; j++) area += Cross2(piece[j], piece[(j + 1) % count]);
+            if (Mathf.Abs(area) < 0.02f) return;   // a collapsed wedge: its host's pavement is the pavement
+            bool near = false;
+            float clear2 = (FootprintClearM - 1e-3f) * (FootprintClearM - 1e-3f);
+            for (int j = 0; j < count && !near; j++)
+                if (PolyContains(poly, piece[j])) near = true;
+            for (int i = 0; i < poly.Count && !near; i++)
+            {
+                Vector2 a = poly[i], b = poly[(i + 1) % poly.Count];
+                bool inside = true;
+                for (int j = 0; j < count; j++)
+                {
+                    Vector2 c = piece[j], d = piece[(j + 1) % count];
+                    if (Cross2(d - c, a - c) * area < 0f) inside = false;
+                    if (SegSegDist2(a, b, c, d) < clear2) { near = true; break; }
+                }
+                if (inside) near = true;
+            }
+            if (!near) return;
+            float best = float.MaxValue; Vector2 bestPt = default, bestOut = default;
+            for (int j = 0; j < count; j++)
+            {
+                if ((edgeMask & (1 << j)) == 0) continue;
+                Vector2 c = piece[j], d = piece[(j + 1) % count];
+                var dir = d - c;
+                float len = dir.magnitude;
+                if (len < 1e-3f) continue;
+                // outward: the right of an anticlockwise edge
+                var outw = (area > 0f ? new Vector2(dir.y, -dir.x) : new Vector2(-dir.y, dir.x)) / len;
+                float reach = float.MaxValue;
+                foreach (var q in poly) reach = Mathf.Min(reach, Vector2.Dot(q - c, outw));
+                float cutDepth = FootprintClearM - reach;
+                if (cutDepth < best) { best = cutDepth; bestPt = c; bestOut = outw; }
+            }
+            if (best == float.MaxValue || best <= deepest) return;
+            deepest = best; linePt = bestPt; lineOut = bestOut;
+        }
+
+        /// <summary>Clip a polygon to the half-plane a clearance past a line
+        /// (dot(p - linePt, outw) at least <paramref name="clear"/>). False
+        /// where what is left is not one polygon. A footprint's outline may
+        /// cross the line many times (a tower's stepped facade, a row of
+        /// bays) and what is left is still one building as long as the runs
+        /// of the line that close each removed part do not overlap; where
+        /// they do, the line has cut the building in two, and the two would
+        /// be joined by a wall of no thickness.</summary>
+        static bool ClipPolyHalf(List<Vector2> poly, Vector2 linePt, Vector2 outw, float clear)
+        {
+            fitClip.Clear();
+            fitCross.Clear();
+            int n = poly.Count;
+            var along = new Vector2(-outw.y, outw.x);
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 a = poly[i], b = poly[(i + 1) % n];
+                float da = Vector2.Dot(a - linePt, outw) - clear, db = Vector2.Dot(b - linePt, outw) - clear;
+                if (da >= 0f) fitClip.Add(a);
+                if ((da >= 0f) != (db >= 0f))
+                {
+                    var x = Vector2.Lerp(a, b, da / (da - db));
+                    fitCross.Add(Vector2.Dot(x - linePt, along));
+                    if (fitClip.Count == 0 || (fitClip[fitClip.Count - 1] - x).sqrMagnitude > 1e-4f) fitClip.Add(x);
+                }
+            }
+            // crossings alternate leaving and re-entering the kept side; each
+            // leave pairs with the re-entry after it, and the pair's run of
+            // the line is where the new wall stands
+            int c = fitCross.Count;
+            if (c > 2)
+            {
+                bool leavesFirst = Vector2.Dot(poly[0] - linePt, outw) - clear >= 0f;
+                for (int i = 0; i < c; i += 2)
+                {
+                    int i0 = leavesFirst ? i : (i + c - 1) % c, i1 = leavesFirst ? i + 1 : i;
+                    float lo = Mathf.Min(fitCross[i0], fitCross[i1]), hi = Mathf.Max(fitCross[i0], fitCross[i1]);
+                    for (int j = i + 2; j < c; j += 2)
+                    {
+                        int j0 = leavesFirst ? j : j - 1, j1 = leavesFirst ? j + 1 : j;
+                        float lo2 = Mathf.Min(fitCross[j0], fitCross[j1]), hi2 = Mathf.Max(fitCross[j0], fitCross[j1]);
+                        if (lo2 < hi - 1e-3f && hi2 > lo + 1e-3f) return false;
+                    }
+                }
+            }
+            if (fitClip.Count > 1 && (fitClip[0] - fitClip[fitClip.Count - 1]).sqrMagnitude <= 1e-4f) fitClip.RemoveAt(fitClip.Count - 1);
+            if (fitClip.Count < 3) return false;
+            poly.Clear();
+            poly.AddRange(fitClip);
+            return true;
+        }
+
+        static float PolyArea(List<Vector2> poly)
+        {
+            float a = 0f;
+            for (int i = 0; i < poly.Count; i++) a += Cross2(poly[i], poly[(i + 1) % poly.Count]);
+            return Mathf.Abs(a) * 0.5f;
+        }
+
+        static bool PolyContains(List<Vector2> poly, Vector2 p)
+        {
+            bool inside = false;
+            for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+                if ((poly[i].y > p.y) != (poly[j].y > p.y) &&
+                    p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)
+                    inside = !inside;
+            return inside;
+        }
+
+        /// <summary>Is a four-point piece convex (its turns all one way)?</summary>
+        static bool Convex4(Vector2[] q)
+        {
+            int pos = 0, neg = 0;
+            for (int j = 0; j < 4; j++)
+            {
+                float c = Cross2(q[(j + 1) % 4] - q[j], q[(j + 2) % 4] - q[(j + 1) % 4]);
+                if (c > 1e-6f) pos++; else if (c < -1e-6f) neg++;
+            }
+            return pos == 0 || neg == 0;
+        }
+
+        /// <summary>Squared plan distance between two segments.</summary>
+        static float SegSegDist2(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        {
+            float d1 = Cross2(d - c, a - c), d2 = Cross2(d - c, b - c), d3 = Cross2(b - a, c - a), d4 = Cross2(b - a, d - a);
+            if (((d1 > 0f && d2 < 0f) || (d1 < 0f && d2 > 0f)) && ((d3 > 0f && d4 < 0f) || (d3 < 0f && d4 > 0f))) return 0f;
+            return Mathf.Min(Mathf.Min(PtSegDist2(a, c, d), PtSegDist2(b, c, d)), Mathf.Min(PtSegDist2(c, a, b), PtSegDist2(d, a, b)));
+        }
+
+        static float PtSegDist2(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var ab = b - a;
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-9f));
+            return (a + ab * t - p).sqrMagnitude;
         }
 
         static void EmitCrown(CityMap map, TileMeshes tm, CityMap.Footprint f, float top, Slot slot)
