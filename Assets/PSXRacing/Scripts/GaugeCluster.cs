@@ -432,10 +432,12 @@ namespace PSXRacing
             // gauge that says something about the ENGINE goes in the engine's
             // dial. Asked for in the constructor because the scale is baked
             // into the face; a dial too small to carry one says so afterwards.
+            // H is a warning and F is not, so only the tach is told its high
+            // end is one.
             float tachMax = tachMaxRPM;
             tach = new Dial(transform, font, "Tach", tachAnchor, tachPos, radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f), 1f / 1000f, "x1000",
-                            redFrac, "C", "H");
+                            redFrac, "C", "H", subHighIsDanger: true);
             float sTick = SpeedTick(speedMax);
             speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
                               speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
@@ -615,7 +617,7 @@ namespace PSXRacing
             tach = new Dial(cockpitRoot.transform, font, "Tach", anchor,
                             new Vector2(tachCx, groupCy), radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
-                            1f / 1000f, "x1000", redFrac, "C", "H");
+                            1f / 1000f, "x1000", redFrac, "C", "H", subHighIsDanger: true);
 
             // Speed: a light LCD with dark digits, zero-padded to three, and
             // the unit under it. The padding is not decoration — a readout that
@@ -1005,153 +1007,171 @@ namespace PSXRacing
             // cluster puts its fuel and temperature gauges — E and F under the
             // speedometer, C and H under the tachometer.
             //
-            // THE SCALE IS AN ARC ABOUT THE PIN, and every number below is
-            // measured from that pin: the tick radius, how far in each mark
-            // runs, how long the needle is, where the two letters sit. It went
-            // through two versions that were not.
+            // THE MARKS STAND ON THE DIAL'S OWN CIRCUMFERENCE, AND EACH ONE AIMS
+            // AT THE SUB-GAUGE'S PIN. Both halves of that are measured off the
+            // photograph this copies, and it took four versions to hold them
+            // at the same time.
             //
-            // The first drew a little arc of its own around the sub-hub but
-            // sized it independently, so it floated in the middle of the wedge
-            // and read as a bracket rather than as part of the instrument. The
-            // second put the marks out on the dial's OWN circumference, in the
-            // same band as the main sweep's ticks — which is where they sit on
-            // the reference and is why it looked nearly right, but an arc
-            // concentric with the big dial is aimed at the big dial's centre.
-            // Every mark pointed somewhere the needle does not turn, the group
-            // grew to two thirds of the dial's width to reach that band, and
-            // the tip dipped inward at the ends of the throw because the pin
-            // was not where the arc was struck from.
+            // The first drew a little arc of its own around the sub-hub, sized
+            // independently, so it floated in the wedge and read as a bracket.
+            // The second put the marks out in the dial's tick band — right —
+            // but struck them about the DIAL's centre, so every mark pointed
+            // somewhere the needle does not turn. The third fixed the aim by
+            // retreating to a private arc about the pin, a third of the radius
+            // across, and that one shipped: a needle a quarter of the dial
+            // long, five marks in fifty pixels, the letters hard against the
+            // end marks, and the whole group huddled at the bottom of the face
+            // touching the rim at one point. It was reported as "too small,
+            // cramped, and not on the circumference", which is an inventory
+            // rather than a complaint.
             //
-            // Both faults are the same fault, and one radius about one point
-            // fixes them together. Landing that arc's bottom at 0.93 of the
-            // dial radius keeps the marks in the rim band the photograph puts
-            // them in without pretending they belong to the rim.
+            // What the photograph shows is neither arc. The outer end of every
+            // fuel mark is ON the speedometer's ring — the same ring the 20
+            // and the 40 stand on — and each mark LEANS, because it is drawn
+            // along the line from the fuel needle's pin out through that point
+            // of the ring. Position from the big circle, direction from the
+            // small pin. The second version had the first half and the third
+            // had the second; they are not alternatives.
+            //
+            // With the marks on the ring the needle can be as long as the pin
+            // is far from it, so the tip runs along the inside of the ring the
+            // way the big needle's does, and the group is as large as the
+            // wedge allows instead of as small as an arc about the pin must be.
+            // The price is that the pin is NOT equidistant from the ring: 0.41
+            // of the radius straight down, 0.47 at the ends of the throw, so a
+            // needle of one length falls a little short at E and at F. The
+            // real one does exactly that, and its end marks are the long ones
+            // for the same reason these are — they reach in to meet it.
             /// <summary>
             /// Depth of the sub-hub below the dial centre.
             ///
-            /// It sits LOW — most of the way down the face rather than halfway
-            /// — and that is off the photographs: the fuel needle pivots about
-            /// two thirds of the radius below the speedometer’s own hub, which
-            /// is what makes it read as a small instrument tucked into the
-            /// bottom of a big one. At the 0.47 this used to be, the pin was in
-            /// the same part of the face as the main hub and the two competed
-            /// for the middle of the dial.
+            /// 0.54, measured: on the photograph the fuel needle's pin is 139
+            /// pixels under the hub of a speedometer 256 in radius, and the
+            /// coolant pin is the same fraction under the tachometer's. It was
+            /// 0.62 while the scale was an arc about the pin, because that arc
+            /// had to be pushed down the face to touch the rim at all. With
+            /// the marks on the rim in their own right the pin goes back where
+            /// the instrument has it, and the needle gets the length that
+            /// frees.
             /// </summary>
-            const float SubHubY = 0.62f;
+            const float SubHubY = 0.54f;
             /// <summary>
-            /// Radius of the sub-gauge’s own scale, measured FROM ITS PIN, as
-            /// a fraction of the dial radius.
+            /// Half the needle's throw, in degrees about the PIN — which is
+            /// also the angle the end marks lean at, because every mark lies
+            /// along the needle that points to it.
             ///
-            /// This is the number the whole group is built from now, and it is
-            /// the correction to the version before it. That one printed the
-            /// scale on the DIAL’s circumference — an arc concentric with the
-            /// big dial, swept by a needle pinned somewhere else — so every
-            /// mark pointed at the dial’s centre instead of at the pin the
-            /// needle actually turns on. A scale whose ticks do not aim at its
-            /// own pivot is the thing that reads wrong in a still and is hard
-            /// to name while looking at it: the marks are a fence the needle
-            /// happens to end near, not a scale it points along.
-            ///
-            /// Concentric with the pin instead, and three things fall out for
-            /// free. The ticks fan the way a real gauge’s do. The tip stays
-            /// the same distance inside the scale across the whole throw
-            /// rather than dipping in at the ends. And the needle’s rotation
-            /// IS the printed scale, so there is no transcendental left to
-            /// re-solve every time one of these numbers moves.
-            ///
-            /// 0.31 puts the bottom of the arc at 0.93 of the dial radius —
-            /// still out in the rim band where the reference has it, just
-            /// inside the bezel at 0.965.
+            /// Forty, measured the same way as the depth: the E and F marks
+            /// stand 19 degrees of bearing either side of straight down as
+            /// seen from the dial's centre, and from a pin 0.54 down, the ray
+            /// to that point of the ring leaves at 40. The dead wedge is 55
+            /// degrees of bearing a side, so the group keeps clear of the main
+            /// sweep's first and last numeral with room to spare.
             /// </summary>
-            const float SubScaleR = 0.31f;
+            const float SubHalfSweep = 40f;
             /// <summary>
-            /// Half the scale, in degrees about the PIN — which is also half
-            /// the needle’s rotation, because the two are concentric now.
+            /// How many marks, ends included: E, the quarters, the half, F —
+            /// what the fuel gauge in the photograph carries.
             ///
-            /// Thirty-six of those degrees is twelve of bearing seen from the
-            /// dial centre, and twelve is what the photographs measure. The
-            /// old group was eighteen of bearing and read as a second
-            /// instrument arguing with the first — its two letters alone
-            /// spanned two thirds of the dial width. This one spans a little
-            /// under half, which is what a coolant gauge tucked under a
-            /// tachometer looks like.
-            /// </summary>
-            const float SubHalfSweep = 36f;
-            /// <summary>
-            /// How many marks, ends included.
-            ///
-            /// FIVE, and the number is set by arithmetic rather than taste. The
-            /// arc is about forty pixels of radius on the dial as it is really
-            /// drawn, so 72 degrees of it is fifty pixels of scale; seven marks
-            /// put those fifty pixels eight apart, and a two-pixel mark every
-            /// eight pixels through a mipmap is not a scale, it is a hatched
-            /// wedge — which is exactly what seven baked. Five gives twelve
-            /// pixels of daylight between marks and survives the filter.
+            /// Out on the ring they stand a seventh of the radius apart, sixteen
+            /// units on a 108-unit dial. On the private arc the same five were
+            /// packed into fifty pixels and only survived the mipmap because
+            /// there were not seven of them.
             /// </summary>
             const int SubTickCount = 5;
-            /// <summary>Radial band the sub ticks occupy, as a fraction of
-            /// <see cref="SubScaleR"/> — so the scale keeps its proportions at
-            /// whatever radius it is drawn. Outer edge ON the arc, and they run
-            /// a THIRD of the way in: at the fifth this started as, an
-            /// eight-pixel mark was as long as it was far from its neighbour,
-            /// and a scale whose marks are as wide apart as they are long reads
-            /// as dots.</summary>
-            const float SubTickOut = 1.00f, SubTickIn = 0.70f;
-            /// <summary>The two marks at the ends of the scale run further in
-            /// and are drawn heavier — they are the ones that mean EMPTY and
-            /// FULL, COLD and HOT, and on a group this small the marks between
-            /// them are texture rather than information. Every real gauge
-            /// weights its end marks; at five identical ticks the eye has to
-            /// count to find the end of the scale.</summary>
-            const float SubEndTickIn = 0.50f, SubEndTickWiden = 1.7f;
-            /// <summary>The needle, as a fraction of <see cref="SubScaleR"/>.
-            /// The tip lands just inside the minor marks and just past the
-            /// inner end of the heavy ones, so it stops short of the scale
-            /// through the middle of the throw and crosses the end marks at
-            /// the stops — which is what a needle sitting on E or on H looks
-            /// like.
-            ///
-            /// Measured against the HUB CAP as well as against the scale, and
-            /// that is the constraint that sets it. The cap takes up the first
-            /// quarter of this radius, so a needle much under two thirds is a
-            /// red nub poking out of a ring with a finger's width of empty face
-            /// between it and the marks it is supposed to point at.</summary>
-            const float SubNeedleLen = 0.74f;
             /// <summary>
-            /// The needle’s tail and half-width, and the hub cap it turns on.
-            /// Fractions of the DIAL radius, not of the scale, and that is
+            /// How far each mark runs in from the ring, along its own line to
+            /// the pin, as a fraction of the dial radius. The end marks are the
+            /// main sweep's numbered ticks over again and the quarters are its
+            /// minor ones, so the bottom of the ring is the same ring; the half
+            /// sits between the two. The photograph keeps that hierarchy, and
+            /// it is what lets the scale be read without counting: the two
+            /// long marks ARE empty and full.
+            /// </summary>
+            const float SubEndTick = TickOut - TickIn, SubMinorTick = TickOut - MinorIn,
+                        SubMidTick = (SubEndTick + SubMinorTick) * 0.5f;
+            /// <summary>The same hierarchy in weight, as multiples of the main
+            /// sweep's tick half-width. The ends are drawn heavier as well as
+            /// longer because they are crossed at an angle by a needle resting
+            /// on them, and a hairline under a needle is no mark at all.
+            /// </summary>
+            const float SubEndWiden = 1.6f, SubMidWiden = 1.25f;
+            /// <summary>
+            /// The needle, as a fraction of the dial radius: as long as the pin
+            /// is far from the tick ring, less a hair, so that pointing straight
+            /// down its tip stops just inside the ring the way the big needle's
+            /// does. 0.40 — the photograph's is 0.41 — where the arc about the
+            /// pin could only ever give it 0.23.
+            ///
+            /// DERIVED, because the two numbers it comes from are the ones that
+            /// get tuned, and a needle that pokes through the bezel after the
+            /// pin moves is the kind of fault nobody looks for.
+            /// </summary>
+            const float SubNeedleLen = TickOut - SubHubY - 0.01f;
+            /// <summary>
+            /// The needle's tail and half-width, and the hub cap it turns on.
+            /// Fractions of the DIAL radius, given directly, and that is
             /// deliberate.
             ///
-            /// They used to be the main needle’s own numbers through one
+            /// They used to be the main needle's own numbers through one
             /// scale factor, on the reasoning that the same needle smaller is
             /// the same needle. It is not: a needle a quarter the length came
-            /// out a quarter as WIDE, which at the size this is actually drawn
-            /// is a two-pixel stub on a four-pixel blob. A small gauge’s
-            /// needle is proportionally fatter than a big one’s and its boss
-            /// proportionally larger, on every real cluster — so these are
-            /// given directly. The tail is 1.4x the cap, so the counterweight
-            /// shows past it instead of being swallowed by it.
+            /// out a quarter as WIDE, a two-pixel stub on a four-pixel blob. A
+            /// small gauge's needle is proportionally fatter than a big one's
+            /// on every real cluster, and its boss is barely smaller at all —
+            /// on the photograph the two caps are within a tenth of each
+            /// other, which is what 0.09 against the main hub's 0.10 is. The
+            /// tail is 1.4x the cap, so the counterweight shows past it instead
+            /// of being swallowed by it.
             /// </summary>
-            const float SubNeedleTail = 0.105f, SubNeedleHalf = 0.028f, SubHubR = 0.075f;
-            /// <summary>Where the two letters sit: twelve degrees past the end
-            /// marks, on the arc’s own radius, measured about the PIN like
-            /// everything else here. Angular clearance is doing the work — at
-            /// this radius twelve degrees is about a letter’s width of
-            /// daylight — and putting them ON the arc is what keeps them
-            /// reading as the ends of the scale rather than as two letters
-            /// printed near it.</summary>
-            const float SubLabelDeg = 48f, SubLabelR = 1.04f;
+            const float SubNeedleTail = 0.13f, SubNeedleHalf = 0.032f, SubHubR = 0.09f;
+            /// <summary>
+            /// Where the two letters sit, as a polar offset about the PIN —
+            /// 0.31 of the dial radius out and 62 degrees round from straight
+            /// down — and how big they are.
+            ///
+            /// That lands each one above the inboard end of its own long mark,
+            /// beside the hub: where the photograph has them. The angle is set
+            /// by the needle, not by eye. At its stop the needle lies along 40
+            /// degrees; a bold capital 0.17 of the radius high has a corner
+            /// 0.09 from its own centre; and 22 degrees of separation at this
+            /// distance is 0.116, which is that corner, the blade's half-width
+            /// there, and a finger of daylight. Any closer and a cold engine —
+            /// every start there is — parks the needle across its own C.
+            ///
+            /// 0.17 against the numerals' 0.19. They were 0.125 and hugging
+            /// the marks, and on the photograph E and F are very nearly the
+            /// size of the 20 and the 40.
+            /// </summary>
+            const float SubLabelDeg = 62f, SubLabelR = 0.31f, SubLabelSize = 0.17f;
             /// <summary>
             /// Below this radius the sub-gauge is left off entirely.
             ///
-            /// A dial of 40 units carries a 12-unit needle and 5-unit letters,
-            /// which is not a gauge, it is grit — and the touch layout clamps
-            /// the radius to whatever band the wheel and pedals leave, so on a
-            /// narrow phone it really does get that small. The same discipline
-            /// LabelStep applies to the numerals: drop what cannot be read
-            /// rather than draw it anyway.
+            /// A dial of 40 units carries 6-unit letters and marks under six
+            /// units apart, which is not a gauge, it is grit — and the touch
+            /// layout clamps the radius to whatever band the wheel and pedals
+            /// leave, so in a narrow window it really does get that small. The
+            /// same discipline LabelStep applies to the numerals: drop what
+            /// cannot be read rather than draw it anyway.
             /// </summary>
             const int SubMinRadius = 46;
+
+            /// <summary>
+            /// How far it is from the sub-gauge's pin to the dial's tick ring
+            /// along a ray <paramref name="deg"/> from straight down, as a
+            /// fraction of the dial radius.
+            ///
+            /// The one piece of geometry the group needs now that its marks
+            /// stand on a circle the pin is not the centre of. A point t along
+            /// the ray is at (t sin, -d - t cos) from the dial centre; set its
+            /// length to the ring's radius and the positive root is this. 0.41
+            /// straight down, 0.474 at the 40 degree stops.
+            /// </summary>
+            static float SubReach(float deg)
+            {
+                float a = deg * Mathf.Deg2Rad;
+                float s = SubHubY * Mathf.Sin(a);
+                return -SubHubY * Mathf.Cos(a) + Mathf.Sqrt(TickOut * TickOut - s * s);
+            }
 
             /// <summary>True when this dial actually got its sub-gauge — false
             /// on one too small to carry one, see <see cref="SubMinRadius"/>.
@@ -1162,7 +1182,7 @@ namespace PSXRacing
             public Dial(Transform parent, Font font, string name, Vector2 anchor, Vector2 centre,
                         int radius, float max, float tickStep, float labelStep, float labelScale,
                         string unit, float redlineFrac,
-                        string subLow = null, string subHigh = null)
+                        string subLow = null, string subHigh = null, bool subHighIsDanger = false)
             {
                 this.max = max;
                 // Decided BEFORE the face is baked, because the sub-gauge's
@@ -1183,7 +1203,7 @@ namespace PSXRacing
                 var faceGO = new GameObject("Face");
                 faceGO.transform.SetParent(root.transform, false);
                 var face = faceGO.AddComponent<Image>();
-                face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub);
+                face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub, subHighIsDanger);
                 var frt = face.rectTransform;
                 frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
                 frt.offsetMin = Vector2.zero; frt.offsetMax = Vector2.zero;
@@ -1242,12 +1262,12 @@ namespace PSXRacing
             }
 
             /// <summary>
-            /// Fit the small gauge into the bottom of this face: a short arc of
-            /// marks between two letters, with a stubby needle on its own pin,
-            /// and every one of those pieces measured from that pin.
+            /// Fit the small gauge into the bottom of this face: two letters
+            /// either side of a needle on its own pin, pointing at marks that
+            /// stand on the big dial's ring.
             ///
             /// Baked the same way everything else static here is — the ticks go
-            /// into the face sprite rather than becoming seven rotated Images —
+            /// into the face sprite rather than becoming five rotated Images —
             /// so the only thing this adds to a frame is one more transform to
             /// rotate.
             ///
@@ -1257,27 +1277,25 @@ namespace PSXRacing
             /// </summary>
             void MakeSubGauge(Font font, int radius, string lowLabel, string highLabel)
             {
-                // The pin hangs BELOW the dial centre, and it is the origin of
-                // this whole group: the ticks baked into the face above are an
-                // arc about it, and the letters and the needle below are placed
-                // from it. Nothing here is measured from the dial centre.
+                // The pin hangs BELOW the dial centre, and everything that MOVES
+                // or is READ in this group is placed from it: the needle turns
+                // on it, the letters flank it, and the marks baked into the face
+                // above lie along rays out of it. Only where those marks END is
+                // measured from the dial centre — on its ring.
                 var centre = new Vector2(0f, -radius * SubHubY);
-                float scale = radius * SubScaleR;
 
-                // The letters ride the ENDS OF THE ARC — same centre, same
-                // radius, twelve degrees further round. Placed from the dial
-                // centre they were two letters printed near a scale; placed
-                // from the pin they are where the scale stops.
-                //
-                // Smaller than the numerals on the main sweep, which they were
-                // not: these name a gauge a third the size and reading them as
-                // equals is what let the pair claim the bottom of the face.
-                int letter = Mathf.Max(7, Mathf.RoundToInt(radius * 0.125f));
+                // The letters sit beside the hub, each above the inboard end of
+                // its own long mark and clear of the needle at its stop; see
+                // SubLabelDeg for the arithmetic. A step under the numerals on
+                // the main sweep, not the two thirds they were: on a gauge
+                // whose marks are out on the ring the letters are the only
+                // thing that says WHICH gauge it is.
+                int letter = Mathf.Max(7, Mathf.RoundToInt(radius * SubLabelSize));
                 foreach (var end in new[] { (-1f, lowLabel), (1f, highLabel) })
                 {
                     Vector2 dir = SubDirection(end.Item1 * SubLabelDeg);
                     var t = Label(font, letter, ClusterBulbs.Lit,
-                                  centre + dir * (scale * SubLabelR));
+                                  centre + dir * (radius * SubLabelR));
                     t.text = end.Item2;
                 }
 
@@ -1286,11 +1304,11 @@ namespace PSXRacing
                 // and that is the fix rather than an inconsistency. Deriving
                 // every dimension from one scale factor made a needle a quarter
                 // the length also a quarter the width: a two-pixel stub on a
-                // four-pixel bead. Length comes off the scale radius, so the tip
-                // always lands the same distance inside the marks; width, tail
-                // and cap are given directly, because a small gauge's needle is
-                // proportionally fatter than a big one's on every real cluster.
-                int len = Mathf.Max(3, Mathf.RoundToInt(scale * SubNeedleLen));
+                // four-pixel bead. Length is what reaches the ring from the pin;
+                // width, tail and cap are given directly, because a small
+                // gauge's needle is proportionally fatter than a big one's on
+                // every real cluster.
+                int len = Mathf.Max(3, Mathf.RoundToInt(radius * SubNeedleLen));
                 int tail = Mathf.Max(2, Mathf.RoundToInt(radius * SubNeedleTail));
                 int wide = Mathf.Max(3, Mathf.RoundToInt(radius * SubNeedleHalf * 2f));
 
@@ -1308,16 +1326,16 @@ namespace PSXRacing
                 var hubGO = new GameObject("SubHub");
                 hubGO.transform.SetParent(root.transform, false);
                 var hub = hubGO.AddComponent<Image>();
-                // The same hub cap, three quarters the size of the main one,
-                // and built AFTER the needle for the same reason the big one
-                // is: the cap is what the needle passes THROUGH. Drawn over the
-                // top it swallows the counterweight tail and leaves a blade
+                // The same hub cap, nine tenths the size of the main one, and
+                // built AFTER the needle for the same reason the big one is:
+                // the cap is what the needle passes THROUGH. Drawn over the top
+                // it swallows the counterweight tail and leaves a blade
                 // emerging from a rim, which is the whole look. A solid dot
                 // instead — which this had — is a needle stuck ONTO a bead.
                 //
-                // Three quarters, not the third it worked out at before. The
+                // Nine tenths, up from three quarters, up from a third. The
                 // pin of a temperature gauge is a visible boss on a real
-                // cluster, near enough a match for the one beside it; at a
+                // cluster, near enough a match for the one above it; at a
                 // third of the main hub this was four pixels across and read as
                 // a smudge the needle happened to start at.
                 float hubR = radius * SubHubR;
@@ -1331,8 +1349,10 @@ namespace PSXRacing
 
             /// <summary>Move the sub-needle. 0 is the left-hand letter (empty,
             /// cold), 1 the right-hand one (full, hot). The rotation IS the
-            /// printed scale now that the two are concentric — this used to be
-            /// a separate, larger angle solved from the pin offset.</summary>
+            /// printed scale: every mark is baked along the ray this needle
+            /// lies on when it points to it, so the two cannot disagree however
+            /// far the ring they end on is from being centred on the pin.
+            /// </summary>
             public void SetSub(float f)
             {
                 if (subNeedle == null) return;
@@ -1461,7 +1481,7 @@ namespace PSXRacing
             /// choice is whether it does so raggedly or cleanly.
             /// </summary>
             static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
-                                   bool subGauge)
+                                   bool subGauge, bool subHighIsDanger)
             {
                 const int SS = 2;
                 radius *= SS;
@@ -1482,6 +1502,16 @@ namespace PSXRacing
                 // matters more than constant angle: a mark specified in degrees
                 // is two pixels wide on a small dial and five on a large one.
                 float halfPx = 1.1f * SS;
+
+                // The sub-gauge's marks: the angle each lies along, about the
+                // PIN, and how far along that ray the dial's ring is. Worked
+                // out once per mark here instead of once per pixel below — it
+                // is a square root, and the wedge is a third of the face.
+                float subStep = SubHalfSweep * 2f / (SubTickCount - 1);
+                float subEndK = (SubTickCount - 1) * 0.5f;
+                var subReach = new float[SubTickCount];
+                for (int t = 0; t < SubTickCount; t++)
+                    subReach[t] = SubReach((t - subEndK) * subStep);
 
                 for (int y = 0; y < size; y++)
                 {
@@ -1528,21 +1558,24 @@ namespace PSXRacing
                         // The sub-gauge's scale, in the empty wedge the main
                         // sweep leaves across the bottom.
                         //
-                        // A SECOND POLAR FRAME, centred on the sub-gauge's own
-                        // pin rather than on the dial's. Everything above works
-                        // in (r, along) about the middle of the face, and while
-                        // these marks did too they came out aimed at that middle
-                        // — a fence the needle ended near instead of a scale it
-                        // pointed along. Measured from the pin they fan the way
-                        // a real one's do, and the whole group is defined by one
-                        // radius about one point.
+                        // TWO POLAR FRAMES AT ONCE, and which question goes to
+                        // which frame is the whole design. WHERE a mark ends is
+                        // asked of the dial: r <= TickOut, the same ring every
+                        // tick above stands on, so the bottom of the face is
+                        // one circle of marks rather than a big scale with a
+                        // small one parked under it. WHICH WAY it runs is asked
+                        // of the pin: a mark is the pixels within half a width
+                        // of a ray out of the pin, for as far in from the ring
+                        // along that ray as its length. Ask both of the dial
+                        // and the marks point at a centre the needle does not
+                        // turn on; ask both of the pin and they leave the ring.
                         //
                         // Still gated on being off the main sweep: the group
-                        // reaches 12 degrees of bearing either side of straight
+                        // reaches 19 degrees of bearing either side of straight
                         // down and the dead wedge is 55, so this can never fire
                         // on a pixel the sweep wants — but it costs nothing and
                         // it says so.
-                        if (subGauge && !onSweep)
+                        if (subGauge && !onSweep && r <= TickOut)
                         {
                             // Offset from the pin. MIND THE SIGN: dx/dy are
                             // texture-space and Y is UP there — the Y-down
@@ -1554,37 +1587,36 @@ namespace PSXRacing
                             // bakes no ticks at all rather than wrong ones.
                             float qx = dx, qy = dy + SubHubY * radius;
                             float qr = Mathf.Sqrt(qx * qx + qy * qy) / radius;
-                            if (qr <= SubScaleR * SubTickOut && qr >= SubScaleR * SubEndTickIn)
+                            // Straight DOWN from the pin is zero, positive
+                            // toward the right-hand letter — the same
+                            // convention SubDirection and SetSub use, so the
+                            // baked marks and the live needle cannot drift.
+                            float qdeg = Mathf.Atan2(qx, -qy) * Mathf.Rad2Deg;
+                            int t = Mathf.RoundToInt(qdeg / subStep + subEndK);
+                            if (t >= 0 && t < SubTickCount)
                             {
-                                // Straight DOWN from the pin is zero, positive
-                                // toward the right-hand letter — the same
-                                // convention SubDirection and SetSub use, so the
-                                // baked marks and the live needle cannot drift.
-                                float qdeg = Mathf.Atan2(qx, -qy) * Mathf.Rad2Deg;
-                                float step = SubHalfSweep * 2f / (SubTickCount - 1);
-                                float k = Mathf.Round(qdeg / step);
-                                float endK = (SubTickCount - 1) * 0.5f;
-                                if (Mathf.Abs(k) <= endK + 0.01f)
+                                // Long, heavy and lit at the ends; a step down
+                                // at the half; short and dim at the quarters.
+                                // The same hierarchy the main sweep keeps
+                                // between its numbered ticks and its minor ones,
+                                // and the reason the scale reads without being
+                                // counted.
+                                bool end = t == 0 || t == SubTickCount - 1;
+                                bool mid = !end && t * 2 == SubTickCount - 1;
+                                float run = end ? SubEndTick : mid ? SubMidTick : SubMinorTick;
+                                float wide = halfPx * (end ? SubEndWiden : mid ? SubMidWiden : 1f);
+                                float offPx = Mathf.Abs(qdeg - (t - subEndK) * subStep)
+                                            * Mathf.Deg2Rad * qr * radius;
+                                if (qr >= subReach[t] - run && offPx <= wide)
                                 {
-                                    // The outermost pair: longer, heavier, and
-                                    // LIT where the marks between them are dim.
-                                    // The same hierarchy the main sweep keeps
-                                    // between its numbered ticks and the minor
-                                    // ones — and here it is doing more than
-                                    // matching, because five marks all at full
-                                    // brightness in fifty pixels close up into
-                                    // one bright block however far apart they
-                                    // are drawn.
-                                    bool end = Mathf.Abs(k) >= endK - 0.01f;
-                                    float inner = SubScaleR * (end ? SubEndTickIn : SubTickIn);
-                                    float wide = end ? halfPx * SubEndTickWiden : halfPx;
-                                    float offPx = Mathf.Abs(qdeg - k * step)
-                                                * Mathf.Deg2Rad * qr * radius;
-                                    if (qr >= inner && offPx <= wide)
-                                    {
-                                        px[i] = end ? lit : dim;
-                                        continue;
-                                    }
+                                    // HOT is red on the instrument this copies
+                                    // and FULL is not: one end of a temperature
+                                    // gauge is a warning and neither end of a
+                                    // fuel gauge is. Red for the reason the
+                                    // redline is — it is not the bulb's to tint.
+                                    px[i] = subHighIsDanger && t == SubTickCount - 1 ? red
+                                          : end || mid ? lit : dim;
+                                    continue;
                                 }
                             }
                         }
