@@ -303,6 +303,81 @@ namespace PSXRacing.LifeSim
             return outv;
         }
 
+        // ------------------------------------------------------------------
+        //  A fault BY NAME — the debug bench (see DebugCarOps)
+        // ------------------------------------------------------------------
+        //
+        // Everything above ROLLS: a lane, a mileage gate, one fault per lane,
+        // a dice throw. That is the game, and it is exactly what makes a
+        // particular fault impossible to test — "drive with a warped rotor"
+        // was "buy American cars until one turns up with a warped rotor".
+
+        /// <summary>
+        /// The pool row for a fault id, preferring the car's own origin.
+        ///
+        /// An id can sit in more than one origin's pool under a different name
+        /// and price (SPARK PLUGS is in all three), and most sit in only one.
+        /// The car's own row wins where it has one; otherwise the first row
+        /// that carries the id, so a Japanese car CAN be handed a European
+        /// cooling failure. Null for an id no pool knows.
+        /// </summary>
+        public static PoolEntry PoolRow(string faultId, string origin)
+        {
+            Load();
+            PoolEntry any = null;
+            foreach (var p in data.pools)
+            {
+                if (p.id != faultId) continue;
+                if (p.origin == origin) return p;
+                if (any == null) any = p;
+            }
+            return any;
+        }
+
+        /// <summary>Every distinct fault id the pools carry, in pool order —
+        /// which is lane order within an origin, so a list built from this
+        /// reads engine, handling, body without sorting anything.</summary>
+        public static List<string> AllIds()
+        {
+            Load();
+            var seen = new HashSet<string>();
+            var ids = new List<string>();
+            foreach (var p in data.pools) if (seen.Add(p.id)) ids.Add(p.id);
+            return ids;
+        }
+
+        /// <summary>
+        /// Mint one specific fault, exactly as <see cref="RollWearFault"/>
+        /// would have — same fields, same origin price multiplier, HIDDEN like
+        /// everything else — minus the dice. No lane gate and no mileage gate:
+        /// the caller asked for this fault by name and gets it. Null for an
+        /// unknown id.
+        /// </summary>
+        public static CarFault MakeById(string faultId, string origin)
+        {
+            Load();
+            if (!originCostMult.ContainsKey(origin ?? "")) origin = "jpn";
+            var row = PoolRow(faultId, origin);
+            if (row == null) return null;
+            // Priced as the ROW's origin, not the car's: a borrowed European
+            // fault is still a European part.
+            float mult = originCostMult.TryGetValue(row.origin, out float m) ? m : 1f;
+            return new CarFault
+            {
+                id = row.id,
+                label = row.name,
+                stat = row.stat,
+                cost = Mathf.RoundToInt(row.cost * mult),
+                days = row.days,
+                add = row.add,
+                repairType = row.type,
+                hidden = true,
+                diagnosed = false,
+                severity = 1f,
+                pullDir = UnityEngine.Random.value < 0.5f ? -1 : 1,
+            };
+        }
+
         public static EffectEntry Effect(string faultId)
         {
             Load();

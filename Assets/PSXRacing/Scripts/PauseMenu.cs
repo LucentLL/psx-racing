@@ -12,9 +12,11 @@ namespace PSXRacing
     /// canvas at device resolution, so the buttons stay finger-sized even though
     /// the game renders at 320x240.
     ///
-    /// ESC or the MENU button opens it. There is no damage or fault system in
-    /// this game, so "RESET CAR" clears the transient physics state instead:
-    /// drift latch, e-brake window, wheelspin, gear, and body velocities.
+    /// ESC or the MENU button opens it. "RESET CAR" clears the transient
+    /// physics state: drift latch, e-brake window, wheelspin, gear, and body
+    /// velocities. (It predates the fault system and has nothing to do with
+    /// it — a car's FAULTS live on the owned car and are changed, in a debug
+    /// career, from the bench this menu opens: see <see cref="DebugCarPanel"/>.)
     /// </summary>
     public class PauseMenu : MonoBehaviour
     {
@@ -47,6 +49,14 @@ namespace PSXRacing
 
         void Update()
         {
+            // THE BENCH OWNS THE KEYS WHILE IT IS UP — and for the rest of the
+            // frame it closed on. Escape, START and B all mean "close" to both
+            // pages, and two Updates have no defined order between them: read
+            // here as well, the press that backs out of the bench would also
+            // drop the pause menu and resume the race, on whichever frame the
+            // bench's Update happened to run first.
+            if (bench != null && (bench.IsOpen || bench.ClosedFrame == Time.frameCount)) return;
+
             var kb = Keyboard.current;
             var pad = Gamepad.current;
             bool toggle = (kb != null && kb.escapeKey.wasPressedThisFrame) ||
@@ -134,6 +144,38 @@ namespace PSXRacing
         {
             if (playerCar != null) DriveSession.Respawn(playerCar);
             SetOpen(false);
+        }
+
+        // ---- the debug bench ----------------------------------------------
+        DebugCarPanel bench;
+        Button benchBtn;
+
+        /// <summary>
+        /// Open the debug bench over the pause menu: any fault, any stage, any
+        /// part, onto the car being driven. See <see cref="LifeSim.DebugCarOps"/>.
+        ///
+        /// The pause menu STAYS OPEN underneath, deliberately. The bench needs
+        /// exactly what this menu already holds — the clock stopped, the audio
+        /// paused, the driving input gated by <see cref="IsOpen"/> — and
+        /// closing it lands the tester back here, one press from RESUME, which
+        /// is where somebody who has just bolted a blower on wants to be.
+        /// </summary>
+        void OpenBench()
+        {
+            if (!open || !LifeSim.DebugCarOps.Available) return;
+            if (bench == null)
+            {
+                bench = gameObject.AddComponent<DebugCarPanel>();
+                bench.onClosed = () =>
+                {
+                    // Give the cursor back to the row that opened the page, or
+                    // the pad comes home to a menu with nothing selected —
+                    // which is a dead pad. Guarded: this also fires from the
+                    // bench's OnDisable as a scene is torn down.
+                    if (this != null && open && benchBtn != null) MenuNav.Select(benchBtn);
+                };
+            }
+            bench.Open();
         }
 
         Text camLabel;
@@ -346,7 +388,20 @@ namespace PSXRacing
             if (car == null) { debugText.text = "no player car"; return; }
 
             sb.Clear();
-            sb.Append("FAULT SYSTEM: none installed\n");
+            // Read off the CAR, not off the request: these are the numbers the
+            // physics is multiplying by this tick, so a fault thrown on the
+            // bench shows here the moment it lands — or visibly does not.
+            sb.Append("faults    : power x").Append(car.faultAccelMult.ToString("0.00"))
+              .Append("  grip x").Append(car.faultGripMult.ToString("0.00"))
+              .Append("  brake x").Append(car.faultBrakeMult.ToString("0.00"))
+              .Append("  shift x").Append(car.faultShiftMult.ToString("0.0"))
+              .Append("  pull ").Append(car.faultSteerPull.ToString("+0.00;-0.00;0")).Append('\n');
+            sb.Append("build     : ").Append(Mathf.RoundToInt(car.massKg)).Append(" kg  stages P")
+              .Append(car.activeTune.power).Append(" W").Append(car.activeTune.weight)
+              .Append(" B").Append(car.activeTune.brakes).Append(" S").Append(car.activeTune.suspension)
+              .Append(" T").Append(car.activeTune.tires)
+              .Append(car.supercharged ? "  +blower" : "").Append(car.weldedDiff ? "  +weld" : "")
+              .Append('\n');
             sb.Append("surface   : ").Append(car.onRoad ? "ROAD" : "OFF-ROAD (low grip)").Append('\n');
             sb.Append("grounded  : ").Append(car.anyWheelGrounded ? "yes" : "NO (airborne)").Append('\n');
             sb.Append("speed     : ").Append(Mathf.RoundToInt(SpeedUnits.FromKmh(car.speedKmh)))
@@ -478,6 +533,22 @@ namespace PSXRacing
 
             MakeText(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT", font, 15,
                      new Vector2(0.5f, 1f), new Vector2(0f, y)).color = LifeSim.MenuKit.Dim;
+
+            // THE DEBUG BENCH, in a debug career only. BESIDE the column and
+            // not in it: twelve rows already fill the height a wide phone has
+            // (see the pitch note above), and a thirteenth would be the one
+            // that falls off the bottom. It shares RESUME's line, so the
+            // geometric graph reaches it with RIGHT; and it goes LAST in the
+            // list, so the creation-order chain that serves until the rects
+            // resolve reaches it with one UP from RESUME, by the wrap.
+            if (LifeSim.DebugCarOps.Available)
+            {
+                benchBtn = MakeButton(panel.transform, "DEBUG: FAULTS + PARTS", font,
+                           new Vector2(0.5f, 1f), new Vector2(344f, -108f),
+                           new Vector2(300f, RowH), 19, OpenBench);
+                benchBtn.GetComponent<Image>().color = new Color(0.62f, 0.36f, 0.86f, 0.42f);
+                menuItems.Add(benchBtn);
+            }
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);

@@ -436,8 +436,12 @@ namespace PSXRacing.LifeSim
             }
         }
 
-        static void SetMod(OwnedCar car, Mod mod, bool on)
+        /// <summary>Internal rather than private for one caller: the debug
+        /// bench (<see cref="DebugCarOps"/>) fits and REMOVES parts without the
+        /// wallet, and nothing in the shop ever takes one off again.</summary>
+        internal static void SetMod(OwnedCar car, Mod mod, bool on)
         {
+            if (car == null) return;
             switch (mod)
             {
                 case Mod.WeldedDiff: car.welded = on; break;
@@ -541,6 +545,26 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static bool AeroKitAllowed(CarSpec spec) => spec != null && spec.IsRaceCar;
 
+        /// <summary>
+        /// Why this CAR can never take this mod, whoever is paying — or null
+        /// when it can. The two facts-about-the-car gates, pulled out of
+        /// <see cref="OfferFor"/> so the debug bench asks the same question in
+        /// the same words: "any modification available to the car" has to mean
+        /// what the parts shop means by it, and a second copy of these two
+        /// tests is a bench that bolts a wing to a hatchback the shop refuses.
+        /// </summary>
+        public static string CarRefuses(CarSpec spec, Mod mod)
+        {
+            if (mod == Mod.AeroKit && !AeroKitAllowed(spec)) return "RACE CARS ONLY";
+            if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
+                return spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
+            return null;
+        }
+
+        /// <summary>Name and effect line for a mod, without pricing it.</summary>
+        public static void ModText(Mod mod, out string name, out string effect) =>
+            ModSpec(mod, out name, out effect, out _, out _, out _);
+
         public static ModOffer OfferFor(LifeState s, OwnedCar car, CarSpec spec, Mod mod)
         {
             var o = new ModOffer { mod = mod };
@@ -554,13 +578,8 @@ namespace PSXRacing.LifeSim
             o.owned = HasMod(car, mod);
 
             if (o.owned) { o.blockedReason = "FITTED"; return o; }
-            if (mod == Mod.AeroKit && !AeroKitAllowed(spec))
-            { o.blockedReason = "RACE CARS ONLY"; return o; }
-            if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
-            {
-                o.blockedReason = spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
-                return o;
-            }
+            string never = CarRefuses(spec, mod);
+            if (never != null) { o.blockedReason = never; return o; }
             // A weld and a plate pack are the same hole in the car. Whichever
             // went in first blocks the other, and says which.
             if (mod == Mod.LimitedSlip && car != null && car.welded)

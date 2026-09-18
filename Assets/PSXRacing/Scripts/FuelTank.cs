@@ -67,13 +67,20 @@ namespace PSXRacing
         float sputterClock;
 
         CarSpec profileSpec;
+        int profilePower, profileWeight;
         bool profileBuilt;
         FuelProfile profile;
 
         /// <summary>
-        /// What this car does with a gallon. Rebuilt whenever the spec on the
-        /// controller changes, which is once — RaceHandoffApplier fits the
-        /// catalog entry and the parts in its Start, after every Awake.
+        /// What this car does with a gallon. Rebuilt whenever the spec OR THE
+        /// BUILD on the controller changes. That used to be once —
+        /// RaceHandoffApplier fits the catalog entry and the parts in its
+        /// Start, after every Awake — and the cache was keyed on the spec
+        /// alone. The debug bench re-specs the same car mid-drive, and a key
+        /// that ignored the stages would leave a freshly built 500 hp engine
+        /// sipping fuel like the 255 hp one the scene loaded with. Power and
+        /// weight are the two stages FuelProfile.For reads, so they are the
+        /// two in the key.
         /// Read by the pump, which prices a fill off the tank it is filling.
         /// </summary>
         public FuelProfile Profile
@@ -81,9 +88,14 @@ namespace PSXRacing
             get
             {
                 var spec = car != null ? car.activeSpec : null;
-                if (!profileBuilt || spec != profileSpec)
+                int power = car != null ? car.activeTune.power : 0;
+                int weight = car != null ? car.activeTune.weight : 0;
+                if (!profileBuilt || spec != profileSpec ||
+                    power != profilePower || weight != profileWeight)
                 {
                     profileSpec = spec;
+                    profilePower = power;
+                    profileWeight = weight;
                     profile = spec != null
                         ? FuelProfile.For(spec, car.activeTune)
                         // No catalog entry: the controller's built-in RX-7, but

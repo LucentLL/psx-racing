@@ -51,6 +51,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCarModels), TestCarModels);
             Guard(nameof(TestUpgrades), TestUpgrades);
             Guard(nameof(TestAdvancedTuning), TestAdvancedTuning);
+            Guard(nameof(TestDebugBench), TestDebugBench);
             Guard(nameof(TestMarket), TestMarket);
             Guard(nameof(TestViewings), TestViewings);
             Guard(nameof(TestJunkyard), TestJunkyard);
@@ -8520,6 +8521,333 @@ namespace PSXRacing.EditorTools
                   s.lastAnyRaceDay + " vs day " + s.day);
             Check(s.money > money0, "and pays its purse", s.money - money0);
             RaceHandoff.ClearAll();
+        }
+
+        // ---------------------------------------------------------------
+        //  The debug bench: any fault, any part, onto the car being driven
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// The bench is a test instrument, so the thing to pin is that it does
+        /// not LIE: that "any fault" is every fault, that a row promising
+        /// something to feel delivers it, that a change made at the wheel
+        /// reaches the physics by the same road a scene load takes — and,
+        /// above all, that taking everything back off leaves the stock car to
+        /// the last decimal. A bench that leaves residue corrupts every test
+        /// run after it, and nothing on screen would ever say so.
+        /// </summary>
+        static void TestDebugBench()
+        {
+            Line("debug bench:");
+            if (!CarCatalog.Ready || !FaultCatalog.Ready)
+            { Check(false, "catalogs loaded for the bench"); return; }
+
+            // ---- ANY fault means any -----------------------------------
+            var ids = FaultCatalog.AllIds();
+            var poolIds = new HashSet<string>();
+            foreach (var p in FaultCatalog.Pools) poolIds.Add(p.id);
+            Check(ids.Count > 0 && ids.Count == poolIds.Count,
+                  "the bench knows every fault the pools can roll",
+                  ids.Count + " of " + poolIds.Count);
+
+            int unmade = 0; string firstUnmade = null;
+            foreach (var origin in new[] { "jpn", "usa", "eur", "nowhere" })
+                foreach (var id in ids)
+                {
+                    var f = FaultCatalog.MakeById(id, origin);
+                    bool ok = f != null && f.id == id && !string.IsNullOrEmpty(f.label) &&
+                              f.hidden && !f.diagnosed &&
+                              (f.stat == "engine" || f.stat == "tires" || f.stat == "hp");
+                    if (ok) continue;
+                    unmade++;
+                    if (firstUnmade == null) firstUnmade = origin + ":" + id;
+                }
+            Check(unmade == 0, "and can mint every one of them for a car of any origin — hidden, "
+                  + "like a rolled one", firstUnmade);
+            Check(FaultCatalog.MakeById("no_such_fault", "jpn") == null,
+                  "an id no pool knows mints nothing");
+
+            // Minted and rolled must be the same object in everything but the
+            // dice, or the bench is testing a fault the game never makes.
+            var diceCar = new OwnedCar { id = "bench_dice", odoMiles = 200000f };
+            var rolled = FaultCatalog.RollWearFault(diceCar, "engine", false, "wear", "usa");
+            if (rolled == null) Check(false, "a wear fault rolled to compare against");
+            else
+            {
+                var minted = FaultCatalog.MakeById(rolled.id, "usa");
+                Check(minted != null && minted.label == rolled.label && minted.cost == rolled.cost &&
+                      minted.days == rolled.days && minted.add == rolled.add &&
+                      minted.stat == rolled.stat && minted.repairType == rolled.repairType,
+                      "a minted fault is the fault the dice would have made — name, price, days, repair",
+                      rolled.id);
+            }
+
+            CarSpec naSpec = null, turboSpec = null, raceSpec = null;
+            foreach (var c in CarCatalog.All)
+            {
+                c.Decode();
+                bool curve = c.curveNm != null && c.curveNm.Length >= 2 && c.builtHp > c.hp && c.minKg < c.kg;
+                if (naSpec == null && curve && !c.IsForcedInduction && !c.IsRaceCar) naSpec = c;
+                if (turboSpec == null && c.IsTurbo && !c.IsRaceCar) turboSpec = c;
+                if (raceSpec == null && c.IsRaceCar) raceSpec = c;
+            }
+            if (naSpec == null || turboSpec == null || raceSpec == null)
+            { Check(false, "an NA road car, a turbo road car and a race car to bench"); return; }
+
+            // ---- the page's rows ---------------------------------------
+            Check(DebugCarOps.Lanes.Length == DebugCarOps.LaneTitles.Length,
+                  "every fault lane has a heading");
+            int listed = 0, blank = 0, lied = 0; string firstLie = null;
+            var seen = new HashSet<string>();
+            foreach (var lane in DebugCarOps.Lanes)
+                foreach (var row in DebugCarOps.FaultRows(naSpec, lane))
+                {
+                    listed++;
+                    seen.Add(row.id);
+                    if (string.IsNullOrEmpty(row.name) || string.IsNullOrEmpty(row.effect)) blank++;
+
+                    // Does the row tell the truth about whether there is
+                    // anything to FEEL? Asked of the game's own aggregate, on
+                    // a car carrying this fault and nothing else.
+                    var lone = new OwnedCar { id = "bench_lone", specId = naSpec.id };
+                    DebugCarOps.SetFault(lone, naSpec, row.id, true);
+                    var a = FaultCatalog.Aggregate_(lone);
+                    bool moves = a.accelMult < 0.999f || a.gripMult < 0.999f || a.brakeMult < 0.999f ||
+                                 Mathf.Abs(a.steerPull) > 0.001f || a.shiftMult > 1.001f ||
+                                 a.fuelMult > 1.001f || a.engineWearMult > 1.001f ||
+                                 a.hideGauges || a.rpmFlutter;
+                    if (moves == row.felt) continue;
+                    lied++;
+                    if (firstLie == null) firstLie = row.id;
+                }
+            Check(listed == ids.Count && seen.Count == ids.Count,
+                  "every fault has a switch, in exactly one lane — an id outside the lanes is a "
+                  + "fault the bench can never throw", listed + " rows, " + seen.Count + " ids");
+            Check(blank == 0, "and every switch is named and says what it does", blank + " blank");
+            Check(lied == 0, "a row that promises something to feel delivers it, and one that says "
+                  + "there is nothing is right about that too", firstLie);
+
+            // ---- switches -----------------------------------------------
+            string foreign = null;
+            foreach (var id in ids)
+            {
+                var row = FaultCatalog.PoolRow(id, naSpec.origin);
+                if (row != null && row.origin != naSpec.origin) { foreign = id; break; }
+            }
+            var owned = new OwnedCar { id = "bench_car", specId = naSpec.id, displayName = naSpec.name };
+            if (foreign == null) Check(false, "a fault from another origin's pool to borrow");
+            else
+            {
+                Check(DebugCarOps.SetFault(owned, naSpec, foreign, true) && owned.faults.Count == 1,
+                      "a car can be handed a fault its own origin's pool does not carry", foreign);
+                Check(!DebugCarOps.SetFault(owned, naSpec, foreign, true) && owned.faults.Count == 1,
+                      "switching one on twice does not stack two", owned.faults.Count);
+                Check(Inspection.HiddenCount(owned) == 1,
+                      "it arrives HIDDEN — so the inspection layer has something real to find");
+                Check(DebugCarOps.SetFault(owned, naSpec, foreign, false) && owned.faults.Count == 0,
+                      "and off is off", owned.faults.Count);
+            }
+
+            // ---- "available to the car" is the shop's rule --------------
+            var s = LifeRules.SeedNewGame("BENCH", 25, LifeRules.DefaultJobIndex);
+            s.debugMode = true;
+            var turboCar = new OwnedCar { id = "bench_turbo", specId = turboSpec.id };
+            var raceCar = new OwnedCar { id = "bench_race", specId = raceSpec.id };
+            Check(DebugCarOps.SetMod(turboCar, turboSpec, Upgrades.Mod.Supercharger, true) != null &&
+                  !turboCar.supercharged,
+                  "a blower is refused on a turbo engine, wallet or no wallet");
+            Check(DebugCarOps.ModRefusal(turboSpec, Upgrades.Mod.Supercharger) ==
+                  Upgrades.OfferFor(s, turboCar, turboSpec, Upgrades.Mod.Supercharger).blockedReason,
+                  "in the parts shop's own words — one rule, asked twice",
+                  DebugCarOps.ModRefusal(turboSpec, Upgrades.Mod.Supercharger));
+            Check(DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.AeroKit, true) != null && !owned.aeroKit,
+                  "a road car still cannot have a wing");
+            Check(DebugCarOps.SetMod(raceCar, raceSpec, Upgrades.Mod.AeroKit, true) == null && raceCar.aeroKit,
+                  "and a race car can");
+
+            DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.LimitedSlip, true);
+            DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.WeldedDiff, true);
+            Check(owned.welded && !owned.lsd, "fitting a weld takes the plate pack out — the same hole in the car");
+            DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.LimitedSlip, true);
+            Check(owned.lsd && !owned.welded, "and the other way round");
+
+            DebugCarOps.BuildEverything(owned, naSpec);
+            Check(Upgrades.TotalStages(owned) == Upgrades.KindCount * Upgrades.MaxStage,
+                  "BUILD EVERYTHING tops out all six ladders", Upgrades.TotalStages(owned));
+            Check(owned.lsd && !owned.welded && owned.supercharged && !owned.aeroKit &&
+                  owned.swayBars && owned.steeringRack && owned.finalDriveSet && owned.gearSet,
+                  "and fits every part THIS car takes: the blower, no wing, the plate pack not the weld");
+            DebugCarOps.StripEverything(owned);
+            bool anyMod = false;
+            foreach (var mod in Upgrades.AllMods) anyMod |= Upgrades.HasMod(owned, mod);
+            Check(Upgrades.IsStock(owned) && !anyMod, "BACK TO STOCK leaves no stage and no part");
+
+            // ---- ONTO THE CAR, mid-drive --------------------------------
+            // The request rewritten by the garage's own method and read back
+            // by the scene's own applier: the path Commit drives, minus the
+            // scene lookup and the save, neither of which exists on a bench.
+            var car = TuneBenchCar(naSpec);
+            var tank = car.gameObject.AddComponent<FuelTank>();
+            tank.car = car;   // edit mode runs no Awake
+            var host = new GameObject("BenchApplier") { hideFlags = HideFlags.HideAndDontSave };
+            var applier = host.AddComponent<RaceHandoffApplier>();
+            applier.playerCar = car;
+            try
+            {
+                RaceHandoff.ClearAll();
+                RaceHandoff.FromLifeSim = true;
+                RaceHandoff.CarId = owned.id;
+                RaceHandoff.CarSpecId = naSpec.id;
+                s.cars.Add(owned);
+                s.activeCar = owned.id;
+                Check(DebugCarOps.TargetCar(s) == owned, "the bench finds the car being driven");
+
+                void Push() { LifeHomeScreen.FillCarRequestFor(s, owned); applier.ReapplyCar(); }
+
+                Push();
+                float rpm = 0.6f * car.redlineRPM;
+                float mass0 = car.massKg, tq0 = car.GetTorqueAtRPM(rpm), brake0 = car.brakeDemandG;
+                float grip0 = car.gripBonus, rest0 = car.restLength, cg0 = car.cgHeight;
+                float stiff0 = car.corneringStiffness, mpg0 = tank.Profile.mpg;
+                var gears0 = (float[])car.gearRatios.Clone();
+
+                DebugCarOps.BuildEverything(owned, naSpec);
+                Push();
+                Check(car.massKg < mass0 - 1f, "weight stage 4 comes off the car under the player",
+                      mass0 + " -> " + car.massKg);
+                Check(car.GetTorqueAtRPM(rpm) > tq0 * 1.2f,
+                      "power stage 4 and the blower are in the torque curve",
+                      tq0.ToString("0") + " -> " + car.GetTorqueAtRPM(rpm).ToString("0") + " Nm");
+                Check(car.brakeDemandG > brake0 && car.gripBonus > grip0 && car.corneringStiffness > stiff0,
+                      "brakes, tyres and suspension all bite harder");
+                Check(car.restLength < rest0 - 0.05f && car.cgHeight < cg0,
+                      "and race coilovers sit it down on the road",
+                      Mathf.RoundToInt((rest0 - car.restLength) * 1000f) + " mm");
+                Check(tank.Profile.mpg < mpg0 - 0.01f,
+                      "the tank burns like the engine that is in the car NOW — the profile follows "
+                      + "the build, not the scene load", mpg0.ToString("0.0") + " -> " +
+                      tank.Profile.mpg.ToString("0.0") + " mpg");
+
+                float massB = car.massKg, tqB = car.GetTorqueAtRPM(rpm), restB = car.restLength;
+                float brakeB = car.brakeDemandG, stiffB = car.corneringStiffness;
+                Push();
+                Check(car.massKg == massB && car.GetTorqueAtRPM(rpm) == tqB && car.restLength == restB &&
+                      car.brakeDemandG == brakeB && car.corneringStiffness == stiffB,
+                      "applying the same build twice is applying it once — nothing compounds");
+
+                DebugCarOps.StripEverything(owned);
+                Push();
+                Check(car.massKg == mass0 && car.GetTorqueAtRPM(rpm) == tq0 && car.brakeDemandG == brake0 &&
+                      car.gripBonus == grip0 && car.restLength == rest0 && car.cgHeight == cg0 &&
+                      car.corneringStiffness == stiff0 && TuneSameRatios(gears0, car.gearRatios) &&
+                      !car.supercharged && !car.weldedDiff,
+                      "and BACK TO STOCK is the stock car to the last decimal — a bench that leaves "
+                      + "residue lies about every test after it",
+                      "mass " + car.massKg + "/" + mass0 + " rest " + car.restLength + "/" + rest0);
+
+                DebugCarOps.SetFault(owned, naSpec, "rotor_warp", true);
+                DebugCarOps.SetFault(owned, naSpec, "spark_plugs", true);
+                DebugCarOps.SetFault(owned, naSpec, "alignment", true);
+                Push();
+                var rotor = FaultCatalog.Effect("rotor_warp");
+                var plugs = FaultCatalog.Effect("spark_plugs");
+                Check(Mathf.Approximately(car.faultBrakeMult, rotor.brakeMult) && rotor.brakeMult < 1f,
+                      "a warped rotor thrown on the bench is in the brakes before the menu closes",
+                      car.faultBrakeMult);
+                Check(Mathf.Approximately(car.faultAccelMult, plugs.accelMult) &&
+                      Mathf.Approximately(tank.burnMult, plugs.fuelMult),
+                      "fouled plugs cost power AND fuel, through the same aggregate a scene load uses",
+                      car.faultAccelMult + " / " + tank.burnMult);
+                Check(Mathf.Abs(car.faultSteerPull) > 0.01f, "and a bad alignment pulls",
+                      car.faultSteerPull);
+                Check(DebugCarOps.HandicapLine(owned) != DebugCarOps.NoHandicap,
+                      "the page's footer says so");
+
+                DebugCarOps.ClearFaults(owned);
+                Push();
+                Check(car.faultBrakeMult == 1f && car.faultAccelMult == 1f && car.faultGripMult == 1f &&
+                      car.faultShiftMult == 1f && car.faultSteerPull == 0f && tank.burnMult == 1f,
+                      "CLEAR ALL hands back a healthy car");
+                Check(DebugCarOps.HandicapLine(owned) == DebugCarOps.NoHandicap,
+                      "and the footer agrees");
+
+                // A test drive is somebody else's car. Losing the viewing must
+                // not quietly put the player's own car on the bench instead.
+                RaceHandoff.TestDrive = true;
+                RaceHandoff.TestDriveKey = "no-such-viewing";
+                Check(DebugCarOps.TargetCar(s) == null,
+                      "a test drive that cannot find its seller's car benches NO car, not yours");
+                RaceHandoff.TestDrive = false;
+
+                // ---- the page itself ---------------------------------
+                bool hadEvents = Object.FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>() != null;
+                var panelGO = new GameObject("BenchPanel") { hideFlags = HideFlags.HideAndDontSave };
+                var panel = panelGO.AddComponent<DebugCarPanel>();
+                panel.target = owned;
+                MenuKit.ScreenSizeOverride = new Vector2(1998f, 891f);
+                // THE MENU UNDERNEATH. No hide flags on this one: the bench
+                // finds the other watchdogs with FindObjectsByType, which
+                // skips DontSave objects, and a stand-in it cannot see proves
+                // nothing.
+                var under = new GameObject("BenchMenuUnderneath");
+                var underWatch = under.AddComponent<MenuNavWatch>();
+                try
+                {
+                    panel.Open();
+                    Check(!underWatch.enabled,
+                          "while the bench is up the menu under it stands its cursor watchdog down — "
+                          + "two of them racing to restore a lost cursor put the pad on RESUME, unseen");
+                    Check(panelGO.GetComponent<MenuNavWatch>() == null &&
+                          panelGO.GetComponentInChildren<MenuNavWatch>() != null,
+                          "and the bench's own watchdog lives on the bench's canvas, not on its host — "
+                          + "the host is the pause menu, whose watchdog MenuNav.Watch would have re-pointed");
+                    Check(BenchControls(panelGO, "dbg_fault_") == ids.Count,
+                          "the FAULTS page carries one switch per fault",
+                          BenchControls(panelGO, "dbg_fault_"));
+                    panel.Show(DebugCarPanel.Page.Parts);
+                    Check(BenchControls(panelGO, "dbg_fault_") == 0,
+                          "turning the page takes the old one with it — no two pages stacked");
+                    Check(BenchControls(panelGO, "dbg_stage_") == Upgrades.KindCount * (Upgrades.MaxStage + 1),
+                          "the PARTS page has five stage buttons on each of six ladders",
+                          BenchControls(panelGO, "dbg_stage_"));
+                    Check(BenchControls(panelGO, "dbg_mod_") == Upgrades.AllMods.Length,
+                          "and one cell per bolt-on, refused ones included",
+                          BenchControls(panelGO, "dbg_mod_"));
+                    var names = new HashSet<string>();
+                    int clash = 0;
+                    foreach (var b in panelGO.GetComponentsInChildren<UnityEngine.UI.Button>(false))
+                        if (!names.Add(b.name)) clash++;
+                    Check(clash == 0, "every control has a name of its own — the cursor is carried "
+                          + "across a rebuild BY name", clash + " shared");
+                }
+                finally
+                {
+                    panel.Close();
+                    Check(underWatch != null && underWatch.enabled,
+                          "closing the bench wakes the other watchdog again");
+                    Object.DestroyImmediate(under);
+                    Object.DestroyImmediate(panelGO);
+                    MenuKit.ScreenSizeOverride = Vector2.zero;
+                    if (!hadEvents)
+                    {
+                        var es = Object.FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>();
+                        if (es != null) Object.DestroyImmediate(es.gameObject);
+                    }
+                }
+            }
+            finally
+            {
+                TuneDrop(car);
+                Object.DestroyImmediate(host);
+                RaceHandoff.ClearAll();
+            }
+        }
+
+        static int BenchControls(GameObject root, string prefix)
+        {
+            int n = 0;
+            foreach (var b in root.GetComponentsInChildren<UnityEngine.UI.Button>(false))
+                if (b.name.StartsWith(prefix)) n++;
+            return n;
         }
 
         static float StatOf(OwnedCar car, string stat) => stat switch

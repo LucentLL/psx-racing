@@ -1107,6 +1107,12 @@ namespace PSXRacing.LifeSim
             // while somebody walks a slider from one end to the other.
             if (setupDirty && Time.unscaledTime >= setupSaveAt) FlushSetup();
             if (wizard || tabButtons.Count == 0) return;
+            // The debug bench is a page of its own over this one, and B, Escape
+            // and the shoulders all mean something to both. Its keys are its
+            // own while it is up — and for the frame it closed on, because two
+            // Updates have no defined order and the press that closed the
+            // bench would otherwise also back this page out to MY CARS.
+            if (bench != null && (bench.IsOpen || bench.ClosedFrame == Time.frameCount)) return;
 
             var pad = UnityEngine.InputSystem.Gamepad.current;
             var kb = UnityEngine.InputSystem.Keyboard.current;
@@ -2381,6 +2387,36 @@ namespace PSXRacing.LifeSim
             }
         }
 
+        // ---- the debug bench (debug careers only) ----
+        DebugCarPanel bench;
+        const string BenchCaption = "DEBUG BENCH";
+
+        /// <summary>
+        /// Any fault, any stage, any part, onto THIS car — the same page the
+        /// pause menu opens mid-drive (see <see cref="DebugCarOps"/>), reached
+        /// from the garage so a car can be set up BEFORE it goes out as well as
+        /// while it is out. Named for the car on the page rather than for the
+        /// active one: the garage opens cars nobody has the keys to.
+        /// </summary>
+        void OpenBench(OwnedCar car)
+        {
+            if (!S.debugMode || car == null) return;
+            if (bench == null)
+            {
+                bench = gameObject.AddComponent<DebugCarPanel>();
+                bench.onClosed = () =>
+                {
+                    if (this == null) return;   // torn down with the scene
+                    // The condition lines, the fault list and the parts page
+                    // all describe a car the bench may just have rebuilt.
+                    focusAfterRebuild = BenchCaption;
+                    Rebuild();
+                };
+            }
+            bench.target = car;
+            bench.Open();
+        }
+
         /// <summary>
         /// MY CARS: the car you are in at the top, turning on its table, and
         /// under it every car you own with where it is standing.
@@ -2568,6 +2604,17 @@ namespace PSXRacing.LifeSim
                 16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 away ? MenuKit.Bad : driving ? MenuKit.Good : PlaceColor(place), ColW,
                 height: 26f, bold: true);
+            // A debug affordance goes at the TOP of its page, every time: this
+            // one rides the place line's right-hand end, the way ADD ANY CAR
+            // rides the MY CARS heading. The place line is the short one —
+            // the car's name above it can run the width of the column.
+            if (S.debugMode)
+            {
+                var benchCar = car;
+                MenuKit.Button(body, BenchCaption, new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColRight(ColR, 240f), y + 6f), new Vector2(240f, 36f),
+                    () => OpenBench(benchCar), 15, new Color(0.26f, 0.14f, 0.34f, 1f));
+            }
             y -= 28f;
             MenuKit.Label(body, "Odometer " + car.odoMiles.ToString("N0") + " mi   ·   paid " +
                 MenuKit.Money(car.paidPrice), 16, new Vector2(0.5f, 1f),

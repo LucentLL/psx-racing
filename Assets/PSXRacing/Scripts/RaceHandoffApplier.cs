@@ -83,38 +83,7 @@ namespace PSXRacing
                     // Shell BEFORE spec: fitting a body writes wheel radius, and
                     // ApplySpec builds the gearbox off it.
                     ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
-                    // MODS BEFORE THE SPEC, not after. ApplySpec ends by
-                    // capturing a baseline and applying the setup, and the
-                    // setup READS weldedDiff to decide the differential — so
-                    // assigning it afterwards meant the weld branch was
-                    // evaluated with a false it had not been given yet. A
-                    // welded car raced with an open diff and kept only the
-                    // weld's drawback: all of the wheelspin, none of the lock.
-                    // The blower has the same dependency through the torque
-                    // curve the preload range is scaled from.
-                    playerCar.weldedDiff = RaceHandoff.Welded;
-                    playerCar.supercharged = RaceHandoff.Supercharged;
-                    // The driver's own tune goes on before the spec too.
-                    // ApplySpec applies it at the end whichever order this is
-                    // written in, but handing it over here says plainly that it
-                    // is part of specing the car rather than a later bolt-on.
-                    playerCar.SetSetup(RaceHandoff.Setup);
-                    // Spec first: ApplySpec rewrites mass, torque curve, gearing
-                    // and drag from the catalog entry AND the parts bolted to
-                    // this particular car; the fault handicaps below multiply on
-                    // top of that result.
-                    playerCar.ApplySpec(spec, new CarTune.Stages
-                    {
-                        power = RaceHandoff.UpPower,
-                        weight = RaceHandoff.UpWeight,
-                        brakes = RaceHandoff.UpBrakes,
-                        suspension = RaceHandoff.UpSuspension,
-                        tires = RaceHandoff.UpTires,
-                    });
-                    // The voice comes after the spec, and reads the mods set
-                    // above it: a blower changes what the car sounds like as
-                    // well as what it makes.
-                    ApplyVoice(playerCar, spec, RaceHandoff.Supercharged, isPlayer: true);
+                    SpecPlayerCar(spec);
                 }
                 else ApplyPaint(playerCar, RaceHandoff.CarPaintSkin);
 
@@ -124,38 +93,9 @@ namespace PSXRacing
                 // over the real number instead of a full one.
                 var tank = playerCar.GetComponent<FuelTank>();
                 if (tank != null)
-                {
                     tank.percent = Mathf.Clamp(RaceHandoff.StartFuelPct, 0f, 100f);
-                    // A rich mixture or a weeping tank is a fault effect, and it
-                    // used to be applied once at the end against the whole
-                    // race. Applied per metre it is the same total and a
-                    // visibly faster-falling needle.
-                    tank.burnMult = RaceHandoff.FuelMult;
-                }
 
-                var temp = playerCar.GetComponent<EngineTemp>();
-                if (temp != null) temp.coolMult = RaceHandoff.CoolMult;
-
-                // Self-centring is the one setup value that is not a physics
-                // field: nothing in the model makes a self-aligning torque, so
-                // the honest home for "caster feel" is the input-side unwind
-                // rate, which lives on PlayerCarInput and not on the car.
-                var pin = playerCar.GetComponent<PlayerCarInput>();
-                if (pin != null && RaceHandoff.Setup != null)
-                    // The car's own SNAPSHOT basis, not FromController on a car
-                    // ApplySpec has already tuned. It makes no difference to
-                    // this particular range today, and it is still the rule —
-                    // deriving a range from a tuned car is how the next setting
-                    // starts compounding.
-                    pin.steerReleaseRate = CarSetupRanges
-                        .Of(playerCar.SetupRangeBasis, SetupParam.SelfCentre)
-                        .Value(RaceHandoff.Setup.selfCentre);
-
-                playerCar.faultAccelMult = RaceHandoff.AccelMult;
-                playerCar.faultGripMult = RaceHandoff.GripMult;
-                playerCar.faultBrakeMult = RaceHandoff.BrakeMult;
-                playerCar.faultShiftMult = RaceHandoff.ShiftMult;
-                playerCar.faultSteerPull = RaceHandoff.SteerPull;
+                ApplyCarCondition();
 
                 // The cargo, and the little window onto it. Spawned HERE rather
                 // than baked into every circuit: a delivery is the only run that
@@ -174,11 +114,128 @@ namespace PSXRacing
 
             ApplyField(raceField);
 
-            if (hud != null)
+            ApplyHudFlags();
+        }
+
+        /// <summary>
+        /// Everything the request says the player's car IS, mechanically: the
+        /// bolt-ons, the driver's tune, the catalog spec with the stages folded
+        /// in, and the voice that goes with them.
+        ///
+        /// Its own method because it is run TWICE over now — once as the scene
+        /// boots, and again by <see cref="ReapplyCar"/> whenever the debug
+        /// bench changes the car mid-drive. One definition of "how a request
+        /// becomes a car", so a part fitted at the wheel is the same part it
+        /// would have been had it come through the garage.
+        /// </summary>
+        void SpecPlayerCar(CarSpec spec)
+        {
+            // MODS BEFORE THE SPEC, not after. ApplySpec ends by capturing a
+            // baseline and applying the setup, and the setup READS weldedDiff
+            // to decide the differential — so assigning it afterwards meant
+            // the weld branch was evaluated with a false it had not been given
+            // yet. A welded car raced with an open diff and kept only the
+            // weld's drawback: all of the wheelspin, none of the lock. The
+            // blower has the same dependency through the torque curve the
+            // preload range is scaled from.
+            playerCar.weldedDiff = RaceHandoff.Welded;
+            playerCar.supercharged = RaceHandoff.Supercharged;
+            // The driver's own tune goes on before the spec too. ApplySpec
+            // applies it at the end whichever order this is written in, but
+            // handing it over here says plainly that it is part of specing the
+            // car rather than a later bolt-on.
+            playerCar.SetSetup(RaceHandoff.Setup);
+            // Spec first: ApplySpec rewrites mass, torque curve, gearing and
+            // drag from the catalog entry AND the parts bolted to this
+            // particular car; the fault handicaps multiply on top of that
+            // result.
+            playerCar.ApplySpec(spec, new CarTune.Stages
             {
-                hud.hideGauges = RaceHandoff.HideGauges;
-                hud.rpmFlutter = RaceHandoff.RpmFlutter;
-            }
+                power = RaceHandoff.UpPower,
+                weight = RaceHandoff.UpWeight,
+                brakes = RaceHandoff.UpBrakes,
+                suspension = RaceHandoff.UpSuspension,
+                tires = RaceHandoff.UpTires,
+            });
+            // The voice comes after the spec, and reads the mods set above it:
+            // a blower changes what the car sounds like as well as what it
+            // makes.
+            ApplyVoice(playerCar, spec, RaceHandoff.Supercharged, isPlayer: true);
+        }
+
+        /// <summary>
+        /// What the car's FAULTS do to it, plus the one setup value that lives
+        /// off the car. Everything here is a plain field some other component
+        /// reads every frame, which is what makes a fault switchable mid-drive
+        /// at all — see <see cref="ReapplyCar"/>.
+        /// </summary>
+        void ApplyCarCondition()
+        {
+            if (playerCar == null) return;
+
+            // A rich mixture or a weeping tank is a fault effect, and it used
+            // to be applied once at the end against the whole race. Applied
+            // per metre it is the same total and a visibly faster-falling
+            // needle.
+            var tank = playerCar.GetComponent<FuelTank>();
+            if (tank != null) tank.burnMult = RaceHandoff.FuelMult;
+
+            var temp = playerCar.GetComponent<EngineTemp>();
+            if (temp != null) temp.coolMult = RaceHandoff.CoolMult;
+
+            // Self-centring is the one setup value that is not a physics
+            // field: nothing in the model makes a self-aligning torque, so the
+            // honest home for "caster feel" is the input-side unwind rate,
+            // which lives on PlayerCarInput and not on the car.
+            var pin = playerCar.GetComponent<PlayerCarInput>();
+            if (pin != null && RaceHandoff.Setup != null)
+                // The car's own SNAPSHOT basis, not FromController on a car
+                // ApplySpec has already tuned. It makes no difference to this
+                // particular range today, and it is still the rule — deriving
+                // a range from a tuned car is how the next setting starts
+                // compounding.
+                pin.steerReleaseRate = CarSetupRanges
+                    .Of(playerCar.SetupRangeBasis, SetupParam.SelfCentre)
+                    .Value(RaceHandoff.Setup.selfCentre);
+
+            playerCar.faultAccelMult = RaceHandoff.AccelMult;
+            playerCar.faultGripMult = RaceHandoff.GripMult;
+            playerCar.faultBrakeMult = RaceHandoff.BrakeMult;
+            playerCar.faultShiftMult = RaceHandoff.ShiftMult;
+            playerCar.faultSteerPull = RaceHandoff.SteerPull;
+        }
+
+        void ApplyHudFlags()
+        {
+            if (hud == null) return;
+            hud.hideGauges = RaceHandoff.HideGauges;
+            hud.rpmFlutter = RaceHandoff.RpmFlutter;
+        }
+
+        /// <summary>
+        /// RE-READ THE CAR HALF OF THE REQUEST, mid-drive.
+        ///
+        /// The debug bench (<see cref="DebugCarPanel"/>) changes the owned car
+        /// — a fault added, a stage bought, a blower bolted on — rewrites the
+        /// request through the same FillCarRequestFor the garage uses, and
+        /// calls this. So a change made at the wheel takes the identical path
+        /// into the physics that it would have taken through a scene load, and
+        /// RESTART RACE, which reloads the scene off those same statics, comes
+        /// back as the car the tester left it.
+        ///
+        /// Deliberately NOT re-run: the shell and paint (a body swap rewrites
+        /// wheel radius under a moving car, and nothing the bench offers
+        /// changes it), the tank LEVEL (it has been burning since the lights),
+        /// the cargo, the field and the grid. A car with no catalog entry gets
+        /// its faults and nothing else, exactly as it does at boot.
+        /// </summary>
+        public void ReapplyCar()
+        {
+            if (playerCar == null) return;
+            var spec = CarCatalog.Get(RaceHandoff.CarSpecId);
+            if (spec != null) SpecPlayerCar(spec);
+            ApplyCarCondition();
+            ApplyHudFlags();
         }
 
         /// <summary>
