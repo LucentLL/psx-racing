@@ -2366,7 +2366,19 @@ namespace PSXRacing
             // then a body, THEN the collider — a live collider on a bodiless
             // child would join the box's compound for the instant between.
             s.pizza.SetParent(transform, true);
-            var prb = s.pizza.gameObject.AddComponent<Rigidbody>();
+            // THE ONE IT ALREADY HAS, if Capture's is still there. In play mode
+            // Destroy waits for the end of the FRAME, and a frame can hold
+            // several physics steps (three, at the 16 fps a phone drops to):
+            // packed in the first, and a wall in the ones after it throws the
+            // lid past LidAjarDeg while the old body is still pending. AddComponent then refuses ("already added"), returns
+            // null, and the line after this was a NullReferenceException inside
+            // FixedUpdate. Reusing it is safe either way: if it was pending it
+            // dies at the end of the frame, pizzaBody reads as null on the next
+            // step, and SwingLids releases the pizza again into a fresh one.
+            var prb = s.pizza.GetComponent<Rigidbody>();
+            if (prb == null) prb = s.pizza.gameObject.AddComponent<Rigidbody>();
+            if (prb == null) return;
+            prb.isKinematic = false;
             prb.mass = PizzaMass;
             prb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             prb.interpolation = RigidbodyInterpolation.Interpolate;
