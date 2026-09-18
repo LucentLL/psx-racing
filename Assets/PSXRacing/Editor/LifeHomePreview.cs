@@ -137,6 +137,80 @@ namespace PSXRacing.EditorTools
                 LifeSimManager.State.cars.Remove(extra);
             }
 
+            // MY CARS WITH EVERY PLACE ON IT. Six cars: the one being driven
+            // (garage), one on the drive, one in the yard, and one each at the
+            // mechanic, the dealership and the paint shop — which is every
+            // word the status bar can print and both of its shapes (a place,
+            // and a place + UNAVAILABLE + a ready time). The jobs are written
+            // straight into the queue rather than booked, because booking
+            // needs a fault to book and these shots are about the page.
+            if (CarCatalog.Ready && CarCatalog.All.Count > 40)
+            {
+                var ds = LifeSimManager.State;
+                var added = new System.Collections.Generic.List<OwnedCar>();
+                foreach (int pick in new[] { 3, 9, 17, 25, 33 })
+                    added.Add(CarMarket.MakeOwnedCar(ds, CarCatalog.All[pick], 40 + pick, 1000f * pick,
+                                                     CarCatalog.All[pick].price));
+                ds.pendingParts.Add(new PendingPart
+                {
+                    carId = added[2].id, faultId = "preview", label = "Slipping clutch",
+                    stat = "engine", readyDay = ds.day + 2, venue = CarWhere.VenueMechanic,
+                });
+                ds.pendingParts.Add(new PendingPart
+                {
+                    carId = added[3].id, faultId = "preview2", label = "Warped brake rotors",
+                    stat = "tires", readyDay = ds.day, readySlot = ds.slotIndex + 1,
+                    venue = CarWhere.VenueDealer,
+                });
+                ds.pendingParts.Add(new PendingPart
+                {
+                    carId = added[4].id, label = "RESPRAY — MIDNIGHT BLUE", stat = "paint",
+                    readyDay = ds.day + 1, venue = CarWhere.VenuePaint,
+                });
+                LifeSimManager.Save();
+                Shoot(outDir, "mycars", "garage");
+                Shoot(outDir, "mycars_list", "garage", scrollTo: 0f);
+                Shoot(outDir, "carmenu_away", "carmenu", garageCar: added[2].id);
+                Shoot(outDir, "prerace_away", "prerace", scrollTo: 0.4f);
+                // The calendar's own entries for those three: the block each
+                // car comes back in, in the day view, the week and the month.
+                Shoot(outDir, "home_plan_pickup", "main", mustFit: true,
+                      calDay: ds.day + 2, calSlot: LifeRules.MorningSlot);
+                Shoot(outDir, "week_cars", "main", mustFit: true, calView: "Week");
+                Shoot(outDir, "month_cars", "main", calView: "Month");
+
+                // And the ONE-CAR household with its car in the shop: the top
+                // of MY CARS is then a car that is not there, and MAIN's two
+                // drives are shut.
+                string wasActive = ds.activeCar;
+                ds.activeCar = added[2].id;
+                LifeSimManager.Save();
+                Shoot(outDir, "mycars_away", "garage");
+                Shoot(outDir, "home_car_away", "main", mustFit: true);
+                ds.activeCar = wasActive;
+
+                ds.pendingParts.RemoveAll(p => added.Exists(c => c.id == p.carId));
+                foreach (var c in added) ds.cars.Remove(c);
+                LifeSimManager.Save();
+            }
+
+            // A MEET NIGHT. The clock is wound to the first Friday night the
+            // career has left (the save is at TUE 5 JAN, so FRI 8): the hub's
+            // town row becomes the meet, and the block on the left says so.
+            // Then the planner looking AT a meet from earlier in the week.
+            {
+                var ms = LifeSimManager.State;
+                int wasDay = ms.day, wasSlot = ms.slotIndex;
+                int meetDay = CarMeets.NextMeetDay(ms.day);
+                Shoot(outDir, "home_plan_meet", "main", mustFit: true,
+                      calDay: meetDay, calSlot: CarMeets.MeetSlot);
+                ms.day = meetDay; ms.slotIndex = CarMeets.MeetSlot;
+                LifeSimManager.Save();
+                Shoot(outDir, "home_meet_night", "main", mustFit: true);
+                ms.day = wasDay; ms.slotIndex = wasSlot;
+                LifeSimManager.Save();
+            }
+
             LifeSimManager.State.debugMode = false;
             LifeSimManager.State.garageSlots = 1;
             LifeSimManager.Save();
@@ -295,9 +369,13 @@ namespace PSXRacing.EditorTools
         /// <param name="calDay">With calSlot, where to put the calendar's
         /// cursor before the page is built — the planner only exists for a
         /// block that is not NOW.</param>
+        /// <param name="garageCar">Which owned car (OwnedCar.id) a car page is
+        /// about. Without it the page falls back to the active car, which is
+        /// never the one that is away at a shop.</param>
         static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
                           bool mustFit = false, SetupPage? setupPage = null,
-                          string calView = null, int calDay = 0, int calSlot = -1)
+                          string calView = null, int calDay = 0, int calSlot = -1,
+                          string garageCar = null)
         {
             foreach (var size in Sizes)
             {
@@ -336,6 +414,8 @@ namespace PSXRacing.EditorTools
                     if (tabField == null) Debug.LogError("[HomePreview] no tab field");
                     else tabField.SetValue(screen, tab);
                 }
+
+                if (garageCar != null) SetField(screen, "garageCarId", garageCar);
 
                 // Same trick, one level down: the setup screen's sub-page is
                 // internal state, and switching it after Start would stack two

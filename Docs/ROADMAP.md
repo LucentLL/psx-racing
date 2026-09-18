@@ -5,6 +5,62 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## MY CARS, WHERE THEY ARE, AND A CAR MEET ON THE CALENDAR (2026-09-18)
+
+Asked: "Garage tab should be 'My Cars'. The car you are currently 'in' or
+last drove should be displayed at the top with a visual of the car that can
+be rotated. All cars possessed should show their current location... Garage,
+Driveway, Yard, Mechanic, Dealership, Paint Shop. If cars are currently
+undergoing repairs at a mechanic or dealership or paint shop, they should
+state that they are currently unavailable and estimated time when they will
+be ready. Ready time should automatically be added to calendars. Calendar
+should include 'car meets'. This means a parking lot full of race cars.
+Walking up to a car gives the option to challenge the racer. You can refer
+to HTML version of game for code on this."
+
+- **MY CARS** (tab id still `garage`). Top: the car the keys are on, on the
+  turntable (drag, tap to flip, right stick, `,` `.`), with its name, WHERE
+  it is, fuel, condition, and two doors - OPEN THIS CAR and WALK INTO THE
+  HOUSE. Under it every car as a three-zone status bar: the car, the PLACE,
+  the condition. An away car reads `MECHANIC - UNAVAILABLE` over `READY THU
+  7 JAN - MORNING`.
+- **Nothing is stored.** `CarWhere` reads a car's place off the job queue
+  (each `PendingPart` knows its `venue`) and the order of the cars: the one
+  you drive is in the garage, the next on the drive, the rest in the yard.
+  `GarageWorld` fills the walk-in lot from the same function, and the lot's
+  three kerbside spaces became six on the front lawn. The lift is the garage
+  bay's only - "every occupied bay gets one" was four lifts on the grass.
+- **A shop job KEEPS THE CAR** - the rule change the brief asks for.
+  Mechanic: the days quoted, back that morning. Dealership: ONE BLOCK
+  (`readySlot`; jobs now tick on every block change). Paint: overnight, and
+  the colour goes on when the job is done. DIY keeps nothing. The keys move
+  to another car if there is one; with one car, MAIN's drives are shut and
+  the pizza job falls back to its walking shift. Booked from a shop's own
+  forecourt: the dealership is a wait in the showroom, anything longer is a
+  lift home.
+- **The calendar writes both in by itself.** A pick-up is the job's own
+  promised block (CAR READY in the day view, CAR BACK in the week, P in the
+  month, READY AT DELMAR AUTO in the planner); a meet is every Friday and
+  Saturday NIGHT, by rule (`CarMeets.MeetOn`), in its own cold blue.
+- **The meet is in town**: THE EASTSIDE LOT, north side at the east end,
+  36 stalls under four NightGlow lamps, empty by day. On a meet night the
+  home screen's town row is CAR MEET TONIGHT, the HUD arrow points at the
+  lot, and twenty seeded drivers are parked in it - the same twenty every
+  time the town reloads. Walk up, CHALLENGE, and the page says the race THEY
+  want (strip / circuit / mountain / city by what they drive), their money,
+  and your fuel. A meet race spends no block and does not burn the daily cap
+  (RG2's rule); three runs a night, each driver once, second place pays
+  nothing, and the race comes back to the stall you parked in. The open
+  blacklist rival parks in seat 0.
+- **Found on the way:** every line between your street and the town charged a
+  block of the day - a run to the shops was the whole day, a shift cost two
+  blocks, and leaving for a night meet rolled the clock at the junction.
+  Crossings are commute legs now; a trip is charged once, where it ends.
+- Checked by `TestCarWhere`, `TestCarMeets`, the menu previews (`mycars*`,
+  `carmenu_away`, `week_cars`, `home_meet_night`, ...), `TownProbe`'s meet
+  section with night shots, and `tools/meet-check.ps1` (rebuilds only the
+  three scenes this touches).
+
 ## THE CALENDAR IS THE FRONT DOOR (2026-09-17)
 
 Asked: "Menu needs an overhaul... I want the Calendar to be the main

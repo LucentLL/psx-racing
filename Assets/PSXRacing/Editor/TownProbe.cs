@@ -76,10 +76,22 @@ namespace PSXRacing.EditorTools
             var townState = LifeSimManager.State;
             if (townState.cars.Count == 0) LifeRules.SeedFallbackCar(townState);
             CarMarket.RefreshLot(townState);
+            // ON A MEET NIGHT. The Eastside Lot is only full on the nights the
+            // calendar says there is a meet, so a probe run on any other clock
+            // photographs an empty car park and proves nothing about the twelve
+            // cars, their stalls, or whether a walker can get between them. The
+            // clock is put back afterwards: this is the LIVE state.
+            int wasDay = townState.day, wasSlot = townState.slotIndex;
+            townState.day = CarMeets.NextMeetDay(townState.day);
+            townState.slotIndex = CarMeets.MeetSlot;
             LifeSimManager.Save();
             foreach (var w in Object.FindObjectsByType<TownWorld>(FindObjectsSortMode.None))
                 w.PreviewBuild();
             Physics.SyncTransforms();
+            ProbeMeet(log, townState);
+            townState.day = wasDay;
+            townState.slotIndex = wasSlot;
+            LifeSimManager.Save();
 
             var car = Object.FindAnyObjectByType<CarController>();
             log.AppendLine(car != null
@@ -328,6 +340,111 @@ namespace PSXRacing.EditorTools
             // whether a lot has a way in.
             Shot("town_top", new Vector3(0f, 260f, 10f), Vector3.down, fov: 78f);
             Shot("town_top_home", new Vector3(-105f, 90f, 34f), Vector3.down, fov: 70f);
+        }
+
+        /// <summary>
+        /// THE CAR MEET: who is in the lot, whether each of them can be walked
+        /// up to, and what it looks like — by day (the geometry) and at night
+        /// (the look, which is the hour a meet actually happens at).
+        ///
+        /// The numbers are the part a photograph cannot give: a stall whose
+        /// car overlaps its neighbour still photographs as two cars, and a
+        /// hook the tarmac stands in front of photographs as a car with no
+        /// prompt. So every car is measured against the next one along and
+        /// every hook's aim point is reported with its height.
+        /// </summary>
+        static void ProbeMeet(StringBuilder log, LifeState s)
+        {
+            log.AppendLine("--- the car meet (" + LifeRules.DateLabel(s.day) + " " +
+                           LifeRules.SlotNames[s.slotIndex] + ") ---");
+            var world = Object.FindAnyObjectByType<TownWorld>();
+            if (world == null || world.meetSpots == null || world.meetSpots.Length == 0)
+            {
+                log.AppendLine("  NO MEET LOT in this scene");
+                return;
+            }
+            var roster = CarMeets.Roster(s, s.day);
+            log.AppendLine("  " + roster.Count + " drivers for " + world.meetSpots.Length + " stalls");
+            foreach (var r in roster)
+                log.AppendLine("    seat " + r.seat + "  " + r.alias.PadRight(10) + " " +
+                               (r.spec != null ? r.spec.name : "?") + "  [" + r.style + " -> " +
+                               TrackCatalog.At(r.trackIndex).name + "]  " + r.Reputation + "  $" + r.purse +
+                               (r.IsRival ? "  <-- BLACKLIST #" + r.rivalRank : ""));
+
+            // Every hook: is it there, how high does it aim, what does it say.
+            int hooks = 0, low = 0;
+            foreach (var spot in world.meetSpots)
+            {
+                if (spot == null) continue;
+                var t = spot.GetComponentInChildren<PSXRacing.OnFoot.FootTarget>(true);
+                if (t == null) continue;
+                hooks++;
+                float aimY = t.FocusPoint.y - spot.position.y;
+                if (aimY < 0.7f) low++;
+                log.AppendLine("    " + spot.name + " at " + spot.position.ToString("0.0") +
+                               "  aim +" + aimY.ToString("0.00") + " m  [" + t.Verb + "] " + t.title +
+                               "  ·  " + t.detail);
+            }
+            log.AppendLine("  " + hooks + " walk-up hooks" +
+                           (low > 0 ? "  — " + low + " AIM AT THE GROUND (the tarmac will block them)" : ""));
+
+            // Body to body: the narrowest gap between any two parked cars.
+            float tightest = float.MaxValue;
+            var boxes = new System.Collections.Generic.List<Bounds>();
+            foreach (var spot in world.meetSpots)
+            {
+                if (spot == null) continue;
+                var col = spot.GetComponentInChildren<BoxCollider>(true);
+                if (col != null) boxes.Add(col.bounds);
+            }
+            for (int i = 0; i < boxes.Count; i++)
+                for (int j = i + 1; j < boxes.Count; j++)
+                {
+                    var a = boxes[i]; var b = boxes[j];
+                    float dx = Mathf.Max(0f, Mathf.Max(a.min.x - b.max.x, b.min.x - a.max.x));
+                    float dz = Mathf.Max(0f, Mathf.Max(a.min.z - b.max.z, b.min.z - a.max.z));
+                    tightest = Mathf.Min(tightest, Mathf.Sqrt(dx * dx + dz * dz));
+                }
+            log.AppendLine("  tightest gap between two parked cars: " +
+                           (boxes.Count > 1 ? tightest.ToString("0.00") + " m" : "n/a") +
+                           (tightest < 0.6f ? "  <-- A WALKER (0.52 m) CANNOT PASS" : ""));
+
+            Shot("town_meet", new Vector3(109f, 16f, -6f), new Vector3(0f, -0.42f, 1f));
+            Shot("town_meet_eye", new Vector3(109f, 1.7f, 13f), new Vector3(0f, -0.02f, 1f));
+            Shot("town_meet_aisle", new Vector3(94f, 1.7f, 21.5f), new Vector3(1f, -0.03f, 0.12f));
+            Shot("town_meet_top", new Vector3(109f, 60f, 31f), Vector3.down, fov: 60f);
+
+            // AND AT NIGHT, which is when it is. The hour's own rig: the sun
+            // and sky through TimeOfDay, the globals pushed by hand (no Update
+            // in edit mode), the lamps' glows switched on the way NightGlow
+            // would. Put back to the baked hour afterwards, for the shots that
+            // follow.
+            Light sun = null;
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+                if (l.type == LightType.Directional) { sun = l; break; }
+            var globals = Object.FindAnyObjectByType<PSXGlobals>();
+            if (sun != null)
+            {
+                TimeOfDay.Apply(TimeOfDay.Night, sun);
+                if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+                SetGlows(true);
+                Shot("town_meet_night", new Vector3(109f, 16f, -6f), new Vector3(0f, -0.42f, 1f),
+                     sky: new Color(0.03f, 0.04f, 0.08f));
+                Shot("town_meet_night_eye", new Vector3(109f, 1.7f, 13f), new Vector3(0f, -0.02f, 1f),
+                     sky: new Color(0.03f, 0.04f, 0.08f));
+                Shot("town_meet_night_aisle", new Vector3(94f, 1.7f, 21.5f), new Vector3(1f, -0.03f, 0.12f),
+                     sky: new Color(0.03f, 0.04f, 0.08f));
+                SetGlows(false);
+                TimeOfDay.Apply(TimeOfDay.Sunset, sun);
+                if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+            }
+        }
+
+        static void SetGlows(bool lit)
+        {
+            foreach (var ng in Object.FindObjectsByType<NightGlow>(FindObjectsSortMode.None))
+                foreach (var r in ng.GetComponentsInChildren<Renderer>(true))
+                    r.enabled = lit;
         }
 
         static void ProbeNeighborhood(StringBuilder log)
@@ -800,7 +917,7 @@ namespace PSXRacing.EditorTools
                            "  yaw " + go.transform.eulerAngles.y.ToString("0"));
         }
 
-        static void Shot(string name, Vector3 at, Vector3 look, float fov = 55f)
+        static void Shot(string name, Vector3 at, Vector3 look, float fov = 55f, Color? sky = null)
         {
             var camGO = new GameObject("ProbeCam");
             var cam = camGO.AddComponent<Camera>();
@@ -814,7 +931,9 @@ namespace PSXRacing.EditorTools
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 600f;
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.63f, 0.72f, 0.83f);
+            // A flat colour stands in for the sky, so a NIGHT shot has to be told
+            // it is night or the lot is photographed under a blue noon.
+            cam.backgroundColor = sky ?? new Color(0.63f, 0.72f, 0.83f);
 
             var rt = new RenderTexture(960, 540, 24);
             cam.targetTexture = rt;

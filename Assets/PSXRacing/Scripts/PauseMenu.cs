@@ -325,6 +325,14 @@ namespace PSXRacing
             AudioListener.pause = false;
             IsOpen = false;
             RaceHandoff.ResultReady = false;
+            // QUITTING IS WHERE A TRIP ENDS, so it is never a commute leg. The
+            // flag is a static that the legs of a longer trip set on their way
+            // through — a hop back out of a shop page, the line between your
+            // street and the town — and a drive abandoned from this menu after
+            // one of those inherited it: the whole trip into town then cost no
+            // block of the day at all. The trip is charged once, at its end,
+            // and this is an end.
+            RaceHandoff.CommuteLeg = false;
             // Free roam has no finish line, so leaving IS the finish: the city
             // session banks its metres, fuel and damage on the way out, where a
             // race would bank nothing because abandoning one voids the result.

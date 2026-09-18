@@ -168,6 +168,22 @@
         public static int RivalRank;
         public static string RivalAlias;
 
+        // ---- car meet challenge ----
+        /// <summary>
+        /// This race was started by walking up to somebody's car at a CAR MEET
+        /// and calling them out (see LifeSim.CarMeets). It is a street race in
+        /// every respect but two, and both are what this flag is for: it does
+        /// not spend an activity block — the night at the meet is ONE block,
+        /// paid when the player finally drives home, however many people they
+        /// lined up against — and it does not burn the one-purse-race-a-day
+        /// cap, the same exemption RG2's meet challenges have.
+        /// </summary>
+        public static bool MeetRace;
+        /// <summary>Who was called out, for the result line. Empty for a
+        /// blacklist rival found at the meet, who has <see cref="RivalAlias"/>.
+        /// </summary>
+        public static string MeetAlias;
+
         // ---- tuning stages (the parts the player bought) ----
         // Passed as stages rather than as finished hp/kg numbers so the race
         // scene derives the effective car through the same Upgrades curves the
@@ -302,6 +318,7 @@
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null;
+            MeetRace = false; MeetAlias = null;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = UpSeat = 0;
             // A payload left out of here does not go stale, it goes to the NEXT
             // car: these statics survive a scene load by design, so the tune the

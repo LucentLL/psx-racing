@@ -74,6 +74,14 @@ namespace PSXRacing.OnFoot
         {
             public Transform bay;
             public OwnedCar car;
+            /// <summary>Bay 0: under the roof. The LIFT is bolted to the
+            /// garage floor, so it is the only bay that has one — a car on the
+            /// drive or out on the grass goes up on stands at most. It used to
+            /// be "every occupied bay gets one", which was tolerable while the
+            /// other bays were a drive and a kerb nobody walked out to, and is
+            /// four red two-post lifts on the front lawn now that the cars the
+            /// garage cannot hold stand in the yard.</summary>
+            public bool garage;
             public FootTarget hook;      // the car itself
             public FootTarget rigHook;   // the jack, or the lift
             public Transform shell;      // body + wheels + collider, as one
@@ -144,14 +152,22 @@ namespace PSXRacing.OnFoot
         // ------------------------------------------------------------------
         void BuildCars()
         {
-            var cars = S.cars;
+            // THE CARS THAT ARE AT HOME, IN THE ORDER THEY ARE PARKED — the
+            // same list the MY CARS page reads its GARAGE / DRIVEWAY / YARD
+            // from (CarWhere.HomeOrder), against bays the builder lays out in
+            // that order: the garage, the drive, then the grass. It used to be
+            // S.cars by index, which put the starter car under cover for ever
+            // and — since a job at a shop started keeping the car — would
+            // have stood a car in its bay while the page said it was across
+            // town on a ramp.
+            var cars = CarWhere.HomeOrder(S);
             for (int i = 0; i < bays.Length; i++)
             {
                 var bay = bays[i];
                 if (bay == null) continue;
 
                 OwnedCar car = i < cars.Count ? cars[i] : null;
-                var st = new BayState { bay = bay, car = car };
+                var st = new BayState { bay = bay, car = car, garage = i == 0 };
                 bayStates.Add(st);
 
                 var hookGO = new GameObject(car != null ? "Bay_" + car.displayName : "Bay_Empty");
@@ -190,7 +206,7 @@ namespace PSXRacing.OnFoot
                 // player put on the lift last night is on the lift when they
                 // walk back in, and it does not perform the two seconds of
                 // going up again for an audience that has just arrived.
-                SetRaise(st, Toolbox.RaiseOf(S, car), instant: true);
+                SetRaise(st, RaiseHere(st), instant: true);
 
                 // Aim at the roof line rather than at the parking spot on the
                 // floor: standing beside a car and looking at it means looking
@@ -234,6 +250,25 @@ namespace PSXRacing.OnFoot
         /// "the car is up and I can see under it". Swapping in real meshes
         /// later is a change to this one method.
         /// </summary>
+        /// <summary>
+        /// How high this car stands IN THIS BAY: what the save says, held to
+        /// what the bay can do. The save can say LIFT about a car that is on
+        /// the grass — it was put up in the garage and another car has taken
+        /// the garage since — and out there it is on stands.
+        /// </summary>
+        Toolbox.Raise RaiseHere(BayState st)
+        {
+            var r = Toolbox.RaiseOf(S, st.car);
+            return !st.garage && r == Toolbox.Raise.Lift ? Toolbox.Raise.Stands : r;
+        }
+
+        /// <summary>The best this bay can raise a car to.</summary>
+        Toolbox.Raise BestHere(BayState st)
+        {
+            var best = Toolbox.BestRaise(S);
+            return !st.garage && best == Toolbox.Raise.Lift ? Toolbox.Raise.Stands : best;
+        }
+
         void BuildRaiseRig(BayState st, CarModelDef def)
         {
             var bay = st.bay;
@@ -299,13 +334,15 @@ namespace PSXRacing.OnFoot
             }
             standsGO.SetActive(false);
 
-            if (!Toolbox.Owned(S, Toolbox.Lift)) return;
+            // THE GARAGE BAY ONLY — see BayState.garage.
+            if (!st.garage || !Toolbox.Owned(S, Toolbox.Lift)) return;
 
             // Two posts, bolted to the floor, standing whether or not anything
             // is on them — a lift is installed equipment, not something you get
-            // out of a drawer. Every occupied bay gets one: the money bought
-            // the fit-out, and the alternative is one lift bay and a
-            // car-shuffling errand between the player and the frame rails.
+            // out of a drawer. The car-shuffling errand that "one lift bay"
+            // used to mean is one press now: the garage holds the car the
+            // player DRIVES (CarWhere.HomeOrder), so taking a car's keys is
+            // what puts it over the lift.
             //
             // Solid, because they are three metres of steel in the middle of
             // the walking route and walking through them would say otherwise.
@@ -546,6 +583,9 @@ namespace PSXRacing.OnFoot
             // together — a verb set once at spawn is a button that lies after
             // the first press. The self-test sweep fails any target that has an
             // action and no verb.
+            var away = new System.Collections.Generic.List<OwnedCar>();
+            foreach (var c in S.cars) if (CarWhere.Away(S, c)) away.Add(c);
+            int awayNext = 0;
             for (int i = 0; i < bayStates.Count; i++)
             {
                 var st = bayStates[i];
@@ -555,7 +595,21 @@ namespace PSXRacing.OnFoot
 
                 if (car == null)
                 {
-                    hook.title = "EMPTY BAY";
+                    // A space with nothing in it is, first, the space of a car
+                    // that is AWAY: the player walked out here to look at it
+                    // and it is not there, and the honest thing for the bare
+                    // tarmac to say is where it went and when it is back.
+                    if (awayNext < away.Count)
+                    {
+                        var gone = away[awayNext++];
+                        hook.title = gone.displayName.ToUpperInvariant();
+                        hook.detail = "Not here. " + CarWhere.BlockedReason(S, gone) + ".";
+                        hook.action = "";
+                        hook.verb = "";
+                        hook.onUse = null;
+                        continue;
+                    }
+                    hook.title = "EMPTY SPACE";
                     hook.detail = S.cars.Count >= S.garageSlots
                         ? "No room booked for another car."
                         : "Room for one more.";
@@ -751,8 +805,8 @@ namespace PSXRacing.OnFoot
             var hook = st.rigHook;
             if (hook == null || st.car == null) return;
 
-            var now = Toolbox.RaiseOf(S, st.car);
-            var best = Toolbox.BestRaise(S);
+            var now = RaiseHere(st);
+            var best = BestHere(st);
             bool up = now != Toolbox.Raise.Ground;
             string name = st.car.displayName.ToUpperInvariant();
 
@@ -772,7 +826,10 @@ namespace PSXRacing.OnFoot
             var bay = st;
             hook.onUse = () =>
             {
-                var to = Toolbox.ToggleRaise(S, bay.car);
+                // Up to the best THIS BAY has, or back down. Toolbox.ToggleRaise
+                // would send a car on the lawn up a lift that is in the garage.
+                var to = Toolbox.SetRaise(S, bay.car,
+                    RaiseHere(bay) == Toolbox.Raise.Ground ? BestHere(bay) : Toolbox.Raise.Ground);
                 SetRaise(bay, to);
                 LifeSimManager.Save();
                 RefreshLabels();
@@ -904,6 +961,13 @@ namespace PSXRacing.OnFoot
         {
             var car = S.ActiveCar;
             if (car == null) { GoHome("garage"); return; }
+            // Belt and braces: every car standing in a bay is at home by
+            // construction, but the keys can be on one that is not.
+            if (!CarWhere.Available(S, car))
+            {
+                screen?.Toast(CarWhere.BlockedReason(S, car));
+                return;
+            }
             if (car.fuel <= 5f)
             {
                 screen?.Toast("THE TANK IS DRY — FUEL IT ON THE BILLS PAGE FIRST");

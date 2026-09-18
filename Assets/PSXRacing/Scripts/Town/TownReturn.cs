@@ -41,6 +41,13 @@ namespace PSXRacing.Town
         /// "the town": the way back should name the place it goes.</summary>
         public static string VenueName = "";
 
+        /// <summary>Which car was driven there (OwnedCar.id). The front end
+        /// reads it for the one case the way back cannot be offered: the
+        /// player walked into the mechanic's and LEFT THE CAR WITH THEM, so
+        /// there is nothing on the forecourt to walk back out to — see
+        /// LifeHomeScreen.Booked.</summary>
+        public static string CarId = "";
+
         static Vector3 carPos;
         static Quaternion carRot;
 
@@ -54,6 +61,7 @@ namespace PSXRacing.Town
         public static void Arm(CarController car, string venueName)
         {
             VenueName = string.IsNullOrEmpty(venueName) ? "THE CAR" : venueName;
+            CarId = LifeSimManager.State != null ? LifeSimManager.State.activeCar : "";
             if (car != null)
             {
                 carPos = car.transform.position;
@@ -107,6 +115,7 @@ namespace PSXRacing.Town
             Pending = false;
             SpawnAtVenue = false;
             VenueName = "";
+            CarId = "";
         }
     }
 }

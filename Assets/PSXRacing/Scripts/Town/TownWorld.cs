@@ -58,6 +58,17 @@ namespace PSXRacing.Town
         public Transform homeDoor;
         public Transform mechanicDoor;
         public Transform paintDoor;
+        /// <summary>
+        /// THE EASTSIDE LOT's meet stalls, one per seat of
+        /// <see cref="CarMeets.Roster"/> — seat 0, the blacklist rival's, first.
+        /// Fewer than the lot has painted: the rest stay empty so there is
+        /// somewhere for the player to park. Empty on the neighbourhood's
+        /// TownWorld, which has no lot.
+        /// </summary>
+        public Transform[] meetSpots = new Transform[0];
+        /// <summary>The lot's entrance: where the signpost points, and a
+        /// walk-up sign that says when the meets are.</summary>
+        public Transform meetSign;
         /// <summary>PSX-lit grey for the cinder blocks under stripped wrecks —
         /// materials are bake-time things and this class runs at runtime.</summary>
         public Material blockMaterial;
@@ -73,6 +84,11 @@ namespace PSXRacing.Town
 
         bool built;
         float cueNext;
+        /// <summary>A line that outranks the signpost for a few seconds: how
+        /// the race went, said in the lot the player has just been put back
+        /// down in. See <see cref="CarMeets.ResultLine"/>.</summary>
+        string flash;
+        float flashUntil;
 
         void Awake() { Cue = null; }
 
@@ -108,6 +124,19 @@ namespace PSXRacing.Town
                 player.ResetTo(back + Vector3.up * 0.3f, facing);
             }
             TownReturn.SpawnAtVenue = false;
+
+            // BACK FROM THE START LINE. A race called out at the car meet comes
+            // back to the lot (the block above has just put the car on the
+            // stall it was parked in), and what happened out there is the
+            // first thing the player wants to read. One-shot, like every flag
+            // in this method.
+            if (!string.IsNullOrEmpty(CarMeets.ResultLine))
+            {
+                flash = CarMeets.ResultLine;
+                flashUntil = Time.unscaledTime + 10f;
+                Cue = flash;
+            }
+            CarMeets.ResultLine = null;
 
             // THROUGH THE LINE, ROLLING. A car that left the last zone by
             // driving through its edge arrives in this one the same way: put
@@ -201,6 +230,12 @@ namespace PSXRacing.Town
         /// </summary>
         string BuildCue()
         {
+            if (flash != null)
+            {
+                if (Time.unscaledTime < flashUntil) return flash;
+                flash = null;
+            }
+
             Transform anchor = null;
             string label = null;
             // What the cue says once the arrow stops being useful. Null means
@@ -282,6 +317,43 @@ namespace PSXRacing.Town
                     var way = NearestEdge();
                     anchor = way != null ? way.transform : null;
                     label = "GO TO WORK — DRIVE INTO TOWN";
+                    near = "THE LINE — DRIVE THROUGH IT TO CHOOSE";
+                }
+            }
+
+            // THE CAR MEET, when the player set off for it (the home screen's
+            // CAR MEET TONIGHT row sets Heading). Last in the chain: an order
+            // on the seat and a shift to get to both outrank a night out. In
+            // town the arrow points at the lot; on your own street the lot is
+            // in another scene, so it points at the way out, exactly as the
+            // shift's does.
+            else if (CarMeets.Heading && CarMeets.OnNow(S))
+            {
+                if (meetSign != null)
+                {
+                    // ARRIVING ENDS THE SIGNPOST. The anchor is the sign at the
+                    // lot's mouth and the lot is forty metres deep, so a cue
+                    // that kept running would spend the evening pointing a
+                    // parked player back at the gate they came in by.
+                    if (player != null &&
+                        (meetSign.position - player.transform.position).sqrMagnitude < 20f * 20f)
+                    {
+                        CarMeets.Heading = false;
+                        // Said for a few seconds rather than for one tick of
+                        // this 0.4 s timer: it is the only instruction the
+                        // meet gives, and the player is busy parking.
+                        flash = "THE MEET — PARK UP, GET OUT, WALK ROUND";
+                        flashUntil = Time.unscaledTime + 7f;
+                        return flash;
+                    }
+                    anchor = meetSign;
+                    label = "CAR MEET — " + CarMeets.PlaceName;
+                }
+                else
+                {
+                    var way = NearestEdge();
+                    anchor = way != null ? way.transform : null;
+                    label = "CAR MEET — DRIVE INTO TOWN";
                     near = "THE LINE — DRIVE THROUGH IT TO CHOOSE";
                 }
             }
@@ -419,6 +491,24 @@ namespace PSXRacing.Town
                 t.title = Junkyard.YardName;
                 t.detail = "Pull your own. Tools for hire at the hut, " +
                            MenuKit.Money(Junkyard.ToolRentalFee) + " unless you brought your own.";
+                t.action = "";
+                t.verb = "";
+                t.onUse = null;
+            }
+
+            if (meetSign != null)
+            {
+                // A SIGN, NOT A DOOR — the yard gate's rule. It says what the
+                // lot is and when it is alive, because the calendar is the only
+                // other place a player learns that meets exist, and somebody
+                // who wandered in here on a Tuesday afternoon should not be
+                // left wondering what the empty car park is for.
+                var t = MakeDoor(meetSign, "MeetSignTarget", 5f);
+                t.title = CarMeets.PlaceName;
+                t.detail = CarMeets.OnNow(S)
+                    ? "Meet night. Walk up to a car and call its driver out — " +
+                      CarMeets.MaxRunsPerMeet + " runs a night."
+                    : "Car meets, Friday and Saturday nights. It is on your calendar.";
                 t.action = "";
                 t.verb = "";
                 t.onUse = null;
@@ -641,6 +731,115 @@ namespace PSXRacing.Town
 
             FillDealer();
             FillYard();
+            FillMeet();
+        }
+
+        // ------------------------------------------------------------------
+        //  the car meet
+        // ------------------------------------------------------------------
+        readonly System.Collections.Generic.List<(OnFoot.FootTarget hook, MeetRacer racer)> meetHooks =
+            new System.Collections.Generic.List<(OnFoot.FootTarget, MeetRacer)>();
+
+        /// <summary>
+        /// A PARKING LOT FULL OF RACE CARS, on the nights the calendar says
+        /// there is one (<see cref="CarMeets"/>).
+        ///
+        /// The dealership's rule again — the LOT is baked, what stands on it
+        /// comes out of the save — except that here nothing is in the save but
+        /// the date: the roster is seeded off the day, so the lot the player
+        /// comes back to after a race is the lot they left, car for car. Any
+        /// other block of any other day this does nothing and the lot is an
+        /// empty car park, which is what it is.
+        ///
+        /// Each car is its driver. There is no figure standing beside it, for
+        /// the reason the seller's driveway has none: the car is the thing you
+        /// walk up to and the car is what you talk to.
+        /// </summary>
+        void FillMeet()
+        {
+            if (meetSpots == null || meetSpots.Length == 0 || S == null || !CarMeets.OnNow(S)) return;
+
+            foreach (var racer in CarMeets.Roster(S, S.day))
+            {
+                if (racer.seat < 0 || racer.seat >= meetSpots.Length) continue;
+                var spot = meetSpots[racer.seat];
+                if (spot == null || racer.spec == null) continue;
+                var def = CarShell.DefFor(racer.spec);
+                if (def == null) continue;
+                // Seeded off the DRIVER, so their car is the same colour every
+                // time the lot is rebuilt tonight.
+                int skin = CarShell.SkinFor(def, racer.spec, racer.Key.GetHashCode());
+                CarShell.Spawn(spot, def, skin, out Vector3 roof);
+
+                var go = new GameObject("MeetCarTarget");
+                go.transform.SetParent(spot, false);
+                // The roof line, never the axle midpoint: a hook aimed at road
+                // height is one the tarmac stands in front of.
+                var focus = new GameObject("Focus");
+                focus.transform.SetParent(spot, false);
+                focus.transform.localPosition = roof;
+
+                var t = go.AddComponent<OnFoot.FootTarget>();
+                t.range = 4.6f;
+                t.focus = focus.transform;
+                t.ignoreRoot = spot;
+                meetHooks.Add((t, racer));
+                RefreshMeetCar(t, racer);
+            }
+        }
+
+        /// <summary>One driver's prompt, from the night as it stands. Rewritten
+        /// when the page closes, because walking away from a driver you cannot
+        /// afford the fuel to race is not the last word on it.</summary>
+        void RefreshMeetCar(OnFoot.FootTarget t, MeetRacer racer)
+        {
+            if (t == null || racer == null) return;
+            // CLIPPED. The walk-up title is 30pt bold in a 980-unit box with no
+            // ellipsis mode, which is about fifty capitals — and the catalog
+            // has names like "Subaru IMPREZA Sport Wagon WRX STi Version VI
+            // (GF) `99", which with a driver's name in front ran off both
+            // sides of a phone. The full name is on the page the prompt opens.
+            string car = racer.spec != null ? racer.spec.name.ToUpperInvariant() : "A CAR";
+            if (car.Length > 32) car = car.Substring(0, 31).TrimEnd() + "…";
+            t.title = racer.IsRival ? "#" + racer.rivalRank + " " + racer.alias + "  —  " + car
+                                    : racer.alias + "'S " + car;
+            bool raced = CarMeets.AlreadyRaced(S, racer);
+            bool done = CarMeets.RunsTonight(S) >= CarMeets.MaxRunsPerMeet;
+            var track = racer.trackIndex >= 0 && racer.trackIndex < TrackCatalog.Count
+                ? TrackCatalog.At(racer.trackIndex) : null;
+            t.detail = raced ? "You have run them tonight. They are done with you."
+                : done ? "Three runs is a night. Nobody else is lining up."
+                : racer.spec.hp + " hp " + racer.spec.drv + "   ·   " + racer.Reputation +
+                  "   ·   " + (track != null ? track.name : racer.style) +
+                  "   ·   " + MenuKit.Money(CarMeets.PurseFor(S, racer));
+            // Empty action = a label, not a control: FootInteractor will not
+            // fire it and the thumb panel draws no button. A driver who has
+            // been raced is scenery for the rest of the night.
+            bool open = !raced && !done;
+            t.action = open ? "CALL THEM OUT" : "";
+            t.verb = open ? "CHALLENGE" : "";
+            t.onUse = open ? (System.Action)(() => OpenMeet(t, racer)) : null;
+        }
+
+        /// <summary>Walk up and talk. Freezes the walker while the page is up
+        /// and rewrites the hook on the way out — the wreck screen's contract.
+        /// </summary>
+        void OpenMeet(OnFoot.FootTarget t, MeetRacer racer)
+        {
+            var screen = gameObject.AddComponent<OnFoot.MeetScreen>();
+            screen.racer = racer;
+            screen.playerCar = player;
+            var walk = OnFoot.FirstPersonWalk.Current;
+            if (walk != null) walk.enabled = false;
+            screen.onClosed = () =>
+            {
+                if (walk != null) walk.enabled = true;
+                RefreshMeetCar(t, racer);
+                var foot = FindFirstObjectByType<OnFoot.FootScreen>();
+                if (foot != null) foot.Invalidate();
+                Destroy(screen);
+            };
+            screen.Open();
         }
 
         void FillDealer()

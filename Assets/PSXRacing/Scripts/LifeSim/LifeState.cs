@@ -236,6 +236,24 @@ namespace PSXRacing.LifeSim
         /// records what happened — which is what makes the calendar a planner
         /// rather than a history.</summary>
         public List<RaceBooking> bookings = new List<RaceBooking>();
+
+        // === Car meets (see CarMeets) ===
+        /// <summary>The day of the last meet the player RACED at. The meets
+        /// themselves are not in the save — they fall on the calendar by rule,
+        /// so every week of a career has them without anything being stored —
+        /// but who has already been raced tonight has to survive the trip to
+        /// the start line and back. ADDED field: zero on an old save, which is
+        /// "never", which is right.</summary>
+        public int meetDay;
+        /// <summary>Who has already been raced at the <see cref="meetDay"/>
+        /// meet, by the catalog id of the car they brought — every car in the
+        /// lot is a different model, so the car IS the driver, and an id
+        /// survives the lot being re-dealt where a stall number would not. A
+        /// driver you have run once tonight does not line up again, and the
+        /// list's LENGTH is how many runs the night has had — the lot thins
+        /// out after <see cref="CarMeets.MaxRunsPerMeet"/>.</summary>
+        public List<string> meetRaced = new List<string>();
+
         public OwnedCar FindCar(string id) =>
             cars.Find(c => c.id == id);
 
@@ -386,7 +404,26 @@ namespace PSXRacing.LifeSim
         public string stat;
         public int add;
         public int readyDay;
-        public int venue;        // 0 diy / 1 mechanic / 2 dealer
+        /// <summary>WHERE the work is being done: 0 your own garage (DIY),
+        /// 1 the mechanic, 2 the dealership, 3 the paint shop — see
+        /// <see cref="CarWhere"/>. Anything above zero means the CAR IS THERE,
+        /// not at home, and cannot be driven until the job is done.</summary>
+        public int venue;        // 0 diy / 1 mechanic / 2 dealer / 3 paint shop
+        /// <summary>
+        /// Which BLOCK of <see cref="readyDay"/> the job is done by — 0 morning,
+        /// 1 day, 2 night. A mechanic hands the car back first thing in the
+        /// morning, which is what every job in a save written before this
+        /// field reads back as (an ADDED int is zero). The dealership is the
+        /// one that uses it: "same day" there means the NEXT block, so a car
+        /// dropped off in the morning is back for the afternoon.
+        /// </summary>
+        public int readySlot;
+        /// <summary>The livery a RESPRAY will leave the car wearing, by baked
+        /// name (see <see cref="OwnedCar.paintSkin"/>). Empty on every job that
+        /// is not a respray. The colour goes on the car when the job is DONE,
+        /// not when it is paid for: a car standing in a spray booth is not yet
+        /// the colour on the invoice.</summary>
+        public string paintSkin = "";
 
         /// <summary>Empty for a fault repair; otherwise the upgrade category key
         /// ("power", "weight", "brakes", "suspension", "tires") this job builds.
@@ -410,13 +447,19 @@ namespace PSXRacing.LifeSim
 
         public bool IsUpgrade => !string.IsNullOrEmpty(upgradeKind);
 
+        /// <summary>A respray at the paint shop. Told by the VENUE rather than
+        /// by <see cref="paintSkin"/>, because a refinish in the colour the car
+        /// already wears — or back to the factory one — is a respray with an
+        /// empty skin name.</summary>
+        public bool IsRespray => venue == CarWhere.VenuePaint;
+
         /// <summary>A part bought off the salvage yard's shelf rather than
         /// booked at a bench: no fault behind it and no stage in front of it,
-        /// which is a combination nothing else in the queue produces. It is a
-        /// thing you OWN and are waiting to fit, and that is why the mechanic's
-        /// supersede rule has to be able to see it — see
-        /// <see cref="LifeRules.BuyService"/>.</summary>
-        public bool IsYardPart => !IsUpgrade && string.IsNullOrEmpty(faultId);
+        /// which is a combination nothing else in the queue produces — but for
+        /// a respray, which is excluded by name. It is a thing you OWN and are
+        /// waiting to fit, and that is why the mechanic's supersede rule has to
+        /// be able to see it — see <see cref="LifeRules.BuyService"/>.</summary>
+        public bool IsYardPart => !IsUpgrade && !IsRespray && string.IsNullOrEmpty(faultId);
     }
 
     /// <summary>

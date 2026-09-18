@@ -351,6 +351,11 @@ namespace PSXRacing.LifeSim
             if (!plan.valid) return "already maxed";
             if (PendingFor(s, car, kind) != null) return "already booked";
             if (!useShop && !plan.canDiy) return "needs skill " + plan.skillReq;
+            // A car is in one place: the shop cannot build a car that is at
+            // the dealership, and you cannot build one that is not at home.
+            string elsewhere = CarWhere.RefuseWork(s, car,
+                useShop ? CarWhere.VenueMechanic : CarWhere.VenueDiy);
+            if (elsewhere != null) return elsewhere;
 
             int price = useShop ? plan.shopPrice : plan.diyPrice;
             if (s.money < price) return "need " + MenuKit.Money(price);
@@ -375,6 +380,9 @@ namespace PSXRacing.LifeSim
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": booked " + KindLabels[(int)kind] +
                               " stage " + plan.toStage + " (" + MenuKit.Money(price) + ", " +
                               plan.days + "d)");
+            // A shop build keeps the car for as long as it takes: it is on
+            // their ramp, not on your drive. Doing it yourself does not.
+            if (useShop) LifeRules.DropOff(s, car, CarWhere.VenueMechanic);
             return null;
         }
 
@@ -575,6 +583,9 @@ namespace PSXRacing.LifeSim
             var o = OfferFor(s, car, spec, mod);
             if (!o.available) return o.blockedReason ?? "unavailable";
             if (!o.canDiy) return "needs skill " + o.skillReq;
+            // Garage work, on a car that has to be IN the garage.
+            string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenueDiy);
+            if (elsewhere != null) return elsewhere;
             if (s.money < o.price) return "need " + MenuKit.Money(o.price);
 
             s.money -= o.price;

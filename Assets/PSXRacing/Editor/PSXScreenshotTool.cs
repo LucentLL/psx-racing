@@ -647,6 +647,17 @@ namespace PSXRacing.EditorTools
                      Quaternion.LookRotation(
                          new Vector3(gd.center.x, gd.max.y + 1.3f, gd.max.z) - onDrive));
             }
+            // THE YARD, from the kerb: the cars that are not in the garage or
+            // on the drive stand on the front lawn now (CarWhere's GARAGE /
+            // DRIVEWAY / YARD, in bay order), and nothing else here looks at
+            // the lawn at all. Framed off the slab for the reason above — the
+            // lot is laid out from a MEASURED garage door.
+            if (FindBounds("Driveway", out var yd))
+            {
+                Vector3 kerb = new Vector3(yd.center.x + 2f, 3.4f, yd.min.z - 7f);
+                Shot(cam, "garage_9_yard", kerb,
+                     Quaternion.LookRotation(new Vector3(yd.center.x, 0.6f, yd.max.z - 4f) - kerb));
+            }
             // Down the row of bays from the corner.
             Shot(cam, "garage_2_bays", new Vector3(-9.4f, 1.62f, -1.2f), Quaternion.Euler(3f, 38f, 0f));
             // The parts rack, from where you would stand to read it.
@@ -721,6 +732,15 @@ namespace PSXRacing.EditorTools
             {
                 CarMarket.MakeOwnedCar(s, CarCatalog.All[1], 84, 62000f, 7800);
                 CarMarket.MakeOwnedCar(s, CarCatalog.All[2], 61, 118000f, 3200);
+            }
+            // Enough cars that the YARD has some in it: the garage takes one,
+            // the drive one, and the lawn the rest.
+            if (CarCatalog.Ready && CarCatalog.All.Count > 40)
+            {
+                s.garageSlots = 8;
+                foreach (int pick in new[] { 9, 17, 25, 33 })
+                    CarMarket.MakeOwnedCar(s, CarCatalog.All[pick], 70, 40000f,
+                                           CarCatalog.All[pick].price);
             }
 
             var car = s.ActiveCar;

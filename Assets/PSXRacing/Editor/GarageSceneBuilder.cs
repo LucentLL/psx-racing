@@ -77,10 +77,12 @@ namespace PSXRacing.EditorTools
         /// </summary>
         const float RealInteriorDoorH = 2.03f;
 
-        /// <summary>Five parking spots: the garage bay, the driveway, and
-        /// three kerbside. The LifeSim's slot ladder decides how many hold
-        /// cars; an empty kerb is a picture of room to grow.</summary>
-        const int Bays = 5;
+        /// <summary>Eight places to stand a car: the garage bay, the driveway,
+        /// and six on the front lawn — GARAGE, DRIVEWAY and YARD, in the order
+        /// <see cref="PSXRacing.LifeSim.CarWhere"/> fills them. The LifeSim's
+        /// slot ladder decides how many hold cars; an empty lawn is a picture
+        /// of room to grow.</summary>
+        const int Bays = 8;
 
         static Shader psxLit;
 
@@ -495,15 +497,28 @@ namespace PSXRacing.EditorTools
             // left seated on the old lawn height parks with 9 cm of each wheel
             // in the concrete.
             Bay(1, new Vector3(garX, DriveY, -14.5f), 180f);
-            // Bays 2-4: parallel-parked along the kerb.
-            Bay(2, new Vector3(4.5f, 0f, StreetZ + 1.6f), 90f);
-            Bay(3, new Vector3(12.5f, 0f, StreetZ + 1.6f), 90f);
-            Bay(4, new Vector3(-13.5f, 0f, StreetZ + 1.6f), 90f);
-
-            // Painted kerb ticks so the parking reads as parking.
-            foreach (float x in new[] { 0.5f, 8.5f, 16.5f, -9.5f, -17.5f })
-                Slab(parent, "KerbTick", new Vector3(x, 0.012f, StreetZ + 1.6f),
-                     new Vector3(0.1f, 0.02f, 4.6f), lineMat, false);
+            // Bays 2-7: THE YARD. On the front lawn either side of the drive,
+            // noses to the street and none of them quite square, the way cars
+            // end up on grass. They were three kerbside spaces on the street,
+            // which was fine until the MY CARS page started saying where each
+            // car IS: its three words for home are GARAGE, DRIVEWAY and YARD
+            // (the owner's, 2026-09-18), and a page that says YARD over a car
+            // parked at the kerb is the page and the lot disagreeing. The
+            // ORDER is CarWhere.HomeOrder's — garage, drive, then these — and
+            // GarageWorld fills them by index, so which car is on the grass is
+            // decided in one place.
+            //
+            // Measured off the drive rather than the lot: the garage door is
+            // MEASURED (garX moves with the model), and the strip in front of
+            // the porch beside it is left clear so the walk from the front
+            // door to the drive does not run through a bumper.
+            float lawnZ = -13.4f;
+            Bay(2, new Vector3(garX + 8.0f, 0f, lawnZ), 172f);
+            Bay(3, new Vector3(garX - 11.0f, 0f, lawnZ - 0.4f), 187f);
+            Bay(4, new Vector3(garX + 12.6f, 0f, lawnZ + 0.5f), 184f);
+            Bay(5, new Vector3(garX - 15.6f, 0f, lawnZ + 0.3f), 176f);
+            Bay(6, new Vector3(garX + 17.2f, 0f, lawnZ - 0.3f), 178f);
+            Bay(7, new Vector3(garX - 20.2f, 0f, lawnZ), 183f);
 
             return bays;
         }

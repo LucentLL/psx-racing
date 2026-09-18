@@ -70,6 +70,8 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCalendar), TestCalendar);
             Guard(nameof(TestDiary), TestDiary);
             Guard(nameof(TestDayRecord), TestDayRecord);
+            Guard(nameof(TestCarWhere), TestCarWhere);
+            Guard(nameof(TestCarMeets), TestCarMeets);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -377,6 +379,272 @@ namespace PSXRacing.EditorTools
         // ---------------------------------------------------------------
         //  The delivery roster
         // ---------------------------------------------------------------
+        /// <summary>
+        /// WHERE A CAR IS, and whether the player can have it.
+        ///
+        /// The owner's rule (2026-09-18): every car says where it is — garage,
+        /// driveway, yard, mechanic, dealership, paint shop — and one that is
+        /// away being worked on is UNAVAILABLE until a stated time, which is on
+        /// the calendar. None of it is stored; it is read off the job queue and
+        /// the order of the cars. So what is asserted here is the READING: the
+        /// three home places fill in order, a shop job moves the car and the
+        /// keys, the ready time is the job's own, and the calendar's pick-up
+        /// entry is in the block the job is promised for and nowhere else.
+        /// </summary>
+        static void TestCarWhere()
+        {
+            Line("where the cars are:");
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            if (!CarCatalog.Ready || CarCatalog.All.Count < 20)
+            { Check(false, "the catalog is loaded"); return; }
+            s.garageSlots = 6;
+            s.money = 500000;
+            var a = s.ActiveCar;
+            var b = CarMarket.MakeOwnedCar(s, CarCatalog.All[3], 80, 1000f, 9000);
+            var c = CarMarket.MakeOwnedCar(s, CarCatalog.All[9], 80, 1000f, 9000);
+            var d = CarMarket.MakeOwnedCar(s, CarCatalog.All[17], 80, 1000f, 9000);
+
+            Check(CarWhere.PlaceOf(s, a) == CarPlace.Garage, "the car you drive is in the GARAGE",
+                  CarWhere.PlaceOf(s, a));
+            Check(CarWhere.PlaceOf(s, b) == CarPlace.Driveway, "the next one is on the DRIVEWAY",
+                  CarWhere.PlaceOf(s, b));
+            Check(CarWhere.PlaceOf(s, c) == CarPlace.Yard && CarWhere.PlaceOf(s, d) == CarPlace.Yard,
+                  "and the rest are in the YARD");
+            s.activeCar = c.id;
+            Check(CarWhere.PlaceOf(s, c) == CarPlace.Garage && CarWhere.PlaceOf(s, a) == CarPlace.Driveway,
+                  "taking another car's keys puts THAT one in the garage");
+            s.activeCar = a.id;
+
+            // A mechanic's job takes the car, and the keys.
+            var f = new CarFault { id = "test_clutch", label = "Slipping clutch", hidden = false,
+                                   stat = "engine", cost = 300, days = 2, add = 10 };
+            a.faults.Add(f);
+            int day0 = s.day;
+            string err = LifeRules.OrderRepair(s, a, f, FaultCatalog.Venue.Mechanic);
+            Check(err == null, "a mechanic's job is accepted", err);
+            Check(CarWhere.PlaceOf(s, a) == CarPlace.Mechanic && !CarWhere.Available(s, a),
+                  "the car is AT THE MECHANIC and cannot be driven", CarWhere.PlaceOf(s, a));
+            Check(s.activeCar == b.id, "the keys moved to the next car that is at home", s.activeCar);
+            Check(CarWhere.PlaceOf(s, b) == CarPlace.Garage,
+                  "which is now the one in the garage", CarWhere.PlaceOf(s, b));
+            Check(!string.IsNullOrEmpty(LifeRules.lastDropOff) &&
+                  LifeRules.lastDropOff.Contains(CarWhere.MechanicName),
+                  "and the booking says where the car went", LifeRules.lastDropOff);
+            LifeRules.lastDropOff = null;
+            Check(CarWhere.ReadyLabel(s, a).Contains("MORNING"),
+                  "its ready time names the block", CarWhere.ReadyLabel(s, a));
+            Check(!CarWhere.HomeOrder(s).Contains(a), "and it has left the home lot's parking order");
+
+            // A car is in ONE place.
+            var g = new CarFault { id = "test_rotors", label = "Warped rotors", hidden = false,
+                                   stat = "tires", cost = 200, days = 1, add = 10 };
+            a.faults.Add(g);
+            Check(LifeRules.OrderRepair(s, a, g, FaultCatalog.Venue.Dealer) != null,
+                  "the dealership cannot work on a car that is at the mechanic's");
+            Check(LifeRules.OrderRepair(s, a, g, FaultCatalog.Venue.Mechanic) == null,
+                  "but the mechanic can be given more to do");
+            LifeRules.lastDropOff = null;
+
+            // THE CALENDAR ENTRY: in the block the LAST job is promised for,
+            // and in no other.
+            var job = CarWhere.AwayJob(s, a);
+            Check(job != null && job.readyDay == day0 + 2,
+                  "the car comes back when its LAST job is done", job != null ? job.readyDay : -1);
+            Check(CarWhere.ReturnsAt(s, day0 + 2, LifeRules.MorningSlot).Count == 1,
+                  "the calendar has it coming back that morning");
+            Check(CarWhere.ReturnsAt(s, day0 + 1, LifeRules.MorningSlot).Count == 0 &&
+                  CarWhere.ReturnsAt(s, day0 + 2, LifeRules.DaySlot).Count == 0,
+                  "and in no other block");
+
+            // It comes HOME when the day comes, says so, and the keys stay put.
+            LifeRules.SleepUntilMorning(s);
+            Check(CarWhere.Away(s, a), "it is still away the morning after");
+            LifeRules.SleepUntilMorning(s);
+            Check(!CarWhere.Away(s, a), "and home the morning it was promised for");
+            Check(!string.IsNullOrEmpty(LifeRules.lastCarBack), "the morning's toast says it is back",
+                  LifeRules.lastCarBack);
+            LifeRules.lastCarBack = null;
+            Check(s.activeCar == b.id, "and the game did not take the keys back on its own");
+            Check(!a.faults.Exists(x => x.id == f.id) && !a.faults.Exists(x => x.id == g.id),
+                  "with both jobs done");
+
+            // DIY keeps nothing: the car is on stands in your own garage.
+            s.mechSkill = 100f;
+            var h = new CarFault { id = "test_plugs", label = "Fouled plugs", hidden = false,
+                                   stat = "engine", cost = 40, days = 1, add = 5 };
+            b.faults.Add(h);
+            Check(LifeRules.OrderRepair(s, b, h, FaultCatalog.Venue.Diy) == null, "a DIY job is accepted");
+            Check(CarWhere.Available(s, b) && CarWhere.PlaceOf(s, b) == CarPlace.Garage,
+                  "and a car being worked on AT HOME is still at home, and still yours to drive");
+
+            // The one-car household: nothing to hand the keys to, so they stay.
+            var solo = LifeRules.SeedNewGame("SOLO", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(solo);
+            solo.money = 500000;
+            var only = solo.ActiveCar;
+            var k = new CarFault { id = "test_belt", label = "Timing belt", hidden = false,
+                                   stat = "engine", cost = 300, days = 3, add = 10 };
+            only.faults.Add(k);
+            LifeRules.OrderRepair(solo, only, k, FaultCatalog.Venue.Mechanic);
+            LifeRules.lastDropOff = null;
+            Check(solo.activeCar == only.id && !CarWhere.Available(solo, solo.ActiveCar),
+                  "with one car, the keys stay on it and it is simply not available");
+
+            // Through a save. readySlot and paintSkin are ADDED fields.
+            var round = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(solo));
+            Check(round != null && CarWhere.PlaceOf(round, round.ActiveCar) == CarPlace.Mechanic,
+                  "and where a car is survives a save/load");
+        }
+
+        /// <summary>
+        /// CAR MEETS: on the calendar by rule, the same crowd all night, and a
+        /// night that costs ONE block however many people are raced.
+        ///
+        /// Three things here would fail silently in play. The roster is rebuilt
+        /// every time the town loads — after every race — so if it moved at all
+        /// the player would come back to a different car park. The rival's seat
+        /// must not re-deal the lot when they are beaten mid-evening. And a
+        /// meet race that spent a block would roll the day at the first result:
+        /// the player would return to a lot in morning light with nobody in it.
+        /// </summary>
+        static void TestCarMeets()
+        {
+            Line("car meets:");
+            Check(CarMeets.MeetOn(1) && CarMeets.MeetOn(2) && !CarMeets.MeetOn(3),
+                  "Friday and Saturday, and day 1 of a career is a Friday");
+            int meets = 0;
+            for (int d = 1; d <= 28; d++) if (CarMeets.MeetOn(d)) meets++;
+            Check(meets == 8, "two a week, every week", meets + " in four weeks");
+            Check(CarMeets.MeetAt(1, LifeRules.NightSlot) && !CarMeets.MeetAt(1, LifeRules.DaySlot),
+                  "at NIGHT, and only at night");
+
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            if (!CarCatalog.Ready) { Check(false, "the catalog is loaded"); return; }
+            s.slotIndex = LifeRules.NightSlot;
+            Check(CarMeets.OnNow(s), "the first night of a career has a meet on it");
+
+            var one = CarMeets.Roster(s, s.day);
+            var two = CarMeets.Roster(s, s.day);
+            Check(one.Count >= 8 && one.Count <= CarMeets.RosterSize,
+                  "a lot full of cars, and no more than it has stalls for", one.Count);
+            bool same = one.Count == two.Count;
+            for (int i = 0; same && i < one.Count; i++)
+                same = one[i].Key == two[i].Key && one[i].seat == two[i].seat &&
+                       one[i].alias == two[i].alias && one[i].trackIndex == two[i].trackIndex;
+            Check(same, "the SAME crowd every time the lot is rebuilt tonight");
+            var other = CarMeets.Roster(s, s.day + 1);
+            bool differs = other.Count != one.Count;
+            for (int i = 0; !differs && i < one.Count; i++) differs = one[i].Key != other[i].Key;
+            Check(differs, "and a different one tomorrow");
+
+            var keys = new HashSet<string>();
+            var seats = new HashSet<int>();
+            int badVenue = 0, badSeat = 0;
+            foreach (var r in one)
+            {
+                keys.Add(r.Key);
+                seats.Add(r.seat);
+                if (r.seat < 0 || r.seat >= CarMeets.RosterSize) badSeat++;
+                if (r.trackIndex < 0 || r.trackIndex >= TrackCatalog.Count ||
+                    TrackCatalog.At(r.trackIndex).IsRoam) badVenue++;
+            }
+            Check(keys.Count == one.Count, "every car in the lot is a different model");
+            Check(seats.Count == one.Count && badSeat == 0, "every driver has a stall of their own");
+            Check(badVenue == 0, "and names a venue a race can actually finish at", badVenue + " do not");
+
+            // THE RIVAL takes seat 0 and moves nobody.
+            var before = CarMeets.Roster(s, s.day);
+            s.streetRacesWon = 99; s.streetRep = 99f;
+            var withRival = CarMeets.Roster(s, s.day);
+            var rival = withRival.Find(r => r.IsRival);
+            Check(rival != null && rival.seat == 0, "the open blacklist rival parks in seat 0",
+                  rival != null ? rival.seat : -1);
+            int moved = 0;
+            foreach (var r in before)
+            {
+                var again = withRival.Find(x => x.Key == r.Key && !x.IsRival);
+                // A regular who brought the rival's model stays home; anybody
+                // else is exactly where they were.
+                if (again != null && again.seat != r.seat) moved++;
+            }
+            Check(moved == 0, "and nobody else changes stall because of it", moved + " moved");
+            if (rival != null)
+                Check(CarMeets.PurseFor(s, rival) == Blacklist.Purse(rival.rivalRank),
+                      "a rival found at the meet races for the ladder's own purse");
+            s.streetRacesWon = 0; s.streetRep = 0f;
+
+            // A RUN: launched, banked, and the clock has not moved.
+            var pick = CarMeets.Roster(s, s.day).Find(r => !r.IsRival);
+            s.ActiveCar.fuel = 100f;
+            Check(CarMeets.Refusal(s, pick) == null, "a driver can be called out", CarMeets.Refusal(s, pick));
+            CarMeets.BeginRun(s, pick);
+            Check(CarMeets.AlreadyRaced(s, pick) && CarMeets.RunsTonight(s) == 1,
+                  "the run is written into the night when it is launched");
+            Check(CarMeets.Refusal(s, pick) != null, "and that driver does not line up twice");
+
+            int day = s.day, slot = s.slotIndex, money = s.money, lastRace = s.lastRaceDay;
+            int purse = CarMeets.PurseFor(s, pick);
+            RaceHandoff.ClearAll();
+            RaceHandoff.MeetRace = true;
+            RaceHandoff.MeetAlias = pick.alias;
+            RaceHandoff.PurseWin = purse;
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.CarId = s.activeCar;
+            RaceHandoff.MetersDriven = 402f;
+            RaceHandoff.FinishPos = 1;
+            RaceHandoff.FieldSize = 2;
+            string summary = LifeRules.ApplyRaceResult(s);
+            Check(s.day == day && s.slotIndex == slot,
+                  "a race at the meet does NOT spend a block — the night is one block",
+                  LifeRules.SlotNames[s.slotIndex]);
+            Check(purse > 0 && s.money == money + purse,
+                  "winning it pays the driver's purse", (s.money - money) + " of " + purse);
+            Check(s.lastRaceDay == lastRace, "and it does not burn the one-purse-race-a-day cap");
+            Check(summary != null && summary.Contains(pick.alias), "the result names who was beaten", summary);
+
+            // Losing one pays nothing: two cars, one pot.
+            var second = CarMeets.Roster(s, s.day).Find(r => !r.IsRival && r.Key != pick.Key);
+            CarMeets.BeginRun(s, second);
+            money = s.money;
+            RaceHandoff.ClearAll();
+            RaceHandoff.MeetRace = true;
+            RaceHandoff.MeetAlias = second.alias;
+            RaceHandoff.PurseWin = CarMeets.PurseFor(s, second);
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.CarId = s.activeCar;
+            RaceHandoff.MetersDriven = 402f;
+            RaceHandoff.FinishPos = 2;
+            RaceHandoff.FieldSize = 2;
+            LifeRules.ApplyRaceResult(s);
+            Check(s.money == money, "second place in a call-out is last place, and pays nothing",
+                  s.money - money);
+
+            // Three runs is a night.
+            var third = CarMeets.Roster(s, s.day).Find(r => !r.IsRival && !CarMeets.AlreadyRaced(s, r));
+            CarMeets.BeginRun(s, third);
+            var fourth = CarMeets.Roster(s, s.day).Find(r => !r.IsRival && !CarMeets.AlreadyRaced(s, r));
+            Check(fourth != null && CarMeets.Refusal(s, fourth) != null,
+                  "after " + CarMeets.MaxRunsPerMeet + " runs the lot is done for the night");
+
+            // THE DRIVE HOME pays for the night, and the day remembers it as
+            // the meet rather than as a drive.
+            RaceHandoff.ClearAll();
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.CarId = s.activeCar;
+            RaceHandoff.MetersDriven = 900f;
+            LifeRules.ApplyRaceResult(s);
+            Check(s.day == day + 1 && s.slotIndex == LifeRules.MorningSlot,
+                  "driving home is what spends the night");
+            Check(LifeRules.SlotAct(s, day, LifeRules.NightSlot) == LifeRules.ActMeet,
+                  "and the calendar has that night down as AT THE MEET",
+                  LifeRules.SlotAct(s, day, LifeRules.NightSlot));
+            Check(CarMeets.RunsTonight(s) == 0, "tomorrow's meet starts with nobody raced");
+            RaceHandoff.ClearAll();
+        }
+
         /// <summary>
         /// The job book is ONE job, and its hours are afternoons and nights,
         /// seven days a week.
@@ -2938,6 +3206,45 @@ namespace PSXRacing.EditorTools
                   world != null ? world.dealerSpots.Length + " bays / " +
                                   world.yardSpots.Length + " wrecks" : "no TownWorld");
 
+            // THE EASTSIDE LOT. One stall per seat of a meet's roster, every
+            // one of them on tarmac a car can drive on, inside the map, and WEST
+            // of the east zone line's trigger — which spans the whole map, so a
+            // car parked inside it would be asked WHERE TO? every time its
+            // driver got back in.
+            Check(world != null && world.meetSpots != null &&
+                  world.meetSpots.Length == CarMeets.RosterSize,
+                  "the meet lot has a stall for every seat of the roster",
+                  world != null && world.meetSpots != null ? world.meetSpots.Length : -1);
+            Check(world != null && world.meetSign != null, "and a sign at its mouth");
+            if (world != null && world.meetSpots != null)
+            {
+                float edgeX = float.MaxValue;
+                foreach (var go in scene.GetRootGameObjects())
+                    foreach (var e in go.GetComponentsInChildren<PSXRacing.Town.TownEdge>(true))
+                    {
+                        var ec = e.GetComponent<Collider>();
+                        if (ec != null && e.transform.position.x > 0f)
+                            edgeX = Mathf.Min(edgeX, ec.bounds.min.x);
+                    }
+                int offRoad = 0, pastLine = 0;
+                var seen = new HashSet<Vector3>();
+                foreach (var spot in world.meetSpots)
+                {
+                    if (spot == null) { offRoad++; continue; }
+                    seen.Add(spot.position);
+                    if (spot.position.x + 3f > edgeX) pastLine++;
+                    bool onRoad = Physics.Raycast(spot.position + Vector3.up * 2f, Vector3.down,
+                                                  out var hit, 6f, ~0, QueryTriggerInteraction.Ignore)
+                                  && hit.collider.gameObject.layer == 8;
+                    if (!onRoad) offRoad++;
+                }
+                Check(offRoad == 0, "every meet stall stands on road-layer tarmac", offRoad + " do not");
+                Check(pastLine == 0, "and none reaches the east zone line's trigger",
+                      pastLine + " do (line at x " + edgeX.ToString("0.0") + ")");
+                Check(seen.Count == world.meetSpots.Length, "and no two seats share a stall",
+                      seen.Count + " distinct");
+            }
+
             // Layer 8 or off-road grip, everywhere, for ever.
             Check(roadCols.Count > 0,
                   "the driving surfaces are on the ROAD layer — CarController.onRoad "
@@ -3102,6 +3409,16 @@ namespace PSXRacing.EditorTools
             car.paint = 40f;
             string err = Paint.Respray(s, car, want);
             Check(err == null, "a respray goes through when the money is there", err);
+            // IT TAKES THE CAR. The colour is on the JOB, not on the car, until
+            // the booth is done with it.
+            Check(CarWhere.PlaceOf(s, car) == CarPlace.PaintShop,
+                  "the car is AT THE PAINT SHOP", CarWhere.PlaceOf(s, car));
+            Check(Paint.SkinFor(car, spec, def) == factory,
+                  "and still the colour it went in, while it is in the booth");
+            Check(Paint.Respray(s, car, want) != null,
+                  "a second respray on a car already in the booth is refused");
+            LifeRules.SleepUntilMorning(s);
+            Check(!CarWhere.Away(s, car), "it is back the next morning");
             Check(Paint.SkinFor(car, spec, def) == want,
                   "and the car is wearing the colour that was picked",
                   Paint.LabelOf(def, Paint.SkinFor(car, spec, def)));
@@ -5658,7 +5975,8 @@ namespace PSXRacing.EditorTools
             Check(f.stat == "engine" || f.stat == "tires" || f.stat == "hp",
                   "fault sits on a real stat lane", f.stat);
 
-            // Dealer is instant, so it isolates the repair math from the queue.
+            // The dealer is the QUICK one: it quotes no days, keeps the car for
+            // the block it was dropped off in and hands it back at the next.
             var q = FaultCatalog.GetQuote(s, car, f, FaultCatalog.Venue.Dealer);
             var qm = FaultCatalog.GetQuote(s, car, f, FaultCatalog.Venue.Mechanic);
             var qd = FaultCatalog.GetQuote(s, car, f, FaultCatalog.Venue.Diy);
@@ -5669,11 +5987,19 @@ namespace PSXRacing.EditorTools
 
             float before = StatOf(car, f.stat);
             s.money = 999999;
+            s.slotIndex = LifeRules.MorningSlot;
             string err = LifeRules.OrderRepair(s, car, f, FaultCatalog.Venue.Dealer);
             Check(err == null, "dealer repair is accepted", err);
+            Check(CarWhere.PlaceOf(s, car) == CarPlace.Dealership && CarWhere.Away(s, car),
+                  "and the car is AT THE DEALERSHIP until it is done", CarWhere.PlaceOf(s, car));
+            Check(StatOf(car, f.stat) <= before + 0.001f,
+                  "nothing is fixed the moment the money changes hands", StatOf(car, f.stat));
+            LifeRules.Sleep(s);   // morning -> day: one block
             Check(StatOf(car, f.stat) > before,
-                  "the repaired stat went UP", before + " -> " + StatOf(car, f.stat));
+                  "one block later the repaired stat went UP", before + " -> " + StatOf(car, f.stat));
             Check(!car.faults.Exists(x => x.id == f.id), "the fault is gone");
+            Check(!CarWhere.Away(s, car) && s.pendingParts.Count == 0,
+                  "and the car is home, with nothing left in the queue", s.pendingParts.Count);
 
             // Queued repairs must not resolve early, and must resolve on time.
             if (car.faults.Count > 0)

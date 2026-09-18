@@ -269,6 +269,9 @@ namespace PSXRacing.LifeSim
         public const string ActDrive = "DRIVE";
         public const string ActInspect = "INSPECT";
         public const string ActViewing = "VIEWING";
+        /// <summary>A night at the car meet: the drive into town that ended
+        /// with somebody being raced. See <see cref="CarMeets"/>.</summary>
+        public const string ActMeet = "MEET";
         /// <summary>A slot spent by a caller that did not say on what. The
         /// tests and one or two errands; never blank, because blank means
         /// "not reached yet".</summary>
@@ -288,6 +291,7 @@ namespace PSXRacing.LifeSim
                 case ActDrive: return "DROVE";
                 case ActInspect: return "INSPECTED";
                 case ActViewing: return "VIEWED A CAR";
+                case ActMeet: return "AT THE MEET";
                 case ActErrand: return "BUSY";
                 default: return "";
             }
@@ -1047,8 +1051,14 @@ namespace PSXRacing.LifeSim
             // loaded drive to the junction are halves of the shift, and the
             // shift's slot is spent once, at the shop door. Charging each leg
             // as well made one delivery cost most of a day.
-            if (!RaceHandoff.Delivery && !RaceHandoff.CommuteLeg)
-                SpendActivitySlot(s, RaceHandoff.FreeRoam ? ActDrive : ActRace);
+            // ... and NOT a race at a car meet. The night at the meet is ONE
+            // block however many people were lined up against, and it is paid
+            // by the drive home like any other trip into town — which is also
+            // why that drive is written into the day as AT THE MEET rather
+            // than as a drive, on a night somebody was actually raced.
+            if (!RaceHandoff.Delivery && !RaceHandoff.CommuteLeg && !RaceHandoff.MeetRace)
+                SpendActivitySlot(s, !RaceHandoff.FreeRoam ? ActRace
+                                     : CarMeets.RacedTonight(s) ? ActMeet : ActDrive);
 
             if (car != null)
             {
@@ -1111,7 +1121,10 @@ namespace PSXRacing.LifeSim
                 // A drive is not a result: no purse, no rep, and no rep-decay
                 // reset — cruising Charlotte is not showing up on the street.
                 // The metres, fuel and wear above are already banked.
-                summary = (RaceHandoff.CommuteLeg ? "on the clock — " : "free roam — ") +
+                // A commute leg is one stretch of a longer trip — to work, to
+                // a shop, across the line between your street and the town —
+                // so it is "on the road", not a drive that has ended.
+                summary = (RaceHandoff.CommuteLeg ? "on the road — " : "free roam — ") +
                           (RaceHandoff.MetersDriven / 1000f).ToString("0.0") +
                           " km in " + (string.IsNullOrEmpty(RaceHandoff.FreeRoamPlace)
                               ? "Charlotte" : RaceHandoff.FreeRoamPlace.ToLowerInvariant());
@@ -1197,7 +1210,9 @@ namespace PSXRacing.LifeSim
                     // being a total loss.
                     int field = Mathf.Max(1, RaceHandoff.FieldSize);
                     float scale = Mathf.Max(0f, 1f - (RaceHandoff.FinishPos - 1) / (float)field);
-                    payout = Mathf.RoundToInt(purse * scale);
+                    // A call-out at a meet is two cars and one pot: second
+                    // place is last place, and last place pays nothing.
+                    payout = RaceHandoff.MeetRace ? 0 : Mathf.RoundToInt(purse * scale);
                     s.streetRep = Mathf.Min(100f, s.streetRep + LossRepGain);
                 }
                 s.money += payout;
@@ -1206,10 +1221,19 @@ namespace PSXRacing.LifeSim
                 // gate cleared first, so there is nothing here to grind — and
                 // making the player sleep off a challenge would mean the page
                 // that invited them expires while they wait for tomorrow.
-                if (RaceHandoff.RivalRank <= 0) s.lastRaceDay = s.day;
+                //
+                // Nor does a race at a car meet, which is RG2's rule ("meet
+                // challenges are unlimited — they still award rep/money but do
+                // NOT burn the cap"). What stops a meet being a fountain here
+                // is CarMeets.MaxRunsPerMeet, and that each driver lines up
+                // once a night.
+                if (RaceHandoff.RivalRank <= 0 && !RaceHandoff.MeetRace) s.lastRaceDay = s.day;
 
-                summary = "P" + RaceHandoff.FinishPos + "/" + RaceHandoff.FieldSize +
-                          (payout > 0 ? " — won " + MenuKit.Money(payout) : " — no prize");
+                summary = RaceHandoff.MeetRace && !string.IsNullOrEmpty(RaceHandoff.MeetAlias)
+                    ? (RaceHandoff.FinishPos == 1 ? "BEAT " : "LOST TO ") + RaceHandoff.MeetAlias +
+                      (payout > 0 ? " — won " + MenuKit.Money(payout) : "")
+                    : "P" + RaceHandoff.FinishPos + "/" + RaceHandoff.FieldSize +
+                      (payout > 0 ? " — won " + MenuKit.Money(payout) : " — no prize");
 
                 if (RaceHandoff.RivalRank > 0)
                 {
@@ -1300,9 +1324,15 @@ namespace PSXRacing.LifeSim
             car != null && s.pendingParts.Exists(p => p.carId == car.id);
 
         /// <summary>
-        /// Book a repair. DIY and mechanic work queue into pendingParts and
-        /// resolve on the rollover; the dealer is same-day and applies at once.
-        /// Returns null on success, or the reason it was refused.
+        /// Book a repair. Every venue queues into pendingParts now: DIY and the
+        /// mechanic for the days they quote, done first thing on the morning
+        /// they promised, and the dealership for ONE BLOCK — "same day" means
+        /// the car is back for the next third of it, not that nobody ever had
+        /// to put it on a ramp. A job anywhere but your own garage takes the
+        /// CAR with it (see <see cref="CarWhere"/>): it is at the shop until the
+        /// job is done, and the keys move to something else if there is
+        /// anything else. Returns null on success, or the reason it was
+        /// refused.
         /// </summary>
         public static string OrderRepair(LifeState s, OwnedCar car, CarFault f,
                                          FaultCatalog.Venue venue)
@@ -1310,6 +1340,8 @@ namespace PSXRacing.LifeSim
             if (car == null || f == null) return "no car";
             if (s.pendingParts.Exists(p => p.carId == car.id && p.faultId == f.id))
                 return "already booked";
+            string elsewhere = CarWhere.RefuseWork(s, car, (int)venue);
+            if (elsewhere != null) return elsewhere;
 
             var q = FaultCatalog.GetQuote(s, car, f, venue);
             if (!q.available) return q.blockedReason;
@@ -1320,13 +1352,10 @@ namespace PSXRacing.LifeSim
                 s.mechSkill = Mathf.Min(100f, s.mechSkill +
                                         FaultCatalog.DiySkillGain(s.mechSkill, q.difficulty));
 
-            if (q.days <= 0)
-            {
-                ApplyRepair(s, car, f);
-                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": fixed " + f.label +
-                                  " (" + MenuKit.Money(q.price) + ", dealer)");
-                return null;
-            }
+            int readyDay = s.day + q.days, readySlot = MorningSlot;
+            // The dealership quotes no days at all. It has the car for the
+            // block it was dropped off in, and hands it back at the next one.
+            if (q.days <= 0) CarWhere.NextBlock(s, out readyDay, out readySlot);
 
             s.pendingParts.Add(new PendingPart
             {
@@ -1335,18 +1364,49 @@ namespace PSXRacing.LifeSim
                 label = f.label,
                 stat = f.stat,
                 add = f.add,
-                readyDay = s.day + q.days,
+                readyDay = readyDay,
+                readySlot = readySlot,
                 venue = (int)venue,
             });
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": booked " + f.label +
-                              " (" + MenuKit.Money(q.price) + ", " + q.days + "d)");
+                              " (" + MenuKit.Money(q.price) + ", " +
+                              (q.days > 0 ? q.days + "d" : "back next block") + ")");
+            if (venue != FaultCatalog.Venue.Diy) DropOff(s, car, (int)venue);
             return null;
         }
 
-        static void ApplyRepair(LifeState s, OwnedCar car, CarFault f)
+        /// <summary>
+        /// The car has just been left at a shop. Says so in the diary, and
+        /// moves the keys — see <see cref="CarWhere.HandOver"/>. Every rule that
+        /// books work away from home ends here (repairs, shop-fitted upgrades,
+        /// resprays), so "the car is at the shop" is announced one way.
+        /// </summary>
+        public static void DropOff(LifeState s, OwnedCar car, int venue)
         {
-            AddToStat(car, f.stat, f.add);
-            car.faults.RemoveAll(x => x.id == f.id);
+            if (s == null || car == null) return;
+            var next = CarWhere.HandOver(s, car);
+            lastDropOff = ShortName(car) + " LEFT AT " + CarWhere.ShopNameOf(venue) + " — " +
+                          CarWhere.ReadyLabel(s, car) +
+                          (next != null ? "  ·  NOW DRIVING " + ShortName(next) : "");
+        }
+
+        /// <summary>Set by the last <see cref="DropOff"/>, for whichever screen
+        /// booked the job to toast. Read once, then cleared — the same contract
+        /// as <see cref="lastDiagnosed"/>.</summary>
+        public static string lastDropOff;
+
+        /// <summary>Set when a rollover or a block change brought a car HOME
+        /// from a shop, for the next toast to carry: the player slept, and the
+        /// thing that changed overnight is that they have a car again.</summary>
+        public static string lastCarBack;
+
+        /// <summary>"Mazda RX-7 Type RS (FD) '98" → "MAZDA RX-7". A toast has
+        /// one line and a catalog name is most of it.</summary>
+        public static string ShortName(OwnedCar car)
+        {
+            if (car == null || string.IsNullOrEmpty(car.displayName)) return "THE CAR";
+            var parts = car.displayName.Split(' ');
+            return (parts.Length <= 2 ? car.displayName : parts[0] + " " + parts[1]).ToUpperInvariant();
         }
 
         static void AddToStat(OwnedCar car, string stat, float amount)
@@ -1360,18 +1420,51 @@ namespace PSXRacing.LifeSim
             }
         }
 
-        /// <summary>Resolve every repair whose day has come. Called from the one
-        /// Rollover pipeline, so waiting on parts costs real days.</summary>
+        /// <summary>
+        /// Resolve every job whose BLOCK has come. Called from the Rollover
+        /// pipeline and from every other place the clock moves (a spent block,
+        /// a nap), because a job can now be promised for a block rather than
+        /// for a morning — the dealership's are — and one that only resolved
+        /// overnight would keep a "back this afternoon" car until tomorrow.
+        /// Waiting on a shop still costs real time; it is just counted in the
+        /// unit the rest of the day is.
+        /// </summary>
         static void TickPendingParts(LifeState s)
         {
+            if (s == null || s.pendingParts == null) return;
+            // Who was away BEFORE anything resolves, so a car that comes home
+            // in this tick can be told apart from one that was home all along.
+            var wasAway = new System.Collections.Generic.List<OwnedCar>();
+            var cameFrom = new System.Collections.Generic.List<int>();
+            foreach (var c in s.cars)
+            {
+                var job = CarWhere.AwayJob(s, c);
+                if (job == null) continue;
+                wasAway.Add(c);
+                cameFrom.Add(job.venue);
+            }
+
             for (int i = s.pendingParts.Count - 1; i >= 0; i--)
             {
                 var p = s.pendingParts[i];
-                if (s.day < p.readyDay) continue;
+                if (p == null) { s.pendingParts.RemoveAt(i); continue; }
+                if (!CarWhere.Due(s, p)) continue;
                 var car = s.FindCar(p.carId);
                 if (car != null)
                 {
-                    if (p.IsUpgrade)
+                    if (p.IsRespray)
+                    {
+                        // The colour goes on when the job is DONE. Same two
+                        // things a respray has always done — the new livery,
+                        // and the panels back at 100 with the paint lane's
+                        // faults gone, because it is a refinish as well as a
+                        // colour change (see Paint.Respray).
+                        car.paintSkin = p.paintSkin ?? "";
+                        car.paint = 100f;
+                        car.faults.RemoveAll(x => x.stat == "paint");
+                        s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " finished");
+                    }
+                    else if (p.IsUpgrade)
                     {
                         // A build only ever steps UP. Max() rather than a plain
                         // assign because two jobs on the same category cannot be
@@ -1404,6 +1497,23 @@ namespace PSXRacing.LifeSim
                 }
                 s.pendingParts.RemoveAt(i);
             }
+
+            // The cars that are HOME again. A car with two jobs on it is home
+            // when the second one is done, which is why this asks the queue
+            // again rather than counting the jobs it just removed.
+            for (int i = 0; i < wasAway.Count; i++)
+            {
+                var c = wasAway[i];
+                if (CarWhere.Away(s, c)) continue;
+                string shop = CarWhere.ShopNameOf(cameFrom[i]);
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + c.displayName +
+                                  " is back from " + shop);
+                lastCarBack = ShortName(c) + " IS BACK FROM " + shop;
+                // Nothing to drive while it was away: the keys never moved, so
+                // nothing has to be done. But a player who was handed the OTHER
+                // car keeps that one — walking into the garage and finding the
+                // game had switched cars overnight would be the game driving.
+            }
         }
 
         // ================= mechanic services (MECHANIC_SERVICES) =================
@@ -1433,6 +1543,11 @@ namespace PSXRacing.LifeSim
         public static string BuyService(LifeState s, OwnedCar car, int serviceIdx)
         {
             if (car == null) return "no car";
+            // While-you-wait work: it does not keep the car. But it is the
+            // MECHANIC's work, so a car standing at the dealership or in the
+            // spray booth cannot have it done until it is back.
+            string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenueMechanic);
+            if (elsewhere != null) return elsewhere;
             var svc = MechanicServices[serviceIdx];
             int price = ServiceCost(car, svc.cost);
             if (s.money < price) return "need " + MenuKit.Money(price);
@@ -1629,6 +1744,10 @@ namespace PSXRacing.LifeSim
             s.slotsActiveToday++;
             s.slotIndex++;
             if (s.slotIndex > 2) Rollover(s, sleptTonight: false);
+            // The rollover ticks the job queue itself; a block that merely
+            // moved on has to as well, or a car promised for this afternoon
+            // stays at the dealership until tomorrow.
+            else TickPendingParts(s);
         }
 
         /// <summary>
@@ -1674,6 +1793,8 @@ namespace PSXRacing.LifeSim
             // day, at the rollover, off what you ate and whether you slept at
             // night; an afternoon lie-in is not an answer to either question.
             s.slotIndex++;
+            // A nap moves the clock, and the clock is what the shops work to.
+            TickPendingParts(s);
         }
 
         /// <summary>

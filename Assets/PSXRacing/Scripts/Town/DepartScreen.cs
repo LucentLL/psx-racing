@@ -184,9 +184,13 @@ namespace PSXRacing.Town
                              : "Not enough fuel to get there.",
                     canDrive, () => Leave("drivehome"));
             else
+                // On a meet night the row says so: the lot is in town, and this
+                // is the last place the player is asked where they are going.
                 Row(panel, ref y, "IN TOWN",
-                    canDrive ? "The shop, the pumps, the lot and the yard. A few minutes down the road."
-                             : "Not enough fuel to get there.",
+                    !canDrive ? "Not enough fuel to get there."
+                    : CarMeets.OnNow(S) ? "Car meet tonight at " + CarMeets.PlaceName.ToLowerInvariant() +
+                                          " — east end of the main street."
+                    : "The shop, the pumps, the lot and the yard. A few minutes down the road.",
                     canDrive, () => Leave("town"));
 
             // Hidden outright while carrying, not greyed: the panel's row
@@ -265,8 +269,19 @@ namespace PSXRacing.Town
             // side puts the car through its own line, rolling, rather than on
             // a driveway. A page (racing, the classifieds) is not a zone and
             // gets nothing.
-            TownEdge.ArrivePending = tab == "town" || tab == "drivehome";
-            TownExit.GoHome(playerCar, tab);
+            bool crossing = tab == "town" || tab == "drivehome";
+            TownEdge.ArrivePending = crossing;
+            // A CROSSING IS NOT THE END OF A DRIVE, so it does not cost what
+            // the end of one costs. Your street and the town are two maps of
+            // one trip: the hop between them banks the metres, the fuel and
+            // the wear, and the BLOCK of the day is charged once, when the
+            // trip actually ends — parked at home, or quit from the pause
+            // menu. It used to be charged at every line, which made a run to
+            // the shops and back cost the whole day, a shift cost two blocks
+            // (the drive in, then the counter) — and, the case that found it,
+            // rolled the clock over at the junction on the way to a car meet:
+            // leave at night, arrive next morning, to an empty lot.
+            TownExit.GoHome(playerCar, tab, commute: crossing);
         }
     }
 }

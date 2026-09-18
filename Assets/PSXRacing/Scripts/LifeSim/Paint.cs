@@ -119,14 +119,31 @@ namespace PSXRacing.LifeSim
         public static int Cost(OwnedCar car) =>
             car == null ? RespraySpend : LifeRules.ServiceCost(car, RespraySpend);
 
+        /// <summary>How long the booth keeps the car: dropped off today, back
+        /// first thing tomorrow. A real respray is a week; this is one night,
+        /// because most careers own exactly one car and a week without it is a
+        /// week without the job.</summary>
+        public const int ResprayDays = 1;
+
+        /// <summary>The respray this car is in the booth for, or null.</summary>
+        public static PendingPart InBooth(LifeState s, OwnedCar car) =>
+            s == null || car == null ? null
+            : s.pendingParts.Find(p => p != null && p.carId == car.id && p.IsRespray);
+
         /// <summary>
-        /// Shoot it.
+        /// Book it in.
         ///
         /// A respray is a REFINISH as well as a colour change — the car comes
         /// back with fresh paint on it — so it clears the paint stat's wear
         /// and any fault filed against paint, exactly as PAINT TOUCH-UP does.
         /// Charging for a colour change and leaving the panels looking rough
         /// would be selling half a job.
+        ///
+        /// IT TAKES THE CAR. It used to happen on the press; now the car is AT
+        /// COLOURWORKS until the morning (see <see cref="CarWhere"/>), and the
+        /// colour, the fresh panels and the cleared faults all land when the
+        /// job is done — LifeRules.TickPendingParts does the work this method
+        /// used to, off the livery name carried on the job.
         ///
         /// Returns null on success, or the reason it did not happen.
         /// </summary>
@@ -137,23 +154,36 @@ namespace PSXRacing.LifeSim
             var def = DefFor(spec);
             if (def == null || def.SkinCount == 0) return "no colours for this shell";
             if (skin < 0 || skin >= def.SkinCount) return "no such colour";
+            if (InBooth(s, car) != null) return "already in the booth";
+            string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenuePaint);
+            if (elsewhere != null) return elsewhere;
 
             int price = Cost(car);
             if (s.money < price) return "need " + MenuKit.Money(price);
 
             s.money -= price;
-            car.paintSkin = def.skinNames != null && skin < def.skinNames.Length
-                ? def.skinNames[skin] : "";
-            car.paint = 100f;
-            car.faults.RemoveAll(f => f.stat == "paint");
             // Same sweep BuyService does on the paint lane, and with the same
             // two exemptions: an upgrade build and a salvage part are things
             // the player has already paid for, not appointments to cancel.
             s.pendingParts.RemoveAll(p => p.carId == car.id && p.stat == "paint" &&
                                           !p.IsUpgrade && !p.IsYardPart);
-            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": resprayed " +
+            s.pendingParts.Add(new PendingPart
+            {
+                carId = car.id,
+                faultId = "",
+                label = "RESPRAY — " + LabelOf(def, skin),
+                stat = "paint",
+                add = 0,
+                readyDay = s.day + ResprayDays,
+                readySlot = LifeRules.MorningSlot,
+                venue = CarWhere.VenuePaint,
+                paintSkin = def.skinNames != null && skin < def.skinNames.Length
+                    ? def.skinNames[skin] : "",
+            });
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": booked a respray, " +
                               LabelOf(def, skin).ToLowerInvariant() + " — " +
                               MenuKit.Money(price));
+            LifeRules.DropOff(s, car, CarWhere.VenuePaint);
             return null;
         }
     }

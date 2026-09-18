@@ -120,7 +120,8 @@ namespace PSXRacing.EditorTools
         // builder uses. Nulled at the top of every build so a re-run cannot
         // wire last build's transforms.
         static Transform townPizzaKerb, townDealerDoor,
-                         townYardGate, townHomeDoor, townMechanicDoor, townPaintDoor;
+                         townYardGate, townHomeDoor, townMechanicDoor, townPaintDoor,
+                         townMeetSign;
         /// <summary>Every place a walker can be offered a shift at Tony's:
         /// the frontage, the doorway, and a step inside it. An ARRAY because
         /// one was not enough — see BuildTownStrip.</summary>
@@ -145,7 +146,8 @@ namespace PSXRacing.EditorTools
         {
             ClearSeasonEntries();
             townPizzaKerb = townDealerDoor =
-                townYardGate = townHomeDoor = townMechanicDoor = townPaintDoor = null;
+                townYardGate = townHomeDoor = townMechanicDoor = townPaintDoor =
+                townMeetSign = null;
             townPizzaHooks = null;
             townEntrances = new List<(int side, float x0, float x1)>();
             psxLit = Shader.Find("PSX/Lit");
@@ -173,6 +175,7 @@ namespace PSXRacing.EditorTools
             BuildTownTrade(root.transform, mats);
             var dealerAnchors = BuildTownDealer(root.transform, mats);
             var yardAnchors = BuildTownYard(root.transform, mats);
+            var meetAnchors = BuildTownMeetLot(root.transform, mats);
             BuildTownStation(root.transform, mats);
             // LAST of the ground: the kerbs are dropped at every entrance, and
             // an entrance is only known once its lot has laid its concrete.
@@ -260,6 +263,8 @@ namespace PSXRacing.EditorTools
             world.yardGate = townYardGate;
             world.mechanicDoor = townMechanicDoor;
             world.paintDoor = townPaintDoor;
+            world.meetSpots = meetAnchors;
+            world.meetSign = townMeetSign;
             // Bare concrete grey for the cinder blocks under stripped wrecks —
             // a bake-time material for a runtime spawner, same contract as
             // GarageWorld's rig materials.
@@ -1240,6 +1245,193 @@ namespace PSXRacing.EditorTools
             // fence, where the way in already is.
             townYardGate = TownAnchor(yard.transform, "YardGateAnchor",
                 new Vector3(cx, 1.2f, cz + halfZ - 1.5f), Vector3.forward);
+            return spots.ToArray();
+        }
+
+        /// <summary>
+        /// THE EASTSIDE LOT: a car park at the east end of the main street,
+        /// north side, which on Friday and Saturday nights is a car meet.
+        ///
+        /// The owner's brief: "Calendar should include 'car meets'. This means
+        /// a parking lot full of race cars. Walking up to a car gives the
+        /// option to challenge the racer." The lot is BAKED and empty — the
+        /// dealership's rule — and what stands on it is put there at runtime
+        /// by TownWorld.FillMeet on the nights CarMeets says there is a meet,
+        /// so the same tarmac is a dead car park on a Tuesday afternoon and
+        /// twelve race cars under lamps on a Friday night.
+        ///
+        /// WHERE: the one stretch of frontage the town had left. North side,
+        /// between the dealership's east wall (x 86) and the zone line's
+        /// trigger, which spans the whole map at x 130.5 — so the lot stops at
+        /// 126, because a car parked inside that trigger is a car that asks
+        /// WHERE TO? every time its driver gets back in.
+        ///
+        /// WHAT MAKES IT READ AS A MEET, with no meet art anywhere in either
+        /// tree: tarmac rather than the concrete every other apron wears,
+        /// painted stalls, a low wall round three sides, and LIGHT — four
+        /// lamps on the row spine wearing the circuits' own NightGlow heads
+        /// and pools, so at the hour a meet happens the lot is the brightest
+        /// thing on the street and the cars in it are lit. By day the glows
+        /// are off (NightGlow is the hour's, like the headlights) and it is a
+        /// car park.
+        ///
+        /// Thirty-six stalls, twenty meet spots (CarMeets.RosterSize). RG2
+        /// leaves ~38% of its lot empty so it reads as lively rather than
+        /// jammed; here it is sixteen of thirty-six, and four of those are the
+        /// stalls beside the way in, because the player has to be able to
+        /// PARK in it, in a car they steer with a thumb.
+        /// </summary>
+        /// <returns>The meet's stalls in SEAT order — seat 0, the blacklist
+        /// rival's, first: mid-lot, nose to the entrance, under a lamp.</returns>
+        static Transform[] BuildTownMeetLot(Transform parent, TownMats m)
+        {
+            var lot = new GameObject("MeetLot");
+            lot.transform.SetParent(parent, false);
+
+            const float minX = 92f, maxX = 126f, minZ = 12f, maxZ = 50f;
+            const float inX0 = 104f, inX1 = 114f;        // the way in, off the main street
+            const float stallW = 3.0f, stallL = 5.4f;
+            float y = TownApronY;
+
+            // The way in, from the road's edge (so the kerb is dropped across
+            // it — TownPad registers the entrance) up to the lot, a millimetre
+            // over it so the seam never shares a plane: the dealer drive's
+            // rule.
+            TownPad(lot.transform, m, "MeetIn", inX0, inX1, TownRoadW * 0.5f, minZ,
+                y + 0.001f, m.road, 12f, 3f, WorldKit.SlabEdge.SidesX);
+            // The lot. Lawn on all four sides but for the cut where the drive
+            // comes in.
+            TownPad(lot.transform, m, "MeetApron", minX, maxX, minZ, maxZ, y, m.road, 12f, 3f,
+                WorldKit.SlabEdge.MinX | WorldKit.SlabEdge.MaxX |
+                WorldKit.SlabEdge.MinZ | WorldKit.SlabEdge.MaxZ,
+                new WorldKit.SlabCut(WorldKit.SlabEdge.MinZ, inX0, inX1));
+
+            // A low wall on the three sides that are not the street. Knee
+            // height: enough that the lot is a PLACE with an inside, low enough
+            // that the cars in it are seen from the road, which is the advert.
+            const float wallH = 0.7f;
+            WorldKit.Box(lot.transform, "MeetWallW", new Vector3(minX, wallH * 0.5f, (minZ + maxZ) * 0.5f),
+                new Vector3(0.5f, wallH, maxZ - minZ), m.kerb, true, 0f, WorldKit.SolidLayer);
+            WorldKit.Box(lot.transform, "MeetWallE", new Vector3(maxX, wallH * 0.5f, (minZ + maxZ) * 0.5f),
+                new Vector3(0.5f, wallH, maxZ - minZ), m.kerb, true, 0f, WorldKit.SolidLayer);
+            WorldKit.Box(lot.transform, "MeetWallN", new Vector3((minX + maxX) * 0.5f, wallH * 0.5f, maxZ),
+                new Vector3(maxX - minX, wallH, 0.5f), m.kerb, true, 0f, WorldKit.SolidLayer);
+
+            // FOUR ROWS. A along the street side (split by the way in), B and C
+            // back to back down the middle, D along the far wall — every nose
+            // toward an aisle, because a meet is cars parked to be looked at.
+            //   row, z centre, yaw (0 = nose north, 180 = nose south)
+            var rows = new (string tag, float z, float yaw)[]
+            {
+                ("A", 15.6f, 0f), ("B", 28.0f, 180f), ("C", 33.6f, 0f), ("D", 46.4f, 180f),
+            };
+            const float firstX = 95f;
+            const int perRow = 10;
+            var stalls = new Dictionary<string, Transform>();
+            foreach (var row in rows)
+                for (int i = 0; i < perRow; i++)
+                {
+                    float x = firstX + i * stallW;
+                    // Row A gives up the stalls the drive comes in through.
+                    if (row.tag == "A" && x > inX0 - stallW * 0.5f && x < inX1 + stallW * 0.5f) continue;
+                    var t = new GameObject("Stall" + row.tag + i);
+                    t.transform.SetParent(lot.transform, false);
+                    t.transform.SetPositionAndRotation(new Vector3(x, y + 0.005f, row.z),
+                        Quaternion.Euler(0f, row.yaw, 0f));
+                    stalls[row.tag + i] = t.transform;
+                    // Paint, not surface: no collider, off the road layer, a
+                    // centimetre proud. One line on each stall's east side, and
+                    // one more to close the row's west end.
+                    WorldKit.GridSlab(lot.transform, "StallLine" + row.tag + i,
+                        new Vector3(x + stallW * 0.5f, y + 0.012f, row.z), 0.14f, stallL, 2f,
+                        m.line, false, 3f);
+                    if (i == 0)
+                        WorldKit.GridSlab(lot.transform, "StallLine" + row.tag + "W",
+                            new Vector3(x - stallW * 0.5f, y + 0.012f, row.z), 0.14f, stallL, 2f,
+                            m.line, false, 3f);
+                }
+
+            // THE LAMPS: four on the spine between rows B and C, where no car
+            // can reach them, each throwing a pool both ways across an aisle.
+            var glowShader = Shader.Find("PSX/Glow");
+            if (glowShader != null)
+            {
+                var headMat = MakeMat("LampHead", null, tint: new Color(0.62f, 0.60f, 0.55f), affine: 0f);
+                var glowMat = MakeGlowMaterial("LampGlow", new Color(1.00f, 0.86f, 0.55f), 1.5f);
+                var poolMat = MakeGlowMaterial("LampPool", new Color(1.00f, 0.84f, 0.52f), 0.5f);
+                var glowMesh = GetOrCreateGlowQuad();
+                var night = new GameObject("NightLights");
+                night.transform.SetParent(lot.transform, false);
+                night.AddComponent<NightGlow>();
+                const float poleH = 7.2f, spineZ = 30.8f;
+                int lamp = 0;
+                foreach (float x in new[] { 96.5f, 105.5f, 114.5f, 123.5f })
+                {
+                    var at = new Vector3(x, 0f, spineZ);
+                    WorldKit.Post(lot.transform, "MeetPole" + lamp, at, 0.28f, poleH, m.metal, solid: true);
+                    // Two heads, out over each aisle.
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        var headAt = at + new Vector3(0f, poleH - 0.1f, side * 1.5f);
+                        WorldKit.Box(lot.transform, "MeetLamp" + lamp + (side < 0 ? "S" : "N"),
+                            headAt, new Vector3(0.7f, 0.22f, 2.6f), headMat, false);
+
+                        var glow = new GameObject("Glow");
+                        glow.transform.SetParent(night.transform, false);
+                        glow.transform.position = headAt + new Vector3(0f, -0.2f, side * 0.6f);
+                        glow.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                        glow.transform.localScale = new Vector3(2.4f, 2.4f, 1f);
+                        glow.AddComponent<MeshFilter>().sharedMesh = glowMesh;
+                        // Saved OFF — NightGlow lights them when the hour does.
+                        glow.AddComponent<MeshRenderer>().sharedMaterial = glowMat;
+                        glow.GetComponent<MeshRenderer>().enabled = false;
+
+                        var pool = new GameObject("Pool");
+                        pool.transform.SetParent(night.transform, false);
+                        pool.transform.position = new Vector3(x, y + 0.16f, spineZ + side * 9.5f);
+                        pool.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                        pool.transform.localScale = new Vector3(15f, 15f, 1f);
+                        pool.AddComponent<MeshFilter>().sharedMesh = glowMesh;
+                        pool.AddComponent<MeshRenderer>().sharedMaterial = poolMat;
+                        pool.GetComponent<MeshRenderer>().enabled = false;
+                    }
+                    lamp++;
+                }
+            }
+            else Log("[Town] WARN: PSX/Glow missing — the meet lot has no lamps.");
+
+            // The sign by the way in: two posts and a board, the trades' own
+            // kit in the meet's blue. Nothing here can put words on a wall, so
+            // what it says is said by the walk-up hook that hangs off it.
+            var boardMat = MakeMat("MeetSign", null, tint: new Color(0.16f, 0.30f, 0.46f));
+            var signAt = new Vector3(inX1 + 3.2f, 0f, minZ - 2.2f);
+            WorldKit.Post(lot.transform, "MeetSignPostA", signAt + new Vector3(-1.6f, 0f, 0f), 0.18f, 3.4f, m.metal);
+            WorldKit.Post(lot.transform, "MeetSignPostB", signAt + new Vector3(1.6f, 0f, 0f), 0.18f, 3.4f, m.metal);
+            WorldKit.Box(lot.transform, "MeetSignBoard", signAt + new Vector3(0f, 2.7f, 0f),
+                new Vector3(3.8f, 1.3f, 0.16f), boardMat, false);
+            townMeetSign = TownAnchor(lot.transform, "MeetSignAnchor",
+                new Vector3(signAt.x, 1.3f, signAt.z - 0.9f), Vector3.forward);
+
+            // THE MEET'S OWN STALLS, in seat order. Spread across all four
+            // rows with gaps between them, never two adjacent in the row by
+            // the way in — that is where the player parks.
+            // Interleaved across the rows, so a short roster (a build missing
+            // a venue) still thins the whole lot rather than emptying its back.
+            // Row A keeps only its corners: the four stalls beside the way in
+            // are the player's.
+            string[] seats =
+            {
+                "B5",                       // seat 0: the rival, mid-lot, facing the entrance
+                "A0", "B1", "C2", "D3", "B4", "C5", "D6", "B8", "C8", "A9",
+                "B0", "C0", "D4", "B3", "C3", "D8", "B6", "C6", "B9",
+            };
+            var spots = new List<Transform>();
+            foreach (var key in seats)
+            {
+                if (stalls.TryGetValue(key, out var t)) spots.Add(t);
+                else Log("[Town] WARN: meet seat " + key + " has no stall.");
+            }
+            Log("[Town] meet lot: " + stalls.Count + " stalls, " + spots.Count + " meet spots");
             return spots.ToArray();
         }
 
