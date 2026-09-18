@@ -45,45 +45,83 @@ namespace PSXRacing.EditorTools
             // used day to day — the home hub was where the overlap was reported.
             LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
             LifeRules.SeedFallbackCar(LifeSimManager.State);
-            // Something in the diary before anything is photographed. Without it
-            // the calendar renders a month of empty cells and proves nothing
-            // about the marker row or the day panel — and the gold "IN THE DIARY
-            // TODAY" row on MAIN only exists on a day that has a booking, so it
-            // is otherwise a piece of layout nobody has ever seen.
-            LifeRules.Book(LifeSimManager.State, LifeSimManager.State.day, 1, false);
-            LifeRules.Book(LifeSimManager.State, LifeSimManager.State.day + 2, 3, false);
-            LifeRules.Book(LifeSimManager.State, LifeSimManager.State.day + 9, 4, true);
+            var st = LifeSimManager.State;
+
+            // FOUR DAYS OF A CAREER before anything is photographed, so the
+            // week grid has a past to draw: a shift worked, a shift skipped for
+            // a race, a morning slept through, a day out in the city, an
+            // inspection. A fresh save's week is seven columns of "—" and
+            // proves nothing about the words the cells are supposed to carry.
+            LifeRules.Sleep(st);                                                             // FRI morning
+            LifeRules.ClockOnShift(st); LifeRules.SpendActivitySlot(st, LifeRules.ActWork);  // FRI day
+            LifeRules.SpendActivitySlot(st, LifeRules.ActRace);                              // FRI night: shift skipped
+            LifeRules.SpendActivitySlot(st, LifeRules.ActDrive);                             // SAT morning
+            LifeRules.ClockOnShift(st); LifeRules.SpendActivitySlot(st, LifeRules.ActWork);  // SAT day
+            LifeRules.Sleep(st);                                                             // SAT night
+            LifeRules.SpendActivitySlot(st, LifeRules.ActInspect);                           // SUN morning
+            LifeRules.Sleep(st); LifeRules.Sleep(st);                                        // SUN day, night
+            LifeRules.Sleep(st);                                                             // MON morning
+            LifeRules.ClockOnShift(st); LifeRules.SpendActivitySlot(st, LifeRules.ActWork);  // MON day
+            LifeRules.Sleep(st);                                                             // MON night -> TUE 5 JAN
+            // Four days without a meal would have the header reading CRITICAL;
+            // the shots are about layout, not the hunger ladder.
+            st.health = 100f; st.daysSinceEat = 0; st.foodStock = 4;
+
+            // Something in the diary before anything is photographed: a race in
+            // TONIGHT's block (the gold RACE row on the hub, the RACE DAY
+            // pre-race page), one in a DAY block two days out (the planner's
+            // CANCEL state, and a race that skips a shift), one nine days out.
+            LifeRules.Book(st, st.day, LifeRules.NightSlot, 1, false);
+            LifeRules.Book(st, st.day + 2, LifeRules.DaySlot, 3, false);
+            LifeRules.Book(st, st.day + 9, LifeRules.NightSlot, 4, false);
             LifeSimManager.Save();
 
             Shoot(outDir, "home");
 
-            // MAIN once per BAND of the day. The shift button and the sleep
-            // button both say something different in each one - the shop is
-            // shut before noon, and only the night sleep rolls the calendar -
-            // and a screen shot in one state proves nothing about the other two.
-            //
-            // No scrollTo any more. MAIN is two columns precisely so that all of
-            // it is above the fold on every canvas, so there is no second half
-            // to scroll down to; mustFit below is what holds that to account.
+            // MAIN once per BLOCK of the day. The race row, the shift button
+            // and the sleep caption all say something different in each one,
+            // and a screen shot in one state proves nothing about the others.
+            // mustFit: "all of it on one screen" is a REQUIREMENT of the day
+            // view, and a requirement nothing checks is one that decays.
             for (int slot = 0; slot < LifeRules.SlotNames.Length; slot++)
             {
-                LifeSimManager.State.slotIndex = slot;
+                st.slotIndex = slot;
                 LifeSimManager.Save();
                 Shoot(outDir, "home_" + LifeRules.SlotNames[slot].ToLower(), "main",
                       mustFit: true);
             }
-
-            LifeSimManager.State.slotIndex = 0;
+            st.slotIndex = 0;
             LifeSimManager.Save();
 
-            // Debug mode replaces the top of MAIN with a three-across tool row.
-            // That row is positioned from ColL/ColW arithmetic rather than by
-            // anchors, so it is the one piece of this screen whose fit is not
-            // self-evident — and a state that only exists behind a button is a
-            // state nobody would otherwise render.
+            // The planner, in its shapes: a block that holds a race (CANCEL),
+            // an open shift block (BOOK, with the skips-the-shift warning), and
+            // a block already spent (the record's words). All three are the DAY
+            // view with the cursor moved, so they have to fit as well.
+            Shoot(outDir, "home_plan_booked", "main", mustFit: true,
+                  calDay: st.day + 2, calSlot: LifeRules.DaySlot);
+            Shoot(outDir, "home_plan_open", "main", mustFit: true,
+                  calDay: st.day + 4, calSlot: LifeRules.DaySlot);
+            Shoot(outDir, "home_plan_past", "main", mustFit: true,
+                  calDay: st.day - 4, calSlot: LifeRules.NightSlot);
+
+            // The two grids. The week fits on every canvas; the month gives up
+            // a unit or two to the scroll on a phone by design, so it is not
+            // held to mustFit.
+            Shoot(outDir, "week", "main", mustFit: true, calView: "Week");
+            Shoot(outDir, "month", "main", calView: "Month");
+
+            // The pre-race page with the booking in this block, and without.
+            st.slotIndex = LifeRules.NightSlot;
+            LifeSimManager.Save();
+            Shoot(outDir, "prerace_booked", "prerace");
+            st.slotIndex = 0;
+            LifeSimManager.Save();
+            Shoot(outDir, "prerace_open", "prerace");
+
+            // Debug mode: the six garage slots the second-car shots below need,
+            // and the DEBUG rung on OPTIONS.
             LifeRules.EnableDebug(LifeSimManager.State);
             LifeSimManager.Save();
-            Shoot(outDir, "home_debug");
 
             // A SECOND car, because the garage's car switcher only draws when
             // there is something to switch between — a one-car garage renders
@@ -134,7 +172,7 @@ namespace PSXRacing.EditorTools
 
             // Every tab, not just the two that had been looked at. Three of the
             // four bugs found here were on tabs nobody had rendered.
-            foreach (var t in new[] { "rivals", "garage", "calendar", "news", "options",
+            foreach (var t in new[] { "rivals", "garage", "news", "options",
                                       "market", "junkyard", "dealer", "eat", "bills", "jobs",
                                       "inspect", "inspectfocus", "toolbox",
                                       // The garage is a LIST now and the car page is where
@@ -252,8 +290,14 @@ namespace PSXRacing.EditorTools
         static void ShootSetupPage(string outDir, string label, SetupPage page) =>
             Shoot(outDir, label, "setup", setupPage: page);
 
+        /// <param name="calView">"Week" or "Month" to shoot MAIN as one of its
+        /// grids rather than as the day view.</param>
+        /// <param name="calDay">With calSlot, where to put the calendar's
+        /// cursor before the page is built — the planner only exists for a
+        /// block that is not NOW.</param>
         static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
-                          bool mustFit = false, SetupPage? setupPage = null)
+                          bool mustFit = false, SetupPage? setupPage = null,
+                          string calView = null, int calDay = 0, int calSlot = -1)
         {
             foreach (var size in Sizes)
             {
@@ -302,6 +346,32 @@ namespace PSXRacing.EditorTools
                         BindingFlags.NonPublic | BindingFlags.Instance);
                     if (pageField == null) Debug.LogError("[HomePreview] no setupPage field");
                     else pageField.SetValue(screen, setupPage.Value);
+                }
+
+                // The calendar's view and cursor, one level down again. The
+                // cursor is set WITH the clock it was placed under: SeedCalendar
+                // throws a cursor away when the clock has moved since it was
+                // set, and a cursor set with no clock behind it has "moved"
+                // from nothing.
+                if (calView != null || calDay > 0)
+                {
+                    // The clock FIRST, for both: SeedCalendar resets the view
+                    // as well as the cursor when the clock has moved, and the
+                    // first render of this harness shot the day view three
+                    // times over under the labels "week" and "month" because
+                    // only the cursor shots were setting it.
+                    var st = LifeSimManager.State;
+                    SetField(screen, "calClockDay", st.day);
+                    SetField(screen, "calClockSlot", st.slotIndex);
+                    SetField(screen, "calSelDay", calDay > 0 ? calDay : st.day);
+                    SetField(screen, "calSelSlot", calDay > 0 ? calSlot : st.slotIndex);
+                }
+                if (calView != null)
+                {
+                    var viewField = typeof(LifeHomeScreen).GetField("calView",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (viewField == null) Debug.LogError("[HomePreview] no calView field");
+                    else viewField.SetValue(screen, System.Enum.Parse(viewField.FieldType, calView));
                 }
 
                 // Start() is where the whole UI is constructed. Editor scripts do
@@ -451,5 +521,12 @@ namespace PSXRacing.EditorTools
         static T Field<T>(object obj, string name) where T : class =>
             obj.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)
                ?.GetValue(obj) as T;
+
+        static void SetField(object obj, string name, object value)
+        {
+            var f = obj.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance);
+            if (f == null) Debug.LogError("[HomePreview] no " + name + " field");
+            else f.SetValue(obj, value);
+        }
     }
 }

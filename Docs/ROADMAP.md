@@ -5,6 +5,53 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE CALENDAR IS THE FRONT DOOR (2026-09-17)
+
+Asked: "Menu needs an overhaul... I want the Calendar to be the main
+interface, easy to plan. It should show required shifts to work. The time of
+day is currently highlighted, so choosing to sleep, race, or work on car
+would skip a shift. The left side of the screen should be the current day,
+broken into three chunks... Under that day should be a button that says
+Week... Clicking again should show the full Month... Races are placed on
+calendar, so when its time to race, it gives option to Race, then player
+selects car from garage." Track, hour and GET IN CAR off the launch screen;
+EAT, BILLS, JOBS and OPTIONS folded into MAIN.
+
+- **MAIN is the calendar**, in three views (`LifeHomeScreen.calView`). DAY:
+  the cursor's date and its three blocks on the left (MORNING 4-12, DAY
+  12-20, NIGHT 20-4; the clock's block ruled in GT2 orange and tagged NOW),
+  the hub on the right. WEEK and MONTH: Sunday-first grids across the page,
+  overviews only - a tapped cell opens that block in the DAY view, so the
+  planner exists once. WEEK sits under the day as asked; the grids carry
+  `< DAY / MONTH >` (+ TODAY when paged away); B walks month > week > day > now.
+- **Every block is a button.** Tap a block that is not NOW and the right
+  column is the planner for it: what is in it, then BOOK A RACE (venue
+  steppers, WRITE IT IN, "A race here skips the shift") or CANCEL THIS RACE,
+  or the reason neither is offered. The cursor returns to NOW whenever the
+  clock moves (`calClockDay/Slot`), never to a stale yesterday.
+- **A race is booked into a BLOCK** (`RaceBooking.slot`, save v13; old
+  bookings migrate onto the night). The hub's race row obeys the calendar: a
+  race in THIS block is the gold RACE; one booked later today is named and
+  waits; nothing booked is GO RACING. All open the pre-race page - venue,
+  the block's hour, purse, the garage's cars to pick from, fuel/fault
+  warnings, START - the only race launcher now. The hour picker is gone.
+- **The day remembers what each block went on.** `slotActs` (three words:
+  SLEEP / WORK / RACE / DRIVE / INSPECT / VIEWING / BUSY) written by
+  `SpendActivitySlot(s, what)` and `Sleep`, copied into `dayLog` (42 days)
+  at rollover. A spent block reads SLEPT / WORKED / RACED; a shift block
+  spent on anything else reads SHIFT SKIPPED; SLEEP says "SLEEPING NOW
+  SKIPS THE SHIFT" in a shift block; last Tuesday's cells in the week grid
+  read WORKED / SKIPPED instead of blank. The middle block is DAY
+  everywhere (was AFTERNOON).
+- **Four tabs**: MAIN / GARAGE / RIVALS / NEWS. EAT (red when unfed),
+  BILLS (amber in the last three days), JOB and OPTIONS are tiles on the
+  hub and pages with a BACK button.
+- **Held to fit.** The block rows and the grids size themselves from the
+  column; the preview asserts the day view and the week never scroll on a
+  phone, and that every control is pad-reachable. `TestDiary` +
+  `TestDayRecord` pin the rules; `tools/menu-preview.ps1` is the
+  copy-and-shoot loop.
+
 ## THE ROAD MEETS THE DIRT, AND A WALL HAS TO EARN ITS PLACE (2026-09-13/14)
 
 Reported: "I still have a big issue with it being difficult to drive back

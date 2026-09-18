@@ -69,6 +69,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestShiftRoster), TestShiftRoster);
             Guard(nameof(TestCalendar), TestCalendar);
             Guard(nameof(TestDiary), TestDiary);
+            Guard(nameof(TestDayRecord), TestDayRecord);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -254,6 +255,123 @@ namespace PSXRacing.EditorTools
             var old = new LifeState();
             Check(old.bookings != null && old.bookings.Count == 0,
                   "a save with no diary reads back as an empty one");
+
+            // ---- blocks (v13) ----
+            // A booking is for a BLOCK of a day now, and the calendar offers
+            // the RACE button only when the clock is standing in it.
+            var b = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            b.slotIndex = LifeRules.NightSlot;
+            Check(!LifeRules.CanBookAt(b, b.day, LifeRules.DaySlot),
+                  "a block already behind the clock cannot be booked");
+            Check(LifeRules.CanBookAt(b, b.day, LifeRules.NightSlot),
+                  "but the block the clock is in can");
+            Check(LifeRules.Book(b, b.day + 3, LifeRules.DaySlot, 1, false),
+                  "a race goes into a block");
+            Check(LifeRules.BookingAt(b, b.day + 3, LifeRules.DaySlot) != null &&
+                  LifeRules.BookingAt(b, b.day + 3, LifeRules.NightSlot) == null,
+                  "and is found in that block and no other");
+            Check(!LifeRules.CanBookAt(b, b.day + 3, LifeRules.NightSlot),
+                  "one race a day still holds across blocks");
+            Check(LifeRules.Book(b, b.day + 5, 2, false) &&
+                  LifeRules.BookingOn(b, b.day + 5).slot == LifeRules.NightSlot,
+                  "a booking made without a block lands on the night",
+                  LifeRules.BookingOn(b, b.day + 5).slot);
+            Check(!LifeRules.CanBookAt(b, b.day + LifeRules.BookingHorizonDays + 1, LifeRules.DaySlot),
+                  "and nothing past the horizon");
+
+            // A v12 save's bookings have no block in their JSON, and JsonUtility
+            // would hand them back as MORNING. The migration puts them on the
+            // night, which is what they meant.
+            var v12 = new LifeState { saveVersion = 12 };
+            v12.bookings.Add(new RaceBooking { day = 3, slot = 0, trackIndex = 0 });
+            LifeSimManager.Migrate(v12);
+            Check(v12.saveVersion >= 13 && v12.bookings[0].slot == LifeRules.NightSlot,
+                  "a v12 booking is migrated onto the night block", v12.bookings[0].slot);
+        }
+
+        /// <summary>
+        /// The day remembers what each block went on, and the calendar reads it
+        /// back — today from the live record, yesterday from the log.
+        ///
+        /// This is the whole of "the time of day is currently highlighted, so
+        /// choosing to sleep, race, or work on car would skip a shift" made
+        /// checkable: a shift block spent on a race reads SKIPPED, one spent
+        /// working does not, and the morning is never a shift at all.
+        /// </summary>
+        static void TestDayRecord()
+        {
+            Line("the day's record:");
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            s.slotIndex = 0;
+            int d = s.day;
+
+            LifeRules.Sleep(s);
+            LifeRules.SpendActivitySlot(s, LifeRules.ActRace);
+            Check(LifeRules.SlotAct(s, d, 0) == LifeRules.ActSleep,
+                  "a morning slept through says SLEEP", LifeRules.SlotAct(s, d, 0));
+            Check(LifeRules.SlotAct(s, d, 1) == LifeRules.ActRace,
+                  "a day block raced says RACE", LifeRules.SlotAct(s, d, 1));
+            Check(LifeRules.SlotAct(s, d, 2) == "", "and the block not reached yet says nothing");
+            Check(LifeRules.ShiftSkipped(s, d, 1), "racing through the DAY shift skips it");
+            Check(!LifeRules.ShiftSkipped(s, d, 0), "the morning is not a shift");
+            Check(!LifeRules.ShiftSkipped(s, d, 2), "and a block not yet spent is not skipped yet");
+
+            LifeRules.ClockOnShift(s);
+            LifeRules.SpendActivitySlot(s, LifeRules.ActWork);   // the night, worked: rolls the day
+            Check(s.day == d + 1 && s.slotIndex == 0, "working the night rolls the day", s.day);
+            Check(LifeRules.SlotAct(s, s.day, 0) == "", "the new day's record starts empty");
+            Check(LifeRules.SlotAct(s, d, 2) == LifeRules.ActWork,
+                  "yesterday's night is read back from the log", LifeRules.SlotAct(s, d, 2));
+            Check(!LifeRules.ShiftSkipped(s, d, 2), "a worked shift is not skipped");
+            Check(LifeRules.ShiftSkipped(s, d, 1), "and yesterday's skipped shift is still skipped");
+            Check(s.dayLog.Count == 1 && s.dayLog[0].day == d, "one closed day, one record",
+                  s.dayLog.Count);
+            Check(LifeRules.SlotAct(s, d + 5, 1) == "", "the future has no record");
+
+            // A spend that does not say what it was for still leaves a word,
+            // because blank means "not reached yet".
+            LifeRules.SpendActivitySlot(s);
+            Check(LifeRules.SlotAct(s, s.day, 0) == LifeRules.ActErrand,
+                  "an unnamed spend reads as BUSY", LifeRules.SlotAct(s, s.day, 0));
+            Check(LifeRules.ActLabel(LifeRules.ActErrand).Length > 0 &&
+                  LifeRules.ActLabel("").Length == 0, "every word has a label and blank has none");
+
+            // Nobody unemployed skips a shift.
+            s.playerJob = "";
+            Check(!LifeRules.ShiftSkipped(s, d, 1), "no job, no shift to skip");
+            s.playerJob = LifeRules.DeliveryJobName;
+
+            // The log is pruned, oldest first.
+            for (int i = 0; i < LifeRules.DayLogKeep + 10; i++) LifeRules.SleepUntilMorning(s);
+            Check(s.dayLog.Count == LifeRules.DayLogKeep, "the log keeps six weeks", s.dayLog.Count);
+            Check(s.dayLog[s.dayLog.Count - 1].day == s.day - 1,
+                  "and its newest entry is yesterday", s.dayLog[s.dayLog.Count - 1].day);
+            Check(LifeRules.SlotAct(s, d, 1) == "", "a day older than the log reads blank, not wrong");
+
+            // A v12 save has no record at all in its JSON.
+            var old = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            old.slotActs = null;
+            old.dayLog = null;
+            old.slotIndex = 2;
+            LifeRules.Sleep(old);
+            Check(old.slotActs != null && old.slotActs.Count == 3 && old.dayLog != null &&
+                  old.dayLog.Count == 1, "a save with no record grows one on its first sleep",
+                  old.slotActs?.Count);
+
+            // The calendar's week starts on Sunday and converts from the game's
+            // own FRI-first day of the week.
+            Check(LifeRules.WeekCol(1) == 5, "day 1 (a Friday) is the sixth column", LifeRules.WeekCol(1));
+            Check(LifeRules.WeekStart(1) == -4, "so its week starts four days before the career",
+                  LifeRules.WeekStart(1));
+            bool sundays = true;
+            for (int day = 1; day <= 400; day++)
+            {
+                int ws = LifeRules.WeekStart(day);
+                if (LifeRules.WeekCol(ws) != 0 || ws > day || day - ws > 6) sundays = false;
+                if (LifeRules.WeekDayNames[LifeRules.WeekCol(day)] !=
+                    LifeRules.DowNames[LifeRules.Dow(day)]) sundays = false;
+            }
+            Check(sundays, "every week starts on the Sunday at or before the day, and the names agree");
         }
 
         // ---------------------------------------------------------------
@@ -297,7 +415,7 @@ namespace PSXRacing.EditorTools
                   "day 2 and day 3 really are the weekend this proves");
 
             // The hours the screens print have to be the hours the rule keeps.
-            Check(LifeRules.ShiftHours.Contains("AFTERNOON") &&
+            Check(LifeRules.ShiftHours.Contains("DAY") &&
                   LifeRules.ShiftHours.Contains("NIGHT") &&
                   LifeRules.ShiftHours.ToUpper().Contains("SEVEN"),
                   "the printed roster names both shifts and seven days",
@@ -306,7 +424,7 @@ namespace PSXRacing.EditorTools
             // The short form the half-width columns print has to keep saying
             // the same thing. Two strings for one rule is two strings that can
             // drift, and the one nobody looks at is the one that drifts.
-            Check(LifeRules.ShiftHoursShort.ToUpper().Contains("AFTERNOON") &&
+            Check(LifeRules.ShiftHoursShort.ToUpper().Contains("DAY") &&
                   LifeRules.ShiftHoursShort.ToUpper().Contains("NIGHT") &&
                   LifeRules.ShiftHoursShort.ToUpper().Contains("SEVEN"),
                   "and so does the short form the narrow columns use",

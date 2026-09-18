@@ -32,7 +32,32 @@ namespace PSXRacing.LifeSim
         // has: payday is a column, and January 1999 happens to fill the top-left
         // cell exactly.
         public static readonly string[] DowNames = { "FRI", "SAT", "SUN", "MON", "TUE", "WED", "THU" };
-        public static readonly string[] SlotNames = { "MORNING", "AFTERNOON", "NIGHT" };
+        /// <summary>The three blocks of a day, in the owner's words: MORNING,
+        /// DAY, NIGHT (2026-09-17: "broken into three chunks (morning 4:00-
+        /// 12:00, day 12:00-20:00, night 20:00-4:00)"). The middle one was
+        /// AFTERNOON; renamed here rather than given a second name for the
+        /// calendar, because a header that says AFTERNOON over a day view
+        /// that says DAY is two clocks.</summary>
+        public static readonly string[] SlotNames = { "MORNING", "DAY", "NIGHT" };
+        /// <summary>The hours each block covers, for the day and week views.
+        /// Display only — the clock itself is the three slots, and
+        /// <see cref="TimeOfDay.ForSlot"/> picks an hour inside each band.</summary>
+        public static readonly string[] SlotHours = { "4:00 – 12:00", "12:00 – 20:00", "20:00 – 4:00" };
+        public const int MorningSlot = 0, DaySlot = 1, NightSlot = 2;
+
+        // ---- the week, as a calendar draws it ----
+        // The game's own week is FRI-first (Dow, above): day 1 is a Friday
+        // and payday is a Friday, and every rule reads Dow. A CALENDAR is a
+        // different thing — the owner's own reference for the week view is a
+        // work planner that starts on SUNDAY, which is also how a 1999 North
+        // Carolina kitchen calendar reads — so the week and month grids start
+        // on Sunday and convert. Nothing but the two grids uses these.
+        public static readonly string[] WeekDayNames = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
+        /// <summary>Column of a day in a Sunday-first week: SUN 0 .. SAT 6.</summary>
+        public static int WeekCol(int day) => (Dow(day) + 5) % 7;
+        /// <summary>The Sunday a day's week starts on. Can be BEFORE day 1
+        /// for the first week of a career; a grid draws those cells blank.</summary>
+        public static int WeekStart(int day) => day - WeekCol(day);
         /// <summary>Month names spelled out here rather than taken from the
         /// culture. WebGL ships an invariant-ish culture set and a menu that
         /// renders "janv." on somebody's phone is a bug nobody can reproduce.
@@ -117,16 +142,46 @@ namespace PSXRacing.LifeSim
         public static RaceBooking BookingOn(LifeState s, int day) =>
             s == null || s.bookings == null ? null : s.bookings.Find(b => b != null && b.day == day);
 
+        /// <summary>The booking in ONE block of a day, or null. The day view
+        /// draws a race in the block it was written into and offers the RACE
+        /// button only when the clock is standing in that block.</summary>
+        public static RaceBooking BookingAt(LifeState s, int day, int slot)
+        {
+            var b = BookingOn(s, day);
+            return b != null && b.slot == slot ? b : null;
+        }
+
+        /// <summary>Book onto the night, which is what a booking meant before
+        /// blocks existed and what a street race is anyway.</summary>
+        public static bool Book(LifeState s, int day, int trackIndex, bool practice) =>
+            Book(s, day, NightSlot, trackIndex, practice);
+
         /// <summary>One race a day, because a race costs a slot and there are
         /// three of those — a day with two bookings on it is a day the player
-        /// has already lost by lunchtime.</summary>
-        public static bool Book(LifeState s, int day, int trackIndex, bool practice)
+        /// has already lost by lunchtime. A block already behind the clock is
+        /// refused for the same reason yesterday is: it is not a plan.</summary>
+        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice)
+        {
+            if (!CanBookAt(s, day, slot)) return false;
+            if (s.bookings == null) s.bookings = new System.Collections.Generic.List<RaceBooking>();
+            s.bookings.Add(new RaceBooking
+            {
+                day = day, slot = Mathf.Clamp(slot, 0, SlotNames.Length - 1),
+                trackIndex = trackIndex, practice = practice,
+            });
+            return true;
+        }
+
+        /// <summary>Whether a NEW booking could be written into this block:
+        /// not behind the clock, inside the horizon, and on a day with no
+        /// race on it yet. The planner asks this to decide whether to draw
+        /// WRITE IT IN at all.</summary>
+        public static bool CanBookAt(LifeState s, int day, int slot)
         {
             if (s == null || day < s.day) return false;
-            if (s.bookings == null) s.bookings = new System.Collections.Generic.List<RaceBooking>();
-            if (BookingOn(s, day) != null) return false;
-            s.bookings.Add(new RaceBooking { day = day, trackIndex = trackIndex, practice = practice });
-            return true;
+            if (day == s.day && slot < s.slotIndex) return false;
+            if (day > s.day + BookingHorizonDays) return false;
+            return BookingOn(s, day) == null;
         }
 
         public static void Unbook(LifeState s, int day)
@@ -193,11 +248,92 @@ namespace PSXRacing.LifeSim
         public static bool ShopOpen(LifeState s) => s != null && ShiftSlot(s.slotIndex);
         /// <summary>The roster in words, for every screen that has to say it.
         /// One string so the home screen and the jobs tab cannot drift.</summary>
-        public const string ShiftHours = "AFTERNOON 12PM-8PM  ·  NIGHT 8PM-4AM, SEVEN DAYS";
+        public const string ShiftHours = "DAY 12PM-8PM  ·  NIGHT 8PM-4AM, SEVEN DAYS";
         /// <summary>The same roster in half the characters, for the columns
         /// that are half a screen wide. The long form is 46 characters and runs
         /// clean off a 445-unit column into whatever is beside it.</summary>
-        public const string ShiftHoursShort = "AFTERNOONS + NIGHTS, SEVEN DAYS";
+        public const string ShiftHoursShort = "DAY + NIGHT SHIFTS, SEVEN DAYS";
+
+        // ================= what a block was spent on =================
+        // The calendar is the front door now, and a calendar that only knows
+        // the FUTURE is half a calendar: the owner asked for it to show the
+        // shifts, with the current block highlighted, so that "choosing to
+        // sleep, race, or work on the car would skip a shift" is something
+        // you can SEE. That needs the day to remember what each block went
+        // on. One word per block, stamped by the two things that move the
+        // clock (SpendActivitySlot and Sleep), copied into dayLog when the
+        // day closes.
+        public const string ActSleep = "SLEEP";
+        public const string ActWork = "WORK";
+        public const string ActRace = "RACE";
+        public const string ActDrive = "DRIVE";
+        public const string ActInspect = "INSPECT";
+        public const string ActViewing = "VIEWING";
+        /// <summary>A slot spent by a caller that did not say on what. The
+        /// tests and one or two errands; never blank, because blank means
+        /// "not reached yet".</summary>
+        public const string ActErrand = "BUSY";
+        /// <summary>How many closed days the save keeps. Six weeks covers any
+        /// month view and the week either side of it.</summary>
+        public const int DayLogKeep = 42;
+
+        /// <summary>What a block's word reads as on the calendar, past tense.</summary>
+        public static string ActLabel(string act)
+        {
+            switch (act)
+            {
+                case ActSleep: return "SLEPT";
+                case ActWork: return "WORKED";
+                case ActRace: return "RACED";
+                case ActDrive: return "DROVE";
+                case ActInspect: return "INSPECTED";
+                case ActViewing: return "VIEWED A CAR";
+                case ActErrand: return "BUSY";
+                default: return "";
+            }
+        }
+
+        /// <summary>The save's slotActs, guaranteed three entries. A v12 save
+        /// has none in its JSON (the initializer stands in), and a truncated
+        /// list would index out of range on the first sleep.</summary>
+        public static System.Collections.Generic.List<string> SlotActs(LifeState s)
+        {
+            if (s.slotActs == null) s.slotActs = new System.Collections.Generic.List<string>();
+            while (s.slotActs.Count < SlotNames.Length) s.slotActs.Add("");
+            return s.slotActs;
+        }
+
+        static void RecordAct(LifeState s, int slot, string what)
+        {
+            if (s == null) return;
+            var acts = SlotActs(s);
+            slot = Mathf.Clamp(slot, 0, SlotNames.Length - 1);
+            acts[slot] = string.IsNullOrEmpty(what) ? ActErrand : what;
+        }
+
+        /// <summary>What a block of ANY day was spent on: today's from
+        /// slotActs, a closed day's from dayLog, and empty for the future,
+        /// for a block not reached yet, and for a day older than the log.</summary>
+        public static string SlotAct(LifeState s, int day, int slot)
+        {
+            if (s == null) return "";
+            slot = Mathf.Clamp(slot, 0, SlotNames.Length - 1);
+            if (day == s.day) return SlotActs(s)[slot] ?? "";
+            if (day > s.day || s.dayLog == null) return "";
+            var rec = s.dayLog.Find(r => r != null && r.day == day);
+            return rec != null ? (rec.Act(slot) ?? "") : "";
+        }
+
+        /// <summary>A shift block that went on something other than the
+        /// shift. Only ever true of a block that HAS been spent — the block
+        /// the clock is standing in is not skipped yet, it is being decided —
+        /// and only while there is a job to skip.</summary>
+        public static bool ShiftSkipped(LifeState s, int day, int slot)
+        {
+            if (s == null || string.IsNullOrEmpty(s.playerJob) || !ShiftSlot(slot)) return false;
+            string act = SlotAct(s, day, slot);
+            return act.Length > 0 && act != ActWork;
+        }
 
         /// <summary>
         /// Days off the roster allows before the absence ladder starts biting.
@@ -911,7 +1047,8 @@ namespace PSXRacing.LifeSim
             // loaded drive to the junction are halves of the shift, and the
             // shift's slot is spent once, at the shop door. Charging each leg
             // as well made one delivery cost most of a day.
-            if (!RaceHandoff.Delivery && !RaceHandoff.CommuteLeg) SpendActivitySlot(s);
+            if (!RaceHandoff.Delivery && !RaceHandoff.CommuteLeg)
+                SpendActivitySlot(s, RaceHandoff.FreeRoam ? ActDrive : ActRace);
 
             if (car != null)
             {
@@ -1482,8 +1619,13 @@ namespace PSXRacing.LifeSim
         // ================= the slot machine (sleepSlot.ts) =================
         /// <summary>Burn one non-rest slot (work, race, errand). Rolls the day
         /// as an all-nighter if it was the last slot of the night.</summary>
-        public static void SpendActivitySlot(LifeState s)
+        public static void SpendActivitySlot(LifeState s) => SpendActivitySlot(s, ActErrand);
+
+        /// <summary>The same, saying what the block went on — one of the Act
+        /// words — so the calendar can draw it afterwards.</summary>
+        public static void SpendActivitySlot(LifeState s, string what)
         {
+            RecordAct(s, s.slotIndex, what);
             s.slotsActiveToday++;
             s.slotIndex++;
             if (s.slotIndex > 2) Rollover(s, sleptTonight: false);
@@ -1517,6 +1659,7 @@ namespace PSXRacing.LifeSim
             // in" over a counter that only sold. An intent to work the
             // afternoon does not survive sleeping through it, whichever bed.
             PizzaRun.DriveToShop = false;
+            RecordAct(s, s.slotIndex, ActSleep);
             if (s.slotIndex >= SlotNames.Length - 1)
             {
                 s.health = Mathf.Min(100f, s.health + 5f);
@@ -1555,6 +1698,18 @@ namespace PSXRacing.LifeSim
         /// Everything funnels through here so nothing double-fires.</summary>
         static void Rollover(LifeState s, bool sleptTonight)
         {
+            // 0. close the day's record before anything below changes what
+            //    "today" is. The three words are already in slotActs — the
+            //    caller stamped the last one before calling in here.
+            var acts = SlotActs(s);
+            if (s.dayLog == null) s.dayLog = new System.Collections.Generic.List<DayRecord>();
+            s.dayLog.RemoveAll(r => r == null || r.day == s.day);
+            s.dayLog.Add(new DayRecord
+            {
+                day = s.day, morning = acts[0] ?? "", afternoon = acts[1] ?? "", night = acts[2] ?? "",
+            });
+            while (s.dayLog.Count > DayLogKeep) s.dayLog.RemoveAt(0);
+
             // 1. no-show: employed, the shop was open, no run taken
             //    (noShowAbsence.ts ladder, re-cut for the delivery roster).
             //
@@ -1600,6 +1755,7 @@ namespace PSXRacing.LifeSim
             s.day++;
             s.slotIndex = 0;
             s.slotsActiveToday = 0;
+            for (int i = 0; i < acts.Count; i++) acts[i] = "";
 
             // 5. payday (Friday) — flat-rate withheld tax
             if (IsPayday(s.day - 1) && s.pendingSalary > 0)

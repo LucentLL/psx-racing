@@ -191,7 +191,7 @@ namespace PSXRacing.LifeSim
             // Spend BEFORE stamping the day, for the reason Inspection.Enter
             // spells out: spending the last slot rolls the calendar, and a
             // pre-stamp then writes yesterday onto the visit and charges twice.
-            LifeRules.SpendActivitySlot(s);
+            LifeRules.SpendActivitySlot(s, LifeRules.ActViewing);
             v.visitDay = s.day;
             // A new day is a new conversation. The seller has stopped feeling
             // generous and the walk-round is worth doing again on a car you

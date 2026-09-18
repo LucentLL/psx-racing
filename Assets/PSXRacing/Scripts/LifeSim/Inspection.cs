@@ -240,7 +240,7 @@ namespace PSXRacing.LifeSim
             // calendar over, and stamping before that writes YESTERDAY onto the
             // car — so the inspection the player just paid for would read as
             // not open and charge them a second slot to get into it.
-            LifeRules.SpendActivitySlot(s);
+            LifeRules.SpendActivitySlot(s, LifeRules.ActInspect);
             car.inspectDay = s.day;
             car.inspectedSubs.Clear();
         }
@@ -528,7 +528,7 @@ namespace PSXRacing.LifeSim
             if (s.money < price) return "need " + MenuKit.Money(price);
 
             s.money -= price;
-            LifeRules.SpendActivitySlot(s);
+            LifeRules.SpendActivitySlot(s, LifeRules.ActInspect);
             // Leave a mark on the CAR, not just in the calendar. Without it the
             // save cannot tell a fault a dealer found from one that was never
             // hidden in the first place, which is precisely the ambiguity the

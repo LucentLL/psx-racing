@@ -38,15 +38,42 @@ namespace PSXRacing.LifeSim
         ///     can be carrying a kit it could no longer buy and can no longer
         ///     use. It is unfitted and refunded rather than left as a padlocked
         ///     row the player paid for.
+        /// v13: the calendar became the front door. RaceBooking gained SLOT
+        ///     (a race is written into a block of a day, not just a day);
+        ///     LifeState gained slotActs (what each of today's three blocks
+        ///     was spent on) and dayLog (the same, per closed day) so the
+        ///     week view can show a past shift as WORKED or MISSED rather than
+        ///     as nothing. The migration stamps every existing booking onto
+        ///     the night block, because a booking made before blocks existed
+        ///     was "some time that day" and the night is when a street race
+        ///     happens.
         /// </summary>
-        public int saveVersion = 12;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 13;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
         public int day = 1;              // absolute day counter; day 1 is a FRIDAY
-        public int slotIndex;            // 0 morning / 1 afternoon / 2 night
+        public int slotIndex;            // 0 morning / 1 day / 2 night
         public int slotsActiveToday;     // non-rest slots burned since last sleep
         public bool workedToday;
+        /// <summary>
+        /// What each of TODAY's three blocks was spent on, by slot index —
+        /// one of <see cref="LifeRules.ActWork"/> and friends, or empty for a
+        /// block not yet reached. Written by SpendActivitySlot and Sleep,
+        /// cleared by the rollover, which first copies it into
+        /// <see cref="dayLog"/>. This is what lets the day view print SLEPT
+        /// over the morning you slept through and SHIFT SKIPPED over the
+        /// afternoon you raced instead of working.
+        /// </summary>
+        public List<string> slotActs = new List<string> { "", "", "" };
+        /// <summary>
+        /// The last few weeks of <see cref="slotActs"/>, one record per closed
+        /// day, newest last. Pruned to <see cref="LifeRules.DayLogKeep"/>
+        /// entries at every rollover, so a long career does not carry a year
+        /// of it. ADDED in v13: a save from before has none, and the calendar
+        /// prints those days as blank rather than as anything it cannot know.
+        /// </summary>
+        public List<DayRecord> dayLog = new List<DayRecord>();
 
         // === Race setup (remembered between races) ===
         /// <summary>Which circuit the next race runs on, indexing
@@ -507,7 +534,31 @@ namespace PSXRacing.LifeSim
     public class RaceBooking
     {
         public int day;
+        /// <summary>Which block of the day — 0 morning, 1 day, 2 night. A
+        /// race is an appointment for an evening, not for a date, and the
+        /// calendar has to know which block to draw it in and which block
+        /// to offer the RACE button on. v13; older bookings are migrated
+        /// onto the night.</summary>
+        public int slot = 2;
         public int trackIndex;
         public bool practice;
+    }
+
+    /// <summary>
+    /// One closed day, as the three things its blocks were spent on. The
+    /// activity log next door is prose for the RECENTLY list; this is the
+    /// structured copy the week and month views read, so that last
+    /// Tuesday's afternoon can be drawn as the shift it was or the race it
+    /// became.
+    /// </summary>
+    [Serializable]
+    public class DayRecord
+    {
+        public int day;
+        public string morning = "";
+        public string afternoon = "";
+        public string night = "";
+
+        public string Act(int slot) => slot <= 0 ? morning : slot == 1 ? afternoon : night;
     }
 }

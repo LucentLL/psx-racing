@@ -346,6 +346,26 @@ namespace PSXRacing.LifeSim
                 }
                 s.saveVersion = 12;
             }
+
+            if (s.saveVersion < 13)
+            {
+                // v13 put every booking into a BLOCK of its day. A booking
+                // written before blocks existed meant "some time that day",
+                // and JsonUtility hands the new field back as 0 — the
+                // morning — which would draw a race booked for "Friday" over
+                // Friday breakfast and offer the RACE button at dawn. The
+                // night is what the old booking meant in practice: it is
+                // when the street runs, and it is the block a race made from
+                // the old launch screen usually landed in.
+                if (s.bookings != null)
+                    foreach (var b in s.bookings)
+                        if (b != null) b.slot = LifeRules.NightSlot;
+                // The day's record starts empty rather than absent, so the
+                // first sleep can stamp it without growing a list.
+                LifeRules.SlotActs(s);
+                if (s.dayLog == null) s.dayLog = new System.Collections.Generic.List<DayRecord>();
+                s.saveVersion = 13;
+            }
         }
 
         public static void DeleteSave()
