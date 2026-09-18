@@ -58,7 +58,22 @@ for i, ob in enumerate(keep):
     # origin: base at z = 0, centred in plan. The baker measures and corrects
     # this again - "measure, don't assume" - but a model that arrives already
     # seated is one fewer way for a bottle to hang off the seat.
+    #
+    # AND TURNED RIGHT SIDE OUT. The pack places every one of these with a
+    # NEGATIVE scale on all three axes (-0.097, -0.097, -0.087): a mirror. Baking
+    # a mirror into the vertices reverses which way round every triangle runs,
+    # and mesh.transform() - unlike the UI's Apply Scale - does not flip them
+    # back. The first export skipped this and shipped four bottles INSIDE OUT:
+    # the renderer culled the wall nearest the camera and drew the inside of the
+    # far one, reported as "these bottles look hollow like they're missing a
+    # side". It survived my own check render because that render had culling on
+    # and the texture is a planar projection, the same picture on the inside of
+    # the back as on the outside of the front. So it is MEASURED below, not
+    # looked at: a closed mesh has a signed volume, and its sign is the answer.
+    mirrored = ob.matrix_world.determinant() < 0
     me.transform(ob.matrix_world)
+    if mirrored:
+        me.flip_normals()
     ob.matrix_world = Matrix.Identity(4)
     xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]; zs = [v.co.z for v in me.vertices]
     shift = Vector((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs)))
@@ -79,6 +94,22 @@ for i, ob in enumerate(keep):
     ob.name = "soda_2l_%d" % i
     me.name = ob.name
     ob.location = Vector((i * 0.3, 0.0, 0.0))
+
+def signed_volume(me):
+    """Positive when a closed mesh's faces point OUT (Blender: counter-clockwise
+    fronts, right-handed). Negative is inside out."""
+    me.calc_loop_triangles()
+    total = 0.0
+    for t in me.loop_triangles:
+        a, b, c = (me.vertices[i].co for i in t.vertices)
+        total += a.dot(b.cross(c)) / 6.0
+    return total
+
+for ob in keep:
+    vol = signed_volume(ob.data)
+    windows[ob.name]["litres_at_pack_scale"] = round(vol * 1000.0, 3)
+    if vol <= 0.0:
+        raise SystemExit("SODAS FAILED: %s is INSIDE OUT (signed volume %.5f) - refusing to export" % (ob.name, vol))
 
 with open(os.path.join(HERE, "soda_uv.json"), "w") as f:
     json.dump(dict(sheet=SHEET, col=COL, gutter=GUTTER, atlas="Foods_01.jpg", bottles=windows), f, indent=2)

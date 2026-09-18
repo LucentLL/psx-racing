@@ -394,6 +394,16 @@ namespace PSXRacing.EditorTools
                 if (src == null) { Debug.LogWarning("[PizzaCargo] the pack has no soda_2l_" + v); continue; }
 
                 string name = v == 0 ? BottlePrefab : BottlePrefab + "_" + v;
+
+                // RIGHT SIDE OUT, or it is not baked. See InsideOut.
+                var srcMesh = src.GetComponentInChildren<MeshFilter>(true);
+                if (srcMesh == null || srcMesh.sharedMesh == null || InsideOut(srcMesh.sharedMesh))
+                {
+                    Debug.LogError("[PizzaCargo] " + src.name + " is INSIDE OUT (or has no mesh) - " +
+                                   "re-run tools/sodas/export_sodas.py; not baking a hollow bottle");
+                    continue;
+                }
+
                 var holder = new GameObject(name);
                 var pivot = new GameObject("Mesh");
                 pivot.transform.SetParent(holder.transform, false);
@@ -437,6 +447,45 @@ namespace PSXRacing.EditorTools
             Debug.Log("[PizzaCargo] baked " + made + " two-litre bottles from the owner's pack (" +
                       BottleHeightM.ToString("0.00") + " m)");
             return made > 0;
+        }
+
+        /// <summary>
+        /// Is this closed mesh wound INSIDE OUT?
+        ///
+        /// The first export of these bottles was. The pack places them with a
+        /// negative scale on all three axes, the exporter baked that mirror into
+        /// the vertices without turning the triangles back round, and the
+        /// renderer — which culls back faces — drew the inside of each bottle's
+        /// far wall and nothing of its near one: "these bottles look hollow like
+        /// they're missing a side". Nothing here could have noticed, because
+        /// nothing here asked. A picture did not show it either: the label is a
+        /// planar projection, so the inside of the back is the same picture as
+        /// the outside of the front.
+        ///
+        /// A closed mesh has a signed volume — the sum of v0 . (v1 x v2) over
+        /// its triangles — and its sign is which way the faces point. WHICH sign
+        /// is "out" depends on the engine's handedness and winding, so it is not
+        /// typed in: it is read off a mesh Unity itself guarantees is right.
+        /// MESH space, deliberately. A negative scale on the TRANSFORM is fine;
+        /// Unity flips its culling to match. It is only a mirror baked into the
+        /// vertices that nothing downstream can see.
+        /// </summary>
+        internal static bool InsideOut(Mesh mesh)
+        {
+            var probe = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            float right = SignedVolume(probe.GetComponent<MeshFilter>().sharedMesh);
+            Object.DestroyImmediate(probe);
+            return SignedVolume(mesh) * right <= 0f;
+        }
+
+        static float SignedVolume(Mesh mesh)
+        {
+            var v = mesh.vertices;
+            var t = mesh.triangles;
+            double sum = 0.0;
+            for (int i = 0; i + 2 < t.Length; i += 3)
+                sum += Vector3.Dot(v[t[i]], Vector3.Cross(v[t[i + 1]], v[t[i + 2]])) / 6.0;
+            return (float)sum;
         }
 
         /// <summary>The sheet, imported by the renderer's own rules for a

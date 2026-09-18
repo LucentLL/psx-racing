@@ -585,6 +585,39 @@ namespace PSXRacing
         /// </summary>
         const float GroundSettleS = 1.5f;
 
+        // ---- the hinged lid ------------------------------------------------
+        /// <summary>As far as a lid folds: flat behind its box and on down
+        /// until its far edge finds whatever the box is standing on. On a seat
+        /// it never gets there — the seat back stops it a few degrees past
+        /// upright, which is where it stays — and on the floor the floor does.
+        /// </summary>
+        const float LidMaxDeg = 200f;
+        /// <summary>Card is not a door on a ball race. 2.5 a second lets a
+        /// 400 degree-a-second pop flap the lid up thirty degrees and drop it
+        /// shut in under half a second, and takes 750 to carry it over the
+        /// top — worked out in a ten-line integration before it was typed.
+        /// </summary>
+        const float LidDamping = 2.5f;
+        /// <summary>What a SLAM gives the lid, per metre-per-second the box
+        /// lost, and the band it is held to. LidPopSpeed is 1.5, so the
+        /// gentlest pop there is lifts the lid and lets it fall; twice that
+        /// folds it back.</summary>
+        const float LidKickPerMps = 300f, LidKickMin = 400f, LidKickMax = 900f;
+        /// <summary>What leaving the seat gives it. A box going over an edge
+        /// is turning, and the lid is the part that was not holding on.
+        /// </summary>
+        const float LidKickGrounded = 500f;
+        /// <summary>Smoothing on the box's own acceleration, which is a
+        /// finite difference off a body in contact and as noisy as that
+        /// sounds.</summary>
+        const float LidAccelTau = 0.05f;
+        /// <summary>Under this the lid is SHUT; over <see cref="LidAjarDeg"/>
+        /// it is open enough for a pizza to get past. Shut and still for
+        /// <see cref="LidRestS"/> with the pizza inside, and the pizza is
+        /// packed again.</summary>
+        const float LidShutDeg = 2f, LidAjarDeg = 6f, LidRestS = 0.3f;
+        static readonly Collider[] lidHits = new Collider[24];
+
         /// <summary>Height of the pan's top surface at tray-local
         /// <paramref name="z"/>. Zero at the centre, rising toward the front
         /// — anything placed on the cushion away from its middle has to be
@@ -758,9 +791,11 @@ namespace PSXRacing
             /// that reads pizza motion is gated on this, because a shut box's
             /// pizza has none.</summary>
             public Rigidbody pizzaBody;
-            /// <summary>The lid's collider while the box is shut. Destroying it
-            /// IS opening the box: until then it is the ceiling that keeps the
-            /// pizza in.</summary>
+            /// <summary>The lid's collider: the ceiling that keeps the pizza in.
+            /// It hangs on the hinge with the lid and turns with it, so it is
+            /// a ceiling for exactly as long as the lid is down. (It used to be
+            /// destroyed when a box opened; the lid it stood for used to leave.)
+            /// </summary>
             public Collider ceiling;
             /// <summary>The box's top face in its own local units, above its
             /// origin. A pizza whose centre is above this is on the lid or
@@ -773,7 +808,86 @@ namespace PSXRacing
             /// scale and a literal here would mean different things at different
             /// box sizes.</summary>
             public float escapeRadius = 0.26f;
-            public bool open;              // lid has come off its seat
+            public bool open;              // lid is UNLATCHED (it never comes off)
+
+            /// <summary>
+            /// THE HINGE. A pivot on the box's rear TOP edge — the fold of a real
+            /// pizza box — that the lid and the ceiling collider both hang from,
+            /// from the moment the box is built. They never leave it.
+            ///
+            /// The lid used to be cut loose when a box opened: re-parented to
+            /// the island, given a body and a shove, and left to fly. The
+            /// owner: "pizza box lids just pop off. They should be hinged on
+            /// like a real pizza box, never falling off. They can flip open or
+            /// fold backwards, but not just pop off like a container lid." It
+            /// was a container lid because that is what the code said it was.
+            ///
+            /// So opening a box UNLATCHES it and nothing more. The lid swings
+            /// about this pivot as one degree of freedom, integrated by hand in
+            /// SwingLids — not a PhysX joint: a 120 g plate jointed to a 1.2 kg
+            /// box with two more boxes standing on it is the light body in a
+            /// heavy sandwich, the arrangement this solver is worst at, four
+            /// kilometres from the origin where a float's grain is a quarter
+            /// of a millimetre. A hand-rolled hinge cannot come apart because
+            /// there is nothing to come apart: the lid is a child of its box on
+            /// the first frame and on the last.
+            ///
+            /// THE TOP REAR EDGE, and it was the bottom one for an afternoon. The
+            /// pack's lid is an outer SHELL with a skirt all the way round (see
+            /// the baker on splitting by footprint), and about the bottom edge
+            /// every point of that shell moves up and away from the tray, so
+            /// nothing is ever drawn through anything — which is why it was
+            /// tried. But a plate that stands five centimetres ABOVE its pivot
+            /// swings its near end BACK as it opens and DOWN once it is past
+            /// upright: a box against the seat back could not lift its lid at
+            /// all, and one with room behind it drove the lid's edge into the
+            /// cushion and levered itself up — the harness traced a box
+            /// crawling thirty-two centimetres forward on its own lid. About
+            /// the top edge the plate never goes behind its hinge short of
+            /// upright or below its box short of flat, so it opens against a
+            /// seat back, leans on it a few degrees past vertical and stays
+            /// there, which is what a pizza box on a car seat does. The skirts
+            /// come up with it and read as what they are on a real lid: a front
+            /// flap and two side flaps. The rear one turns into the box under
+            /// the rising lid, where the camera cannot see it.
+            /// </summary>
+            public Transform hinge;
+            /// <summary>The lid's angle and rate, degrees: 0 is shut, 90
+            /// standing, 180 folded flat behind the box.</summary>
+            public float lidDeg, lidVel;
+            /// <summary>The widest it has been — for the harness, which reads
+            /// a case once at the end and would otherwise never see a lid that
+            /// flapped open and fell shut again.</summary>
+            public float lidPeakDeg;
+            /// <summary>Hinge to free edge, metres.</summary>
+            public float lidLen;
+            /// <summary>The pivot, and the ceiling plate's centre and size,
+            /// in the box's local units — what LidBlocked sweeps.</summary>
+            public Vector3 hingeLocal, plateCentre, plateSize;
+            /// <summary>The box's whole top face, local units — what the
+            /// plate is a part of, and what the pizza has to be narrower than.
+            /// </summary>
+            public Vector3 boxTopSize;
+            /// <summary>Seconds the lid has lain shut and still. Long enough,
+            /// with the pizza still inside, and the pizza is packed again —
+            /// see Capture.</summary>
+            public float lidShutFor;
+            /// <summary>The box's own velocity last step and its smoothed
+            /// acceleration: a lid on a falling box floats, and one on a box
+            /// that has just stopped keeps going.</summary>
+            public Vector3 lastBoxVel, boxAccel;
+            /// <summary>The top of the box's floor, in its own local units. What
+            /// the pizza's collider has to stand ON — see PizzaFloorClearanceM.
+            /// </summary>
+            public float floorTopLocal;
+            /// <summary>The last thing that stopped the lid, and where. For the
+            /// harness: "it ended up shut" reads the same whether the lid fell
+            /// or was turned back, and only one of those is a bug.</summary>
+            public string lidStoppedBy;
+            /// <summary>Its pizza has been a body at least once. What the
+            /// harness means by "loose", now that a lid lying shut packs the
+            /// pizza again.</summary>
+            public bool everLoose;
             public bool escaped;           // pizza is out of the box
             public bool flipped;           // box went past horizontal at some point
             public bool grounded;          // box left the seat
@@ -814,17 +928,17 @@ namespace PSXRacing
         readonly List<Slot> slots = new List<Slot>();
 
         /// <summary>
-        /// EVERY FREE BODY ON THE ISLAND: boxes, bottles, released pizzas,
-        /// released lids. This is what Tick drives.
+        /// EVERY FREE BODY ON THE ISLAND: boxes, bottles, released pizzas.
+        /// This is what Tick drives. (Not lids. A lid is part of its box and
+        /// swings on a hinge — see SwingLids.)
         ///
         /// Tick used to drive the slots' boxes and pizzas and nothing else.
         /// The bottles were built with rigidbodies and forgotten — never
         /// pushed, never jolted — which made them a two-kilo parked wall in
         /// front of the stack that most orders carry (58% of one-box orders,
         /// 78% of the rest): a 1.2 kg box kicked at 7 m/s into four kilos of
-        /// cola that did not get the memo keeps 1.6 of them. A released lid
-        /// was the same. If it can move, it is on this list and it feels the
-        /// car.
+        /// cola that did not get the memo keeps 1.6 of them. If it can move
+        /// on its own, it is on this list and it feels the car.
         /// </summary>
         readonly List<Rigidbody> loose = new List<Rigidbody>();
 
@@ -843,12 +957,13 @@ namespace PSXRacing
         /// footwell on the first corner was already in the footwell on the
         /// grid, which is the one thing a delivery replay is for.
         ///
-        /// PARENTS FIRST. A shut box's pizza and lid are its children, so the
-        /// box has to be placed before them or placing it drags them off the
-        /// pose just written; after a box opens they belong to the island
-        /// root, and the same world pose is right either way. Fixed at build:
-        /// nothing on the island is created after BuildIsland (opening a box
-        /// adds components to transforms that already exist).
+        /// PARENTS FIRST. A lid is always its box's child (on the hinge) and a
+        /// packed pizza is too, so the box has to be placed before them or
+        /// placing it drags them off the pose just written; a pizza that is
+        /// out belongs to the island root, and the same world pose is right
+        /// either way. Fixed at build: nothing on the island is created after
+        /// BuildIsland (opening a box adds components to transforms that
+        /// already exist).
         /// </summary>
         public List<Transform> ReplayParts()
         {
@@ -1446,6 +1561,7 @@ namespace PSXRacing
                                 new Vector3(local.x, wall, local.z));
             foreach (var c in go.GetComponentsInChildren<Collider>(true)) c.sharedMaterial = grip;
             slot.escapeRadius = Mathf.Max(local.x, local.z) * 0.42f;
+            slot.floorTopLocal = lc.y - hy * 0.5f + wall;
             slot.topLocal = lc.y + hy * 0.5f;
 
             var rb = go.AddComponent<Rigidbody>();
@@ -1513,8 +1629,26 @@ namespace PSXRacing
                 // the load read as sticky. Ninety percent of the interior, with
                 // the bottom on the floor, cannot overlap anything by
                 // construction, whatever the artist drew.
-                float innerX = local.x - 2f * side, innerZ = local.z - 2f * side;
-                float innerY = hy - 2f * wall;
+                //
+                // IN METRES. `local`, `side`, `wall` and `hy` are the BOX's local
+                // units — the prefab root carries the 0.586 that takes the
+                // pack's 70 cm box to a real 41 — and these three were left in
+                // them and then used as metres, which is the one mistake this
+                // whole method is written round avoiding. So "ninety percent of
+                // the interior" came out as ninety percent of 0.574: a collider
+                // 0.517 m across, inside a box 0.41 m across, and (through the
+                // same slip in homeLocal below) sunk four millimetres into the
+                // floor. Nobody saw it, because a shut box's pizza has its
+                // collider OFF. The moment a box opened, the solver was handed
+                // a body overlapping all four walls and the floor of the box it
+                // was in, and did what it does: fired it out of the top. Every
+                // "the pizza flew off but the box still sat there" since the
+                // pizza became a child was this. Found by the hinged lid, whose
+                // sweep reported being stopped at 74 degrees by its own pizza —
+                // a thing that cannot happen to a pizza lying in a box — and
+                // printed the bounds.
+                float innerX = (local.x - 2f * side) * ls.x, innerZ = (local.z - 2f * side) * ls.z;
+                float innerY = (hy - 2f * wall) * ls.y;
                 // The interior's centre, in box-local, at the top of the floor.
                 var home = lc + new Vector3(0f, -hy * 0.5f + wall + 0.002f, 0f);
 
@@ -1537,7 +1671,9 @@ namespace PSXRacing
                 // its box has a centre above where the collider's can be, and a
                 // collider hung off it floats and then settles, which is a
                 // stack that moves at rest.
-                slot.homeLocal = home + new Vector3(0f, pizzaH * 0.5f, 0f);
+                // pizzaH is metres and home is box-local: half the height, in
+                // the box's units, or the collider's foot is under the floor.
+                slot.homeLocal = home + new Vector3(0f, pizzaH * 0.5f / Mathf.Max(1e-4f, ls.y), 0f);
                 var pc = pz.AddComponent<BoxCollider>();
                 pc.center = pz.transform.InverseTransformPoint(
                                 go.transform.TransformPoint(slot.homeLocal));
@@ -1572,11 +1708,36 @@ namespace PSXRacing
             }
 
             // The lid came in ON the box — the baked prefab is the assembled,
-            // closed thing — and rides there until the box opens, when it is cut
-            // loose as its own body. Non-physical while shut, so a three-box
-            // stack is three bodies and not six.
+            // closed thing — and it never leaves. Never a body of its own, open
+            // or shut, so a three-box stack is three bodies and not six.
             foreach (var t in go.GetComponentsInChildren<Transform>(true))
                 if (t.name == "Lid") { slot.lid = t; break; }
+
+            // HUNG ON ITS HINGE, now, while the box is still square to the
+            // world — see Slot.hinge. worldPositionStays, so the lid and the
+            // ceiling stay exactly where the baker and the lines above put
+            // them; all that changes is what they turn about when they turn.
+            var hingeGO = new GameObject("LidHinge");
+            hingeGO.transform.SetParent(go.transform, false);
+            slot.hingeLocal = lc + new Vector3(0f, hy * 0.5f, -local.z * 0.5f);
+            hingeGO.transform.localPosition = slot.hingeLocal;
+            slot.hinge = hingeGO.transform;
+            if (slot.lid != null) slot.lid.SetParent(slot.hinge, true);
+            if (slot.ceiling != null) slot.ceiling.transform.SetParent(slot.hinge, true);
+            // THE PLATE IS NARROWER THAN THE BOX, and the sweep in LidBlocked
+            // is exactly the plate. Both halves matter. Full width, a box
+            // leaning on a door card has its lid's edge flush against that
+            // card, the sweep finds it and the lid is "blocked" at every angle,
+            // shut included. And a sweep SMALLER than the collider it speaks
+            // for — which is what this was first — lets the real plate into
+            // things the sweep never touched, and the solver's answer to a
+            // child collider inside a seat is to move the box it belongs to.
+            // Still most of the top: the pizza under it is 0.74 of the box.
+            slot.plateCentre = lc + new Vector3(0f, hy * 0.5f - wall * 0.5f, 0f);
+            slot.plateSize = new Vector3(local.x * 0.86f, wall, local.z * 0.92f);
+            if (slot.ceiling is BoxCollider plate) plate.size = slot.plateSize;
+            slot.boxTopSize = new Vector3(local.x, wall, local.z);
+            slot.lidLen = Mathf.Max(0.05f, local.z * ls.z);
 
             // NOW turn it to the pan's angle, about its own base. The base is
             // the origin, and the origin lies on the pan's normal that the
@@ -1774,6 +1935,7 @@ namespace PSXRacing
             // not on the list and needs no push: it is a child of the box.
             foreach (var rb in loose)
                 if (rb != null) rb.AddForce(push, ForceMode.Acceleration);
+            SwingLids(dt, push);
 
             // The crash, on its own channel and unfiltered. The car lost this
             // much speed; the load did not, so relative to the seat it lurches
@@ -1906,7 +2068,7 @@ namespace PSXRacing
                 bool overFront = inTray.z > PanFrontZ &&
                                  (upness < lidOpenCos ||
                                   inTray.y < PanTop(PanFrontZ) - FrontDropM);
-                if (inTray.y < -0.12f || overFront) { s.grounded = true; Open(s); }
+                if (inTray.y < -0.12f || overFront) { s.grounded = true; Open(s, LidKickGrounded); }
 
                 // THE SLAM. A box that gathers speed across a seat and stops
                 // against the door card has a pizza inside it that did not
@@ -1963,7 +2125,9 @@ namespace PSXRacing
                             Mathf.Max(0f, s.speedEma - ImpactSlamSpeed) * SlamWear);
                         // The third way a box opens: a slam hard enough to
                         // pop the lid — see LidPopSpeed.
-                        if (!s.open && s.speedEma - sp > LidPopSpeed) Open(s);
+                        if (!s.open && s.speedEma - sp > LidPopSpeed)
+                            Open(s, Mathf.Clamp((s.speedEma - sp) * LidKickPerMps,
+                                                LidKickMin, LidKickMax));
                         s.speedEma = sp;    // one slam, counted once
                     }
                     else s.speedEma = Mathf.Lerp(s.speedEma, sp, dt / (SlamTau + dt));
@@ -2008,76 +2172,180 @@ namespace PSXRacing
             }
         }
 
-        /// <summary>Pop the lid. Once open it stays open: a pizza box that has
-        /// been upside down does not close itself, and the pizza can now leave.
+        /// <summary>
+        /// UNLATCH the lid. It stays on the box — see Slot.hinge — and what
+        /// happens to it next is SwingLids' business: gravity, the car, and
+        /// whatever <paramref name="kickDegPerSec"/> this opening came with.
+        ///
+        /// Once unlatched it stays unlatched: a box that has been thrown about
+        /// does not tuck its own flaps back in. But a lid that falls shut again
+        /// is a shut lid, and holds the pizza the way one does.
         /// </summary>
-        void Open(Slot s)
+        /// <param name="kickDegPerSec">How fast the lid is thrown up, degrees a
+        /// second. Nothing, for a box that has simply been turned past the lid
+        /// angle — gravity opens that one on its own.</param>
+        void Open(Slot s, float kickDegPerSec = 0f)
         {
             if (s.open) return;
             s.open = true;
-            // THE PIZZA FIRST, while the box is still whole: Release reads the
+            // THE PIZZA FIRST, while the lid is still down: Release reads the
             // box's velocity at the pizza's position, and it has to be the
-            // velocity before the ceiling goes and the lid is shoved off.
+            // velocity before anything else about the box changes.
             Release(s);
-            // The lid stops being a lid. Until this moment the ceiling collider
-            // is what keeps the pizza in through every bump on the road; after
-            // it, the box is an open tray and physics decides the rest.
-            if (s.ceiling != null) { Kill(s.ceiling.gameObject); s.ceiling = null; }
-            if (s.lid == null) return;
-            s.lid.SetParent(transform, true);
-            var lb = s.lid.gameObject.AddComponent<BoxCollider>();
-            // SIZED IN THE LID'S OWN FRAME. A world AABB is the lid's shape
-            // only while the lid is level, and a box opens TILTED — propped
-            // at seventy over the footwell, on its lid at a hundred and ten.
-            // Sized from the world box, a lid opened at that angle got a
-            // collider taller than it is wide: a block the size of the box,
-            // inside the box, overlapping the walls, the pizza and the seat.
-            // Depenetration fired the lid metres across the island (every
-            // run's "lid at (.., -5.5)") and held the box and its pizza in a
-            // solver vice for most of a second — the tumble trace read y flat
-            // at 0.30 for forty-five steps with three metres a second on the
-            // clock. BuildBox's note on measuring a tilted box is this same
-            // trap; the pizza is no longer scored by a phantom.
-            //
-            // AND IT IS THE LID'S TOP FACE, NOT THE LID. The pack's lid is an
-            // outer SHELL that slips over the tray (see the baker's note on
-            // splitting by footprint): its mesh bounds are the whole outside
-            // of the box, so a collider sized to them — in any frame — is a
-            // solid block coincident with the box's walls, floor and pizza.
-            // The solver's answer to that, every run, was to fire the lid six
-            // metres down the footwell and shove the pizza into the floor on
-            // the way; the tumble by hand ended with an inverted box whose
-            // loose pizza was three millimetres from home. A plate the
-            // footprint of the shell, on the rim, along whichever of the
-            // lid's own axes is the box's up.
-            var lbb = LocalBounds(s.lid);
-            Vector3 upL = s.lid.InverseTransformDirection(s.box.transform.up);
-            int ax = Mathf.Abs(upL.x) > Mathf.Abs(upL.y) && Mathf.Abs(upL.x) > Mathf.Abs(upL.z) ? 0
-                   : Mathf.Abs(upL.z) > Mathf.Abs(upL.y) ? 2 : 1;
-            float sign = Mathf.Sign(upL[ax]);
-            const float plate = 0.015f;      // local units: nine millimetres of card
-            Vector3 size = lbb.size; size[ax] = plate;
-            Vector3 centre = lbb.center;
-            centre[ax] = (sign > 0f ? lbb.max[ax] : lbb.min[ax]) + sign * plate * 0.5f;
-            lb.center = centre;
-            lb.size = size;
-            var rb = s.lid.gameObject.AddComponent<Rigidbody>();
-            rb.mass = 0.12f;
-            rb.linearDamping = 0.6f;
-            rb.angularDamping = 2.2f;
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            rb.sleepThreshold = 0f;     // see the box in BuildBox
-            loose.Add(rb);              // a loose lid feels the car too
-            // A shove off the box, so it visibly comes away rather than sitting
-            // in place looking like nothing happened.
-            rb.AddForce(s.box.transform.up * 0.4f + s.box.transform.forward * 0.2f,
-                        ForceMode.Impulse);
+            s.lidVel = Mathf.Max(s.lidVel, kickDegPerSec);
+            s.lidShutFor = 0f;
+            // (What stood here cut the lid loose: re-parented to the island,
+            // a plate collider, a 120 g body and an impulse off the box. Fifty
+            // lines of it were about stopping that loose lid being fired six
+            // metres down the footwell by its own collider. A lid that cannot
+            // leave needs none of them.)
         }
 
         /// <summary>
-        /// THE PIZZA BECOMES A BODY. Called from Open and from nowhere else: a
-        /// shut box's pizza is a child of the box with no physics of its own
-        /// (see Slot.pizza), so this is the moment it starts to exist for the
+        /// ONE STEP OF EVERY HINGE.
+        ///
+        /// A lid is a uniform plate hinged along one edge, so an acceleration
+        /// field a turns it at (3 / 2L)(a . t), t being the way its middle
+        /// moves as it opens. The field is what the LID feels riding on its
+        /// box: gravity, plus the same pseudo-force every loose body on the
+        /// island gets for the car's motion, LESS the box's own acceleration.
+        /// That last term is the whole character of it. A box at rest on the
+        /// seat has none, so its lid is held down by gravity and tugged by
+        /// the car. A box in free fall is accelerating at exactly the field,
+        /// so its lid feels nothing and keeps whatever swing it left with —
+        /// which is a lid flapping open as a box goes off the seat. And a box
+        /// that stops dead against a door card has a lid that does not.
+        ///
+        /// It STOPS against things (LidBlocked): the box stacked on top of it,
+        /// which holds it shut; the seat back, which it ends up leaning on at
+        /// about ninety-five degrees; the floor. Blocked means it stays where
+        /// it was and loses its swing — card against cloth does not bounce.
+        /// </summary>
+        void SwingLids(float dt, Vector3 push)
+        {
+            foreach (var s in slots)
+            {
+                if (s.box == null || s.hinge == null) continue;
+
+                // Tracked for every box, latched or not, so the first step
+                // after a lid unlatches is not differencing against zero.
+                Vector3 v = s.box.linearVelocity;
+                s.boxAccel = Vector3.Lerp(s.boxAccel, (v - s.lastBoxVel) / dt, dt / (LidAccelTau + dt));
+                s.lastBoxVel = v;
+                if (!s.open) continue;
+
+                var bt = s.box.transform;
+                float th = s.lidDeg * Mathf.Deg2Rad;
+                Vector3 tang = -Mathf.Sin(th) * bt.forward + Mathf.Cos(th) * bt.up;
+                Vector3 field = Physics.gravity + push - s.boxAccel;
+                float acc = 1.5f / s.lidLen * Vector3.Dot(field, tang) * Mathf.Rad2Deg;
+                s.lidVel = (s.lidVel + acc * dt) * Mathf.Exp(-LidDamping * dt);
+
+                float want = Mathf.Clamp(s.lidDeg + s.lidVel * dt, 0f, LidMaxDeg);
+                if ((want <= 0f && s.lidVel < 0f) || (want >= LidMaxDeg && s.lidVel > 0f)) s.lidVel = 0f;
+                if (want != s.lidDeg && LidBlocked(s, want)) { want = s.lidDeg; s.lidVel = 0f; }
+                if (want != s.lidDeg)
+                {
+                    s.lidDeg = want;
+                    // About the box's own x, front edge UP: a point ahead of the
+                    // hinge rises for a negative turn about x.
+                    s.hinge.localRotation = Quaternion.Euler(-want, 0f, 0f);
+                    if (want > s.lidPeakDeg) s.lidPeakDeg = want;
+                }
+
+                // A PIZZA IS ONLY A BODY WHILE ITS LID IS UP. The lid is down
+                // and still, the pizza is in there and at rest: it is packed,
+                // exactly as it was before the box ever opened — a child of the
+                // box with its collider off. That is not tidiness. A live body
+                // under a nine millimetre ceiling is the 2026-09-07 bug ("the
+                // pizza clips through the box, eventually breaking through and
+                // sitting on top"), and a lid that can fall shut again would
+                // otherwise bring it back. It is let out the moment the lid
+                // lifts far enough for a pizza to get past.
+                bool shut = s.lidDeg <= LidShutDeg && Mathf.Abs(s.lidVel) < 5f;
+                s.lidShutFor = shut ? s.lidShutFor + dt : 0f;
+                if (s.pizzaBody != null)
+                {
+                    if (s.lidShutFor > LidRestS && !s.escaped && PizzaSettledInside(s)) Capture(s);
+                }
+                else if (s.lidDeg > LidAjarDeg) Release(s);
+            }
+        }
+
+        /// <summary>
+        /// Would the lid, turned to <paramref name="deg"/>, be inside something
+        /// that is not its own box?
+        ///
+        /// Asked of the ceiling plate — the lid's top face, which is the part
+        /// that leads going up and the part that lands coming down — as an
+        /// overlap query at the pose it would have. Its own box's colliders do
+        /// not count; everything else on the island does, its own pizza
+        /// included: a lid does come to rest on a pizza that is half out of
+        /// the box.
+        ///
+        /// EXACTLY the plate, no smaller — see BuildBox for why the plate is
+        /// narrower than the box and why the sweep must not be narrower than
+        /// the plate.
+        /// </summary>
+        bool LidBlocked(Slot s, float deg)
+        {
+            var bt = s.box.transform;
+            var turn = Quaternion.Euler(-deg, 0f, 0f);
+            Vector3 centre = bt.TransformPoint(s.hingeLocal + turn * (s.plateCentre - s.hingeLocal));
+            Vector3 half = Vector3.Scale(s.plateSize, bt.lossyScale) * 0.5f;
+            int n = Physics.OverlapBoxNonAlloc(centre, half, lidHits, bt.rotation * turn, ~0,
+                                               QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++)
+            {
+                var c = lidHits[i];
+                lidHits[i] = null;
+                if (c == null || c.attachedRigidbody == s.box) continue;
+                s.lidStoppedBy = c.name + " at " + deg.ToString("0") + " deg (its bounds " +
+                                 c.bounds.size.ToString("F3") + " m)";
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Is the released pizza back where a shut lid holds it —
+        /// inside its own box, by the same test Assess uses to call it
+        /// escaped only tighter, and no longer moving against it?</summary>
+        bool PizzaSettledInside(Slot s)
+        {
+            if (s.pizza == null || s.pizzaCol == null || s.pizzaBody == null) return false;
+            var inBox = s.box.transform.InverseTransformPoint(s.pizza.TransformPoint(s.pizzaCol.center));
+            if (new Vector2(inBox.x, inBox.z).magnitude > s.escapeRadius * 0.6f) return false;
+            if (inBox.y < -0.25f || inBox.y > s.topLocal) return false;
+            return (s.pizzaBody.linearVelocity - s.box.GetPointVelocity(s.pizzaBody.worldCenterOfMass))
+                       .magnitude < 0.15f;
+        }
+
+        /// <summary>
+        /// THE PIZZA IS PACKED AGAIN: Release, backwards. Its body goes, its
+        /// collider goes off, and it becomes a child of the box WHERE IT LIES —
+        /// not snapped home. It slid to one side of the box and that is where
+        /// the customer will find it.
+        /// </summary>
+        void Capture(Slot s)
+        {
+            var prb = s.pizzaBody;
+            loose.Remove(prb);
+            // Frozen first: in play mode Destroy waits for the end of the
+            // frame, and until then this is still a body — one with no
+            // collider, which would fall through its own box.
+            prb.isKinematic = true;
+            s.pizzaCol.enabled = false;
+            s.pizza.SetParent(s.box.transform, true);
+            Kill(prb);
+            s.pizzaBody = null;
+        }
+
+        /// <summary>
+        /// THE PIZZA BECOMES A BODY. Called when a box unlatches and again
+        /// whenever its lid lifts after lying shut (see SwingLids, which packs
+        /// the pizza back in under a lid that has come down): a shut box's
+        /// pizza is a child of the box with no physics of its own (see
+        /// Slot.pizza), so this is the moment it starts to exist for the
         /// solver — and the only way it ever gets out of a box.
         ///
         /// It leaves with the box's kinematics AT ITS OWN POSITION: the box's
@@ -2109,6 +2377,7 @@ namespace PSXRacing
             prb.linearVelocity = vel;
             prb.angularVelocity = spin;
             s.pizzaBody = prb;
+            s.everLoose = true;
             loose.Add(prb);
         }
 
@@ -2133,7 +2402,9 @@ namespace PSXRacing
         // are impossible and untrue respectively.
 
         bool Valid(int i) => i >= 0 && i < slots.Count;
-        /// <summary>Has box <paramref name="i"/>'s lid come off?</summary>
+        /// <summary>Has box <paramref name="i"/>'s lid been UNLATCHED? It may
+        /// be standing open, folded back or lying shut again — see LidDeg. It
+        /// is never off.</summary>
         public bool IsOpen(int i) => Valid(i) && slots[i].open;
         /// <summary>Has box <paramref name="i"/> left the seat for the floor?</summary>
         public bool IsGrounded(int i) => Valid(i) && slots[i].grounded;
@@ -2156,10 +2427,96 @@ namespace PSXRacing
         /// three builds of the same code measured 13 mm, 2 mm and -1 mm. The
         /// harness is documented as chaotic across builds for exactly this
         /// reason, and a floor pinned from one sample of it is a test that
-        /// fails on the next unrelated edit. Whether the lid coming off made
-        /// the pizza loose is the same answer every time.
+        /// fails on the next unrelated edit. Whether the box opening made the
+        /// pizza loose is the same answer every time — asked as "has it EVER
+        /// been a body", because a lid that comes down over a settled pizza
+        /// packs it again (SwingLids).
         /// </summary>
-        public bool PizzaLoose(int i) => Valid(i) && slots[i].pizzaBody != null;
+        public bool PizzaLoose(int i) => Valid(i) && (slots[i].pizzaBody != null || slots[i].everLoose);
+
+        /// <summary>
+        /// How wide box <paramref name="i"/>'s PIZZA COLLIDER is, as a fraction
+        /// of the box it is in — both in metres. Under one, or it does not fit.
+        ///
+        /// It was 1.26. The collider was sized in the box's local units and
+        /// used as metres, and because a shut box's pizza has its collider
+        /// switched off, nothing anywhere could tell: not the at-rest case, not
+        /// the shut-box integrity run, not a picture. It only existed once a
+        /// box opened, and then only as "the pizza flew out". A number that is
+        /// wrong while it is disabled needs a test that reads it disabled.
+        /// </summary>
+        public float PizzaWidthOverBox(int i)
+        {
+            if (!Valid(i) || slots[i].pizzaCol == null || slots[i].box == null) return 0f;
+            var s = slots[i];
+            Vector3 pz = Vector3.Scale(s.pizzaCol.size, s.pizza.lossyScale);
+            Vector3 bx = Vector3.Scale(s.boxTopSize, s.box.transform.lossyScale);
+            return Mathf.Max(pz.x / Mathf.Max(1e-4f, bx.x), pz.z / Mathf.Max(1e-4f, bx.z));
+        }
+
+        /// <summary>How far the foot of that collider stands above the top of
+        /// the box's floor, in metres. Negative is inside the floor — which is
+        /// where the same slip put it, four millimetres down.</summary>
+        public float PizzaFloorClearanceM(int i)
+        {
+            if (!Valid(i) || slots[i].pizzaCol == null || slots[i].box == null) return 0f;
+            var s = slots[i];
+            var bt = s.box.transform;
+            float centreY = bt.InverseTransformPoint(s.pizza.TransformPoint(s.pizzaCol.center)).y;
+            float halfLocal = s.pizzaCol.size.y * s.pizza.lossyScale.y * 0.5f / Mathf.Max(1e-4f, bt.lossyScale.y);
+            return (centreY - halfLocal - s.floorTopLocal) * bt.lossyScale.y;
+        }
+
+        /// <summary>Is box <paramref name="i"/>'s pizza a body RIGHT NOW — out
+        /// from under a lifted lid — as opposed to packed?</summary>
+        public bool PizzaIsBody(int i) => Valid(i) && slots[i].pizzaBody != null;
+
+        /// <summary>
+        /// Throw box <paramref name="i"/>'s lid up at <paramref name="degPerSec"/>,
+        /// unlatching it first if it is latched. The harness's way of asking
+        /// what a lid DOES, without having to arrange a crash that happens to
+        /// pop one: the hinge is one degree of freedom on a box at rest, so
+        /// unlike everything else in this rig its answer is the same in every
+        /// build.
+        /// </summary>
+        public void PopLid(int i, float degPerSec)
+        {
+            if (!Valid(i)) return;
+            var s = slots[i];
+            if (!s.open) Open(s, degPerSec);
+            else s.lidVel = Mathf.Max(s.lidVel, degPerSec);
+        }
+
+        /// <summary>The widest box <paramref name="i"/>'s lid has swung, in
+        /// degrees. A case is read once, at its end, and a lid that flapped
+        /// up and fell shut again would otherwise never have opened.</summary>
+        public float LidPeakDeg(int i) => Valid(i) ? slots[i].lidPeakDeg : 0f;
+        /// <summary>Where it is now.</summary>
+        public float LidDeg(int i) => Valid(i) ? slots[i].lidDeg : 0f;
+        /// <summary>What last stopped it swinging, or null.</summary>
+        public string LidStoppedBy(int i) => Valid(i) ? slots[i].lidStoppedBy : null;
+
+        /// <summary>
+        /// Lids that are not on their box. ZERO, always: "they should be hinged
+        /// on like a real pizza box, never falling off". Counted rather than
+        /// assumed, at every reading the harness takes, because the first
+        /// version of this rig cut the lid loose on purpose and the next
+        /// person to want a lid to do something dramatic will reach for the
+        /// same thing.
+        /// </summary>
+        public int LidsOffTheirBox()
+        {
+            int n = 0;
+            foreach (var s in slots)
+            {
+                if (s.box == null || s.lid == null) continue;
+                if (!s.lid.IsChildOf(s.box.transform)) { n++; continue; }
+                // And still on the hinge LINE: the pivot has not moved in the
+                // box's frame, whatever the lid's angle.
+                if (s.hinge == null || (s.hinge.localPosition - s.hingeLocal).sqrMagnitude > 1e-8f) n++;
+            }
+            return n;
+        }
 
         /// <summary>Box <paramref name="i"/>'s velocity in the SEAT's axes —
         /// the harness's per-step trace, for reading what a kick actually
@@ -2305,35 +2662,9 @@ namespace PSXRacing
             return b;
         }
 
-        /// <summary>
-        /// The meshes' bounds in <paramref name="root"/>'s OWN frame, in its
-        /// local units — the shape of the thing whichever way it is turned.
-        /// Bounds() above is a world AABB and is only the shape while the
-        /// thing is level; see BuildBox for what measuring a tilted box did
-        /// to the stack, and Open for what it did to a released lid.
-        /// </summary>
-        static Bounds LocalBounds(Transform root)
-        {
-            var b = new Bounds(Vector3.zero, Vector3.one * 0.1f);
-            bool any = false;
-            foreach (var f in root.GetComponentsInChildren<MeshFilter>(true))
-            {
-                if (f.sharedMesh == null) continue;
-                var mb = f.sharedMesh.bounds;
-                for (int i = 0; i < 8; i++)
-                {
-                    var corner = mb.center + Vector3.Scale(mb.extents, new Vector3(
-                        (i & 1) == 0 ? -1f : 1f, (i & 2) == 0 ? -1f : 1f, (i & 4) == 0 ? -1f : 1f));
-                    var p = root.InverseTransformPoint(f.transform.TransformPoint(corner));
-                    if (!any) { b = new Bounds(p, Vector3.zero); any = true; }
-                    else b.Encapsulate(p);
-                }
-            }
-            return b;
-        }
-
         /// <summary>One face of a box's compound collider, as a child so each
-        /// face can be sized and the ceiling can be removed on its own.</summary>
+        /// face can be sized on its own and the ceiling can be hung on the
+        /// lid's hinge and turn with it.</summary>
         static Collider Wall(GameObject box, string name, Vector3 localCentre, Vector3 localSize)
         {
             var go = new GameObject(name);

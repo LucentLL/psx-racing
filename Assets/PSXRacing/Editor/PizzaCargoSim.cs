@@ -190,6 +190,33 @@ namespace PSXRacing.EditorTools
             /// forward jolt where the seat is open by design.</summary>
             public float sideSlideMin, sideSlideMax, sideSlideBottom;
 
+            // ---- 2026-09-18: "lids just pop off" -----------------------------
+            //
+            // "They should be hinged on like a real pizza box, never falling
+            // off. They can flip open or fold backwards, but not just pop off
+            // like a container lid."
+
+            /// <summary>The widest pizza COLLIDER in the three-box order, as a
+            /// fraction of its box, and the lowest any of them stands above its
+            /// box's floor (metres). Read at rest, with the colliders still
+            /// switched off — which is the only time the mistake they caught
+            /// was invisible.</summary>
+            public float pizzaWidthOverBox, pizzaFloorClearM;
+            /// <summary>Lids found off their box, summed over every reading
+            /// the harness takes — beside the pizza-on-a-shut-box tally and for
+            /// the same reason. Zero, or a lid is a thing that can leave.</summary>
+            public int lidsOff;
+            /// <summary>Case 11, the gentle pop: how far the lid flapped up,
+            /// where it ended, and whether the pizza under it was packed again
+            /// once it had come down.</summary>
+            public float lidFlapPeakDeg, lidFlapEndDeg;
+            public bool lidFlapRepacked, lidFlapWasLoose;
+            /// <summary>Case 11, the hard pop on a box with room behind it:
+            /// where the lid came to rest.</summary>
+            public float lidThrownEndDeg;
+            /// <summary>S8's head-on: how far that box's lid swung.</summary>
+            public float oneBoxCrashLidPeakDeg;
+
             // ---- 2026-09-18: "refused even though I didn't wreck" ----------
             //
             // Every case above stops after ONE corner, and one corner costs a
@@ -334,8 +361,18 @@ namespace PSXRacing.EditorTools
                 //    here, in the first ten frames.
                 Step(cargo, Vector3.zero, Quaternion.identity, 100);
                 r.atRest = cargo.Condition;
+                r.pizzaFloorClearM = float.MaxValue;
+                for (int i = 0; i < cargo.BoxCount; i++)
+                {
+                    r.pizzaWidthOverBox = Mathf.Max(r.pizzaWidthOverBox, cargo.PizzaWidthOverBox(i));
+                    r.pizzaFloorClearM = Mathf.Min(r.pizzaFloorClearM, cargo.PizzaFloorClearanceM(i));
+                }
+                Debug.Log("[PizzaSim] pizza colliders: widest is " + r.pizzaWidthOverBox.ToString("0.00") +
+                          " of its box, lowest stands " + (r.pizzaFloorClearM * 1000f).ToString("0.0") +
+                          " mm above its box's floor");
                 // S10, tallied at every reading: a pizza on a shut box.
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 if (shoot) Shoot(cargo, dir, "sim_1_rest");
                 Debug.Log("[PizzaSim] at rest  " + r.atRest.ToString("0.00") + "  " + cargo.Describe());
 
@@ -353,6 +390,7 @@ namespace PSXRacing.EditorTools
                 Step(cargo, Vector3.zero, Quaternion.identity, 60);
                 r.afterSpin = cargo.Condition;
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 // The MOST-MOVED box, not the bottom one — see BoxSlideMax.
                 r.bottomSlideSpin = Mathf.Max(0f, cargo.BoxSlideMax() - beforeSpin);
                 if (shoot) Shoot(cargo, dir, "sim_1s_spin");
@@ -366,6 +404,7 @@ namespace PSXRacing.EditorTools
                 Step(cargo, new Vector3(8.8f, 0f, 0f), Quaternion.Euler(0f, 0f, -8f), 125);
                 r.afterCorner = cargo.Condition;
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 if (shoot) Shoot(cargo, dir, "sim_2_corner");
                 Debug.Log("[PizzaSim] corner   " + r.afterCorner.ToString("0.00") + "  " + cargo.Describe());
 
@@ -402,6 +441,7 @@ namespace PSXRacing.EditorTools
                 Step(cargo, Vector3.zero, Quaternion.identity, 40);
                 r.afterRough = cargo.Condition;
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 // The most-moved box: in a stack it is never the bottom one.
                 r.bottomSlideRough = cargo.BoxSlideMax();
 
@@ -420,6 +460,7 @@ namespace PSXRacing.EditorTools
                 r.afterFirmStop = cargo.Condition;
                 r.firmStopCost = beforeFirm - r.afterFirmStop;
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 Debug.Log("[PizzaSim] firm     " + r.afterFirmStop.ToString("0.00") + "  " + cargo.Describe());
 
                 // 3b. A HEAVY STOP. 1.0 g on the brakes for a second and a half,
@@ -432,6 +473,7 @@ namespace PSXRacing.EditorTools
                 Step(cargo, Vector3.zero, Quaternion.identity, 60);
                 r.afterBraking = cargo.Condition;
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 if (shoot) Shoot(cargo, dir, "sim_3b_braking");
 
                 Debug.Log("[PizzaSim] braking  " + r.afterBraking.ToString("0.00") + "  " + cargo.Describe());
@@ -449,6 +491,7 @@ namespace PSXRacing.EditorTools
                 r.afterKnock = cargo.Condition;
                 r.knockCost = beforeKnock - r.afterKnock;
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 if (shoot) Shoot(cargo, dir, "sim_3c_knock");
 
                 Debug.Log("[PizzaSim] knock    " + r.afterKnock.ToString("0.00") + "  " + cargo.Describe());
@@ -483,6 +526,7 @@ namespace PSXRacing.EditorTools
                 r.afterCrash = cargo.Condition;
                 r.bottomSlideCrash = cargo.BoxSlide(0);
                 r.pizzaOnShutBox += cargo.ShutBoxesWithPizzaOut();
+                r.lidsOff += cargo.LidsOffTheirBox();
                 if (shoot) Shoot(cargo, dir, "sim_4_crash");
                 Debug.Log("[PizzaSim] crash    " + r.afterCrash.ToString("0.00") + "  " + cargo.Describe());
 
@@ -561,6 +605,7 @@ namespace PSXRacing.EditorTools
                     Step(c, Vector3.zero, Quaternion.identity, 60);
                     r.tierBraking[t] = c.Condition;
                     r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                    r.lidsOff += c.LidsOffTheirBox();
                     if (shoot) Shoot(c, dir, "sim_5_seat" + t);
                     Debug.Log("[PizzaSim] seat " + t + " " + PizzaCargo.Seats[t].name +
                               "  corner " + r.tierCorner[t].ToString("0.00") +
@@ -585,6 +630,7 @@ namespace PSXRacing.EditorTools
                     r.singleSpin[t] = c.Condition;
                     r.singleSlide[t] = c.BoxSlide(0);
                     r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                    r.lidsOff += c.LidsOffTheirBox();
                     if (shoot) Shoot(c, dir, "sim_6_onebox_seat" + t);
                     Debug.Log("[PizzaSim] one box, seat " + t + " " + PizzaCargo.Seats[t].name +
                               "  spin " + r.singleSpin[t].ToString("0.00") +
@@ -679,6 +725,7 @@ namespace PSXRacing.EditorTools
                     float z = c.BoxOffset(0).z;
                     if (bottles == 0)
                     {
+                        r.oneBoxCrashLidPeakDeg = c.LidPeakDeg(0);
                         r.oneBoxCrashZ = z;
                         r.oneBoxCrashLeftSeat = c.IsGrounded(0);
                         r.oneBoxCrashOpened = c.IsOpen(0);
@@ -690,6 +737,7 @@ namespace PSXRacing.EditorTools
                         r.oneBoxCrashBottleOpened = c.IsOpen(0);
                     }
                     r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                    r.lidsOff += c.LidsOffTheirBox();
                     if (shoot) Shoot(c, dir, "sim_8_headon_" + bottles + "bottle");
                     Debug.Log("[PizzaSim] head-on, one box, " + bottles + " bottle: box went " +
                               z.ToString("0.00") + " m forward" +
@@ -714,6 +762,7 @@ namespace PSXRacing.EditorTools
                         r.oneBoxSixGZ = c.BoxOffset(0).z;
                         r.oneBoxSixGLeftSeat = c.IsGrounded(0);
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        r.lidsOff += c.LidsOffTheirBox();
                         if (shoot) Shoot(c, dir, "sim_8b_sixg");
                         Debug.Log("[PizzaSim] 6 g stop, one box: box went " +
                                   r.oneBoxSixGZ.ToString("0.00") + " m forward" +
@@ -755,6 +804,7 @@ namespace PSXRacing.EditorTools
                         float slid = Mathf.Abs(c.BoxOffset(0).x);
                         if (roll < 35f) r.holdLeanSlideM = slid; else r.slipLeanSlideM = slid;
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        r.lidsOff += c.LidsOffTheirBox();
                         Debug.Log("[PizzaSim] lean to " + roll + ": slid " + slid.ToString("0.000") +
                                   " m across the seat  " + c.Describe());
                         Object.DestroyImmediate(c.gameObject);
@@ -804,6 +854,7 @@ namespace PSXRacing.EditorTools
                         r.tumbleHomeError = c.PizzaHomeError(0);
                         r.tumbleOffFloor = c.PizzaOffFloor(0);
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        r.lidsOff += c.LidsOffTheirBox();
                         if (shoot) Shoot(c, dir, "sim_9_tumble");
                         Debug.Log("[PizzaSim] tumble to " + over + ": " + (c.IsOpen(0) ? "OPENED" : "stayed shut") +
                                   (c.PizzaEscaped(0) ? ", pizza ESCAPED" : "") +
@@ -834,6 +885,7 @@ namespace PSXRacing.EditorTools
                         r.rollY = c.BoxOffset(0).y;
                         r.rollHomeError = c.PizzaHomeError(0);
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        r.lidsOff += c.LidsOffTheirBox();
                         if (shoot) Shoot(c, dir, "sim_9_roll");
                         Debug.Log("[PizzaSim] roll to 70 and back: " + (c.IsOpen(0) ? "OPENED" : "stayed shut") +
                                   (c.IsGrounded(0) ? ", FLOOR" : ", on the seat") +
@@ -854,6 +906,7 @@ namespace PSXRacing.EditorTools
                         r.leanOpened = c.IsOpen(0);
                         r.leanHomeError = c.PizzaHomeError(0);
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        r.lidsOff += c.LidsOffTheirBox();
                         if (shoot) Shoot(c, dir, "sim_9_lean");
                         Debug.Log("[PizzaSim] lean to 45: " + (c.IsOpen(0) ? "OPENED" : "stayed shut") +
                                   ", pizza " + r.leanHomeError.ToString("0.0000") + " m from home  " +
@@ -861,6 +914,69 @@ namespace PSXRacing.EditorTools
                         Object.DestroyImmediate(c.gameObject);
                     }
                 }
+                // 11. THE LID, ON ITS HINGE.
+                //
+                // Numbered after the whole run and run before it, because the
+                // whole run has to stay last (see its note) and this one does
+                // not perturb anything: a lone box AT REST, its lid thrown up
+                // by hand. The hinge is one degree of freedom on a box that is
+                // not moving, so unlike every other case in here this reads the
+                // same in every build — which is what lets the self-test pin it.
+                //
+                // Twice. A gentle pop (450 degrees a second, what a 1.5 m/s
+                // slam gives): the lid flaps up, falls shut, and the pizza
+                // under it is packed again. Then, with the box slid forward to
+                // leave it room, a hard one (850): over the top, and it stays
+                // open leaning on the seat back. Never off.
+                {
+                    var c = PizzaCargo.Spawn(null, new[] { 2 }, 0, seatStage: 0);
+                    if (c != null)
+                    {
+                        Step(c, Vector3.zero, Quaternion.identity, 60);
+                        c.PopLid(0, 450f);
+                        Step(c, Vector3.zero, Quaternion.identity, 8);
+                        r.lidFlapWasLoose = c.PizzaIsBody(0);
+                        if (shoot) Shoot(c, dir, "sim_11_lid_flap");
+                        Step(c, Vector3.zero, Quaternion.identity, 90);
+                        r.lidFlapPeakDeg = c.LidPeakDeg(0);
+                        r.lidFlapEndDeg = c.LidDeg(0);
+                        r.lidFlapRepacked = !c.PizzaIsBody(0);
+                        r.lidsOff += c.LidsOffTheirBox();
+                        Debug.Log("[PizzaSim] lid, gentle pop: up to " + r.lidFlapPeakDeg.ToString("0.0") +
+                                  " deg, ends " + r.lidFlapEndDeg.ToString("0.0") + ", pizza " +
+                                  (r.lidFlapWasLoose ? "out while it was up, " : "NEVER RELEASED, ") +
+                                  (r.lidFlapRepacked ? "packed again" : "STILL A BODY") + "  " + c.Describe());
+
+                        // Forward, so the lid can get past upright before it
+                        // meets the seat back: half a g of braking for a second
+                        // slides nothing (the pan holds 0.9), so it is shoved.
+                        Step(c, new Vector3(0f, 0f, -1.3f * 9.81f), Quaternion.identity, 22);
+                        Step(c, Vector3.zero, Quaternion.identity, 50);
+                        c.PopLid(0, 850f);
+                        Step(c, Vector3.zero, Quaternion.identity, 14);
+                        if (shoot) Shoot(c, dir, "sim_11_lid_up");
+                        // TRACED, because "where did it end up" cannot say how it
+                        // got there, and a lid that ends shut after being thrown
+                        // past upright either fell or was pushed.
+                        var trace = new System.Text.StringBuilder("[PizzaSim] lid trace (deg @ frame):");
+                        for (int k = 0; k < 60; k++)
+                        {
+                            Step(c, Vector3.zero, Quaternion.identity, 2);
+                            if (k < 24 || k % 6 == 0)
+                                trace.Append(' ').Append(c.LidDeg(0).ToString("0")).Append('@').Append(14 + (k + 1) * 2);
+                        }
+                        trace.Append("  | last stopped by: ").Append(c.LidStoppedBy(0) ?? "nothing");
+                        Debug.Log(trace.ToString());
+                        r.lidThrownEndDeg = c.LidDeg(0);
+                        r.lidsOff += c.LidsOffTheirBox();
+                        if (shoot) Shoot(c, dir, "sim_11_lid_open");
+                        Debug.Log("[PizzaSim] lid, hard pop with room behind: rests at " +
+                                  r.lidThrownEndDeg.ToString("0.0") + " deg, box slid " +
+                                  c.BoxOffset(0).ToString("F2") + "  " + c.Describe());
+                        Object.DestroyImmediate(c.gameObject);
+                    }
+                }
+
                 // 10. A WHOLE RUN, AND NOTHING HIT.
                 //
                 // LAST, on purpose: the harness is deterministic for a build
@@ -940,6 +1056,7 @@ namespace PSXRacing.EditorTools
                         }
                         r.runImpacts = c.Impacts;
                         r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        r.lidsOff += c.LidsOffTheirBox();
                         if (shoot) Shoot(c, dir, "sim_10_wholerun");
                         Debug.Log("[PizzaSim] whole run, 40 corners, no impact: " +
                                   r.afterRun.ToString("0.00") + " (worst box " +
@@ -951,6 +1068,7 @@ namespace PSXRacing.EditorTools
 
                 r.extended = true;
                 Debug.Log("[PizzaSim] pizza on a shut box, anywhere in the suite: " + r.pizzaOnShutBox);
+                Debug.Log("[PizzaSim] lids off their box, anywhere in the suite: " + r.lidsOff);
             }
             finally
             {

@@ -4191,6 +4191,47 @@ namespace PSXRacing.EditorTools
             Check(!simFine.refused && simFine.tip == byDamage.tip,
                   "and an intact cargo survives a wrecked car", simFine.tip);
 
+            // ---- the bottles are right side out --------------------------
+            //
+            // "These bottles look hollow like they're missing a side." They
+            // were inside out: the pack places them with a negative scale, the
+            // exporter baked that mirror into the vertices without turning the
+            // triangles back round, and a renderer that culls back faces drew
+            // the inside of the far wall. The baker refuses one now
+            // (PizzaCargoBaker.InsideOut); this holds the refusal itself to
+            // account — a guard that cannot tell a cube from a cube turned
+            // inside out would pass every bottle it was ever shown — and then
+            // asks it of the four meshes that actually ship.
+            {
+                var probe = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                var good = probe.GetComponent<MeshFilter>().sharedMesh;
+                var bad = Object.Instantiate(good);
+                var tris = bad.triangles;
+                for (int i = 0; i + 2 < tris.Length; i += 3)
+                { int swap = tris[i + 1]; tris[i + 1] = tris[i + 2]; tris[i + 2] = swap; }
+                bad.triangles = tris;
+                Check(!PizzaCargoBaker.InsideOut(good) && PizzaCargoBaker.InsideOut(bad),
+                      "the inside-out test passes a cube and fails the same cube with its faces reversed");
+                Object.DestroyImmediate(bad);
+                Object.DestroyImmediate(probe);
+
+                int bottles = 0, hollow = 0;
+                for (int v = 0; v < PSXRacing.PizzaCargoBakerNames.BottleVariants; v++)
+                {
+                    var prefab = Resources.Load<GameObject>(PSXRacing.PizzaCargoBakerNames.BottleVariant(v));
+                    if (prefab == null) continue;
+                    foreach (var mf in prefab.GetComponentsInChildren<MeshFilter>(true))
+                    {
+                        if (mf.sharedMesh == null) continue;
+                        bottles++;
+                        if (PizzaCargoBaker.InsideOut(mf.sharedMesh)) hollow++;
+                    }
+                }
+                Check(bottles == PSXRacing.PizzaCargoBakerNames.BottleVariants && hollow == 0,
+                      "every baked 2 litre bottle is a closed shape facing OUT, not a shell seen from inside",
+                      bottles + " bottle meshes, " + hollow + " inside out");
+            }
+
             // ---- the simulation itself, driven ---------------------------
             //
             // Three questions in order: does it sit still, does it survive a
@@ -4202,6 +4243,20 @@ namespace PSXRacing.EditorTools
             if (!sim.built) return;
             Check(sim.atRest > 0.995f,
                   "a parked car does not damage its own cargo", sim.atRest.ToString("0.000"));
+            // THE PIZZA FITS IN ITS BOX. Its collider was 0.517 m across in a
+            // 0.41 m box and four millimetres into the floor — sized in the
+            // box's local units and used as metres — and because a shut box's
+            // pizza has that collider switched OFF, every check in this suite
+            // passed over it. It only ever showed as what happened next: a box
+            // opens, the solver finds a body overlapping four walls and a
+            // floor, and the pizza leaves by the roof. Read here while it is
+            // still disabled, which is the state it hid in.
+            Check(sim.pizzaWidthOverBox > 0.5f && sim.pizzaWidthOverBox < 0.9f,
+                  "every pizza's collider is narrower than the box it is in",
+                  sim.pizzaWidthOverBox.ToString("0.00") + " of the box");
+            Check(sim.pizzaFloorClearM > -0.0005f && sim.pizzaFloorClearM < 0.006f,
+                  "and stands on the box's floor, not in it",
+                  (sim.pizzaFloorClearM * 1000f).ToString("0.0") + " mm");
             // A hard corner on a STOCK seat is allowed to cost a little now —
             // the box slides into the door card, and a lid held shut does not
             // spill — but it must not cost the order. The old assertion that it
@@ -4590,6 +4645,37 @@ namespace PSXRacing.EditorTools
                 Check(sim.slipLeanSlideM > SlipLeanSlideMinM,
                       "and slides at 40 — the cloth's 0.7 lets go at 35, not 50",
                       "slid " + sim.slipLeanSlideM.ToString("0.000") + " m");
+
+                // S9b. THE LID IS HINGED. "Pizza box lids just pop off. They
+                // should be hinged on like a real pizza box, never falling off.
+                // They can flip open or fold backwards, but not just pop off
+                // like a container lid." It popped off because Open() cut it
+                // loose on purpose: re-parented, given a body, shoved. Now it
+                // hangs from a pivot on the box's rear edge from the frame the
+                // box is built, and opening a box only unlatches it.
+                //
+                // The first check is the rule, tallied at every reading in the
+                // suite. The rest are case 11 — a lone box at rest, its lid
+                // thrown up by hand — which is the one corner of this harness
+                // that is NOT chaotic across builds: one degree of freedom on
+                // a box that is not moving. So it is pinned on angles.
+                Check(sim.lidsOff == 0,
+                      "a lid is never found off its box, anywhere in the suite", sim.lidsOff);
+                Check(sim.lidFlapPeakDeg > 15f && sim.lidFlapPeakDeg < 85f,
+                      "a gently popped lid flaps UP on its hinge, short of upright",
+                      sim.lidFlapPeakDeg.ToString("0.0") + " deg");
+                Check(sim.lidFlapEndDeg < 2f,
+                      "and falls shut again", sim.lidFlapEndDeg.ToString("0.0") + " deg");
+                Check(sim.lidFlapWasLoose && sim.lidFlapRepacked,
+                      "its pizza is a body while the lid is up and packed again once it is down",
+                      (sim.lidFlapWasLoose ? "" : "never released; ") +
+                      (sim.lidFlapRepacked ? "" : "still a body at the end"));
+                Check(sim.lidThrownEndDeg > 85f,
+                      "a hard pop with room behind the box carries the lid over and it STAYS open",
+                      sim.lidThrownEndDeg.ToString("0.0") + " deg");
+                Check(sim.oneBoxCrashLidPeakDeg > 20f,
+                      "and a box thrown off the seat by a wall has its lid swing open on the way",
+                      sim.oneBoxCrashLidPeakDeg.ToString("0.0") + " deg");
 
                 // S10. The screenshot, asserted impossible everywhere.
                 Check(sim.pizzaOnShutBox == 0,
