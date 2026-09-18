@@ -665,12 +665,19 @@ namespace PSXRacing.LifeSim
         /// they are the two callers that must never disagree, and a par sized
         /// to a lap in one and to the sprint in the other would be a tip that
         /// changes on the results screen.</param>
+        /// <param name="hitSomething">Whether the car hit anything while the
+        /// order was aboard, on either leg. An order can only be REFUSED if it
+        /// did — see the rule in the body. Defaults to true, which is the old
+        /// behaviour and the right reading of a caller that does not know: the
+        /// damage-tally fallback only ever falls BECAUSE of impacts, so with
+        /// no simulation a ruined box already means one.</param>
         public static DeliveryOutcome ScoreDelivery(int quoted, int trackIndex,
                                                     float seconds, float damage,
                                                     int hardHits, bool inProgress = false,
                                                     float? cargoCondition = null,
                                                     float carryCondition = 1f,
-                                                    float dropFraction = 1f)
+                                                    float dropFraction = 1f,
+                                                    bool hitSomething = true)
         {
             var o = new DeliveryOutcome
             {
@@ -705,7 +712,31 @@ namespace PSXRacing.LifeSim
             o.conditionMult = Mathf.Lerp(PizzaWorstMult, 1f,
                 Mathf.InverseLerp(PizzaRuinedCondition, PizzaPerfectCondition, o.condition));
 
-            o.refused = o.condition <= PizzaRuinedCondition;
+            // "ZERO TIP SHOULD BE RESERVED FOR A LATE DELIVERY OR DAMAGED
+            // DELIVERY." The owner, 2026-09-18, of an order refused on a run
+            // that hit nothing and came in 2:15 under par.
+            //
+            // It used to be the condition alone, and the condition is a
+            // physics rig's opinion. Two things in that rig were wrong — wear
+            // that summed without limit, and a floor test that fired on a box
+            // merely overhanging the seat — and both are fixed in PizzaCargo.
+            // But the harness case written to prove it (forty corners, nothing
+            // touched) ended with every box on the seat in one build and two
+            // in the footwell in the next, walked off the front a braking zone
+            // at a time. That rig is deterministic for a build and chaotic
+            // across them, and there will be a fourth way for it to ruin an
+            // order nobody crashed. So the rule is kept HERE, where it is one
+            // line and cannot drift: the customer sends a ruined box away only
+            // if the car hit something while it was aboard. A driver who
+            // touched nothing and arrives with the lot on the floor is paid
+            // what a barely-accepted box is worth — a quarter, before the
+            // clock — which is still most of the tip gone, and still every
+            // reason to buy the better seat.
+            //
+            // (A LATE run is never zero either, and was not before: the clock's
+            // floor is DeliverySlowMult. The rule says zero is ALLOWED there,
+            // not that it is owed.)
+            o.refused = hitSomething && o.condition <= PizzaRuinedCondition;
             o.tip = o.refused ? 0
                   : Mathf.Max(0, Mathf.RoundToInt(o.quoted * o.timeMult * o.conditionMult));
             return o;
@@ -1152,7 +1183,12 @@ namespace PSXRacing.LifeSim
                                          cargoCondition: RaceHandoff.CargoReported
                                              ? RaceHandoff.CargoCondition : (float?)null,
                                          carryCondition: RaceHandoff.CarryCondition,
-                                         dropFraction: RaceHandoff.DeliveryDropFraction);
+                                         dropFraction: RaceHandoff.DeliveryDropFraction,
+                                         // With no simulation the tally IS the
+                                         // impacts, so the question answers itself.
+                                         hitSomething: !RaceHandoff.CargoReported ||
+                                                       RaceHandoff.CargoImpacts > 0 ||
+                                                       RaceHandoff.CarryHit);
                 s.money += drop.tip;
                 // Attendance was banked at the counter (ClockOnShift, from
                 // PizzaShift) — turning up is what the shop counts, and a night

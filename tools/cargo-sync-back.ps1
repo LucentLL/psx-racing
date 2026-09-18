@@ -23,7 +23,9 @@ $from = Join-Path $proj $cargoRel
 $to   = Join-Path $src  $cargoRel
 if (-not (Test-Path $from)) { Write-Host "no cargo bake in the sandbox - run the scene build first" -ForegroundColor Red; exit 1 }
 
-# The bake, whole: prefabs, the bottle meshes and labels, every .meta.
+# The bake, whole: every prefab and every .meta. (The bottles' meshes and sheet
+# are ART now - Art/LifeSim/Groceries, committed like any pack - so the only
+# bottle files in here are the four prefabs.)
 robocopy $from $to /E /NFL /NDL /NJH /NJS /NP | Out-Null
 $copied = (Get-ChildItem $from -File).Count
 

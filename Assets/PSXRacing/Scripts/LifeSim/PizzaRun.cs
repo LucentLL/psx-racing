@@ -67,6 +67,12 @@ namespace PSXRacing.LifeSim
         /// drop against the WORSE of this and its own leg, so a box thrown on
         /// the floor on Main Street stays thrown.</summary>
         public static float CarryCondition = 1f;
+        /// <summary>Whether the car hit anything on that drive. Latched by
+        /// TownWorld beside <see cref="CarryCondition"/> and handed to the
+        /// race with it, because an order can only be REFUSED if something was
+        /// hit while it was aboard — see LifeRules.ScoreDelivery — and "aboard"
+        /// starts at the shop's kerb, not on the grid.</summary>
+        public static bool CarryHit;
 
         public static void ClearRun()
         {
@@ -80,6 +86,7 @@ namespace PSXRacing.LifeSim
             DropFraction = 1f;
             TodIndex = 0;
             CarryCondition = 1f;
+            CarryHit = false;
         }
 
         public static void ClearAll()
@@ -101,6 +108,7 @@ namespace PSXRacing.LifeSim
             DropFraction = dropFraction;
             TodIndex = todIndex;
             CarryCondition = 1f;
+            CarryHit = false;
             Carrying = true;
             SpawnAtShop = true;
             DriveToShop = false;
@@ -163,6 +171,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.TimeOfDayIndex = TodIndex;
             RaceHandoff.StartFuelPct = car.fuel;
             RaceHandoff.CarryCondition = Mathf.Clamp01(CarryCondition);
+            RaceHandoff.CarryHit = CarryHit;
             // The shape of the run. The fraction was rolled with the venue at
             // the counter and the par quoted there was sized to it, so the
             // race has to end where the quote said it would; and the car

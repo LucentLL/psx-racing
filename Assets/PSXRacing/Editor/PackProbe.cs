@@ -46,10 +46,14 @@ namespace PSXRacing.EditorTools
             "Assets/PSXRacing/Art/LifeSim/House/house_hero_colliders.fbx",
             // The pizzeria's props: every drink in the pack, by material
             // island, so a bottle can be chosen by its measured shape rather
-            // than by guessing at names. The baker's candidate list only ever
-            // asked for "Soft_drinks_*" and got a small glass bottle; the two
-            // litre ones the owner circled are in here under something else.
+            // than by guessing at names. (This line used to promise that the
+            // two litre bottles the owner circled were "in here under something
+            // else". They were not in here, or in any pack in the project:
+            // they were in his art folder, in a pack called All, and
+            // tools/sodas/export_sodas.py is what finally fetched them. A probe
+            // can only measure what it has been pointed at.)
             "Assets/PSXRacing/Art/LifeSim/PizzeriaScene/Pizzeria_Props.fbx",
+            "Assets/PSXRacing/Art/LifeSim/Groceries/Sodas2L.fbx",
         };
 
         [MenuItem("PSX Racing/Probe Pack Models")]

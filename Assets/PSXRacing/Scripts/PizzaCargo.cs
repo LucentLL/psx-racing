@@ -250,12 +250,112 @@ namespace PSXRacing
         /// that a one-step contact spike never registers, short enough that a
         /// box crossing the seat in a tenth of a second does.</summary>
         const float SlamTau = 0.06f;
-        /// <summary>Condition lost per metre-per-second of slam. A box
-        /// arriving at a metre a second — a stock bench, a hard corner —
-        /// costs twelve percent; the same corner on a race bucket, where the
+        /// <summary>Condition lost per metre-per-second of slam, FOR THE FIRST
+        /// ONE — see <see cref="JostleCap"/> for what every later one costs. A
+        /// box arriving at a metre a second — a stock bench, a hard corner —
+        /// costs fifteen percent; the same corner on a race bucket, where the
         /// box cannot reach the threshold, costs nothing. That gap is the
         /// upgrade.</summary>
         const float SlamWear = 0.15f;
+        /// <summary>
+        /// THE MOST THAT BEING THROWN ABOUT CAN COST A BOX, however long the
+        /// run and however it was driven.
+        ///
+        /// There was no such number, and its absence refused a delivery that
+        /// was never crashed and arrived two and a quarter minutes early. The
+        /// slam term is fifteen percent per metre-per-second PER SLAM, and it
+        /// simply added up: a stock bench gives a box eleven centimetres of
+        /// run-up, every change of direction is a slam at a metre a second or
+        /// better, and so the sixth corner of any mountain road took a box that
+        /// was shut, upright and sitting on the seat in plain view down through
+        /// RUINED. Every assertion in the suite stopped after ONE corner — "one
+        /// hard corner on a stock seat costs at most a little", which it does —
+        /// and the note under it even did the sum: "the order is lost at 0.25".
+        /// Nobody asked what a lap was. A head-on at 80 km/h scores 0.30; a
+        /// clean run up NC 80 scored nought.
+        ///
+        /// The owner's rule, in his words: "Zero tip should be reserved for a
+        /// late delivery or damaged delivery." A pizza that has been slid into
+        /// a door card forty times is SHAKEN — the toppings are on one side and
+        /// the tip says so — but it is in its box, the box is shut, and nobody
+        /// sends that back. What gets a box refused is what a customer can
+        /// SEE: open, upside down, on the floor, the pizza out of it. Those are
+        /// the flags in <see cref="Slot.Condition"/>, they only come from a
+        /// wall or from driving that ends the same way, and they are untouched.
+        ///
+        /// So wear is a share of what is LEFT to lose, not a sum. The first
+        /// slam costs exactly what it always did (SlamWear x speed — every
+        /// one-corner pin in the self-test is unmoved), the second a little
+        /// less, and a long hard run closes on this number without reaching
+        /// it: 0.35 leaves a shut box on the seat at 0.65 at the very worst,
+        /// which is SHAKEN and pays about seventy percent of the quote before
+        /// the clock. The seat ladder keeps all of its value — a race bucket
+        /// still costs nothing at all — and the floor under it is no longer
+        /// the floor of the car.
+        /// </summary>
+        public const float JostleCap = 0.35f;
+        /// <summary>
+        /// The slam speed above which it was not DRIVING that did it.
+        ///
+        /// The cap above must not soften a crash, and it would: a box that
+        /// keeps its lid through a head-on takes its whole punishment through
+        /// this same slam term (the harness's wall case leaves the bottom box
+        /// shut on the seat at 0.93 of wear), and capping that at a third makes
+        /// a wall at 80 km/h read as a rough road. So a slam is split at this
+        /// speed. Below it is jostling, capped. Above it is impact, which is
+        /// not — it goes to <see cref="Slot.impactWear"/> at the same rate.
+        ///
+        /// Two metres a second, because the gap is wide and this is the middle
+        /// of it. What a box can gather from the seat alone is sqrt(2 a d):
+        /// the most run-up there is is 22 cm, bolster to bolster, and at a net
+        /// 0.6 g — a 1.3 g corner less what the cloth holds — that is 1.6 m/s.
+        /// What the jolt channel hands it starts at the 3 m/s "light knock"
+        /// and runs to 7.
+        /// </summary>
+        const float ImpactSlamSpeed = 2.0f;
+        /// <summary>
+        /// What a WALL costs every box aboard, per metre-per-second the car
+        /// lost above <see cref="ImpactSlamSpeed"/>, whether or not the box
+        /// goes anywhere.
+        ///
+        /// The other half of making driving cheap is keeping a crash dear, and
+        /// it was only ever dear by accident. A jolt cost nothing in itself: it
+        /// threw the boxes, and what they were charged for was where they
+        /// ended up — open, on the floor — plus however long they then spent
+        /// being flung about down there. With that last part gone
+        /// (GroundSettleS) the harness's 80 km/h head-on read 0.44, the same as
+        /// two minutes of hard driving that touched nothing, because three
+        /// boxes that land flat in a footwell with their pizzas still in them
+        /// look the same however they got there. But they are not the same:
+        /// the pizza in a box whose car stopped dead went into the wall of its
+        /// own box at the speed the car lost.
+        ///
+        /// 0.05, so the full clamp (MaxJolt, 7 m/s) is a quarter — which takes
+        /// that head-on from WRECKED to refused — the 3 m/s "light knock" is
+        /// five percent, and a scrape under two metres a second is nothing.
+        /// Impact, so uncapped, like the rest of impactWear.
+        /// </summary>
+        const float JoltWear = 0.05f;
+
+        /// <summary>The worst a box can read while it is still shut, upright
+        /// and on the seat after any amount of driving and NO impact. Published
+        /// so the self-test can hold it against the refusal line: the rule is
+        /// a relation between two constants in two files, and those drift.
+        /// </summary>
+        public const float WorstUncrashedCondition = 1f - JostleCap;
+
+        /// <summary>
+        /// Add <paramref name="cost"/> of jostling to a box that has already
+        /// taken <paramref name="wear"/>: a share of the room left under
+        /// <see cref="JostleCap"/>, scaled so that on a fresh box it is exactly
+        /// <paramref name="cost"/>. Every later knock costs a little less than
+        /// the one before and no number of them reaches the cap.
+        /// </summary>
+        static float Jostle(float wear, float cost)
+        {
+            float room = Mathf.Max(0f, JostleCap - wear);
+            return wear + room * Mathf.Clamp01(cost / JostleCap);
+        }
 
         /// <summary>
         /// Seat geometry, in metres.
@@ -462,12 +562,51 @@ namespace PSXRacing
         /// </summary>
         static readonly float PanFrontZ = SeatD * 0.5f * Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
 
+        /// <summary>How far below the cushion's front lip a box's base has to
+        /// have sunk, once it is past <see cref="PanFrontZ"/>, to count as gone
+        /// over the edge rather than hanging over it — see Assess. Most of a
+        /// box's own height: a box lying ON the lip is not below it.</summary>
+        const float FrontDropM = 0.05f;
+
+        /// <summary>
+        /// How long after a box leaves the seat it goes on being GRADED.
+        ///
+        /// A second and a half: long enough for the fall and the landing —
+        /// which is when a box turns over and when a pizza leaves it — and
+        /// then the grade is what it is. Without this a box on the floor went
+        /// on being assessed for the rest of the run, and the floor is part of
+        /// the same shaking car: the forty-corner harness case put two boxes
+        /// in the footwell on corner 14 of 40 and had both at 0.00 by the end,
+        /// turned over and emptied by eighty more seconds of being thrown
+        /// about down there (and, eventually, over the kerb and off the island
+        /// at fifteen hundred metres and falling). "It fell on the floor" is a
+        /// thing that happened to the pizza. "And then I kept driving" is not
+        /// a second thing.
+        /// </summary>
+        const float GroundSettleS = 1.5f;
+
         /// <summary>Height of the pan's top surface at tray-local
         /// <paramref name="z"/>. Zero at the centre, rising toward the front
         /// — anything placed on the cushion away from its middle has to be
         /// lifted by this or it spawns inside it.</summary>
         static float PanTop(float z) => z * Mathf.Tan(PanPitchDeg * Mathf.Deg2Rad);
 
+        /// <summary>
+        /// How far BEHIND the cushion's centre the stack is put, along the pan.
+        ///
+        /// Two centimetres, and it is here for the bottles. The strip in front
+        /// of a centred stack is 10.5 cm and it was sized round the pizzeria
+        /// pack's glass bottle, 8.9 cm across. The owner's two-litres are a
+        /// real 11.1 — so the bottle he asked for went into that strip a
+        /// centimetre and a half INSIDE the boxes, which is "clip through the
+        /// pizza boxes" before the car has moved, and a solver handed an
+        /// interpenetration on frame one fires something across the seat to be
+        /// rid of it. Shrinking a two-litre until it fits is the wrong way to
+        /// read that. Back here the strip is 12.5 cm, the squab is still 8.5 cm
+        /// behind the boxes, and a load that starts two centimetres further
+        /// from the footwell is if anything the way this pass wants to err.
+        /// </summary>
+        const float StackBackM = 0.02f;
         /// <summary>Which rung of <see cref="Seats"/> this cargo was built on.</summary>
         public int SeatStage { get; private set; }
         CarController car;
@@ -638,7 +777,16 @@ namespace PSXRacing
             public bool escaped;           // pizza is out of the box
             public bool flipped;           // box went past horizontal at some point
             public bool grounded;          // box left the seat
-            public float slideWear;        // accumulated jostling, 0-1
+            /// <summary>Seconds since it did. Past <see cref="GroundSettleS"/>
+            /// the box is no longer assessed — see that constant.</summary>
+            public float groundedFor;
+            public float slideWear;        // accumulated jostling, 0 to JostleCap
+            /// <summary>What a WALL did to a box that stayed shut: the part of
+            /// a slam above <see cref="ImpactSlamSpeed"/>, which no amount of
+            /// driving reaches. Uncapped, because this is the "damaged
+            /// delivery" half of the owner's rule — see JostleCap for the
+            /// other half.</summary>
+            public float impactWear;
             /// <summary>The box's speed across the seat, smoothed over a few
             /// steps, for the slam test in Assess.</summary>
             public float speedEma;
@@ -656,7 +804,7 @@ namespace PSXRacing
             public Vector3 startLocal;
 
             public float Condition => Mathf.Clamp01(
-                1f - slideWear
+                1f - slideWear - impactWear
                    - (escaped ? 0.45f : 0f)
                    - (flipped ? 0.30f : 0f)
                    - (grounded ? 0.22f : 0f)
@@ -728,6 +876,29 @@ namespace PSXRacing
         }
 
         public int BoxCount => slots.Count;
+
+        /// <summary>
+        /// HOW MANY TIMES THE CAR HIT SOMETHING WITH THIS ORDER ABOARD: every
+        /// jolt that actually reached the load, by either channel.
+        ///
+        /// Exists for one reader. The owner's rule is that a zero tip is for a
+        /// late delivery or a DAMAGED one, said about an order that was refused
+        /// on a run where nothing was touched — and the honest reading of the
+        /// forty-corner harness case is that this rig cannot promise that on
+        /// its own. It is deterministic for one build and chaotic across them:
+        /// the same driving left all three boxes on the seat in one build and
+        /// walked two of them off the front, a braking zone at a time, in the
+        /// next. Every one of those outcomes is defensible physics, and none
+        /// of them is a thing a driver who hit nothing should be sent away
+        /// unpaid for.
+        ///
+        /// So the rule is stated where it can be kept — in
+        /// LifeRules.ScoreDelivery, which refuses an order only if this is
+        /// above zero — and the simulation goes on deciding everything short
+        /// of that: what the box looks like, what the tip is, how much a
+        /// better seat is worth.
+        /// </summary>
+        public int Impacts { get; private set; }
         /// <summary>Where the cargo camera should look.</summary>
         public Transform Tray => tray;
 
@@ -1046,11 +1217,14 @@ namespace PSXRacing
             // stack is a moving one, which is exactly what the at-rest case
             // exists to say never happens.
             var panUp = PanRot * Vector3.up;
+            // Set back along the pan to leave the bottles their strip — see
+            // StackBackM.
+            var stackAt = PanRot * new Vector3(0f, 0f, -StackBackM);
             for (int i = 0; i < toppings.Length; i++)
             {
                 // Stacked, with a hair of daylight between them so the solver
                 // does not start the race resolving an interpenetration.
-                var at = panUp * (0.01f + i * (boxH + 0.004f));
+                var at = stackAt + panUp * (0.01f + i * (boxH + 0.004f));
                 slots.Add(BuildBox(boxPrefab, toppings[i], at, boxH));
             }
 
@@ -1060,7 +1234,10 @@ namespace PSXRacing
             {
                 var bottlePrefab = PizzaCargoBakerNames.LoadBottle(i);
                 if (bottlePrefab == null) return;
-                BuildBottle(bottlePrefab, i);
+                // The front face of the stack, in the tray's z: where the
+                // bottles' strip begins. Off the MEASURED box, like the stack.
+                float boxHalf = bb.size.y > 0.005f ? Mathf.Max(bb.size.x, bb.size.z) * 0.5f : 0.205f;
+                BuildBottle(bottlePrefab, i, boxHalf - StackBackM);
             }
         }
 
@@ -1087,7 +1264,9 @@ namespace PSXRacing
         /// mechanic.
         ///
         /// So: the strip between the front edge of the boxes and the front edge
-        /// of the seat, which is 10.5 cm and a bottle is 8.9 cm across. Nothing
+        /// of the seat. It was 10.5 cm when the bottle was the pizzeria pack's
+        /// 8.9 cm glass one; it is 12.5 now that the stack sits two centimetres
+        /// back (StackBackM) for the owner's real 11.1 cm two-litre. Nothing
         /// touches at rest, so the graded physics is exactly what it was
         /// without them. Under braking the lying one rolls into the seat front
         /// and under power it rolls back into the stack, so contact happens
@@ -1106,7 +1285,7 @@ namespace PSXRacing
         /// NOT a slot either way — <see cref="Condition"/> averages slots, and
         /// a bottle in that list would be scored.
         /// </remarks>
-        void BuildBottle(GameObject prefab, int index)
+        void BuildBottle(GameObject prefab, int index, float stackFrontZ)
         {
             bool upright = index != 0;
 
@@ -1114,9 +1293,21 @@ namespace PSXRacing
             float h = Mathf.Max(0.05f, pb.size.y);
             float r = Mathf.Max(0.02f, Mathf.Max(pb.size.x, pb.size.z) * 0.5f);
 
-            // Measured off the seat rather than typed in, so the clearance
-            // survives a change to either the seat or the pack's bottle.
-            float z = SeatD * 0.5f - r - 0.008f;
+            // IN THE MIDDLE OF ITS STRIP, measured off both things it must not
+            // touch. This used to be hung off the seat's front edge alone — r
+            // and eight millimetres back from it — which clears the boxes for
+            // as long as the bottle is thinner than the strip and says nothing
+            // on the day it is not: the owner's real two-litre is 11.1 cm in a
+            // strip that was 10.5, and it spawned inside the stack. Whatever is
+            // spare is split between the two sides, and a bottle that does not
+            // fit at all is REPORTED, because the solver's answer to starting
+            // a run interpenetrating is to throw something.
+            float spare = SeatD * 0.5f - stackFrontZ - 2f * r;
+            if (spare < 0.004f)
+                Debug.LogWarning("[PizzaCargo] a " + (2f * r).ToString("0.000") + " m bottle does not fit the " +
+                                 (SeatD * 0.5f - stackFrontZ).ToString("0.000") +
+                                 " m strip in front of the stack - it will start the run touching the boxes");
+            float z = stackFrontZ + Mathf.Max(0f, spare) * 0.5f + r;
             // The lying one runs across the car and is 33 cm long, so it is
             // offset to leave the standing one a place to be.
             float x = upright ? 0.20f : -0.10f;
@@ -1147,11 +1338,22 @@ namespace PSXRacing
             // prefab root carries the scale that takes the pack's mesh to a real
             // bottle, and a collider built from world bounds on a scaled object
             // applies that scale twice.
+            //
+            // AS WIDE AS THE BOTTLE. It was 1.7 r — the square with a circle's
+            // AREA, which is a fair answer to "how big is this" and the wrong
+            // one to "where does it stop": resting against the front of a box
+            // the solver held the collider's face on the cardboard and the
+            // bottle you could see stood 0.15 r further in, through the wall.
+            // That is most of "clip through the pizza boxes". At the full 2 r
+            // the faces that meet ARE the faces that are drawn; what it costs
+            // is a gap at the diagonals, where the square's corner stands
+            // proud of the round — and a bottle that stops a hair short of a
+            // box corner reads as a bottle, where one sunk into a box does not.
             Vector3 ls = prefab.transform.lossyScale;
             var col = go.AddComponent<BoxCollider>();
-            col.size = new Vector3(r * 1.7f / Mathf.Max(1e-4f, ls.x),
+            col.size = new Vector3(r * 2f / Mathf.Max(1e-4f, ls.x),
                                    h / Mathf.Max(1e-4f, ls.y),
-                                   r * 1.7f / Mathf.Max(1e-4f, ls.z));
+                                   r * 2f / Mathf.Max(1e-4f, ls.z));
             col.center = new Vector3(0f, col.size.y * 0.5f, 0f);
             col.sharedMaterial = grip;
 
@@ -1581,6 +1783,17 @@ namespace PSXRacing
             // the solver being handed something it cannot integrate.
             if (jolt.sqrMagnitude > 1e-6f)
             {
+                // Counted, because the customer's refusal now hangs on it —
+                // see Impacts.
+                Impacts++;
+                // And charged for — see JoltWear. Horizontal only: a landing
+                // is not a wall, and the vertical part has its own clamp for
+                // the same reason.
+                float lost = Mathf.Min(new Vector2(jolt.x, jolt.z).magnitude, MaxJolt);
+                float dent = Mathf.Max(0f, lost - ImpactSlamSpeed) * JoltWear;
+                if (dent > 0f)
+                    foreach (var s in slots)
+                        s.impactWear = Mathf.Clamp01(s.impactWear + dent);
                 var kick = tray.TransformDirection(SplitClamp(-jolt, MaxJolt, MaxJoltVert));
                 // A little TUMBLE with it. A box thrown across a seat does not
                 // slide flat like a puck — it catches an edge and goes over, and
@@ -1634,6 +1847,7 @@ namespace PSXRacing
                   .Append(s.grounded ? " FLOOR" : "")
                   .Append(" at ").Append(BoxOffset(i).ToString("F2"))
                   .Append(" wear ").Append(s.slideWear.ToString("0.00"))
+                  .Append(" impact ").Append(s.impactWear.ToString("0.00"))
                   .Append(" home ").Append(PizzaHomeError(i).ToString("0.000"))
                   .Append("; ");
             }
@@ -1652,6 +1866,8 @@ namespace PSXRacing
             foreach (var s in slots)
             {
                 if (s.box == null) continue;
+                // Landed and settled: graded, and done — see GroundSettleS.
+                if (s.grounded && (s.groundedFor += dt) > GroundSettleS) continue;
 
                 // TUMBLED past LidOpenTiltDeg: the lid is not holding anything
                 // in. The first of the three ways a box opens.
@@ -1666,8 +1882,31 @@ namespace PSXRacing
                 // seat, which is the thing the player is supposed to watch and
                 // worry about rather than be charged for. The second way a box
                 // opens.
+                //
+                // PAST THE FRONT EDGE **AND ON ITS WAY DOWN**. The front test
+                // used to be the z alone, and the forty-corner run caught it
+                // lying: under braking the whole stack slides forward together,
+                // the top box a little further than the two it is riding on,
+                // and the moment its centre crossed the cushion's edge it was
+                // declared ON THE FLOOR — lid destroyed, pizza turned loose —
+                // while sitting level on top of the stack, twelve centimetres
+                // above the seat, held by the box beneath it. Then the corner
+                // after slid everything back, and the run ended with a box in
+                // the middle of the seat marked FLOOR, open, pizza out: 0.00,
+                // and nothing had been hit. That is the same complaint as the
+                // wear — a box charged for something nobody could see happen.
+                //
+                // The z says a box COULD fall; these say it is falling. Nose
+                // down past the lid angle is the propped case PanFrontZ was
+                // written for (seventy degrees, front edge on the floor); sunk
+                // below the cushion's own front lip is a box that has gone over
+                // flat. One still level and still up there is overhanging, and
+                // overhanging is a thing to watch, not a thing to pay for.
                 var inTray = tray.InverseTransformPoint(s.box.position);
-                if (inTray.y < -0.12f || inTray.z > PanFrontZ) { s.grounded = true; Open(s); }
+                bool overFront = inTray.z > PanFrontZ &&
+                                 (upness < lidOpenCos ||
+                                  inTray.y < PanTop(PanFrontZ) - FrontDropM);
+                if (inTray.y < -0.12f || overFront) { s.grounded = true; Open(s); }
 
                 // THE SLAM. A box that gathers speed across a seat and stops
                 // against the door card has a pizza inside it that did not
@@ -1713,7 +1952,15 @@ namespace PSXRacing
                     float sp = s.box.linearVelocity.magnitude;
                     if (s.speedEma > SlamMinSpeed && sp < s.speedEma * 0.35f)
                     {
-                        s.slideWear = Mathf.Clamp01(s.slideWear + s.speedEma * SlamWear);
+                        // SPLIT AT THE SPEED DRIVING CANNOT REACH. Under it
+                        // this is a box thrown about, which costs less each
+                        // time and never the order; over it a wall did this,
+                        // and that is not capped — see JostleCap and
+                        // ImpactSlamSpeed.
+                        s.slideWear = Jostle(s.slideWear,
+                            Mathf.Min(s.speedEma, ImpactSlamSpeed) * SlamWear);
+                        s.impactWear = Mathf.Clamp01(s.impactWear +
+                            Mathf.Max(0f, s.speedEma - ImpactSlamSpeed) * SlamWear);
                         // The third way a box opens: a slam hard enough to
                         // pop the lid — see LidPopSpeed.
                         if (!s.open && s.speedEma - sp > LidPopSpeed) Open(s);
@@ -1753,8 +2000,11 @@ namespace PSXRacing
                 // cheese.
                 var rel = s.pizzaBody.linearVelocity - s.box.linearVelocity;
                 float slide = rel.magnitude;
+                // Jostling, so it shares the slam's ceiling: an open box whose
+                // pizza is sliding about inside it is being charged for the
+                // open lid already, and for the pizza leaving if it does.
                 if (slide > 0.35f)
-                    s.slideWear = Mathf.Clamp01(s.slideWear + (slide - 0.35f) * 0.045f * dt);
+                    s.slideWear = Jostle(s.slideWear, (slide - 0.35f) * 0.045f * dt);
             }
         }
 
@@ -1890,6 +2140,10 @@ namespace PSXRacing
         /// <summary>Is box <paramref name="i"/>'s pizza out of it? Only ever
         /// true of an OPEN box — see Assess.</summary>
         public bool PizzaEscaped(int i) => Valid(i) && slots[i].escaped;
+        /// <summary>What box <paramref name="i"/> alone would be graded at.
+        /// <see cref="Condition"/> is the mean, and a mean can hide a ruined
+        /// box behind two good ones.</summary>
+        public float BoxCondition(int i) => Valid(i) ? slots[i].Condition : 1f;
 
         /// <summary>
         /// Has this box's pizza been handed to the solver — i.e. is it a body
@@ -2142,13 +2396,16 @@ namespace PSXRacing
         /// asset. The closed box's HEIGHT is what every consumer needs.</summary>
         public const string Box = Dir + "pizza_box";
         /// <summary>The 2 litre bottle that rides with the order. Baked from
-        /// the same props pack and standing on its own base, so the runtime
-        /// stands one up by putting its origin on the seat and lays one down by
-        /// turning it ninety degrees.</summary>
+        /// the owner's own grocery shelf (Art/LifeSim/Groceries) and standing
+        /// on its own base, so the runtime stands one up by putting its origin
+        /// on the seat and lays one down by turning it ninety degrees.</summary>
         public const string Bottle = Dir + "soda_bottle";
-        /// <summary>How many looks the baker paints — cola, lemon-lime, orange,
-        /// cherry. Variant 0 is <see cref="Bottle"/> itself, so a load that
-        /// only knows the old name still gets a bottle.</summary>
+        /// <summary>How many looks the baker writes — the four bottles of the
+        /// shelf's second row, cola first and lemon-lime second because most
+        /// orders carry one bottle or two, then citrus and the other
+        /// lemon-lime. Variant 0 is
+        /// <see cref="Bottle"/> itself, so a load that only knows the old name
+        /// still gets a bottle.</summary>
         public const int BottleVariants = 4;
         /// <summary>The i-th look, wrapping, so an order's second bottle is
         /// never the same colour as its first.</summary>

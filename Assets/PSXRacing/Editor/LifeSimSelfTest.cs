@@ -4259,6 +4259,58 @@ namespace PSXRacing.EditorTools
                   "but hitting a wall does", sim.afterCrash.ToString("0.000") +
                   " after " + sim.afterRough.ToString("0.000"));
 
+            // ---- a whole run, and nothing hit ----------------------------
+            //
+            // "My pizza was refused even though I didn't wreck. I also beat the
+            // delivery time by 2:15. Zero tip should be reserved for a late
+            // delivery or damaged delivery."
+            //
+            // Every assertion above stops after one event, and the note on the
+            // first of them did the arithmetic without drawing the conclusion:
+            // a corner on a stock bench costs 0.15, "the order is lost at
+            // 0.25". Wear was a plain sum, so corner six lost it — every box
+            // shut, upright and on the seat — and a head-on scored better than
+            // a clean run up a mountain. Two checks, because the rule lives in
+            // two places. The first is the relation between the constants,
+            // which is what would silently break if either were retuned. The
+            // second drives it: forty rough corners, firm stops, no impact.
+            Check(PizzaCargo.WorstUncrashedCondition >= LifeRules.PizzaRuinedCondition + 0.30f,
+                  "a box still shut on the seat can never be near the refusal line, however it was driven",
+                  PizzaCargo.WorstUncrashedCondition.ToString("0.00") + " vs refused at " +
+                  LifeRules.PizzaRuinedCondition.ToString("0.00"));
+            // AND THE RULE ITSELF, which is the part that cannot be left to a
+            // physics rig: the forty-corner run ended with every box on the
+            // seat in one build and two in the footwell in the next. Whatever
+            // the cargo says, an order is refused only if something was HIT.
+            var untouched = LifeRules.ScoreDelivery(100, venue, par * 0.6f, 0f, 0,
+                                                    cargoCondition: 0f, hitSomething: false);
+            Check(!untouched.refused && untouched.tip > 0,
+                  "a driver who hit nothing is never refused, whatever state the boxes are in",
+                  "tip " + untouched.tip + " of 100, refused=" + untouched.refused);
+            var crashed = LifeRules.ScoreDelivery(100, venue, par * 0.6f, 0f, 0,
+                                                  cargoCondition: 0f, hitSomething: true);
+            Check(crashed.refused && crashed.tip == 0,
+                  "and one who crashed it into that state still is",
+                  "tip " + crashed.tip + ", refused=" + crashed.refused);
+            var lateClean = LifeRules.ScoreDelivery(100, venue, par * 3f, 0f, 0,
+                                                    cargoCondition: 1f, hitSomething: false);
+            Check(!lateClean.refused && lateClean.tip > 0 && lateClean.tip < 50,
+                  "a late box in perfect condition is tipped small, not refused", lateClean.tip);
+            if (sim.extended)
+            {
+                Check(sim.runImpacts == 0, "the forty-corner run hits nothing", sim.runImpacts);
+                Check(sim.runWorstKeptBox >= PizzaCargo.WorstUncrashedCondition - 0.001f,
+                      "forty hard corners: no box that kept its lid and its seat is below SHAKEN",
+                      sim.runWorstKeptBox.ToString("0.000") + " (" + sim.runBoxesDisturbed +
+                      " of the three did not keep both; order " + sim.afterRun.ToString("0.000") + ")");
+                var early = LifeRules.ScoreDelivery(100, venue, par * 0.6f, 0f, 0,
+                                                    cargoCondition: sim.afterRun,
+                                                    hitSomething: sim.runImpacts > 0);
+                Check(!early.refused && early.tip >= 25,
+                      "so that run, early and uncrashed, is tipped and not refused",
+                      "tip " + early.tip + " of 100, refused=" + early.refused);
+            }
+
             // ---- the handbrake 180 ---------------------------------------
             //
             // "I pull the ebrake for a 180 turn at 80mph and the boxes barely

@@ -266,6 +266,9 @@ namespace PSXRacing.Town
                 {
                     PizzaRun.CarryCondition = Mathf.Min(PizzaRun.CarryCondition,
                                                         PizzaCargo.Instance.Condition);
+                    // Latched, never cleared here: the rig is rebuilt every
+                    // time the driver gets back in, and its count starts again.
+                    if (PizzaCargo.Instance.Impacts > 0) PizzaRun.CarryHit = true;
                     if (PizzaRun.CarryCondition < LifeRules.PizzaPerfectCondition)
                         label = "DELIVERY (" +
                                 LifeRules.PizzaConditionLabel(PizzaRun.CarryCondition) +

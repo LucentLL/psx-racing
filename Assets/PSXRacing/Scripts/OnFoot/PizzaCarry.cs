@@ -131,8 +131,8 @@ namespace PSXRacing.OnFoot
             // load instead of as a pair of railings in front of the camera.
             var bottlePrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Bottle);
             if (bottlePrefab == null) return;
-            // Measured off the base bottle: every look is the same lathe, so
-            // one measurement serves them all.
+            // Measured off the base bottle: the four looks are the same two
+            // litres to within a millimetre, so one measurement serves them.
             var pb = PrefabBounds(bottlePrefab);
             float br = Mathf.Max(0.02f, Mathf.Max(pb.size.x, pb.size.z) * 0.5f);
             for (int i = 0; i < bottles; i++)
@@ -159,7 +159,15 @@ namespace PSXRacing.OnFoot
                 // order; pushed to the far edge they sit behind the print, which
                 // is where you would put them and where they stop being the
                 // subject of the shot.
-                var want = new Vector3(0f, stackH + br, i == 0 ? 0.085f : 0.175f);
+                //
+                // SPACED BY THE BOTTLE, not by two literals. 0.085 and 0.175
+                // were nine centimetres apart because the bottle was 8.9
+                // across; the real two-litre is 11.1, and at those numbers the
+                // pair lay two centimetres inside each other. The far one keeps
+                // the same edge it always had — a centimetre and a half past
+                // the lid's — and the near one lies against it.
+                float farZ = 0.2195f - br;
+                var want = new Vector3(0f, stackH + br, i == 0 ? farZ - 2f * br - 0.002f : farZ);
                 b.transform.localPosition = want - got.center;
                 Strip(b);
             }

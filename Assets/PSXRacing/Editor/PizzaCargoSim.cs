@@ -190,6 +190,32 @@ namespace PSXRacing.EditorTools
             /// forward jolt where the seat is open by design.</summary>
             public float sideSlideMin, sideSlideMax, sideSlideBottom;
 
+            // ---- 2026-09-18: "refused even though I didn't wreck" ----------
+            //
+            // Every case above stops after ONE corner, and one corner costs a
+            // little. A delivery is forty of them. Wear was a plain sum, so the
+            // order was lost by the sixth with every box shut and on the seat,
+            // and nothing in here drove far enough to find out.
+
+            /// <summary>Condition after a whole mountain road on the stock
+            /// bench: forty alternating 0.9 g corners with a firm stop between
+            /// each pair, on a rough surface, and NOT ONE IMPACT.</summary>
+            public float afterRun;
+            /// <summary>The worst single box at the end of it. The order's
+            /// condition is a mean, and a mean can hide one ruined box.</summary>
+            public float afterRunWorstBox;
+            /// <summary>Boxes that ended that run open or off the seat. The
+            /// rule being asserted is about boxes that are NEITHER, so the
+            /// self-test needs to know whether it is looking at any.</summary>
+            public int runBoxesDisturbed;
+            /// <summary>PizzaCargo.Impacts at the end of that run. Zero, or
+            /// the harness hit something it says it did not.</summary>
+            public int runImpacts;
+            /// <summary>The worst box of that run that was STILL SHUT AND ON
+            /// THE SEAT at the end — the one the jostle cap is a promise
+            /// about. 1 when no box qualified.</summary>
+            public float runWorstKeptBox;
+
             // ---- 2026-09-07: the two reports ------------------------------
             //
             // "The pizza clips through the box, eventually breaking through
@@ -835,6 +861,94 @@ namespace PSXRacing.EditorTools
                         Object.DestroyImmediate(c.gameObject);
                     }
                 }
+                // 10. A WHOLE RUN, AND NOTHING HIT.
+                //
+                // LAST, on purpose: the harness is deterministic for a build
+                // and chaotic across them, and a new case in the middle moves
+                // every reading after it. At the end it moves none.
+                //
+                // "My pizza was refused even though I didn't wreck. I also beat
+                // the delivery time by 2:15." Every case above is ONE event and
+                // a rest, and one corner costs the little it is allowed to.
+                // This is the road: forty corners, left then right, each a
+                // second and a half of 0.9 g with the roll that goes with it,
+                // a firm stop into each pair, half a g of throttle out of every
+                // one — a road has exits as well as entries, and the exits are
+                // what slide a load back up a pan that tilts that way — and the
+                // same band-limited noise Rough() uses under all of it. Stock
+                // bench, three boxes and both bottles: the order most likely
+                // to be on the seat. No jolt is ever injected. The driver of
+                // this run did not touch anything.
+                //
+                // WHAT IT CAN AND CANNOT PROVE. Whether a box ends this run on
+                // the seat is CHAOTIC — all three did in one build and one did
+                // in the next, from a one-line change somewhere else — so
+                // nothing is pinned on that. What holds in every build is the
+                // pair the self-test asserts: a box that kept its lid and its
+                // seat is never below PizzaCargo.WorstUncrashedCondition, and
+                // Impacts is still zero, so whatever else happened
+                // LifeRules.ScoreDelivery will not refuse it.
+                {
+                    var c = PizzaCargo.Spawn(null, new[] { 0, 3, 6 }, 2, seatStage: 0);
+                    if (c != null)
+                    {
+                        Step(c, Vector3.zero, Quaternion.identity, 60);
+                        var rng = new System.Random(4118);
+                        Vector3 wander = Vector3.zero, target = Vector3.zero;
+                        // WHICH MANOEUVRE LOSES A BOX, and where it was. A number at
+                        // the end of two minutes cannot say, and "two boxes ended on
+                        // the floor" reads the same whether they slid off the front
+                        // under braking or were fired across the car by the solver.
+                        var left = new bool[c.BoxCount];
+                        void Note(string phase, int corner)
+                        {
+                            for (int i = 0; i < c.BoxCount; i++)
+                            {
+                                if (left[i] || !(c.IsOpen(i) || c.IsGrounded(i))) continue;
+                                left[i] = true;
+                                Debug.Log("[PizzaSim] whole run: box" + i + " first " +
+                                          (c.IsGrounded(i) ? "OFF THE SEAT" : "OPENED") + " during the " +
+                                          phase + " of corner " + corner + ", offset " +
+                                          c.BoxOffset(i).ToString("F2"));
+                            }
+                        }
+                        for (int corner = 0; corner < 40; corner++)
+                        {
+                            float side = (corner & 1) == 0 ? 1f : -1f;
+                            if ((corner & 1) == 0)
+                            {
+                                RoughStep(c, new Vector3(0f, 0f, -0.7f * 9.81f),
+                                          Quaternion.Euler(-3f, 0f, 0f), 30, rng, ref wander, ref target);
+                                Note("stop", corner);
+                            }
+                            RoughStep(c, new Vector3(8.8f * side, 0f, 0f),
+                                      Quaternion.Euler(0f, 0f, -8f * side), 75, rng, ref wander, ref target);
+                            Note("turn", corner);
+                            RoughStep(c, new Vector3(0f, 0f, 0.5f * 9.81f),
+                                      Quaternion.Euler(2f, 0f, 0f), 40, rng, ref wander, ref target);
+                            Note("exit", corner);
+                        }
+                        Step(c, Vector3.zero, Quaternion.identity, 60);
+                        r.afterRun = c.Condition;
+                        r.afterRunWorstBox = 1f;
+                        r.runWorstKeptBox = 1f;
+                        for (int i = 0; i < c.BoxCount; i++)
+                        {
+                            r.afterRunWorstBox = Mathf.Min(r.afterRunWorstBox, c.BoxCondition(i));
+                            if (c.IsOpen(i) || c.IsGrounded(i)) r.runBoxesDisturbed++;
+                            else r.runWorstKeptBox = Mathf.Min(r.runWorstKeptBox, c.BoxCondition(i));
+                        }
+                        r.runImpacts = c.Impacts;
+                        r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
+                        if (shoot) Shoot(c, dir, "sim_10_wholerun");
+                        Debug.Log("[PizzaSim] whole run, 40 corners, no impact: " +
+                                  r.afterRun.ToString("0.00") + " (worst box " +
+                                  r.afterRunWorstBox.ToString("0.00") + ", " + r.runBoxesDisturbed +
+                                  " open or off the seat)  " + c.Describe());
+                        Object.DestroyImmediate(c.gameObject);
+                    }
+                }
+
                 r.extended = true;
                 Debug.Log("[PizzaSim] pizza on a shut box, anywhere in the suite: " + r.pizzaOnShutBox);
             }
@@ -1092,6 +1206,34 @@ namespace PSXRacing.EditorTools
                 var shake = Quaternion.Euler(Random.Range(-2.5f, 2.5f), 0f,
                                              -8f + Random.Range(-2.5f, 2.5f));
                 cargo.Tick(new Vector3(8.8f, 0f, 0f) + wander, shake, Dt);
+                Physics.Simulate(Dt);
+            }
+        }
+
+        /// <summary>
+        /// The same road as <see cref="Rough"/>, under ANY manoeuvre and for as
+        /// long as the caller likes: the band-limited wander (a new target
+        /// every three frames, interpolated), a kerb every half second, and a
+        /// couple of degrees of body shake on top of the attitude asked for.
+        /// Its own generator and its own wander state, passed in, so a run
+        /// made of many calls is one continuous road — and so it never touches
+        /// UnityEngine.Random, which Rough seeds and later cases draw from.
+        /// </summary>
+        static void RoughStep(PizzaCargo cargo, Vector3 accel, Quaternion tilt, int frames,
+                              System.Random rng, ref Vector3 from, ref Vector3 to)
+        {
+            float R(float a) => (float)(rng.NextDouble() * 2.0 - 1.0) * a;
+            for (int i = 0; i < frames; i++)
+            {
+                if (i % 3 == 0)
+                {
+                    from = to;
+                    to = new Vector3(R(12f), R(12f), R(12f));
+                }
+                var wander = Vector3.Lerp(from, to, (i % 3) / 3f);
+                if (i % 25 == 0) wander += new Vector3(0f, 40f, 0f);
+                var shake = Quaternion.Euler(R(2.5f), 0f, R(2.5f));
+                cargo.Tick(accel + wander, tilt * shake, Dt);
                 Physics.Simulate(Dt);
             }
         }

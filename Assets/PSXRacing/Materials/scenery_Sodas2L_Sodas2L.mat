@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: scenery_soda_bottle_label_soda_bottle
+  m_Name: scenery_Sodas2L_Sodas2L
   m_Shader: {fileID: 4800000, guid: 8e5fd0c4978b3af46a27d1b2ff8b281b, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -24,7 +24,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 6d4a612d201b37f4e8427cfef046575c, type: 3}
+        m_Texture: {fileID: 2800000, guid: 83b74fd4a4d9adb4fba86d011ea2cef7, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []

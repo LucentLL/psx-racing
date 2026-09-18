@@ -359,6 +359,7 @@ namespace PSXRacing
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
                 {
                     RaceHandoff.CargoCondition = PizzaCargo.Instance.Condition;
+                    RaceHandoff.CargoImpacts = PizzaCargo.Instance.Impacts;
                     RaceHandoff.CargoReported = true;
                 }
 

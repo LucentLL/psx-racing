@@ -937,6 +937,13 @@ namespace PSXRacing
                 ? (RaceHandoff.CargoReported ? RaceHandoff.CargoCondition : (float?)null)
                 : (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0
                        ? PizzaCargo.Instance.Condition : (float?)null);
+            // Whether anything was HIT with the order aboard, either leg — a
+            // refusal needs it (LifeRules.ScoreDelivery). With no simulation
+            // the damage tally is the only model, and it only ever falls
+            // because of impacts, so the question answers itself.
+            bool hit = cargo == null || RaceHandoff.CarryHit ||
+                       (stamped ? RaceHandoff.CargoImpacts > 0
+                                : PizzaCargo.Instance != null && PizzaCargo.Instance.Impacts > 0);
             return LifeSim.LifeRules.ScoreDelivery(
                 RaceHandoff.DeliveryPay, RaceHandoff.TrackIndex, seconds,
                 stamped ? RaceHandoff.DamageScore
@@ -944,7 +951,20 @@ namespace PSXRacing
                 stamped ? RaceHandoff.HardHits
                         : (responder != null ? responder.HardHits : 0),
                 inProgress: !stamped, cargoCondition: cargo,
-                carryCondition: RaceHandoff.CarryCondition);
+                carryCondition: RaceHandoff.CarryCondition,
+                // THE SAME PAR THE WALLET USES. This argument was missing, and
+                // ScoreDelivery's own note says what that does: "a par sized to
+                // a lap in one and to the sprint in the other would be a tip
+                // that changes on the results screen". It defaults to a whole
+                // lap, and on anything with a lap (a circuit, a loop stage) the
+                // door is 55 to 95 percent of the way round one — so this
+                // readout and the DELIVERED sheet graded those runs against a
+                // par up to 1.8 times the one they were paid on: the falling
+                // tip too generous all run, and a sheet that said "2:15 under
+                // par" over a payout that had used a different clock.
+                // Point-to-point stages were unaffected; their run is baked.
+                dropFraction: RaceHandoff.DeliveryDropFraction,
+                hitSomething: hit);
         }
 
         string DeliverySheet(float finishTime)

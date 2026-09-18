@@ -76,6 +76,12 @@
         /// arrive graded as fresh out of the oven: the drop is scored against
         /// the WORSE of this and the race's own leg.</summary>
         public static float CarryCondition = 1f;
+        /// <summary>Whether the car HIT anything on the way across town with
+        /// the order aboard. The other half of <see cref="CarryCondition"/>,
+        /// and carried for the same reason: a refusal needs an impact (see
+        /// LifeRules.ScoreDelivery), and the one that ruined the order may
+        /// have been on Main Street.</summary>
+        public static bool CarryHit;
         /// <summary>
         /// How far round the lap the customer's door is, as a fraction of a
         /// circuit, rolled at the counter. A delivery is a SPRINT: on a loop
@@ -274,6 +280,10 @@
         /// missing — where the DamageScore model is still the only answer
         /// available.</summary>
         public static bool CargoReported;
+        /// <summary>Jolts the cargo took during the run itself — see
+        /// PizzaCargo.Impacts. Only meaningful with <see cref="CargoReported"/>.
+        /// </summary>
+        public static int CargoImpacts;
 
         public static void ClearResult()
         {
@@ -292,6 +302,7 @@
             HardHits = 0;
             CargoCondition = 1f;
             CargoReported = false;
+            CargoImpacts = 0;
             // Rides with the RESULT rather than the request: it is stamped on
             // the way out of a scene and consumed by the one apply-back that
             // reads it, so a later, unrelated exit must start clean.
@@ -309,6 +320,7 @@
             FreeRoam = false; FreeRoamPlace = null;
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;
+            CarryHit = false;
             // Both survive a scene load by design, so a delivery that left
             // either behind would hand the NEXT ordinary race a rolling start
             // or a finish part-way round its first lap.
