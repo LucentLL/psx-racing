@@ -9,12 +9,11 @@ using PSXRacing;
 namespace PSXRacing.EditorTools
 {
     /// <summary>
-    /// The driving HUD a PHONE player sees — the touch panel, the two dials
-    /// and the speed-streak overlay, composed on one frame — at the three
-    /// aspects the game is played at, with the placement CHECKED in pixels
-    /// rather than eyeballed.
+    /// The driving HUD a PHONE player sees — the touch panel and the two
+    /// dials, composed on one frame — at the three aspects the game is played
+    /// at, with the placement CHECKED in pixels rather than eyeballed.
     ///
-    /// Three pieces on three canvases, and the reason this tool exists is that
+    /// Two pieces on two canvases, and the reason this tool exists is that
     /// no earlier one put them together honestly. TouchControlsPreview.DumpPanel
     /// renders the panel and the cluster at one size, and builds the cluster
     /// BEFORE it pins the canvas scale — so the dials measured a canvas sized
@@ -23,10 +22,9 @@ namespace PSXRacing.EditorTools
     /// scale its own CanvasScaler would reach on that screen FIRST, and only
     /// then is anything asked where it is.
     ///
-    /// And the streaks are woken in the order that shipped them as white bars:
-    /// HudOnTop.Apply over the HUD canvas before SpeedLines.Awake — RaceHUD
-    /// winning the race — so a picture of radial streaks is a picture of the
-    /// fix, not of a lucky order.
+    /// (It used to compose the speed-streak overlay too. The streaks are
+    /// gone — the owner's call, 2026-09-19 — and the blur that replaced them
+    /// is a pipeline pass with its own instrument: SpeedBlurPreview.)
     /// </summary>
     public static class DriveHudPreview
     {
@@ -61,55 +59,11 @@ namespace PSXRacing.EditorTools
             var camGO = new GameObject("PreviewCam");
             var cam = camGO.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
-            // A hazy mid tone, so white streaks and dark dials both show.
+            // A hazy mid tone, so pale controls and dark dials both show.
             cam.backgroundColor = new Color(0.40f, 0.42f, 0.47f);
             cam.orthographic = true;
             var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
             cam.targetTexture = rt;
-
-            // ---- the streak overlay, the way the builder wires it ----------
-            var hudGO = new GameObject("HUDCanvas");
-            var hud = hudGO.AddComponent<Canvas>();
-            hud.renderMode = RenderMode.ScreenSpaceCamera;
-            hud.worldCamera = cam;
-            hud.planeDistance = 20f;          // behind the two panels
-            hud.sortingOrder = 0;
-            var linesGO = new GameObject("SpeedLines", typeof(RectTransform));
-            linesGO.transform.SetParent(hudGO.transform, false);
-            var lrt = (RectTransform)linesGO.transform;
-            lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
-            lrt.offsetMin = Vector2.zero; lrt.offsetMax = Vector2.zero;
-            var img = linesGO.AddComponent<RawImage>();
-            img.raycastTarget = false;
-            img.texture = AssetDatabase.LoadAssetAtPath<Texture2D>(PSXRacingBuilder.SpeedStreaksTexPath);
-            var saved = AssetDatabase.LoadAssetAtPath<Material>(WorldKit.MatDir + "/SpeedLines.mat");
-            var streakShader = Shader.Find(SpeedLines.ShaderName);
-            img.material = saved != null ? saved
-                         : streakShader != null ? new Material(streakShader) : null;
-            img.enabled = false;
-            if (img.texture == null)
-                fails += Fail(label, "no streak texture at " + PSXRacingBuilder.SpeedStreaksTexPath +
-                                     " (run the scene build)");
-
-            // RaceHUD.Awake FIRST — the order that drew the bars.
-            HudOnTop.Apply(hudGO);
-            var lines = linesGO.AddComponent<SpeedLines>();
-            lines.image = img;
-            lines.cam = cam;
-            Invoke(lines, "Awake");
-            var m = img.material;
-            if (m == null || m.shader == null || m.shader.name != SpeedLines.ShaderName)
-                fails += Fail(label, "STREAKS ON " + (m == null || m.shader == null ? "NO" : m.shader.name) +
-                                     " — the overlay would draw its raw sheet as white bars");
-            else
-            {
-                // Full strength, which is the most it can ever cover.
-                m.SetFloat("_Intensity", SpeedLines.MaxIntensity);
-                m.SetFloat("_Scroll", 0.37f);
-                m.SetFloat("_Aspect", w / (float)h);
-                img.enabled = true;
-                Ok(label, "streaks drawn by " + m.shader.name + " after HudOnTop had its turn");
-            }
 
             // ---- the touch panel ----------------------------------------
             var host = new GameObject("TouchControls");
@@ -197,63 +151,9 @@ namespace PSXRacing.EditorTools
                                          speedo.Value.xMin.ToString("0") + ", centre " + mid.ToString("0"));
             }
 
-            // ---- are the streaks STREAKS? ------------------------------
-            // A frame without the overlay and one with it, differenced. The
-            // overlay has now failed two ways: drawn flat as white bars (the
-            // material check above), and — hidden behind that — drawn by the
-            // right shader reading a mask that was on everywhere, a smooth
-            // white wash round the frame. Both look like "something is there",
-            // so what is measured is HOW MUCH of the ring lights: a wash lights
-            // most of it, streaks a few percent (the sheet is ~5.6% lit).
-            if (img.enabled)
-            {
-                img.enabled = false;
-                var bare = Grab(cam, rt, w, h);
-                img.enabled = true;
-                var lit = Grab(cam, rt, w, h);
-                int n = 0, on = 0;
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                    {
-                        // The top strip and the upper left edge: in the ring on
-                        // every aspect, and clear of every control and dial.
-                        bool top = y >= h * 0.80f && y < h * 0.98f && x >= w * 0.02f && x < w * 0.98f;
-                        bool side = y >= h * 0.50f && y < h * 0.80f && x >= w * 0.01f && x < w * 0.12f;
-                        if (!top && !side) continue;
-                        n++;
-                        int i = y * w + x;
-                        if (Luma(lit[i]) - Luma(bare[i]) > 0.08f) on++;
-                    }
-                float frac = n > 0 ? on / (float)n : 0f;
-                if (on < 30)
-                    fails += Fail(label, "NO STREAKS DRAWN in the ring (" + on + " px lit)");
-                else if (frac > 0.15f)
-                    fails += Fail(label, "THE RING IS A WASH, not streaks: " + (frac * 100f).ToString("0") +
-                                         "% of it lit — the shader's mask is on everywhere");
-                else
-                    Ok(label, "streaks, not a wash: " + (frac * 100f).ToString("0.0") + "% of the ring lit (" +
-                              on + " px) at full strength");
-            }
-
             Snap(cam, rt, w, h, Path.Combine(outDir, "drivehud_" + label + ".png"));
             return fails;
         }
-
-        static Color32[] Grab(Camera cam, RenderTexture rt, int w, int h)
-        {
-            cam.Render();
-            var prev = RenderTexture.active;
-            RenderTexture.active = rt;
-            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            tex.Apply();
-            RenderTexture.active = prev;
-            var px = tex.GetPixels32();
-            Object.DestroyImmediate(tex);
-            return px;
-        }
-
-        static float Luma(Color32 c) => (0.299f * c.r + 0.587f * c.g + 0.114f * c.b) / 255f;
 
         // ------------------------------------------------------------------
 

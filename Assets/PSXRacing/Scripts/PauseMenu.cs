@@ -324,20 +324,22 @@ namespace PSXRacing
             if (lookLabel != null) lookLabel.text = LookLabel();
         }
 
-        Text linesLabel;
+        Text blurLabel;
 
-        static string LinesLabel() => "SPEED LINES: " + SpeedLinesPrefs.Label;
+        static string BlurLabel() => "SPEED BLUR: " + SpeedBlurPrefs.Label;
 
         /// <summary>
-        /// The one sense-of-speed cue that is a style rather than a fact.
-        /// Ridge Racer and GT never drew streaks; WipEout did. It ships ON,
-        /// and this row is the way to say no without a rebuild — SpeedLines
-        /// reads the pref every frame, so the change is immediate on resume.
+        /// The one sense-of-speed cue that is a style rather than a fact: the
+        /// edges of the picture smearing with speed, the way NFS Carbon did
+        /// it (it replaced the speed streaks). It ships ON, and this row is
+        /// the way to say no without a rebuild — SpeedBlur reads the pref
+        /// every frame on unscaled time, so the frozen frame behind this menu
+        /// changes while the player is looking at it.
         /// </summary>
-        void ToggleLines()
+        void ToggleBlur()
         {
-            SpeedLinesPrefs.Toggle();
-            if (linesLabel != null) linesLabel.text = LinesLabel();
+            SpeedBlurPrefs.Toggle();
+            if (blurLabel != null) blurLabel.text = BlurLabel();
         }
 
         void ToggleDebug()
@@ -471,8 +473,9 @@ namespace PSXRacing
             // reached the bottom of a 16:9 canvas at ten, and on a 20:9 phone
             // the scaler leaves under 650 units of height to put them in — so a
             // new row has to come out of the pitch rather than out of the
-            // screen. It was 44 in a 49 step for eleven; SPEED LINES made it
-            // twelve, and 40 in a 45 step keeps the LAST row exactly where it
+            // screen. It was 44 in a 49 step for eleven; SPEED LINES (the row
+            // SPEED BLUR has now) made it twelve, and 40 in a 45 step keeps
+            // the LAST row exactly where it
             // was (-108 - 11*45 = -603 vs -108 - 10*49 = -598), so the footer
             // still fits. 40 units is ~67 px on a 1080p phone — still a thumb
             // target — and the 20-point type is untouched.
@@ -511,10 +514,10 @@ namespace PSXRacing
             menuItems.Add(lookBtn); y -= RowStep;
             // With the other picture settings, under LOOK Y so the driving
             // rows stay together above the walking one.
-            var linesBtn = MakeButton(panel.transform, LinesLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, ToggleLines);
-            linesLabel = linesBtn.GetComponentInChildren<Text>();
-            menuItems.Add(linesBtn); y -= RowStep;
+            var blurBtn = MakeButton(panel.transform, BlurLabel(), font, new Vector2(0.5f, 1f),
+                       new Vector2(0f, y), rowSize, 20, ToggleBlur);
+            blurLabel = blurBtn.GetComponentInChildren<Text>();
+            menuItems.Add(blurBtn); y -= RowStep;
             menuItems.Add(MakeButton(panel.transform, "RESET CAR (UNSTICK)", font, new Vector2(0.5f, 1f),
                        new Vector2(0f, y), rowSize, 20, ResetCar)); y -= RowStep;
             // Above RESTART rather than below it: a player opening this menu

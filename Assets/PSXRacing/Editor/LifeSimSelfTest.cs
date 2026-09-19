@@ -7792,7 +7792,7 @@ namespace PSXRacing.EditorTools
         /// Every number the sense-of-speed and handling pass chose, pinned, so
         /// the next tuning pass sees what moved. None of these is a feel
         /// judgement — those are made in the car — but each is a curve that
-        /// has a wrong shape (streaks in town, a camera that rolls at rest, a
+        /// has a wrong shape (a blur in town, a camera that rolls at rest, a
         /// wind bed that never arrives, engine braking that locks a rear
         /// axle) and the wrong shape is what this catches.
         /// </summary>
@@ -7865,14 +7865,43 @@ namespace PSXRacing.EditorTools
             Check(ChaseCamera.DriftSwingClampRad <= 0.7f, "the drift swing is clamped under 40 deg of slip",
                   ChaseCamera.DriftSwingClampRad);
 
-            // ---- the streak overlay -----------------------------------------
-            Check(SpeedLines.IntensityFor(0f) == 0f, "no streaks at rest");
-            Check(SpeedLines.IntensityFor(20f) == 0f, "none at 72 km/h — the town never streaks");
-            Check(SpeedLines.IntensityFor(60f) > 0.2f, "streaks at 216 km/h", SpeedLines.IntensityFor(60f).ToString("0.00"));
-            Check(SpeedLines.MaxIntensity <= 0.35f && SpeedLines.IntensityFor(300f) <= SpeedLines.MaxIntensity,
-                  "and never over 0.35 of the frame", SpeedLines.IntensityFor(300f).ToString("0.00"));
-            Check(Shader.Find("PSX/SpeedLines") != null, "PSX/SpeedLines compiles and is found");
-            TestStreakMaterialSurvivesHud();
+            // ---- the speed blur: the owner's four speeds ---------------------
+            // "30mph+ initiates very subtle blur, 60mph+ noticeable blur,
+            // 100mph+ substantial blur, 140mph+ extreme blur", "a more
+            // restricted tunnel vision of clearness". Bands, not the table's
+            // own numbers: a retune inside a word's meaning passes, one that
+            // changes which word applies does not.
+            const float Mph = SpeedBlur.MpsPerMph;
+            var at60 = SpeedBlur.LookFor(60f * Mph);
+            var at100 = SpeedBlur.LookFor(100f * Mph);
+            var at140 = SpeedBlur.LookFor(140f * Mph);
+            Check(SpeedBlur.StrengthFor(0f) == 0f && SpeedBlur.StrengthFor(29f * Mph) == 0f,
+                  "no blur under 30 mph — a car park never smears");
+            Check(SpeedBlur.StrengthFor(33f * Mph) > 0f && SpeedBlur.StrengthFor(40f * Mph) <= 0.025f,
+                  "30 mph+ BEGINS it, and very subtly", SpeedBlur.StrengthFor(40f * Mph).ToString("0.000") + " at 40");
+            Check(at60.strength >= 0.05f && at60.strength <= 0.09f, "60 mph+ is noticeable", at60.strength.ToString("0.000"));
+            Check(at100.strength >= 0.15f && at100.strength <= 0.22f, "100 mph+ is substantial", at100.strength.ToString("0.000"));
+            Check(at140.strength >= 0.28f && at140.strength <= 0.40f, "140 mph+ is extreme", at140.strength.ToString("0.000"));
+            Check(SpeedBlur.StrengthFor(250f * Mph) == at140.strength && SpeedBlur.MaxStrength == at140.strength,
+                  "and that is the most it ever is — the smear never reaches half way to the focus");
+            bool closesOneWay = true, hasRamp = true;
+            var slower = SpeedBlur.LookFor(0f);
+            for (int mph = 1; mph <= 200; mph++)
+            {
+                var now = SpeedBlur.LookFor(mph * Mph);
+                if (now.strength < slower.strength - 1e-6f || now.inner > slower.inner + 1e-6f
+                    || now.outer > slower.outer + 1e-6f) closesOneWay = false;
+                if (now.outer < now.inner + 0.2f) hasRamp = false;
+                slower = now;
+            }
+            Check(closesOneWay, "faster is never LESS smear and never a WIDER tunnel — tunnel vision closes one way");
+            Check(hasRamp, "and the smear always has a ramp to come up over, never a hard ring round the tunnel");
+            Check(at60.inner >= 0.4f && at140.inner <= 0.12f,
+                  "the clear tunnel at 140 is a quarter of the one at 60",
+                  at60.inner.ToString("0.00") + " -> " + at140.inner.ToString("0.00"));
+            Check(Shader.Find(SpeedBlur.ShaderName) != null, "PSX/SpeedBlur compiles and is found");
+            TestSpeedBlurOnEveryPipeline();
+            TestSpeedBlurHudSplit();
 
             // ---- the headlights ---------------------------------------------
             Check(Shader.Find("PSX/Beam") != null, "PSX/Beam compiles and is found");
@@ -7891,11 +7920,6 @@ namespace PSXRacing.EditorTools
                   "the lamps are halogen-warm (r > g > b), not LED white");
             Check(CarLights.BeamOuterDeg > CarLights.BeamInnerDeg && CarLights.BeamOuterDeg <= 45f,
                   "the beam spreads wider than its core and under 45 degrees a side");
-            var streaks = AssetDatabase.LoadAssetAtPath<Texture2D>(PSXRacingBuilder.SpeedStreaksTexPath);
-            Check(streaks != null, "the streak sheet is baked (run the scene build)");
-            if (streaks != null)
-                Check(streaks.width == 256 && streaks.height == 64, "at the 256 px page",
-                      streaks.width + "x" + streaks.height);
 
             // ---- the wind bed ---------------------------------------------
             var low = Resources.Load<AudioClip>(WindAudio.LowClipPath);
@@ -8844,64 +8868,105 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// The speed streaks are drawn by their SHADER, whichever Awake runs
-        /// first.
+        /// The blur pass is on EVERY pipeline the project can run.
         ///
-        /// Twice on a phone the overlay came out as long vertical white bars:
-        /// RaceHUD.Awake handed the HUD canvas to HudOnTop.Apply, which put
-        /// the streak image on the plain UI material, and when that Awake beat
-        /// SpeedLines' the overlay copied the plain material and drew its
-        /// polar texture flat. Unity does not order Awakes between two
-        /// GameObjects, so the losing order is reproduced here on purpose,
-        /// both halves of the fix are checked separately, and neither can
-        /// hide behind the other.
+        /// The pass is a renderer feature, and a renderer feature lives on a
+        /// renderer ASSET — of which there are two, and the one the editor
+        /// renders with (PC) is not the one the WebGL player ships (Mobile).
+        /// A feature added to one of them is a blur every preview shows and
+        /// no phone gets, or the reverse. So this walks the quality levels
+        /// rather than naming files: whatever pipeline a platform can land
+        /// on, every renderer on it carries the feature, switched on, with
+        /// its shader — that reference is also the only thing keeping
+        /// PSX/SpeedBlur in a player build.
         /// </summary>
-        static void TestStreakMaterialSurvivesHud()
+        static void TestSpeedBlurOnEveryPipeline()
         {
-            var shader = Shader.Find(SpeedLines.ShaderName);
-            if (shader == null) return;   // reported by the caller
-            var hud = new GameObject("StreakHudProbe", typeof(RectTransform))
+            int pipelines = 0;
+            for (int q = 0; q < QualitySettings.count; q++)
+            {
+                var rp = QualitySettings.GetRenderPipelineAssetAt(q)
+                         as UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset;
+                if (rp == null) continue;
+                pipelines++;
+                var list = new SerializedObject(rp).FindProperty("m_RendererDataList");
+                for (int i = 0; list != null && i < list.arraySize; i++)
+                {
+                    var data = list.GetArrayElementAtIndex(i).objectReferenceValue
+                               as UnityEngine.Rendering.Universal.ScriptableRendererData;
+                    if (data == null) continue;
+                    SpeedBlurFeature found = null;
+                    foreach (var f in data.rendererFeatures)
+                        if (f is SpeedBlurFeature sb) found = sb;
+                    string where = QualitySettings.names[q] + " / " + data.name;
+                    Check(found != null && found.isActive,
+                          where + " carries the speed-blur pass, switched on");
+                    Check(found != null && found.shader != null && found.shader.name == SpeedBlur.ShaderName,
+                          where + " points it at PSX/SpeedBlur",
+                          found == null || found.shader == null ? "none" : found.shader.name);
+                }
+            }
+            Check(pipelines >= 2, "both quality levels run URP (Mobile is what WebGL ships)", pipelines);
+        }
+
+        /// <summary>
+        /// The HUD gets out of the blur's way, and comes back.
+        ///
+        /// The lap counter and the map are drawn by the PSX camera, in the
+        /// corners of the frame, where a radial blur is strongest. SpeedBlur
+        /// moves the HUD canvas onto a camera STACKED over that one — URP
+        /// draws a stacked camera after every pass of its base — and SPEED
+        /// BLUR: OFF has to undo exactly that, because it is the one switch a
+        /// player has if any part of this misbehaves on their device.
+        /// </summary>
+        static void TestSpeedBlurHudSplit()
+        {
+            var camGO = new GameObject("BlurProbeCam") { hideFlags = HideFlags.HideAndDontSave };
+            var hudGO = new GameObject("BlurProbeHud", typeof(RectTransform))
                 { hideFlags = HideFlags.HideAndDontSave };
-            var made = new List<Material>();
             try
             {
-                var linesGO = new GameObject("SpeedLines", typeof(RectTransform));
-                linesGO.transform.SetParent(hud.transform, false);
-                var img = linesGO.AddComponent<UnityEngine.UI.RawImage>();
-                var own = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-                made.Add(own);
-                img.material = own;
+                var cam = camGO.AddComponent<Camera>();
+                var canvas = hudGO.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                canvas.worldCamera = cam;
                 var labelGO = new GameObject("Label", typeof(RectTransform));
-                labelGO.transform.SetParent(hud.transform, false);
-                var label = labelGO.AddComponent<UnityEngine.UI.Text>();
+                labelGO.transform.SetParent(hudGO.transform, false);
+                labelGO.AddComponent<UnityEngine.UI.Text>();
+                int mask = cam.cullingMask;
 
-                // RaceHUD.Awake, first.
-                HudOnTop.Apply(hud);
-                Check(img.material == own,
-                      "HudOnTop leaves a graphic with a shader of its own alone — the streak "
-                      + "overlay is DRAWN by its shader, and on the plain one it is white bars");
-                Check(label.material == HudOnTop.Material,
-                      "while every stock UI graphic still goes over the depth buffer");
+                var blur = camGO.AddComponent<SpeedBlur>();
+                blur.hudCanvas = canvas;
+                bool ok = blur.SetSplit(true);
+                Check(ok && blur.IsSplit, "the HUD canvas can be handed to a stacked camera");
+                if (!ok) return;
 
-                // The second lock: the image already wearing the plain material
-                // when the overlay wakes up, however it got there.
-                img.material = HudOnTop.Material;
-                var lines = linesGO.AddComponent<SpeedLines>();
-                lines.image = img;
-                typeof(SpeedLines).GetMethod("Awake",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                    ?.Invoke(lines, null);
-                var woke = img.material;
-                if (woke != null && woke != HudOnTop.Material) made.Add(woke);
-                Check(woke != null && woke.shader == shader,
-                      "and SpeedLines builds its material from the streak shader whatever the image "
-                      + "was wearing when it woke", woke == null ? "null" : woke.shader.name);
-                Check(!img.enabled, "the overlay wakes switched off — only its own Update shows it");
+                var hudCam = blur.HudCamera;
+                var stack = UnityEngine.Rendering.Universal.CameraExtensions
+                    .GetUniversalAdditionalCameraData(cam).cameraStack;
+                Check(hudCam != null && canvas.worldCamera == hudCam, "the canvas is the HUD camera's");
+                Check(hudCam != null && UnityEngine.Rendering.Universal.CameraExtensions
+                          .GetUniversalAdditionalCameraData(hudCam).renderType
+                          == UnityEngine.Rendering.Universal.CameraRenderType.Overlay
+                      && stack != null && stack.Contains(hudCam),
+                      "which is an overlay stacked on the PSX camera — drawn after the blur, into the same 240 lines");
+                Check(hudGO.layer == SpeedBlur.HudLayer && labelGO.layer == SpeedBlur.HudLayer,
+                      "the HUD is on the UI layer, readouts and all");
+                Check((cam.cullingMask & (1 << SpeedBlur.HudLayer)) == 0
+                      && hudCam != null && hudCam.cullingMask == 1 << SpeedBlur.HudLayer,
+                      "the world camera no longer draws that layer and the HUD camera draws nothing else");
+                Check(hudCam != null && !hudCam.CompareTag("MainCamera"),
+                      "and it is not a second MainCamera — Camera.main still finds the lens");
+
+                blur.SetSplit(false);
+                Check(!blur.IsSplit && canvas.worldCamera == cam && hudGO.layer == 0 && labelGO.layer == 0
+                      && cam.cullingMask == mask && (stack == null || !stack.Contains(hudCam)),
+                      "SPEED BLUR: OFF puts every piece of that back");
             }
             finally
             {
-                Object.DestroyImmediate(hud);
-                foreach (var m in made) if (m != null) Object.DestroyImmediate(m);
+                Object.DestroyImmediate(hudGO);
+                Object.DestroyImmediate(camGO);
             }
         }
 

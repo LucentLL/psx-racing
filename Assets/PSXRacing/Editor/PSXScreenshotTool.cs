@@ -1009,7 +1009,7 @@ namespace PSXRacing.EditorTools
             cam.nearClipPlane = keepNear;
         }
 
-        static void SetNightGlow(bool lit)
+        internal static void SetNightGlow(bool lit)
         {
             foreach (var ng in Object.FindObjectsByType<NightGlow>(FindObjectsSortMode.None))
                 foreach (var r in ng.GetComponentsInChildren<Renderer>(true))
@@ -1017,7 +1017,7 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
-        static bool Open(TrackCatalog.TrackDef def, out Camera cam, out GameObject player)
+        internal static bool Open(TrackCatalog.TrackDef def, out Camera cam, out GameObject player)
         {
             cam = null; player = null;
             string path = "Assets/PSXRacing/Scenes/" + def.id + ".unity";
@@ -1174,7 +1174,7 @@ namespace PSXRacing.EditorTools
         /// source comes back untouched when the scene has no display material
         /// to borrow (the caller then reads the raw render, as before).
         /// </summary>
-        static RenderTexture Dithered(RenderTexture src)
+        internal static RenderTexture Dithered(RenderTexture src)
         {
             var output = Object.FindFirstObjectByType<PSXCameraOutput>();
             var mat = output != null && output.display != null ? output.display.material : null;

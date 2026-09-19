@@ -935,18 +935,6 @@ namespace PSXRacing.EditorTools
                 y >= 29 ? new Color32(190, 36, 34, 255)
                         : new Color32(226, 224, 218, 255));
 
-            // The speed-streak sheet for PSX/SpeedLines: u is ANGLE round the
-            // frame, v is RADIUS out from its centre, so each dash drawn here
-            // as a short vertical bar is a radial streak on screen. 256 wide
-            // (the page limit) so the angular pitch is as fine as it can be;
-            // sampled three times round the frame, one column is 0.47 deg and
-            // a two-column streak is ~2.5 px at half a 240-line frame's
-            // radius — chosen at RETRO and accepted at SHARP, where it is 5.
-            // A one-column streak drops between pixel centres at 240 lines
-            // and flickers. Seeded, so a rebuild writes the same bytes and the
-            // importer does not reimport it.
-            WriteStreakTexture();
-
             // A bridge expansion joint, seen from a car: two steel angle plates
             // with the finger gap between them, dark with the grease and grit
             // that collects in it. v runs ACROSS the band (along the road), so
@@ -980,36 +968,6 @@ namespace PSXRacing.EditorTools
         static string GridTexPath => TrackTexDir + "/StartGrid.png";
         static string JointTexPath => TrackTexDir + "/Joint.png";
         static string PostTexPath => TrackTexDir + "/Post.png";
-        internal static string SpeedStreaksTexPath => TrackTexDir + "/SpeedStreaks.png";
-
-        /// <summary>Streaks per angular repeat of the sheet; three repeats
-        /// round the frame (the shader's _Spokes) make sixty.</summary>
-        const int StreakCount = 20;
-        const int StreakSheetW = 256, StreakSheetH = 64;
-
-        static void WriteStreakTexture()
-        {
-            var on = new bool[StreakSheetW * StreakSheetH];
-            var rng = new System.Random(19990);
-            for (int s = 0; s < StreakCount; s++)
-            {
-                // Two columns wide, 10-36 rows long, anywhere on the sheet;
-                // the pattern wraps in v (the shader scrolls it) so a streak
-                // may run off the top and come back at the bottom.
-                int col = rng.Next(StreakSheetW);
-                int start = rng.Next(StreakSheetH);
-                int len = 10 + rng.Next(27);
-                for (int k = 0; k < len; k++)
-                {
-                    int y = (start + k) % StreakSheetH;
-                    on[y * StreakSheetW + col] = true;
-                    on[y * StreakSheetW + (col + 1) % StreakSheetW] = true;
-                }
-            }
-            WriteTexture(SpeedStreaksTexPath, StreakSheetW, StreakSheetH, (x, y) =>
-                on[y * StreakSheetW + x] ? new Color32(255, 255, 255, 255)
-                                          : new Color32(255, 255, 255, 0));   // TRANSPARENT where there is no streak: this sheet reached the screen once on a plain UI material and painted the whole frame black with white bars
-        }
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a
@@ -6974,46 +6932,20 @@ namespace PSXRacing.EditorTools
             hud.fuelFill = fillRT;
             hud.fuelFillWidth = 48f;
 
-            // The speed-streak overlay. On THIS canvas on purpose: HUDCanvas is
-            // ScreenSpaceCamera on the PSX camera, so a full-frame RawImage
-            // here is rasterised inside the low-res target and dithered by
-            // PSX/Blit with the world — that is what makes it read as period
-            // rather than as a modern post effect. First sibling, so every
-            // readout above draws over it. The material is a saved asset so
-            // the scene shows the wiring; SpeedLines instances it at runtime.
-            var linesShader = Shader.Find("PSX/SpeedLines");
-            if (linesShader != null)
-            {
-                var linesGO = new GameObject("SpeedLines");
-                linesGO.transform.SetParent(hudCanvasGO.transform, false);
-                linesGO.transform.SetAsFirstSibling();
-                var linesImg = linesGO.AddComponent<RawImage>();
-                linesImg.texture = AssetDatabase.LoadAssetAtPath<Texture2D>(SpeedStreaksTexPath);
-                linesImg.raycastTarget = false;
-                string lp = MatDir + "/SpeedLines.mat";
-                var linesMat = AssetDatabase.LoadAssetAtPath<Material>(lp);
-                if (linesMat == null) { linesMat = new Material(linesShader); AssetDatabase.CreateAsset(linesMat, lp); }
-                linesMat.shader = linesShader;
-                linesMat.SetFloat("_Intensity", 0f);
-                EditorUtility.SetDirty(linesMat);
-                linesImg.material = linesMat;
-                // SAVED DISABLED. SpeedLines.Awake turns it off and Update turns
-                // it on with its own material instance when there is something
-                // to draw; nothing else may ever show this image. The screenshot
-                // tool opens the scene in edit mode where no Awake runs and
-                // HudOnTop.Apply swaps every HUD graphic onto its plain material
-                // -- which drew the raw streak sheet as an opaque black panel
-                // over the whole frame of the first pass (2026-09-07).
-                linesImg.enabled = false;
-                var lrt = linesImg.rectTransform;
-                lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
-                lrt.offsetMin = Vector2.zero; lrt.offsetMax = Vector2.zero;
-                var lines = linesGO.AddComponent<SpeedLines>();
-                lines.car = player;
-                lines.image = linesImg;
-                lines.cam = cam;
-            }
-            else Log("WARN: PSX/SpeedLines missing — no speed streaks.");
+            // The sense-of-speed blur (it replaced the radial speed streaks
+            // that used to be a full-frame RawImage on this canvas: the owner's
+            // call, 2026-09-19 — "not a fan of the speed lines ... would prefer
+            // a blur that increases with speed like NFS Carbon"). The component
+            // turns road speed into a strength; the smear itself is a URP pass
+            // (SpeedBlurFeature, on both renderer assets) over the low-res
+            // frame, so it is dithered by PSX/Blit with the world. It is handed
+            // THIS canvas because the lap counter and the map sit in the
+            // corners, where a radial blur is strongest: at runtime it moves
+            // the canvas onto a camera stacked over the PSX one, which URP
+            // draws after the blur. Nothing is baked for that — see SpeedBlur.
+            var blur = camGO.AddComponent<SpeedBlur>();
+            blur.car = player;
+            blur.hudCanvas = hudCanvas;
 
             // The instrument cluster: a tachometer and a speedometer, built at
             // RUNTIME rather than here. Both scales come from the car — redline

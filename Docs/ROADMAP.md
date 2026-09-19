@@ -516,7 +516,7 @@ interpolation history. The controller, driver, watchdog, tank, thermostat,
 lean and collision responder are switched off; the engine, tyre and wind
 audio, the lights and the smoke stay on and read fields the replay writes
 from the recording (`WheelContact` is a struct: read, edit, WRITE BACK). The
-cluster is hidden, the speed lines paused, the pause menu refuses to open, and
+cluster is hidden, the speed blur suspended, the pause menu refuses to open, and
 `ChaseCamera` hands over its keys. Ending restores every pose, body and
 component and gives the lens back.
 

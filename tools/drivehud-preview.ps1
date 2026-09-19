@@ -1,15 +1,15 @@
-# Photograph the DRIVING HUD a phone player sees - touch panel, both dials and
-# the speed-streak overlay on one frame - at three aspects, and CHECK the
-# placement in pixels: the pedal column as far from the right edge as the wheel
-# is from the left, each dial clear of its control, the middle of the frame
-# clear, and the streaks drawn by their own shader even when HudOnTop wakes
-# first.
+# Photograph the DRIVING HUD a phone player sees - touch panel and both dials
+# on one frame - at three aspects, and CHECK the placement in pixels: the pedal
+# column as far from the right edge as the wheel is from the left, each dial
+# clear of its control, and the middle of the frame clear.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\drivehud-preview.ps1
 #
 # Code only: copies Scripts, Editor and Shaders into an already-built sandbox (/E, so
-# the scenes and the generated streak texture survive). Needs a graphics
-# device - no -nographics.
+# the scenes survive). Needs a graphics device - no -nographics.
+#
+# (The speed-streak overlay this also used to check is gone; the blur that
+# replaced it has its own instrument, tools\speedblur-preview.ps1.)
 #
 # Output: C:\Users\mcgee\PSXBuild\Screenshots\drivehud_*.png. Exit 1 on any
 # failed check.
@@ -19,8 +19,8 @@ $ErrorActionPreference = "Stop"
 $proj = "C:\Users\mcgee\PSXBuild"
 $src  = Split-Path -Parent $PSScriptRoot
 
-# Shaders too: this renders PSX/SpeedLines, and a stale copy of the shader is
-# exactly how a streak bug would pass here and fail on the phone.
+# Shaders too: a stale copy of a shader in the sandbox is exactly how a bug
+# passes here and fails on the phone.
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }

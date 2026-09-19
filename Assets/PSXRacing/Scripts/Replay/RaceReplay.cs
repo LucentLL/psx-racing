@@ -178,7 +178,7 @@ namespace PSXRacing
         ChaseCamera chase;
         Camera cam;
         GameObject cluster;
-        Behaviour speedLines;
+        SpeedBlur speedBlur;
         bool clusterWasActive;
         ChaseCamera.View savedView;
 
@@ -408,8 +408,9 @@ namespace PSXRacing
                 clusterWasActive = cluster.activeSelf;
                 cluster.SetActive(false);
             }
-            speedLines = Object.FindFirstObjectByType<SpeedLines>();
-            if (speedLines != null) speedLines.enabled = false;
+            // The blur is the DRIVER's speed; a trackside lens is standing still.
+            speedBlur = Object.FindFirstObjectByType<SpeedBlur>();
+            if (speedBlur != null) speedBlur.suspended = true;
             TouchControls.Instance?.SetReplayMode(true);
 
             Seek(0f, hard: true);
@@ -456,7 +457,7 @@ namespace PSXRacing
                 ChaseCamera.PreviewView(savedView);
             }
             if (cluster != null) cluster.SetActive(clusterWasActive);
-            if (speedLines != null) speedLines.enabled = true;
+            if (speedBlur != null) speedBlur.suspended = false;
             TouchControls.Instance?.SetReplayMode(false);
         }
 

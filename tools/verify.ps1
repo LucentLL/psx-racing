@@ -63,6 +63,10 @@ if ($NoMirror) {
         # re-bake, their material GUIDs no longer existed, and the shipped pizzas were pink.
         robocopy "$src\$d" "$proj\$d" /E /XO /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
     }
+    # The URP pipeline and renderer assets. Code lives on them too: the speed-blur
+    # pass is a renderer FEATURE, and a sandbox without it renders a game with no blur
+    # while every assertion about SpeedBlur.cs passes.
+    robocopy "$src\Assets\Settings" "$proj\Assets\Settings" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 } else {
     foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null

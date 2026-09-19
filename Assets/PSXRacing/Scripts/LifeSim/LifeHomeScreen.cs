@@ -4710,13 +4710,13 @@ namespace PSXRacing.LifeSim
             OptionRow("SPEED", SpeedUnits.Label,
                 "What the speedometer counts in. MPH by default — it is 1999 in North Carolina.",
                 () => SpeedUnits.Toggle(), ref y);
-            // The one sense-of-speed cue that is a style rather than a fact
-            // (Ridge Racer never drew streaks; WipEout did). The pause menu
-            // carries the same switch; this is the copy you can reach without
-            // being in a car. Ships ON.
-            OptionRow("SPEED LINES", SpeedLinesPrefs.Label,
-                "Streaks at the edge of the picture above 110 km/h. Off if you would rather the road did the talking.",
-                () => SpeedLinesPrefs.Toggle(), ref y);
+            // The one sense-of-speed cue that is a style rather than a fact:
+            // the Carbon blur, which replaced the speed streaks. The pause
+            // menu carries the same switch; this is the copy you can reach
+            // without being in a car. Ships ON.
+            OptionRow("SPEED BLUR", SpeedBlurPrefs.Label,
+                "The picture smears into a tunnel as the car gets fast. Off if you would rather it did not.",
+                () => SpeedBlurPrefs.Toggle(), ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries these too,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,

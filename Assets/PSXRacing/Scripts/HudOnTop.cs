@@ -60,15 +60,15 @@ namespace PSXRacing
         /// and are not there the first time round.
         ///
         /// ONLY GRAPHICS ON A STOCK UI MATERIAL. A graphic that brought a
-        /// shader of its own brought its own depth rule with it, and the one
-        /// that does — the speed-streak overlay — is not merely styled by its
-        /// shader but DRAWN by it: the texture is a polar sheet, and on the
-        /// plain UI material its dashes come out as long vertical white bars
-        /// across the whole frame. It is a child of the HUD canvas, which
-        /// RaceHUD.Awake passes to this, so swapping it was always one Awake
-        /// order away from the screen. It reached a phone twice: once as an
-        /// opaque black frame striped white (2026-09-07), and once as the
-        /// bars alone after the sheet grew an alpha channel (2026-09-18).
+        /// shader of its own brought its own depth rule with it, and may not
+        /// be merely styled by that shader but DRAWN by it. The one that
+        /// taught this was the speed-streak overlay (gone since 2026-09-19,
+        /// replaced by the SpeedBlur pass): its texture was a polar sheet,
+        /// and on the plain UI material its dashes came out as long vertical
+        /// white bars across the whole frame. It was a child of the HUD
+        /// canvas, which RaceHUD.Awake passes to this, so swapping it was
+        /// always one Awake order away from the screen — and it reached a
+        /// phone twice. The rule outlives it.
         /// </summary>
         public static void Apply(GameObject root)
         {
