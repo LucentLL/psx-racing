@@ -129,18 +129,50 @@ namespace PSXRacing
             ChaseCamera.Current != ChaseCamera.View.Cockpit &&
             ChaseCamera.Current != ChaseCamera.View.TopDown;
 
+        /// <summary>The shader this overlay has to be drawn with. Looked up by
+        /// name rather than trusted off the image — see <see cref="Awake"/>.
+        /// </summary>
+        public const string ShaderName = "PSX/SpeedLines";
+
         void Awake()
         {
             if (image == null) image = GetComponent<RawImage>();
-            if (image == null || image.material == null) return;
+            if (image == null) return;
+            // Off before anything else can go wrong: nothing but this
+            // component, on its own material, may ever show this image.
+            image.enabled = false;
+
             // Our own instance. The builder assigns a SAVED material asset so
             // the scene shows the overlay wired; writing _Scroll into that
             // asset sixty times a second in the editor would dirty it on
             // every play, and in a build would share one scroll across every
             // instance there could ever be.
-            mat = new Material(image.material) { hideFlags = HideFlags.DontSave };
+            //
+            // And it is made from the STREAK SHADER, never from whatever the
+            // image happens to be wearing. This used to copy image.material,
+            // and whether that was the streak material depended on which Awake
+            // ran first: RaceHUD.Awake hands the whole HUD canvas — this
+            // image's parent — to HudOnTop.Apply, which put every graphic
+            // under it onto the plain UI material, and Unity does not order
+            // Awakes between two GameObjects. When RaceHUD's ran first this
+            // copied UI/Default and drew the polar SHEET flat across the frame:
+            // the long vertical white bars reported from a phone. HudOnTop now
+            // leaves a graphic with its own shader alone; this is the second
+            // lock on the same door, because the overlay has shipped broken
+            // twice and a cosmetic has no business doing it a third time.
+            var src = image.material;
+            if (src != null && src.shader != null && src.shader.name == ShaderName)
+                mat = new Material(src);
+            else
+            {
+                var shader = Shader.Find(ShaderName);
+                if (shader != null) mat = new Material(shader);
+            }
+            // No streak shader in this build: no overlay at all, rather than
+            // the raw sheet.
+            if (mat == null) { enabled = false; return; }
+            mat.hideFlags = HideFlags.DontSave;
             image.material = mat;
-            image.enabled = false;
         }
 
         void Update()

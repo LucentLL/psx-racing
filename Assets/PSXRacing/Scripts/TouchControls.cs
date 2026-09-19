@@ -297,7 +297,7 @@ namespace PSXRacing
             var zoneRT = hit.rectTransform;
             zoneRT.anchorMin = zoneRT.anchorMax = new Vector2(0f, 0f);
             zoneRT.pivot = new Vector2(0f, 0f);
-            zoneRT.anchoredPosition = new Vector2(18f, 18f);
+            zoneRT.anchoredPosition = new Vector2(EdgeMargin, EdgeMargin);
             zoneRT.sizeDelta = new Vector2(300f, 300f);
             WheelInset = zoneRT.anchoredPosition.x + zoneRT.sizeDelta.x;
             wheel = zone.AddComponent<TouchWheel>();
@@ -328,41 +328,72 @@ namespace PSXRacing
         /// </summary>
         const float BarScale = 1.8f;
 
+        /// <summary>
+        /// How far in from the screen's edge the panel's outermost hardware
+        /// sits, on BOTH sides: the wheel's box from the left, the level pips
+        /// of the pedal column from the right.
+        ///
+        /// One number because the two have to match. The owner, from a phone
+        /// (2026-09-18): "Pedals, e-brake, and shifter can be moved over to the
+        /// same distance from edge as steering wheel." The wheel sat 18 units
+        /// in; the column's outer bar sat 130, so the pedals and the shifter
+        /// floated a thumb's width off the right edge while the wheel sat
+        /// against the left one — and the gap they left was spent on nothing.
+        /// </summary>
+        public const float EdgeMargin = 18f;
+
+        /// <summary>A control bar's width: the source's 45 CSS pixels.</summary>
+        const float BarW = 45f * BarScale;
+        /// <summary>How far a bar's level pip reaches past each side of it. The
+        /// pip is the widest thing in the column and the brightest, so it is
+        /// what the eye measures the column's edge by — and what
+        /// <see cref="EdgeMargin"/> is measured to.</summary>
+        const float PipOver = 3f * BarScale;
+        /// <summary>Between the two columns.</summary>
+        const float ColumnGap = 14f;
+        /// <summary>The EDGE column — throttle, handbrake above it — measured
+        /// from the screen's right edge to its bar, so that its pips land on
+        /// <see cref="EdgeMargin"/>.</summary>
+        const float EdgeColumnInset = EdgeMargin + PipOver;
+        /// <summary>The INNER column — brake, shifter above it — one bar and
+        /// one gap further in.</summary>
+        const float InnerColumnInset = EdgeColumnInset + BarW + ColumnGap;
+
         /// <summary>How far the wheel's box reaches from the LEFT edge, and
-        /// where the pedal column starts measured from the RIGHT — both in
-        /// canvas units on this panel's scaler.
+        /// where what the pedal column draws begins, measured from the RIGHT
+        /// (pips included) — both in canvas units on this panel's scaler.
         ///
         /// The instrument cluster lives on its own canvas with the SAME scaler
-        /// settings, and needs somewhere along this edge to put two dials that
-        /// is not on top of either control. It used to guess with a fraction of
-        /// the frame width, and a fraction that clears both is a different
-        /// fraction every time this panel is retuned — it was wrong within one
-        /// build of the last two changes. Reported, not guessed.
+        /// settings, and puts its dials against these two edges: the rev
+        /// counter beside the wheel, the speedometer beside the pedals. It used
+        /// to guess with a fraction of the frame width, and a fraction that
+        /// clears both is a different fraction every time this panel is
+        /// retuned — it was wrong within one build of the last two changes.
+        /// Reported, not guessed.
         /// </summary>
-        public static float WheelInset { get; private set; } = 318f;
-        public static float PedalsInset { get; private set; } = 306f;
+        public static float WheelInset { get; private set; } = EdgeMargin + 300f;
+        public static float PedalsInset { get; private set; } = InnerColumnInset + BarW + PipOver;
         static float Px(float cssPx) => cssPx * BarScale;
 
         enum PedalKind { Gas, Brake, Handbrake }
 
         void BuildPedals(Transform parent, Font font)
         {
-            var bar = new Vector2(Px(45f), Px(150f));
-            var stack = new Vector2(Px(45f), Px(80f));
-            // Outboard edge of the brake, which is the leftmost thing in this
-            // column and therefore what the cluster has to clear.
-            const float gasInset = 130f, brakeInset = 225f;
-            PedalsInset = brakeInset + bar.x;
-            // Real-cabin order: brake outboard, throttle inboard toward the
-            // wheel, handbrake and shifter stacked above where a hand already
-            // is. The source stacks all four in one column bottom-right, which
-            // comes to 500 px tall — fine in a portrait browser, taller than a
-            // landscape phone has to give.
+            var bar = new Vector2(BarW, Px(150f));
+            var stack = new Vector2(BarW, Px(80f));
+            // The inboard edge of what this column draws — the brake's pip —
+            // which is what the speedometer sits against.
+            PedalsInset = InnerColumnInset + BarW + PipOver;
+            // Real-cabin order: the brake to the left of the throttle, as in
+            // the footwell, with the handbrake and shifter stacked above where
+            // a hand already is. The source stacks all four in one column
+            // bottom-right, which comes to 500 px tall — fine in a portrait
+            // browser, taller than a landscape phone has to give.
             float stackY = 26f + bar.y + 20f;
-            brakePedal = MakePedal(parent, PedalKind.Brake, font, new Vector2(-brakeInset, 26f), bar);
-            gasPedal = MakePedal(parent, PedalKind.Gas, font, new Vector2(-gasInset, 26f), bar);
-            ebrakePedal = MakePedal(parent, PedalKind.Handbrake, font, new Vector2(-gasInset, stackY), stack);
-            BuildShifter(parent, font, new Vector2(-brakeInset, stackY), stack);
+            brakePedal = MakePedal(parent, PedalKind.Brake, font, new Vector2(-InnerColumnInset, 26f), bar);
+            gasPedal = MakePedal(parent, PedalKind.Gas, font, new Vector2(-EdgeColumnInset, 26f), bar);
+            ebrakePedal = MakePedal(parent, PedalKind.Handbrake, font, new Vector2(-EdgeColumnInset, stackY), stack);
+            BuildShifter(parent, font, new Vector2(-InnerColumnInset, stackY), stack);
         }
 
         /// <summary>
@@ -495,7 +526,9 @@ namespace PSXRacing
             thumbRT.anchorMin = thumbRT.anchorMax = new Vector2(0.5f, 0f);
             thumbRT.pivot = new Vector2(0.5f, 0.5f);
             thumbRT.anchoredPosition = Vector2.zero;
-            thumbRT.sizeDelta = new Vector2(size.x + Px(6f), Px(5f));
+            // PipOver each side: the overhang the column's placement is
+            // measured to, so the pip and the margin cannot come apart.
+            thumbRT.sizeDelta = new Vector2(size.x + PipOver * 2f, Px(5f));
 
             var pedal = go.AddComponent<TouchPedal>();
             // Set BEFORE SetParts, which redraws off them.

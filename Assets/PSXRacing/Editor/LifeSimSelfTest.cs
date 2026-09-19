@@ -7872,6 +7872,7 @@ namespace PSXRacing.EditorTools
             Check(SpeedLines.MaxIntensity <= 0.35f && SpeedLines.IntensityFor(300f) <= SpeedLines.MaxIntensity,
                   "and never over 0.35 of the frame", SpeedLines.IntensityFor(300f).ToString("0.00"));
             Check(Shader.Find("PSX/SpeedLines") != null, "PSX/SpeedLines compiles and is found");
+            TestStreakMaterialSurvivesHud();
 
             // ---- the headlights ---------------------------------------------
             Check(Shader.Find("PSX/Beam") != null, "PSX/Beam compiles and is found");
@@ -8839,6 +8840,68 @@ namespace PSXRacing.EditorTools
                 TuneDrop(car);
                 Object.DestroyImmediate(host);
                 RaceHandoff.ClearAll();
+            }
+        }
+
+        /// <summary>
+        /// The speed streaks are drawn by their SHADER, whichever Awake runs
+        /// first.
+        ///
+        /// Twice on a phone the overlay came out as long vertical white bars:
+        /// RaceHUD.Awake handed the HUD canvas to HudOnTop.Apply, which put
+        /// the streak image on the plain UI material, and when that Awake beat
+        /// SpeedLines' the overlay copied the plain material and drew its
+        /// polar texture flat. Unity does not order Awakes between two
+        /// GameObjects, so the losing order is reproduced here on purpose,
+        /// both halves of the fix are checked separately, and neither can
+        /// hide behind the other.
+        /// </summary>
+        static void TestStreakMaterialSurvivesHud()
+        {
+            var shader = Shader.Find(SpeedLines.ShaderName);
+            if (shader == null) return;   // reported by the caller
+            var hud = new GameObject("StreakHudProbe", typeof(RectTransform))
+                { hideFlags = HideFlags.HideAndDontSave };
+            var made = new List<Material>();
+            try
+            {
+                var linesGO = new GameObject("SpeedLines", typeof(RectTransform));
+                linesGO.transform.SetParent(hud.transform, false);
+                var img = linesGO.AddComponent<UnityEngine.UI.RawImage>();
+                var own = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+                made.Add(own);
+                img.material = own;
+                var labelGO = new GameObject("Label", typeof(RectTransform));
+                labelGO.transform.SetParent(hud.transform, false);
+                var label = labelGO.AddComponent<UnityEngine.UI.Text>();
+
+                // RaceHUD.Awake, first.
+                HudOnTop.Apply(hud);
+                Check(img.material == own,
+                      "HudOnTop leaves a graphic with a shader of its own alone — the streak "
+                      + "overlay is DRAWN by its shader, and on the plain one it is white bars");
+                Check(label.material == HudOnTop.Material,
+                      "while every stock UI graphic still goes over the depth buffer");
+
+                // The second lock: the image already wearing the plain material
+                // when the overlay wakes up, however it got there.
+                img.material = HudOnTop.Material;
+                var lines = linesGO.AddComponent<SpeedLines>();
+                lines.image = img;
+                typeof(SpeedLines).GetMethod("Awake",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                    ?.Invoke(lines, null);
+                var woke = img.material;
+                if (woke != null && woke != HudOnTop.Material) made.Add(woke);
+                Check(woke != null && woke.shader == shader,
+                      "and SpeedLines builds its material from the streak shader whatever the image "
+                      + "was wearing when it woke", woke == null ? "null" : woke.shader.name);
+                Check(!img.enabled, "the overlay wakes switched off — only its own Update shows it");
+            }
+            finally
+            {
+                Object.DestroyImmediate(hud);
+                foreach (var m in made) if (m != null) Object.DestroyImmediate(m);
             }
         }
 

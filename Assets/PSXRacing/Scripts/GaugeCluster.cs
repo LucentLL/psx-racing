@@ -203,6 +203,14 @@ namespace PSXRacing
         /// <summary>Clearance from the frame edges, also as a fraction of the
         /// frame height.</summary>
         public float marginFrac = 0.03f;
+        /// <summary>Between a dial and the touch control beside it, in canvas
+        /// units — the same 12 the pair used to leave either side of the
+        /// centreline when they sat together in the middle.</summary>
+        const float ControlClearance = 12f;
+        /// <summary>The least a dial's edge may come to the frame's centre
+        /// line with touch controls up — together, a 24-unit lane of road that
+        /// no instrument is ever drawn across.</summary>
+        const float CentreClearance = 12f;
 
         /// <summary>Set by RaceHandoffApplier from the car faults. A dead
         /// cluster parks both needles and blanks the digits — the player should
@@ -383,30 +391,50 @@ namespace PSXRacing
             //
             // With no touch controls both bottom corners are empty, and the
             // corners are where instruments belong -- as far from the vanishing
-            // point as the frame allows. With them, the corners are gone and the
-            // only clear ground is the middle of the bottom edge, so the dials
-            // go there and are pushed apart to leave the centreline itself clear
-            // rather than sitting across it.
+            // point as the frame allows. With them, the corners are the
+            // controls', so each dial goes as far out as the controls let it:
+            // hard against the one on its own side, which leaves the middle of
+            // the bottom edge -- the road -- to the road.
             Vector2 tachAnchor, speedoAnchor, tachPos, speedoPos;
             if (touch)
             {
-                // Centred in the band the touch panel leaves between the wheel
-                // and the pedals, and the panel REPORTS that band rather than
-                // this deriving it from a fraction of the frame width. A
-                // fraction that clears both is a different fraction every time
-                // the panel is retuned, and it was wrong within one build of
-                // each of the last two changes to it.
+                // The band the touch panel leaves between the wheel and the
+                // pedals, REPORTED by the panel rather than derived from a
+                // fraction of the frame width. A fraction that clears both is a
+                // different fraction every time the panel is retuned, and it
+                // was wrong within one build of each of the last two changes.
                 float left = TouchControls.WheelInset;
                 float right = FrameWidth() - TouchControls.PedalsInset;
                 float band = Mathf.Max(160f, right - left);
                 // On a narrow screen it is the BAND that limits the dials, not
-                // the frame height: two of them and a gap have to fit into it,
-                // and a dial that overlaps the wheel is worse than a small one.
-                radius = Mathf.Min(radius, Mathf.FloorToInt((band - 24f) * 0.25f));
-                float mid = (left + right) * 0.5f;
+                // the frame height: two of them and their clearances have to
+                // fit into it, and a dial that overlaps a control is worse than
+                // a small one. At this cap the two meet in the middle.
+                radius = Mathf.Min(radius,
+                    Mathf.FloorToInt((band - ControlClearance * 2f) * 0.25f));
+                // ...AND each dial stays on its own side of the centre line.
+                // The band is not centred on the frame — the wheel's box is
+                // wider than the pedal column — so sized off the band alone, a
+                // 4:3 tablet's rev counter reached 24 px past the middle of the
+                // screen, which is the one place this layout exists to keep
+                // clear. Found by DriveHudPreview on its first run.
+                float mid = FrameWidth() * 0.5f;
+                float leftRoom = mid - CentreClearance - (left + ControlClearance);
+                float rightRoom = (right - ControlClearance) - (mid + CentreClearance);
+                radius = Mathf.Min(radius, Mathf.FloorToInt(Mathf.Min(leftRoom, rightRoom) * 0.5f));
+                // A portrait window has no middle to keep clear; a dial it can
+                // still read beats one sized to nothing.
+                radius = Mathf.Max(16, radius);
+                // REVS BESIDE THE WHEEL, SPEED BESIDE THE PEDALS. They used to
+                // be centred as a pair in the band, which put two dials across
+                // the one part of the picture a driver is looking at; the owner
+                // asked for them "from center, to left and right, respectively
+                // to clear the center of the screen" (2026-09-18). Revs on the
+                // left keeps the side of the binnacle they are on in almost
+                // every car, and the speed ends up beside the pedals that set it.
                 tachAnchor = speedoAnchor = new Vector2(0f, 0f);
-                tachPos = new Vector2(mid - radius - 12f, radius + margin);
-                speedoPos = new Vector2(mid + radius + 12f, radius + margin);
+                tachPos = new Vector2(left + ControlClearance + radius, radius + margin);
+                speedoPos = new Vector2(right - ControlClearance - radius, radius + margin);
             }
             else
             {

@@ -54,15 +54,38 @@ namespace PSXRacing
             }
         }
 
-        /// <summary>Put every graphic under <paramref name="root"/> on it.
-        /// Called again after the cluster rebuilds, because the dials are
-        /// created at runtime and are not there the first time round.</summary>
+        /// <summary>
+        /// Put every graphic under <paramref name="root"/> on it. Called again
+        /// after the cluster rebuilds, because the dials are created at runtime
+        /// and are not there the first time round.
+        ///
+        /// ONLY GRAPHICS ON A STOCK UI MATERIAL. A graphic that brought a
+        /// shader of its own brought its own depth rule with it, and the one
+        /// that does — the speed-streak overlay — is not merely styled by its
+        /// shader but DRAWN by it: the texture is a polar sheet, and on the
+        /// plain UI material its dashes come out as long vertical white bars
+        /// across the whole frame. It is a child of the HUD canvas, which
+        /// RaceHUD.Awake passes to this, so swapping it was always one Awake
+        /// order away from the screen. It reached a phone twice: once as an
+        /// opaque black frame striped white (2026-09-07), and once as the
+        /// bars alone after the sheet grew an alpha channel (2026-09-18).
+        /// </summary>
         public static void Apply(GameObject root)
         {
             var mat = Material;
             if (root == null || mat == null) return;
             foreach (var g in root.GetComponentsInChildren<Graphic>(true))
-                if (g.material != mat) g.material = mat;
+            {
+                var current = g.material;
+                if (current == mat || !IsStockUi(current)) continue;
+                g.material = mat;
+            }
         }
+
+        /// <summary>A material this may take over: none, or one of the UI
+        /// shaders Unity ships (UI/Default and its variants).</summary>
+        public static bool IsStockUi(Material m) =>
+            m == null || m.shader == null ||
+            m.shader.name.StartsWith("UI/", System.StringComparison.Ordinal);
     }
 }

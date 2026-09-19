@@ -87,7 +87,16 @@ Shader "PSX/SpeedLines"
                 // r = 1 at the frame corner.
                 float r = length(d) / (0.5 * sqrt(_Aspect * _Aspect + 1.0));
                 float a = atan2(d.y, d.x) / 6.2831853 + 0.5;
-                float m = tex2D(_MainTex, float2(a * _Spokes, r * _Repeat - _Scroll)).r;
+                fixed4 t = tex2D(_MainTex, float2(a * _Spokes, r * _Repeat - _Scroll));
+                // The mask is the sheet's RED TIMES ITS ALPHA. The sheet was
+                // white streaks on BLACK until 2026-09-08, when its field went
+                // transparent WHITE so a plain UI material could no longer
+                // paint the frame black - and red alone then read 1 on every
+                // texel, so the ring drew as a smooth white wash round the
+                // frame and never as streaks. Nobody saw it, because a second
+                // bug drew the sheet flat through UI/Default instead (the
+                // white bars, 2026-09-18). r * a is right for either sheet.
+                float m = t.r * t.a;
                 float ring = smoothstep(_InnerR, _OuterR, r);
                 return fixed4(1.0, 1.0, 1.0, m * ring * _Intensity * i.color.a);
             }
