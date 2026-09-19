@@ -380,8 +380,12 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A material that changes TEXTURE with the season — the
         /// forest atlas, the far mottle, the near turf.</summary>
+        /// <param name="twoSided">Must match the base material's: a forest
+        /// drawn both sides in October and one side in July is the flat-card
+        /// bug back for eight months of the year.</param>
         static void RegisterSeasonalTexture(string key, Material baseMat, System.Func<int, string> texFor,
-                                            string role, float cutoff = 0f, Color? tint = null, float affine = 0f)
+                                            string role, float cutoff = 0f, Color? tint = null, float affine = 0f,
+                                            bool twoSided = false)
         {
             if (baseMat == null) return;
             var variants = new Material[Seasons.DressCount];
@@ -390,7 +394,8 @@ namespace PSXRacing.EditorTools
                 string tex = texFor(d);
                 variants[d] = d == (int)Season.Fall || string.IsNullOrEmpty(tex)
                     ? baseMat
-                    : MakeMat(key + "_" + DressSuffix[d], tex, cutoff: cutoff, tint: tint, affine: affine);
+                    : MakeMat(key + "_" + DressSuffix[d], tex, cutoff: cutoff, tint: tint, affine: affine,
+                              twoSided: twoSided);
             }
             RegisterSeasonal(baseMat, variants, role);
         }

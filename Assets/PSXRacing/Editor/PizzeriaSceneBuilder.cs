@@ -67,6 +67,9 @@ namespace PSXRacing.EditorTools
             // PSXRacingBuilder.ConvertToPSXMaterials.
             PSXRacingBuilder.ConvertToPSXMaterials(shop, glass: true);
             int cols = AddColliders(shop);
+            // The street trees outside: trunks, not a collider across each
+            // crown. Nobody walks out there, but a tree is a tree.
+            TreeKit.PlantTrunks(shop);
 
             // ---- measure ----
             // The double door on the west wall is the datum for everything: it

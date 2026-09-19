@@ -1581,6 +1581,8 @@ namespace PSXRacing.EditorTools
             TestNeighborhoodScene();
             TestReverseGrid();
             TestSeasons();
+            TestTreesAreXsWithTrunks();
+            TestTreesStopCars();
             TestReversedStageDistance();
             TestDeliverySprint();
             TestNoDeletedMeshes();
@@ -4090,6 +4092,81 @@ namespace PSXRacing.EditorTools
                 Check(x.parked != control,
                       control ? "...and the solver correctly did NOT think it was parked"
                               : "...because the parking hold is engaged, not by luck");
+            }
+        }
+
+        /// <summary>
+        /// EVERY TREE IS AN X FROM EVERY SIDE AND STANDS ON A TRUNK.
+        ///
+        /// "All trees need the x-pattern to simulate 3D. Some trees are still
+        /// 2 dimensions and flat. Trees should also occupy space with their
+        /// trunks, stopping a car if it drives into it." The builders had
+        /// always planted crossed quads, drawn one side only — an X from a
+        /// quarter of the compass, a flat card from half of it, nothing from
+        /// the rest — and no tree in the game had a trunk; the pack trees on
+        /// every forecourt had a collider across the whole crown instead.
+        ///
+        /// One scene of each kind of tree: a circuit's roadside trees and its
+        /// station's pack trees, a stage's merged forest and its trunk table,
+        /// the town's forecourt, and the pizzeria's street. The full sweep of
+        /// every scene is PSX Racing/Audit Foliage.
+        /// </summary>
+        static void TestTreesAreXsWithTrunks()
+        {
+            Line("trees:");
+            var log = new StringBuilder();
+            var paths = new List<string>
+            {
+                "Assets/PSXRacing/Scenes/CityCircuit.unity",
+                "Assets/PSXRacing/Scenes/BlueRidge.unity",
+                PSXRacingBuilder.TownScenePath,
+                PizzeriaSceneBuilder.ScenePath,
+            };
+            int problems;
+            try { problems = FoliageAudit.AuditScenes(paths, log); }
+            catch (System.Exception e)
+            {
+                Check(false, "the foliage audit runs", e.GetType().Name + ": " + e.Message);
+                return;
+            }
+            foreach (var l in log.ToString().Split('\n'))
+                if (l.Contains("FAIL") || l.Contains("MISSING")) Line("    " + l.TrimEnd());
+            Check(problems == 0,
+                  "every tree is two crossing cards drawn from both sides, on a trunk, with no collider across its crown",
+                  problems + " problem row(s)");
+        }
+
+        /// <summary>
+        /// A CAR THAT DRIVES INTO A TREE IS STOPPED BY IT.
+        ///
+        /// A collider in a scene file proves a collider exists, not that 100
+        /// km/h of car is stopped by 30 cm of it — and a stage's trunks are
+        /// not in the scene file at all: <see cref="TreeTrunks"/> stands them
+        /// up round the cars at runtime. <see cref="TreeCrashSim"/> steps the
+        /// solver into both kinds. The control — the same run with no tree —
+        /// is the assertion that proves the others measured anything.
+        /// </summary>
+        static void TestTreesStopCars()
+        {
+            Line("trees stop cars:");
+            TreeCrashSim.Reading[] r;
+            try { r = TreeCrashSim.Run(); }
+            catch (System.Exception e)
+            {
+                Check(false, "the tree crash sim runs", e.GetType().Name + ": " + e.Message);
+                return;
+            }
+            foreach (var x in r)
+            {
+                bool control = x.name.Contains("control");
+                Check(TreeCrashSim.Passed(x),
+                      control ? "with no tree there the same car sails on past (the control)"
+                              : "\"" + x.name + "\": the car does not pass through the trunk",
+                      "reached z " + x.maxZ.ToString("0.0") + " of a trunk at " + x.trunkZ.ToString("0") +
+                      ", " + x.endSpeed.ToString("0.0") + " m/s after" +
+                      (x.droveThrough ? ", DROVE THROUGH" : ""));
+                if (!control && x.name.StartsWith("stage"))
+                    Check(x.liveTrunks > 0, "...and the stage's trunk was stood up in time, from two cells away");
             }
         }
 

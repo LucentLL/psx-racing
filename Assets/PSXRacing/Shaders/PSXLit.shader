@@ -28,13 +28,25 @@ Shader "PSX/Lit"
         // The property stays so a specific mesh can opt back IN deliberately,
         // but nothing does today and nothing should without a reason.
         _Affine ("Affine Warping", Range(0,1)) = 0
+        // 2 = Back (every material that never set it), 0 = Off.
+        //
+        // OFF FOR TREES, on the owner's word: "All trees need the x-pattern to
+        // simulate 3D. Some trees are still 2 dimensions and flat." Every
+        // tree the builders plant is two crossed quads, and under Cull Back a
+        // crossed pair drawn one side only is an X from a quarter of the
+        // compass, a single flat card from half of it, and NOTHING from the
+        // last quarter — the reported bug exactly. Drawing both faces costs no
+        // geometry, where emitting a mirrored twin of every quad would double
+        // sixty thousand trees' worth of forest mesh against a build that is
+        // already 86 MB of GitHub's 100.
+        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
-            Cull Back
+            Cull [_Cull]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -48,6 +60,7 @@ Shader "PSX/Lit"
             float _Cutoff;
             float _Emission;
             float _Affine;
+            float _Cull;
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -107,6 +120,15 @@ Shader "PSX/Lit"
                 float3 rawN = UnityObjectToWorldNormal(v.normal);
                 float nl2 = dot(rawN, rawN);
                 float3 n = nl2 > 1e-8 ? rawN * rsqrt(nl2) : float3(0, 1, 0);
+                float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                // A face drawn from both sides is lit from the side you SEE.
+                // The vertex normal points out of the front, so from behind
+                // every card would take the light of the face turned away —
+                // the sunlit side of a tree drawn in shadow. Per vertex is
+                // exact here: the camera is on one side of a flat card, so all
+                // four corners agree. Only when culling is off; a closed mesh
+                // never shows its back.
+                if (_Cull < 0.5 && dot(n, _WorldSpaceCameraPos - wpos) < 0.0) n = -n;
                 float ndl = saturate(dot(n, normalize(_PSXLightDir.xyz)));
                 // Hemispheric: the sky's colour from above, the plain ambient
                 // from the side and below. A cheap per-vertex lerp, and the
@@ -115,7 +137,7 @@ Shader "PSX/Lit"
                 fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
                 fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
                 o.light = fixed4(saturate(lighting), 1);
-                o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.wpos = wpos;
                 o.wnrm = n;
 
                 // Manual linear fog by view distance

@@ -4373,6 +4373,15 @@ namespace PSXRacing.EditorTools
             new TreeSpecies("tree019", 2, 0, false, 12.0f),   // big orange-red
             new TreeSpecies("tree020", 3, 0, false, 10.0f),   // orange
             new TreeSpecies("tree021", 0, 1, false, 11.0f),   // gold
+            // tree022 IS red AND green, on purpose: one sheet, a copper crown on
+            // the left and a green one on the right (55% green by pixel, 20%
+            // red). Seen from both sides it looks like two trees in one, and it
+            // was asked about ("why are two different tree models getting
+            // combined as one?") and then KEPT by the owner: "It's fine.
+            // tree022 is red and green. I just wanted to make sure trees
+            // weren't being cross contaminated." They are not: both cards of
+            // every tree read this one cell, which FoliageAudit checks tree
+            // for tree. Do not swap it for a "cleaner" red.
             new TreeSpecies("tree022", 1, 1, false, 11.0f),   // red over green
             new TreeSpecies("tree025", 2, 1, false, 9.5f),    // russet oak
             new TreeSpecies("tree028", 3, 1, false, 9.0f),    // scarlet maple
@@ -4718,14 +4727,21 @@ namespace PSXRacing.EditorTools
             var root = new GameObject("Forest");
             root.transform.SetParent(parent, false);
 
-            var mat = MakeMat(MeshPrefix + "Forest", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f);
-            RegisterSeasonalTexture(MeshPrefix + "Forest", mat, DressAtlasPath, "forest", cutoff: 0.5f);
+            // Both faces drawn, in every season's dress — see PSX/Lit's _Cull.
+            var mat = MakeMat(MeshPrefix + "Forest", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f, twoSided: true);
+            RegisterSeasonalTexture(MeshPrefix + "Forest", mat, DressAtlasPath, "forest", cutoff: 0.5f,
+                                    twoSided: true);
             var rng = new System.Random(41);
             var b = new Bounds(pts[0], Vector3.zero);
             foreach (var p in pts) b.Encapsulate(p);
 
             float roadHalf = RoadWidth * 0.5f;
             int planted = 0, cliffSkip = 0, chunks = 0, underDeck = 0;
+            // Every tree's trunk, from the very position its billboard is
+            // planted at: base in world space and a radius off its card. Too
+            // many to bake a collider each — TreeTrunks stands them up round
+            // the cars at runtime.
+            var trunks = new List<Vector4>();
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
             {
@@ -4804,6 +4820,8 @@ namespace PSXRacing.EditorTools
                         AddTreeQuads(verts, uvs, tris, sp,
                             new Vector3(wx - ox, ground - 0.25f, wz - oz), h,
                             (float)rng.NextDouble() * 360f);
+                        trunks.Add(new Vector4(wx, ground - 0.25f, wz,
+                                               TreeKit.TrunkRadiusFor(StageTreeWidth(sp, h))));
                     }
 
                 if (verts.Count == 0) return;
@@ -4818,9 +4836,16 @@ namespace PSXRacing.EditorTools
                 chunks++;
             });
 
+            root.AddComponent<TreeTrunks>().SetTrunks(trunks);
+
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
-                $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff).");
+                $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +
+                $"{trunks.Count} trunks in the table.");
         }
+
+        /// <summary>A stage tree's card width: its height for a broadleaf
+        /// crown, narrower for a spire.</summary>
+        static float StageTreeWidth(TreeSpecies sp, float h) => h * (sp.conifer ? 0.62f : 1.0f);
 
         static int PickSpecies(System.Random rng, float x, float z, float groundY)
         {
@@ -4837,10 +4862,14 @@ namespace PSXRacing.EditorTools
             return FallGroup[rng.Next(FallGroup.Length)];
         }
 
+        /// <summary>One tree: two crossed quads, four corners each in the order
+        /// bottom-left, top-left, top-right, bottom-right — TreeKit.VertsPerTree
+        /// reads the forest back by that layout, so the audit can check every
+        /// trunk in the table against the billboard it belongs to.</summary>
         static void AddTreeQuads(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
                                  TreeSpecies sp, Vector3 basePos, float h, float yawDeg)
         {
-            float w = h * (sp.conifer ? 0.62f : 1.0f);
+            float w = StageTreeWidth(sp, h);
             const float pad = 1.5f / 512f;
             float u0 = sp.col * 0.25f + pad, u1 = (sp.col + 1) * 0.25f - pad;
             // No flip: the atlas compositor writes through SetPixels32, whose
@@ -4857,8 +4886,9 @@ namespace PSXRacing.EditorTools
                 verts.Add(basePos + rot * new Vector3(w * 0.5f, 0f, 0f));
                 uvs.Add(new Vector2(u0, v0)); uvs.Add(new Vector2(u0, v1));
                 uvs.Add(new Vector2(u1, v1)); uvs.Add(new Vector2(u1, v0));
-                // One winding — each plane is seen from behind via the other
-                // plane of the cross, exactly like PlaceTrees.
+                // One winding; the forest material draws both faces. (This
+                // said each plane "is seen from behind via the other plane of
+                // the cross". From behind BOTH planes it is not seen at all.)
                 tris.AddRange(new[] { v, v + 1, v + 2, v, v + 2, v + 3 });
             }
         }

@@ -30,6 +30,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _Affine: 0
+    - _Cull: 0
     - _Cutoff: 0.5
     - _Emission: 0
     m_Colors:

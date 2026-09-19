@@ -1281,8 +1281,12 @@ namespace PSXRacing.EditorTools
             return list.ToArray();
         }
 
+        /// <param name="twoSided">Draw both faces (PSX/Lit's <c>_Cull</c> Off)
+        /// and light each from the side the camera is on. For TREES: a
+        /// crossed pair of one-sided quads is a flat card from half the
+        /// compass and invisible from a quarter of it.</param>
         static Material MakeMat(string name, string texPath, float cutoff = 0f,
-                                Color? tint = null, float affine = 0f)
+                                Color? tint = null, float affine = 0f, bool twoSided = false)
         {
             // Resolve the shader HERE rather than trusting Build() to have run.
             // psxLit is only assigned inside Build, and every other entry point
@@ -1309,6 +1313,11 @@ namespace PSXRacing.EditorTools
             mat.color = tint ?? Color.white;
             mat.SetFloat("_Cutoff", cutoff);
             mat.SetFloat("_Affine", affine);
+            // Written only when it is not the shader's own default, so the
+            // hundreds of one-sided materials this factory rewrites every build
+            // do not all grow a line they never needed.
+            if (twoSided || (mat.HasProperty("_Cull") && mat.GetFloat("_Cull") != 2f))
+                mat.SetFloat("_Cull", twoSided ? 0f : 2f);
             if (cutoff > 0f) mat.renderQueue = 2450;
             EditorUtility.SetDirty(mat);
             return mat;
@@ -5928,6 +5937,12 @@ namespace PSXRacing.EditorTools
                 }
             }
 
+            // The pack's trees came through the pass above like any other
+            // tall piece and got a MeshCollider of their CARDS — a solid wall
+            // the size of each crown round the forecourt. Trunks instead.
+            int trunks = TreeKit.PlantTrunks(root);
+            if (trunks > 0) Log($"Station: {trunks} pack tree(s) stood on trunks, card colliders off.");
+
             return haveShop ? shopBounds : lotBounds;
         }
 
@@ -6000,20 +6015,25 @@ namespace PSXRacing.EditorTools
             {
                 Quaternion rot = Quaternion.Euler(0f, q * 90f, 0f);
                 int v = verts.Count;
-                verts.Add(rot * new Vector3(-2.6f, 0f, 0f));
-                verts.Add(rot * new Vector3(-2.6f, 6.5f, 0f));
-                verts.Add(rot * new Vector3(2.6f, 6.5f, 0f));
-                verts.Add(rot * new Vector3(2.6f, 0f, 0f));
+                float hw = TreeCardW * 0.5f;
+                verts.Add(rot * new Vector3(-hw, 0f, 0f));
+                verts.Add(rot * new Vector3(-hw, TreeCardH, 0f));
+                verts.Add(rot * new Vector3(hw, TreeCardH, 0f));
+                verts.Add(rot * new Vector3(hw, 0f, 0f));
                 uvs.AddRange(new[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) });
-                // One winding only — see the note in BuildWalls. Trees are
-                // crossed quads, so each plane is still visible from both sides
-                // via the other plane of the cross.
+                // One winding — see the note in BuildWalls — and the MATERIAL
+                // draws both faces. This comment used to say each plane "is
+                // still visible from both sides via the other plane of the
+                // cross", and it is not: under Cull Back a one-sided X is two
+                // planes from one quarter of the compass, ONE flat card from
+                // two more, and nothing at all from behind both. "Some trees
+                // are still 2 dimensions and flat" was exactly that.
                 tris.AddRange(new[] { v, v + 1, v + 2, v, v + 2, v + 3 });
             }
             var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
             SaveMesh(mesh, "TreeMesh");
 
-            var mat = MakeMat(MeshPrefix + "Tree", theme.tree, cutoff: 0.5f);
+            var mat = MakeMat(MeshPrefix + "Tree", theme.tree, cutoff: 0.5f, twoSided: true);
             var rng = new System.Random(7);
             int n = pts.Count, placed = 0;
             for (int i = 4; i < n; i += theme.treeEvery)
@@ -6035,10 +6055,22 @@ namespace PSXRacing.EditorTools
                 t.transform.localScale = new Vector3(s, s, s);
                 t.AddComponent<MeshFilter>().sharedMesh = mesh;
                 t.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                // The trunk: "trees should also occupy space with their
+                // trunks, stopping a car if it drives into it." Where the two
+                // planes cross, which is where the sheet paints it, sized off
+                // the card (the painted trunk is ~5% of the sheet's width) and
+                // solid to half the tree's height — well over any roof, and
+                // clear of nothing, because nothing is meant to pass under a
+                // tree. On the Solid layer so no wheel ever stands on it.
+                TreeKit.AddTrunk(t.transform, treeAt, TreeKit.TrunkRadiusFor(TreeCardW * s),
+                                 Mathf.Min(4f, 0.5f * TreeCardH * s));
                 placed++;
             }
-            Log($"Placed {placed} trees.");
+            Log($"Placed {placed} trees, each with a trunk.");
         }
+
+        /// <summary>The circuit tree's card, metres at scale 1.</summary>
+        const float TreeCardW = 5.2f, TreeCardH = 6.5f;
 
         // ------------------------------------------------------------------
         //  Lighting / sky
