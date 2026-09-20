@@ -215,14 +215,35 @@ namespace PSXRacing.EditorTools
             LifeSimManager.State.garageSlots = 1;
             LifeSimManager.Save();
 
-            // The blacklist board is the tallest screen in the game — ten rows
-            // plus a header — so it is the one most likely to run off the bottom
-            // of a short canvas. Give it a state where a rung is actually open,
-            // or the capture shows ten identical locked rows and proves nothing
-            // about the challenge button.
+            // The blacklist board is the tallest screen in the game — ELEVEN
+            // rows now that the player is one of them, plus a header, a news
+            // strip and, when somebody has called you out, a card — so it is
+            // the one most likely to run off the bottom of a short canvas.
+            //
+            // Stand the player in the MIDDLE of it. A board shot with the
+            // player on the bottom rung is a board with nothing below them,
+            // which is half the screen's states missing: no name that can call
+            // them out, and no row drawn in the "below you" ink.
             var s = LifeSimManager.State;
             s.streetRacesWon = 3;
             s.streetRep = 10f;
+            Blacklist.SeedBoard(s);
+            {
+                var bd = Blacklist.Board(s);
+                var you = bd[bd.Count - 1];
+                bd.RemoveAt(bd.Count - 1);
+                bd.Insert(5, you);
+                // Records, so the W-L column is not eleven zeroes — it is the
+                // column that carries the churn and it has to be legible.
+                for (int i = 0; i < bd.Count; i++)
+                {
+                    bd[i].wins = 14 - i;
+                    bd[i].losses = 3 + (i % 5);
+                }
+                s.blNews.Clear();
+                s.blNews.Add(LifeRules.LogDate(s.day) + ": KAZE takes #7 off BIG SAL (2-1)");
+                s.blNews.Add(LifeRules.LogDate(s.day) + ": GHOST holds #2 against PREACHER (2-0)");
+            }
             // Give the garage something to show: a worn car with a real fault is
             // the state the repair options appear in, and those options going
             // off-screen is exactly what got reported.
@@ -270,6 +291,33 @@ namespace PSXRacing.EditorTools
                                       // part" is actually checkable.
                                       "setup" })
                 Shoot(outDir, t, t);
+
+            // THE BOARD WITH A CALL-OUT ON IT — the state the RIVALS page is in
+            // whenever it matters, and the only one that draws the series card,
+            // the deadline and the two buttons that settle it. Shot in both
+            // directions: an incoming call-out is the one that can cost a rank,
+            // and it is drawn in a different ink for exactly that reason.
+            {
+                s.blChallenge = new RankChallenge();
+                Blacklist.ChallengeDown(s);
+                s.blChallenge.themLegs = 1;   // a race down, which is the state worth looking at
+                LifeSimManager.Save();
+                Shoot(outDir, "rivals_defend", "rivals");
+                // And MAIN with the same call-out live: the hub grows a banner
+                // above the race row on the days one is running, and a row
+                // added to the busiest column in the game is exactly the kind
+                // of thing that pushes SLEEP under the fold.
+                Shoot(outDir, "home_callout", "main", mustFit: true);
+
+                s.blChallenge = new RankChallenge();
+                Blacklist.ChallengeUp(s);
+                s.blChallenge.youLegs = 1;
+                LifeSimManager.Save();
+                Shoot(outDir, "rivals_callout", "rivals");
+
+                s.blChallenge = new RankChallenge();
+                LifeSimManager.Save();
+            }
 
             // SPECS and the car page again, on a car that HAS a catalog entry.
             // The seeded starter RX-7 deliberately has none — it is the one car

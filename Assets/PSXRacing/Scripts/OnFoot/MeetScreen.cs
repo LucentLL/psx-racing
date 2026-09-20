@@ -80,7 +80,7 @@ namespace PSXRacing.OnFoot
         /// board.</summary>
         static string Line(MeetRacer r, string playerCar)
         {
-            if (r.IsRival) return Blacklist.Taunt(Blacklist.ByRank(r.rivalRank), playerCar);
+            if (r.IsRival) return Blacklist.Taunt(Blacklist.ByAlias(r.rivalAlias), playerCar);
             string[] lines =
                 r.style == "DRAG" ? new[] { "Straight line. You and me. Loser buys the gas.",
                                             "Anybody can turn. Let's see what it pulls." }

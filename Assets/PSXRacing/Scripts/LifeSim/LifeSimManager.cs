@@ -366,6 +366,49 @@ namespace PSXRacing.LifeSim
                 if (s.dayLog == null) s.dayLog = new System.Collections.Generic.List<DayRecord>();
                 s.saveVersion = 13;
             }
+
+            if (s.saveVersion < 14)
+            {
+                // v14 PUT THE PLAYER ON THE BOARD. The blacklist used to be ten
+                // fixed rungs the career walked past, remembered as a list of
+                // ranks beaten; it is an ORDER now, with the player standing in
+                // it, and the order is the only place a rank is written down.
+                //
+                // Where does an existing career stand? Exactly where it had
+                // fought to: above every name it had beaten and below every
+                // name it had not. So the old list is read once — the highest
+                // rank ever taken — and the player is slotted in directly above
+                // that name. A career that had beaten nobody starts at the
+                // bottom, which is where a new one starts too.
+                //
+                // Records start empty on purpose. A win-loss column invented
+                // out of blDefeated would be a scoreboard for races that were
+                // never run on these rules.
+                Blacklist.SeedBoard(s);
+                int highestTaken = 11;   // nothing taken: stay at the bottom
+                if (s.blDefeated != null)
+                    foreach (int r in s.blDefeated)
+                        if (r >= 1 && r <= 10 && r < highestTaken) highestTaken = r;
+                if (highestTaken <= 10)
+                {
+                    // Move the player's row from the bottom to just above the
+                    // best name they had taken — the board is still in start
+                    // order here, so that name is standing on its own rank.
+                    var board = s.blBoard;
+                    var me = board[board.Count - 1];
+                    board.RemoveAt(board.Count - 1);
+                    board.Insert(highestTaken - 1, me);
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) +
+                        ": the board reshuffled — you are #" + highestTaken +
+                        ", and the names below you want it back");
+                }
+                s.blChallenge = new RankChallenge();
+                if (s.blNews == null) s.blNews = new System.Collections.Generic.List<string>();
+                // A career mid-ladder should not be called out on its first
+                // morning back: give it the usual quiet gap first.
+                s.blIncomingReadyDay = s.day + Blacklist.IncomingGapDays;
+                s.saveVersion = 14;
+            }
         }
 
         public static void DeleteSave()

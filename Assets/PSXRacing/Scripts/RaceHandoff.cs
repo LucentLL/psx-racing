@@ -168,11 +168,18 @@
         public static string OpponentSkills;
 
         // ---- blacklist challenge (L4) ----
-        /// <summary>Rank 10..1 when this race is a blacklist challenge, else 0.
-        /// The apply-back records the defeat off this, so it has to survive the
-        /// scene load with the result.</summary>
+        /// <summary>The rung being raced FOR, for the banner over the finish
+        /// line. Display only, and a snapshot: the board moves overnight, so
+        /// the apply-back records the leg against the NAME.</summary>
         public static int RivalRank;
+        /// <summary>Who this leg is against, and the key the ladder banks the
+        /// result under — so it has to survive the scene load with the result.
+        /// Empty when the race is not a challenge leg.</summary>
         public static string RivalAlias;
+        /// <summary>"RACE 2 OF 3 · 1-0" as the series stood at the start line.
+        /// A challenge is best of three now, so "DEFEATED" over the finish line
+        /// would be a lie two races out of three.</summary>
+        public static string RivalSeries;
 
         // ---- car meet challenge ----
         /// <summary>
@@ -329,7 +336,7 @@
             OrderToppings = null; OrderBoxes = 1; OrderBottles = 0;
             StartFuelPct = 100f;
             OpponentSpecIds = OpponentSkills = null;
-            RivalRank = 0; RivalAlias = null;
+            RivalRank = 0; RivalAlias = null; RivalSeries = null;
             MeetRace = false; MeetAlias = null;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = UpSeat = 0;
             // A payload left out of here does not go stale, it goes to the NEXT

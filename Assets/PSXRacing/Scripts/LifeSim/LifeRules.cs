@@ -1253,17 +1253,19 @@ namespace PSXRacing.LifeSim
                 }
                 s.money += payout;
                 // A blacklist challenge does NOT burn the one-purse-race-a-day
-                // cap. Ten of them exist in a career and each needs its own
-                // gate cleared first, so there is nothing here to grind — and
-                // making the player sleep off a challenge would mean the page
-                // that invited them expires while they wait for tomorrow.
+                // cap. A series is three races on a three-day deadline, and a
+                // player who could only run one of them a day would lose every
+                // call-out to the calendar rather than to the driver — which is
+                // the one way of missing a race the rule was never meant to
+                // cover.
                 //
                 // Nor does a race at a car meet, which is RG2's rule ("meet
                 // challenges are unlimited — they still award rep/money but do
                 // NOT burn the cap"). What stops a meet being a fountain here
                 // is CarMeets.MaxRunsPerMeet, and that each driver lines up
                 // once a night.
-                if (RaceHandoff.RivalRank <= 0 && !RaceHandoff.MeetRace) s.lastRaceDay = s.day;
+                if (string.IsNullOrEmpty(RaceHandoff.RivalAlias) && !RaceHandoff.MeetRace)
+                    s.lastRaceDay = s.day;
 
                 summary = RaceHandoff.MeetRace && !string.IsNullOrEmpty(RaceHandoff.MeetAlias)
                     ? (RaceHandoff.FinishPos == 1 ? "BEAT " : "LOST TO ") + RaceHandoff.MeetAlias +
@@ -1271,13 +1273,15 @@ namespace PSXRacing.LifeSim
                     : "P" + RaceHandoff.FinishPos + "/" + RaceHandoff.FieldSize +
                       (payout > 0 ? " — won " + MenuKit.Money(payout) : " — no prize");
 
-                if (RaceHandoff.RivalRank > 0)
+                if (!string.IsNullOrEmpty(RaceHandoff.RivalAlias))
                 {
-                    // Recorded AFTER the normal payout: the challenge is a street
-                    // race first, so it pays, counts for wins and moves rep on the
-                    // same rules as any other, then the ladder takes its cut.
-                    string ladder = Blacklist.RecordResult(s, RaceHandoff.RivalRank,
-                                                           RaceHandoff.FinishPos == 1);
+                    // Recorded AFTER the normal payout: a challenge leg is a
+                    // street race first, so it pays, counts for wins and moves
+                    // rep on the same rules as any other, then the ladder takes
+                    // its cut. What it records is ONE LEG of three — the board
+                    // decides whether that settled anything.
+                    string ladder = Blacklist.RecordLeg(s, RaceHandoff.RivalAlias,
+                                                        RaceHandoff.FinishPos == 1);
                     if (!string.IsNullOrEmpty(ladder)) summary = ladder + "  ·  " + summary;
                 }
             }
@@ -1941,11 +1945,12 @@ namespace PSXRacing.LifeSim
             // is a car the save keeps for the rest of the career.
             Viewings.Sweep(s);
 
-            // 9. the ladder: expired call-outs go cold, and a gate that has just
-            // cleared pages the player. Order matters — pruning first stops a
-            // page written this morning being swept the same morning.
+            // 9. THE BOARD MOVES. Deadlines close, the ten of them race each
+            // other, and the rung below may knock. Order matters — pruning the
+            // mail first stops a call-out posted this morning being swept the
+            // same morning.
             s.mail.RemoveAll(m => m.expiresDay > 0 && s.day > m.expiresDay);
-            lastPage = Blacklist.TickPager(s);
+            lastPage = Blacklist.TickLadder(s);
 
             // 9b. the diary: yesterday's booking, if it went unraced, is gone.
             // Swept AFTER the day advances so a booking is live for the whole of
@@ -2052,6 +2057,10 @@ namespace PSXRacing.LifeSim
             // Same switch the in-career button uses, so the two entry points
             // cannot drift into granting different things.
             if (debug) EnableDebug(s);
+            // On the board from day one, at the bottom of it. The ladder is the
+            // only gate a challenge has now, so a name has to be standing on a
+            // rung before it can climb one.
+            Blacklist.SeedBoard(s);
             s.calendarLog.Add(LogDate(1) + ": moved in. " + job.name + ", " +
                               MenuKit.Money(s.money) + " saved." +
                               (debug ? "  [DEBUG CAREER]" : ""));

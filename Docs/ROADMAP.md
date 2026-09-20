@@ -5,6 +5,101 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE BOARD MOVES, AND YOUR NAME IS ON IT (2026-09-20)
+
+The brief: "Player's name should be added to Blacklist to show their current
+rank. The names should move around as NPCs challenge each other and they win
+or lose. Lower rank racers than player can challenge them for their position.
+Winning best of 3 to move up rank. Declining or missing a race for any reason
+counts as a loss."
+
+What that replaced: L4's ladder was **ten fixed rungs the career walked past**.
+A rival was a padlock (wins ≥ gate AND rep ≥ gate AND every lower rank beaten),
+a challenge was one race, and `blDefeated` — a list of rank numbers — was the
+whole of the progression. The player was not on the board at all, so there was
+no rank to hold, nothing to defend, and the ten names never did anything except
+wait their turn. Save format is at **v14**.
+
+**A rank is a POSITION now, and the order is the only place one is written
+down.** `LifeState.blBoard` is eleven `RankEntry` rows, top first, one of which
+is the player (`Blacklist.PlayerKey`). Nothing else may store a rank: names move
+every night, so a rank held anywhere else is a rank that is wrong by morning.
+That is also why rivals are found by ALIAS now (`ByAlias`) and why the
+signature-car cache is keyed on the alias — keyed on the rung, it handed
+GHOST's R34 to whoever happened to be standing at #2 that morning.
+
+**Three rules hold it up.**
+- *A challenge is between neighbours.* One rung, either direction. You can only
+  call out the name directly above you; only the name directly below can call
+  you out. That is what makes a rank worth anything — nobody gets past you
+  without racing you — and it is what replaced the gates. The ladder IS the
+  gate; `gateWins`/`gateRep` are gone.
+- *A series is three races and a deadline.* First to two (`SeriesRaces` /
+  `LegsToWin`), three days (`ChallengeDays`), one venue chosen from the rival's
+  own `venue` style — a field carried unused since 2026-08-21, when the game had
+  one circuit. Each leg is an ordinary street race: it pays, it wears the car,
+  it costs a block, it does not burn the one-purse-race-a-day cap.
+- *The pair is frozen while they fight.* The nightly sim skips any call-out
+  involving either driver, so the two rows stay adjacent for the whole series
+  and resolving it is one swap.
+
+**"For any reason" is implemented three times, because there are three ways to
+miss a race.** Walking away (`Decline`) forfeits every leg left. A deadline that
+closes with legs unraced forfeits them at the rollover. And a leg is committed
+AT THE START LINE (`BeginLeg` / `legInFlight`, the contract `CarMeets.BeginRun`
+already used): coming home with no result — quit, crash out, closed the app —
+loses that race, swept by `SweepInFlight` on the one frame that knows a race is
+over without knowing how it went. An incoming call-out ignored for three days
+costs the rank without a wheel being turned, which is the rule working.
+
+**The other ten race each other.** `TickLadder` runs at every rollover: a
+challenger is drawn from the rungs whose neighbour above is also an NPC, best of
+three is simulated on `LegOdds` (clamped 0.25–0.75 around a skill difference, so
+adjacent names sit near 38% a leg — a challenger takes about one series in
+three), and the winner takes the rung. Results go to `blNews` and print under
+the board, deliberately NOT to `calendarLog`: the diary is five lines on MAIN
+and a board that moves every night would crowd the player's own week out of
+their own calendar. Only results the player was in go in the diary.
+
+**Skill travels with the NAME, not the rung** — 0.90 JUICE to 1.05 CALLAHAN, the
+same numbers, now an attribute of a person rather than of a position. A board
+sorted by skill and churned by adjacent challenges stays *recognisable* and
+never *static*, which is the behaviour asked for.
+
+**On screen.** RIVALS draws eleven rows — alias, car, W-L record, and the
+challenge button on the one rung above you — with the player's row in the
+active ink and a WORD ON THE STREET strip underneath. A live series gets a card
+above the table (who, where, how it stands, days left, RACE and a two-press WALK
+AWAY). MAIN carries a call-out banner above the race row and the planner notes
+the deadline on every day it is still alive, because a series that expires costs
+a rank and the house should never be able to say it did not mention it.
+
+**Traps hit on the way.**
+- `Resolve` replaced `s.blChallenge` but left the object a caller was holding
+  looking Live. `Forfeit` walks three legs and the second one settles it, so the
+  third scored into a finished series, resolved it twice, and **swapped the
+  board back** — a forfeited call-out handing the rank straight back to the
+  player who had just lost it. The object is killed now, not just the pointer.
+  Pinned by "hands them the races that settled it, and not one more".
+- JsonUtility cannot represent a null nested object — it hands one back
+  default-built — so "no challenge" is a STATE of a `RankChallenge` (empty
+  alias) rather than the absence of one. Same trick `OwnedCar.setup` plays with
+  a factory tune.
+- The board is validated before every read and rebuilt only when it is actually
+  broken. `RankOf` is asked a dozen questions per row by eleven rows of UI;
+  allocating a repaired list to answer "it is fine" is eleven dozen allocations
+  a rebuild.
+- A `MenuKit.Button` is pivoted on its ANCHOR, not centred. The series card's
+  two buttons are placed by the corner they hang from; handing the left one a
+  centre x (which is the LABEL rule) is how a button ends up half off its panel.
+
+**v14 migration.** An existing career stands where it fought to: `blDefeated` is
+read once for the best rank ever taken and the player is slotted directly above
+that name. A career that had beaten nobody starts at the bottom, which is where
+a new one starts. Records start empty — a W-L column invented out of
+`blDefeated` would be a scoreboard for races that were never run on these rules.
+`blDefeated`/`blPaged` are retired to legacy and nothing reads them again.
+
 ## THE FLAG DOES NOT TAKE THE WHEEL, AND A DISTANCE THAT IS NOT WHITE (2026-09-20)
 
 Two sentences: "I don't like losing control of the car after crossing the

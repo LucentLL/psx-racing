@@ -783,9 +783,17 @@ namespace PSXRacing
                 case RaceManager.RaceState.Finished:
                     // A blacklist challenge is about the name, not the position:
                     // the ladder headline goes first and the timing sheet after.
-                    string ladder = RaceHandoff.RivalRank > 0
+                    //
+                    // And it is ONE RACE OF THREE. "DEFEATED" over the finish
+                    // line was true while a challenge was a single race; it is
+                    // a lie two races out of three now, so what goes up here is
+                    // the leg — the board says who took the rank once the
+                    // series is settled.
+                    string ladder = !string.IsNullOrEmpty(RaceHandoff.RivalAlias)
                         ? "#" + RaceHandoff.RivalRank + " " + RaceHandoff.RivalAlias +
-                          (pos == 1 ? " DEFEATED\n" : " KEEPS THE SPOT\n")
+                          (pos == 1 ? " — YOU TAKE THIS ONE\n" : " — THEY TAKE THIS ONE\n") +
+                          (string.IsNullOrEmpty(RaceHandoff.RivalSeries)
+                              ? "" : RaceHandoff.RivalSeries + "\n")
                         : "";
                     // Name the control the player actually HAS. On a phone there
                     // is no R key, and telling someone to press one on a device

@@ -383,8 +383,21 @@ namespace PSXRacing.LifeSim
             // drive's car through a line it never crossed.
             Town.TownEdge.ArrivePending = false;
 
+            // A CHALLENGE LEG THAT NEVER CAME BACK.
+            //
+            // This is the moment — and the only moment — that anything knows a
+            // race is over without knowing how it went: the player is standing
+            // in the house and there is no result in hand. The leg went to the
+            // start line (StartRace stamped it), so by the owner's rule it is a
+            // race that was missed, and a missed race is a loss. Run AFTER the
+            // apply-back above, which clears the flag on every leg that did
+            // report.
+            string walkout = Blacklist.SweepInFlight(S);
+            if (walkout != null) LifeSimManager.Save();
+
             BuildChrome();
             Rebuild();
+            if (walkout != null && raceSummary == null) Toast(walkout);
             if (raceSummary != null)
             {
                 // A fault surfaced by the race is the headline, not a footnote —
@@ -1573,6 +1586,20 @@ namespace PSXRacing.LifeSim
             bool shiftNow = !string.IsNullOrEmpty(S.playerJob) && LifeRules.ShiftSlot(S.slotIndex);
 
             // ---- the race ----
+            // A LIVE CALL-OUT RIDES IN THIS ROW, not above it. It is the only
+            // thing on this screen with a clock running on it — every block
+            // that passes without a leg raced is a leg that goes to the other
+            // driver, and a series that expires costs a rank — so the house has
+            // to mention it. But it cannot mention it in a row of its own: MAIN
+            // is "all of it on one screen" by requirement, and on a phone that
+            // column has about thirty spare units in it. Fifty more put SLEEP
+            // under the fold, which the preview caught as
+            // "home_callout/phone_wide MUST FIT ON ONE SCREEN, and does not".
+            //
+            // So the race row grows a second line instead, and the booking
+            // keeps the first one when there is one: a call-out must never
+            // swallow the only way into a race the player planned.
+            var live = S.blChallenge != null && S.blChallenge.Live ? S.blChallenge : null;
             // The calendar is the boss of this row. A race written into THIS
             // block is the gold button; one written into a later block today is
             // named and waits (cancel it in the planner to race sooner); nothing
@@ -1581,7 +1608,21 @@ namespace PSXRacing.LifeSim
             string raceLabel;
             UnityEngine.Events.UnityAction raceAct = null;
             Color raceBg = MenuKit.BtnBgDisabled;
-            if (racedToday) raceLabel = "RACED TODAY — BACK TOMORROW";
+            // The call-out takes the row outright when nothing was booked into
+            // this block, and the second line when something was. RacedToday is
+            // deliberately NOT a reason to stand down: a challenge leg does not
+            // burn the one-purse-race-a-day cap, so "RACED TODAY — BACK
+            // TOMORROW" would be the house refusing a race it is perfectly
+            // happy to run.
+            bool calloutLeads = live != null && bookedNow == null;
+            if (calloutLeads)
+            {
+                raceLabel = Clip((live.incoming ? "DEFEND #" + Blacklist.StakeRank(S) + " vs "
+                                                : "CALL-OUT — ") + live.alias, 28);
+                raceAct = () => { tab = "rivals"; Rebuild(); };
+                raceBg = live.incoming ? new Color(0.44f, 0.16f, 0.14f, 1f) : RaceBg;
+            }
+            else if (racedToday) raceLabel = "RACED TODAY — BACK TOMORROW";
             else if (bookedNow != null)
             {
                 raceLabel = Clip("RACE — " + TrackCatalog.At(bookedNow.trackIndex).name, 28);
@@ -1597,8 +1638,32 @@ namespace PSXRacing.LifeSim
                 raceAct = () => { tab = "prerace"; Rebuild(); };
                 raceBg = RaceBg;
             }
-            MenuKit.Button(body, raceLabel, new Vector2(0.5f, 1f), new Vector2(cx, y),
+            var raceRow = MenuKit.Button(body, live == null ? raceLabel : "",
+                new Vector2(0.5f, 1f), new Vector2(cx, y),
                 new Vector2(w, 56f), raceAct, 20, raceBg);
+            if (live != null)
+            {
+                // Two lines in one button, the way a calendar block draws. The
+                // name has to be set by hand: an empty caption makes every such
+                // button "Btn_", and the cursor is restored BY NAME across a
+                // rebuild — three of them and every press lands on the first.
+                raceRow.gameObject.name = "Btn_RACE";
+                int daysLeft = live.deadlineDay - S.day;
+                // Greyed when the row is not pressable, the same as the caption
+                // MenuKit would have drawn: a white line on a dead button reads
+                // as one that ought to work.
+                MenuKit.Label(raceRow.transform, raceLabel, 20, new Vector2(0.5f, 0.5f),
+                    new Vector2(0f, 11f), TextAnchor.MiddleCenter,
+                    raceAct != null ? Color.white : new Color(0.60f, 0.60f, 0.68f),
+                    w - 24f, height: 24f, bold: true);
+                MenuKit.Label(raceRow.transform,
+                    (calloutLeads ? "" : live.alias + "  ·  ") + Blacklist.SeriesLine(S) +
+                    "  ·  " + (daysLeft <= 0 ? "LAST DAY" : daysLeft + " DAYS LEFT"),
+                    MenuKit.Tiny, new Vector2(0.5f, 0.5f), new Vector2(0f, -12f),
+                    TextAnchor.MiddleCenter,
+                    daysLeft <= 0 ? MenuKit.Bad : live.incoming ? MenuKit.Bad : MenuKit.Accent,
+                    w - 24f, height: 22f);
+            }
             y -= 62f;
 
             // ---- the shift ----
@@ -1783,6 +1848,15 @@ namespace PSXRacing.LifeSim
             }
             if (when != BlockWhen.Past && CarMeets.MeetAt(day, slot))
                 Note("CAR MEET — " + CarMeets.PlaceName, MeetInk);
+            // A live call-out runs out on a DAY, not in a block — any of the
+            // three will do to race a leg in — so it is noted on every block of
+            // the days it is still alive, and loudly on the last one.
+            var callout = S.blChallenge != null && S.blChallenge.Live ? S.blChallenge : null;
+            if (callout != null && when != BlockWhen.Past &&
+                day >= S.day && day <= callout.deadlineDay)
+                Note((day == callout.deadlineDay ? "LAST DAY — " : "CALL-OUT — ") + callout.alias +
+                     ", " + Blacklist.SeriesLine(S),
+                     day == callout.deadlineDay ? MenuKit.Bad : MenuKit.Accent);
             if (LifeRules.DayOfMonth(day) == 1) Note("BILLS DUE", MenuKit.Bad);
             else if (LifeRules.IsPayday(day)) Note("PAYDAY — whatever the week banked", MenuKit.Good);
             // What comes back in THIS block. A car at a shop is one line
@@ -4527,17 +4601,46 @@ namespace PSXRacing.LifeSim
                 MenuKit.Dim, ColW, height: 24f);
             y -= 34f;
 
-            foreach (string line in new[]
+            // SPORT is the BLACKLIST. It used to be a placeholder line — "see
+            // the board at the meet" — and there was nothing to report, because
+            // the ten names on the board did nothing until the player turned
+            // up. They race each other every night now, so the paper has
+            // results to print, and printing them here is how a player who has
+            // not opened RIVALS all week still notices the order has changed
+            // under them.
+            MenuKit.Label(body, "MOTORING — nothing filed this week.", 17,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW);
+            y -= 26f;
+            var wire = S.blNews;
+            if (wire != null && wire.Count > 0)
             {
-                "MOTORING — nothing filed this week.",
-                "SPORT — see the board at the meet.",
-                "WEATHER — clear, cold, dry roads after dark.",
-            })
-            {
-                MenuKit.Label(body, line, 17, new Vector2(0.5f, 1f),
+                MenuKit.Label(body, "SPORT — off the street:", 17, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
                 y -= 26f;
+                for (int i = wire.Count - 1, shown = 0; i >= 0 && shown < 3; i--, shown++)
+                {
+                    MenuKit.Label(body, "   " + Clip(wire[i], 60), 17, new Vector2(0.5f, 1f),
+                        new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, ColW);
+                    y -= 24f;
+                }
             }
+            else
+            {
+                MenuKit.Label(body, "SPORT — quiet week on the board.", 17,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, ColW);
+                y -= 26f;
+            }
+            // The real forecast, not the one the placeholder always printed:
+            // "clear, cold, dry roads after dark" read as a lie in July, and
+            // the save has known the day's weather since the seasons landed.
+            string sky = Seasons.WeatherLabel(Seasons.WeatherFor(S.day));
+            MenuKit.Label(body, "WEATHER — " + (sky ?? "CLEAR") + ", " +
+                    Seasons.Of(S.day).ToString().ToUpperInvariant(), 17,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW);
+            y -= 26f;
         }
 
         /// <summary>
@@ -5778,131 +5881,298 @@ namespace PSXRacing.LifeSim
         // =================== the ladder (L4) ===================
         /// <summary>Cached so the taunt does not reroll on every Rebuild — a
         /// rival whose line changes each time you glance at the board reads as
-        /// noise rather than as a person.</summary>
+        /// noise rather than as a person. Keyed on the NAME, not the rung: the
+        /// rung under a name changes overnight and the person does not.</summary>
         string tauntLine;
-        int tauntRank;
+        string tauntAlias;
+        /// <summary>Second press arms the walk-away. Declining hands over a
+        /// rank, which is the single most expensive button on this screen and
+        /// the only one with no undo.</summary>
+        bool confirmDecline;
 
-        // Column geometry as FRACTIONS of the available half-width, resolved at
-        // build time against this screen.
-        //
-        // Two traps stacked here. MenuKit centres a label's rect on the x it is
-        // given (pivot == anchor), so a left-aligned column at margin L belongs
-        // at L + width/2 — passing L directly hangs half the rect off the left
-        // edge, which is what the first cut of this board did. And absolute
-        // offsets are only ever right for one canvas: the design column is 720
-        // units tall on a desktop and 560 on a handheld, and the width follows
-        // the height, so a column hard-coded at -460 fits a monitor and runs off
-        // a phone. Fractions of the real half-width survive both.
-        const float RivalMargin = 0.96f;    // keep off the very edge
         /// <summary>Characters of car name a row shows. 22B-STi Impreza spells
         /// itself out over sixty characters and would run straight through the
-        /// gate column, and Text has no ellipsis mode to lean on.</summary>
-        const int RivalCarChars = 30;
+        /// record column, and Text has no ellipsis mode to lean on.</summary>
+        const int RivalCarChars = 28;
 
+        /// <summary>
+        /// THE BOARD: eleven names, one of them yours.
+        ///
+        /// Column geometry is FRACTIONS of the real span, resolved at build
+        /// time against this screen. Two traps stacked there: a label takes the
+        /// EDGE its text starts from while a button takes its CENTRE, and
+        /// absolute offsets are only ever right for one canvas — the design
+        /// column is 720 units tall on a desktop and 560 on a handheld, and the
+        /// width follows the height, so a column hard-coded at -460 fits a
+        /// monitor and runs off a phone.
+        /// </summary>
         void BuildRivals()
         {
             float y = -14f;
-            var open = Blacklist.OpenRival(S);
-            var next = Blacklist.NextRival(S);
+            var ch = S.blChallenge;
+            bool live = ch != null && ch.Live;
+            var opponent = Blacklist.Opponent(S);
+            var above = Blacklist.Above(S);
+            int myRank = Blacklist.PlayerRank(S);
+            var board = Blacklist.Board(S);
 
-            // Resolve the columns against THIS screen. Widths are shares of the
-            // usable span; each x is the left margin plus half the width,
-            // because MenuKit centres the rect on the x it is handed.
-            // Labels now take the EDGE their text starts from, so these are the
-            // column boundaries directly. Buttons still take a centre.
-            float half = ColR;
             float span = ColW;
-            float aliasW = span * 0.20f, carW = span * 0.38f;
-            float statW = span * 0.16f, btnW = span * 0.22f;
+            float aliasW = span * 0.24f, carW = span * 0.33f;
+            float recW = span * 0.14f, btnW = span * 0.26f;
             float colAlias = ColL;
             float colCar = ColL + aliasW;
-            float colStat = ColL + aliasW + carW + statW;      // right-aligned edge
+            float colRec = ColL + aliasW + carW + recW;        // right-aligned edge
             float colBtn = MenuKit.ColRight(ColR, btnW);       // a button: centre
-            float rowH = 46f;
 
+            // ELEVEN ROWS HAVE TO FIT, and the column they fit in is 534 units
+            // on a monitor and nearer 400 on a phone. A row height that suits
+            // one leaves two names under the fold on the other — and the two
+            // that go are #10 and #11, which is exactly where a new career is
+            // standing and where its CHALLENGE button lives. So the row gives
+            // way to the fixed furniture instead, the same rule the day view's
+            // blocks follow. The reserve is what the news strip needs to show
+            // two lines; the floor is where 20-unit type stops being a row.
+            const float HeadH = 52f, NewsReserve = 70f;
+            float roomForRows = (BodyH - MenuKit.ScrollPad) - 14f - HeadH - NewsReserve -
+                                (live ? SeriesCardH + 6f : 0f);
+            float rowH = Mathf.Clamp(roomForRows / Mathf.Max(1, board.Count), 32f, 44f);
+
+            var mine = Blacklist.EntryOf(S, Blacklist.PlayerKey);
+            // A label hangs its full HEIGHT below the y it is given, so these
+            // two carry one: at the default 40 the header printed through the
+            // line under it and the line under that printed through the first
+            // name on the board.
             MenuKit.Label(body, "BLACKLIST", MenuKit.Small, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Accent, aliasW * 1.6f, bold: true);
-            MenuKit.Label(body, "WINS " + S.streetRacesWon + "  ·  REP " +
-                    Mathf.RoundToInt(S.streetRep) + "  ·  " + S.blDefeated.Count + "/10 TAKEN",
+                MenuKit.Accent, aliasW * 1.6f, height: 26f, bold: true);
+            MenuKit.Label(body, "YOU ARE #" + myRank + " OF " + board.Count + "  ·  " +
+                    (mine != null ? mine.wins + "W " + mine.losses + "L" : "0W 0L") +
+                    "  ·  REP " + Mathf.RoundToInt(S.streetRep),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColR, y),
-                TextAnchor.MiddleRight, MenuKit.Dim, span * 0.55f);
-            y -= 30f;
+                TextAnchor.MiddleRight, MenuKit.Dim, span * 0.62f, height: 26f);
+            y -= 26f;
 
             // The line under the header is the whole reason the board has names
-            // on it: a locked rung says what it wants, an open one talks back.
+            // on it. It says one of three things: somebody is coming for you,
+            // you are mid-series, or here is what the name above thinks of you.
             string blurb;
-            if (open != null)
+            Color blurbInk = MenuKit.Accent;
+            if (live && ch.incoming)
             {
-                if (tauntRank != open.rank || tauntLine == null)
-                {
-                    tauntRank = open.rank;
-                    var pc = S.ActiveCar;
-                    // The taunt names the player's car, and catalog names carry a
-                    // chassis code, a market and a year. "Mazda RX-7" is what
-                    // someone would actually sneer at you across a car park.
-                    tauntLine = Blacklist.Taunt(open, ShortCarName(pc));
-                }
-                blurb = open.alias + ": \"" + tauntLine + "\"";
+                blurb = ch.alias + " WANTS YOUR SPOT — every race you skip is one you lose.";
+                blurbInk = MenuKit.Bad;
             }
-            else if (next != null)
+            else if (live) blurb = TauntFor(opponent);
+            else if (above != null)
             {
-                blurb = "#" + next.rank + " " + next.alias + " won't see you yet — need " +
-                        next.gateWins + " wins and " + next.gateRep + " rep.";
+                string no = Blacklist.ChallengeRefusal(S);
+                blurb = no ?? TauntFor(above);
+                blurbInk = no != null ? MenuKit.Dim : MenuKit.Accent;
             }
-            else blurb = "The whole board is yours.";
+            else { blurb = "The whole board is yours. Nobody left to call out."; blurbInk = MenuKit.Good; }
             MenuKit.Label(body, blurb, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                open != null ? MenuKit.Accent : MenuKit.Dim, span);
-            y -= 30f;
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, blurbInk, span, height: 24f);
+            y -= 26f;
 
             // Pre-race gates. RacedToday deliberately is NOT one of them: a
             // challenge does not spend the daily purse race.
             var car = S.ActiveCar;
             // Same gate as the main screen, and for the same reason: enough to
-            // REACH the forecourt, not enough to finish without one.
-            bool lowFuel = car == null ||
-                           car.fuel <= LifeRules.RequiredFuelPct(TrackCatalog.At(S.trackIndex), car);
+            // REACH the forecourt, not enough to finish without one. Measured
+            // against the SERIES road, not the player's own picked venue —
+            // those are different places now.
+            var road = TrackCatalog.At(live ? Blacklist.SeriesTrack(S)
+                                            : Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1));
+            bool lowFuel = car == null || car.fuel <= LifeRules.RequiredFuelPct(road, car);
             // And a car that is HERE. One at the mechanic's cannot answer a
             // call-out, and the button says which of the two it is.
             bool noCar = !CarWhere.Available(S, car);
+            string blocked = noCar ? "NO CAR" : lowFuel ? "LOW FUEL" : null;
 
-            // Boss at the top, the way a wanted list reads.
-            for (int rank = 1; rank <= 10; rank++)
+            if (live) BuildSeriesCard(ref y, ch, opponent, blocked, span);
+
+            // Top of the ladder first, the way a wanted list reads.
+            for (int rank = 1; rank <= board.Count; rank++)
             {
-                var r = Blacklist.ByRank(rank);
-                var status = Blacklist.StatusOf(S, r);
-                bool isOpen = status == RivalStatus.Open;
-                Color tone = status == RivalStatus.Beaten ? MenuKit.Good
-                           : isOpen ? MenuKit.Accent : MenuKit.Dim;
+                var entry = board[rank - 1];
+                bool isYou = entry.IsPlayer;
+                bool inSeries = live && entry.alias == ch.alias;
+                bool challengeable = !live && above != null && entry.alias == above.alias;
+                var rival = isYou ? null : Blacklist.ByAlias(entry.alias);
 
-                MenuKit.Label(body, "#" + rank + " " + r.alias, MenuKit.Tiny,
-                    new Vector2(0.5f, 1f), new Vector2(colAlias, y), TextAnchor.MiddleLeft,
-                    tone, aliasW, bold: isOpen);
-                MenuKit.Label(body, Clip(Blacklist.CarName(r), RivalCarChars), MenuKit.Tiny,
+                // The series row takes the ink of the DIRECTION: red is what a
+                // spot being taken off you looks like, and a call-out you made
+                // is not that — it is the same amber as the button that opened
+                // it.
+                Color tone = isYou ? MenuKit.Active
+                           : inSeries ? (ch.incoming ? MenuKit.Bad : MenuKit.Accent)
+                           : challengeable ? MenuKit.Accent
+                           : rank < myRank ? Color.white : MenuKit.Dim;
+
+                string name = isYou ? "#" + rank + " " + Clip(S.playerName, 11) + " (YOU)"
+                                    : "#" + rank + " " + entry.alias;
+                MenuKit.Label(body, name, MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(colAlias, y), TextAnchor.MiddleLeft, tone, aliasW,
+                    bold: isYou || inSeries || challengeable);
+
+                string carName = isYou
+                    ? (car != null ? car.displayName : "no car")
+                    : Blacklist.CarName(rival);
+                MenuKit.Label(body, Clip(carName, RivalCarChars), MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(colCar, y), TextAnchor.MiddleLeft,
-                    status == RivalStatus.Locked ? MenuKit.Dim : Color.white, carW);
+                    isYou ? MenuKit.Accent : rank < myRank ? Color.white : MenuKit.Dim, carW);
 
-                string right = status == RivalStatus.Beaten ? "DEFEATED"
-                    : isOpen ? MenuKit.Money(Blacklist.Purse(rank))
-                    : r.gateWins + "W / " + r.gateRep + "REP";
-                MenuKit.Label(body, right, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                    new Vector2(colStat, y), TextAnchor.MiddleRight, tone, statW);
+                // The record is what makes the churn legible: a name three rungs
+                // up this month has the results to show for it.
+                MenuKit.Label(body, entry.wins + "W " + entry.losses + "L", MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(colRec, y), TextAnchor.MiddleRight,
+                    inSeries ? tone : MenuKit.Dim, recW);
 
-                if (isOpen)
+                if (inSeries)
+                    MenuKit.Label(body, ch.incoming ? "CHALLENGING YOU" : "YOUR CALL-OUT",
+                        MenuKit.Tiny, new Vector2(0.5f, 1f),
+                        new Vector2(ColR, y), TextAnchor.MiddleRight, tone, btnW);
+                else if (challengeable)
                 {
-                    var captured = r;
-                    bool blocked = noCar || lowFuel;
-                    MenuKit.Button(body, noCar ? "NO CAR" : lowFuel ? "LOW FUEL" : "CHALLENGE",
-                        new Vector2(0.5f, 1f), new Vector2(colBtn, y),
-                        new Vector2(btnW, rowH * 0.82f),
-                        blocked ? (UnityEngine.Events.UnityAction)null
-                                : () => StartRace(false, captured),
-                        MenuKit.Tiny, blocked ? MenuKit.BtnBgDisabled
-                                    : (Color?)new Color(1f, 0.84f, 0.4f, 0.28f));
+                    // Three ways this row refuses, and the button says which:
+                    // no car, no fuel, or a name that is not taking your calls
+                    // after the last time you could not beat them.
+                    var captured = rival;
+                    string stop = Blacklist.CanChallengeUp(S) ? blocked : "NOT TAKING CALLS";
+                    MenuKit.Button(body, stop ?? "CHALLENGE", new Vector2(0.5f, 1f),
+                        new Vector2(colBtn, y), new Vector2(btnW, rowH * 0.82f),
+                        stop != null ? (UnityEngine.Events.UnityAction)null
+                            : () =>
+                            {
+                                Blacklist.ChallengeUp(S);
+                                LifeSimManager.Save();
+                                confirmDecline = false;
+                                Rebuild();
+                                Toast("BEST OF " + Blacklist.SeriesRaces + " vs " +
+                                      captured.alias + " — " + Blacklist.ChallengeDays + " DAYS");
+                            },
+                        MenuKit.Tiny, stop != null ? MenuKit.BtnBgDisabled
+                            : (Color?)new Color(1f, 0.84f, 0.4f, 0.28f));
                 }
+                else if (!isYou && rank == myRank + 1)
+                    MenuKit.Label(body, "CAN CALL YOU OUT", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                        new Vector2(ColR, y), TextAnchor.MiddleRight, MenuKit.Dim, btnW);
                 y -= rowH;
             }
+
+            y -= 6f;
+            BuildLadderNews(ref y, span);
+        }
+
+        /// <summary>
+        /// The live series, as the loudest thing on the page: who, where, how it
+        /// stands, how long is left, and the two buttons that settle it.
+        ///
+        /// A card rather than two more buttons on the rival's own row, because
+        /// the row has no width left for them and because a call-out for your
+        /// rank is not a line item — it is the state the whole screen is in.
+        /// </summary>
+        /// <summary>
+        /// Card height, and the reason it is a named number: the row height
+        /// above is computed against it, and the three things INSIDE it are
+        /// placed against it too. Two lines of 24 and 20 from the top, a
+        /// 38-unit button row 6 off the bottom, and 8 units of air between —
+        /// at 86 the second line was printed straight through the buttons.
+        /// </summary>
+        const float SeriesCardH = 96f;
+
+        void BuildSeriesCard(ref float y, RankChallenge ch, BlacklistRival opponent,
+                             string blocked, float span)
+        {
+            int daysLeft = ch.deadlineDay - S.day;
+            var box = MenuKit.Rect(body, "Series", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(ColL, y), new Vector2(span, SeriesCardH),
+                ch.incoming ? new Color(0.34f, 0.12f, 0.11f, 1f)
+                            : new Color(0.30f, 0.23f, 0.09f, 1f));
+
+            MenuKit.Label(box, (ch.incoming ? "DEFEND #" : "TAKING #") +
+                    Blacklist.StakeRank(S) + "  ·  " + ch.alias,
+                MenuKit.Small, new Vector2(0f, 1f), new Vector2(14f, -6f),
+                TextAnchor.MiddleLeft, ch.incoming ? MenuKit.Bad : MenuKit.Accent,
+                span * 0.55f, height: 24f, bold: true);
+            MenuKit.Label(box, Blacklist.SeriesLine(S) + "  ·  " +
+                    (daysLeft <= 0 ? "LAST DAY" : daysLeft + (daysLeft == 1 ? " DAY LEFT" : " DAYS LEFT")),
+                MenuKit.Tiny, new Vector2(1f, 1f), new Vector2(-14f, -6f),
+                TextAnchor.MiddleRight, daysLeft <= 0 ? MenuKit.Bad : Color.white,
+                span * 0.42f, height: 24f, bold: true);
+            MenuKit.Label(box, TrackCatalog.At(Blacklist.SeriesTrack(S)).name.ToUpperInvariant() +
+                    "  ·  " + MenuKit.Money(Blacklist.Purse(Blacklist.StakeRank(S))) + " A RACE",
+                MenuKit.Tiny, new Vector2(0f, 1f), new Vector2(14f, -30f),
+                TextAnchor.MiddleLeft, MenuKit.Dim, span * 0.6f, height: 20f);
+
+            // A BUTTON IS PIVOTED ON ITS ANCHOR, not centred — so these two are
+            // placed by the corner they hang from: bottom-left and bottom-right
+            // of the card. Handing the left one a centre x (the labels' rule)
+            // is how a button ends up half-way off the panel it lives in.
+            float bw = span * 0.46f, dw = span * 0.32f;
+            MenuKit.Button(box, blocked ?? ("RACE " + ch.LegNumber + " OF " + Blacklist.SeriesRaces),
+                new Vector2(0f, 0f), new Vector2(14f, 6f), new Vector2(bw, 38f),
+                blocked != null ? (UnityEngine.Events.UnityAction)null
+                    : () => StartRace(false, opponent),
+                17, blocked != null ? MenuKit.BtnBgDisabled : (Color?)RaceBg);
+            // Second press arms it. This button gives away a rank.
+            MenuKit.Button(box, confirmDecline ? "SURE? THAT IS A LOSS" : "WALK AWAY",
+                new Vector2(1f, 0f), new Vector2(-14f, 6f), new Vector2(dw, 38f),
+                () =>
+                {
+                    if (!confirmDecline)
+                    {
+                        confirmDecline = true; Rebuild();
+                        Toast("walking away forfeits every race left");
+                        return;
+                    }
+                    confirmDecline = false;
+                    string line = Blacklist.Decline(S);
+                    LifeSimManager.Save(); Rebuild();
+                    Toast(line ?? "call-out withdrawn");
+                }, 16, confirmDecline ? (Color?)HungryBg : null);
+            y -= SeriesCardH + 6f;
+        }
+
+        /// <summary>
+        /// What the board has been doing without you. However many lines the
+        /// page has left, up to five — the same "take the room nothing else
+        /// wanted" rule MAIN's diary follows, and for the same reason: a fixed
+        /// count either overflows a phone or wastes a monitor.
+        /// </summary>
+        void BuildLadderNews(ref float y, float span)
+        {
+            var news = S.blNews;
+            if (news == null || news.Count == 0) return;
+            const float Row = 22f, Head = 26f;
+            int room = Mathf.FloorToInt((y - Head - MainFloor) / Row);
+            int take = Mathf.Clamp(Mathf.Min(room, 5), 0, news.Count);
+            if (take <= 0) return;
+
+            MenuKit.Label(body, "WORD ON THE STREET", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, span, height: 22f);
+            y -= Head;
+            for (int i = news.Count - take; i < news.Count; i++)
+            {
+                MenuKit.Label(body, Clip(news[i], 64), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, span, height: Row);
+                y -= Row;
+            }
+        }
+
+        /// <summary>A rival's line, held steady across rebuilds. The taunt names
+        /// the player's car, and catalog names carry a chassis code, a market
+        /// and a year — "Mazda RX-7" is what someone would actually sneer at
+        /// you across a car park.</summary>
+        string TauntFor(BlacklistRival rival)
+        {
+            if (rival == null) return "";
+            if (tauntAlias != rival.alias || tauntLine == null)
+            {
+                tauntAlias = rival.alias;
+                tauntLine = Blacklist.Taunt(rival, ShortCarName(S.ActiveCar));
+            }
+            return rival.alias + ": \"" + tauntLine + "\"";
         }
 
         /// <summary>Truncate to fit a column. UGUI Text has no ellipsis mode —
@@ -6273,7 +6543,11 @@ namespace PSXRacing.LifeSim
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.CarId = S.activeCar;
             RaceHandoff.CarSpecId = S.ActiveCar != null ? S.ActiveCar.specId : "";
-            RaceHandoff.TrackIndex = Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
+            // A challenge runs on the ROAD THE SERIES NAMED, not on whatever
+            // the player last picked for themselves: it is their call-out, and
+            // three legs at one venue is what makes it a series.
+            RaceHandoff.TrackIndex = rival != null ? Blacklist.SeriesTrack(S)
+                                   : Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
             RaceHandoff.TimeOfDayIndex = RaceHour();
             RaceHandoff.IsPractice = practice;
             // The tank the car is actually carrying. It burns down in real time
@@ -6294,9 +6568,16 @@ namespace PSXRacing.LifeSim
             // which is a worse race but never a broken one.
             if (rival != null && LifeRules.FillRivalField(rival))
             {
-                RaceHandoff.RivalRank = rival.rank;
+                int stake = Blacklist.StakeRank(S);
+                RaceHandoff.RivalRank = stake;
                 RaceHandoff.RivalAlias = rival.alias;
-                RaceHandoff.PurseWin = Blacklist.Purse(rival.rank);
+                RaceHandoff.RivalSeries = Blacklist.SeriesBanner(S);
+                RaceHandoff.PurseWin = Blacklist.Purse(stake);
+                // COMMITTED AT THE START LINE. Whatever happens from here —
+                // a finish, a quit, the app closing — this leg has been raced,
+                // and an unreported one is a loss. Same contract the meet uses
+                // for the same reason.
+                Blacklist.BeginLeg(S);
             }
             else
             {
@@ -6342,11 +6623,16 @@ namespace PSXRacing.LifeSim
             RaceHandoff.OpponentSkills = racer.skill.ToString("0.###",
                 System.Globalization.CultureInfo.InvariantCulture);
             // The name on the board, found at the meet: the same challenge the
-            // RIVALS page launches, so the ladder records it the same way.
-            if (racer.IsRival)
+            // RIVALS page launches, so the ladder records it the same way —
+            // opening the series on the spot if the player had not called them
+            // out yet. When the board says this is not a rank race (they are
+            // mid-series with somebody else, say), it is still a race; it just
+            // does not count for one.
+            if (racer.IsRival && Blacklist.BeginMeetLeg(S, racer.rivalAlias))
             {
-                RaceHandoff.RivalRank = racer.rivalRank;
-                RaceHandoff.RivalAlias = racer.alias;
+                RaceHandoff.RivalRank = Blacklist.StakeRank(S);
+                RaceHandoff.RivalAlias = racer.rivalAlias;
+                RaceHandoff.RivalSeries = Blacklist.SeriesBanner(S);
             }
             CarMeets.BeginRun(S, racer);
             FillCarRequest();

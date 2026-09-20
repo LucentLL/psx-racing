@@ -8685,19 +8685,27 @@ namespace PSXRacing.EditorTools
         }
 
         // ---------------------------------------------------------------
-        // L4: the blacklist ladder.
+        // L4: the blacklist ladder — an ORDER with the player in it.
+        //
+        // The thing worth asserting is not that a challenge works: it is that
+        // the board can only ever be moved by a race. Every rung the player
+        // gains or loses in here is traced back to legs raced, forfeited or
+        // walked out on, because a ladder that can shuffle by any other means
+        // is a ladder whose rank means nothing.
 
         static void TestBlacklist()
         {
             Line("blacklist:");
             Check(Blacklist.Rivals.Length == 10, "ten rivals", Blacklist.Rivals.Length);
+            Check(Blacklist.BoardSize == 11, "eleven names on the board — the player is one of them",
+                  Blacklist.BoardSize);
 
             int unresolved = 0;
             float prevSkill = 0f;
             bool skillAscends = true;
-            for (int rank = 10; rank >= 1; rank--)
+            for (int start = 10; start >= 1; start--)
             {
-                var r = Blacklist.ByRank(rank);
+                var r = RivalByStart(start);
                 if (r == null) { unresolved++; continue; }
                 if (Blacklist.ResolveCar(r) == null) unresolved++;
                 if (r.skill < prevSkill) skillAscends = false;
@@ -8707,76 +8715,209 @@ namespace PSXRacing.EditorTools
                   unresolved + " unresolved");
             // Worth printing: the roster is name patterns against a baked
             // catalog, so a re-bake can silently hand a rival a different car.
-            for (int rank = 10; rank >= 1; rank--)
+            for (int start = 10; start >= 1; start--)
             {
-                var r = Blacklist.ByRank(rank);
+                var r = RivalByStart(start);
                 var rc = Blacklist.ResolveCar(r);
-                Line("  ..   #" + rank + " " + r.alias.PadRight(9) + " skill " +
+                Line("  ..   #" + start + " " + r.alias.PadRight(9) + " skill " +
                      r.skill.ToString("0.00") + "  " +
                      (rc != null ? rc.name + " (" + rc.hp + "hp " + rc.drv + ", " +
                                    MenuKit.Money(rc.price) + ")" : "UNRESOLVED"));
             }
-            // The cars are chosen for identity and come out non-monotonic, so
-            // skill is the thing that has to climb or the ladder gets easier.
-            Check(skillAscends, "AI skill climbs from rank 10 to rank 1");
+            // Skill travels with the NAME now, so it has to climb with the
+            // START order or a fresh board is not a ladder at all.
+            Check(skillAscends, "AI skill climbs from the bottom rung to the top");
 
-            var s = LifeRules.SeedNewGame("TESTER", 25, 3);
+            // ---- a fresh board -------------------------------------------
+            var s = LifeRules.SeedNewGame("TESTER", 25, 0);
             LifeRules.SeedFallbackCar(s);
-            var entry = Blacklist.ByRank(10);
-            Check(Blacklist.StatusOf(s, entry) == RivalStatus.Locked,
-                  "a fresh driver cannot challenge anyone");
-            Check(Blacklist.OpenRival(s) == null, "and nothing is open");
+            var board = Blacklist.Board(s);
+            Check(board.Count == 11, "a new career opens onto eleven rungs", board.Count);
+            Check(Blacklist.PlayerRank(s) == 11, "and the player is on the bottom one",
+                  Blacklist.PlayerRank(s));
+            Check(Blacklist.Below(s) == null, "nobody is below a beginner, so nobody calls them out");
+            Check(Blacklist.Above(s) != null && Blacklist.Above(s).alias == "JUICE",
+                  "the entry rival is the one rung up");
+            Check(Blacklist.AliasAt(s, 1) == "CALLAHAN", "and the boss is still #1");
 
-            // Clear the entry gate.
-            s.streetRacesWon = entry.gateWins;
-            s.streetRep = entry.gateRep;
-            Check(Blacklist.StatusOf(s, entry) == RivalStatus.Open, "the gate opens rank 10");
-            Check(Blacklist.StatusOf(s, Blacklist.ByRank(9)) == RivalStatus.Locked,
-                  "rank 9 stays locked while rank 10 stands");
+            // The board repairs itself: a save that lost a name gets it back
+            // rather than leaving somebody with no rank at all.
+            s.blBoard.RemoveAt(3);
+            s.blBoard.Add(new RankEntry { alias = "JUICE" });     // a duplicate, too
+            Check(Blacklist.Board(s).Count == 11, "a damaged board is repaired to eleven",
+                  Blacklist.Board(s).Count);
+            Check(Blacklist.RankOf(s, "JUICE") > 0 && Blacklist.PlayerRank(s) > 0,
+                  "with every name on it exactly once");
+            Blacklist.SeedBoard(s);
 
-            // The pager is one-shot.
-            Check(Blacklist.TickPager(s) != null, "the call-out fires");
-            Check(Blacklist.TickPager(s) == null, "and does not fire twice");
-            int mailCount = s.mail.Count;
+            // ---- opening a series ----------------------------------------
+            Check(Blacklist.CanChallengeUp(s), "the rung above can be called out");
+            string head = Blacklist.ChallengeUp(s);
+            Check(head != null && s.blChallenge.Live, "the call-out opens a series", head);
+            Check(s.blChallenge.alias == "JUICE" && !s.blChallenge.incoming,
+                  "against the name above, outgoing");
+            Check(s.blChallenge.deadlineDay == s.day + Blacklist.ChallengeDays,
+                  "with a deadline on it", s.blChallenge.deadlineDay - s.day);
+            Check(!Blacklist.CanChallengeUp(s), "and a second call-out is refused while it runs");
 
-            // Rep decay re-locks an UNFOUGHT rival, and the latch does not re-page.
-            s.streetRep = entry.gateRep - 5;
-            Check(Blacklist.StatusOf(s, entry) == RivalStatus.Locked,
-                  "rep decay can close a gate again");
-            s.streetRep = entry.gateRep;
-            Check(Blacklist.TickPager(s) == null, "a reopened gate does not re-page");
-            Check(s.mail.Count == mailCount, "and posts no second call-out");
+            // ---- best of three -------------------------------------------
+            Blacklist.RecordLeg(s, "JUICE", true);
+            Check(Blacklist.PlayerRank(s) == 11, "one win does not take the rank",
+                  Blacklist.PlayerRank(s));
+            Check(s.blChallenge.Live, "the series is still open at 1-0");
+            Blacklist.RecordLeg(s, "JUICE", false);
+            Check(s.blChallenge.Live && s.blChallenge.LegNumber == 3,
+                  "1-1 goes to a decider");
+            float rep0 = s.streetRep; int money0 = s.money;
+            Blacklist.RecordLeg(s, "JUICE", true);
+            Check(!s.blChallenge.Live, "winning two of three settles it");
+            Check(Blacklist.PlayerRank(s) == 10, "and the player takes the rank",
+                  Blacklist.PlayerRank(s));
+            Check(Blacklist.RankOf(s, "JUICE") == 11, "the name they beat drops to theirs",
+                  Blacklist.RankOf(s, "JUICE"));
+            Check(s.streetRep > rep0, "taking a rank pays rep", s.streetRep - rep0);
+            Check(s.money > money0, "and a purse", s.money - money0);
+            var me = Blacklist.EntryOf(s, Blacklist.PlayerKey);
+            Check(me.wins == 2 && me.losses == 1, "the record counts legs, not series",
+                  me.wins + "W " + me.losses + "L");
 
-            // Beat them.
-            float rep0 = s.streetRep;
-            Blacklist.RecordResult(s, 10, true);
-            Check(s.blDefeated.Contains(10), "a win records the rank");
-            Check(s.streetRep > rep0, "and pays the scalp bonus", s.streetRep - rep0);
+            // ---- losing a call-out you made costs the legs, not the rank ---
+            Blacklist.SeedBoard(s);
+            var boardBefore = Blacklist.PlayerRank(s);
+            s.blChallenge = new RankChallenge();
+            s.blRematchAlias = ""; s.blRematchDay = 0;
+            Blacklist.ChallengeUp(s);
+            Blacklist.RecordLeg(s, "JUICE", false);
+            Blacklist.RecordLeg(s, "JUICE", false);
+            Check(!s.blChallenge.Live, "losing two of three settles it too");
+            Check(Blacklist.PlayerRank(s) == boardBefore,
+                  "a call-out you lose costs you nothing but the races",
+                  Blacklist.PlayerRank(s));
+            Check(s.blRematchAlias == "JUICE" && s.blRematchDay > s.day,
+                  "and they will not take your call for a couple of days");
+            Check(!Blacklist.CanChallengeUp(s), "which is what the board says when you ask");
 
-            // Defeats are permanent even when rep falls through the floor.
-            s.streetRep = 0f;
-            Check(Blacklist.StatusOf(s, entry) == RivalStatus.Beaten,
-                  "a beaten rival stays beaten through a rep collapse");
-            Check(Blacklist.NextRival(s).rank == 9, "the ladder moves to rank 9");
+            // ---- THE OWNER'S RULE: a race you do not run is a race you lose --
+            s.blRematchDay = 0;
+            s.blChallenge = new RankChallenge();
+            int juiceWas = Blacklist.EntryOf(s, "JUICE").wins;
+            Blacklist.ChallengeUp(s);
+            string declined = Blacklist.Decline(s);
+            Check(!s.blChallenge.Live, "walking away ends the series", declined);
+            // EXACTLY the races it took to settle it. Forfeit walks the legs
+            // one at a time and the second one ends the fight; a stale
+            // reference that still read Live scored the third into a series
+            // that was over, which resolved it twice and swapped the board
+            // back — the rank handed straight back to whoever had just lost it.
+            Check(Blacklist.EntryOf(s, "JUICE").wins == juiceWas + Blacklist.LegsToWin,
+                  "and hands them the races that settled it, and not one more",
+                  Blacklist.EntryOf(s, "JUICE").wins - juiceWas);
 
-            // A loss changes nothing but the log.
-            var nine = Blacklist.ByRank(9);
-            s.streetRacesWon = nine.gateWins; s.streetRep = nine.gateRep;
-            Check(Blacklist.StatusOf(s, nine) == RivalStatus.Open, "rank 9 opens");
-            Blacklist.RecordResult(s, 9, false);
-            Check(!s.blDefeated.Contains(9), "a loss does not take the spot");
-            Check(Blacklist.StatusOf(s, nine) == RivalStatus.Open, "and leaves them challengeable");
+            // The same rule pointed the other way: an INCOMING call-out that is
+            // declined is a rank handed over without a wheel being turned.
+            Blacklist.SeedBoard(s);
+            // Put the player one rung up so somebody is standing below them.
+            var b2 = Blacklist.Board(s);
+            var mine = b2[b2.Count - 1]; b2.RemoveAt(b2.Count - 1); b2.Insert(b2.Count - 1, mine);
+            Check(Blacklist.PlayerRank(s) == 10 && Blacklist.Below(s) != null,
+                  "the player has somebody below them", Blacklist.PlayerRank(s));
+            s.blChallenge = new RankChallenge();
+            string knock = Blacklist.ChallengeDown(s);
+            Check(knock != null && s.blChallenge.Live && s.blChallenge.incoming,
+                  "the rung below can call the player out", knock);
+            Check(s.mail.Exists(m => m.expiresDay == s.blChallenge.deadlineDay),
+                  "and it lands in the mail with the deadline on it");
+            Blacklist.Decline(s);
+            Check(Blacklist.PlayerRank(s) == 11,
+                  "declining hands over the rank", Blacklist.PlayerRank(s));
 
+            // Missing it does exactly the same thing. This is the deadline
+            // path rather than the button, and it must not be gentler.
+            Blacklist.SeedBoard(s);
+            b2 = Blacklist.Board(s);
+            mine = b2[b2.Count - 1]; b2.RemoveAt(b2.Count - 1); b2.Insert(b2.Count - 1, mine);
+            s.blChallenge = new RankChallenge();
+            Blacklist.ChallengeDown(s);
+            s.day = s.blChallenge.deadlineDay + 1;
+            Blacklist.TickLadder(s);
+            Check(!s.blChallenge.Live && Blacklist.PlayerRank(s) == 11,
+                  "a call-out that runs out of days is a call-out you lost",
+                  Blacklist.PlayerRank(s));
+
+            // And so does walking out of a race that had already started.
+            Blacklist.SeedBoard(s);
+            s.blChallenge = new RankChallenge();
+            s.blRematchAlias = ""; s.blRematchDay = 0;
+            Blacklist.ChallengeUp(s);
+            Blacklist.BeginLeg(s);
+            Check(s.blChallenge.legInFlight, "a launched leg is committed at the start line");
+            string walk = Blacklist.SweepInFlight(s);
+            Check(walk != null && s.blChallenge.themLegs == 1,
+                  "coming home without a result loses that race", walk);
+            Check(Blacklist.SweepInFlight(s) == null, "and it is only counted once");
+
+            // ---- the board moves on its own -------------------------------
+            Blacklist.SeedBoard(s);
+            s.blChallenge = new RankChallenge();
+            s.blNews.Clear();
+            string order0 = OrderOf(s);
+            for (int i = 0; i < 60; i++) Blacklist.TickLadder(s);
+            Check(OrderOf(s) != order0, "the ten of them shuffle themselves over two months");
+            Check(s.blNews.Count > 0, "and say so on the board", s.blNews.Count);
+            Check(Blacklist.Board(s).Count == 11, "without anybody falling off it");
+            Line("  ..   " + OrderOf(s));
+
+            // The player's row is a WALL: nothing may pass it without racing
+            // them. Stood in the MIDDLE of the board — the only place the
+            // question can be asked, since nobody can climb past somebody
+            // standing on the bottom rung — sixty nights of churn must leave
+            // them exactly where they were.
+            Blacklist.SeedBoard(s);
+            s.blChallenge = new RankChallenge();
+            var mid = Blacklist.Board(s);
+            var row = mid[mid.Count - 1]; mid.RemoveAt(mid.Count - 1); mid.Insert(5, row);
+            Check(Blacklist.PlayerRank(s) == 6, "stand the player mid-board",
+                  Blacklist.PlayerRank(s));
+            s.blIncomingReadyDay = s.day + 9999;   // no knocks: this is the sim only
+            bool stayed = true;
+            string wallAbove = AliasesAbovePlayer(s);
+            for (int i = 0; i < 60; i++)
+            {
+                Blacklist.TickLadder(s);
+                if (Blacklist.PlayerRank(s) != 6) stayed = false;
+            }
+            Check(stayed, "nobody climbs past the player without racing them");
+            // The names above can reorder themselves all they like — that is
+            // the churn working. What they cannot do is CHANGE SIDES, so the
+            // set of them is the thing that must not move.
+            Check(AliasesAbovePlayer(s) == wallAbove,
+                  "and the five names above stay above: nobody changes sides",
+                  AliasesAbovePlayer(s));
+            s.blIncomingReadyDay = 0;
+
+            // Odds are fenced: an upset has to stay possible or the order
+            // freezes into the roster's own list and the board is furniture.
+            Check(Blacklist.LegOdds(0.90f, 1.05f) >= 0.25f &&
+                  Blacklist.LegOdds(1.05f, 0.90f) <= 0.75f,
+                  "leg odds stay inside the fence",
+                  Blacklist.LegOdds(0.90f, 1.05f).ToString("0.00"));
+
+            // ---- the race half -------------------------------------------
             // The challenge field is 1v1 in the rival's car.
+            Blacklist.SeedBoard(s);
+            s.blChallenge = new RankChallenge();
+            s.blRematchAlias = ""; s.blRematchDay = 0;
+            var up = Blacklist.Above(s);
             RaceHandoff.ClearAll();
-            Check(LifeRules.FillRivalField(nine), "the challenge field builds");
+            Check(LifeRules.FillRivalField(up), "the challenge field builds");
             Check(!RaceHandoff.OpponentSpecIds.Contains(";"),
                   "a challenge is 1v1", RaceHandoff.OpponentSpecIds);
             Check(CarCatalog.Get(RaceHandoff.OpponentSpecIds) != null,
-                  "against a real catalog car: " + Blacklist.CarName(nine));
+                  "against a real catalog car: " + Blacklist.CarName(up));
 
             // A challenge must not spend the daily purse race, but must still
-            // reset the rep-decay clock.
+            // reset the rep-decay clock — and it banks ONE LEG, by NAME.
+            Blacklist.ChallengeUp(s);
             var car = s.ActiveCar;
             car.fuel = 100f;
             s.lastRaceDay = 0; s.lastAnyRaceDay = 0;
@@ -8785,17 +8926,71 @@ namespace PSXRacing.EditorTools
             RaceHandoff.MetersDriven = 3f * 1168f;
             RaceHandoff.FinishPos = 1;
             RaceHandoff.FieldSize = 2;
-            RaceHandoff.RivalRank = 9;
-            RaceHandoff.RivalAlias = nine.alias;
-            RaceHandoff.PurseWin = Blacklist.Purse(9);
-            int money0 = s.money;
+            RaceHandoff.RivalRank = Blacklist.StakeRank(s);
+            RaceHandoff.RivalAlias = up.alias;
+            RaceHandoff.PurseWin = Blacklist.Purse(RaceHandoff.RivalRank);
+            money0 = s.money;
+            int rankBefore = Blacklist.PlayerRank(s);
             LifeRules.ApplyRaceResult(s);
-            Check(s.blDefeated.Contains(9), "winning the challenge takes the spot");
+            Check(s.blChallenge.youLegs == 1, "the apply-back banks one leg",
+                  s.blChallenge.youLegs);
+            Check(Blacklist.PlayerRank(s) == rankBefore,
+                  "one race does not move the board", Blacklist.PlayerRank(s));
             Check(s.lastRaceDay == 0, "a challenge does not burn the daily race", s.lastRaceDay);
             Check(s.lastAnyRaceDay == s.day, "but does reset the rep-decay clock",
                   s.lastAnyRaceDay + " vs day " + s.day);
             Check(s.money > money0, "and pays its purse", s.money - money0);
             RaceHandoff.ClearAll();
+
+            // ---- the v14 migration ---------------------------------------
+            // An existing career stands where it fought to: above every name
+            // it had beaten, below every name it had not.
+            var old = LifeRules.SeedNewGame("MIGRANT", 25, 0);
+            LifeRules.SeedFallbackCar(old);
+            old.saveVersion = 13;
+            old.blBoard = new System.Collections.Generic.List<RankEntry>();
+            old.blDefeated = new System.Collections.Generic.List<int> { 10, 9, 8 };
+            LifeSimManager.Migrate(old);
+            Check(Blacklist.PlayerRank(old) == 8,
+                  "a career that had taken three names comes back at #8",
+                  Blacklist.PlayerRank(old));
+            Check(Blacklist.RankOf(old, "DEACON") == 9 && Blacklist.RankOf(old, "JUICE") == 11,
+                  "with the names it beat below it");
+            Check(!old.blChallenge.Live, "and nothing hanging over it");
+        }
+
+        /// <summary>The rival who STARTS on a rung. Ranks move now, so the
+        /// roster's own order is the only fixed thing to walk.</summary>
+        static BlacklistRival RivalByStart(int startRank)
+        {
+            foreach (var r in Blacklist.Rivals) if (r.startRank == startRank) return r;
+            return null;
+        }
+
+        /// <summary>Who is above the player, SORTED — the set rather than the
+        /// order, because the order up there is supposed to change.</summary>
+        static string AliasesAbovePlayer(LifeState s)
+        {
+            var names = new List<string>();
+            foreach (var e in Blacklist.Board(s))
+            {
+                if (e.IsPlayer) break;
+                names.Add(e.alias);
+            }
+            names.Sort();
+            return string.Join(" ", names.ToArray());
+        }
+
+        /// <summary>The board as one line, for printing and for comparing.</summary>
+        static string OrderOf(LifeState s)
+        {
+            var sb = new StringBuilder();
+            foreach (var e in Blacklist.Board(s))
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(e.IsPlayer ? "[YOU]" : e.alias);
+            }
+            return sb.ToString();
         }
 
         // ---------------------------------------------------------------

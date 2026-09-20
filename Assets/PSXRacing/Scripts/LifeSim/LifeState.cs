@@ -47,8 +47,13 @@ namespace PSXRacing.LifeSim
         ///     the night block, because a booking made before blocks existed
         ///     was "some time that day" and the night is when a street race
         ///     happens.
+        /// v14: THE BOARD MOVES. The blacklist stopped being ten fixed rungs
+        ///     the player climbs past and became an eleven-name ORDER with the
+        ///     player in it — see <see cref="blBoard"/>. blDefeated/blPaged are
+        ///     retired to legacy; the migration reads them once to work out
+        ///     where an existing career already stands and writes the order.
         /// </summary>
-        public int saveVersion = 13;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 14;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
@@ -135,13 +140,58 @@ namespace PSXRacing.LifeSim
         public int lastAnyRaceDay;
 
         // === Blacklist ladder (L4) ===
-        // Two int lists rather than the TS side's Record<rank, …>: JsonUtility
-        // cannot serialize a dictionary, and rank is dense 1..10 anyway.
-        /// <summary>Ranks the player has beaten. PERMANENT — rep decay can
-        /// re-lock a rival you have not fought, but never un-beat one.</summary>
+        /// <summary>
+        /// THE BOARD, top first: index 0 is #1 and the last entry is the
+        /// bottom rung. One of these entries is the PLAYER
+        /// (<see cref="Blacklist.PlayerKey"/>), which is what makes a rank
+        /// something the player HAS rather than something they are climbing
+        /// past.
+        ///
+        /// The order is the only place a rank is written down. Nothing else
+        /// may store one: names move — every night somebody below calls
+        /// somebody above out — so a rank held anywhere else is a rank that is
+        /// wrong by morning. That is also why <see cref="BlacklistRival"/>
+        /// entries are found BY ALIAS now, and why the signature-car cache is
+        /// keyed on the alias rather than on the rung.
+        /// </summary>
+        public List<RankEntry> blBoard = new List<RankEntry>();
+
+        /// <summary>
+        /// The series being raced right now, or an entry with no alias when
+        /// there is none. Always non-null on purpose: JsonUtility cannot
+        /// represent a null nested object — it hands one back default-built —
+        /// so "no challenge" has to be a STATE of an object rather than the
+        /// absence of one, the same trick <see cref="OwnedCar.setup"/> plays
+        /// with a factory tune.
+        /// </summary>
+        public RankChallenge blChallenge = new RankChallenge();
+
+        /// <summary>What the board has been doing without you: the last dozen
+        /// results, newest last, printed under the table. Kept OUT of
+        /// <see cref="calendarLog"/> deliberately — the diary is five lines on
+        /// MAIN and a ladder that moves every night would crowd the player's
+        /// own week out of their own calendar. Only results the player was IN
+        /// go in the diary.</summary>
+        public List<string> blNews = new List<string>();
+
+        /// <summary>Who the player may not call out again yet, and until when.
+        /// Set by a series they LOST — including one they walked away from, so
+        /// forfeiting a call-out you made costs more than the legs.</summary>
+        public string blRematchAlias = "";
+        public int blRematchDay;
+
+        /// <summary>The earliest day somebody below can call the player out
+        /// again. Stops the rung below pestering them every morning; set
+        /// whenever a series involving the player ends.</summary>
+        public int blIncomingReadyDay;
+
+        // ---- legacy (pre-v14) ----
+        /// <summary>DEAD, and kept only so the v14 migration can read where a
+        /// career already stood. Ranks the player had beaten under the fixed
+        /// ladder. See the note on <see cref="atFaultIncidents"/> for why a
+        /// retired field stays in the class.</summary>
         public List<int> blDefeated = new List<int>();
-        /// <summary>Ranks whose call-out has already fired. One-shot, so a gate
-        /// that opens, closes to rep decay and reopens does not re-page.</summary>
+        /// <summary>DEAD. Ranks whose one-shot call-out had already fired.</summary>
         public List<int> blPaged = new List<int>();
 
         /// <summary>
@@ -585,6 +635,71 @@ namespace PSXRacing.LifeSim
         public int slot = 2;
         public int trackIndex;
         public bool practice;
+    }
+
+    /// <summary>
+    /// One name on the blacklist, and what it has done lately.
+    ///
+    /// The RANK is the position in <see cref="LifeState.blBoard"/> and is
+    /// deliberately not a field: a rank stored beside the name is a second
+    /// copy of the order, and two copies of a thing that moves every night is
+    /// one copy that is wrong.
+    /// </summary>
+    [Serializable]
+    public class RankEntry
+    {
+        /// <summary>The rival's alias, or <see cref="Blacklist.PlayerKey"/>
+        /// for the player's own row.</summary>
+        public string alias = "";
+        /// <summary>Challenge races won and lost — legs, not series, because a
+        /// leg is what a race is. This is the record printed on the board, and
+        /// it is what makes the churn legible: a name that has climbed three
+        /// rungs this month has the results to show for it.</summary>
+        public int wins;
+        public int losses;
+
+        public bool IsPlayer => alias == Blacklist.PlayerKey;
+    }
+
+    /// <summary>
+    /// A live challenge: two drivers, one rank, best of three.
+    ///
+    /// One at a time, in either direction. Both are the same object because
+    /// they are the same fight — all that changes is who knocked, which decides
+    /// what a forfeit costs and which way the board moves when it ends.
+    /// </summary>
+    [Serializable]
+    public class RankChallenge
+    {
+        /// <summary>The rival's alias. EMPTY means there is no series — see
+        /// <see cref="LifeState.blChallenge"/> for why this is a state rather
+        /// than a null.</summary>
+        public string alias = "";
+        /// <summary>THEY called the player out, for the player's spot. False
+        /// when the player went up the board looking for it.</summary>
+        public bool incoming;
+        public int youLegs;
+        public int themLegs;
+        public int openedDay;
+        /// <summary>Last day a leg can be run. Everything still unraced when
+        /// this day closes is forfeited — the owner's rule: declining or
+        /// missing a race for any reason counts as a loss.</summary>
+        public int deadlineDay;
+        /// <summary>Where the series runs, fixed when it opens so three legs
+        /// are three runs at the same place rather than a tour. Chosen from
+        /// the rival's own style: their call-out, their road.</summary>
+        public int trackIndex = -1;
+        /// <summary>A leg has been LAUNCHED and has not reported back. The
+        /// same contract <see cref="CarMeets.BeginRun"/> uses: the run is
+        /// committed at the start line, so quitting out of it is a loss rather
+        /// than a way to un-race a race you were losing.</summary>
+        public bool legInFlight;
+
+        public bool Live => !string.IsNullOrEmpty(alias);
+        /// <summary>Legs already settled, 0-3.</summary>
+        public int LegsRun => youLegs + themLegs;
+        /// <summary>Which leg the next race is, 1-3.</summary>
+        public int LegNumber => LegsRun >= 2 ? 3 : LegsRun + 1;
     }
 
     /// <summary>

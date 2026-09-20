@@ -18,17 +18,24 @@ namespace PSXRacing.LifeSim
         /// <summary>AI skill for the race, the same scale the field and the
         /// blacklist use (0.80 a Sunday driver, 1.05 the boss).</summary>
         public float skill;
+        /// <summary>The blacklist name this driver IS, or empty. The alias and
+        /// this are the same string when set — it exists so a caller can ask
+        /// "is this a name off the board" without matching on aliases that a
+        /// regular could also be carrying.</summary>
+        public string rivalAlias = "";
         /// <summary>DRAG / GRIP / TOUGE / STREET — the kind of race they are
         /// at the meet to find, which decides the venue they name.</summary>
         public string style;
         /// <summary>Index into <see cref="TrackCatalog.All"/>.</summary>
         public int trackIndex;
         public int purse;
-        /// <summary>10..1 when this is the OPEN blacklist rival, who turns up
-        /// to meets with their signature car; 0 for everybody else.</summary>
+        /// <summary>Where they stood on the board when the lot was dealt, for
+        /// the "#4" in front of their name. A SNAPSHOT: the board moves every
+        /// night, so nothing may record a result against this — that is what
+        /// <see cref="rivalAlias"/> is for.</summary>
         public int rivalRank;
 
-        public bool IsRival => rivalRank > 0;
+        public bool IsRival => !string.IsNullOrEmpty(rivalAlias);
 
         /// <summary>Who this is, for the save and for the hop to the start
         /// line: the catalog id of their car. Every car in the lot is a
@@ -292,7 +299,7 @@ namespace PSXRacing.LifeSim
         public static int PurseFor(LifeState s, MeetRacer r)
         {
             if (r == null) return 0;
-            if (r.IsRival) return Blacklist.Purse(r.rivalRank);
+            if (r.IsRival) return Blacklist.Purse(Mathf.Max(1, r.rivalRank));
             int tier = LifeRules.StreetTier(s != null ? s.streetRep : 0f).idx;
             var mine = s != null && s.ActiveCar != null ? CarCatalog.Get(s.ActiveCar.specId) : null;
             float ratio = mine != null ? Pace(r.spec) / Mathf.Max(0.01f, Pace(mine)) : 1f;
@@ -359,22 +366,32 @@ namespace PSXRacing.LifeSim
                 });
             }
 
-            // Seat 0: the name on the board, if the board has one open. While
-            // they are undefeated theirs is THE example of that model in the
-            // lot (RG2's rule), so a regular who brought the same car stays
-            // home tonight — their stall stands empty rather than re-dealt.
+            // Seat 0: the name the player can race for a rank tonight — the one
+            // they are mid-series with, or the one directly above them. Theirs
+            // is THE example of that model in the lot (RG2's rule), so a
+            // regular who brought the same car stays home tonight: their stall
+            // stands empty rather than re-dealt.
+            //
+            // A SERIES ALREADY RUNNING NAMES ITS OWN ROAD, and it is the road
+            // the series was opened on — three legs at one venue is what makes
+            // it a series rather than a tour, and the lot must not quietly
+            // re-point the third race somewhere else.
             var rival = s != null ? Blacklist.OpenRival(s) : null;
             var rivalCar = rival != null ? Blacklist.ResolveCar(rival) : null;
             if (rivalCar != null)
             {
                 list.RemoveAll(r => r.spec.id == rivalCar.id);
                 string style = StyleOfRival(rival);
+                bool mid = s.blChallenge != null && s.blChallenge.Live &&
+                           s.blChallenge.alias == rival.alias;
                 list.Insert(0, new MeetRacer
                 {
                     seat = 0, alias = rival.alias, spec = rivalCar, skill = rival.skill,
                     style = style,
-                    trackIndex = PickVenue(VenuesFor(style), new System.Random(day * 7919 + 977)),
-                    rivalRank = rival.rank,
+                    trackIndex = mid ? Blacklist.SeriesTrack(s)
+                                     : PickVenue(VenuesFor(style), new System.Random(day * 7919 + 977)),
+                    rivalRank = Blacklist.RankOf(s, rival.alias),
+                    rivalAlias = rival.alias,
                 });
                 if (list[0].trackIndex < 0) list.RemoveAt(0);
             }

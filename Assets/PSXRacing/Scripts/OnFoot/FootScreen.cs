@@ -69,7 +69,7 @@ namespace PSXRacing.OnFoot
             // Toast, so draining it here catches all of them instead of four
             // call sites each remembering to ask." Sleeping at the bed made the
             // walk-in home the first day-rolling path outside that menu, and
-            // Blacklist.TickPager is destructive-once: undrained, a call-out
+            // Blacklist.TickLadder is destructive-once: undrained, a call-out
             // headline is either lost to a page reload or turns up days later
             // glued to an unrelated line. Here rather than in the bed, so the
             // next walk-in verb that rolls a day does not have to remember.
