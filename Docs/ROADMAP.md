@@ -5,6 +5,125 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE FLAG DOES NOT TAKE THE WHEEL, AND A DISTANCE THAT IS NOT WHITE (2026-09-20)
+
+Two sentences: "I don't like losing control of the car after crossing the
+finish line." and "I'm not a fan of objects in the distance being
+white/foggy."
+
+- **The flag took the wheel, and what it handed the car to was nobody.**
+  `RaceManager.OnCarFinished` ran `SetCarInputEnabled(playerCar, false)`,
+  which drops into `PlayerCarInput`'s no-driver branch: steering unwound to
+  centre at the speed-scaled release rate, throttle cut, **a constant 30% of
+  brake held**, and the handbrake latched once under 1 m/s. That branch is
+  right for every case it was written for — the driver has got OUT, at a
+  pump, a drive-thru, a town venue, the town edge — and wrong for this one,
+  where the player is still in the car, still looking at the road, and still
+  doing whatever they crossed the line doing. A stage flag comes up at
+  200 km/h with a hairpin behind it; a drag finish IS the traps, with the
+  bridge still to run out. There was no timer on it either: `Finished` is
+  never cleared, so the state held until the scene reloaded.
+- **So the shutdown is the player's.** Wheel, pedals, lever, gears, until
+  they press continue. Nothing past the line is scored — every figure the
+  LifeSim banks (position, ET, best lap, metres, drift seconds, damage,
+  cargo condition, the measured tank) is stamped on that same frame — so the
+  road past the flag costs nothing and belongs to the driver. The car still
+  parks itself when it stops: `CarController`'s park hold latches half a
+  second after it comes to rest with no pedal on it.
+- **Two keys that now meant two things.** R is the results screen's CONTINUE
+  and pad X is its REPLAY, and both also carried the respawn. With the car
+  dead past the flag that never collided; with the car live, one press would
+  teleport it AND load the next scene — the Y/Triangle bug again, from the
+  same file's own comments. Both respawns yield to `DriveSession.ResultsUp`.
+  Being stuck past the flag costs nothing (the result is banked, RESET CAR is
+  still in the pause menu), which is why the respawn is the one that gives way.
+- **The watchdogs split in two.** `DriveSession.Live` used to answer both
+  "is this being scored" and "does the player have the car"; they are
+  different questions now. `StuckRecovery`'s timed recoveries stay with
+  `Live`, because a results screen is exactly where a player parks on a
+  verge, sits on the brake and reads the sheet — the pinned/beached readings
+  would call that stuck and teleport them off it. The one that stays on past
+  the flag is `LeftTheRoad`: under the world, in the sound off the end of the
+  Bogue bridge, over the side of a mountain. There is no driving out of those
+  and no road to be pointed back at.
+- **The field shuts down down the road.** `ai.driving = false` is the GRID
+  pose — no steering, 40% of brake — which is right for a car being held on a
+  line and wrong for one doing 180 km/h past the flag: it goes straight on at
+  the first corner and parks across it. It never showed before because the
+  player was being braked to a halt by the same event. `AIDriver.ShutDown()`
+  now steers the path on a 0.22 brake until it is under 1.5 m/s and then
+  takes the grid pose. The lookahead steering came out into `SteerToLine` so
+  the shutdown and the race cannot drift apart.
+- **`tools\finish-play-check.ps1`** finishes a real race in play mode and
+  then asks the CAR what is being asked of it, because that is the only
+  instrument that catches this: with nothing pressed the game must be asking
+  for nothing (`brakeInput 0.000` where it used to read 0.300), and a
+  virtual gamepad fed through the real InputSystem must open the throttle and
+  turn the wheel. Green on `DragEighth` (where an opponent's own flag proves
+  the `RaceManager -> ShutDown` wiring) and on `MtMitchell`.
+
+- **The fog was measured before it was touched, and the first look was
+  wrong.** At a driver's eye height on a road lined with walls and trees,
+  almost nothing in frame is even as far away as `fogNear`: every candidate
+  setting moved under 1% of the pixels, and a tuning done on those shots
+  would have produced a number that looked defensible and fixed nothing. The
+  view that carries the complaint is the one with DISTANCE in it — the fog
+  probe's station 3, the camera 30 m up — and there the old band moved **25%
+  of the frame**. `tools\fog\fog_stats.py` prints it per venue and station.
+- **Nobody had looked at this because the tools hide it.**
+  `PSXScreenshotTool` pushes the fog band and the far plane out of the way
+  for its overview and plan shots, on purpose and with a comment saying so.
+  Every reference shot of a whole circuit this project has ever taken was
+  taken with the fog disabled. Same shape as the vertex-snap blind spot: a
+  preview that overrides a global is not previewing the game.
+- **The band is a curve now, not a ramp.** `saturate((d - near)/(far - near))`
+  raised to `TimeOfDay.FogCurve` (2.2) in the four shaders that TINT to fog
+  colour — `PSXLit`, `PSXLitTransparent`, `PSXCarPaint`, `PSXDecal`. Halfway
+  through the band is 22% fog rather than 50%; three quarters is 53% rather
+  than 75%. It changes NEITHER END, so the far plane is still hidden behind a
+  full-strength wall, and it is free: one `pow` per vertex, no extra draw
+  distance, which matters because this game is played on a phone. The three
+  shaders that FADE OUT with distance (`PSXGlow`, `PSXBeam`, `PSXZoneLine`)
+  are deliberately left linear — they are lamps, not haze.
+- **The floor is in the shader, not the caller.** An unset `_PSXFogCurve`
+  global reads 0 and `pow(t, 0)` is 1 — every pixel fully fogged. It is
+  `max(_PSXFogCurve, 1.0)`, so "nobody set it" means the old straight ramp:
+  the editor preview tools that write `_PSXFog*` by hand, and any scene
+  without a `PSXGlobals`, all keep exactly what they had.
+- **And it is written every race, so a stale bake cannot disagree.**
+  `TimeOfDay.Apply` pushes `FogCurve` into the live globals alongside
+  fogNear/fogFar. A serialised default is how `vertexSnap` shipped `true` in
+  twelve scenes after the code default went false.
+- **The circuits and the city: 1.0 -> 1.4, far plane 360 m -> 500 m.** Noon's
+  band was 150..355 m behind a 360 m far plane, so anything more than a
+  couple of blocks away was fully replaced by fog colour; it is 210..497 m
+  now. **500 m and not further because of the city tile ring**, which is the
+  real limit: `CityWorld` keeps two 256 m tiles around the player, so the
+  built world can be as little as 512 m away and a far plane past that would
+  show its edge. At 500 m the fog is already full strength before anything
+  can be missing behind it. The circuits could see further; one number for
+  every non-stage venue is worth more than the last 15% on a venue you can
+  see across anyway.
+- **The stages: 3.2 -> 4.0, and that one is free.** Their fog closed at
+  1,136 m in front of a far plane at 1,500, so the last 364 m of everything
+  the stage drew was rasterised, shaded, and then painted over in flat fog
+  colour. No extra geometry, no extra draw distance — just terrain that was
+  already being drawn allowed to be itself. Landing `fogFar` INSIDE the far
+  plane is the constraint at both scales: fog has to reach full strength
+  before the clip, or the edge of the world appears through it.
+- **What was NOT changed: the fog colours.** The hour table's `fogColor` and
+  the sky's `skyHorizon` are two hand-authored fields kept in step by hand,
+  so darkening one without the other ends the terrain at a visible line
+  against a brighter sky. The complaint was answered by how far and how hard
+  the fog closes, which is the half that has no seam in it.
+- **`tools\fog-shots.ps1` / `FogShots.cs`** shoot the same view down the same
+  road under every candidate: the band, the far plane and the curve
+  separately, then together, plus a no-fog control that says whether there is
+  anything out there worth revealing in the first place. `PSXGlobals` is
+  `[ExecuteAlways]` and re-pushes its fields every editor tick, so the
+  settings go on the COMPONENT — a `Shader.SetGlobalFloat` there is
+  overwritten between the call and the render.
+
 ## PAINT THAT DOES NOT GLOW, TREES YOU CANNOT DRIVE THROUGH, A THICK FOREST, AND A FILM GRADE (2026-09-19)
 
 Asked, over a frame of a white saloon on Mount Mitchell: "I don't like that

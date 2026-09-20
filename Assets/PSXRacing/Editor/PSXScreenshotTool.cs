@@ -288,9 +288,10 @@ namespace PSXRacing.EditorTools
             var b = TrackCatalog.BoundsOf(def);
             float span = Mathf.Max(b.size.x, b.size.z);
             Vector3 high = b.center + new Vector3(0f, span * 0.55f, -span * 0.55f);
-            // The far plane is 360 m and the fog closes at ~265, so an overhead
-            // shot of a 660 m circuit is a photograph of fog — which is what the
-            // first one came back as. Push both out for this frame only; the
+            // The far plane is 500 m and the fog closes just inside it, so an
+            // overhead shot of a 660 m circuit is a photograph of fog — which
+            // is what the first one came back as. Push both out for this
+            // frame only; the
             // point of the overview is the SHAPE, and the shape is the one thing
             // the in-car views can never show.
             float keepFar = cam.farClipPlane;

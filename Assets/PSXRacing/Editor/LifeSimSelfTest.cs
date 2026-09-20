@@ -4908,8 +4908,8 @@ namespace PSXRacing.EditorTools
         static void TestVertexSnapOff()
         {
             Line("renderer:");
-            int found = 0, jittering = 0, missing = 0;
-            string names = "";
+            int found = 0, jittering = 0, missing = 0, overrun = 0, wasted = 0;
+            string names = "", overruns = "", wastes = "";
             foreach (var entry in PSXRacingBuilder.SceneOrder())
             {
                 if (!System.IO.File.Exists(entry)) { missing++; continue; }
@@ -4921,10 +4921,29 @@ namespace PSXRacing.EditorTools
                 // whatever scene the runner already had loaded and certify a
                 // scene it never looked at.
                 PSXRacing.PSXGlobals globals = null;
+                Camera lens = null;
+                bool hourly = false;
                 foreach (var go in scene.GetRootGameObjects())
                 {
                     var g = go.GetComponentInChildren<PSXRacing.PSXGlobals>(true);
-                    if (g != null) { globals = g; break; }
+                    if (g != null && globals == null) globals = g;
+                    // Does this scene's fog get REWRITTEN at runtime? Only
+                    // RaceHandoffApplier applies an hour, and it is on the
+                    // drivable worlds (the circuits, the stages, Charlotte, the
+                    // town, the home street) and not on the walk-in rooms,
+                    // which keep the band they were baked with. Checking a
+                    // garage against noon's 355 m is checking it against a
+                    // table it never reads.
+                    if (!hourly && go.GetComponentInChildren<PSXRacing.RaceHandoffApplier>(true) != null)
+                        hourly = true;
+                    foreach (var c in go.GetComponentsInChildren<Camera>(true))
+                    {
+                        // The WORLD lens, not the one that blits the finished
+                        // framebuffer to the screen: OutputCamera draws a quad
+                        // and keeps Unity's default 1000 m plane, which says
+                        // nothing about how far this venue can see.
+                        if (c.name == "PSXCamera" && lens == null) lens = c;
+                    }
                 }
                 if (globals != null)
                 {
@@ -4935,6 +4954,41 @@ namespace PSXRacing.EditorTools
                         names += (names.Length > 0 ? ", " : "") +
                                  System.IO.Path.GetFileNameWithoutExtension(entry);
                     }
+                    // THE FOG HAS TO CLOSE BEFORE THE FAR PLANE. The band and
+                    // the plane are two numbers baked by two different lines of
+                    // the builder, and they have to agree or the edge of the
+                    // world is visible: fog short of the plane leaves geometry
+                    // popping into a clear distance, and a plane short of the
+                    // fog throws away terrain that is being drawn and then
+                    // painted over. Both halves have been true here — the
+                    // stages closed 364 m early until the band went to 4.0x.
+                    //
+                    // Measured at NOON, the longest of the seven hours: a saved
+                    // scene carries the band it was baked in (sunset), and the
+                    // runtime multiplies the same fogScale through whichever
+                    // hour the handoff picks, so noon is the case that has to
+                    // fit. Only for the scenes that actually read that table.
+                    if (lens != null && hourly && globals.fogFar > 0f)
+                    {
+                        float scale = Mathf.Max(0.01f, globals.fogScale);
+                        float longest = TimeOfDay.At(TimeOfDay.Noon).fogFar * scale;
+                        if (longest > lens.farClipPlane + 0.5f)
+                        {
+                            overrun++;
+                            overruns += (overruns.Length > 0 ? ", " : "") +
+                                        System.IO.Path.GetFileNameWithoutExtension(entry) +
+                                        " (" + longest.ToString("0") + " > " +
+                                        lens.farClipPlane.ToString("0") + ")";
+                        }
+                        else if (longest < lens.farClipPlane * 0.80f)
+                        {
+                            wasted++;
+                            wastes += (wastes.Length > 0 ? ", " : "") +
+                                      System.IO.Path.GetFileNameWithoutExtension(entry) +
+                                      " (" + longest.ToString("0") + " of " +
+                                      lens.farClipPlane.ToString("0") + ")";
+                        }
+                    }
                 }
                 UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, false);
             }
@@ -4942,6 +4996,10 @@ namespace PSXRacing.EditorTools
             Check(found > 0, "scenes carry a PSXGlobals to check", found);
             Check(jittering == 0, "no scene ships with vertex snapping on",
                   jittering == 0 ? "all " + found + " clean" : names);
+            Check(overrun == 0, "no drivable scene's fog closes past its own far plane at noon",
+                  overrun == 0 ? "all inside" : overruns);
+            Check(wasted == 0, "and none of them draws a fifth of its distance in flat fog",
+                  wasted == 0 ? "all within 20% of the plane" : wastes);
         }
 
         /// <summary>

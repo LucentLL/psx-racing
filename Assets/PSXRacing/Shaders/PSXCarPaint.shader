@@ -187,6 +187,10 @@ Shader "PSX/CarPaint"
             fixed4 _PSXFogColor;
             float _PSXFogNear;
             float _PSXFogFar;
+            // Bends the band so it closes late instead of evenly;
+            // see PSXGlobals.fogCurve. Floored at 1 in the maths
+            // below, so an unset global (0) is the old straight ramp.
+            float _PSXFogCurve;
             float _PSXSnap;         // 1 = vertex snapping on
             float _PSXPaintDebug;   // 0 in the game
 
@@ -239,7 +243,8 @@ Shader "PSX/CarPaint"
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
-                o.fog = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
+                float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
+                o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
                 return o;
             }
 

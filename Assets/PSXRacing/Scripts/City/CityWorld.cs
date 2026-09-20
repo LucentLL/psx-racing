@@ -10,9 +10,12 @@ namespace PSXRacing.City
     /// This is the project's first runtime-generated world: circuits are baked
     /// whole into their scenes, but a 31 km city cannot be, so the Charlotte
     /// scene ships nearly empty and this component conjures the ~25 tiles
-    /// (256 m each) around the car as it moves. The camera's hard 360 m far
+    /// (256 m each) around the car as it moves. The camera's hard 500 m far
     /// plane and the fog that closes before it are what make this cheap: a
-    /// 5x5 ring is always more world than the player can see.
+    /// 5x5 ring is always more world than the player can see. That ring is
+    /// also what caps the far plane — two tiles is as little as 512 m of built
+    /// world in the worst case, so the fog has to be at full strength by 500 m
+    /// or the edge of it would show (see CircuitFarClip in the builder).
     ///
     /// Budget: at most one tile build per frame — a car crossing a tile row at
     /// 280 km/h leaves ~3 s to build 5 tiles, and the budget builds 60 in that

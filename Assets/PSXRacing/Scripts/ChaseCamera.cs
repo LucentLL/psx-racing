@@ -269,7 +269,7 @@ namespace PSXRacing
         /// camera's own. A lens a hand's width off the bonnet has bodywork
         /// well inside a 25 cm near plane; the chase views never do, and they
         /// keep the looser plane because that is where depth precision over
-        /// 360 m of city actually matters.
+        /// 500 m of city actually matters.
         /// </summary>
         public const float MountNearClip = 0.18f;
 

@@ -5,7 +5,7 @@ namespace PSXRacing
     /// <summary>
     /// Per-layer draw distances for the mountain stage.
     ///
-    /// The stage sees ~4x further than a circuit so the ridgelines exist, but
+    /// The stage sees 3x further than a circuit so the ridgelines exist, but
     /// ten thousand tree billboards do not deserve that far plane: past ~500 m
     /// a 10 m tree is under two pixels of a 240-line frame and the far slopes
     /// are already painted as forest. The forest chunks live on their own

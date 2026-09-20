@@ -1,5 +1,5 @@
 // PSX-era surface shader: per-vertex lighting, vertex snapping to the
-// low-res grid, affine texture mapping, and manual linear fog.
+// low-res grid, affine texture mapping, and manual distance fog.
 // Renders via the SRPDefaultUnlit pass so it works under URP.
 //
 // Global uniforms driven by PSXGlobals.cs:
@@ -72,6 +72,10 @@ Shader "PSX/Lit"
             fixed4 _PSXFogColor;
             float _PSXFogNear;
             float _PSXFogFar;
+            // Bends the band so it closes late instead of evenly;
+            // see PSXGlobals.fogCurve. Floored at 1 in the maths
+            // below, so an unset global (0) is the old straight ramp.
+            float _PSXFogCurve;
             float _PSXSnap;         // 1 = vertex snapping on
 
             struct appdata
@@ -140,9 +144,10 @@ Shader "PSX/Lit"
                 o.wpos = wpos;
                 o.wnrm = n;
 
-                // Manual linear fog by view distance
+                // Manual fog by view distance: a linear band, bent by a curve
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
-                o.fog = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
+                float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
+                o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
                 return o;
             }
 

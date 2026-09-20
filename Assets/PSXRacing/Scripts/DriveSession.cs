@@ -25,6 +25,34 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>
+        /// The results screen is up.
+        ///
+        /// The player still has the car past the flag — that is the point of
+        /// the shutdown — but the results screen has taken two of the controls
+        /// they were driving with: R is CONTINUE and pad X is REPLAY. Anything
+        /// that also answers to those keys reads this and yields, so one press
+        /// does one thing (<see cref="PlayerCarInput"/>'s respawn is the one
+        /// that does).
+        /// </summary>
+        public static bool ResultsUp
+        {
+            get
+            {
+                var rm = RaceManager.Instance;
+                return rm != null && rm.State == RaceManager.RaceState.Finished;
+            }
+        }
+
+        // NOTE on Live vs ResultsUp: Live means "this session is being SCORED,
+        // and watchdogs may move the car". It used to answer "does the player
+        // have the car" as well, because the flag took the controls away and
+        // the two questions had one answer. They are separate now, and the
+        // separation is deliberate — a results screen is exactly where a player
+        // parks on a verge and sits reading the sheet, so the stuck TIMERS stay
+        // with Live and only the fell-out-of-the-world recovery reads ResultsUp
+        // (see StuckRecovery).
+
         /// <summary>Put a car back on the road, whichever world this is.</summary>
         public static void Respawn(CarController car)
         {

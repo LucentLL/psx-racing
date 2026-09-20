@@ -320,7 +320,35 @@ namespace PSXRacing
             if (p.car == playerCar)
             {
                 State = RaceState.Finished;
-                SetCarInputEnabled(playerCar, false);
+
+                // THE FLAG DOES NOT TAKE THE WHEEL.
+                //
+                // It used to: the line was SetCarInputEnabled(playerCar, false),
+                // which drops into PlayerCarInput's no-driver branch — steering
+                // unwound to centre, throttle cut, 30% of brake held, the lever
+                // on once it was under walking pace. That branch is right for
+                // the cases it was written for (the driver has got OUT: a pump,
+                // a drive-thru, a venue, the town edge), and wrong for this one,
+                // because here the player is still in the car, still looking at
+                // the road, and still doing whatever they crossed the line
+                // doing. A stage flag comes up at 200 km/h with a hairpin
+                // behind it; a drag finish is the traps, with the bridge still
+                // to run out. Handing those back to nobody is the game driving
+                // the car into the scenery while the player watches the sheet.
+                //
+                // So the shutdown is the PLAYER'S. Wheel, pedals, lever, gears,
+                // all of it, until they press continue. Nothing is scored past
+                // this point — every figure the LifeSim banks is stamped in the
+                // lines below, on this frame — so the road past the flag costs
+                // nothing and belongs to the driver. The car still parks itself
+                // when it stops: CarController's park hold latches half a
+                // second after it comes to rest with no pedal on it.
+                //
+                // What DOES stand down is the pair of keys that now mean two
+                // things at once — R and pad X are the results screen's
+                // continue and replay (see PlayerCarInput and RaceReplay), so
+                // the respawn they also carry yields here rather than firing
+                // alongside them.
 
                 // Stamp the result for the LifeSim. Harmless standalone.
                 RaceHandoff.ResultReady = true;
@@ -380,8 +408,17 @@ namespace PSXRacing
             }
             else
             {
+                // And the field shuts down along its own road rather than
+                // stopping dead where it happens to be. `driving = false` is
+                // the GRID pose — no steering, 40% of brake — which is right
+                // for a car being held on the line and wrong for one doing
+                // 180 km/h past the flag: it goes straight on at the first
+                // corner and parks across it. That never showed before because
+                // the player was being braked to a halt by the same event;
+                // now they are still driving, and what they drive into is
+                // this.
                 var ai = p.car.GetComponent<AIDriver>();
-                if (ai != null) ai.driving = false;
+                if (ai != null) ai.ShutDown();
             }
         }
 

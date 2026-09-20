@@ -29,6 +29,52 @@ namespace PSXRacing
         float avoidBias;                   // smoothed metres of give-way
         public bool driving = true;
 
+        /// <summary>
+        /// Past its own flag, rolling to a stop. Distinct from plain
+        /// `!driving`, which is the GRID: a car waiting on the line wants no
+        /// steering and a firm brake, and a car that has just crossed at speed
+        /// wants the opposite — the road it is on, and enough brake to be
+        /// stopped soon without standing the field on its nose.
+        /// </summary>
+        public bool ShuttingDown { get; private set; }
+
+        /// <summary>Brake a finisher carries until it is nearly stopped. Under
+        /// the grid's 0.4 on purpose: this is a slowing-down lap, not a panic
+        /// stop, and a car that hauls up in its own length is a car the player
+        /// — who still has their own throttle past the flag — drives into.</summary>
+        const float ShutdownBrake = 0.22f;
+        /// <summary>Below this the shutdown hands over to the grid pose and the
+        /// car is simply held where it stopped.</summary>
+        const float ShutdownRestMps = 1.5f;
+
+        /// <summary>Take the car off the race and roll it to a stop down the
+        /// road. Called by <see cref="RaceManager"/> when this car finishes.</summary>
+        public void ShutDown()
+        {
+            driving = false;
+            ShuttingDown = true;
+        }
+
+        /// <summary>
+        /// Lock on the road: the steer input that chases a speed-scaled
+        /// lookahead point on the path, offset onto this car's own line.
+        ///
+        /// Its own method so the shutdown steers exactly as the race does
+        /// rather than with a second, nearly-identical copy of it — the thing
+        /// that eventually disagrees.
+        /// </summary>
+        float SteerToLine(float speed)
+        {
+            float lookDist = 7f + speed * 0.45f;
+            int lookIdx = nearestIdx + Mathf.Max(2, Mathf.RoundToInt(lookDist / path.spacing));
+            Vector3 target = path.GetPoint(lookIdx);
+            Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(lookIdx));
+            target += right * (lateralOffset + avoidBias);
+
+            Vector3 local = transform.InverseTransformPoint(target);
+            return Mathf.Clamp(Mathf.Atan2(local.x, Mathf.Max(local.z, 0.5f)) * 1.4f, -1f, 1f);
+        }
+
         // ---- proximity (P2) ----
         /// <summary>How far up the road the AI looks for a car to avoid. Beyond
         /// this it is not closing on anyone, it is just racing.</summary>
@@ -117,7 +163,11 @@ namespace PSXRacing
 
             if (!driving)
             {
-                car.steerInput = 0f; car.throttleInput = 0f; car.brakeInput = 0.4f;
+                float rolling = Mathf.Abs(car.forwardSpeed);
+                bool coasting = ShuttingDown && rolling > ShutdownRestMps;
+                car.steerInput = coasting ? SteerToLine(rolling) : 0f;
+                car.throttleInput = 0f;
+                car.brakeInput = coasting ? ShutdownBrake : 0.4f;
                 return;
             }
 
@@ -127,14 +177,7 @@ namespace PSXRacing
             UpdateAvoidance(dt, out float throttleLift);
 
             // ---- steering: chase a lookahead point ----
-            float lookDist = 7f + speed * 0.45f;
-            int lookIdx = nearestIdx + Mathf.Max(2, Mathf.RoundToInt(lookDist / path.spacing));
-            Vector3 target = path.GetPoint(lookIdx);
-            Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(lookIdx));
-            target += right * (lateralOffset + avoidBias);
-
-            Vector3 local = transform.InverseTransformPoint(target);
-            float steer = Mathf.Clamp(Mathf.Atan2(local.x, Mathf.Max(local.z, 0.5f)) * 1.4f, -1f, 1f);
+            float steer = SteerToLine(speed);
 
             // ---- target speed from curvature ahead ----
             // Scaled by the weather with the same number the tyres get, so a

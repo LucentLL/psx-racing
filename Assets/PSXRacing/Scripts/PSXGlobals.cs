@@ -16,13 +16,38 @@ namespace PSXRacing
         public float fogFar = 240f;
         /// <summary>
         /// Per-SCENE multiplier on the hour presets' fog band, baked by the
-        /// scene builder. The circuits live happily inside 360 m; a mountain
-        /// stage is about the ridge two valleys over, so its scene bakes ~3x
+        /// scene builder. The circuits live inside 500 m; a mountain stage is
+        /// about the ridge two valleys over, so its scene bakes ~3x that again
         /// and TimeOfDay.Apply multiplies the preset through this. The preset
         /// table itself stays one table — a second table of seven hours per
         /// venue would drift apart the first time one of them was tuned.
         /// </summary>
         public float fogScale = 1f;
+        /// <summary>
+        /// THE SHAPE OF THE BAND, not its length.
+        ///
+        /// The fog was a straight ramp from <see cref="fogNear"/> to
+        /// <see cref="fogFar"/>, which puts HALF the fog colour over anything
+        /// standing in the middle of it — 250 m on a circuit — and the whole of
+        /// it over everything past the end. That is the "objects in the
+        /// distance are white" picture: a hill at 300 m is not hazy, it is
+        /// erased and repainted in sky colour.
+        ///
+        /// Raising the exponent bends the ramp so the band starts slowly and
+        /// only closes near the end: at 2.2, halfway through is 22% fog rather
+        /// than 50%, and three quarters of the way is 53% rather than 75%. What
+        /// it does NOT change is either end — the fog is still nothing at
+        /// fogNear and still total at fogFar, so the far plane stays hidden
+        /// behind a full-strength wall and no geometry pops through it. It is
+        /// also free: one pow() per vertex, no extra draw distance, which
+        /// matters because this game is played on a phone.
+        ///
+        /// Written every race by TimeOfDay.Apply from the one constant there,
+        /// so a scene baked before this existed cannot disagree with a scene
+        /// baked after it. An unset shader global reads 0 and the shaders floor
+        /// it at 1, which is the old straight ramp.
+        /// </summary>
+        public float fogCurve = TimeOfDay.FogCurve;
         /// <summary>
         /// THE AMBIENT FROM ABOVE. PSX/Lit used to light every unlit face the
         /// same colour whichever way it pointed, so a roof and a floor sat
@@ -84,6 +109,7 @@ namespace PSXRacing
             Shader.SetGlobalColor("_PSXFogColor", fogColor);
             Shader.SetGlobalFloat("_PSXFogNear", fogNear);
             Shader.SetGlobalFloat("_PSXFogFar", fogFar);
+            Shader.SetGlobalFloat("_PSXFogCurve", fogCurve);
             Shader.SetGlobalFloat("_PSXSnap", vertexSnap ? 1f : 0f);
         }
     }

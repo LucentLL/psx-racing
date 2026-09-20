@@ -149,7 +149,7 @@ namespace PSXRacing
 
             Set(posText, "FREE ROAM");
             // The attribution has its seven seconds, then the slot becomes the
-            // signpost. Ten restaurants over 2,574 km of road behind a 360 m
+            // signpost. Ten restaurants over 2,574 km of road behind a 500 m
             // fog wall are findable only by accident otherwise — the question
             // that prompted this was literally "where are they?". The town has
             // no attribution and no food index; its errand cue rides the same

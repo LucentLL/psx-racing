@@ -6152,9 +6152,9 @@ namespace PSXRacing.EditorTools
             globals.ambient = hour.ambient;
             globals.fogColor = hour.fogColor;
             // The stage lives at mountain scale: the same hour table, seen
-            // three times further. TimeOfDay.Apply reads the scale back at
+            // four times further. TimeOfDay.Apply reads the scale back at
             // runtime, so the seven hours all stretch with the venue.
-            globals.fogScale = track != null && track.stage ? theme.fogScale : 1f;
+            globals.fogScale = track != null && track.stage ? theme.fogScale : CircuitFogScale;
             globals.fogNear = hour.fogNear * globals.fogScale;
             globals.fogFar = hour.fogFar * globals.fogScale;
             var skyShader = Shader.Find("PSX/Sky");
@@ -6848,10 +6848,10 @@ namespace PSXRacing.EditorTools
             var cam = camGO.AddComponent<Camera>();
             cam.fieldOfView = 58f;
             cam.nearClipPlane = 0.25f;
-            // The circuits end at 360 m because their fog closes before that.
-            // The stage's fog closes around three times further out, and what
-            // it is buying is the far wall of the valley.
-            cam.farClipPlane = track != null && track.stage ? theme.farClip : 360f;
+            // The circuits end where their fog closes; the stage's fog closes
+            // four times further out, and what it is buying is the far wall of
+            // the valley.
+            cam.farClipPlane = track != null && track.stage ? theme.farClip : CircuitFarClip;
             cam.clearFlags = CameraClearFlags.Skybox;
             if (track != null && track.stage)
                 camGO.AddComponent<StageCulling>();

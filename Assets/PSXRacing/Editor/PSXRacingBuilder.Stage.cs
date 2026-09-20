@@ -185,11 +185,44 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The barrier line for the stage being built right now.</summary>
         static float StageWallOffset => StageWallOffsetFor(track);
-        /// <summary>Fog band multiplier over the hour presets. 3.2 puts noon's
-        /// 355 m fogFar at ~1.1 km — the far wall of the valley, hazy, which
-        /// is what the Blue Ridge is named for.</summary>
-        const float StageFogScale = 3.2f;
+        /// <summary>
+        /// Fog band multiplier over the hour presets, for a venue that can see
+        /// a valley. 4.0 puts noon's 355 m fogFar at 1,420 m — the far wall,
+        /// hazy, which is what the Blue Ridge is named for.
+        ///
+        /// It was 3.2, and that closed the fog at 1,136 m in front of a far
+        /// plane at 1,500: the last 364 m of everything the stage drew was
+        /// rasterised, shaded, and then painted over in flat fog colour. So
+        /// this is the rare change that is free — no extra geometry, no extra
+        /// draw distance, just the terrain that was already being drawn
+        /// allowed to be itself. Landing fogFar INSIDE the far plane is the
+        /// constraint: fog has to reach full strength before the clip, or the
+        /// edge of the world appears through it.
+        /// </summary>
+        const float StageFogScale = 4.0f;
         const float StageFarClip = 1500f;
+
+        /// <summary>
+        /// The same two numbers for everything that is not a stage — the
+        /// generated circuits, the strips, and the streamed city.
+        ///
+        /// They were 1.0 and 360 m, which is where "objects in the distance
+        /// are white" came from: noon's band ran 150..355 m, so anything more
+        /// than a couple of blocks away was fully replaced by fog colour, and
+        /// a view with any distance in it came back as a white wall with a
+        /// road leading into it. 1.4 and 500 m put the band at 210..497 and
+        /// leave the far plane just past it.
+        ///
+        /// 500 m and not further because of THE CITY TILE RING, which is the
+        /// real limit here: CityWorld keeps two 256 m tiles around the player,
+        /// so the built world can be as little as 512 m away and a far plane
+        /// past that would show the edge of it. At 500 m the fog is already
+        /// full strength before anything can be missing behind it. The
+        /// circuits could see further; one number for every non-stage venue is
+        /// worth more than the last 15% on a venue you can see across anyway.
+        /// </summary>
+        const float CircuitFogScale = 1.4f;
+        const float CircuitFarClip = 500f;
 
         /// <summary>How far from the centreline geometry trees exist. Past
         /// this the far slopes are painted as forest by the mottle texture,

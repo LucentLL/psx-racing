@@ -12,13 +12,31 @@ namespace PSXRacing
     /// scene builder, the race handoff and the LifeSim's picker all read the
     /// same table, and a new hour is one entry rather than four parallel edits.
     ///
-    /// Fog does most of the work. The draw distance is 360 m and the circuits
-    /// are up to 660 m across, so what the player reads as "time of day" is
-    /// mostly the colour the world fades into and how close in it starts —
-    /// which is exactly how a PS1 game got its atmosphere too.
+    /// Fog does most of the work. The draw distance is 500 m on a circuit and
+    /// the circuits are up to 660 m across, so what the player reads as "time
+    /// of day" is mostly the colour the world fades into and how close in it
+    /// starts — which is exactly how a PS1 game got its atmosphere too. How
+    /// HARD it closes is not in this table: that is one renderer-wide curve,
+    /// <see cref="FogCurve"/>.
     /// </summary>
     public static class TimeOfDay
     {
+        /// <summary>
+        /// How hard the fog band is bent (see <see cref="PSXGlobals.fogCurve"/>).
+        ///
+        /// One number for every hour and every venue, because this is a fact
+        /// about the RENDERER — how a band of fog should fall across its own
+        /// length — and not about what time it is. The hours already differ in
+        /// the two things that are theirs: the colour the world fades into and
+        /// how far away it starts.
+        ///
+        /// Written into the live PSXGlobals on every race, so it is the one
+        /// authority: a scene baked before the field existed and a scene baked
+        /// after it behave identically, which is not true of anything this
+        /// project has ever left to a serialized default.
+        /// </summary>
+        public const float FogCurve = 2.2f;
+
         public struct Preset
         {
             public string name;
@@ -265,6 +283,7 @@ namespace PSXRacing
                 float s = Mathf.Max(0.01f, globals.fogScale) * Seasons.FogMul(weather);
                 globals.fogNear = p.fogNear * s;
                 globals.fogFar = p.fogFar * s;
+                globals.fogCurve = FogCurve;
                 globals.skyAmbient = SkyAmbientFor(p);
             }
 

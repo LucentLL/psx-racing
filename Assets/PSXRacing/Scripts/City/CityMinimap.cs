@@ -31,9 +31,13 @@ namespace PSXRacing.City
     {
         public CityMap map;
         public Transform car;
-        /// <summary>Metres from the car to the map's edge. The camera's far
-        /// plane is 360 m; a map a shade wider than what the fog shows is a
-        /// map that tells you something.</summary>
+        /// <summary>Metres from the car to the map's edge. It used to be a
+        /// shade wider than the fog, which closed at ~265 m; the band has been
+        /// pushed out since and the relationship is now the other way round —
+        /// the map shows the near roads a little larger than you can see them.
+        /// Left where it is on purpose: a 500 m map is the same roads at 70%
+        /// of the size, and what this widget is for is the junction you are
+        /// about to arrive at.</summary>
         public float radiusM = 340f;
         /// <summary>The whole widget, for the HUD to rebuild on a resize.</summary>
         public GameObject Root { get; private set; }

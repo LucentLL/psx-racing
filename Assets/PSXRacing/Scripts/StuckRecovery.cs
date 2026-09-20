@@ -252,7 +252,15 @@ namespace PSXRacing
             // prompt could be read, and one in the sound or on a gorge floor
             // has no road it can climb back to. Deliberately ahead of the
             // parked-on-purpose excuses too: nobody parks below the seabed.
-            if (live && car != null && LeftTheRoad())
+            // PAST THE FLAG THIS ONE STAYS ON, and only this one. The player
+            // keeps the car through the shutdown now, so they can still put it
+            // in the sound off the end of the Bogue bridge or over the side of
+            // a mountain — and under the world there is no driving out and no
+            // road to be pointed back at. The timed recoveries below stay with
+            // `live`: a results screen is exactly where a player parks on a
+            // verge, sits on the brake and reads the sheet, and those are the
+            // two readings that would call that stuck and teleport them off it.
+            if ((live || DriveSession.ResultsUp) && car != null && LeftTheRoad())
             {
                 DriveSession.Respawn(car);
                 stuckTimer = 0f;

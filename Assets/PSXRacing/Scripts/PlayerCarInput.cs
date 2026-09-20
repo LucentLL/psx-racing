@@ -118,12 +118,21 @@ namespace PSXRacing
                 if (kb.qKey.wasPressedThisFrame) ShiftBy(-1);
                 if (kb.mKey.wasPressedThisFrame) car.manualMode = false;
                 // Only while the player HAS the car. inputEnabled is false on
-                // the grid, after the flag, and — the case that got reported —
-                // while the driver is standing on the pavement: the walk-in
-                // scenes read this same key as their second verb, so one press
-                // of X beside a parked car was also a respawn order, and the
-                // car teleported away from the person walking up to it.
-                if (kb.rKey.wasPressedThisFrame && inputEnabled) DriveSession.Respawn(car);
+                // the grid and — the case that got reported — while the driver
+                // is standing on the pavement: the walk-in scenes read this
+                // same key as their second verb, so one press of X beside a
+                // parked car was also a respawn order, and the car teleported
+                // away from the person walking up to it.
+                //
+                // And not on the results screen, where R is CONTINUE. The flag
+                // no longer takes the car away, so for the first time this key
+                // is live at the same moment RaceManager is watching it for the
+                // way home — and a press that both teleports the car and loads
+                // the next scene is the Y/Triangle bug below, again. Being
+                // stuck past the flag costs nothing anyway: the result is
+                // already banked and RESET CAR is still in the pause menu.
+                if (kb.rKey.wasPressedThisFrame && inputEnabled && !DriveSession.ResultsUp)
+                    DriveSession.Respawn(car);
             }
 
             if (pad != null)
@@ -161,9 +170,15 @@ namespace PSXRacing
                 // which component sees it first, and the losing order was a
                 // player stepping out of a car already teleporting back to the
                 // racing line.
+                //
+                // And it yields to the results screen for the same reason R
+                // does: pad X is REPLAY there, and the replay takes every car
+                // kinematic — a respawn firing on that same press would
+                // teleport the car out from under the recording it is about to
+                // play back.
                 if ((pad.selectButton.wasPressedThisFrame ||
                      (pad.buttonWest.wasPressedThisFrame && !OnFoot.ForecourtMode.OfferGetOut))
-                    && inputEnabled)
+                    && inputEnabled && !DriveSession.ResultsUp)
                     DriveSession.Respawn(car);
             }
 
