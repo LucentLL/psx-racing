@@ -207,17 +207,30 @@
 
   playBtn.addEventListener("click", function (e) { e.stopPropagation(); start(); });
 
+  // THE GAME HAS A FULLSCREEN ROW NOW — in the pause menu and on OPTIONS — and
+  // it writes its answer here (see Assets/Plugins/WebGL/PSXFullscreen.jslib).
+  // A player who turned fullscreen off should not be dragged back into it by
+  // the next reload. Anyone who has never touched the row still gets it, which
+  // is the whole reason this tap exists: a phone game under an address bar and
+  // a status bar is a third of a screen short.
+  function wantsFullscreen() {
+    try { return localStorage.getItem("psx.fullscreen") !== "0"; } catch (e) { return true; }
+  }
+
   function start() {
     if (started) return;
     started = true;
     splash.style.display = "none";
-    // Browsers only allow fullscreen and audio from inside a user gesture.
+    // Browsers only allow fullscreen and audio from inside a user gesture. This
+    // tap is the only one the page is guaranteed to get, which is why it is
+    // taken here — and why the in-game row is a BUTTON rather than something
+    // restored on load: the gesture is what the permission is granted against.
     var el = document.documentElement;
     var rq = el.requestFullscreen || el.webkitRequestFullscreen;
     // Both of these reject rather than throw when the browser declines (iOS
     // Safari has no element fullscreen, and orientation lock needs fullscreen
     // first). An unhandled rejection would surface as a page error.
-    if (rq) {
+    if (rq && wantsFullscreen()) {
       try { var p = rq.call(el); if (p && p.catch) p.catch(function () {}); } catch (e) {}
     }
     if (screen.orientation && screen.orientation.lock) {

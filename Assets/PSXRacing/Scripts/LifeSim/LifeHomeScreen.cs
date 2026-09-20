@@ -4947,6 +4947,17 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             PageHeader(ref y, "OPTIONS");
 
+            // FIRST, and not out of tidiness. It is the only row here that is
+            // about the screen rather than about the game, the only one the
+            // browser can undo behind the player's back — a tab switch, the
+            // notification shade, Back, Escape all drop fullscreen and a page
+            // may not restore it by itself — and on a phone it is worth about a
+            // third of the picture. Skipped where the platform cannot do it at
+            // all; see FullscreenPrefs.
+            if (FullscreenPrefs.Supported)
+                OptionRow("FULLSCREEN", FullscreenPrefs.Label,
+                    "Fills the screen and puts the browser's bars away. Say it again if they come back.",
+                    () => FullscreenPrefs.Toggle(), ref y);
             OptionRow("LOOK Y", LookPrefs.Label,
                 "Which way the view pitches on foot. NORMAL unless you fly.",
                 () => LookPrefs.Toggle(), ref y);

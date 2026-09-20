@@ -153,11 +153,17 @@ namespace PSXRacing.EditorTools
 
                 Repoint(cam, size.w, size.h);
 
+                // EVERY control, not just the bench's. The three buttons that
+                // stand BESIDE the column — the bench, FILM GRADE, FULLSCREEN —
+                // are placed by hand at a fixed offset from the centre, and
+                // whether that offset is still on the canvas is a question
+                // about the aspect, not about which button it is. Checking one
+                // of the three proved nothing about the other two.
                 bool found = false;
+                var offCanvas = new List<string>();
                 foreach (var b in host.GetComponentsInChildren<Button>(true))
                 {
-                    if (!b.name.Contains("DEBUG: FAULTS")) continue;
-                    found = true;
+                    if (b.name.Contains("DEBUG: FAULTS")) found = true;
                     var r = (RectTransform)b.transform;
                     var corners = new Vector3[4];
                     r.GetWorldCorners(corners);
@@ -166,15 +172,39 @@ namespace PSXRacing.EditorTools
                     canvasRT.GetWorldCorners(cc);
                     bool inside = corners[0].x >= cc[0].x - 0.01f && corners[2].x <= cc[2].x + 0.01f &&
                                   corners[0].y >= cc[0].y - 0.01f && corners[2].y <= cc[2].y + 0.01f;
-                    if (inside) Debug.Log("[BenchPreview] " + label + "/" + size.name +
-                                          " bench button is on the canvas");
-                    else Debug.LogError("[BenchPreview] " + label + "/" + size.name +
-                                        " BENCH BUTTON OFF THE CANVAS");
+                    if (!inside) offCanvas.Add(b.name);
                 }
+                // And the panel's own two lines of text — the title and the
+                // footer under the last row. The footer is the part of this
+                // menu that fell off a phone FIRST, being below everything
+                // else, and being unpressable it could do so without anyone
+                // noticing. Direct children of the panel: a button's caption is
+                // parented to the button and is CheckOverflow's business.
+                foreach (var t in host.GetComponentsInChildren<Text>(true))
+                {
+                    if (t.transform.parent == null || t.transform.parent.name != "Panel") continue;
+                    var tr = (RectTransform)t.transform;
+                    var tc = new Vector3[4];
+                    tr.GetWorldCorners(tc);
+                    var canvasRT = (RectTransform)t.GetComponentInParent<Canvas>().transform;
+                    var cc2 = new Vector3[4];
+                    canvasRT.GetWorldCorners(cc2);
+                    // Vertically only: these are centred lines with a generous
+                    // 420-unit box that is wider than the words in it.
+                    if (tc[0].y < cc2[0].y - 0.01f || tc[2].y > cc2[2].y + 0.01f)
+                        offCanvas.Add("\"" + t.text + "\"");
+                }
+
+                if (offCanvas.Count > 0)
+                    Debug.LogError("[BenchPreview] " + label + "/" + size.name +
+                                   " OFF THE CANVAS — " + string.Join(", ", offCanvas));
+                else Debug.Log("[BenchPreview] " + label + "/" + size.name +
+                               " every pause row is on the canvas");
                 if (!found) Debug.LogError("[BenchPreview] " + label + "/" + size.name +
                                            " NO BENCH BUTTON in a debug career's pause menu");
 
                 CheckReach(host.transform, label + "/" + size.name);
+                CheckOverflow(host.transform, label + "/" + size.name);
                 Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
             }
         }

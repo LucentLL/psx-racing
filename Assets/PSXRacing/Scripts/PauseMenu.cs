@@ -74,6 +74,25 @@ namespace PSXRacing
                 debugTimer += Time.unscaledDeltaTime;
                 if (debugTimer > 0.1f) { debugTimer = 0f; RefreshDebug(); }
             }
+
+            // THE BROWSER GETS THE LAST WORD ON FULLSCREEN, and it changes it
+            // without telling anybody: a tab switch drops out of fullscreen, so
+            // does Escape, so does the notification shade. Poll while the panel
+            // is up — four times a second, on unscaled time like everything
+            // else in a paused menu — so the row describes the screen the
+            // player is looking at rather than the one they last asked for.
+            // It is also how the label catches up when the request this menu
+            // made is granted, which happens a frame or two after the press.
+            if (open && fsLabel != null)
+            {
+                fsTimer += Time.unscaledDeltaTime;
+                if (fsTimer > 0.25f)
+                {
+                    fsTimer = 0f;
+                    bool now = FullscreenPrefs.On;
+                    if (now != fsWas) { fsWas = now; fsLabel.text = FullscreenLabel(); }
+                }
+            }
         }
 
         void SetOpen(bool v)
@@ -95,6 +114,16 @@ namespace PSXRacing
             // Same story for the fuel row, whose price is a function of how
             // empty the tank is right now.
             if (v && fuelLabel != null) fuelLabel.text = FuelLabel();
+            // And for fullscreen, which the BROWSER can have taken away since
+            // the last time this menu was up — opening it is the one moment the
+            // row is guaranteed to be read, so it is worth being right there
+            // before the poll in Update gets its first turn.
+            if (v && fsLabel != null)
+            {
+                fsWas = FullscreenPrefs.On;
+                fsLabel.text = FullscreenLabel();
+                fsTimer = 0f;
+            }
 
             // Put the cursor on RESUME when the panel opens, and take it off
             // when it closes. A UGUI navigation event goes to whatever is
@@ -342,6 +371,33 @@ namespace PSXRacing
             if (blurLabel != null) blurLabel.text = BlurLabel();
         }
 
+        Text fsLabel;
+        bool fsWas;
+        float fsTimer;
+
+        static string FullscreenLabel() => "FULLSCREEN: " + FullscreenPrefs.Label;
+
+        /// <summary>
+        /// Fill the screen, or give it back.
+        ///
+        /// The one row here that is not a setting: the browser owns this, and
+        /// the browser takes it away — a tab switch, the notification shade,
+        /// Back, Escape, sometimes a rotation — leaving the game running with
+        /// an address bar and a status bar across a phone's short side and no
+        /// way at all to get them off again. A page cannot put itself back into
+        /// fullscreen; only a press can, and this is the press.
+        ///
+        /// Which is also why it has to be pressed rather than restored: the
+        /// gesture is what the browser is granting permission against. See
+        /// <see cref="FullscreenPrefs"/>.
+        /// </summary>
+        void ToggleFullscreen()
+        {
+            FullscreenPrefs.Toggle();
+            if (fsLabel != null) fsLabel.text = FullscreenLabel();
+            fsWas = FullscreenPrefs.On;
+        }
+
         Text gradeLabel;
 
         static string GradeLabel() => "FILM GRADE: " + FilmGradePrefs.Label;
@@ -484,16 +540,28 @@ namespace PSXRacing
             title.fontStyle = FontStyle.Bold;
             title.color = LifeSim.MenuKit.Accent;
 
-            // Twelve rows in the height ten used to take. The panel already
+            // Eleven rows in the height ten used to take. The panel already
             // reached the bottom of a 16:9 canvas at ten, and on a 20:9 phone
             // the scaler leaves under 650 units of height to put them in — so a
             // new row has to come out of the pitch rather than out of the
             // screen. It was 44 in a 49 step for eleven; SPEED LINES (the row
-            // SPEED BLUR has now) made it twelve, and 40 in a 45 step keeps
-            // the LAST row exactly where it
-            // was (-108 - 11*45 = -603 vs -108 - 10*49 = -598), so the footer
-            // still fits. 40 units is ~67 px on a 1080p phone — still a thumb
-            // target — and the 20-point type is untouched.
+            // SPEED BLUR has now) made it twelve at 40 in a 45 step.
+            //
+            // AND TWELVE WAS ONE TOO MANY. At the phone aspect the scaler
+            // leaves 641 units of height, and the twelfth row ran -603 to -643
+            // with the footer under it at -657: the last row hung two units off
+            // the bottom edge and the footer line was gone entirely. Nothing
+            // said so, because the preview only ever asked whether the DEBUG
+            // button was on the canvas. It asks about every row now, which is
+            // how this surfaced.
+            //
+            // The pitch is not the thing to cut again — 40 units is already
+            // about 20 CSS pixels of thumb on a phone. The row came out
+            // instead: TOGGLE DEBUG INFO now stands beside the column with the
+            // other three that do, and it is the right one to move, being the
+            // only row here a player has no reason to press. Eleven rows put
+            // the last one at -108 - 10*45 = -558 and the footer at -608,
+            // bottom -633, inside 641 with eight units to spare.
             const float RowH = 40f, RowStep = 45f;
             var rowSize = new Vector2(360f, RowH);
             float y = -108f;
@@ -545,20 +613,18 @@ namespace PSXRacing
             menuItems.Add(MakeButton(panel.transform, "RESTART RACE", font, new Vector2(0.5f, 1f),
                        new Vector2(0f, y), rowSize, 22, RestartRace)); y -= RowStep;
             menuItems.Add(MakeButton(panel.transform, "EXIT TO MENU", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 22, ExitToMenu)); y -= RowStep;
-            menuItems.Add(MakeButton(panel.transform, "TOGGLE DEBUG INFO", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, ToggleDebug)); y -= 54f;
+                       new Vector2(0f, y), rowSize, 22, ExitToMenu)); y -= 50f;
 
             MakeText(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT", font, 15,
                      new Vector2(0.5f, 1f), new Vector2(0f, y)).color = LifeSim.MenuKit.Dim;
 
-            // THE DEBUG BENCH, in a debug career only. BESIDE the column and
-            // not in it: twelve rows already fill the height a wide phone has
-            // (see the pitch note above), and a thirteenth would be the one
-            // that falls off the bottom. It shares RESUME's line, so the
-            // geometric graph reaches it with RIGHT; and it goes LAST in the
-            // list, so the creation-order chain that serves until the rects
-            // resolve reaches it with one UP from RESUME, by the wrap.
+            // THE CONTROLS BESIDE THE COLUMN stand there for one reason:
+            // eleven rows already fill the height a wide phone has (see the
+            // pitch note above), so a twelfth is the one that falls off the
+            // bottom. Each sits on the line of the row it belongs with, which
+            // is what the geometric graph needs to reach it with LEFT or RIGHT.
+
+            // THE DEBUG BENCH, in a debug career only, on RESUME's line.
             if (LifeSim.DebugCarOps.Available)
             {
                 benchBtn = MakeButton(panel.transform, "DEBUG: FAULTS + PARTS", font,
@@ -568,15 +634,36 @@ namespace PSXRacing
                 menuItems.Add(benchBtn);
             }
 
-            // FILM GRADE, BESIDE the column for the same reason the bench is:
-            // twelve rows already fill a wide phone's height. It stands to
-            // the LEFT of the picture rows it belongs with, on SPEED BLUR's
-            // line, so the geometric graph reaches it with LEFT from there.
+            // THE PHYSICS READOUT, under the bench on the right. It used to be
+            // the twelfth row of the column, which is to say the row that hung
+            // off the bottom of a phone — and it is the one row in this menu
+            // that a player has no reason ever to press, so it is the one that
+            // moves. On CAMERA's line.
+            menuItems.Add(MakeButton(panel.transform, "TOGGLE DEBUG INFO", font,
+                       new Vector2(0.5f, 1f), new Vector2(344f, -108f - RowStep),
+                       new Vector2(300f, RowH), 19, ToggleDebug));
+
+            // FILM GRADE, to the LEFT of the picture rows it belongs with, on
+            // SPEED BLUR's line.
             var gradeBtn = MakeButton(panel.transform, GradeLabel(), font,
                        new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 6f * RowStep),
                        new Vector2(280f, RowH), 19, ToggleGrade);
             gradeLabel = gradeBtn.GetComponentInChildren<Text>();
             menuItems.Add(gradeBtn);
+
+            // FULLSCREEN, directly under FILM GRADE on the left, on RESET CAR's
+            // line. Left out entirely where the platform cannot do it — an
+            // iPhone, or an embed with no fullscreen permission — because a row
+            // that is guaranteed to do nothing when pressed is worse than no row.
+            if (FullscreenPrefs.Supported)
+            {
+                var fsBtn = MakeButton(panel.transform, FullscreenLabel(), font,
+                           new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 7f * RowStep),
+                           new Vector2(280f, RowH), 19, ToggleFullscreen);
+                fsLabel = fsBtn.GetComponentInChildren<Text>();
+                fsWas = FullscreenPrefs.On;
+                menuItems.Add(fsBtn);
+            }
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);
