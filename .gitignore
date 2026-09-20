@@ -40,3 +40,6 @@ tools/roads/cache/
 # its debug plots, which it redraws in five seconds
 tools/city/cache/
 tools/city/charlotte_*.png
+
+# Python bytecode from the tools
+__pycache__/

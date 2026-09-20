@@ -26,6 +26,54 @@ namespace PSXRacing
     /// </summary>
     public enum PSXPixels { Sharp = 0, Classic = 1, Retro = 2 }
 
+    /// <summary>
+    /// FILM GRADE: the faded-print look over the whole picture — no true black,
+    /// no true white, colour drained except the warm ones, light that bleeds.
+    ///
+    /// Owner, 2026-09-19, over four frames of a car film: "a nostalgic color
+    /// grade I would like added as a filter... the old, nostalgic, 90s
+    /// feeling. Like playing this game is a dream." The look itself is
+    /// PSX/Blit's (see the header there for what was measured off those
+    /// frames); this is only the switch. Ships ON — it is the picture the
+    /// owner asked for — and the OPTIONS / pause row is how to say no.
+    /// </summary>
+    public static class FilmGradePrefs
+    {
+        const string PrefKey = "psx.filmGrade";
+
+        static int cached = -1;
+
+        public static bool Enabled
+        {
+            get
+            {
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 1);
+                return cached != 0;
+            }
+            set
+            {
+                int v = value ? 1 : 0;
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+                Changed++;
+            }
+        }
+
+        /// <summary>Bumped on every change, the way <see cref="PSXQuality.Changed"/>
+        /// is, so the display material follows a switch thrown in the pause
+        /// menu on the next frame.</summary>
+        public static int Changed { get; private set; }
+
+        public static void Toggle() => Enabled = !Enabled;
+
+        public static string Label => Enabled ? "ON" : "OFF";
+
+        /// <summary>What PSX/Blit's _Grade is set to.</summary>
+        public static float Amount => Enabled ? 1f : 0f;
+    }
+
     public static class PSXQuality
     {
         public static readonly string[] Names = { "SHARP", "CLASSIC", "RETRO" };

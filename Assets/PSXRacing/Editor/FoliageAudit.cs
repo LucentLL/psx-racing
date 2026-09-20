@@ -58,9 +58,76 @@ namespace PSXRacing.EditorTools
         {
             var log = new StringBuilder();
             int problems = AuditScenes(PSXRacingBuilder.SceneOrder(), log);
+            problems += AuditAtlases(log);
             log.AppendLine(problems == 0 ? "FOLIAGE OK" : "FOLIAGE PROBLEMS: " + problems);
             Debug.Log(log.ToString());
             File.WriteAllText(Path.Combine(Application.dataPath, "../PSXRacing_foliage_audit.txt"), log.ToString());
+        }
+
+        /// <summary>
+        /// THE PAINTED TRUNK IS UNDER THE CROSSING, in every cell of every
+        /// season's forest atlas.
+        ///
+        /// A forest tree's collider stands where its two cards cross: the
+        /// middle of its atlas cell. "I just drove straight through a tree
+        /// without impact" was a winter oak whose billboard paints its trunk
+        /// 18 px — a metre and a half — to one side of that, so the car aimed
+        /// at the trunk it could see and missed the one that was there. The
+        /// composer slides every billboard onto the line now
+        /// (TreeKit.CentreOnTrunk); this reads the PNGs back and holds it to
+        /// that, a pixel and a half either way, so a billboard swapped into
+        /// <c>DressTreeFiles</c> tomorrow cannot bring the bug back for one
+        /// season of the year.
+        /// </summary>
+        public static int AuditAtlases(StringBuilder log)
+        {
+            const int cellPx = 128;
+            int problems = 0, atlases = 0;
+            log.AppendLine("");
+            log.AppendLine("forest atlases — the painted trunk under the crossing of the cards:");
+            // The atlases the forest MATERIALS wear, not every file of that
+            // name: the first run of this failed on Art/MtMitchell/Gen and
+            // Art/BeechGap/Gen — copies from before the mountains shared
+            // Art/BRP's, which nothing points at and no build ships.
+            var paths = new SortedSet<string>();
+            foreach (var guid in AssetDatabase.FindAssets("_Forest t:Material", new[] { "Assets/PSXRacing/Materials" }))
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+                if (m == null || m.mainTexture == null) continue;
+                string p = AssetDatabase.GetAssetPath(m.mainTexture);
+                if (p.Contains("TreeAtlas")) paths.Add(p);
+            }
+            foreach (var path in paths)
+            {
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                tex.LoadImage(File.ReadAllBytes(path));
+                if (tex.width != cellPx * 4 || tex.height != cellPx * 4) { Object.DestroyImmediate(tex); continue; }
+                atlases++;
+                var all = tex.GetPixels32();
+                Object.DestroyImmediate(tex);
+                float worst = 0f; int worstCell = -1, off = 0;
+                for (int i = 0; i < 16; i++)
+                {
+                    var cell = new Color32[cellPx * cellPx];
+                    for (int y = 0; y < cellPx; y++)
+                        System.Array.Copy(all, ((i / 4) * cellPx + y) * cellPx * 4 + (i % 4) * cellPx, cell, y * cellPx, cellPx);
+                    TreeKit.FindTrunk(cell, cellPx, cellPx, out float x, out int w, out _);
+                    if (w == 0) continue;      // an empty cell has no trunk to be wrong
+                    float d = Mathf.Abs(x - (cellPx - 1) * 0.5f);
+                    if (d > worst) { worst = d; worstCell = i; }
+                    if (d > 1.5f) off++;
+                }
+                problems += off;
+                log.AppendLine("  " + (off == 0 ? "ok  " : "FAIL") + " " + path.Replace("Assets/PSXRacing/Art/", "") +
+                               "  worst " + worst.ToString("0.0") + " px (cell " + worstCell + ")" +
+                               (off > 0 ? "  " + off + " TRUNK(S) OFF THE CROSSING" : ""));
+            }
+            if (atlases < Seasons.DressCount)
+            {
+                log.AppendLine("  FAIL " + atlases + " forest atlas(es) found, and there are " + Seasons.DressCount + " season dresses");
+                problems++;
+            }
+            return problems;
         }
 
         /// <summary>Open each scene (single) and audit it. A scene that is not
@@ -170,9 +237,19 @@ namespace PSXRacing.EditorTools
                 }
             }
 
+            int acrossLane = CardsAcrossTheLane(tables, out string worstLane, out int canopy);
+            problems += acrossLane;
+
             log.AppendLine("");
             log.AppendLine("foliage — " + scene + (tables.Length > 0
                 ? "  (trunk table: " + TotalTrunks(tables) + " trunks)" : ""));
+            if (tables.Length > 0)
+                // The count of trees that DO reach over the road, from high
+                // enough, is the check's own control: zero of those as well
+                // would mean it was measuring nothing.
+                log.AppendLine("  " + (acrossLane == 0 ? "ok  " : "FAIL") + " no billboard across the lane below four metres (" +
+                               canopy + " reach over it from above that: the canopy)" +
+                               (acrossLane > 0 ? "  " + acrossLane + " ACROSS THE LANE, worst: " + worstLane : ""));
 
             // THE OTHER FOUR SEASONS. SeasonDress swaps the forest's material
             // for a variant at load, so a variant that culls its backs puts
@@ -228,6 +305,70 @@ namespace PSXRacing.EditorTools
                                (cardOk ? "" : "  CARD COLLIDERS " + row.cardColliders));
             }
             return problems;
+        }
+
+        /// <summary>
+        /// NO BILLBOARD ACROSS THE LANE AT A HEIGHT A CAR OR ITS CAMERA REACHES.
+        ///
+        /// A forest tree is two flat cards up to sixteen metres wide, and the
+        /// forest pass plants them from seven metres off the centreline: the
+        /// end of a card can lie over the tarmac. High up that is canopy; on a
+        /// falling verge, where the whole crown sits at road level, it was
+        /// orange leaves through the guard wall into the lane at eye height
+        /// (seen in the first thick forest's driver's-eye shots, 2026-09-19).
+        /// The builder shrinks or drops such trees; this reads every tree in
+        /// the table back against the path and counts the ones that still
+        /// reach over the road with foliage starting under four metres above
+        /// it. Species 12-14 are the conifers (narrow card, foliage from a
+        /// tenth of the height); the rest are broadleaf (from 28%).
+        /// </summary>
+        static int CardsAcrossTheLane(TreeTrunks[] tables, out string worst, out int canopy)
+        {
+            worst = ""; canopy = 0;
+            var path = Object.FindFirstObjectByType<TrackPath>();
+            if (path == null || path.Count < 2 || tables.Length == 0) return 0;
+            float roadHalf = path.roadWidth * 0.5f;
+            int bad = 0; float worstOver = 0f;
+            foreach (var t in tables)
+                for (int i = 0; i < t.Count; i++)
+                {
+                    float w = t.CardWidthOf(i);
+                    if (w <= 0f) continue;
+                    Vector3 b = t.BaseOf(i);
+                    // Only a tree within reach of the road can offend.
+                    float best = float.MaxValue; int at = -1;
+                    for (int k = 0; k < path.Count; k += 3)
+                    {
+                        Vector3 p = path.waypoints[k];
+                        float dx = p.x - b.x, dz = p.z - b.z, d2 = dx * dx + dz * dz;
+                        if (d2 < best) { best = d2; at = k; }
+                    }
+                    if (at < 0 || best > 20f * 20f) continue;
+                    for (int k = Mathf.Max(0, at - 3); k <= Mathf.Min(path.Count - 1, at + 3); k++)
+                    {
+                        Vector3 p = path.waypoints[k];
+                        float dx = p.x - b.x, dz = p.z - b.z, d2 = dx * dx + dz * dz;
+                        if (d2 < best) { best = d2; at = k; }
+                    }
+                    float d = Mathf.Sqrt(best);
+                    float over = roadHalf + 0.3f - (d - w * 0.5f);
+                    if (over <= 0f) continue;
+                    int cell = t.AtlasCellOf(i);
+                    bool conifer = cell >= 12 && cell <= 14;
+                    float h = conifer ? w / 0.62f : w;
+                    float foliageFoot = b.y + 0.25f + h * (conifer ? 0.10f : 0.28f);
+                    if (foliageFoot - path.waypoints[at].y >= 4.0f) { canopy++; continue; }
+                    // A tree far BELOW the road (under a bridge deck) is not in the lane either.
+                    if (path.waypoints[at].y - (b.y + h) > 1.5f) continue;
+                    bad++;
+                    if (over > worstOver)
+                    {
+                        worstOver = over;
+                        worst = "tree " + i + " reaches " + over.ToString("0.0") + " m over the tarmac, foliage from " +
+                                (foliageFoot - path.waypoints[at].y).ToString("0.0") + " m above the road";
+                    }
+                }
+            return bad;
         }
 
         static int TotalTrunks(TreeTrunks[] tables)

@@ -205,6 +205,12 @@ namespace PSXRacing.EditorTools
             /// every 28 m with a third skipped and are now every 16 m with a
             /// quarter: the same reason as the posts, taller.</summary>
             public double buildingSkip = 0.25, treeSkip = 0.25;
+            /// <summary>Ranks of trees behind the roadside one, and whether a
+            /// site plants BOTH verges rather than alternating. A street tree
+            /// is one rank, alternating; a wood is several, both sides. Owner,
+            /// 2026-09-19: "Trees in this game are too sparse."</summary>
+            public int treeRows = 1;
+            public bool treeBothSides = false;
             public bool gasStation = true;
 
             // --------------------------------------------------------------
@@ -336,6 +342,8 @@ namespace PSXRacing.EditorTools
                 // a mistake, so what few there are should be landmarks.
                 buildingEvery = 34, buildingSkip = 0.55,
                 treeEvery = 4, treeSkip = 0.15,
+                // A pass through a wood, not a lane with a tree every 32 m.
+                treeRows = 3, treeBothSides = true,
                 parkedEvery = 0,
                 lampEvery = 24,
                 gasStation = true,
@@ -352,6 +360,8 @@ namespace PSXRacing.EditorTools
                 relief = 1f,            // an airfield is chosen for being flat
                 buildingEvery = 17, buildingSkip = 0.35,
                 treeEvery = 7, treeSkip = 0.3,
+                // The perimeter line is a shelter belt: two ranks deep.
+                treeRows = 2,
                 parkedEvery = 19,
                 lampEvery = 11,
                 gasStation = true,
@@ -6036,35 +6046,81 @@ namespace PSXRacing.EditorTools
             var mat = MakeMat(MeshPrefix + "Tree", theme.tree, cutoff: 0.5f, twoSided: true);
             var rng = new System.Random(7);
             int n = pts.Count, placed = 0;
+            // What a rank behind the first must stay clear of: every OTHER
+            // part of the circuit (25 m out from one straight is the middle of
+            // the next on a hairpin) and every building already standing.
+            var buildings = new List<Bounds>();
+            foreach (Transform child in parent)
+                if (child.name == "Building")
+                {
+                    var bb = CombinedBounds(child.gameObject);
+                    bb.Expand(new Vector3(5f, 40f, 5f));
+                    buildings.Add(bb);
+                }
+            float clearOfRoad = WallOffsetFor(track) + 2.2f;
+            bool Clear(Vector3 at)
+            {
+                foreach (var bb in buildings) if (bb.Contains(new Vector3(at.x, bb.center.y, at.z))) return false;
+                for (int k = 0; k < n; k++)
+                {
+                    float dx = pts[k].x - at.x, dz = pts[k].z - at.z;
+                    if (dx * dx + dz * dz < clearOfRoad * clearOfRoad) return false;
+                }
+                return true;
+            }
+
             for (int i = 4; i < n; i += theme.treeEvery)
             {
-                float side = (i / theme.treeEvery) % 2 == 0 ? -1f : 1f;
+                float firstSide = (i / theme.treeEvery) % 2 == 0 ? -1f : 1f;
                 if (rng.NextDouble() < theme.treeSkip || OverGorge(i)) continue;
-                Vector3 right = RightAt(pts, i);
-                var t = new GameObject("Tree");
-                t.transform.SetParent(parent, false);
-                Vector3 treeAt = pts[i] + right * side * (WallOffsetFor(track) + 2.6f);
-                // Not through the forecourt.
-                if (OnFuelPad(treeAt, 2f)) { UnityEngine.Object.DestroyImmediate(t); continue; }
-                // Sunk 20 cm. A billboard whose base is exactly on a facet edge
-                // shows a sliver of sky under itself the moment the ground tips.
-                treeAt.y = GroundHeightAt(treeAt.x, treeAt.z) - 0.2f;
-                t.transform.position = treeAt;
-                t.transform.rotation = Quaternion.Euler(0f, (float)rng.NextDouble() * 360f, 0f);
-                float s = 0.8f + (float)rng.NextDouble() * 0.5f;
-                t.transform.localScale = new Vector3(s, s, s);
-                t.AddComponent<MeshFilter>().sharedMesh = mesh;
-                t.AddComponent<MeshRenderer>().sharedMaterial = mat;
-                // The trunk: "trees should also occupy space with their
-                // trunks, stopping a car if it drives into it." Where the two
-                // planes cross, which is where the sheet paints it, sized off
-                // the card (the painted trunk is ~5% of the sheet's width) and
-                // solid to half the tree's height — well over any roof, and
-                // clear of nothing, because nothing is meant to pass under a
-                // tree. On the Solid layer so no wheel ever stands on it.
-                TreeKit.AddTrunk(t.transform, treeAt, TreeKit.TrunkRadiusFor(TreeCardW * s),
-                                 Mathf.Min(4f, 0.5f * TreeCardH * s));
-                placed++;
+                for (int sideIx = 0; sideIx < (theme.treeBothSides ? 2 : 1); sideIx++)
+                for (int rank = 0; rank < Mathf.Max(1, theme.treeRows); rank++)
+                {
+                    float side = sideIx == 0 ? firstSide : -firstSide;
+                    // Ranks behind the first stand 5-8 m further out each and
+                    // half a site along, so the wood has depth instead of rows.
+                    int at = rank == 0 ? i : Mathf.Min(n - 1, i + (rank % 2 == 1 ? theme.treeEvery / 2 : 0));
+                    // The roadside rank draws exactly what it always drew, in
+                    // the order it always drew it, so the trees a circuit
+                    // already had stand where and as they stood.
+                    float out_ = WallOffsetFor(track) + 2.6f, along = 0f;
+                    if (rank > 0)
+                    {
+                        out_ += rank * (5f + (float)rng.NextDouble() * 3f);
+                        along = ((float)rng.NextDouble() - 0.5f) * 5f;
+                    }
+                    Vector3 right = RightAt(pts, at);
+                    Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
+                    Vector3 treeAt = pts[at] + right * side * out_ + fwd * along;
+                    // Not through the forecourt; and a back rank not on another
+                    // part of the circuit nor through a building.
+                    if (OnFuelPad(treeAt, 2f)) continue;
+                    if ((rank > 0 || sideIx > 0) && !Clear(treeAt)) continue;
+                    float yaw = (float)rng.NextDouble() * 360f;
+                    float s = 0.8f + (float)rng.NextDouble() * 0.5f;
+                    if (rank > 0) s *= 1.05f + rank * 0.12f;      // the wood behind is older than the verge
+
+                    var t = new GameObject("Tree");
+                    t.transform.SetParent(parent, false);
+                    // Sunk 20 cm. A billboard whose base is exactly on a facet edge
+                    // shows a sliver of sky under itself the moment the ground tips.
+                    treeAt.y = GroundHeightAt(treeAt.x, treeAt.z) - 0.2f;
+                    t.transform.position = treeAt;
+                    t.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+                    t.transform.localScale = new Vector3(s, s, s);
+                    t.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    t.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                    // The trunk: "trees should also occupy space with their
+                    // trunks, stopping a car if it drives into it." Where the two
+                    // planes cross, which is where the sheet paints it, sized off
+                    // the card (the painted trunk is ~5% of the sheet's width) and
+                    // solid to half the tree's height — well over any roof, and
+                    // clear of nothing, because nothing is meant to pass under a
+                    // tree. On the Solid layer so no wheel ever stands on it.
+                    TreeKit.AddTrunk(t.transform, treeAt, TreeKit.TrunkRadiusFor(TreeCardW * s),
+                                     Mathf.Min(4f, 0.5f * TreeCardH * s));
+                    placed++;
+                }
             }
             Log($"Placed {placed} trees, each with a trunk.");
         }

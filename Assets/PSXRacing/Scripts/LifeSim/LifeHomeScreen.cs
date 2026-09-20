@@ -4717,6 +4717,11 @@ namespace PSXRacing.LifeSim
             OptionRow("SPEED BLUR", SpeedBlurPrefs.Label,
                 "The picture smears into a tunnel as the car gets fast. Off if you would rather it did not.",
                 () => SpeedBlurPrefs.Toggle(), ref y);
+            // The faded-print look over the whole picture. Ships ON: it is the
+            // picture the owner asked for ("like playing this game is a dream").
+            OptionRow("FILM GRADE", FilmGradePrefs.Label,
+                "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",
+                () => FilmGradePrefs.Toggle(), ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries these too,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,

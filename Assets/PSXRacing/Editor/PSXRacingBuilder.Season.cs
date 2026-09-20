@@ -126,18 +126,51 @@ namespace PSXRacing.EditorTools
             if (copied > 0) Log($"Copied {copied} seasonal tree billboards from the CC0 pack.");
         }
 
-        /// <summary>The four atlases the fall one does not cover. Same 4x4 of
-        /// 128 px cells, same cell order, so the forest mesh's UVs are right
-        /// for all five.</summary>
-        static void ComposeSeasonAtlases()
+        /// <summary>What the atlas composer measured off the billboards, for
+        /// the forest's trunk table: per cell, the painted trunk's half-width
+        /// (the widest any dress paints it), and per dress and cell how far
+        /// the low foliage reaches — both as fractions of the card's width.
+        /// Filled by <see cref="ComposeForestAtlases"/>, read by
+        /// BuildStageForest, which always runs after it.</summary>
+        static readonly float[] ForestTrunkFrac = new float[TreeTrunks.CellsPerAtlas];
+        static readonly float[] ForestBrushFrac = new float[Seasons.DressCount * TreeTrunks.CellsPerAtlas];
+
+        /// <summary>Per cell, the widest its low foliage gets in ANY season, as
+        /// a fraction of the card: what the forest pass keeps clear of the
+        /// tarmac, because a tree is planted once and wears all five.</summary>
+        static float ForestLowReachFrac(int cell)
         {
+            float worst = 0f;
+            for (int d = 0; d < Seasons.DressCount; d++)
+                worst = Mathf.Max(worst, ForestBrushFrac[d * TreeTrunks.CellsPerAtlas + cell]);
+            return worst;
+        }
+
+        /// <summary>
+        /// All five atlases. Same 4x4 of 128 px cells, same cell order, so
+        /// the forest mesh's UVs are right for every one of them.
+        ///
+        /// COMPOSED EVERY BUILD, WRITTEN ONLY WHEN DIFFERENT. They used to be
+        /// composed only if the PNG was missing, which made the file the
+        /// source of truth for a rule that lives here: when the rule changed
+        /// (2026-09-19, every billboard slid sideways until its painted trunk
+        /// stands under the crossing of its two cards — see
+        /// TreeKit.CentreOnTrunk) nothing would have re-run it. Now the PNG is
+        /// whatever this says it is; it is rewritten IN PLACE, so its .meta —
+        /// and the GUID every forest material holds — never moves. Never
+        /// delete one of these to force a recompose.
+        /// </summary>
+        static void ComposeForestAtlases()
+        {
+            System.Array.Clear(ForestTrunkFrac, 0, ForestTrunkFrac.Length);
+            System.Array.Clear(ForestBrushFrac, 0, ForestBrushFrac.Length);
+            var fall = new List<string>();
+            foreach (var t in StageTrees) fall.Add(t.file);
             for (int d = 0; d < Seasons.DressCount; d++)
             {
-                var files = DressTreeFiles[d];
-                if (files == null) continue;
-                string atlasPath = DressAtlasPath(d);
-                if (File.Exists(ProjectRootPath(atlasPath))) continue;
-                ComposeTreeAtlas(atlasPath, files, liftBare: d == (int)Season.Winter || d == Seasons.DressSnow);
+                var files = DressTreeFiles[d] ?? (IList<string>)fall;
+                ComposeTreeAtlas(DressAtlasPath(d), files, d,
+                                 liftBare: d == (int)Season.Winter || d == Seasons.DressSnow);
             }
         }
 
@@ -148,25 +181,32 @@ namespace PSXRacing.EditorTools
         /// a January ridge, which is grey-brown at any distance. Leaves that
         /// are still on (the brown oaks) are brighter than the threshold and
         /// are left alone.</param>
-        static void ComposeTreeAtlas(string atlasPath, IList<string> files, bool liftBare = false)
+        static void ComposeTreeAtlas(string atlasPath, IList<string> files, int dress, bool liftBare = false)
         {
             const int cellPx = 128, atlasPx = cellPx * 4;
             var px = new Color32[atlasPx * atlasPx];
             var bareTone = new Color32(122, 108, 92, 255);
+            float worstSlide = 0f, worstShrink = 1f;
             for (int i = 0; i < files.Count && i < 16; i++)
             {
                 int col = i % 4, row = i / 4;
                 bool lift = liftBare && i < 12;
                 var src = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 src.LoadImage(File.ReadAllBytes(ProjectRootPath(StageTreesDir + "/" + files[i] + ".png")));
-                var sp = src.GetPixels32();
-                int sw = src.width, sh = src.height;
+                // The painted trunk under the crossing of the two cards, which
+                // is where the trunk collider stands — see TreeKit.CentreOnTrunk.
+                var cell = TreeKit.CentreOnTrunk(src.GetPixels32(), src.width, src.height, cellPx,
+                                                 StageTrees[i].height, out var fit);
+                UnityEngine.Object.DestroyImmediate(src);
+                worstSlide = Mathf.Max(worstSlide, Mathf.Abs(fit.trunkX - (cellPx - 1) * 0.5f));
+                worstShrink = Mathf.Min(worstShrink, fit.scale);
+                ForestTrunkFrac[i] = Mathf.Max(ForestTrunkFrac[i], fit.trunkFrac);
+                ForestBrushFrac[dress * TreeTrunks.CellsPerAtlas + i] = fit.brushFrac;
+
                 for (int y = 0; y < cellPx; y++)
                     for (int x = 0; x < cellPx; x++)
                     {
-                        int sx = Mathf.Clamp(x * sw / cellPx, 0, sw - 1);
-                        int sy = Mathf.Clamp(y * sh / cellPx, 0, sh - 1);
-                        var c = sp[sy * sw + sx];
+                        var c = cell[y * cellPx + x];
                         if (lift && c.a > 0)
                         {
                             int v = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
@@ -181,14 +221,25 @@ namespace PSXRacing.EditorTools
                         }
                         px[(row * cellPx + y) * atlasPx + col * cellPx + x] = c;
                     }
-                UnityEngine.Object.DestroyImmediate(src);
             }
             var tex = new Texture2D(atlasPx, atlasPx, TextureFormat.RGBA32, false);
             tex.SetPixels32(px); tex.Apply();
-            File.WriteAllBytes(ProjectRootPath(atlasPath), tex.EncodeToPNG());
+            byte[] png = tex.EncodeToPNG();
             UnityEngine.Object.DestroyImmediate(tex);
+
+            string full = ProjectRootPath(atlasPath);
+            bool same = false;
+            if (File.Exists(full))
+            {
+                byte[] had = File.ReadAllBytes(full);
+                same = had.Length == png.Length;
+                for (int k = 0; same && k < had.Length; k++) same = had[k] == png[k];
+            }
+            if (same) return;
+            File.WriteAllBytes(full, png);
             AssetDatabase.ImportAsset(atlasPath, ImportAssetOptions.ForceUpdate);
-            Log("Tree atlas composed: " + atlasPath);
+            Log("Tree atlas composed: " + atlasPath + " (trunks slid up to " + worstSlide.ToString("0.0") +
+                " px onto the crossing, smallest shrink " + worstShrink.ToString("0.00") + ")");
         }
 
         // ------------------------------------------------------------------

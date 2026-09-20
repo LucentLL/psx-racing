@@ -1126,7 +1126,7 @@ namespace PSXRacing.EditorTools
         /// none.</summary>
         static int ShotScale => ShotHeight >= 400 ? 1 : 2;
 
-        static void Shot(Camera cam, string name, Vector3 pos, Quaternion rot)
+        internal static void Shot(Camera cam, string name, Vector3 pos, Quaternion rot)
         {
             var oldPos = cam.transform.position;
             var oldRot = cam.transform.rotation;
@@ -1182,6 +1182,11 @@ namespace PSXRacing.EditorTools
             var tmp = new Material(mat) { hideFlags = HideFlags.HideAndDontSave };
             tmp.SetFloat("_ColorDepth", PSXQuality.ColorDepth);
             tmp.SetFloat("_DitherStrength", PSXQuality.Dither);
+            // The film grade is part of the picture the player gets, so it is
+            // part of every reference shot: PSX_GRADE=0 in the environment is
+            // how to see a frame without it.
+            if (tmp.HasProperty("_Grade"))
+                tmp.SetFloat("_Grade", System.Environment.GetEnvironmentVariable("PSX_GRADE") == "0" ? 0f : 1f);
             var dst = new RenderTexture(src.width, src.height, 0, RenderTextureFormat.ARGB32)
             {
                 filterMode = FilterMode.Point,

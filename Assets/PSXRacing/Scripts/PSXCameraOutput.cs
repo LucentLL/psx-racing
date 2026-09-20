@@ -45,6 +45,7 @@ namespace PSXRacing
         int builtWidth, builtHeight;
         int lastScreenW, lastScreenH;
         int builtQuality = -1;
+        int builtGrade = -1;
         Material blit;
 
         void OnEnable()
@@ -77,6 +78,10 @@ namespace PSXRacing
             // next frame rather than the next race.
             if (Screen.width != lastScreenW || Screen.height != lastScreenH
                 || PSXQuality.Changed != builtQuality) Rebuild();
+            // FILM GRADE is a number on the display material and nothing
+            // else, so its switch costs no framebuffer: the frozen frame
+            // behind the pause menu changes while the player is looking at it.
+            else if (FilmGradePrefs.Changed != builtGrade) ApplyFilter();
         }
 
         void Rebuild()
@@ -126,6 +131,10 @@ namespace PSXRacing
             if (blit == null) return;
             if (blit.HasProperty("_ColorDepth")) blit.SetFloat("_ColorDepth", PSXQuality.ColorDepth);
             if (blit.HasProperty("_DitherStrength")) blit.SetFloat("_DitherStrength", PSXQuality.Dither);
+            // The saved material carries 0, so a scene opened in the editor
+            // (and any tool that does not ask) shows the picture ungraded.
+            if (Application.isPlaying && blit.HasProperty("_Grade")) blit.SetFloat("_Grade", FilmGradePrefs.Amount);
+            builtGrade = FilmGradePrefs.Changed;
         }
 
         int TargetWidth()

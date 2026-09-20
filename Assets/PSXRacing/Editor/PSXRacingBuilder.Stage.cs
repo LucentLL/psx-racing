@@ -195,10 +195,37 @@ namespace PSXRacing.EditorTools
         /// this the far slopes are painted as forest by the mottle texture,
         /// which at 150 m+ through PSX fog is indistinguishable.</summary>
         const float ForestBand = 150f;
-        /// <summary>Candidate grid pitch for the forest. Appalachian cove
-        /// forest is nearly closed canopy; 13 m of billboard spacing reads as
-        /// that once the crowns are 10 m wide.</summary>
-        const float ForestPitch = 13f;
+        /// <summary>Candidate grid pitch for the forest, and how far from the
+        /// road every candidate is kept.
+        ///
+        /// It was 13 m everywhere ("reads as closed canopy once the crowns are
+        /// 10 m wide"), and it did not: owner, 2026-09-19, over a frame of an
+        /// alpine road walled in by spruce - "notice how thick the trees are.
+        /// Trees in this game are too sparse." At 13 m a driver looks straight
+        /// THROUGH the first rank to the sky and the ground behind it. 7.5 m
+        /// is three times the trees per acre, and it is spent where it is
+        /// SEEN: every candidate is kept out to ForestDenseTo, then the keep
+        /// rate falls to the old forest's density by 90 m, and thins on from
+        /// there as it always has (the far slopes are the mottle's job). About
+        /// twice the trees a stage for three times the forest at the roadside.
+        /// 32 x 7.5 is the chunk exactly, so there is no bare strip at a
+        /// chunk's far edge either (18 x 13 was 234 of 240 m).</summary>
+        const float ForestPitch = 7.5f;
+        const float ForestDenseTo = 45f;
+        /// <summary>The old 13.3 m grid's share of a 7.5 m grid's candidates.</summary>
+        const float ForestFarKeep = 0.32f;
+        /// <summary>In the dense band, this share of trees are UNDERSTORY: half
+        /// to seven tenths the height, so the gap under a ten-metre crown -
+        /// which is where a driver's eye actually is - has leaves in it.</summary>
+        const float ForestUnderstory = 0.28f;
+        /// <summary>The species table's heights were "game-scale, not botany":
+        /// nine to twelve metres, two and a half cars. The owner's reference
+        /// road is walled in by trees five and six times the height of the
+        /// cars on it, and THICK is as much that as it is the count - a ten
+        /// metre tree standing on a falling verge barely tops the guard wall.
+        /// 1.3 puts the canopy at 12-16 m: still short of a real cove
+        /// hardwood, and as far as a 128 px billboard stretches.</summary>
+        const float ForestHeightScale = 1.3f;
 
         const float NearCell = 12f, NearCoverage = 340f, NearChunk = 240f;
         const float FarCell = 60f, FarCoverageDefault = 2300f, FarChunk = 960f;
@@ -4438,36 +4465,9 @@ namespace PSXRacing.EditorTools
             if (theme.stageUrban) { GenerateUrbanTextures(); return; }
             if (!theme.stageForest) { GenerateCoastTextures(); return; }
 
-            string atlasPath = StageGenDir + "/TreeAtlas.png";
-            if (!File.Exists(ProjectRootPath(atlasPath)))
-            {
-                const int cellPx = 128, atlasPx = cellPx * 4;
-                var px = new Color32[atlasPx * atlasPx];
-                foreach (var s in StageTrees)
-                {
-                    var src = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    src.LoadImage(File.ReadAllBytes(ProjectRootPath(StageTreesDir + "/" + s.file + ".png")));
-                    var sp = src.GetPixels32();
-                    int sw = src.width, sh = src.height;
-                    for (int y = 0; y < cellPx; y++)
-                        for (int x = 0; x < cellPx; x++)
-                        {
-                            // Point-sample; sources are 128 already, but stay
-                            // correct if the pack ever ships another size.
-                            int sx = Mathf.Clamp(x * sw / cellPx, 0, sw - 1);
-                            int sy = Mathf.Clamp(y * sh / cellPx, 0, sh - 1);
-                            px[(s.row * cellPx + y) * atlasPx + s.col * cellPx + x] = sp[sy * sw + sx];
-                        }
-                    UnityEngine.Object.DestroyImmediate(src);
-                }
-                var tex = new Texture2D(atlasPx, atlasPx, TextureFormat.RGBA32, false);
-                tex.SetPixels32(px); tex.Apply();
-                File.WriteAllBytes(ProjectRootPath(atlasPath), tex.EncodeToPNG());
-                UnityEngine.Object.DestroyImmediate(tex);
-                Log("Tree atlas composed: " + atlasPath);
-            }
-            // And the other four seasons of it, plus their grounds.
-            ComposeSeasonAtlases();
+            // All five seasons of it, each billboard slid until its painted
+            // trunk stands where the trunk collider does, plus their grounds.
+            ComposeForestAtlases();
             WriteSeasonGroundTextures();
 
             // The far slopes: an autumn mottle so terrain past the tree band
@@ -4742,6 +4742,7 @@ namespace PSXRacing.EditorTools
             // many to bake a collider each — TreeTrunks stands them up round
             // the cars at runtime.
             var trunks = new List<Vector4>();
+            var trunkCells = new List<byte>();
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
             {
@@ -4758,14 +4759,21 @@ namespace PSXRacing.EditorTools
                     {
                         float wx = ox + (gx + 0.18f + (float)rng.NextDouble() * 0.64f) * ForestPitch;
                         float wz = oz + (gz + 0.18f + (float)rng.NextDouble() * 0.64f) * ForestPitch;
+                        // Drawn for every candidate, kept or not, so moving a
+                        // threshold never reshuffles the trees that stay.
+                        double keepRoll = rng.NextDouble(), storyRoll = rng.NextDouble();
 
                         if (!StageCorridor(wx, wz, ForestBand + 10f, out RoadFoot foot)) continue;
                         float d = foot.d, roadY = foot.roadY, f = BridgeAt(foot.station);
                         if (d > ForestBand) continue;
 
-                        // thin the outer band — the mottle takes over anyway
-                        if (d > 90f && rng.NextDouble() <
-                            Mathf.InverseLerp(90f, ForestBand, d) * 0.55f) continue;
+                        // Thick where the driver sees into it, the old forest's
+                        // spacing behind that, thinner again toward the band's
+                        // end - the mottle takes over anyway.
+                        float keep = d <= ForestDenseTo ? 1f
+                                   : d <= 90f ? Mathf.Lerp(1f, ForestFarKeep, (d - ForestDenseTo) / (90f - ForestDenseTo))
+                                   : ForestFarKeep * (1f - Mathf.InverseLerp(90f, ForestBand, d) * 0.55f);
+                        if (keepRoll >= keep) continue;
 
                         // On a cut's rock top where there is one: the lattice
                         // under it is held down for a dozen metres behind the
@@ -4794,9 +4802,46 @@ namespace PSXRacing.EditorTools
                         // height decides whether it fits under a deck
                         int idx = PickSpecies(rng, wx, wz, ground);
                         var sp = StageTrees[idx];
-                        float h = sp.height * (0.85f + (float)rng.NextDouble() * 0.4f);
+                        float h = sp.height * ForestHeightScale * (0.85f + (float)rng.NextDouble() * 0.4f);
+                        // The understory: young trees under the canopy, where
+                        // the roadside forest is thick enough to have one.
+                        if (d <= 90f && storyRoll < ForestUnderstory)
+                            h *= 0.5f + (float)(storyRoll / ForestUnderstory) * 0.2f;
 
                         bool deckOver = f > 0.4f && roadY - ground > h + 3.5f;
+
+                        // NO BILLBOARD ACROSS THE LANE AT A HEIGHT A CAR OR ITS
+                        // CAMERA REACHES. A card is a flat plane sixteen metres
+                        // wide, and a tree seven metres from the centreline puts
+                        // the end of one over the tarmac. High up, that is the
+                        // canopy closing over the road and is the look that was
+                        // asked for. But a tree on a FALLING verge has its whole
+                        // crown at road level - the first thick forest put orange
+                        // leaves through the guard wall into the lane at eye
+                        // height - so unless the foliage starts well clear of
+                        // anything driving under it, the tree is shrunk until its
+                        // card stays on its own side of the edge line, and done
+                        // without if that leaves a shrub.
+                        float halfCard = StageTreeWidth(sp, h) * 0.5f;
+                        if (!deckOver && d - halfCard < roadHalf + 0.4f)
+                        {
+                            float foliageFoot = ground + h * (sp.conifer ? 0.10f : 0.28f);
+                            if (foliageFoot - roadY < 4.2f)
+                            {
+                                float fit = (d - roadHalf - 0.4f) / halfCard;
+                                if (fit < 0.6f) continue;
+                                h *= fit;
+                            }
+                        }
+
+                        // NO LEAVES AT BUMPER HEIGHT OVER THE TARMAC. A third of
+                        // the species carry foliage to the ground in some season,
+                        // metres wide, and inside it a car is dragged down
+                        // (TreeTrunks.Brush). That is a hazard for whoever leaves
+                        // the road, never for whoever is on it: such a tree stands
+                        // back by its own low crown plus a car's width.
+                        float lowReach = Mathf.Min(TreeTrunks.MaxBrush, ForestLowReachFrac(idx) * StageTreeWidth(sp, h));
+                        if (!deckOver && lowReach > 0f && d < roadHalf + 1.8f + lowReach) continue;
                         if (deckOver)
                         {
                             // Down on the slope with the deck riding over the
@@ -4820,14 +4865,20 @@ namespace PSXRacing.EditorTools
                         AddTreeQuads(verts, uvs, tris, sp,
                             new Vector3(wx - ox, ground - 0.25f, wz - oz), h,
                             (float)rng.NextDouble() * 360f);
-                        trunks.Add(new Vector4(wx, ground - 0.25f, wz,
-                                               TreeKit.TrunkRadiusFor(StageTreeWidth(sp, h))));
+                        // The card's WIDTH, and the cell it wears: the table
+                        // takes the trunk's radius (and, per season, how far the
+                        // low foliage reaches) off what the billboard paints.
+                        trunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
+                        trunkCells.Add((byte)idx);
                     }
 
                 if (verts.Count == 0) return;
                 var mesh = new Mesh
                 {
-                    indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                    // A full chunk of the dense band is 1024 trees, 8192
+                    // corners: sixteen bits of index, and half the index bytes.
+                    indexFormat = verts.Count < 65000 ? UnityEngine.Rendering.IndexFormat.UInt16
+                                                      : UnityEngine.Rendering.IndexFormat.UInt32,
                     vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
                 };
                 var go = ChunkGO(root.transform, "Forest_" + cx + "_" + cz, mesh, new[] { mat },
@@ -4836,7 +4887,7 @@ namespace PSXRacing.EditorTools
                 chunks++;
             });
 
-            root.AddComponent<TreeTrunks>().SetTrunks(trunks);
+            root.AddComponent<TreeTrunks>().SetForest(trunks, trunkCells, ForestTrunkFrac, ForestBrushFrac);
 
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
                 $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +

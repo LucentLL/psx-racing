@@ -1583,6 +1583,8 @@ namespace PSXRacing.EditorTools
             TestSeasons();
             TestTreesAreXsWithTrunks();
             TestTreesStopCars();
+            TestForestIsThickAndHasBrush();
+            TestPaintAndFilmGrade();
             TestReversedStageDistance();
             TestDeliverySprint();
             TestNoDeletedMeshes();
@@ -4123,7 +4125,7 @@ namespace PSXRacing.EditorTools
                 PizzeriaSceneBuilder.ScenePath,
             };
             int problems;
-            try { problems = FoliageAudit.AuditScenes(paths, log); }
+            try { problems = FoliageAudit.AuditScenes(paths, log) + FoliageAudit.AuditAtlases(log); }
             catch (System.Exception e)
             {
                 Check(false, "the foliage audit runs", e.GetType().Name + ": " + e.Message);
@@ -4168,6 +4170,119 @@ namespace PSXRacing.EditorTools
                 if (!control && x.name.StartsWith("stage"))
                     Check(x.liveTrunks > 0, "...and the stage's trunk was stood up in time, from two cells away");
             }
+        }
+
+        /// <summary>
+        /// THE FOREST IS A FOREST, and its leaves are not air.
+        ///
+        /// "Trees in this game are too sparse" — a 13 m grid a driver looked
+        /// straight through. The roadside band is a 7.5 m grid now, so a
+        /// stage carries about twice the trees per kilometre it did (1,365);
+        /// this pins the count from BELOW, so the next size scare cannot
+        /// quietly thin it again without the test saying what was given up.
+        /// And the table has to know which trees carry leaves down to the
+        /// bumper, season by season: a maple in October does, the same cell in
+        /// January is bare sticks and does not.
+        /// </summary>
+        static void TestForestIsThickAndHasBrush()
+        {
+            Line("the forest:");
+            const string scene = "Assets/PSXRacing/Scenes/BlueRidge.unity";
+            if (!System.IO.File.Exists(scene)) { Check(false, "BlueRidge is built"); return; }
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene(scene);
+            var table = Object.FindFirstObjectByType<TreeTrunks>();
+            var path = Object.FindFirstObjectByType<TrackPath>();
+            Check(table != null && path != null, "the stage has a trunk table and a path");
+            if (table == null || path == null) return;
+
+            float km = path.TotalLength / 1000f;
+            float perKm = table.Count / Mathf.Max(km, 0.1f);
+            Check(perKm >= 2200f, "at least 2,200 trees per kilometre of road (it was 1,365)",
+                  perKm.ToString("0") + " per km, " + table.Count + " trees on " + km.ToString("0.0") + " km");
+
+            int fall = 0, winter = 0, thin = 0, fat = 0;
+            for (int i = 0; i < table.Count; i++)
+            {
+                if (table.BrushOf(i, (int)Season.Fall) > 0f) fall++;
+                if (table.BrushOf(i, (int)Season.Winter) > 0f) winter++;
+                float r = table.RadiusOf(i);
+                if (r < TreeTrunks.MinRadius - 1e-4f) thin++;
+                if (r > TreeTrunks.MaxRadius + 1e-4f) fat++;
+            }
+            Check(fall > table.Count / 20, "in the fall dress some trees carry leaves down to the bumper",
+                  fall + " of " + table.Count);
+            Check(winter < fall, "and fewer do in winter, when the hardwoods are bare", winter + " against " + fall);
+            Check(thin == 0 && fat == 0, "every trunk is between a fence post and an old oak",
+                  thin + " under " + TreeTrunks.MinRadius + " m, " + fat + " over " + TreeTrunks.MaxRadius + " m");
+
+            int wide = 0, chunks = 0;
+            foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+            {
+                if (mf.sharedMesh == null || !mf.sharedMesh.name.Contains("StageForest")) continue;
+                chunks++;
+                if (mf.sharedMesh.indexFormat != UnityEngine.Rendering.IndexFormat.UInt16) wide++;
+            }
+            Check(chunks > 0 && wide == 0, "forest chunks index in sixteen bits (half the index bytes of twice the trees)",
+                  wide + " of " + chunks + " in thirty-two");
+        }
+
+        /// <summary>
+        /// The paint does not glow, and the film grade is a switch.
+        ///
+        /// The pixels are tools/paint-glow-check.ps1's to judge (it needs a
+        /// graphics device and this pass has none). What can be held here is
+        /// the three decisions that made a white saloon a lamp — so that
+        /// nobody "improves" the highlight back into a floodlight — and that
+        /// the grade ships ON, comes OFF, and leaves a scene opened in the
+        /// editor ungraded.
+        /// </summary>
+        static void TestPaintAndFilmGrade()
+        {
+            Line("paint and film grade:");
+            const string paintPath = "Assets/PSXRacing/Shaders/PSXCarPaint.shader";
+            string paint = System.IO.File.Exists(paintPath) ? System.IO.File.ReadAllText(paintPath) : "";
+            float Define(string name)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(paint, @"#define\s+" + name + @"\s+([0-9.]+)");
+                return m.Success ? float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : float.NaN;
+            }
+            Check(Define("SUN_GLINT_POW") >= 100f,
+                  "the sun in the paint is a glint, not a floodlight over every up-facing panel", Define("SUN_GLINT_POW"));
+            Check(Define("PAINT_MAX") < 0.95f && Define("PAINT_TOE") < Define("PAINT_MAX"),
+                  "the paint rolls off under 1.0, so a white car keeps its shape", Define("PAINT_MAX"));
+            Check(Define("LAND_TOP") > 0.05f && Define("LAND_REFLECT") < 0.6f,
+                  "a flank's grazing reflection is dark land, not a rim of sky", Define("LAND_TOP"));
+            Check(Define("COAT_FMAX") <= 0.6f && Define("COAT_F0") <= 0.08f,
+                  "lacquer reflects a few percent face-on", Define("COAT_F0"));
+            foreach (var sh in new[] { "PSX/CarPaint", "PSX/Blit" })
+            {
+                var shader = Shader.Find(sh);
+                Check(shader != null && !ShaderUtil.ShaderHasError(shader), sh + " compiles");
+            }
+
+            var blit = Shader.Find("PSX/Blit");
+            Check(blit != null && blit.FindPropertyIndex("_Grade") >= 0, "PSX/Blit carries the grade");
+            int graded = 0, mats = 0;
+            foreach (var guid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/PSXRacing/Materials" }))
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+                if (m == null || m.shader != blit) continue;
+                mats++;
+                if (m.HasProperty("_Grade") && m.GetFloat("_Grade") > 0.001f) graded++;
+            }
+            Check(mats > 0 && graded == 0,
+                  "the saved display material is ungraded: the grade is the PLAYER'S switch, set at runtime",
+                  graded + " of " + mats + " saved graded");
+
+            // The owner's own PlayerPrefs live under this editor: put it back.
+            bool was = FilmGradePrefs.Enabled;
+            int stamp = FilmGradePrefs.Changed;
+            FilmGradePrefs.Toggle();
+            Check(FilmGradePrefs.Enabled != was && FilmGradePrefs.Changed == stamp + 1,
+                  "FILM GRADE toggles, and says so to the display");
+            Check(Mathf.Approximately(FilmGradePrefs.Amount, FilmGradePrefs.Enabled ? 1f : 0f), "OFF is the picture as it was");
+            FilmGradePrefs.Enabled = was;
+            Check(FilmGradePrefs.Enabled == was, "and the switch is left where it was found");
         }
 
         static void TestPizzaCargo()

@@ -5,6 +5,95 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## PAINT THAT DOES NOT GLOW, TREES YOU CANNOT DRIVE THROUGH, A THICK FOREST, AND A FILM GRADE (2026-09-19)
+
+Asked, over a frame of a white saloon on Mount Mitchell: "I don't like that
+cars have this very unrealistic white glow. I understand reflections are
+supposed to be added, but this is not how real cars look. I specifically
+requested for tree trunks to occupy space and stop cars that drive into
+them, but I just drove straight through a tree without impact." Then, over
+four frames of a car film: "a nostalgic color grade I would like added as a
+filter. Also, notice how thick the trees are. Trees in this game are too
+sparse. I want to capture the old, nostalgic, 90s feeling. Like playing this
+game is a dream."
+
+- **The glow was three things, none of them the amount of reflection**
+  (`PSXCarPaint.shader`, the fourth cut). The sun's highlight was pow 36 at
+  0.9 - a lobe fifteen degrees wide at mirror strength, and from a chase
+  camera with the sun ahead the half-vector is straight UP, so every roof,
+  boot and bonnet sat inside it. The fresnel rim reflected SKY at horizon
+  angles, where a road has hillside and trees: a white rim on every edge.
+  And nothing rolled off, so light paint clipped to flat white. Now: a glint
+  (pow 160) over a weak paint-coloured flake sheen; LAND in the reflection
+  from the horizon to ten degrees up (which also draws the bright shoulder
+  line real bodywork has); energy-conserving lacquer (F0 0.04, Schlick); a
+  hue-preserving shoulder to 0.88. `tools/paint-glow-check.ps1` rebuilds the
+  owner's frame - chase camera, sun ahead / behind / abeam, white, blue, red,
+  dark - and MEASURES the car through a with/without mask. Before, sun
+  ahead: white saloon 26% clipped, MIDNIGHT BLUE 21% clipped, sky blue's
+  saturation 0.44 -> 0.12. After: 0.0% clipped everywhere, red keeps 0.52.
+- **"The taillights look like they're hidden under a layer of smoke"** - said
+  over that check's own contact sheet, and that the lamps with the sun BEHIND
+  the car "look best". Glass was "anything dark", and a tail lamp is dark:
+  the pack's lamp texels (sRGB 0.62 0.16 0.14) came out 30-47% GLASS and wore
+  a window's worth of sky. Glass is dark AND COLOURLESS now (chroma over a
+  floor, so a near-black texel's noise is not a hue), reflects 0.10 face-on
+  instead of 0.16, softer; and the shade side takes 0.65 of the ambient - the
+  third cut's four-to-one, which raising the sun to 1.5 had quietly made
+  eight. Lamp saturation in the shade 0.46 -> 0.67, the same as in the sun.
+  `tools/paint/sheet_survey.py` is why there is no lamp-lens mask: by colour
+  alone it takes 77-83% of every red livery's sheet.
+- **The trunks were there; the PAINTED trunks were somewhere else.**
+  `tools/tree-play-check.ps1` drives the real car at the real trees in play
+  mode, and the capsules stood and stopped it. But the collider stands where
+  a tree's two cards cross - the middle of its atlas cell - and the pack
+  paints its trunks where the photograph had them: up to 20 px (1.6 m) off.
+  The owner's frame was the WINTER dress, whose orange-leaved oak is 18 px
+  off: aim at the trunk you can see and pass a metre and a half from the one
+  that is there. `TreeKit.CentreOnTrunk` now slides every billboard until its
+  painted trunk is under the crossing (shrinking about the foot, never
+  clipping, where a crown would leave the cell: worst 0.77), in all five
+  dresses; the atlases are COMPOSED EVERY BUILD and rewritten in place only
+  when different, so the rule lives in the builder and not in a PNG.
+  `FoliageAudit.AuditAtlases` holds every cell of every atlas a forest
+  material wears to 1.5 px.
+- **Leaves are brush.** A third of the species carry foliage down to the
+  bumper - 5.8 m of it on the big orange maple - round a 25 cm capsule. The
+  composer measures, per cell PER SEASON, the painted trunk's width and how
+  far the low foliage reaches; the table carries card width + cell, and
+  `TreeTrunks` drags a car inside a crown (1.8 /s, deepest crown not the
+  sum). Play check: 81 -> 53 km/h through a 2.7 m crown, 79 -> 74 past a
+  bare tree at the same offset (the control), every trunk dead-on and 1 m
+  offset stops the car.
+- **The forest is a forest.** 13 m grid -> 7.5 m out to 45 m from the road,
+  easing back to the old density by 90 m, with a 28% understory (half-height
+  trees, so there are leaves where the driver's eye is), and every tree
+  1.3x taller (12-16 m: the reference road is walled in by trees five times
+  the height of its cars). Mount Mitchell 10,470 -> 20,966 trees; five
+  stages 61k -> 125k. A tree with leaves at bumper height stands back from
+  the tarmac by its own low crown, and brush never touches a car whose
+  wheels are on the road. NO BILLBOARD ACROSS THE LANE below four metres: a
+  tree on a falling verge has its whole crown at road level, and the first
+  thick forest put orange leaves through the guard wall into the lane at
+  eye height (`tools/forest-shots.ps1` - driver's-eye views, three dresses -
+  is where that was seen); the builder shrinks or drops such a tree and
+  `FoliageAudit` reads every tree in every table back against the path.
+  Sixteen-bit indices on the
+  chunks; neighbouring trunk cells are stood one a step (a dense cell is 60
+  capsules). RidgePass is a wood three ranks deep on both sides (437 trees
+  where the three circuits had 153 between them), the airfield's perimeter
+  two; a back rank never stands on another part of the circuit or in a
+  building.
+- **FILM GRADE** (OPTIONS and the pause menu, ships ON, `psx.filmGrade`).
+  The four frames were measured (`tools/grade/frame_stats.py`): no black
+  (floor 0.10-0.18), no white (ceiling 0.91-0.96, cream with a breath of
+  green), saturation 0.12-0.16 except the warm hues, light that bleeds. The
+  grade lives in `PSX/Blit` BEFORE the quantizer - matte floor, cream
+  ceiling, cool colours faded and warm ones held, greens toward olive, a
+  Bayer-rotated sixteen-tap warm halation, a vignette down to the floor.
+  In-engine frames land at floor 0.14 / ceiling 0.93 / saturation 0.17.
+  `tools/grade/grade_proto.py` is the same arithmetic in numpy.
+
 ## MY CARS, WHERE THEY ARE, AND A CAR MEET ON THE CALENDAR (2026-09-18)
 
 Asked: "Garage tab should be 'My Cars'. The car you are currently 'in' or

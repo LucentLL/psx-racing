@@ -526,6 +526,196 @@ namespace PSXRacing.EditorTools
             if (a != b) p[a] = b;
         }
 
+        // ------------------------------------------------------------------
+        //  Where a billboard PAINTS its trunk
+        // ------------------------------------------------------------------
+        //
+        // "I just drove straight through a tree without impact." The forest's
+        // trunk collider stands where a tree's two cards cross — the middle
+        // of its atlas cell. The pack paints its trunks wherever the
+        // photograph had them: measured over the 53 billboards the five
+        // season dresses use, up to 20 px off that line, which on a 10.5 m
+        // card is 1.6 m. Aim at the winter oak's painted trunk (+18 px) and
+        // the car passes a metre and a half from the capsule — and the X
+        // shows two trunks, one per card, neither where the tree stands.
+        //
+        // So the atlas composer slides every billboard sideways until its
+        // painted trunk IS the cell's middle, and where that would push a
+        // crown out of the cell, shrinks it about its own foot until it fits.
+        // tools/trees/trunk_finder.py and centre_preview.py are this rule's
+        // prototype and the contact sheets that checked it on every billboard.
+
+        /// <summary>What <see cref="CentreOnTrunk"/> found and did.</summary>
+        public struct CellFit
+        {
+            /// <summary>The painted trunk's column in the SOURCE, px from its
+            /// left edge (may be fractional).</summary>
+            public float trunkX;
+            /// <summary>Lowest opaque row of the source (0 = bottom).</summary>
+            public int foot;
+            /// <summary>1, or under it where the crown had to shrink to stay
+            /// inside the cell.</summary>
+            public float scale;
+            /// <summary>The painted trunk's half-width at bumper height, as a
+            /// fraction of the cell — AFTER centring.</summary>
+            public float trunkFrac;
+            /// <summary>Half-extent of the low foliage at bumper height, as a
+            /// fraction of the cell; 0 where there is only trunk.</summary>
+            public float brushFrac;
+        }
+
+        /// <summary>Find the painted trunk of a square RGBA billboard
+        /// (row 0 = BOTTOM, the way GetPixels32 hands it over): the run of
+        /// opaque columns at the tree's foot nearest the crown's own centre
+        /// of mass — a drooping branch that touches the ground at the card's
+        /// edge is not the trunk — followed up a few rows for a steadier
+        /// centre, because a root flare is lopsided.</summary>
+        public static void FindTrunk(Color32[] px, int w, int h, out float trunkX, out int trunkW, out int foot)
+        {
+            trunkX = (w - 1) * 0.5f; trunkW = 0; foot = 0;
+            bool Opaque(int x, int y) => px[y * w + x].a > 127;
+
+            foot = -1;
+            for (int y = 0; y < h && foot < 0; y++)
+                for (int x = 0; x < w; x++)
+                    if (Opaque(x, y)) { foot = y; break; }
+            if (foot < 0) { foot = 0; return; }
+
+            // Columns opaque in at least two of the bottom six rows.
+            var on = new bool[w];
+            for (int x = 0; x < w; x++)
+            {
+                int n = 0;
+                for (int y = foot; y < Mathf.Min(h, foot + 6); y++) if (Opaque(x, y)) n++;
+                on[x] = n >= 2;
+            }
+            // The crown's centre of mass, by column.
+            double mass = 0, moment = 0;
+            for (int x = 0; x < w; x++)
+            {
+                int n = 0;
+                for (int y = 0; y < h; y++) if (Opaque(x, y)) n++;
+                mass += n; moment += (double)n * x;
+            }
+            float centroid = mass > 0 ? (float)(moment / mass) : (w - 1) * 0.5f;
+
+            int bestLo = -1, bestHi = -1; float bestScore = float.MaxValue;
+            for (int x = 0; x <= w; x++)
+            {
+                if (x < w && on[x]) continue;
+                // x is a gap (or the end): close the run that ended at x - 1.
+                int hi = x - 1, lo = hi;
+                if (hi < 0 || !on[hi]) continue;
+                while (lo > 0 && on[lo - 1]) lo--;
+                float c = (lo + hi) * 0.5f;
+                float score = Mathf.Abs(c - centroid) - 0.25f * Mathf.Min(hi - lo + 1, 12);
+                if (score < bestScore) { bestScore = score; bestLo = lo; bestHi = hi; }
+            }
+            if (bestLo < 0) return;
+            trunkW = bestHi - bestLo + 1;
+
+            var centres = new List<float>();
+            for (int y = foot; y < Mathf.Min(h, foot + 10); y++)
+            {
+                int a = -1, b = -1;
+                for (int x = Mathf.Max(0, bestLo - 2); x <= Mathf.Min(w - 1, bestHi + 2); x++)
+                    if (Opaque(x, y)) { if (a < 0) a = x; b = x; }
+                if (a >= 0) centres.Add((a + b) * 0.5f);
+            }
+            if (centres.Count == 0) { trunkX = (bestLo + bestHi) * 0.5f; return; }
+            centres.Sort();
+            trunkX = centres.Count % 2 == 1
+                ? centres[centres.Count / 2]
+                : (centres[centres.Count / 2 - 1] + centres[centres.Count / 2]) * 0.5f;
+        }
+
+        /// <summary>
+        /// Resample a square billboard into a <paramref name="cellPx"/> cell
+        /// with its painted trunk on the cell's middle column. Point-sampled,
+        /// like everything else here; scaled about the trunk's foot, and only
+        /// as far under 1 as it takes to keep the whole crown inside the cell
+        /// (a crown clipped by the cell's edge is a straight cut in mid-air).
+        /// <paramref name="cardHeightM"/> is the species' height, so "bumper
+        /// height" can be found on the finished cell for the two measurements.
+        /// </summary>
+        public static Color32[] CentreOnTrunk(Color32[] src, int sw, int sh, int cellPx,
+                                              float cardHeightM, out CellFit fit)
+        {
+            // Into cell resolution first, so the rule sees what the atlas holds.
+            var cell = new Color32[cellPx * cellPx];
+            for (int y = 0; y < cellPx; y++)
+                for (int x = 0; x < cellPx; x++)
+                    cell[y * cellPx + x] = src[Mathf.Clamp(y * sh / cellPx, 0, sh - 1) * sw +
+                                               Mathf.Clamp(x * sw / cellPx, 0, sw - 1)];
+
+            FindTrunk(cell, cellPx, cellPx, out float t, out _, out int foot);
+            int lo = cellPx, hi = -1;
+            for (int x = 0; x < cellPx; x++)
+                for (int y = 0; y < cellPx; y++)
+                    if (cell[y * cellPx + x].a > 127) { lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x); break; }
+            float mid = (cellPx - 1) * 0.5f;
+            float s = 1f;
+            if (hi >= lo)
+                s = Mathf.Min(1f, Mathf.Min((mid + 0.5f) / Mathf.Max(t - lo + 0.5f, 1f),
+                                            (mid + 0.5f) / Mathf.Max(hi - t + 0.5f, 1f)));
+
+            var outPx = new Color32[cellPx * cellPx];
+            for (int y = 0; y < cellPx; y++)
+            {
+                int sy = Mathf.RoundToInt(foot + (y - foot) / s);
+                if (sy < 0 || sy >= cellPx) continue;
+                for (int x = 0; x < cellPx; x++)
+                {
+                    int sx = Mathf.RoundToInt(t + (x - mid) / s);
+                    if (sx < 0 || sx >= cellPx) continue;
+                    outPx[y * cellPx + x] = cell[sy * cellPx + sx];
+                }
+            }
+
+            fit = new CellFit { trunkX = t, foot = foot, scale = s };
+            MeasureCell(outPx, cellPx, foot, cardHeightM, out fit.trunkFrac, out fit.brushFrac);
+            return outPx;
+        }
+
+        /// <summary>
+        /// On a CENTRED cell: how wide is the trunk a bumper meets, and how
+        /// far do the leaves reach at that height? The band is 0.3 to 1.4 m
+        /// above the foot. The trunk is the run of columns through the middle
+        /// that is opaque through most of the band; the brush is the widest
+        /// span about the middle that is at least 45% leaf — symmetric and
+        /// dense on purpose, so one twig reaching the ground four metres out
+        /// is not a four-metre thicket.
+        /// </summary>
+        public static void MeasureCell(Color32[] cell, int cellPx, int foot, float cardHeightM,
+                                       out float trunkFrac, out float brushFrac)
+        {
+            float pxPerM = cellPx / Mathf.Max(cardHeightM, 1f);
+            int y0 = Mathf.Clamp(Mathf.RoundToInt(foot + 0.3f * pxPerM), 0, cellPx - 1);
+            int y1 = Mathf.Clamp(Mathf.RoundToInt(foot + 1.4f * pxPerM), y0 + 1, cellPx);
+            int rows = y1 - y0;
+            var fill = new float[cellPx];
+            for (int x = 0; x < cellPx; x++)
+            {
+                int n = 0;
+                for (int y = y0; y < y1; y++) if (cell[y * cellPx + x].a > 127) n++;
+                fill[x] = n / (float)rows;
+            }
+            int mL = (cellPx - 1) / 2, mR = mL + 1;
+            int half = 0;
+            while (half < cellPx / 3 && mL - half >= 0 && mR + half < cellPx &&
+                   fill[mL - half] > 0.5f && fill[mR + half] > 0.5f) half++;
+            half = Mathf.Max(half, 1);
+            trunkFrac = half / (float)cellPx;
+
+            brushFrac = 0f;
+            for (int b = cellPx / 2 - 2; b > half + 4; b--)
+            {
+                float sum = 0f; int n = 0;
+                for (int x = Mathf.Max(0, mL - b + 1); x <= Mathf.Min(cellPx - 1, mR + b - 1); x++) { sum += fill[x]; n++; }
+                if (n > 0 && sum / n >= 0.45f) { brushFrac = b / (float)cellPx; break; }
+            }
+        }
+
         /// <summary>Stand a trunk collider on a tree that is its own object:
         /// a CHILD called "Trunk", on the solid layer, so a wheel's
         /// suspension ray never lands on it and the audits find it by name.

@@ -342,6 +342,21 @@ namespace PSXRacing
             if (blurLabel != null) blurLabel.text = BlurLabel();
         }
 
+        Text gradeLabel;
+
+        static string GradeLabel() => "FILM GRADE: " + FilmGradePrefs.Label;
+
+        /// <summary>
+        /// The faded-print grade over the whole picture (PSX/Blit). Ships ON;
+        /// PSXCameraOutput follows the pref on the next frame, so the frozen
+        /// frame behind this menu changes while the player is looking at it.
+        /// </summary>
+        void ToggleGrade()
+        {
+            FilmGradePrefs.Toggle();
+            if (gradeLabel != null) gradeLabel.text = GradeLabel();
+        }
+
         void ToggleDebug()
         {
             debugOn = !debugOn;
@@ -552,6 +567,16 @@ namespace PSXRacing
                 benchBtn.GetComponent<Image>().color = new Color(0.62f, 0.36f, 0.86f, 0.42f);
                 menuItems.Add(benchBtn);
             }
+
+            // FILM GRADE, BESIDE the column for the same reason the bench is:
+            // twelve rows already fill a wide phone's height. It stands to
+            // the LEFT of the picture rows it belongs with, on SPEED BLUR's
+            // line, so the geometric graph reaches it with LEFT from there.
+            var gradeBtn = MakeButton(panel.transform, GradeLabel(), font,
+                       new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 6f * RowStep),
+                       new Vector2(280f, RowH), 19, ToggleGrade);
+            gradeLabel = gradeBtn.GetComponentInChildren<Text>();
+            menuItems.Add(gradeBtn);
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);
