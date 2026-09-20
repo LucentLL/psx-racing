@@ -6038,39 +6038,6 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>
-        /// What the pre-race page says about the temperature, or null when it
-        /// has nothing worth saying.
-        ///
-        /// Ranked by what the player would do about it and capped at ONE line,
-        /// because this page already carries a fuel warning and three faults
-        /// and a fourth kind of red text turns all of them into wallpaper. A
-        /// low system first (it is the cheap fix, and it is the one that
-        /// compounds), then a weak part on a hot day, then either alone.
-        /// </summary>
-        string CoolingWarning(OwnedCar car)
-        {
-            float ambient = CoolingModel.AmbientC(S.day, RaceHour());
-            bool hotDay = ambient >= 28f;
-            float health = CoolingModel.Health(car);
-            bool weak = health < 45f;
-            int deg = Mathf.RoundToInt(ambient);
-
-            if (car.coolant < CoolingModel.CoolantLowPct)
-                return "COOLANT AT " + Mathf.RoundToInt(car.coolant) +
-                       "% — top it up before you go out in this.";
-            if (weak && hotDay)
-                return deg + " C OUT THERE, and the " +
-                       CoolingModel.WeakestPart(car).ToLowerInvariant() +
-                       " is done. Watch the temperature.";
-            if (weak)
-                return "The " + CoolingModel.WeakestPart(car).ToLowerInvariant() +
-                       " is done — this will run hot if you lean on it.";
-            if (hotDay && health < 75f)
-                return deg + " C out there. Not a day for a tired cooling system.";
-            return null;
-        }
-
-        /// <summary>
         /// The one line under the COOLING bar, and the jug beside it.
         ///
         /// Coolant is the only condition in the game that goes back up for
@@ -6790,7 +6757,8 @@ namespace PSXRacing.LifeSim
             // launches the race says so — and says nothing at all about a
             // healthy car on a mild day, because a permanent weather line is
             // chrome.
-            string heat = car != null ? CoolingWarning(car) : null;
+            string heat = CoolingModel.PreRaceWarning(car,
+                CoolingModel.AmbientC(S.day, RaceHour()));
             if (heat != null)
             {
                 MenuKit.Label(body, heat, MenuKit.Tiny, new Vector2(0.5f, 1f),

@@ -209,6 +209,49 @@ namespace PSXRacing
             return "RADIATOR";
         }
 
+        /// <summary>Above this the air is hot enough to be worth mentioning to
+        /// somebody about to race on a marginal cooling system.</summary>
+        public const float HotDayC = 28f;
+        /// <summary>Below this a cooling system is not going to hold a hard
+        /// lap. The line where the pre-race page speaks up.</summary>
+        public const float WarnBelow = 45f;
+
+        /// <summary>
+        /// What the pre-race page says about the temperature, or null when it
+        /// has nothing worth saying.
+        ///
+        /// Here rather than on the screen because it is a RULE — and because
+        /// the self-test can then pin the one thing that actually matters about
+        /// it: that it stays quiet for a healthy car on a mild day. This page
+        /// already carries a fuel warning and three faults, and a fourth kind
+        /// of red text that is always present turns all of them into wallpaper.
+        ///
+        /// Ranked by what the player would do about it and capped at ONE line:
+        /// a low system first (it is the cheap fix, and the one that compounds),
+        /// then a weak part on a hot day, then either alone.
+        /// </summary>
+        public static string PreRaceWarning(OwnedCar car, float ambientC)
+        {
+            if (car == null) return null;
+            bool hotDay = ambientC >= HotDayC;
+            float health = Health(car);
+            bool weak = health < WarnBelow;
+            int deg = Mathf.RoundToInt(ambientC);
+
+            if (car.coolant < CoolantLowPct)
+                return "COOLANT AT " + Mathf.RoundToInt(car.coolant) +
+                       "% — top it up before you go out in this.";
+            if (weak && hotDay)
+                return deg + " C OUT THERE, and the " + WeakestPart(car).ToLowerInvariant() +
+                       " is done. Watch the temperature.";
+            if (weak)
+                return "The " + WeakestPart(car).ToLowerInvariant() +
+                       " is done — this will run hot if you lean on it.";
+            if (hotDay && health < 75f)
+                return deg + " C out there. Not a day for a tired cooling system.";
+            return null;
+        }
+
         // ---- ambient --------------------------------------------------------
         /// <summary>
         /// Outside air, in Celsius, for a calendar day and an hour of it.

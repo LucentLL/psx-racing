@@ -31,9 +31,12 @@ namespace PSXRacing
     ///
     /// Calibrated, not guessed — see PSXRacing_selftest_log.txt, which runs
     /// this exact integration over a dozen scenarios and pins the settle
-    /// points. A healthy car cruising settles at 88; flat out at 200 km/h,
-    /// 89, because more airflow arrives with the extra heat; stationary at
-    /// full throttle it runs away, which it should.
+    /// points. A healthy car cruising settles at 89; flat out at 200 km/h it
+    /// settles at 89 as well, because more airflow arrives with the extra
+    /// heat, and on a July afternoon at 91. A dead fan reads 88 rolling and
+    /// 116 stopped. A silted core reads 98 at a cruise and 123 on a fast lap.
+    /// Held on the limiter standing still, a perfectly healthy car destroys
+    /// itself inside five minutes, which it should.
     ///
     /// Player only, like <see cref="FuelTank"/>: nothing reads an opponent's
     /// temperature and four more Update()s a frame for a number nobody sees is

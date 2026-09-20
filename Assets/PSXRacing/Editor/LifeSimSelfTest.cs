@@ -6932,6 +6932,32 @@ namespace PSXRacing.EditorTools
                   "and the same day is colder at dawn than in the afternoon");
             Check(Mathf.Abs(CoolingModel.AmbientC(0, TimeOfDay.Noon) - 18f) < 0.01f,
                   "with no calendar at all it is a mild afternoon");
+
+            // AND WHAT THE PLAYER IS TOLD BEFORE THEY GO. The only property of
+            // this line worth pinning is that it SHUTS UP: the pre-race page
+            // already carries a fuel warning and three faults, and a fourth
+            // kind of red text that is always there turns all of them into
+            // wallpaper.
+            var good = new OwnedCar { id = "w1", displayName = "Good" };
+            CoolingModel.Seed(good, 100f);
+            Check(CoolingModel.PreRaceWarning(good, 16f) == null,
+                  "a healthy car on a mild day is told nothing at all");
+            Check(CoolingModel.PreRaceWarning(good, 33f) == null,
+                  "and nothing on a hot one either");
+            var tiredCool = new OwnedCar { id = "w2", displayName = "Tired" };
+            CoolingModel.Seed(tiredCool, 100f);
+            tiredCool.radiator = 20f;
+            string mild = CoolingModel.PreRaceWarning(tiredCool, 16f);
+            string hot = CoolingModel.PreRaceWarning(tiredCool, 33f);
+            Check(mild != null && mild.Contains("radiator"),
+                  "a dead core is named on any day", mild);
+            Check(hot != null && hot.Contains("33"),
+                  "and a hot day says how hot", hot);
+            tiredCool.coolant = 30f;
+            string dry = CoolingModel.PreRaceWarning(tiredCool, 33f);
+            Check(dry != null && dry.Contains("COOLANT"),
+                  "but a system that is low outranks both — it is the cheap fix",
+                  dry);
         }
 
         static void TestEngineDeath()
