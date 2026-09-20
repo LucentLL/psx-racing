@@ -1136,13 +1136,14 @@ namespace PSXRacing.LifeSim
                 // once on a permanent record you cannot — is one punishment
                 // with two invoices.
 
-                // 5. fault threshold rolls (H535): worn components start
-                // throwing faults. Below 40 rolls a minor one, below 15 a
-                // severe one; the picker gates to one fault per stat (two at
-                // severe), so this cannot spam.
-                RollThresholdFault(s, car, "engine", car.engine);
-                RollThresholdFault(s, car, "tires", car.tires);
-                RollThresholdFault(s, car, "hp", car.carHP);
+                // 5. fault wear rolls (H535): worn components start throwing
+                // faults, at odds set by how worn the lane is and HOW FAR THIS
+                // LEG WENT. See WearFaultChance — a stamped leg that covered no
+                // ground (a shop door, a turned-back crossing) rolls nothing,
+                // which is what stops an errand into town costing three faults.
+                RollThresholdFault(s, car, "engine", car.engine, meters);
+                RollThresholdFault(s, car, "tires", car.tires, meters);
+                RollThresholdFault(s, car, "hp", car.carHP, meters);
             }
 
             // 6. payout + rep (win-only tier purse)
@@ -1298,11 +1299,76 @@ namespace PSXRacing.LifeSim
             return summary;
         }
 
-        static void RollThresholdFault(LifeState s, OwnedCar car, string stat, float value)
+        // ---- wear faults are caused by DISTANCE, and the distance is real ----
+        //
+        // This used to be "lane under 40 and empty → fault", with no roll in it
+        // at all. Two things made that unliveable, and the owner reported both
+        // as one: "new faults appear after a race... even when I clear all
+        // faults and do not damage the car, new faults appear the next time I
+        // warp."
+        //
+        // The certainty was the first. A lane sitting under the line handed out
+        // a fault the instant it was empty, so repairing one bought exactly one
+        // apply-back of peace.
+        //
+        // The second is that an apply-back is NOT a race. ApplyRaceResult runs
+        // on every stamped leg — see CityMode.StampExitResult — and legs are
+        // stamped by the pause menu, by every town shop door you walk through,
+        // and by each half of a crossing. Walking into the mechanic's covers no
+        // ground whatever and still banked a result, so a single errand rolled
+        // all three lanes two or three times over.
+        //
+        // Gating on METRES fixes both at once, and it is the honest model as
+        // well: a part fails because it was used, so a leg that covered no
+        // ground cannot break anything, and the multi-stamp architecture stops
+        // mattering — five stamps of one journey carry that journey's distance
+        // between them, not five times it.
+        //
+        // The other cause is IMPACT, and that is already where it belongs: the
+        // crash branch above, gated on DamageScore.
+
+        /// <summary>Under this, a leg did not go anywhere. Shop doors, the
+        /// crawl off the driveway, an exit thirty seconds after arriving.</summary>
+        public const float WearFaultMinM = 300f;
+
+        /// <summary>Chance per kilometre that a lane worn all the way to ZERO
+        /// throws a fault. Scaled down linearly by how far above zero the lane
+        /// actually is, so the line at 40 is a threshold the risk starts from
+        /// rather than a cliff it falls off.</summary>
+        public const float WearFaultPerKm = 0.06f;
+
+        /// <summary>Where a lane starts being able to fail at all.</summary>
+        public const float WearFaultBelow = 40f;
+
+        /// <summary>And where it starts failing badly — a severe roll reaches
+        /// the dearer end of the pool and the lane will hold a second one.</summary>
+        public const float SevereWearBelow = 15f;
+
+        /// <summary>The odds this leg put a fault on one lane. Public so the
+        /// self-test can pin the shape rather than sampling the roll: p(0 m)
+        /// must be 0, p(healthy lane) must be 0, and p must rise with both
+        /// distance and wear.</summary>
+        public static float WearFaultChance(float value, float meters)
         {
-            bool severe = value < 15f;
-            if (!severe && value >= 40f) return;
-            AddFault(s, car, FaultCatalog.RollWearFault(car, stat, severe));
+            if (meters < WearFaultMinM) return 0f;
+            if (value >= WearFaultBelow) return 0f;
+            float depth = Mathf.Clamp01((WearFaultBelow - value) / WearFaultBelow);
+            float perKm = Mathf.Clamp01(depth * WearFaultPerKm);
+            // Compounded over the distance rather than multiplied by it: a
+            // 300 km haul is not a 1,800% chance, it is a near-certainty.
+            return 1f - Mathf.Pow(1f - perKm, meters / 1000f);
+        }
+
+        static void RollThresholdFault(LifeState s, OwnedCar car, string stat, float value,
+                                       float meters)
+        {
+            float p = WearFaultChance(value, meters);
+            if (p <= 0f || UnityEngine.Random.value >= p) return;
+            // Deep wear reaches the severe pool, which is dearer and which the
+            // lane will take a second of. The threshold that lets the roll
+            // happen at all and the one that makes it severe are different
+            // lines, and the gap between them is the warning.
+            AddFault(s, car, FaultCatalog.RollWearFault(car, stat, value < SevereWearBelow));
         }
 
         /// <summary>Commit a rolled fault. Null is the normal "the gate said no"
@@ -1809,15 +1875,11 @@ namespace PSXRacing.LifeSim
         public static void Sleep(LifeState s)
         {
             if (s == null) return;
-            // THE SLOT YOU WERE GOING TO WORK HAS PASSED. DriveToShop is the
-            // player's intent to clock on, set at home and cleared when a run
-            // starts or the home screen is rebuilt — and neither of those
-            // happens when the player sleeps in the bed upstairs, which rolls
-            // the clock to a morning the shop is shut for. The town then
-            // pointed at a shift that could not be taken: "park up and walk
-            // in" over a counter that only sold. An intent to work the
-            // afternoon does not survive sleeping through it, whichever bed.
-            PizzaRun.DriveToShop = false;
+            // (A line here used to clear PizzaRun.DriveToShop — the player's
+            // stated intent to clock on, which did not survive sleeping through
+            // the block it was made in. There is no such intent any more: the
+            // town's cue asks the clock whether Tony's would take a shift now,
+            // so waking to a morning the shop is shut answers itself.)
             RecordAct(s, s.slotIndex, ActSleep);
             if (s.slotIndex >= SlotNames.Length - 1)
             {

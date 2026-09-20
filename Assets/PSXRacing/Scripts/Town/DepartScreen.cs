@@ -157,6 +157,18 @@ namespace PSXRacing.Town
             // doors that would carry a hot pizza off to a race meeting or a
             // stranger's driveway are shut while you are holding it.
             bool carrying = PizzaRun.Carrying;
+
+            // COUNT THE DOORS BEFORE DRAWING ONE. The budget used to be three
+            // and the fourth row was simply never offered — GO RACING and
+            // INSPECT were hidden while carrying partly for that reason. There
+            // are four from your own street now (IN TOWN, CHARLOTTE, GO RACING,
+            // INSPECT A CAR) because the house stopped offering them, so the
+            // pitch has to answer to the count rather than the other way round.
+            int doors = 1;                                   // the way on
+            if (carrying) doors += 1;                        // MAKE THE DELIVERY
+            else { doors += 2; if (!fromTown) doors += 1; }  // Charlotte, racing, the paper
+            SetRowBudget(doors, y);
+
             if (carrying)
             {
                 string venue = PizzaRun.TrackIndex >= 0 &&
@@ -193,20 +205,46 @@ namespace PSXRacing.Town
                     : "The shop, the pumps, the lot and the yard. A few minutes down the road.",
                     canDrive, () => Leave("town"));
 
-            // Hidden outright while carrying, not greyed: the panel's row
-            // budget is three (see Row), and a fourth pushes the way out off
-            // the bottom of a phone. Two shut doors explain themselves less
-            // well than their absence beside MAKE THE DELIVERY does.
+            // Hidden outright while carrying, not greyed: two shut doors
+            // explain themselves less well than their absence beside MAKE THE
+            // DELIVERY does, and a hot pizza has one errand.
             if (!carrying)
             {
-                Row(panel, ref y, "GO RACING",
-                    canDrive ? "Set the venue and the money at home, then drive out."
+                // CHARLOTTE. This was a button in the house — FREE ROAM — and
+                // it is a destination now, because the house asks which car and
+                // the line asks where. It is the one door here that does not
+                // lead to a place you could have walked to; that is the point
+                // of it.
+                Row(panel, ref y, "FREE ROAM — CHARLOTTE",
+                    canDrive ? "An hour out on the interstate. Nothing is scored."
                              : "Not enough fuel to go anywhere.",
-                    canDrive, () => Leave("main"));
+                    canDrive, () => Leave("charlotte"));
+
+                // THE RACE STARTS HERE. It used to drop the player on the home
+                // screen holding the blurb below as an instruction — "set the
+                // venue and the money at home, then drive out" — which is the
+                // drive they had just made. The pre-race page opens on the
+                // other side of this row instead, with START on it.
+                // RACED TODAY IS A CLOSED DOOR, not an open one onto a refusal.
+                // The pre-race page has always known about the one-purse-a-day
+                // cap and greys its own START for it — but it was a page you
+                // opened from the sofa. Reached from here the player has
+                // already made the drive, so the answer has to be on this side
+                // of it.
+                var booked = LifeRules.BookingAt(S, S.day, S.slotIndex);
+                bool racedToday = LifeRules.RacedToday(S);
+                Row(panel, ref y, "GO RACING",
+                    !canDrive ? "Not enough fuel to go anywhere."
+                    : racedToday ? "One purse a day, and today's is won. Back tomorrow."
+                    : booked != null
+                        ? TrackCatalog.At(booked.trackIndex).name + "  ·  in the diary for " +
+                          LifeRules.SlotNames[booked.slot].ToLowerInvariant() + "."
+                        : "Pick a venue and go. Nothing is written in for this block.",
+                    canDrive && !racedToday, () => Leave("racenow"));
 
                 // The classifieds are a thing you read at home; from the
                 // town's end the row would be a hop through the house to a
-                // car on somebody else's street, and the budget is three.
+                // car on somebody else's street.
                 if (!fromTown)
                 {
                     int forSale = (S.newspaper != null ? S.newspaper.Count : 0);
@@ -235,24 +273,70 @@ namespace PSXRacing.Town
             }
         }
 
+        /// <summary>How tall one door and its line are. Set by
+        /// <see cref="SetRowBudget"/> before any of them are drawn.</summary>
+        float rowPitch = RoomyPitch;
+
+        /// <summary>The pitch a three-row panel has always used, and the
+        /// ceiling: a door with room around it reads better than four crammed
+        /// ones, so extra space is never spent widening the gaps.</summary>
+        const float RoomyPitch = 78f;
+
         /// <summary>
-        /// One door and one line about it. The budget is tight and worth
-        /// stating: the handheld design column is 560 units and this panel
-        /// insets 40 top and bottom, so three rows plus a title, a status line
-        /// and a way out have 480 units between them. At 78 per row it fits
-        /// with 30 to spare; at 86 it did not, and a page that scrolls is a
-        /// page whose last door is off the bottom of a phone.
+        /// Fit the doors on the screen, whatever there are of them.
+        ///
+        /// The numbers, because they are easy to get wrong and impossible to
+        /// see going wrong on a desktop: the handheld design column is 560
+        /// units (MenuKit.DesignHeightHandheld) and this panel insets 40 top
+        /// and bottom, so everything below the title and the status line shares
+        /// about 350 — less TURN BACK's 50, which is not negotiable, because a
+        /// page whose way out is off the bottom of a phone is a trap rather
+        /// than a menu.
+        ///
+        /// Three rows still get exactly the 78 they had. Four get 70 and the
+        /// difference comes off the blurb, not the button: the button is the
+        /// thumb target.
         /// </summary>
+        void SetRowBudget(int rows, float firstY) =>
+            rowPitch = PitchFor(rows, firstY, MenuKit.DesignHeight);
+
+        /// <summary>40 top + 40 bottom — see the Stretch call in Build.</summary>
+        public const float PanelInset = 80f;
+
+        /// <summary>TURN BACK and the gap above it. Not negotiable.</summary>
+        public const float WayOut = 50f;
+
+        /// <summary>And a little air under it. Without this the tightest case
+        /// lands the way out flush with the panel's own border, which passes
+        /// every check and looks like the page was cut off.</summary>
+        public const float BottomMargin = 12f;
+
+        /// <summary>The pure half of <see cref="SetRowBudget"/>, so the
+        /// self-test can put a phone's 560-unit column in and check that four
+        /// doors and the way out land above the bottom of it. Nothing else in
+        /// this file can be checked without building a canvas, and the failure
+        /// it guards against is invisible on a desktop.</summary>
+        public static float PitchFor(int rows, float firstY, float designHeight)
+        {
+            float avail = (designHeight - PanelInset) - Mathf.Abs(firstY)
+                          - WayOut - BottomMargin;
+            return rows <= 0 ? RoomyPitch : Mathf.Clamp(avail / rows, 58f, RoomyPitch);
+        }
+
+        /// <summary>One door and one line about it, at whatever pitch
+        /// <see cref="SetRowBudget"/> settled on.</summary>
         void Row(RectTransform panel, ref float y, string label, string blurb,
                  bool enabled, UnityEngine.Events.UnityAction go)
         {
+            float btnH = Mathf.Clamp(rowPitch - 32f, 40f, 46f);
+            float blurbH = rowPitch - btnH - 2f;
             MenuKit.Button(panel, label, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                new Vector2(460f, 46f), enabled ? go : null, 20,
+                new Vector2(460f, btnH), enabled ? go : null, 20,
                 enabled ? (Color?)null : MenuKit.BtnBgDisabled);
-            y -= 48f;
+            y -= btnH + 2f;
             MenuKit.Label(panel, blurb, 14, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                TextAnchor.MiddleCenter, MenuKit.Dim, 700f, height: 26f);
-            y -= 30f;
+                TextAnchor.MiddleCenter, MenuKit.Dim, 700f, height: blurbH);
+            y -= blurbH;
         }
 
         /// <summary>
@@ -265,12 +349,29 @@ namespace PSXRacing.Town
         void Leave(string tab)
         {
             IsOpen = false;
-            // Leaving for another DRIVABLE zone arms the arrival: the far
-            // side puts the car through its own line, rolling, rather than on
-            // a driveway. A page (racing, the classifieds) is not a zone and
-            // gets nothing.
+            // Leaving for another zone THAT HAS A LINE OF ITS OWN arms the
+            // arrival: the far side puts the car through it, rolling, rather
+            // than on a driveway. Charlotte has no zone line and a race has no
+            // zone at all, so neither gets one.
             bool crossing = tab == "town" || tab == "drivehome";
             TownEdge.ArrivePending = crossing;
+            // WHETHER THE TRIP IS OVER is a different question from whether a
+            // line is being crossed, and conflating them would charge a race
+            // two blocks.
+            //
+            // A block is spent where a journey ENDS. Your street and the town
+            // are two maps of one trip, so a crossing does not end it; neither
+            // does driving out to Charlotte or out to a race, because the thing
+            // at the far end — the free roam, the race — is what the block was
+            // for and is what pays for it. What DOES end a trip is arriving
+            // somewhere that is a menu: the classifieds put the player back in
+            // the house with the evening gone, and that is the honest price of
+            // having driven out to read them.
+            //
+            // (LifeHomeScreen.driveUnpaid is the other half: back out of the
+            // pre-race page without starting and the drive is charged there,
+            // so an unpaid leg cannot be ridden for free.)
+            bool continues = crossing || tab == "charlotte" || tab == "racenow";
             // A CROSSING IS NOT THE END OF A DRIVE, so it does not cost what
             // the end of one costs. Your street and the town are two maps of
             // one trip: the hop between them banks the metres, the fuel and
@@ -281,7 +382,7 @@ namespace PSXRacing.Town
             // (the drive in, then the counter) — and, the case that found it,
             // rolled the clock over at the junction on the way to a car meet:
             // leave at night, arrive next morning, to an empty lot.
-            TownExit.GoHome(playerCar, tab, commute: crossing);
+            TownExit.GoHome(playerCar, tab, commute: continues);
         }
     }
 }

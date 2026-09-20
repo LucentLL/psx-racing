@@ -275,7 +275,55 @@ namespace PSXRacing.Town
                                 ")" + where;
                 }
             }
-            else if (PizzaRun.DriveToShop)
+            // THE CAR MEET, on the nights there is one — and it is ahead of the
+            // shift now, where it used to be last. The old order was right when
+            // both were INTENTS: the player had pressed one button or the
+            // other, so the one they pressed was the one that mattered and
+            // "an order on the seat and a shift to get to both outrank a night
+            // out" settled the rest. Nothing is declared any more, so the
+            // question is which is rarer: Tony's will hand over a run in
+            // fourteen blocks a week and the lot is full for two.
+            else if (CarMeets.OnNow(S) && !CarMeets.ArrivedTonight(S))
+            {
+                if (meetSign != null)
+                {
+                    // ARRIVING ENDS THE SIGNPOST.
+                    if (player != null &&
+                        (meetSign.position - player.transform.position).sqrMagnitude < 20f * 20f)
+                    {
+                        CarMeets.MarkArrived(S);
+                        // Said for a few seconds rather than for one tick of
+                        // this 0.4 s timer: it is the only instruction the
+                        // meet gives, and the player is busy parking.
+                        flash = "THE MEET — PARK UP, GET OUT, WALK ROUND";
+                        flashUntil = Time.unscaledTime + 7f;
+                        return flash;
+                    }
+                    anchor = meetSign;
+                    label = "CAR MEET — " + CarMeets.PlaceName;
+                }
+                else
+                {
+                    var way = NearestEdge();
+                    anchor = way != null ? way.transform : null;
+                    label = "CAR MEET — DRIVE INTO TOWN";
+                    near = "THE LINE — DRIVE THROUGH IT TO CHOOSE";
+                }
+            }
+
+            // A SHIFT, when there is one to be taken. Derived rather than
+            // declared, for the same reason the meet is: CLOCK ON came off the
+            // home screen with the other launchers, so the arrow points at
+            // Tony's exactly when Tony's would hand over a run.
+            //
+            // That also retires a whole class of bug rather than fixing one
+            // more of them. The flag this replaced was set at home and had to
+            // be cleared by hand everywhere the block it belonged to could end
+            // — LifeRules.Sleep carried a paragraph about the player napping
+            // through the afternoon they had promised to work, and the town
+            // then pointing at "park up and walk in" over a counter that could
+            // only sell a slice. A question asked of the clock cannot go stale.
+            else if (CanTakeARun())
             {
                 anchor = FindVenue(TownVenue.Kind.Pizzeria);
                 if (anchor != null)
@@ -284,18 +332,13 @@ namespace PSXRacing.Town
                     // has to say that the last twenty metres are walked. Told at
                     // the door rather than from across town, where "walk in" is
                     // not yet an instruction anybody can follow.
-                    // ONLY IF THE SHOP WILL TAKE THE SHIFT. This flag is set
-                    // when the player clocks on at home and it survives
-                    // everything until a run starts or the home screen is
-                    // rebuilt — including a night's sleep in the bed upstairs,
-                    // which rolls the day over to a morning the shop is shut
-                    // for. The cue then promised "walk in" at a counter that
-                    // could only sell a slice, which is the report. Say what
-                    // the counter will actually say.
-                    bool open = S != null && LifeRules.ShopOpen(S);
-                    label = open ? "GO TO WORK — TONY'S" : "TONY'S — NO RUNS TILL NOON";
-                    near = open ? "TONY'S — PARK UP AND WALK IN"
-                                : "TONY'S — SHUT FOR RUNS TILL NOON";
+                    //
+                    // No "shut till noon" wording any more: CanTakeARun has
+                    // already asked, so reaching here means the counter WILL
+                    // take the shift. The pair of strings that said otherwise
+                    // existed because the old flag could outlive the block.
+                    label = "GO TO WORK — TONY'S";
+                    near = "TONY'S — PARK UP AND WALK IN";
                 }
                 else
                 {
@@ -324,42 +367,6 @@ namespace PSXRacing.Town
                 }
             }
 
-            // THE CAR MEET, when the player set off for it (the home screen's
-            // CAR MEET TONIGHT row sets Heading). Last in the chain: an order
-            // on the seat and a shift to get to both outrank a night out. In
-            // town the arrow points at the lot; on your own street the lot is
-            // in another scene, so it points at the way out, exactly as the
-            // shift's does.
-            else if (CarMeets.Heading && CarMeets.OnNow(S))
-            {
-                if (meetSign != null)
-                {
-                    // ARRIVING ENDS THE SIGNPOST. The anchor is the sign at the
-                    // lot's mouth and the lot is forty metres deep, so a cue
-                    // that kept running would spend the evening pointing a
-                    // parked player back at the gate they came in by.
-                    if (player != null &&
-                        (meetSign.position - player.transform.position).sqrMagnitude < 20f * 20f)
-                    {
-                        CarMeets.Heading = false;
-                        // Said for a few seconds rather than for one tick of
-                        // this 0.4 s timer: it is the only instruction the
-                        // meet gives, and the player is busy parking.
-                        flash = "THE MEET — PARK UP, GET OUT, WALK ROUND";
-                        flashUntil = Time.unscaledTime + 7f;
-                        return flash;
-                    }
-                    anchor = meetSign;
-                    label = "CAR MEET — " + CarMeets.PlaceName;
-                }
-                else
-                {
-                    var way = NearestEdge();
-                    anchor = way != null ? way.transform : null;
-                    label = "CAR MEET — DRIVE INTO TOWN";
-                    near = "THE LINE — DRIVE THROUGH IT TO CHOOSE";
-                }
-            }
 
             if (anchor == null || label == null || player == null) return null;
 
@@ -395,6 +402,19 @@ namespace PSXRacing.Town
         static readonly string[] CueArrows =
             { "^", "/^", ">", "\v", "v", "v/", "<", "^\\" };
 
+
+        /// <summary>
+        /// Would Tony's counter hand over a run if the player walked in now?
+        ///
+        /// The same three facts the counter itself checks (RefreshPizzaDoor
+        /// asks the first two), plus "not already out today" — which is the
+        /// difference between a signpost and a nag. Taking a second run is
+        /// allowed and the door still offers it; the ARROW stops pointing once
+        /// the day's work is done.
+        /// </summary>
+        bool CanTakeARun() =>
+            S != null && !string.IsNullOrEmpty(S.playerJob) &&
+            LifeRules.ShopOpen(S) && !S.workedToday;
 
         /// <summary>Whichever end of the street is nearer. The town has two and
         /// both launch a delivery, so pointing at the far one would send a

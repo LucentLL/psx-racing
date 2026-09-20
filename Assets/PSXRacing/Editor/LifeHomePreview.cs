@@ -111,12 +111,34 @@ namespace PSXRacing.EditorTools
             Shoot(outDir, "month", "main", calView: "Month");
 
             // The pre-race page with the booking in this block, and without.
+            // Both are the PLANNER now — reached from the house, they write the
+            // race into the diary and nothing else. The launcher half of the
+            // page (START, one read-only car) only exists on the far side of a
+            // zone line, which no menu preview can stand at.
             st.slotIndex = LifeRules.NightSlot;
             LifeSimManager.Save();
             Shoot(outDir, "prerace_booked", "prerace");
             st.slotIndex = 0;
             LifeSimManager.Save();
             Shoot(outDir, "prerace_open", "prerace");
+
+            // THE ONE DOOR OUT OF THE HOUSE, and the page behind it. Shot on a
+            // meet night as well as an ordinary one, because the line under
+            // DRIVE is the only thing left on MAIN that says a meet is on — the
+            // button that used to announce it is gone.
+            Shoot(outDir, "drive", "drive");
+            // A MEET NIGHT, which has to be arranged rather than assumed: the
+            // save is aged four days before any of this, and CarMeets.MeetOn is
+            // Friday and Saturday only — so the ordinary shot above lands on a
+            // Tuesday and proves nothing about the row that says CAR MEET.
+            int preMeetDay = st.day, preMeetSlot = st.slotIndex;
+            while (!CarMeets.MeetOn(st.day)) st.day++;
+            st.slotIndex = LifeRules.NightSlot;
+            LifeSimManager.Save();
+            Shoot(outDir, "drive_meet", "drive");
+            Shoot(outDir, "home_meet_drive", "main", mustFit: true);
+            st.day = preMeetDay; st.slotIndex = preMeetSlot;
+            LifeSimManager.Save();
 
             // Debug mode: the six garage slots the second-car shots below need,
             // and the DEBUG rung on OPTIONS.

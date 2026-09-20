@@ -215,10 +215,35 @@ namespace PSXRacing.LifeSim
             return null;
         }
 
-        /// <summary>The player chose the meet from the home screen, so the
-        /// drive there carries a signpost — the same job PizzaRun.DriveToShop
-        /// does for the shift. Cleared when the home screen is next drawn.</summary>
-        public static bool Heading;
+        /// <summary>
+        /// The day the player last pulled into the lot, so the signpost can
+        /// stand down once they are there.
+        ///
+        /// This was `Heading`, a bool armed by the home screen's CAR MEET
+        /// TONIGHT button — the player's stated INTENT to go. That button is
+        /// gone with the rest of the launchers, and nothing replaced it,
+        /// because nothing needed to: the lot is full on a meet night whether
+        /// or not anyone announced they were coming, and an arrow that asks the
+        /// calendar cannot disagree with the lot that asks the same calendar.
+        ///
+        /// A DAY rather than a bool, so it resets itself. A bool would need
+        /// somebody to re-arm it each evening, and the thing that used to do
+        /// that was the button.
+        /// </summary>
+        public static int ArrivedDay;
+
+        /// <summary>Has the player already reached the lot tonight?</summary>
+        public static bool ArrivedTonight(LifeState s) =>
+            s != null && ArrivedDay == s.day && s.day > 0;
+
+        /// <summary>Pulled in. Stands the signpost down for the rest of the
+        /// night — the lot is forty metres deep, and a cue that kept running
+        /// would spend the evening pointing a parked player back at the gate
+        /// they came in by.</summary>
+        public static void MarkArrived(LifeState s)
+        {
+            if (s != null) ArrivedDay = s.day;
+        }
 
         /// <summary>The line the town shows when the player comes back from
         /// the start line. Read once by TownWorld, then cleared.</summary>

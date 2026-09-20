@@ -26,6 +26,36 @@ namespace PSXRacing.LifeSim
         CarListing buyTarget;
 
         /// <summary>
+        /// The pre-race page was opened FROM THE ZONE LINE rather than from the
+        /// house, so it is a launcher and not a planner: START is drawn, and
+        /// the car list collapses to the one the player is sitting in.
+        ///
+        /// An instance field rather than a static, because unlike
+        /// <see cref="PendingTab"/> it never has to survive a scene load — the
+        /// hop that sets it lands in this same Start(). Cleared by BuildMain,
+        /// which is where BACK and Escape both come out.
+        /// </summary>
+        bool raceFromLine;
+
+        /// <summary>
+        /// The drive out to the line has been banked but NOT charged a block,
+        /// because the race it was on the way to is expected to charge one.
+        ///
+        /// A race is one block of the day, and under the old menu it cost
+        /// exactly that: press GO RACING in the house and the next thing that
+        /// happened was a grid. Every race is driven out to now, so without
+        /// this the same race costs two of the day's three — one for the drive
+        /// down your own street, one for the race at the end of it — and a day
+        /// would hold one race and one nap.
+        ///
+        /// So the leg rides CommuteLeg (see DepartScreen.Leave) and the race's
+        /// own apply-back pays. If the player backs out of the pre-race page
+        /// instead, nobody pays, and BuildMain settles it: a drive that went
+        /// nowhere is still a drive.
+        /// </summary>
+        bool driveUnpaid;
+
+        /// <summary>
         /// Which tab to open on, set by another SCENE before it loads this one.
         ///
         /// The walk-in garage is a real place with a workbench, a parts rack and
@@ -308,6 +338,40 @@ namespace PSXRacing.LifeSim
                 return;
             }
 
+            // "charlotte" is the same hop again, for the row that used to be a
+            // button in the house. Free roam is a DESTINATION now, chosen at the
+            // line with the others rather than declared before setting off — so
+            // it banks the drive down your own street on the way past, exactly
+            // as the town does.
+            if (tab == "charlotte")
+            {
+                tab = "main";
+                if (S.ActiveCar != null && S.ActiveCar.fuel > 1f)
+                {
+                    BuildChrome();
+                    StartFreeRoam();
+                    return;
+                }
+                BuildChrome();
+                Rebuild();
+                Toast("tank is dry — you are not driving anywhere");
+                return;
+            }
+
+            // "racenow" is the hop the RACE door at the line makes, and it is
+            // the only one that STOPS on a page instead of loading a scene: the
+            // pre-race page is where the venue, the purse and the tank are
+            // confirmed, and it is drawn here in launcher mode (raceFromLine)
+            // with START live. The leg down the street has already been banked
+            // by the block above, which is the whole reason this goes through
+            // the front end rather than straight to the grid.
+            if (tab == "racenow")
+            {
+                tab = "prerace";
+                raceFromLine = true;
+                driveUnpaid = true;
+            }
+
             // "deliverrun" is the second hop of the same journey: the junction
             // menu routes through here so the loaded drive across town is
             // banked by the block above — LaunchDelivery opens with ClearAll
@@ -374,11 +438,14 @@ namespace PSXRacing.LifeSim
                 PizzaRun.AbandonRun(S, "the order went cold on the passenger seat — no tip");
                 LifeSimManager.Save();
             }
-            PizzaRun.DriveToShop = false;
-            // The signpost to the car meet is an intent too, and it ends the
-            // same way: arriving home by any door is the end of that drive.
-            CarMeets.Heading = false;
-            // Same reason: an arrival armed at a zone line and never used —
+            // (Two intent flags used to be cleared here — PizzaRun.DriveToShop
+            // and CarMeets.Heading, the player's stated plans to work and to go
+            // to the meet. Neither exists: the house declares nothing now, and
+            // the town asks the calendar and the clock instead. A flag that has
+            // to be cleared on every path home is a flag that will one day be
+            // missed on one of them.)
+            //
+            // An arrival armed at a zone line and never used —
             // the player went to the garage instead — must not put the next
             // drive's car through a line it never crossed.
             Town.TownEdge.ArrivePending = false;
@@ -879,6 +946,7 @@ namespace PSXRacing.LifeSim
                 // sends it: it is the month view of MAIN now.
                 case "calendar": tab = "main"; calView = CalView.Month; BuildMain(); break;
                 case "prerace": BuildPreRace(); break;
+                case "drive": BuildDrive(); break;
                 case "rivals": BuildRivals(); break;
                 case "news": BuildNews(); break;
                 case "options": BuildOptions(); break;
@@ -1069,6 +1137,9 @@ namespace PSXRacing.LifeSim
                 // The calendar is opened from MAIN rather than from the strip,
                 // so that is where BACK puts you down.
                 case "calendar": return "main";
+                // Picking a car to go out in. Backing out of it is deciding not
+                // to go, which puts you back in the house.
+                case "drive": return "main";
 
                 // The classifieds are a page OF the paper, so backing out of
                 // them puts the paper back in your hands rather than dropping
@@ -1221,6 +1292,48 @@ namespace PSXRacing.LifeSim
         /// </summary>
         static readonly Color MeetBg = new Color(0.16f, 0.30f, 0.46f, 1f);
         static readonly Color MeetInk = new Color(0.58f, 0.84f, 1f, 1f);
+        /// <summary>The way out. The old FREE ROAM and DRIVE INTO TOWN rows
+        /// shared this translucent blue and there is one row now, so it keeps
+        /// the colour the road out of the house has always had.</summary>
+        static readonly Color DriveBg = new Color(0.45f, 0.75f, 1f, 0.22f);
+
+        /// <summary>Fuel a car needs before the house will let it out. ONE
+        /// number, and it is the zone line's: the old rows asked 10% for
+        /// Charlotte and 5% for town, so a tank between the two offered a drive
+        /// that the very next screen refused. Every destination is chosen at
+        /// the line now, and the line has always asked 5.</summary>
+        public const float DriveFuelPct = 5f;
+
+        /// <summary>
+        /// What is waiting out there, for the line under DRIVE and the top of
+        /// the DRIVE page.
+        ///
+        /// Strictly news. The destinations themselves are the zone line's
+        /// business, so this can say "CAR MEET" without owning a button that
+        /// has to agree with CarMeets about whether there is one.
+        /// </summary>
+        string DriveLine()
+        {
+            var bits = new System.Collections.Generic.List<string>();
+            var bookedNow = LifeRules.BookingAt(S, S.day, S.slotIndex);
+            if (bookedNow != null)
+                bits.Add("RACE — " + TrackCatalog.At(bookedNow.trackIndex).name.ToUpperInvariant());
+            if (CarMeets.OnNow(S)) bits.Add("CAR MEET");
+            if (!string.IsNullOrEmpty(S.playerJob) && LifeRules.ShopOpen(S))
+                bits.Add(S.workedToday ? "ANOTHER RUN AT TONY'S" : "SHIFT AT TONY'S");
+            // Short, because it is drawn INSIDE the DRIVE button at Tiny and a
+            // sentence there is a clipped sentence. The long version of this
+            // thought lives on the DRIVE page, which has the width for it.
+            if (bits.Count == 0) return "NOTHING BOOKED — GO WHERE YOU LIKE";
+            return Clip(string.Join("   ·   ", bits.ToArray()), 52);
+        }
+
+        /// <summary>A meet is the rare one, so it gets the colour; a booked
+        /// race is the loud one. Anything else is a note.</summary>
+        Color DriveLineInk() =>
+            CarMeets.OnNow(S) ? MeetInk
+            : LifeRules.BookingAt(S, S.day, S.slotIndex) != null ? MenuKit.Accent
+            : MenuKit.Dim;
 
         /// <summary>
         /// Put the calendar's cursor where the clock is, unless the player has
@@ -1331,6 +1444,20 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void BuildMain()
         {
+            // Back at the house, so the pre-race page is a planner again. BACK
+            // and Escape from it both land here (ParentTabOf), which makes this
+            // the one place that has to remember to let go.
+            raceFromLine = false;
+            // And the drive out that was riding on a race nobody started is
+            // settled here, before anything reads the clock: spending the block
+            // can roll the day, and the calendar below has to be seeded against
+            // the day it rolled to.
+            if (driveUnpaid)
+            {
+                driveUnpaid = false;
+                LifeRules.SpendActivitySlot(S, LifeRules.ActDrive);
+                LifeSimManager.Save();
+            }
             SeedCalendar();
             float top = -14f;
 
@@ -1634,7 +1761,11 @@ namespace PSXRacing.LifeSim
                                  TrackCatalog.At(bookedToday.trackIndex).name, 30);
             else
             {
-                raceLabel = "GO RACING";
+                // BOOK, not GO. Nothing launches out of the house any more: the
+                // pre-race page reached from here sets the venue and writes it
+                // into the block, and START lives at the zone line, where the
+                // player is actually sitting in the car. See BuildPreRace.
+                raceLabel = "BOOK A RACE";
                 raceAct = () => { tab = "prerace"; Rebuild(); };
                 raceBg = RaceBg;
             }
@@ -1666,69 +1797,84 @@ namespace PSXRacing.LifeSim
             }
             y -= 62f;
 
-            // ---- the shift ----
-            // The shop is open DAY and NIGHT, seven days a week — see
-            // LifeRules.ShopOpen. There is deliberately no "already worked
-            // today" rung: both open blocks are runs if the player wants them,
-            // and each one costs the block it burned.
-            bool shopOpen = LifeRules.ShopOpen(S);
-            bool canWork = !string.IsNullOrEmpty(S.playerJob) && shopOpen;
-            string workLabel = string.IsNullOrEmpty(S.playerJob) ? "NO JOB"
-                : !shopOpen ? "SHOP SHUT — OPENS AT NOON"
-                : S.workedToday ? "TAKE ANOTHER RUN"
-                : "CLOCK ON — " + Clip(S.playerJob, 14);
-            MenuKit.Button(body, workLabel, new Vector2(0.5f, 1f), new Vector2(cx, y),
-                new Vector2(w, 46f), canWork ? DoWork : (UnityEngine.Events.UnityAction)null,
-                17, canWork ? (Color?)null : MenuKit.BtnBgDisabled);
-            y -= 52f;
-            if (!string.IsNullOrEmpty(S.playerJob))
+            // ---- THE ONE DOOR OUT OF THE HOUSE ----
+            //
+            // This row used to be four: CLOCK ON, FREE ROAM, DRIVE INTO TOWN,
+            // and the race row's own launch. Every one of them was the same
+            // act — get in a car and drive down your own street — and every one
+            // of them then met the zone line at the end of that street and was
+            // asked where it was going. The owner reported the duplication:
+            // "there is a redundancy to selecting Go to Work or Go to Car meet
+            // in menu, driving out of neighborhood, then being asked again
+            // where to go. The option on menu should just be Drive, select car
+            // (from available), drive to end of neighborhood, select
+            // destination."
+            //
+            // So the HOUSE asks which car and the LINE asks where. Nothing is
+            // declared up front: the lot is full on a meet night because it is
+            // a meet night, and Tony's will take a run because the shop is
+            // open — not because a button was pressed on the way out. Both of
+            // those were already true of the world; all the buttons did was
+            // make the player promise in advance.
+            //
+            // Gated on ANY car being drivable, not on the active one: the page
+            // behind this row is where a car is chosen, so refusing it because
+            // the last car driven is on a ramp would hide the two in the
+            // driveway.
+            bool anyCarHere = false, anyCarFuelled = false;
+            foreach (var c in S.cars)
             {
-                MenuKit.Label(body, LifeRules.ShiftHoursShort, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                    new Vector2(cx, y), TextAnchor.MiddleCenter, MenuKit.Dim, w, height: 22f);
-                y -= 26f;
+                if (!CarWhere.Available(S, c)) continue;
+                anyCarHere = true;
+                if (c.fuel > DriveFuelPct) anyCarFuelled = true;
             }
+            string driveLabel = S.cars.Count == 0 ? "DRIVE — NO CAR"
+                : !anyCarHere ? "DRIVE — EVERY CAR IS AT A SHOP"
+                : !anyCarFuelled ? "DRIVE — NEEDS FUEL"
+                : "DRIVE";
+            // TWO LINES IN ONE BUTTON, the way the race row above draws a live
+            // call-out. What is waiting out there is NEWS — the player reads it
+            // and then decides at the line — so its natural home was a label
+            // under the button. Drawn that way it sat directly on top of the
+            // EAT/BILLS/JOB tile row and read as a caption for THOSE, which is
+            // the one thing it is not about. Inside the button it can only be
+            // about the button, and the column gets 26 units back.
+            var driveRow = MenuKit.Button(body, "", new Vector2(0.5f, 1f), new Vector2(cx, y),
+                new Vector2(w, 56f),
+                anyCarFuelled
+                    ? (UnityEngine.Events.UnityAction)(() => { tab = "drive"; Rebuild(); })
+                    : null,
+                20, anyCarFuelled ? DriveBg : MenuKit.BtnBgDisabled);
+            // By hand: an empty caption names every such button "Btn_", and the
+            // cursor is restored BY NAME across a rebuild.
+            driveRow.gameObject.name = "Btn_DRIVE";
+            MenuKit.Label(driveRow.transform, driveLabel, 20, new Vector2(0.5f, 0.5f),
+                new Vector2(0f, 11f), TextAnchor.MiddleCenter,
+                anyCarFuelled ? Color.white : new Color(0.60f, 0.60f, 0.68f),
+                w - 24f, height: 24f, bold: true);
+            MenuKit.Label(driveRow.transform, DriveLine(), MenuKit.Tiny,
+                new Vector2(0.5f, 0.5f), new Vector2(0f, -12f), TextAnchor.MiddleCenter,
+                DriveLineInk(), w - 24f, height: 22f);
+            y -= 62f;
 
-            // ---- the two drives ----
-            // Charlotte at 1:1 (map data (c) OpenStreetMap contributors), and
-            // the town — your own street, the shop, the pumps, the lot and the
-            // yard. Both cost a block, burn real fuel and pay nothing, and both
-            // doors stay shut on a tank that would strand the car.
-            // ... and on a car that is actually HERE. One at the mechanic's is
-            // not a car the player can leave the house in, and the row says
-            // that rather than "needs a car": they have one, and MY CARS says
-            // when it is back.
-            bool carAway = CarWhere.Away(S, S.ActiveCar);
-            bool roamFuel = S.ActiveCar != null && !carAway && S.ActiveCar.fuel > 10f;
-            MenuKit.Button(body,
-                S.ActiveCar == null ? "FREE ROAM — NEEDS A CAR"
-                    : carAway ? "FREE ROAM — CAR AT THE SHOP"
-                    : roamFuel ? "FREE ROAM — CHARLOTTE" : "FREE ROAM — NEEDS FUEL",
-                new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 44f),
-                roamFuel ? (UnityEngine.Events.UnityAction)StartFreeRoam : null, 17,
-                roamFuel ? new Color(0.45f, 0.75f, 1f, 0.22f) : MenuKit.BtnBgDisabled);
-            y -= 50f;
-            // THE CAR MEET IS THIS ROW, on the nights there is one. The lot is
-            // in town, so going to the meet IS driving into town — a second
-            // button under this one would be the same drive twice, and the
-            // column has no fifty units to give it. The row changes its name
-            // and its colour, and the drive carries a signpost to the lot
-            // (CarMeets.Heading, read by TownWorld's cue).
-            bool meetNow = CarMeets.OnNow(S);
-            bool townFuel = S.ActiveCar != null && !carAway && S.ActiveCar.fuel > 5f;
-            MenuKit.Button(body,
-                S.ActiveCar == null ? "INTO TOWN — NEEDS A CAR"
-                    : carAway ? "INTO TOWN — CAR AT THE SHOP"
-                    : !townFuel ? "INTO TOWN — NEEDS FUEL"
-                    : meetNow ? "CAR MEET TONIGHT — DRIVE IN" : "DRIVE INTO TOWN",
-                new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 44f),
-                townFuel ? (UnityEngine.Events.UnityAction)(() =>
-                {
-                    CarMeets.Heading = meetNow;
-                    StartTown();
-                }) : null, 17,
-                !townFuel ? MenuKit.BtnBgDisabled
-                    : meetNow ? MeetBg : new Color(0.45f, 0.75f, 1f, 0.22f));
-            y -= 50f;
+            // ---- the shift, ON FOOT ----
+            // Only when there is no car to drive to it in. Clocking on is
+            // something you do at Tony's counter now, which is a place you
+            // reach by driving — but a career whose only car is on a ramp for
+            // three days still has to be able to earn, and DoWork's walking
+            // branch is that floor. It is not a second way out of the house: it
+            // never leaves it.
+            bool shopOpen = LifeRules.ShopOpen(S);
+            if (!anyCarFuelled && !string.IsNullOrEmpty(S.playerJob))
+            {
+                MenuKit.Button(body,
+                    shopOpen ? "WALK TO WORK — " + Clip(S.playerJob, 14)
+                             : "SHOP SHUT — OPENS AT NOON",
+                    new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 46f),
+                    shopOpen ? DoWork : (UnityEngine.Events.UnityAction)null,
+                    17, shopOpen ? (Color?)null : MenuKit.BtnBgDisabled);
+                y -= 52f;
+            }
 
             // ---- the four that used to be tabs ----
             // One row of tiles, and two of them carry their state as a tint:
@@ -6296,7 +6442,7 @@ namespace PSXRacing.LifeSim
             var t = TrackCatalog.At(venue);
 
             float y = -14f;
-            PageHeader(ref y, booked ? "RACE DAY" : "GO RACING");
+            PageHeader(ref y, booked ? "RACE DAY" : raceFromLine ? "GO RACING" : "BOOK A RACE");
 
             // ---- the venue ----
             const float MapSize = 92f;
@@ -6369,68 +6515,41 @@ namespace PSXRacing.LifeSim
             MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
                 new Vector2(vx, y), new Vector2(vw, 2f), MenuKit.Line);
             y -= 8f;
-            int here = 0;
-            foreach (var c in S.cars) if (CarWhere.Available(S, c)) here++;
-            MenuKit.Label(body, "PICK A CAR  ·  " + here + " OF " + S.cars.Count + " AT HOME", MenuKit.Tiny,
-                new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Dim, vw,
-                height: 22f);
-            y -= 24f;
-            foreach (var owned in S.cars)
+            // WHICH CAR — but only while that question is still open. Reached
+            // from the zone line the player is already sitting in one; they
+            // drove it down their own street to get here. So the list collapses
+            // to the single row naming it, and it is not tappable: a list that
+            // could swap the car under the driver, from a menu opened at the
+            // kerb, would be offering something the world cannot do.
+            if (raceFromLine)
             {
-                var captured = owned;
-                bool driving = owned.id == S.activeCar;
-                // A car at a shop stays IN the list — it is one of the player's
-                // cars and leaving it out would read as the game having lost
-                // it — but it is not a row that can be taken.
-                bool gone = CarWhere.Away(S, owned);
-                var spec = CarCatalog.Get(owned.specId);
-                const float rowH = 54f;
-                var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(vx, vw), y), new Vector2(vw, rowH),
-                    gone ? (UnityEngine.Events.UnityAction)null : () =>
-                    {
-                        S.activeCar = captured.id;
-                        LifeSimManager.Save();
-                        Rebuild();
-                    }, 14, gone ? MenuKit.BtnBgDisabled
-                         : driving ? new Color(0.42f, 0.34f, 0.10f, 1f) : (Color?)null);
-                row.gameObject.name = "Btn_CAR_" + owned.id;
-                var rt = (RectTransform)row.transform;
-                var swatch = MenuKit.Rect(rt, "Paint", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
-                    new Vector2(30f, 0f), new Vector2(44f, 30f), PaintOf(spec, captured));
-                swatch.GetComponent<Image>().raycastTarget = false;
-                MenuKit.Label(rt, (driving ? "> " : "") + Clip(owned.displayName, 40), 16,
-                    new Vector2(0f, 0.5f), new Vector2(84f, 9f), TextAnchor.MiddleLeft,
-                    gone ? MenuKit.Dim : driving ? MenuKit.Accent : Color.white, vw * 0.62f,
-                    height: 22f);
-                string drv = spec != null ? spec.drv + "  ·  " + spec.hp + " hp  ·  " : "";
-                // Where a car that cannot be taken IS, in the line the fuel
-                // would have been on (a tank nobody can drive is not news).
-                // WHEN it is back goes on the right, under the condition: this
-                // column is 760 units at most, and both facts on one line ran
-                // straight through the label at the other end of it.
-                MenuKit.Label(rt, gone
-                        ? CarWhere.Label(CarWhere.PlaceOf(S, owned)) + "  ·  UNAVAILABLE"
-                        : drv + owned.odoMiles.ToString("N0") + " mi  ·  FUEL " +
-                          Mathf.RoundToInt(owned.fuel) + "%",
-                    14, new Vector2(0f, 0.5f), new Vector2(84f, -11f), TextAnchor.MiddleLeft,
-                    gone ? MenuKit.Bad : MenuKit.Dim, vw * 0.62f, height: 20f);
-                float worst = Mathf.Min(Mathf.Min(owned.engine, owned.tires),
-                                        Mathf.Min(owned.carHP, owned.paint));
-                MenuKit.Label(rt, S.debugMode ? Mathf.RoundToInt(worst) + "%"
-                                              : LifeRules.ConditionLabel(worst),
-                    16, new Vector2(1f, 0.5f), new Vector2(-24f, 9f), TextAnchor.MiddleRight,
-                    worst > 60f ? MenuKit.Good : worst > 30f ? MenuKit.Accent : MenuKit.Bad,
-                    140f, height: 22f);
-                int known = KnownFaults(owned);
-                MenuKit.Label(rt, gone ? CarWhere.ReadyLabel(S, owned)
-                        : known > 0
-                        ? known + " known fault" + (known == 1 ? "" : "s")
-                        : driving ? "THIS ONE" : "tap to take it",
-                    14, new Vector2(1f, 0.5f), new Vector2(-24f, -11f), TextAnchor.MiddleRight,
-                    gone ? MenuKit.Accent : known > 0 ? MenuKit.Bad : MenuKit.Dim,
-                    gone ? 320f : 220f, height: 20f);
-                y -= rowH + 6f;
+                MenuKit.Label(body, "THE CAR YOU DROVE OUT", MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, vw, height: 22f);
+                y -= 24f;
+                if (car != null) CarPickRow(ref y, vx, vw, car, true, "THIS ONE", null);
+            }
+            else
+            {
+                int here = 0;
+                foreach (var c in S.cars) if (CarWhere.Available(S, c)) here++;
+                MenuKit.Label(body, "PICK A CAR  ·  " + here + " OF " + S.cars.Count + " AT HOME",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, vw, height: 22f);
+                y -= 24f;
+                foreach (var owned in S.cars)
+                {
+                    var captured = owned;
+                    bool driving = owned.id == S.activeCar;
+                    CarPickRow(ref y, vx, vw, owned, driving,
+                        driving ? "THIS ONE" : "tap to take it",
+                        CarWhere.Away(S, owned) ? null : (UnityEngine.Events.UnityAction)(() =>
+                        {
+                            S.activeCar = captured.id;
+                            LifeSimManager.Save();
+                            Rebuild();
+                        }));
+                }
             }
             if (S.cars.Count == 0)
             {
@@ -6478,6 +6597,21 @@ namespace PSXRacing.LifeSim
             y -= 4f;
 
             // ---- the door ----
+            //
+            // TWO DOORS, and which one is drawn depends on where the player is
+            // standing. This page is reached from the house, where it is the
+            // planner for the block the clock is in — set the venue, write it
+            // into the diary, come back to it when you drive out — and from the
+            // ZONE LINE at the end of your own street, where the player is in
+            // the car with the engine running and the only thing left to do is
+            // go. START is the line's button and only the line's; a house that
+            // could start a race would be the teleport the drive out replaced.
+            if (!raceFromLine)
+            {
+                BuildRacePlanDoor(ref y, vx, vw, venue, booked, bookedNow);
+                return;
+            }
+
             // The car the keys are on is at a shop, and nothing else was
             // picked. It is the first refusal because it is the only one the
             // player can fix from this page: tap a car that is at home.
@@ -6505,6 +6639,195 @@ namespace PSXRacing.LifeSim
                     StartRace(false);
                 }) : null, 21, canRace ? RaceBg : MenuKit.BtnBgDisabled);
             y -= 70f;
+        }
+
+        /// <summary>
+        /// The pre-race page's door WHEN IT IS OPENED FROM THE HOUSE: write the
+        /// race into this block, or strike it out again. No START — the house
+        /// cannot start a race any more, and saying so plainly beats a greyed
+        /// button that looks like a bug.
+        /// </summary>
+        void BuildRacePlanDoor(ref float y, float vx, float vw, int venue, bool booked,
+                               RaceBooking bookedNow)
+        {
+            float bw = Mathf.Min(vw, 560f);
+            if (booked)
+            {
+                MenuKit.Button(body, "CANCEL THIS RACE", new Vector2(0.5f, 1f), new Vector2(0f, y),
+                    new Vector2(bw, 56f), () =>
+                    {
+                        LifeRules.Unbook(S, S.day);
+                        LifeSimManager.Save(); Rebuild();
+                        Toast("struck out of the diary");
+                    }, 19);
+                y -= 62f;
+                MenuKit.Label(body,
+                    "Booked for " + LifeRules.SlotNames[bookedNow.slot].ToLowerInvariant() +
+                    ". DRIVE out and the line at the end of the street starts it.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y),
+                    TextAnchor.MiddleCenter, MenuKit.Accent, vw, height: 24f);
+                y -= 28f;
+                return;
+            }
+
+            // RacedToday is the one refusal worth spelling out here rather than
+            // at the line: it is a fact about the DAY, and the day is what this
+            // page is for. The rest — fuel, a car on a ramp — are conditions of
+            // setting off and belong to the screen you set off from.
+            bool racedToday = LifeRules.RacedToday(S);
+            bool canBook = !racedToday && LifeRules.CanBookAt(S, S.day, S.slotIndex);
+            int capturedVenue = venue;
+            MenuKit.Button(body,
+                racedToday ? "RACED TODAY — BACK TOMORROW"
+                           : canBook ? "WRITE IT IN" : "NOT THIS BLOCK",
+                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(bw, 56f),
+                canBook ? (UnityEngine.Events.UnityAction)(() =>
+                {
+                    S.trackIndex = capturedVenue;
+                    LifeRules.Book(S, S.day, S.slotIndex, capturedVenue, false);
+                    LifeSimManager.Save(); Rebuild();
+                    Toast("in the diary — drive out when you are ready");
+                }) : null, 19, canBook ? RaceBg : MenuKit.BtnBgDisabled);
+            y -= 62f;
+            MenuKit.Label(body,
+                racedToday ? "One purse a day. The diary is open from tomorrow."
+                           : "Sets the venue and the money. DRIVE out to start it.",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y),
+                TextAnchor.MiddleCenter, MenuKit.Dim, vw, height: 24f);
+            y -= 28f;
+        }
+
+        /// <summary>
+        /// One car on a picking list: paint swatch, name, numbers, condition,
+        /// and what is known to be wrong with it.
+        ///
+        /// Shared by the pre-race page and the DRIVE page, because two lists of
+        /// the player's own cars that must agree will not — the same shape that
+        /// once shipped a player holding thirteen scenes against an editor
+        /// holding fourteen. The DRIVE page exists precisely because four
+        /// launchers each had their own idea of which car was going.
+        ///
+        /// A null <paramref name="act"/> is a dead row: a car at a shop, or a
+        /// list that is only being read.
+        /// </summary>
+        void CarPickRow(ref float y, float vx, float vw, OwnedCar owned, bool driving,
+                        string hint, UnityEngine.Events.UnityAction act)
+        {
+            // A car at a shop stays IN the list — it is one of the player's
+            // cars and leaving it out would read as the game having lost it —
+            // but it is not a row that can be taken.
+            bool gone = CarWhere.Away(S, owned);
+            var spec = CarCatalog.Get(owned.specId);
+            const float rowH = 54f;
+            var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(vx, vw), y), new Vector2(vw, rowH), act, 14,
+                gone ? MenuKit.BtnBgDisabled
+                     : driving ? new Color(0.42f, 0.34f, 0.10f, 1f) : (Color?)null);
+            row.gameObject.name = "Btn_CAR_" + owned.id;
+            var rt = (RectTransform)row.transform;
+            var swatch = MenuKit.Rect(rt, "Paint", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                new Vector2(30f, 0f), new Vector2(44f, 30f), PaintOf(spec, owned));
+            swatch.GetComponent<Image>().raycastTarget = false;
+            MenuKit.Label(rt, (driving ? "> " : "") + Clip(owned.displayName, 40), 16,
+                new Vector2(0f, 0.5f), new Vector2(84f, 9f), TextAnchor.MiddleLeft,
+                gone ? MenuKit.Dim : driving ? MenuKit.Accent : Color.white, vw * 0.62f,
+                height: 22f);
+            string drv = spec != null ? spec.drv + "  ·  " + spec.hp + " hp  ·  " : "";
+            // Where a car that cannot be taken IS, in the line the fuel would
+            // have been on (a tank nobody can drive is not news). WHEN it is
+            // back goes on the right, under the condition: this column is 760
+            // units at most, and both facts on one line ran straight through
+            // the label at the other end of it.
+            MenuKit.Label(rt, gone
+                    ? CarWhere.Label(CarWhere.PlaceOf(S, owned)) + "  ·  UNAVAILABLE"
+                    : drv + owned.odoMiles.ToString("N0") + " mi  ·  FUEL " +
+                      Mathf.RoundToInt(owned.fuel) + "%",
+                14, new Vector2(0f, 0.5f), new Vector2(84f, -11f), TextAnchor.MiddleLeft,
+                gone ? MenuKit.Bad : MenuKit.Dim, vw * 0.62f, height: 20f);
+            float worst = Mathf.Min(Mathf.Min(owned.engine, owned.tires),
+                                    Mathf.Min(owned.carHP, owned.paint));
+            MenuKit.Label(rt, S.debugMode ? Mathf.RoundToInt(worst) + "%"
+                                          : LifeRules.ConditionLabel(worst),
+                16, new Vector2(1f, 0.5f), new Vector2(-24f, 9f), TextAnchor.MiddleRight,
+                worst > 60f ? MenuKit.Good : worst > 30f ? MenuKit.Accent : MenuKit.Bad,
+                140f, height: 22f);
+            int known = KnownFaults(owned);
+            MenuKit.Label(rt, gone ? CarWhere.ReadyLabel(S, owned)
+                    : known > 0 ? known + " known fault" + (known == 1 ? "" : "s")
+                    : hint,
+                14, new Vector2(1f, 0.5f), new Vector2(-24f, -11f), TextAnchor.MiddleRight,
+                gone ? MenuKit.Accent : known > 0 ? MenuKit.Bad : MenuKit.Dim,
+                gone ? 320f : 220f, height: 20f);
+            y -= rowH + 6f;
+        }
+
+        /// <summary>
+        /// WHICH CAR — the only question the house asks about a drive.
+        ///
+        /// Everything that used to be declared here (clocking on, heading for
+        /// the meet, picking Charlotte over the town) is asked at the zone line
+        /// instead, where the player is in the car and can see the road. What
+        /// is left is the one thing the line genuinely cannot ask, because by
+        /// then it has already been answered by whatever is parked under them.
+        ///
+        /// The page draws every owned car, not just the drivable ones: "your
+        /// other car is at the paint shop until Thursday" is the answer to
+        /// "where is my car", and a list that silently omitted it would not be.
+        /// </summary>
+        void BuildDrive()
+        {
+            float y = -14f;
+            PageHeader(ref y, "DRIVE");
+            float vw = Mathf.Min(ColW, 760f);
+            float vx = -vw * 0.5f;
+
+            MenuKit.Label(body, DriveLine(), 16, new Vector2(0.5f, 1f), new Vector2(vx, y),
+                TextAnchor.MiddleLeft, DriveLineInk(), vw, height: 24f, bold: true);
+            y -= 26f;
+            MenuKit.Label(body,
+                "Take one down to the end of the street. The line there asks where you are going.",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, vw, height: 22f);
+            y -= 28f;
+
+            MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(vx, y), new Vector2(vw, 2f), MenuKit.Line);
+            y -= 8f;
+
+            int here = 0;
+            foreach (var c in S.cars) if (CarWhere.Available(S, c)) here++;
+            MenuKit.Label(body, "PICK A CAR  ·  " + here + " OF " + S.cars.Count + " AT HOME",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, vw, height: 22f);
+            y -= 24f;
+
+            foreach (var owned in S.cars)
+            {
+                var captured = owned;
+                bool driving = owned.id == S.activeCar;
+                // DRY IS A REFUSAL HERE, not at the line. The line's own rows
+                // all want fuel too, so a car let out on fumes would drive
+                // ninety seconds to a screen with every door shut on it and no
+                // way back but the pause menu.
+                bool dry = owned.fuel <= DriveFuelPct;
+                bool can = CarWhere.Available(S, owned) && !dry;
+                CarPickRow(ref y, vx, vw, owned, driving,
+                    dry ? "TANK IS DRY" : driving ? "drive it" : "take it and go",
+                    can ? (UnityEngine.Events.UnityAction)(() =>
+                    {
+                        S.activeCar = captured.id;
+                        LifeSimManager.Save();
+                        StartTown();
+                    }) : null);
+            }
+
+            if (S.cars.Count == 0)
+            {
+                MenuKit.Label(body, "No cars. The classifieds are in the paper.", MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Dim,
+                    vw, height: 24f);
+                y -= 28f;
+            }
         }
 
         /// <summary>Title on the left, BACK on the right, for the pages that
@@ -6539,6 +6862,9 @@ namespace PSXRacing.LifeSim
         void StartRace(bool practice = false, BlacklistRival rival = null)
         {
             if (!CarIsHere()) return;
+            // The race is the block. Whatever the drive out to it left owing,
+            // ApplyRaceResult is about to charge — see driveUnpaid.
+            driveUnpaid = false;
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.CarId = S.activeCar;
@@ -6811,52 +7137,26 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void DoWork()
         {
-            if (S.playerJob == LifeRules.DeliveryJobName)
-            {
-                var car = S.ActiveCar;
-                bool here = CarWhere.Available(S, car);
-                if (here && car.fuel > 5f)
-                {
-                    // GO TO WORK IS A DRIVE, AND ONLY A DRIVE. It used to be
-                    // two hops: this loaded the town, the shop's door loaded
-                    // the front end, and the front end loaded Pizzeria.unity —
-                    // a walk-in shop whose street was a different city. That is
-                    // "it still warps the player instead of just walking in and
-                    // out". The shift happens in the town's own pizzeria now
-                    // (TownWorld.CollectOrder), so this has one job: put the
-                    // player on their driveway with the clock running.
-                    int townIdx = TrackCatalog.NeighborhoodSceneIndex;
-                    if (townIdx > 0 && townIdx < SceneManager.sceneCountInBuildSettings)
-                    {
-                        PizzaRun.DriveToShop = true;
-                        RaceHandoff.ClearAll();
-                        RaceHandoff.FromLifeSim = true;
-                        RaceHandoff.FreeRoam = true;
-                        RaceHandoff.CarId = S.activeCar;
-                        RaceHandoff.CarSpecId = car.specId;
-                        // The slot's own hour, not the race picker's: this is
-                        // the commute, and it happens when the day says it does.
-                        RaceHandoff.TimeOfDayIndex = TimeOfDay.ForSlot(S.slotIndex, S.day);
-                        RaceHandoff.StartFuelPct = car.fuel;
-                        FillCarRequest();
-                        LifeSimManager.Save();
-                        SceneManager.LoadScene(townIdx);
-                        return;
-                    }
-                    // No town in this build. The old walk-in shop is still
-                    // there and still works end to end, so it is the fallback
-                    // rather than a dead end.
-                    LifeSimManager.Save();
-                    SceneManager.LoadScene(TrackCatalog.PizzeriaSceneIndex);
-                    return;
-                }
-                Toast(car == null ? "no car — taking a walking shift instead"
-                    : !here ? "car is at the shop — taking a walking shift instead"
-                            : "tank is dry — taking a walking shift instead");
-            }
-
+            // THE SHIFT ON FOOT, and that is all this is now.
+            //
+            // It used to open with a drive: CLOCK ON in the house loaded your
+            // own street with a signpost pointing at Tony's. That button is
+            // gone. Clocking on happens at the counter, in the town, and the
+            // way to a counter is DRIVE — one door out of the house, one
+            // question at the line. A second launcher here would be exactly the
+            // redundancy this pass removed, and it would be the worse of the
+            // two, because it is the one that decides the errand for you.
+            //
+            // What is left is the case no car can answer: every car on a ramp,
+            // or every tank dry. A job that becomes impossible the moment the
+            // player cannot drive is a career that cannot recover, and walking
+            // to work is a perfectly ordinary thing to do.
             string msg = LifeRules.WorkOneDay(S);
-            LifeRules.SpendActivitySlot(S);
+            // ActWork, not the no-arg BUSY it used to pass. ShiftSkipped reads
+            // "employed, shift block, spent on anything but WORK", so a walked
+            // shift recorded as BUSY wrote SHIFT SKIPPED across the block the
+            // player had just worked.
+            LifeRules.SpendActivitySlot(S, LifeRules.ActWork);
             LifeSimManager.Save();
             Rebuild();
             Toast(msg);

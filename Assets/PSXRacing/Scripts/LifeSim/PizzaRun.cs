@@ -23,10 +23,14 @@ namespace PSXRacing.LifeSim
     public static class PizzaRun
     {
         // ---- the commute out ----
-        /// <summary>GO TO WORK was pressed at home: the town should point the
-        /// player at the shop rather than leave them wondering why they are on
-        /// their own driveway.</summary>
-        public static bool DriveToShop;
+        // DriveToShop was "GO TO WORK was pressed at home", and the town's cue
+        // read it to point at the shop. It is gone with the button that set it:
+        // the house has one door out (DRIVE) and declares nothing, so the town
+        // asks the clock instead — TownWorld.CanTakeARun. An intent set in one
+        // block and read in another has to be cleared everywhere that block can
+        // end, and it was not; LifeRules.Sleep carried the patch for the case
+        // that was reported.
+        //
         // ArrivedAtShop was the second half of a two-hop commute — drive to
         // town, bounce off the front end, land in a walk-in shop scene. The
         // shift is taken in the town's own pizzeria now, so there is no second
@@ -89,11 +93,7 @@ namespace PSXRacing.LifeSim
             CarryHit = false;
         }
 
-        public static void ClearAll()
-        {
-            DriveToShop = false;
-            ClearRun();
-        }
+        public static void ClearAll() => ClearRun();
 
         /// <summary>Take the order at the shop counter's door: everything the
         /// run needs to know later, banked before the town leg begins.</summary>
@@ -111,7 +111,6 @@ namespace PSXRacing.LifeSim
             CarryHit = false;
             Carrying = true;
             SpawnAtShop = true;
-            DriveToShop = false;
         }
 
         /// <summary>

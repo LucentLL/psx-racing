@@ -46,6 +46,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCalendarPipeline), TestCalendarPipeline);
             Guard(nameof(TestRepairEconomy), TestRepairEconomy);
             Guard(nameof(TestFaultGate), TestFaultGate);
+            Guard(nameof(TestWearFaultCause), TestWearFaultCause);
             Guard(nameof(TestCarCatalog), TestCarCatalog);
             Guard(nameof(TestEngineVoices), TestEngineVoices);
             Guard(nameof(TestCarModels), TestCarModels);
@@ -73,6 +74,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestDayRecord), TestDayRecord);
             Guard(nameof(TestCarWhere), TestCarWhere);
             Guard(nameof(TestCarMeets), TestCarMeets);
+            Guard(nameof(TestDepartDoors), TestDepartDoors);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -509,6 +511,51 @@ namespace PSXRacing.EditorTools
         /// meet race that spent a block would roll the day at the first result:
         /// the player would return to a lot in morning light with nobody in it.
         /// </summary>
+        /// <summary>
+        /// EVERY DOOR AT THE ZONE LINE IS ABOVE THE BOTTOM OF A PHONE.
+        ///
+        /// The panel's budget used to be three rows, hard-coded, and GO RACING
+        /// and INSPECT A CAR were hidden while carrying partly to respect it.
+        /// It has to hold four now — IN TOWN, CHARLOTTE, GO RACING, INSPECT A
+        /// CAR — because the house stopped offering them and the line is where
+        /// they went. A fourth row at the old pitch put TURN BACK ten units
+        /// under the bottom edge, which is not visible on a desktop and is a
+        /// career-ending trap on a handheld: the way out is the row that is
+        /// off the screen.
+        /// </summary>
+        static void TestDepartDoors()
+        {
+            Line("the doors at the line:");
+            const float FirstY = -128f;          // title, status line, see Build
+            float phone = MenuKit.DesignHeightHandheld;
+            float panel = phone - PSXRacing.Town.DepartScreen.PanelInset;
+
+            // Three still look exactly as they shipped. A budget that quietly
+            // re-laid out the case that already worked would be a regression
+            // dressed as a fix.
+            Check(PSXRacing.Town.DepartScreen.PitchFor(3, FirstY, phone) == 78f,
+                  "three doors keep the pitch they have always had");
+
+            // Two (carrying), three (from town), four (from your own street).
+            for (int doors = 2; doors <= 4; doors++)
+            {
+                float pitch = PSXRacing.Town.DepartScreen.PitchFor(doors, FirstY, phone);
+                float used = Mathf.Abs(FirstY) + doors * pitch +
+                             PSXRacing.Town.DepartScreen.WayOut;
+                Check(used <= panel - PSXRacing.Town.DepartScreen.BottomMargin,
+                      doors + " doors and the way out fit a 560-unit column with air under it",
+                      used.ToString("0.0") + " of " + panel);
+                Check(pitch >= 58f, doors + " doors still leave a thumb something to hit",
+                      pitch.ToString("0.0"));
+            }
+
+            // A desktop has the room for the roomy pitch at every count, so
+            // nothing about this is visible there — which is the point.
+            Check(PSXRacing.Town.DepartScreen.PitchFor(4, FirstY, MenuKit.DesignHeightDesktop)
+                      == 78f,
+                  "and a desktop is never squeezed");
+        }
+
         static void TestCarMeets()
         {
             Line("car meets:");
@@ -525,6 +572,22 @@ namespace PSXRacing.EditorTools
             if (!CarCatalog.Ready) { Check(false, "the catalog is loaded"); return; }
             s.slotIndex = LifeRules.NightSlot;
             Check(CarMeets.OnNow(s), "the first night of a career has a meet on it");
+
+            // THE SIGNPOST IS NOT AN INTENT ANY MORE. It used to be a bool the
+            // home screen's CAR MEET TONIGHT button armed; that button is gone
+            // with the rest of the launchers, so the arrow asks the calendar —
+            // the same question FillMeet asks — and only stands down once the
+            // player is actually in the lot. A DAY rather than a bool, so it
+            // re-arms itself: a bool would need somebody to set it each
+            // evening, and the somebody was the button.
+            CarMeets.ArrivedDay = 0;
+            Check(!CarMeets.ArrivedTonight(s), "nobody has reached the lot yet tonight");
+            CarMeets.MarkArrived(s);
+            Check(CarMeets.ArrivedTonight(s), "pulling in stands the signpost down");
+            s.day += 7;
+            Check(!CarMeets.ArrivedTonight(s), "and next week it is pointing again");
+            s.day -= 7;
+            CarMeets.ArrivedDay = 0;
 
             var one = CarMeets.Roster(s, s.day);
             var two = CarMeets.Roster(s, s.day);
@@ -6522,6 +6585,90 @@ namespace PSXRacing.EditorTools
                   "which is where DOWN off the bottom row came from");
 
             Object.DestroyImmediate(root);
+        }
+
+        /// <summary>
+        /// A FAULT NEEDS A CAUSE. The owner's report: "new faults appear after
+        /// a race... even when I clear all faults and do not damage the car,
+        /// new faults appear the next time I warp."
+        ///
+        /// Both halves of that are asserted here, and the second is the one
+        /// worth having: ApplyRaceResult runs on every stamped leg, including
+        /// the ones that cover no ground (a town shop door, a crossing turned
+        /// back at), so "did this leg go anywhere" is the question that decides
+        /// whether anything can break. The shape of the curve is pinned rather
+        /// than the roll, because the roll is a roll.
+        /// </summary>
+        static void TestWearFaultCause()
+        {
+            Line("wear faults have a cause:");
+
+            // A warp is not a journey.
+            Check(LifeRules.WearFaultChance(5f, 0f) == 0f,
+                  "a leg of ZERO metres cannot break a thing, however worn");
+            Check(LifeRules.WearFaultChance(5f, LifeRules.WearFaultMinM - 1f) == 0f,
+                  "nor can the crawl off the driveway");
+
+            // A healthy car is a healthy car however far it goes.
+            Check(LifeRules.WearFaultChance(100f, 400000f) == 0f,
+                  "a lane above the line never throws one, at any distance");
+            Check(LifeRules.WearFaultChance(LifeRules.WearFaultBelow, 10000f) == 0f,
+                  "and the line itself is not below the line");
+
+            // It has to be a ROLL, not a certainty. This is the actual bug:
+            // the old gate handed out a fault every time it was asked.
+            float worn = LifeRules.WearFaultChance(20f, 5000f);
+            Check(worn > 0f && worn < 1f,
+                  "a worn lane over a race is a CHANCE, not a promise", worn);
+            Check(worn < 0.5f,
+                  "and not better than even over one race", worn);
+
+            // Monotone in both inputs, which is the whole claim being made
+            // about it: more wear, or more distance, means more risk.
+            Check(LifeRules.WearFaultChance(5f, 5000f) > LifeRules.WearFaultChance(30f, 5000f),
+                  "deeper wear is likelier than shallow over the same distance");
+            Check(LifeRules.WearFaultChance(20f, 20000f) > LifeRules.WearFaultChance(20f, 2000f),
+                  "and further is likelier than shorter on the same lane");
+            Check(LifeRules.WearFaultChance(1f, 300000f) > 0.9f,
+                  "a ruined lane driven far enough is near certain");
+
+            // END TO END, through the real apply-back. A car with every lane
+            // on the floor and no faults on it, banked over a leg that went
+            // nowhere, must come back exactly as it went in. Run repeatedly
+            // because the failure being guarded against was a CERTAINTY: one
+            // pass of the old code would have added three.
+            var s = LifeRules.SeedNewGame("TESTER", 25, 3);
+            LifeRules.SeedFallbackCar(s);
+            var car = s.ActiveCar;
+            car.engine = car.tires = car.carHP = 5f;
+            car.faults.Clear();
+            for (int i = 0; i < 25; i++)
+            {
+                RaceHandoff.ClearAll();
+                RaceHandoff.ResultReady = true;
+                RaceHandoff.FreeRoam = true;
+                RaceHandoff.CommuteLeg = true;      // a shop door, not a journey
+                RaceHandoff.CarId = car.id;
+                RaceHandoff.MetersDriven = 0f;
+                RaceHandoff.DamageScore = 0f;
+                LifeRules.ApplyRaceResult(s);
+            }
+            Check(car.faults.Count == 0,
+                  "25 zero-metre warps on a ruined car leave it exactly as it was",
+                  car.faults.Count);
+
+            // And the other cause still works: a hard enough crash is a fault
+            // whatever the distance, because that is a thing that happened.
+            car.faults.Clear();
+            RaceHandoff.ClearAll();
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.CarId = car.id;
+            RaceHandoff.MetersDriven = 0f;
+            RaceHandoff.DamageScore = LifeRules.ImpactFaultThreshold * 3f;
+            LifeRules.ApplyRaceResult(s);
+            Check(car.faults.Count > 0, "but a heavy crash still bends something",
+                  car.faults.Count);
+            RaceHandoff.ClearAll();
         }
 
         static void TestFaultGate()
