@@ -95,7 +95,7 @@ namespace PSXRacing
                 if (tank != null)
                     tank.percent = Mathf.Clamp(RaceHandoff.StartFuelPct, 0f, 100f);
 
-                ApplyCarCondition();
+                ApplyCarCondition(firstRun: true);
 
                 // The cargo, and the little window onto it. Spawned HERE rather
                 // than baked into every circuit: a delivery is the only run that
@@ -169,7 +169,12 @@ namespace PSXRacing
         /// reads every frame, which is what makes a fault switchable mid-drive
         /// at all — see <see cref="ReapplyCar"/>.
         /// </summary>
-        void ApplyCarCondition()
+        /// <param name="firstRun">The scene is booting. Only then does the
+        /// engine start COLD: the bench runs this again mid-drive to fit a part
+        /// at the wheel, and a needle dropped back to the ambient every time
+        /// somebody opened a debug page would make the one thing this feature
+        /// is for — watching it climb — untestable from the seat.</param>
+        void ApplyCarCondition(bool firstRun)
         {
             if (playerCar == null) return;
 
@@ -180,8 +185,28 @@ namespace PSXRacing
             var tank = playerCar.GetComponent<FuelTank>();
             if (tank != null) tank.burnMult = RaceHandoff.FuelMult;
 
+            // The cooling system, part by part, and then the cold start.
+            //
+            // StartCold LAST and deliberately: it is the one call that sets the
+            // needle, and a car whose ambient was assigned after it would leave
+            // the line already warm by however much a January dawn differs from
+            // the 18 C the component is built with. Every drive begins with a
+            // cold engine — there is no "warmed up on the way here", because
+            // the way here was the last drive and it ended at the kerb.
             var temp = playerCar.GetComponent<EngineTemp>();
-            if (temp != null) temp.coolMult = RaceHandoff.CoolMult;
+            if (temp != null)
+            {
+                temp.coolMult = RaceHandoff.CoolMult;
+                temp.radiatorCond = RaceHandoff.RadiatorCond;
+                temp.fanCond = RaceHandoff.FanCond;
+                temp.hoseCond = RaceHandoff.HoseCond;
+                temp.engineHealth = Mathf.Clamp01(RaceHandoff.EngineCond * 0.01f);
+                if (firstRun)
+                {
+                    temp.coolantPct = RaceHandoff.CoolantPct;
+                    temp.StartCold(CoolingModel.CurrentAmbientC);
+                }
+            }
 
             // Self-centring is the one setup value that is not a physics
             // field: nothing in the model makes a self-aligning torque, so the
@@ -234,7 +259,7 @@ namespace PSXRacing
             if (playerCar == null) return;
             var spec = CarCatalog.Get(RaceHandoff.CarSpecId);
             if (spec != null) SpecPlayerCar(spec);
-            ApplyCarCondition();
+            ApplyCarCondition(firstRun: false);
             ApplyHudFlags();
         }
 

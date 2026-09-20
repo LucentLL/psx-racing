@@ -401,6 +401,9 @@ namespace PSXRacing
                     RaceHandoff.EndFuelPct = tank.percent;
                     RaceHandoff.FuelReported = true;
                 }
+                // And what it cost to run it that hard. Measured, never
+                // re-derived: there is no honest "average overheat per km".
+                EngineTemp.StampResult(playerCar);
                 // FuelSpent is accumulated by the pumps as the money is taken,
                 // not stamped here. Reading a static counter at the flag meant a
                 // strip — which has no pumps, so no pump ever ran to clear

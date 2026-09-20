@@ -409,6 +409,29 @@ namespace PSXRacing.LifeSim
                 s.blIncomingReadyDay = s.day + Blacklist.IncomingGapDays;
                 s.saveVersion = 14;
             }
+
+            if (s.saveVersion < 15)
+            {
+                // v15 GAVE EVERY CAR A COOLING SYSTEM — a radiator, a fan, a set
+                // of hoses and something in them (see CoolingModel), because the
+                // temperature gauge now reads a real one.
+                //
+                // The ADDED fields come back as 100, which would hand a car with
+                // a 12% engine and 180,000 miles on it a radiator off the
+                // showroom floor. So they are SEEDED from what the save does
+                // know: the engine lane, which is the one number that already
+                // says how hard this car's life has been, and the cooling_fail
+                // fault, which is literally the catalog's "Radiator & Hoses"
+                // row and has to mean something about the parts it names.
+                //
+                // Through CoolingModel.Seed, which is the same call the
+                // classifieds, a seller's driveway and the starting lane make.
+                // One definition of "what cooling system does this car have,
+                // given the life it has had" — a migration with its own copy is
+                // a migration that drifts from the game the day either moves.
+                foreach (var c in s.cars) CoolingModel.Seed(c, c != null ? c.engine : 100f);
+                s.saveVersion = 15;
+            }
         }
 
         public static void DeleteSave()

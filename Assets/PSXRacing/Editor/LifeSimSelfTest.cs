@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -47,6 +47,9 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestRepairEconomy), TestRepairEconomy);
             Guard(nameof(TestFaultGate), TestFaultGate);
             Guard(nameof(TestWearFaultCause), TestWearFaultCause);
+            Guard(nameof(TestEngineTemp), TestEngineTemp);
+            Guard(nameof(TestEngineDeath), TestEngineDeath);
+            Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);
             Guard(nameof(TestCarCatalog), TestCarCatalog);
             Guard(nameof(TestEngineVoices), TestEngineVoices);
             Guard(nameof(TestCarModels), TestCarModels);
@@ -6716,6 +6719,526 @@ namespace PSXRacing.EditorTools
             Check(car.proInspectDay == s.day, "and leaves a mark on the CAR");
 
             TestOldSaveMigration();
+        }
+
+        // ---------------------------------------------------------------
+        //  The coolant gauge
+        // ---------------------------------------------------------------
+        //
+        // A temperature model is EXACTLY the kind of thing that cannot be
+        // checked by looking at it: every constant in it is plausible and the
+        // only question that matters is where the needle ends up. So this runs
+        // the real integration — EngineTemp.Tick, the shipping constants, a
+        // 60 Hz step — over the scenarios a player will actually produce, and
+        // pins the answers. The numbers quoted in EngineTemp's own summary are
+        // this test's output.
+        //
+        // The two halves are on purpose: TestEngineTemp is about WHERE IT
+        // SETTLES, which is the gauge, and TestEngineDeath is about what
+        // happens when it does not settle, which is the consequence.
+
+        /// <summary>A bare model at a known ambient, with a cooling system you
+        /// choose. The CarController that RequireComponent drags in is never
+        /// touched — Tick takes its inputs as numbers precisely so this can be
+        /// run without a car, a scene or play mode.</summary>
+        static EngineTemp Bench(float ambient = 18f, float rad = 100f, float fan = 100f,
+                                float hose = 100f, float coolant = 100f, float engine = 100f)
+        {
+            var go = new GameObject("TempBench");
+            var t = go.AddComponent<EngineTemp>();
+            t.radiatorCond = rad; t.fanCond = fan; t.hoseCond = hose;
+            t.engineHealth = Mathf.Clamp01(engine * 0.01f);
+            t.coolMult = 1f;
+            t.StartCold(ambient);
+            t.coolantPct = coolant;
+            return t;
+        }
+
+        /// <summary>Run it for a while at one operating point and give back
+        /// where the needle got to. Pedal and revs are what the driver is
+        /// doing; the load and rev terms are derived through the SAME public
+        /// helpers the component uses, so a change to either is caught here
+        /// rather than in a screenshot.</summary>
+        static float Settle(EngineTemp t, float seconds, float pedal, float revs, float kmh)
+        {
+            float load = EngineTemp.Load(pedal, revs), over = EngineTemp.OverRev(pedal, revs);
+            int steps = Mathf.RoundToInt(seconds * 60f);
+            for (int i = 0; i < steps; i++) t.Tick(1f / 60f, load, over, kmh);
+            return t.celsius;
+        }
+
+        static void Kill(EngineTemp t) { if (t != null) Object.DestroyImmediate(t.gameObject); }
+
+        static void TestEngineTemp()
+        {
+            Line("coolant temperature — where the needle sits:");
+
+            // THE SCALE. The owner's ask was "normal operational range, just
+            // below middle", and that is a property of the ENDS of the gauge,
+            // not of the model: it is true only while 90 C maps below 0.5 of
+            // the sweep. Asserted first because every other number here is read
+            // against it.
+            float normal = (EngineTemp.Normal - EngineTemp.ColdMark) /
+                           (EngineTemp.HotMark - EngineTemp.ColdMark);
+            Check(normal > 0.38f && normal < 0.48f,
+                  "90 C sits just below the middle of the gauge", normal.ToString("0.000"));
+            Check(EngineTemp.RedFrac > normal + 0.15f && EngineTemp.RedFrac < 0.85f,
+                  "and the red band starts well clear of it", EngineTemp.RedFrac.ToString("0.000"));
+            Check(EngineTemp.RedMark < EngineTemp.SeizeFromC,
+                  "damage starts before destruction does");
+
+            // COLD START. A car on the grid has not been running, and a
+            // January dawn is not an April one.
+            var cold = Bench(ambient: 4f);
+            Check(Mathf.Abs(cold.celsius - 4f) < 0.01f, "it starts at the ambient, not at 18");
+            Check(cold.Gauge <= 0f, "so the needle is parked on C");
+            // A minute of gentle driving from near freezing lifts it off the
+            // stop but not to temperature; three minutes gets it there. That
+            // pacing is the point of a cold start existing at all -- a race is
+            // four or five minutes, so the first lap really is a cold engine.
+            float after60 = Settle(cold, 60f, 0.3f, 0.35f, 60f);
+            Check(after60 > 40f && after60 < 70f,
+                  "a minute of gentle driving lifts it off the stop",
+                  Mathf.RoundToInt(after60));
+            float after180 = Settle(cold, 120f, 0.3f, 0.35f, 60f);
+            Check(after180 > 84f && after180 < 92f,
+                  "and three has it at working temperature", Mathf.RoundToInt(after180));
+            Kill(cold);
+
+            // THE THERMOSTAT. The whole point of the middle of the gauge is
+            // that the needle STAYS there, so a cruise and a flat-out lap have
+            // to land within a couple of degrees of each other.
+            var cruise = Bench();
+            float cruiseC = Settle(cruise, 600f, 0.3f, 0.35f, 60f);
+            Kill(cruise);
+            var flat = Bench();
+            float flatC = Settle(flat, 600f, 1f, 0.8f, 200f);
+            Kill(flat);
+            Check(cruiseC > 84f && cruiseC < 92f, "a light cruise settles just under 90",
+                  Mathf.RoundToInt(cruiseC));
+            Check(flatC > 84f && flatC < 94f, "and 200 km/h flat out settles there too",
+                  Mathf.RoundToInt(flatC));
+            Check(Mathf.Abs(flatC - cruiseC) < 4f,
+                  "because more air arrives with the extra heat",
+                  Mathf.Abs(flatC - cruiseC).ToString("0.0"));
+            Check(cruiseC < EngineTemp.RedMark && flatC < EngineTemp.RedMark,
+                  "neither of them is anywhere near the red");
+
+            // AMBIENT. A July afternoon is not a January dawn, and the engine
+            // notices — but only by a degree or two on a healthy car.
+            var july = Bench(ambient: 33f);
+            float julyC = Settle(july, 600f, 1f, 0.8f, 200f);
+            Kill(july);
+            Check(julyC > flatC, "a hot day runs hotter", Mathf.RoundToInt(julyC));
+            Check(julyC - flatC < 6f, "but a healthy car shrugs it off",
+                  (julyC - flatC).ToString("0.0"));
+            Check(julyC < EngineTemp.RedMark, "and stays out of the red");
+
+            // REDLINING. Held against the limiter, standing still, is the one
+            // thing a driver can do to a healthy car that will genuinely cook
+            // it — and it has to be worse than the same standstill at idle.
+            var idle = Bench();
+            float idleC = Settle(idle, 300f, 0f, 0f, 0f);
+            Kill(idle);
+            var stall = Bench();
+            Random.InitState(20260920);
+            Settle(stall, 300f, 1f, 1f, 0f);
+            float stallPeak = stall.PeakC;
+            bool stallDied = stall.Seized;
+            Kill(stall);
+            Check(idleC < 95f, "a healthy car idles all day", Mathf.RoundToInt(idleC));
+            Check(stallPeak > EngineTemp.SeizeFromC,
+                  "but holding it on the limiter standing still cooks a healthy car",
+                  Mathf.RoundToInt(stallPeak));
+            Check(stallDied, "and five minutes of that destroys it outright");
+
+            // THE FAN only matters when you are not moving. This is the whole
+            // reason the parts are modelled separately, so it is asserted in
+            // both directions.
+            // Warmed on the move FIRST, then stopped, because that is the
+            // actual scenario: a dead fan is discovered at a red light, at the
+            // end of a run, not on a cold start on your own drive.
+            var deadFanStopped = Bench(fan: 0f);
+            Settle(deadFanStopped, 120f, 0.3f, 0.35f, 60f);
+            float dfRolling = deadFanStopped.celsius;
+            float dfStop = Settle(deadFanStopped, 420f, 0.1f, 0.1f, 0f);
+            Kill(deadFanStopped);
+            Check(dfRolling < EngineTemp.Normal + 4f,
+                  "a dead fan is invisible while the car is rolling",
+                  Mathf.RoundToInt(dfRolling));
+            var deadFanMoving = Bench(fan: 0f);
+            float dfMove = Settle(deadFanMoving, 300f, 0.3f, 0.35f, 60f);
+            Kill(deadFanMoving);
+            Check(dfStop > EngineTemp.RedMark,
+                  "a dead fan boils the car at a standstill", Mathf.RoundToInt(dfStop));
+            Check(dfMove < EngineTemp.Normal + 6f,
+                  "and is invisible the moment it is moving", Mathf.RoundToInt(dfMove));
+
+            // THE RADIATOR is the other way round: fine at a cruise, hopeless
+            // under load. A part that failed the same way as the fan would not
+            // be worth being a separate part.
+            var badRadCruise = Bench(rad: 20f);
+            float brCruise = Settle(badRadCruise, 600f, 0.25f, 0.3f, 70f);
+            Kill(badRadCruise);
+            var badRadHard = Bench(rad: 20f);
+            float brHard = Settle(badRadHard, 300f, 1f, 0.85f, 150f);
+            Kill(badRadHard);
+            Check(brCruise < EngineTemp.RedMark,
+                  "a silted core gets you home at a cruise", Mathf.RoundToInt(brCruise));
+            Check(brHard > EngineTemp.RedMark,
+                  "and cooks the engine on a fast lap", Mathf.RoundToInt(brHard));
+
+            // HOSES do not cool anything; they hold pressure. Good ones never
+            // weep, however hot it gets.
+            // Held at 115 C on purpose: hot enough to weep, under the cap's
+            // own boil-over, which is hose-INDEPENDENT by design. Letting the
+            // thermal model run away here would empty both systems through the
+            // cap and prove nothing at all about rubber.
+            float goodLost = HeldCoolantLoss(115f, hose: 100f, seconds: 180f);
+            float badLost = HeldCoolantLoss(115f, hose: 5f, seconds: 180f);
+            Check(goodLost <= 0.01f, "sound hoses lose nothing at all, however hot it gets",
+                  goodLost.ToString("0.0"));
+            Check(badLost > 20f, "soft ones empty the system", Mathf.RoundToInt(badLost));
+
+            // And the cap lifts whatever the hoses are like, which is what
+            // makes a real overheat a spiral instead of a plateau.
+            float boiled = HeldCoolantLoss(CoolingModel.BoilAboveC + 15f, hose: 100f,
+                                           seconds: 60f);
+            Check(boiled > 20f, "and past the boil even good ones cannot hold it",
+                  Mathf.RoundToInt(boiled));
+
+            // A car that has lost its coolant runs hotter for it. The loop
+            // that turns one soft hose into a destroyed engine.
+            var full = Bench(rad: 40f);
+            float fullC = Settle(full, 300f, 0.8f, 0.7f, 110f);
+            Kill(full);
+            var empty = Bench(rad: 40f, coolant: 15f);
+            float emptyC = Settle(empty, 300f, 0.8f, 0.7f, 110f);
+            Kill(empty);
+            Check(emptyC > fullC + 15f, "and the car that lost its coolant is far hotter",
+                  Mathf.RoundToInt(fullC) + " -> " + Mathf.RoundToInt(emptyC));
+
+            // AMBIENT, as the calendar produces it. Not a constant any more —
+            // this is the term that decides whether a marginal cooling system
+            // is a problem in April or only in July.
+            int jan = LifeRules.DayNumber(new System.DateTime(1999, 1, 15));
+            int jul = LifeRules.DayNumber(new System.DateTime(1999, 7, 15));
+            float janDawn = CoolingModel.AmbientC(jan, TimeOfDay.Dawn);
+            float julNoon = CoolingModel.AmbientC(jul, TimeOfDay.Afternoon);
+            Check(janDawn < 6f, "a January dawn is near freezing", Mathf.RoundToInt(janDawn));
+            Check(julNoon > 28f, "a July afternoon is not", Mathf.RoundToInt(julNoon));
+            Check(CoolingModel.AmbientC(jul, TimeOfDay.Dawn) <
+                  CoolingModel.AmbientC(jul, TimeOfDay.Afternoon),
+                  "and the same day is colder at dawn than in the afternoon");
+            Check(Mathf.Abs(CoolingModel.AmbientC(0, TimeOfDay.Noon) - 18f) < 0.01f,
+                  "with no calendar at all it is a mild afternoon");
+        }
+
+        static void TestEngineDeath()
+        {
+            Line("coolant temperature — what ignoring it costs:");
+
+            // POWER FIRST. The player has to FEEL it before they read it,
+            // otherwise the gauge is the only warning and the gauge is small.
+            var hot = Bench();
+            hot.celsius = EngineTemp.RedMark - 5f;
+            hot.Tick(1f / 60f, 0.5f, 0f, 100f);
+            Check(hot.PowerMult > 0.999f, "under the red it pulls normally");
+            hot.celsius = EngineTemp.SeizeFromC;
+            hot.Tick(1f / 60f, 0.5f, 0f, 100f);
+            Check(hot.PowerMult < 0.7f, "at the point of no return it is well down on power",
+                  hot.PowerMult.ToString("0.00"));
+            Kill(hot);
+
+            // DAMAGE. Warm is free; the red is not, and deeper is worse than
+            // longer — which is what makes lifting off the right answer rather
+            // than pressing on to the flag.
+            var warm = Bench();
+            warm.celsius = EngineTemp.RedMark - 2f;
+            for (int i = 0; i < 60 * 60; i++) warm.Tick(1f / 60f, 0f, 0f, 90f);
+            Check(warm.EngineDamage <= 0f, "a minute at 110 costs nothing");
+            Check(warm.OverheatSeconds <= 0f, "and does not count as an overheat");
+            Kill(warm);
+
+            float d120 = HeldDamage(120f), d135 = HeldDamage(135f);
+            Check(d120 > 0.5f && d120 < 8f, "a minute at 120 costs a few engine points",
+                  d120.ToString("0.0"));
+            Check(d135 > d120 * 1.8f, "and a minute at 135 costs several times that",
+                  d135.ToString("0.0"));
+
+            // SEIZURE. Probabilistic, so it is asserted as a RATE over many
+            // runs rather than as one outcome: the claim is that 150 C kills an
+            // engine inside a minute nearly every time and that 120 C never
+            // does, and a single roll cannot say either.
+            Check(SeizeRate(EngineTemp.RedMark + 2f, 60f) == 0,
+                  "an engine in the red but under the line never simply dies");
+            int at150 = SeizeRate(150f, 60f);
+            Check(at150 >= 17, "a minute pinned at 150 destroys it nearly every time",
+                  at150 + "/20");
+            int at140 = SeizeRate(140f, 60f);
+            Check(at140 >= 3 && at140 <= 16,
+                  "and a minute at 140 is a risk rather than a certainty", at140 + "/20");
+
+            // A WORN ENGINE lets go sooner. Same temperature, same clock.
+            int fresh = SeizeRate(138f, 30f, engine: 100f);
+            int tired = SeizeRate(138f, 30f, engine: 5f);
+            Check(tired >= fresh, "a worn-out engine is the first to let go",
+                  tired + " vs " + fresh + "/20");
+
+            // AND WHAT A SEIZURE IS. Not a low number — a different state.
+            var dead = Bench();
+            dead.Seize();
+            Check(dead.Seized, "it is seized");
+            Check(dead.PowerMult <= 0f, "with no drive at all");
+            Check(dead.coolantPct <= 0f, "and whatever was in it is on the road");
+            Kill(dead);
+
+            // AND IT SURVIVES AN ABANDONED RACE. The result a seizure rides
+            // home on is the same result that quitting and restarting both
+            // throw away on purpose — and those are the two things a player
+            // presses when the engine dies a mile from the flag. Banked from
+            // the seat instead, through BlowEngine, which is idempotent.
+            var abandoned = new LifeState { saveVersion = 15, day = 50 };
+            var quit = new OwnedCar { id = "quit1", displayName = "Quitter", engine = 60f };
+            quit.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs", stat = "engine" });
+            abandoned.cars.Add(quit);
+            abandoned.activeCar = quit.id;
+            Check(LifeRules.BlowEngine(abandoned, quit), "the engine can be blown from the seat");
+            Check(quit.engineBlown && quit.engine <= 0f, "and it really is destroyed");
+            Check(!quit.faults.Exists(f => f.stat == "engine"),
+                  "with its engine faults gone with it");
+            Check(!LifeRules.BlowEngine(abandoned, quit),
+                  "a second call does nothing — it is already dead");
+            int logLines = abandoned.calendarLog.Count;
+            LifeRules.BlowEngine(abandoned, quit);
+            Check(abandoned.calendarLog.Count == logLines,
+                  "and does not write the diary line twice");
+            LifeRules.lastBlownEngine = null;
+
+            // THE APPLY-BACK. The only path any of this reaches the save by.
+            var s = new LifeState { saveVersion = 15, day = 100, money = 50000 };
+            var car = new OwnedCar
+            {
+                id = "hot1", displayName = "Test Car", specId = "", catalogPrice = 15000,
+                paidPrice = 15000, engine = 80f, odoMiles = 40000f,
+            };
+            s.cars.Add(car);
+            s.activeCar = car.id;
+
+            RaceHandoff.ClearAll();
+            RaceHandoff.CarId = car.id;
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.MetersDriven = 4000f;
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.HeatReported = true;
+            RaceHandoff.PeakCelsius = 126f;
+            RaceHandoff.OverheatSeconds = 45f;
+            RaceHandoff.HeatEngineDamage = 6f;
+            RaceHandoff.EndCoolantPct = 42f;
+            float engineWas = car.engine, hosesWere = car.hoses;
+            LifeRules.ApplyRaceResult(s);
+            Check(car.engine < engineWas - 5f, "heat takes engine condition in the apply-back",
+                  Mathf.RoundToInt(car.engine));
+            Check(car.coolant < 50f, "the coolant that leaked out stays out",
+                  Mathf.RoundToInt(car.coolant));
+            Check(car.hoses < hosesWere - 2f, "and being hot ages the hoses fastest",
+                  Mathf.RoundToInt(car.hoses));
+            Check(!car.engineBlown, "a hot race that survived does not blow the engine");
+            string note = LifeRules.DrainResultNote();
+            Check(note != null && note.Contains("126"),
+                  "the result screen leads with the peak, not with the fault it caused",
+                  note);
+
+            // Now kill it.
+            RaceHandoff.ClearResult();
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.MetersDriven = 1200f;
+            RaceHandoff.FreeRoam = true;
+            RaceHandoff.HeatReported = true;
+            RaceHandoff.PeakCelsius = 158f;
+            RaceHandoff.HeatEngineDamage = 30f;
+            RaceHandoff.EngineSeized = true;
+            car.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs", stat = "engine" });
+            LifeRules.ApplyRaceResult(s);
+            Check(car.engineBlown, "a seizure out there blows the engine in here");
+            Check(car.engine <= 0f, "and takes the condition with it");
+            Check(!car.faults.Exists(f => f.stat == "engine"),
+                  "the engine faults go with the engine");
+            Check(LifeRules.DriveRefusal(s, car) != null, "a blown car cannot be driven");
+            Check(!LifeRules.CanDrive(s, car), "by any door");
+
+            // THE WAY OUT. Two of them, and both have to end with a car that
+            // moves — an unrecoverable state is a bug however well it is
+            // signposted.
+            Check(LifeRules.EngineJobOffered(car), "the garage offers the bottom end");
+            int rebuild = LifeRules.EngineJobPrice(car, LifeRules.JobRebuild);
+            int swap = LifeRules.EngineJobPrice(car, LifeRules.JobSwap);
+            Check(swap < rebuild, "a swap is the cheaper answer", swap + " vs " + rebuild);
+            Check(rebuild <= FaultCatalog.RepairPriceCap, "and neither is unbounded", rebuild);
+
+            int before = s.money;
+            string err = LifeRules.OrderEngineJob(s, car, LifeRules.JobRebuild);
+            Check(err == null, "it books", err);
+            Check(s.money == before - rebuild, "and is paid for now");
+            Check(LifeRules.OrderEngineJob(s, car, LifeRules.JobSwap) != null,
+                  "a second one cannot be booked on top of it");
+            // A $50 oil change must not sweep away a four-thousand-dollar job.
+            LifeRules.BuyService(s, car, 0);
+            Check(s.pendingParts.Exists(p => p.carId == car.id && p.IsEngineJob),
+                  "and a service does not quietly cancel it");
+
+            // Wind the clock to the day it is promised for.
+            var job = s.pendingParts.Find(p => p.carId == car.id && p.IsEngineJob);
+            s.day = job.readyDay;
+            s.slotIndex = LifeRules.MorningSlot;
+            // A block going by is what resolves the queue — the same call the
+            // menu makes when the player spends one.
+            LifeRules.SpendActivitySlot(s, LifeRules.ActErrand);
+            Check(!car.engineBlown, "the rebuild puts an engine back in");
+            Check(car.engine >= 99f, "as new", Mathf.RoundToInt(car.engine));
+            Check(car.coolant >= 99f, "and full of coolant");
+            Check(LifeRules.CanDrive(s, car), "and it drives again");
+
+            // And the cooling system is buyable back, part by part.
+            car.radiator = 10f; car.fan = 10f; car.hoses = 10f; car.coolant = 10f;
+            car.faults.Add(new CarFault { id = "cooling_fail", label = "Cooling System Failure",
+                                          stat = "engine" });
+            Check(CoolingModel.Health(car) < 15f, "a dead cooling system reads as one");
+            for (int i = 0; i < LifeRules.CoolingServices.Length; i++)
+                LifeRules.BuyCoolingService(s, car, i);
+            Check(CoolingModel.Health(car) > 99f, "and every part of it can be replaced");
+            Check(!car.faults.Exists(f => f.id == "cooling_fail"),
+                  "which clears the fault that named those parts");
+
+            // AND THE OTHER WAY ROUND. cooling_fail is the one row in the
+            // catalog whose NAME is a list of parts, so paying to repair it has
+            // to leave those parts new — otherwise the bill is paid, the fault
+            // is gone and the gauge climbs exactly as it did.
+            car.radiator = 18f; car.hoses = 12f; car.coolant = 40f;
+            var coolFault = FaultCatalog.MakeById("cooling_fail", "eur");
+            Check(coolFault != null, "the cooling fault exists in the pools");
+            if (coolFault != null)
+            {
+                car.faults.Add(coolFault);
+                s.money = 50000;
+                string booked = LifeRules.OrderRepair(s, car, coolFault,
+                                                      FaultCatalog.Venue.Mechanic);
+                Check(booked == null, "a cooling failure can be booked in", booked);
+                var cjob = s.pendingParts.Find(p => p.carId == car.id && p.faultId == "cooling_fail");
+                Check(cjob != null, "and lands in the queue");
+                if (cjob != null)
+                {
+                    s.day = cjob.readyDay;
+                    s.slotIndex = LifeRules.MorningSlot;
+                    LifeRules.SpendActivitySlot(s, LifeRules.ActErrand);
+                    Check(!car.faults.Exists(f => f.id == "cooling_fail"), "the fault is gone");
+                    Check(car.radiator > 99f && car.hoses > 99f,
+                          "and so are the tired parts it named",
+                          Mathf.RoundToInt(car.radiator) + "/" + Mathf.RoundToInt(car.hoses));
+                    Check(car.coolant > 99f, "with the system filled back up");
+                }
+            }
+
+            // EVERY DOOR A CAR COMES THROUGH seeds one, or a 150,000-mile
+            // bargain arrives with a radiator off the showroom floor and the
+            // whole system only ever degrades through play.
+            var rough = new OwnedCar { id = "rough", displayName = "Rough", engine = 30f };
+            CoolingModel.Seed(rough, 30f);
+            var mint = new OwnedCar { id = "mint", displayName = "Mint", engine = 100f };
+            CoolingModel.Seed(mint, 100f);
+            Check(mint.radiator > 99f, "a new car has a new cooling system",
+                  Mathf.RoundToInt(mint.radiator));
+            Check(rough.radiator < mint.radiator && rough.radiator >= 40f,
+                  "a rough one does not, but is not scrap either",
+                  Mathf.RoundToInt(rough.radiator));
+            Check(rough.coolant > 99f, "and both are standing full on the forecourt");
+
+            RaceHandoff.ClearAll();
+        }
+
+        /// <summary>Engine condition burned off by a minute held at one
+        /// temperature. Held rather than simulated: the question is what the
+        /// DAMAGE curve does, and letting the thermal model wander would be
+        /// asking two questions at once.</summary>
+        static float HeldDamage(float celsius)
+        {
+            var t = Bench();
+            for (int i = 0; i < 60 * 60; i++)
+            {
+                t.celsius = celsius;
+                t.Tick(1f / 60f, 0f, 0f, 0f);
+                if (t.Seized) break;
+            }
+            float d = t.EngineDamage;
+            Kill(t);
+            return d;
+        }
+
+        /// <summary>Coolant lost, in percent, by a system held at one
+        /// temperature. Held rather than simulated for the same reason
+        /// <see cref="HeldDamage"/> is: the question is what the LEAK does, and
+        /// a model left to run away answers a different one.</summary>
+        static float HeldCoolantLoss(float celsius, float hose, float seconds)
+        {
+            var t = Bench(hose: hose);
+            int steps = Mathf.RoundToInt(seconds * 60f);
+            for (int i = 0; i < steps; i++)
+            {
+                t.celsius = celsius;
+                t.Tick(1f / 60f, 0f, 0f, 0f);
+            }
+            float lost = 100f - t.coolantPct;
+            Kill(t);
+            return lost;
+        }
+
+        /// <summary>How many of twenty engines held at this temperature for
+        /// this long let go. Seeded, so a run that fails is a run that can be
+        /// repeated.</summary>
+        static int SeizeRate(float celsius, float seconds, float engine = 100f)
+        {
+            Random.InitState(20260920);
+            int dead = 0;
+            int steps = Mathf.RoundToInt(seconds * 60f);
+            for (int run = 0; run < 20; run++)
+            {
+                var t = Bench(engine: engine);
+                for (int i = 0; i < steps && !t.Seized; i++)
+                {
+                    t.celsius = celsius;
+                    t.Tick(1f / 60f, 0f, 0f, 0f);
+                }
+                if (t.Seized) dead++;
+                Kill(t);
+            }
+            return dead;
+        }
+
+        static void TestOldSaveMigrationCooling()
+        {
+            Line("save migration (v14 -> v15): every car gets a cooling system");
+
+            var s = new LifeState { saveVersion = 14, day = 60 };
+            var tidy = new OwnedCar { id = "c1", displayName = "Tidy", engine = 95f };
+            var tired = new OwnedCar { id = "c2", displayName = "Tired", engine = 15f };
+            var failing = new OwnedCar { id = "c3", displayName = "Failing", engine = 60f };
+            failing.faults.Add(new CarFault { id = "cooling_fail", label = "Cooling System Failure",
+                                              stat = "engine" });
+            s.cars.Add(tidy); s.cars.Add(tired); s.cars.Add(failing);
+            LifeSimManager.Migrate(s);
+
+            Check(s.saveVersion >= 15, "the save is stamped forward");
+            Check(tidy.radiator > 90f, "a well-kept car keeps a good radiator",
+                  Mathf.RoundToInt(tidy.radiator));
+            Check(tired.radiator < tidy.radiator && tired.radiator >= 40f,
+                  "a tired one is worse but not scrap", Mathf.RoundToInt(tired.radiator));
+            Check(failing.radiator < 30f && failing.hoses < 30f,
+                  "and cooling_fail lands on the two parts it names");
+            Check(failing.fan > failing.radiator,
+                  "but not on the fan, which that fault says nothing about");
+            foreach (var c in s.cars)
+                Check(c.coolant > 99f && !c.engineBlown,
+                      c.displayName + " arrives full and unbroken");
         }
 
         /// <summary>

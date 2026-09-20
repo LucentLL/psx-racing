@@ -70,6 +70,21 @@ namespace PSXRacing.LifeSim
             public bool wheelOff;
             public string found = "";
             public string clean = "";
+
+            /// <summary>
+            /// The cooling part this check is looking AT, or -1.
+            ///
+            /// The cooling system is the one thing on a car whose state is a
+            /// NUMBER rather than a fault (see <see cref="CoolingModel"/>), and
+            /// a check that could only ever say "no crust on the fins" about a
+            /// radiator at 22% would be the inspection lying. So these subs
+            /// report the condition when they find no fault — which is also
+            /// the only place in the game that names WHICH cooling part is
+            /// tired before it has failed, and therefore the only way to spend
+            /// money on the right one.
+            /// </summary>
+            public LifeRules.CoolPart coolPart = (LifeRules.CoolPart)(-1);
+            public bool HasCoolPart => (int)coolPart >= 0;
         }
 
         // The sub-component map, from INSPECT_SPEC.md section 3. Every fault id
@@ -134,15 +149,21 @@ namespace PSXRacing.LifeSim
             [Comp.Cooling] = new[]
             {
                 new Sub { key = "radcore", label = "RADIATOR CORE", ids = new[] { "cooling_fail" },
+                    coolPart = LifeRules.CoolPart.Radiator,
                     found = "The cooling system is failing — crusted fins and dried coolant.",
                     clean = "Core fins are straight, no crust." },
+                new Sub { key = "fan", label = "FAN & CLUTCH",
+                    coolPart = LifeRules.CoolPart.Fan,
+                    clean = "Fan spins up freely and the clutch bites." },
                 new Sub { key = "hoses", label = "HOSES & CLAMPS", ids = new[] { "cooling_fail" },
+                    coolPart = LifeRules.CoolPart.Hoses,
                     found = "A hose is swollen and soft — cooling trouble.",
                     clean = "Hoses feel firm, clamps tight." },
                 new Sub { key = "waterpump", label = "WATER PUMP", ids = new[] { "timing_belt" },
                     found = "Weep hole shows deposits — the pump (and belt) are due.",
                     clean = "No weeping at the pump." },
                 new Sub { key = "overflow", label = "OVERFLOW TANK",
+                    coolPart = LifeRules.CoolPart.Coolant,
                     clean = "Coolant sits at the line, the right colour." },
             },
             [Comp.Steering] = new[]
@@ -358,7 +379,50 @@ namespace PSXRacing.LifeSim
             r.line = r.revealed.Count > 0
                 ? (string.IsNullOrEmpty(sub.found) ? "Found a problem." : sub.found)
                 : sub.clean;
+
+            // A cooling part that is merely TIRED has no fault to reveal and is
+            // still the reason the temperature gauge has been creeping up. The
+            // clean line is left in front — you did look, and nothing is broken
+            // — and the condition follows it, because "nothing wrong here" over
+            // a radiator at 22% is exactly the lie an inspection exists to
+            // stop.
+            if (r.revealed.Count == 0 && sub.HasCoolPart)
+            {
+                float cond = LifeRules.CoolPartCond(car, sub.coolPart);
+                if (cond < CoolPartWornBelow)
+                    r.line = (string.IsNullOrEmpty(r.line) ? "" : r.line + "  ") +
+                             CoolPartVerdict(sub.coolPart, cond);
+            }
             return r;
+        }
+
+        /// <summary>Above this a cooling part is simply a cooling part and the
+        /// check says nothing extra. Set at the top of the band where it starts
+        /// costing degrees, not at the point it has failed — the whole value of
+        /// looking is the warning.</summary>
+        public const float CoolPartWornBelow = 70f;
+
+        /// <summary>What a tired cooling part looks like to somebody under the
+        /// bonnet. Names the part and how bad, and stops there — the price is
+        /// the mechanic's page to quote.</summary>
+        public static string CoolPartVerdict(LifeRules.CoolPart part, float cond)
+        {
+            string how = cond < 20f ? "finished" : cond < 45f ? "well past its best"
+                                                              : "getting tired";
+            switch (part)
+            {
+                case LifeRules.CoolPart.Radiator:
+                    return "The core is " + how + " — silted tubes, bent fins.";
+                case LifeRules.CoolPart.Fan:
+                    return cond < CoolingModel.FanDeadBelow
+                        ? "The fan does not turn. This car will boil at a standstill."
+                        : "The fan clutch is " + how + " — it is slipping.";
+                case LifeRules.CoolPart.Hoses:
+                    return "The hoses are " + how + " — soft, and they will weep hot.";
+                default:
+                    return "The system is down to " + Mathf.RoundToInt(cond) +
+                           "%. Something is losing it.";
+            }
         }
 
         /// <summary>

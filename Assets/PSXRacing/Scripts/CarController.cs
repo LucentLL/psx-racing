@@ -203,6 +203,16 @@ namespace PSXRacing
         /// <summary>Signed steering bias, added to the steering target.</summary>
         public float faultSteerPull;
 
+        /// <summary>
+        /// What the coolant temperature is taking away right now, 0-1. Written
+        /// every frame by <see cref="EngineTemp"/>, and a SEPARATE field from
+        /// <see cref="faultAccelMult"/> on purpose: the fault handicaps are
+        /// re-applied wholesale whenever the debug bench re-specs the car, so a
+        /// heat cut folded into that one would be wiped by a bench press and
+        /// then silently re-applied on the next overheat.
+        /// </summary>
+        public float heatAccelMult = 1f;
+
         [Header("Tires")]
         public float roadGrip = 1.25f;
         /// <summary>The source's 0.55 is a MULTIPLIER on base grip, not an
@@ -2291,7 +2301,7 @@ namespace PSXRacing
                 RevLimiterActive = currentRPM >= revLimitRPM - 50f;
                 if (RevLimiterActive) torque *= 0.05f;                  // hard ECU cut
                 tractionForce = torque * ratio * finalDrive * drivetrainEfficiency /
-                                wheelRadius * faultAccelMult;
+                                wheelRadius * faultAccelMult * heatAccelMult;
             }
             // Engine braking, on the driven axle and gear-scaled, so downshifting
             // into a corner actually does something and lift-off rotates the car.

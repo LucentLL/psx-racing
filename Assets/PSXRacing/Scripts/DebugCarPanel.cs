@@ -526,6 +526,117 @@ namespace PSXRacing
                 // which would un-grey a part the car refuses.
                 if (on) MenuKit.MarkTab(b, true);
             }
+            y -= CellH + 20f;
+
+            BuildCooling(s, car, ref y);
+        }
+
+        /// <summary>The four settings each cooling part can be dropped to.
+        /// NEW, past its best, nearly gone, and dead — the four readings a
+        /// tester actually wants, rather than a slider nobody can hit a number
+        /// on with a thumbstick.</summary>
+        static readonly int[] CoolSteps = { 100, 60, 30, 0 };
+
+        /// <summary>
+        /// The cooling system, on the bench.
+        ///
+        /// This page is the only way to test a temperature gauge without
+        /// driving for an hour on a car that happens to have a bad radiator,
+        /// and each of the four rows has a DIFFERENT symptom to go and look
+        /// for: drop the fan and sit still, drop the radiator and hold it flat,
+        /// drop the hoses and watch the coolant go, drop the coolant and watch
+        /// the needle leave the scale.
+        ///
+        /// The parts are saved onto the car (they cross into the drive through
+        /// the handoff like every other part), and the two LIVE buttons under
+        /// them are not: they reach into the EngineTemp that is running right
+        /// now, because "wait four minutes for it to boil" is not a test.
+        /// </summary>
+        void BuildCooling(LifeState s, OwnedCar car, ref float y)
+        {
+            MenuKit.Label(content,
+                Clip("COOLING   ·   fan fails at a standstill, radiator under load",
+                     Mathf.FloorToInt(ColW / 11.6f)),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 32f;
+
+            const float StepW = 74f, StepH = 46f;
+            float stepsW = StepW * CoolSteps.Length + Gap * (CoolSteps.Length - 1);
+            float textW = ColW - stepsW - 16f;
+            for (int p = 0; p < LifeRules.CoolingServices.Length; p++)
+            {
+                var part = LifeRules.CoolingServices[p].part;
+                float at = LifeRules.CoolPartCond(car, part);
+                MenuKit.Label(content,
+                    Clip(part.ToString().ToUpperInvariant() + "   ·   " +
+                         Mathf.RoundToInt(at) + "%", CapsFit(textW)) +
+                    "\n" + DimTag + Clip(DebugCarOps.CoolPartNote(part), LowerFit(textW)) +
+                    "</color>",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.UpperLeft, Color.white, textW, height: StepH, bold: true);
+
+                for (int i = 0; i < CoolSteps.Length; i++)
+                {
+                    int want = CoolSteps[i];
+                    var kind = part;
+                    var b = Named(MenuKit.Button(content, want.ToString(), new Vector2(0.5f, 1f),
+                        new Vector2(MenuKit.ColLeft(ColR - stepsW + i * (StepW + Gap), StepW), y),
+                        new Vector2(StepW, StepH), () =>
+                        {
+                            DebugCarOps.SetCoolPart(car, kind, want);
+                            note = kind.ToString().ToUpperInvariant() + " at " + want + "%";
+                            Apply(s, car);
+                        }, 20), "cool_" + (int)kind + "_" + want);
+                    if (Mathf.RoundToInt(at) == want) MenuKit.MarkTab(b, true);
+                }
+                y -= StepH + Gap;
+            }
+
+            // The live model, when there is one under us. Absent in the garage,
+            // which is the honest answer there: there is no engine running to
+            // heat up, and a button that silently did nothing would be worse
+            // than one that is not drawn.
+            var live = DebugCarOps.LiveTemp();
+            if (live == null) return;
+            y -= 10f;
+            float bw = (ColW - Gap * 2f) / 3f;
+            Named(MenuKit.Button(content,
+                "HEAT TO " + Mathf.RoundToInt(EngineTemp.RedMark) + "C",
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, bw), y),
+                new Vector2(bw, 44f), () =>
+                {
+                    live.celsius = EngineTemp.RedMark + 1f;
+                    note = "needle in the red — resume and watch it";
+                    Apply(s, car);
+                }, 20, DebugPurple), "cool_heat");
+            Named(MenuKit.Button(content, "COOK IT (" +
+                    Mathf.RoundToInt(EngineTemp.SeizeFromC + 15f) + "C)",
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL + bw + Gap, bw), y),
+                new Vector2(bw, 44f), () =>
+                {
+                    live.celsius = EngineTemp.SeizeFromC + 15f;
+                    note = "well past the point of no return";
+                    Apply(s, car);
+                }, 20, DebugPurple), "cool_cook");
+            Named(MenuKit.Button(content, "SEIZE IT NOW", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL + (bw + Gap) * 2f, bw), y),
+                new Vector2(bw, 44f), () =>
+                {
+                    live.Seize();
+                    note = "engine destroyed — exit to bank it";
+                    Apply(s, car);
+                }, 20, DebugPurple), "cool_seize");
+            y -= 54f;
+            MenuKit.Label(content,
+                Clip("Now " + Mathf.RoundToInt(live.celsius) + "C, coolant " +
+                     Mathf.RoundToInt(live.coolantPct) + "%, ambient " +
+                     Mathf.RoundToInt(live.ambientC) + "C" +
+                     (live.Seized ? "  ·  SEIZED" : ""), LowerFit(ColW)),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, live.Seized ? MenuKit.Bad : MenuKit.Dim,
+                ColW, height: 26f);
+            y -= 30f;
         }
 
         // ------------------------------------------------------------------

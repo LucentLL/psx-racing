@@ -962,12 +962,11 @@ namespace PSXRacing.OnFoot
             var car = S.ActiveCar;
             if (car == null) { GoHome("garage"); return; }
             // Belt and braces: every car standing in a bay is at home by
-            // construction, but the keys can be on one that is not.
-            if (!CarWhere.Available(S, car))
-            {
-                screen?.Toast(CarWhere.BlockedReason(S, car));
-                return;
-            }
+            // construction, but the keys can be on one that is not — and one
+            // standing in its own bay with no engine in it is at home and still
+            // not going anywhere.
+            string refused = LifeRules.DriveRefusal(S, car);
+            if (refused != null) { screen?.Toast(refused); return; }
             if (car.fuel <= 5f)
             {
                 screen?.Toast("THE TANK IS DRY — FUEL IT ON THE BILLS PAGE FIRST");

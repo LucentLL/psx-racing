@@ -206,17 +206,13 @@ namespace PSXRacing.LifeSim
                     if (Town.TownReturn.Pending && CarMeets.OnNow(S) &&
                         CarWhere.Available(S, meetCar) && meetCar.fuel > 5f)
                     {
-                        // What the race did to the car rides along. These two
-                        // statics are drained by the toast at the foot of this
-                        // method, which this path never reaches — left behind,
+                        // What the race did to the car rides along. These notes
+                        // are drained by the toast at the foot of this method,
+                        // which this path never reaches — left behind,
                         // tonight's broken alignment would be announced under
                         // next week's race result.
-                        if (!string.IsNullOrEmpty(LifeRules.lastDiagnosed))
-                            raceSummary += "  ·  DIAGNOSED: " + LifeRules.lastDiagnosed;
-                        else if (!string.IsNullOrEmpty(LifeRules.lastSymptom))
-                            raceSummary += "  ·  " + LifeRules.lastSymptom.ToUpper();
-                        LifeRules.lastDiagnosed = null;
-                        LifeRules.lastSymptom = null;
+                        string meetNote = LifeRules.DrainResultNote();
+                        if (meetNote != null) raceSummary += "  ·  " + meetNote;
                         CarMeets.ResultLine = raceSummary;
                         Town.TownReturn.Go();
                         return;
@@ -467,22 +463,13 @@ namespace PSXRacing.LifeSim
             if (walkout != null && raceSummary == null) Toast(walkout);
             if (raceSummary != null)
             {
-                // A fault surfaced by the race is the headline, not a footnote —
+                // What the race did to the car is the headline, not a footnote —
                 // it is the thing the player has to act on before racing again.
-                if (!string.IsNullOrEmpty(LifeRules.lastDiagnosed))
-                {
-                    raceSummary += "  ·  DIAGNOSED: " + LifeRules.lastDiagnosed;
-                    LifeRules.lastDiagnosed = null;
-                }
-                // A fault nobody has looked at yet says how the car FEELS and
-                // stops there. It is still the headline — it is the reason to
-                // go and inspect — but it does not name the part.
-                else if (!string.IsNullOrEmpty(LifeRules.lastSymptom))
-                {
-                    raceSummary += "  ·  " + LifeRules.lastSymptom.ToUpper() +
-                                   " — WORTH AN INSPECTION";
-                    LifeRules.lastSymptom = null;
-                }
+                // A thrown engine, a diagnosis, a symptom, or a gauge that went
+                // somewhere it should not have, in that order of urgency: see
+                // LifeRules.DrainResultNote.
+                string note = LifeRules.DrainResultNote();
+                if (note != null) raceSummary += "  ·  " + note;
                 Toast("RACE RESULT: " + raceSummary);
             }
             else if (driveSummary != null) Toast(driveSummary);
@@ -2841,11 +2828,38 @@ namespace PSXRacing.LifeSim
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 800f);
             y -= 40f;
 
-            DrawBar("ENGINE", car.engine, ref y);
+            // A destroyed engine replaces its own bar. A condition bar reading
+            // 0% is a car that runs badly; this one does not run, and the two
+            // must not look alike on the page where the player decides what to
+            // do about it.
+            if (car.engineBlown)
+            {
+                MenuKit.Label(body, "ENGINE — DESTROYED", 18, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Bad, 800f,
+                    height: 26f, bold: true);
+                y -= 26f;
+                MenuKit.Label(body, "It let go out on the road. Nothing else on this car " +
+                    "matters until there is an engine in it.", MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, 800f, height: 22f);
+                y -= 30f;
+            }
+            else DrawBar("ENGINE", car.engine, ref y);
+            DrawBar("COOLING", CoolingModel.Health(car), ref y);
             DrawBar("TIRES", car.tires, ref y);
             DrawBar("BODY", car.carHP, ref y);
             DrawBar("PAINT", car.paint, ref y);
+            DrawBar("COOLANT", car.coolant, ref y, exact: true);
             DrawBar("FUEL", car.fuel, ref y, exact: true);
+
+            // The cooling bar is the WORST of three parts, so on its own it
+            // cannot say which. This line does, and it is the only place in the
+            // game outside an inspection that names a cooling part — which is
+            // deliberate: the number is public, the diagnosis is not, and
+            // naming the weak part here is naming the one you can already see
+            // is weak.
+            CoolingLine(car, ref y);
+            EngineJobBlock(car, ref y, away);
 
             // A percentage on its own does not answer the question the player
             // is actually asking, which is whether this car gets to the end of
@@ -5759,6 +5773,40 @@ namespace PSXRacing.LifeSim
                 y -= 52f;
             }
 
+            // ---- the cooling system, in its own group -----------------------
+            //
+            // Separate from the services above because it reads differently:
+            // those are "+35 engine" jobs bought when a bar looks low, and
+            // these are PARTS, each replacing one named thing whose condition
+            // is printed on the button. A player who has watched their
+            // temperature gauge climb comes to this page knowing which row they
+            // want, and the row has to be findable by that name.
+            MenuKit.Label(body, "COOLING SYSTEM", 15, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 400f,
+                height: 26f, bold: true);
+            y -= 28f;
+            for (int i = 0; i < LifeRules.CoolingServices.Length; i++)
+            {
+                var svc = LifeRules.CoolingServices[i];
+                int price = LifeRules.ServiceCost(car, svc.cost);
+                float cond = LifeRules.CoolPartCond(car, svc.part);
+                bool fresh = cond >= 99.5f;
+                bool afford = S.money >= price && elsewhere == null && !fresh;
+                int idx = i;
+                MenuKit.Button(body, svc.name + " — " + MenuKit.Money(price) + "  (" +
+                        (fresh ? "new" : Mathf.RoundToInt(cond) + "% now") + ")",
+                    new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, Mathf.Min(560f, ColW)), y),
+                    new Vector2(Mathf.Min(560f, ColW), 44f),
+                    afford ? (UnityEngine.Events.UnityAction)(() =>
+                    {
+                        string err = LifeRules.BuyCoolingService(S, car, idx);
+                        LifeSimManager.Save(); Rebuild();
+                        Toast(err ?? (LifeRules.CoolingServices[idx].name + " fitted"));
+                    }) : null, 15, afford ? (Color?)null : MenuKit.BtnBgDisabled);
+                y -= 52f;
+            }
+
             // The other two people who are allowed to find a fault. Nothing on
             // this car is ever diagnosed by driving it, so if the player has no
             // toolbox and no lift these buttons ARE the fault system.
@@ -5987,6 +6035,152 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, read, 14, new Vector2(0.5f, 1f),
                 new Vector2(226f, y), TextAnchor.MiddleLeft, c, 150f);
             y -= 38f;
+        }
+
+        /// <summary>
+        /// What the pre-race page says about the temperature, or null when it
+        /// has nothing worth saying.
+        ///
+        /// Ranked by what the player would do about it and capped at ONE line,
+        /// because this page already carries a fuel warning and three faults
+        /// and a fourth kind of red text turns all of them into wallpaper. A
+        /// low system first (it is the cheap fix, and it is the one that
+        /// compounds), then a weak part on a hot day, then either alone.
+        /// </summary>
+        string CoolingWarning(OwnedCar car)
+        {
+            float ambient = CoolingModel.AmbientC(S.day, RaceHour());
+            bool hotDay = ambient >= 28f;
+            float health = CoolingModel.Health(car);
+            bool weak = health < 45f;
+            int deg = Mathf.RoundToInt(ambient);
+
+            if (car.coolant < CoolingModel.CoolantLowPct)
+                return "COOLANT AT " + Mathf.RoundToInt(car.coolant) +
+                       "% — top it up before you go out in this.";
+            if (weak && hotDay)
+                return deg + " C OUT THERE, and the " +
+                       CoolingModel.WeakestPart(car).ToLowerInvariant() +
+                       " is done. Watch the temperature.";
+            if (weak)
+                return "The " + CoolingModel.WeakestPart(car).ToLowerInvariant() +
+                       " is done — this will run hot if you lean on it.";
+            if (hotDay && health < 75f)
+                return deg + " C out there. Not a day for a tired cooling system.";
+            return null;
+        }
+
+        /// <summary>
+        /// The one line under the COOLING bar, and the jug beside it.
+        ///
+        /// Coolant is the only condition in the game that goes back up for
+        /// pocket change, and it is the one the player has to learn to LOOK at
+        /// — so the button is here, on the page they are already on, rather
+        /// than buried with the mechanic's work. A leak they top up is an
+        /// afternoon's inconvenience; the same leak ignored is an engine.
+        /// </summary>
+        void CoolingLine(OwnedCar car, ref float y)
+        {
+            float health = CoolingModel.Health(car);
+            bool low = car.coolant < CoolingModel.CoolantLowPct;
+            // One claim per line. MenuKit text overflows rather than clipping,
+            // so two sentences on one row is two sentences running off the
+            // right-hand edge of the page on a phone.
+            MenuKit.Label(body, health > 70f
+                    ? "Radiator, fan and hoses all look serviceable."
+                    : "Weakest part: " + CoolingModel.WeakestPart(car).ToLowerInvariant() +
+                      " — the mechanic replaces cooling parts.",
+                14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, Mathf.Min(ColW, 760f));
+            y -= 24f;
+            if (low)
+            {
+                MenuKit.Label(body, "The system is down to " +
+                        Mathf.RoundToInt(car.coolant) + "% — something is leaking.",
+                    14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Bad, Mathf.Min(ColW, 760f));
+                y -= 24f;
+            }
+
+            if (car.coolant >= 99.5f) { y -= 4f; return; }
+            bool can = S.money >= CoolingModel.CoolantTopUpCost;
+            MenuKit.Button(body, "TOP UP COOLANT — " +
+                    MenuKit.Money(CoolingModel.CoolantTopUpCost),
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, 300f), y),
+                new Vector2(300f, 40f),
+                can ? (UnityEngine.Events.UnityAction)(() =>
+                {
+                    string err = LifeRules.TopUpCoolant(S, car);
+                    LifeSimManager.Save(); Rebuild();
+                    Toast(err ?? "COOLANT TOPPED UP");
+                }) : null, 15, can ? (Color?)null : MenuKit.BtnBgDisabled);
+            y -= 48f;
+        }
+
+        /// <summary>
+        /// REBUILD or SWAP — the bottom end.
+        ///
+        /// Drawn high on the page rather than down with the shop errands,
+        /// because when it is offered it is the only decision on the page worth
+        /// making: everything below it is work on a car that does not move.
+        /// It is also offered BEFORE the engine dies, to a car whose condition
+        /// says it is going to — which is the only chance the player ever gets
+        /// to make this choice with a working car and a full wallet.
+        /// </summary>
+        void EngineJobBlock(OwnedCar car, ref float y, bool away)
+        {
+            if (!LifeRules.EngineJobOffered(car)) return;
+            bool booked = S.pendingParts.Exists(p => p != null && p.carId == car.id && p.IsEngineJob);
+            if (booked)
+            {
+                MenuKit.Label(body, "The engine is out. See the job above.", 14,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Accent, 800f);
+                y -= 30f;
+                return;
+            }
+
+            MenuKit.Label(body, car.engineBlown ? "THE BOTTOM END" : "THIS ENGINE IS NEARLY DONE",
+                15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                car.engineBlown ? MenuKit.Bad : MenuKit.Accent, 500f, bold: true);
+            y -= 28f;
+
+            float w = Mathf.Min(300f, (ColW - 12f) / 2f);
+            float right = ColL + w + 12f;
+            for (int i = 0; i < LifeRules.EngineJobs.Length; i++)
+            {
+                var job = LifeRules.EngineJobs[i];
+                int price = LifeRules.EngineJobPrice(car, job.job);
+                bool can = !away && S.money >= price;
+                string key = job.job;
+                MenuKit.Button(body, job.name + "\n" + MenuKit.Money(price) + "  ·  " +
+                        (key == LifeRules.JobSwap ? LifeRules.SwapDays : LifeRules.RebuildDays) + "d",
+                    new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(i == 0 ? ColL : right, w), y),
+                    new Vector2(w, 52f),
+                    can ? (UnityEngine.Events.UnityAction)(() =>
+                    {
+                        string err = LifeRules.OrderEngineJob(S, car, key);
+                        LifeSimManager.Save(); Rebuild();
+                        Toast(err ?? LifeRules.lastDropOff ?? "booked");
+                        LifeRules.lastDropOff = null;
+                    }) : null, 15,
+                    can ? (i == 0 ? new Color(0.20f, 0.30f, 0.24f, 1f) : (Color?)null)
+                        : MenuKit.BtnBgDisabled);
+            }
+            y -= 60f;
+            // A line each, under the two buttons, rather than both on one:
+            // MenuKit text OVERFLOWS rather than clipping, and the two blurbs
+            // side by side are a hundred and twenty characters running off the
+            // right-hand edge of the page.
+            foreach (var j in LifeRules.EngineJobs)
+            {
+                MenuKit.Label(body, j.blurb, MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim,
+                    Mathf.Min(ColW, 760f), height: 22f);
+                y -= 22f;
+            }
+            y -= 10f;
         }
 
         void BuildEat()
@@ -6586,6 +6780,24 @@ namespace PSXRacing.LifeSim
                     TextAnchor.MiddleLeft, lowFuel ? MenuKit.Bad : MenuKit.Accent, vw, height: 24f);
                 y -= 28f;
             }
+            // THE WEATHER, but only when it is about to matter.
+            //
+            // A temperature gauge the player only meets halfway round the race
+            // is a gauge that teaches them nothing until the bill arrives, and
+            // the ambient is the one input to it they cannot change and can
+            // plan around: the same marginal radiator is a warm lap in April
+            // and a destroyed engine on a July afternoon. So the page that
+            // launches the race says so — and says nothing at all about a
+            // healthy car on a mild day, because a permanent weather line is
+            // chrome.
+            string heat = car != null ? CoolingWarning(car) : null;
+            if (heat != null)
+            {
+                MenuKit.Label(body, heat, MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Accent, vw, height: 24f);
+                y -= 26f;
+            }
+
             // Faults are the reason a race can go wrong, so they are on the
             // page you launch from. Three at most; the rest are in the garage.
             var seen = car != null ? car.faults.FindAll(f => !f.hidden)
@@ -6821,9 +7033,14 @@ namespace PSXRacing.LifeSim
                 // ninety seconds to a screen with every door shut on it and no
                 // way back but the pause menu.
                 bool dry = owned.fuel <= DriveFuelPct;
-                bool can = CarWhere.Available(S, owned) && !dry;
+                // A blown engine is a refusal at the same door and for the same
+                // reason the dry tank is one: the line at the end of the street
+                // has no answer for a car that cannot get there.
+                bool blown = owned.engineBlown;
+                bool can = CarWhere.Available(S, owned) && !dry && !blown;
                 CarPickRow(ref y, vx, vw, owned, driving,
-                    dry ? "TANK IS DRY" : driving ? "drive it" : "take it and go",
+                    blown ? "ENGINE IS GONE"
+                    : dry ? "TANK IS DRY" : driving ? "drive it" : "take it and go",
                     can ? (UnityEngine.Events.UnityAction)(() =>
                     {
                         S.activeCar = captured.id;
@@ -6864,9 +7081,9 @@ namespace PSXRacing.LifeSim
         /// </summary>
         bool CarIsHere()
         {
-            if (CarWhere.Available(S, S.ActiveCar)) return true;
-            Toast(S.ActiveCar == null ? "you have no car"
-                                      : CarWhere.BlockedReason(S, S.ActiveCar));
+            string refused = LifeRules.DriveRefusal(S, S.ActiveCar);
+            if (refused == null) return true;
+            Toast(refused);
             return false;
         }
 
@@ -7042,6 +7259,17 @@ namespace PSXRacing.LifeSim
             RaceHandoff.CoolMult = Mathf.Clamp(1f / Mathf.Max(1f, agg.engineWearMult), 0.3f, 1f);
             RaceHandoff.HideGauges = agg.hideGauges;
             RaceHandoff.RpmFlutter = agg.rpmFlutter;
+
+            // And the cooling system as HARDWARE, which is the half of the
+            // temperature gauge no fault can describe: a fault says the system
+            // is failing, and these say which part and how far. Sent separately
+            // so EngineTemp can give each one its own signature on the needle —
+            // see CoolingModel.
+            RaceHandoff.RadiatorCond = car != null ? car.radiator : 100f;
+            RaceHandoff.FanCond = car != null ? car.fan : 100f;
+            RaceHandoff.HoseCond = car != null ? car.hoses : 100f;
+            RaceHandoff.CoolantPct = car != null ? car.coolant : 100f;
+            RaceHandoff.EngineCond = car != null ? car.engine : 100f;
 
             // Nobody drives away with the car still up on the stands. The
             // garage would happily draw it hovering over four of them for the
@@ -7226,6 +7454,15 @@ namespace PSXRacing.LifeSim
             {
                 msg = LifeRules.lastCarBack + "  ·  " + msg;
                 LifeRules.lastCarBack = null;
+            }
+            // And a bottom end that went back in. Ahead of the "back from the
+            // mechanic" line it rides beside, because a career that has spent a
+            // week and four thousand dollars waiting for this sentence should
+            // read it first.
+            if (!string.IsNullOrEmpty(LifeRules.lastEngineJobDone))
+            {
+                msg = LifeRules.lastEngineJobDone + "  ·  " + msg;
+                LifeRules.lastEngineJobDone = null;
             }
             if (statusText != null) Destroy(statusText.transform.parent.gameObject);
             var box = MenuKit.Rect(canvas.transform, "Toast",

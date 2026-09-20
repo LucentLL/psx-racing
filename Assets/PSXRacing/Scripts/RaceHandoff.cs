@@ -233,10 +233,29 @@
         /// from the fault aggregate's engineWearMult: a fault that eats an
         /// engine is a fault that runs it hot, and cooling_fail — whose entry
         /// in the catalog reads "Overheating risk" — is the worst of them. Read
-        /// by <see cref="EngineTemp"/>.</summary>
+        /// by <see cref="EngineTemp"/>, which multiplies it by the hardware
+        /// below rather than being told one number.</summary>
         public static float CoolMult = 1f;
         public static bool HideGauges;
         public static bool RpmFlutter;
+
+        // ---- the cooling system, as PARTS (see CoolingModel) ----
+        // A single "how bad is it" multiplier can only make the needle sit
+        // higher. These four make it sit higher in a DIFFERENT WAY each, which
+        // is the difference between a temperature gauge and a diagnosis.
+        /// <summary>Radiator core condition, 0-100.</summary>
+        public static float RadiatorCond = 100f;
+        /// <summary>Fan condition, 0-100. The part that only matters slowly.</summary>
+        public static float FanCond = 100f;
+        /// <summary>Hoses, clamps and cap, 0-100 — what holds the coolant in.</summary>
+        public static float HoseCond = 100f;
+        /// <summary>What is in the system at the start of the drive, 0-100.
+        /// Carried across because a leak does not refill itself overnight: a
+        /// car parked half empty goes out half empty.</summary>
+        public static float CoolantPct = 100f;
+        /// <summary>The engine's own condition, 0-100. Not a cooling part —
+        /// what it decides is how well the engine SURVIVES being cooked.</summary>
+        public static float EngineCond = 100f;
 
         // ---- result: stamped by RaceManager when the player finishes ----
         public static bool ResultReady;
@@ -259,6 +278,33 @@
         /// scene with no FuelTank, where the distance-derived burn is still the
         /// only answer available.</summary>
         public static bool FuelReported;
+
+        // ---- result: what the coolant gauge did ----
+        /// <summary>Whether a live <see cref="EngineTemp"/> ran. False on an
+        /// old scene with no model in it, where the apply-back has nothing to
+        /// bank and does nothing — heat damage is never GUESSED from distance
+        /// the way fuel can be, because there is no honest average for it.
+        /// </summary>
+        public static bool HeatReported;
+        /// <summary>Hottest the coolant got, Celsius. The number the result
+        /// screen prints — and the only evidence a player gets that the race
+        /// they just won cost them an engine.</summary>
+        public static float PeakCelsius;
+        /// <summary>Seconds spent in the red. Ages the cooling hardware as
+        /// well as the engine: a car driven home hot has worse hoses than one
+        /// that was not.</summary>
+        public static float OverheatSeconds;
+        /// <summary>Engine condition points burned off by heat, on the 0-100
+        /// scale <see cref="LifeSim.OwnedCar.engine"/> is in. ON TOP of the
+        /// ordinary per-metre wear, not instead of it.</summary>
+        public static float HeatEngineDamage;
+        /// <summary>Coolant left, 0-100 — AUTHORITATIVE, like the tank. Nothing
+        /// re-derives a leak from distance; only the model that ran knows.
+        /// </summary>
+        public static float EndCoolantPct = 100f;
+        /// <summary>The engine let go out there. The car is not driveable until
+        /// somebody rebuilds it or puts a different one in.</summary>
+        public static bool EngineSeized;
         /// <summary>Dollars left at the pumps this race. Already taken out of
         /// the wallet by <see cref="GasPump"/> — a receipt, not a bill.</summary>
         public static int FuelSpent;
@@ -305,6 +351,12 @@
             EndFuelPct = 0f;
             FuelReported = false;
             FuelSpent = 0;
+            HeatReported = false;
+            PeakCelsius = 0f;
+            OverheatSeconds = 0f;
+            HeatEngineDamage = 0f;
+            EndCoolantPct = 100f;
+            EngineSeized = false;
             DamageScore = 0f;
             HardHits = 0;
             CargoCondition = 1f;
@@ -346,6 +398,7 @@
             Welded = Supercharged = false;
             AccelMult = GripMult = BrakeMult = ShiftMult = FuelMult = CoolMult = 1f;
             SteerPull = 0f; HideGauges = false; RpmFlutter = false;
+            RadiatorCond = FanCond = HoseCond = CoolantPct = EngineCond = 100f;
             ClearResult();
         }
     }

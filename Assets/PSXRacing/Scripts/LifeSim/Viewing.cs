@@ -161,6 +161,12 @@ namespace PSXRacing.LifeSim
             if (!l.isNew)
                 car.faults.AddRange(FaultCatalog.RollUsedFaults(l.cond, l.odoMiles, origin));
 
+            // The cooling system, AFTER the faults — the seed reads them, so a
+            // car whose used-fault roll turned up "Radiator & Hoses" gets the
+            // core and the rubber that fault describes rather than a fresh set
+            // with a note attached.
+            CoolingModel.Seed(car, l.cond);
+
             // The advertised problem is the one thing the seller told you, so
             // it arrives already diagnosed and already in the asking price —
             // the listing was 45% off for it. Same rule CarMarket.Buy had.

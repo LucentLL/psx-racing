@@ -438,6 +438,10 @@ namespace PSXRacing.LifeSim
                 fuel = Random.Range(30f, 70f),
                 engine = cond, tires = cond, carHP = cond, paint = cond,
             };
+            // And a cooling system to match — see CoolingModel.Seed. Every door
+            // a car comes through calls this; a car that skipped it would have
+            // a radiator off the showroom floor with 150,000 miles under it.
+            CoolingModel.Seed(car, cond);
             s.cars.Add(car);
             if (string.IsNullOrEmpty(s.activeCar)) s.activeCar = car.id;
             return car;

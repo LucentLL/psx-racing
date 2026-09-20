@@ -1114,6 +1114,14 @@ namespace PSXRacing.LifeSim
                 car.paint = Mathf.Max(0f, car.paint - PaintWearPerM * meters * wearMult
                                               - 0.003f * RaceHandoff.DriftSeconds);
 
+                // 4a. HEAT. Everything the coolant gauge did out there, banked
+                // from what the model MEASURED rather than derived from the
+                // distance — there is no honest average overheat per kilometre,
+                // and the whole point of the gauge is that two identical races
+                // cost different amounts depending on whether the driver
+                // watched it.
+                ApplyHeatResult(s, car, meters);
+
                 // 4b. crash damage. CollisionResponder sums impact energy over
                 // the race; heavy contact costs body and paint, and past a
                 // threshold rolls an IMPACT-cause fault (the pools tag entries
@@ -1359,6 +1367,157 @@ namespace PSXRacing.LifeSim
             return 1f - Mathf.Pow(1f - perKm, meters / 1000f);
         }
 
+        // ================= heat (see CoolingModel / EngineTemp) =================
+        //
+        // A temperature gauge is only a gauge if what it reads can cost
+        // something. This is where it does.
+        //
+        // Three separate things come home from a hot drive, and they are
+        // deliberately not one number:
+        //
+        //   * the ENGINE is worse, permanently, by whatever the model measured
+        //     while the needle was in the red;
+        //   * the COOLING SYSTEM is worse, because heat is what kills hoses and
+        //     fan clutches — so ignoring it once makes the next drive hotter,
+        //     which is the loop that turns a warning into a spiral;
+        //   * and the COOLANT is wherever the leak left it, which is the one
+        //     thing the player can put right for pocket change if they look.
+        //
+        // The fourth outcome — the engine let go — is not a matter of degree
+        // and is handled as a state (see OwnedCar.engineBlown).
+
+        /// <summary>Under this much heat damage a drive was simply warm. Above
+        /// it the car has been cooked hard enough to be worth a diagnosis of
+        /// its own, on the pools' "cooling" cause.</summary>
+        public const float HeatFaultDamage = 3f;
+
+        /// <summary>Set by the last apply-back when the engine was destroyed
+        /// out there, for the result screen to lead with. Read once, then
+        /// cleared — the same contract as <see cref="lastDiagnosed"/>. It is
+        /// the single worst thing that can happen to a car in this game and it
+        /// must not arrive as a line in the diary nobody reads.</summary>
+        public static string lastBlownEngine;
+
+        /// <summary>Set when the drive ran hot without killing anything, so the
+        /// result screen can say so while there is still time to act on it.
+        /// </summary>
+        public static string lastHeatWarning;
+
+        /// <summary>
+        /// Write a destroyed engine onto a car. Idempotent, and the ONLY place
+        /// the blown state is entered. False when there was nothing to do.
+        /// </summary>
+        public static bool BlowEngine(LifeState s, OwnedCar car)
+        {
+            if (s == null || car == null || car.engineBlown) return false;
+            car.engineBlown = true;
+            // The condition goes with it. A seized engine is not a tired one,
+            // and letting it come home at 40% would mean the rebuild that
+            // "restores" it was worth less than the engine already in the car.
+            car.engine = 0f;
+            car.coolant = 0f;
+            // Every engine fault goes too. They were faults with an engine;
+            // there is no longer an engine for them to be faults with, and
+            // leaving them would have the player paying to reseal a valve
+            // cover on a block that is coming out.
+            car.faults.RemoveAll(f => f.stat == "engine");
+            s.calendarLog.Add(LogDate(s.day) + ": " + car.displayName +
+                              " THREW ITS ENGINE — towed home");
+            lastBlownEngine = ShortName(car) + " HAS THROWN ITS ENGINE";
+            return true;
+        }
+
+        /// <summary>
+        /// Bank a seizure THE MOMENT IT HAPPENS, from the seat — not at the
+        /// exit with the rest of the result.
+        ///
+        /// Because the rest of the result can be thrown away and this cannot.
+        /// Abandoning a race from the pause menu clears ResultReady on purpose
+        /// (a half-race must not pay a purse or burn a block), and RESTARTING
+        /// one does the same — and both of those are exactly what a player does
+        /// when their engine dies a mile from the flag. Routed through the
+        /// ordinary apply-back, a destroyed engine would have been undone by
+        /// the two most natural things to press after destroying it, and the
+        /// feature would have looked broken in a race and worked in free roam.
+        ///
+        /// There is precedent for reaching into the save from the race scene:
+        /// the pause menu's fuel truck takes the money and fills the owned
+        /// car's tank the same way, for the same reason — it has happened.
+        /// </summary>
+        public static void BankSeizureNow()
+        {
+            // Not a standalone editor race, and not somebody else's car: a
+            // seller's engine let go on a test drive is a different game's
+            // problem, and the one thing it must not do is blow up the
+            // player's own car by resolving to it.
+            if (!RaceHandoff.FromLifeSim || RaceHandoff.TestDrive) return;
+            var s = LifeSimManager.State;
+            if (s == null) return;
+            var car = s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;
+            if (BlowEngine(s, car)) LifeSimManager.Save();
+        }
+
+        static void ApplyHeatResult(LifeState s, OwnedCar car, float meters)
+        {
+            // Ordinary use ages the hardware whatever the temperature did, so
+            // this half runs on every leg — including one from a scene too old
+            // to carry an EngineTemp. A radiator does not know whether anybody
+            // was watching it.
+            float wearMult = (1f + car.odoMiles / 100000f) * RaceWearScale;
+            car.radiator = Mathf.Max(0f, car.radiator - CoolingModel.RadWearPerM * meters * wearMult);
+            car.hoses = Mathf.Max(0f, car.hoses - CoolingModel.HoseWearPerM * meters * wearMult);
+            car.fan = Mathf.Max(0f, car.fan - CoolingModel.FanWearPerM * meters * wearMult);
+
+            if (!RaceHandoff.HeatReported) return;
+
+            // The coolant is MEASURED, like the tank: a leak is not a function
+            // of distance, and a car that boiled its system dry in two minutes
+            // stationary has to come home empty.
+            car.coolant = Mathf.Clamp(RaceHandoff.EndCoolantPct, 0f, 100f);
+
+            float hot = RaceHandoff.OverheatSeconds;
+            if (hot > 0f)
+            {
+                car.hoses = Mathf.Max(0f, car.hoses - CoolingModel.HoseHeatWearPerSec * hot);
+                car.fan = Mathf.Max(0f, car.fan - CoolingModel.FanHeatWearPerSec * hot);
+                car.radiator = Mathf.Max(0f, car.radiator - CoolingModel.RadHeatWearPerSec * hot);
+            }
+
+            float damage = RaceHandoff.HeatEngineDamage;
+            if (damage > 0f) car.engine = Mathf.Max(0f, car.engine - damage);
+
+            if (RaceHandoff.EngineSeized)
+            {
+                // IT IS DEAD. Usually already written — see BankSeizureNow,
+                // which runs the instant it happens — and BlowEngine is
+                // idempotent, so this is the path for a scene that seized
+                // without a LifeSim under it and a guard for the one that did.
+                BlowEngine(s, car);
+                return;
+            }
+
+            if (damage >= HeatFaultDamage)
+            {
+                // Cooked hard enough to have broken something specific. The
+                // pools tag their rows by cause and "cooling" is one of them —
+                // cooling_fail itself, and the two gasket rows that a hot engine
+                // is exactly how you get.
+                var spec = CarCatalog.Get(car.specId);
+                AddFault(s, car, FaultCatalog.RollWearFault(
+                    car, "engine", damage >= HeatFaultDamage * 3f, "cooling",
+                    spec != null ? spec.origin : "jpn"));
+            }
+
+            // And the warning, for a drive that got hot and got away with it.
+            // Said in degrees, because the gauge the player was ignoring is in
+            // degrees and this has to be recognisable as the same thing.
+            if (RaceHandoff.PeakCelsius > EngineTemp.RedMark)
+                lastHeatWarning = "IT RAN HOT — PEAK " +
+                                  Mathf.RoundToInt(RaceHandoff.PeakCelsius) + " C";
+            else if (car.coolant < CoolingModel.CoolantLowPct)
+                lastHeatWarning = "COOLANT DOWN TO " + Mathf.RoundToInt(car.coolant) + "%";
+        }
+
         static void RollThresholdFault(LifeState s, OwnedCar car, string stat, float value,
                                        float meters)
         {
@@ -1418,6 +1577,46 @@ namespace PSXRacing.LifeSim
         /// cleared.</summary>
         public static string lastSymptom;
 
+        /// <summary>
+        /// The one line the result toast appends, and the only place the
+        /// PRECEDENCE between the four things a drive can leave behind is
+        /// written down.
+        ///
+        /// A drive can hand back more than one of these at once — a race hot
+        /// enough to break something has usually rolled a fault on the way —
+        /// and the toast is one line. So they are ranked by what the player has
+        /// to do about them: an engine on the floor outranks everything, and
+        /// after that the TEMPERATURE outranks the fault it caused.
+        ///
+        /// That last order is the one worth arguing about, and it was the other
+        /// way round first. A race that cooked the engine and rolled a fault
+        /// reported "the engine is down on song — worth an inspection", which
+        /// is true, useless, and hides the thing the player could actually have
+        /// done differently: they drove it hot, and it is going to keep
+        /// happening. The fault is still there to be found; the gauge reading
+        /// is the only part of it that is gone the moment the screen changes.
+        ///
+        /// Drains all four whichever one wins, because a note left behind is
+        /// announced under the NEXT race's result.
+        /// </summary>
+        public static string DrainResultNote()
+        {
+            string note =
+                !string.IsNullOrEmpty(lastBlownEngine)
+                    ? lastBlownEngine + " — REBUILD OR SWAP IT"
+                : !string.IsNullOrEmpty(lastHeatWarning)
+                    ? lastHeatWarning + (string.IsNullOrEmpty(lastDiagnosed) &&
+                                         string.IsNullOrEmpty(lastSymptom)
+                                            ? "" : ", AND SOMETHING BROKE")
+                : !string.IsNullOrEmpty(lastDiagnosed)
+                    ? "DIAGNOSED: " + lastDiagnosed
+                : !string.IsNullOrEmpty(lastSymptom)
+                    ? lastSymptom.ToUpper() + " — WORTH AN INSPECTION"
+                    : null;
+            lastBlownEngine = lastDiagnosed = lastSymptom = lastHeatWarning = null;
+            return note;
+        }
+
         // ================= repairs (repairCost.ts / pendingParts.ts) =================
         // Crash damage: DamageScore is roughly summed closing speed in m/s, so a
         // firm 8 m/s hit costs ~5 body. Deliberately cheaper than wear per race —
@@ -1428,6 +1627,31 @@ namespace PSXRacing.LifeSim
 
         public static bool CarInShop(LifeState s, OwnedCar car) =>
             car != null && s.pendingParts.Exists(p => p.carId == car.id);
+
+        /// <summary>
+        /// Why this car cannot be driven right now, or null if it can.
+        ///
+        /// One answer for every door — the house, the town kerb, the pre-race
+        /// page — because a car that is refused at one of them and accepted at
+        /// another is a car the player gets stranded in. Two reasons so far:
+        /// somebody else has it, and it has no engine.
+        /// </summary>
+        public static string DriveRefusal(LifeState s, OwnedCar car)
+        {
+            if (car == null) return "you have no car";
+            string away = CarWhere.BlockedReason(s, car);
+            if (away != null) return away;
+            if (car.engineBlown) return BlownLine;
+            return null;
+        }
+
+        /// <summary>What every screen says about a destroyed engine. One
+        /// string, because it is going to be read on a page the player did not
+        /// expect to be reading and it has to name the way OUT, not just the
+        /// problem — the same rule the dry-tank banner follows.</summary>
+        public const string BlownLine = "ENGINE IS GONE — REBUILD OR SWAP IT IN THE GARAGE";
+
+        public static bool CanDrive(LifeState s, OwnedCar car) => DriveRefusal(s, car) == null;
 
         /// <summary>
         /// Book a repair. Every venue queues into pendingParts now: DIY and the
@@ -1506,6 +1730,12 @@ namespace PSXRacing.LifeSim
         /// thing that changed overnight is that they have a car again.</summary>
         public static string lastCarBack;
 
+        /// <summary>Set when a rebuild or a swap finished. Its own line rather
+        /// than a "back from the mechanic" — a car coming home from an oil
+        /// change and a car coming home with an engine in it are not the same
+        /// news.</summary>
+        public static string lastEngineJobDone;
+
         /// <summary>"Mazda RX-7 Type RS (FD) '98" → "MAZDA RX-7". A toast has
         /// one line and a catalog name is most of it.</summary>
         public static string ShortName(OwnedCar car)
@@ -1570,6 +1800,25 @@ namespace PSXRacing.LifeSim
                         car.faults.RemoveAll(x => x.stat == "paint");
                         s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " finished");
                     }
+                    else if (p.IsEngineJob)
+                    {
+                        // There is an engine in it again. A rebuild comes back
+                        // at 100 and a swap at whatever the donor had, and both
+                        // clear the BLOWN state — which is the only thing that
+                        // clears it, anywhere.
+                        car.engineBlown = false;
+                        car.engine = Mathf.Clamp(p.engineCondAfter, 1f, 100f);
+                        car.faults.RemoveAll(x => x.stat == "engine");
+                        // Anything that has the engine out has the cooling
+                        // system off it, and no shop puts the old hoses back on
+                        // a fresh motor. Not the radiator, though: the core
+                        // comes off, gets looked at, and goes back on.
+                        car.hoses = Mathf.Max(car.hoses, 100f);
+                        car.coolant = 100f;
+                        s.calendarLog.Add(LogDate(s.day) + ": " + p.label + " done — " +
+                                          car.displayName + " runs again");
+                        lastEngineJobDone = ShortName(car) + " HAS AN ENGINE AGAIN";
+                    }
                     else if (p.IsUpgrade)
                     {
                         // A build only ever steps UP. Max() rather than a plain
@@ -1585,6 +1834,13 @@ namespace PSXRacing.LifeSim
                     {
                         AddToStat(car, p.stat, p.add);
                         car.faults.RemoveAll(x => x.id == p.faultId);
+                        // The one fault in the catalog whose name is a list of
+                        // PARTS — "Radiator & Hoses" — has to leave those parts
+                        // new. Repairing it used to clear a line of text and
+                        // leave the temperature gauge climbing exactly as it
+                        // was, which is the shape of a bug a player would
+                        // describe as "I paid $400 and nothing happened".
+                        if (p.faultId == "cooling_fail") CoolingModel.RenewNamedParts(car);
                         s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " repaired");
                     }
 
@@ -1674,9 +1930,215 @@ namespace PSXRacing.LifeSim
             // a PART, bought, paid for and sitting in the boot; sweeping it
             // means a $50 oil change silently voiding a $900 donor engine on
             // its way in, with nothing on screen to say where the money went.
+            //
+            // And an ENGINE JOB, which is the same reason again with another
+            // zero on it: a rebuild is booked under the engine lane because
+            // that is the lane it restores, and an oil change quietly voiding a
+            // four-thousand-dollar bottom end would be the most expensive bug
+            // in the game.
             s.pendingParts.RemoveAll(p => p.carId == car.id && p.stat == svc.stat &&
-                                          !p.IsUpgrade && !p.IsYardPart);
+                                          !p.IsUpgrade && !p.IsYardPart && !p.IsEngineJob);
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + svc.name + " " + MenuKit.Money(price));
+            return null;
+        }
+
+        // ================= the cooling system =================
+        //
+        // Four parts, priced the way the mechanic's other while-you-wait work
+        // is priced, because that is what they are: bolt-on jobs an afternoon
+        // long. The interesting decision is not WHICH to buy — a failing part
+        // is obvious once it is diagnosed — it is WHEN, and the answer the game
+        // wants a player to arrive at is "before the gauge tells me", because
+        // by then the heat has already been taking condition off the engine.
+
+        public enum CoolPart { Radiator = 0, Fan = 1, Hoses = 2, Coolant = 3 }
+
+        /// <summary>Base price, and the name on the invoice. Coolant is last
+        /// and cheapest on purpose: it is the one the player should be doing
+        /// habitually, and a habit has to be affordable.</summary>
+        public static readonly (string name, int cost, CoolPart part)[] CoolingServices =
+        {
+            ("NEW RADIATOR",      260, CoolPart.Radiator),
+            ("FAN + CLUTCH",      175, CoolPart.Fan),
+            ("HOSES + CLAMPS",    110, CoolPart.Hoses),
+            ("COOLANT FLUSH",      35, CoolPart.Coolant),
+        };
+
+        public static float CoolPartCond(OwnedCar car, CoolPart part)
+        {
+            if (car == null) return 100f;
+            switch (part)
+            {
+                case CoolPart.Radiator: return car.radiator;
+                case CoolPart.Fan: return car.fan;
+                case CoolPart.Hoses: return car.hoses;
+                default: return car.coolant;
+            }
+        }
+
+        static void SetCoolPart(OwnedCar car, CoolPart part, float v)
+        {
+            switch (part)
+            {
+                case CoolPart.Radiator: car.radiator = v; break;
+                case CoolPart.Fan: car.fan = v; break;
+                case CoolPart.Hoses: car.hoses = v; break;
+                default: car.coolant = v; break;
+            }
+        }
+
+        /// <summary>
+        /// Fit one. Returns null on success or the reason it was refused.
+        ///
+        /// A new radiator or a new set of hoses CLEARS cooling_fail, and has to:
+        /// that fault's own name in the catalog is "Radiator &amp; Hoses", so
+        /// leaving it on a car whose radiator and hoses are both new would be
+        /// the garage charging twice for one repair.
+        /// </summary>
+        public static string BuyCoolingService(LifeState s, OwnedCar car, int idx)
+        {
+            if (car == null) return "no car";
+            if (idx < 0 || idx >= CoolingServices.Length) return "no such job";
+            string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenueMechanic);
+            if (elsewhere != null) return elsewhere;
+            var svc = CoolingServices[idx];
+            int price = ServiceCost(car, svc.cost);
+            if (s.money < price) return "need " + MenuKit.Money(price);
+            s.money -= price;
+            SetCoolPart(car, svc.part, 100f);
+            // Anything that opens the system fills it back up. Only the coolant
+            // job does it alone.
+            if (svc.part != CoolPart.Coolant) car.coolant = 100f;
+            if (svc.part == CoolPart.Radiator || svc.part == CoolPart.Hoses)
+            {
+                // Both named parts have to be sound for the fault to be gone —
+                // a new core with the old hoses still on it is still the fault
+                // the catalog describes.
+                if (car.radiator > 95f && car.hoses > 95f)
+                    car.faults.RemoveAll(f => f.id == "cooling_fail");
+            }
+            s.calendarLog.Add(LogDate(s.day) + ": " + svc.name + " " + MenuKit.Money(price));
+            return null;
+        }
+
+        /// <summary>Top the system up on your own drive, out of a jug. The one
+        /// cooling job that is not the mechanic's — it needs no tools, no skill
+        /// and no appointment, and it is the whole reward for having looked at
+        /// the overflow tank.</summary>
+        public static string TopUpCoolant(LifeState s, OwnedCar car)
+        {
+            if (car == null) return "no car";
+            if (car.coolant >= 99.5f) return "it is already full";
+            if (s.money < CoolingModel.CoolantTopUpCost)
+                return "need " + MenuKit.Money(CoolingModel.CoolantTopUpCost);
+            s.money -= CoolingModel.CoolantTopUpCost;
+            car.coolant = 100f;
+            s.calendarLog.Add(LogDate(s.day) + ": topped up the coolant in " +
+                              car.displayName);
+            return null;
+        }
+
+        // ================= the bottom end: rebuild, or another engine =================
+        //
+        // The one repair in the game that is not a repair. Every other job puts
+        // a number back up; these two exist because a number ran OUT — the
+        // engine is destroyed, the car does not move, and until one of them is
+        // paid for there is nothing else to decide about that car.
+        //
+        // Two of them rather than one, because the choice is the interesting
+        // part and it is a real one: money against time against what you get
+        // back. A rebuild is the expensive, slow, CERTAIN answer. A swap is
+        // half the price and half the wait for somebody else's engine, with
+        // somebody else's history in it.
+
+        public const string JobRebuild = "rebuild";
+        public const string JobSwap = "swap";
+
+        /// <summary>Days each takes. A rebuild is a machine shop and a week;
+        /// a swap is a hoist and a long weekend.</summary>
+        public const int RebuildDays = 5, SwapDays = 2;
+
+        /// <summary>Engine condition a used engine arrives with, before the
+        /// donor's own luck. Not 100 and not close: the point of the cheap
+        /// answer is that you will be here again.</summary>
+        public const int SwapCondMin = 58, SwapCondMax = 78;
+
+        /// <summary>Percent chance a swapped-in engine brings a hidden fault
+        /// with it, through the same door a salvage-yard part comes in by.
+        /// </summary>
+        public const int SwapFaultRisk = 30;
+
+        /// <summary>
+        /// What the bottom end costs on THIS car. Flat labour plus a slice of
+        /// what the car is worth: pulling an engine takes the same afternoon
+        /// whatever it is bolted into, and the parts to put back in it do not.
+        /// </summary>
+        public static int EngineJobPrice(OwnedCar car, string job)
+        {
+            float value = Mathf.Max(1f, car != null ? car.catalogPrice : 1f);
+            float price = job == JobSwap ? 520f + value * 0.05f
+                                         : 1250f + value * 0.10f;
+            return Mathf.RoundToInt(Mathf.Min(price, FaultCatalog.RepairPriceCap));
+        }
+
+        /// <summary>The two jobs, in the order the page offers them: the good
+        /// one first, because a player who can afford it should not have to
+        /// read past the cheap one to find it.</summary>
+        public static readonly (string job, string name, string blurb)[] EngineJobs =
+        {
+            (JobRebuild, "ENGINE REBUILD",
+             "Out, stripped, machined, back in. Comes back as new."),
+            (JobSwap, "ENGINE SWAP",
+             "A running engine out of somebody else's car. Cheaper, quicker, used."),
+        };
+
+        /// <summary>
+        /// Worth offering at all? A blown engine has no other move, and a
+        /// nearly-worn-out one is a car whose owner can see this coming — which
+        /// is the only way the player ever gets to make this decision BEFORE
+        /// the tow truck does.
+        /// </summary>
+        public const float RebuildOfferBelow = 35f;
+
+        public static bool EngineJobOffered(OwnedCar car) =>
+            car != null && (car.engineBlown || car.engine < RebuildOfferBelow);
+
+        /// <summary>
+        /// Book one. Same shape as <see cref="OrderRepair"/> — money now, car at
+        /// the shop, part back on a promised block — because it IS that, with a
+        /// bigger number on it.
+        /// </summary>
+        public static string OrderEngineJob(LifeState s, OwnedCar car, string job)
+        {
+            if (car == null) return "no car";
+            if (!EngineJobOffered(car)) return "this engine is fine";
+            if (s.pendingParts.Exists(p => p.carId == car.id && p.IsEngineJob))
+                return "already booked";
+            string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenueMechanic);
+            if (elsewhere != null) return elsewhere;
+
+            int price = EngineJobPrice(car, job);
+            if (s.money < price) return "need " + MenuKit.Money(price);
+            s.money -= price;
+
+            bool swap = job == JobSwap;
+            s.pendingParts.Add(new PendingPart
+            {
+                carId = car.id,
+                label = swap ? "ENGINE SWAP" : "ENGINE REBUILD",
+                stat = "engine",
+                engineJob = swap ? JobSwap : JobRebuild,
+                engineCondAfter = swap ? Random.Range(SwapCondMin, SwapCondMax + 1) : 100,
+                junkRisk = swap ? SwapFaultRisk : 0,
+                readyDay = s.day + (swap ? SwapDays : RebuildDays),
+                readySlot = MorningSlot,
+                venue = CarWhere.VenueMechanic,
+            });
+            s.calendarLog.Add(LogDate(s.day) + ": booked " +
+                              (swap ? "an engine swap" : "an engine rebuild") + " for " +
+                              car.displayName + " (" + MenuKit.Money(price) + ", " +
+                              (swap ? SwapDays : RebuildDays) + "d)");
+            DropOff(s, car, CarWhere.VenueMechanic);
             return null;
         }
 
@@ -2157,6 +2619,7 @@ namespace PSXRacing.LifeSim
                 paidPrice = 9500,
                 engine = cond, tires = cond, carHP = cond, paint = cond,
             };
+            CoolingModel.Seed(car, cond);
             s.cars.Add(car);
             s.activeCar = car.id;
         }

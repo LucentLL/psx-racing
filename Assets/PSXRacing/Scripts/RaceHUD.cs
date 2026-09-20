@@ -72,6 +72,44 @@ namespace PSXRacing
 
         int lastFuelPct = int.MinValue;
 
+        /// <summary>
+        /// The temperature warning light, and why it is not on the cluster.
+        ///
+        /// The coolant NEEDLE is on the cluster, where a needle belongs, and it
+        /// is the instrument: it moves the whole time and it is what a driver
+        /// learns to read. This is the other half of what a real car does — the
+        /// lamp that comes on when the needle has gone somewhere it should not,
+        /// because a needle is something you have to look AT and a lamp is
+        /// something that appears in the corner of your eye at 180 km/h.
+        ///
+        /// Built at runtime rather than by the scene baker, deliberately: every
+        /// circuit, stage, city and town scene in the project is already baked,
+        /// and a HUD element added to the builder would be missing from all of
+        /// them until each one is rebuilt. This one exists the first frame it
+        /// is needed, in every scene that has ever been baked.
+        /// </summary>
+        EngineTemp temp;
+        bool tempFound;
+        Text tempText;
+        string lastTempLabel;
+
+        EngineTemp Temp
+        {
+            get
+            {
+                if (tempFound) return temp;
+                tempFound = true;
+                // Off the tank, which the builder already wires to the player
+                // car, and off the race manager when there is no tank — a
+                // preview scene, or one baked before fuel existed.
+                var go = tank != null ? tank.gameObject
+                       : RaceManager.Instance != null && RaceManager.Instance.playerCar != null
+                            ? RaceManager.Instance.playerCar.gameObject : null;
+                temp = go != null ? go.GetComponent<EngineTemp>() : null;
+                return temp;
+            }
+        }
+
         /// <summary>Set by RaceHandoffApplier from the car's faults. A dead
         /// cluster blanks speed/gear/tach; a failing tach wanders.</summary>
         public bool hideGauges;
@@ -159,6 +197,7 @@ namespace PSXRacing
                 : Town.TownWorld.Cue ?? FoodCue());
 
             UpdateFuel(ownsActionButton: false);
+            UpdateTemp();
 
             if (lastCamView != ChaseCamera.Current) { lastCamView = ChaseCamera.Current; camHintUsed = true; }
             string cam = "";
@@ -186,6 +225,7 @@ namespace PSXRacing
                   ?? OnFoot.ForecourtMode.Prompt
                   ?? Town.TownEdge.Prompt
                   ?? DriveThru.Prompt
+                  ?? SeizedPrompt()
                   ?? DryTankPrompt()
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
@@ -735,6 +775,7 @@ namespace PSXRacing
 
             UpdateMap(rm);
             UpdateFuel();
+            UpdateTemp();
 
             // Unscaled: the pause menu freezes time, and a view switched just
             // before pausing should not have its label frozen on screen with it.
@@ -777,6 +818,7 @@ namespace PSXRacing
                              ?? Town.TownVenue.Prompt
                              ?? Town.TownEdge.Prompt
                              ?? DriveThru.Prompt
+                             ?? SeizedPrompt()
                              ?? DryTankPrompt()
                              ?? "";
                     break;
@@ -1079,6 +1121,77 @@ namespace PSXRacing
                 ? "TAP MENU (TOP LEFT)"
                 : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS START" : "PRESS ESC";
             return "OUT OF FUEL\n" + how + " TO CALL THE FUEL TRUCK";
+        }
+
+        /// <summary>
+        /// What to say to a player whose engine has just destroyed itself.
+        ///
+        /// The same shape as <see cref="DryTankPrompt"/> and for the same
+        /// reason: it names the way out. There is no way out of this one on the
+        /// road — the car is not going to restart — so what it names is the
+        /// door back to the menu, and it says plainly that the car is going
+        /// home on a truck, because a player left sitting in a silent car with
+        /// no banner would sit there trying to restart it.
+        /// </summary>
+        string SeizedPrompt()
+        {
+            var t = Temp;
+            if (t == null || !t.Seized) return null;
+            string how = TouchControls.Instance != null && TouchControls.Instance.Visible
+                ? "TAP MENU (TOP LEFT)"
+                : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS START" : "PRESS ESC";
+            return "THE ENGINE HAS LET GO\n" + how + " — IT IS GOING HOME ON A TRUCK";
+        }
+
+        /// <summary>
+        /// The warning lamp, top right under the fuel bar.
+        ///
+        /// Two stages, because a gauge is only useful if it warns BEFORE the
+        /// damage: amber when the needle is past the middle and climbing, red
+        /// and blinking once it is in the band where condition is coming off
+        /// the engine every second. Nothing at all the rest of the time — a
+        /// permanent temperature readout is chrome, and chrome is what a driver
+        /// stops seeing.
+        /// </summary>
+        void UpdateTemp()
+        {
+            var t = Temp;
+            bool hot = t != null && !hideGauges && (t.RunningHot || t.Seized);
+            if (!hot)
+            {
+                if (tempText != null && tempText.gameObject.activeSelf)
+                {
+                    tempText.gameObject.SetActive(false);
+                    lastTempLabel = null;
+                }
+                return;
+            }
+
+            // Under the fuel bar, in the same right-hand column and on the same
+            // canvas the builder puts the fuel readouts on — the bar's own rect
+            // ends at -45, so -56 clears it by a line. TempPlayCheck measures
+            // that gap rather than trusting it.
+            if (tempText == null)
+                tempText = MakeHudText("Temp", new Vector2(1f, 1f),
+                    new Vector2(-10f, -56f), 10, TextAnchor.MiddleRight);
+            if (!tempText.gameObject.activeSelf) tempText.gameObject.SetActive(true);
+
+            // A blink rather than a steady lamp once it is doing damage. Half a
+            // second on, a fifth off — fast enough to read as an alarm, slow
+            // enough not to be mistaken for the game dropping frames.
+            bool red = t.Seized || t.Overheating;
+            bool lit = !red || t.Seized || Mathf.Repeat(Time.time, 0.7f) < 0.5f;
+            string label = t.Seized ? "ENGINE"
+                         : red ? "! TEMP " + Mathf.RoundToInt(t.celsius) + "C"
+                               : "TEMP " + Mathf.RoundToInt(t.celsius) + "C";
+            if (label != lastTempLabel)
+            {
+                lastTempLabel = label;
+                Set(tempText, label);
+            }
+            var want = !lit ? new Color(1f, 0.35f, 0.3f, 0.15f)
+                     : red ? FuelOut : FuelLow;
+            if (tempText.color != want) tempText.color = want;
         }
     }
 }

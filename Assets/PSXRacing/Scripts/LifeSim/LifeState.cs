@@ -53,7 +53,7 @@ namespace PSXRacing.LifeSim
         ///     retired to legacy; the migration reads them once to work out
         ///     where an existing career already stands and writes the order.
         /// </summary>
-        public int saveVersion = 14;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 15;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
@@ -335,6 +335,36 @@ namespace PSXRacing.LifeSim
         public float tires = 100f;
         public float carHP = 100f;
         public float paint = 100f;
+
+        // === the cooling system (see CoolingModel) ===
+        // Three parts and what is in them, rather than one "cooling" number,
+        // because each fails with its own signature on the temperature gauge —
+        // a crusted core cooks under load, a dead fan cooks at a standstill,
+        // and soft hoses quietly empty the system while everything reads
+        // normal. One number could not tell a player which of those they had.
+        //
+        // ADDED fields, so they read back as a healthy system on every save
+        // written before them; the v15 migration then seeds them off the engine
+        // condition the car actually has, because a 20%-engine car with a
+        // brand-new radiator would be a lie the first hot lap exposed.
+        /// <summary>Radiator core, 0-100.</summary>
+        public float radiator = 100f;
+        /// <summary>Fan, clutch and motor, 0-100. Under 20 it is not turning.</summary>
+        public float fan = 100f;
+        /// <summary>Hoses, clamps and cap, 0-100 — what holds pressure.</summary>
+        public float hoses = 100f;
+        /// <summary>What is actually in the system, 0-100. The one cooling
+        /// number that goes back UP for pocket change, and the one the player
+        /// is meant to learn to check.</summary>
+        public float coolant = 100f;
+        /// <summary>
+        /// The engine has let go — seized on the road, not worn out in the
+        /// garage. A blown engine is not a condition of 0; it is a different
+        /// STATE, and the difference matters: a 0% engine still starts and
+        /// still drives badly, and this one does not move at all until somebody
+        /// rebuilds it or fits another (see <see cref="LifeRules.EngineJobs"/>).
+        /// </summary>
+        public bool engineBlown;
         /// <summary>The livery this car has been RESPRAYED into, by baked
         /// name, or empty for "however it left the factory". A NAME rather
         /// than an index into CarModelDef.skinMaterials, because that array is
@@ -486,6 +516,24 @@ namespace PSXRacing.LifeSim
         /// <see cref="upgradeKind"/> is empty.</summary>
         public int upgradeStage;
 
+        /// <summary>
+        /// The bottom-end job this is, when it is one: "rebuild" or "swap" —
+        /// see <see cref="LifeRules.EngineJobs"/>. Empty on everything else,
+        /// which is every job in every save written before an engine could be
+        /// destroyed at all.
+        ///
+        /// Its own field rather than a fault id, because a blown engine is not
+        /// a fault: there is no pool row for it, no inspection that finds it
+        /// (the car does not move — you know), and no version of it that is
+        /// merely hidden.
+        /// </summary>
+        public string engineJob = "";
+        /// <summary>Engine condition a SWAP leaves behind: whatever the donor
+        /// had. A rebuild writes 100 and ignores this.</summary>
+        public int engineCondAfter;
+
+        public bool IsEngineJob => !string.IsNullOrEmpty(engineJob);
+
         /// <summary>Percent chance this job seeds a hidden fault on
         /// <see cref="stat"/> when it goes in — a used part off the salvage
         /// yard's shelf, and how rough it looked. Rolled at INSTALL rather than
@@ -508,8 +556,14 @@ namespace PSXRacing.LifeSim
         /// which is a combination nothing else in the queue produces — but for
         /// a respray, which is excluded by name. It is a thing you OWN and are
         /// waiting to fit, and that is why the mechanic's supersede rule has to
-        /// be able to see it — see <see cref="LifeRules.BuyService"/>.</summary>
-        public bool IsYardPart => !IsUpgrade && !IsRespray && string.IsNullOrEmpty(faultId);
+        /// be able to see it — see <see cref="LifeRules.BuyService"/>.
+        ///
+        /// An ENGINE JOB is excluded by name for the same reason a respray is:
+        /// it carries no fault id either, and a $4,000 rebuild swept away by a
+        /// $50 oil change would be the most expensive silent bug in the
+        /// game.</summary>
+        public bool IsYardPart => !IsUpgrade && !IsRespray && !IsEngineJob &&
+                                  string.IsNullOrEmpty(faultId);
     }
 
     /// <summary>

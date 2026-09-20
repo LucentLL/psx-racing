@@ -67,10 +67,16 @@ namespace PSXRacing
         /// is never cut.</summary>
         FuelTank tank;
 
+        /// <summary>The coolant model, on the same terms as the tank: optional,
+        /// and the only thing this reads off it is whether the engine is still
+        /// alive.</summary>
+        EngineTemp temp;
+
         void Awake()
         {
             car = GetComponent<CarController>();
             tank = GetComponent<FuelTank>();
+            temp = GetComponent<EngineTemp>();
         }
 
         void Start()
@@ -219,9 +225,15 @@ namespace PSXRacing
                 handbrake = Mathf.Abs(car.forwardSpeed) < 1f;
             }
 
-            // Two things take the throttle off the player, and both of them are
-            // the CAR rather than the game: an empty tank, and a nozzle in the
-            // filler neck.
+            // Three things take the throttle off the player, and all of them
+            // are the CAR rather than the game: an empty tank, an engine that
+            // has let go, and a nozzle in the filler neck.
+            //
+            // A seizure is the one of the three that does not come back. The
+            // steering and the brakes are deliberately left alone — the car
+            // still has to be got off the road, and taking those away as well
+            // would be the game parking it for the player at whatever speed the
+            // engine happened to die at.
             //
             // Fuelling parks the car on the HANDBRAKE rather than on the brake
             // pedal. A held brake pedal is what StuckRecovery reads as a driver
@@ -229,6 +241,7 @@ namespace PSXRacing
             // six seconds would be warned they were stuck and then teleported
             // back to the racing line with the nozzle still in the car.
             if (tank != null && tank.Starved) throttle = 0f;
+            if (temp != null && temp.Seized) throttle = 0f;
             if (GasPump.Fuelling) { throttle = 0f; handbrake = true; }
 
             if (analogSteer.HasValue)

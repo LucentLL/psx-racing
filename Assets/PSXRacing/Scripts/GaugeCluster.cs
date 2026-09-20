@@ -294,6 +294,11 @@ namespace PSXRacing
             if (speedo != null) speedo.SetSub(fuel);
         }
 
+        /// <summary>Where the COOLANT needle is pointing, 0-1, read off the
+        /// transform. For TempPlayCheck, which has to be able to tell a dial
+        /// that is reading the engine from one that merely exists.</summary>
+        public float SubNeedleFraction => tach != null ? tach.SubFraction : -1f;
+
         /// <summary>
         /// Park the two big needles, in their own units — revs and whatever the
         /// player reads speed in.
@@ -465,7 +470,7 @@ namespace PSXRacing
             float tachMax = tachMaxRPM;
             tach = new Dial(transform, font, "Tach", tachAnchor, tachPos, radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f), 1f / 1000f, "x1000",
-                            redFrac, "C", "H", subHighIsDanger: true);
+                            redFrac, "C", "H", subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac);
             float sTick = SpeedTick(speedMax);
             speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
                               speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
@@ -645,7 +650,8 @@ namespace PSXRacing
             tach = new Dial(cockpitRoot.transform, font, "Tach", anchor,
                             new Vector2(tachCx, groupCy), radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
-                            1f / 1000f, "x1000", redFrac, "C", "H", subHighIsDanger: true);
+                            1f / 1000f, "x1000", redFrac, "C", "H",
+                            subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac);
 
             // Speed: a light LCD with dark digits, zero-padded to three, and
             // the unit under it. The padding is not decoration — a readout that
@@ -959,7 +965,10 @@ namespace PSXRacing
             // are on the same loom as the dials they sit in, so a fault that
             // takes the instruments takes all four needles, not two.
             if (tach != null)
+            {
                 tach.SetSub(hideGauges || Temp == null ? 0f : Temp.Gauge);
+                tach.SetSubAlarm(!hideGauges && Temp != null && Temp.Overheating);
+            }
             if (speedo != null)
                 speedo.SetSub(hideGauges || Tank == null ? 0f : Tank.percent * 0.01f);
 
@@ -1210,7 +1219,8 @@ namespace PSXRacing
             public Dial(Transform parent, Font font, string name, Vector2 anchor, Vector2 centre,
                         int radius, float max, float tickStep, float labelStep, float labelScale,
                         string unit, float redlineFrac,
-                        string subLow = null, string subHigh = null, bool subHighIsDanger = false)
+                        string subLow = null, string subHigh = null, bool subHighIsDanger = false,
+                        float subRedFrom = 1f)
             {
                 this.max = max;
                 // Decided BEFORE the face is baked, because the sub-gauge's
@@ -1231,7 +1241,8 @@ namespace PSXRacing
                 var faceGO = new GameObject("Face");
                 faceGO.transform.SetParent(root.transform, false);
                 var face = faceGO.AddComponent<Image>();
-                face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub, subHighIsDanger);
+                face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub, subHighIsDanger,
+                                       subRedFrom);
                 var frt = face.rectTransform;
                 frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
                 frt.offsetMin = Vector2.zero; frt.offsetMax = Vector2.zero;
@@ -1345,6 +1356,11 @@ namespace PSXRacing
                 var img = nGO.AddComponent<Image>();
                 img.sprite = BakeNeedle(len, tail, wide);
                 img.color = ClusterBulbs.Needle;
+                // Remembered rather than re-read from ClusterBulbs when the
+                // alarm clears: the bulb can be changed under a built cluster,
+                // and putting back a colour the needle never had is how a
+                // temperature alarm would repaint somebody's amber dials white.
+                subNeedleInk = img.color;
                 subNeedle = img.rectTransform;
                 subNeedle.anchorMin = subNeedle.anchorMax = new Vector2(0.5f, 0.5f);
                 subNeedle.pivot = new Vector2(0.5f, tail / (float)(len + tail));
@@ -1396,6 +1412,46 @@ namespace PSXRacing
                 // invisible in any still of a gauge sitting at rest.
                 subNeedle.localRotation = Quaternion.Euler(0f, 0f, 180f + deg);
             }
+
+            /// <summary>
+            /// Turn the sub-needle red, or put it back.
+            ///
+            /// The band on the face says where the trouble starts; this says
+            /// you are IN it. Both, rather than either, because the band is
+            /// three pixels of a dithered 240-line frame and the needle is the
+            /// thing the eye is already on — and because the only moment this
+            /// matters is a moment the driver is looking at the road.
+            /// </summary>
+            public void SetSubAlarm(bool on)
+            {
+                if (subNeedle == null || subAlarm == on) return;
+                subAlarm = on;
+                var img = subNeedle.GetComponent<Image>();
+                if (img != null) img.color = on ? ClusterBulbs.Red : subNeedleInk;
+            }
+
+            /// <summary>
+            /// Where the sub-needle is actually POINTING, 0-1.
+            ///
+            /// Read back off its transform rather than from the last value it
+            /// was handed, because the play check that asks this is asking
+            /// whether the needle MOVED — a cached copy of the argument would
+            /// answer that question with the question. -1 on a dial with no
+            /// sub-gauge.
+            /// </summary>
+            public float SubFraction
+            {
+                get
+                {
+                    if (subNeedle == null) return -1f;
+                    float z = subNeedle.localRotation.eulerAngles.z;
+                    if (z > 180f + SubHalfSweep + 1f) z -= 360f;
+                    return Mathf.InverseLerp(-SubHalfSweep, SubHalfSweep, z - 180f);
+                }
+            }
+
+            bool subAlarm;
+            Color subNeedleInk = Color.white;
 
             /// <summary>Unit vector for a sub-gauge angle, measured from
             /// straight down and positive toward the right-hand letter.</summary>
@@ -1509,7 +1565,7 @@ namespace PSXRacing
             /// choice is whether it does so raggedly or cleanly.
             /// </summary>
             static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
-                                   bool subGauge, bool subHighIsDanger)
+                                   bool subGauge, bool subHighIsDanger, float subRedFrom)
             {
                 const int SS = 2;
                 radius *= SS;
@@ -1537,6 +1593,12 @@ namespace PSXRacing
                 // is a square root, and the wedge is a third of the face.
                 float subStep = SubHalfSweep * 2f / (SubTickCount - 1);
                 float subEndK = (SubTickCount - 1) * 0.5f;
+                // Where the red band starts, in the same bearing-from-straight-
+                // down the needle and the marks are in — so a band specified as
+                // a fraction of the sweep lands under the needle at exactly
+                // that fraction.
+                float subRedDeg = Mathf.Lerp(-SubHalfSweep, SubHalfSweep,
+                                             Mathf.Clamp01(subRedFrom));
                 var subReach = new float[SubTickCount];
                 for (int t = 0; t < SubTickCount; t++)
                     subReach[t] = SubReach((t - subEndK) * subStep);
@@ -1646,6 +1708,27 @@ namespace PSXRacing
                                           : end || mid ? lit : dim;
                                     continue;
                                 }
+                            }
+
+                            // THE RED BAND, and it is the reason the coolant
+                            // gauge's normal reading sits below the middle
+                            // rather than on it: an instrument needs somewhere
+                            // to put "hotter than it should be" that is not
+                            // already where the needle lives. It starts where
+                            // the engine actually starts taking damage
+                            // (EngineTemp.RedFrac, 0.69 of the sweep) so the
+                            // paint and the model cannot tell the driver two
+                            // different things.
+                            //
+                            // Drawn AFTER the marks and never over them: the
+                            // scale is the instrument and the band is a note on
+                            // it. A shallower run than the minor ticks, hugging
+                            // the ring, for the same reason.
+                            if (subRedFrom < 1f && qdeg >= subRedDeg)
+                            {
+                                float reach = SubReach(qdeg);
+                                if (qr >= reach - SubMinorTick * 0.55f && qr <= reach)
+                                { px[i] = red; continue; }
                             }
                         }
 

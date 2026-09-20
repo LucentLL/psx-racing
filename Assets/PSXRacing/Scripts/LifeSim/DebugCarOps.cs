@@ -194,6 +194,58 @@ namespace PSXRacing.LifeSim
         static float CoolMultFor(float engineWearMult) =>
             Mathf.Clamp(1f / Mathf.Max(1f, engineWearMult), 0.3f, 1f);
 
+        // ------------------------------------------------------------------
+        //  Cooling
+        // ------------------------------------------------------------------
+
+        /// <summary>What to go and LOOK for once this part has been dropped.
+        /// The bench's cooling rows are worth nothing without it: four bars
+        /// that all make the needle climb are four ways of saying the same
+        /// thing, and the whole point of splitting the system into parts is
+        /// that they do not.</summary>
+        public static string CoolPartNote(LifeRules.CoolPart part)
+        {
+            switch (part)
+            {
+                case LifeRules.CoolPart.Radiator:
+                    return "the core. Fine at a cruise, cooks under load";
+                case LifeRules.CoolPart.Fan:
+                    return "only worth anything under 60 km/h — stop and watch";
+                case LifeRules.CoolPart.Hoses:
+                    return "holds pressure. Weeps once it is hot, and keeps weeping";
+                default:
+                    return "what is in it. Under 55% the loop loses authority";
+            }
+        }
+
+        /// <summary>Set one cooling part on the car record. Clamped, and the
+        /// coolant is topped back up with the hardware for the same reason the
+        /// mechanic does it: no job that opens the system leaves it empty.
+        /// </summary>
+        public static void SetCoolPart(OwnedCar car, LifeRules.CoolPart part, int value)
+        {
+            if (car == null) return;
+            float v = Mathf.Clamp(value, 0f, 100f);
+            switch (part)
+            {
+                case LifeRules.CoolPart.Radiator: car.radiator = v; break;
+                case LifeRules.CoolPart.Fan: car.fan = v; break;
+                case LifeRules.CoolPart.Hoses: car.hoses = v; break;
+                default: car.coolant = v; return;
+            }
+        }
+
+        /// <summary>The model running under the player RIGHT NOW, or null in a
+        /// menu. The bench's three live buttons need it; everything else on the
+        /// page goes through the car record and the handoff.</summary>
+        public static EngineTemp LiveTemp()
+        {
+            var applier = Object.FindFirstObjectByType<RaceHandoffApplier>();
+            var car = applier != null ? applier.playerCar : null;
+            if (car == null && RaceManager.Instance != null) car = RaceManager.Instance.playerCar;
+            return car != null ? car.GetComponent<EngineTemp>() : null;
+        }
+
         public static bool HasFault(OwnedCar car, string id) =>
             car != null && car.faults.Exists(f => f.id == id);
 

@@ -455,6 +455,11 @@ namespace PSXRacing.City
                 RaceHandoff.EndFuelPct = tank.percent;
                 RaceHandoff.FuelReported = true;
             }
+            // What the coolant gauge did. Stamped here as well as at the finish
+            // line: most of the driving in this game is not a race, and an
+            // engine cooked on the way into town has to cost the same as one
+            // cooked on the last lap.
+            EngineTemp.StampResult(player);
             var responder = player.GetComponent<CollisionResponder>();
             RaceHandoff.DamageScore = responder != null ? responder.DamageScore : 0f;
             RaceHandoff.HardHits = responder != null ? responder.HardHits : 0;
