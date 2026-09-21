@@ -172,7 +172,7 @@ namespace PSXRacing.EditorTools
                                     "at 90 C the coolant needle sits just below the middle",
                                     atNormal.ToString("0.000"));
                 TempPlayCheck.Check(atHot > EngineTemp.RedFrac,
-                                    "and in the red band when the engine is in trouble",
+                                    "and past the damage line when the engine is in trouble",
                                     atHot.ToString("0.000"));
             }
 

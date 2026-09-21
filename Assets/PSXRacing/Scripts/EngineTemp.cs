@@ -100,16 +100,16 @@ namespace PSXRacing
         /// it. A gauge whose normal reading is dead centre has nowhere to put
         /// "a bit warm".</summary>
         public const float Normal = 90f;
-        /// <summary>Where the red band starts, and the same number the engine
-        /// starts taking damage at — so what the face shows and what the model
-        /// does cannot disagree. 0.69 of the sweep.</summary>
+        /// <summary>Where the engine starts taking damage, and where the
+        /// coolant needle turns red (GaugeCluster SetSubAlarm) — so what the
+        /// dial shows and what the model does cannot disagree. 0.69 of the
+        /// sweep. The face itself paints no band here: only H's mark is red.</summary>
         public const float RedMark = 112f;
 
         /// <summary>Needle position, 0 = C, 1 = H.</summary>
         public float Gauge => Mathf.Clamp01((celsius - ColdMark) / (HotMark - ColdMark));
 
-        /// <summary>Where the red band starts on that same 0-1 sweep, for the
-        /// face bake.</summary>
+        /// <summary>Where the damage starts on that same 0-1 sweep.</summary>
         public const float RedFrac = (RedMark - ColdMark) / (HotMark - ColdMark);
 
         /// <summary>Past the point a driver should be lifting: damage is
@@ -200,7 +200,7 @@ namespace PSXRacing
         /// just over the line is very nearly free.
         ///
         /// Sized against what the player has already been shown by the time
-        /// they are here: a needle in a red band, a blinking lamp, and a car
+        /// they are here: a needle gone red, a blinking lamp, and a car
         /// visibly down on power. Three ignored warnings is enough — and the
         /// square is what makes BACKING OFF work, because the difference
         /// between 150 and 135 is a factor of sixteen rather than of one and a

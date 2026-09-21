@@ -385,12 +385,11 @@ namespace PSXRacing
         public bool CarriesFuel => speedo != null && speedo.HasSub;
 
         /// <summary>A HUD rev counter's face — smoked, redline from
-        /// <paramref name="redlineFrac"/>, coolant scale and its red band — baked
+        /// <paramref name="redlineFrac"/>, coolant scale with its red H mark — baked
         /// exactly as a race bakes it, for the self-test that scans it. The
         /// caller owns the texture.</summary>
         public static Texture2D BakeTachFaceForCheck(int radius, float redlineFrac) =>
-            Dial.BakeFace(radius, 9000f, 1000f, redlineFrac, true, true,
-                          EngineTemp.RedFrac, true).texture;
+            Dial.BakeFace(radius, 9000f, 1000f, redlineFrac, true, true, true).texture;
 
         /// <summary>Where the coolant reading <paramref name="frac"/> meets the
         /// ring, in degrees from straight down about the dial centre.</summary>
@@ -582,8 +581,7 @@ namespace PSXRacing
             float tachMax = tachMaxRPM;
             tach = new Dial(transform, font, "Tach", tachAnchor, tachPos, radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f), 1f / 1000f, "x1000",
-                            redFrac, "C", "H", subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac,
-                            translucent: true);
+                            redFrac, "C", "H", subHighIsDanger: true, translucent: true);
             float sTick = SpeedTick(speedMax);
             speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
                               speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
@@ -774,8 +772,7 @@ namespace PSXRacing
                             new Vector2(tachCx, groupCy), radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
                             1f / 1000f, "x1000", redFrac, "C", "H",
-                            subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac,
-                            translucent: false);
+                            subHighIsDanger: true, translucent: false);
 
             // Speed: a light LCD with dark digits, zero-padded to three, and
             // the unit under it. The padding is not decoration — a readout that
@@ -1434,7 +1431,7 @@ namespace PSXRacing
                         int radius, float max, float tickStep, float labelStep, float labelScale,
                         string unit, float redlineFrac,
                         string subLow = null, string subHigh = null, bool subHighIsDanger = false,
-                        float subRedFrom = 1f, bool translucent = false)
+                        bool translucent = false)
             {
                 this.max = max;
                 this.translucent = translucent;
@@ -1457,7 +1454,7 @@ namespace PSXRacing
                 faceGO.transform.SetParent(root.transform, false);
                 var face = faceGO.AddComponent<Image>();
                 face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub, subHighIsDanger,
-                                       subRedFrom, translucent);
+                                       translucent);
                 var frt = face.rectTransform;
                 frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
                 frt.offsetMin = Vector2.zero; frt.offsetMax = Vector2.zero;
@@ -1639,11 +1636,11 @@ namespace PSXRacing
             /// <summary>
             /// Turn the sub-needle red, or put it back.
             ///
-            /// The band on the face says where the trouble starts; this says
-            /// you are IN it. Both, rather than either, because the band is
-            /// three pixels of a dithered 240-line frame and the needle is the
-            /// thing the eye is already on — and because the only moment this
-            /// matters is a moment the driver is looking at the road.
+            /// The face paints no band for it (only H's end mark is red), so
+            /// this is the gauge's whole way of saying you are IN the damage:
+            /// the needle is the thing the eye is already on, and the only
+            /// moment this matters is a moment the driver is looking at the
+            /// road.
             /// </summary>
             public void SetSubAlarm(bool on)
             {
@@ -1801,8 +1798,7 @@ namespace PSXRacing
             /// texel. The cockpit binnacle depends on that.
             /// </summary>
             internal static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
-                                   bool subGauge, bool subHighIsDanger, float subRedFrom,
-                                   bool translucent)
+                                   bool subGauge, bool subHighIsDanger, bool translucent)
             {
                 const int SS = 2;
                 radius *= SS;
@@ -1844,12 +1840,6 @@ namespace PSXRacing
                 // is a square root, and the wedge is a third of the face.
                 float subStep = SubHalfSweep * 2f / (SubTickCount - 1);
                 float subEndK = (SubTickCount - 1) * 0.5f;
-                // Where the red band starts, in the same bearing-from-straight-
-                // down the needle and the marks are in — so a band specified as
-                // a fraction of the sweep lands under the needle at exactly
-                // that fraction.
-                float subRedDeg = Mathf.Lerp(-SubHalfSweep, SubHalfSweep,
-                                             Mathf.Clamp01(subRedFrom));
                 var subReach = new float[SubTickCount];
                 for (int t = 0; t < SubTickCount; t++)
                     subReach[t] = SubReach((t - subEndK) * subStep);
@@ -1874,8 +1864,8 @@ namespace PSXRacing
 
                         // From here on every `continue` that paints a pixel is
                         // a MARK, and says so in `kind` for the halo pass: the
-                        // redline, the ticks, the sub-gauge's marks and its red
-                        // band. A mark that forgot would bake without a halo,
+                        // redline, the ticks and the sub-gauge's marks. A mark
+                        // that forgot would bake without a halo,
                         // which is invisible until it is over a bright sky.
                         if (onSweep && redlineFrac > 0f && r >= RedIn && r <= RedOut
                             && along / SweepDeg >= redlineFrac)
@@ -1967,43 +1957,18 @@ namespace PSXRacing
                                     // gauge is a warning and neither end of a
                                     // fuel gauge is. Red for the reason the
                                     // redline is — it is not the bulb's to tint.
+                                    //
+                                    // AND THAT MARK IS THE ONLY RED ON THE
+                                    // SCALE. There used to be a red band along
+                                    // the ring from the damage line to H; the
+                                    // owner, 2026-09-21: "there should not be
+                                    // a circumferential red line in the temp
+                                    // gauge. Just the red tick mark." Trouble
+                                    // is said by the needle turning red
+                                    // (SetSubAlarm) and the TEMP lamp, not by
+                                    // paint. The self-test scans the ring.
                                     px[i] = subHighIsDanger && t == SubTickCount - 1 ? red
                                           : end || mid ? lit : dim;
-                                    if (kind != null) kind[i] = KindMark;
-                                    continue;
-                                }
-                            }
-
-                            // THE RED BAND, and it is the reason the coolant
-                            // gauge's normal reading sits below the middle
-                            // rather than on it: an instrument needs somewhere
-                            // to put "hotter than it should be" that is not
-                            // already where the needle lives. It starts where
-                            // the engine actually starts taking damage
-                            // (EngineTemp.RedFrac, 0.69 of the sweep) so the
-                            // paint and the model cannot tell the driver two
-                            // different things.
-                            //
-                            // Drawn AFTER the marks and never over them: the
-                            // scale is the instrument and the band is a note on
-                            // it. A shallower run than the minor ticks, hugging
-                            // the ring, for the same reason.
-                            //
-                            // AND IT ENDS AT H. It used to have a start and no
-                            // end: past H it followed the ring round the rest
-                            // of the dead wedge to the end of the rev scale,
-                            // met the tach's own redline there, and the two
-                            // read as ONE red arc running past 9 and down into
-                            // the temperature gauge (the owner, 2026-09-21).
-                            // Each red band belongs to one scale and stops
-                            // where that scale stops. The self-test scans the
-                            // ring between H and the end of the sweep for it.
-                            if (subRedFrom < 1f && qdeg >= subRedDeg && qdeg <= SubHalfSweep)
-                            {
-                                float reach = SubReach(qdeg);
-                                if (qr >= reach - SubMinorTick * 0.55f && qr <= reach)
-                                {
-                                    px[i] = red;
                                     if (kind != null) kind[i] = KindMark;
                                     continue;
                                 }

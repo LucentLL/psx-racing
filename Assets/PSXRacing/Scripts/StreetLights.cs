@@ -120,17 +120,22 @@ namespace PSXRacing
         public enum Kind { Street = 0, Point = 1 }
 
         /// <summary>
-        /// HIGH-PRESSURE SODIUM, authored sRGB and converted to linear when it
-        /// is pushed. The 1999 American street lamp - warm orange-white, the
-        /// same period logic as the halogen headlights. A first guess to be
-        /// tuned by shots.
+        /// The street lamp's colour: a warm YELLOW BULB, authored sRGB and
+        /// converted to linear when it is pushed.
         ///
-        /// (1, .64, .30), not the first guess (1, .72, .40): a real HPS lamp is
-        /// nearly monochrome orange, and the first guess carried enough green
-        /// that Charlotte's lamp-lit verges came out LIME once the night grade
-        /// put its colour back - the NFS frames' lit verges are olive-brown.
+        /// It was high-pressure sodium (1, .64, .30) — the lamp that really
+        /// was on a 1999 American arterial, and nearly monochrome orange. The
+        /// owner, 2026-09-21: "the street lights are too orange. They should
+        /// be more natural yellow like bulbs from the 90's, similar to car
+        /// headlights." So this is the halogen headlight's family
+        /// (CarLights.Halogen is (1, .86, .62)), a little warmer and a little
+        /// more saturated so a lamp still reads as a yellow bulb and not as a
+        /// white one. Hue 42 degrees against sodium's 29.
+        ///
+        /// It lives on in every lamp-lit thing at night: the pools, the wet
+        /// road's glints, the halos round the heads, the rain under them.
         /// </summary>
-        public static readonly Color Sodium = new Color(1.00f, 0.64f, 0.30f);
+        public static readonly Color Bulb = new Color(1.00f, 0.87f, 0.56f);
         /// <summary>Pool radius in metres: a 7-9 m pole lights a disc of road
         /// about 15 m each way (the radius is the 3D reach from the head).
         ///
@@ -141,10 +146,17 @@ namespace PSXRacing
         /// like from a moving car.</summary>
         public const float StreetRadius = 18f;
         /// <summary>Multiplier on the linear colour as it reaches the world.
-        /// 3.4 with the 18 m pool keeps the road under a head where 22 m and
-        /// 3.0 had it (the window's value straight down is lower on a smaller
-        /// pool); the gaps between heads are what got darker.</summary>
-        public const float StreetIntensity = 3.4f;
+        ///
+        /// 2.0, and the pools are exactly as BRIGHT as they were: it was 3.4
+        /// on sodium, and the bulb colour carries 1.68x the linear luminance
+        /// (.754 against .449, because it has green in it where sodium had
+        /// almost none), so 3.4 / 1.68 puts the same light on the road in a
+        /// different colour. The night look's brightness targets were
+        /// measured, and changing the hue of the lamps is not a reason to
+        /// re-open them. (3.4 itself: with the 18 m pool it kept the road
+        /// under a head where 22 m and 3.0 had it; the gaps between heads
+        /// are what got darker.)</summary>
+        public const float StreetIntensity = 2.0f;
 
         /// <summary>Street lamps lit. NightGlow.SetAll drives it from the
         /// hour; tail lamps ignore it (each has its own on).</summary>

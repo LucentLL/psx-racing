@@ -11,11 +11,12 @@
 // field of 16 m overdraw. The pool is retired; this is the light itself.
 //
 // What a street lamp pool IS, and what the numbers below say about it:
-//   * It is HIGH-PRESSURE SODIUM. The game is set in 1999 USA and that is
-//     the lamp on every American arterial of the decade: a warm orange-white,
-//     nothing like the blue-white of a modern LED head. StreetLights owns the
-//     colour (authored sRGB, pushed linear); this file only adds it, the same
-//     split the halogen headlights have with CarLights.
+//   * It is a WARM YELLOW BULB. It was high-pressure sodium orange until the
+//     owner asked for "natural yellow like bulbs from the 90's, similar to
+//     car headlights" (2026-09-21): nothing like the blue-white of a modern
+//     LED head either way. StreetLights owns the colour (authored sRGB,
+//     pushed linear); this file only adds it, the same split the halogen
+//     headlights have with CarLights.
 //   * It LIGHTS DOWNWARD. A cobra-head luminaire throws its light into the
 //     half-space under it and very little sideways. `cone` is the street
 //     kind's shape: a surface the lamp is above takes all of it, one level

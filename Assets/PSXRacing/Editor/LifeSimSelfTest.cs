@@ -6784,7 +6784,7 @@ namespace PSXRacing.EditorTools
             Check(normal > 0.38f && normal < 0.48f,
                   "90 C sits just below the middle of the gauge", normal.ToString("0.000"));
             Check(EngineTemp.RedFrac > normal + 0.15f && EngineTemp.RedFrac < 0.85f,
-                  "and the red band starts well clear of it", EngineTemp.RedFrac.ToString("0.000"));
+                  "and the damage line (where the needle turns red) is well clear of it", EngineTemp.RedFrac.ToString("0.000"));
             Check(EngineTemp.RedMark < EngineTemp.SeizeFromC,
                   "damage starts before destruction does");
 
@@ -10334,7 +10334,7 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < 20; i++)
                 {
                     var p = eye + fwd * (10f + 4f * i) + Vector3.up * 6.5f + Vector3.right * (i % 2 == 0 ? -5f : 5f);
-                    StreetLights.Add(owner, p, StreetLights.StreetRadius, StreetLights.Sodium,
+                    StreetLights.Add(owner, p, StreetLights.StreetRadius, StreetLights.Bulb,
                                      StreetLights.StreetIntensity, StreetLights.Kind.Street);
                 }
                 Check(StreetLights.Registered == baseline + 20, "twenty street lamps register",
@@ -10401,8 +10401,8 @@ namespace PSXRacing.EditorTools
                 // than one ease step (EaseRate x dt, at full colour).
                 const float frameDt = 1f / 60f;
                 float easeStep = StreetLights.EaseRate * frameDt;
-                var sodiumLin = StreetLights.Sodium.linear;
-                float streetFull = Mathf.Max(sodiumLin.r, Mathf.Max(sodiumLin.g, sodiumLin.b)) * StreetLights.StreetIntensity;
+                var lampLin = StreetLights.Bulb.linear;
+                float streetFull = Mathf.Max(lampLin.r, Mathf.Max(lampLin.g, lampLin.b)) * StreetLights.StreetIntensity;
                 float stepBound = streetFull * easeStep + 1e-4f;
                 int easeFrames = Mathf.CeilToInt(1f / easeStep) + 1;
                 // Settle: a full ease of frames, NOT one - the first frame from
@@ -10438,7 +10438,7 @@ namespace PSXRacing.EditorTools
                 // moved - so again nothing steps in the frame it arrives, and a
                 // quarter of a second later the swap is done.
                 var swapAt = eye + fwd * 12f + Vector3.up * 6.5f;
-                int swapIn = StreetLights.Add(owner, swapAt, StreetLights.StreetRadius, StreetLights.Sodium,
+                int swapIn = StreetLights.Add(owner, swapAt, StreetLights.StreetRadius, StreetLights.Bulb,
                                               StreetLights.StreetIntensity, StreetLights.Kind.Street);
                 StreetLights.PushFrame(eye, fwd, frameDt);
                 var frameC = Table();
@@ -10485,9 +10485,9 @@ namespace PSXRacing.EditorTools
                 // dim, so a lamp crossing 110 m rises out of the fog.
                 var bandNear = eye + fwd * 20f + Vector3.up * 6.5f;
                 var bandFar = eye + fwd * 104f + Vector3.up * 6.5f;
-                StreetLights.Add(owner, bandNear, StreetLights.StreetRadius, StreetLights.Sodium,
+                StreetLights.Add(owner, bandNear, StreetLights.StreetRadius, StreetLights.Bulb,
                                  StreetLights.StreetIntensity, StreetLights.Kind.Street);
-                StreetLights.Add(owner, bandFar, StreetLights.StreetRadius, StreetLights.Sodium,
+                StreetLights.Add(owner, bandFar, StreetLights.StreetRadius, StreetLights.Bulb,
                                  StreetLights.StreetIntensity, StreetLights.Kind.Street);
                 StreetLights.Push(eye, fwd);
                 float bandNearL = -1f, bandFarL = -1f;
@@ -10505,15 +10505,19 @@ namespace PSXRacing.EditorTools
 
                 for (int i = 0; i < 3; i++)
                     StreetLights.Add(gone, eye + fwd * (12f + 6f * i) + Vector3.up * 6.5f, StreetLights.StreetRadius,
-                                     StreetLights.Sodium, StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                                     StreetLights.Bulb, StreetLights.StreetIntensity, StreetLights.Kind.Street);
                 Object.DestroyImmediate(gone);
                 StreetLights.Push(eye, fwd);
                 Check(StreetLights.PushedCount == 0 && StreetLights.Registered == baseline,
                       "a lamp whose owner was destroyed (a dropped city tile) is pruned, not drawn",
                       StreetLights.Registered - baseline);
 
-                var s = StreetLights.Sodium;
-                Check(s.r > s.g && s.g > s.b, "street lamps are high-pressure sodium (r > g > b), 1999 not LED",
+                var s = StreetLights.Bulb;
+                // Warm, not orange: the owner asked for "natural yellow like
+                // bulbs from the 90's" (2026-09-21) in place of sodium.
+                Check(s.r > s.g && s.g > s.b, "street lamps are a warm bulb (r > g > b), 1999 not LED",
+                      s.r.ToString("0.00") + "," + s.g.ToString("0.00") + "," + s.b.ToString("0.00"));
+                Check(s.g / s.r > 0.8f, "and yellow rather than sodium orange (g/r above 0.8)",
                       s.r.ToString("0.00") + "," + s.g.ToString("0.00") + "," + s.b.ToString("0.00"));
             }
             finally
@@ -10786,11 +10790,14 @@ namespace PSXRacing.EditorTools
         /// extending into temp gauge" (the owner, 2026-09-21). It was the
         /// COOLANT band doing it: drawn from the damage line with no end, it
         /// followed the ring past H round the dead wedge to the end of the rev
-        /// scale, where it met the redline and read as one arc. Bakes a HUD
+        /// scale, where it met the redline and read as one arc. Then, the same
+        /// day: "there should not be a circumferential red line in the temp
+        /// gauge. Just the red tick mark." So the band is gone. Bakes a HUD
         /// tach face the way a race does and scans the ring, by bearing from
-        /// straight down, for red: none between H and the end of the rev
-        /// scale, none on the cold side — and each band still present on its
-        /// own scale, so the scan cannot pass by finding no red anywhere.
+        /// straight down, for red: none along the coolant scale but H's own
+        /// mark, none between H and the end of the rev scale — and the H mark
+        /// and the redline both present, so the scan cannot pass by finding no
+        /// red anywhere.
         /// </summary>
         static void GaugeRedBands()
         {
@@ -10823,7 +10830,6 @@ namespace PSXRacing.EditorTools
                 }
 
                 float hot = GaugeCluster.SubRingBearing(1f);
-                float bandFrom = GaugeCluster.SubRingBearing(EngineTemp.RedFrac);
                 float sweepEnd = GaugeCluster.SweepEndBearing;
                 Check(sweepEnd > hot + 10f, "the rev scale ends well clear of H on the ring",
                       sweepEnd.ToString("0.0") + " vs " + hot.ToString("0.0"));
@@ -10831,10 +10837,12 @@ namespace PSXRacing.EditorTools
                 // clear stretch starts a couple of degrees past it.
                 int stray = RedBetween(hot + 2.5f, sweepEnd - 1.5f);
                 Check(stray == 0, "no red on the ring between H and the end of the rev scale", stray + " px");
-                int cold = RedBetween(-(sweepEnd - 1.5f), -2f);
-                Check(cold == 0, "and none on the cold side", cold + " px");
-                Check(RedBetween(bandFrom + 1f, hot - 1f) > 0,
-                      "the coolant band is still there, from the damage line to H");
+                // H's mark leans in along its ray from the pin to ~15.6
+                // degrees of bearing and is a degree either side of that wide,
+                // so everything short of hot - 5 is ring with no mark on it.
+                int band = RedBetween(-(sweepEnd - 1.5f), hot - 5f);
+                Check(band == 0, "no red line along the coolant scale: just the red H mark", band + " px");
+                Check(RedBetween(hot - 3f, hot + 1f) > 0, "and that H mark IS red");
                 // The redline runs from redFrac of the sweep to its end. In
                 // bearing from straight down that is sweepEnd up to
                 // sweepEnd + (1 - redFrac) of the sweep.

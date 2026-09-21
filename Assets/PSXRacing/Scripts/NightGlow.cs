@@ -208,7 +208,7 @@ namespace PSXRacing
         {
             StreetLights.RemoveAll(this);
             for (int i = 0; i < heads.Count; i++)
-                StreetLights.Add(this, heads[i], StreetLights.StreetRadius, StreetLights.Sodium,
+                StreetLights.Add(this, heads[i], StreetLights.StreetRadius, StreetLights.Bulb,
                                  StreetLights.StreetIntensity, StreetLights.Kind.Street);
         }
 
@@ -297,7 +297,7 @@ namespace PSXRacing
                 // SetColor takes sRGB and Unity linearises it, the same as
                 // StreetLights does for the light: the halo and the pool it
                 // stands over are one colour.
-                haloMat.SetColor("_Color", StreetLights.Sodium);
+                haloMat.SetColor("_Color", StreetLights.Bulb);
                 haloMat.SetFloat("_Size", HaloSize);
                 return haloMat;
             }
