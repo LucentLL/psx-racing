@@ -10144,6 +10144,7 @@ namespace PSXRacing.EditorTools
             Guard("NightLook.Halos", NightLookHalos);
             Guard("NightLook.Lens", NightLookLens);
             Guard("NightLook.Gauges", NightLookGauges);
+            Guard("Gauges.RedBands", GaugeRedBands);
             Guard("NightLook.BuiltMaterials", NightLookBuiltMaterials);
             Guard("NightLook.CityLamps", NightLookCityLamps);
         }
@@ -10778,6 +10779,70 @@ namespace PSXRacing.EditorTools
             float hud = GaugeCluster.HudFaceAlpha, cockpit = GaugeCluster.CockpitFaceAlpha;
             Check(hud > 0.2f && hud < 0.7f, "the HUD dials are smoked glass: translucent, but a face to read on", hud);
             Check(Mathf.Approximately(cockpit, 1f), "the cockpit binnacle stays opaque", cockpit);
+        }
+
+        /// <summary>
+        /// "The RPM redline should not extend past RPM max, especially not
+        /// extending into temp gauge" (the owner, 2026-09-21). It was the
+        /// COOLANT band doing it: drawn from the damage line with no end, it
+        /// followed the ring past H round the dead wedge to the end of the rev
+        /// scale, where it met the redline and read as one arc. Bakes a HUD
+        /// tach face the way a race does and scans the ring, by bearing from
+        /// straight down, for red: none between H and the end of the rev
+        /// scale, none on the cold side — and each band still present on its
+        /// own scale, so the scan cannot pass by finding no red anywhere.
+        /// </summary>
+        static void GaugeRedBands()
+        {
+            const int radius = 108;
+            const float redFrac = 0.8f;
+            var tex = GaugeCluster.BakeTachFaceForCheck(radius, redFrac);
+            try
+            {
+                int size = tex.width;
+                float half = size * 0.5f;
+                var px = tex.GetPixels32();
+                // Red: ClusterBulbs.Red (D8 22 18) and nothing the bulbs or the
+                // halos make. Orange (FF 85 33) has too much green to count.
+                int RedBetween(float fromDeg, float toDeg)
+                {
+                    int n = 0;
+                    for (float b = fromDeg; b <= toDeg; b += 0.25f)
+                    {
+                        float a = b * Mathf.Deg2Rad;
+                        for (float r = 0.84f; r <= 0.97f; r += 0.004f)
+                        {
+                            int x = Mathf.FloorToInt(half + r * half * Mathf.Sin(a));
+                            int y = Mathf.FloorToInt(half - r * half * Mathf.Cos(a));
+                            if (x < 0 || y < 0 || x >= size || y >= size) continue;
+                            var c = px[y * size + x];
+                            if (c.a > 128 && c.r > 150 && c.g < 90 && c.b < 90) n++;
+                        }
+                    }
+                    return n;
+                }
+
+                float hot = GaugeCluster.SubRingBearing(1f);
+                float bandFrom = GaugeCluster.SubRingBearing(EngineTemp.RedFrac);
+                float sweepEnd = GaugeCluster.SweepEndBearing;
+                Check(sweepEnd > hot + 10f, "the rev scale ends well clear of H on the ring",
+                      sweepEnd.ToString("0.0") + " vs " + hot.ToString("0.0"));
+                // H's own end mark is red and leans in along its ray, so the
+                // clear stretch starts a couple of degrees past it.
+                int stray = RedBetween(hot + 2.5f, sweepEnd - 1.5f);
+                Check(stray == 0, "no red on the ring between H and the end of the rev scale", stray + " px");
+                int cold = RedBetween(-(sweepEnd - 1.5f), -2f);
+                Check(cold == 0, "and none on the cold side", cold + " px");
+                Check(RedBetween(bandFrom + 1f, hot - 1f) > 0,
+                      "the coolant band is still there, from the damage line to H");
+                // The redline runs from redFrac of the sweep to its end. In
+                // bearing from straight down that is sweepEnd up to
+                // sweepEnd + (1 - redFrac) of the sweep.
+                float redSpan = (1f - redFrac) * (360f - 2f * sweepEnd);
+                Check(RedBetween(sweepEnd + 1.5f, sweepEnd + redSpan - 1.5f) > 0,
+                      "and the redline is on the rev scale, ending at its max");
+            }
+            finally { Object.DestroyImmediate(tex); }
         }
 
         /// <summary>

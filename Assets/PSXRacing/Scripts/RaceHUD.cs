@@ -71,6 +71,10 @@ namespace PSXRacing
         static readonly Color FuelOut = new Color(1f, 0.35f, 0.3f);
 
         int lastFuelPct = int.MinValue;
+        /// <summary>Whether the fuel bar is up: 1 shown, 0 hidden because a
+        /// dial is carrying the fuel gauge, -1 not decided since something
+        /// else hid it (the replay, getting out of the car).</summary>
+        int fuelBarShown = -1;
 
         /// <summary>
         /// The temperature warning light, and why it is not on the cluster.
@@ -576,6 +580,7 @@ namespace PSXRacing
                 replayCarText.gameObject.SetActive(true);
                 if (fuelFill != null && fuelFill.parent != null) fuelFill.parent.gameObject.SetActive(false);
                 Set(fuelText, "");
+                fuelBarShown = -1;
                 if (mapRoot != null) mapRoot.SetActive(false);
                 var touch = TouchControls.Instance;
                 if (touch != null) { touch.SetAction(false); touch.SetContinue(true); }
@@ -584,7 +589,9 @@ namespace PSXRacing
             {
                 if (replayText != null) replayText.gameObject.SetActive(false);
                 if (replayCarText != null) replayCarText.gameObject.SetActive(false);
-                if (fuelFill != null && fuelFill.parent != null) fuelFill.parent.gameObject.SetActive(true);
+                // Not switched back on here: UpdateFuel decides, because the
+                // speedometer may be carrying the fuel gauge.
+                fuelBarShown = -1;
                 // Every change-gate reset, so the race's own readouts repaint.
                 lastLap = int.MinValue; lastPos = int.MinValue;
                 lastTimeCentis = int.MinValue; lastBest = -1f;
@@ -660,13 +667,14 @@ namespace PSXRacing
                 if (mapRoot != null) mapRoot.SetActive(false);
                 if (fuelFill != null && fuelFill.parent != null)
                     fuelFill.parent.gameObject.SetActive(false);
+                fuelBarShown = -1;
                 var touch = TouchControls.Instance;
                 if (touch != null) { touch.SetAction(false, ""); touch.SetContinue(false); }
             }
             else
             {
-                if (fuelFill != null && fuelFill.parent != null)
-                    fuelFill.parent.gameObject.SetActive(true);
+                // UpdateFuel puts the bar back, if no dial is carrying fuel.
+                fuelBarShown = -1;
                 lastLap = int.MinValue; lastPos = int.MinValue;
                 lastTimeCentis = int.MinValue; lastBest = -1f;
                 lastCenter = null; lastCam = null; lastTipLine = null;
@@ -1037,7 +1045,10 @@ namespace PSXRacing
         Color lastFuelColor = new Color(-1f, -1f, -1f, -1f);
 
         /// <summary>
-        /// The fuel gauge, and the contextual touch button that goes with it.
+        /// The fuel bar, and the contextual touch button that goes with it.
+        ///
+        /// The bar is the fallback, not the gauge: whenever the speedometer is
+        /// carrying its fuel needle the bar is not drawn at all (see below).
         ///
         /// This one readout lives on the 240-line HUD canvas rather than in the
         /// device-resolution cluster, and the split is the project's own: the
@@ -1055,7 +1066,27 @@ namespace PSXRacing
         /// toggled off and on once per frame.</param>
         void UpdateFuel(bool ownsActionButton = true)
         {
-            if (tank != null)
+            // ONLY WHEN NO DIAL IS SHOWING IT. The twin-dial speedometer carries
+            // a fuel needle, and a bar printing the same reading at the top of
+            // the screen was redundant (the owner, 2026-09-21). The bar stays
+            // for the layouts with no fuel needle in them: the cockpit binnacle
+            // (one dial, coolant only) and a speedometer too small to carry its
+            // sub-gauge. Re-decided every frame, because the view can change
+            // under it; the replay and on-foot blanks set fuelBarShown back to
+            // -1 so this puts back whatever the rule says, not what they found.
+            bool bar = !(cluster != null && cluster.CarriesFuel);
+            if ((bar ? 1 : 0) != fuelBarShown)
+            {
+                fuelBarShown = bar ? 1 : 0;
+                if (fuelFill != null && fuelFill.parent != null)
+                    fuelFill.parent.gameObject.SetActive(bar);
+                if (!bar) Set(fuelText, "");
+                // Repaint from scratch when it comes back.
+                lastFuelPct = int.MinValue;
+                lastFuelColor = new Color(-1f, -1f, -1f, -1f);
+            }
+
+            if (bar && tank != null)
             {
                 float pct = Mathf.Clamp(tank.percent, 0f, 100f);
 
@@ -1143,8 +1174,13 @@ namespace PSXRacing
             return "THE ENGINE HAS LET GO\n" + how + " — IT IS GOING HOME ON A TRUCK";
         }
 
+        /// <summary>The temperature lamp's line when the fuel bar is up: the
+        /// bar's rect ends at -45, so this clears it by a line.</summary>
+        const float TempUnderBarY = -56f;
+
         /// <summary>
-        /// The warning lamp, top right under the fuel bar.
+        /// The warning lamp, top right: under the fuel bar when there is one,
+        /// in the fuel line's slot when the speedometer is carrying fuel.
         ///
         /// Two stages, because a gauge is only useful if it warns BEFORE the
         /// damage: amber when the needle is past the middle and climbing, red
@@ -1167,14 +1203,21 @@ namespace PSXRacing
                 return;
             }
 
-            // Under the fuel bar, in the same right-hand column and on the same
-            // canvas the builder puts the fuel readouts on — the bar's own rect
-            // ends at -45, so -56 clears it by a line. TempPlayCheck measures
-            // that gap rather than trusting it.
+            // In the same right-hand column and on the same canvas the builder
+            // puts the fuel readouts on. TempPlayCheck measures where it lands
+            // rather than trusting it.
             if (tempText == null)
                 tempText = MakeHudText("Temp", new Vector2(1f, 1f),
-                    new Vector2(-10f, -56f), 10, TextAnchor.MiddleRight);
+                    new Vector2(-10f, TempUnderBarY), 10, TextAnchor.MiddleRight);
             if (!tempText.gameObject.activeSelf) tempText.gameObject.SetActive(true);
+            // With no fuel bar up (the speedometer is carrying fuel) the lamp
+            // takes the fuel line's own slot under the position counter,
+            // rather than hanging under a gap the height of a bar.
+            float y = fuelBarShown == 0 && fuelText != null
+                ? fuelText.rectTransform.anchoredPosition.y : TempUnderBarY;
+            var trt = tempText.rectTransform;
+            if (!Mathf.Approximately(trt.anchoredPosition.y, y))
+                trt.anchoredPosition = new Vector2(trt.anchoredPosition.x, y);
 
             // A blink rather than a steady lamp once it is doing damage. Half a
             // second on, a fifth off — fast enough to read as an alarm, slow

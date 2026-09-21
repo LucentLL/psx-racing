@@ -216,14 +216,34 @@ namespace PSXRacing.EditorTools
                     var lrt = (RectTransform)lamp;
                     var frt = hudFor.fuelText.rectTransform;
                     var lampText = lamp.GetComponent<Text>();
-                    // Top of the lamp against the bottom of the fuel BAR, which
-                    // is the thing between them: the bar sits 6 units tall at
-                    // -42, so its lower edge is -45.
                     float lampTop = lrt.anchoredPosition.y +
                                     (lampText != null ? lampText.preferredHeight : 12f) * 0.5f;
-                    TempPlayCheck.Check(lampTop < -45f,
-                                        "and it sits clear of the fuel bar above it",
-                                        lampTop.ToString("0.0"));
+                    // THE FUEL BAR IS UP ONLY WHEN NO DIAL CARRIES FUEL: the
+                    // speedometer's needle and a bar at the top of the screen
+                    // were the same reading twice (the owner, 2026-09-21).
+                    var barBg = hudFor.fuelFill != null ? hudFor.fuelFill.parent : null;
+                    bool barUp = barBg != null && barBg.gameObject.activeInHierarchy;
+                    if (cluster != null && cluster.CarriesFuel)
+                    {
+                        TempPlayCheck.Check(!barUp && string.IsNullOrEmpty(hudFor.fuelText.text),
+                                            "the speedometer carries fuel, so the top-of-screen fuel bar is gone",
+                                            (barUp ? "bar up" : "bar down") + ", text '" + hudFor.fuelText.text + "'");
+                        // And the lamp takes the fuel line's slot rather than
+                        // hanging under the gap the bar left.
+                        TempPlayCheck.Check(Mathf.Abs(lrt.anchoredPosition.y - frt.anchoredPosition.y) < 0.01f,
+                                            "and the lamp moves up into the fuel line's slot",
+                                            lrt.anchoredPosition.y.ToString("0.0"));
+                    }
+                    else
+                    {
+                        TempPlayCheck.Check(barUp, "no dial carries fuel here, so the fuel bar is up");
+                        // Top of the lamp against the bottom of the fuel BAR,
+                        // which is the thing between them: the bar sits 6 units
+                        // tall at -42, so its lower edge is -45.
+                        TempPlayCheck.Check(lampTop < -45f,
+                                            "and it sits clear of the fuel bar above it",
+                                            lampTop.ToString("0.0"));
+                    }
                     TempPlayCheck.Check(Mathf.Abs(lrt.anchoredPosition.x - frt.anchoredPosition.x) < 0.01f,
                                         "in the same right-hand column as the fuel");
                     TempPlayCheck.Check(lampText != null && lampText.text.Contains("TEMP"),

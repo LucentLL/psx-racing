@@ -376,6 +376,32 @@ namespace PSXRacing
         public float SubNeedleFraction => tach != null ? tach.SubFraction : -1f;
 
         /// <summary>
+        /// Whether a dial on screen is carrying the FUEL gauge: the twin-dial
+        /// speedometer, big enough to have got its sub-gauge. False in the
+        /// cockpit (one dial, coolant only) and on a dial too small to carry
+        /// one. RaceHUD reads this to drop its own fuel bar, which beside a
+        /// fuel needle was the same reading twice (the owner, 2026-09-21).
+        /// </summary>
+        public bool CarriesFuel => speedo != null && speedo.HasSub;
+
+        /// <summary>A HUD rev counter's face — smoked, redline from
+        /// <paramref name="redlineFrac"/>, coolant scale and its red band — baked
+        /// exactly as a race bakes it, for the self-test that scans it. The
+        /// caller owns the texture.</summary>
+        public static Texture2D BakeTachFaceForCheck(int radius, float redlineFrac) =>
+            Dial.BakeFace(radius, 9000f, 1000f, redlineFrac, true, true,
+                          EngineTemp.RedFrac, true).texture;
+
+        /// <summary>Where the coolant reading <paramref name="frac"/> meets the
+        /// ring, in degrees from straight down about the dial centre.</summary>
+        public static float SubRingBearing(float frac) => Dial.SubRingBearing(frac);
+
+        /// <summary>Where the main scale ENDS, in the same bearing: 55 degrees
+        /// right of straight down with the sweep this copies.</summary>
+        public static float SweepEndBearing =>
+            90f - Mathf.Repeat(Dial.StartDeg + Dial.SweepDeg, 360f);
+
+        /// <summary>
         /// Park the two big needles, in their own units — revs and whatever the
         /// player reads speed in.
         ///
@@ -1384,6 +1410,20 @@ namespace PSXRacing
                 return -SubHubY * Mathf.Cos(a) + Mathf.Sqrt(TickOut * TickOut - s * s);
             }
 
+            /// <summary>
+            /// Where the sub-gauge's reading <paramref name="frac"/> (0 the
+            /// left letter, 1 the right) meets the ring, as a bearing about the
+            /// DIAL centre: degrees from straight down, positive to the right.
+            /// 18.6 at the end stops. For the self-test, which has to know
+            /// where H is on the ring to prove nothing red runs on past it.
+            /// </summary>
+            internal static float SubRingBearing(float frac)
+            {
+                float deg = Mathf.Lerp(-SubHalfSweep, SubHalfSweep, Mathf.Clamp01(frac));
+                float reach = SubReach(deg), a = deg * Mathf.Deg2Rad;
+                return Mathf.Atan2(reach * Mathf.Sin(a), SubHubY + reach * Mathf.Cos(a)) * Mathf.Rad2Deg;
+            }
+
             /// <summary>True when this dial actually got its sub-gauge — false
             /// on one too small to carry one, see <see cref="SubMinRadius"/>.
             /// Read by the constructor before the face is baked, because the
@@ -1760,7 +1800,7 @@ namespace PSXRacing
             /// it the bake is exactly the solid face it always was, texel for
             /// texel. The cockpit binnacle depends on that.
             /// </summary>
-            static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
+            internal static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
                                    bool subGauge, bool subHighIsDanger, float subRedFrom,
                                    bool translucent)
             {
@@ -1948,7 +1988,17 @@ namespace PSXRacing
                             // scale is the instrument and the band is a note on
                             // it. A shallower run than the minor ticks, hugging
                             // the ring, for the same reason.
-                            if (subRedFrom < 1f && qdeg >= subRedDeg)
+                            //
+                            // AND IT ENDS AT H. It used to have a start and no
+                            // end: past H it followed the ring round the rest
+                            // of the dead wedge to the end of the rev scale,
+                            // met the tach's own redline there, and the two
+                            // read as ONE red arc running past 9 and down into
+                            // the temperature gauge (the owner, 2026-09-21).
+                            // Each red band belongs to one scale and stops
+                            // where that scale stops. The self-test scans the
+                            // ring between H and the end of the sweep for it.
+                            if (subRedFrom < 1f && qdeg >= subRedDeg && qdeg <= SubHalfSweep)
                             {
                                 float reach = SubReach(qdeg);
                                 if (qr >= reach - SubMinorTick * 0.55f && qr <= reach)
