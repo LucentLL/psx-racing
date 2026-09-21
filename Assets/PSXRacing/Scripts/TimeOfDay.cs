@@ -299,9 +299,56 @@ namespace PSXRacing
             return band[pick];
         }
 
+        // THE NIGHT BLOCK IS NIGHT (2026-09-21). The night band used to be
+        // { Sunset, Night, Dusk, Night }: half the nights of a career were a
+        // sunset or a blue hour under a lit, cloudy sky, and the owner's
+        // report of that was "I am unable to race at night. Even when I
+        // select night, the skybox is still afternoon." The bands are the
+        // CLOCK now — every hour sits in the block its own clock time falls
+        // in (SlotHours: 4-12, 12-20, 20-4) — so SUNSET 19:10 moved to the
+        // day block where it belongs, and what the night block hands out
+        // unasked is always NIGHT. DUSK is still a night-block hour, but a
+        // CHOSEN one: see HoursIn, which the race booking's hour picker reads.
         static readonly int[] MorningBand = { Morning, Dawn, Morning };
-        static readonly int[] AfternoonBand = { Noon, Afternoon };
-        static readonly int[] NightBand = { Sunset, Night, Dusk, Night };
+        static readonly int[] AfternoonBand = { Noon, Afternoon, Sunset };
+        static readonly int[] NightBand = { Night };
+
+        /// <summary>
+        /// Every hour whose clock time falls inside a block, in clock order —
+        /// what a race written into that block may be run at. The booking's
+        /// hour picker steps through these; <see cref="ForSlot"/> is what a
+        /// booking with no hour chosen gets.
+        /// </summary>
+        public static int[] HoursIn(int slot)
+        {
+            switch (Mathf.Clamp(slot, 0, 2))
+            {
+                case 0: return MorningHours;
+                case 1: return DayHours;
+                default: return NightHours;
+            }
+        }
+
+        static readonly int[] MorningHours = { Dawn, Morning };
+        static readonly int[] DayHours = { Noon, Afternoon, Sunset };
+        static readonly int[] NightHours = { Dusk, Night };
+
+        /// <summary>Whether an hour belongs to a block. A booking's chosen hour
+        /// is only honoured when it does, so a save edited by hand (or a block
+        /// table that moves) cannot run a noon race in the night block.</summary>
+        public static bool InSlot(int hour, int slot) =>
+            System.Array.IndexOf(HoursIn(slot), hour) >= 0;
+
+        /// <summary>The next hour of a block after <paramref name="hour"/>,
+        /// wrapping — one tap of the booking's TIME button. An hour that is not
+        /// in the block at all (the "block's own" -1) starts from the top.</summary>
+        public static int StepHour(int slot, int hour, int dir = 1)
+        {
+            var hours = HoursIn(slot);
+            int i = System.Array.IndexOf(hours, hour);
+            if (i < 0) return hours[dir >= 0 ? 0 : hours.Length - 1];
+            return hours[((i + dir) % hours.Length + hours.Length) % hours.Length];
+        }
 
         /// <summary>
         /// Push an hour into the scene: the sun, the shader globals PSXGlobals

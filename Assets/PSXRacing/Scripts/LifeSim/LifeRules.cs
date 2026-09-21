@@ -160,16 +160,38 @@ namespace PSXRacing.LifeSim
         /// three of those — a day with two bookings on it is a day the player
         /// has already lost by lunchtime. A block already behind the clock is
         /// refused for the same reason yesterday is: it is not a plan.</summary>
-        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice)
+        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice) =>
+            Book(s, day, slot, trackIndex, practice, -1);
+
+        /// <param name="hour">The <see cref="TimeOfDay"/> index the player
+        /// picked, or -1 for the block's own. An hour outside the block is
+        /// dropped to -1 rather than refused: the booking is still a plan,
+        /// and a plan at the block's own hour beats no plan.</param>
+        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice, int hour)
         {
             if (!CanBookAt(s, day, slot)) return false;
             if (s.bookings == null) s.bookings = new System.Collections.Generic.List<RaceBooking>();
+            slot = Mathf.Clamp(slot, 0, SlotNames.Length - 1);
             s.bookings.Add(new RaceBooking
             {
-                day = day, slot = Mathf.Clamp(slot, 0, SlotNames.Length - 1),
+                day = day, slot = slot,
                 trackIndex = trackIndex, practice = practice,
+                hourPick = TimeOfDay.InSlot(hour, slot) ? hour + 1 : 0,
             });
             return true;
+        }
+
+        /// <summary>
+        /// The hour a booked race runs at: the one written into the diary
+        /// with it, or the block's own when none was (every booking made
+        /// before the picker existed, and any whose hour no longer sits in
+        /// its block). The ONE reader of <see cref="RaceBooking.hourPick"/>.
+        /// </summary>
+        public static int BookingHour(RaceBooking b)
+        {
+            if (b == null) return TimeOfDay.Sunset;
+            int hour = b.hourPick - 1;
+            return TimeOfDay.InSlot(hour, b.slot) ? hour : TimeOfDay.ForSlot(b.slot, b.day);
         }
 
         /// <summary>Whether a NEW booking could be written into this block:
@@ -234,9 +256,9 @@ namespace PSXRacing.LifeSim
         /// Friday and Saturday nights ARE the job.
         ///
         /// The slots are the hours. <see cref="TimeOfDay.ForSlot"/> puts slot 1
-        /// between 12:30 and 16:10 and slot 2 between sunset and the small
-        /// hours, so afternoon reads as 12pm-8pm and night as 8pm-4am without
-        /// the clock needing a second representation to disagree with.
+        /// between 12:30 and 19:10 and slot 2 at 23:15, so afternoon reads as
+        /// 12pm-8pm and night as 8pm-4am without the clock needing a second
+        /// representation to disagree with.
         ///
         /// Two open slots means a player CAN take two runs in a day — and doing
         /// it costs them the whole day. That is the trade the game is made of:

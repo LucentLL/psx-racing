@@ -497,6 +497,15 @@ namespace PSXRacing
             sb.Append("speed     : ").Append(Mathf.RoundToInt(SpeedUnits.FromKmh(car.speedKmh)))
               .Append(SpeedUnits.Suffix).Append("  gear ")
               .Append(car.currentGear).Append("  rpm ").Append(Mathf.RoundToInt(car.currentRPM)).Append('\n');
+            // The two top speeds, side by side: what the stock car's sheet
+            // says, and what THIS build on THIS gearing can reach on the level
+            // (the figure the speedometer is scaled from). "Is 280 accurate?"
+            // is answered by reading these against the line above.
+            sb.Append("top speed : sheet ")
+              .Append(Mathf.RoundToInt(SpeedUnits.FromKmh(car.topSpeedMps * 3.6f)))
+              .Append("  as built ")
+              .Append(Mathf.RoundToInt(SpeedUnits.FromKmh(car.ReachableTopSpeedMps * 3.6f)))
+              .Append(SpeedUnits.Suffix).Append('\n');
             sb.Append("drifting  : ").Append(car.Drifting ? "YES" : "no")
               .Append("   ebrakeTimer ").Append(car.EbrakeTimer.ToString("0.00")).Append('\n');
             sb.Append("slip F/R  : ").Append((car.frontSlipAngle * Mathf.Rad2Deg).ToString("0.0"))
@@ -644,7 +653,9 @@ namespace PSXRacing
             // THE DEBUG BENCH, in a debug career only, on RESUME's line.
             if (LifeSim.DebugCarOps.Available)
             {
-                benchBtn = MakeButton(panel.transform, "DEBUG: FAULTS + PARTS", font,
+                // (Was "DEBUG: FAULTS + PARTS" until the bench grew a WORLD
+                // page and a CAR page — hour, weather, a different car.)
+                benchBtn = MakeButton(panel.transform, "DEBUG BENCH", font,
                            new Vector2(0.5f, 1f), new Vector2(344f, -108f),
                            new Vector2(300f, RowH), 19, OpenBench);
                 benchBtn.GetComponent<Image>().color = new Color(0.62f, 0.36f, 0.86f, 0.42f);

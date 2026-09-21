@@ -5897,18 +5897,57 @@ namespace PSXRacing.EditorTools
 
             // A morning slot must never hand back a night, or the LifeSim's
             // clock and the sky stop agreeing with each other.
-            bool bandsHold = true;
+            bool bandsHold = true, nightIsNight = true;
             for (int day = 1; day <= 40; day++)
             {
                 int m = TimeOfDay.ForSlot(0, day);
                 int a = TimeOfDay.ForSlot(1, day);
                 int n = TimeOfDay.ForSlot(2, day);
                 if (m > TimeOfDay.Noon) bandsHold = false;
-                if (a < TimeOfDay.Morning || a > TimeOfDay.Afternoon) bandsHold = false;
+                if (a < TimeOfDay.Morning || a > TimeOfDay.Sunset) bandsHold = false;
                 if (n < TimeOfDay.Sunset) bandsHold = false;
+                // Whatever a block hands out unasked must be one of the hours
+                // the booking's picker offers for it, or the picker and the
+                // default are two clocks.
+                if (!TimeOfDay.InSlot(m, 0) || !TimeOfDay.InSlot(a, 1) || !TimeOfDay.InSlot(n, 2))
+                    bandsHold = false;
+                // THE NIGHT BLOCK IS NIGHT. It used to deal a sunset or a blue
+                // hour on half the nights of a career, and the owner's report
+                // of that was "I am unable to race at night".
+                if (n != TimeOfDay.Night) nightIsNight = false;
             }
             Check(bandsHold, "every slot stays inside its own band over 40 days");
+            Check(nightIsNight, "and the night block is NIGHT, every night — dusk is a choice, not a roll");
             Check(TimeOfDay.ForSlot(0, 7) == TimeOfDay.ForSlot(0, 7), "the same day picks the same hour");
+
+            // ---- the hour a race is booked at ---------------------------
+            bool everyHourOnce = true;
+            for (int h = 0; h < TimeOfDay.Count; h++)
+            {
+                int homes = 0;
+                for (int slot = 0; slot < 3; slot++) if (TimeOfDay.InSlot(h, slot)) homes++;
+                if (homes != 1) everyHourOnce = false;
+            }
+            Check(everyHourOnce, "every one of the seven hours can be booked, in exactly one block");
+            Check(TimeOfDay.StepHour(2, TimeOfDay.Dusk) == TimeOfDay.Night &&
+                  TimeOfDay.StepHour(2, TimeOfDay.Night) == TimeOfDay.Dusk &&
+                  TimeOfDay.StepHour(2, -1) == TimeOfDay.Dusk,
+                  "the TIME button walks a block's hours round and round");
+
+            var diary = new LifeState { day = 10, slotIndex = 0 };
+            Check(LifeRules.Book(diary, 12, LifeRules.NightSlot, 0, false, TimeOfDay.Dusk) &&
+                  LifeRules.BookingHour(LifeRules.BookingOn(diary, 12)) == TimeOfDay.Dusk,
+                  "a race written in at DUSK runs at dusk");
+            Check(LifeRules.Book(diary, 13, LifeRules.NightSlot, 0, false, TimeOfDay.Noon) &&
+                  LifeRules.BookingHour(LifeRules.BookingOn(diary, 13)) == TimeOfDay.Night,
+                  "an hour from another block is not honoured — a night race is never at noon");
+            // A booking from before the picker: JsonUtility hands it a zero.
+            var old = new RaceBooking { day = 14, slot = LifeRules.NightSlot, hourPick = 0 };
+            Check(LifeRules.BookingHour(old) == TimeOfDay.ForSlot(LifeRules.NightSlot, 14),
+                  "a booking made before the picker existed runs at its block's own hour, not at DAWN");
+            var round = JsonUtility.FromJson<RaceBooking>(JsonUtility.ToJson(
+                new RaceBooking { day = 15, slot = LifeRules.DaySlot, hourPick = TimeOfDay.Sunset + 1 }));
+            Check(LifeRules.BookingHour(round) == TimeOfDay.Sunset, "and the chosen hour survives the save");
         }
 
         // ---------------------------------------------------------------
@@ -9872,6 +9911,13 @@ namespace PSXRacing.EditorTools
                 void Push() { LifeHomeScreen.FillCarRequestFor(s, owned); applier.ReapplyCar(); }
 
                 Push();
+                // THE SPEEDOMETER'S SCALE. The dial is marked out from what the
+                // car can reach; a stock car reaches its sheet figure, and that
+                // is what DeriveDrag exists to guarantee.
+                float reach0 = car.ReachableTopSpeedMps;
+                Check(reach0 > car.topSpeedMps - 1.5f && reach0 < car.topSpeedMps + 1.5f,
+                      "a stock car tops out at the speed on its spec sheet",
+                      reach0.ToString("0.0") + " vs " + car.topSpeedMps.ToString("0.0") + " m/s");
                 float rpm = 0.6f * car.redlineRPM;
                 float mass0 = car.massKg, tq0 = car.GetTorqueAtRPM(rpm), brake0 = car.brakeDemandG;
                 float grip0 = car.gripBonus, rest0 = car.restLength, cg0 = car.cgHeight;
@@ -9894,6 +9940,12 @@ namespace PSXRacing.EditorTools
                       "the tank burns like the engine that is in the car NOW — the profile follows "
                       + "the build, not the scene load", mpg0.ToString("0.0") + " -> " +
                       tank.Profile.mpg.ToString("0.0") + " mpg");
+                // ...and out-runs its own spec sheet, which is why the dial is
+                // scaled from the reachable speed and not from the sheet: the
+                // needle of a built car sat on the end stop (2026-09-21).
+                Check(car.ReachableTopSpeedMps > reach0 * 1.03f,
+                      "a full build is FASTER than the sheet, and the speedometer's scale knows it",
+                      reach0.ToString("0.0") + " -> " + car.ReachableTopSpeedMps.ToString("0.0") + " m/s");
 
                 float massB = car.massKg, tqB = car.GetTorqueAtRPM(rpm), restB = car.restLength;
                 float brakeB = car.brakeDemandG, stiffB = car.corneringStiffness;
@@ -9944,7 +9996,73 @@ namespace PSXRacing.EditorTools
                 RaceHandoff.TestDriveKey = "no-such-viewing";
                 Check(DebugCarOps.TargetCar(s) == null,
                       "a test drive that cannot find its seller's car benches NO car, not yours");
+                Check(DebugCarOps.SwapRefusal() != null, "and the CAR page will not swap the seller's car out");
                 RaceHandoff.TestDrive = false;
+                RaceHandoff.Delivery = true;
+                Check(DebugCarOps.SwapRefusal() != null, "nor a car with an order standing on its seat");
+                RaceHandoff.Delivery = false;
+                Check(DebugCarOps.SwapRefusal() == null, "any other drive can change cars");
+
+                // ---- A DIFFERENT CAR, mid-drive ------------------------
+                // DriveCar minus its scene lookup (FindFirstObjectByType does
+                // not see a DontSave applier): the loaner, the request, SwapCar.
+                int garage = s.cars.Count;
+                var loanA = DebugCarOps.Loan(s, turboSpec);
+                Check(loanA != null && loanA.debugLoaner && s.cars.Count == garage + 1 &&
+                      loanA.faults.Count == 0 && loanA.fuel == 100f && Upgrades.IsStock(loanA),
+                      "a catalog car is borrowed factory-fresh into the garage's loaner slot");
+                Check(s.activeCar == owned.id, "borrowing does not move the keys — getting in does");
+                RaceHandoff.CarId = loanA.id;
+                RaceHandoff.CarSpecId = loanA.specId;
+                LifeHomeScreen.FillCarRequestFor(s, loanA);
+                Check(applier.SwapCar(), "the applier builds the borrowed car under the player");
+                Check(Mathf.Approximately(car.redlineRPM, turboSpec.redline) &&
+                      Mathf.Approximately(car.massKg, turboSpec.kg) &&
+                      Mathf.Approximately(car.topSpeedMps, turboSpec.topSpeedMps),
+                      "and it IS that car — redline, mass, top speed off the new spec",
+                      car.redlineRPM + " rpm, " + car.massKg + " kg");
+                Check(DebugCarOps.TargetCar(s) == loanA,
+                      "the FAULTS and PARTS pages now work on the car being driven");
+                var loanB = DebugCarOps.Loan(s, raceSpec);
+                Check(s.cars.Count == garage + 1 && !s.cars.Contains(loanA) && s.cars.Contains(loanB),
+                      "borrowing another REPLACES the loaner — one slot, however long the session");
+                RaceHandoff.CarSpecId = "";
+                Check(!applier.SwapCar(), "a car with no catalog entry is refused mid-drive, not half-built");
+                s.cars.Remove(loanB);
+                s.activeCar = owned.id;
+                RaceHandoff.CarId = owned.id;
+                RaceHandoff.CarSpecId = naSpec.id;
+
+                var benchMakes = DebugCarOps.Makes();
+                int benchModels = 0;
+                foreach (var mk in benchMakes) benchModels += DebugCarOps.ModelsOf(mk.Key).Count;
+                Check(benchMakes.Count > 5 && benchModels == CarCatalog.All.Count,
+                      "the CAR page's index of makes reaches every car in the catalog, once",
+                      benchModels + " of " + CarCatalog.All.Count + " under " + benchMakes.Count + " makes");
+
+                // ---- THE HOUR AND THE SKY, mid-drive --------------------
+                int keepDay = RaceHandoff.CalendarDay;
+                RaceHandoff.CalendarDay = 0;          // day 0 rolls CLEAR
+                DebugWorldOps.SetWeather((int)Weather.Snow);
+                Check(Seasons.CurrentWeather == Weather.Snow &&
+                      Mathf.Approximately(Seasons.RoadGripMult, Seasons.GripMult(Weather.Snow, true)) &&
+                      Seasons.CurrentDress == Seasons.DressSnow,
+                      "a forced sky is THE weather: the tyres, the dress and the fog all read it");
+                DebugWorldOps.SetWeather(-1);
+                Check(Seasons.CurrentWeather == Weather.Clear, "and handing it back is the calendar's roll again");
+                DebugWorldOps.SetHour(TimeOfDay.Night);
+                Check(RaceHandoff.TimeOfDayIndex == TimeOfDay.Night,
+                      "the hour is written to the request, so RESTART RACE comes back at it");
+                DebugWorldOps.SetWeather((int)Weather.Rain);
+                RaceHandoff.ClearAll();
+                Check(RaceHandoff.WeatherOverride < 0, "the next launch starts under the calendar's sky");
+                RaceHandoff.FromLifeSim = true;
+                RaceHandoff.CarId = owned.id;
+                RaceHandoff.CarSpecId = naSpec.id;
+                RaceHandoff.CalendarDay = keepDay;
+                // Back in the player's own car, request and all, for the page
+                // tests below.
+                Push();
 
                 // ---- the page itself ---------------------------------
                 bool hadEvents = Object.FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>() != null;

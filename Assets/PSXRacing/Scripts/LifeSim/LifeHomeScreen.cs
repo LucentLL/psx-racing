@@ -113,6 +113,18 @@ namespace PSXRacing.LifeSim
         /// bookings can be three different places, so choosing one here must not
         /// silently repoint the venue the pre-race page opens on.</summary>
         int calVenue = -1;
+        /// <summary>The hour the planner's BOOK A RACE will write with the
+        /// venue, as a <see cref="TimeOfDay"/> index, or -1 for the block's
+        /// own. Beside calVenue for calVenue's reason: it belongs to the race
+        /// being written, not to the save. An hour that is not in the block
+        /// the cursor is on reads as -1 (see <see cref="PlanHour"/>), so
+        /// walking the cursor from a night block to a morning one never
+        /// carries DUSK across with it.</summary>
+        int calHour = -1;
+        /// <summary>The same, for the pre-race page when NOTHING is booked in
+        /// this block: the hour GO RACING starts at, or WRITE IT IN books.
+        /// </summary>
+        int raceHourPick = -1;
         CarViewer viewer;
         /// <summary>The turntable, built on first use. Two of the five tabs want
         /// one and the wizard wants none, so a render texture allocated in Start
@@ -892,6 +904,9 @@ namespace PSXRacing.LifeSim
             // than at each launch site because there are five of those and
             // the season is not a property of a race.
             RaceHandoff.CalendarDay = S.day;
+            // And the weather is the calendar's again: a sky the debug bench
+            // forced belongs to the drive it was forced in.
+            RaceHandoff.WeatherOverride = -1;
             // Before the page it points at stops existing. Every button on
             // these screens ends in a Rebuild, so without this the cursor was
             // thrown back to the top of the page on every single press — which
@@ -1365,11 +1380,36 @@ namespace PSXRacing.LifeSim
 
         bool LookingAtNow => calSelDay == S.day && calSelSlot == S.slotIndex;
 
-        /// <summary>The hour the NEXT race runs at: the block's own band, day
-        /// by day, so two Tuesday-night races are not the same picture. The
-        /// hour picker that used to sit on the launch screen is gone — the
-        /// calendar decides when a race is, and the calendar is in blocks.</summary>
+        /// <summary>The hour a DRIVE out of this block runs at — free roam, the
+        /// town, a meet, a test drive: the block's own
+        /// (<see cref="TimeOfDay.ForSlot"/>). A RACE asks
+        /// <see cref="PreRaceHour"/> instead, because a race can be written
+        /// into the diary with an hour of its own.</summary>
         int RaceHour() => TimeOfDay.ForSlot(S.slotIndex, S.day);
+
+        /// <summary>
+        /// The hour the race on the pre-race page runs at.
+        ///
+        /// The owner, 2026-09-21: "There should be an option when scheduling a
+        /// race what time it is." The calendar still decides WHEN a race is —
+        /// it is in blocks, and a race lives in one — and the hour is a choice
+        /// INSIDE the block (<see cref="TimeOfDay.HoursIn"/>): a night race is
+        /// DUSK or NIGHT, never noon. A race in the diary runs at the hour
+        /// written in with it; with nothing booked it is this page's own pick,
+        /// and failing that the block's own.
+        /// </summary>
+        int PreRaceHour()
+        {
+            var booked = LifeRules.BookingAt(S, S.day, S.slotIndex);
+            if (booked != null) return LifeRules.BookingHour(booked);
+            return TimeOfDay.InSlot(raceHourPick, S.slotIndex) ? raceHourPick : RaceHour();
+        }
+
+        /// <summary>The hour the planner would book into a block: its pick
+        /// when the pick is one of that block's hours, the block's own
+        /// otherwise.</summary>
+        int PlanHour(int day, int slot) =>
+            TimeOfDay.InSlot(calHour, slot) ? calHour : TimeOfDay.ForSlot(slot, day);
 
         /// <summary>
         /// What the venue measures, short enough for half a column.
@@ -1609,7 +1649,8 @@ namespace PSXRacing.LifeSim
 
             if (booking != null)
                 return ("RACE · " + venue, MenuKit.Good,
-                        shift ? "SKIPS THE SHIFT" : meet ? MeetLine2 : backLine ?? "",
+                        shift ? "SKIPS THE SHIFT" : meet ? MeetLine2
+                              : backLine ?? "AT " + TimeOfDay.Label(LifeRules.BookingHour(booking)),
                         shift ? MenuKit.Bad : meet ? MeetInk : MenuKit.Good);
             if (shift)
                 return ("SHIFT · " + S.playerJob, MenuKit.Accent,
@@ -1974,7 +2015,10 @@ namespace PSXRacing.LifeSim
             else
             {
                 if (bk != null && bk.slot == slot)
+                {
                     Note("RACE — " + TrackCatalog.At(bk.trackIndex).name, MenuKit.Good);
+                    Note("RUN AT " + TimeOfDay.Label(LifeRules.BookingHour(bk)), MenuKit.Good);
+                }
                 else if (bk != null)
                     Note("Race booked for the " + LifeRules.SlotNames[bk.slot] + " block", MenuKit.Dim);
                 if (shift) Note("SHIFT — " + S.playerJob, MenuKit.Accent);
@@ -2069,21 +2113,36 @@ namespace PSXRacing.LifeSim
                 new Vector2(MenuKit.ColLeft(x + half + 6f, half), y), new Vector2(half, 42f),
                 () => { StepVenue(1); Rebuild(); }, 17);
             y -= 48f;
-            MenuKit.Button(body, "WRITE IT IN", new Vector2(0.5f, 1f), new Vector2(cx, y),
+            // WHAT TIME, inside the block. One button that steps through the
+            // block's own hours rather than a pair of arrows: a block holds two
+            // or three, and a second 48-unit row is one this column does not
+            // have on a phone once a busy block's notes are above it.
+            int planHour = PlanHour(day, slot);
+            MenuKit.Button(body, "TIME  ·  " + TimeOfDay.Label(planHour), new Vector2(0.5f, 1f),
+                new Vector2(cx, y), new Vector2(w, 42f),
+                () => { calHour = TimeOfDay.StepHour(slot, planHour); Rebuild(); }, 17);
+            y -= 48f;
+            // The shift warning rides ON the button now, where it was a line
+            // of its own under it: the TIME row above took the 48 units that
+            // line was standing in, and on a phone the busiest block there is
+            // (shift + meet + payday) put the warning 15 units off the bottom
+            // of a column that must not scroll. It is also the better place
+            // for it — it is read at the moment of pressing, not after.
+            MenuKit.Button(body, shift ? "WRITE IT IN  ·  SKIPS THE SHIFT" : "WRITE IT IN",
+                new Vector2(0.5f, 1f), new Vector2(cx, y),
                 new Vector2(w, 50f), () =>
                 {
                     // Always a real race. PRACTICE was a second, quieter race
                     // button and it is gone from the game; the FLAG survives
                     // in the save format for careers booked before that.
-                    if (LifeRules.Book(S, day, slot, calVenue, false))
+                    if (LifeRules.Book(S, day, slot, calVenue, false, planHour))
                     {
                         LifeSimManager.Save(); Rebuild();
                         Toast(Clip(TrackCatalog.At(calVenue).name, 22) + " — " +
-                              LifeRules.DateLabel(day) + " " + LifeRules.SlotNames[slot]);
+                              LifeRules.DateLabel(day) + " " + TimeOfDay.Label(planHour));
                     }
                 }, 18, GoBg);
             y -= 56f;
-            if (shift) Hint("A race here skips the shift.", ref y, x, w, MenuKit.Bad);
         }
 
         /// <summary>One quiet line of explanation under a control, or where a
@@ -6661,7 +6720,8 @@ namespace PSXRacing.LifeSim
                     "  ·  " + LifeRules.StreetTier(S.streetRep).name + " tier",
                 MenuKit.Tiny, new Vector2(0.5f, 1f),
                 new Vector2(tx, y - 28f), TextAnchor.MiddleLeft, Color.white, tw, height: 24f);
-            MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(RaceHour()),
+            int raceHour = PreRaceHour();
+            MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(raceHour),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, y - 54f),
                 TextAnchor.MiddleLeft, MenuKit.Accent, tw, height: 24f);
             y -= MapSize + 8f;
@@ -6681,6 +6741,20 @@ namespace PSXRacing.LifeSim
                 MenuKit.Button(body, "VENUE  >", new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(vx + 206f, 200f), y), new Vector2(200f, 40f),
                     () => StepTrack(1), 17);
+                // WHAT TIME, on the venue arrows' own line — the width was
+                // there and the height is not (the car list is under this).
+                // Steps through the hours of the block the clock is in; a race
+                // already in the diary carries its hour with it and is not
+                // asked again, exactly as its venue is not.
+                // (A canvas too narrow to hold it there gets it on a line of
+                // its own: a picker that silently is not drawn is the bug this
+                // button was added to fix.)
+                float timeW = Mathf.Min(vw - 412f, 320f);
+                float timeX = vx + 412f;
+                if (timeW < 264f) { y -= 46f; timeW = Mathf.Min(vw, 406f); timeX = vx; }
+                MenuKit.Button(body, "TIME: " + TimeOfDay.Label(raceHour), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(timeX, timeW), y), new Vector2(timeW, 40f),
+                    () => { raceHourPick = TimeOfDay.StepHour(S.slotIndex, raceHour); Rebuild(); }, 17);
                 y -= 46f;
             }
             MenuKit.Label(body, Clip(t.blurb, 72), MenuKit.Tiny, new Vector2(0.5f, 1f),
@@ -6774,7 +6848,7 @@ namespace PSXRacing.LifeSim
             // healthy car on a mild day, because a permanent weather line is
             // chrome.
             string heat = CoolingModel.PreRaceWarning(car,
-                CoolingModel.AmbientC(S.day, RaceHour()));
+                CoolingModel.AmbientC(S.day, raceHour));
             if (heat != null)
             {
                 MenuKit.Label(body, heat, MenuKit.Tiny, new Vector2(0.5f, 1f),
@@ -6815,7 +6889,7 @@ namespace PSXRacing.LifeSim
             // could start a race would be the teleport the drive out replaced.
             if (!raceFromLine)
             {
-                BuildRacePlanDoor(ref y, vx, vw, venue, booked, bookedNow);
+                BuildRacePlanDoor(ref y, vx, vw, venue, booked, bookedNow, raceHour);
                 return;
             }
 
@@ -6833,6 +6907,10 @@ namespace PSXRacing.LifeSim
             bool canRace = car != null && !carGone && !racedToday && !lowFuel;
             int capturedVenue = venue;
             bool capturedBooked = booked;
+            // Read off the booking BEFORE it is struck out below: the hour is
+            // written in the diary with the race, and a StartRace that asked
+            // for it afterwards would find no booking and run the block's own.
+            int capturedHour = raceHour;
             MenuKit.Button(body, startLabel, new Vector2(0.5f, 1f), new Vector2(0f, y),
                 new Vector2(Mathf.Min(vw, 560f), 64f),
                 canRace ? (UnityEngine.Events.UnityAction)(() =>
@@ -6843,7 +6921,7 @@ namespace PSXRacing.LifeSim
                     S.trackIndex = capturedVenue;
                     if (capturedBooked) LifeRules.Unbook(S, S.day);
                     LifeSimManager.Save();
-                    StartRace(false);
+                    StartRace(false, null, capturedHour);
                 }) : null, 21, canRace ? RaceBg : MenuKit.BtnBgDisabled);
             y -= 70f;
         }
@@ -6855,7 +6933,7 @@ namespace PSXRacing.LifeSim
         /// button that looks like a bug.
         /// </summary>
         void BuildRacePlanDoor(ref float y, float vx, float vw, int venue, bool booked,
-                               RaceBooking bookedNow)
+                               RaceBooking bookedNow, int raceHour)
         {
             float bw = Mathf.Min(vw, 560f);
             if (booked)
@@ -6891,7 +6969,7 @@ namespace PSXRacing.LifeSim
                 canBook ? (UnityEngine.Events.UnityAction)(() =>
                 {
                     S.trackIndex = capturedVenue;
-                    LifeRules.Book(S, S.day, S.slotIndex, capturedVenue, false);
+                    LifeRules.Book(S, S.day, S.slotIndex, capturedVenue, false, raceHour);
                     LifeSimManager.Save(); Rebuild();
                     Toast("in the diary — drive out when you are ready");
                 }) : null, 19, canBook ? RaceBg : MenuKit.BtnBgDisabled);
@@ -7071,7 +7149,11 @@ namespace PSXRacing.LifeSim
             return false;
         }
 
-        void StartRace(bool practice = false, BlacklistRival rival = null)
+        /// <param name="hour">The <see cref="TimeOfDay"/> index to race at, or
+        /// -1 for the block's own. The pre-race page passes the hour it SHOWED
+        /// (a booking's, or the page's pick); a call-out from the RIVALS page
+        /// has no page to pick on and takes the block's.</param>
+        void StartRace(bool practice = false, BlacklistRival rival = null, int hour = -1)
         {
             if (!CarIsHere()) return;
             // The race is the block. Whatever the drive out to it left owing,
@@ -7086,7 +7168,8 @@ namespace PSXRacing.LifeSim
             // three legs at one venue is what makes it a series.
             RaceHandoff.TrackIndex = rival != null ? Blacklist.SeriesTrack(S)
                                    : Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
-            RaceHandoff.TimeOfDayIndex = RaceHour();
+            RaceHandoff.TimeOfDayIndex = TimeOfDay.InSlot(hour, S.slotIndex) ? hour : RaceHour();
+            raceHourPick = -1;
             RaceHandoff.IsPractice = practice;
             // The tank the car is actually carrying. It burns down in real time
             // out there now, and it can be topped up at the forecourt, so this

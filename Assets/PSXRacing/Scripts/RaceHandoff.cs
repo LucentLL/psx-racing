@@ -46,6 +46,17 @@
         /// <see cref="Seasons"/>.
         /// </summary>
         public static int CalendarDay;
+        /// <summary>
+        /// The debug bench's weather, as a <see cref="Weather"/> value, or -1
+        /// for the calendar's own. <see cref="Seasons.CurrentWeather"/> reads
+        /// it first, so everything that asks the weather — the fog band, the
+        /// sky, the tyres, the AI's braking, the rain itself — gets the one
+        /// answer. It rides with the REQUEST (ClearAll resets it, the home
+        /// screen resets it) and survives a scene load on purpose: RESTART
+        /// RACE comes back under the sky the tester left it under, the same
+        /// contract the bench keeps for the car.
+        /// </summary>
+        public static int WeatherOverride = -1;
         /// <summary>Which circuit, as an index into
         /// <see cref="TrackCatalog.All"/>. The scene is loaded from this, so it
         /// is the one field that decides where the car ends up.</summary>
@@ -376,6 +387,7 @@
             CarPaintSkin = null;
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
+            WeatherOverride = -1;
             FreeRoam = false; FreeRoamPlace = null;
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;

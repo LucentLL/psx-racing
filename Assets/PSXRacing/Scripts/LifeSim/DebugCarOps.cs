@@ -365,6 +365,129 @@ namespace PSXRacing.LifeSim
         }
 
         // ------------------------------------------------------------------
+        //  A different car altogether
+        // ------------------------------------------------------------------
+        //
+        // The owner, 2026-09-21: "There should also be options in Debug mode
+        // to change time of day, weather, and car mid-race." The car half is
+        // here. It keeps the bench's first decision — THE CHANGE IS MADE TO
+        // THE SAVE, and the drive reads it back — so the car driven is always
+        // a car the garage holds: one of the player's own, or the LOANER, a
+        // single slot the bench fills from the catalog. Everything that keys
+        // off the driven car's id (the result, the fuel, the wear, this
+        // bench's own FAULTS and PARTS pages) then needs to know nothing
+        // about any of this.
+
+        /// <summary>The scene's applier while a LifeSim drive is running, or
+        /// null in a menu. The WORLD and CAR pages exist only when there is
+        /// one: there is no sky in the garage and no car to climb out of.</summary>
+        public static RaceHandoffApplier LiveApplier() =>
+            RaceHandoff.FromLifeSim ? Object.FindFirstObjectByType<RaceHandoffApplier>() : null;
+
+        /// <summary>Why the car cannot be changed right now, or null. Two
+        /// drives are ABOUT the car they started in: a test drive is the
+        /// seller's, and a delivery has a seat built round the boxes standing
+        /// on it (the same reason the SEAT ladder waits for the next load).</summary>
+        public static string SwapRefusal()
+        {
+            if (RaceHandoff.TestDrive) return "a test drive is the seller's car";
+            if (RaceHandoff.Delivery) return "not with an order on the seat";
+            return null;
+        }
+
+        /// <summary>The make a catalog car files under: the first word of its
+        /// name, in capitals — the catalog writes BUICK and Buick both.</summary>
+        public static string MakeOf(CarSpec spec)
+        {
+            if (spec == null || string.IsNullOrEmpty(spec.name)) return "?";
+            string n = spec.name.Trim();
+            int cut = n.IndexOf(' ');
+            return (cut > 0 ? n.Substring(0, cut) : n).ToUpperInvariant();
+        }
+
+        /// <summary>Every make in the catalog, A to Z, with how many cars it
+        /// has — the CAR page's index. 317 cars is a list nobody scrolls; four
+        /// dozen makes is a page.</summary>
+        public static List<KeyValuePair<string, int>> Makes()
+        {
+            var count = new SortedDictionary<string, int>(System.StringComparer.Ordinal);
+            foreach (var c in CarCatalog.All)
+            {
+                string m = MakeOf(c);
+                count[m] = count.TryGetValue(m, out int n) ? n + 1 : 1;
+            }
+            return new List<KeyValuePair<string, int>>(count);
+        }
+
+        /// <summary>One make's cars, in the catalog's own (price) order.</summary>
+        public static List<CarSpec> ModelsOf(string make)
+        {
+            var hits = new List<CarSpec>();
+            foreach (var c in CarCatalog.All) if (MakeOf(c) == make) hits.Add(c);
+            return hits;
+        }
+
+        public static OwnedCar Loaner(LifeState s) =>
+            s == null ? null : s.cars.Find(c => c != null && c.debugLoaner);
+
+        /// <summary>
+        /// Put a catalog car in the loaner slot: factory fresh, full tank, no
+        /// faults, nothing owed. The previous loaner — and anything in the
+        /// save still pointing at it — goes, which is what keeps it ONE slot.
+        /// The keys are NOT moved here; <see cref="DriveCar"/> does that.
+        /// </summary>
+        public static OwnedCar Loan(LifeState s, CarSpec spec)
+        {
+            if (s == null || spec == null) return null;
+            var old = Loaner(s);
+            if (old != null)
+            {
+                s.carLoans.RemoveAll(l => l.carId == old.id);
+                s.pendingParts.RemoveAll(p => p.carId == old.id);
+                s.carAds.RemoveAll(a => a.carId == old.id);
+                s.cars.Remove(old);
+            }
+            var car = CarMarket.MakeOwnedCar(s, spec, 100, 0f, 0);
+            car.debugLoaner = true;
+            car.fuel = 100f;
+            // MakeOwnedCar hands the keys to the first car a garage ever gets;
+            // if the old loaner held them they now point at nothing.
+            if (s.FindCar(s.activeCar) == null) s.activeCar = car.id;
+            return car;
+        }
+
+        /// <summary>
+        /// Get in <paramref name="car"/>, now. The keys, the request and —
+        /// in a drive — the car under the player all move together. Returns a
+        /// line for the page when the change cannot land until a restart (a
+        /// car with no catalog entry has no spec to build from mid-drive), or
+        /// null when the player is already sitting in it.
+        /// </summary>
+        public static string DriveCar(LifeState s, OwnedCar car)
+        {
+            if (s == null || car == null) return "no car";
+            var applier = LiveApplier();
+
+            // What is left in the tank of the car being climbed OUT of goes
+            // back on its record: the result at the end of the drive is banked
+            // to whichever car finishes it.
+            var leaving = s.FindCar(RaceHandoff.CarId);
+            var liveTank = applier != null && applier.playerCar != null
+                ? applier.playerCar.GetComponent<FuelTank>() : null;
+            if (leaving != null && leaving != car && liveTank != null)
+                leaving.fuel = Mathf.Clamp(liveTank.percent, 0f, 100f);
+
+            s.activeCar = car.id;
+            if (applier == null) return null;
+
+            RaceHandoff.CarId = car.id;
+            RaceHandoff.CarSpecId = car.specId ?? "";
+            RaceHandoff.StartFuelPct = car.fuel;
+            LifeHomeScreen.FillCarRequestFor(s, car);
+            return applier.SwapCar() ? null : "no catalog entry — RESTART RACE to get in it";
+        }
+
+        // ------------------------------------------------------------------
         //  Onto the car
         // ------------------------------------------------------------------
 
@@ -449,6 +572,61 @@ namespace PSXRacing.LifeSim
             foreach (var mod in Upgrades.AllMods) if (Upgrades.HasMod(car, mod)) mods++;
             sb.Append("  ·  ").Append(mods).Append("/").Append(Upgrades.AllMods.Length).Append(" parts");
             return sb.ToString();
+        }
+    }
+
+    /// <summary>
+    /// THE BENCH'S OTHER HALF: the hour and the weather, changed mid-drive.
+    ///
+    /// Same shape as <see cref="DebugCarOps"/> and for its reasons: the change
+    /// is written to the REQUEST (<see cref="RaceHandoff.TimeOfDayIndex"/>,
+    /// <see cref="RaceHandoff.WeatherOverride"/>) and the scene's own applier
+    /// reads it back through the path a scene load takes
+    /// (<see cref="RaceHandoffApplier.ReapplyWorld"/>). So a night made here
+    /// is the night a booked night race gets — lamps, wet road, grade and all
+    /// — and RESTART RACE, which reloads off those statics, comes back under
+    /// the same sky. Nothing here touches the save: the calendar's day and
+    /// its weather are the career's, and the home screen takes the sky back
+    /// the moment it draws.
+    /// </summary>
+    public static class DebugWorldOps
+    {
+        /// <summary>The hour the drive is running at.</summary>
+        public static int Hour => Mathf.Clamp(RaceHandoff.TimeOfDayIndex, 0, TimeOfDay.Count - 1);
+
+        /// <summary>The bench's weather, or -1 when the calendar's own rolls.</summary>
+        public static int ForcedWeather => RaceHandoff.WeatherOverride;
+
+        public static readonly string[] WeatherNames = { "CLEAR", "FOG", "RAIN", "SNOW" };
+
+        public static void SetHour(int hour)
+        {
+            RaceHandoff.TimeOfDayIndex = Mathf.Clamp(hour, 0, TimeOfDay.Count - 1);
+            Reapply();
+        }
+
+        /// <param name="weather">A <see cref="Weather"/> value, or -1 to give
+        /// the sky back to the calendar.</param>
+        public static void SetWeather(int weather)
+        {
+            RaceHandoff.WeatherOverride = weather < 0 ? -1 : Mathf.Clamp(weather, 0, (int)Weather.Snow);
+            Reapply();
+        }
+
+        static void Reapply()
+        {
+            var applier = DebugCarOps.LiveApplier();
+            if (applier != null) applier.ReapplyWorld();
+        }
+
+        /// <summary>What the weather in force costs, for the page: the same
+        /// multipliers the tyres and the fog band read.</summary>
+        public static string WeatherLine(Weather w)
+        {
+            if (w == Weather.Clear) return "dry road, full grip, the hour's own fog";
+            return "road grip x" + Seasons.GripMult(w, true).ToString("0.00") +
+                   " · off-road x" + Seasons.GripMult(w, false).ToString("0.00") +
+                   " · fog closes to " + Mathf.RoundToInt(Seasons.FogMul(w) * 100f) + "%";
         }
     }
 }

@@ -375,6 +375,14 @@ namespace PSXRacing.LifeSim
         /// <see cref="Paint"/>.</summary>
         public string paintSkin = "";
 
+        /// <summary>The debug bench's one loaner slot (see
+        /// <see cref="DebugCarOps.Loan"/>): a car the bench conjured so the
+        /// tester could drive something they do not own. There is at most one
+        /// — borrowing another REPLACES it — so a session spent walking the
+        /// catalog leaves one extra car in the garage rather than thirty. An
+        /// added field; false on every car anyone actually bought.</summary>
+        public bool debugLoaner;
+
         public List<CarFault> faults = new List<CarFault>();
 
         // === Inspection (see LifeSim/Inspection.cs) ===
@@ -689,6 +697,16 @@ namespace PSXRacing.LifeSim
         public int slot = 2;
         public int trackIndex;
         public bool practice;
+        /// <summary>
+        /// The hour the player chose for this race, as a
+        /// <see cref="TimeOfDay"/> index PLUS ONE — zero is "the block's own
+        /// hour" (<see cref="TimeOfDay.ForSlot"/>). Off by one on purpose:
+        /// zero is what JsonUtility hands every booking written before the
+        /// field existed, and zero as an index is DAWN, so a plain index
+        /// would have silently moved every old night race to 05:40. Read it
+        /// through <see cref="LifeRules.BookingHour"/>, never directly.
+        /// </summary>
+        public int hourPick;
     }
 
     /// <summary>

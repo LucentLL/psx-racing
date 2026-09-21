@@ -53,8 +53,30 @@ namespace PSXRacing
         /// this component happens to run first.</summary>
         public int ClosedFrame { get; private set; } = -1;
 
-        public enum Page { Faults, Parts }
+        public enum Page { Faults, Parts, World, Car }
         Page page = Page.Faults;
+
+        /// <summary>
+        /// Draw the WORLD and CAR pages even with no drive under the page.
+        /// They exist only mid-drive — the garage has no sky to change and no
+        /// car to climb out of — which also means the preview tool, which
+        /// builds this page in edit mode with no scene behind it, would never
+        /// photograph them. It sets this; nothing else does.
+        /// </summary>
+        public bool forceDrivePages;
+
+        bool DrivePages => forceDrivePages || DebugCarOps.LiveApplier() != null;
+
+        /// <summary>The make the CAR page has open, or null for the index of
+        /// makes. Kept across close and reopen with the rest of the position:
+        /// comparing three Skylines is three trips through this page.</summary>
+        string carMake;
+
+        /// <summary>Open the CAR page inside one make's list (null for the
+        /// index). For the preview tool, which cannot press the make's button.</summary>
+        public void PreviewMake(string make) => carMake = make;
+
+        static readonly string[] TabKeys = { "tab_faults", "tab_parts", "tab_world", "tab_car" };
 
         /// <summary>
         /// Where the tester was when the page last closed: which page (kept in
@@ -161,7 +183,11 @@ namespace PSXRacing
             // a pad has ever driven.
             if (pad != null && (pad.leftShoulder.wasPressedThisFrame ||
                                 pad.rightShoulder.wasPressedThisFrame))
-                Show(page == Page.Faults ? Page.Parts : Page.Faults);
+            {
+                int pages = DrivePages ? 4 : 2;
+                int step = pad.rightShoulder.wasPressedThisFrame ? 1 : pages - 1;
+                Show((Page)(((int)page + step) % pages));
+            }
         }
 
         // ------------------------------------------------------------------
@@ -180,7 +206,7 @@ namespace PSXRacing
             lastScroll = 0f;
             // A different page: position means nothing on it, so the scroll
             // goes back to the top and the cursor to the tab just pressed.
-            Rebuild(p == Page.Faults ? "dbg_tab_faults" : "dbg_tab_parts", keepScroll: false);
+            Rebuild("dbg_" + TabKeys[(int)p], keepScroll: false);
         }
 
         void Rebuild(string focus = null, bool keepScroll = true)
@@ -256,19 +282,32 @@ namespace PSXRacing
                 new Vector2(MenuKit.ColRight(ColR, 180f), -8f), new Vector2(180f, 40f),
                 Close, 20), "back");
 
+            // Two tabs in the garage, four in a drive: the hour, the weather
+            // and the car under the player are things only a drive has. A page
+            // left on WORLD by the last drive opens on FAULTS in the garage.
+            bool drive = DrivePages;
+            if (!drive && page > Page.Parts) page = Page.Faults;
             int faults = car != null ? car.faults.Count : 0;
-            float tabW = (ColW - Gap) * 0.5f;
-            var tabFaults = Named(MenuKit.Button(root,
-                "FAULTS" + (faults > 0 ? "  (" + faults + " ON)" : ""), new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, tabW), -56f), new Vector2(tabW, 40f),
-                () => Show(Page.Faults), 20), "tab_faults");
-            var tabParts = Named(MenuKit.Button(root,
-                "PARTS + STAGES" + (car != null && spec != null
-                    ? "  (" + Upgrades.TotalStages(car) + ")" : ""), new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColRight(ColR, tabW), -56f), new Vector2(tabW, 40f),
-                () => Show(Page.Parts), 20), "tab_parts");
-            MenuKit.MarkTab(tabFaults, page == Page.Faults);
-            MenuKit.MarkTab(tabParts, page == Page.Parts);
+            int tabs = drive ? 4 : 2;
+            float tabW = (ColW - Gap * (tabs - 1)) / tabs;
+            // The counts ride in the caption only while there is room for
+            // them: a quarter of a 4:3 canvas holds fifteen capitals.
+            string[] captions =
+            {
+                "FAULTS" + (faults > 0 ? "  (" + faults + (drive ? ")" : " ON)") : ""),
+                (drive ? "PARTS" : "PARTS + STAGES") +
+                    (car != null && spec != null ? "  (" + Upgrades.TotalStages(car) + ")" : ""),
+                "WORLD", "CAR",
+            };
+            for (int i = 0; i < tabs; i++)
+            {
+                var p = (Page)i;
+                var tab = Named(MenuKit.Button(root, Clip(captions[i], CapsFit(tabW - 16f)),
+                    new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + i * (tabW + Gap), tabW), -56f),
+                    new Vector2(tabW, 40f), () => Show(p), 20), TabKeys[i]);
+                MenuKit.MarkTab(tab, page == p);
+            }
 
             // ---- footer: what the car is driving under, right now --------
             var agg = car != null ? DebugCarOps.HandicapLine(car) : "";
@@ -305,7 +344,12 @@ namespace PSXRacing
                                        8f, 8f, FooterH + 2f, -HeaderH);
             content = MenuKit.ScrollBody(view);
 
-            if (s == null || car == null)
+            // The two drive pages first: neither needs a car on the bench (the
+            // sky has no owner, and the CAR page is how a bench with no car
+            // gets one).
+            if (s != null && page == Page.World) BuildWorld();
+            else if (s != null && page == Page.Car) BuildCar(s, car);
+            else if (s == null || car == null)
                 MenuKit.Label(content, "There is no car to work on.", MenuKit.Body,
                     new Vector2(0.5f, 1f), new Vector2(ColL, -20f), TextAnchor.MiddleLeft,
                     MenuKit.Dim, ColW);
@@ -637,6 +681,235 @@ namespace PSXRacing
                 TextAnchor.MiddleLeft, live.Seized ? MenuKit.Bad : MenuKit.Dim,
                 ColW, height: 26f);
             y -= 30f;
+        }
+
+        // ---- WORLD ---------------------------------------------------------
+
+        /// <summary>As many cells across as keep a cell <paramref name="minW"/>
+        /// wide — the WORLD and CAR grids hold short captions and want more,
+        /// narrower cells than the fault list's.</summary>
+        static int GridCols(float minW, int max) =>
+            Mathf.Clamp(Mathf.FloorToInt((ColW + Gap) / (minW + Gap)), 1, max);
+
+        /// <summary>
+        /// The hour and the weather, as two rows of switches.
+        ///
+        /// The owner, 2026-09-21: "options in Debug mode to change time of
+        /// day, weather, and car mid-race." Every one of the seven hours and
+        /// every one of the four skies, whatever block the calendar is in —
+        /// a BOOKED race keeps to its block's hours, a debug page does not.
+        /// Nothing here is the save's: see <see cref="DebugWorldOps"/>.
+        /// </summary>
+        void BuildWorld()
+        {
+            float y = -8f;
+            MenuKit.Label(content,
+                Clip(note ?? "Changes land at once. RESTART RACE keeps them; the house takes them back.",
+                     LowerFit(ColW)),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                note != null ? MenuKit.Accent : MenuKit.Dim, ColW, height: 28f);
+            y -= 36f;
+
+            int cols = GridCols(222f, 7);
+            float cellW = (ColW - Gap * (cols - 1)) / cols;
+            const float CellH = 50f;
+
+            // ---- the seven hours ---------------------------------------
+            int hour = DebugWorldOps.Hour;
+            MenuKit.Label(content, "TIME OF DAY   ·   " + TimeOfDay.Label(hour), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 32f;
+            for (int i = 0; i < TimeOfDay.Count; i++)
+            {
+                int h = i;
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                var b = Named(MenuKit.Button(content, TimeOfDay.Label(h), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH), () =>
+                    {
+                        DebugWorldOps.SetHour(h);
+                        note = "it is " + TimeOfDay.Label(h) + " — resume and look";
+                        Rebuild();
+                    }, 20), "hour_" + h);
+                if (h == hour) MenuKit.MarkTab(b, true);
+            }
+            y -= CellH + 20f;
+
+            // ---- the four skies, and the calendar's own ------------------
+            int forced = DebugWorldOps.ForcedWeather;
+            var now = Seasons.CurrentWeather;
+            var rolled = Seasons.WeatherFor(Seasons.CurrentDay);
+            MenuKit.Label(content,
+                "WEATHER   ·   " + DebugWorldOps.WeatherNames[(int)now] +
+                (forced < 0 ? "  (the calendar's own)" : "  (forced)"), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 32f;
+            // -1 first: the way back to what the day actually rolled.
+            for (int i = 0; i <= DebugWorldOps.WeatherNames.Length; i++)
+            {
+                int w = i - 1;
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                string caption = w < 0
+                    ? "CALENDAR: " + DebugWorldOps.WeatherNames[(int)rolled]
+                    : DebugWorldOps.WeatherNames[w];
+                var b = Named(MenuKit.Button(content, Clip(caption, CapsFit(cellW - 16f)),
+                    new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH), () =>
+                    {
+                        DebugWorldOps.SetWeather(w);
+                        note = w < 0 ? "the sky is the calendar's again"
+                                     : DebugWorldOps.WeatherNames[w] + " — " +
+                                       DebugWorldOps.WeatherLine((Weather)w);
+                        Rebuild();
+                    }, 20), "weather_" + i);
+                if (w == forced) MenuKit.MarkTab(b, true);
+            }
+            y -= CellH + 12f;
+            MenuKit.Label(content, Clip(DebugWorldOps.WeatherLine(now), LowerFit(ColW)), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW, height: 26f);
+            y -= 30f;
+        }
+
+        // ---- CAR -----------------------------------------------------------
+
+        /// <summary>
+        /// Climb into a different car without leaving the road: one of the
+        /// player's own, or anything in the catalog through the one LOANER
+        /// slot (<see cref="DebugCarOps.Loan"/>). The catalog is an index of
+        /// makes and then a make's cars — 317 rows is a list nobody scrolls
+        /// with a thumbstick.
+        /// </summary>
+        void BuildCar(LifeState s, OwnedCar driving)
+        {
+            float y = -8f;
+            string refusal = DebugCarOps.SwapRefusal();
+            MenuKit.Label(content,
+                Clip(note ?? (refusal != null ? "Not on this drive: " + refusal + "."
+                                              : "Tap a car and you are in it, at the speed you were doing."),
+                     LowerFit(ColW)),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                note != null || refusal != null ? MenuKit.Accent : MenuKit.Dim, ColW, height: 28f);
+            y -= 36f;
+            if (refusal != null) return;
+
+            int cols = Cols;
+            float cellW = (ColW - Gap * (cols - 1)) / cols;
+            const float CellH = 56f;
+
+            // ---- the garage ----------------------------------------------
+            MenuKit.Label(content, "YOUR CARS   ·   as they stand, faults and parts and all",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 32f;
+            for (int i = 0; i < s.cars.Count; i++)
+            {
+                var owned = s.cars[i];
+                if (owned == null) continue;
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                var ospec = SpecOf(owned);
+                bool here = owned == driving;
+                string state = here ? "   [DRIVING]" : owned.debugLoaner ? "   [LOANER]" : "";
+                string line = ospec == null ? "built-in car — lands on RESTART RACE"
+                    : Upgrades.EffectiveHp(owned, ospec) + " hp · " +
+                      Upgrades.EffectiveKg(owned, ospec) + " kg · " + ospec.drv + " · " +
+                      owned.faults.Count + " fault" + (owned.faults.Count == 1 ? "" : "s");
+                string caption =
+                    Clip((owned.displayName ?? "?").ToUpperInvariant(),
+                         CapsFit(cellW - 16f) - state.Length) + state +
+                    "\n" + DimTag + Clip(line, LowerFit(cellW - 16f)) + "</color>";
+                var b = Named(MenuKit.Button(content, caption, new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH),
+                    here ? (UnityEngine.Events.UnityAction)null : () => TakeCar(s, owned), 20),
+                    "own_" + i);
+                if (here) MenuKit.MarkTab(b, true);
+            }
+            y -= CellH + 20f;
+
+            // ---- the catalog: makes, then one make's cars ----------------
+            if (carMake == null)
+            {
+                MenuKit.Label(content,
+                    Clip("ANY CAR IN THE CATALOG   ·   borrowed factory-fresh into the one LOANER slot",
+                         Mathf.FloorToInt(ColW / 11.6f)),
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Accent, ColW, height: 26f, bold: true);
+                y -= 32f;
+                int mcols = GridCols(260f, 6);
+                float mW = (ColW - Gap * (mcols - 1)) / mcols;
+                const float MakeH = 44f;
+                var makes = DebugCarOps.Makes();
+                for (int i = 0; i < makes.Count; i++)
+                {
+                    string make = makes[i].Key;
+                    int col = i % mcols;
+                    if (i > 0 && col == 0) y -= MakeH + Gap;
+                    string count = "  (" + makes[i].Value + ")";
+                    Named(MenuKit.Button(content,
+                        Clip(make, CapsFit(mW - 16f) - count.Length) + count, new Vector2(0.5f, 1f),
+                        new Vector2(MenuKit.ColLeft(ColL + col * (mW + Gap), mW), y),
+                        new Vector2(mW, MakeH), () =>
+                        {
+                            carMake = make;
+                            note = null;
+                            Rebuild("dbg_all_makes", keepScroll: false);
+                        }, 20), "make_" + make);
+                }
+                y -= MakeH + 20f;
+                return;
+            }
+
+            var models = DebugCarOps.ModelsOf(carMake);
+            Named(MenuKit.Button(content, "<  ALL MAKES", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, 230f), y), new Vector2(230f, 40f), () =>
+                {
+                    string back = "dbg_make_" + carMake;
+                    carMake = null;
+                    note = null;
+                    Rebuild(back, keepScroll: false);
+                }, 20, DebugPurple), "all_makes");
+            MenuKit.Label(content, carMake + "   ·   " + models.Count + " car" +
+                    (models.Count == 1 ? "" : "s"), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL + 246f, y - 6f), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW - 246f, height: 28f, bold: true);
+            y -= 52f;
+            for (int i = 0; i < models.Count; i++)
+            {
+                var m = models[i];
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                string line = m.hp + " hp · " + m.kg + " kg · " + m.drv + " · " + MenuKit.Money(m.price);
+                string caption = Clip((m.name ?? m.id).ToUpperInvariant(), CapsFit(cellW - 16f)) +
+                                 "\n" + DimTag + Clip(line, LowerFit(cellW - 16f)) + "</color>";
+                Named(MenuKit.Button(content, caption, new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH), () => TakeCar(s, DebugCarOps.Loan(s, m)), 20),
+                    "model_" + m.id);
+            }
+            y -= CellH + 20f;
+        }
+
+        /// <summary>Into <paramref name="car"/>, and say so. The save is owed
+        /// a write either way: the keys moved, and a loaner may have come and
+        /// another gone.</summary>
+        void TakeCar(LifeState s, OwnedCar car)
+        {
+            if (car == null) { note = "that car could not be built"; Rebuild(); return; }
+            string late = DebugCarOps.DriveCar(s, car);
+            note = Clip(car.displayName, 34) + (late != null ? " — " + late : " — you are in it");
+            dirty = true;
+            // The cursor goes to the row that now says DRIVING: the one that
+            // was pressed may have been a catalog row, which is not this car's
+            // row at all.
+            int at = s.cars.IndexOf(car);
+            Rebuild(at >= 0 ? "dbg_own_" + at : null, keepScroll: false);
         }
 
         // ------------------------------------------------------------------

@@ -82,6 +82,23 @@ namespace PSXRacing
             instance.weather = w;
         }
 
+        /// <summary>
+        /// CHANGE THE WEATHER MID-SCENE — the debug bench's switch.
+        ///
+        /// <see cref="Ensure"/> is the scene-load entry and only ever ADDS: it
+        /// returns on clear and fog, and handed a second kind it renames the
+        /// instance without rebuilding it, so rain "switched" to snow kept
+        /// falling as rain. Here a change of kind tears the old slab down
+        /// (its material and texture with it) and lets Ensure build the new
+        /// one, and clear or fog leaves nothing falling. The lens beads and the
+        /// tyre spray follow on their own: both read <see cref="Raining"/>.
+        /// </summary>
+        public static void Set(Weather w)
+        {
+            if (instance != null && instance.weather != w) PreviewClear();
+            Ensure(w);
+        }
+
         ParticleSystem ps;
         Material mat;
         Texture2D tex;

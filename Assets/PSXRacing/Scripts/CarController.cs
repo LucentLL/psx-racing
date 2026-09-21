@@ -1652,6 +1652,62 @@ namespace PSXRacing
         }
 
         /// <summary>
+        /// THE SPEED THIS CAR, AS BUILT AND GEARED RIGHT NOW, CAN REACH on a
+        /// level road — as opposed to <see cref="topSpeedMps"/>, which is the
+        /// figure on the STOCK car's spec sheet and deliberately does not move
+        /// with the parts (see <see cref="DeriveDrag"/>: drag is a property of
+        /// the body, so a power build is SUPPOSED to go faster than the sheet).
+        ///
+        /// The speedometer is scaled from it. The dial used to be scaled from
+        /// the sheet figure plus 8%, and a full engine build clears that by
+        /// far more: the owner's RUF CTR — 469 hp and 240 mph on the sheet, 797
+        /// hp built, its final drive lengthened — sat with the needle against
+        /// the 280 end stop while doing rather more, and asked whether the
+        /// speeds were accurate. The needle was the one part that was not.
+        ///
+        /// For each gear: the fastest speed under the limiter's cut at which
+        /// the engine still out-pulls drag and rolling resistance, walked down
+        /// from the limiter in 0.5 m/s steps; the best gear wins (a box geared
+        /// long enough makes that fifth, not sixth). The car's own
+        /// <see cref="GetTorqueAtRPM"/>, so the power stage and the blower are
+        /// in it; the fault multipliers are not — a dial does not re-mark
+        /// itself because a plug lead came off. Solved on demand and memoised
+        /// on the inputs, because the cluster asks every frame.
+        /// </summary>
+        public float ReachableTopSpeedMps
+        {
+            get
+            {
+                if (gearRatios == null || gearRatios.Length == 0 || wheelRadius <= 0.01f)
+                    return topSpeedMps;
+                float key = dragCoefficient * 31f + gearRatios[gearRatios.Length - 1] * 17f +
+                            finalDrive * 13f + wheelRadius * 7f + revLimitRPM * 0.001f +
+                            GetTorqueAtRPM(redlineRPM) * 0.01f + gearRatios.Length;
+                if (Mathf.Approximately(key, reachKey)) return reachMps;
+                reachKey = key;
+
+                float best = 0f;
+                float mpsPerRpm = 2f * Mathf.PI * wheelRadius / 60f;
+                for (int g = 0; g < gearRatios.Length; g++)
+                {
+                    float overall = Mathf.Abs(gearRatios[g]) * finalDrive;
+                    if (overall < 1e-3f) continue;
+                    // 50 rpm under the limit is where TireForces cuts the torque.
+                    float vLimiter = (revLimitRPM - 50f) / overall * mpsPerRpm;
+                    for (float v = vLimiter; v > best; v -= 0.5f)
+                    {
+                        float rpm = v / mpsPerRpm * overall;
+                        float force = GetTorqueAtRPM(rpm) * overall * drivetrainEfficiency / wheelRadius;
+                        if (force >= dragCoefficient * v * v + rollingResistance) { best = v; break; }
+                    }
+                }
+                reachMps = best > 1f ? best : topSpeedMps;
+                return reachMps;
+            }
+        }
+        float reachKey = float.NaN, reachMps;
+
+        /// <summary>
         /// Solve the downforce coefficient from the weight fraction: the force
         /// law is k*v^2, so k = fraction * m * g / vmax^2.
         ///

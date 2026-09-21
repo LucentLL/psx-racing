@@ -118,6 +118,10 @@ namespace PSXRacing
         {
             get
             {
+                // The debug bench's sky, when it has set one. Ahead of the
+                // memo, which is keyed on the day and would not notice.
+                int forced = RaceHandoff.WeatherOverride;
+                if (forced >= 0 && forced <= (int)Weather.Snow) return (Weather)forced;
                 int d = CurrentDay;
                 if (d != cachedDay) { cachedDay = d; cachedWeather = WeatherFor(d); }
                 return cachedWeather;

@@ -264,6 +264,109 @@ namespace PSXRacing
         }
 
         /// <summary>
+        /// BECOME A DIFFERENT CAR, mid-drive — the debug bench's CAR page.
+        ///
+        /// <see cref="ReapplyCar"/> deliberately leaves the shell alone, for
+        /// the reason its comment gives: a body swap rewrites wheel radius and
+        /// the collider under a moving car. This is the method that DOES do
+        /// it, so it also does what makes it safe: the request is read back in
+        /// the scene-load order (shell BEFORE spec — the gearbox is built off
+        /// the new wheels), and the car is then stood up by however much
+        /// lower the new shell reaches than the old one did, so a taller tyre
+        /// or a deeper sill starts on the road instead of in it. The speed the
+        /// car was carrying is kept: the tester swapped cars, they did not
+        /// stop.
+        ///
+        /// A different car is a different tank and a different engine, so
+        /// unlike a bench PART this takes the new car's fuel level and starts
+        /// its engine cold (<c>firstRun</c>). False, and nothing touched, when
+        /// the request names no catalog car — the built-in RX-7 has no spec to
+        /// build from, and comes back on RESTART RACE instead.
+        /// </summary>
+        public bool SwapCar()
+        {
+            if (playerCar == null) return false;
+            var spec = CarCatalog.Get(RaceHandoff.CarSpecId);
+            if (spec == null) return false;
+
+            var body = playerCar.Body != null ? playerCar.Body : playerCar.GetComponent<Rigidbody>();
+            Vector3 vel = body != null ? body.linearVelocity : Vector3.zero;
+            Vector3 spin = body != null ? body.angularVelocity : Vector3.zero;
+            float reachBefore = ShellReach(playerCar);
+
+            ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
+            SpecPlayerCar(spec);
+
+            var tank = playerCar.GetComponent<FuelTank>();
+            if (tank != null) tank.percent = Mathf.Clamp(RaceHandoff.StartFuelPct, 0f, 100f);
+            ApplyCarCondition(firstRun: true);
+            ApplyHudFlags();
+
+            float lift = Mathf.Max(0f, ShellReach(playerCar) - reachBefore);
+            if (lift > 0f && body != null)
+            {
+                playerCar.TeleportTo(playerCar.transform.position + Vector3.up * (lift + 0.02f),
+                                     playerCar.transform.rotation);
+                body.linearVelocity = vel;
+                body.angularVelocity = spin;
+            }
+            // The gear the OLD box was in means nothing in the new one: pick
+            // the gear the new car would be in at this road speed, so the swap
+            // does not land on the limiter in a first gear built for a kei car.
+            // (Reverse is left alone — a tester backing up stays backing up.)
+            if (playerCar.currentGear >= 1)
+            {
+                float mps = Mathf.Abs(Vector3.Dot(vel, playerCar.transform.forward));
+                playerCar.currentGear = playerCar.GearForSpeed(mps);
+                playerCar.currentRPM = Mathf.Clamp(
+                    playerCar.KinematicRPM(mps, playerCar.currentGear),
+                    playerCar.idleRPM, playerCar.revLimitRPM);
+            }
+            return true;
+        }
+
+        /// <summary>How far below its own origin a car's shell reaches: the
+        /// lower of the collider's underside and the tyres' contact line.</summary>
+        static float ShellReach(CarController car)
+        {
+            float wheels = car.mountHeight <= 0f ? car.wheelRadius
+                         : car.restLength + car.wheelRadius - car.mountHeight;
+            var shell = car.GetComponent<CarBody>();
+            float box = shell != null && shell.box != null
+                ? -(shell.box.center.y - shell.box.size.y * 0.5f) : 0f;
+            return Mathf.Max(wheels, box);
+        }
+
+        /// <summary>
+        /// RE-READ THE HOUR AND THE WEATHER, mid-drive — the debug bench's
+        /// WORLD page. The hour goes through the same <see cref="TimeOfDay.Apply"/>
+        /// the scene booted with (sun, fog, sky, the cars' lamps, the street
+        /// lamps, the wet road), and then the three things that only ever
+        /// looked at the sky ONCE, as the scene loaded, are asked to look
+        /// again: what is falling (<see cref="WeatherFx"/>), what the ground
+        /// is wearing (the snow dress is a material swap,
+        /// <see cref="SeasonDress"/>), and the air the radiator is working in.
+        /// The tyres and the AI's braking need nothing: both ask
+        /// <see cref="Seasons"/> every tick.
+        /// </summary>
+        public void ReapplyWorld()
+        {
+            TimeOfDay.Apply(RaceHandoff.TimeOfDayIndex, sun);
+
+            var dress = Object.FindFirstObjectByType<SeasonDress>();
+            if (dress != null)
+            {
+                dress.Apply(Seasons.CurrentDress);
+                // Only where the scene draws weather at all — an interior
+                // opts out, and the bench must not rain in one.
+                if (dress.weatherFx) WeatherFx.Set(Seasons.CurrentWeather);
+            }
+
+            var temp = playerCar != null ? playerCar.GetComponent<EngineTemp>() : null;
+            if (temp != null) temp.ambientC = CoolingModel.CurrentAmbientC;
+        }
+
+        /// <summary>
         /// Spec the AI field from the catalog. Until this existed the player
         /// could buy any of 317 cars and still line up against four identical
         /// RX-7s — a 90 hp hatchback and a 600 hp supercar raced the same

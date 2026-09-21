@@ -82,6 +82,21 @@ namespace PSXRacing.EditorTools
             Shoot(outDir, "bench_parts", car, DebugCarPanel.Page.Parts);
             Shoot(outDir, "bench_parts_end", car, DebugCarPanel.Page.Parts, scrollTo: 0f);
 
+            // The two pages only a drive has. A forced sky, so the WORLD page
+            // is photographed with a switch thrown on both rows; the CAR page
+            // at its index of makes and inside the longest-named make's list.
+            RaceHandoff.TimeOfDayIndex = TimeOfDay.Night;
+            RaceHandoff.WeatherOverride = (int)Weather.Rain;
+            Shoot(outDir, "bench_world", car, DebugCarPanel.Page.World);
+            RaceHandoff.WeatherOverride = -1;
+            Shoot(outDir, "bench_car", car, DebugCarPanel.Page.Car);
+            Shoot(outDir, "bench_car_end", car, DebugCarPanel.Page.Car, scrollTo: 0f);
+            string longest = null; int longestLen = 0;
+            foreach (var c in CarCatalog.All)
+                if (c.name != null && c.name.Length > longestLen)
+                { longestLen = c.name.Length; longest = DebugCarOps.MakeOf(c); }
+            Shoot(outDir, "bench_car_make", car, DebugCarPanel.Page.Car, make: longest);
+
             ShootPause(outDir, "bench_pause");
 
             RaceHandoff.ClearAll();
@@ -90,7 +105,7 @@ namespace PSXRacing.EditorTools
         }
 
         static void Shoot(string outDir, string label, OwnedCar car, DebugCarPanel.Page page,
-                          float scrollTo = 1f)
+                          float scrollTo = 1f, string make = null)
         {
             foreach (var size in Sizes)
             {
@@ -100,6 +115,10 @@ namespace PSXRacing.EditorTools
                 var host = new GameObject("Bench");
                 var panel = host.AddComponent<DebugCarPanel>();
                 panel.target = car;
+                // No drive under an edit-mode page, so the two drive-only
+                // pages are asked for outright.
+                panel.forceDrivePages = true;
+                panel.PreviewMake(make);
                 // Chosen BEFORE Open, not by turning the page after it: the
                 // page is only ever built once that way, so nothing depends on
                 // a teardown having happened.
@@ -163,7 +182,7 @@ namespace PSXRacing.EditorTools
                 var offCanvas = new List<string>();
                 foreach (var b in host.GetComponentsInChildren<Button>(true))
                 {
-                    if (b.name.Contains("DEBUG: FAULTS")) found = true;
+                    if (b.name.Contains("DEBUG BENCH")) found = true;
                     var r = (RectTransform)b.transform;
                     var corners = new Vector3[4];
                     r.GetWorldCorners(corners);
