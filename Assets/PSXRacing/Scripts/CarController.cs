@@ -767,7 +767,31 @@ namespace PSXRacing
 
             RebuildGeometry();
             currentRPM = idleRPM;
+
+            // The box the ghost-contact filter knows this car by: the seam and
+            // end-cap contacts that stop a car dead while it slides along a
+            // smooth wall are dropped there. Registered in OnEnable below and
+            // published at the top of every FixedUpdate, because CarBody.Apply
+            // resizes this box per model at runtime.
+            ghostBox = GetComponent<BoxCollider>();
         }
+
+        BoxCollider ghostBox;
+
+        // In the filter only while this component RUNS, not from Awake to
+        // OnDestroy. The filter's verdict for a step — "the path ahead is
+        // clear, this car is sliding on its left" — is only renewed by the
+        // Publish at the top of FixedUpdate, and the callbacks keep stamping
+        // the sliding evidence with whatever step number they last saw. A
+        // disabled controller on a body that is still moving would leave that
+        // verdict frozen: filtering on, with no sweep ever looking ahead
+        // again. Out of the registry, its contacts are plain PhysX.
+        void OnEnable() => GhostContactFilter.Register(ghostBox);
+
+        // By reference, not by Unity's null: the box may be torn down before
+        // this component is, and its slot must still be freed. OnDisable also
+        // runs on destroy, so this is the teardown too.
+        void OnDisable() => GhostContactFilter.Unregister(ghostBox);
 
         /// <summary>Peak of a torque curve, Nm. Zero for no curve, so a car
         /// with none gets no engine braking rather than a default car's.</summary>
@@ -1676,6 +1700,10 @@ namespace PSXRacing
 
         void FixedUpdate()
         {
+            // First thing in the step: the ghost filter judges this step's
+            // contacts against the pose the solver is about to use and the
+            // box's size as CarBody last set it.
+            GhostContactFilter.Publish(ghostBox);
             float dt = Time.fixedDeltaTime;
             Vector3 vel = Body.linearVelocity;
             forwardSpeed = Vector3.Dot(vel, transform.forward);

@@ -5557,8 +5557,16 @@ namespace PSXRacing.EditorTools
         /// onto either side, and on a stage the full-height part of each
         /// approach run (ApproachRailStations less the flaring terminal), cast
         /// outward from the tarmac edge at both barrier heights on both sides,
-        /// at the station and mid-chord: each cast must cross a barrier box.
-        /// Geometric, against the boxes' own transforms, so it needs no physics.
+        /// at the station and mid-chord: each cast must cross a barrier.
+        /// Geometric, against the boxes' own transforms and the wall solids'
+        /// own triangles, so it needs no physics.
+        ///
+        /// A barrier is a box ("WallPortal", which is one box, and the chords
+        /// of a scene built before the wall solids) or a WALL SOLID: every run
+        /// of "Wall", "WallColl", "BankColl" and "WallTunnel" is one closed
+        /// concave MeshCollider now, because the chained boxes' end faces
+        /// stopped a car scraping them dead. Reading boxes only, this check
+        /// would find no rail on any deck at all.
         /// </summary>
         static void CheckDeckRails(TrackCatalog.TrackDef t, Transform trackRoot,
                                    Vector3[] wp, Vector3[] right, bool loop, float half)
@@ -5587,8 +5595,10 @@ namespace PSXRacing.EditorTools
                 }
             }
 
-            // The barrier boxes: a stage's guard walls, tunnel walls and
-            // portals and rock faces, a circuit's perimeter wall. 16 m cells.
+            // The barrier boxes: a tunnel's portals, and — in a scene built
+            // before the wall solids — a stage's guard walls, tunnel walls and
+            // rock faces and a circuit's perimeter wall, chord by chord. 16 m
+            // cells. (The slab test is WallGeom.SegmentCrosses's.)
             var cells = new Dictionary<long, List<BoxCollider>>();
             long Cell(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
             foreach (var box in trackRoot.GetComponentsInChildren<BoxCollider>(true))
@@ -5601,6 +5611,14 @@ namespace PSXRacing.EditorTools
                 if (!cells.TryGetValue(key, out var list)) cells[key] = list = new List<BoxCollider>();
                 list.Add(box);
             }
+            // The wall solids: a run each, kilometres on a circuit, so they are
+            // not bucketed by a centre — each is rejected by its own triangles'
+            // box and asked by WallGeom, which buckets its triangles itself
+            // (and is told to forget the last venue's first: its scene is gone).
+            WallGeom.ClearCache();
+            var solids = new List<(MeshCollider col, Bounds b)>();
+            foreach (var mc in trackRoot.GetComponentsInChildren<MeshCollider>(true))
+                if (WallGeom.IsWallSolid(mc)) solids.Add((mc, WallGeom.WorldBounds(mc)));
             bool Barred(Vector3 a, Vector3 b)
             {
                 Vector3 mid = (a + b) * 0.5f;
@@ -5609,7 +5627,14 @@ namespace PSXRacing.EditorTools
                     for (int dz = -1; dz <= 1; dz++)
                         if (cells.TryGetValue(Cell(cx + dx, cz + dz), out var list))
                             foreach (var box in list)
-                                if (SegmentCrossesBox(box, a, b)) return true;
+                                if (WallGeom.SegmentCrosses(box, a, b)) return true;
+                Vector3 lo = Vector3.Min(a, b), hi = Vector3.Max(a, b);
+                foreach (var (col, wb) in solids)
+                {
+                    if (hi.x < wb.min.x || lo.x > wb.max.x || hi.z < wb.min.z || lo.z > wb.max.z ||
+                        hi.y < wb.min.y || lo.y > wb.max.y) continue;
+                    if (WallGeom.SegmentCrosses(col, a, b)) return true;
+                }
                 return false;
             }
 
@@ -5643,31 +5668,6 @@ namespace PSXRacing.EditorTools
                   " has a barrier collider on both sides",
                   open == 0 ? spans + " span stations, " + casts + " casts"
                             : open + " of " + casts + " casts open (first " + firstOpen + ")");
-        }
-
-        /// <summary>Does the segment a-b pass through the box? A slab test in
-        /// the box's own frame.</summary>
-        static bool SegmentCrossesBox(BoxCollider box, Vector3 a, Vector3 b)
-        {
-            var xf = box.transform;
-            Vector3 la = xf.InverseTransformPoint(a) - box.center;
-            Vector3 d = xf.InverseTransformPoint(b) - box.center - la;
-            Vector3 h = box.size * 0.5f;
-            float t0 = 0f, t1 = 1f;
-            for (int ax = 0; ax < 3; ax++)
-            {
-                if (Mathf.Abs(d[ax]) < 1e-6f)
-                {
-                    if (la[ax] < -h[ax] || la[ax] > h[ax]) return false;
-                    continue;
-                }
-                float u0 = (-h[ax] - la[ax]) / d[ax], u1 = (h[ax] - la[ax]) / d[ax];
-                if (u0 > u1) { float swap = u0; u0 = u1; u1 = swap; }
-                t0 = Mathf.Max(t0, u0);
-                t1 = Mathf.Min(t1, u1);
-                if (t0 > t1) return false;
-            }
-            return true;
         }
 
         /// <summary>

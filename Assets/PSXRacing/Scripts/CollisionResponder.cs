@@ -281,8 +281,26 @@ namespace PSXRacing
             int count = c.contactCount;
             if (count == 0) return false;
 
-            Vector3 sum = Vector3.zero;
-            for (int i = 0; i < count; i++) sum += c.GetContact(i).normal;
+            // ONLY THE CONTACTS THAT PUSHED. A contact the solver applied no
+            // impulse through did not hit the car: GhostContactFilter's
+            // dropped seams (an end cap facing straight back down the road,
+            // which averaged in here would turn a scrape into a head-on
+            // "hard" hit and scrub 45% of the speed the filter just saved),
+            // and a speculative contact that never closed. Averaged with the
+            // rest they only drag the normal toward something that was not
+            // there. If no single contact reports an impulse while the pair
+            // as a whole did, the per-point figures are simply not being
+            // reported, and every contact is averaged as it always was — a
+            // responder gone deaf would be a worse bug than the one this
+            // guards against.
+            Vector3 sum = Vector3.zero, all = Vector3.zero;
+            for (int i = 0; i < count; i++)
+            {
+                var cp = c.GetContact(i);
+                all += cp.normal;
+                if (cp.impulse.sqrMagnitude > 1e-8f) sum += cp.normal;
+            }
+            if (sum.sqrMagnitude < 0.0001f && c.impulse.sqrMagnitude > 1e-8f) sum = all;
             if (sum.sqrMagnitude < 0.0001f) return false;
             normal = sum.normalized;
 

@@ -3318,20 +3318,24 @@ namespace PSXRacing.EditorTools
         /// plane - 0.4, left a window under itself.</summary>
         const float StageWallFootSink = 0.3f, StageWallMaxFoot = 6f;
         /// <summary>A buried terminal's chord with less stone than this over
-        /// the foreslope at its face gets no box: what is left is a kerb of
-        /// stone the shoulder ribbon rides over.</summary>
+        /// the foreslope at its face gets no collider (the wall solid ends
+        /// there): what is left is a kerb of stone the shoulder ribbon rides
+        /// over.</summary>
         const float StageWallCollMinH = 0.1f;
         /// <summary>
         /// Bends tighter than this get half-station chords on their inside.
         ///
-        /// A wall collider is a box per station chord, and where the heading
-        /// turns 4 m / R per station its ends, which overlap the next box,
-        /// swing toward the road: the obstacle audit found 22 on the Blowing
+        /// A wall collider was a box per station chord, and where the heading
+        /// turns 4 m / R per station its ends, which overlapped the next box,
+        /// swung toward the road: the obstacle audit found 22 on the Blowing
         /// Rock loop's hairpins the first time a wall stood on an inside. The
         /// answer then was to leave insides unwalled. A warranted wall cannot
-        /// be left out, so its inside chords are halved (a ring on the offset
-        /// curve between the stations) and set back by their own sag and end
-        /// overlap, and the drawn stone takes the same rings.
+        /// be left out, so its inside chords are halved (a ring between the
+        /// stations) and set back by their own sag and end overlap, and the
+        /// drawn stone takes the same rings. The collider is one solid per run
+        /// now (BuildWallSolid), with no overlapping ends to swing; the
+        /// half rings and the set-back (StageWallContactE) stay, because the
+        /// walled shoulder is built to that line and the stone to those rings.
         /// </summary>
         const float StageTightBendR = 80f;
 
@@ -3378,13 +3382,16 @@ namespace PSXRacing.EditorTools
             root.transform.SetParent(parent, false);
 
             int runs = 0, walled = 0;
+            int solids0 = wallSolidCount;
+            float solidM0 = wallSolidM;
             foreach (var run in rsWallRuns)
             {
                 BuildOneStageWall(pts, run.from, run.len, run.side, root.transform, mat, phys, runs++);
                 walled += run.len;
             }
             Log($"Stage guard walls: {runs} warranted runs covering {walled * Spacing:0} m of shoulder " +
-                $"(of {n * Spacing * 2:0} m of roadside).");
+                $"(of {n * Spacing * 2:0} m of roadside); {wallSolidCount - solids0} wall solid(s), " +
+                $"{wallSolidM - solidM0:0} m of collider face.");
             PlaceStagePosts(pts, parent);
         }
 
@@ -3475,11 +3482,14 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// Where a car meets a guard wall's COLLIDER at station i, as e past the
-        /// tarmac edge: the drawn face (rsWallE) moved out by what
-        /// BuildOneStageWall moves the chord boxes out by — the one-station
-        /// chord's sag on the outside of a bend, a half chord's sag and end
-        /// swing on a tight inside. The walled shoulder runs to here, so the
-        /// surface in front of the box is shoulder all the way to it.
+        /// tarmac edge: the drawn face (rsWallE) moved out by the one-station
+        /// chord's sag on the outside of a bend, and on a tight inside by a
+        /// half chord's sag and the end swing the old overlapping boxes had
+        /// (a few centimetres; kept, as the shoulder is built to it). It is
+        /// the ONE offset BuildOneStageWall gives the wall solid's face at this
+        /// station's ring, for both chords that share it. The walled shoulder
+        /// runs to here, so the surface in front of the collider is shoulder
+        /// all the way to it.
         /// </summary>
         static float StageWallContactE(List<Vector3> pts, int i, int s, float side)
         {
@@ -3487,8 +3497,10 @@ namespace PSXRacing.EditorTools
             float extra = WallChordSag(pts, i, side);
             if (TightInside(pts, i, side, out float r))
             {
-                // BuildOneStageWall's set-back for a half chord (overlap 0.25 m)
-                // on the wall line, whose radius is the bend's less the offset.
+                // The set-back the per-chord boxes took for a half chord (overlap
+                // 0.25 m) on the wall line, whose radius is the bend's less the
+                // offset. The wall solid has no overlap to swing, but this line
+                // is where the shoulder ends, so the solid's face stays on it.
                 float rw = Mathf.Max(r - (RoadWidth * 0.5f + faceE), 1f);
                 float c = Spacing * 0.5f * rw / Mathf.Max(r, 1f);
                 extra = Mathf.Max(extra, c * c / (8f * rw) + 0.25f * 0.5f * c / rw);
@@ -3539,8 +3551,9 @@ namespace PSXRacing.EditorTools
             // measured at the stone's BACK, the lower edge of a falling slope,
             // so no lip of its flat top pokes out behind — and the invisible
             // extra over the stone stands only where the stone is full height:
-            // a chord's box takes the lower of its two rings, so on a terminal
-            // it never stands over its drawing.
+            // the wall solid takes collTopY only at a ring whose neighbours are
+            // full height too, so on a terminal it never stands over its
+            // drawing.
             float buryDy = terminal
                 ? OpenSectionDy(g.faceE + StageWallFaceIn + StageWallDrawThick) : faceDy;
             g.topY = Mathf.Lerp(pts[i].y + RoadLift + buryDy - 0.05f, pts[i].y + StageWallH, g.up);
@@ -3655,61 +3668,99 @@ namespace PSXRacing.EditorTools
                          UV(StageWallDrawThick, bt[k], k), UV(StageWallDrawThick, bb[k], k), outward);
             }
 
-            // Collider boxes PER CHORD. A box spanning four stations cuts the
+            // THE COLLIDER: ONE SOLID PER RUN, built from the same rings.
+            //
+            // It was a box per chord (a box spanning four stations cuts the
             // corner — at the stage's 27 m minimum radius a 16 m chord sags
             // 1.2 m inside the wall line, which the obstacle audit reported as
-            // an invisible face in the kerb band at 151 spots. (A MeshCollider
-            // on the single-sided ribbon would be worse still: single-sided
-            // contacts, cars nosing through.)
-            float halfT = StageWallCollThick * 0.5f;
-            for (int k = 1; k < R; k++)
+            // an invisible face in the kerb band at 151 spots), each running
+            // 0.25 m past its stations to overlap the next. Every one of those
+            // joints put the next box's square END FACE across the plane a car
+            // slides along: 5-48 mm proud on the inside of every bend, where
+            // the chain is convex to the road; ~20 mm where a tight inside's
+            // set-back switched on, because each chord computed its own; a
+            // metre-tall riser at every buried terminal, where the box top
+            // jumped from the lowered stone to the full invisible height; and
+            // flush but REAL on the straights and the drag bridges, where a car
+            // pressed into the wall by its contact offset met the next end face
+            // within one step. PhysX suppresses contacts only on edges internal
+            // to one triangle mesh, so each of those was a dead stop.
+            //
+            // BuildWallSolid makes the run one closed, 1.2 m-deep concave
+            // mesh: a traffic face, top, back and bottom, capped only at the
+            // run's own ends. (The single-sided ribbon, rejected here once for
+            // letting cars nose through, is not this: this is closed and
+            // StageWallCollThick deep, every face wound outward.)
+            //
+            // Per ring, ONE contact offset, which both chords that share the
+            // ring use — the old per-chord extras disagreed at a shared station
+            // and that disagreement was a step:
+            //  * a station ring stands at StageWallContactE, the line the walled
+            //    shoulder is run to — the drawn face moved out by the sag its
+            //    bend gives a one-station chord on the outside (so the chord
+            //    between two rings meets, and never leads, the stone), and set
+            //    back on a tight inside;
+            //  * a half-station ring takes the MEAN of its two stations'
+            //    extras, so the face between them is straight in offset.
+            // Heights per ring: the footing is the lowest of the ring's and its
+            // neighbours' along the run's chords, 0.1 m under (never a window
+            // under the stone); the top is the ring's own collTopY — the stone
+            // plus the invisible extra where the stone is full height, the
+            // lowered stone alone on a buried terminal — so the collider ramps
+            // down across the chord into a terminal instead of standing over its
+            // lowered stone, and no riser is left where the box tops used to
+            // step. NOT "full only where both neighbours are full too": that
+            // dropped the last full-height station before every flare to the
+            // bare 0.85 m stone, and the deck-rail self-test's 0.8 m rail cast
+            // went over the top at the end of every bridge approach (Blue
+            // Ridge, Langston, Atlantic Beach, both loops) — a wall a fast car
+            // could be lifted over, exactly where the approach rail is for.
+            //
+            // A chord with less stone over the ground at its face than
+            // StageWallCollMinH gets no collider (a kerb of stone the shoulder
+            // ribbon rides over), and splits the run: each side of it is its
+            // own solid, with its own caps.
+            float[] extra = new float[R];
             {
-                var A = rings[k - 1];
-                var B = rings[k];
-                bool halfChord = A.mid || B.mid;
-                float overlap = halfChord ? 0.25f : 0.5f;
-                // Where the box's contact face goes: the drawn wall line, moved
-                // OUT by what the chord would otherwise lead the stone by.
-                //  * Outside of a bend: the chord sags toward the road by
-                //    c^2 / 8R — 14 cm on a 14 m hairpin, which the obstacle
-                //    audit found on the kerb — so each end moves out by the
-                //    sag its station's bend gives a 4 m chord.
-                //  * Tight inside: the chord lies away from the road already,
-                //    but its overlap swings the ends toward it; a half chord
-                //    sets back by its sag plus that swing.
-                float extraA = A.mid ? 0f : A.sag, extraB = B.mid ? 0f : B.sag;
-                float tightR = Mathf.Max(A.tightR, B.tightR);
-                if (tightR > 0f)
+                var order = new List<int>(stations + 2);
+                if (before >= 0) order.Add(before);
+                for (int k = 0; k < stations; k++) order.Add(WrapIdx(from + k, n));
+                if (after >= 0) order.Add(after);
+                int q = 0;
+                for (int k = 0; k < R; k++)
+                    if (!rings[k].mid)
+                        extra[k] = StageWallContactE(pts, order[q++], s, side) - rings[k].faceE;
+                // A mid ring is only ever inserted BETWEEN two station rings.
+                for (int k = 1; k + 1 < R; k++)
+                    if (rings[k].mid) extra[k] = 0.5f * (extra[k - 1] + extra[k + 1]);
+            }
+            bool ChordSolid(int k) =>   // the chord from ring k-1 to ring k
+                Mathf.Min(rings[k - 1].collTopY, rings[k].collTopY)
+                - Mathf.Max(rings[k - 1].groundY, rings[k].groundY) >= StageWallCollMinH;
+            int sub = 0;
+            for (int k = 1; k < R; )
+            {
+                if (!ChordSolid(k)) { k++; continue; }
+                int k0 = k - 1, k1 = k;               // rings k0..k1 of this sub-run
+                while (k1 + 1 < R && ChordSolid(k1 + 1)) k1++;
+                var faceBottom = new List<Vector3>(k1 - k0 + 1);
+                var faceTop = new List<Vector3>(k1 - k0 + 1);
+                var outward = new List<Vector3>(k1 - k0 + 1);
+                for (int r = k0; r <= k1; r++)
                 {
-                    Vector3 wa = A.centre + A.right * (side * (half + A.faceE));
-                    Vector3 wb = B.centre + B.right * (side * (half + B.faceE));
-                    wa.y = wb.y = 0f;
-                    float c = Vector3.Distance(wa, wb);
-                    float rw = Mathf.Max(tightR - (half + (A.faceE + B.faceE) * 0.5f), 1f);
-                    float setBack = c * c / (8f * rw) + overlap * 0.5f * c / rw;
-                    extraA = Mathf.Max(extraA, setBack);
-                    extraB = Mathf.Max(extraB, setBack);
+                    var g = rings[r];
+                    Vector3 face = g.centre + g.right * (side * (half + g.faceE + extra[r]));
+                    float bottom = g.baseY;
+                    if (r > k0) bottom = Mathf.Min(bottom, rings[r - 1].baseY);
+                    if (r < k1) bottom = Mathf.Min(bottom, rings[r + 1].baseY);
+                    float top = g.collTopY;
+                    faceBottom.Add(new Vector3(face.x, bottom - 0.1f, face.z));
+                    faceTop.Add(new Vector3(face.x, top, face.z));
+                    outward.Add(g.right * side);
                 }
-                Vector3 a = A.centre + A.right * (side * (half + A.faceE + halfT + extraA));
-                Vector3 b = B.centre + B.right * (side * (half + B.faceE + halfT + extraB));
-                // As tall as the lower end's stone allows (plus the invisible
-                // extra where the stone is up), down to below the deeper
-                // footing: never taller than its drawing, never a window under.
-                float bottom = Mathf.Min(A.baseY, B.baseY) - 0.1f;
-                float top = Mathf.Min(A.collTopY, B.collTopY);
-                if (top - Mathf.Max(A.groundY, B.groundY) < StageWallCollMinH) continue;
-                Vector3 dir = b - a; dir.y = 0f;
-                if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
-                var seg = new GameObject("WallColl");
-                seg.transform.SetParent(parent, false);
-                Vector3 mid = (a + b) * 0.5f;
-                seg.transform.position = new Vector3(mid.x, (bottom + top) * 0.5f, mid.z);
-                seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                var box = seg.AddComponent<BoxCollider>();
-                box.size = new Vector3(StageWallCollThick, top - bottom, dir.magnitude + overlap);
-                box.sharedMaterial = phys;
-                seg.layer = SolidLayer;
-                seg.isStatic = true;
+                BuildWallSolid("WallColl", parent, faceBottom, faceTop, outward, StageWallCollThick,
+                               false, phys, "CollGuard" + no + "_" + sub++);
+                k = k1 + 1;
             }
             var mesh = new Mesh
             {
@@ -3814,13 +3865,16 @@ namespace PSXRacing.EditorTools
             root.transform.SetParent(parent, false);
 
             int runs = 0, banked = 0;
+            int solids0 = wallSolidCount;
+            float solidM0 = wallSolidM;
             foreach (var run in rsBankRuns)
             {
                 BuildOneStageBank(pts, run.stations, run.side, root.transform, mat, topMat, phys, runs++);
                 banked += run.stations.Length;
             }
             Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder, " +
-                "each with a solid rock top over its released hillside.");
+                "each with a solid rock top over its released hillside; " +
+                $"{wallSolidCount - solids0} rock-face solid(s), {wallSolidM - solidM0:0} m of collider face.");
         }
 
         /// <summary>Is <paramref name="p"/> still this station's own hillside —
@@ -4061,53 +4115,76 @@ namespace PSXRacing.EditorTools
                 if (k > 0)
                     for (int j = 0; j + 1 < M; j++)
                         QuadFacingSkipFlat(tVerts, tTris, t - M + j, t - M + j + 1, t + j + 1, t + j, Vector3.up);
+            }
 
-                // One box per station chord, for the reason the wall's comment
-                // gives: a box spanning four stations cuts the corner and ends
-                // up inside the kerb band on the stage's tightest radius. Only
-                // between two FACED stations: a graded one has no rock at the
-                // toe to stand a box in front of, and a box there would be an
-                // invisible wall across a backslope.
-                if (k > 0 && !graded[k] && !graded[k - 1])
+            // THE ROCK FACE'S SOLID: one closed MeshCollider per stretch of
+            // faced chords (BuildWallSolid), where there was a box per station
+            // chord overlapping the next by 0.25 m each way. Cuts sit mostly on
+            // the inside of a bend — the road wraps a spur — where that chain is
+            // convex to the road and every joint put the next box's square end
+            // 18-48 mm proud of the face a car slides on: a dead stop every
+            // 40-180 m of cut. One mesh has no joints to be proud of.
+            //
+            // Chords, not a box spanning four stations, for the reason the
+            // wall's comment gives: that cuts the corner and ends up inside the
+            // kerb band on the stage's tightest radius. Only between two FACED
+            // stations: a graded one has no rock at the toe to stand a collider
+            // in front of, and one there would be an invisible wall across a
+            // backslope.
+            //
+            // AS TALL AS THE ROCK IS AND NO TALLER. This was Max(hh,
+            // StageWallCollH) — the guard wall's 1.7 m collider height, borrowed
+            // on the reasoning that a barrier ought to be a barrier. On a cut
+            // bank it is a force field, because the face tapers to nothing at
+            // both ends of every run: measured off the built scenes, 1.0 km of
+            // Mount Mitchell's shoulder carried a collider taller than its rock,
+            // 180 m of it where the drawn face was 0.15 m. Reported as
+            // "invisible wall on edge of road that knocked me off the track". A
+            // chord stands only where both its stations have BankCollMinH of
+            // face, and each ring's top is the LEAST face of the chords either
+            // side of it: the solid is straight between rings where the drawn
+            // ribbon is a ramp, so erring short leaves at worst a hand's breadth
+            // of rock it does not reach (the rock top's collider does), and
+            // erring tall puts the fault back. Footings as the boxes had them,
+            // 0.6 m under the road, the lower of the two chords at a ring.
+            //
+            // Seated so the INNER face lands 0.05 m inside the drawn toe, and
+            // every millimetre of its depth grows into the hill
+            // (StageWallCollThick's seating rule).
+            bool BankChord(int k) =>   // the chord from station k-1 to station k
+                !graded[k] && !graded[k - 1] && Mathf.Min(hh[k - 1], hh[k]) >= BankCollMinH;
+            float seatE = half + CutToeE - 0.05f;
+            int sub = 0;
+            for (int k = 1; k < R; )
+            {
+                if (!BankChord(k)) { k++; continue; }
+                int k0 = k - 1, k1 = k;
+                while (k1 + 1 < R && BankChord(k1 + 1)) k1++;
+                var faceBottom = new List<Vector3>(k1 - k0 + 1);
+                var faceTop = new List<Vector3>(k1 - k0 + 1);
+                var outward = new List<Vector3>(k1 - k0 + 1);
+                for (int r = k0; r <= k1; r++)
                 {
-                    int j = st[k - 1];
-                    // AS TALL AS THE ROCK IS AND NO TALLER.
-                    //
-                    // This was Max(hh, StageWallCollH) — the guard wall's 1.7 m
-                    // collider height, borrowed on the reasoning that a barrier
-                    // ought to be a barrier. On a cut bank it is a force field,
-                    // because the face tapers to nothing at both ends of every
-                    // run: measured off the built scenes, 1.0 km of Mount
-                    // Mitchell's shoulder carried a collider taller than its
-                    // rock, 180 m of it where the drawn face was 0.15 m.
-                    // Reported as "invisible wall on edge of road that knocked
-                    // me off the track". The MIN of the two stations it spans:
-                    // the box is a straight chord where the drawn ribbon is a
-                    // ramp, so erring short leaves at worst a hand's breadth of
-                    // rock the box does not reach (the rock top's collider
-                    // does), and erring tall puts the fault back.
-                    float ch = Mathf.Min(hh[k - 1], h);
-                    if (ch >= BankCollMinH)
+                    int i = st[r];
+                    Vector3 face = pts[i] + rsRight[i] * (side * seatE);
+                    float bottom = float.MaxValue, ch = hh[r];
+                    if (r > k0)
                     {
-                        // Seated so the box's INNER face lands 0.05 m inside the
-                        // drawn toe, and every millimetre of its depth grows
-                        // into the hill (StageWallCollThick's seating rule).
-                        float seat = half + CutToeE + StageWallCollThick * 0.5f - 0.05f;
-                        Vector3 a = pts[j] + rsRight[j] * (side * seat);
-                        Vector3 bPos = pts[i] + rsRight[i] * (side * seat);
-                        var seg = new GameObject("BankColl");
-                        seg.transform.SetParent(parent, false);
-                        seg.transform.position = (a + bPos) * 0.5f + Vector3.up * (ch * 0.5f - 0.3f);
-                        Vector3 dir = bPos - a; dir.y = 0f;
-                        if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
-                        seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                        var box = seg.AddComponent<BoxCollider>();
-                        box.size = new Vector3(StageWallCollThick, ch + 0.6f, dir.magnitude + 0.5f);
-                        box.sharedMaterial = phys;
-                        seg.layer = SolidLayer;
-                        seg.isStatic = true;
+                        bottom = Mathf.Min(bottom, (pts[st[r - 1]].y + pts[i].y) * 0.5f);
+                        ch = Mathf.Min(ch, hh[r - 1]);
                     }
+                    if (r < k1)
+                    {
+                        bottom = Mathf.Min(bottom, (pts[st[r + 1]].y + pts[i].y) * 0.5f);
+                        ch = Mathf.Min(ch, hh[r + 1]);
+                    }
+                    faceBottom.Add(new Vector3(face.x, bottom - 0.6f, face.z));
+                    faceTop.Add(new Vector3(face.x, pts[i].y + ch, face.z));
+                    outward.Add(rsRight[i] * side);
                 }
+                BuildWallSolid("BankColl", parent, faceBottom, faceTop, outward, StageWallCollThick,
+                               false, phys, "CollBank" + no + "_" + sub++);
+                k = k1 + 1;
             }
 
             var mesh = new Mesh
@@ -4236,8 +4313,8 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// A tube round the road wherever it passes under the mountain: two
-        /// walls, a ceiling, a rock portal face at each mouth, and a collider
-        /// chord per station down each wall. The road, its kerb strips and
+        /// walls, a ceiling, a rock portal face at each mouth, and one wall
+        /// solid (BuildWallSolid) down each wall. The road, its kerb strips and
         /// its colliders run through unchanged — the tube is what the ground
         /// mesh's hole (GridChunkMesh) is covered by from inside, and the
         /// portal faces are what covers it from outside.
@@ -4254,12 +4331,13 @@ namespace PSXRacing.EditorTools
             var root = new GameObject("Tunnels");
             root.transform.SetParent(parent, false);
             int no = 0, metres = 0;
+            int solids0 = wallSolidCount;
             foreach (var run in runs)
             {
                 BuildOneTunnel(pts, run.from, run.len, root.transform, mat, phys, no++);
                 metres += run.len * (int)Spacing;
             }
-            Log($"Stage tunnels: {no} tube(s), {metres} m bored.");
+            Log($"Stage tunnels: {no} tube(s), {metres} m bored, {wallSolidCount - solids0} wall solid(s).");
         }
 
         static void BuildOneTunnel(List<Vector3> pts, int from, int stations, Transform parent,
@@ -4294,28 +4372,74 @@ namespace PSXRacing.EditorTools
                     QuadFacing(verts, tris, ring[k - 1, 0], ring[k - 1, 1], ring[k, 1], ring[k, 0], inwardL);
                     QuadFacing(verts, tris, ring[k - 1, 1], ring[k - 1, 2], ring[k, 2], ring[k, 1], down);
                     QuadFacing(verts, tris, ring[k - 1, 2], ring[k - 1, 3], ring[k, 3], ring[k, 2], inwardR);
-
-                    // Collider chords down both walls, seated exactly on the
-                    // drawn face and grown OUTWARD — the guard wall's rule.
-                    int j = WrapIdx(from + k - 1, n);
-                    foreach (float side in new[] { -1f, 1f })
-                    {
-                        float seat = halfW + StageWallCollThick * 0.5f - 0.05f;
-                        Vector3 a = pts[j] + RightAt(pts, j) * side * seat;
-                        Vector3 b = pts[i] + RightAt(pts, i) * side * seat;
-                        var seg = new GameObject("WallTunnel");
-                        seg.transform.SetParent(parent, false);
-                        seg.transform.position = (a + b) * 0.5f + Vector3.up * (TunnelH * 0.5f - 0.2f);
-                        Vector3 dir = b - a; dir.y = 0f;
-                        if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
-                        seg.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                        var box = seg.AddComponent<BoxCollider>();
-                        box.size = new Vector3(StageWallCollThick, TunnelH + 0.4f, dir.magnitude + 0.5f);
-                        box.sharedMaterial = phys;
-                        seg.layer = SolidLayer;
-                        seg.isStatic = true;
-                    }
                 }
+            }
+
+            // The tube's walls, solid: ONE closed MeshCollider down each wall
+            // (BuildWallSolid), seated on the drawn face less 0.05 m and grown
+            // OUTWARD — the guard wall's rule — as tall as the drawn ceiling and
+            // 0.4 m under the road. It was a box per station chord overlapping
+            // the next by 0.25 m each way, and every joint laid a square end
+            // face across the plane a car scraping the tube wall slides on; one
+            // mesh has no joints.
+            //
+            // At each PORTAL ring the face sits on the drawn wall itself rather
+            // than 0.05 m in front of it, easing back in just inside the mouth. An
+            // approach guard wall meets the tube at the portal plane with its
+            // own face on that line (StageVerge less StageWallFaceIn, plus its
+            // bend's sag), and the tube's end cap standing 0.05 m in front of
+            // it was a real step — 52 mm at Little Switzerland's st 998, where a
+            // car scraping the approach wall into the tube stopped dead.
+            //
+            // The ease is over the portal's own depth (StageWallCollThick, a
+            // ring of its own), not the whole first chord. The mouth's
+            // WallPortal boxes reach that far into the tube with their inner
+            // edge on the drawn wall line, so their inner END FACE — square
+            // across the tube wall, facing a car on its way OUT — would stand
+            // only 0.05 x 1.2 / 4 = 15 mm behind a face eased over the whole
+            // 4 m chord: inside the 20 mm the two shapes' contact offsets add
+            // up to, a dead stop waiting at every exit for a car scraping the
+            // tube wall (and proud of the face outright on the inside of a bend
+            // tighter than ~160 m, where the chord falls away from the box's
+            // straight edge). Back on the contract line by the end of the box,
+            // it is the 50 mm it always was.
+            foreach (float side in new[] { -1f, 1f })
+            {
+                var faceBottom = new List<Vector3>(stations + 2);
+                var faceTop = new List<Vector3>(stations + 2);
+                var outward = new List<Vector3>(stations + 2);
+                void Ring(Vector3 centre, Vector3 right, float faceW, float bottom, float top)
+                {
+                    Vector3 face = centre + right * (side * faceW);
+                    faceBottom.Add(new Vector3(face.x, bottom - 0.4f, face.z));
+                    faceTop.Add(new Vector3(face.x, top, face.z));
+                    outward.Add(right * side);
+                }
+                // The ring StageWallCollThick in from the portal station kp,
+                // on the chord toward its neighbour kn: back on the contract
+                // line, with the chord's footing and the drawn ceiling there.
+                void PortalDepthRing(int kp, int kn)
+                {
+                    int ip = WrapIdx(from + kp, n), inb = WrapIdx(from + kn, n);
+                    Vector3 chord = pts[inb] - pts[ip]; chord.y = 0f;
+                    float t = Mathf.Min(0.5f, StageWallCollThick / Mathf.Max(chord.magnitude, 1e-3f));
+                    Vector3 c = Vector3.Lerp(pts[ip], pts[inb], t);
+                    Vector3 right = Vector3.Lerp(RightAt(pts, ip), RightAt(pts, inb), t).normalized;
+                    Ring(c, right, halfW - 0.05f, (pts[ip].y + pts[inb].y) * 0.5f, c.y + TunnelH);
+                }
+                for (int k = 0; k < stations; k++)
+                {
+                    int i = WrapIdx(from + k, n);
+                    bool portal = k == 0 || k == stations - 1;
+                    if (k == stations - 1) PortalDepthRing(k, k - 1);
+                    float bottom = float.MaxValue;
+                    if (k > 0) bottom = Mathf.Min(bottom, (pts[WrapIdx(from + k - 1, n)].y + pts[i].y) * 0.5f);
+                    if (k < stations - 1) bottom = Mathf.Min(bottom, (pts[WrapIdx(from + k + 1, n)].y + pts[i].y) * 0.5f);
+                    Ring(pts[i], RightAt(pts, i), portal ? halfW : halfW - 0.05f, bottom, pts[i].y + TunnelH);
+                    if (k == 0) PortalDepthRing(0, 1);
+                }
+                BuildWallSolid("WallTunnel", parent, faceBottom, faceTop, outward, StageWallCollThick,
+                               false, phys, "CollTnl" + no + (side < 0f ? "L" : "R"));
             }
 
             // The portals: a rock face across the mouth with the tube's

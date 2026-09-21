@@ -313,14 +313,20 @@ namespace PSXRacing.EditorTools
         /// deck, verge, kerb, shoulder batter): what a wheel rests on or runs
         /// into. <paramref name="face"/> says the hit is steeper than a floor
         /// (normal.y under <see cref="FaceNormalY"/>) — reported, not skipped.
+        ///
+        /// Not a concave mesh on the SOLID layer: every builder wall is one
+        /// closed concave mesh per run now (WallGeom), and its top is not a
+        /// lip or a landing — the wheels skip that layer, and the boxes the
+        /// solids replaced were never read here. Without this a lip probe
+        /// over a low terminal stone, or the open-edge test beside a wall
+        /// standing past OpenReach, would stand on the wall.
         /// </summary>
         static bool Surface(Vector3 from, float reach, out float y, out Collider on, out bool face)
         {
             y = 0f; on = null; face = false; bool found = false;
             foreach (var h in Physics.RaycastAll(from, Vector3.down, reach, ~0, QueryTriggerInteraction.Ignore))
             {
-                var mc = h.collider as MeshCollider;
-                if (mc == null || mc.convex) continue;
+                if (!WallGeom.IsSurfaceMesh(h.collider)) continue;
                 if (!found || h.point.y > y)
                 {
                     y = h.point.y; on = h.collider; face = h.normal.y < FaceNormalY; found = true;

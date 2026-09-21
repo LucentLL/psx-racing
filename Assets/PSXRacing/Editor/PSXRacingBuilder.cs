@@ -74,6 +74,11 @@ namespace PSXRacing.EditorTools
         /// covers ~1.6 m per physics tick at top speed, so a 0.35 m collider is
         /// thin enough to be stepped over even with continuous detection on.</summary>
         const float WallCollThick = 1.2f;
+        /// <summary>How far past a chord's two ends WallFootLatticeMin looks
+        /// for the lowest ground under a wall. It was the overlap between the
+        /// per-chord wall boxes, which are gone (BuildWallSolid: overlapping
+        /// boxes are what stopped cars dead); the footprint margin stays so
+        /// the footings a span's abutment gets did not move with them.</summary>
         const float WallCollOverlap = 0.6f;
         internal const float KerbWidth = 0.9f;
 
@@ -3177,6 +3182,8 @@ namespace PSXRacing.EditorTools
             var wallMat = MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
             var physMat = GetOrCreatePhysMat("WallPhys", 0.05f, 0f);
             int n = pts.Count, last = Loop ? n : n - 1;
+            int solids0 = wallSolidCount;
+            float solidM0 = wallSolidM;
 
             foreach (float side in new[] { -1f, 1f })
             {
@@ -3228,60 +3235,112 @@ namespace PSXRacing.EditorTools
                         if (side < 0f) tris.AddRange(new[] { v, v + 1, v + 2, v + 1, v + 3, v + 2 });
                         else tris.AddRange(new[] { v, v + 2, v + 1, v + 1, v + 2, v + 3 });
                     }
+                }
 
-                    // One collider per drawn segment. Emitting them every other
-                    // waypoint made each box a chord across two segments, and the
-                    // padding pushed the contact surface inside the drawn face —
-                    // so the car stopped before touching anything visible.
-                    if (i < last && !gap)
+                // THE COLLIDER IS ONE SOLID PER RUN OF WALL, not a box per chord.
+                //
+                // It was a box per drawn segment, each overlapping the next by
+                // WallCollOverlap so no hairline seam showed between them. The
+                // overlap did not remove the seam, it moved it: box k+1's END
+                // FACE is a real face, standing in (or, on the outside of a bend,
+                // up to 7 cm proud of) the very plane a car scraping the wall
+                // slides along. PhysX only suppresses contacts on an edge that is
+                // internal to ONE triangle mesh; between two separate colliders
+                // every face is real. So a car sliding down the barrier met that
+                // end face with a contact whose normal pointed straight back down
+                // the road, and lost its speed in one step — WallScrapeAudit
+                // measured 136 to 20 km/h in 1/60 s, every 36 m of the quarter
+                // mile, and 13 dead stops round City Circuit (the stage walls,
+                // bridges included, had the same chain: BuildOneStageWall).
+                // Reported as "invisible barriers while scraping walls that
+                // look smooth".
+                //
+                // One closed, concave MeshCollider per run (BuildWallSolid) has no
+                // end faces except the run's own two ends, and its traffic face is
+                // ONE surface: the edges between its quads are internal edges the
+                // cooker knows the neighbours of, so a car sliding along it meets
+                // the face (or the bend between two faces), never a face turned
+                // back down the road. It keeps everything the boxes were for:
+                // the face passes through exactly where their inner faces did at
+                // every station (the drawn line, so the contact surface is the
+                // quad the player sees), it is WallCollThick deep grown only
+                // OUTWARD so a fast car has real depth to catch against, and it
+                // reaches DOWN below the wall it is drawn as. The ground under a
+                // wall is not the waypoint plane:
+                // the corridor sink puts it 0.1-0.3 m lower everywhere, and at a
+                // bridge abutment the coarse lattice smears the gorge dig under
+                // the wall line — 1.25-2.28 m of window under the old box on
+                // Ridge Pass, taller than the car. Each ring's footing is the
+                // lowest of the two chords either side of it (the chord rule
+                // below, unchanged), so nothing a car can pass under opens up;
+                // not where the deck lies under the whole chord, where the deck
+                // is the floor and "the ground" is the gorge floor.
+                //
+                // Runs: the forecourt opening splits the pad side; everything
+                // else is one run. On a circuit the run WRAPS across waypoint 0 —
+                // cut there it would put two end caps back to back in the middle
+                // of a straight, which is the very fault this replaces — and a
+                // circuit with no opening on this side is a closed ring with no
+                // caps at all.
+                float ChordBottom(int c)
+                {
+                    int nxt = Loop ? (c + 1) % n : Mathf.Min(c + 1, n - 1);
+                    Vector3 outw = RightAt(pts, c) * side;
+                    Vector3 a = pts[c] + RightAt(pts, c) * (WallOffset * side);
+                    Vector3 b = pts[nxt] + RightAt(pts, nxt) * (WallOffset * side);
+                    float planeY = (a.y + b.y) * 0.5f;
+                    float bottomY = planeY - WallCollDepthM;
+                    if (NearBridgeSpan(c, WallSpanReach) &&
+                        !(DeckCoversStation(c) && DeckCoversStation(nxt)))
+                        bottomY = Mathf.Min(bottomY, WallFootLatticeMin(a, b, outw) - WallCollUnderGroundM);
+                    return bottomY;
+                }
+                bool ChordGap(int c) => side == padSide && InWallGap(c, n);
+
+                int chords = Loop ? n : n - 1;
+                var runs = new List<(int first, int count)>();
+                bool closed = false;
+                int scan0 = 0;
+                if (Loop)
+                {
+                    scan0 = -1;
+                    for (int c = 0; c < n; c++) if (ChordGap(c)) { scan0 = c; break; }
+                    if (scan0 < 0) { closed = true; runs.Add((0, n)); }
+                    else scan0 = (scan0 + 1) % n;
+                }
+                for (int k = 0; !closed && k < chords; )
+                {
+                    int c = Loop ? (scan0 + k) % n : k;
+                    if (ChordGap(c)) { k++; continue; }
+                    int len = 1;
+                    while (k + len < chords && !ChordGap(Loop ? (scan0 + k + len) % n : k + len)) len++;
+                    runs.Add((c, len));
+                    k += len;
+                }
+
+                for (int r = 0; r < runs.Count; r++)
+                {
+                    var (first, count) = runs[r];
+                    int rings = closed ? n : count + 1;
+                    var faceBottom = new List<Vector3>(rings);
+                    var faceTop = new List<Vector3>(rings);
+                    var outward = new List<Vector3>(rings);
+                    for (int j = 0; j < rings; j++)
                     {
-                        int nxt = Loop ? (idx + 1) % n : Mathf.Min(idx + 1, n - 1);
-                        Vector3 outw = RightAt(pts, idx) * side;
-                        Vector3 next = pts[nxt] + RightAt(pts, nxt) * (WallOffset * side);
-                        Vector3 dir = next - basePos; dir.y = 0f;
-                        if (dir.sqrMagnitude > 0.01f)
-                        {
-                            // Offset outward by half the thickness so the box's
-                            // INNER face is coplanar with the quad the player sees.
-                            // The collider is far thicker than the drawn wall
-                            // (WallCollThick vs WallThick) and grows only
-                            // OUTWARD, so the contact surface is unchanged while
-                            // a fast car has real depth to catch against.
-                            //
-                            // And DOWNWARD, below the wall it is drawn as. The
-                            // box used to start at the waypoint plane, and the
-                            // ground under a wall is not the plane: the corridor
-                            // sink puts it 0.1-0.3 m lower everywhere, and at a
-                            // bridge abutment the coarse lattice smears the
-                            // gorge dig under the wall line — 1.25-2.28 m of
-                            // window under the box on Ridge Pass, taller than
-                            // the car. The drawn face is unchanged; only what a
-                            // car can pass under is closed. Not where the deck
-                            // lies under the whole segment: the deck box is the
-                            // floor there, and "the ground" is the gorge floor.
-                            float planeY = (basePos.y + next.y) * 0.5f;
-                            float bottomY = planeY - WallCollDepthM;
-                            if (NearBridgeSpan(idx, WallSpanReach) &&
-                                !(DeckCoversStation(idx) && DeckCoversStation(nxt)))
-                                bottomY = Mathf.Min(bottomY,
-                                    WallFootLatticeMin(basePos, next, outw) - WallCollUnderGroundM);
-                            float topY = planeY + WallHeight;
-                            Vector3 mid = (basePos + next) * 0.5f + outw * (WallCollThick * 0.5f);
-                            mid.y = (topY + bottomY) * 0.5f;
-                            var col = new GameObject("Wall");
-                            col.transform.SetParent(wallRoot.transform, false);
-                            col.layer = SolidLayer;
-                            col.transform.position = mid;
-                            col.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                            var box = col.AddComponent<BoxCollider>();
-                            // Overlap neighbours along the run. Coplanar boxes
-                            // meeting exactly edge-to-edge leave a hairline seam
-                            // the solver can catch a corner on, which reads as
-                            // the car snagging on nothing.
-                            box.size = new Vector3(WallCollThick, topY - bottomY, dir.magnitude + WallCollOverlap);
-                            box.sharedMaterial = physMat;
-                        }
+                        int st = Loop ? (first + j) % n : first + j;
+                        Vector3 right = RightAt(pts, st);
+                        Vector3 face = pts[st] + right * (WallOffset * side);
+                        // The chords either side of this ring that belong to the run.
+                        float bottomY = float.MaxValue;
+                        if (closed || j > 0) bottomY = Mathf.Min(bottomY, ChordBottom(Loop ? (st - 1 + n) % n : st - 1));
+                        if (closed || j < count) bottomY = Mathf.Min(bottomY, ChordBottom(st));
+                        faceBottom.Add(new Vector3(face.x, bottomY, face.z));
+                        faceTop.Add(new Vector3(face.x, face.y + WallHeight, face.z));
+                        outward.Add(right * side);
                     }
+                    string meshName = (side < 0 ? "CollWallL" : "CollWallR") + (runs.Count > 1 ? r.ToString() : "");
+                    BuildWallSolid("Wall", wallRoot.transform, faceBottom, faceTop, outward, WallCollThick,
+                                   closed, physMat, meshName);
                 }
 
                 var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
@@ -3292,6 +3351,179 @@ namespace PSXRacing.EditorTools
                 meshGO.AddComponent<MeshRenderer>().sharedMaterial = wallMat;
                 meshGO.isStatic = true;
             }
+            Log($"Barriers: {wallSolidCount - solids0} wall solid(s) covering {wallSolidM - solidM0:0} m of " +
+                "barrier face, one closed MeshCollider per run (no per-chord boxes, no seams).");
+        }
+
+        /// <summary>Wall solids built, and the plan length of their traffic
+        /// faces, since the builder's domain loaded — the build log reports the
+        /// difference over each pass.</summary>
+        static int wallSolidCount;
+        static float wallSolidM;
+
+        /// <summary>Rings of a wall solid closer together than this in plan
+        /// are one ring: the quad between them has no area worth cooking, and
+        /// a zero-length one is a sliver PhysX's mesh cleaning deletes, which
+        /// leaves a hole in a solid that is supposed to be closed.</summary>
+        const float WallSolidMinRingM = 0.01f;
+        /// <summary>How far an open wall solid runs on past its end rings —
+        /// see BuildWallSolid.</summary>
+        const float WallSolidEndReachM = 0.1f;
+
+        /// <summary>
+        /// ONE BARRIER RUN AS ONE SOLID: a closed, concave MeshCollider in
+        /// place of the chain of per-chord BoxColliders every wall used to be.
+        ///
+        /// Why: in a chain, box k+1's end face is a real face lying in (or a few
+        /// centimetres proud of) the plane a car scraping the barrier slides
+        /// along, and PhysX answers it with a contact whose normal points back
+        /// down the road — full speed to a dead stop on a wall that looks
+        /// smooth. PhysX suppresses such contacts on edges INTERNAL to one
+        /// triangle mesh (the cooker flags which edges are real) and never
+        /// between two colliders, so the only cure is for the whole run to be
+        /// one mesh.
+        ///
+        /// Per ring k: the traffic face runs from <paramref name="faceBottom"/>
+        /// up to <paramref name="faceTop"/> (same x/z; the caller's contact
+        /// line), and the solid is <paramref name="thick"/> deep along
+        /// <paramref name="outward"/> (horizontal, away from the road), so it
+        /// has four corners — face foot, face top, back top, back foot — and
+        /// between rings four sides: the traffic face, the top, the back and
+        /// the bottom. End caps close ring 0 and the last ring; a
+        /// <paramref name="closedLoop"/> joins the last ring to the first and
+        /// has no caps and no seam anywhere. Every triangle is wound to face
+        /// OUT of the solid (QuadFacingSkipFlat, by the whole quad's normal):
+        /// sweep CCD against a triangle mesh does not see a back face, and a
+        /// single inside-out quad on the traffic face would be a hole a fast
+        /// car goes through.
+        ///
+        /// Layer SolidLayer, static, no renderer — the drawing is the caller's
+        /// own mesh. The collider mesh is saved uncompressed (meshName must not
+        /// match a CompressibleMesh key): a collider is exact geometry, and 16
+        /// bits over a 2 km barrier is a centimetre staircase on the very face
+        /// this exists to make smooth. Returns null when fewer than two rings
+        /// (three on a loop) survive.
+        /// </summary>
+        static GameObject BuildWallSolid(string name, Transform parent, List<Vector3> faceBottom, List<Vector3> faceTop,
+                                         List<Vector3> outward, float thick, bool closedLoop, PhysicsMaterial phys,
+                                         string meshName)
+        {
+            var fb = new List<Vector3>(faceBottom.Count);
+            var ft = new List<Vector3>(faceBottom.Count);
+            var ow = new List<Vector3>(faceBottom.Count);
+            const float MinSq = WallSolidMinRingM * WallSolidMinRingM;
+            for (int k = 0; k < faceBottom.Count; k++)
+            {
+                Vector3 o = outward[k]; o.y = 0f;
+                o = o.sqrMagnitude > 1e-8f ? o.normalized : (ow.Count > 0 ? ow[ow.Count - 1] : Vector3.zero);
+                if (fb.Count > 0)
+                {
+                    // A duplicate ring: its footing folds into the ring it
+                    // duplicates, so dropping it can never open a window.
+                    int j = fb.Count - 1;
+                    Vector3 d = faceBottom[k] - fb[j]; d.y = 0f;
+                    if (d.sqrMagnitude < MinSq)
+                    {
+                        fb[j] = new Vector3(fb[j].x, Mathf.Min(fb[j].y, faceBottom[k].y), fb[j].z);
+                        continue;
+                    }
+                }
+                fb.Add(faceBottom[k]); ft.Add(faceTop[k]); ow.Add(o);
+            }
+            if (closedLoop && fb.Count > 1)
+            {
+                int j = fb.Count - 1;
+                Vector3 d = fb[j] - fb[0]; d.y = 0f;
+                if (d.sqrMagnitude < MinSq)
+                {
+                    fb[0] = new Vector3(fb[0].x, Mathf.Min(fb[0].y, fb[j].y), fb[0].z);
+                    fb.RemoveAt(j); ft.RemoveAt(j); ow.RemoveAt(j);
+                }
+            }
+            int R = fb.Count;
+            if (R < 2 || (closedLoop && R < 3)) return null;
+            // Only a leading ring can still have no outward (the loop above
+            // carries the previous one forward): borrow the first real one.
+            int firstOut = ow.FindIndex(o => o.sqrMagnitude > 0.5f);
+            if (firstOut < 0) return null;
+            for (int k = 0; k < firstOut; k++) ow[k] = ow[firstOut];
+
+            // An open run reaches WallSolidEndReachM past its end rings, on
+            // along its end chords at the end rings' own section. Ending flush
+            // ON the end station left that station's own probes grazing the
+            // cap, edge-on: the edge audit's barrier ray at a drag strip's wp 0
+            // flew along the cap plane, found no wall, and walked on over the
+            // solid's top to report a 2.7 m face and fall. The boxes this
+            // replaces overhung 0.3 m; ten centimetres puts the station inside
+            // the face and nobody can see it.
+            if (!closedLoop)
+            {
+                Vector3 d0 = fb[0] - fb[1]; d0.y = 0f;
+                Vector3 d1 = fb[R - 1] - fb[R - 2]; d1.y = 0f;
+                d0 = d0.normalized * WallSolidEndReachM;
+                d1 = d1.normalized * WallSolidEndReachM;
+                fb.Insert(0, fb[0] + d0); ft.Insert(0, ft[0] + d0); ow.Insert(0, ow[0]);
+                int e = fb.Count - 1;
+                fb.Add(fb[e] + d1); ft.Add(ft[e] + d1); ow.Add(ow[e]);
+                R = fb.Count;
+            }
+
+            // Four corners per ring, shared by the faces that meet there (a
+            // collider has no seams to keep for UVs).
+            var verts = new List<Vector3>(R * 4);
+            for (int k = 0; k < R; k++)
+            {
+                Vector3 top = ft[k];
+                top.y = Mathf.Max(top.y, fb[k].y + WallSolidMinRingM);
+                Vector3 back = ow[k] * thick;
+                verts.Add(fb[k]);            // 0 face foot
+                verts.Add(top);              // 1 face top
+                verts.Add(top + back);       // 2 back top
+                verts.Add(fb[k] + back);     // 3 back foot
+            }
+
+            var tris = new List<int>(R * 24 + 12);
+            int segs = closedLoop ? R : R - 1;
+            float lengthM = 0f;
+            for (int k = 0; k < segs; k++)
+            {
+                int k2 = (k + 1) % R;
+                int a = 4 * k, b = 4 * k2;
+                Vector3 step = fb[k2] - fb[k]; step.y = 0f;
+                lengthM += step.magnitude;
+                Vector3 away = ow[k] + ow[k2];
+                QuadFacingSkipFlat(verts, tris, a + 0, a + 1, b + 1, b + 0, -away);          // traffic face
+                QuadFacingSkipFlat(verts, tris, a + 1, a + 2, b + 2, b + 1, Vector3.up);     // top
+                QuadFacingSkipFlat(verts, tris, a + 3, a + 2, b + 2, b + 3, away);           // back
+                QuadFacingSkipFlat(verts, tris, a + 0, a + 3, b + 3, b + 0, Vector3.down);   // bottom
+            }
+            if (!closedLoop)
+            {
+                // The run's two ends, each facing on along the run.
+                Vector3 run0 = fb[1] - fb[0]; run0.y = 0f;
+                Vector3 run1 = fb[R - 1] - fb[R - 2]; run1.y = 0f;
+                int e = 4 * (R - 1);
+                QuadFacingSkipFlat(verts, tris, 0, 1, 2, 3, -run0);
+                QuadFacingSkipFlat(verts, tris, e, e + 1, e + 2, e + 3, run1);
+            }
+
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = verts.ToArray(), triangles = tris.ToArray(),
+            };
+            SaveMesh(mesh, meshName);
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.layer = SolidLayer;
+            var mc = go.AddComponent<MeshCollider>();
+            mc.convex = false;
+            mc.sharedMesh = mesh;
+            mc.sharedMaterial = phys;
+            go.isStatic = true;
+            wallSolidCount++;
+            wallSolidM += lengthM;
+            return go;
         }
 
         /// <summary>How far below the waypoint plane every circuit wall
@@ -3300,7 +3532,7 @@ namespace PSXRacing.EditorTools
         /// 1 m box still unable to fit beneath.</summary>
         const float WallCollDepthM = 0.6f;
         /// <summary>Near a span, how far under the LOWEST ground beneath the
-        /// box it reaches instead — the abutment, where the lattice falls
+        /// chord it reaches instead — the abutment, where the lattice falls
         /// toward the gorge under the wall line.</summary>
         const float WallCollUnderGroundM = 0.5f;
         /// <summary>Stations either side of a span that count as its
@@ -3324,9 +3556,9 @@ namespace PSXRacing.EditorTools
             return false;
         }
 
-        /// <summary>Lowest ground MESH under a wall collider's footprint:
-        /// along the chord (and its overlap past each end), across the box's
-        /// whole thickness.</summary>
+        /// <summary>Lowest ground MESH under one chord of a wall solid's
+        /// footprint: along the chord (and WallCollOverlap past each end),
+        /// across the solid's whole thickness.</summary>
         static float WallFootLatticeMin(Vector3 a, Vector3 b, Vector3 outw)
         {
             Vector3 along = b - a;

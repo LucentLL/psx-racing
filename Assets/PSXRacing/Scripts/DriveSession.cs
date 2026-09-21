@@ -104,9 +104,17 @@ namespace PSXRacing
             // parked at this station would seat the recovery a metre and a half
             // in the air. Whether that station is occupied is the next test's
             // job, and it answers correctly either way.
+            //
+            // Nor the Solid layer. Nothing on it is a floor — the car's own
+            // wheel rays skip it (CarController.suspensionMask) — and a probe
+            // that came down on the top of a wall, a Charlotte Jersey barrier
+            // or a building would seat the car ON it, with the clearance box
+            // then floating free above the very thing it was meant to find.
+            // Probed past it, the car's box stands in the barrier and says so.
             float y = centre.y;
             if (Physics.Raycast(centre + Vector3.up * ProbeUp, Vector3.down,
-                                out var hit, ProbeUp * 2f, Physics.DefaultRaycastLayers,
+                                out var hit, ProbeUp * 2f,
+                                Physics.DefaultRaycastLayers & ~(1 << City.CityWorld.SolidLayer),
                                 QueryTriggerInteraction.Ignore))
                 y = hit.point.y;
             Vector3 origin = new Vector3(centre.x, y + CarController.ResetLift, centre.z);
@@ -123,14 +131,23 @@ namespace PSXRacing
                 if (h.transform == car.transform || h.transform.IsChildOf(car.transform)) continue;
 
                 // A concave mesh collider is a SURFACE, not an obstacle: the
-                // road, the ground, a bridge deck and the forecourt are all
-                // one, and all four are things you are meant to be standing on.
-                // The obstacle audit draws exactly this line for exactly this
-                // reason. Everything that can actually block a car here —
-                // barriers, buildings, piers, props, other cars — is a box, a
-                // capsule or a convex hull.
+                // road, the ground, a bridge deck and the forecourt apron are
+                // all one, and all four are things you are meant to be
+                // standing on. The obstacle audit draws exactly this line for
+                // exactly this reason.
+                //
+                // EXCEPT ON THE SOLID LAYER. Every builder wall is one closed
+                // concave mesh per run now (the chained boxes' end faces were
+                // what stopped a car scraping them dead), and Charlotte's
+                // Jersey barriers, rails and buildings always were one mesh per
+                // tile — so "everything that can block a car is a box, a capsule
+                // or a convex hull" is no longer true, and skipping them would
+                // seat a recovered car straight into a wall. A concave mesh on
+                // that layer is an obstacle, and an overlap against it reports
+                // only triangles that actually cross the box: the wall really
+                // is standing where the car would be.
                 var mc = h as MeshCollider;
-                if (mc != null && !mc.convex) continue;
+                if (mc != null && !mc.convex && h.gameObject.layer != City.CityWorld.SolidLayer) continue;
 
                 // And of what remains, anything that does not reach up past the
                 // car's floor is something it drives over rather than into.
@@ -141,6 +158,13 @@ namespace PSXRacing
                 // read as an obstacle at every station, every candidate would
                 // be rejected, and the search would fall through to the old
                 // behaviour without ever saying so.
+                //
+                // A wall run's or a city tile's AABB is as coarse (it reaches
+                // the tallest stone anywhere on it), but that only ever errs
+                // toward "obstacle", and the error cannot bite: the box stands
+                // ResetLift over the surface, its floor 0.71 m up for the
+                // grid's 1.72 x 1.0 x 4.1 body — over this line — so any
+                // triangle crossing it is over the line too.
                 if (h.bounds.max.y < y + 0.35f) continue;
                 return false;
             }

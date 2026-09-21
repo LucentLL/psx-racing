@@ -81,6 +81,9 @@ namespace PSXRacing.EditorTools
             // scene only knows where a freshly loaded collider is once it has
             // been told.
             Physics.SyncTransforms();
+            // The last venue's wall solids are gone with its scene; their
+            // triangles need not be held while this one is read.
+            WallGeom.ClearCache();
             var path = Object.FindFirstObjectByType<TrackPath>();
             if (path == null || path.Count == 0)
             {
@@ -111,6 +114,7 @@ namespace PSXRacing.EditorTools
             // one line rather than 292.
             var offenders = new Dictionary<string, Offense>();
             var unmeasured = new SortedSet<string>();
+            var unmeasuredSolid = new SortedSet<string>();
             var colliders = Object.FindObjectsByType<Collider>(FindObjectsSortMode.None);
             int considered = 0;
 
@@ -129,6 +133,7 @@ namespace PSXRacing.EditorTools
             AuditSurface(path, trackHalf, log);
             AuditPosts(def, path, trackHalf, log);
             AuditGhostBarriers(def, path, colliders, trackHalf, log);
+            AuditWallSolids(colliders, log);
 
             foreach (var col in colliders)
             {
@@ -146,11 +151,35 @@ namespace PSXRacing.EditorTools
                 // otherwise is what filled the old report with the road, the
                 // ground and every bridge deck — all three of which are surfaces
                 // you are supposed to be driving on. Named, counted, skipped.
+                //
+                // EXCEPT A WALL SOLID. Every barrier the builders put up is one
+                // closed concave mesh per run now (the chained boxes' end faces
+                // were the dead stops — see WallGeom), and skipping those would
+                // take every wall in the game out of this pass at a stroke and
+                // call every venue clear. WallGeom answers the question Unity
+                // will not: the exact closest point over the run's triangles,
+                // whose traffic face stands where the boxes' inner faces did, so
+                // a wall reads here exactly as its boxes read.
+                bool wall = WallGeom.IsWallSolid(col);
                 var mc = col as MeshCollider;
-                if (mc != null && !mc.convex) { unmeasured.Add(Key(col.transform)); continue; }
+                // Any OTHER concave mesh on the Solid layer (a forecourt's
+                // pieces, collided on the model's own meshes) is an obstacle,
+                // not a surface — but a model's, standing behind its driveway
+                // gap outside the barrier line, not a builder's run beside the
+                // road. It is still not measured here (it never was), only no
+                // longer called a surface: named for what it is, and left to
+                // the sweep, which puts a car-sized box against it.
+                if (mc != null && !mc.convex && !wall)
+                {
+                    (WallGeom.IsBarrierMesh(col) ? unmeasuredSolid : unmeasured).Add(Key(col.transform));
+                    continue;
+                }
                 considered++;
 
-                var b = col.bounds;
+                // A wall solid's bounds are the WHOLE RUN (the perimeter of a
+                // circuit), good for the plan reject below and for nothing
+                // else: its height beside a waypoint is asked of that station.
+                var b = wall ? WallGeom.WorldBounds(col) : col.bounds;
 
                 // Walk the waypoints near this collider and measure how close it
                 // reaches to the centreline.
@@ -168,8 +197,8 @@ namespace PSXRacing.EditorTools
                     // — so a single absolute ceiling either skips every barrier
                     // on the high side of the track or reports the floor of a
                     // gorge as an overhead obstruction.
-                    if (b.min.y > c.y + ClearHeight) continue;   // overhead only
-                    if (b.max.y < c.y - BelowRoad) continue;     // under the road
+                    if (!wall && b.min.y > c.y + ClearHeight) continue;   // overhead only
+                    if (!wall && b.max.y < c.y - BelowRoad) continue;     // under the road
 
                     Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
                     // Closest point ON THE COLLIDER, not on its bounding box.
@@ -178,7 +207,16 @@ namespace PSXRacing.EditorTools
                     // ~40% wider than it is — which is the same mistake that
                     // caused the original bug, and it would make the fix look
                     // like it had not worked.
-                    Vector3 closest = col.ClosestPoint(c);
+                    Vector3 closest = wall ? WallGeom.ClosestPoint(col, c) : col.ClosestPoint(c);
+                    if (wall)
+                    {
+                        // The same two height tests, on the slice of the run
+                        // beside this waypoint: what a chord box's own min.y and
+                        // max.y used to say.
+                        WallGeom.SpanAt(col, closest, c, out float wallLo, out float wallHi);
+                        if (wallLo > c.y + ClearHeight) continue;
+                        if (wallHi < c.y - BelowRoad) continue;
+                    }
                     float lateral = Mathf.Abs(Vector3.Dot(closest - c, right));
                     float along = Mathf.Abs(Vector3.Dot(closest - c, path.GetTangent(i)));
                     if (along > path.spacing) continue;       // belongs to another waypoint
@@ -206,6 +244,8 @@ namespace PSXRacing.EditorTools
             log.AppendLine("  checked " + considered + " measurable non-car colliders");
             foreach (var u in unmeasured)
                 log.AppendLine("    not measurable (concave mesh — a surface, not an obstacle): " + u);
+            foreach (var u in unmeasuredSolid)
+                log.AppendLine("    not measured (concave mesh on the Solid layer — a model's obstacle, not a wall run; see the sweep): " + u);
 
             if (offenders.Count == 0)
             {
@@ -323,6 +363,14 @@ namespace PSXRacing.EditorTools
         /// pass's business. ACROSS the edge the rule is deliberately different
         /// (see <see cref="ProfileAt"/>): there a box or a steep face is exactly
         /// what a car trying to get back on meets.
+        ///
+        /// One exception to "concave is a surface" now: a concave mesh on the
+        /// Solid layer is a BARRIER (<see cref="WallGeom.IsBarrierMesh"/>) —
+        /// every builder wall is one closed mesh per run. No lane of this walk
+        /// should come down on one, but a wall that did stand over a lane is
+        /// an obstacle's top, not the road stepping up 1.5 m: a wheel never
+        /// stands there (the suspension rays skip the layer), and the boxes
+        /// the solids replaced were never picked here either.
         /// </summary>
         static bool SurfaceUnder(Vector3 from, float reach, out float y, out Collider on)
         {
@@ -332,8 +380,7 @@ namespace PSXRacing.EditorTools
             bool found = false;
             foreach (var h in hits)
             {
-                var mc = h.collider as MeshCollider;
-                if (mc == null || mc.convex) continue;
+                if (!WallGeom.IsSurfaceMesh(h.collider)) continue;
                 // Highest surface wins: that is the one the car stands on.
                 if (!found || h.point.y > y) { y = h.point.y; on = h.collider; found = true; }
             }
@@ -768,13 +815,19 @@ namespace PSXRacing.EditorTools
             // read ground 0.1 m OVER the ditch there, the barrier rays met that
             // rising ground as a floor before the box, and the profile then
             // found 1.36 m of box — a face, whatever put the ground there.)
+            //
+            // The guard wall is one WALL SOLID per run now, not a box per chord
+            // (WallGeom): the sinking stone is the run's own last stations, and
+            // the full-height barrier a few stations along is the same object
+            // under the same name — which the name test below already accepts.
             int solidLayer = PSXRacing.EditorTools.WorldKit.SolidLayer;
             for (int si = 0; si < 2; si++)
                 for (int i = 0; i < n; i++)
                 {
                     var h = halves[i, si];
                     if (!h.measured || h.barrier || h.face <= RoadsideRules.FaceRiseFailM) continue;
-                    if (!(h.faceCol is BoxCollider) || h.faceCol.gameObject.layer != solidLayer) continue;
+                    if (!(h.faceCol is BoxCollider || WallGeom.IsWallSolid(h.faceCol)) ||
+                        h.faceCol.gameObject.layer != solidLayer) continue;
                     if (h.faceCol.name != "WallColl") continue;
                     for (int k = 1; k <= RoadsideRules.EndFlareStations && !h.terminal; k++)
                         foreach (int dir in new[] { -1, 1 })
@@ -991,6 +1044,13 @@ namespace PSXRacing.EditorTools
         /// cannot stand inside it — read from <see cref="PocketRayHeadM"/> over
         /// the road so a rock top is found rather than seen through, on every
         /// collider. <paramref name="dy"/> is the land over the tarmac.
+        ///
+        /// A wall solid (one closed mesh per run, WallGeom) answers the back
+        /// cast exactly as its box did: its back face stands WallCollThick
+        /// behind the traffic face and faces outward, which is the side this
+        /// cast arrives from (<see cref="AuditWallSolids"/> holds the winding).
+        /// A physics cast, not WallGeom's two-sided one, on purpose: a rock
+        /// top's mesh has no back, and must go on reading as a face with none.
         /// </summary>
         internal static bool PocketBehind(Vector3 c, Vector3 o, float half, Vector3 inset, float tarmacY,
                                           float barrierE, Collider barrierCol, float rayH,
@@ -1929,17 +1989,31 @@ namespace PSXRacing.EditorTools
                 // Surfaces, not obstacles: the ground, the road and the apron
                 // are all concave meshes you are supposed to be driving on —
                 // and ClosestPoint cannot answer for them anyway.
-                if (col is MeshCollider mc && !mc.convex) continue;
+                //
+                // But not a WALL SOLID: the barrier line this walks IS one of
+                // those now (one closed mesh per run, WallGeom), and skipping it
+                // would find a driveway the whole length of every circuit.
+                bool wall = WallGeom.IsWallSolid(col);
+                if (!wall && col is MeshCollider mc && !mc.convex) continue;
 
-                var b = col.bounds;
+                // A wall solid's box is the whole run — a reject, nothing more.
+                var b = wall ? WallGeom.WorldBounds(col) : col.bounds;
                 if (b.max.y < p.y - BelowRoad || b.min.y > p.y + ClearHeight) continue;
                 if (Mathf.Abs(b.center.x - p.x) > b.extents.x + CarHalfWidth) continue;
                 if (Mathf.Abs(b.center.z - p.z) > b.extents.z + CarHalfWidth) continue;
 
                 // At the height the collider actually occupies, so a low kerb is
                 // not reported as clear just because the sample sits above it.
-                var probe = new Vector3(p.x, Mathf.Clamp(p.y, b.min.y, b.max.y), p.z);
-                Vector3 near = col.ClosestPoint(probe);
+                // For a wall solid that is the run's slice nearest the sample,
+                // not its whole-run box.
+                float yLo = b.min.y, yHi = b.max.y;
+                if (wall)
+                {
+                    WallGeom.SpanAt(col, WallGeom.ClosestPoint(col, p), p, out yLo, out yHi);
+                    if (yHi < p.y - BelowRoad || yLo > p.y + ClearHeight) continue;
+                }
+                var probe = new Vector3(p.x, Mathf.Clamp(p.y, yLo, yHi), p.z);
+                Vector3 near = wall ? WallGeom.ClosestPoint(col, probe) : col.ClosestPoint(probe);
                 float dx = near.x - probe.x, dz = near.z - probe.z;
                 if (dx * dx + dz * dz > CarHalfWidth * CarHalfWidth) continue;
 
@@ -2016,6 +2090,17 @@ namespace PSXRacing.EditorTools
         /// <summary>How far outside the barrier line a collider can be and
         /// still be this venue's barrier rather than scenery.</summary>
         const float GhostOut = 5f;
+        /// <summary>A wall solid's nearest point is INSIDE a face — not on an
+        /// edge or a corner of it — when the way back to the road is that
+        /// face's own normal: cos 2.6 degrees. Inside a face the two agree to
+        /// float noise; a run's end corner seen from the middle of the chord
+        /// past it is 11 degrees off at a 10 m barrier line.</summary>
+        const float GhostFaceInteriorDot = 0.999f;
+        /// <summary>How far along the road from the middle of a chord a wall
+        /// solid's nearest point may lie and still be the wall BESIDE that
+        /// chord, whatever face it is on: a quarter chord. A run's end corner
+        /// seen from the chord past it is half a chord along.</summary>
+        const float GhostSquareAlongM = 0.25f * TrackCatalog.Spacing;
 
         static void AuditGhostBarriers(TrackCatalog.TrackDef def, TrackPath path,
                                        Collider[] colliders, float trackHalf, StringBuilder log)
@@ -2030,13 +2115,71 @@ namespace PSXRacing.EditorTools
 
             var faults = new Dictionary<string, GhostFault>();
             int measured = 0;
+            var wallSolids = new List<Collider>();
+
+            // SAMPLE THE HEIGHTS THIS COLLIDER ACTUALLY OCCUPIES, up each of its
+            // faces, and file a fault where what is drawn there does not stand
+            // where the collider does. (Why the band is the collider's own and
+            // not the road's: see the note at the call below.)
+            void Sample(Collider col, int i, Vector3 road, List<(Vector3 origin, Vector3 dir)> faces,
+                        float lo, float hi, float top, Vector3 where)
+            {
+                float drawnTop = lo - GhostStep, worstGap = 0f;
+                bool anyDrawn = false;
+                string hitName = null;
+                for (float y = lo; y <= hi + 1e-3f; y += GhostStep)
+                {
+                    string who = null;
+                    float hit = -1f;
+                    foreach (var fc in faces)
+                    {
+                        Vector3 o = fc.origin; o.y = road.y + y;
+                        string w2;
+                        float h2 = world.RayOut(o, fc.dir, GhostReach + GhostBack, out w2);
+                        if (h2 < 0f) continue;
+                        if (hit < 0f || h2 < hit) { hit = h2; who = w2; }
+                    }
+                    // The first height with nothing in front of it is the top
+                    // of the drawn barrier. Everything above that is overshoot,
+                    // whether or not something reappears higher up.
+                    if (hit < 0f) break;
+                    anyDrawn = true;
+                    drawnTop = y;
+                    float gap = Mathf.Max(0f, hit - GhostBack);
+                    if (gap > worstGap) { worstGap = gap; hitName = who; }
+                }
+                float over = hi - drawnTop;
+
+                if (worstGap <= GhostGap && over <= GhostOver) return;
+
+                string key = Key(col.transform);
+                GhostFault f;
+                if (!faults.TryGetValue(key, out f))
+                    faults[key] = f = new GhostFault { key = key, waypoint = i };
+                f.count++;
+                if (worstGap > f.gap) { f.gap = worstGap; f.nearest = hitName; }
+                if (over > f.over)
+                {
+                    f.over = over;
+                    f.top = top;
+                    f.drawn = anyDrawn ? drawnTop : -1f;
+                    f.waypoint = i;
+                    f.where = where;
+                }
+            }
 
             foreach (var col in colliders)
             {
                 if (col == null || col.isTrigger) continue;
                 if (col.gameObject.layer == 2) continue;
                 if (col.GetComponentInParent<CarController>() != null) continue;
-                // A concave mesh has no ClosestPoint, and is a surface anyway.
+                // A WALL SOLID is a whole run of barrier as one closed mesh
+                // (WallGeom): measured below, station by station, as its boxes
+                // were measured one by one.
+                if (WallGeom.IsWallSolid(col)) { wallSolids.Add(col); continue; }
+                // Any other concave mesh has no ClosestPoint, and is a surface
+                // anyway — or, on the Solid layer, a model's obstacle this pass
+                // has never measured.
                 var mc = col as MeshCollider;
                 if (mc != null && !mc.convex) continue;
 
@@ -2123,47 +2266,98 @@ namespace PSXRacing.EditorTools
                 float lo = Mathf.Max(GhostStep, col.bounds.min.y - road.y + 0.05f);
                 float hi = Mathf.Min(top, GhostSampleTop);
                 if (hi < lo) continue;      // overhead, or buried under the road
-                float drawnTop = lo - GhostStep, worstGap = 0f;
-                bool anyDrawn = false;
-                string hitName = null;
-                for (float y = lo; y <= hi + 1e-3f; y += GhostStep)
-                {
-                    string who = null;
-                    float hit = -1f;
-                    foreach (var fc in faces)
-                    {
-                        Vector3 o = fc.origin; o.y = road.y + y;
-                        string w2;
-                        float h2 = world.RayOut(o, fc.dir, GhostReach + GhostBack, out w2);
-                        if (h2 < 0f) continue;
-                        if (hit < 0f || h2 < hit) { hit = h2; who = w2; }
-                    }
-                    // The first height with nothing in front of it is the top
-                    // of the drawn barrier. Everything above that is overshoot,
-                    // whether or not something reappears higher up.
-                    if (hit < 0f) break;
-                    anyDrawn = true;
-                    drawnTop = y;
-                    float gap = Mathf.Max(0f, hit - GhostBack);
-                    if (gap > worstGap) { worstGap = gap; hitName = who; }
-                }
-                float over = hi - drawnTop;
+                Sample(col, i, road, faces, lo, hi, top, col.bounds.center);
+            }
 
-                if (worstGap <= GhostGap && over <= GhostOver) continue;
-
-                string key = Key(col.transform);
-                GhostFault f;
-                if (!faults.TryGetValue(key, out f))
-                    faults[key] = f = new GhostFault { key = key, waypoint = i };
-                f.count++;
-                if (worstGap > f.gap) { f.gap = worstGap; f.nearest = hitName; }
-                if (over > f.over)
+            // WALL SOLIDS, CHORD BY CHORD.
+            //
+            // A run of wall is one collider now, and asking it once — nearest
+            // waypoint to its bounds' centre, its bounds' top — would ask a
+            // point in the middle of the infield about a wall three kilometres
+            // long. So each chord of road asks the slice of the run beside it, the
+            // question each chord box used to answer for itself: the nearest
+            // point of the run to the chord's middle, kept only if it is BESIDE
+            // it (not past the run's end, not on another leg of the road)
+            // and in the band a barrier stands in; the run's own bottom and top
+            // there (WallGeom.SpanAt) for the heights; and its two long faces,
+            // each ray starting outside its face and firing inward exactly as a
+            // box's did. The traffic face's outward is the direction from the
+            // wall's nearest point back to the waypoint — perpendicular to the
+            // face wherever that point lies on it, so the interchange trap noted
+            // above (the road's right pointing ALONG a wall) cannot arise; the
+            // back face is found by a two-sided cast through the solid from just
+            // inside the traffic face. A box's chord-end faces are not asked:
+            // their rays ran along the stone and met nothing, and a run has no
+            // chord ends — which is the point of it.
+            //
+            // MID-CHORD, NOT AT THE STATION — and never at a run's end corner.
+            // A run's rings stand at the stations, so the station at a run's
+            // end (a forecourt gap's edge, the end of a drag strip's wall, a
+            // tunnel wall at its portal) finds its nearest point on the very
+            // EDGE where the traffic face meets the end cap, and the station one
+            // past it finds that corner from four metres down the road. A ray
+            // fired at an edge the drawn wall also ends on grazes it: whether it
+            // registers is float noise, and when it does not it flies on through
+            // the gap and files a GHOST BARRIER against a wall that is drawn
+            // exactly where it stands. The boxes were never asked there — each
+            // was measured once, off its own centre — so this asks where they
+            // were asked: the middle of each chord of road, whose nearest point
+            // is the middle of the chord of wall beside it. Kept when that point
+            // is SQUARE to the chord's middle (within GhostSquareAlongM along
+            // it: a stage's half-station ring on a tight inside, which is a
+            // vertex of the traffic face with face either side of the ray) or
+            // INSIDE A FACE (the way back to the road is the face's own normal —
+            // a flare, RoadsideRules.EndFlareRatio, or a cut's toe stepping out
+            // moves the foot of the perpendicular along its chord, not off it).
+            // A run's end corner seen from the chord past it is neither: half a
+            // chord (2 m) down the road, and 11 degrees off square at a 10 m
+            // barrier line.
+            var wallFaces = new List<(Vector3 origin, Vector3 dir)>(2);
+            float wallBand = barrier + GhostOut;
+            int chords = path.HasEnds ? path.Count - 1 : path.Count;
+            foreach (var col in wallSolids)
+            {
+                Bounds wb = WallGeom.WorldBounds(col);
+                for (int i = 0; i < chords; i++)
                 {
-                    f.over = over;
-                    f.top = top;
-                    f.drawn = anyDrawn ? drawnTop : -1f;
-                    f.waypoint = i;
-                    f.where = col.bounds.center;
+                    Vector3 a0 = path.GetPoint(i), a1 = path.GetPoint(i + 1);
+                    Vector3 road = (a0 + a1) * 0.5f;
+                    if (road.x < wb.min.x - wallBand || road.x > wb.max.x + wallBand ||
+                        road.z < wb.min.z - wallBand || road.z > wb.max.z + wallBand) continue;
+                    Vector3 tan = a1 - a0;
+                    tan.y = 0f;
+                    if (tan.sqrMagnitude < 1e-6f) continue;
+                    tan.Normalize();
+                    Vector3 right = Vector3.Cross(Vector3.up, tan).normalized;
+                    Vector3 near = WallGeom.ClosestPoint(col, road, out Vector3 faceN);
+                    Vector3 toRoad = road - near;
+                    float along = Mathf.Abs(Vector3.Dot(toRoad, tan));
+                    if (along > path.spacing) continue;
+                    bool inFace = toRoad.sqrMagnitude > 1e-8f &&
+                                  Mathf.Abs(Vector3.Dot(faceN, toRoad.normalized)) >= GhostFaceInteriorDot;
+                    if (along > GhostSquareAlongM && !inFace) continue;
+                    float lat = Vector3.Dot(near - road, right);
+                    float reach = Mathf.Abs(lat);
+                    // Inside the barrier line is the main pass's business; well
+                    // outside it is scenery no car reaches.
+                    if (reach < trackHalf || reach > barrier + GhostOut) continue;
+                    WallGeom.SpanAt(col, near, road, out float wallLo, out float wallHi);
+                    float top = wallHi - road.y;
+                    if (top < 0.3f) continue;
+                    measured++;
+
+                    Vector3 nOut = road - near;
+                    nOut.y = 0f;
+                    if (nOut.sqrMagnitude < 1e-6f) nOut = right * (lat >= 0f ? -1f : 1f);
+                    nOut.Normalize();
+                    wallFaces.Clear();
+                    wallFaces.Add((near + nOut * GhostBack, -nOut));
+                    if (WallGeom.Raycast(col, near - nOut * 0.01f, -nOut, BarrierBackM, out float depth, out _))
+                        wallFaces.Add((near - nOut * (0.01f + depth + GhostBack), nOut));
+                    float lo = Mathf.Max(GhostStep, wallLo - road.y + 0.05f);
+                    float hi = Mathf.Min(top, GhostSampleTop);
+                    if (hi < lo) continue;      // overhead, or buried under the road
+                    Sample(col, i, road, wallFaces, lo, hi, top, near);
                 }
             }
 
@@ -2196,6 +2390,75 @@ namespace PSXRacing.EditorTools
                                "  at " + f.where.x.ToString("0") + "," +
                                f.where.y.ToString("0") + "," + f.where.z.ToString("0"));
             }
+        }
+
+        // ==================================================================
+        //  Is every wall solid the solid the builders promise?
+        // ==================================================================
+        /// <summary>Unpaired edges listed per venue, worst first.</summary>
+        const int WallSolidListed = 8;
+
+        /// <summary>
+        /// THE WALL SOLIDS THEMSELVES. Every barrier run the builders stand
+        /// beside a road is one closed concave MeshCollider now ("Wall",
+        /// "WallColl", "BankColl", "WallTunnel" — see WallGeom), replacing the
+        /// chain of overlapping boxes whose end faces stopped a scraping car
+        /// dead. The rest of this file reads those solids through physics rays
+        /// and WallGeom, and both lean on the two promises this checks:
+        ///
+        ///   CLOSED   every edge used exactly once each way (corners welded to
+        ///            the millimetre). A hole's rim is a seam of the kind the
+        ///            solids exist to remove, and an open mesh has no inside,
+        ///            so WallGeom cannot say a point is in the wall;
+        ///   OUTWARD  a positive signed volume: the faces wound to face out of
+        ///            the wall. Physics rays in this project do not hit back
+        ///            faces, so an inside-out wall is invisible to every
+        ///            barrier ray on this page — and it is what PhysX resolves
+        ///            a car's contact against, pushing it INTO the stone.
+        ///
+        /// A scene built before the solids still carries box chords; that is
+        /// reported as information (WallScrapeAudit measures what the seams do
+        /// to a car), not failed here.
+        /// </summary>
+        static void AuditWallSolids(Collider[] colliders, StringBuilder log)
+        {
+            int solids = 0, boxes = 0, bad = 0;
+            var faults = new List<(int badness, string line)>();
+            foreach (var col in colliders)
+            {
+                if (col == null || col.isTrigger) continue;
+                if (col is BoxCollider && col.gameObject.layer == WallGeom.SolidLayer &&
+                    WallGeom.IsWallName(col.name))
+                { boxes++; continue; }
+                if (!WallGeom.IsWallSolid(col)) continue;
+                solids++;
+                bool closed = WallGeom.Watertight(col, out int unpaired, out float volume);
+                if (closed && volume > 0f) continue;
+                bad++;
+                faults.Add((closed ? int.MaxValue : unpaired,
+                            "    " + Key(col.transform) + ": " +
+                            (closed ? "closed" : unpaired + " unpaired edge(s) — OPEN") + ", " +
+                            (volume > 0f ? "wound outward" : "INSIDE OUT") +
+                            " (signed volume " + volume.ToString("0.0") + " m3)" +
+                            "  near " + WallGeom.WorldBounds(col).center.ToString("F0")));
+            }
+            if (solids == 0 && boxes == 0) return;      // no builder barrier on this venue
+            if (boxes > 0)
+                log.AppendLine("  info wall colliders: " + boxes + " chained box chord(s) — a scene built before " +
+                               "the wall solids; every seam between two is a dead stop to a car scraping it");
+            if (solids == 0) return;
+            if (bad == 0)
+            {
+                log.AppendLine("  ok   wall solids: " + solids + " run(s), every one closed and wound outward");
+                return;
+            }
+            faults.Sort((a, b) => b.badness.CompareTo(a.badness));
+            log.AppendLine("  FAIL WALL SOLID: " + bad + " of " + solids +
+                           " run(s) are not a closed solid wound outward — an open rim is a seam, and an " +
+                           "inside-out wall is invisible to the barrier rays and pushes a car into itself");
+            for (int k = 0; k < Mathf.Min(WallSolidListed, faults.Count); k++) log.AppendLine(faults[k].line);
+            if (faults.Count > WallSolidListed)
+                log.AppendLine("    ... and " + (faults.Count - WallSolidListed) + " more not listed");
         }
 
         class GhostFault

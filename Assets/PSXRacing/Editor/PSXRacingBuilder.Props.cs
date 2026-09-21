@@ -716,7 +716,11 @@ namespace PSXRacing.EditorTools
                 // the concave MeshColliders (the audits' own rule for "a
                 // surface"). A guard wall's box or a cut bank's box is a
                 // thing that STANDS on the ground, and a lot whose corner
-                // finds one seats the whole house on top of it.
+                // finds one seats the whole house on top of it. Walls and
+                // banks are concave meshes too now (one solid per run, see
+                // BuildWallSolid), so the Solid layer is skipped by name of
+                // layer rather than by collider type.
+                if (h.collider.gameObject.layer == SolidLayer) continue;
                 if (!(h.collider is MeshCollider)) continue;
                 if (h.point.y > best) { best = h.point.y; found = true; }
             }

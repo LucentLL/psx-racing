@@ -79,15 +79,23 @@ namespace PSXRacing.EditorTools
             // queries at all. An edit-mode physics scene that never got populated
             // answers every OverlapBox with "nothing", which is indistinguishable
             // from a clean circuit and is the exact failure the bounds-based
-            // audit was written to avoid. So: put the box INSIDE the barrier, or
-            // failing that on the tarmac, where there is definitely a collider,
-            // and refuse to report anything if every one comes back empty.
+            // audit was written to avoid. So: put the box ACROSS the barrier's
+            // face, or failing that on the tarmac, where there is definitely a
+            // collider, and refuse to report anything if every one comes back
+            // empty.
+            //
+            // Across the face, not inside the barrier: it sat 0.6 m in, the
+            // middle of a 1.2 m wall box, and a box query finds a solid box it
+            // is buried in — but every wall is one closed concave MESH per run
+            // now (WallGeom), and an overlap against a concave mesh reports only
+            // triangles that cross the query, never a volume it sits inside.
+            // Straddling the traffic face finds both.
             bool sceneLive = false;
             for (int i = 0; i < path.Count && !sceneLive; i++)
             {
                 Vector3 c = path.GetPoint(i);
                 Vector3 r = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
-                Vector3 probe = c + r * (PSXRacingBuilder.WallOffsetFor(def) + 0.6f)
+                Vector3 probe = c + r * PSXRacingBuilder.WallOffsetFor(def)
                                   + Vector3.up * (RideHeight + CarCentreY);
                 if (Physics.OverlapBox(probe, half * 0.5f, path.GetRotation(i), mask).Length > 0)
                     sceneLive = true;
@@ -153,7 +161,13 @@ namespace PSXRacing.EditorTools
                         // circuits. Whether the barrier itself is where it
                         // belongs is TrackObstacleAudit's question, and it
                         // measures the barrier line directly.
-                        // "Wall" on a circuit; "WallColl" boxes on the stage.
+                        // "Wall" on a circuit; "WallColl" (and "WallTunnel") on
+                        // the stage — one closed concave mesh per run now, not a
+                        // box per chord, under the same names (WallGeom). The
+                        // probe box is 1.72 m wide and a wall 1.2 m deep, so a
+                        // probe that reaches a wall always crosses one of its
+                        // faces, which is all an overlap with a concave mesh can
+                        // report — the answer is the one the boxes gave.
                         //
                         // ...but only OUTSIDE the carriageway. A wall standing
                         // ON the road is still a wall, and excusing it by name
