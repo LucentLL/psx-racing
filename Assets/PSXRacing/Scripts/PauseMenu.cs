@@ -413,6 +413,23 @@ namespace PSXRacing
             if (gradeLabel != null) gradeLabel.text = GradeLabel();
         }
 
+        Text lensLabel;
+
+        static string LensLabel() => "LENS FX: " + LensFxPrefs.Label;
+
+        /// <summary>
+        /// Rain drops and light bokeh on the lens (PSX/Lens, in the speed
+        /// blur's render feature). Ships ON. SpeedBlur reads the pref every
+        /// frame, like the blur's own (Update still ticks at timeScale 0), so
+        /// the paused frame behind this menu gains or loses its drops while
+        /// the player looks.
+        /// </summary>
+        void ToggleLens()
+        {
+            LensFxPrefs.Toggle();
+            if (lensLabel != null) lensLabel.text = LensLabel();
+        }
+
         void ToggleDebug()
         {
             debugOn = !debugOn;
@@ -642,6 +659,21 @@ namespace PSXRacing
             menuItems.Add(MakeButton(panel.transform, "TOGGLE DEBUG INFO", font,
                        new Vector2(0.5f, 1f), new Vector2(344f, -108f - RowStep),
                        new Vector2(300f, RowH), 19, ToggleDebug));
+
+            // LENS FX, directly ABOVE FILM GRADE on the left, on LOOK Y's
+            // line: the three picture-on-the-glass switches (lens, grade,
+            // fullscreen) stack as one little column of their own beside the
+            // big one, which is full — a twelfth row there is the row that
+            // falls off a phone (see the pitch note above). Same 280 x 40 and
+            // x -334 as FILM GRADE, so it fits a 4:3 tablet's half-width
+            // exactly as that one does. Added before FILM GRADE so the
+            // creation-order chain MenuNav.Column builds first (before the
+            // geometric graph takes over) reads top to bottom.
+            var lensBtn = MakeButton(panel.transform, LensLabel(), font,
+                       new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 5f * RowStep),
+                       new Vector2(280f, RowH), 19, ToggleLens);
+            lensLabel = lensBtn.GetComponentInChildren<Text>();
+            menuItems.Add(lensBtn);
 
             // FILM GRADE, to the LEFT of the picture rows it belongs with, on
             // SPEED BLUR's line.

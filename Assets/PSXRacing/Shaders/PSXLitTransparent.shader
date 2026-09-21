@@ -9,13 +9,25 @@
 // is the house style in this folder (PSX/Decal keeps its own copy of the snap
 // and the fog), not new debt.
 //
-// Three differences from PSX/Lit and no others:
+// Three differences from PSX/Lit and no others (plus the two night-pass
+// features it leaves out, below):
 //   * Blend SrcAlpha OneMinusSrcAlpha, ZWrite Off, Queue Transparent.
 //   * no clip() — a blended pass has nothing to cut out, and _Cutoff at 0
 //     would cut nothing anyway. The property stays declared so the material
 //     factory's unconditional SetFloat("_Cutoff", ...) is not a warning.
 //   * Cull Back is KEPT. The pack's panes are single quads; double-siding
 //     them doubles the tint wherever the far pane shows through the near one.
+//
+// THE NIGHT PASS (2026-09-21, see PSX/Lit's header) made the copy partial on
+// purpose. The street lamps come across - a shop window under a sodium lamp
+// takes the lamp like the wall beside it (PSXLamps.cginc, added to the light
+// exactly as the headlights are). The wet road and the lit windows do NOT:
+// wetness takes only faces that look UP, and a pane is vertical, so the wet
+// model would multiply to zero on every pixel this shader draws; and the lit
+// windows are painted on the OPAQUE city facades from their masks, not on the
+// models' glass. Neither _Wet nor _NightMask is declared here, so the builders'
+// "HasProperty" checks leave this shader's materials alone, and nothing here
+// reads the sky, so PSXSkyReflect.cginc is not included either.
 //
 // The opacity knob is _Color.a and needs no new property: PSX/Lit already
 // multiplies _Color into the sample and already returns tex.a, so the alpha
@@ -46,9 +58,11 @@ Shader "PSX/LitTransparent"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
-            // The one per-pixel light in the game: the cars' headlights. A
-            // shop window at night takes the beam like the wall beside it.
+            // The per-pixel lights: the cars' headlights - a shop window at
+            // night takes the beam like the wall beside it - and the street
+            // lamps and tail lamps. Each declares its own table; both guarded.
             #include "PSXHeadlights.cginc"
+            #include "PSXLamps.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -129,7 +143,12 @@ Shader "PSX/LitTransparent"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed4 tex = tex2D(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
-                float3 light = i.light.rgb + PSXHeadlights(i.wpos, normalize(i.wnrm));
+                // Guarded like the vertex normal (normalize(0) is a NaN GLSL
+                // ES leaves undefined). Both tables add to the vertex light,
+                // not to the result: a lamp on a pane lights the pane.
+                float nl2 = dot(i.wnrm, i.wnrm);
+                float3 N = nl2 > 1e-8 ? i.wnrm * rsqrt(nl2) : float3(0, 1, 0);
+                float3 light = i.light.rgb + PSXHeadlights(i.wpos, N) + PSXLamps(i.wpos, N);
                 fixed3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 fixed3 col = lerp(lit, _PSXFogColor.rgb, i.fog);
                 // Fog also closes the glass: at full fog a window is as opaque

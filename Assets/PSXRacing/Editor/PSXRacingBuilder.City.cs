@@ -187,7 +187,12 @@ namespace PSXRacing.EditorTools
         {
             var m = new Material[(int)CityMeshes.Slot.COUNT];
             m[(int)CityMeshes.Slot.Ground] = MakeMat("CityGround", CityTexDir + "/city_grass.png", affine: 0f);
-            m[(int)CityMeshes.Slot.Pavement] = MakeMat("CityPavement", CityTexDir + "/city_pavement.png", affine: 0f);
+            // Wet masks (see WetAsphalt in PSXRacingBuilder.cs): every road
+            // slot takes the full night; pavement and the shared concrete soak
+            // it and go dull. Unprefixed and shared by all four city scenes,
+            // which is why wetness is a mask here and a global at runtime.
+            m[(int)CityMeshes.Slot.Pavement] = MakeMat("CityPavement", CityTexDir + "/city_pavement.png", affine: 0f,
+                wet: WetCityPavement);
             for (int p = 0; p < CityMeshes.RoadClassCount; p++)
                 for (int s = 0; s < CityMeshes.SurfaceCount; s++)
                 {
@@ -195,20 +200,94 @@ namespace PSXRacing.EditorTools
                     string key = ProfileKey(p);
                     m[(int)CityMeshes.SlotOf(p, surf)] =
                         MakeMat("CityRoad_" + key + "_" + SurfaceKey(surf),
-                                CityTexDir + "/" + RoadTexFile(key, surf), affine: 0f);
+                                CityTexDir + "/" + RoadTexFile(key, surf), affine: 0f,
+                                wet: WetAsphalt);
                 }
-            m[(int)CityMeshes.Slot.Concrete] = MakeMat("CityConcrete", CityTexDir + "/city_concrete.png", affine: 0f);
+            m[(int)CityMeshes.Slot.Concrete] = MakeMat("CityConcrete", CityTexDir + "/city_concrete.png", affine: 0f,
+                wet: WetCityConcrete);
             m[(int)CityMeshes.Slot.Water] = MakeMat("CityWater", CityTexDir + "/city_water.png", affine: 0f,
                 tint: new Color(0.9f, 0.95f, 1f));
-            m[(int)CityMeshes.Slot.FacadeTower] = MakeMat("CityFacadeTower", CityTexDir + "/city_facade_tower.jpg");
-            m[(int)CityMeshes.Slot.FacadeMid] = MakeMat("CityFacadeMid", CityTexDir + "/city_facade_mid.jpg");
-            m[(int)CityMeshes.Slot.FacadeBrick] = MakeMat("CityFacadeBrick", CityTexDir + "/city_facade_brick.jpg");
-            m[(int)CityMeshes.Slot.Shops] = MakeMat("CityShops", CityTexDir + "/city_shops.png");
-            m[(int)CityMeshes.Slot.FacadeGlass] = MakeMat("CityFacadeGlass", CityTexDir + "/city_facade_glass.png");
-            m[(int)CityMeshes.Slot.FacadeHouse] = MakeMat("CityFacadeHouse", CityTexDir + "/city_facade_house.png");
-            m[(int)CityMeshes.Slot.RoofTiles] = MakeMat("CityRoofTiles", CityTexDir + "/city_roof_tiles.jpg", affine: 0f);
-            m[(int)CityMeshes.Slot.RoofFlat] = MakeMat("CityRoofFlat", CityTexDir + "/city_roof_flat.png", affine: 0f);
+            // Night windows: the five facades with glass in them carry a mask
+            // (Art/City/Night, see WithNightWindows); brick and both roofs are
+            // written WITHOUT one, which is not a no-op — it clears whatever a
+            // stale asset on disk might still hold.
+            m[(int)CityMeshes.Slot.FacadeTower] = WithNightWindows(
+                MakeMat("CityFacadeTower", CityTexDir + "/city_facade_tower.jpg"), "city_facade_tower_night.png");
+            m[(int)CityMeshes.Slot.FacadeMid] = WithNightWindows(
+                MakeMat("CityFacadeMid", CityTexDir + "/city_facade_mid.jpg"), "city_facade_mid_night.png");
+            m[(int)CityMeshes.Slot.FacadeBrick] = WithNightWindows(
+                MakeMat("CityFacadeBrick", CityTexDir + "/city_facade_brick.jpg"), null);
+            m[(int)CityMeshes.Slot.Shops] = WithNightWindows(
+                MakeMat("CityShops", CityTexDir + "/city_shops.png"), "city_shops_night.png");
+            m[(int)CityMeshes.Slot.FacadeGlass] = WithNightWindows(
+                MakeMat("CityFacadeGlass", CityTexDir + "/city_facade_glass.png"), "city_facade_glass_night.png");
+            m[(int)CityMeshes.Slot.FacadeHouse] = WithNightWindows(
+                MakeMat("CityFacadeHouse", CityTexDir + "/city_facade_house.png"), "city_facade_house_night.png");
+            m[(int)CityMeshes.Slot.RoofTiles] = WithNightWindows(
+                MakeMat("CityRoofTiles", CityTexDir + "/city_roof_tiles.jpg", affine: 0f), null);
+            m[(int)CityMeshes.Slot.RoofFlat] = WithNightWindows(
+                MakeMat("CityRoofFlat", CityTexDir + "/city_roof_flat.png", affine: 0f), null);
             return m;
+        }
+
+        /// <summary>Where the night-window masks live: committed art, made by
+        /// <c>py tools/night/window_masks.py</c> from the facade textures
+        /// beside them, with hand-written .meta files so their GUIDs survive a
+        /// sandbox mirror (design R15, the pink-pizza lesson).</summary>
+        const string CityNightDir = CityTexDir + "/Night";
+
+        /// <summary>Warned once per editor session, like MakeMat's _Wet
+        /// warning: a PSX/Lit without the window properties is one fact.</summary>
+        static bool warnedNoNightWin;
+
+        /// <summary>
+        /// Lit windows at night (2026-09-21, the NFS-2015 night pass). The
+        /// owner asked for NFS's dark night, and a dark downtown whose every
+        /// window is the daytime photograph at a tenth of its brightness reads
+        /// as a car park, not a city. PSX/Lit lights a share of the glass
+        /// after dark from a per-facade MASK (R = A = glass, G = a random id
+        /// per window, B = shopfront, always lit) — the shader side is
+        /// <c>_NightMask</c>/<c>_NightWin</c>, gated on <c>_PSXNight</c>, so
+        /// a daytime frame is pixel-for-pixel what it was.
+        ///
+        /// BOTH properties are written on every call, the mask as null and the
+        /// switch as 0 when there is no mask: MakeMat LOADS the asset rather
+        /// than recreating it, so a facade that once had windows and lost them
+        /// (or a mask file deleted) would otherwise go on glowing from the
+        /// stale values on disk. The switch follows the texture actually
+        /// found, not the name asked for — <c>_NightWin</c> 1 over a missing
+        /// mask would sample the shader's black default for nothing.
+        ///
+        /// The mask shares the facade's UVs; it is written at the facade's
+        /// SOURCE size so the importer's 256 px clamp resamples the two
+        /// through the same filter and their windows stay in register.
+        /// </summary>
+        static Material WithNightWindows(Material mat, string maskFile)
+        {
+            if (mat == null) return null;
+            Texture2D mask = null;
+            if (!string.IsNullOrEmpty(maskFile))
+            {
+                string maskPath = CityNightDir + "/" + maskFile;
+                mask = AssetDatabase.LoadAssetAtPath<Texture2D>(maskPath);
+                if (mask == null)
+                    Log("WARN: night window mask missing " + maskPath +
+                        " (py tools/night/window_masks.py) — " + mat.name + " stays dark at night.");
+            }
+            if (mat.HasProperty("_NightMask") && mat.HasProperty("_NightWin"))
+            {
+                mat.SetTexture("_NightMask", mask);
+                mat.SetFloat("_NightWin", mask != null ? 1f : 0f);
+                EditorUtility.SetDirty(mat);
+            }
+            else if (mask != null && !warnedNoNightWin)
+            {
+                // An older PSX/Lit (or a build run before the shader change
+                // landed) still builds — with every window dark.
+                warnedNoNightWin = true;
+                Log("WARN: PSX/Lit has no _NightMask/_NightWin — night windows not written (first: " + mat.name + ").");
+            }
+            return mat;
         }
 
         static string ProfileKey(int profile) =>

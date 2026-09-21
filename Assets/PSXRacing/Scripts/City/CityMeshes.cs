@@ -257,6 +257,29 @@ namespace PSXRacing.City
             public float yawDeg;
         }
 
+        /// <summary>
+        /// One street lamp, TILE-LOCAL like everything else here (see
+        /// <see cref="PlaceLamps"/> for where and why). The tile's merged post
+        /// mesh draws it, CityWorld.Attach stands a post collider on it, and
+        /// CityWorld.EnsureTile hands every <see cref="head"/> to a NightGlow,
+        /// which lights it after dark.
+        /// </summary>
+        public struct Lamp
+        {
+            /// <summary>The post's foot: the verge surface under it as the tile
+            /// draws it, sunk <see cref="LampSinkM"/> so a sloped verge never
+            /// shows daylight under a corner of the post.</summary>
+            public Vector3 foot;
+            /// <summary>The LENS: the underside of the luminaire at the end of
+            /// the arm, over the road's edge. The light comes from here.</summary>
+            public Vector3 head;
+            /// <summary>Foot to lens, metres (the pole height by road class).</summary>
+            public float height;
+            /// <summary>0 a street lamp (classes 0-1), 1 an arterial's (2-4),
+            /// 2 a freeway's (5): which pitch and height it was placed by.</summary>
+            public byte kind;
+        }
+
         public class TileMeshes
         {
             public Vector3 origin;
@@ -281,7 +304,17 @@ namespace PSXRacing.City
             public Mesh buildings;  public Slot[] buildingSlots;
             /// <summary>Piers. Buildings collide as their own mesh.</summary>
             public List<SolidBox> solids = new List<SolidBox>();
-            public List<Vector4> lamps = new List<Vector4>(); // xyz + yaw, future use
+            /// <summary>The street lamps this tile OWNS (<see cref="PlaceLamps"/>),
+            /// and their posts, arms and heads as one render-only mesh (null
+            /// where there are none). The post colliders are CityWorld.Attach's,
+            /// from this list.</summary>
+            public List<Lamp> lamps = new List<Lamp>();
+            public Mesh lampPosts;
+            /// <summary>For the audit: lamp stations this tile owned, and why
+            /// each one that stood no lamp was refused, indexed by the
+            /// LampReject codes (<see cref="LampRejectNames"/>).</summary>
+            public int lampStations;
+            public readonly int[] lampRejects = new int[LampRejectCount];
             /// <summary>Walls the emitter caught pointing the wrong way. Zero,
             /// or the audit fails the build.</summary>
             public int wallFacingErrors;
@@ -410,6 +443,11 @@ namespace PSXRacing.City
         static readonly Bucket[] buckets = NewBuckets();
         static readonly Bucket barrierBucket = new Bucket();
         static readonly Bucket kerbBucket = new Bucket();
+        /// <summary>The lamp posts, arms and heads: their own mesh, drawn with
+        /// CityWorld's runtime post material rather than a Slot (a new Slot
+        /// member shifts RoadFirst and misaligns every baked city scene's
+        /// materials array until all four are rebuilt).</summary>
+        static readonly Bucket lampBucket = new Bucket();
         static Bucket[] NewBuckets()
         {
             var b = new Bucket[(int)Slot.COUNT];
@@ -670,6 +708,8 @@ namespace PSXRacing.City
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
             kerbBucket.Clear();
+            lampBucket.Clear();
+            lampBuildings = buildings;
             goreGaps.Clear();
             goreQuads.Clear(); goreGroups.Clear();
             clips.Clear();
@@ -700,6 +740,7 @@ namespace PSXRacing.City
             tm.roadSlots = roadSlots;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
+            tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.water = MeshFrom("water", new[] { Slot.Water }, out _);
             tm.buildings = MeshFrom("bld", BuildingSlots, out var bSlots);
             tm.buildingSlots = bSlots;
@@ -1892,6 +1933,513 @@ namespace PSXRacing.City
                     for (int side = -1; side <= 1; side += 2)
                         EmitSide(map, trims, tm, e, i, side, v0, v1);
                 }
+
+                // ---- street lamps ----
+                // Here, while this edge's sections and side flags are still
+                // the ones the tile just drew from: a lamp stands only on a
+                // side the tile laid as a plain verge.
+                PlaceLamps(map, trims, tm, e, min, max);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  Street lamps (2026-09-21, the night pass).
+        //
+        //  The owner, on taking Need for Speed (2015)'s night for reference:
+        //  "how street lights bathe the road". Charlotte had none: a city of
+        //  31 km after dark was the headlights and nothing else. Every
+        //  carriageway now gets high-pressure sodium heads on davit poles, the
+        //  way a US city was lit in 1999, placed per tile from the map alone:
+        //
+        //    ALONG      evenly over the ribbon between its junction mouths, at
+        //               a pitch by road class: a street's 55 m, an arterial's
+        //               38 m, a trunk's 42 m and a freeway's 60 m. A four-lane
+        //               two-way arterial, and any two-way trunk or freeway,
+        //               lights both sides staggered: a lamp every half pitch.
+        //               Spread evenly rather than off a hashed phase, the gap
+        //               across a node between two edges of one road is about a
+        //               pitch, not anything from nothing to two.
+        //    SIDE       alternating from a per-edge hash (a street's lamps
+        //               zig-zag); the outside only on a one-way trunk or
+        //               freeway carriageway and on a roundabout. A lamp refused
+        //               on its side tries the other before it gives up.
+        //    OFFSET     the owner's DOT rule (the night pass's R11): past
+        //               65 km/h a rigid post stands clear of the recoverable
+        //               foreslope, at the shoulder plus the 3.5 m clear zone
+        //               plus half a metre. A low-speed urban street stands it
+        //               a metre past its shoulder, as real downtowns do; it is
+        //               also the only way downtown gets lamps at all, with its
+        //               buildings a few metres off the drawn edge.
+        //    ON         only a side the tile drew as a PLAIN VERGE for three
+        //               metres either way. That means no deck, wedge, structure
+        //               approach, gore gap, squeeze strip, rail, retaining face,
+        //               cut wall or median barrier. No ramps, tunnels or tagged
+        //               bridges, and nothing within 20 m of a structure end.
+        //    NOT IN     another road's pavement (a metre clear at the foot's
+        //               level, six across a divided road's median from its
+        //               other carriageway), a junction fan, a building or a
+        //               lot, or water. And never under a structure: nothing
+        //               passes over the foot, the arm or the head.
+        //
+        //  OWNERSHIP. A lamp belongs to the tile its STATION (the centreline
+        //  point it is placed from) lies in, the rule nodes and footprint
+        //  centres already follow, and only that tile evaluates it, nudges and
+        //  side fallback included. That is what makes the seams safe: two
+        //  tiles never both stand one lamp, and neither drops it, however each
+        //  one samples the edge. Owning by SPAN midpoint would be as safe only
+        //  while both tiles cut the ribbon into the same spans, and the
+        //  per-tile clip table (which adds samples) does not promise that.
+        //
+        //  The posts are SOLID (CityWorld.Attach: one box per post on the
+        //  Solid layer, named LampPost): a car that leaves a street at speed
+        //  meets a pole, as it would. That is exactly why the fast roads keep
+        //  them out of the clear zone.
+        // ------------------------------------------------------------------
+
+        /// <summary>Metres between lamps along one road, by class: a street's
+        /// or collector's (0-1), an arterial's (2-3), a trunk's (4), a
+        /// freeway's (5). A two-way arterial of four lanes or more, and any
+        /// two-way trunk or freeway, lights both sides staggered by half of
+        /// this.</summary>
+        const float LampPitchStreetM = 55f, LampPitchArterialM = 38f, LampPitchTrunkM = 42f, LampPitchFreewayM = 60f;
+        /// <summary>Foot to lens by the same classes: a 25 ft residential
+        /// pole, a 30 ft arterial davit, a 40 ft freeway mast.</summary>
+        const float LampHeightStreetM = 7.5f, LampHeightArterialM = 9f, LampHeightFreewayM = 12f;
+        /// <summary>Above this speed a post stands clear of the recoverable
+        /// foreslope (<see cref="LampClearZonePadM"/> past the clear zone); at
+        /// or under it, <see cref="LampUrbanOffsetM"/> past the shoulder.</summary>
+        const float LampUrbanSpeedKmh = 65f;
+        const float LampUrbanOffsetM = 1.0f;
+        const float LampClearZonePadM = 0.5f;
+        /// <summary>The arm reaches back over the road by the post's offset
+        /// less <see cref="LampArmBackM"/>, never shorter or longer than a
+        /// real davit's: the lens lands over the edge or its shoulder.</summary>
+        const float LampArmBackM = 0.4f, LampArmMinM = 1.6f, LampArmMaxM = 4.2f;
+        /// <summary>How far under the verge surface a post's foot stands, so
+        /// a post on a 1V:4H slope shows no daylight under its low corner.</summary>
+        public const float LampSinkM = 0.15f;
+        /// <summary>Plan clearance from a post's foot to any other road's
+        /// pavement (its nominal half width, which a squeeze or clip only
+        /// narrows) at the foot's level or above. The audit asserts 0.8.</summary>
+        public const float LampPavementClearM = 1.0f;
+        /// <summary>The same across a divided road's median, from its OTHER
+        /// carriageway: two carriageways' lamps otherwise paired up a metre
+        /// apart in every narrow median. A median narrower than this plus the
+        /// offset keeps its lamps on the outsides.</summary>
+        const float LampMedianClearM = 6f;
+        /// <summary>The height band in which another road's pavement is one a
+        /// post could stand in: the squeeze's (a car's height and a deck).</summary>
+        const float LampBandM = RoadsideRules.CarBandM + CityElevation.DeckThick;
+        /// <summary>Plan clearance from a building (a real footprint, a
+        /// procedural box or a model's lot) and from water.</summary>
+        const float LampBuildingClearM = 0.8f, LampWaterClearM = 1.0f;
+        /// <summary>How far a lot's centre may lie from a post and its lot
+        /// still reach it (the widest pack tower's half diagonal), and how
+        /// far the water is looked for.</summary>
+        const float LampLotReachM = 64f, LampWaterReachM = 40f;
+        /// <summary>At a junction fan, the first lamp stands back from the
+        /// mouth by the widest other arm's half width and this: turning cars
+        /// cut the corner, and a pole there is a pole in their path.</summary>
+        const float LampFanClearM = 4f;
+        /// <summary>The side must be a plain verge this far either way of the
+        /// station, so a post never stands beside the first metre of a rail,
+        /// a cut wall's shelf or a gore.</summary>
+        const float LampRunMarginM = 3f;
+        /// <summary>A stretch of ribbon shorter than this between its mouths
+        /// takes no lamp at all.</summary>
+        const float LampMinRunM = 6f;
+        /// <summary>A verge surface further than this above or below the
+        /// tarmac under a post is some other bank than the verge the tile laid.</summary>
+        const float LampMaxBankM = 1.5f;
+        /// <summary>Where a refused station tries next, metres along, never
+        /// more than <see cref="LampNudgeShare"/> of the gap to its neighbour.</summary>
+        static readonly float[] LampNudges = { 0f, 4f, -4f, 8f, -8f };
+        const float LampNudgeShare = 0.3f;
+        const int LampSalt = 41;
+        /// <summary>Post, arm and head box, metres: a 0.26 m square pole, a
+        /// 0.12 m arm, a cobra head 0.75 long, 0.18 deep and 0.40 wide, and the
+        /// pole's cap above the arm.</summary>
+        const float LampPostW = 0.26f, LampArmW = 0.12f, LampHeadL = 0.75f, LampHeadH = 0.18f, LampHeadW = 0.40f, LampPostCapM = 0.2f;
+
+        /// <summary>Why a lamp station stood no lamp, for the audit (the
+        /// reason its first try was refused).</summary>
+        public const int LampRejectSide = 1, LampRejectStructure = 2, LampRejectBuilding = 3, LampRejectWater = 4,
+                         LampRejectPavement = 5, LampRejectOverhead = 6, LampRejectVerge = 7, LampRejectCount = 8;
+        public static readonly string[] LampRejectNames =
+        {
+            "placed", "not a plain verge", "structure approach", "building or lot", "water",
+            "another road's pavement or fan", "under a structure", "no graded verge",
+        };
+
+        /// <summary>The speed a lamp's offset is decided by: the edge's posted
+        /// limit where OSM tags one, else North Carolina's statutory limit for
+        /// its class: 35 mph inside a municipality, 55 on a trunk, 65 on an
+        /// interstate.</summary>
+        public static float LampSpeedKmh(CityMap.Edge e) =>
+            e.speedKmh > 0 ? e.speedKmh : e.cls >= 5 ? 105f : e.cls == 4 ? 89f : 56f;
+
+        /// <summary>Pitch (already halved where both sides are lit), sides,
+        /// pole height and lamp kind for one edge.</summary>
+        static void LampPlanOf(CityMap.Edge e, out float gap, out bool outsideOnly, out float height, out byte kind)
+        {
+            if (e.cls >= 5) { gap = LampPitchFreewayM; height = LampHeightFreewayM; kind = 2; }
+            else if (e.cls == 4) { gap = LampPitchTrunkM; height = LampHeightArterialM; kind = 1; }
+            else if (e.cls >= 2) { gap = LampPitchArterialM; height = LampHeightArterialM; kind = 1; }
+            else { gap = LampPitchStreetM; height = LampHeightStreetM; kind = 0; }
+            // R is the median of a one-way carriageway (see DecideSideFlags)
+            outsideOnly = e.roundabout || (e.oneway && e.cls >= 4);
+            bool bothSides = !e.oneway && (e.cls >= 4 || (e.cls >= 2 && e.lanes >= 4));
+            if (bothSides) gap *= 0.5f;
+        }
+
+        static readonly List<float> lampEnds = new List<float>(8);
+        static readonly HashSet<int> lampSegs = new HashSet<int>();
+        static readonly HashSet<int> lampNodes = new HashSet<int>();
+        static readonly HashSet<int> lampWater = new HashSet<int>();
+        static readonly HashSet<int> lampLakes = new HashSet<int>();
+        static readonly Vector3[] lampProf = new Vector3[4];
+        /// <summary>The building lots of the tile being built (Build's own
+        /// argument): the procedural boxes and the models' lots.</summary>
+        static Dictionary<long, List<CityBuildings.B>> lampBuildings;
+
+        /// <summary>
+        /// Stand this tile's street lamps along one edge. Called from the span
+        /// loop of <see cref="BuildRoadsAndDecks"/>, so <see cref="sections"/>
+        /// and <see cref="spanFlags"/> are this edge's, exactly as the tile
+        /// drew them. Deterministic from the map, the trims and the tile.
+        /// </summary>
+        static void PlaceLamps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
+        {
+            if (e.link || e.tunnel || e.bridge) return;
+            int n = sections.Count;
+            if (n < 2) return;
+            if (lampTrims != trims || lampFanReach == null || lampFanReach.Length != map.nodes.Length)
+            {
+                // per map (the trims are): fan reaches fill in as nodes are met
+                lampTrims = trims;
+                lampFanReach = new float[map.nodes.Length];
+                for (int k = 0; k < lampFanReach.Length; k++) lampFanReach[k] = -1f;
+            }
+            LampPlanOf(e, out float gap, out bool outsideOnly, out float height, out byte kind);
+            float lo = sections[0].s + LampEndClear(map, trims, e, e.a);
+            float hi = sections[n - 1].s - LampEndClear(map, trims, e, e.b);
+            float run = hi - lo;
+            if (run < LampMinRunM) return;
+            int count = Mathf.Max(1, Mathf.RoundToInt(run / gap));
+            float step = run / count;
+            int phase = Hash01(e.index, 1, LampSalt) < 0.5f ? 0 : 1;
+            float speed = LampSpeedKmh(e);
+            StructureEnds(map, trims, e, lampEnds);
+            for (int k = 0; k < count; k++)
+            {
+                float s0 = lo + (k + 0.5f) * step;
+                var p0 = e.PointAt(s0);
+                if (p0.x < min.x || p0.x >= max.x || p0.y < min.y || p0.y >= max.y) continue;   // another tile's lamp
+                tm.lampStations++;
+                int first = outsideOnly ? -1 : ((k + phase) & 1) == 0 ? -1 : 1;
+                int why = -1;
+                bool placed = false;
+                for (int attempt = 0; attempt < (outsideOnly ? 1 : 2) && !placed; attempt++)
+                {
+                    int side = attempt == 0 ? first : -first;
+                    foreach (float dS in LampNudges)
+                    {
+                        if (Mathf.Abs(dS) > LampNudgeShare * step) continue;
+                        float s = s0 + dS;
+                        if (s < lo || s > hi) continue;
+                        int r = TryLamp(map, trims, tm, e, s, side, height, kind, speed);
+                        if (why < 0) why = r;
+                        if (r == 0) { placed = true; break; }
+                    }
+                }
+                if (!placed && why > 0) tm.lampRejects[why]++;
+            }
+        }
+
+        /// <summary>How far from a node's end of the ribbon the first lamp
+        /// stands back: clear of a junction fan's mouth, nothing at a mitred
+        /// node the road carries on through.</summary>
+        static float LampEndClear(CityMap map, Trims trims, CityMap.Edge e, int node)
+        {
+            if (!trims.patch[node]) return 0f;
+            float hw = 0f;
+            foreach (int oi in map.nodeEdges[node])
+                if (oi != e.index) hw = Mathf.Max(hw, map.edges[oi].width * 0.5f);
+            return hw + LampFanClearM;
+        }
+
+        /// <summary>One lamp at arc <paramref name="s"/> on one side, or the
+        /// reason it cannot stand there (0 = placed).</summary>
+        static int TryLamp(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, float s, int side,
+                           float height, byte kind, float speed)
+        {
+            if (!LampSideClear(side, s - LampRunMarginM, s + LampRunMarginM)) return LampRejectSide;
+            foreach (float se in lampEnds)
+                if (Mathf.Abs(s - se) < ApproachRailM) return LampRejectStructure;
+
+            // the drawn edge at the station: interpolated between the two
+            // sections round it, as EmitStrip lays the verge from them
+            int n = sections.Count, i = 1, hiI = n - 1;
+            while (i < hiI) { int mid = (i + hiI) >> 1; if (sections[mid].s < s) i = mid + 1; else hiI = mid; }
+            var A = sections[i - 1]; var B = sections[i];
+            float t = Mathf.Clamp01((s - A.s) / Mathf.Max(B.s - A.s, 1e-4f));
+            var ed = Vector3.Lerp(A.Edge(side), B.Edge(side), t) + tm.origin;
+            var outw = Vector2.Lerp(A.Out(side), B.Out(side), t);
+            if (outw.sqrMagnitude < 1e-6f) return LampRejectSide;
+            outw.Normalize();
+            var edgeW = new Vector2(ed.x, ed.z);
+
+            float shoulder = ShoulderOf(e, side);
+            float off = speed > LampUrbanSpeedKmh
+                ? shoulder + RoadsideRules.ClearZoneM + LampClearZonePadM
+                : shoulder + LampUrbanOffsetM;
+            float arm = Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
+            var footP = edgeW + outw * off;
+            var headP = footP - outw * arm;
+
+            // cheapest first. The real buildings are asked with FootprintClear,
+            // NOT AnyFootprintNear: that one opens only the bucket of a
+            // footprint's CENTRE and measures to corners, so the review found
+            // posts inside buildings a tile seam away and flush against the
+            // middle of long facades downtown (West 6th, West 4th, East 7th,
+            // West 3rd). FootprintClear opens every bucket a building could
+            // reach from and measures to the walls.
+            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP)) return LampRejectBuilding;
+            if (LampInWater(map, footP)) return LampRejectWater;
+            int clash = LampPavementClear(map, trims, e, side, s, footP, headP, ed.y);
+            if (clash != 0) return clash;
+
+            // THE VERGE IT STANDS ON, solved as the tile lays it: a post on the
+            // lattice where the verge has already tucked under it, on the
+            // verge's own face where that is the higher of the two.
+            GatherNear(map, edgeW, edgeW, VergeMaxRunM + RoadsideRules.ToeTuckRunM);
+            var sh = new StripShape { shoulder = shoulder, maxRun = VergeMaxRunM };
+            if (!SolveStrip(map, trims, edgeW, ed.y, outw, sh, lampProf, out bool graded, out _) || !graded) return LampRejectVerge;
+            float ground = LampGroundAt(map, lampProf, edgeW, off, footP);
+            if (Mathf.Abs(ground - ed.y) > LampMaxBankM) return LampRejectVerge;
+
+            var foot = new Vector3(footP.x, ground - LampSinkM, footP.y) - tm.origin;
+            var head = new Vector3(headP.x, ground - LampSinkM + height, headP.y) - tm.origin;
+            tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind });
+            EmitLamp(foot, head, outw);
+            return 0;
+        }
+
+        /// <summary>Is this side a plain verge over every span touching
+        /// [s0, s1]? The same flags EmitSide drew it from.</summary>
+        static bool LampSideClear(int side, float s0, float s1)
+        {
+            for (int i = 1; i < sections.Count; i++)
+            {
+                var A = sections[i - 1]; var B = sections[i];
+                if (B.s <= s0) continue;
+                if (A.s >= s1) break;
+                var f = spanFlags[i]; var sf = f[side];
+                if (f.skip || f.elev || f.wedge || f.approach || !f.decided) return false;
+                if (sf.gap || sf.rail || sf.retain || sf.cut || sf.median) return false;
+                if (A.collapsed || B.collapsed || A.Strip(side) >= 0f || B.Strip(side) >= 0f) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Does any road stand where a post would: another pavement within
+        /// <see cref="LampPavementClearM"/> of the foot at its level or above
+        /// it (our own included, for the inside of a tight bend), a junction
+        /// fan within its reach, or any surface over the arm or the head? The
+        /// arm is ALLOWED over roads at its own level (reaching over the lanes
+        /// is what it is for); only something a car's height above the tarmac
+        /// is overhead. Returns a LampReject code, or 0.
+        /// </summary>
+        static int LampPavementClear(CityMap map, Trims trims, CityMap.Edge e, int side, float s,
+                                     Vector2 foot, Vector2 head, float yRef)
+        {
+            lampSegs.Clear(); lampNodes.Clear();
+            float r = CityElevation.MaxCorridorHalf + LampMedianClearM;
+            map.EdgeSegsInRect(Vector2.Min(foot, head) - Vector2.one * r, Vector2.Max(foot, head) + Vector2.one * r, lampSegs);
+            var armMid = (foot + head) * 0.5f;
+            var tanE = e.TangentAt(s);
+            foreach (int packed in lampSegs)
+            {
+                int oi = packed >> 12, si = packed & 0xFFF;
+                var o = map.edges[oi];
+                lampNodes.Add(o.a); lampNodes.Add(o.b);
+                Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                if (L2 < 1e-6f) continue;
+                float len = Mathf.Sqrt(L2);
+
+                float tf = Mathf.Clamp01(Vector2.Dot(foot - a, d) / L2);
+                float atF = o.s[si] + len * tf;
+                float yF = o.YAt(atF);
+                float need = LampPavementClearM;
+                // the other carriageway of a divided road, across the median
+                if (oi != e.index && side > 0 && e.oneway && o.oneway && Vector2.Dot(d / len, tanE) < -0.7f)
+                    need = LampMedianClearM;
+                if (Vector2.Distance(foot, a + d * tf) - trims.HalfWidthAt(o, atF) < need && yF > yRef - LampBandM)
+                    return yF > yRef + RoadsideRules.CarBandM ? LampRejectOverhead : LampRejectPavement;
+
+                for (int q = 0; q < 2; q++)
+                {
+                    var p = q == 0 ? armMid : head;
+                    float tq = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
+                    float atQ = o.s[si] + len * tq;
+                    if (Vector2.Distance(p, a + d * tq) - trims.HalfWidthAt(o, atQ) < LampPavementClearM &&
+                        o.YAt(atQ) > yRef + RoadsideRules.CarBandM)
+                        return LampRejectOverhead;
+                }
+            }
+            // A fan's corners stand at its arms' trims, outside the arms'
+            // bands where they meet: the disc through its farthest corner
+            // stands for its pavement. Our own junctions' fans are asked too;
+            // on a straight edge LampEndClear has already put every station
+            // past them, and a curving one is kept off them here.
+            foreach (int nd in lampNodes)
+            {
+                if (!trims.patch[nd]) continue;
+                float reach = LampFanReach(map, trims, nd) + LampPavementClearM;
+                if ((map.nodes[nd] - foot).sqrMagnitude < reach * reach && map.nodeY[nd] > yRef - LampBandM)
+                    return map.nodeY[nd] > yRef + RoadsideRules.CarBandM ? LampRejectOverhead : LampRejectPavement;
+            }
+            return 0;
+        }
+
+        /// <summary>Per node, <see cref="LampFanReach"/> once asked (-1 until
+        /// then), for the trims it was measured against.</summary>
+        static float[] lampFanReach;
+        static Trims lampTrims;
+
+        /// <summary>The distance from a fan node to its farthest arm corner
+        /// (an arm's trim along it, its half width across), once per node.</summary>
+        static float LampFanReach(CityMap map, Trims trims, int node)
+        {
+            float r = lampFanReach[node];
+            if (r >= 0f) return r;
+            r = 0f;
+            foreach (int oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                float tr = trims.TrimAt(o, node), hw = o.width * 0.5f;
+                r = Mathf.Max(r, Mathf.Sqrt(tr * tr + hw * hw));
+            }
+            lampFanReach[node] = r;
+            return r;
+        }
+
+        /// <summary>Is the point on (or within <see cref="LampBuildingClearM"/>
+        /// of) a procedural building or a model's lot? The real footprints are
+        /// CityMap.FootprintClear's.</summary>
+        static bool LampInLot(Vector2 p)
+        {
+            if (lampBuildings == null) return false;
+            int x0 = Mathf.FloorToInt((p.x - LampLotReachM) / TileSize), x1 = Mathf.FloorToInt((p.x + LampLotReachM) / TileSize);
+            int z0 = Mathf.FloorToInt((p.y - LampLotReachM) / TileSize), z1 = Mathf.FloorToInt((p.y + LampLotReachM) / TileSize);
+            for (int tz = z0; tz <= z1; tz++)
+                for (int tx = x0; tx <= x1; tx++)
+                {
+                    // CityBuildings' own bucket key
+                    if (!lampBuildings.TryGetValue(((long)tx << 24) ^ (tz & 0xFFFFFF), out var list)) continue;
+                    foreach (var b in list)
+                    {
+                        var q = p - b.pos;
+                        float reach = 0.5f * (b.w + b.d) + LampBuildingClearM;
+                        if (q.sqrMagnitude > reach * reach) continue;
+                        float cy = Mathf.Cos(b.yaw), sy = Mathf.Sin(b.yaw);
+                        // rgt = (cy, -sy) carries the width, fwd = (sy, cy) the depth (BuildBuildings)
+                        if (Mathf.Abs(q.x * cy - q.y * sy) < b.w * 0.5f + LampBuildingClearM &&
+                            Mathf.Abs(q.x * sy + q.y * cy) < b.d * 0.5f + LampBuildingClearM) return true;
+                    }
+                }
+            return false;
+        }
+
+        /// <summary>Is the point in a river (its drawn width and a margin) or
+        /// inside a lake?</summary>
+        static bool LampInWater(CityMap map, Vector2 p)
+        {
+            lampWater.Clear(); lampLakes.Clear();
+            map.WaterSegsInRect(p - Vector2.one * LampWaterReachM, p + Vector2.one * LampWaterReachM, lampWater);
+            foreach (int packed in lampWater)
+            {
+                int wi = packed >> 12, si = packed & 0xFFF;
+                var w = map.waters[wi];
+                if (w.lake)
+                {
+                    if (lampLakes.Add(wi) && CityMap.PointInPoly(w.pts, p)) return true;
+                    continue;
+                }
+                if (si + 1 >= w.pts.Length) continue;
+                Vector2 a = w.pts[si], d = w.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+                if (Vector2.Distance(p, a + d * t) < w.width * 0.5f + LampWaterClearM) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The ground a post stands on <paramref name="d"/> metres out
+        /// from the edge: the solved verge profile (world space, its points
+        /// measured from <paramref name="edgeW"/>) where it is drawn, and the
+        /// lattice where that is higher or the verge has tucked under it.</summary>
+        static float LampGroundAt(CityMap map, Vector3[] prof, Vector2 edgeW, float d, Vector2 at)
+        {
+            float lat = LatticeY(map, at.x, at.y);
+            float prevE = 0f, prevY = prof[0].y;
+            for (int q = 1; q < 4; q++)
+            {
+                float eq = Vector2.Distance(new Vector2(prof[q].x, prof[q].z), edgeW);
+                if (d <= eq)
+                {
+                    float y = eq - prevE > 1e-4f ? Mathf.Lerp(prevY, prof[q].y, (d - prevE) / (eq - prevE)) : prof[q].y;
+                    return Mathf.Max(y, lat);
+                }
+                prevE = eq; prevY = prof[q].y;
+            }
+            return lat;
+        }
+
+        /// <summary>Faces of a lamp box <see cref="EmitLampBox"/> leaves out,
+        /// as bits in its (+x, -x, +y, -y, +z, -z) order: a post's buried
+        /// bottom, an arm's two ends inside the post and the head.</summary>
+        const int LampSkipBottom = 1 << 3, LampSkipEnds = (1 << 0) | (1 << 1);
+
+        /// <summary>A post, its arm and its head into the lamp bucket
+        /// (tile-local): the arm runs from the post's axis, at the head box's
+        /// mid-height, back to the head.</summary>
+        static void EmitLamp(Vector3 foot, Vector3 head, Vector2 outw)
+        {
+            var up = Vector3.up;
+            var tw = new Vector3(-outw.x, 0f, -outw.y);   // toward the road
+            var ac = new Vector3(-tw.z, 0f, tw.x);          // across the arm
+            float armY = head.y + LampHeadH * 0.5f;
+            float top = armY + LampArmW * 0.5f + LampPostCapM;
+            float hp = LampPostW * 0.5f;
+            EmitLampBox(new Vector3(foot.x, (foot.y + top) * 0.5f, foot.z), tw * hp, up * ((top - foot.y) * 0.5f), ac * hp, LampSkipBottom);
+            var box = new Vector3(head.x, armY, head.z);
+            var from = new Vector3(foot.x, armY, foot.z);
+            var to = box - tw * (LampHeadL * 0.5f);
+            float half = Vector3.Distance(from, to) * 0.5f;
+            if (half > 0.01f)
+                EmitLampBox((from + to) * 0.5f, tw * half, up * (LampArmW * 0.5f), ac * (LampArmW * 0.5f), LampSkipEnds);
+            EmitLampBox(box, tw * (LampHeadL * 0.5f), up * (LampHeadH * 0.5f), ac * (LampHeadW * 0.5f), 0);
+        }
+
+        /// <summary>A box from its centre and three half-axis vectors, every
+        /// face facing out (Bucket.Face decides the winding), less the faces
+        /// in <paramref name="skip"/>. Four vertices a face, so the normals
+        /// come out flat.</summary>
+        static void EmitLampBox(Vector3 c, Vector3 ax, Vector3 ay, Vector3 az, int skip)
+        {
+            var uv = Vector2.zero;
+            for (int f = 0; f < 6; f++)
+            {
+                if ((skip & (1 << f)) != 0) continue;
+                Vector3 nrm = f < 2 ? ax : f < 4 ? ay : az;
+                Vector3 u = f < 2 ? ay : ax;
+                Vector3 v = f < 4 ? az : ay;
+                if ((f & 1) != 0) nrm = -nrm;
+                var q = c + nrm;
+                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm, uv, uv, uv, uv);
             }
         }
 

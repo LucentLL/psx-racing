@@ -37,6 +37,17 @@ namespace PSXRacing
     /// The HUD is kept out of it by SpeedBlur, which moves the HUD canvas onto
     /// an overlay camera stacked on this one: a stacked camera draws after
     /// every pass of its base.
+    ///
+    /// THE LENS IS A SECOND PASS OF THIS FEATURE (2026-09-21): rain drops on
+    /// the glass and dirt bokeh round the lights, through PSX/Lens, one event
+    /// later (AfterRenderingTransparents + 1) — so the drops sit in front of
+    /// a world that is already smeared, and the stacked HUD camera still
+    /// draws after both. Same shape, same rule about not running: it is
+    /// enqueued only for the camera <see cref="LensFx"/> names, only when
+    /// there is rain or dirt to draw. It lives here rather than in a feature
+    /// of its own because a new feature would have to be added, by hand, to
+    /// the YAML of BOTH renderer assets (the one the editor renders with is
+    /// not the one WebGL ships), and a pass here is on both already.
     /// </summary>
     public class SpeedBlurFeature : ScriptableRendererFeature
     {
@@ -46,9 +57,19 @@ namespace PSXRacing
 
         static readonly int ParamsId = Shader.PropertyToID("_PSXSpeedBlur");
         static readonly int FocusId = Shader.PropertyToID("_PSXSpeedBlurFocus");
+        static readonly int LensParamsId = Shader.PropertyToID("_PSXLens");
+        static readonly int LensAspectId = Shader.PropertyToID("_PSXLensAspect");
 
         Material material;
         BlurPass pass;
+
+        /// <summary>PSX/Lens, found by name — not a serialized field like
+        /// <see cref="shader"/>, because the renderer assets' YAML would have
+        /// to be edited to fill one. What keeps it in a player build is its
+        /// place in GraphicsSettings' always-included shaders.</summary>
+        Shader lensShader;
+        Material lensMaterial;
+        LensPass lensPass;
 
         public override void Create()
         {
@@ -59,15 +80,29 @@ namespace PSXRacing
                 // drawing straight into its target cannot offer.
                 requiresIntermediateTexture = true,
             };
+            lensPass = new LensPass
+            {
+                // One after the blur: the drops are on the glass, the world
+                // smears behind them. Still before the stacked HUD camera,
+                // which draws after every pass of this one.
+                renderPassEvent = RenderPassEvent.AfterRenderingTransparents + 1,
+                requiresIntermediateTexture = true,
+            };
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
+            var cam = renderingData.cameraData.camera;
+            if (cam == null || renderingData.cameraData.renderType != CameraRenderType.Base) return;
+            AddBlur(renderer, cam);
+            AddLens(renderer, cam);
+        }
+
+        void AddBlur(ScriptableRenderer renderer, Camera cam)
+        {
             float strength = SpeedBlur.ActiveStrength;
             if (strength < SpeedBlur.MinDrawnStrength) return;
-            var cam = renderingData.cameraData.camera;
-            if (cam == null || cam != SpeedBlur.ActiveCamera) return;
-            if (renderingData.cameraData.renderType != CameraRenderType.Base) return;
+            if (cam != SpeedBlur.ActiveCamera) return;
 
             if (material == null)
             {
@@ -83,10 +118,35 @@ namespace PSXRacing
             renderer.EnqueuePass(pass);
         }
 
+        /// <summary>
+        /// The lens, for the camera LensFx names — the PSX camera in play,
+        /// the shot camera for an edit-mode tool that called
+        /// <see cref="LensFx.PreviewSet"/> (a render request hands this
+        /// feature that camera, so the same test covers both).
+        /// </summary>
+        void AddLens(ScriptableRenderer renderer, Camera cam)
+        {
+            if (!LensFx.Active || cam != LensFx.Camera) return;
+            if (lensMaterial == null)
+            {
+                if (lensShader == null) lensShader = Shader.Find(LensFx.ShaderName);
+                // No shader in this build: no lens. Never a pink frame.
+                if (lensShader == null || !lensShader.isSupported) return;
+                lensMaterial = CoreUtils.CreateEngineMaterial(lensShader);
+            }
+            float aspect = Mathf.Max(cam.aspect, 0.01f);
+            lensMaterial.SetVector(LensParamsId, new Vector4(LensFx.Rain, LensFx.Dirt, LensFx.Flow, LensFx.Time));
+            lensMaterial.SetVector(LensAspectId, new Vector4(aspect, 1f / aspect, 0f, 0f));
+            lensPass.material = lensMaterial;
+            renderer.EnqueuePass(lensPass);
+        }
+
         protected override void Dispose(bool disposing)
         {
             CoreUtils.Destroy(material);
             material = null;
+            CoreUtils.Destroy(lensMaterial);
+            lensMaterial = null;
         }
 
         class BlurPass : ScriptableRenderPass
@@ -167,6 +227,77 @@ namespace PSXRacing
                 // 3 — smear back in. ReadWrite again: it writes RGB and leaves
                 // the camera's alpha as it found it.
                 FullFrame(renderGraph, "PSX Speed Blur", copy, colour, SmearPass, AccessFlags.ReadWrite);
+            }
+
+            void FullFrame(RenderGraph renderGraph, string name, TextureHandle source, TextureHandle destination,
+                           int shaderPass, AccessFlags destinationAccess)
+            {
+                using (var builder = renderGraph.AddRasterRenderPass<FullFrameData>(name, out var data))
+                {
+                    data.source = source;
+                    data.material = material;
+                    data.pass = shaderPass;
+                    builder.UseTexture(source);
+                    builder.SetRenderAttachment(destination, 0, destinationAccess);
+                    builder.SetRenderFunc(static (FullFrameData d, RasterGraphContext ctx) =>
+                    {
+                        Block.Clear();
+                        Block.SetTexture(BlitTextureId, d.source);
+                        Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
+                        ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, d.pass,
+                                               MeshTopology.Triangles, 3, 1, Block);
+                    });
+                }
+            }
+        }
+
+        /// <summary>
+        /// Rain on the glass and dirt that catches the lights: the frame
+        /// copied out, then drawn back into the camera's own colour through
+        /// PSX/Lens. The blur's shape exactly — two full-frame raster passes,
+        /// the copy in a graph-owned texture, the result written back into the
+        /// ACTIVE colour rather than swapped for it, for the blur's reason:
+        /// the stacked HUD camera that draws next picks up the pipeline's own
+        /// colour buffer, and a lens drawn anywhere else would be thrown away
+        /// on exactly the frames that have a HUD. Two passes over a 480-line
+        /// buffer are nothing; the shader's own cost is in its header.
+        /// </summary>
+        class LensPass : ScriptableRenderPass
+        {
+            public Material material;
+
+            static readonly int BlitTextureId = Shader.PropertyToID("_BlitTexture");
+            static readonly int BlitScaleBiasId = Shader.PropertyToID("_BlitScaleBias");
+            static readonly MaterialPropertyBlock Block = new MaterialPropertyBlock();
+
+            // PSX/Lens's passes.
+            const int LensShaderPass = 0, CopyShaderPass = 1;
+
+            class FullFrameData
+            {
+                public TextureHandle source;
+                public Material material;
+                public int pass;
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var resources = frameData.Get<UniversalResourceData>();
+                if (material == null || resources.isActiveTargetBackBuffer) return;
+
+                // Whatever the blur left there (or the camera, with no blur):
+                // the lens sits in front of all of it.
+                var colour = resources.activeColorTexture;
+                var desc = renderGraph.GetTextureDesc(colour);
+                desc.name = "_PSXLensSource";
+                desc.clearBuffer = false;
+                var copy = renderGraph.CreateTexture(desc);
+
+                // 1 — copy out, as it is.
+                FullFrame(renderGraph, "PSX Lens (copy)", colour, copy, CopyShaderPass, AccessFlags.Write);
+                // 2 — back in through the lens. ReadWrite: the shader writes
+                // RGB and leaves the camera's alpha as it found it.
+                FullFrame(renderGraph, "PSX Lens", copy, colour, LensShaderPass, AccessFlags.ReadWrite);
             }
 
             void FullFrame(RenderGraph renderGraph, string name, TextureHandle source, TextureHandle destination,

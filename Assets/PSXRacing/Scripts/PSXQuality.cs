@@ -74,6 +74,65 @@ namespace PSXRacing
         public static float Amount => Enabled ? 1f : 0f;
     }
 
+    /// <summary>
+    /// LENS FX: what lands on the camera's glass — rain drops that refract
+    /// the street behind them (a drop in front of a lamp glows: that is the
+    /// bokeh) while it rains, and the faint dust discs a bright light shows up
+    /// on the lens at night.
+    ///
+    /// Owner, 2026-09-21, on Need for Speed (2015): "I like the particle
+    /// effects on screen for rain and light." The effect itself is PSX/Lens,
+    /// a URP pass of its own in SpeedBlurFeature that runs BEFORE the race HUD
+    /// (the HUD sits inside the framebuffer PSX/Blit reads, so a drop there
+    /// would refract the lap counter); <see cref="LensFx"/> is its per-frame
+    /// state. This is only the switch, built the way
+    /// <see cref="FilmGradePrefs"/> is. Ships ON — it is the picture the owner
+    /// pointed at — and the OPTIONS / pause row is how to say no.
+    ///
+    /// ONE TRAP it shares with the speed blur: the HUD is only split onto
+    /// its own camera, after the lens, while this or SPEED BLUR is on, so
+    /// SpeedBlur reads <see cref="Enabled"/> every frame rather than caching
+    /// it — turning this off mid-race puts the HUD back in the world camera
+    /// on the next frame, which is safe only because the lens is off with it.
+    /// </summary>
+    public static class LensFxPrefs
+    {
+        const string PrefKey = "psx.lensFx";
+
+        static int cached = -1;
+
+        public static bool Enabled
+        {
+            get
+            {
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 1);
+                return cached != 0;
+            }
+            set
+            {
+                int v = value ? 1 : 0;
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+                Changed++;
+            }
+        }
+
+        /// <summary>Bumped on every change, the same counter FilmGradePrefs
+        /// and PSXQuality keep, for anything that builds from the pref
+        /// rather than polling it (and for the self-test's round trip).</summary>
+        public static int Changed { get; private set; }
+
+        public static void Toggle() => Enabled = !Enabled;
+
+        public static string Label => Enabled ? "ON" : "OFF";
+
+        /// <summary>1 when the lens is allowed, 0 when not: the factor the
+        /// lens state multiplies its rain and dirt by.</summary>
+        public static float Amount => Enabled ? 1f : 0f;
+    }
+
     public static class PSXQuality
     {
         public static readonly string[] Names = { "SHARP", "CLASSIC", "RETRO" };

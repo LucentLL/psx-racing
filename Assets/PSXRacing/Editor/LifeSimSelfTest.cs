@@ -84,6 +84,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestMenuNavigation), TestMenuNavigation);
             Guard(nameof(TestSleepBlocks), TestSleepBlocks);
             Guard(nameof(TestSenseOfSpeed), TestSenseOfSpeed);
+            Guard(nameof(TestNightLook), TestNightLook);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -10108,6 +10109,890 @@ namespace PSXRacing.EditorTools
             {
                 Object.DestroyImmediate(hudGO);
                 Object.DestroyImmediate(camGO);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        //  The night look (2026-09-21, after Need for Speed 2015)
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// THE NIGHT LOOK'S MACHINERY, which fails silently in every one of
+        /// its parts. The owner asked for NFS 2015's night — "how dark the
+        /// night is, how much the skybox effects the color and mood of the
+        /// world and cars, how street lights bathe the road ... the particle
+        /// effects on screen for rain and light" — and the pass that answered
+        /// it is a dozen mechanisms, none of which throws when it is wrong: a
+        /// shader made only at runtime that a build strips, a night global
+        /// declared as a material property (it then reads 0 forever), a lamp
+        /// table that lets tail lamps crowd out the street, a lamp head
+        /// registered twice by a tool, a lens left on with the switch off, a
+        /// lamp post standing in a lane. The PICTURE is judged by
+        /// NightLookShots and tools/night/night_stats.py; this pins the parts.
+        ///
+        /// Tolerant of a sandbox that has not been rebuilt since the pass: the
+        /// wet materials and the window masks exist only in assets the scene
+        /// builder writes, so those checks SKIP with a note when the scene is
+        /// older than the builder that should have made it — never a FAIL for
+        /// a build that has not happened. Each part runs in its own net.
+        /// </summary>
+        static void TestNightLook()
+        {
+            Line("night look:");
+            Guard("NightLook.Shaders", NightLookShaders);
+            Guard("NightLook.Hours", NightLookHours);
+            Guard("NightLook.StreetLights", NightLookStreetLights);
+            Guard("NightLook.Halos", NightLookHalos);
+            Guard("NightLook.Lens", NightLookLens);
+            Guard("NightLook.Gauges", NightLookGauges);
+            Guard("NightLook.BuiltMaterials", NightLookBuiltMaterials);
+            Guard("NightLook.CityLamps", NightLookCityLamps);
+        }
+
+        /// <summary>A check that cannot be made here, and why — the run says
+        /// what it did NOT look at instead of passing it in silence.</summary>
+        static void Skip(string why) => Line("  skip " + why);
+
+        /// <summary>
+        /// The three shaders nothing in a scene references (the halo, rain
+        /// and lens materials are all made at runtime by Shader.Find), so a
+        /// player build keeps them ONLY because GraphicsSettings lists them —
+        /// and it lists them by GUID, so the GUID in each .meta has to be the
+        /// one written there. The same for the two new includes, whose GUIDs
+        /// were fixed by hand so a mirror never re-mints them.
+        /// </summary>
+        static void NightLookShaders()
+        {
+            string gfx = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(Application.dataPath, "..", "ProjectSettings", "GraphicsSettings.asset"));
+            foreach (var (name, path, guid) in new[]
+            {
+                ("PSX/Halo", "Assets/PSXRacing/Shaders/PSXHalo.shader", "c45054d8a68e418585222e5883dd00a3"),
+                ("PSX/Rain", "Assets/PSXRacing/Shaders/PSXRain.shader", "6d4aaa0c635141339bc03c48f539a9cc"),
+                ("PSX/Lens", "Assets/PSXRacing/Shaders/PSXLens.shader", "d20e150bc4684544b8222cba64cd2807"),
+            })
+            {
+                var sh = Shader.Find(name);
+                Check(sh != null && !ShaderUtil.ShaderHasError(sh), name + " compiles and is found");
+                string got = AssetDatabase.AssetPathToGUID(path);
+                Check(got == guid, name + " is imported under its committed GUID", got);
+                Check(gfx.Contains(guid), name + " is in GraphicsSettings' always-included shaders");
+            }
+            foreach (var (path, guid) in new[]
+            {
+                ("Assets/PSXRacing/Shaders/PSXLamps.cginc", "77f456a4ae8f45eb9fa0533254f1b714"),
+                ("Assets/PSXRacing/Shaders/PSXSkyReflect.cginc", "01d12d5f11214afebf416ec3a8896d74"),
+            })
+            {
+                string got = AssetDatabase.AssetPathToGUID(path);
+                Check(got == guid, System.IO.Path.GetFileName(path) + " is imported under its committed GUID", got);
+            }
+
+            var lit = Shader.Find("PSX/Lit");
+            foreach (var prop in new[] { "_Wet", "_NightMask", "_NightWin" })
+                Check(lit != null && lit.FindPropertyIndex(prop) >= 0, "PSX/Lit has " + prop);
+
+            // UNIFORMS ONLY. A name in a Properties block takes the MATERIAL's
+            // value over Shader.SetGlobal*, and every saved material holds 0
+            // for it — a night that never falls, a road that never gets wet,
+            // with nothing in any log.
+            string[] globals =
+            {
+                "_PSXWetness", "_PSXNight", "_PSXGradeNight", "_PSXMood",
+                "_PSXLampCount", "_PSXLampPos", "_PSXLampColor",
+            };
+            string shadowed = "";
+            foreach (var name in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Blit",
+                                         "PSX/Halo", "PSX/Rain", "PSX/Lens" })
+            {
+                var sh = Shader.Find(name);
+                if (sh == null) continue;
+                foreach (var g in globals)
+                    if (sh.FindPropertyIndex(g) >= 0) shadowed += name + " " + g + "; ";
+            }
+            Check(shadowed.Length == 0,
+                  "no shader declares a night global as a material property (it would shadow the global and read 0)",
+                  shadowed.Length > 0 ? shadowed : null);
+
+            // The table's length is locked by the first SetGlobalVectorArray
+            // and the shader loops to its own #define: the two numbers must be
+            // one number.
+            const string lampsPath = "Assets/PSXRacing/Shaders/PSXLamps.cginc";
+            string lamps = System.IO.File.Exists(lampsPath) ? System.IO.File.ReadAllText(lampsPath) : "";
+            var m = System.Text.RegularExpressions.Regex.Match(lamps, @"#define\s+PSX_MAX_LAMPS\s+(\d+)");
+            Check(m.Success && int.Parse(m.Groups[1].Value) == StreetLights.MaxLamps,
+                  "PSXLamps.cginc and StreetLights agree on the size of the lamp table",
+                  (m.Success ? m.Groups[1].Value : "no #define") + " vs " + StreetLights.MaxLamps);
+        }
+
+        /// <summary>
+        /// The hour's new numbers. Days must come out of this pass exactly as
+        /// the owner signed them off (no night grade, no mood tint, no damp);
+        /// a clear night is DAMP — NFS's always-wet night is an art licence,
+        /// one constant table — but not flooded; rain soaks every hour; and
+        /// night is darker than dusk, dusk darker than sunset.
+        /// </summary>
+        static void NightLookHours()
+        {
+            Check(TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Clear) == 0f, "a clear noon is dry",
+                  TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Clear));
+            float damp = TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Clear);
+            Check(damp > 0.2f && damp < 0.6f, "a clear night is damp, not flooded", damp.ToString("0.00"));
+            bool soaked = true;
+            for (int h = 0; h < TimeOfDay.Count; h++)
+                if (!Mathf.Approximately(TimeOfDay.WetnessFor(h, Weather.Rain), 1f)) soaked = false;
+            Check(soaked, "rain soaks the road at every hour");
+            Check(Mathf.Approximately(TimeOfDay.NightFor(TimeOfDay.Night), 1f), "night is night (NightFor 1)",
+                  TimeOfDay.NightFor(TimeOfDay.Night));
+            Check(TimeOfDay.NightFor(TimeOfDay.Noon) == 0f, "noon is not (NightFor 0)", TimeOfDay.NightFor(TimeOfDay.Noon));
+
+            string lit = "";
+            foreach (int h in new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon })
+            {
+                if (TimeOfDay.NightFor(h) != 0f || TimeOfDay.GradeNightFor(h) != 0f ||
+                    TimeOfDay.MoodFor(h, 0f).a != 0f || TimeOfDay.MoodFor(h, 1f).a != 0f ||
+                    TimeOfDay.WetnessFor(h, Weather.Clear) != 0f)
+                    lit += TimeOfDay.At(h).name + " ";
+            }
+            Check(lit.Length == 0,
+                  "daylight carries no night grade, no mood tint and no damp: the day look is the one signed off",
+                  lit.Length > 0 ? lit : null);
+
+            float Lum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            float night = Lum(TimeOfDay.At(TimeOfDay.Night).ambient);
+            float dusk = Lum(TimeOfDay.At(TimeOfDay.Dusk).ambient);
+            float sunset = Lum(TimeOfDay.At(TimeOfDay.Sunset).ambient);
+            Check(night < dusk && dusk < sunset, "the ambient darkens sunset > dusk > night",
+                  sunset.ToString("0.000") + " > " + dusk.ToString("0.000") + " > " + night.ToString("0.000"));
+        }
+
+        /// <summary>
+        /// The street-lamp table: twelve slots, the nearest lamps first, the
+        /// street's share FIXED at eight and tail lamps capped at four so a
+        /// grid of cars cannot crowd the street out, dark by day, and a lamp
+        /// whose owner is gone leaves the table. NO POPPING, as the review of
+        /// 2026-09-21 found it broken: the first version recomputed every street
+        /// lamp's fade from the rank cut on every push, so a tail lamp coming
+        /// into view (or the frustum finding a lamp at forty metres) stepped
+        /// several pools brighter or darker in one frame. Edit-mode pushes are
+        /// taken at once, so the counting checks read one push; the play-mode
+        /// hand-over is driven frame by frame through StreetLights.PushFrame
+        /// and no street lamp may move more than one ease step in the frame a
+        /// newcomer arrives. Built far from anything a loaded scene could have
+        /// registered, and the table is pushed once first so lamps left by
+        /// scenes that have since closed are pruned before anything is counted.
+        /// </summary>
+        static void NightLookStreetLights()
+        {
+            bool keepOn = StreetLights.StreetOn;
+            var owner = new GameObject("LampProbeOwner") { hideFlags = HideFlags.HideAndDontSave };
+            var gone = new GameObject("LampProbeGone") { hideFlags = HideFlags.HideAndDontSave };
+            Vector3 eye = new Vector3(41000f, 500f, 41000f);
+            Vector3 fwd = Vector3.forward;
+            // The table as the shaders will read it after the last push: each
+            // lamp's position and colour (w = kind, 1 for a tail lamp).
+            List<(Vector3 at, Vector4 c)> Table()
+            {
+                var t = new List<(Vector3, Vector4)>();
+                var tp = Shader.GetGlobalVectorArray("_PSXLampPos");
+                var tc = Shader.GetGlobalVectorArray("_PSXLampColor");
+                int tn = Mathf.Min(StreetLights.PushedCount, tp != null ? tp.Length : 0, tc != null ? tc.Length : 0);
+                for (int i = 0; i < tn; i++) t.Add(((Vector3)tp[i], tc[i]));
+                return t;
+            }
+            float Peak(Vector4 c) => Mathf.Max(c.x, Mathf.Max(c.y, c.z));
+            // The largest change of any STREET lamp's pushed colour from one
+            // table to the next, matched by position; a lamp in only one of
+            // the two changed by all of its colour.
+            float WorstStreetJump(List<(Vector3 at, Vector4 c)> a, List<(Vector3 at, Vector4 c)> b)
+            {
+                float worst = 0f;
+                foreach (var x in a)
+                {
+                    if (x.c.w > 0.5f) continue;
+                    float d = Peak(x.c);
+                    foreach (var y in b)
+                        if (y.c.w <= 0.5f && (y.at - x.at).sqrMagnitude < 1e-6f)
+                            d = Mathf.Max(Mathf.Abs(y.c.x - x.c.x), Mathf.Max(Mathf.Abs(y.c.y - x.c.y), Mathf.Abs(y.c.z - x.c.z)));
+                    worst = Mathf.Max(worst, d);
+                }
+                foreach (var y in b)
+                {
+                    if (y.c.w > 0.5f) continue;
+                    bool seen = false;
+                    foreach (var x in a) if (x.c.w <= 0.5f && (y.at - x.at).sqrMagnitude < 1e-6f) seen = true;
+                    if (!seen) worst = Mathf.Max(worst, Peak(y.c));
+                }
+                return worst;
+            }
+            try
+            {
+                StreetLights.Push(eye, fwd);
+                int baseline = StreetLights.Registered;
+                StreetLights.StreetOn = true;
+
+                for (int i = 0; i < 20; i++)
+                {
+                    var p = eye + fwd * (10f + 4f * i) + Vector3.up * 6.5f + Vector3.right * (i % 2 == 0 ? -5f : 5f);
+                    StreetLights.Add(owner, p, StreetLights.StreetRadius, StreetLights.Sodium,
+                                     StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                }
+                Check(StreetLights.Registered == baseline + 20, "twenty street lamps register",
+                      StreetLights.Registered - baseline);
+
+                StreetLights.Push(eye, fwd);
+                Check(StreetLights.PushedCount == StreetLights.StreetCap,
+                      "the eight street lamps that matter to the eye are pushed: the street's share is FIXED, " +
+                      "not stretched into the tail lamps' four while no car is in view",
+                      StreetLights.PushedCount);
+                Check(Mathf.RoundToInt(Shader.GetGlobalFloat("_PSXLampCount")) == StreetLights.PushedCount,
+                      "and the shaders' count says so", Shader.GetGlobalFloat("_PSXLampCount"));
+
+                // TAKEN AT ONCE, NOTHING DIMMED FOR ITS RANK: the eighth-nearest
+                // lamp is as bright as the nearest. The first version dimmed it
+                // against the ninth, and that fade is what jumped whenever the
+                // ranks moved; the only fade by place now is the edge of reach
+                // (checked below, well past these 40 m).
+                var pos = Shader.GetGlobalVectorArray("_PSXLampPos");
+                var col = Shader.GetGlobalVectorArray("_PSXLampColor");
+                float nearD = float.MaxValue, farD = -1f, nearL = 0f, farL = 0f;
+                int n = Mathf.Min(StreetLights.PushedCount, pos != null ? pos.Length : 0, col != null ? col.Length : 0);
+                for (int i = 0; i < n; i++)
+                {
+                    float d = Vector3.Distance(eye, pos[i]);
+                    float l = col[i].x * 0.2126f + col[i].y * 0.7152f + col[i].z * 0.0722f;
+                    if (d < nearD) { nearD = d; nearL = l; }
+                    if (d > farD) { farD = d; farL = l; }
+                }
+                Check(n > 1 && nearL > 0f && farD < StreetLights.MaxReach - StreetLights.FadeBandM &&
+                      Mathf.Abs(farL - nearL) <= nearL * 1e-3f,
+                      "an edit-mode push takes its lamps at once, and the last one in is as bright as the first " +
+                      "(no rank fade left to jump when the ranks move)",
+                      "nearest " + nearL.ToString("0.000") + " at " + nearD.ToString("0") + " m, farthest " +
+                      farL.ToString("0.000") + " at " + farD.ToString("0") + " m");
+
+                // Eight tail lamps right in front of the eye: four get in.
+                var tails = new List<int>();
+                for (int i = 0; i < 8; i++)
+                {
+                    var p = eye + fwd * (3f + i) + Vector3.up * 0.6f;
+                    int h = StreetLights.Add(owner, p, 4.5f, new Color(1f, 0.10f, 0.05f), 1.2f, StreetLights.Kind.Point);
+                    StreetLights.Set(h, p, 1.2f, true);
+                    tails.Add(h);
+                }
+                StreetLights.Push(eye, fwd);
+                col = Shader.GetGlobalVectorArray("_PSXLampColor");
+                int points = 0;
+                for (int i = 0; i < StreetLights.PushedCount && col != null && i < col.Length; i++)
+                    if (col[i].w > 0.5f) points++;
+                Check(StreetLights.PushedCount == StreetLights.MaxLamps && points == 4,
+                      "tail lamps take four slots at most, and the street keeps the rest",
+                      points + " point lamps of " + StreetLights.PushedCount);
+                foreach (int h in tails) StreetLights.Remove(h);
+                Check(StreetLights.Registered == baseline + 20, "a removed lamp is gone", StreetLights.Registered - baseline);
+
+                // PLAY-STYLE CONTINUITY - the review's pop, reproduced. Frames
+                // of the game camera's own hand-over at 60 fps (PushFrame is
+                // that frame's code; no frame loop runs here), with a tail lamp
+                // arriving between two of them: an AI car coming round the
+                // bend ahead. The first version handed it a street slot and moved
+                // the street's cut and every street lamp's fade in that one
+                // frame. Now no street lamp's pushed colour may change by more
+                // than one ease step (EaseRate x dt, at full colour).
+                const float frameDt = 1f / 60f;
+                float easeStep = StreetLights.EaseRate * frameDt;
+                var sodiumLin = StreetLights.Sodium.linear;
+                float streetFull = Mathf.Max(sodiumLin.r, Mathf.Max(sodiumLin.g, sodiumLin.b)) * StreetLights.StreetIntensity;
+                float stepBound = streetFull * easeStep + 1e-4f;
+                int easeFrames = Mathf.CeilToInt(1f / easeStep) + 1;
+                // Settle: a full ease of frames, NOT one - the first frame from
+                // a new eye is a cut and snaps, but a second run of the test in
+                // the same editor session starts from this very eye and eases.
+                for (int f = 0; f < easeFrames; f++) StreetLights.PushFrame(eye, fwd, frameDt);
+                var frameA = Table();
+                int settledStreets = 0;
+                foreach (var x in frameA) if (x.c.w <= 0.5f && Mathf.Abs(Peak(x.c) - streetFull) <= 1e-3f) settledStreets++;
+                var tailAt = eye + fwd * 6f + Vector3.up * 0.6f;
+                var tailColour = new Color(1f, 0.10f, 0.05f);
+                int tail = StreetLights.Add(owner, tailAt, 4.5f, tailColour, 1.2f, StreetLights.Kind.Point);
+                StreetLights.Set(tail, tailAt, 1.2f, true);
+                StreetLights.PushFrame(eye, fwd, frameDt);
+                var frameB = Table();
+                float jump = WorstStreetJump(frameA, frameB);
+                Check(settledStreets == StreetLights.StreetCap && jump <= stepBound,
+                      "a tail lamp coming into view moves no street lamp by more than one ease step in that frame " +
+                      "(the pools and their wet streaks do not jump)",
+                      "worst change " + jump.ToString("0.0000") + " against a step of " + (stepBound - 1e-4f).ToString("0.0000") +
+                      ", " + settledStreets + " street lamps settled at full");
+                var tailLin = tailColour.linear;
+                float tailFull = Mathf.Max(tailLin.r, Mathf.Max(tailLin.g, tailLin.b)) * 1.2f;
+                float tailShown = -1f;
+                foreach (var x in frameB) if (x.c.w > 0.5f) tailShown = Peak(x.c);
+                Check(tailShown > 0f && tailShown <= tailFull * easeStep + 1e-4f,
+                      "and the tail lamp takes a free slot and eases in from dark rather than switching on",
+                      tailShown < 0f ? "not in the table" : (tailShown / tailFull).ToString("0.000") + " of full");
+
+                // THE HAND-OVER: the frustum swings onto a street lamp nearer
+                // than the eighth. It must fade in WHILE the eighth fades out -
+                // the tail lamps' spare slots lent for the swap, never the cut
+                // moved - so again nothing steps in the frame it arrives, and a
+                // quarter of a second later the swap is done.
+                var swapAt = eye + fwd * 12f + Vector3.up * 6.5f;
+                int swapIn = StreetLights.Add(owner, swapAt, StreetLights.StreetRadius, StreetLights.Sodium,
+                                              StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                StreetLights.PushFrame(eye, fwd, frameDt);
+                var frameC = Table();
+                jump = WorstStreetJump(frameB, frameC);
+                Check(jump <= stepBound,
+                      "a street lamp nearer than the eighth cross-fades in: nothing moves more than one ease step " +
+                      "in the frame it arrives",
+                      "worst change " + jump.ToString("0.0000") + " against a step of " + (stepBound - 1e-4f).ToString("0.0000"));
+                for (int f = 0; f < easeFrames; f++) StreetLights.PushFrame(eye, fwd, frameDt);
+                var frameD = Table();
+                int doneStreets = 0, doneFull = 0, donePoints = 0;
+                bool swapLit = false;
+                foreach (var x in frameD)
+                {
+                    if (x.c.w > 0.5f) { donePoints++; continue; }
+                    doneStreets++;
+                    if (Mathf.Abs(Peak(x.c) - streetFull) <= 1e-3f) doneFull++;
+                    if ((x.at - swapAt).sqrMagnitude < 1e-6f) swapLit = true;
+                }
+                Check(doneStreets == StreetLights.StreetCap && doneFull == StreetLights.StreetCap && swapLit && donePoints == 1,
+                      "a quarter of a second later the hand-over is done: eight street lamps at full, the newcomer " +
+                      "among them, the one it replaced gone, the tail lamp still lit",
+                      doneFull + " of " + doneStreets + " street lamps at full, newcomer " + (swapLit ? "in" : "missing") +
+                      ", " + donePoints + " tail lamps");
+                StreetLights.Remove(tail);
+                StreetLights.Remove(swapIn);
+                // Frees the held slots of the two removed lamps.
+                StreetLights.PushFrame(eye, fwd, frameDt);
+
+                StreetLights.StreetOn = false;
+                StreetLights.Push(eye, fwd);
+                Check(StreetLights.PushedCount == 0, "by day the street lamps are out", StreetLights.PushedCount);
+                StreetLights.StreetOn = true;
+
+                StreetLights.RemoveAll(owner);
+                StreetLights.Push(eye, fwd);
+                Check(StreetLights.Registered == baseline && StreetLights.PushedCount == 0 &&
+                      Mathf.RoundToInt(Shader.GetGlobalFloat("_PSXLampCount")) == 0,
+                      "RemoveAll empties the table, and an empty table is PUSHED empty (a stale global is not an empty one)",
+                      StreetLights.Registered - baseline);
+
+                // THE EDGE OF REACH: the only fade by place. A lamp at 20 m and
+                // one at 104 m, alone in the table: the far one is in it but
+                // dim, so a lamp crossing 110 m rises out of the fog.
+                var bandNear = eye + fwd * 20f + Vector3.up * 6.5f;
+                var bandFar = eye + fwd * 104f + Vector3.up * 6.5f;
+                StreetLights.Add(owner, bandNear, StreetLights.StreetRadius, StreetLights.Sodium,
+                                 StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                StreetLights.Add(owner, bandFar, StreetLights.StreetRadius, StreetLights.Sodium,
+                                 StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                StreetLights.Push(eye, fwd);
+                float bandNearL = -1f, bandFarL = -1f;
+                foreach (var x in Table())
+                {
+                    if ((x.at - bandNear).sqrMagnitude < 1e-4f) bandNearL = Peak(x.c);
+                    else if ((x.at - bandFar).sqrMagnitude < 1e-4f) bandFarL = Peak(x.c);
+                }
+                Check(bandNearL > 0f && bandFarL > 0f && bandFarL <= bandNearL * 0.5f,
+                      "a lamp at the edge of reach is in the table but dim: one crossing 110 m rises out of the fog " +
+                      "instead of switching on",
+                      "104 m at " + (bandNearL > 0f ? (bandFarL / bandNearL).ToString("0.000") : "?") + " of the 20 m lamp");
+                StreetLights.RemoveAll(owner);
+                StreetLights.Push(eye, fwd);
+
+                for (int i = 0; i < 3; i++)
+                    StreetLights.Add(gone, eye + fwd * (12f + 6f * i) + Vector3.up * 6.5f, StreetLights.StreetRadius,
+                                     StreetLights.Sodium, StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                Object.DestroyImmediate(gone);
+                StreetLights.Push(eye, fwd);
+                Check(StreetLights.PushedCount == 0 && StreetLights.Registered == baseline,
+                      "a lamp whose owner was destroyed (a dropped city tile) is pruned, not drawn",
+                      StreetLights.Registered - baseline);
+
+                var s = StreetLights.Sodium;
+                Check(s.r > s.g && s.g > s.b, "street lamps are high-pressure sodium (r > g > b), 1999 not LED",
+                      s.r.ToString("0.00") + "," + s.g.ToString("0.00") + "," + s.b.ToString("0.00"));
+            }
+            finally
+            {
+                if (owner != null) StreetLights.RemoveAll(owner);
+                StreetLights.StreetOn = keepOn;
+                if (gone != null) Object.DestroyImmediate(gone);
+                Object.DestroyImmediate(owner);
+                // One more frame of the hand-over lets go of any probe lamp it
+                // still holds (their handles are stale now), so nothing of this
+                // test is carried into a play session that skips the domain
+                // reload.
+                StreetLights.PushFrame(eye, fwd, 1f / 60f);
+                StreetLights.Push(eye, fwd);
+            }
+        }
+
+        /// <summary>
+        /// A lamp group, converted the way the edit-mode tools convert it
+        /// (PreviewBuild; NightGlow's Awake never runs outside play mode): the
+        /// old glow quads and the 16 m additive pool disc are RETIRED — set
+        /// inactive, which the hour's toggle cannot turn back on — one merged
+        /// halo mesh draws the heads, the heads register ONCE however often a
+        /// tool asks, and the halo is DontSave so a tool that saves the scene
+        /// never bakes it in.
+        /// </summary>
+        static void NightLookHalos()
+        {
+            var centres = new List<Vector3> { new Vector3(0f, 7f, 0f), new Vector3(30f, 7.5f, 0f), new Vector3(0f, 9f, 40f) };
+            var mesh = NightGlow.BuildHaloMesh(centres, 1f);
+            try
+            {
+                Check(mesh != null && mesh.vertexCount == 4 * centres.Count,
+                      "the merged halo mesh is one quad per lamp head", mesh != null ? mesh.vertexCount : -1);
+                if (mesh != null)
+                {
+                    bool atHeads = true;
+                    foreach (var v in mesh.vertices)
+                    {
+                        bool any = false;
+                        foreach (var c in centres) if ((v - c).sqrMagnitude < 1e-6f) any = true;
+                        if (!any) atHeads = false;
+                    }
+                    Check(atHeads, "every corner sits AT its head: the shader spreads it to face the camera");
+                    var cb = new Bounds(centres[0], Vector3.zero);
+                    foreach (var c in centres) cb.Encapsulate(c);
+                    var b = mesh.bounds;
+                    Check(b.min.x <= cb.min.x - 0.6f && b.min.y <= cb.min.y - 0.6f && b.min.z <= cb.min.z - 0.6f &&
+                          b.max.x >= cb.max.x + 0.6f && b.max.y >= cb.max.y + 0.6f && b.max.z >= cb.max.z + 0.6f,
+                          "its bounds are grown past the heads, so a halo on screen is never culled by a zero-size box",
+                          b.size.ToString("0.0"));
+                }
+            }
+            finally
+            {
+                if (mesh != null && !AssetDatabase.Contains(mesh)) Object.DestroyImmediate(mesh);
+            }
+
+            bool keepOn = StreetLights.StreetOn;
+            bool keepGlow = NightGlow.On;
+            Vector3 at = new Vector3(-41000f, 0f, 41000f);
+            var root = new GameObject("NightProbe") { hideFlags = HideFlags.HideAndDontSave };
+            try
+            {
+                root.transform.position = at;
+                var group = new GameObject("NightLights");
+                group.hideFlags = HideFlags.HideAndDontSave;
+                group.transform.SetParent(root.transform, false);
+                var glows = new List<GameObject>();
+                for (int i = 0; i < 3; i++)
+                {
+                    var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    Object.DestroyImmediate(q.GetComponent<Collider>());
+                    q.name = "Glow";
+                    q.hideFlags = HideFlags.HideAndDontSave;
+                    q.transform.SetParent(group.transform, false);
+                    q.transform.localPosition = new Vector3(i * 30f, 6.0f, 0f);
+                    glows.Add(q);
+                }
+                var pool = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                Object.DestroyImmediate(pool.GetComponent<Collider>());
+                pool.name = "Pool";
+                pool.hideFlags = HideFlags.HideAndDontSave;
+                pool.transform.SetParent(group.transform, false);
+                var ng = group.AddComponent<NightGlow>();
+
+                StreetLights.Push(at, Vector3.forward);
+                int before = StreetLights.Registered;
+                ng.PreviewBuild(true);
+                ng.PreviewBuild(true);
+                Check(StreetLights.Registered == before + glows.Count,
+                      "every lamp head registers once, however many times a tool converts the group",
+                      StreetLights.Registered - before);
+                bool retired = !pool.activeSelf;
+                foreach (var g in glows) if (g.activeSelf) retired = false;
+                Check(retired, "the glow quads and the pool disc are retired (inactive), not toggled back on at night");
+
+                if (Shader.Find("PSX/Halo") == null) Skip("the Halos child: PSX/Halo is not found (see above)");
+                else
+                {
+                    // Found afresh after every conversion: a conversion REBUILDS
+                    // the halo (idempotence by replacement), so a renderer held
+                    // across one is a destroyed object.
+                    Transform Halos() => group.transform.Find("Halos");
+                    bool Shows(Transform h)
+                    {
+                        var r = h != null ? h.GetComponent<Renderer>() : null;
+                        return r != null && r.enabled && h.gameObject.activeInHierarchy;
+                    }
+                    var halos = Halos();
+                    var mf = halos != null ? halos.GetComponent<MeshFilter>() : null;
+                    var haloMesh = mf != null ? mf.sharedMesh : null;
+                    Check(haloMesh != null && haloMesh.vertexCount == 4 * glows.Count,
+                          "one merged Halos child draws the heads", haloMesh != null ? haloMesh.vertexCount : -1);
+                    Check(halos != null && (halos.gameObject.hideFlags & HideFlags.DontSave) == HideFlags.DontSave,
+                          "and it is DontSave: a tool that saves the scene never bakes it in",
+                          halos != null ? halos.gameObject.hideFlags.ToString() : "none");
+                    bool litOn = Shows(halos);
+                    ng.PreviewBuild(false);
+                    var dark = Halos();
+                    bool litOff = Shows(dark);
+                    // "Still there" is read NOW, before the next conversion.
+                    // This check used to test dark != null AFTER the
+                    // PreviewBuild(true) below - which rebuilds the halo by
+                    // replacement and DestroyImmediate's the very object
+                    // 'dark' points at, so Unity's overloaded != said null and
+                    // the check FAILED on correct code (2026-09-21: every
+                    // other NightGlow check passed; the comment above warns of
+                    // exactly this). The code was right; the test held a
+                    // renderer across a conversion.
+                    bool darkThere = dark != null;
+                    ng.PreviewBuild(true);
+                    Check(litOn && darkThere && !litOff,
+                          "the halo is the one thing the hour switches: lit at night, still there but dark by day",
+                          "litOn " + litOn + ", dark!=null " + darkThere + ", litOff " + litOff);
+                    retired = !pool.activeSelf;
+                    foreach (var g in glows) if (g.activeSelf) retired = false;
+                    Check(retired, "and switching it never brings the retired quads back");
+                }
+            }
+            finally
+            {
+                // The halo mesh is the component's own, and edit mode calls no
+                // OnDestroy to free it: take it with the probe.
+                var last = root.transform.Find("NightLights/Halos");
+                var lastFilter = last != null ? last.GetComponent<MeshFilter>() : null;
+                var lastMesh = lastFilter != null ? lastFilter.sharedMesh : null;
+                Object.DestroyImmediate(root);
+                if (lastMesh != null && !AssetDatabase.Contains(lastMesh)) Object.DestroyImmediate(lastMesh);
+                NightGlow.SetAll(keepGlow);
+                StreetLights.StreetOn = keepOn;
+            }
+            StreetLights.Push(at, Vector3.forward);
+        }
+
+        /// <summary>
+        /// LENS FX: the switch round-trips and is put back (it is the owner's
+        /// own PlayerPref under this editor), there is no rain on the glass
+        /// without rain in the scene, and with the switch OFF the lens pass
+        /// has nothing to draw even on a night that would give it dirt.
+        ///
+        /// That last one drives SpeedBlur's own per-frame code by name on a
+        /// throwaway camera, because LensFx is computed there and nowhere
+        /// else. It is proved with a control: the same camera with the switch
+        /// ON, on a scene whose PSXGlobals says night — and if the control
+        /// could not light the lens in edit mode the log says the OFF check
+        /// proves less than it looks.
+        /// </summary>
+        static void NightLookLens()
+        {
+            bool was = LensFxPrefs.Enabled;
+            int stamp = LensFxPrefs.Changed;
+            try
+            {
+                LensFxPrefs.Toggle();
+                Check(LensFxPrefs.Enabled != was && LensFxPrefs.Changed == stamp + 1,
+                      "LENS FX toggles, and says so");
+                Check(LensFxPrefs.Enabled ? LensFxPrefs.Amount > 0f : LensFxPrefs.Amount == 0f,
+                      "OFF is no lens at all", LensFxPrefs.Amount);
+                Check(!string.IsNullOrEmpty(LensFxPrefs.Label), "and the menus have a label for it", LensFxPrefs.Label);
+            }
+            finally { LensFxPrefs.Enabled = was; }
+            Check(LensFxPrefs.Enabled == was, "and the switch is left where it was found");
+
+            if (Object.FindAnyObjectByType<WeatherFx>() == null)
+                Check(WeatherFx.LensRain == 0f, "no rain on the lens without rain in the scene", WeatherFx.LensRain);
+
+            var keepView = ChaseCamera.Current;
+            var camGO = new GameObject("LensProbeCam") { hideFlags = HideFlags.HideAndDontSave };
+            // NOT hidden: SpeedBlur finds the scene's PSXGlobals by a type
+            // search, which is not promised to see DontSave objects. Destroyed
+            // in the finally, so nothing is left in whatever scene is open.
+            var envGO = new GameObject("LensProbeGlobals");
+            try
+            {
+                LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);
+                var globals = envGO.AddComponent<PSXGlobals>();
+                globals.night = 1f;
+                var cam = camGO.AddComponent<Camera>();
+                var blur = camGO.AddComponent<SpeedBlur>();
+                ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+                CallMessage(blur, "OnEnable");
+                // The lens takes its night from the SCENE's PSXGlobals, found
+                // once by type — which, with a race scene still open from an
+                // earlier test, may be that scene's rather than this night
+                // one. Hand it this one so the control is a control.
+                var sceneField = typeof(SpeedBlur).GetField("sceneGlobals",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Public);
+                if (sceneField != null && sceneField.FieldType == typeof(PSXGlobals)) sceneField.SetValue(blur, globals);
+
+                LensFxPrefs.Enabled = true;
+                CallMessage(blur, "Update");
+                CallMessage(blur, "LateUpdate");
+                bool control = LensFx.Active && LensFx.Camera == cam;
+
+                LensFxPrefs.Enabled = false;
+                CallMessage(blur, "Update");
+                CallMessage(blur, "LateUpdate");
+                Check(!(LensFx.Active && LensFx.Camera == cam),
+                      "LENS FX: OFF draws no lens, even at night",
+                      "active " + LensFx.Active + ", rain " + LensFx.Rain.ToString("0.00") +
+                      ", dirt " + LensFx.Dirt.ToString("0.00"));
+                if (!control)
+                    Line("  note the control (switch ON, a night scene) did not light the lens in edit mode, " +
+                         "so the OFF check above proves less than it says");
+            }
+            finally
+            {
+                LensFxPrefs.Enabled = was;
+                LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);
+                SpeedBlur.Preview(null, 0f);
+                ChaseCamera.PreviewView(keepView);
+                Object.DestroyImmediate(envGO);
+                Object.DestroyImmediate(camGO);
+            }
+        }
+
+        /// <summary>Call a MonoBehaviour message by name, as the player loop
+        /// would. False when there is no such method or it threw (which edit
+        /// mode is allowed to make it do; said in the log).</summary>
+        static bool CallMessage(Object target, string method)
+        {
+            const System.Reflection.BindingFlags any = System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            var mi = target.GetType().GetMethod(method, any, null, System.Type.EmptyTypes, null);
+            if (mi == null) return false;
+            try { mi.Invoke(target, null); return true; }
+            catch (System.Reflection.TargetInvocationException e)
+            {
+                Line("  note " + target.GetType().Name + "." + method + " threw in edit mode: " +
+                     (e.InnerException != null ? e.InnerException.Message : e.Message));
+                return false;
+            }
+        }
+
+        /// <summary>"The speedometers look a little too modern, but I like
+        /// that they are transparent": the HUD pair is smoked glass, see-
+        /// through but dark enough to read on; the cockpit's binnacle is an
+        /// instrument in a dashboard and stays opaque.</summary>
+        static void NightLookGauges()
+        {
+            float hud = GaugeCluster.HudFaceAlpha, cockpit = GaugeCluster.CockpitFaceAlpha;
+            Check(hud > 0.2f && hud < 0.7f, "the HUD dials are smoked glass: translucent, but a face to read on", hud);
+            Check(Mathf.Approximately(cockpit, 1f), "the cockpit binnacle stays opaque", cockpit);
+        }
+
+        /// <summary>
+        /// What the scene build writes: the road material wet-capable, the
+        /// scenery dry, the tower facade lighting its windows through a mask
+        /// imported under its committed GUID. Only meaningful for a scene built
+        /// by the builder as it is now — so each part SKIPS, with a note, when
+        /// the scene is older than the builder file that makes it.
+        /// </summary>
+        static void NightLookBuiltMaterials()
+        {
+            const string matDir = "Assets/PSXRacing/Materials/";
+            const string builder = "Assets/PSXRacing/Editor/PSXRacingBuilder.cs";
+            const string cityBuilder = "Assets/PSXRacing/Editor/PSXRacingBuilder.City.cs";
+            const string nightDir = "Assets/PSXRacing/Art/City/Night";
+            const string towerMask = nightDir + "/city_facade_tower_night.png";
+            string circuit = TrackCatalog.At(0).id;
+
+            if (!BuiltSince("Assets/PSXRacing/Scenes/" + circuit + ".unity", out string why, builder))
+                Skip("wet road materials: " + why);
+            else
+            {
+                var road = AssetDatabase.LoadAssetAtPath<Material>(matDir + circuit + "_Road.mat");
+                if (road == null) Skip(circuit + "_Road.mat is not in this project");
+                else if (!road.HasProperty("_Wet")) Skip(circuit + "_Road.mat's shader has no _Wet here (shaders not copied?)");
+                else Check(Mathf.Approximately(road.GetFloat("_Wet"), 1f),
+                           circuit + "_Road takes the wet (_Wet 1): rain and the damp night reach the tarmac",
+                           road.GetFloat("_Wet"));
+
+                Material scenery = null;
+                foreach (var guid in AssetDatabase.FindAssets("scenery_ t:Material", new[] { "Assets/PSXRacing/Materials" }))
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (!System.IO.Path.GetFileName(path).StartsWith("scenery_")) continue;
+                    var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+                    if (m != null && m.shader != null && m.shader.name == "PSX/Lit" && m.HasProperty("_Wet")) { scenery = m; break; }
+                }
+                if (scenery == null) Skip("no PSX/Lit scenery_*.mat with _Wet in this project");
+                else Check(scenery.GetFloat("_Wet") == 0f, scenery.name + " stays dry (_Wet 0): a wall is not a puddle",
+                           scenery.GetFloat("_Wet"));
+            }
+
+            // The mask is one of the build's INPUTS: a Charlotte built before
+            // the masks reached this project baked its towers dark, correctly.
+            if (!System.IO.File.Exists(towerMask))
+                Skip("night windows: " + towerMask + " is not in this project");
+            else if (!BuiltSince("Assets/PSXRacing/Scenes/Charlotte.unity", out why, builder, cityBuilder, towerMask))
+                Skip("night windows: " + why);
+            else
+            {
+                var tower = AssetDatabase.LoadAssetAtPath<Material>(matDir + "CityFacadeTower.mat");
+                if (tower == null) Skip("CityFacadeTower.mat is not in this project");
+                else if (!tower.HasProperty("_NightWin")) Skip("CityFacadeTower's shader has no _NightWin here (shaders not copied?)");
+                else
+                {
+                    Check(tower.GetFloat("_NightWin") > 0.5f, "CityFacadeTower lights its windows at night (_NightWin 1)",
+                          tower.GetFloat("_NightWin"));
+                    Check(tower.GetTexture("_NightMask") != null, "through its window mask");
+                }
+                var brick = AssetDatabase.LoadAssetAtPath<Material>(matDir + "CityFacadeBrick.mat");
+                if (brick != null && brick.HasProperty("_NightWin"))
+                    Check(brick.GetFloat("_NightWin") < 0.5f, "plain brick has no windows to light (_NightWin 0)",
+                          brick.GetFloat("_NightWin"));
+            }
+
+            if (!AssetDatabase.IsValidFolder(nightDir)) Skip("window masks: " + nightDir + " is not in this project");
+            else
+            {
+                string lost = "";
+                foreach (var (name, guid) in new[]
+                {
+                    ("tower", "aad215abb9184a449b7120045a9c4780"), ("mid", "0a93143a3daf41b2b0f6f04762864cdb"),
+                    ("glass", "325d9709e7e64b49baaf712885e8cf01"), ("shops", "91ec4354231c428196dc8ac00f1f2124"),
+                    ("house", "cd8e0e01e5fe4b6f9b06826bbfb4b038"),
+                })
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (string.IsNullOrEmpty(path) || !path.StartsWith(nightDir + "/")) lost += name + " ";
+                }
+                Check(lost.Length == 0,
+                      "every window mask is imported under its committed GUID (a sandbox-minted one dies on the next mirror)",
+                      lost.Length > 0 ? lost : null);
+            }
+        }
+
+        /// <summary>Was <paramref name="scene"/> written after every one of
+        /// <paramref name="sources"/> last changed? A scene older than its
+        /// builder was built by a different builder, and what it baked says
+        /// nothing about this one.</summary>
+        static bool BuiltSince(string scene, out string why, params string[] sources)
+        {
+            if (!System.IO.File.Exists(scene))
+            {
+                why = System.IO.Path.GetFileName(scene) + " is not built here (run the scene build)";
+                return false;
+            }
+            var built = System.IO.File.GetLastWriteTimeUtc(scene);
+            foreach (var src in sources)
+            {
+                if (!System.IO.File.Exists(src)) continue;
+                var changed = System.IO.File.GetLastWriteTimeUtc(src);
+                if (changed > built)
+                {
+                    why = System.IO.Path.GetFileName(scene) + " (" + built.ToLocalTime().ToString("MM-dd HH:mm") +
+                          ") predates " + System.IO.Path.GetFileName(src) + " (" +
+                          changed.ToLocalTime().ToString("MM-dd HH:mm") + "): run the full scene build";
+                    return false;
+                }
+            }
+            why = "";
+            return true;
+        }
+
+        /// <summary>
+        /// The height bands a lamp's clearance is judged in, measured from the
+        /// GROUND it stands on (its foot plus the sink). A road whose surface
+        /// is more than <see cref="LampBelowM"/> under that ground is below a
+        /// bank — a trench, a road in a cut — and a post at the top of the bank
+        /// is not standing in it. Up to <see cref="LampOverM"/> (a car's
+        /// height) above the ground it is the SAME level, a carriageway the
+        /// post must stand clear of; anything higher is overhead, a deck the
+        /// post would stand under. One metre down is the band the placement
+        /// itself always clears (its own reference is the drawn edge, which a
+        /// verge may fall up to 1.5 m from, and it refuses anything within a
+        /// metre from 2.55 m under that edge upward), so a lamp that fails
+        /// here is a lamp the placement let through, never one it had no
+        /// reason to refuse.
+        /// </summary>
+        const float LampBelowM = 1.0f, LampOverM = RoadsideRules.CarBandM;
+        /// <summary>Plan clearance every post keeps from every road in those
+        /// bands (the placement asks for 1.0).</summary>
+        const float LampClearM = 0.8f;
+
+        /// <summary>
+        /// Charlotte's street lamps, straight off the tile builder for the four
+        /// tiles round uptown: there are some, and every post stands at least
+        /// 0.8 m outside every carriageway at its level — the owner's DOT rule
+        /// is that a rigid object stays off the road and out of the recoverable
+        /// foreslope, and a post in a lane is a wall nobody can see at night —
+        /// and none stands under a road passing over it.
+        /// </summary>
+        static void NightLookCityLamps()
+        {
+            var map = PSXRacing.City.CityMap.Get();
+            if (map == null) { Skip("city lamps: charlotte_city.bytes is not in this project"); return; }
+            var trims = PSXRacing.City.CityMeshes.NodeTrims(map);
+            var buildings = PSXRacing.City.CityBuildings.Precompute(map);
+            float size = PSXRacing.City.CityMeshes.TileSize;
+            // The 2x2 block round the tile corner nearest uptown.
+            int tx0 = Mathf.RoundToInt(map.uptown.x / size) - 1;
+            int tz0 = Mathf.RoundToInt(map.uptown.y / size) - 1;
+
+            int lamps = 0, inLane = 0, under = 0;
+            float tightest = float.MaxValue;
+            string tightWhere = "", firstBad = "", firstUnder = "";
+            var scratch = new HashSet<int>();
+            for (int dz = 0; dz <= 1; dz++)
+                for (int dx = 0; dx <= 1; dx++)
+                {
+                    var tm = PSXRacing.City.CityMeshes.Build(map, trims, buildings, tx0 + dx, tz0 + dz);
+                    int here = 0;
+                    foreach (var lamp in tm.lamps)
+                    {
+                        here++;
+                        Vector3 foot = tm.origin + lamp.foot;
+                        string where = " at (" + foot.x.ToString("0") + ", " + foot.z.ToString("0") + ")";
+                        LampClearance(map, trims, foot, scratch, out float level, out string levelRoad,
+                                      out float over, out string overRoad);
+                        if (level < tightest) { tightest = level; tightWhere = levelRoad + where; }
+                        if (level < LampClearM && inLane++ == 0)
+                            firstBad = level.ToString("0.00") + " m from " + levelRoad + where;
+                        if (over < LampClearM && under++ == 0)
+                            firstUnder = overRoad + where;
+                    }
+                    lamps += here;
+                    Line("       tile " + (tx0 + dx) + "," + (tz0 + dz) + ": " + here + " lamps");
+                }
+            Check(lamps > 0, "uptown's four tiles have street lamps", lamps);
+            Check(inLane == 0, "every lamp foot stands at least 0.8 m outside every carriageway at its level",
+                  inLane > 0 ? inLane + " too close, first " + firstBad
+                             : (lamps > 0 ? "tightest " + tightest.ToString("0.00") + " m, " + tightWhere : null));
+            Check(under == 0, "no lamp post stands under a road passing over it",
+                  under > 0 ? under + ", first under " + firstUnder : null);
+        }
+
+        /// <summary>How far a lamp's foot stands, in plan, outside the nearest
+        /// road at its own level and the nearest road overhead (negative:
+        /// inside its pavement; float.MaxValue: none within 40 m). Pavement is
+        /// the ribbon's nominal half width about the OSM centreline, which a
+        /// squeeze or a clip only ever narrows.</summary>
+        static void LampClearance(PSXRacing.City.CityMap map, PSXRacing.City.CityMeshes.Trims trims, Vector3 foot,
+                                  HashSet<int> scratch, out float level, out string levelRoad,
+                                  out float over, out string overRoad)
+        {
+            level = float.MaxValue; over = float.MaxValue;
+            levelRoad = ""; overRoad = "";
+            float ground = foot.y + PSXRacing.City.CityMeshes.LampSinkM;
+            var p = new Vector2(foot.x, foot.z);
+            scratch.Clear();
+            map.EdgeSegsInRect(p - new Vector2(40f, 40f), p + new Vector2(40f, 40f), scratch);
+            foreach (int packed in scratch)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var e = map.edges[ei];
+                if (si + 1 >= e.pts.Length) continue;
+                Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
+                float len2 = d.sqrMagnitude;
+                float t = len2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / len2) : 0f;
+                float at = e.s[si] + Mathf.Sqrt(len2) * t;
+                float c = Vector2.Distance(p, a + d * t) - trims.HalfWidthAt(e, at);
+                float dy = e.YAt(at) - ground;
+                if (dy <= -LampBelowM) continue;
+                string name = "e" + e.index + " '" + e.name + "' cls " + e.cls;
+                if (dy <= LampOverM) { if (c < level) { level = c; levelRoad = name; } }
+                else if (c < over) { over = c; overRoad = name + " " + dy.ToString("0.0") + " m up"; }
             }
         }
 

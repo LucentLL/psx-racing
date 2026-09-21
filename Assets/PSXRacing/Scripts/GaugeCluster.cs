@@ -212,6 +212,82 @@ namespace PSXRacing
         /// no instrument is ever drawn across.</summary>
         const float CentreClearance = 12f;
 
+        /// <summary>
+        /// How much of the world a HUD dial's face hides, as the alpha of the
+        /// face fill at the dial CENTRE: 0.38, so six tenths of the road
+        /// behind it still shows through.
+        ///
+        /// Asked for by the owner on 2026-09-21, with Need for Speed (2015) as
+        /// the reference: "The speedometers look a little too modern, but I
+        /// like that they are transparent and have analog needles." So the
+        /// 90s instrument stays exactly as it is — the numerals, the kite
+        /// needles, the 250 degree sweep, the fuel and coolant gauges in the
+        /// wedge — and only the FACE changes, from a black plate to smoked
+        /// glass. Two opaque discs a fifth of the frame tall are two holes
+        /// punched in the bottom of the picture; two smoked ones are
+        /// instruments laid over it.
+        ///
+        /// Not lower. A face you can see straight through is no longer a face,
+        /// and the white ticks need something to stand on when the corner
+        /// behind them is a bright sky or a sodium-lit road. Nor does
+        /// legibility rest on this number alone: the fill darkens toward the
+        /// rim (<see cref="HudFaceRimAlpha"/>), every mark gets a dark halo of
+        /// its own baked around it (Dial.BakeFace), the numerals get an
+        /// outline, and the needle gets a dark rim. The self-test pins this
+        /// number inside (0.2, 0.7).
+        /// </summary>
+        public const float HudFaceAlpha = 0.38f;
+        /// <summary>
+        /// The same for the COCKPIT binnacle: 1, solid, on purpose. That dial
+        /// is not drawn over the world. It sits ON the cabin artwork, a real
+        /// instrument in a real dashboard, and a see-through rev counter in a
+        /// dash would show the plastic behind it, which no car has ever done.
+        /// </summary>
+        public const float CockpitFaceAlpha = 1f;
+        /// <summary>
+        /// The smoked face's alpha from <see cref="FaceRampR"/> out to the
+        /// bezel. Smoked glass reads darker toward its rim, and the rim is
+        /// exactly where the ticks, the redline and the fuel and coolant marks
+        /// stand. So the face is darkest where it has something to carry, and
+        /// clearest in the middle, where there is only the hub and the road.
+        /// </summary>
+        const float HudFaceRimAlpha = 0.62f;
+        /// <summary>Where the smoked fill reaches <see cref="HudFaceRimAlpha"/>,
+        /// as a fraction of the dial radius: just inside the tick band. It
+        /// rises with the SQUARE of the radius, so the middle of the face stays
+        /// close to <see cref="HudFaceAlpha"/> and most of the darkening
+        /// happens where the marks are.</summary>
+        const float FaceRampR = 0.90f;
+        /// <summary>
+        /// The HUD gear panel, smoked to match the dials beside it: a black
+        /// face at this alpha, with an edge in the bulb's Dim colour at
+        /// <see cref="GearEdgeAlpha"/>. The pale LCD it used to be was the
+        /// one opaque slab left in the corner once the faces went clear, and a
+        /// dark-digit LCD cannot simply be made see-through (dark digits over
+        /// a dark road vanish), so on the HUD the panel becomes glass and its
+        /// digit is drawn in the bulb's Lit colour. The cockpit's boxes sit on
+        /// a dashboard and keep their LCDs.
+        /// </summary>
+        const float GearSmokeAlpha = 0.45f, GearEdgeAlpha = 0.8f;
+
+        /// <summary>
+        /// The dark outline on every piece of text drawn over the world: the
+        /// numerals, the unit caption, the E/F and C/H letters and the HUD gear
+        /// digit. Black at 0.75, 1.2 canvas units down and to the right, so a
+        /// numeral keeps an edge over a bright sky as well as a dark road.
+        ///
+        /// HUD layout only. The cockpit's text sits on an opaque face or an LCD
+        /// and has never needed an edge, and a Shadow alone (what RaceHUD
+        /// uses) darkens only one side of each stroke. Once the face behind
+        /// the text is smoked glass, the other sides need an edge as well.
+        /// </summary>
+        static void AddLegibilityOutline(Graphic g)
+        {
+            var o = g.gameObject.AddComponent<Outline>();
+            o.effectColor = new Color(0f, 0f, 0f, 0.75f);
+            o.effectDistance = new Vector2(1.2f, -1.2f);
+        }
+
         /// <summary>Set by RaceHandoffApplier from the car faults. A dead
         /// cluster parks both needles and blanks the digits — the player should
         /// see broken instruments, not missing ones.</summary>
@@ -352,6 +428,12 @@ namespace PSXRacing
             // under the needle would still be wrong.
             int units = SpeedUnits.Changed * 2 + (SpeedUnits.Mph ? 1 : 0);
 
+            // The smoked HUD faces add NOTHING to this token, and that has to
+            // stay true: their alpha, halos and outlines are constants, and
+            // the only runtime input they read is ClusterBulbs.Backlit, which
+            // is already in `bulb`. A tunable transparency (a user setting,
+            // the weather, how bright the sky is) would need a term here, or
+            // the dials would keep the face they were baked with.
             if (tach != null && bulb == builtBulb && frame == builtHeight && touch == builtTouch
                 && cockpit == builtCockpit && units == builtUnits
                 && wheelC == builtWheelCentre && Mathf.Approximately(wheelR, builtWheelRadius)
@@ -467,14 +549,19 @@ namespace PSXRacing
             // into the face; a dial too small to carry one says so afterwards.
             // H is a warning and F is not, so only the tach is told its high
             // end is one.
+            //
+            // TRANSLUCENT: these two are drawn over the world, so their faces
+            // are smoked glass (see HudFaceAlpha). The cockpit binnacle below
+            // passes false and keeps the solid face it has always had.
             float tachMax = tachMaxRPM;
             tach = new Dial(transform, font, "Tach", tachAnchor, tachPos, radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f), 1f / 1000f, "x1000",
-                            redFrac, "C", "H", subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac);
+                            redFrac, "C", "H", subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac,
+                            translucent: true);
             float sTick = SpeedTick(speedMax);
             speedo = new Dial(transform, font, "Speedo", speedoAnchor, speedoPos, radius,
                               speedMax, sTick, LabelStep(speedMax, sTick, radius, 1f), 1f,
-                              SpeedUnits.Label, -1f, "E", "F");
+                              SpeedUnits.Label, -1f, "E", "F", translucent: true);
             // NOTHING IS PRINTED ON THE FACES. The speed and the gear used to
             // sit under their own needles, on the reasoning that a cluster with
             // a digital readout puts each number in the dial it belongs to.
@@ -531,15 +618,25 @@ namespace PSXRacing
             float x = tachPos.x + radius + gap + w * 0.5f;
             float y = margin + h * 0.5f;
 
+            // SMOKED, like the two faces it sits between (GearSmokeAlpha). The
+            // blue AT/MT header stays solid: it is a printed label strip, and
+            // it is what tells a glance that this box is the gearbox's.
+            Color smoke = new Color(0f, 0f, 0f, GearSmokeAlpha);
+            Color smokeEdge = ClusterBulbs.Dim;
+            smokeEdge.a = GearEdgeAlpha;
             var box = Box(panelRoot.transform, "Gear", anchor, new Vector2(x, y),
-                          new Vector2(w, h), LcdFace, GearHead);
+                          new Vector2(w, h), smoke, smokeEdge, GearHead);
             var mode = Label(box, font, Mathf.Max(8, Mathf.RoundToInt(h * 0.22f)),
                              Color.white, new Vector2(0.5f, 1f),
                              new Vector2(0f, -h * GearHeadFrac * 0.5f));
             mode.text = car != null && car.manualMode ? "MT" : "AT";
+            // The digit in the bulb's Lit colour, which is what the ticks
+            // beside it are printed in. LcdInk is near-black, and near-black
+            // on smoked glass over a night road is no digit at all.
             gearText = Label(box, font, Mathf.Max(12, Mathf.RoundToInt(h * 0.46f)),
-                             LcdInk, new Vector2(0.5f, 0f),
+                             ClusterBulbs.Lit, new Vector2(0.5f, 0f),
                              new Vector2(0f, h * (1f - GearHeadFrac) * 0.5f));
+            AddLegibilityOutline(gearText);
             gearText.text = "1";
         }
 
@@ -651,7 +748,8 @@ namespace PSXRacing
                             new Vector2(tachCx, groupCy), radius,
                             tachMax, 1000f, LabelStep(tachMax, 1000f, radius, 1f / 1000f),
                             1f / 1000f, "x1000", redFrac, "C", "H",
-                            subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac);
+                            subHighIsDanger: true, subRedFrom: EngineTemp.RedFrac,
+                            translucent: false);
 
             // Speed: a light LCD with dark digits, zero-padded to three, and
             // the unit under it. The padding is not decoration — a readout that
@@ -672,7 +770,7 @@ namespace PSXRacing
             // driving changes what the number under it means.
             var gearBox = Box(cockpitRoot.transform, "Gear", anchor,
                               new Vector2(gearCx, groupCy),
-                              new Vector2(gearW, gearH), LcdFace, GearHead);
+                              new Vector2(gearW, gearH), LcdFace, LcdEdge, GearHead);
             var mode = Label(gearBox, font, Mathf.Max(8, Mathf.RoundToInt(gearH * 0.20f)),
                              Color.white, new Vector2(0.5f, 1f),
                              new Vector2(0f, -gearH * GearHeadFrac * 0.5f));
@@ -704,7 +802,16 @@ namespace PSXRacing
                 var day = new Color32(0xCE, 0xD2, 0xC4, 0xFF);
                 if (!ClusterBulbs.Backlit) return day;
                 Color lit = ClusterBulbs.Lit;
-                return Color.Lerp(day, lit, 0.4f) * 0.62f;
+                var night = Color.Lerp(day, lit, 0.4f) * 0.62f;
+                // OPAQUE. Color * float scales ALPHA along with the colour, so
+                // this used to return a face at 62% alpha: a night LCD that let
+                // the dashboard art show through it, which nobody asked for and
+                // no LCD does. The dimming was meant for the light, not for the
+                // glass. Only the cockpit reads this now (the HUD gear panel is
+                // smoked on purpose, see GearSmokeAlpha), and there the box
+                // sits on the dash and must be solid.
+                night.a = 1f;
+                return night;
             }
         }
 
@@ -712,9 +819,12 @@ namespace PSXRacing
             ? (Color)new Color32(0x2A, 0x2C, 0x2A, 0xFF)
             : (Color)new Color32(0x3A, 0x3D, 0x38, 0xFF);
 
-        /// <summary>A framed box with an optional coloured header strip.</summary>
+        /// <summary>A framed box with an optional coloured header strip. The
+        /// edge is the caller's: the cockpit passes <see cref="LcdEdge"/> (an
+        /// LCD's bezel), and the smoked HUD panel passes the bulb's Dim colour,
+        /// which is the colour of the dial bezels beside it.</summary>
         Transform Box(Transform parent, string name, Vector2 anchor, Vector2 pos,
-                      Vector2 size, Color face, Color header)
+                      Vector2 size, Color face, Color edge, Color header)
         {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent, false);
@@ -726,7 +836,7 @@ namespace PSXRacing
 
             var img = go.AddComponent<Image>();
             img.sprite = BakeBox(Mathf.RoundToInt(size.x), Mathf.RoundToInt(size.y),
-                                 face, LcdEdge, header, GearHeadFrac);
+                                 face, edge, header, GearHeadFrac);
             img.raycastTarget = false;
             return go.transform;
         }
@@ -1001,6 +1111,11 @@ namespace PSXRacing
             readonly RectTransform needle;
             readonly float max;
             float lastDeg = float.NaN;
+            /// <summary>A HUD dial drawn over the world (smoked face, haloed
+            /// marks, outlined text, rimmed needles) rather than the cockpit's
+            /// solid binnacle. Set first in the constructor, because Label reads
+            /// it for every piece of text the dial makes.</summary>
+            readonly bool translucent;
 
             /// <summary>The little gauge in the bottom of the face — fuel under
             /// the speedometer, coolant under the tachometer. Null on a dial too
@@ -1036,6 +1151,65 @@ namespace PSXRacing
             const float RedIn = 0.905f, RedOut = 0.95f;
             const float NeedleLen = 0.90f, NeedleTail = 0.17f, NeedleHalf = 0.05f;
             const float HubR = 0.10f;
+
+            // ---- smoked glass: the HUD twin dials only ---------------------
+            //
+            // The owner's NFS (2015) reference, 2026-09-21: keep the analog
+            // needles, make the dials see-through. The cockpit binnacle does
+            // not use any of this; see GaugeCluster.CockpitFaceAlpha.
+            /// <summary>
+            /// Inner edge of the bezel ring on a SMOKED face, thinner than the
+            /// solid face's <see cref="BezelIn"/>. At 0.965 a grey ring 3.5% of
+            /// the radius thick reads as a frame around a hole once the face
+            /// inside it is see-through. At 0.975 it reads as the edge of a
+            /// lens. It is drawn at <see cref="SmokedBezelAlpha"/> so it is not
+            /// the one solid thing on a sheet of glass.
+            /// </summary>
+            const float SmokedBezelIn = 0.975f, SmokedBezelAlpha = 0.90f;
+            /// <summary>
+            /// A dark HAIRLINE outside the smoked bezel, from 0.99 of the radius
+            /// to the edge, black at 0.55. A grey bezel over a pale sky has no
+            /// edge at all, and this is the edge. On the solid face the black
+            /// plate already gave it one.
+            /// </summary>
+            const float HairlineIn = 0.99f, HairlineAlpha = 0.55f;
+            /// <summary>
+            /// The LEGIBILITY HALO: how far from a mark the face under it is
+            /// darkened, in canvas units (SS times that in the texture, the
+            /// same way the tick half-width is given). 2.2 units on each side
+            /// of a tick 2.2 units wide, so the tick stands in a dark stripe
+            /// three times its own width.
+            ///
+            /// This is how every see-through gauge that can still be read does
+            /// it. Contrast is only guaranteed if the mark carries its own
+            /// dark surround. Glass that is merely tinted gives white ticks over
+            /// a white sky, and no amount of general tint fixes that without
+            /// turning the glass black again.
+            /// </summary>
+            const float HaloPx = 2.2f;
+            /// <summary>The halo by day: black at 0.55, laid OVER the smoked
+            /// fill (never in place of it, or the halo would be paler than the
+            /// darkest part of the face it sits on).</summary>
+            const float HaloDayAlpha = 0.55f;
+            /// <summary>The halo at night, once the bulb is lit: the bulb's own
+            /// colour at 0.22 over black at 0.35. An illuminated dial GLOWS
+            /// around its marks, where the light leaks through the printing,
+            /// and a black halo there would read as a smudge instead.</summary>
+            const float HaloGlowAlpha = 0.22f, HaloGlowUnder = 0.35f;
+            /// <summary>Per-pixel kinds for the halo pass: a face pixel may be
+            /// darkened, a mark pixel is what it is darkened around, and
+            /// everything else (outside the disc, the bezel, the hairline) is
+            /// left alone.</summary>
+            const byte KindFace = 1, KindMark = 2;
+            /// <summary>
+            /// The dark rim around a HUD needle, in canvas units (so SS texels
+            /// in the texture), and its alpha. It is drawn OUTSIDE the white
+            /// kite, so the Image's tint still turns the core red and leaves the
+            /// rim black. A plain red needle vanishes over a sunset or under a
+            /// sodium lamp, which is exactly where the night look puts it.
+            /// </summary>
+            const int NeedleRim = 1;
+            const byte NeedleRimAlpha = 150;
 
             // ---- the sub-gauge in the bottom of the face -------------------
             //
@@ -1220,9 +1394,10 @@ namespace PSXRacing
                         int radius, float max, float tickStep, float labelStep, float labelScale,
                         string unit, float redlineFrac,
                         string subLow = null, string subHigh = null, bool subHighIsDanger = false,
-                        float subRedFrom = 1f)
+                        float subRedFrom = 1f, bool translucent = false)
             {
                 this.max = max;
+                this.translucent = translucent;
                 // Decided BEFORE the face is baked, because the sub-gauge's
                 // scale is part of that texture rather than a sprite laid over
                 // it. Two rasterisers that both had to agree about where the
@@ -1242,7 +1417,7 @@ namespace PSXRacing
                 faceGO.transform.SetParent(root.transform, false);
                 var face = faceGO.AddComponent<Image>();
                 face.sprite = BakeFace(radius, max, tickStep, redlineFrac, HasSub, subHighIsDanger,
-                                       subRedFrom);
+                                       subRedFrom, translucent);
                 var frt = face.rectTransform;
                 frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
                 frt.offsetMin = Vector2.zero; frt.offsetMax = Vector2.zero;
@@ -1270,11 +1445,16 @@ namespace PSXRacing
                 int len = Mathf.Max(2, Mathf.RoundToInt(radius * NeedleLen));
                 int tail = Mathf.Max(1, Mathf.RoundToInt(radius * NeedleTail));
                 int wide = Mathf.Max(3, Mathf.RoundToInt(radius * NeedleHalf * 2f));
+                // The HUD needle's dark rim lies OUTSIDE the kite, so the
+                // sprite, its rect and the pivot all grow by it on every side.
+                // The blade itself stays exactly the size it always was. Zero
+                // on the cockpit binnacle, whose needle is unchanged.
+                int rim = translucent ? NeedleRim : 0;
 
                 var needleGO = new GameObject("Needle");
                 needleGO.transform.SetParent(root.transform, false);
                 var img = needleGO.AddComponent<Image>();
-                img.sprite = BakeNeedle(len, tail, wide);
+                img.sprite = BakeNeedle(len, tail, wide, rim);
                 img.color = ClusterBulbs.Needle;
                 needle = img.rectTransform;
                 needle.anchorMin = needle.anchorMax = new Vector2(0.5f, 0.5f);
@@ -1282,9 +1462,9 @@ namespace PSXRacing
                 // not at the middle of the sprite. Rotating a needle about its
                 // own centre swings the tip round a circle instead of sweeping
                 // the dial.
-                needle.pivot = new Vector2(0.5f, tail / (float)(len + tail));
+                needle.pivot = new Vector2(0.5f, (tail + rim) / (float)(len + tail + rim * 2));
                 needle.anchoredPosition = Vector2.zero;
-                needle.sizeDelta = new Vector2(wide, len + tail);
+                needle.sizeDelta = new Vector2(wide + rim * 2, len + tail + rim * 2);
 
                 var hubGO = new GameObject("Hub");
                 hubGO.transform.SetParent(root.transform, false);
@@ -1350,11 +1530,14 @@ namespace PSXRacing
                 int len = Mathf.Max(3, Mathf.RoundToInt(radius * SubNeedleLen));
                 int tail = Mathf.Max(2, Mathf.RoundToInt(radius * SubNeedleTail));
                 int wide = Mathf.Max(3, Mathf.RoundToInt(radius * SubNeedleHalf * 2f));
+                // The same dark rim as the big needle on a HUD dial, and the
+                // same growth of sprite, rect and pivot to make room for it.
+                int rim = translucent ? NeedleRim : 0;
 
                 var nGO = new GameObject("SubNeedle");
                 nGO.transform.SetParent(root.transform, false);
                 var img = nGO.AddComponent<Image>();
-                img.sprite = BakeNeedle(len, tail, wide);
+                img.sprite = BakeNeedle(len, tail, wide, rim);
                 img.color = ClusterBulbs.Needle;
                 // Remembered rather than re-read from ClusterBulbs when the
                 // alarm clears: the bulb can be changed under a built cluster,
@@ -1363,9 +1546,9 @@ namespace PSXRacing
                 subNeedleInk = img.color;
                 subNeedle = img.rectTransform;
                 subNeedle.anchorMin = subNeedle.anchorMax = new Vector2(0.5f, 0.5f);
-                subNeedle.pivot = new Vector2(0.5f, tail / (float)(len + tail));
+                subNeedle.pivot = new Vector2(0.5f, (tail + rim) / (float)(len + tail + rim * 2));
                 subNeedle.anchoredPosition = centre;
-                subNeedle.sizeDelta = new Vector2(wide, len + tail);
+                subNeedle.sizeDelta = new Vector2(wide + rim * 2, len + tail + rim * 2);
 
                 var hubGO = new GameObject("SubHub");
                 hubGO.transform.SetParent(root.transform, false);
@@ -1486,6 +1669,11 @@ namespace PSXRacing
                 rt.pivot = new Vector2(0.5f, 0.5f);
                 rt.anchoredPosition = pos;
                 rt.sizeDelta = new Vector2(60f, 20f);
+                // Every piece of text a dial makes comes through here (the
+                // numerals, the unit caption, the sub-gauge letters), so on a
+                // smoked HUD face they all get their dark edge from this one
+                // line. See AddLegibilityOutline.
+                if (translucent) AddLegibilityOutline(t);
                 return t;
             }
 
@@ -1563,9 +1751,18 @@ namespace PSXRacing
             /// 166 units is 249 device pixels on one phone and 332 on another,
             /// so a texture baked at the layout size always resamples — the only
             /// choice is whether it does so raggedly or cleanly.
+            ///
+            /// <paramref name="translucent"/> bakes the HUD's SMOKED face
+            /// (2026-09-21): the fill runs from HudFaceAlpha at the centre to
+            /// HudFaceRimAlpha at the tick band, the bezel is thinner and
+            /// slightly see-through with a dark hairline outside it, and every
+            /// mark gets a legibility halo in a second pass (BakeHalos). Without
+            /// it the bake is exactly the solid face it always was, texel for
+            /// texel. The cockpit binnacle depends on that.
             /// </summary>
             static Sprite BakeFace(int radius, float max, float tickStep, float redlineFrac,
-                                   bool subGauge, bool subHighIsDanger, float subRedFrom)
+                                   bool subGauge, bool subHighIsDanger, float subRedFrom,
+                                   bool translucent)
             {
                 const int SS = 2;
                 radius *= SS;
@@ -1579,6 +1776,20 @@ namespace PSXRacing
                 Color32 face = ClusterBulbs.Face, lit = ClusterBulbs.Lit,
                         dim = ClusterBulbs.Dim, red = ClusterBulbs.Red;
                 var clear = new Color32(0, 0, 0, 0);
+                // The solid face's alpha, spelled as the constant the self-test
+                // pins rather than trusted to the palette's 0xFF. It is the same
+                // 255 either way, so the cockpit bake does not move.
+                face.a = (byte)Mathf.RoundToInt(Mathf.Clamp01(CockpitFaceAlpha) * 255f);
+
+                // Smoked-face parts. On a solid face the bezel is the full Dim
+                // colour from BezelIn out and there is no hairline, exactly as
+                // before. `kind` exists only for the halo pass, so a solid bake
+                // allocates nothing extra.
+                float bezelIn = translucent ? SmokedBezelIn : BezelIn;
+                Color32 bezel = dim;
+                if (translucent) bezel.a = (byte)Mathf.RoundToInt(SmokedBezelAlpha * 255f);
+                var hairline = new Color32(0, 0, 0, (byte)Mathf.RoundToInt(HairlineAlpha * 255f));
+                byte[] kind = translucent ? new byte[size * size] : null;
 
                 float tickCount = max / Mathf.Max(tickStep, 1f);
                 float tickSpanDeg = SweepDeg / Mathf.Max(tickCount, 1f);
@@ -1618,12 +1829,20 @@ namespace PSXRacing
                         float along = Mathf.Repeat(deg - StartDeg, 360f);
                         bool onSweep = along <= SweepDeg;
 
-                        if (r >= BezelIn) { px[i] = dim; continue; }
+                        if (translucent && r >= HairlineIn) { px[i] = hairline; continue; }
+                        if (r >= bezelIn) { px[i] = bezel; continue; }
 
+                        // From here on every `continue` that paints a pixel is
+                        // a MARK, and says so in `kind` for the halo pass: the
+                        // redline, the ticks, the sub-gauge's marks and its red
+                        // band. A mark that forgot would bake without a halo,
+                        // which is invisible until it is over a bright sky.
                         if (onSweep && redlineFrac > 0f && r >= RedIn && r <= RedOut
                             && along / SweepDeg >= redlineFrac)
                         {
-                            px[i] = red; continue;
+                            px[i] = red;
+                            if (kind != null) kind[i] = KindMark;
+                            continue;
                         }
 
                         if (onSweep && r <= TickOut)
@@ -1641,8 +1860,12 @@ namespace PSXRacing
                             float offHalf = Mathf.Abs(offDeg - tickSpanDeg * 0.5f)
                                             * Mathf.Deg2Rad * r * radius;
                             bool minor = !major && offHalf <= halfPx * 0.75f && r >= MinorIn;
-                            if (major) { px[i] = lit; continue; }
-                            if (minor) { px[i] = dim; continue; }
+                            if (major || minor)
+                            {
+                                px[i] = major ? lit : dim;
+                                if (kind != null) kind[i] = KindMark;
+                                continue;
+                            }
                         }
 
                         // The sub-gauge's scale, in the empty wedge the main
@@ -1706,6 +1929,7 @@ namespace PSXRacing
                                     // redline is — it is not the bulb's to tint.
                                     px[i] = subHighIsDanger && t == SubTickCount - 1 ? red
                                           : end || mid ? lit : dim;
+                                    if (kind != null) kind[i] = KindMark;
                                     continue;
                                 }
                             }
@@ -1728,34 +1952,174 @@ namespace PSXRacing
                             {
                                 float reach = SubReach(qdeg);
                                 if (qr >= reach - SubMinorTick * 0.55f && qr <= reach)
-                                { px[i] = red; continue; }
+                                {
+                                    px[i] = red;
+                                    if (kind != null) kind[i] = KindMark;
+                                    continue;
+                                }
                             }
                         }
 
-                        px[i] = face;
+                        if (kind == null) { px[i] = face; continue; }
+
+                        // SMOKED GLASS: the palette's face colour, with an
+                        // alpha that climbs with the square of the radius from
+                        // HudFaceAlpha in the middle to HudFaceRimAlpha at the
+                        // tick band, and holds there out to the bezel.
+                        float ramp = Mathf.Clamp01(r / FaceRampR);
+                        var smoked = face;
+                        smoked.a = (byte)Mathf.RoundToInt(255f *
+                            Mathf.Lerp(HudFaceAlpha, HudFaceRimAlpha, ramp * ramp));
+                        px[i] = smoked;
+                        kind[i] = KindFace;
                     }
                 }
+
+                if (kind != null)
+                {
+                    // By day a black halo. At night, once the bulb is lit, a
+                    // faint glow of the bulb's own colour over a lighter black.
+                    // Composed once here, so the per-pixel pass lays down one
+                    // colour.
+                    Color halo = ClusterBulbs.Backlit
+                        ? Over(WithAlpha(ClusterBulbs.Lit, HaloGlowAlpha),
+                               new Color(0f, 0f, 0f, HaloGlowUnder))
+                        : new Color(0f, 0f, 0f, HaloDayAlpha);
+                    BakeHalos(px, kind, size, HaloPx * SS, halo);
+                }
+
                 tex.SetPixels32(px);
                 tex.Apply();
                 return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
             }
 
+            /// <summary>
+            /// The legibility halo: darken every smoked-face pixel within
+            /// <paramref name="reach"/> texels of a mark by laying
+            /// <paramref name="halo"/> OVER it.
+            ///
+            /// Distance comes from a two-pass CHAMFER transform (1 along an
+            /// axis, sqrt 2 on a diagonal): one sweep down the texture and one
+            /// back up, each reading four neighbours already visited. That is
+            /// O(pixels) whatever the reach. The obvious version, which tests a
+            /// disc of neighbours around every pixel, is O(pixels x 60) at this
+            /// reach, and on a 430-texel face that is the difference between a
+            /// couple of milliseconds and a visible hitch. This bake runs on
+            /// the main thread whenever the cluster rebuilds: when the view,
+            /// the bulb or the hour changes. A chamfer distance is at most
+            /// about 8% longer than the true one, which is a quarter of a texel
+            /// at this reach and cannot be seen after the mipmap.
+            ///
+            /// Laid over the fill rather than written in its place: near the
+            /// rim the smoked face is already 0.62 alpha, and a 0.55 halo
+            /// "set" there would make the pixels round a tick PALER than the
+            /// glass they sit on. The halo's edge fades over one texel centred
+            /// on the reach, so it is anti-aliased before the mipmap ever sees
+            /// it.
+            /// </summary>
+            static void BakeHalos(Color32[] px, byte[] kind, int size, float reach, Color halo)
+            {
+                int n = size * size;
+                const float Far = 1e6f, Diag = 1.41421356f;
+                var d = new float[n];
+                for (int i = 0; i < n; i++) d[i] = kind[i] == KindMark ? 0f : Far;
+
+                // Down the texture: left, and the three below.
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        int i = y * size + x;
+                        float v = d[i];
+                        if (v == 0f) continue;
+                        if (x > 0 && d[i - 1] + 1f < v) v = d[i - 1] + 1f;
+                        if (y > 0)
+                        {
+                            int j = i - size;
+                            if (d[j] + 1f < v) v = d[j] + 1f;
+                            if (x > 0 && d[j - 1] + Diag < v) v = d[j - 1] + Diag;
+                            if (x < size - 1 && d[j + 1] + Diag < v) v = d[j + 1] + Diag;
+                        }
+                        d[i] = v;
+                    }
+                }
+                // And back up: right, and the three above.
+                for (int y = size - 1; y >= 0; y--)
+                {
+                    for (int x = size - 1; x >= 0; x--)
+                    {
+                        int i = y * size + x;
+                        float v = d[i];
+                        if (v == 0f) continue;
+                        if (x < size - 1 && d[i + 1] + 1f < v) v = d[i + 1] + 1f;
+                        if (y < size - 1)
+                        {
+                            int j = i + size;
+                            if (d[j] + 1f < v) v = d[j] + 1f;
+                            if (x > 0 && d[j - 1] + Diag < v) v = d[j - 1] + Diag;
+                            if (x < size - 1 && d[j + 1] + Diag < v) v = d[j + 1] + Diag;
+                        }
+                        d[i] = v;
+                    }
+                }
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (kind[i] != KindFace) continue;
+                    float cover = Mathf.Clamp01(reach + 0.5f - d[i]);
+                    if (cover <= 0f) continue;
+                    px[i] = Over(WithAlpha(halo, halo.a * cover), px[i]);
+                }
+            }
+
+            /// <summary>Porter-Duff OVER in straight (non-premultiplied)
+            /// alpha, which is what these textures hold and what UI/Default
+            /// blends them with.</summary>
+            static Color Over(Color top, Color under)
+            {
+                float a = top.a + under.a * (1f - top.a);
+                if (a < 1e-4f) return new Color(0f, 0f, 0f, 0f);
+                float wt = top.a / a, wu = under.a * (1f - top.a) / a;
+                return new Color(top.r * wt + under.r * wu,
+                                 top.g * wt + under.g * wu,
+                                 top.b * wt + under.b * wu, a);
+            }
+
+            static Color WithAlpha(Color c, float a) { c.a = a; return c; }
+
             /// <summary>The kite: a point at the tip, full width at the hub, a
             /// short counterweight tail behind it. Drawn white and tinted by the
-            /// Image, so one texture serves whichever bulb is fitted.</summary>
-            static Sprite BakeNeedle(int len, int tail, int w)
+            /// Image, so one texture serves whichever bulb is fitted.
+            ///
+            /// <paramref name="rim"/> (canvas units, 0 for none) adds a dark
+            /// border OUTSIDE the white kite: every texel within that distance
+            /// of the blade and not on it is black at NeedleRimAlpha. The Image
+            /// tint multiplies it, and black times red is still black, so the
+            /// HUD needle is a red blade with a dark edge. The texture grows by
+            /// the rim on every side, so the blade keeps its size, and the
+            /// caller grows the rect and moves the pivot to match.</summary>
+            static Sprite BakeNeedle(int len, int tail, int w, int rim)
             {
                 const int SS = 2;
                 len *= SS; tail *= SS; w *= SS;
+                int b = Mathf.Max(0, rim) * SS;
                 int h = len + tail;
-                var tex = new Texture2D(w, h, TextureFormat.RGBA32, true)
+                int tw = w + b * 2, th = h + b * 2;
+                var tex = new Texture2D(tw, th, TextureFormat.RGBA32, true)
                 {
                     filterMode = FilterMode.Trilinear,
                     wrapMode = TextureWrapMode.Clamp,
                 };
-                var px = new Color32[w * h];
+                var px = new Color32[tw * th];
                 var white = new Color32(255, 255, 255, 255);
-                var clear = new Color32(255, 255, 255, 0);
+                // A bare needle's clear texel is WHITE at zero alpha, so the
+                // mipmap's edge is a fade of the blade and not a dark fringe.
+                // A rimmed needle's outermost texels are dark on purpose, so
+                // its clear is black at zero alpha. Otherwise the mipmap would
+                // fade that rim toward white.
+                var clear = b > 0 ? new Color32(0, 0, 0, 0) : new Color32(255, 255, 255, 0);
+                for (int i = 0; i < px.Length; i++) px[i] = clear;
+                var core = b > 0 ? new bool[tw * th] : null;
                 float half = w * 0.5f;
                 for (int y = 0; y < h; y++)
                 {
@@ -1765,11 +2129,46 @@ namespace PSXRacing
                         : half * (1f - (y - tail) / (float)Mathf.Max(len, 1));
                     hw = Mathf.Max(hw, 0.5f);
                     for (int x = 0; x < w; x++)
-                        px[y * w + x] = Mathf.Abs(x + 0.5f - half) <= hw ? white : clear;
+                    {
+                        if (Mathf.Abs(x + 0.5f - half) > hw) continue;
+                        int i = (y + b) * tw + (x + b);
+                        px[i] = white;
+                        if (core != null) core[i] = true;
+                    }
                 }
+
+                if (b > 0)
+                {
+                    // The rim: a disc of radius b + 0.5 around every blade
+                    // texel. Brute force is fine here. A needle is a few
+                    // thousand texels, against a face's hundred and eighty
+                    // thousand.
+                    var rimInk = new Color32(0, 0, 0, NeedleRimAlpha);
+                    float reach2 = (b + 0.5f) * (b + 0.5f);
+                    for (int y = 0; y < th; y++)
+                        for (int x = 0; x < tw; x++)
+                        {
+                            int i = y * tw + x;
+                            if (core[i]) continue;
+                            bool near = false;
+                            for (int oy = -b; oy <= b && !near; oy++)
+                            {
+                                int yy = y + oy;
+                                if (yy < 0 || yy >= th) continue;
+                                for (int ox = -b; ox <= b; ox++)
+                                {
+                                    int xx = x + ox;
+                                    if (xx < 0 || xx >= tw || ox * ox + oy * oy > reach2) continue;
+                                    if (core[yy * tw + xx]) { near = true; break; }
+                                }
+                            }
+                            if (near) px[i] = rimInk;
+                        }
+                }
+
                 tex.SetPixels32(px);
                 tex.Apply();
-                return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
+                return Sprite.Create(tex, new Rect(0, 0, tw, th), new Vector2(0.5f, 0.5f), 100f);
             }
 
             /// <summary>Hub cap: a filled disc with a rim.</summary>

@@ -101,6 +101,32 @@
 //     a white plate at 35% grey, a lamp near black. Vertical panels take
 //     0.65 of the ambient now, which is four to one again.
 //
+// THE NIGHT PASS, 2026-09-21. The owner, on Need for Speed (2015): "how much
+// the skybox effects the color and mood of the world and cars, how street
+// lights bathe the road". Two things reach the paint, and neither is allowed
+// to bring back the glow the fourth cut removed:
+//
+//   * THE STREET LAMPS LIGHT IT like the sun does. PSXLamps.cginc is a per-
+//     pixel table of sodium street lamps (and every car's tail lamps); its
+//     diffuse joins rawLight BEFORE the knee (LAMP_PAINT), so a car rolling
+//     under a lamp takes an orange roof and bonnet with the same soft
+//     roll-off as a sunlit one, and a car between lamps goes dark.
+//   * THE LAMPS SHOW IN THE LACQUER AS GLINTS, and only as glints. The owner
+//     has rejected "flour", "glazed" and "white glow" in turn, and each of
+//     those was something BROAD laid over whole panels. So a lamp is a
+//     spark: pow 180 (tighter than the sun's 160, doubled on glass like the
+//     sun's), half the sun's gain, the same wheel/glass mask the sun glint
+//     wears, and it goes through the same shoulder, so nothing it adds can
+//     reach 1.0. Another
+//     car's low beams glint the same way (a car behind you shows in your
+//     boot lid), gated by the beam's own spread so a lamp aimed away from
+//     the car shows nothing.
+//
+// The sky lookup moved to PSXSkyReflect.cginc the same day, verbatim, so the
+// wet road in PSX/Lit reflects the very same sky; SkyIn() below is now a one-
+// line wrapper and the LAND band #defines stay HERE (the self-test reads them
+// from this file).
+//
 // _PSXPaintDebug (a global the screenshot tool sets) swaps the output for one
 // term at a time: 1 = N.L, 2 = the normal, 3 = the light before the knee,
 // 4 = the reflection alone, 5 = the sheet. When a picture disagrees with the
@@ -130,6 +156,9 @@ Shader "PSX/CarPaint"
             #pragma fragment frag
             #include "UnityCG.cginc"
             #include "PSXHeadlights.cginc"
+            // The street lamps and tail lamps, per pixel (the NIGHT PASS in
+            // the header). Declares its own _PSXLamp* table; guarded.
+            #include "PSXLamps.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -179,6 +208,13 @@ Shader "PSX/CarPaint"
             // rolls off toward the ceiling and never arrives.
             #define PAINT_TOE          0.50
             #define PAINT_MAX          0.88
+            // THE LAMPS (the NIGHT PASS in the header). Diffuse joins the
+            // sun before the knee; the glints are sparks, never a sheen.
+            #define LAMP_PAINT         1.0    // street/tail lamp diffuse on the paint, x the lamp table's light
+            #define LAMP_GLINT_POW     180.0  // a street lamp in the lacquer: tighter than the sun (doubled on glass)
+            #define LAMP_GLINT         0.35   // ...at half the sun's gain (SUN_GLINT), x the lamp's own light
+            #define HEAD_GLINT_POW     120.0  // another car's low beam in the lacquer...
+            #define HEAD_GLINT         0.25   // ...gated by the beam's own spread (PSXHeadlightsBoth)
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -195,15 +231,12 @@ Shader "PSX/CarPaint"
             float _PSXPaintDebug;   // 0 in the game
 
             // The hour's sky, as TimeOfDay.ApplySky hands it to the sky
-            // material — see PSXSky.shader for what each one means there.
-            sampler2D _PSXSkyTex;
-            float _PSXSkyAmount;    // 0 = no panorama this scene
-            float _PSXSkyRotation;  // degrees
-            float _PSXSkyTint;      // 0..1, how hard the photo wears the hour
-            float _PSXSkyExposure;
-            fixed4 _PSXSkyTop;
-            fixed4 _PSXSkyHorizon;
-            float _PSXSkySharpness;
+            // material: the _PSXSky* globals and the lookup itself live in
+            // PSXSkyReflect.cginc now (shared with the wet road in PSX/Lit).
+            // Included HERE, after the fog/ambient/light uniforms it reads
+            // and after this file's LAND_* #defines, which it keeps: its own
+            // are #ifndef-guarded defaults.
+            #include "PSXSkyReflect.cginc"
 
             struct appdata
             {
@@ -251,45 +284,9 @@ Shader "PSX/CarPaint"
             /// What the sky looks like in direction R — the same lookup and
             /// the same hour tint PSXSky.shader applies, at a blur picked by
             /// the caller (paint is a soft reflection, glass a sharper one).
-            float3 SkyIn(float3 R, float lod)
-            {
-                float y = R.y;
-                float above = pow(saturate(y), 1.0 / max(_PSXSkySharpness, 0.5) * 4.0);
-                float3 grad = lerp(_PSXSkyHorizon.rgb, _PSXSkyTop.rgb, above);
-                float3 col;
-                if (_PSXSkyAmount > 0.001)
-                {
-                    float u = atan2(R.z, R.x) * (0.5 / UNITY_PI) + 0.5 + _PSXSkyRotation / 360.0;
-                    float v = 0.5 + asin(clamp(y, -1.0, 1.0)) / UNITY_PI;
-                    // Explicit LOD: no derivatives, so the equirect seam that
-                    // PSXSky has to fight with tex2Dgrad cannot happen here.
-                    float3 pano = tex2Dlod(_PSXSkyTex, float4(u, v, 0, lod)).rgb * _PSXSkyExposure;
-                    float3 tinted = pano * grad * 2.0;
-                    col = lerp(pano, tinted, _PSXSkyTint);
-                }
-                else
-                {
-                    // No panorama: a hemisphere from the lighting that IS set.
-                    col = lerp(_PSXAmbient.rgb * 1.2, saturate(_PSXAmbient.rgb + _PSXLightColor.rgb * 0.5),
-                               saturate(y * 1.5 + 0.3));
-                }
-                // Haze toward the horizon, the way the sky's own horizon
-                // fades into the fog colour...
-                float hz = saturate(1.0 - abs(y) * 6.0);
-                col = lerp(col, _PSXFogColor.rgb, hz * hz * 0.6);
-                // ...then THE LAND. A road is not an ocean: from the horizon
-                // up to about ten degrees, what a panel mirrors is hillside,
-                // trees and walls, not sky - dark, in the hour's haze colour,
-                // with a crisp top. This is what keeps a flank's grazing
-                // reflection from being a white rim, and what draws the
-                // bright line along the shoulder of the body above it.
-                float3 land = _PSXFogColor.rgb * LAND_REFLECT;
-                col = lerp(land, col, smoothstep(LAND_TOP - LAND_SOFT, LAND_TOP + LAND_SOFT, y));
-                // ...and below the horizon the reflection is the road: DARK,
-                // the way the reference games' environment maps were.
-                col = lerp(col, _PSXFogColor.rgb * GROUND_REFLECT, saturate(-y * 4.0));
-                return col;
-            }
+            /// The body moved verbatim to PSXSkyReflect.cginc (2026-09-21) so
+            /// the wet road reflects the same sky; this keeps the name.
+            float3 SkyIn(float3 R, float lod) { return PSXSkyIn(R, lod); }
 
             fixed4 frag (v2f i) : SV_Target
             {
@@ -313,14 +310,28 @@ Shader "PSX/CarPaint"
                 // above, less from the side, least from below — and the sun's
                 // lambert with a real terminator: the side that faces the sun
                 // is lit, the side that does not is not. The headlights of
-                // whoever is behind add to the same light.
+                // whoever is behind, and the street lamps overhead, add to
+                // the same light.
                 float up = N.y;
                 float3 sideA = _PSXAmbient.rgb * SIDE_AMBIENT;
                 float3 amb = up >= 0.0 ? lerp(sideA, _PSXSkyAmbient.rgb, up)
                                        : lerp(sideA, _PSXAmbient.rgb * UNDER_AMBIENT, -up);
                 amb *= PAINT_AMBIENT;
                 float ndl = saturate(dot(N, L));
-                float3 rawLight = amb + _PSXLightColor.rgb * (ndl * PAINT_SUN) + PSXHeadlights(i.wpos, N);
+                // Each lamp table walked ONCE for both what it lights and
+                // what it glints (the *Both functions share the distance and
+                // attenuation between the two). The glint power doubles on
+                // glass, exactly as the sun's does below. With no lamp lit
+                // and no beam on - every daylight hour - both tables early-
+                // out with exact zeros, and adding a zero changes nothing:
+                // the paint is the signed-off paint.
+                float3 headD, headS, lampD, lampS;
+                PSXHeadlightsBoth(i.wpos, N, V, HEAD_GLINT_POW * (1.0 + glass), 1.0, headD, headS);
+                PSXLampsBoth(i.wpos, N, V, LAMP_GLINT_POW * (1.0 + glass), 1.0, lampD, lampS);
+                float3 rawLight = amb + _PSXLightColor.rgb * (ndl * PAINT_SUN) + headD;
+                // The street lamps light the paint like the sun: before the
+                // knee, so a bonnet under a sodium lamp rolls off the same way.
+                rawLight += lampD * LAMP_PAINT;
                 // The knee: the lit side keeps its gradient instead of
                 // clipping to one tone, and can go a little over 1 where
                 // the sun is full on it.
@@ -352,6 +363,13 @@ Shader "PSX/CarPaint"
                 float sheen = pow(ndh, FLAKE_POW) * FLAKE_SHEEN * (1.0 - glass) * step(0.0001, ndl);
                 float dullSpec = lerp(1.0, DULL_SPEC, dull);
                 float3 hi = _PSXLightColor.rgb * (glint + sheen * body) * dullSpec;
+                // THE LAMPS IN THE LACQUER: a spark per street lamp and per
+                // beam aimed at the car, under the very mask the sun's glint
+                // wears (glass shows it harder, a wheel hardly at all) and
+                // added where the sun's is, so the shoulder below rolls it
+                // off like everything else. No sheen term: a lamp is never
+                // a wash over a panel (the "white glow" in the header).
+                hi += (lampS * LAMP_GLINT + headS * HEAD_GLINT) * ((1.0 + glass * 0.8) * dullSpec);
 
                 float3 col = lit * (1.0 - k) + refl + hi;
 

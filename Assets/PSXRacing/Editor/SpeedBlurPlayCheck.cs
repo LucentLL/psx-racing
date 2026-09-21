@@ -130,6 +130,13 @@ namespace PSXRacing.EditorTools
 
             bool keepPref = SpeedBlurPrefs.Enabled;
             var keepPixels = PSXQuality.Current;
+            // LENS FX OFF for the whole run. Since the lens pass (2026-09-21) the
+            // HUD split is held by EITHER switch, so with the lens on (its
+            // default) "SPEED BLUR: OFF hands the HUD back to the PSX camera"
+            // would fail for a correct reason; and a night or rain scene would
+            // add drops and bokeh to frames this check compares pixel for pixel.
+            keepLens = LensFxPrefs.Enabled;
+            LensFxPrefs.Enabled = false;
             try { SpeedBlurPlayCheck.Note("pipeline: " + QualitySettings.names[QualitySettings.GetQualityLevel()]); }
             catch (System.Exception) { }
 
@@ -333,11 +340,15 @@ namespace PSXRacing.EditorTools
             Destroy(tex);
         }
 
+        /// <summary>The owner's LENS FX switch, put back by <see cref="Done"/>.</summary>
+        bool keepLens = true;
+
         void Done(bool keepPref, PSXPixels keepPixels)
         {
             // Both are PlayerPrefs, and the editor's are shared with the
             // owner's own project: leave them as they were found.
             SpeedBlurPrefs.Enabled = keepPref;
+            LensFxPrefs.Enabled = keepLens;
             PSXQuality.Current = keepPixels;
             Time.timeScale = 1f;
             QualitySettings.SetQualityLevel(SpeedBlurPlayCheck.keepQuality, true);

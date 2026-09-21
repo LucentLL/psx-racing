@@ -28,6 +28,47 @@ namespace PSXRacing.EditorTools
         static StringBuilder outLog;
         static int failures;
 
+        // ---- the street lamps' posts, which every probe looks through ----
+        //
+        // CityWorld.Attach stands a Solid-layer box up every lamp post (the
+        // night pass, 2026-09-21), on the tiles the audits stand up too. The
+        // probes below ask about barriers, drops, lanes and fan mouths, and a
+        // pole a metre or more off the edge is none of those: RailProbe would
+        // call the drop beside it GUARDED, and a lane or mouth probe would
+        // list it as a solid. So every probe skips it by name (the night
+        // pass's R11). The posts are checked on their own, in LampAudit.
+
+        /// <summary>Is this collider a street lamp's post?</summary>
+        static bool IsLampPost(Collider c) => c != null && c.name == CityWorld.LampPostName;
+
+        static readonly RaycastHit[] rayBuf = new RaycastHit[32];
+
+        /// <summary>Physics.Raycast that looks through lamp posts: the nearest
+        /// hit on anything else.</summary>
+        static bool RaycastPastLamps(Vector3 from, Vector3 dir, out RaycastHit hit, float len,
+                                     int mask = Physics.DefaultRaycastLayers,
+                                     QueryTriggerInteraction triggers = QueryTriggerInteraction.UseGlobal)
+        {
+            hit = default;
+            bool found = false;
+            int n = Physics.RaycastNonAlloc(from, dir, rayBuf, len, mask, triggers);
+            for (int i = 0; i < n; i++)
+            {
+                if (IsLampPost(rayBuf[i].collider)) continue;
+                if (!found || rayBuf[i].distance < hit.distance) { hit = rayBuf[i]; found = true; }
+            }
+            return found;
+        }
+
+        /// <summary>Compact an overlap query's results, lamp posts removed;
+        /// the new count.</summary>
+        static int DropLampPosts(Collider[] cols, int n)
+        {
+            int w = 0;
+            for (int i = 0; i < n; i++) if (!IsLampPost(cols[i])) cols[w++] = cols[i];
+            return w;
+        }
+
         [MenuItem("PSX Racing/Audit City")]
         public static void Run()
         {
@@ -306,6 +347,7 @@ namespace PSXRacing.EditorTools
             RoadsideAudit(map, trims, buildings);
             ReportFanMouths();
             fanMouths = null;
+            LampAudit(map, trims, buildings);
 
             Finish();
         }
@@ -506,7 +548,7 @@ namespace PSXRacing.EditorTools
                                 else lat = (hwR - hwL) * 0.5f;
                                 var w = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
                                 probes++;
-                                if (!Physics.Raycast(w, Vector3.down, out var hit, 6.5f))
+                                if (!RaycastPastLamps(w, Vector3.down, out var hit, 6.5f))
                                 {
                                     holes++; holesHere++;
                                     Note(3f, $"HOLE  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} at ({w.x:0},{w.z:0}) roadY {y:0.00}{CityMeshes.DescribeClip(map, trims, e, s)}");
@@ -548,7 +590,7 @@ namespace PSXRacing.EditorTools
                             var dir = b - a; float len = dir.magnitude;
                             if (len < 0.6f) continue;
                             dir /= len;
-                            if (Physics.Raycast(a, dir, out var h1, len) || Physics.Raycast(b, -dir, out h1, len))
+                            if (RaycastPastLamps(a, dir, out var h1, len) || RaycastPastLamps(b, -dir, out h1, len))
                             {
                                 walls++; wallsHere++;
                                 Note(2f, $"WALL  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0}/{e.length:0} hw {hwL:0.0}/{hwR:0.0} across the lane: {Path(h1.collider)} at ({h1.point.x:0},{h1.point.z:0}) y {h1.point.y:0.00} (road {y:0.00}) lateral {Vector2.Dot(new Vector2(h1.point.x, h1.point.z) - p, right):+0.0;-0.0}{Owner(h1.point, ei)}");
@@ -679,7 +721,7 @@ namespace PSXRacing.EditorTools
             int clock = 0;
             int solidMask = 1 << CityWorld.SolidLayer;
 
-            int vergePoints = 0, vergeStepFails = 0, faceFails = 0, railPoints = 0, gapRuns = 0, nosesBuilt = 0;
+            int vergePoints = 0, vergeStepFails = 0, faceFails = 0, railPoints = 0, gapRuns = 0, nosesBuilt = 0, lampsBuilt = 0;
             float gapMetres = 0f, dropMetres = 0f, vergeBuilt = 0f, railBuilt = 0f;
             var gapByKind = new Dictionary<string, float>();
             var pitByCause = new Dictionary<string, int>();
@@ -714,20 +756,18 @@ namespace PSXRacing.EditorTools
                 CityWorld.Attach(go, tm, null);
                 live[TileKey(tx, tz)] = (go, ++clock);
             }
-            void Discard(CityMeshes.TileMeshes tm)
-            {
-                foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.buildings })
-                    if (m != null) Object.DestroyImmediate(m);
-            }
+            void Discard(CityMeshes.TileMeshes tm) => DiscardMeshes(tm);
 
             // the highest surface under a point, any layer, triggers ignored
+            // (a lamp post's top is not a surface: it is looked through)
             bool Highest(Vector3 from, float reach, out RaycastHit best)
             {
                 best = default; bool found = false;
                 foreach (var h in Physics.RaycastAll(from, Vector3.down, reach, ~0, QueryTriggerInteraction.Ignore))
-                    if (!found || h.point.y > best.point.y) { best = h; found = true; }
+                    if (!IsLampPost(h.collider) && (!found || h.point.y > best.point.y)) { best = h; found = true; }
                 return found;
             }
+            var railCols = new Collider[16];
             bool Claimed(RaycastHit h) => h.collider.gameObject.layer == CityWorld.SolidLayer || h.collider.name == "Roads";
 
             // One probe point on a drawn edge: is it an unguarded drop?
@@ -766,7 +806,9 @@ namespace PSXRacing.EditorTools
                 var centre = edge + o3 * ((reach - 0.6f) * 0.5f) + Vector3.up * ((lo + hi) * 0.5f);
                 var half = new Vector3((reach + 0.6f) * 0.5f, (hi - lo) * 0.5f, 0.45f);
                 var rot = Quaternion.LookRotation(new Vector3(along.x, 0f, along.y), Vector3.up);
-                return Physics.CheckBox(centre, half, rot, solidMask, QueryTriggerInteraction.Ignore) ? 1 : 2;
+                // a barrier, not a lamp post that happens to stand in the box
+                int nBox = DropLampPosts(railCols, Physics.OverlapBoxNonAlloc(centre, half, railCols, rot, solidMask, QueryTriggerInteraction.Ignore));
+                return nBox > 0 ? 1 : 2;
             }
 
             try
@@ -785,7 +827,7 @@ namespace PSXRacing.EditorTools
                         }
                     // the centre LAST: CityMeshes' clip and gore tables are then this tile's
                     var tmC = CityMeshes.Build(map, trims, buildings, tx, tz);
-                    vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count;
+                    vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count; lampsBuilt += tmC.lamps.Count;
                     footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
                     long ck = TileKey(tx, tz);
                     if (live.TryGetValue(ck, out var ct)) { live[ck] = (ct.go, ++clock); Discard(tmC); }
@@ -875,7 +917,7 @@ namespace PSXRacing.EditorTools
                                     else lat = (hwR - hwL) * 0.5f;
                                     var w = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
                                     lanePoints++;
-                                    if (Physics.Raycast(w, Vector3.down, out var lh, 6.5f, ~0, QueryTriggerInteraction.Ignore))
+                                    if (RaycastPastLamps(w, Vector3.down, out var lh, 6.5f, ~0, QueryTriggerInteraction.Ignore))
                                     {
                                         float dl = lh.point.y - y;
                                         if (lh.collider.name == "Ground")
@@ -888,7 +930,7 @@ namespace PSXRacing.EditorTools
                                     }
                                     var bandC = new Vector3(w.x, y + (LaneBandFloorM + RoadsideRules.CarBandM) * 0.5f, w.z);
                                     var bandH = new Vector3(LaneColumnM, (RoadsideRules.CarBandM - LaneBandFloorM) * 0.5f, LaneColumnM);
-                                    int nCols = Physics.OverlapBoxNonAlloc(bandC, bandH, bandCols, Quaternion.identity, solidMask, QueryTriggerInteraction.Ignore);
+                                    int nCols = DropLampPosts(bandCols, Physics.OverlapBoxNonAlloc(bandC, bandH, bandCols, Quaternion.identity, solidMask, QueryTriggerInteraction.Ignore));
                                     if (nCols == 0) continue;
                                     laneBand++;
                                     // The building check reads EVERY collider in the
@@ -910,6 +952,7 @@ namespace PSXRacing.EditorTools
                                         foreach (var hb in Physics.RaycastAll(new Vector3(w.x, y + RoadsideRules.CarBandM, w.z), Vector3.down,
                                                                               RoadsideRules.CarBandM - LaneBandFloorM, solidMask, QueryTriggerInteraction.Ignore))
                                         {
+                                            if (IsLampPost(hb.collider)) continue;
                                             if (float.IsNaN(top) || hb.point.y > top) { top = hb.point.y; at3 = hb.point; }
                                             if (float.IsNaN(low) || hb.point.y < low) low = hb.point.y;
                                         }
@@ -1119,7 +1162,7 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(root);
             }
 
-            Line($"roadside audit: {probeTiles.Count} tiles (routes + {RoadsideTopElevatedTiles} most elevated) built {vergeBuilt / 1000f:0.0} km of verge, {railBuilt / 1000f:0.0} km of rail, {nosesBuilt} gore noses; " +
+            Line($"roadside audit: {probeTiles.Count} tiles (routes + {RoadsideTopElevatedTiles} most elevated) built {vergeBuilt / 1000f:0.0} km of verge, {railBuilt / 1000f:0.0} km of rail, {nosesBuilt} gore noses, {lampsBuilt} street lamps (their posts looked through); " +
                  $"{vergePoints} verge points, {railPoints} rail probe points, {dropMetres:0} m of edge over a drop > {RoadsideRules.OpenDropM} m without a barrier");
             foreach (var kv in gapByKind) Line($"    open {kv.Key}: {kv.Value:0} m");
             var pitLine = new StringBuilder($"    pits (lattice > 0.5 m under a grounded ribbon's design within {CityElevation.PitReachM} m): {pits}");
@@ -1351,7 +1394,7 @@ namespace PSXRacing.EditorTools
                             var w = new Vector3(w2.x, yExp + 3f, w2.y);
                             t.probes++;
                             string what; float sev;
-                            if (!Physics.Raycast(w, Vector3.down, out var h, 6.5f, ~0, QueryTriggerInteraction.Ignore))
+                            if (!RaycastPastLamps(w, Vector3.down, out var h, 6.5f, ~0, QueryTriggerInteraction.Ignore))
                             { t.noRoad++; what = "nothing under it"; sev = 9f; }
                             else
                             {
@@ -1387,6 +1430,334 @@ namespace PSXRacing.EditorTools
                 Line("    " + what);
                 if (++lines >= 30) break;
             }
+        }
+
+        /// <summary>Free a built tile's meshes that nothing stood up.</summary>
+        static void DiscardMeshes(CityMeshes.TileMeshes tm)
+        {
+            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.buildings, tm.lampPosts })
+                if (m != null) Object.DestroyImmediate(m);
+        }
+
+        // ==================================================================
+        /// <summary>
+        /// THE STREET LAMPS (2026-09-21, the night pass). CityMeshes stands a
+        /// lamp only on a plain verge, a metre or more off every pavement and
+        /// under nothing (CityMeshes.PlaceLamps); this checks the result from
+        /// outside, on uptown's 3x3 (eight seams between them) and on a
+        /// freeway, a four-lane arterial and a residential street further out:
+        ///
+        ///   CLEAR    every post's foot at least <see cref="LampAuditClearM"/>
+        ///            outside every carriageway at its level or above (the
+        ///            nominal half width, which a squeeze or clip only
+        ///            narrows) and outside every junction fan's reach;
+        ///   UNDER    nothing passes over a foot, an arm or a head;
+        ///   BUILDING every foot outside every real footprint and at least
+        ///            <see cref="LampAuditBuildingM"/> off its nearest WALL
+        ///            (not its nearest corner), buildings centred in the next
+        ///            256 m bucket included: the review found both kinds
+        ///            downtown, a post at 0.00 m on West 6th and posts
+        ///            inside buildings across tile seams on West 4th, East 4th
+        ///            and West 3rd. The tightest foot is printed either way;
+        ///   TWICE    no two feet within <see cref="LampDoubleM"/>, from any two
+        ///            tiles: that is one station placed by both tiles at a seam;
+        ///   SAME     a tile stands the same lamps every time it is built.
+        ///
+        /// Per tile it prints the lamps against the stations the tile owned,
+        /// why the rest were refused, and lamps per km of carriageway by kind,
+        /// and the edges it picked (a night shot can stand on the same ones).
+        /// </summary>
+        const float LampAuditClearM = 0.8f;
+        const float LampDoubleM = 0.05f;
+        /// <summary>A foot's least plan clearance from a real building's wall
+        /// (CityMeshes' LampBuildingClearM), and how far round a foot the
+        /// buildings are looked for when finding the tightest.</summary>
+        const float LampAuditBuildingM = 0.8f, LampAuditBuildingLookM = 10f;
+
+        static void LampAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
+        {
+            float ts = CityMeshes.TileSize;
+            float DistUp(CityMap.Edge e) => Vector2.Distance(e.PointAt(e.length * 0.5f), map.uptown);
+            var tiles = new List<(int tx, int tz, string why)>();
+            var seenTiles = new HashSet<long>();
+            void Add(int tx, int tz, string why) { if (seenTiles.Add(TileKey(tx, tz))) tiles.Add((tx, tz, why)); }
+            int ux = Mathf.FloorToInt(map.uptown.x / ts), uz = Mathf.FloorToInt(map.uptown.y / ts);
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++) Add(ux + dx, uz + dz, "uptown");
+            void AddEdge(System.Func<CityMap.Edge, bool> want, string why)
+            {
+                foreach (var e in map.edges)
+                {
+                    if (!want(e)) continue;
+                    var p = e.PointAt(e.length * 0.5f);
+                    Add(Mathf.FloorToInt(p.x / ts), Mathf.FloorToInt(p.y / ts),
+                        $"{why}: e{e.index} '{e.name}' cls{e.cls} {e.lanes} lanes{(e.oneway ? " one-way" : "")} {CityMeshes.LampSpeedKmh(e):0} km/h at ({p.x:0},{p.y:0})");
+                    return;
+                }
+                Line($"    lamp audit: no {why} edge found");
+            }
+            AddEdge(e => e.cls >= 5 && !e.link && !e.bridge && e.name == "I-485" && e.length > 300f, "freeway");
+            AddEdge(e => e.cls == 3 && !e.link && !e.bridge && !e.oneway && e.lanes >= 4 && e.length > 200f
+                         && DistUp(e) > 3000f && DistUp(e) < 8000f, "four-lane arterial");
+            AddEdge(e => e.cls == 0 && !e.link && !e.bridge && e.length > 150f && DistUp(e) > 2000f && DistUp(e) < 5000f,
+                    "residential street");
+
+            int total = 0, stations = 0, inLanes = 0, under = 0, uptownLamps = 0;
+            var rejects = new int[CityMeshes.LampRejectCount];
+            var kindLamps = new int[3];
+            var kindM = new float[3];
+            string[] kindName = { "street", "arterial", "freeway" };
+            var feet = new List<(Vector3 at, int tile)>();
+            var notes = new List<(float sev, string what)>();
+            var segs = new HashSet<int>();
+            var nodes = new HashSet<int>();
+            var edgesHere = new HashSet<int>();
+            float band = RoadsideRules.CarBandM + CityElevation.DeckThick;
+            // The placement measures "overhead" from the tarmac and a post's
+            // ground may sit up to 1.5 m under it (CityMeshes.LampMaxBankM):
+            // a deck stands ClearanceM over the road below, far past both.
+            float overhead = RoadsideRules.CarBandM + 1.5f;
+
+            // BUILDING. The reach of every footprint (its farthest corner from
+            // the centre it is bucketed by) is measured HERE, from the corners,
+            // not taken from CityMap.FootprintClear's own table: that table is
+            // part of what is on trial. The scan is the same widened one: the
+            // buckets under the foot ± (look + the farthest reach on the map),
+            // so a building centred in the next bucket is asked, then every
+            // edge of whatever could come within the look.
+            var fps = map.footprints;
+            var fpReach = new float[fps.Length];
+            float fpMaxReach = 0f;
+            for (int i = 0; i < fps.Length; i++)
+            {
+                float far2 = 0f;
+                foreach (var q in fps[i].pts) far2 = Mathf.Max(far2, (q - fps[i].centre).sqrMagnitude);
+                // a gabled house is drawn as its oriented box (see below)
+                if (fps[i].gable) far2 = Mathf.Max(far2, fps[i].hu * fps[i].hu + fps[i].hv * fps[i].hv);
+                fpReach[i] = Mathf.Sqrt(far2);
+                fpMaxReach = Mathf.Max(fpMaxReach, fpReach[i]);
+            }
+            // signed metres from p to the nearest real footprint's wall (less
+            // than zero inside it), or `look` when none is that close
+            float BuildingClear(Vector2 p, float look, out int which)
+            {
+                which = -1;
+                float best = look, wide = look + fpMaxReach;
+                int x0 = Mathf.FloorToInt((p.x - wide) / CityMap.FootCell), x1 = Mathf.FloorToInt((p.x + wide) / CityMap.FootCell);
+                int z0 = Mathf.FloorToInt((p.y - wide) / CityMap.FootCell), z1 = Mathf.FloorToInt((p.y + wide) / CityMap.FootCell);
+                for (int cx = x0; cx <= x1; cx++)
+                    for (int cz = z0; cz <= z1; cz++)
+                    {
+                        var list = map.FootprintsInTile(cx, cz);
+                        if (list == null) continue;
+                        foreach (int fi in list)
+                        {
+                            var f = fps[fi];
+                            // no wall of it is nearer than this, nor deeper inside
+                            if (Vector2.Distance(f.centre, p) - fpReach[fi] >= best) continue;
+                            float wall = float.MaxValue;
+                            for (int a = f.pts.Length - 1, b = 0; b < f.pts.Length; a = b++)
+                            {
+                                Vector2 d = f.pts[b] - f.pts[a];
+                                float L2 = d.sqrMagnitude;
+                                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - f.pts[a], d) / L2) : 0f;
+                                wall = Mathf.Min(wall, Vector2.Distance(p, f.pts[a] + d * t));
+                            }
+                            if (CityMap.PointInPoly(f.pts, p)) wall = -wall;
+                            // What is DRAWN for a gabled house is its oriented box
+                            // (EmitGableHouse), not the polygon, and the collider is
+                            // that box: measure the box too, signed the same way, so
+                            // the audit asks what the player would hit rather than
+                            // repeating the placement's own geometry.
+                            if (f.gable)
+                            {
+                                Vector2 q = p - f.centre;
+                                Vector2 v = new Vector2(-f.u.y, f.u.x);
+                                float lu = Mathf.Abs(Vector2.Dot(q, f.u)) - f.hu;
+                                float lv = Mathf.Abs(Vector2.Dot(q, v)) - f.hv;
+                                float boxd = (lu <= 0f && lv <= 0f)
+                                    ? Mathf.Max(lu, lv)
+                                    : Mathf.Sqrt(Mathf.Max(lu, 0f) * Mathf.Max(lu, 0f) + Mathf.Max(lv, 0f) * Mathf.Max(lv, 0f));
+                                wall = Mathf.Min(wall, boxd);
+                            }
+                            if (wall < best) { best = wall; which = fi; }
+                        }
+                    }
+                return best;
+            }
+            int inBuilding = 0;
+            float tightBld = float.MaxValue;
+            string tightBldWhat = null;
+
+            List<CityMeshes.Lamp> firstBuild = null;
+            for (int ti = 0; ti < tiles.Count; ti++)
+            {
+                var (tx, tz, why) = tiles[ti];
+                var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                if (ti == 0) firstBuild = new List<CityMeshes.Lamp>(tm.lamps);
+                var min = new Vector2(tx * ts, tz * ts);
+                var max = min + Vector2.one * ts;
+
+                // carriageway metres on the tile by lamp kind (what could be lit)
+                var tileM = new float[3];
+                var tileLamps = new int[3];
+                segs.Clear(); edgesHere.Clear();
+                map.EdgeSegsInRect(min, max, segs);
+                foreach (var packed in segs) edgesHere.Add(packed >> 12);
+                foreach (var ei in edgesHere)
+                {
+                    var e = map.edges[ei];
+                    if (e.link || e.tunnel || e.bridge) continue;
+                    int k = e.cls >= 5 ? 2 : e.cls >= 2 ? 1 : 0;
+                    for (float s = 0.5f; s < e.length; s += 1f)
+                    {
+                        var p = e.PointAt(s);
+                        if (p.x >= min.x && p.x < max.x && p.y >= min.y && p.y < max.y) tileM[k] += 1f;
+                    }
+                }
+
+                foreach (var l in tm.lamps)
+                {
+                    tileLamps[Mathf.Clamp(l.kind, 0, 2)]++;
+                    var foot = tm.origin + l.foot;
+                    var head = tm.origin + l.head;
+                    float ground = foot.y + CityMeshes.LampSinkM;
+                    var f2 = new Vector2(foot.x, foot.z);
+                    var h2 = new Vector2(head.x, head.z);
+                    var m2 = (f2 + h2) * 0.5f;
+                    float worst = float.MaxValue;
+                    string worstWhat = "", overWhat = null;
+                    segs.Clear(); nodes.Clear();
+                    map.EdgeSegsInRect(Vector2.Min(f2, h2) - Vector2.one * 30f, Vector2.Max(f2, h2) + Vector2.one * 30f, segs);
+                    foreach (var packed in segs)
+                    {
+                        int oi = packed >> 12, si = packed & 0xFFF;
+                        var o = map.edges[oi];
+                        nodes.Add(o.a); nodes.Add(o.b);
+                        Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                        float L2 = d.sqrMagnitude;
+                        if (L2 < 1e-6f) continue;
+                        for (int q = 0; q < 3; q++)
+                        {
+                            var p = q == 0 ? f2 : q == 1 ? m2 : h2;
+                            float t = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
+                            float at = o.s[si] + Mathf.Sqrt(L2) * t;
+                            float clear = Vector2.Distance(p, a + d * t) - trims.HalfWidthAt(o, at);
+                            float yO = o.YAt(at);
+                            if (q == 0 && yO > ground - band && clear < worst)
+                            { worst = clear; worstWhat = $"e{oi} '{o.name}' cls{o.cls}{(o.link ? " L" : "")} at {yO - ground:+0.00;-0.00} m"; }
+                            if (clear < 0f && yO > ground + overhead && overWhat == null)
+                                overWhat = $"e{oi} '{o.name}'{(o.bridge ? " B" : "")} {yO - ground:+0.0} m over its {(q == 0 ? "foot" : q == 1 ? "arm" : "head")}";
+                        }
+                    }
+                    foreach (var n in nodes)
+                    {
+                        if (!trims.patch[n] || map.nodeY[n] <= ground - band) continue;
+                        float reach = 0f;
+                        foreach (var ai in map.nodeEdges[n])
+                        {
+                            var ae = map.edges[ai];
+                            float tr = trims.TrimAt(ae, n), hw = ae.width * 0.5f;
+                            reach = Mathf.Max(reach, Mathf.Sqrt(tr * tr + hw * hw));
+                        }
+                        float clear = Vector2.Distance(f2, map.nodes[n]) - reach;
+                        if (clear < worst) { worst = clear; worstWhat = $"node {n}'s fan"; }
+                    }
+                    string where = $"kind {kindName[Mathf.Clamp(l.kind, 0, 2)]} at ({foot.x:0.0},{foot.z:0.0}) tile {tx},{tz}";
+                    if (worst < LampAuditClearM)
+                    {
+                        inLanes++;
+                        notes.Add((LampAuditClearM - worst, $"LAMP  foot {worst:+0.00;-0.00} m outside {worstWhat}: {where}"));
+                    }
+                    if (overWhat != null)
+                    {
+                        under++;
+                        notes.Add((5f, $"LAMP  under {overWhat}: {where}"));
+                    }
+                    float bld = BuildingClear(f2, LampAuditBuildingLookM, out int bldIdx);
+                    string bldWhat = bldIdx < 0 ? $"no real building within {LampAuditBuildingLookM:0} m"
+                        : $"{bld:+0.00;-0.00} m {(bld < 0f ? "INSIDE" : "off the wall of")} real footprint #{bldIdx} (centre in bucket {Mathf.FloorToInt(fps[bldIdx].centre.x / CityMap.FootCell)},{Mathf.FloorToInt(fps[bldIdx].centre.y / CityMap.FootCell)})";
+                    if (bld < tightBld) { tightBld = bld; tightBldWhat = $"{bldWhat}: {where}"; }
+                    if (bld < LampAuditBuildingM)
+                    {
+                        inBuilding++;
+                        notes.Add((LampAuditBuildingM - bld, $"LAMP  foot {bldWhat}: {where}"));
+                    }
+                    feet.Add((foot, ti));
+                }
+                total += tm.lamps.Count;
+                stations += tm.lampStations;
+                if (why == "uptown") uptownLamps += tm.lamps.Count;
+                for (int r = 1; r < rejects.Length; r++) rejects[r] += tm.lampRejects[r];
+                var perKind = new StringBuilder();
+                for (int k = 0; k < 3; k++)
+                {
+                    kindLamps[k] += tileLamps[k]; kindM[k] += tileM[k];
+                    if (tileM[k] < 1f && tileLamps[k] == 0) continue;
+                    perKind.Append($"{(perKind.Length > 0 ? ", " : "")}{kindName[k]} {tileLamps[k]} over {tileM[k] / 1000f:0.00} km");
+                }
+                Line($"lamps tile {tx},{tz} ({why}): {tm.lamps.Count} of {tm.lampStations} stations; {perKind}{Refusals(tm.lampRejects)}");
+                DiscardMeshes(tm);
+            }
+
+            // TWICE: one station stood by two tiles lands on the same spot
+            int doubled = 0, close = 0;
+            for (int i = 0; i < feet.Count; i++)
+                for (int j = i + 1; j < feet.Count; j++)
+                {
+                    float d = Vector2.Distance(new Vector2(feet[i].at.x, feet[i].at.z), new Vector2(feet[j].at.x, feet[j].at.z));
+                    if (d >= 1.5f) continue;
+                    if (d < LampDoubleM)
+                    {
+                        doubled++;
+                        notes.Add((10f, $"LAMP  stood twice at ({feet[i].at.x:0.0},{feet[i].at.z:0.0}), by tiles {tiles[feet[i].tile].tx},{tiles[feet[i].tile].tz} and {tiles[feet[j].tile].tx},{tiles[feet[j].tile].tz}"));
+                    }
+                    else close++;
+                }
+
+            // SAME: the first tile again, compared as a set (the edges are
+            // walked out of a hash set, so the ORDER is not the claim)
+            bool same = true;
+            if (tiles.Count > 0 && firstBuild != null)
+            {
+                var again = CityMeshes.Build(map, trims, buildings, tiles[0].tx, tiles[0].tz);
+                var second = new List<CityMeshes.Lamp>(again.lamps);
+                int ByFoot(CityMeshes.Lamp p, CityMeshes.Lamp q) =>
+                    p.foot.x != q.foot.x ? p.foot.x.CompareTo(q.foot.x) : p.foot.z.CompareTo(q.foot.z);
+                firstBuild.Sort(ByFoot); second.Sort(ByFoot);
+                same = second.Count == firstBuild.Count;
+                for (int i = 0; same && i < firstBuild.Count; i++)
+                    same = (second[i].foot - firstBuild[i].foot).sqrMagnitude < 1e-8f && (second[i].head - firstBuild[i].head).sqrMagnitude < 1e-8f;
+                DiscardMeshes(again);
+            }
+
+            Line($"lamp audit: {tiles.Count} tiles, {total} lamps of {stations} stations{Refusals(rejects)}; {close} pairs of posts from two roads within 1.5 m of each other (not a check)");
+            var perKm = new StringBuilder("    lamps per km of carriageway on those tiles:");
+            for (int k = 0; k < 3; k++)
+                perKm.Append($" {kindName[k]} {(kindM[k] > 1f ? kindLamps[k] / (kindM[k] / 1000f) : 0f):0.0} ({kindLamps[k]} over {kindM[k] / 1000f:0.00} km){(k < 2 ? "," : "")}");
+            Line(perKm.ToString());
+            Check(total > 0 && uptownLamps > 0, "the city stands street lamps, uptown included (lamp audit)", $"{total} lamps, {uptownLamps} on uptown's 3x3");
+            Check(inLanes == 0, "every lamp post stands " + LampAuditClearM + " m or more outside every carriageway and junction fan (lamp audit)", inLanes);
+            Line($"    tightest lamp foot to a real building: {tightBldWhat ?? "no lamps"}");
+            Check(inBuilding == 0, "every lamp post stands outside every real building and " + LampAuditBuildingM +
+                  " m or more from its walls, buildings centred across a tile seam included (lamp audit)", inBuilding);
+            Check(under == 0, "no lamp stands under a structure (lamp audit)", under);
+            Check(doubled == 0, "no lamp is stood twice across a tile seam (lamp audit)", doubled);
+            Check(same, "a tile stands the same lamps every build (lamp audit)");
+            notes.Sort((p, q) => q.sev.CompareTo(p.sev));
+            for (int i = 0; i < Mathf.Min(20, notes.Count); i++) Line("    " + notes[i].what);
+        }
+
+        /// <summary>"; refused: why n, ..." for the stations that stood no lamp.</summary>
+        static string Refusals(int[] rejects)
+        {
+            var sb = new StringBuilder();
+            for (int r = 1; r < rejects.Length && r < CityMeshes.LampRejectNames.Length; r++)
+            {
+                if (rejects[r] == 0) continue;
+                sb.Append(sb.Length == 0 ? "; refused: " : ", ").Append(CityMeshes.LampRejectNames[r]).Append(' ').Append(rejects[r]);
+            }
+            return sb.ToString();
         }
 
         /// <summary>No station-to-station grade past 16% outside a sub-30 m

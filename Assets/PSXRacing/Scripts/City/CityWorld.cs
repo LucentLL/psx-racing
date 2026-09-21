@@ -28,6 +28,13 @@ namespace PSXRacing.City
     {
         public const int RoadLayer = 8;
         public const int SolidLayer = 9;
+        /// <summary>The name of the Solid-layer object holding a tile's lamp
+        /// post colliders, which is every such collider's name: the audits
+        /// skip it by name, since a pole standing beside a road is neither a
+        /// barrier guarding a drop nor something in a lane.</summary>
+        public const string LampPostName = "LampPost";
+        /// <summary>Galvanised steel gone dark with weather: the posts' tint.</summary>
+        static readonly Color LampPostColor = new Color(0.30f, 0.31f, 0.33f);
 
         [Tooltip("One material per CityMeshes.Slot, in enum order.")]
         public Material[] materials;
@@ -263,6 +270,22 @@ namespace PSXRacing.City
                 }
             }
 
+            // THE LIGHT the street lamps throw (the posts are Attach's). A
+            // NightGlow of its own per tile, under its own child, so the posts
+            // are not among what it switches, and Init'd by hand: it is added
+            // to an empty object, and in edit mode (the night-look shots stand
+            // tiles up without play) AddComponent runs no Awake at all. It
+            // registers every head with StreetLights and builds the halos;
+            // dropping the tile destroys it, which takes both back.
+            if (tm.lamps.Count > 0)
+            {
+                var heads = new Vector3[tm.lamps.Count];
+                for (int i = 0; i < heads.Length; i++) heads[i] = tm.origin + tm.lamps[i].head;
+                var lights = new GameObject("LampLights");
+                lights.transform.SetParent(root.transform, false);
+                lights.AddComponent<NightGlow>().Init(heads);
+            }
+
             live[key] = new Tile { go = root, meshes = meshes };
         }
 
@@ -270,7 +293,9 @@ namespace PSXRacing.City
         /// Stand a built tile up under a root: renderers AND colliders, the
         /// one definition of which mesh sits on which layer. The audit and
         /// the preview go through here too, so what they photograph and
-        /// ray-cast is what the player drives on.
+        /// ray-cast is what the player drives on. That includes the street
+        /// lamps' posts (render mesh + Solid boxes); their LIGHT is
+        /// EnsureTile's, since an audit has no use for a NightGlow.
         /// </summary>
         public static Mesh[] Attach(GameObject root, CityMeshes.TileMeshes tm,
                                     System.Func<CityMeshes.Slot, Material> matFor)
@@ -338,7 +363,66 @@ namespace PSXRacing.City
                 var bc = s.AddComponent<BoxCollider>();
                 bc.size = box.size;
             }
+            if (tm.lampPosts != null)
+            {
+                // Render-only: posts, arms and heads in one mesh, one draw a
+                // tile. The runtime material only where the caller renders
+                // (the audit stands tiles up with no materials at all).
+                var g = new GameObject("Lamps");
+                g.transform.SetParent(root.transform, false);
+                g.AddComponent<MeshFilter>().sharedMesh = tm.lampPosts;
+                var mr = g.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = matFor != null ? LampPostMaterial() : null;
+                mr.enabled = mr.sharedMaterial != null;   // no material draws pink, not nothing
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                meshes.Add(tm.lampPosts);
+            }
+            if (tm.lamps.Count > 0)
+            {
+                // SOLID, a box up each pole: a car that leaves a street at
+                // speed meets a pole, as it would (and the fast roads keep
+                // theirs out of the clear zone for exactly that reason). Every
+                // box on one object, so every one of them is NAMED LampPost: a
+                // GameObject per post would be a hundred transforms a tile for
+                // nothing, and a 0.3 m square pole's yaw is not something a car
+                // can feel. Built here and not in EnsureTile, so the audits
+                // ray-cast the posts the player meets, and skip them by that
+                // name.
+                var c = Child(root, LampPostName, SolidLayer);
+                foreach (var l in tm.lamps)
+                {
+                    var bc = c.AddComponent<BoxCollider>();
+                    bc.center = l.foot + Vector3.up * (l.height * 0.5f);
+                    bc.size = new Vector3(LampColliderM, l.height, LampColliderM);
+                }
+            }
             return meshes.ToArray();
+        }
+
+        /// <summary>A lamp post collider's square side, a hair over the drawn
+        /// post's 0.26 m so a wheel never clips into the pole it touches.</summary>
+        const float LampColliderM = 0.3f;
+
+        static Material lampPostMat;
+
+        /// <summary>
+        /// The posts' material: PSX/Lit, untextured, tinted, created once per
+        /// process and never saved (a new Slot for it would shift every road
+        /// slot and misalign the baked city scenes' materials arrays). Null
+        /// if the shader is not in the build: Attach then switches the
+        /// posts' renderer off rather than draw them pink, and they still
+        /// collide.
+        /// </summary>
+        public static Material LampPostMaterial()
+        {
+            if (lampPostMat != null) return lampPostMat;
+            var sh = Shader.Find("PSX/Lit");
+            if (sh == null) return null;
+            lampPostMat = new Material(sh) { name = "CityLampPost", hideFlags = HideFlags.HideAndDontSave };
+            lampPostMat.SetColor("_Color", LampPostColor);
+            if (lampPostMat.HasProperty("_Affine")) lampPostMat.SetFloat("_Affine", 0f);
+            return lampPostMat;
         }
 
         static GameObject Child(GameObject parent, string name, int layer)

@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -171,6 +173,31 @@ namespace PSXRacing.EditorTools
         /// panel of its own because there is no shifter knob carrying it. It is
         /// what a PC player looks at, and DumpPanel — which forces the touch
         /// controls on — can never show it.
+        ///
+        /// WHAT IT IS DRAWN OVER, AND AT WHAT HOUR (2026-09-21, the smoked
+        /// faces). Two optional environment variables:
+        ///
+        ///   PSX_CLUSTER_HOUR      an hour index 0-6 (or its name, "NIGHT"),
+        ///                         or a list of them ("2,6"). Applied with
+        ///                         TimeOfDay.Apply before the cluster is built,
+        ///                         so the palette follows it: ClusterBulbs
+        ///                         .Backlit reads TimeOfDay.Current. Output
+        ///                         names get "_hour_&lt;h&gt;_&lt;name&gt;".
+        ///   PSX_CLUSTER_BACKDROP  a PNG, or a ';'-separated list paired with
+        ///                         the hours in order, drawn full-screen BEHIND
+        ///                         the cluster instead of the flat background.
+        ///                         A bare file name is looked for in Screenshots
+        ///                         first, where the screenshot tool leaves its
+        ///                         psx_hour_*.png frames.
+        ///
+        /// Without them the tool renders exactly what it always did. It needs
+        /// them because a see-through dial cannot be judged over flat
+        /// near-black: black-on-black is legible by construction, and the case
+        /// the halos exist for is a noon sky or a sodium-lit road in the
+        /// bottom corners. And because no flat-colour tool ever applied an
+        /// hour, every cluster preview so far has shown the lit NIGHT palette
+        /// (TimeOfDay.Current starts at Sunset, which runs its lights): the day
+        /// dial, white on smoke, had never been looked at.
         /// </summary>
         [MenuItem("PSX Racing/Preview Gauge Cluster")]
         public static void DumpCluster()
@@ -189,11 +216,29 @@ namespace PSXRacing.EditorTools
                 ("drive", 5200f, 84f, 0.46f, 0.28f),
             };
 
+            var passes = ClusterPasses(outDir, out bool nameBackdrops);
+            var backdrops = new Dictionary<string, Texture2D>();
+            int hourBefore = TimeOfDay.Current;
+            bool hourApplied = false;
+
+            foreach (var (hour, backdropPath) in passes)
             foreach (var (label, rpm, speed, coolant, fuel) in states)
             {
                 UnityEditor.SceneManagement.EditorSceneManager.NewScene(
                     UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
                     UnityEditor.SceneManagement.NewSceneMode.Single);
+
+                // The hour BEFORE the cluster is built, and after the scene it
+                // writes its sky into exists. A cluster bakes its palette at
+                // Build and only rebakes when the bulb's revision changes,
+                // which it never gets the chance to do here.
+                if (hour >= 0)
+                {
+                    TimeOfDay.Apply(hour, null);
+                    hourApplied = true;
+                    Debug.Log($"[Preview] hour {hour} {TimeOfDay.At(hour).name}: " +
+                              $"bulb backlit = {ClusterBulbs.Backlit}");
+                }
 
                 const int W = 1280, H = 720;
                 var camGO = new GameObject("PreviewCam");
@@ -203,6 +248,9 @@ namespace PSXRacing.EditorTools
                 cam.orthographic = true;
                 var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
                 cam.targetTexture = rt;
+
+                var backdrop = LoadBackdrop(backdropPath, backdrops);
+                if (backdrop != null) AddBackdrop(cam, backdrop, W, H);
 
                 var clusterCanvasGO = new GameObject("ClusterCanvas");
                 var cc = clusterCanvasGO.AddComponent<Canvas>();
@@ -252,7 +300,15 @@ namespace PSXRacing.EditorTools
                 tex.Apply();
                 RenderTexture.active = prev;
 
-                string path = Path.Combine(outDir, "cluster_" + label + ".png");
+                // The hour in the name, so a noon run and a night run sit side
+                // by side instead of overwriting each other; the backdrop's
+                // own name as well only when there are more backdrops than
+                // hours to tell them apart by.
+                string suffix = hour >= 0
+                    ? "_hour_" + hour + "_" + TimeOfDay.At(hour).name.ToLowerInvariant() : "";
+                if (nameBackdrops && !string.IsNullOrEmpty(backdropPath))
+                    suffix += "_" + Path.GetFileNameWithoutExtension(backdropPath);
+                string path = Path.Combine(outDir, "cluster_" + label + suffix + ".png");
                 File.WriteAllBytes(path, tex.EncodeToPNG());
                 Debug.Log("[Preview] wrote " + path);
 
@@ -261,6 +317,160 @@ namespace PSXRacing.EditorTools
                 rt.Release();
                 Object.DestroyImmediate(rt);
             }
+
+            foreach (var t in backdrops.Values)
+                if (t != null) Object.DestroyImmediate(t);
+            // Put the hour back. TimeOfDay.Current is static and outlives the
+            // scenes this made. Left at NOON, it would hand the next preview
+            // run in the same editor a day palette it never asked for.
+            if (hourApplied) TimeOfDay.Apply(hourBefore, null);
+        }
+
+        /// <summary>
+        /// The (hour, backdrop) pairs DumpCluster renders, from
+        /// PSX_CLUSTER_HOUR and PSX_CLUSTER_BACKDROP. The longer list sets the
+        /// count and the shorter one repeats its last entry. With neither set
+        /// it is one pass of (-1, null): no hour applied, the flat background,
+        /// the tool as it always was.
+        /// </summary>
+        static List<(int hour, string backdrop)> ClusterPasses(string shotsDir, out bool nameBackdrops)
+        {
+            var hours = new List<int>();
+            string hourEnv = System.Environment.GetEnvironmentVariable("PSX_CLUSTER_HOUR");
+            if (!string.IsNullOrWhiteSpace(hourEnv))
+                foreach (var raw in hourEnv.Split(new[] { ',', ';', ' ' },
+                                                  System.StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int h = HourIndex(raw.Trim());
+                    if (h >= 0) hours.Add(h);
+                    else Debug.LogError($"[Preview] PSX_CLUSTER_HOUR: '{raw}' is not an hour " +
+                                        $"(0-{TimeOfDay.Count - 1} or a name such as NIGHT)");
+                }
+
+            var files = new List<string>();
+            string bdEnv = System.Environment.GetEnvironmentVariable("PSX_CLUSTER_BACKDROP");
+            if (!string.IsNullOrWhiteSpace(bdEnv))
+                foreach (var raw in bdEnv.Split(new[] { ';', '|' },
+                                                System.StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string p = raw.Trim().Trim('"');
+                    if (p.Length > 0) files.Add(ResolveBackdrop(p, shotsDir));
+                }
+
+            nameBackdrops = files.Count > 1 && files.Count > hours.Count;
+            int n = Mathf.Max(1, Mathf.Max(hours.Count, files.Count));
+            var passes = new List<(int, string)>(n);
+            for (int i = 0; i < n; i++)
+                passes.Add((hours.Count > 0 ? hours[Mathf.Min(i, hours.Count - 1)] : -1,
+                            files.Count > 0 ? files[Mathf.Min(i, files.Count - 1)] : null));
+            return passes;
+        }
+
+        /// <summary>An hour by index ("6") or by its table name ("night"),
+        /// -1 if it is neither.</summary>
+        static int HourIndex(string s)
+        {
+            if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int h))
+                return h >= 0 && h < TimeOfDay.Count ? h : -1;
+            for (int i = 0; i < TimeOfDay.Count; i++)
+                if (string.Equals(TimeOfDay.At(i).name, s, System.StringComparison.OrdinalIgnoreCase))
+                    return i;
+            return -1;
+        }
+
+        /// <summary>A backdrop path as given if it is rooted; otherwise
+        /// looked for in Screenshots, where the frames it is meant for are
+        /// written, and then in the project folder.</summary>
+        static string ResolveBackdrop(string p, string shotsDir)
+        {
+            if (Path.IsPathRooted(p)) return p;
+            string inShots = Path.Combine(shotsDir, p);
+            if (File.Exists(inShots)) return inShots;
+            return Path.Combine(Directory.GetParent(Application.dataPath).FullName, p);
+        }
+
+        /// <summary>
+        /// Load a backdrop PNG once per run. Misses are cached too: a path
+        /// that failed is reported once and the pass falls back to the flat
+        /// background rather than stopping the run.
+        ///
+        /// sRGB and point-filtered. The frame it holds is the game's picture
+        /// as the display shows it, so it must come back out of the sRGB
+        /// render target byte for byte; and a 240-line frame is shown with
+        /// hard pixels, which is how the dials will be seen over it.
+        /// </summary>
+        static Texture2D LoadBackdrop(string path, Dictionary<string, Texture2D> cache)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            // A cached MISS is a real null and is returned as one. A cached
+            // texture that something has since DESTROYED is only null by
+            // Unity's ==, and is loaded again rather than silently dropping
+            // the backdrop from every state after the first.
+            if (cache.TryGetValue(path, out var hit) && ((object)hit == null || hit != null))
+                return hit;
+            Texture2D tex = null;
+            if (!File.Exists(path))
+                Debug.LogError("[Preview] PSX_CLUSTER_BACKDROP: no file at " + path);
+            else
+            {
+                // HideAndDontSave, which includes DontUnloadUnusedAsset: every
+                // state opens a NEW scene, and a loose texture that no scene
+                // references is exactly what a scene change may unload.
+                tex = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                };
+                if (tex.LoadImage(File.ReadAllBytes(path)))
+                {
+                    tex.filterMode = FilterMode.Point;
+                    tex.wrapMode = TextureWrapMode.Clamp;
+                    Debug.Log($"[Preview] backdrop {path} ({tex.width}x{tex.height})");
+                }
+                else
+                {
+                    Debug.LogError("[Preview] PSX_CLUSTER_BACKDROP: not an image: " + path);
+                    Object.DestroyImmediate(tex);
+                    tex = null;
+                }
+            }
+            cache[path] = tex;
+            return tex;
+        }
+
+        /// <summary>
+        /// The backdrop: one full-frame RawImage on a canvas of its own,
+        /// already in camera space and BEHIND the cluster. It is further from
+        /// the lens (20 against the cluster's 10) and lower in sort order, so
+        /// both ways of ordering transparent UI agree. It is not an overlay
+        /// canvas, so the loop that moves the cluster's overlay canvases onto
+        /// the camera leaves it alone.
+        ///
+        /// Cropped to COVER the frame from the centre rather than stretched: a
+        /// screenshot of another aspect squashed to 16:9 would make every
+        /// verge and lamp the wrong shape. The bottom corners the dials sit in
+        /// survive a centred crop of any sensible frame.
+        /// </summary>
+        static void AddBackdrop(Camera cam, Texture2D tex, int w, int h)
+        {
+            var canvasGO = new GameObject("BackdropCanvas");
+            var canvas = canvasGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = cam;
+            canvas.planeDistance = 20f;
+            canvas.sortingOrder = -100;
+
+            var imgGO = new GameObject("Backdrop", typeof(RectTransform));
+            imgGO.transform.SetParent(canvasGO.transform, false);
+            var rt = (RectTransform)imgGO.transform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            var img = imgGO.AddComponent<UnityEngine.UI.RawImage>();
+            img.texture = tex;
+            img.raycastTarget = false;
+            float ta = tex.width / (float)Mathf.Max(1, tex.height), sa = w / (float)h;
+            img.uvRect = ta > sa
+                ? new Rect((1f - sa / ta) * 0.5f, 0f, sa / ta, 1f)
+                : new Rect(0f, (1f - ta / sa) * 0.5f, 1f, ta / sa);
         }
 
         static void SetPedal(TouchControls tc, string field, float amount)

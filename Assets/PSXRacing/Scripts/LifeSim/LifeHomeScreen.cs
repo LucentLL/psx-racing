@@ -4996,6 +4996,14 @@ namespace PSXRacing.LifeSim
             OptionRow("FILM GRADE", FilmGradePrefs.Label,
                 "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",
                 () => FilmGradePrefs.Toggle(), ref y);
+            // What lands on the camera's glass: rain drops that refract the
+            // street (and glow where a lamp is behind them) and the dust a
+            // bright light shows up at night — the owner's "particle effects
+            // on screen for rain and light", after NFS (2015). Ships ON; the
+            // pause menu carries the same switch.
+            OptionRow("LENS FX", LensFxPrefs.Label,
+                "Rain drops and light bokeh on the lens. Off for a clean lens.",
+                () => LensFxPrefs.Toggle(), ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries these too,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,

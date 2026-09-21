@@ -284,7 +284,16 @@ namespace PSXRacing.EditorTools
         class TownMats
         {
             public Material grass, road, drive, kerb, dirt, fence, metal, line, sign;
+            // The workshop's insides: its floor and its bench/shutter boxes.
+            // They LOOK like drive and kerb and are separate assets only so
+            // the wet mask can tell a roof from the sky (see WetUnderRoof).
+            public Material shopFloor, shopFit;
         }
+
+        /// <summary>The kerb's grey, shared by <c>TownKerb</c> and the
+        /// workshop's <c>TownShopFit</c> so the bench and the kerb outside can
+        /// never drift apart by hand.</summary>
+        static readonly Color TownKerbTint = new Color(0.62f, 0.60f, 0.57f);
 
         static TownMats TownMaterials() => new TownMats
         {
@@ -297,14 +306,33 @@ namespace PSXRacing.EditorTools
             // the ground renderer off, which is what finally said it was the
             // road drawing grass rather than the grass drawing over the road.
             // AsphaltDamaged is seamless, dark, and has nothing painted on it.
-            road = MakeMat("TownRoad", Root + "/Art/GasStation/Textures/AsphaltDamaged.jpg"),
-            drive = MakeMat("TownDrive", TownHouseTex + "/ConcreteBare.jpg"),
-            kerb = MakeMat("TownKerb", null, tint: new Color(0.62f, 0.60f, 0.57f)),
+            //
+            // Wet masks (see WetAsphalt in PSXRacingBuilder.cs). The town and
+            // the neighbourhood share these assets, so one table wets both
+            // streets. drive and kerb are OUTDOOR materials: everything they
+            // are laid on has sky over it. What sits under the workshop roof
+            // wears shopFloor / shopFit below instead.
+            road = MakeMat("TownRoad", Root + "/Art/GasStation/Textures/AsphaltDamaged.jpg",
+                           wet: WetAsphalt),
+            drive = MakeMat("TownDrive", TownHouseTex + "/ConcreteBare.jpg", wet: WetTownDrive),
+            kerb = MakeMat("TownKerb", null, tint: TownKerbTint, wet: WetTownKerb),
+            // THE WORKSHOP'S FLOOR AND FITTINGS: the same photograph as the
+            // drive and the same grey as the kerb, so by day (and on any dry
+            // night) the concrete still runs through the shutters as one pour
+            // and nothing here looks different from before. They are their own
+            // assets because the wet mask is per material and the shader cannot
+            // see a roof: while the floor WAS TownDrive, either the aprons
+            // outside stayed matte under the lamps (with the dealer's bay paint
+            // shining on them) or the floor under the roof grew puddles and a
+            // sky in them — and the bench, built from the kerb, grew them
+            // regardless. Dry for good: WetUnderRoof.
+            shopFloor = MakeMat("TownShopFloor", TownHouseTex + "/ConcreteBare.jpg", wet: WetUnderRoof),
+            shopFit = MakeMat("TownShopFit", null, tint: TownKerbTint, wet: WetUnderRoof),
             // A yard is oil and hardcore, not paving. Shoulder.png tiled at
             // 10 m read as a floor of diamond tiles; the sand plate tinted
             // brown and tiled small reads as ground somebody parks wrecks on.
             dirt = MakeMat("TownDirt", Root + "/Art/Bogue/Gen/Sand.png",
-                           tint: new Color(0.52f, 0.47f, 0.40f)),
+                           tint: new Color(0.52f, 0.47f, 0.40f), wet: WetTownDirt),
             // The yard's fence. This texture is already imported with the
             // trailer pack, which is the only reason a chain-link fence exists
             // in this project at all — there is no fence MODEL anywhere in
@@ -312,7 +340,7 @@ namespace PSXRacing.EditorTools
             // borrowed texture. Cutout, because chain link is mostly holes.
             fence = MakeMat("TownFence", TownTrailerTex + "/Metal_Fence.png", cutoff: 0.5f),
             metal = MakeMat("TownMetal", TownTrailerTex + "/MetalPlatesBare.jpg"),
-            line = MakeMat("TownLine", null, tint: new Color(0.86f, 0.80f, 0.32f)),
+            line = MakeMat("TownLine", null, tint: new Color(0.86f, 0.80f, 0.32f), wet: WetTownLine),
             sign = MakeMat("TownSign", null, tint: new Color(0.24f, 0.30f, 0.46f)),
         };
 
@@ -935,9 +963,13 @@ namespace PSXRacing.EditorTools
             // through, and without this the inside of a workshop is the town's
             // grass — off-road grip under a roof, which is exactly the trap
             // WorldKit.RoadLayer exists to name.
+            // shopFloor, NOT the apron's m.drive: the same concrete to the eye,
+            // but under a roof, so it stays dry when the apron outside takes
+            // the rain and the damp night (WetUnderRoof). The split falls on
+            // the front wall plane (fz), where the apron above starts.
             WorldKit.GridSlab(unit.transform, name + "Floor",
                 new Vector3(at.x, 0.02f, at.z), w, d, 3f,
-                m.drive, true, 6f, WorldKit.RoadLayer);
+                m.shopFloor, true, 6f, WorldKit.RoadLayer);
 
             // Shell: back, two sides, roof.
             WorldKit.Box(unit.transform, name + "Back", new Vector3(at.x, h * 0.5f, bz),
@@ -967,10 +999,13 @@ namespace PSXRacing.EditorTools
             // The shutters, rolled up into their boxes over each opening. Not
             // doors: a roller shutter that swings would be a roller shutter
             // that is a door, and these are open all day anyway.
+            // shopFit rather than the street's kerb: the box tucks up under the
+            // lintel, part of the building, and TownKerb is kept for things
+            // with sky over them (WetTownKerb).
             for (int s = -1; s <= 1; s += 2)
                 WorldKit.Box(unit.transform, name + "Shutter" + s,
                     new Vector3(at.x + s * (bayW * 0.5f + 0.45f), 3.35f, fz - 0.05f),
-                    new Vector3(bayW, 0.45f, 0.5f), m.kerb, false);
+                    new Vector3(bayW, 0.45f, 0.5f), m.shopFit, false);
 
             // The board. Panel rather than Box so it takes a tint cleanly and
             // reads flat from the road, on two posts so it is signage rather
@@ -987,9 +1022,13 @@ namespace PSXRacing.EditorTools
             // benches at the back wall and a stack of drums between them: the
             // only shapes this can honestly make, and enough that the inside
             // is somewhere rather than a void.
+            // shopFit, the kerb's grey with a DRY mask: built from TownKerb it
+            // took the street's 0.7, and its flat top is the most up-facing
+            // thing in the unit — puddles and a mirrored night sky on a bench
+            // at the back of a workshop, under a roof, on every clear night.
             WorldKit.Box(unit.transform, name + "Bench",
                 new Vector3(at.x, 0.45f, bz + 1.1f), new Vector3(w - 3f, 0.9f, 0.8f),
-                m.kerb, true, 0f, WorldKit.SolidLayer);
+                m.shopFit, true, 0f, WorldKit.SolidLayer);
             for (int i = 0; i < 4; i++)
                 WorldKit.Post(unit.transform, name + "Drum" + i,
                     new Vector3(at.x - 6.2f + i * 0.72f, 0f, bz + 2.4f),
@@ -1074,6 +1113,10 @@ namespace PSXRacing.EditorTools
                     t.transform.SetPositionAndRotation(new Vector3(x, 0.02f, z),
                         Quaternion.Euler(0f, row == 0 ? 180f : 0f, 0f));
                     spots.Add(t.transform);
+                    // The street's line paint (TownLine, wet .9) on the apron
+                    // (TownDrive, .8): wet together, with the paint a shade
+                    // glossier than the slab, as it is on a real lot. See
+                    // WetTownLine for why the line sits between its grounds.
                     WorldKit.GridSlab(lot.transform, "BayLine" + row + "_" + i,
                         new Vector3(x + 4.25f, 0.03f, z), 0.18f, 5f, 2f, m.line, false, 3f);
                     if (i % 2 == 0)
@@ -1352,13 +1395,23 @@ namespace PSXRacing.EditorTools
                 }
 
             // THE LAMPS: four on the spine between rows B and C, where no car
-            // can reach them, each throwing a pool both ways across an aisle.
+            // can reach them, each lighting both ways across an aisle.
+            //
+            // Heads and "Glow" markers only — the 15 m "Pool" quads that used
+            // to lie on each aisle are retired, the same as the circuits'
+            // (PlaceStreetLamps says why at length: an additive disc lay ON
+            // the tarmac and never lit it, nor the cars parked in it).
+            // NightGlow reads each Glow's position as a lamp head at runtime
+            // and hands it to StreetLights; PSXLamps.cginc lights the lot, the
+            // cars and the wet stall paint per pixel from there. A per-pixel
+            // pool of StreetLights.StreetRadius around a head 1.5 m out over
+            // the aisle covers the stalls either side, which is where the
+            // 9.5 m-offset quads used to put their light.
             var glowShader = Shader.Find("PSX/Glow");
             if (glowShader != null)
             {
                 var headMat = MakeMat("LampHead", null, tint: new Color(0.62f, 0.60f, 0.55f), affine: 0f);
                 var glowMat = MakeGlowMaterial("LampGlow", new Color(1.00f, 0.86f, 0.55f), 1.5f);
-                var poolMat = MakeGlowMaterial("LampPool", new Color(1.00f, 0.84f, 0.52f), 0.5f);
                 var glowMesh = GetOrCreateGlowQuad();
                 var night = new GameObject("NightLights");
                 night.transform.SetParent(lot.transform, false);
@@ -1385,15 +1438,7 @@ namespace PSXRacing.EditorTools
                         // Saved OFF — NightGlow lights them when the hour does.
                         glow.AddComponent<MeshRenderer>().sharedMaterial = glowMat;
                         glow.GetComponent<MeshRenderer>().enabled = false;
-
-                        var pool = new GameObject("Pool");
-                        pool.transform.SetParent(night.transform, false);
-                        pool.transform.position = new Vector3(x, y + 0.16f, spineZ + side * 9.5f);
-                        pool.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
-                        pool.transform.localScale = new Vector3(15f, 15f, 1f);
-                        pool.AddComponent<MeshFilter>().sharedMesh = glowMesh;
-                        pool.AddComponent<MeshRenderer>().sharedMaterial = poolMat;
-                        pool.GetComponent<MeshRenderer>().enabled = false;
+                        // (No "Pool" quad: see THE LAMPS above.)
                     }
                     lamp++;
                 }
@@ -1518,7 +1563,9 @@ namespace PSXRacing.EditorTools
             TownPad(parent, m, "StationApron",
                 b.center.x - sx * 0.5f, b.center.x + sx * 0.5f,
                 Mathf.Max(b.center.z - sz * 0.5f, TownRoadW * 0.5f), b.center.z + sz * 0.5f,
-                0.018f, MakeMat("TownForecourt", TownHouseTex + "/ConcreteBare.jpg"), 6f, 4f,
+                // Keyed to the drive's wet mask, not its own: the same bare
+                // concrete photograph, so the two stay one material to the eye.
+                0.018f, MakeMat("TownForecourt", TownHouseTex + "/ConcreteBare.jpg", wet: WetTownDrive), 6f, 4f,
                 WorldKit.SlabEdge.MinX | WorldKit.SlabEdge.MaxX | WorldKit.SlabEdge.MaxZ);
             Log("[Town] forecourt: " + pumps.Count + " pump(s), apron " +
                 b.size.x.ToString("0") + " x " + b.size.z.ToString("0") + " m");

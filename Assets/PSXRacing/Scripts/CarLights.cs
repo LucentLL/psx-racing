@@ -20,6 +20,13 @@ namespace PSXRacing
     ///     ahead. It replaced a single additive disc laid on the tarmac.
     ///   * THE BEAM IN THE AIR is a cone mesh from each lens (PSX/Beam), the
     ///     lit volume a night drive is mostly made of.
+    ///   * THE TAIL LAMPS ON THE WORLD (2026-09-21, the NFS night pass): ONE
+    ///     red point light per car in <see cref="StreetLights"/>' table, at
+    ///     the midpoint of the two tail lenses a hand behind the bumper - the
+    ///     red wash on the wet road behind a car, on its rain spray, and on
+    ///     the bonnet of the car following it. One per car, not two: the two
+    ///     lenses are half a metre apart and their pools are one pool three
+    ///     metres out, and the table has only four slots for tail lamps.
     ///
     /// THE LAMPS ARE MEASURED OFF THE SHELL, NOT THE COLLIDER. They used to
     /// hang three centimetres outside the car's BoxCollider — and the baker
@@ -89,6 +96,19 @@ namespace PSXRacing
         static readonly Vector2 ConeStart = new Vector2(0.10f, 0.07f);
         static readonly Vector2 ConeEnd = new Vector2(2.4f, 1.3f);
 
+        /// <summary>
+        /// The tail lamps' light on the world: a short red pool. sRGB, pushed
+        /// linear by StreetLights - redder than the lens tint on purpose, since
+        /// what reaches the road through a red lens is the red.
+        /// </summary>
+        static readonly Color TailLampColour = new Color(1.00f, 0.10f, 0.05f);
+        /// <summary>Metres of red pool, and its strength with the running
+        /// lights on and with the brakes on.</summary>
+        public const float TailLampRadius = 4.5f, TailLampDim = 0.45f, TailLampBrake = 1.2f;
+        /// <summary>How far behind the lenses the light sits, so the car's
+        /// own tail panel is not what it lights most.</summary>
+        public const float TailLampBack = 0.25f;
+
         MeshRenderer[] headLens = new MeshRenderer[2];
         MeshRenderer[] tailLens = new MeshRenderer[2];
         MeshRenderer[] beams = new MeshRenderer[2];
@@ -97,6 +117,12 @@ namespace PSXRacing
         Mesh fittedMesh;
         Vector3 fitCenter, fitSize;
         bool braking;
+        // The StreetLights handle of this car's tail lamp, -1 until the first
+        // update registers it. NonSerialized so a domain reload resets it to
+        // -1 (the field initialiser) along with the registry it indexes -
+        // never a handle into a table that no longer holds it.
+        [System.NonSerialized] int tailLamp = -1;
+        Vector3 tailLampPos;
 
         void OnEnable()
         {
@@ -110,6 +136,40 @@ namespace PSXRacing
             // The last car out clears the table. A global nothing writes is
             // a stale one, not an empty one.
             if (all.Count == 0) PushGlobals();
+            // A disabled car lights nothing; the entry stays, so re-enabling
+            // does not register a second one.
+            if (tailLamp >= 0) StreetLights.Set(tailLamp, tailLampPos, 0f, false);
+        }
+
+        void OnDestroy()
+        {
+            if (tailLamp >= 0) StreetLights.Remove(tailLamp);
+            tailLamp = -1;
+        }
+
+        /// <summary>
+        /// Move / dim / switch this car's tail lamp in the StreetLights table,
+        /// registering it the first time. Lit while the car's RUNNING LIGHTS
+        /// are (the hour or the weather), brighter under braking. Not on a
+        /// brake light alone: in daylight a brake lamp is a red lens and puts
+        /// no visible light on the road against the sun, and a red pool under
+        /// every braking car at noon would change the daytime picture the
+        /// owner signed off.
+        /// </summary>
+        void UpdateTailLamp()
+        {
+            if (tailLens[0] == null || tailLens[1] == null) return;
+            var a = tailLens[0].transform;
+            var b = tailLens[1].transform;
+            // The lenses face out of the back of the car, so their forward IS
+            // "behind", with the body's dive and roll in it.
+            tailLampPos = (a.position + b.position) * 0.5f + a.forward * TailLampBack;
+            float intensity = braking ? TailLampBrake : TailLampDim;
+            bool lit = lightsOn && enabled && gameObject.activeInHierarchy;
+            if (tailLamp < 0)
+                tailLamp = StreetLights.Add(this, tailLampPos, TailLampRadius, TailLampColour,
+                                            intensity, StreetLights.Kind.Point);
+            StreetLights.Set(tailLamp, tailLampPos, intensity, lit);
         }
 
         void Start()
@@ -141,6 +201,10 @@ namespace PSXRacing
                 braking = nowBraking;
                 ApplyBrake();
             }
+
+            // Every frame: the car moved (StreetLights pushes at render time,
+            // after every LateUpdate, so this is where it will be drawn).
+            UpdateTailLamp();
 
             // Once per frame for the whole field, by whichever car runs first.
             if (pushedFrame != Time.frameCount)
@@ -182,6 +246,17 @@ namespace PSXRacing
         {
             if (car == null) car = GetComponent<CarController>();
             if (box == null) box = GetComponent<BoxCollider>();
+            // JOIN THE TABLE, which OnEnable does in play and nothing does
+            // here: this is not ExecuteAlways, so outside play mode Unity
+            // never calls OnEnable on it, the car was never in 'all', and
+            // PushGlobals filled the headlight table from nobody. Every
+            // edit-mode night shot - the night-look frames ("headlights 0" on
+            // every one of them) and the psx_hour sweep before them - showed
+            // the lenses and the cones in the air but never a BEAM ON THE
+            // ROAD, the one part of a headlight the owner sees most. Play
+            // mode keeps OnEnable/OnDisable as the only doors; a destroyed
+            // preview car is pruned as null by the next SetAll/PushGlobals.
+            if (!Application.isPlaying && !all.Contains(this)) all.Add(this);
             Build();
             lightsOn = lit;
             lightsDecided = true;
@@ -189,6 +264,9 @@ namespace PSXRacing
             ApplyBrake();
             Refresh();
             PushGlobals();
+            // And the tail lamp's light, which LateUpdate would otherwise
+            // place - and LateUpdate never runs outside play mode.
+            UpdateTailLamp();
         }
 
         void Refresh()
@@ -199,6 +277,9 @@ namespace PSXRacing
                 if (beams[i] != null) beams[i].enabled = lightsOn;
                 if (tailLens[i] != null) tailLens[i].enabled = lightsOn || braking;
             }
+            // SetAll lands here for every car: the tail lamp switches with
+            // the hour now, not a frame later.
+            UpdateTailLamp();
         }
 
         void Build()
@@ -332,11 +413,20 @@ namespace PSXRacing
             if (lightsOn)
             {
                 sorted.Clear();
+                // "Is this car switched on?" asked two ways. In play,
+                // isActiveAndEnabled, as it always was. Outside play mode that
+                // is false for every car PreviewBuild enlisted - it reports
+                // whether Unity has ENABLED the component, and Unity never
+                // enables a non-ExecuteAlways one in edit mode - so the tools
+                // ask the serialized switch and the hierarchy instead.
+                bool playing = Application.isPlaying;
                 for (int i = all.Count - 1; i >= 0; i--)
                 {
                     var l = all[i];
                     if (l == null) { all.RemoveAt(i); continue; }
-                    if (l.isActiveAndEnabled && l.beams[0] != null) sorted.Add(l);
+                    bool live = playing ? l.isActiveAndEnabled
+                                        : l.enabled && l.gameObject.activeInHierarchy;
+                    if (live && l.beams[0] != null) sorted.Add(l);
                 }
                 var cam = Camera.main;
                 if (cam != null)

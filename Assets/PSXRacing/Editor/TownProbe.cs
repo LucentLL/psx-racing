@@ -440,12 +440,18 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static void SetGlows(bool lit)
-        {
-            foreach (var ng in Object.FindObjectsByType<NightGlow>(FindObjectsSortMode.None))
-                foreach (var r in ng.GetComponentsInChildren<Renderer>(true))
-                    r.enabled = lit;
-        }
+        /// <summary>
+        /// The meet lot's lamps, lit the way the game lights them — the same
+        /// change as PSXScreenshotTool.SetNightGlow (2026-09-21). Switching on
+        /// every renderer under the NightGlow brought back the glow quads and
+        /// the 16 m additive pool discs the night pass retired, with none of
+        /// the per-pixel pool light that replaced them, because NightGlow's
+        /// Awake — where the conversion happens — never runs in edit mode.
+        /// PreviewAll does that conversion (idempotently) and SetAll(lit).
+        /// The probe camera needs nothing else: StreetLights fills its lamp
+        /// table from beginCameraRendering for whichever camera draws.
+        /// </summary>
+        static void SetGlows(bool lit) => NightGlow.PreviewAll(lit);
 
         static void ProbeNeighborhood(StringBuilder log)
         {

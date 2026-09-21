@@ -13,6 +13,13 @@ namespace PSXRacing
     /// because turning it off also takes the HUD back off its own camera
     /// (see <see cref="SpeedBlur"/>), so a player whose device dislikes any
     /// part of this has one row that puts the old picture back.
+    ///
+    /// Since 2026-09-21 that row shares the HUD camera with LENS FX
+    /// (<see cref="LensFx"/>): the rain drops and the dirt bokeh are drawn
+    /// into the same framebuffer after the blur, and would refract the lap
+    /// counter just as the blur would smear it. So the HUD comes back onto
+    /// the world camera only when BOTH are off — SPEED BLUR: OFF alone now
+    /// stops the smear and leaves the split to the lens.
     /// </summary>
     public static class SpeedBlurPrefs
     {
@@ -40,6 +47,128 @@ namespace PSXRacing
         public static void Toggle() => Enabled = !Enabled;
 
         public static string Label => Enabled ? "ON" : "OFF";
+    }
+
+    /// <summary>
+    /// THE LENS (2026-09-21): rain drops on the glass while it rains, and
+    /// faint dirt on it that throws bokeh round every bright light at night.
+    /// The owner, on what to take from Need for Speed (2015): "I like the
+    /// particle effects on screen for rain and light."
+    ///
+    /// This is the game half, like <see cref="SpeedBlur"/>'s published look:
+    /// how much rain is on the glass, how dirty it is, how hard the air is
+    /// pushing the drops, and the clock they live by, for ONE camera.
+    /// <see cref="SpeedBlurFeature"/>'s lens pass draws it through PSX/Lens
+    /// (Shaders/PSXLens.shader) on that camera and no other — the mirror, the
+    /// pizza camera and the scene view never get drops.
+    ///
+    /// WHY A PASS AND NOT PSX/Blit. The Blit was the first plan and the
+    /// wrong one: by the time it runs, the race HUD is already inside the
+    /// picture it reads (the ScreenSpaceCamera canvas draws in the world
+    /// camera's transparents, or the stacked HUD camera writes the same
+    /// target), so a drop there would refract the lap counter and the dirt
+    /// would bloom every HUD glyph. The pass runs after the speed blur and
+    /// before the stacked HUD camera, and <see cref="SpeedBlur"/> hands the
+    /// HUD to that camera whenever LENS FX is on, exactly as it does for the
+    /// blur. It runs at framebuffer resolution (240-480 lines) — pixel-art
+    /// drops that PSX/Blit dithers with the rest, at a fifth of the cost of
+    /// doing it per device pixel.
+    ///
+    /// WHO WRITES IT. <see cref="SpeedBlur"/>.Update, every frame of play
+    /// mode, for its own camera: off on foot and from the top-down view (the
+    /// blur's own view rule), off with LENS FX: OFF, off when the HUD could
+    /// not be moved out of the way. Edit-mode tools, where no Update runs,
+    /// call <see cref="PreviewSet"/> with the camera they are about to render
+    /// and clear it with a null camera afterwards. A SpeedBlur that is
+    /// disabled or destroyed clears it if it is the one that set it, so a
+    /// scene change never leaves drops published for a dead camera.
+    ///
+    /// Fields, not properties, by contract: the self-test and the shot tools
+    /// read them directly.
+    /// </summary>
+    public static class LensFx
+    {
+        public const string ShaderName = "PSX/Lens";
+
+        /// <summary>Below this a term is not drawn at all (the shader's
+        /// LENS_MIN), and with both terms below it the pass is not even
+        /// enqueued: a dry day costs nothing.</summary>
+        public const float MinDrawn = 0.001f;
+        /// <summary>The road speed at which the air over the glass is at its
+        /// strongest (<see cref="Flow"/> 1). Drops slide outward at up to 0.6
+        /// of a cell over their life at that speed.</summary>
+        public const float FlowKmh = 160f;
+        /// <summary>At full flow a drop lives out its life this much faster
+        /// (x (1 + FlowLife x flow)): the air tears drops off the glass. Put
+        /// into the CLOCK, not the shader — see <see cref="Time"/>.</summary>
+        public const float FlowLife = 2.5f;
+        /// <summary>Dirt = saturate(DirtFromNight x dark + DirtFromRain x
+        /// rain), dark = the darker half of the night curve (see
+        /// <see cref="DirtFor"/>). Night is when there are lamps to catch;
+        /// rain puts grime and spray on the glass whatever the hour.</summary>
+        public const float DirtFromNight = 0.7f, DirtFromRain = 0.5f;
+        /// <summary>The PSXGlobals.night value below which a DRY lens shows no
+        /// dirt at all: TimeOfDay.NightFor gives sunset 0.3 and dawn 0.5, so
+        /// both are clean; dusk (0.75) gets half, full night all of it.</summary>
+        public const float DirtNightStart = 0.5f;
+
+        /// <summary>The one camera the lens is drawn on; null = none.</summary>
+        public static Camera Camera;
+        /// <summary>Rain on the glass 0..1; dirt 0..1; flow 0..1 (road speed /
+        /// <see cref="FlowKmh"/>).</summary>
+        public static float Rain, Dirt, Flow;
+        /// <summary>
+        /// THE DROP CLOCK, in seconds — Time.time's rate at a standstill,
+        /// faster with <see cref="Flow"/>. Integrated by SpeedBlur rather than
+        /// multiplied in the shader, and that is the whole reason it exists:
+        /// frac(time x rate x (1 + 2.5 flow)) jumps every drop to a random
+        /// point of its life whenever the speedometer moves, because time is
+        /// large — ten minutes in, a change of flow of one part in a thousand
+        /// is half a life. A clock that runs faster never jumps.
+        /// </summary>
+        public static float Time;
+        /// <summary>A camera is named and there is something to draw.</summary>
+        public static bool Active;
+
+        /// <summary>For the preview tools, where no Update runs: publish the
+        /// lens for <paramref name="cam"/> by hand (<paramref name="time"/> is
+        /// the drop clock). A null camera clears it — call that after the
+        /// shot, or every later edit-mode render of that camera keeps the
+        /// drops.</summary>
+        public static void PreviewSet(Camera cam, float rain, float dirt, float flow, float time) =>
+            Publish(cam, rain, dirt, flow, time);
+
+        /// <summary>
+        /// The dirt for an hour's darkness (PSXGlobals.night, 0..1) and the
+        /// rain on the glass.
+        ///
+        /// Only the DARK half of the night curve counts: dark =
+        /// saturate((night - <see cref="DirtNightStart"/>) / (1 - start)),
+        /// so sunset (0.3) and dawn (0.5) get none, dusk (0.75) half and full
+        /// night all of it. Dirt only reads as dirt where the frame is black
+        /// and a few lamps punch through it — that is the NFS image, a grime
+        /// disc blooming round each sodium head. Fed the raw night value it
+        /// ran at 0.21 at SUNSET (the default hour) and 0.35 at dawn, and
+        /// there the frame is anything but black: the lens printed its disc
+        /// pattern over the bright horizon, the fog band and every white car
+        /// in the shot. Rain is untouched: a wet lens is grimy at any hour.
+        /// </summary>
+        public static float DirtFor(float night, float rain)
+        {
+            float dark = Mathf.Clamp01((night - DirtNightStart) / (1f - DirtNightStart));
+            return Mathf.Clamp01(DirtFromNight * dark + DirtFromRain * rain);
+        }
+
+        internal static void Publish(Camera cam, float rain, float dirt, float flow, float time)
+        {
+            bool has = cam != null;
+            Camera = has ? cam : null;
+            Rain = has ? Mathf.Clamp01(rain) : 0f;
+            Dirt = has ? Mathf.Clamp01(dirt) : 0f;
+            Flow = has ? Mathf.Clamp01(flow) : 0f;
+            Time = time;
+            Active = has && (Rain > MinDrawn || Dirt > MinDrawn);
+        }
     }
 
     /// <summary>
@@ -87,6 +216,13 @@ namespace PSXRacing
     /// wires, rather than baked: every edit-mode preview tool renders the
     /// scene as saved, and none of them should have to know about a second
     /// camera to photograph a HUD.
+    ///
+    /// THE LENS RIDES THE SAME SPLIT (2026-09-21). Rain drops and dirt bokeh
+    /// (<see cref="LensFx"/>) are a second pass on this camera, after the
+    /// blur and before the HUD camera, with the same reason to keep the HUD
+    /// out of it; so the split is made while SPEED BLUR or LENS FX is on, and
+    /// this component also publishes the lens every frame — it already knows
+    /// the camera, the car and the view rule the lens needs.
     /// </summary>
     public class SpeedBlur : MonoBehaviour
     {
@@ -199,6 +335,24 @@ namespace PSXRacing
         readonly System.Collections.Generic.List<Renderer> carRenderers =
             new System.Collections.Generic.List<Renderer>();
 
+        /// <summary>How fast the lens's flow follows the speedometer, 1/s.
+        /// Slower than the blur's fade: a respawn drops the speed to nothing
+        /// in one frame, and drops that were streaming outward should settle,
+        /// not stop dead.</summary>
+        const float LensFlowRate = 3f;
+        /// <summary>The scene's PSXGlobals, for how night-time the hour is
+        /// (its <c>night</c> field, written by TimeOfDay.Apply). Looked for
+        /// with the car marking, twice a second until found, never per frame.
+        /// The SCENE's value and not TimeOfDay.Current: the static carries
+        /// over from the last race, the scene's field is what this scene was
+        /// lit with.</summary>
+        PSXGlobals sceneGlobals;
+        float lensFlow;
+        /// <summary>The drop clock (<see cref="LensFx.Time"/>). A double so a
+        /// long session keeps adding frames to it at full precision; it is
+        /// handed to the shader as a float.</summary>
+        double lensClock;
+
         /// <summary>
         /// The look for a road speed in m/s, read off <see cref="Stages"/>.
         /// Static and public so the self-test can pin the table: a blur that
@@ -234,7 +388,20 @@ namespace PSXRacing
         /// also what lets the option be judged from the menu that toggles it.
         /// </summary>
         public static bool Allowed =>
-            SpeedBlurPrefs.Enabled &&
+            SpeedBlurPrefs.Enabled && ViewAllowed;
+
+        /// <summary>Whether the lens may be drawn right now: LENS FX on, and
+        /// the blur's own view rule. Not on foot — the walker has no glass in
+        /// front of them — and not from directly above, which is a map, not a
+        /// lens. The cockpit keeps it: there the drops are on the windscreen,
+        /// seen through the cabin sheet's glass, and hidden by its dash and
+        /// pillars like real ones. The replay keeps it too (a camera out in
+        /// the rain is still wet); only the flow stops, see UpdateLens.</summary>
+        public static bool LensAllowed =>
+            LensFxPrefs.Enabled && ViewAllowed;
+
+        /// <summary>The part of the rule the blur and the lens share.</summary>
+        static bool ViewAllowed =>
             !OnFoot.ForecourtMode.OnFoot &&
             ChaseCamera.Current != ChaseCamera.View.TopDown;
 
@@ -272,12 +439,18 @@ namespace PSXRacing
             // the pass stops.
             shownMps = 0f;
             if (ActiveCamera == cam) Publish(null, LookFor(0f), FrameCentre);
+            // The lens too: a static naming a camera this component no longer
+            // drives would keep drops published for it after the scene moved on.
+            lensFlow = 0f;
+            if (LensFx.Camera == cam) LensFx.Publish(null, 0f, 0f, 0f, 0f);
         }
 
         void Update()
         {
             if (cam == null) return;
-            bool want = SpeedBlurPrefs.Enabled;
+            // The HUD goes onto its own camera while EITHER pass may draw over
+            // the world: the blur would smear it, the lens would refract it.
+            bool want = SpeedBlurPrefs.Enabled || LensFxPrefs.Enabled;
             if (want != split && !(want && splitRefused)) SetSplit(want);
 
             float v = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
@@ -291,9 +464,49 @@ namespace PSXRacing
             if (target <= 0f && shownMps < 0.5f) shownMps = 0f;
             focus = Vector2.Lerp(focus, Heading(), 1f - Mathf.Exp(-FocusRate * dt));
 
-            if (Time.unscaledTime >= nextCarMark) { MarkCar(); nextCarMark = Time.unscaledTime + 0.5f; }
+            if (Time.unscaledTime >= nextCarMark)
+            {
+                MarkCar();
+                if (sceneGlobals == null) sceneGlobals = FindAnyObjectByType<PSXGlobals>();
+                nextCarMark = Time.unscaledTime + 0.5f;
+            }
 
             Publish(cam, LookFor(shownMps), focus);
+            UpdateLens(safe, dt);
+        }
+
+        /// <summary>
+        /// Publish the lens for this camera (<see cref="LensFx"/>).
+        ///
+        /// Rain is WeatherFx's (it eases in over a few seconds after the rain
+        /// starts, and is 0 in snow — snow does not bead on glass). Dirt is the
+        /// scene's darkness plus the rain. Flow is road speed over
+        /// <see cref="LensFx.FlowKmh"/>, eased, and ZERO while the replay has
+        /// the blur <see cref="suspended"/>: the same reasoning as the blur —
+        /// the replay's lens is usually a trackside one, standing still, and
+        /// the drops on it should drip, not stream. The drops themselves keep
+        /// running in the replay; it is still raining.
+        ///
+        /// The clock runs on SCALED time, so the pause menu freezes the drops
+        /// where they are: a paused frame is a photograph of that instant, as
+        /// the blur's is. The switch itself is not faded — LENS FX is toggled
+        /// from that paused menu and the answer should be visible at once.
+        /// </summary>
+        void UpdateLens(bool safe, float dt)
+        {
+            // Same safety as the blur: a HUD that could not be moved out of
+            // the way gets no lens rather than a refracted lap counter.
+            bool on = LensAllowed && safe;
+            float rain = on ? Mathf.Clamp01(WeatherFx.LensRain) : 0f;
+            float night = on && sceneGlobals != null ? Mathf.Clamp01(sceneGlobals.night) : 0f;
+            float flowTarget = on && !suspended && car != null
+                ? Mathf.Clamp01(Mathf.Abs(car.forwardSpeed) * 3.6f / LensFx.FlowKmh)
+                : 0f;
+            lensFlow = Mathf.Lerp(lensFlow, flowTarget, 1f - Mathf.Exp(-LensFlowRate * dt));
+            if (flowTarget <= 0f && lensFlow < 0.002f) lensFlow = 0f;
+            lensClock += Time.deltaTime * (1.0 + LensFx.FlowLife * lensFlow);
+            LensFx.Publish(on ? cam : null, rain, on ? LensFx.DirtFor(night, rain) : 0f,
+                           lensFlow, (float)lensClock);
         }
 
         /// <summary>

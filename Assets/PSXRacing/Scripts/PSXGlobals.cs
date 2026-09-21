@@ -4,7 +4,9 @@ namespace PSXRacing
 {
     /// <summary>
     /// Drives the global shader uniforms for the PSX/Lit shader:
-    /// sun direction/color, ambient, fog range, and the vertex-snap toggle.
+    /// sun direction/color, ambient, fog range, and the vertex-snap toggle -
+    /// and, since the night pass, wetness / night / grade-night / mood, plus
+    /// the hook that pushes the street-lamp table per camera.
     /// </summary>
     [ExecuteAlways]
     public class PSXGlobals : MonoBehaviour
@@ -95,7 +97,63 @@ namespace PSXRacing
         /// </summary>
         public bool vertexSnap;
 
-        void OnEnable() => Apply();
+        // ------------------------------------------------------------------
+        //  THE NIGHT LOOK (2026-09-21, the Need for Speed 2015 pass). Four
+        //  more globals, all written by TimeOfDay.Apply from the hour and the
+        //  weather, and all ZERO by default (a scene saved before they
+        //  existed deserialises them as zero too) - so a scene that never
+        //  applies an hour pushes zeros, and every shader that reads them
+        //  draws exactly what it drew before they existed. Never Shader.SetGlobal these anywhere else: this
+        //  component rewrites every global it owns every frame, so a value
+        //  written around it lasts one frame. Set the FIELD.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// HOW WET THE WORLD IS, 0..1 (_PSXWetness). Written by
+        /// TimeOfDay.Apply from TimeOfDay.WetnessFor(hour, weather): rain 1,
+        /// fog and snow partway, and clear nights DAMP - the owner's reference
+        /// is a city that is always wet after dark. PSX/Lit multiplies it by
+        /// each material's own _Wet mask (a road is wet, a wall is not), and
+        /// PSX/Halo grows the lamp halos with it (mist).
+        /// </summary>
+        public float wetness;
+        /// <summary>
+        /// HOW NIGHT-TIME IT IS, 0..1 (_PSXNight): night 1, dusk 0.75, dawn
+        /// 0.5, sunset 0.3, day 0. Written by TimeOfDay.Apply from
+        /// TimeOfDay.NightFor(hour). Lights the city's windows (PSX/Lit) and
+        /// dirties the lens (LensFx).
+        /// </summary>
+        public float night;
+        /// <summary>
+        /// How far the FILM GRADE takes its night form, 0..1 (_PSXGradeNight):
+        /// the matte lift fading out, a heavier vignette, cooler saturation.
+        /// Written by TimeOfDay.Apply from TimeOfDay.GradeNightFor(hour);
+        /// read by PSX/Blit only. 0 is the daytime grade the owner signed off,
+        /// bit for bit.
+        /// </summary>
+        public float gradeNight;
+        /// <summary>
+        /// THE HOUR'S MOOD in the shadows (_PSXMood): rgb = the hue the grade
+        /// split-tones the darks toward (any luminance - the grade takes the
+        /// hue only), a = how much, 0..1. Written by TimeOfDay.Apply from
+        /// TimeOfDay.MoodFor(hour, urban): sodium murk in a city at night,
+        /// blue on a mountain, violet at dawn. Pushed with SetGlobalVector,
+        /// NOT SetGlobalColor: it is a hue to be used as it is, and the sRGB
+        /// conversion SetGlobalColor applies would bend it. Alpha zero (the
+        /// default) is no split-tone at all.
+        /// </summary>
+        public Color mood = new Color(0f, 0f, 0f, 0f);
+
+        void OnEnable()
+        {
+            // The street-lamp table is pushed per camera, from the render
+            // pipeline's own callback (StreetLights says why). This is the
+            // one component every drivable scene has, and it runs in edit
+            // mode too - so the scene view and the tools' render requests get
+            // lamps chosen for their own eye with nobody asking.
+            StreetLights.EnsureHook();
+            Apply();
+        }
         void Update() => Apply();
 
         public void Apply()
@@ -111,6 +169,14 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXFogFar", fogFar);
             Shader.SetGlobalFloat("_PSXFogCurve", fogCurve);
             Shader.SetGlobalFloat("_PSXSnap", vertexSnap ? 1f : 0f);
+            Shader.SetGlobalFloat("_PSXWetness", Mathf.Clamp01(wetness));
+            Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
+            Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
+            Shader.SetGlobalVector("_PSXMood", new Vector4(mood.r, mood.g, mood.b, Mathf.Clamp01(mood.a)));
+            // NOT StreetLights.Push() here: this runs in Update, before the
+            // cars and the chase camera move in LateUpdate, and a table chosen
+            // here would light the road for where the camera was last frame.
+            // The push is per camera, at render time (see OnEnable).
         }
     }
 }

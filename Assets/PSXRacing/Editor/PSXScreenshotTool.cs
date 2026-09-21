@@ -1010,12 +1010,29 @@ namespace PSXRacing.EditorTools
             cam.nearClipPlane = keepNear;
         }
 
-        internal static void SetNightGlow(bool lit)
-        {
-            foreach (var ng in Object.FindObjectsByType<NightGlow>(FindObjectsSortMode.None))
-                foreach (var r in ng.GetComponentsInChildren<Renderer>(true))
-                    r.enabled = lit;
-        }
+        /// <summary>
+        /// The street lamps for an edit-mode frame, lit the way the GAME
+        /// lights them (2026-09-21, the NFS night pass).
+        ///
+        /// This used to switch on every renderer under every NightGlow, which
+        /// was the whole lamp: a glow quad at the head and a 16 m additive
+        /// "Pool" disc on the road. Both are retired now — the pool is a real
+        /// per-pixel light in the StreetLights table and the head is a
+        /// camera-facing halo — and NightGlow makes that conversion in its
+        /// Awake, which never runs outside play mode (it is not
+        /// ExecuteAlways). Enabling the renderers here therefore brought the
+        /// RETIRED look straight back into every night reference shot, with
+        /// no pool light and no halo: psx_hour_6_night, FogShots, and the
+        /// night-look instruments themselves would all have measured the
+        /// picture the pass exists to replace.
+        ///
+        /// PreviewAll runs the same conversion by hand for every NightGlow in
+        /// the loaded scenes — idempotent, because CaptureHours calls this
+        /// once per hour and a second registration of the same heads would
+        /// stack two lamps on every post — and then SetAll(lit), which is
+        /// also what switches the STREET kind of the lamp table on.
+        /// </summary>
+        internal static void SetNightGlow(bool lit) => NightGlow.PreviewAll(lit);
 
         // ------------------------------------------------------------------
         internal static bool Open(TrackCatalog.TrackDef def, out Camera cam, out GameObject player)
@@ -1127,7 +1144,16 @@ namespace PSXRacing.EditorTools
         /// none.</summary>
         static int ShotScale => ShotHeight >= 400 ? 1 : 2;
 
-        internal static void Shot(Camera cam, string name, Vector3 pos, Quaternion rot)
+        internal static void Shot(Camera cam, string name, Vector3 pos, Quaternion rot) =>
+            ShotAs(cam, "psx_" + name, pos, rot);
+
+        /// <summary>
+        /// <see cref="Shot"/>, written to Screenshots\&lt;fileName&gt;.png with no
+        /// "psx_" in front: the night-look instruments name their frames
+        /// nl_&lt;venue&gt;_&lt;spot&gt;_&lt;hour&gt; so one glob hands exactly that set to
+        /// the stats script, and nothing else in the folder matches it.
+        /// </summary>
+        internal static void ShotAs(Camera cam, string fileName, Vector3 pos, Quaternion rot)
         {
             var oldPos = cam.transform.position;
             var oldRot = cam.transform.rotation;
@@ -1139,10 +1165,31 @@ namespace PSXRacing.EditorTools
             };
             rt.Create();
             var request = new RenderPipeline.StandardRequest();
+            bool lensSet = false;
             if (RenderPipeline.SupportsRenderRequest(cam, request))
             {
+                // THE LAMPS FOR THIS EYE. The street-lamp table holds the
+                // twelve lamps that matter to ONE camera, and every caller of
+                // this has just moved the camera — the table was last filled
+                // for wherever it stood before, which on a sweep is the
+                // previous shot, a hundred metres away. StreetLights also
+                // fills it from beginCameraRendering for whichever camera is
+                // drawing, which covers this render request too; this is the
+                // belt to those braces, and it is also the only push a tool
+                // gets on an editor whose hook has not been installed yet.
+                StreetLights.Push(pos, rot * Vector3.forward);
+                // THE LENS, when the environment asks for it. The lens is a
+                // URP pass on the base camera (SpeedBlurFeature's LensPass),
+                // not a Blit property, so a shot that wants droplets has to
+                // say so to LensFx with THIS camera before the render. A
+                // caller that already did (NightLookShots) is left alone;
+                // PSX_LENS_RAIN / PSX_LENS_DIRT / PSX_LENS_TIME let any other
+                // sweep (paint-shots, fog-shots) be taken through a wet lens
+                // without a line of code.
+                lensSet = LensFromEnvironment(cam);
                 request.destination = rt;
                 RenderPipeline.SubmitRenderRequest(cam, request);
+                if (lensSet) LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);
 
                 // THROUGH THE DITHER. The game shows this buffer through
                 // PSX/Blit (5-bit quantize, Bayer dither); a shot that skips
@@ -1158,7 +1205,7 @@ namespace PSXRacing.EditorTools
                 if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
 
                 var big = PointDouble(tex);
-                File.WriteAllBytes(Path.Combine(OutDir, "psx_" + name + ".png"), big.EncodeToPNG());
+                File.WriteAllBytes(Path.Combine(OutDir, fileName + ".png"), big.EncodeToPNG());
                 if (big != tex) Object.DestroyImmediate(big);
                 Object.DestroyImmediate(tex);
             }
@@ -1167,6 +1214,35 @@ namespace PSXRacing.EditorTools
             rt.Release();
             Object.DestroyImmediate(rt);
             cam.transform.SetPositionAndRotation(oldPos, oldRot);
+        }
+
+        /// <summary>
+        /// Put the lens preview on <paramref name="cam"/> from the environment
+        /// (PSX_LENS_RAIN and PSX_LENS_DIRT, 0..1; PSX_LENS_TIME, seconds, so
+        /// the droplets are the same droplets from one run to the next), and
+        /// say whether it did — the caller clears it after the render, so a
+        /// lens asked for one sweep never leaks into the next tool's frames.
+        ///
+        /// Nothing is touched when neither amount is set, or when a caller has
+        /// already pointed a lens preview at this very camera: that caller
+        /// owns the state and clears it itself.
+        /// </summary>
+        static bool LensFromEnvironment(Camera cam)
+        {
+            float rain = EnvFloat("PSX_LENS_RAIN"), dirt = EnvFloat("PSX_LENS_DIRT");
+            if (rain <= 0f && dirt <= 0f) return false;
+            if (LensFx.Active && LensFx.Camera == cam) return false;
+            LensFx.PreviewSet(cam, Mathf.Clamp01(rain), Mathf.Clamp01(dirt), 0f, EnvFloat("PSX_LENS_TIME"));
+            return true;
+        }
+
+        static float EnvFloat(string name)
+        {
+            string s = System.Environment.GetEnvironmentVariable(name);
+            return !string.IsNullOrWhiteSpace(s) &&
+                   float.TryParse(s.Trim(), System.Globalization.NumberStyles.Float,
+                                  System.Globalization.CultureInfo.InvariantCulture, out float v)
+                ? v : 0f;
         }
 
         /// <summary>

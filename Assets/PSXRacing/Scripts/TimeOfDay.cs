@@ -82,6 +82,31 @@ namespace PSXRacing
         public const int Dawn = 0, Morning = 1, Noon = 2, Afternoon = 3,
                          Sunset = 4, Dusk = 5, Night = 6;
 
+        // THE NIGHT GOT DARK (2026-09-21, the NFS pass). The owner, on Need
+        // for Speed (2015): "I like how dark the night is, how much the skybox
+        // effects the color and mood of the world and cars, how street lights
+        // bathe the road." That was MEASURED, not eyeballed, off NFS night
+        // frames: the display-luma floor (darkest 0.1%) sits at 0.008-0.015,
+        // the median at 0.09-0.17, 27-54% of the frame is under 0.10 and
+        // 60-94% under 0.20, highlights still reach 0.95+, and the mean
+        // saturation is 0.50-0.58 — dark, but full of colour. The blue-hour
+        // frame had mids near (.20,.22,.31) under a sky mid of (.25,.39,.59).
+        // Ours, measured the same way on the old NIGHT: floor 0.108, median
+        // 0.226, NOTHING under 0.10, saturation 0.13 — a milky grey. Two
+        // things made that grey: the film grade's matte lift, which forbade
+        // anything darker than 0.11 (PSX/Blit now fades it out with
+        // _PSXGradeNight), and THIS table, whose night ambient and fog were
+        // bright enough to light an empty road like an overcast afternoon.
+        //
+        // So NIGHT and DUSK were re-authored darker and bluer below, and
+        // nothing else was: DAWN to SUNSET are exactly what the owner signed
+        // off. The street lamps (StreetLights) and the headlights are what
+        // light a night road now — which is the point: in the NFS frames the
+        // road is bright where a lamp stands over it and near-black between.
+        // What the hour ALSO means (how wet the road is, how night-graded the
+        // picture is, the shadow tint, the city's sodium skyglow) is in the
+        // functions under Apply, keyed off the same index, so the table stays
+        // one table.
         public static readonly Preset[] All =
         {
             new Preset
@@ -167,31 +192,71 @@ namespace PSXRacing
                 // in flour". Two and a half degrees up keeps it a single
                 // light source (every hour has exactly one: a sun or a moon)
                 // and puts a sliver of it on the roof.
+                //
+                // 2026-09-21: BLUE hour, now, where it was a mauve one. The
+                // NFS dusk frame is blue through and through — mids near
+                // (.20,.22,.31), the sky mid (.25,.39,.59), the road
+                // reflecting that sky — and the old purple-pink afterglow
+                // read as a sunset that had not finished. Ambient, sun, fog
+                // and horizon all moved to blue TOGETHER (the fog colour and
+                // the horizon behind it are one pair: move one alone and the
+                // terrain ends at a line against the sky), the sun came down
+                // to 0.50 so the lamps and headlights start to matter, and
+                // the photograph is pulled harder toward the stops (tint
+                // 0.55).
+                //
+                // THE PHOTOGRAPH CHANGED TOO. sky_dusk.png was the pack's
+                // Panorama_Sky_23 - pink cotton-candy cloud, mean rgb
+                // (.63,.46,.52) - and no tint can make a pink sky blue: pink
+                // times a blue gradient is purple, which is what the first
+                // shots of this pass showed. It is now Panorama_Sky_18 (same
+                // CC0 pack, same 1024x512 file, same GUID): steel-blue cloud
+                // (.35,.37,.42) over a low warm glow, its sun baked at azimuth
+                // 268 and 8 degrees up - the pack's usual 270, so the rotation
+                // that turns every sky to face its light needs nothing new.
+                // The old one is Sky_23 if the pink is ever wanted back.
                 name = "DUSK", clock = "20:25",
                 sunEuler = new Vector3(2.5f, 116f, 0f),
-                sunColor = new Color(0.72f, 0.58f, 0.80f), sunIntensity = 0.62f,
-                ambient = new Color(0.26f, 0.26f, 0.38f),
-                fogColor = new Color(0.30f, 0.26f, 0.40f), fogNear = 58f, fogFar = 215f,
-                skyTop = new Color(0.09f, 0.09f, 0.24f),
-                skyHorizon = new Color(0.52f, 0.32f, 0.42f),
+                sunColor = new Color(0.60f, 0.62f, 0.92f), sunIntensity = 0.50f,
+                ambient = new Color(0.20f, 0.24f, 0.38f),
+                // Sky and fog raised together (horizon and fog are one pair)
+                // after the second round of shots: the frame's sky measured
+                // (.21,.22,.29) against the NFS blue hour's (.25,.39,.59) while
+                // the GROUND was already a touch brighter than NFS's - so only
+                // the sky, the horizon and the fog that meets it went up.
+                fogColor = new Color(0.22f, 0.29f, 0.48f), fogNear = 58f, fogFar = 215f,
+                skyTop = new Color(0.09f, 0.15f, 0.40f),
+                skyHorizon = new Color(0.38f, 0.46f, 0.70f),
                 skyBottom = new Color(0.12f, 0.11f, 0.16f),
                 skySharpness = 4f, lightsOn = true,
                 skyTex = "sky_dusk", skyTexAzimuth = 270f,
-                skyTint = 0.45f, skyExposure = 0.95f, skyStars = 0.45f,
+                // 0.72 / 1.10: the steel-blue panorama at 0.55 / 0.95 measured
+                // (.23,.24,.30) in the sky against the NFS frame's (.25,.39,.59)
+                // - right hue family, too grey and too dim.
+                skyTint = 0.72f, skyExposure = 1.25f, skyStars = 0.45f,
             },
             new Preset
             {
+                // 2026-09-21: DARK. Ambient roughly halved (it was bright
+                // enough to read an unlit road by), the moon at 0.22 — still
+                // ONE light with a side that faces it, just a dim one — and
+                // fog and horizon taken down together, in step, to a deep
+                // blue that the city's sodium skyglow (Apply) then warms. The
+                // panorama at 0.55 exposure: the stars stay (1.0), the
+                // photograph's cloud stops glowing like a lit ceiling. Most
+                // of what a player sees at this hour is now what a LAMP lights,
+                // which is the NFS picture the owner pointed at.
                 name = "NIGHT", clock = "23:15",
                 sunEuler = new Vector3(16f, 148f, 0f),
-                sunColor = new Color(0.42f, 0.48f, 0.78f), sunIntensity = 0.38f,
-                ambient = new Color(0.16f, 0.16f, 0.28f),
-                fogColor = new Color(0.10f, 0.10f, 0.20f), fogNear = 45f, fogFar = 190f,
-                skyTop = new Color(0.03f, 0.03f, 0.10f),
-                skyHorizon = new Color(0.13f, 0.13f, 0.26f),
+                sunColor = new Color(0.42f, 0.48f, 0.78f), sunIntensity = 0.22f,
+                ambient = new Color(0.075f, 0.080f, 0.125f),
+                fogColor = new Color(0.045f, 0.050f, 0.090f), fogNear = 45f, fogFar = 190f,
+                skyTop = new Color(0.015f, 0.018f, 0.05f),
+                skyHorizon = new Color(0.07f, 0.075f, 0.14f),
                 skyBottom = new Color(0.04f, 0.04f, 0.08f),
                 skySharpness = 3f, lightsOn = true,
                 skyTex = "sky_night", skyTexAzimuth = 270f,
-                skyTint = 0.55f, skyExposure = 1.00f, skyStars = 1.00f,
+                skyTint = 0.55f, skyExposure = 0.55f, skyStars = 1.00f,
             },
         };
 
@@ -261,7 +326,18 @@ namespace PSXRacing
             var weather = Seasons.CurrentWeather;
             p.skyExposure *= Seasons.SkyMul(weather);
             p.ambient *= Seasons.AmbientMul(weather);
+            // And the SUN: a rainy noon used to keep the full hard sun of a
+            // clear one — crisp shadow sides under a sky that had just been
+            // darkened to 60% — which is the one tell that a weather layer
+            // is a filter over a sunny scene. See SunMul.
+            p.sunIntensity *= SunMul(weather);
             bool lights = p.lightsOn || Seasons.LightsOn(weather);
+
+            // THE CITY LIGHTS ITS OWN SKY. After the weather, so an overcast
+            // city night is a murk the cloud holds down rather than a clear
+            // sky the weather then greys. See ApplySkyglow.
+            float urban = UrbanGlow();
+            ApplySkyglow(ref p, SkyglowFor(index) * urban);
 
             if (sun != null)
             {
@@ -285,6 +361,16 @@ namespace PSXRacing
                 globals.fogFar = p.fogFar * s;
                 globals.fogCurve = FogCurve;
                 globals.skyAmbient = SkyAmbientFor(p);
+                // What the hour means beyond its light (2026-09-21, the NFS
+                // pass). FIELDS, not Shader.SetGlobal: PSXGlobals re-pushes
+                // every one of its fields every frame, edit mode included, so
+                // a global set here directly would be overwritten on the next
+                // tick — and a scene that never applies an hour keeps the
+                // fields' zero defaults, which is today's picture exactly.
+                globals.wetness = WetnessFor(index, weather);
+                globals.night = NightFor(index);
+                globals.gradeNight = GradeNightFor(index);
+                globals.mood = MoodFor(index, urban);
             }
 
             ApplySky(p, sun);
@@ -299,17 +385,263 @@ namespace PSXRacing
         /// of the light from above, not how much of it there is, so no scene
         /// gets brighter or darker than it was tuned to be. PSXGlobals hands
         /// it to the shaders as _PSXSkyAmbient.
+        ///
+        /// The pull was 0.55 and is 0.75 since 2026-09-21: "how much the
+        /// skybox effects the color and mood of the world and cars" was the
+        /// owner's second NFS point, and in those frames a roof under a blue
+        /// dusk IS blue and a car under a sodium city sky IS orange. Still at
+        /// the ambient's own luminance, so no hour got brighter for it.
         /// </summary>
         public static Color SkyAmbientFor(Preset p)
         {
             Color sky = p.skyTop * 0.55f + p.skyHorizon * 0.45f;
-            float lumA = p.ambient.r * 0.30f + p.ambient.g * 0.59f + p.ambient.b * 0.11f;
-            float lumS = sky.r * 0.30f + sky.g * 0.59f + sky.b * 0.11f;
+            float lumA = Lum(p.ambient);
+            float lumS = Lum(sky);
             Color skyAtAmbient = lumS > 1e-3f ? sky * (lumA / lumS) : p.ambient;
-            var c = Color.Lerp(p.ambient, skyAtAmbient, 0.55f);
+            var c = Color.Lerp(p.ambient, skyAtAmbient, SkyAmbientPull);
             c.a = 1f;
             return c;
         }
+
+        /// <summary>How far an upward face's ambient leans to the sky's hue
+        /// (0 = plain ambient, 1 = the sky's colour at the ambient's
+        /// brightness). See <see cref="SkyAmbientFor"/>.</summary>
+        public const float SkyAmbientPull = 0.75f;
+
+        /// <summary>The luminance weights every colour sum in this file uses.
+        /// (The same Rec.601 weights, rounded, that SkyAmbientFor always
+        /// had; one helper so the skyglow and the sky ambient cannot drift
+        /// onto two different ideas of "the same brightness".)</summary>
+        static float Lum(Color c) => c.r * 0.30f + c.g * 0.59f + c.b * 0.11f;
+
+        // ================================================================
+        //  What the hour means besides its light (2026-09-21, the NFS pass)
+        // ================================================================
+        //
+        // Everything below is keyed off the same hour index as the table, and
+        // is written into the scene's PSXGlobals by Apply. Each one is a
+        // function rather than a Preset field for two reasons: several of
+        // them fold in the WEATHER or the VENUE, which a per-hour field cannot
+        // know, and a new Preset field would default to zero in every one of
+        // the seven entries that did not spell it out — a silent black hour
+        // the first time somebody added one.
+
+        /// <summary>
+        /// How wet the roads are, 0..1 — PSXGlobals.wetness, which the road
+        /// shaders multiply by each material's own <c>_Wet</c> mask (a road
+        /// is 1, a verge is 0) to darken the asphalt and reflect the sky, the
+        /// lamps and the headlights in it.
+        ///
+        /// Rain soaks everything. Fog leaves a film and snow a slush, both
+        /// less. And CLEAR NIGHTS ARE DAMP: 0.40 at night, 0.30 at dusk and
+        /// dawn, a breath of it at sunset, nothing in daylight. That last one
+        /// is an art licence, not meteorology — NFS (2015) is wet every night
+        /// whatever the sky is doing, and a streak of sodium light down a
+        /// damp road is most of what the owner meant by "street lights bathe
+        /// the road". It is visual only: grip stays the weather's alone
+        /// (Seasons.GripMult), so a damp clear night drives like a dry one.
+        ///
+        /// Weather never makes a road DRIER than the hour already has it: a
+        /// fog or snow night takes whichever of the two is wetter.
+        /// </summary>
+        public static float WetnessFor(int hour, Weather w)
+        {
+            float damp = DampFor(hour);
+            switch (w)
+            {
+                case Weather.Rain: return 1f;
+                case Weather.Fog:  return Mathf.Max(0.55f, damp);
+                case Weather.Snow: return Mathf.Max(0.35f, damp);
+                default: return damp;
+            }
+        }
+
+        /// <summary>The clear-sky dampness of an hour (see WetnessFor).</summary>
+        static float DampFor(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Night:  return 0.40f;
+                case Dusk:   return 0.30f;
+                case Dawn:   return 0.30f;
+                case Sunset: return 0.12f;
+                default:     return 0f;
+            }
+        }
+
+        /// <summary>
+        /// How night-time an hour is, 0..1 — PSXGlobals.night. The lit
+        /// windows on the city's facades and the lens dirt read it: how many
+        /// windows are lit, and - past its midpoint only, so sunset and dawn
+        /// keep a clean lens (LensFx.DirtFor) - how much dust a lamp shows up
+        /// on the glass. Not
+        /// the same thing as <see cref="Preset.lightsOn"/>, which is a yes/no
+        /// about headlights and is already yes at sunset and dawn.
+        /// </summary>
+        public static float NightFor(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Night:  return 1f;
+                case Dusk:   return 0.75f;
+                case Dawn:   return 0.5f;
+                case Sunset: return 0.3f;
+                default:     return 0f;
+            }
+        }
+
+        /// <summary>
+        /// How much of the NIGHT grade PSX/Blit uses, 0..1 —
+        /// PSXGlobals.gradeNight. At 1 the film grade's matte lift is mostly
+        /// gone (a lift is lens veiling glare, and veiling glare scales with
+        /// how much light the scene has), its vignette is deeper and its
+        /// blues keep their colour. At 0 the grade is BIT-IDENTICAL to the one
+        /// the owner signed off, which is every daylight hour. Kept a separate
+        /// curve from <see cref="NightFor"/> so the grade can be tuned without
+        /// moving which windows light up.
+        /// </summary>
+        public static float GradeNightFor(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Night:  return 1f;
+                case Dusk:   return 0.7f;
+                case Dawn:   return 0.5f;
+                case Sunset: return 0.25f;
+                default:     return 0f;
+            }
+        }
+
+        /// <summary>
+        /// How much of a city the loaded scene is, for the skyglow and the
+        /// night mood: 1 in the streamed Charlotte (a CityWorld is there), 0.6
+        /// on a venue with street lamps (a NightGlow is there — the circuits'
+        /// lit streets, the town's meet lot), 0 out on a mountain stage where
+        /// the only light is your own.
+        ///
+        /// FindAnyObjectByType, not NightGlow's own static list: it works in
+        /// edit mode, where the screenshot tools apply hours to scenes whose
+        /// components have never run Awake. Active objects only — a lamp
+        /// group somebody switched off is not lighting any sky. Called once
+        /// per Apply (once per scene load), so the scene walk is affordable.
+        /// </summary>
+        public static float UrbanGlow()
+        {
+            if (Object.FindAnyObjectByType<City.CityWorld>() != null) return 1f;
+            if (Object.FindAnyObjectByType<NightGlow>() != null) return 0.6f;
+            return 0f;
+        }
+
+        /// <summary>
+        /// The shadow tint of an hour — PSXGlobals.mood, which PSX/Blit's
+        /// grade split-tones into the darks (rgb = the hue at any
+        /// brightness, a = how much). NFS darks are never neutral: a city
+        /// night's murk is sodium-brown, a mountain night's is blue-grey, blue
+        /// hour is blue all the way down. Venue-aware at night only — by dusk
+        /// the sky is still brighter than any street lamp.
+        /// </summary>
+        public static Color MoodFor(int hour, float urban)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Night:
+                {
+                    var c = Color.Lerp(RuralNightMood, UrbanNightMood, Mathf.Clamp01(urban));
+                    // A city's darks are its sodium murk, and harder than a
+                    // mountain's blue: the NFS city frames' darkest 5% measure
+                    // SATURATED brown-orange (.037,.026,.002), the mountain
+                    // road's a neutral violet. First shots at a flat 0.22 had
+                    // the city darks at a grey (.03,.02,.025).
+                    c.a = 0.22f + 0.12f * Mathf.Clamp01(urban);
+                    return c;
+                }
+                // Blue hour: the one hour whose shadows are its sky's colour.
+                case Dusk:   return new Color(0.60f, 0.70f, 1.00f, 0.32f);
+                case Sunset: return new Color(1.00f, 0.70f, 0.75f, 0.10f);
+                case Dawn:   return new Color(0.85f, 0.75f, 1.00f, 0.10f);
+                default:     return new Color(0f, 0f, 0f, 0f);
+            }
+        }
+
+        static readonly Color RuralNightMood = new Color(0.55f, 0.62f, 1.00f, 1f);
+        static readonly Color UrbanNightMood = new Color(1.00f, 0.72f, 0.42f, 1f);
+
+        /// <summary>
+        /// What weather leaves of the SUN: rain 0.50, fog 0.70, snow 0.80.
+        /// Kept here rather than in Seasons beside SkyMul and AmbientMul
+        /// because it is a statement about the directional light, which only
+        /// this file touches. Overcast is the SHADOW going soft as much as
+        /// the light going dim: halve the key and the ambient (barely
+        /// dimmed) becomes most of the light, which is what a wet afternoon
+        /// looks like.
+        /// </summary>
+        public static float SunMul(Weather w)
+        {
+            switch (w)
+            {
+                case Weather.Rain: return 0.50f;
+                case Weather.Fog:  return 0.70f;
+                case Weather.Snow: return 0.80f;
+                default: return 1f;
+            }
+        }
+
+        /// <summary>How much of a city's sodium skyglow an hour shows before
+        /// the venue scales it: all of it at night, half at dusk (the sky is
+        /// still lit), a little at dawn, none while the sun is up.</summary>
+        static float SkyglowFor(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Night: return 1f;
+                case Dusk:  return 0.5f;
+                case Dawn:  return 0.3f;
+                default:    return 0f;
+            }
+        }
+
+        /// <summary>The colour a sodium-lit city throws up into its own haze:
+        /// sRGB, authored like every colour in the table (PSXGlobals and the
+        /// sky material convert to linear on the way in).</summary>
+        static readonly Color SodiumMurk = new Color(0.20f, 0.12f, 0.055f, 1f);
+
+        /// <summary>
+        /// SKYGLOW. A city at night lights the underside of its own haze:
+        /// the fog a street fades into is not the deep blue of a mountain
+        /// night but a brown-orange murk, and the sky over the rooftops
+        /// glows the same colour down to the horizon. NFS's city frames are
+        /// that murk from edge to edge (their darks measure ~(.037,.026,.002),
+        /// sodium-warm, where the mountain frame's are neutral).
+        ///
+        /// THE FOG COLOUR AND THE SKY HORIZON MOVE TOGETHER, always. They are
+        /// one pair: the terrain fades into the fog colour and the sky behind
+        /// it is the horizon colour, and moving one without the other draws a
+        /// line where the world ends against a brighter or darker sky (the
+        /// fog-distance note in this project's history). The top of the sky
+        /// takes less of it — the glow is a dome over the horizon — and the
+        /// ambient leans toward the murk's HUE at its own brightness, so the
+        /// city gets warmer and not brighter. <paramref name="g"/> 0 is a
+        /// no-op, which is every daylight hour and every stage.
+        /// </summary>
+        static void ApplySkyglow(ref Preset p, float g)
+        {
+            if (g <= 0f) return;
+            p.fogColor = Opaque(Color.Lerp(p.fogColor, SodiumMurk, 0.65f * g));
+            p.skyHorizon = Opaque(Color.Lerp(p.skyHorizon, SodiumMurk * 1.35f, 0.70f * g));
+            p.skyTop = Opaque(Color.Lerp(p.skyTop, SodiumMurk * 0.40f, 0.30f * g));
+            float lumA = Lum(p.ambient);
+            Color murkAtAmbient = SodiumMurk * (lumA / Lum(SodiumMurk));
+            // The ambient keeps its own alpha (the weather multiply above
+            // already scaled it along with the colour, as it always has).
+            float a = p.ambient.a;
+            p.ambient = Color.Lerp(p.ambient, murkAtAmbient, 0.5f * g);
+            p.ambient.a = a;
+        }
+
+        /// <summary>A Color scaled or lerped toward a scaled one carries the
+        /// scale into alpha too; the sky material and the fog are handed
+        /// opaque colours, as the table authors them.</summary>
+        static Color Opaque(Color c) { c.a = 1f; return c; }
 
         static Material skyInstance;
         static readonly System.Collections.Generic.Dictionary<string, Texture2D> skyTextures =

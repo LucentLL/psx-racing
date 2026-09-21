@@ -200,8 +200,10 @@ namespace PSXRacing.EditorTools
             /// the edge of the frame, and a 1.2 m post every 12 m at 50 m/s is
             /// four of them a second per side, inside the widened FOV's
             /// periphery where the eye reads motion. Lamps are NOT densified
-            /// for this — each one carries a 16 m additive night-glow quad,
-            /// and doubling them doubles that overdraw after dark; a post is
+            /// for this — each one used to carry a 16 m additive night-glow
+            /// quad (retired 2026-09-21), and each is now a candidate for one
+            /// of StreetLights' twelve per-pixel slots, so doubling them would
+            /// only halve how far down the road the lit ones reach; a post is
             /// twenty unlit vertices in one combined mesh per side.
             /// </summary>
             public int postEvery = 3;
@@ -1296,12 +1298,124 @@ namespace PSXRacing.EditorTools
             return list.ToArray();
         }
 
+        // ---- wet masks: how much of the weather each surface takes ----
+        //
+        // The 2026-09-21 night pass (the owner's NFS 2015 reference: "how
+        // street lights bathe the road") made roads WET. PSX/Lit multiplies
+        // a per-material _Wet by the global _PSXWetness that TimeOfDay writes
+        // (WetnessFor: rain soaks everything, fog and snow less, and a CLEAR
+        // night is damp — NFS's always-wet night, taken as an art licence)
+        // and by how squarely the face looks up, so a deck's soffit, a kerb's
+        // riser and the side of a wall stay dry whatever their mask says.
+        //
+        // The mask is the one place a SURFACE says how it takes water: dense
+        // asphalt darkens and mirrors the lamps (1), paint, a kerb and a
+        // drive's finished slab shed a little (.8-.9), porous pavement and
+        // rough-cast concrete soak it and go dull rather than glossy (.6-.7),
+        // a yard of hardcore mostly just darkens (.35). Everything not named
+        // here — grass, walls, facades, posts, and every scenery_* material an
+        // FBX import writes — is 0, the shader's default, which is also what
+        // keeps an INDOOR floor that happens to share a pack texture from
+        // growing puddles (the pizzeria, the garage and every house interior
+        // are scenery_*).
+        //
+        // AN INDOOR SURFACE THIS BUILDER AUTHORS GETS AN ASSET OF ITS OWN, even
+        // where it wears the same photograph and tint as the one outside the
+        // door (WetUnderRoof). The wetness is one global over the whole scene
+        // and the shader's only other gate is which way a face looks; nothing
+        // in it can see a roof. So one material cannot be both the apron in
+        // the rain and the floor behind the shutters — the first cut tried,
+        // and had to choose between a dry apron under the lamps and puddles
+        // on a workshop floor (R14 chose the dry apron, and the dealer's bay
+        // paint then shone on matte concrete; the workshop's bench, built
+        // from the street kerb, grew puddles under the roof either way).
+        //
+        // Per material rather than per scene because the assets are SHARED:
+        // CityRoad_* serve four city scenes, Town* the town AND the
+        // neighbourhood, StartLine every venue. How wet it is tonight is the
+        // scene's (a global); what the thing is made of is the material's.
+        //
+        // Grip does not read any of this: dampness is a look. Grip stays
+        // weather-only, exactly as it was.
+        /// <summary>Tarmac, and everything lying ON the tarmac the car drives
+        /// over: <c>&lt;id&gt;_Road</c>, <c>_RoadDeck</c>, <c>_Deck</c> (the
+        /// shader keeps its soffit and fascias dry), <c>_Joint</c>,
+        /// <c>_Forecourt</c>, <c>StartLine</c>, every <c>CityRoad_*</c> slot,
+        /// <c>TownRoad</c>.</summary>
+        const float WetAsphalt = 1f;
+        /// <summary><c>&lt;id&gt;_Kerb</c> in all three styles (painted racing
+        /// kerb, street kerb, a stage's gravel/shell/slab verge).</summary>
+        const float WetKerb = 0.8f;
+        /// <summary><c>CityPavement</c>: the paved ground cells uptown and
+        /// around every non-house footprint.</summary>
+        const float WetCityPavement = 0.7f;
+        /// <summary><c>CityConcrete</c>: kerbs, Jersey barriers, retaining
+        /// walls, deck boxes and piers share it — only their TOPS take the
+        /// mask, the up-facing gate in the shader sees to that.</summary>
+        const float WetCityConcrete = 0.6f;
+        /// <summary><c>TownLine</c>: the centre line and the meet lot's stall
+        /// paint (both on <c>TownRoad</c>, 1) and the dealer's bay lines (on
+        /// <c>TownDrive</c>, .8). It sits BETWEEN its two grounds on purpose:
+        /// the puddles are world-XZ noise, so a puddle runs straight across a
+        /// stripe on either, and the paint is never more than a tenth wetter
+        /// or drier than what it is painted on. (While the apron was dry the
+        /// bay lines were the only thing on the dealer's lot that shone.)</summary>
+        const float WetTownLine = 0.9f;
+        /// <summary><c>TownKerb</c>: the street's kerbs (town and
+        /// neighbourhood), and the low walls round the dealer's and the meet
+        /// lots (tops only). OUTDOORS ONLY — the workshop's bench and shutter
+        /// boxes wore it once and are <c>TownShopFit</c> now
+        /// (<see cref="WetUnderRoof"/>); keep it that way, or tuning this
+        /// puts puddles under a roof.</summary>
+        const float WetTownKerb = 0.7f;
+        /// <summary><c>TownDirt</c>: the wreck yard's oil and hardcore.</summary>
+        const float WetTownDirt = 0.35f;
+        /// <summary><c>TownDrive</c>: every drive and apron OUTDOORS — your
+        /// own drive and the neighbours', the pizzeria's frontage, the two
+        /// units' aprons, the dealer's lot and its way in — plus
+        /// <c>TownForecourt</c>, the same ConcreteBare photograph under the
+        /// pumps, tied to this constant so the two concretes in town can never
+        /// drift apart. A step under the tarmac, and wetter than the city's
+        /// rough-cast kerb concrete (.6): a drive is a finished slab the car
+        /// is ON, the headlights sweep across it straight off the street, and
+        /// the owner's "street lights bathe the road" should not stop dead at
+        /// the dropped kerb. It was 0 for a while (R14) because the workshop's
+        /// floor under its roof was this same asset; that floor is
+        /// <c>TownShopFloor</c> now, so the slabs outside take the night like
+        /// the street they open onto. Neighbourhood footings are drawn in it
+        /// too, but their tops are buried under the lawn and their faces are
+        /// vertical, which the shader keeps dry. Two slabs DO run in under a
+        /// building — the pizzeria's apron a couple of metres under its
+        /// shopfront, the forecourt under the station shop — and neither shows
+        /// indoors: each pack's own floor stands over it (pizzeria.fbx's at
+        /// +3.9 cm over the 1.5 cm apron, the shop's Tiles at +3.0 cm over the
+        /// 1.8 cm forecourt, both measured off the FBX in headless Blender).
+        /// The pump canopy is an open-sided roof and its forecourt takes the
+        /// damp, as every circuit forecourt (1) and the stage tunnels
+        /// (R14) already do.</summary>
+        const float WetTownDrive = 0.8f;
+        /// <summary>Under a roof: <c>TownShopFloor</c> (the workshop's floor,
+        /// the drive's photograph) and <c>TownShopFit</c> (its bench and the
+        /// rolled shutter boxes under the lintel, the kerb's grey), in both
+        /// workshops BuildTownUnit makes (Delmar Auto, Colourworks). Written
+        /// as an explicit 0, not left to MakeMat's default, so the next
+        /// person to wet the town reads WHY these two stay dry. Grip is
+        /// untouched here as everywhere: the floor is still RoadLayer.</summary>
+        const float WetUnderRoof = 0f;
+        /// <summary>Warned once per editor session, not once per material:
+        /// a PSX/Lit without <c>_Wet</c> is one fact, not three hundred.</summary>
+        static bool warnedNoWet;
+
         /// <param name="twoSided">Draw both faces (PSX/Lit's <c>_Cull</c> Off)
         /// and light each from the side the camera is on. For TREES: a
         /// crossed pair of one-sided quads is a flat card from half the
         /// compass and invisible from a quarter of it.</param>
+        /// <param name="wet">The surface's wet mask (PSX/Lit <c>_Wet</c>,
+        /// 0..1) — see <see cref="WetAsphalt"/> and its neighbours for what
+        /// takes how much. Zero, the default, is dry whatever the weather.</param>
         static Material MakeMat(string name, string texPath, float cutoff = 0f,
-                                Color? tint = null, float affine = 0f, bool twoSided = false)
+                                Color? tint = null, float affine = 0f, bool twoSided = false,
+                                float wet = 0f)
         {
             // Resolve the shader HERE rather than trusting Build() to have run.
             // psxLit is only assigned inside Build, and every other entry point
@@ -1333,6 +1447,19 @@ namespace PSXRacing.EditorTools
             // do not all grow a line they never needed.
             if (twoSided || (mat.HasProperty("_Cull") && mat.GetFloat("_Cull") != 2f))
                 mat.SetFloat("_Cull", twoSided ? 0f : 2f);
+            // The wet mask is written EVERY time, zero included — NOT the
+            // _Cull economy above. The asset is loaded, not recreated, so a
+            // value this factory once wrote and later stopped writing would
+            // stay on disk for good: a surface taken out of the wet set would
+            // go on shining in the rain until someone deleted its .mat.
+            // Guarded on HasProperty so an older PSX/Lit (or a build run
+            // before the shader change landed) still builds, dry.
+            if (mat.HasProperty("_Wet")) mat.SetFloat("_Wet", Mathf.Clamp01(wet));
+            else if (wet > 0f && !warnedNoWet)
+            {
+                warnedNoWet = true;
+                Log("WARN: PSX/Lit has no _Wet property — wet masks not written (first: " + name + ").");
+            }
             if (cutoff > 0f) mat.renderQueue = 2450;
             EditorUtility.SetDirty(mat);
             return mat;
@@ -1744,13 +1871,13 @@ namespace PSXRacing.EditorTools
             bool oneWay = track != null && (track.drag || track.oneWay);
             var mat = MakeMat(MeshPrefix + "Road",
                               EnsureTrackRoadTex(RoadWidth, oneWay, tarmacSurf),
-                              affine: 0f);
+                              affine: 0f, wet: WetAsphalt);
             var mr = go.AddComponent<MeshRenderer>();
             if (anyDeck)
             {
                 var deckRoadMat = MakeMat(MeshPrefix + "RoadDeck",
                                           EnsureTrackRoadTex(RoadWidth, oneWay, deckSurf),
-                                          affine: 0f);
+                                          affine: 0f, wet: WetAsphalt);
                 mr.sharedMaterials = new[] { mat, deckRoadMat };
             }
             else mr.sharedMaterial = mat;
@@ -3018,7 +3145,7 @@ namespace PSXRacing.EditorTools
             string tex = style == KerbStyle.Verge ? StageGenDir + "/Shoulder.png"
                        : style == KerbStyle.Street ? StreetKerbTexPath
                        : KerbTexPath;
-            var mat = MakeMat(MeshPrefix + "Kerb", tex, affine: 0f);
+            var mat = MakeMat(MeshPrefix + "Kerb", tex, affine: 0f, wet: WetKerb);
             mat.mainTextureScale = new Vector2(1f, 1f);
 
             foreach (float side in new[] { -1f, 1f })
@@ -4074,7 +4201,10 @@ namespace PSXRacing.EditorTools
             // bridges in the city (which have always been concrete) and the
             // bridges on the circuits did not read as the same kind of thing.
             string concrete = EnsureConcreteTex();
-            var deckMat = MakeMat(MeshPrefix + "Deck", concrete, affine: 0f);
+            // The deck is wet, the piers are not: one deck mesh holds the top,
+            // the soffit and both fascias, and PSX/Lit's up-facing gate is what
+            // keeps all but the top dry — the mask only says "concrete road".
+            var deckMat = MakeMat(MeshPrefix + "Deck", concrete, affine: 0f, wet: WetAsphalt);
             var pierMat = MakeMat(MeshPrefix + "Pier", concrete, affine: 0f);
             var physMat = GetOrCreatePhysMat("DeckPhys", 0.8f, 0f);
 
@@ -4195,7 +4325,7 @@ namespace PSXRacing.EditorTools
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial =
-                MakeMat(MeshPrefix + "Joint", JointTexPath, affine: 0f);
+                MakeMat(MeshPrefix + "Joint", JointTexPath, affine: 0f, wet: WetAsphalt);
             go.isStatic = true;
             // No collider, deliberately: the jolt comes from BridgeJoints by
             // distance, and a 6 mm lip in the suspension's path would be a
@@ -4354,7 +4484,9 @@ namespace PSXRacing.EditorTools
 
         static void BuildStartLine(List<Vector3> pts, Transform parent)
         {
-            var mat = MakeMat("StartLine", GridTexPath);
+            // Wet like the tarmac it is painted on: a dry stripe across a
+            // shining road reads as a decal, which is what it is.
+            var mat = MakeMat("StartLine", GridTexPath, wet: WetAsphalt);
             mat.mainTextureScale = new Vector2(8f, 2f);
 
             // On the stage the start line sits a lead-in past waypoint 0, so
@@ -4581,13 +4713,31 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// Street lighting: a post and a lamp head that are there all day, and
-        /// the glow and the pool underneath, which are not.
+        /// a "Glow" marker under each head that says where the light is.
         ///
         /// The glows go under one "NightLights" parent carrying a single
         /// NightGlow component — the hour toggles that one object rather than
         /// thirty. Nothing here gets a collider: the posts stand outside the
         /// barrier line, where a collider could only ever cost contact pairs
         /// against a car that cannot reach them.
+        ///
+        /// NO POOL any more (2026-09-21, the NFS night pass). Each lamp used to
+        /// lay a 16 m additive "Pool" quad on the road under it. It never lit
+        /// the road: it was a disc of orange ADDED on top of whatever was
+        /// there, so it brightened the black gaps between lamps' reach the
+        /// same as the tarmac, lit a car driving through it not at all, put
+        /// no glint in a wet surface, and cost a 16 m quad of overdraw per
+        /// lamp after dark. The pool is per pixel now: NightGlow reads the
+        /// Glow markers' positions at runtime as lamp heads and registers
+        /// them with StreetLights, which pushes the ones nearest the camera
+        /// into a twelve-slot table that PSXLamps.cginc lights per pixel —
+        /// in the road, the kerb, the car paint and the rain alike. The
+        /// Glow quads STAY: they are the lamp-head markers NightGlow needs
+        /// (it retires the quads themselves and draws its own halos), and
+        /// LampGlow.mat is what keeps PSX/Glow in the WebGL build for the
+        /// cars' lenses. Scenes baked before this still carry their Pools;
+        /// NightGlow retires those at runtime too, and the next scene build
+        /// drops them for good.
         /// </summary>
         static void PlaceStreetLamps(List<Vector3> pts, Transform parent)
         {
@@ -4597,7 +4747,6 @@ namespace PSXRacing.EditorTools
             var postMat = MakeMat("LampPost", null, tint: new Color(0.30f, 0.30f, 0.34f), affine: 0f);
             var headMat = MakeMat("LampHead", null, tint: new Color(0.62f, 0.60f, 0.55f), affine: 0f);
             var glowMat = MakeGlowMaterial("LampGlow", new Color(1.00f, 0.86f, 0.55f), 1.5f);
-            var poolMat = MakeGlowMaterial("LampPool", new Color(1.00f, 0.84f, 0.52f), 0.5f);
             var glowMesh = GetOrCreateGlowQuad();
 
             var lampRoot = new GameObject("StreetLamps");
@@ -4664,30 +4813,8 @@ namespace PSXRacing.EditorTools
                 // NightGlow turns them on at runtime when the hour says so.
                 glow.AddComponent<MeshRenderer>().sharedMaterial = glowMat;
                 glow.GetComponent<MeshRenderer>().enabled = false;
-
-                var pool = new GameObject("Pool");
-                pool.transform.SetParent(nightRoot.transform, false);
-                // The pool of light lands on whatever is under the head: the
-                // deck where there is one, otherwise the higher of the ground
-                // and the road or shoulder surface there. The head leans in
-                // over the run-off (a circuit) or the kerb strip (a stage), and
-                // the ground under either is held under that surface — a pool
-                // laid on the ground alone is a depth-tested quad drawn
-                // underneath the thing it is meant to light.
-                float poolY;
-                if (DeckCoversStation(i)) poolY = pts[i].y + DeckTopLift + 0.06f;
-                else
-                {
-                    poolY = GroundHeightAt(headP.x, headP.z);
-                    if (ShoulderDesignAt(pts, headP.x, headP.z, out float surfY, out _, out _))
-                        poolY = Mathf.Max(poolY, surfY);
-                }
-                pool.transform.position = new Vector3(headP.x, poolY + 0.15f, headP.z);
-                pool.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
-                pool.transform.localScale = new Vector3(16f, 16f, 1f);
-                pool.AddComponent<MeshFilter>().sharedMesh = glowMesh;
-                pool.AddComponent<MeshRenderer>().sharedMaterial = poolMat;
-                pool.GetComponent<MeshRenderer>().enabled = false;
+                // (No "Pool" quad under it: see the summary. The light on the
+                // road is PSXLamps.cginc's, sourced from this Glow's position.)
                 placed++;
             }
             Log($"Placed {placed} street lamps.");
@@ -6100,7 +6227,8 @@ namespace PSXRacing.EditorTools
             // These are surface photographs complete with their trim.
             go.AddComponent<MeshRenderer>().sharedMaterial =
                 MakeMat(MeshPrefix + "Forecourt",
-                        Root + "/Art/GasStation/Textures/AsphaltDamaged.jpg", affine: 0f);
+                        Root + "/Art/GasStation/Textures/AsphaltDamaged.jpg", affine: 0f,
+                        wet: WetAsphalt);
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
         }

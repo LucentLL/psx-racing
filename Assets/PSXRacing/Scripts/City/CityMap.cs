@@ -256,6 +256,17 @@ namespace PSXRacing.City
         readonly Dictionary<long, List<int>> footCells = new Dictionary<long, List<int>>();
         public const float FootCell = 256f;   // one bucket per tile
         static long FootKey(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
+        /// <summary>How far each footprint's farthest corner stands from the
+        /// centre it is bucketed by (parallel to <see cref="footprints"/>),
+        /// the most of that over each bucket, and over the whole map (186.9 m
+        /// on charlotte_bld: a building that big, centred in the NEXT bucket,
+        /// still covers this one). Measured off the corners themselves, not
+        /// the oriented box, because a degenerate footprint's box falls back
+        /// to a 1 m square at its first corner. Set once in BuildHashes, for
+        /// <see cref="FootprintClear"/>.</summary>
+        float[] footReach = new float[0];
+        readonly Dictionary<long, float> footCellReach = new Dictionary<long, float>();
+        float footMaxReach;
 
         static CityMap loaded;
         /// <summary>The parsed map, loaded once per process. Synchronous
@@ -520,12 +531,25 @@ namespace PSXRacing.City
                         }
                 }
             }
+            footReach = new float[footprints.Length];
+            footMaxReach = 0f;
             for (int i = 0; i < footprints.Length; i++)
             {
                 var f = footprints[i];
                 long k = FootKey(Mathf.FloorToInt(f.centre.x / FootCell), Mathf.FloorToInt(f.centre.y / FootCell));
                 if (!footCells.TryGetValue(k, out var list)) footCells[k] = list = new List<int>(32);
                 list.Add(i);
+                float far2 = 0f;
+                foreach (var q in f.pts) far2 = Mathf.Max(far2, (q - f.centre).sqrMagnitude);
+                // A gabled house is DRAWN (and collided) as its oriented box,
+                // whose corners can stand further out than any corner of the
+                // polygon (an L-shape's notch): FootprintClear tests that box,
+                // so the reach has to cover it too.
+                if (f.gable) far2 = Mathf.Max(far2, f.hu * f.hu + f.hv * f.hv);
+                float reach = Mathf.Sqrt(far2);
+                footReach[i] = reach;
+                footMaxReach = Mathf.Max(footMaxReach, reach);
+                footCellReach[k] = footCellReach.TryGetValue(k, out float cellReach) ? Mathf.Max(cellReach, reach) : reach;
             }
         }
 
@@ -591,6 +615,84 @@ namespace PSXRacing.City
                     }
                 }
             return false;
+        }
+
+        /// <summary>
+        /// Is a point outside every real building AND at least
+        /// <paramref name="r"/> metres from every one of their walls? Asked by
+        /// the street lamps (CityMeshes.TryLamp), 2026-09-21, after the review
+        /// of the night pass found posts standing inside or flush against
+        /// downtown buildings: West 6th, West 4th, East 7th, West 3rd.
+        ///
+        /// <see cref="AnyFootprintNear"/> is NOT that question, twice over, and
+        /// is left alone because its callers (the procedural houses, the paved
+        /// verge, the drive-thrus) are signed off on its answers:
+        ///   * it opens only the 256 m buckets under p ± r, and a footprint
+        ///     lives in the bucket of its CENTRE, so a building centred just
+        ///     over a bucket line is never asked even when its wall is a metre
+        ///     away (every tile seam downtown);
+        ///   * it measures to the CORNERS, so a foot 0-0.3 m off the middle of
+        ///     a long facade, nowhere near a corner, passed.
+        /// Here the buckets opened are those under p ± (r + the farthest any
+        /// footprint reaches from its centre), a bucket is skipped when even
+        /// its own farthest-reaching footprint cannot get within r, a
+        /// footprint when its centre is further than r + its reach, and what
+        /// is left is measured to every EDGE. Per call that is the one or two
+        /// buckets AnyFootprintNear opened plus a neighbour only where a big
+        /// building can reach across: bounded, no scan over all 32,000 (the
+        /// tile builds while the car drives). Measured offline on uptown: 20
+        /// footprints looked at per call, 63 with the map-wide reach alone,
+        /// and the answer matched a brute-force scan at 3,000 random points.
+        /// </summary>
+        public bool FootprintClear(Vector2 p, float r)
+        {
+            if (footprints.Length == 0) return true;
+            float wide = r + footMaxReach, r2 = r * r;
+            int x0 = Mathf.FloorToInt((p.x - wide) / FootCell), x1 = Mathf.FloorToInt((p.x + wide) / FootCell);
+            int z0 = Mathf.FloorToInt((p.y - wide) / FootCell), z1 = Mathf.FloorToInt((p.y + wide) / FootCell);
+            for (int cx = x0; cx <= x1; cx++)
+                for (int cz = z0; cz <= z1; cz++)
+                {
+                    long k = FootKey(cx, cz);
+                    if (!footCellReach.TryGetValue(k, out float cellReach)) continue;
+                    // every centre in the bucket is at least this far from p
+                    float dx = Mathf.Max(0f, Mathf.Max(cx * FootCell - p.x, p.x - (cx + 1) * FootCell));
+                    float dz = Mathf.Max(0f, Mathf.Max(cz * FootCell - p.y, p.y - (cz + 1) * FootCell));
+                    float cellR = r + cellReach;
+                    if (dx * dx + dz * dz >= cellR * cellR) continue;
+                    foreach (int fi in footCells[k])
+                    {
+                        var f = footprints[fi];
+                        float reach = r + footReach[fi];
+                        if ((f.centre - p).sqrMagnitude >= reach * reach) continue;
+                        var pts = f.pts;
+                        for (int a = pts.Length - 1, b = 0; b < pts.Length; a = b++)
+                        {
+                            Vector2 d = pts[b] - pts[a];
+                            float L2 = d.sqrMagnitude;
+                            float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - pts[a], d) / L2) : 0f;
+                            if ((pts[a] + d * t - p).sqrMagnitude < r2) return false;
+                        }
+                        if (PointInPoly(pts, p)) return false;
+                        // A GABLED house is not drawn as its polygon: BuildFootprints
+                        // emits it as the oriented box (EmitGableHouse), and the
+                        // Buildings collider is that box. For an L-shaped house the
+                        // notch is wall and collider, however clear of the polygon it
+                        // is - found by the second review (edge 490 near
+                        // (-3177.5, 2106.4): 5 m from the polygon, inside the walls).
+                        // The uncut box is tested: FitHouse can only shrink it, so
+                        // this is the conservative side.
+                        if (f.gable)
+                        {
+                            Vector2 q = p - f.centre;
+                            Vector2 v = new Vector2(-f.u.y, f.u.x);
+                            float ou = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(q, f.u)) - f.hu);
+                            float ov = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(q, v)) - f.hv);
+                            if (ou * ou + ov * ov < r2) return false;
+                        }
+                    }
+                }
+            return true;
         }
 
         public Route RouteById(string id)

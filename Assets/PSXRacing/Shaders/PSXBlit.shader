@@ -23,6 +23,46 @@
 // asset, in the preview tools as well as the player - and BEFORE the dither,
 // so the quantizer's pattern breaks up the grade's gradients the way it does
 // every other one. _Grade 0 is the picture exactly as it was.
+//
+// THE NIGHT GRADE (2026-09-21, the NFS pass). The owner, on Need for Speed
+// (2015): "I like how dark the night is, how much the skybox effects the color
+// and mood of the world and cars". Measured off NFS night frames: the darkest
+// 0.1% of the display at 0.008-0.015, the median at 0.09-0.17, a third to a
+// half of the frame under 0.10, mean saturation 0.50-0.58. Ours at night had
+// a floor of 0.108 and NOTHING under 0.10 - and the reason was here: the
+// matte lift above is a floor of 0.11 under every pixel, so no night could be
+// darker than a faded print's black. But a lift IS lens veiling glare, and
+// veiling glare scales with how much light the scene has: a film shot at
+// night does not have a grey floor. So, keyed by the global _PSXGradeNight
+// (TimeOfDay.GradeNightFor; 1 at night, 0 all day):
+//
+//   * the lift fades - to a fifth of itself at full night
+//     (GRADE_NIGHT_LIFT_CUT), and the vignette falls to that SAME lower floor
+//     (one `lift` for both, or the corners would stop at a floor the middle
+//     no longer has);
+//   * the vignette deepens (GRADE_VIGNETTE_NIGHT): night lenses are shot wide
+//     open, and a dark corner is where the NFS frames are darkest;
+//   * blues and greens keep their colour (GRADE_SAT_COOL_NIGHT): the day
+//     grade drains them to 0.72, which at night turns a blue sky and a
+//     sodium street into one beige;
+//   * and a SHADOW SPLIT-TONE from the global _PSXMood (TimeOfDay.MoodFor):
+//     the darks lean to the hour's hue - sodium-brown in a city night,
+//     blue-grey on a mountain, blue at dusk - the sky's mood reaching the
+//     parts of the picture no lamp lights.
+//
+// With _PSXGradeNight 0 and _PSXMood.a 0 - every daylight hour, and every
+// scene that never applies an hour, since PSXGlobals pushes zero defaults -
+// the grade is BIT-IDENTICAL to the one the owner signed off: each new term is
+// added to the day's untouched expression times exactly zero, or sits in a
+// uniform branch that is not taken (see the note above Grade). Both are
+// GLOBALS, declared below as plain uniforms and never in Properties (a
+// property of the same name would shadow the global and read its own 0).
+// Like the rest of the grade they need FILM GRADE on; without it there is no
+// lift to remove, and the night presets are dark on their own.
+//
+// The lens (rain drops, bokeh) is NOT here: the race HUD is already inside
+// this framebuffer, and a drop would refract the lap counter. It is its own
+// URP pass, PSX/Lens, drawn before the HUD (see SpeedBlurFeature).
 Shader "PSX/Blit"
 {
     Properties
@@ -48,6 +88,10 @@ Shader "PSX/Blit"
             float _ColorDepth;
             float _DitherStrength;
             float _Grade;
+            // Globals (PSXGlobals pushes them every frame from the hour;
+            // see the header). NOT in Properties, on purpose.
+            float _PSXGradeNight;   // 0 day .. 1 night
+            float4 _PSXMood;        // rgb = shadow hue at any brightness, a = amount
 
             // THE GRADE. Display-space numbers (the grade is done on gamma
             // values, like every grade); tools/grade/grade_proto.py is the
@@ -61,6 +105,20 @@ Shader "PSX/Blit"
             #define GRADE_WARM_MID    0.022   // the mids lean amber
             #define GRADE_OLIVE       0.10    // foliage greens pulled toward olive
             #define GRADE_VIGNETTE    0.20
+            // The night end of the same grade, reached at _PSXGradeNight 1.
+            #define GRADE_NIGHT_LIFT_CUT  0.80  // how much of the matte lift a full night takes away
+            #define GRADE_VIGNETTE_NIGHT  0.34  // the corners at night
+            #define GRADE_SAT_COOL_NIGHT  1.00  // what blues and greens keep at night
+            // ...and the whole night picture is pushed a little PAST its own
+            // colour. The day grade's faded print is 0.12-0.16 mean saturation;
+            // the NFS night frames MEASURE 0.50-0.58, because at night almost
+            // every lit pixel is lit by one coloured lamp (sodium orange, a red
+            // tail light, a lit window) and the darks are that light's murk.
+            // First shots of this pass with the day's fade still on: 0.30-0.49.
+            // Multiplies `keep`, so it is exactly 1 - a no-op - by day.
+            #define GRADE_SAT_NIGHT_BOOST 1.18
+            #define GRADE_MOOD_LO         0.05  // the split-tone is full below this luma...
+            #define GRADE_MOOD_HI         0.45  // ...and gone above this one: shadows only
             // The halation: what is brighter than the knee bleeds, warm. The
             // knee is on LINEAR light where the framebuffer is linear (0.57
             // there is 0.78 on the display).
@@ -133,8 +191,21 @@ Shader "PSX/Blit"
                 #endif
             }
 
+            // HOW THE NIGHT TERMS ARE WRITTEN. Each one is the day's own
+            // expression, untouched, PLUS (or minus) a night term that is
+            // multiplied by `night` (or, for the mood, a uniform branch that
+            // is not taken). At night 0 each added term is an exact zero, so
+            // a daylight frame runs the same arithmetic on the same constants
+            // it always did - bit for bit, not merely "within a rounding".
+            // Folding the night into the constants instead (a lerp of lerps,
+            // `lift + (GRADE_CEIL - lift) * s`) turns a literal the compiler
+            // folds into a subtraction done at run time, which can land an
+            // ulp away and flip a pixel over a quantizer step.
             float3 Grade(float3 c, float2 uv, float3 glow)
             {
+                // 0 all day, 1 at full night (TimeOfDay.GradeNightFor).
+                float night = saturate(_PSXGradeNight);
+
                 c += glow * GLOW_GAIN * GLOW_TINT;
 
                 // Foliage greens toward olive.
@@ -142,11 +213,31 @@ Shader "PSX/Blit"
                 c.r += greenness * GRADE_OLIVE * c.g;
                 c.b -= greenness * GRADE_OLIVE * 0.5 * c.g;
 
-                // Colour fades, by how warm it is.
+                // Colour fades, by how warm it is - and at night the cool
+                // colours fade far less: the day grade's 0.72 would turn a
+                // blue night sky and an orange sodium street into one beige.
+                // (That is lerp(lerp(COOL, COOL_NIGHT, night), WARM, warm),
+                // written as the day's lerp plus its night difference.)
                 float l = dot(c, float3(0.299, 0.587, 0.114));
                 float warm = saturate((c.r - c.b) * 2.5);
-                c = l + (c - l) * lerp(GRADE_SAT_COOL, GRADE_SAT_WARM, warm);
+                float keep = lerp(GRADE_SAT_COOL, GRADE_SAT_WARM, warm)
+                           + (GRADE_SAT_COOL_NIGHT - GRADE_SAT_COOL) * night * (1.0 - warm);
+                keep *= 1.0 + (GRADE_SAT_NIGHT_BOOST - 1.0) * night;
+                c = l + (c - l) * keep;
                 c = saturate(c);
+
+                // THE SHADOW SPLIT-TONE: the darks lean to the hour's hue
+                // (_PSXMood, TimeOfDay.MoodFor) and the lights keep their own.
+                // The hue is normalised to luminance 1 so the tint moves
+                // colour, not brightness; `l` is the luma the desaturation
+                // just preserved. Saturated after, because a blue hue of
+                // luminance 1 carries a blue channel over 1.
+                if (_PSXMood.a > 0.0)
+                {
+                    float3 hue = _PSXMood.rgb / max(dot(_PSXMood.rgb, float3(0.299, 0.587, 0.114)), 1e-3);
+                    float sh = 1.0 - smoothstep(GRADE_MOOD_LO, GRADE_MOOD_HI, l);
+                    c = saturate(lerp(c, c * hue, saturate(_PSXMood.a) * sh));
+                }
 
                 // A little S in the middle, and the mids lean amber.
                 c = lerp(c, c * c * (3.0 - 2.0 * c), GRADE_CONTRAST);
@@ -155,16 +246,29 @@ Shader "PSX/Blit"
                 c.r += GRADE_WARM_MID * mid;
                 c.b -= GRADE_WARM_MID * mid;
 
-                // The floor and the ceiling.
-                c = GRADE_LIFT + (GRADE_CEIL - GRADE_LIFT) * saturate(c);
+                // The floor and the ceiling. `lift` is the floor THIS hour
+                // has: the matte lift is veiling glare, and at night there is
+                // little light to veil with, so it fades toward a fifth of
+                // itself. The ONE lift for both the remap and the vignette
+                // below - a vignette falling to the day's floor would leave
+                // the corners greyer than the middle of a night frame.
+                // Written as the day's remap minus the lift night gives back:
+                // it IS lift + (GRADE_CEIL - lift) * s.
+                float3 lift = GRADE_LIFT * (1.0 - GRADE_NIGHT_LIFT_CUT * night);
+                float3 given = GRADE_LIFT - lift;
+                float3 s = saturate(c);
+                c = GRADE_LIFT + (GRADE_CEIL - GRADE_LIFT) * s - given * (1.0 - s);
 
                 // The lens falls off toward the corners - down to the floor,
-                // not to black.
+                // not to black; deeper at night (GRADE_VIGNETTE_NIGHT), down
+                // to the night's lower floor. The return IS
+                // lift + (c - lift) * vig.
                 float2 q = (uv - 0.5) * 2.0;
                 float r2 = dot(q, q) * 0.5;
                 float fall = saturate((r2 - 0.25) / 0.75);
-                float vig = 1.0 - GRADE_VIGNETTE * fall * sqrt(fall);
-                return GRADE_LIFT + (c - GRADE_LIFT) * vig;
+                float vig = 1.0 - GRADE_VIGNETTE * fall * sqrt(fall)
+                          - (GRADE_VIGNETTE_NIGHT - GRADE_VIGNETTE) * night * fall * sqrt(fall);
+                return GRADE_LIFT + (c - GRADE_LIFT) * vig - given * (1.0 - vig);
             }
 
             fixed4 frag (v2f i) : SV_Target

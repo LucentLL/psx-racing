@@ -302,16 +302,20 @@ namespace PSXRacing.EditorTools
             float halfLat = (RailInboard + reach) * 0.5f;
             var centre = mid - outw * (RailInboard - halfLat) + Vector3.up * ((lo + hi) * 0.5f);
             var rot = Quaternion.LookRotation(along.sqrMagnitude > 1e-6f ? along : Vector3.forward, Vector3.up);
-            if (Physics.CheckBox(centre, new Vector3(halfLat, (hi - lo) * 0.5f, Mathf.Max(0.05f, len * 0.5f)), rot,
-                                 1 << CityWorld.SolidLayer, QueryTriggerInteraction.Ignore))
-                return true;
+            // Street-lamp posts stand on the Solid layer too (CityWorld.LampPostName),
+            // and a pole beside a verge is roadside furniture, not a barrier:
+            // counting it would call an open drop "guarded" wherever a lamp
+            // happens to stand. Looked THROUGH, like every other city audit.
+            foreach (var c in Physics.OverlapBox(centre, new Vector3(halfLat, (hi - lo) * 0.5f, Mathf.Max(0.05f, len * 0.5f)), rot,
+                                                 1 << CityWorld.SolidLayer, QueryTriggerInteraction.Ignore))
+                if (c != null && c.name != CityWorld.LampPostName) return true;
             bool back = Physics.queriesHitBackfaces;
             Physics.queriesHitBackfaces = true;
             try
             {
                 foreach (float h in RoadsideRules.BarrierRayHeights)
                     foreach (var hit in Physics.RaycastAll(mid - outw * RailInboard + Vector3.up * h, outw, RailReach + RailInboard, ~0, QueryTriggerInteraction.Ignore))
-                        if (Mathf.Abs(hit.normal.y) < 0.6f) return true;
+                        if (Mathf.Abs(hit.normal.y) < 0.6f && hit.collider.name != CityWorld.LampPostName) return true;
             }
             finally { Physics.queriesHitBackfaces = back; }
             return false;
