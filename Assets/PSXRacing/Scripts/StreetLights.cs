@@ -390,7 +390,7 @@ namespace PSXRacing
         /// BELOW the view it feeds, and a render-texture test would not do -
         /// the main camera itself draws into PSXCameraOutput's framebuffer.
         /// </summary>
-        static bool IsDriver(Camera cam)
+        internal static bool IsDriver(Camera cam)
         {
             var main = Camera.main;
             if (main != null) return cam == main;

@@ -95,6 +95,47 @@ namespace PSXRacing
     /// it — turning this off mid-race puts the HUD back in the world camera
     /// on the next frame, which is safe only because the lens is off with it.
     /// </summary>
+    public static class SunShadowPrefs
+    {
+        // SUN SHADOWS: the day pass's two shadow maps (SunShadows). Ships ON -
+        // it is the daylight the owner pointed at - and this is how to say no:
+        // the maps are a second pass over the scene every frame, and on the
+        // slowest phone that may be the frame rate. Built the way
+        // FilmGradePrefs is. OFF keeps the rest of the day pass (the
+        // shouldered sunlight, the sun in the haze): those cost nothing.
+        const string PrefKey = "psx.sunShadows";
+
+        static int cached = -1;
+
+        public static bool Enabled
+        {
+            get
+            {
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 1);
+                return cached != 0;
+            }
+            set
+            {
+                int v = value ? 1 : 0;
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+                Changed++;
+            }
+        }
+
+        public static int Changed { get; private set; }
+
+        public static void Toggle() => Enabled = !Enabled;
+
+        public static string Label => Enabled ? "ON" : "OFF";
+
+        /// <summary>1 when the maps are allowed, 0 when not: PSXGlobals
+        /// multiplies both strengths by it.</summary>
+        public static float Amount => Enabled ? 1f : 0f;
+    }
+
     public static class LensFxPrefs
     {
         const string PrefKey = "psx.lensFx";

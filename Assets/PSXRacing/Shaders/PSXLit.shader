@@ -35,6 +35,33 @@
 //     under the same material. The numbers are the WET_* #defines below.
 //   * LIT WINDOWS on the city facades at night (_NightMask/_NightWin), one
 //     texel mask per facade texture that says where the windows are.
+//
+// THE DAY PASS, 2026-09-21, the same day. The owner, with five daylight
+// frames of Forza Horizon: improved lighting "during morning, day, and
+// afternoon ... when headlights and street lights are not the major driving
+// factors". PSXSunShadow.cginc says what was measured; what changed HERE:
+//
+//   * THE SUN IS SHADOWED, PER PIXEL. The vertex shader still works out the
+//     lambert, but hands the sun and the ambient on SEPARATELY, so the pixel
+//     can ask the shadow map how much of the sun reaches it. A road under a
+//     deck, the far side of a tower, the ground under a car: lit by the sky
+//     alone, which is why a shadow is blue. Under a tree the sun is dappled;
+//     and where there is a ROOF overhead - a tunnel, an underpass - a second
+//     map takes most of the sky's light away too (PSXSkyOpen).
+//   * THE CLAMP AT 1 IS A SHOULDER. `saturate(ambient + sun)` in the vertex
+//     shader made every face within 66 degrees of a noon sun the same flat
+//     1.0 and threw the sun's colour away with the overshoot. Now the light
+//     is untouched up to WORLD_TOE and rolls off above it toward
+//     WORLD_TOE + WORLD_SPAN: a wall square-on to the sun is brighter than
+//     the road beside it, and a low sun is still gold where it lands.
+//   * THE HAZE GLOWS TOWARD THE SUN (PSXFogTowardSun).
+//
+// All three hang off globals only TimeOfDay.Apply sets (_PSXSunModel,
+// _PSXShadowParams, _PSXFogSun). A scene that never applied an hour - every
+// interior - reads zeros, takes the old clamp IN THE VERTEX SHADER exactly as
+// before, and draws the picture it always drew. At night the sun and ambient
+// together are under 0.1, far below the toe, and the shadows are off: the
+// night the owner signed off is untouched.
 Shader "PSX/Lit"
 {
     Properties
@@ -135,6 +162,20 @@ Shader "PSX/Lit"
             // windowed.
             float _PSXWetness;
             float _PSXNight;
+            // 1 once an hour has been applied (TimeOfDay.Apply): the shoulder
+            // and the per-pixel sun. 0 = the old vertex clamp, bit for bit.
+            float _PSXSunModel;
+
+            // THE SHOULDER (the DAY PASS in the header). Linear light. Up to
+            // the toe nothing changes; above it the light approaches
+            // TOE + SPAN and never arrives. 0.80 / 0.50: a noon road (raw
+            // 1.95) lands at 1.25, a wall square-on to an afternoon sun at
+            // 1.2 in the red and 1.0 in the blue - gold, where the clamp had
+            // it white - and everything that was under 0.8 is where it was.
+            #define WORLD_TOE          0.80
+            #define WORLD_SPAN         0.50
+            // The shadow map and the sun in the haze. After _PSXLightDir.
+            #include "PSXSunShadow.cginc"
 
             // THE WET ROAD (the NIGHT PASS in the header). Like the car
             // paint's, the look lives in these #defines, not in materials,
@@ -243,12 +284,18 @@ Shader "PSX/Lit"
                 // varied per material. Premultiplying by w and dividing it back
                 // out in the fragment gives the same warp, continuously dialled.
                 float3 uvw : TEXCOORD0;
-                fixed4 light : COLOR0;
                 fixed fog : TEXCOORD1;
-                // For the per-pixel work only - headlights, lamps, the wet
-                // road and the lit windows. The sun stays per vertex.
+                // For the per-pixel work - headlights, lamps, the wet road,
+                // the lit windows and the sun's shadow.
                 float3 wpos : TEXCOORD2;
                 float3 wnrm : TEXCOORD3;
+                // The light, per vertex as it always was, but in two parts
+                // and UNCLAMPED (TEXCOORDs, not COLOR0: a colour interpolator
+                // may be clamped to 0..1 by the hardware, and the sun at noon
+                // is 1.9). amb is what the sky gives the face whatever is in
+                // the way; sun is what the shadow map gets a say in.
+                half3 amb : TEXCOORD4;
+                half3 sun : TEXCOORD5;
             };
 
             v2f vert (appdata v)
@@ -289,9 +336,14 @@ Shader "PSX/Lit"
                 // from the side and below. A cheap per-vertex lerp, and the
                 // one thing that makes a roof under a blue sky read as being
                 // under a blue sky.
-                fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
-                fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
-                o.light = fixed4(saturate(lighting), 1);
+                half3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
+                half3 sunL = _PSXLightColor.rgb * ndl;
+                // No hour applied (an interior): the old light, clamped HERE
+                // and handed on whole, so the pixel shader's sum is the very
+                // number it used to be given.
+                if (_PSXSunModel < 0.5) { amb = saturate(amb + sunL); sunL = half3(0, 0, 0); }
+                o.amb = amb;
+                o.sun = sunL;
                 o.wpos = wpos;
                 o.wnrm = n;
 
@@ -336,7 +388,17 @@ Shader "PSX/Lit"
                 float3 headD, headS, lampD, lampS;
                 PSXHeadlightsBoth(i.wpos, N, V, WET_HEAD_POW, specOn, headD, headS);
                 PSXLampsBoth(i.wpos, N, V, WET_LAMP_POW, specOn, lampD, lampS);
-                float3 light = i.light.rgb + headD + lampD;
+                // THE SUN, shadowed; THE SKY, if there is any overhead; and
+                // the shoulder (the DAY PASS in the header). With no hour
+                // applied i.sun is zero, i.amb is the old clamped light - under
+                // the toe by construction - and both maps answer 1.
+                // A cutout (a tree card, a fence) takes no shade from leaves -
+                // PSXSunShadow says why. _Cutoff is a uniform.
+                float leaf = _Cutoff > 0.001 ? 1.0 : 0.0;
+                float3 sunAmb = i.amb * PSXSkyOpen(i.wpos, N, leaf) + i.sun * PSXSunShadow(i.wpos, N, eyeDist, leaf);
+                float3 over = max(sunAmb - WORLD_TOE, 0.0) * _PSXSunModel;
+                sunAmb = sunAmb - over + WORLD_SPAN * (1.0 - exp(-over / WORLD_SPAN));
+                float3 light = sunAmb + headD + lampD;
 
                 // THE WET ROAD, one: how wet THIS pixel is - only if it looks
                 // up, more in the puddles - and the darker albedo of wet
@@ -353,8 +415,11 @@ Shader "PSX/Lit"
                 }
                 else w = 0.0;
 
-                fixed3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
-                fixed3 col = lerp(lit, _PSXFogColor.rgb, i.fog);
+                float3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
+                // The haze is brighter toward the sun (zero extra with no
+                // _PSXFogSun set, which is every interior and every night).
+                float3 fogCol = PSXFogTowardSun(_PSXFogColor.rgb, V);
+                float3 col = lerp(lit, fogCol, i.fog);
 
                 // THE WET ROAD, two: the mirror. Water reflects what the car
                 // paint reflects - the hour's own sky, through the same lookup
@@ -377,7 +442,7 @@ Shader "PSX/Lit"
                     float3 refl = PSXSkyIn(R, WET_SKY_LOD) * WET_SKY;
                     float3 spec = lampS * WET_LAMP_GAIN + headS * WET_HEAD_GAIN;
                     float3 wetLit = lit * (1.0 - fres * w) + (refl * fres + spec * (WET_SPEC_BASE + fres)) * w;
-                    col = lerp(wetLit, _PSXFogColor.rgb, i.fog);
+                    col = lerp(wetLit, fogCol, i.fog);
                 }
 
                 // THE LIT WINDOWS. Both switches are uniforms, so the mask is

@@ -5004,8 +5004,16 @@ namespace PSXRacing.LifeSim
             OptionRow("LENS FX", LensFxPrefs.Label,
                 "Rain drops and light bokeh on the lens. Off for a clean lens.",
                 () => LensFxPrefs.Toggle(), ref y);
+            // The day pass's shadow maps: the sun casting shadows, tunnels
+            // and underpasses going dark. Ships ON; the one switch on this
+            // page that is about SPEED - the maps are a second pass over the
+            // scene every frame, and on a slow phone that may be worth having
+            // back. (OPTIONS only: the pause column is full.)
+            OptionRow("SUN SHADOWS", SunShadowPrefs.Label,
+                "Daylight casts shadows; tunnels go dark. Off if the game runs slowly by day.",
+                () => SunShadowPrefs.Toggle(), ref y);
 
-            MenuKit.Label(body, "The pause menu inside a race carries these too,",
+            MenuKit.Label(body, "The pause menu inside a race carries most of these,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW);
             y -= 26f;

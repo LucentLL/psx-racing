@@ -66,6 +66,15 @@ Shader "PSX/Sky"
             float _Exposure;
             float _HorizonFade;
             float _Stars;
+            // THE SUN IN THE HAZE (the DAY PASS, 2026-09-21; PSXSunShadow.cginc
+            // and TimeOfDay.FogSunFor). The world's fog is brighter toward the
+            // sun now, and the horizon band below IS the fog's colour - the two
+            // are one pair - so it takes the same term from the same globals.
+            // SKY_SUN_GLOW is the share of it the sky ABOVE the band takes: the
+            // air is thinner up there, and the photograph has its own sun.
+            float4 _PSXLightDir;
+            float4 _PSXFogSun;
+            #define SKY_SUN_GLOW 0.45
 
             struct appdata { float4 vertex : POSITION; };
             struct v2f
@@ -167,8 +176,15 @@ Shader "PSX/Sky"
                 // Into the fog at the horizon, from both sides. This is what
                 // stops the terrain ending at a visible line: the last band of
                 // sky IS the fog colour, so the two meet in the same paint.
+                float3 sunHaze = float3(0, 0, 0);
+                if (_PSXFogSun.a >= 1.0)
+                {
+                    float toward = saturate(dot(dir, normalize(_PSXLightDir.xyz)));
+                    sunHaze = _PSXFogSun.rgb * pow(toward, _PSXFogSun.a);
+                    col += sunHaze * (SKY_SUN_GLOW * saturate(y * 4.0 + 0.2));
+                }
                 float hz = saturate(1.0 - abs(y) / _HorizonFade);
-                col = lerp(col, _HorizonColor.rgb, hz * hz);
+                col = lerp(col, _HorizonColor.rgb + sunHaze, hz * hz);
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.

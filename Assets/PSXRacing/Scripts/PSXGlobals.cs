@@ -144,6 +144,45 @@ namespace PSXRacing
         /// </summary>
         public Color mood = new Color(0f, 0f, 0f, 0f);
 
+        // ------------------------------------------------------------------
+        //  THE DAY LOOK (2026-09-21, the Forza daylight pass). Three more,
+        //  under the same rule as the night's four: written by
+        //  TimeOfDay.Apply, ZERO by default and in every scene saved before
+        //  they existed, and at zero every shader draws what it always drew.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// 1 once an hour has been applied (_PSXSunModel): PSX/Lit hands the
+        /// sun on per pixel, unclamped, and rolls the light off with a
+        /// shoulder instead of clipping it at 1. 0 = the old vertex clamp,
+        /// which is what every interior keeps.
+        /// </summary>
+        public float sunModel;
+        /// <summary>
+        /// HOW HARD THE SUN'S SHADOWS ARE, 0..1 (SunShadows.Strength, and
+        /// _PSXShadowParams.x). TimeOfDay.ShadowFor(hour, weather): full by
+        /// day, off from dusk, faint under cloud. 0 = no shadow map is drawn
+        /// or read at all.
+        /// </summary>
+        public float sunShadow;
+        /// <summary>
+        /// HOW MUCH OF ITS AMBIENT A PLACE WITH A ROOF OVER IT LOSES, 0..1
+        /// (SunShadows.SkyStrength, _PSXSkyParams.x): the second, top-down map
+        /// that makes a tunnel dark and an underpass dim whatever the sun is
+        /// doing. TimeOfDay.SkyShadeFor(hour): on by day in any weather, off
+        /// from dusk.
+        /// </summary>
+        public float skyShade;
+        /// <summary>
+        /// THE SUN IN THE HAZE (_PSXFogSun): rgb = what the fog gains looking
+        /// straight at the sun, a = how tight that glow is. Authored sRGB like
+        /// every colour here and pushed LINEAR by hand (it is an amount of
+        /// light to ADD, and its alpha is an exponent, so neither
+        /// SetGlobalColor's treatment of alpha nor a gamma-space add is
+        /// right). TimeOfDay.FogSunFor(hour, weather).
+        /// </summary>
+        public Color fogSun = new Color(0f, 0f, 0f, 0f);
+
         void OnEnable()
         {
             // The street-lamp table is pushed per camera, from the render
@@ -152,6 +191,8 @@ namespace PSXRacing
             // mode too - so the scene view and the tools' render requests get
             // lamps chosen for their own eye with nobody asking.
             StreetLights.EnsureHook();
+            // And the sun's shadow map, for the same reason in the same place.
+            SunShadows.EnsureHook();
             Apply();
         }
         void Update() => Apply();
@@ -173,6 +214,15 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
             Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
             Shader.SetGlobalVector("_PSXMood", new Vector4(mood.r, mood.g, mood.b, Mathf.Clamp01(mood.a)));
+            Shader.SetGlobalFloat("_PSXSunModel", sunModel > 0.5f ? 1f : 0f);
+            Color fs = fogSun.linear;
+            Shader.SetGlobalVector("_PSXFogSun", new Vector4(fs.r, fs.g, fs.b, fogSun.a));
+            // The map itself is drawn per camera at render time (the hook in
+            // OnEnable); this only says how strong and from where.
+            // Times the player's own switch (OPTIONS, SUN SHADOWS): the hour
+            // says how strong, the player says whether at all.
+            float maps = sun != null ? SunShadowPrefs.Amount : 0f;
+            SunShadows.Configure(sunShadow * maps, skyShade * maps, dir);
             // NOT StreetLights.Push() here: this runs in Update, before the
             // cars and the chase camera move in LateUpdate, and a table chosen
             // here would light the road for where the camera was last frame.

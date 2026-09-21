@@ -448,7 +448,7 @@ namespace PSXRacing.EditorTools
         /// clear of the ends (a junction is not a street), nearest first and
         /// at least <see cref="CandidateSpreadM"/> apart so the probes look at
         /// different places.</summary>
-        static List<(CityMap.Edge e, float s)> Candidates(CityMap map, Vector2 near,
+        internal static List<(CityMap.Edge e, float s)> Candidates(CityMap map, Vector2 near,
                                                          System.Func<CityMap.Edge, bool> want, float maxDist)
         {
             var all = new List<(float d, CityMap.Edge e, float s)>();
@@ -481,7 +481,7 @@ namespace PSXRacing.EditorTools
         /// <summary>Where a car stands on an edge: in the right-hand lane of a
         /// two-way street (this is North Carolina), in the middle of a one-way
         /// carriageway, pitched with the road, lifted like a grid slot.</summary>
-        static void Stand(CityMap.Edge e, float s, out Vector3 pos, out Quaternion rot)
+        internal static void Stand(CityMap.Edge e, float s, out Vector3 pos, out Quaternion rot)
         {
             Vector2 p = e.PointAt(s), t2 = e.TangentAt(s);
             float s0 = Mathf.Max(0f, s - 3f), s1 = Mathf.Min(e.length, s + 3f);
@@ -495,7 +495,7 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The start line of a city route, walked along its chain of
         /// edges; <paramref name="fallback"/> if the bake has no such route.</summary>
-        static Vector2 RouteStart(CityMap map, string id, Vector2 fallback)
+        internal static Vector2 RouteStart(CityMap map, string id, Vector2 fallback)
         {
             var r = map.RouteById(id);
             if (r == null || r.edges == null || r.dirs == null) return fallback;
@@ -524,7 +524,7 @@ namespace PSXRacing.EditorTools
             return -1;
         }
 
-        static Light FindSun()
+        internal static Light FindSun()
         {
             var go = GameObject.Find("Sun");
             var sun = go != null ? go.GetComponent<Light>() : null;

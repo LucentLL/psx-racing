@@ -371,6 +371,13 @@ namespace PSXRacing
                 globals.night = NightFor(index);
                 globals.gradeNight = GradeNightFor(index);
                 globals.mood = MoodFor(index, urban);
+                // And what the hour means for the SUN (the day pass): the
+                // per-pixel, shouldered light; how hard its shadows are; how
+                // much brighter the haze is toward it.
+                globals.sunModel = 1f;
+                globals.sunShadow = ShadowFor(index, weather);
+                globals.skyShade = SkyShadeFor(index);
+                globals.fogSun = FogSunFor(index, weather);
             }
 
             ApplySky(p, sun);
@@ -433,8 +440,12 @@ namespace PSXRacing
         /// lamps and the headlights in it.
         ///
         /// Rain soaks everything. Fog leaves a film and snow a slush, both
-        /// less. And CLEAR NIGHTS ARE DAMP: 0.40 at night, 0.30 at dusk and
-        /// dawn, a breath of it at sunset, nothing in daylight. That last one
+        /// less. And CLEAR NIGHTS ARE DAMP: 0.24 at night, 0.18 at dusk and
+        /// dawn, a breath of it at sunset, nothing in daylight. (It was 0.40 /
+        /// 0.30 until the owner, 2026-09-21: "the roads are a bit too
+        /// reflective when it's not raining" - so the damp is 60% of what it
+        /// was and rain, at 1, is as wet as ever: the gap between a dry night
+        /// and a wet one is the thing that got wider.) That last one
         /// is an art licence, not meteorology — NFS (2015) is wet every night
         /// whatever the sky is doing, and a streak of sodium light down a
         /// damp road is most of what the owner meant by "street lights bathe
@@ -461,11 +472,96 @@ namespace PSXRacing
         {
             switch (Mathf.Clamp(hour, 0, All.Length - 1))
             {
-                case Night:  return 0.40f;
-                case Dusk:   return 0.30f;
-                case Dawn:   return 0.30f;
-                case Sunset: return 0.12f;
+                case Night:  return 0.24f;
+                case Dusk:   return 0.18f;
+                case Dawn:   return 0.18f;
+                case Sunset: return 0.07f;
                 default:     return 0f;
+            }
+        }
+
+        /// <summary>
+        /// How hard the sun's shadows are, 0..1 — PSXGlobals.sunShadow, which
+        /// SunShadows and PSXSunShadow.cginc read.
+        ///
+        /// Full from morning to afternoon. A little less at sunset and at
+        /// dawn: the sun is 6-7 degrees up, every shadow is ten times as long
+        /// as the thing casting it, and a road that is ALL shadow reads as an
+        /// overcast one - the leak keeps the raking light the hour is for.
+        /// NOTHING at dusk and at night: the dusk "sun" is an afterglow two
+        /// and a half degrees up, kept as one soft direction on purpose, and
+        /// the night belongs to the lamps (whose frames are also the ones
+        /// that can least afford a second pass over the scene).
+        ///
+        /// Weather takes the rest: under rain cloud the light comes from the
+        /// whole sky and a shadow is a smudge under the car, which is the
+        /// blob shadow's job. Measured off the owner's overcast Forza frame:
+        /// no cast shadow anywhere in it, and a contact patch under the car.
+        /// </summary>
+        public static float ShadowFor(int hour, Weather w)
+        {
+            float s;
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Morning: case Noon: case Afternoon: s = 1f; break;
+                case Dawn: case Sunset: s = 0.85f; break;
+                default: s = 0f; break;
+            }
+            switch (w)
+            {
+                case Weather.Rain: return s * 0.15f;
+                case Weather.Fog:  return s * 0.20f;
+                case Weather.Snow: return s * 0.45f;
+                default: return s;
+            }
+        }
+
+        /// <summary>
+        /// How much of its ambient a roofed-over place loses, 0..1 —
+        /// PSXGlobals.skyShade, the top-down map (SunShadows). Whatever the
+        /// WEATHER: it is the sky being hidden, not the sun, and the darkest
+        /// thing in the owner's overcast frame is the ground under the car.
+        /// Off from dusk, with the sun's map and for its reasons: those hours
+        /// are the lamps', and their ambient is already next to nothing.
+        /// </summary>
+        public static float SkyShadeFor(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Dawn: case Morning: case Noon: case Afternoon: case Sunset: return 1f;
+                default: return 0f;
+            }
+        }
+
+        /// <summary>
+        /// The sun in the haze — PSXGlobals.fogSun: rgb is what the fog
+        /// colour GAINS looking straight at the sun (sRGB, authored like the
+        /// table), alpha is how tight the glow is (the exponent on the cosine
+        /// of the angle off the sun: 3 is a glow that fills a third of the
+        /// horizon, 8 a tighter one).
+        ///
+        /// Measured, low sun: the far hills toward the sun 0.93, the near
+        /// ones 0.45, the sky forty degrees round 0.53 — so distance fades
+        /// to something that depends on where you are looking. The lower the
+        /// sun the more air its light comes through sideways and the
+        /// stronger and warmer the glow; at noon it is overhead, the horizon
+        /// is nowhere near it and the term does almost nothing. The SKY's
+        /// horizon band takes the same term (PSXSky), because the fog colour
+        /// and the horizon behind it are one pair.
+        ///
+        /// Under cloud there is no sun to look toward: none.
+        /// </summary>
+        public static Color FogSunFor(int hour, Weather w)
+        {
+            if (w != Weather.Clear) return new Color(0f, 0f, 0f, 0f);
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Dawn:      return new Color(0.42f, 0.30f, 0.24f, 5f);
+                case Morning:   return new Color(0.36f, 0.33f, 0.27f, 4f);
+                case Noon:      return new Color(0.16f, 0.16f, 0.15f, 3f);
+                case Afternoon: return new Color(0.36f, 0.31f, 0.22f, 4f);
+                case Sunset:    return new Color(0.44f, 0.28f, 0.14f, 5f);
+                default:        return new Color(0f, 0f, 0f, 0f);
             }
         }
 

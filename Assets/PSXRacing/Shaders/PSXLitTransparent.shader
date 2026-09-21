@@ -86,6 +86,8 @@ Shader "PSX/LitTransparent"
             // below, so an unset global (0) is the old straight ramp.
             float _PSXFogCurve;
             float _PSXSnap;         // 1 = vertex snapping on
+            // For PSXFogTowardSun only: glass takes the haze the walls take.
+            #include "PSXSunShadow.cginc"
 
             struct appdata
             {
@@ -150,7 +152,10 @@ Shader "PSX/LitTransparent"
                 float3 N = nl2 > 1e-8 ? i.wnrm * rsqrt(nl2) : float3(0, 1, 0);
                 float3 light = i.light.rgb + PSXHeadlights(i.wpos, N) + PSXLamps(i.wpos, N);
                 fixed3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
-                fixed3 col = lerp(lit, _PSXFogColor.rgb, i.fog);
+                // The same haze the wall beside it fades into: brighter
+                // toward the sun (the DAY PASS, PSXSunShadow.cginc).
+                float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
+                fixed3 col = lerp(lit, PSXFogTowardSun(_PSXFogColor.rgb, V), i.fog);
                 // Fog also closes the glass: at full fog a window is as opaque
                 // as the wall beside it, because both are simply haze by then.
                 return fixed4(col, lerp(tex.a, 1.0, i.fog));

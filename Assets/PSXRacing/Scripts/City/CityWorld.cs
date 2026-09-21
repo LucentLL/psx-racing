@@ -287,6 +287,9 @@ namespace PSXRacing.City
             }
 
             live[key] = new Tile { go = root, meshes = meshes };
+            // Its towers cast on the frame they appear, not at the next
+            // re-count of the scene.
+            SunShadows.Register(root);
         }
 
         /// <summary>
@@ -305,6 +308,10 @@ namespace PSXRacing.City
             {
                 var g = Child(root, "Ground", 0);
                 Render(g, tm.ground, tm.groundSlots, matFor);
+                // Nothing lies under the ground to be shaded by it (nor under
+                // the kerbs or the water; and a lamp post's shadow is a pixel):
+                // each would be draw calls a tile a frame in the sun's map.
+                SunShadows.Exclude(g);
                 g.AddComponent<MeshCollider>().sharedMesh = tm.ground;
                 meshes.Add(tm.ground);
             }
@@ -335,12 +342,14 @@ namespace PSXRacing.City
                 // the verge in the ground mesh is what the car climbs back on.
                 var g = Child(root, "Kerbs", 0);
                 Render(g, tm.kerbs, new[] { CityMeshes.Slot.Concrete }, matFor);
+                SunShadows.Exclude(g);
                 meshes.Add(tm.kerbs);
             }
             if (tm.water != null)
             {
                 var g = Child(root, "Water", 0);
                 Render(g, tm.water, new[] { CityMeshes.Slot.Water }, matFor);
+                SunShadows.Exclude(g);
                 meshes.Add(tm.water);
             }
             if (tm.buildings != null)
@@ -376,6 +385,7 @@ namespace PSXRacing.City
                 mr.enabled = mr.sharedMaterial != null;   // no material draws pink, not nothing
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows = false;
+                SunShadows.Exclude(g);
                 meshes.Add(tm.lampPosts);
             }
             if (tm.lamps.Count > 0)

@@ -85,6 +85,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestSleepBlocks), TestSleepBlocks);
             Guard(nameof(TestSenseOfSpeed), TestSenseOfSpeed);
             Guard(nameof(TestNightLook), TestNightLook);
+            Guard(nameof(TestDayLook), TestDayLook);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -10152,6 +10153,157 @@ namespace PSXRacing.EditorTools
         /// <summary>A check that cannot be made here, and why — the run says
         /// what it did NOT look at instead of passing it in silence.</summary>
         static void Skip(string why) => Line("  skip " + why);
+
+        // ==================================================================
+        //  THE DAY LOOK (2026-09-21, the Forza daylight pass)
+        // ==================================================================
+
+        /// <summary>
+        /// The owner, with five daylight frames of Forza Horizon: improved
+        /// lighting "during morning, day, and afternoon ... when headlights
+        /// and street lights are not the major driving factors". The PICTURE
+        /// is judged by DayLookShots and tools/day/day_stats.py; this pins
+        /// the parts that fail without a sound: a caster shader a build
+        /// strips, a day global declared as a material property (it then
+        /// reads 0 forever), shadows left on for the hours that belong to the
+        /// lamps, a haze glow with no sun behind it, and a shadow map whose
+        /// matrix puts the road somewhere other than where it is drawn.
+        /// </summary>
+        static void TestDayLook()
+        {
+            Line("day look:");
+            Guard("DayLook.Shaders", DayLookShaders);
+            Guard("DayLook.Hours", DayLookHours);
+            Guard("DayLook.Map", DayLookMap);
+        }
+
+        static void DayLookShaders()
+        {
+            string gfx = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(Application.dataPath, "..", "ProjectSettings", "GraphicsSettings.asset"));
+            const string casterPath = "Assets/PSXRacing/Shaders/PSXShadowCaster.shader";
+            const string casterGuid = "176052e8c6e5414c941087c716b7eba1";
+            var caster = Shader.Find("PSX/ShadowCaster");
+            Check(caster != null && !ShaderUtil.ShaderHasError(caster), "PSX/ShadowCaster compiles and is found");
+            string got = AssetDatabase.AssetPathToGUID(casterPath);
+            Check(got == casterGuid, "PSX/ShadowCaster is imported under its committed GUID", got);
+            // Nothing in any scene references it (SunShadows makes its
+            // materials at runtime), so this list is the only reason a player
+            // build has shadows at all.
+            Check(gfx.Contains(casterGuid), "PSX/ShadowCaster is in GraphicsSettings' always-included shaders");
+            got = AssetDatabase.AssetPathToGUID("Assets/PSXRacing/Shaders/PSXSunShadow.cginc");
+            Check(got == "55b7b821cdfa44fdb123badc9c7c689c", "PSXSunShadow.cginc is imported under its committed GUID", got);
+
+            string shadowed = "";
+            foreach (var name in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Sky", "PSX/ShadowCaster" })
+            {
+                var sh = Shader.Find(name);
+                if (sh == null) continue;
+                Check(!ShaderUtil.ShaderHasError(sh), name + " still compiles with the day pass in it");
+                foreach (var g in new[] { "_PSXSunModel", "_PSXShadowParams", "_PSXShadowMap", "_PSXShadowMatrix", "_PSXFogSun",
+                                          "_PSXSkyParams", "_PSXSkyMap", "_PSXSkyMatrix", "_PSXCasterMatrix" })
+                    if (sh.FindPropertyIndex(g) >= 0) shadowed += name + " " + g + "; ";
+            }
+            Check(shadowed.Length == 0,
+                  "no shader declares a day global as a material property (it would shadow the global and read 0)",
+                  shadowed.Length > 0 ? shadowed : null);
+        }
+
+        static void DayLookHours()
+        {
+            foreach (int h in new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon })
+                Check(TimeOfDay.ShadowFor(h, Weather.Clear) >= 0.9f,
+                      "a clear " + TimeOfDay.At(h).name.ToLowerInvariant() + " casts hard shadows",
+                      TimeOfDay.ShadowFor(h, Weather.Clear));
+            Check(TimeOfDay.ShadowFor(TimeOfDay.Sunset, Weather.Clear) > 0.5f, "and so does a sunset, a little softer",
+                  TimeOfDay.ShadowFor(TimeOfDay.Sunset, Weather.Clear));
+            // The hours the lamps own are untouched: no map is drawn, and the
+            // night the owner signed off is the same night.
+            foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
+            {
+                bool off = true;
+                foreach (Weather w in System.Enum.GetValues(typeof(Weather)))
+                    if (TimeOfDay.ShadowFor(h, w) != 0f || TimeOfDay.FogSunFor(h, w).a != 0f) off = false;
+                Check(off, TimeOfDay.At(h).name.ToLowerInvariant() + " draws no shadow map and no sun in the haze, whatever the weather");
+            }
+            foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
+                Check(TimeOfDay.SkyShadeFor(h) == 0f, TimeOfDay.At(h).name.ToLowerInvariant() + " draws no sky map either");
+            Check(TimeOfDay.SkyShadeFor(TimeOfDay.Noon) > 0.9f, "by day a roof takes the sky's light away (in any weather: the sky map has no weather)");
+            Check(TimeOfDay.ShadowFor(TimeOfDay.Noon, Weather.Rain) < 0.3f,
+                  "an overcast noon all but switches the shadows off (the blob under the car is the shadow there)",
+                  TimeOfDay.ShadowFor(TimeOfDay.Noon, Weather.Rain));
+            bool sunless = true;
+            for (int h = 0; h < TimeOfDay.Count; h++)
+                foreach (var w in new[] { Weather.Rain, Weather.Fog, Weather.Snow })
+                    if (TimeOfDay.FogSunFor(h, w).a != 0f) sunless = false;
+            Check(sunless, "no glow toward a sun that is behind cloud");
+            // The exponent doubles as the ON switch in the shaders (alpha
+            // under 1 returns the plain fog before anything is normalised).
+            bool tight = true;
+            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon, TimeOfDay.Sunset })
+                if (TimeOfDay.FogSunFor(h, Weather.Clear).a < 1f) tight = false;
+            Check(tight, "every sunlit hour's haze glow has an exponent of at least 1 (under 1 means OFF to the shaders)");
+            Color lo = TimeOfDay.FogSunFor(TimeOfDay.Afternoon, Weather.Clear), hi = TimeOfDay.FogSunFor(TimeOfDay.Noon, Weather.Clear);
+            Check(lo.r + lo.g + lo.b > hi.r + hi.g + hi.b, "a low sun lights more haze than a high one");
+        }
+
+        /// <summary>
+        /// The map's own arithmetic, with a camera and no scene: the matrix
+        /// SunShadows pushes must put the middle of its square at the middle
+        /// of the map, move a point toward the sun to a SMALLER depth, and
+        /// keep the whole column inside 0..1 - the three things a sign error
+        /// in the light's frame gets wrong, none of which draws an error.
+        /// </summary>
+        static void DayLookMap()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                Skip("the shadow map's matrix (no graphics device: DayLookShots checks it against a real map)");
+                return;
+            }
+            var go = new GameObject("DayLookMapProbe");
+            try
+            {
+                var cam = go.AddComponent<Camera>();
+                cam.enabled = false;
+                go.transform.SetPositionAndRotation(new Vector3(120f, 14f, -60f), Quaternion.Euler(10f, 35f, 0f));
+                Vector3 toSun = (Quaternion.Euler(38f, 44f, 0f) * Vector3.back).normalized;
+                SunShadows.Configure(1f, 1f, toSun);
+                SunShadows.RenderFor(cam);
+                Check(SunShadows.Map != null, "the map exists once something asks for it");
+                Vector3 flat = go.transform.forward; flat.y = 0f; flat.Normalize();
+                Vector3 mid = go.transform.position + flat * SunShadows.Ahead;
+                Vector3 at = SunShadows.WorldToMap.MultiplyPoint(mid);
+                float texel = 1f / (SunShadows.Map != null ? SunShadows.Map.width : 1024);
+                Check(Mathf.Abs(at.x - 0.5f) <= texel * 1.01f && Mathf.Abs(at.y - 0.5f) <= texel * 1.01f,
+                      "the square's centre lands mid-map, to the texel it was snapped by",
+                      at.x.ToString("0.0000") + "," + at.y.ToString("0.0000"));
+                Vector3 nearer = SunShadows.WorldToMap.MultiplyPoint(mid + toSun * 50f);
+                Check(nearer.z < at.z - 0.05f && Mathf.Abs(nearer.x - at.x) < 1e-3f && Mathf.Abs(nearer.y - at.y) < 1e-3f,
+                      "a point 50 m toward the sun is the same texel at a smaller depth",
+                      nearer.z.ToString("0.000") + " < " + at.z.ToString("0.000"));
+                float zTop = SunShadows.WorldToMap.MultiplyPoint(mid + toSun * (SunShadows.TowardSunM - 1f)).z;
+                float zBottom = SunShadows.WorldToMap.MultiplyPoint(mid - toSun * (SunShadows.AwayM - 1f)).z;
+                Check(zTop > 0f && zTop < 0.01f && zBottom < 1f && zBottom > 0.99f,
+                      "the column runs from depth 0 at its sunward end to 1 at the other",
+                      zTop.ToString("0.0000") + " .. " + zBottom.ToString("0.0000"));
+                Vector3 edge = SunShadows.WorldToMap.MultiplyPoint(mid + Vector3.Cross(toSun, Vector3.up).normalized * SunShadows.HalfExtent);
+                Check(Mathf.Max(Mathf.Abs(edge.x - 0.5f), Mathf.Abs(edge.y - 0.5f)) > 0.49f,
+                      "and its half-width is the map's half-width");
+                // The sky's map looks straight down: height is its depth, and
+                // nothing else is.
+                Vector3 low = SunShadows.WorldToSkyMap.MultiplyPoint(mid), high = SunShadows.WorldToSkyMap.MultiplyPoint(mid + Vector3.up * 40f);
+                Check(SunShadows.SkyMap != null && high.z < low.z - 0.05f &&
+                      Mathf.Abs(high.x - low.x) < 1e-3f && Mathf.Abs(high.y - low.y) < 1e-3f,
+                      "in the sky's map a point 40 m up is the same texel at a smaller depth",
+                      high.z.ToString("0.000") + " < " + low.z.ToString("0.000"));
+            }
+            finally
+            {
+                SunShadows.Configure(0f, 0f, Vector3.up);
+                Object.DestroyImmediate(go);
+            }
+        }
 
         /// <summary>
         /// The three shaders nothing in a scene references (the halo, rain

@@ -237,6 +237,12 @@ Shader "PSX/CarPaint"
             // and after this file's LAND_* #defines, which it keeps: its own
             // are #ifndef-guarded defaults.
             #include "PSXSkyReflect.cginc"
+            // The sun's shadow map and the sun in the haze (the DAY PASS,
+            // 2026-09-21: PSXSunShadow.cginc). A car under an avenue is
+            // dappled with the road it is on, and one in a tunnel is lit by
+            // the sky it cannot see no more than the walls are. Off (exactly
+            // 1) at night, at dusk and in every scene that set no hour.
+            #include "PSXSunShadow.cginc"
 
             struct appdata
             {
@@ -316,8 +322,17 @@ Shader "PSX/CarPaint"
                 float3 sideA = _PSXAmbient.rgb * SIDE_AMBIENT;
                 float3 amb = up >= 0.0 ? lerp(sideA, _PSXSkyAmbient.rgb, up)
                                        : lerp(sideA, _PSXAmbient.rgb * UNDER_AMBIENT, -up);
-                amb *= PAINT_AMBIENT;
-                float ndl = saturate(dot(N, L));
+                // Under a roof there is no sky to light the car or to be seen
+                // in its lacquer: the ambient and the sky's reflection both
+                // answer to the map that looks straight down (1 in the open,
+                // and 1 whenever the day pass is off).
+                float skyOpen = PSXSkyOpen(i.wpos, N, 0.0);
+                amb *= PAINT_AMBIENT * skyOpen;
+                // What the shadow map lets through: the sun's lambert, its
+                // glint and the flake's sheen all go with it - a shadowed
+                // bonnet has no sun in the lacquer either.
+                float sunVis = PSXSunShadow(i.wpos, N, length(_WorldSpaceCameraPos - i.wpos), 0.0);
+                float ndl = saturate(dot(N, L)) * sunVis;
                 // Each lamp table walked ONCE for both what it lights and
                 // what it glints (the *Both functions share the distance and
                 // attenuation between the two). The glint power doubles on
@@ -352,7 +367,7 @@ Shader "PSX/CarPaint"
                 // The flake under the lacquer tints its share; glass does not.
                 float3 body = saturate(tex.rgb * 1.6);
                 float3 tint = lerp(float3(1, 1, 1), body, PAINT_METALLIC * (1.0 - glass));
-                float3 refl = sky * tint * k;
+                float3 refl = sky * tint * (k * skyOpen);
 
                 // THE SUN: a glint a few degrees across in the lacquer - a
                 // spark on a curve, nothing at all across a flat roof - and
@@ -362,7 +377,7 @@ Shader "PSX/CarPaint"
                 float glint = pow(ndh, SUN_GLINT_POW * (1.0 + glass)) * SUN_GLINT * (1.0 + glass * 0.8);
                 float sheen = pow(ndh, FLAKE_POW) * FLAKE_SHEEN * (1.0 - glass) * step(0.0001, ndl);
                 float dullSpec = lerp(1.0, DULL_SPEC, dull);
-                float3 hi = _PSXLightColor.rgb * (glint + sheen * body) * dullSpec;
+                float3 hi = _PSXLightColor.rgb * ((glint + sheen * body) * dullSpec * sunVis);
                 // THE LAMPS IN THE LACQUER: a spark per street lamp and per
                 // beam aimed at the car, under the very mask the sun's glint
                 // wears (glass shows it harder, a wheel hardly at all) and
@@ -393,7 +408,7 @@ Shader "PSX/CarPaint"
                     return fixed4(col, 1);
                 }
 
-                col = lerp(col, _PSXFogColor.rgb, i.fog);
+                col = lerp(col, PSXFogTowardSun(_PSXFogColor.rgb, V), i.fog);
                 return fixed4(col, tex.a);
             }
             ENDCG
