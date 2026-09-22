@@ -282,6 +282,9 @@ namespace PSXRacing.LifeSim
         public static bool SetStage(OwnedCar car, Upgrades.Kind kind, int stage)
         {
             if (car == null) return false;
+            // A race car is already built — a fact about the CAR, which the
+            // bench honours like the shop's other two (see the class comment).
+            if (Upgrades.RaceCarRefuses(CarCatalog.Get(car.specId), kind) != null) return false;
             int before = Upgrades.GetStage(car, kind);
             Upgrades.SetStage(car, kind, stage);
             return Upgrades.GetStage(car, kind) != before;
@@ -295,7 +298,8 @@ namespace PSXRacing.LifeSim
             switch (kind)
             {
                 case Upgrades.Kind.Power:
-                    return CarTune.PowerAtStage(spec.hp, spec.builtHp, stage) + " hp";
+                    return CarTune.PowerAtStage(spec.hp, spec.builtHp, stage) + " hp, top speed +" +
+                           CarTune.TopSpeedGainPct(stage, false) + "%";
                 case Upgrades.Kind.Weight:
                     return CarTune.WeightAtStage(spec.kg, spec.minKg, stage) + " kg";
                 case Upgrades.Kind.Brakes:
@@ -344,7 +348,8 @@ namespace PSXRacing.LifeSim
         {
             if (car == null) return;
             for (var k = Upgrades.Kind.Power; k <= Upgrades.LastKind; k++)
-                Upgrades.SetStage(car, k, Upgrades.MaxStage);
+                if (Upgrades.RaceCarRefuses(spec, k) == null)
+                    Upgrades.SetStage(car, k, Upgrades.MaxStage);
             foreach (var mod in Upgrades.AllMods)
             {
                 if (mod == Upgrades.Mod.WeldedDiff) continue;

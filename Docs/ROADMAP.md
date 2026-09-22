@@ -5,6 +5,75 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## TOP SPEEDS FROM GT4, A BUILD IS A PERCENTAGE, AND RACE CARS COME BUILT (2026-09-21)
+
+The brief: "Something is very wrong with top speeds. One car has over 300MPH.
+All stock max speeds are listed in original GT4 specs. Upgrades should
+increase that by a %. Race cars are assumed to already be maxed out by default
+so they don't get upgrades, but they should also be close to the upper limit
+of speed, handling, etc."
+
+**What was wrong, and it was two things.**
+- There is no top speed in any GT4 data here — not `GT4 Specs.xlsx` (every
+  sheet read), not RG2's `GT4_DB`/`GT4_SPECS`. RG2 made one up:
+  `min(300 or 340 km/h, (110 + hp*0.48) * dragFactor)`, linear in power with
+  a flat wall (the RUF, the Viper and the 427 Cobra all "did" 300).
+- Our catalog was EXACTLY 1.290x that formula, on all 317 cars: the first
+  bake converted RG2's world-pixel speed with the wrong one of its two
+  scales. Then a power build gained the cube root of its power (drag was held
+  at the stock body's), and the tuning page's long gearing let it use all of
+  it. That is the 300 mph car.
+
+**Stock figure: solved from GT4's own fields** (`tools/bake_topspeed.py`,
+idempotent, edits only `topSpeedMps`/`gearSpeeds`): the engine's peak power
+off its torque curve, GT4 "Wind Drag" as Cd x100, frontal area from the
+chassis width, rolling resistance from mass. No fudge factor; against 14 cars
+with well-documented real top speeds it is within 6% on average. 184-393 km/h
+over the catalog; the fastest road car is 211 mph stock.
+
+**A build is a percentage** (`CarTune.TopSpeedMult`): +15% at power stage 4,
+walked on the power ladder's own curve, +4% for a blower. The physics is
+SOLVED to it: top gear now puts the engine's PEAK POWER (not redline) at the
+build's top speed (`CarSpec.BuildGearRatios`), and `DeriveDrag` balances the
+built engine there. With the power peak as the anchor the stock box is the
+fastest gearing there is — over the whole catalog no slider setting beats the
+build by more than ~1% (it was up to +32% with redline as the anchor). First
+gear moved a median 3% longer. The shop's power row quotes the top speed it
+buys; the spec sheet and the parts page show stock -> built (+N%).
+
+**Race cars come built.** Stage-4 brakes, suspension and tyres from the
+factory (their own ride height kept), their own GT4 power and weight, every
+tuning row open, and the shop refuses every stage and part (the pizza SEAT
+excepted). Save v16 takes anything already bought off a race car and refunds
+it. Race cars sit 189-393 km/h, median 351 — the top of the field.
+
+**The flat-out check found two things the force balance could not see**, both
+fixed:
+- **The body leaned on the road.** Every car sits ~1.1-1.9 degrees nose-up at
+  speed (the rear springs are softer, and squat and the rear downforce add to
+  it), and the springs pushed along the body's own up — so 2.3% of the car's
+  weight became a force pushing it BACKWARDS, 150-370 N on every car, always.
+  The downforce pushed along the same leaning axis the other way. Both now
+  push along the body's up with its pitch against the road taken out
+  (`CarController.SpringDirection`); the ROLL lean, which the cornering was
+  tuned on, is exactly as it was.
+- **The automatic box could stall a gear short.** With top gear on the power
+  peak, the gear below reaches 96% of redline only at ~95% of top speed, and an
+  engine whose power fades there never gets to it (the RUF sat in fifth 1 rpm
+  under the shift). The box also changes up now, at full throttle and past the
+  power peak, where the next gear pulls harder — which is the fastest shift
+  anyway. The built-in RX-7 the handling was tuned on is unaffected.
+
+Measured flat out, every car lands within a mile an hour of its figure: the RUF
+202 mph stock and 232 fully built, the slowest road car 113, a built Cizeta
+with a blower 245, the GT-One 244. Nothing reaches 250.
+
+Checked by: the catalog block, the fence sweep (every car reaches its build
+within 1.5%, no gearing beats it by more than 3%, blown NA cars included) and
+`TestRaceCarsBuilt` in the self-test; `tools/topspeed-play-check.ps1`, which
+holds the throttle flat on a 30 km strip in the running game until each car
+stops gaining, and logs the gear, rpm, pitch and every force at the plateau.
+
 ## THE BOARD MOVES, AND YOUR NAME IS ON IT (2026-09-20)
 
 The brief: "Player's name should be added to Blacklist to show their current

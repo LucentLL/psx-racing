@@ -432,6 +432,36 @@ namespace PSXRacing.LifeSim
                 foreach (var c in s.cars) CoolingModel.Seed(c, c != null ? c.engine : 100f);
                 s.saveVersion = 15;
             }
+
+            if (s.saveVersion < 16)
+            {
+                // v16: A RACE CAR IS ALREADY BUILT (the owner, 2026-09-21:
+                // "Race cars are assumed to already be maxed out by default so
+                // they don't get upgrades"). The shop used to sell them stages
+                // and parts at a 1.5x premium; the physics now ignores those
+                // stages and gives the car race hardware instead, so anything a
+                // career bought for one is money spent on nothing. Take it off
+                // and hand the money back, stage by stage at this car's own
+                // prices — the same shape as v10's aero refund. The driver's
+                // tune is left as it is: every row of it is open on a race car
+                // now, so none of it is lost.
+                int refunded = 0, cars = 0;
+                foreach (var car in s.cars)
+                {
+                    var spec = car != null ? CarCatalog.Get(car.specId) : null;
+                    if (spec == null || !spec.IsRaceCar) continue;
+                    int back = Upgrades.StripRaceCar(s, car, spec);
+                    if (back <= 0) continue;
+                    refunded += back;
+                    cars++;
+                }
+                if (cars > 0)
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) +
+                        ": race cars come built — the parts on " + cars +
+                        (cars == 1 ? " race car" : " race cars") + " went back (" +
+                        MenuKit.Money(refunded) + ")");
+                s.saveVersion = 16;
+            }
         }
 
         public static void DeleteSave()

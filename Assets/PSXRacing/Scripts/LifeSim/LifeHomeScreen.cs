@@ -3149,8 +3149,14 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, "PERFORMANCE", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
             y -= 28f;
-            SpecRow("TOP SPEED", Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f)) +
-                    " " + SpeedUnits.Label, ref y);
+            // Stock, and as built: the build adds a percentage of the stock
+            // GT4 figure (CarTune.TopSpeedMult), which is what the car does.
+            int topStock = Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f));
+            int topBuilt = Mathf.RoundToInt(SpeedUnits.FromKmh(
+                Upgrades.EffectiveTopSpeedMps(car, spec) * 3.6f));
+            SpecRow("TOP SPEED", (topBuilt == topStock ? topStock + " "
+                                                      : topStock + " → " + topBuilt + " ") +
+                    SpeedUnits.Label, ref y, topBuilt != topStock);
             SpecRow("POWER", effHp == spec.hp ? spec.hp + " hp"
                                               : spec.hp + " → " + effHp + " hp", ref y,
                     effHp != spec.hp);
@@ -3173,7 +3179,8 @@ namespace PSXRacing.LifeSim
             SpecRow("REDLINE", spec.redline.ToString("N0") + " rpm", ref y);
             SpecRow("GEARS", spec.gears.ToString(), ref y);
             SpecRow("YEAR", spec.modelYear.ToString(), ref y);
-            SpecRow("BUILD CEILING", spec.builtHp + " hp at stage 4", ref y);
+            SpecRow("BUILD CEILING", spec.IsRaceCar ? "race car — already built"
+                                                    : spec.builtHp + " hp at stage 4", ref y);
 
             y -= 14f;
             float sBtnW = Mathf.Min(300f, (ColW - 12f) / 2f);
@@ -3801,23 +3808,54 @@ namespace PSXRacing.LifeSim
                 16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 Upgrades.IsStock(car) ? MenuKit.Dim : MenuKit.Good, 820f);
             y -= 26f;
-            MenuKit.Label(body, "Ceiling for this engine: " + spec.builtHp + " hp at stage 4   ·   " +
-                "mech skill " + Mathf.RoundToInt(S.mechSkill), 14,
+            // THE TOP SPEED, stock and as built: the stock figure is GT4's,
+            // and the build adds a percentage of it — the rule the physics is
+            // solved to, so this line and a stopwatch cannot disagree.
+            int stockTop = Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f));
+            int builtTop = Mathf.RoundToInt(SpeedUnits.FromKmh(
+                Upgrades.EffectiveTopSpeedMps(car, spec) * 3.6f));
+            int topPct = spec.IsRaceCar ? 0
+                : CarTune.TopSpeedGainPct(Upgrades.GetStage(car, Upgrades.Kind.Power), car.supercharged);
+            MenuKit.Label(body, "Top speed " + (builtTop == stockTop
+                    ? stockTop + SpeedUnits.Suffix
+                    : stockTop + " -> " + builtTop + SpeedUnits.Suffix + " (+" + topPct + "%)") +
+                (spec.IsRaceCar ? "   ·   race car"
+                                : "   ·   engine ceiling " + spec.builtHp + " hp at stage 4") +
+                "   ·   mech skill " + Mathf.RoundToInt(S.mechSkill), 14,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 820f);
             y -= 36f;
 
-            // To LastKind, not to a kind by name: the loop used to end at
-            // Tires, and a sixth category added to the ladder simply did not
-            // appear here.
-            for (int i = 0; i <= (int)Upgrades.LastKind; i++)
-                DrawUpgradeRow(car, spec, (Upgrades.Kind)i, ref y);
+            if (spec.IsRaceCar)
+            {
+                // A race car is already built (the owner: "maxed out by
+                // default"). Say what it came with, instead of five ladders of
+                // FULLY BUILT and eight parts refusing to be sold; the seat is
+                // the one thing left, because it is the pizza's, not the car's.
+                MenuKit.Label(body, Upgrades.RaceCarBuilt, 17, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Good, 820f, bold: true);
+                y -= 28f;
+                MenuKit.Label(body, "Race brakes, suspension and tyres from the factory, and every " +
+                    "tuning row is open. There is nothing to buy for it but a seat.", 14,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, 820f);
+                y -= 36f;
+                DrawUpgradeRow(car, spec, Upgrades.Kind.Seat, ref y);
+            }
+            else
+            {
+                // To LastKind, not to a kind by name: the loop used to end at
+                // Tires, and a sixth category added to the ladder simply did not
+                // appear here.
+                for (int i = 0; i <= (int)Upgrades.LastKind; i++)
+                    DrawUpgradeRow(car, spec, (Upgrades.Kind)i, ref y);
 
-            y -= 6f;
-            MenuKit.Label(body, "MODS", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
-                TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
-            y -= 28f;
-            foreach (var mod in Upgrades.AllMods) DrawModRow(car, spec, mod, ref y);
+                y -= 6f;
+                MenuKit.Label(body, "MODS", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
+                y -= 28f;
+                foreach (var mod in Upgrades.AllMods) DrawModRow(car, spec, mod, ref y);
+            }
 
             // How much of the setup screen this car has actually earned. It is
             // the reason every one of those parts is worth buying, so it goes
@@ -4265,7 +4303,10 @@ namespace PSXRacing.LifeSim
             {
                 MenuKit.Label(body, "  " + plan.sideEffect, 14, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-                y -= 24f;
+                // 34, not 24: at 24 the line's lower half sat under the two
+                // buttons below it (the seat's bolster line always had; the
+                // power row's top-speed line, 2026-09-21, made it two rows).
+                y -= 34f;
             }
 
             float btnW = Mathf.Min(280f, (ColW - 12f) / 2f);
@@ -5286,7 +5327,8 @@ namespace PSXRacing.LifeSim
                                                                             : "naturally aspirated";
                 string engine = string.IsNullOrEmpty(spec.eType) ? "engine" : spec.eType;
                 MenuKit.Label(body, engine + (spec.dispCc > 0 ? "  ·  " + spec.dispCc + "cc" : "") +
-                        "  ·  " + boost + "  ·  builds to " + spec.builtHp + " hp",
+                        "  ·  " + boost + (spec.IsRaceCar ? "  ·  race car, already built"
+                                                           : "  ·  builds to " + spec.builtHp + " hp"),
                     15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);
                 y -= 30f;

@@ -185,11 +185,11 @@ namespace PSXRacing
             float mu = 1.0f * skill * Seasons.RoadGripMult;
             float curvNow = Mathf.Max(path.MaxCurvatureAhead(nearestIdx, 6), 0.0005f);
             float cornerSpeed = Mathf.Sqrt(mu * 9.81f / curvNow) * 0.92f;
-            // The player's SPEC top speed: DeriveDrag solves the car to its
-            // sheet figure whatever parts are fitted, so this is the number the
-            // player can actually reach, tuned or not.
+            // The player's BUILD top speed: DeriveDrag solves the car to reach
+            // exactly that on its own gearing, so it is the number the player
+            // can actually reach, tuned or not.
             var rmNow = RaceManager.Instance;
-            float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.topSpeedMps : 0f;
+            float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.BuildTopSpeedMps : 0f;
             float targetSpeed = Mathf.Min(cornerSpeed, TargetSpeedCap(skill, playerVmax));
 
             // Brake early for upcoming slow corners

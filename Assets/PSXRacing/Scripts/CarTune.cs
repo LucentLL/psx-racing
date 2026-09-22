@@ -73,6 +73,92 @@ namespace PSXRacing
         public static float GripStageMult(int stage) =>
             1f + (BuiltGripMult - 1f) * GripFrac[Clamp(stage)];
 
+        // ---- top speed --------------------------------------------------------
+        //
+        // The owner, 2026-09-21: "All stock max speeds are listed in original
+        // GT4 specs. Upgrades should increase that by a %." So a build's top
+        // speed is a PERCENTAGE of the car's stock figure (baked from GT4's own
+        // spec fields by tools/bake_topspeed.py), and the physics is solved to
+        // land on it: CarSpec.BuildGearRatios puts the engine's peak power at
+        // this speed in top gear, and CarController.DeriveDrag solves the drag
+        // so the car balances there. That makes the stock gearbox the fastest
+        // there is - no gearing slider can beat the number by more than the
+        // shape of the power curve allows (2% at worst over the catalog).
+        //
+        // Before this, the engine build scaled torque while the drag stayed the
+        // stock body's, so a build gained the cube root of its power - and the
+        // gearing sliders let it use all of it. That, on top of a stock figure
+        // that was itself 29% high, is how a car got past 300 mph.
+
+        /// <summary>Top speed a fully built engine adds, as a share of stock.
+        /// Walked on the POWER ladder's own front-loaded curve, so the shop's
+        /// "+hp" and "+top speed" move together.</summary>
+        public const float BuiltTopSpeedGain = 0.15f;
+        /// <summary>What a Roots blower adds on top. It is a power part like the
+        /// ladder, just not one of its rungs.</summary>
+        public const float BlowerTopSpeedGain = 0.04f;
+
+        /// <summary>Stock top speed times this is the build's.</summary>
+        public static float TopSpeedMult(int powerStage, bool blower) =>
+            1f + BuiltTopSpeedGain * PowerFrac[Clamp(powerStage)] + (blower ? BlowerTopSpeedGain : 0f);
+
+        /// <summary>The build's top speed over stock, as a whole percentage, for
+        /// the shop and the spec page.</summary>
+        public static int TopSpeedGainPct(int powerStage, bool blower) =>
+            Mathf.RoundToInt((TopSpeedMult(powerStage, blower) - 1f) * 100f);
+
+        // ---- the Roots blower's torque curve ----------------------------------
+        // Here rather than in CarController because the GEARBOX needs it now:
+        // a blower moves where the engine makes its peak power, which is where
+        // top gear is anchored, and the garage builds that gearbox with no
+        // CarController anywhere (CarSetupBasis.FromSpec).
+
+        public const float SuperchargerPeak = 1.30f;
+        public const float SuperchargerTop = 1.15f;
+        public const float SuperchargerTaperStart = 0.6f;
+
+        /// <summary>Roots boost by RPM: flat to 60% of the rev range, then
+        /// tapering as airflow falls off.</summary>
+        public static float BlowerBoost(float rpm, float idleRPM, float redlineRPM)
+        {
+            float frac = Mathf.Clamp01((rpm - idleRPM) / Mathf.Max(redlineRPM - idleRPM, 1f));
+            float taper = Mathf.Max(0f, (frac - SuperchargerTaperStart) / (1f - SuperchargerTaperStart));
+            return SuperchargerPeak - (SuperchargerPeak - SuperchargerTop) * taper;
+        }
+
+        // ---- race cars ---------------------------------------------------------
+        //
+        // The owner, 2026-09-21: "Race cars are assumed to already be maxed out
+        // by default so they don't get upgrades, but they should also be close
+        // to the upper limit of speed, handling, etc." A race car's GT4 power
+        // and weight are already race figures, so those ladders stay at its own
+        // stock. What a road car has to BUY - race brakes, coilovers, a track
+        // compound - a race car arrives with.
+
+        /// <summary>
+        /// The stages the car's HANDLING is built from: a race car's own race
+        /// hardware, whatever the save says is bolted to it; anybody else's
+        /// ladders as bought. Power and weight are zero on a race car because
+        /// its stock figures ARE the race figures.
+        ///
+        /// Handling only, and on purpose: the suspension stage also LOWERS a
+        /// road car (<see cref="RestLengthAtStage"/>), and a race car's factory
+        /// ride height is already its race ride height. So callers pass THIS to
+        /// the brake / grip / stiffness curves and the car's own (zero) stages
+        /// to the ride height.
+        /// </summary>
+        public static Stages HandlingOf(bool raceCar, Stages tune) => raceCar
+            ? new Stages { power = 0, weight = 0, brakes = MaxStage, suspension = MaxStage,
+                           tires = MaxStage, seat = tune.seat }
+            : tune;
+
+        /// <summary>What a race car's save stages COUNT as: none. The one rule
+        /// both sides of the fence apply before anything else, so a race car
+        /// carried over from a save that let it buy stages races as the race
+        /// car it is.</summary>
+        public static Stages BoughtOf(bool raceCar, Stages tune) =>
+            raceCar ? new Stages { seat = tune.seat } : tune;
+
         // ---- what a suspension stage does that you cannot adjust -----------
         //
         // A part changes the car whether or not it hands you a slider, and

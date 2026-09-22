@@ -53,7 +53,7 @@ namespace PSXRacing.LifeSim
         ///     retired to legacy; the migration reads them once to work out
         ///     where an existing career already stands and writes the order.
         /// </summary>
-        public int saveVersion = 15;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 16;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;

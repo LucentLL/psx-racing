@@ -296,6 +296,11 @@ namespace PSXRacing
         ///   50 m/s (180 km/h): df/W 0.133 -> 0.266, budget 1.43 g -> 1.60 g
         ///   damper share of the budget at 50 m/s: 31% -> 28%
         ///
+        /// (2026-09-21: the catalog FD's stock top speed is 74.6 m/s now, not
+        /// 81.1 — the old figure was 29% inflated, see tools/bake_topspeed.py —
+        /// so the same 0.70 at ITS vmax is 0.314 of its weight at 50 m/s. Still
+        /// under the built-in FD this was tuned on, whose 64.75 m/s gives 0.42.)
+        ///
         /// That is the "progressively more glued as speed rises" an NFS car
         /// has, bought with load rather than with a damper. What does NOT
         /// move is the front's saturation angle: circle / C = mu / 11 whatever
@@ -360,15 +365,14 @@ namespace PSXRacing
         /// below, NOT the drive force — so gearing, wheelspin and the yaw
         /// injector all see the extra torque the way they see the engine's.</summary>
         public bool supercharged;
-        /// <summary>Peak boost multiplier, held to 60% of the rev range then
-        /// tapering to +15% at redline. That flat-then-taper shape is ROOTS
-        /// character: a positive-displacement blower moves a fixed volume per
-        /// revolution, so it makes its boost immediately and runs out of breath
-        /// at the top — which is also why it suits the NA muscle cars this mod
-        /// is offered on and not the turbo cars, which already have boost.</summary>
-        const float SuperchargerPeak = 1.30f;
-        const float SuperchargerTop = 1.15f;
-        const float SuperchargerTaperStart = 0.6f;
+        // The boost curve — 1.30 held to 60% of the rev range, tapering to 1.15
+        // at redline — lives in CarTune.BlowerBoost now. That flat-then-taper
+        // shape is ROOTS character: a positive-displacement blower moves a
+        // fixed volume per revolution, so it makes its boost immediately and
+        // runs out of breath at the top — which is also why it suits the NA
+        // muscle cars this mod is offered on and not the turbo cars, which
+        // already have boost. It moved because the GEARBOX reads it: a blower
+        // shifts the engine's power peak, and top gear is anchored there.
 
         [Header("Brakes")]
         public float brakeDemandG = 0.9f;
@@ -851,16 +855,7 @@ namespace PSXRacing
         }
 
         public float GetTorqueAtRPM(float rpm) =>
-            RawTorqueAtRPM(rpm) * (supercharged ? SuperchargerBoost(rpm) : 1f);
-
-        /// <summary>Roots boost by RPM: flat to 60% of the rev range, then
-        /// tapering as airflow falls off.</summary>
-        float SuperchargerBoost(float rpm)
-        {
-            float frac = Mathf.Clamp01((rpm - idleRPM) / Mathf.Max(redlineRPM - idleRPM, 1f));
-            float taper = Mathf.Max(0f, (frac - SuperchargerTaperStart) / (1f - SuperchargerTaperStart));
-            return SuperchargerPeak - (SuperchargerPeak - SuperchargerTop) * taper;
-        }
+            RawTorqueAtRPM(rpm) * (supercharged ? CarTune.BlowerBoost(rpm, idleRPM, redlineRPM) : 1f);
 
         /// <summary>Torque off the curve with no forced-induction layer on top.
         /// The setup ranges derive from this rather than from
@@ -916,6 +911,15 @@ namespace PSXRacing
         public void ApplySpec(CarSpec spec, CarTune.Stages tune)
         {
             if (spec == null) return;
+            // A RACE CAR IS ALREADY BUILT. Whatever the request says was bought
+            // for it counts for nothing — only a save from before the shop
+            // refused race cars can say anything at all — and it arrives with
+            // race hardware instead (ApplyTuneHandling). First, so every line
+            // below sees the car it is building. See CarTune.BoughtOf.
+            tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
+            // (The weld's backing field, not the property: the property re-runs
+            // the setup, and this method runs it once, at the end.)
+            if (spec.IsRaceCar) { supercharged = false; weldedDiffFitted = false; }
             activeSpec = spec;
             activeTune = tune;
             spec.Decode();
@@ -947,10 +951,19 @@ namespace PSXRacing
                 }
             }
 
-            var ratios = spec.BuildGearRatios(wheelRadius, finalDrive);
+            // THE BUILD'S TOP SPEED, and the gearbox that reaches it: top gear
+            // puts the engine's power peak (blown, when a blower is fitted) at
+            // exactly that speed. DeriveDrag then solves the body to balance
+            // there. See CarTune.TopSpeedMult and CarSpec.BuildGearRatios.
+            buildTopSpeed = spec.BuildTopSpeedMps(tune.power, supercharged);
+            topSpeedAnchorRPM = spec.PeakPowerRPM(supercharged);
+            var ratios = spec.BuildGearRatios(wheelRadius, finalDrive, buildTopSpeed, topSpeedAnchorRPM);
             if (ratios != null && ratios.Length > 0) gearRatios = ratios;
 
             frontDriveShare = spec.FrontDriveShare;
+            // STOCK, still: the handling consumers (downforce, the steering's
+            // speed falloff) were tuned against the car as it left the factory,
+            // and a build should not change how its aero or its steering scale.
             topSpeedMps = spec.topSpeedMps > 1f ? spec.topSpeedMps : topSpeedMps;
             // The STOCK curve's peak, not the power-scaled copy above.
             if (spec.curveNm != null && spec.curveNm.Length > 0)
@@ -997,8 +1010,13 @@ namespace PSXRacing
                 tuneBaselineCaptured = true;
             }
 
-            brakeDemandG = CarTune.BrakeDemandG(stockBrakeDemandG, activeTune);
-            gripBonus = stockGripBonus * CarTune.GripStageMult(activeTune.tires);
+            // What the handling is built FROM: the ladders as bought, or a race
+            // car's own race hardware. Not activeTune itself, because the ride
+            // height reads that and a race car keeps its own — see
+            // CarTune.HandlingOf.
+            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsRaceCar, activeTune);
+            brakeDemandG = CarTune.BrakeDemandG(stockBrakeDemandG, hw);
+            gripBonus = stockGripBonus * CarTune.GripStageMult(hw.tires);
 
             // SUSPENSION. RG2 models this as a turn-rate multiplier, which has no
             // direct analogue in a raycast-wheel car — the turn rate here is an
@@ -1015,7 +1033,7 @@ namespace PSXRacing
             // twice made the whole upper half of that slider pure downside on
             // exactly the cars the player had spent the most on.
             rawCorneringStiffness =
-                stockCorneringStiffness * CarTune.SuspStageMult(activeTune.suspension);
+                stockCorneringStiffness * CarTune.SuspStageMult(hw.suspension);
             corneringStiffness = Mathf.Min(rawCorneringStiffness, CorneringStiffnessCap);
         }
 
@@ -1621,49 +1639,66 @@ namespace PSXRacing
         }
 
         /// <summary>
-        /// Pick the drag coefficient that makes the car top out at its spec'd
-        /// speed: at vmax the tractive effort in top gear exactly balances drag
-        /// plus rolling resistance.
+        /// The top speed of this car AS BUILT, m/s: the stock figure times the
+        /// power build's percentage (<see cref="CarSpec.BuildTopSpeedMps"/>).
+        /// The gearbox is anchored to it and <see cref="DeriveDrag"/> solves the
+        /// body to balance at it, so it is the speed the car actually reaches on
+        /// its own gearing. <see cref="topSpeedMps"/> stays the STOCK figure,
+        /// which the aero and the steering scale from. A car nobody has spec'd
+        /// (the built-in RX-7) reads its own serialized top speed.
+        /// </summary>
+        public float BuildTopSpeedMps => buildTopSpeed > 1f ? buildTopSpeed : topSpeedMps;
+        [System.NonSerialized] float buildTopSpeed;
+        /// <summary>The rpm top gear puts the engine at, at
+        /// <see cref="BuildTopSpeedMps"/>: its power peak. 0 until spec'd.</summary>
+        [System.NonSerialized] public float topSpeedAnchorRPM;
+
+        /// <summary>
+        /// Pick the drag coefficient that makes the car top out at its build's
+        /// top speed: there the tractive effort in top gear, with the engine at
+        /// its power peak, exactly balances drag plus rolling resistance.
+        ///
+        /// THE BUILT engine's torque, blower and all (2026-09-21). It used to be
+        /// the stock torque with the power stage divided back out, so that drag
+        /// stayed "a property of the body" and a build went faster the honest
+        /// way — by the cube root of its power. Honest, and unbounded: add the
+        /// tuning page's long gearing and nothing stopped a built car running
+        /// on past 300 mph. The rule now is the owner's — a build adds a
+        /// percentage to the stock figure — and this is where it is enforced:
+        /// the car is solved to reach exactly that, and because top gear sits on
+        /// the power peak, no gearing it can be given does better.
         /// </summary>
         void DeriveDrag()
         {
-            if (topSpeedMps < 5f || gearRatios == null || gearRatios.Length == 0) return;
+            float vmax = BuildTopSpeedMps;
+            if (vmax < 5f || gearRatios == null || gearRatios.Length == 0) return;
             float topRatio = gearRatios[gearRatios.Length - 1];
-            float wheelRpm = topSpeedMps / (2f * Mathf.PI * wheelRadius) * 60f;
+            float wheelRpm = vmax / (2f * Mathf.PI * wheelRadius) * 60f;
             float rpmAtVmax = Mathf.Min(wheelRpm * topRatio * finalDrive, revLimitRPM);
-            // STOCK torque, deliberately: this solves for the drag figure that
-            // makes the car reach the top speed ON ITS SPEC SHEET. Feeding it
-            // tuned torque would solve for MORE drag and pin terminal velocity
-            // at the stock number, so a full engine build would accelerate
-            // harder and top out at exactly the same speed — which is not what
-            // anyone buying a turbo expects, and would be invisible until
-            // someone timed it. Dividing the power stage back out (and skipping
-            // the blower entirely) keeps drag a property of the BODY, which is
-            // what it is.
-            float force = RawTorqueAtRPM(rpmAtVmax) / Mathf.Max(powerScale, 0.01f)
+            float force = GetTorqueAtRPM(rpmAtVmax)
                           * topRatio * finalDrive * drivetrainEfficiency / wheelRadius;
             float net = force - rollingResistance;
             // A car geared so it cannot reach its own quoted top speed would
             // otherwise ask for negative drag. Keep a floor rather than let the
             // car accelerate forever.
             dragCoefficient = net > 1f
-                ? net / (topSpeedMps * topSpeedMps)
+                ? net / (vmax * vmax)
                 : 0.30f;
         }
 
         /// <summary>
         /// THE SPEED THIS CAR, AS BUILT AND GEARED RIGHT NOW, CAN REACH on a
-        /// level road — as opposed to <see cref="topSpeedMps"/>, which is the
-        /// figure on the STOCK car's spec sheet and deliberately does not move
-        /// with the parts (see <see cref="DeriveDrag"/>: drag is a property of
-        /// the body, so a power build is SUPPOSED to go faster than the sheet).
+        /// level road. On the car's own gearbox that is
+        /// <see cref="BuildTopSpeedMps"/> to within a rounding step; the driver's
+        /// gearing can only take a little off it (or, on an engine whose power
+        /// curve is flat round its peak, add a percent or two).
         ///
         /// The speedometer is scaled from it. The dial used to be scaled from
-        /// the sheet figure plus 8%, and a full engine build clears that by
-        /// far more: the owner's RUF CTR — 469 hp and 240 mph on the sheet, 797
-        /// hp built, its final drive lengthened — sat with the needle against
-        /// the 280 end stop while doing rather more, and asked whether the
-        /// speeds were accurate. The needle was the one part that was not.
+        /// the sheet figure plus 8%, and a full engine build cleared that by
+        /// far more: the owner's RUF CTR — 469 hp, 797 built, final drive
+        /// lengthened — sat with the needle against the 280 end stop and the
+        /// owner asked whether the speeds were accurate. (They were not: see
+        /// <see cref="DeriveDrag"/> and tools/bake_topspeed.py.)
         ///
         /// For each gear: the fastest speed under the limiter's cut at which
         /// the engine still out-pulls drag and rolling resistance, walked down
@@ -1679,7 +1714,7 @@ namespace PSXRacing
             get
             {
                 if (gearRatios == null || gearRatios.Length == 0 || wheelRadius <= 0.01f)
-                    return topSpeedMps;
+                    return BuildTopSpeedMps;
                 float key = dragCoefficient * 31f + gearRatios[gearRatios.Length - 1] * 17f +
                             finalDrive * 13f + wheelRadius * 7f + revLimitRPM * 0.001f +
                             GetTorqueAtRPM(redlineRPM) * 0.01f + gearRatios.Length;
@@ -1701,7 +1736,7 @@ namespace PSXRacing
                         if (force >= dragCoefficient * v * v + rollingResistance) { best = v; break; }
                     }
                 }
-                reachMps = best > 1f ? best : topSpeedMps;
+                reachMps = best > 1f ? best : BuildTopSpeedMps;
                 return reachMps;
             }
         }
@@ -2149,7 +2184,8 @@ namespace PSXRacing
 
             if (currentGear >= 1 && !manualMode && shiftTimer <= 0f && gearJustChangedTimer <= 0f)
             {
-                if (currentRPM > upshiftRPM && currentGear < gearRatios.Length && wheelSpin < 0.5f)
+                if (currentGear < gearRatios.Length && wheelSpin < 0.5f &&
+                    (currentRPM > upshiftRPM || NextGearPullsHarder(currentRPM, accelPedal)))
                     ShiftTo(currentGear + 1);
                 else if (currentRPM < downshiftRPM && currentGear > 1)
                     ShiftTo(currentGear - 1);
@@ -2159,6 +2195,80 @@ namespace PSXRacing
         float GearRatio() => currentGear == -1
             ? -reverseRatio
             : gearRatios[Mathf.Clamp(currentGear, 1, gearRatios.Length) - 1];
+
+        /// <summary>
+        /// Would the next gear up push the car harder than this one, right now?
+        /// The automatic box's second reason to change up, beside the fixed
+        /// 96%-of-redline point.
+        ///
+        /// Needed since top gear was anchored on the engine's POWER PEAK rather
+        /// than redline (2026-09-21, see CarSpec.BuildGearRatios). With the
+        /// peak at top speed, the gear below reaches 96% of redline only at
+        /// about 95% of top speed — and on an engine whose power falls away
+        /// before redline, that gear runs out of pull short of it. The first
+        /// flat-out run of the top-speed check sat a RUF CTR in fifth at 6,527
+        /// rpm with the upshift at 6,528, 5% under its top speed, for as long
+        /// as the throttle was held. Changing up where the next gear pulls
+        /// harder is also simply where the fastest shift is.
+        ///
+        /// Only at full throttle (a part-throttle cruise keeps the old point),
+        /// only past the power peak (so it can never short-shift a car off the
+        /// meat of its curve), and only on a car that has been spec'd — the
+        /// built-in RX-7 the handling was tuned on has no anchor and shifts
+        /// exactly as it always has.
+        /// </summary>
+        /// <summary>
+        /// Which way a wheel's spring pushes the body: along the body's own up,
+        /// with its PITCH against the road taken out.
+        ///
+        /// The spring used to push along transform.up, full stop, and the ground
+        /// under a real tyre pushes along ITS normal. The difference is a lean,
+        /// and a lean of the body up turns part of everything the springs carry
+        /// into a force along the road: a car sitting 1.3 degrees nose-up (soft
+        /// rear springs, squat under power, the rear axle's downforce) was being
+        /// pushed BACKWARDS by 2.3% of its weight — 150-370 N on every car,
+        /// always. Nothing noticed until 2026-09-21, when top speed was solved to
+        /// a figure and the top-speed play check found every car settling 5-7%
+        /// short of it with exactly that much force unaccounted for.
+        ///
+        /// Only the fore-aft lean comes out. The ROLL component stays exactly as
+        /// it was, because that one is part of how the car corners and the whole
+        /// handling pass was tuned on it; a fore-aft push was never part of any
+        /// tuning, it was a brake nobody fitted. On level ground at rest, and on
+        /// any grade the car is sitting parallel to, this is transform.up.
+        /// </summary>
+        /// <summary>The road under the car: the mean of the grounded wheels'
+        /// contact normals this tick, or the body's up when none is down.</summary>
+        Vector3 GroundNormal()
+        {
+            Vector3 n = Vector3.zero;
+            for (int i = 0; i < 4; i++)
+                if (wheelContacts[i].grounded) n += wheelContacts[i].normal;
+            return n.sqrMagnitude > 1e-6f ? n.normalized : transform.up;
+        }
+
+        Vector3 SpringDirection(Vector3 groundNormal)
+        {
+            Vector3 up = transform.up;
+            // The car's heading IN the road's plane.
+            Vector3 fwd = transform.forward - Vector3.Dot(transform.forward, groundNormal) * groundNormal;
+            if (fwd.sqrMagnitude < 1e-6f) return up;
+            fwd.Normalize();
+            Vector3 dir = up - Vector3.Dot(up, fwd) * fwd;
+            return dir.sqrMagnitude > 1e-6f ? dir.normalized : up;
+        }
+
+        bool NextGearPullsHarder(float rpm, float accelPedal)
+        {
+            if (accelPedal < 0.5f || topSpeedAnchorRPM <= 0f || rpm < topSpeedAnchorRPM) return false;
+            if (currentGear < 1 || currentGear >= gearRatios.Length) return false;
+            float rNow = Mathf.Abs(gearRatios[currentGear - 1]);
+            float rNext = Mathf.Abs(gearRatios[currentGear]);
+            if (rNow < 1e-4f) return false;
+            float rpmNext = rpm * rNext / rNow;
+            if (rpmNext <= idleRPM) return false;
+            return GetTorqueAtRPM(rpmNext) * rNext >= GetTorqueAtRPM(rpm) * rNow;
+        }
 
         /// <summary>Raised on an upshift, with the RPM fraction at the moment of
         /// the change. Audio uses it for the turbo flutter between gears.</summary>
@@ -2328,7 +2438,7 @@ namespace PSXRacing
                     wheelContacts[i].load = force;
                     wheelContacts[i].onRoad = isRoad;
 
-                    Body.AddForceAtPosition(transform.up * force, mount);
+                    Body.AddForceAtPosition(SpringDirection(hit.normal) * force, mount);
                 }
                 else
                 {
@@ -2999,8 +3109,15 @@ namespace PSXRacing
                     (wheelLocalPos[0] + wheelLocalPos[1]) * 0.5f);
                 Vector3 rMid = transform.TransformPoint(
                     (wheelLocalPos[2] + wheelLocalPos[3]) * 0.5f);
-                Body.AddForceAtPosition(-transform.up * (downforceFrontCoef * v2), fMid);
-                Body.AddForceAtPosition(-transform.up * (downforceRearCoef * v2), rMid);
+                // Pressed into the ROAD, not along a body that is leaning on it:
+                // the springs push along SpringDirection, and the downforce has
+                // to press along the same axis or the pair stops cancelling. With
+                // downforce along transform.up a car sitting nose-up was shoved
+                // FORWARD by DF x sin(pitch) — up to 390 N on a built Cizeta,
+                // measured, once the springs' own leak was taken out.
+                Vector3 press = -SpringDirection(GroundNormal());
+                Body.AddForceAtPosition(press * (downforceFrontCoef * v2), fMid);
+                Body.AddForceAtPosition(press * (downforceRearCoef * v2), rMid);
                 // Drag and rolling resistance stay at the CG: they make no pitch
                 // couple today and should not start making one.
                 Body.AddForce(-vel.normalized * rollingResistance * Mathf.Clamp01(vel.magnitude));

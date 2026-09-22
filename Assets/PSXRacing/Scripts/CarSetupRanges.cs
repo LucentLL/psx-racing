@@ -82,7 +82,9 @@ namespace PSXRacing
             b.downforceWeightFractionAtVmax = c.downforceWeightFractionAtVmax;
             b.downforceBalanceFront = c.downforceBalanceFront;
             b.finalDrive = c.finalDrive;
-            b.topSpeedMps = c.topSpeedMps;
+            // The BUILD's top speed: it is what the gearbox (and so every gear
+            // row and the gearing plot) is anchored to.
+            b.topSpeedMps = c.BuildTopSpeedMps;
             b.redlineRPM = c.redlineRPM;
             b.drivetrainEfficiency = c.drivetrainEfficiency;
             b.gearRatios = c.gearRatios;
@@ -111,11 +113,17 @@ namespace PSXRacing
         /// no CarController anywhere. Every line here mirrors one in ApplySpec /
         /// ScaleChassisToMass / DeriveDownforce and must keep mirroring it.
         /// </summary>
-        public static CarSetupBasis FromSpec(CarSpec spec, CarTune.Stages tune, bool welded)
+        public static CarSetupBasis FromSpec(CarSpec spec, CarTune.Stages tune, bool welded,
+                                             bool supercharged = false)
         {
             var b = new CarSetupBasis();
             if (spec == null) return b;
             spec.Decode();
+            // ApplySpec's first line, on this side too: a race car's bought
+            // stages count for nothing, and it carries no blower and no weld.
+            tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
+            if (spec.IsRaceCar) { welded = false; supercharged = false; }
+            var hw = CarTune.HandlingOf(spec.IsRaceCar, tune);
 
             // The shell decides the wheel radius (CarBody.ApplySpec writes it),
             // and the shell is picked by the same resolver the race scene uses.
@@ -163,16 +171,19 @@ namespace PSXRacing
             b.drivetrainEfficiency = CarController.DefaultDrivetrainEfficiency;
             b.finalDrive = CarController.DefaultFinalDrive;
 
-            // Same two ApplyTuneHandling lines, on the same CarTune curves.
-            b.brakeDemandG = CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, tune);
+            // Same two ApplyTuneHandling lines, on the same CarTune curves —
+            // off the HANDLING stages, which on a race car are its race kit.
+            b.brakeDemandG = CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, hw);
             b.rawCorneringStiffness =
-                CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(tune.suspension);
+                CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(hw.suspension);
             b.corneringStiffness = Mathf.Min(
                 b.rawCorneringStiffness, CarController.CorneringStiffnessCap);
 
-            b.topSpeedMps = spec.topSpeedMps > 1f ? spec.topSpeedMps : 64.75f;
+            // The build's top speed and the gearbox ApplySpec anchors to it.
+            b.topSpeedMps = spec.BuildTopSpeedMps(tune.power, supercharged);
             b.redlineRPM = spec.redline;
-            b.gearRatios = spec.BuildGearRatios(b.wheelRadius, b.finalDrive);
+            b.gearRatios = spec.BuildGearRatios(b.wheelRadius, b.finalDrive, b.topSpeedMps,
+                                                spec.PeakPowerRPM(supercharged));
             b.frontDriveShare = spec.FrontDriveShare;
             b.fourWheelDrive = spec.drv == "4WD";
             b.welded = welded;
@@ -196,25 +207,13 @@ namespace PSXRacing
         /// CarController.RawTorqueAtRPM. Only used for a range endpoint, so it
         /// does not need the supercharger layer — a blower must not move where
         /// the preload slider's ends sit.</summary>
-        static float TorqueOnCurve(CarSpec spec, float rpm)
-        {
-            var xs = spec.curveRPM; var ys = spec.curveNm;
-            if (xs == null || ys == null || xs.Length < 2)
-                return Mathf.Max(1f, spec.peakTorqueNm);
-            // Deliberately the same walk, the same InverseLerp and the same
-            // ramp-from-zero below the first sample as
-            // CarController.RawTorqueAtRPM. The two are asserted equal over the
-            // whole catalog, and "nearly the same interpolation" is exactly the
-            // kind of difference that would make that assertion flap.
-            if (rpm <= xs[0]) return ys[0] * Mathf.InverseLerp(0f, xs[0], rpm);
-            for (int i = 0; i < xs.Length - 1; i++)
-            {
-                if (rpm > xs[i + 1]) continue;
-                float f = Mathf.InverseLerp(xs[i], xs[i + 1], rpm);
-                return Mathf.Lerp(ys[i], ys[i + 1], f);
-            }
-            return ys[ys.Length - 1];
-        }
+        // Deliberately the same walk, the same InverseLerp and the same
+        // ramp-from-zero below the first sample as CarController.RawTorqueAtRPM
+        // — which is CarSpec.StockTorqueAt, now that the gearbox needs the same
+        // curve. The two are asserted equal over the whole catalog, and "nearly
+        // the same interpolation" is exactly the kind of difference that would
+        // make that assertion flap.
+        static float TorqueOnCurve(CarSpec spec, float rpm) => spec.StockTorqueAt(rpm);
     }
 
     /// <summary>
@@ -403,9 +402,11 @@ namespace PSXRacing
                 r.min = r.def = r.max = 0f;
                 return r;
             }
-            // The anchor is "this car reaches its own redline at its own top
+            // The anchor is "this car is at its own power peak at its own top
             // speed" (CarSpec.BuildGearRatios), so a +-20% trim against it is
-            // per-car-correct without any extra work. Shown as the GEAR ratio,
+            // per-car-correct without any extra work — and cannot make the car
+            // faster than its build, because the anchor is already the fastest
+            // gearing there is. Shown as the GEAR ratio,
             // with the final drive its own separate row, exactly as a real
             // gearing screen lists them — the physics uses the product.
             float def = b.gearRatios[g];

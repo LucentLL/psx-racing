@@ -176,6 +176,13 @@ namespace PSXRacing.LifeSim
             // than showing three sliders that do nothing. Not a CarFact: it is
             // a fact about a part that was FITTED, so it can be true of one
             // owned car and false of the identical model beside it.
+            // A RACE CAR ARRIVES WITH EVERYTHING ADJUSTABLE (2026-09-21, the
+            // owner: race cars "are assumed to already be maxed out by
+            // default"). A maxed car carries every part that opens a row, so
+            // it opens every row the car physically has — and the parts page
+            // no longer sells it any of them. After the car facts, so a race
+            // car still has no seventh gear it does not have.
+            if (spec != null && spec.IsRaceCar) return null;
             if (car.welded && (p == SetupParam.DiffAccel || p == SetupParam.DiffDecel ||
                                p == SetupParam.DiffPreload))
                 return "DIFF IS WELDED";
@@ -216,7 +223,10 @@ namespace PSXRacing.LifeSim
         /// where there is no CarController for two scene loads in any
         /// direction.</summary>
         public static CarSetupBasis BasisFor(OwnedCar car, CarSpec spec) =>
-            CarSetupBasis.FromSpec(spec, Upgrades.StagesOf(car), car != null && car.welded);
+            // The blower as well as the weld: it moves the engine's power peak,
+            // and top gear is anchored there, so the gear rows depend on it.
+            CarSetupBasis.FromSpec(spec, Upgrades.StagesOf(car), car != null && car.welded,
+                                   car != null && car.supercharged);
 
         /// <summary>How many of the 30-odd rows this car can actually touch.
         /// The one number the parts page shows to say "there is a reason to buy

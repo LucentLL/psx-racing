@@ -1848,8 +1848,12 @@ namespace PSXRacing.LifeSim
                         // queued, but a save edited or migrated out from under
                         // one should not be able to UNDO a stage already paid for.
                         var kind = Upgrades.KindFromKey(p.upgradeKind);
-                        Upgrades.SetStage(car, kind,
-                            Mathf.Max(Upgrades.GetStage(car, kind), p.upgradeStage));
+                        // Never onto a race car: it is already built, and the
+                        // physics would ignore the stage anyway (CarTune.
+                        // BoughtOf). The v16 migration refunds any such job.
+                        if (Upgrades.RaceCarRefuses(CarCatalog.Get(car.specId), kind) == null)
+                            Upgrades.SetStage(car, kind,
+                                Mathf.Max(Upgrades.GetStage(car, kind), p.upgradeStage));
                         s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " installed");
                     }
                     else

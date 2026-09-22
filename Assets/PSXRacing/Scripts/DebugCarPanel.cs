@@ -493,9 +493,22 @@ namespace PSXRacing
             const float StageW = 56f, StageH = 50f;
             float stagesW = StageW * 5f + Gap * 4f;
             float textW = ColW - stagesW - 16f;
+            if (spec.IsRaceCar)
+            {
+                // Already built: race brakes, suspension and tyres, every
+                // tuning row open, and no ladder or part to sell it. The seat
+                // is the pizza's, and stays.
+                MenuKit.Label(content,
+                    Clip(Upgrades.RaceCarBuilt + "   ·   race kit from the factory, every tuning row open",
+                         LowerFit(ColW)),
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Good, ColW, height: 26f, bold: true);
+                y -= 32f;
+            }
             for (var kind = Upgrades.Kind.Power; kind <= Upgrades.LastKind; kind++)
             {
                 var k = kind;
+                if (Upgrades.RaceCarRefuses(spec, k) != null) continue;
                 int at = Upgrades.GetStage(car, k);
                 string value = DebugCarOps.StageValue(spec, k, at) +
                     // The seat is built when a delivery loads, around boxes
@@ -528,6 +541,10 @@ namespace PSXRacing
             y -= 14f;
 
             // ---- the eight bolt-ons --------------------------------------
+            // None of them on a race car: it refuses all eight (Upgrades.
+            // CarRefuses), and a grid of eight "CANNOT FIT" cells says less
+            // than the line above already did.
+            if (spec.IsRaceCar) { BuildCooling(s, car, ref y); return; }
             MenuKit.Label(content,
                 Clip("PARTS   ·   an UNLOCKS part only lets your ADVANCED TUNING through",
                      Mathf.FloorToInt(ColW / 11.6f)),

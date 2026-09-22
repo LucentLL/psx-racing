@@ -379,6 +379,30 @@ namespace PSXRacing.EditorTools
                                            SetupPage.Aero })
                     ShootSetupPage(outDir, "setup_" + pg.ToString().ToLower(), pg);
 
+                // The parts page and the spec sheet with a POWER build on, which
+                // is where the top speed says "stock -> built (+N%)" and the next
+                // power stage quotes the top speed it buys (2026-09-21).
+                speccd.upPower = 2;
+                speccd.supercharged = false;
+                LifeSimManager.Save();
+                Shoot(outDir, "tune_power2", "tune");
+                Shoot(outDir, "specs_power2", "specs");
+
+                // And a RACE CAR, which the shop no longer sells anything but a
+                // seat: the page has to say what it came with instead.
+                CarSpec raceSpec = null;
+                foreach (var c in CarCatalog.All) if (c.IsRaceCar) { raceSpec = c; break; }
+                if (raceSpec != null)
+                {
+                    var racer = CarMarket.MakeOwnedCar(s, raceSpec, 90, 3000f, raceSpec.price);
+                    s.garageSlots = Mathf.Max(s.garageSlots, s.cars.Count + 1);
+                    s.activeCar = racer.id;
+                    LifeSimManager.Save();
+                    Shoot(outDir, "tune_racecar", "tune");
+                    Shoot(outDir, "specs_racecar", "specs");
+                    s.cars.Remove(racer);
+                }
+
                 s.cars.Remove(speccd);
                 s.activeCar = wasActive;
                 s.garageSlots = 1;

@@ -51,6 +51,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestEngineDeath), TestEngineDeath);
             Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);
             Guard(nameof(TestCarCatalog), TestCarCatalog);
+            Guard(nameof(TestRaceCarsBuilt), TestRaceCarsBuilt);
             Guard(nameof(TestEngineVoices), TestEngineVoices);
             Guard(nameof(TestCarModels), TestCarModels);
             Guard(nameof(TestUpgrades), TestUpgrades);
@@ -7281,6 +7282,102 @@ namespace PSXRacing.EditorTools
             return dead;
         }
 
+        /// <summary>
+        /// The owner, 2026-09-21: "Race cars are assumed to already be maxed
+        /// out by default so they don't get upgrades, but they should also be
+        /// close to the upper limit of speed, handling, etc." The shop, the
+        /// physics, the tuning gate, the garage's copy of the physics, and the
+        /// save that bought parts for one before any of that was true.
+        /// </summary>
+        static void TestRaceCarsBuilt()
+        {
+            Line("race cars come built:");
+            CarSpec race = null, road = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (race == null && c.IsRaceCar) race = c;
+                if (road == null && !c.IsRaceCar && !c.IsForcedInduction && c.builtHp > c.hp) road = c;
+            }
+            if (race == null || road == null) { Check(false, "a race car and an NA road car to compare"); return; }
+
+            // ---- the shop ----------------------------------------------------
+            int sold = 0;
+            for (var k = Upgrades.Kind.Power; k <= Upgrades.LastKind; k++)
+                if (k != Upgrades.Kind.Seat && Upgrades.RaceCarRefuses(race, k) == null) sold++;
+            foreach (var mod in Upgrades.AllMods)
+                if (Upgrades.CarRefuses(race, mod) == null) sold++;
+            Check(sold == 0, "the shop sells a race car no performance stage and no part", sold + " on sale");
+            Check(Upgrades.RaceCarRefuses(race, Upgrades.Kind.Seat) == null,
+                  "but it can still have a pizza seat fitted — that is the pizza's, not the car's");
+            var s = new LifeState { day = 5, money = 999999 };
+            var owned = new OwnedCar { id = "race_built", specId = race.id, displayName = race.name };
+            s.cars.Add(owned);
+            Check(Upgrades.Order(s, owned, race, Upgrades.Kind.Power, true) == Upgrades.RaceCarBuilt &&
+                  !Upgrades.NextStagePlan(s, owned, race, Upgrades.Kind.Tires).valid,
+                  "ordering a stage for one is refused, and says why", race.name);
+
+            // ---- the physics: race hardware, its own power, weight and ride ---
+            var claims = new CarTune.Stages { power = 4, weight = 4, brakes = 0, suspension = 0, tires = 0 };
+            var rc = TuneBenchCar(race);
+            rc.supercharged = true;               // a save that somehow fitted a blower
+            rc.ApplySpec(race, claims);
+            var hw = CarTune.HandlingOf(true, default);
+            Check(hw.brakes == CarTune.MaxStage && hw.suspension == CarTune.MaxStage && hw.tires == CarTune.MaxStage,
+                  "a race car's handling is built from stage-4 brakes, suspension and tyres");
+            Check(Mathf.Approximately(rc.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, hw)) &&
+                  Mathf.Approximately(rc.gripBonus, CarTune.GripStageMult(CarTune.MaxStage)) &&
+                  Mathf.Approximately(rc.corneringStiffness, Mathf.Min(
+                      CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(CarTune.MaxStage),
+                      CarController.CorneringStiffnessCap)),
+                  "and the car on the road has exactly those — whatever the save says it bought",
+                  rc.brakeDemandG.ToString("0.00") + " g, grip x" + rc.gripBonus.ToString("0.00"));
+            Check(Mathf.Approximately(rc.massKg, race.kg) && !rc.supercharged &&
+                  Mathf.Approximately(rc.BuildTopSpeedMps, race.topSpeedMps),
+                  "its weight, its engine and its top speed are its own: a race car's stock IS its race spec",
+                  rc.massKg + " kg, " + (rc.BuildTopSpeedMps * 3.6f).ToString("0") + " km/h");
+            Check(Mathf.Approximately(rc.restLength, CarController.DefaultRestLength),
+                  "and it keeps its own ride height — the race kit does not lower it again",
+                  Mathf.RoundToInt(rc.restLength * 1000f) + " mm");
+
+            // ---- the garage's copy of the same car ---------------------------
+            var bc = CarSetupBasis.FromController(rc);
+            var bs = CarSetupBasis.FromSpec(race, claims, true, true);
+            Check(Mathf.Approximately(bs.brakeDemandG, bc.brakeDemandG) &&
+                  Mathf.Approximately(bs.corneringStiffness, bc.corneringStiffness) &&
+                  Mathf.Approximately(bs.massKg, bc.massKg) && Mathf.Approximately(bs.restLength, bc.restLength) &&
+                  Mathf.Approximately(bs.topSpeedMps, bc.topSpeedMps) && !bs.welded,
+                  "the garage quotes the same race car the race builds");
+            TuneDrop(rc);
+
+            // ---- the tuning gate: everything open ----------------------------
+            var roadOwned = new OwnedCar { id = "road_stock", specId = road.id, displayName = road.name };
+            Check(CarSetupGate.UnlockedCount(owned, race) == CarSetupGate.AdjustableCount(owned, race),
+                  "every tuning row a race car physically has is open, with nothing bought",
+                  CarSetupGate.UnlockedCount(owned, race) + " of " + CarSetupGate.AdjustableCount(owned, race));
+            Check(CarSetupGate.UnlockedCount(roadOwned, road) < CarSetupGate.AdjustableCount(roadOwned, road),
+                  "(a stock road car's are not)",
+                  CarSetupGate.UnlockedCount(roadOwned, road) + " of " + CarSetupGate.AdjustableCount(roadOwned, road));
+
+            // ---- a save from before (v15 -> v16) -----------------------------
+            var old = new LifeState { saveVersion = 15, day = 30, money = 1000 };
+            var oc = new OwnedCar { id = "race_old", specId = race.id, displayName = race.name,
+                                    upPower = 3, upTires = 2, upSeat = 1, lsd = true };
+            old.cars.Add(oc);
+            old.pendingParts.Add(new PendingPart
+            {
+                carId = oc.id, upgradeKind = Upgrades.UpgradeKindKey(Upgrades.Kind.Brakes),
+                upgradeStage = 1, label = "BRAKES STAGE 1", readyDay = 32,
+            });
+            LifeSimManager.Migrate(old);
+            Check(old.saveVersion >= 16 && oc.upPower == 0 && oc.upTires == 0 && !oc.lsd,
+                  "a v15 race car carrying stages and a plate pack has them taken off");
+            Check(oc.upSeat == 1, "but keeps its pizza seat");
+            Check(old.money > 1000 && !old.pendingParts.Exists(p => p.carId == oc.id),
+                  "and the money comes back, the job still at the shop included",
+                  MenuKit.Money(old.money - 1000));
+            Check(old.calendarLog.Exists(l => l.Contains("race cars come built")), "and the diary says so");
+        }
+
         static void TestOldSaveMigrationCooling()
         {
             Line("save migration (v14 -> v15): every car gets a cooling system");
@@ -7718,10 +7815,15 @@ namespace PSXRacing.EditorTools
                   "tyres raise the ceiling the brakes work against");
 
             // Quote every stage of every category on a cheap car and an exotic.
+            // The dearest ROAD car: the dearest car of all is a race car, and a
+            // race car is sold no stages (TestRaceCarsBuilt).
             var s = LifeRules.SeedNewGame("TUNER", 25, 0);
             s.money = 100000000;
             s.mechSkill = 100f;
-            foreach (var probe in new[] { CarCatalog.All[0], CarCatalog.All[CarCatalog.All.Count - 1] })
+            CarSpec exotic = null;
+            foreach (var c in CarCatalog.All)
+                if (!c.IsRaceCar && (exotic == null || c.price > exotic.price)) exotic = c;
+            foreach (var probe in new[] { CarCatalog.All[0], exotic })
             {
                 var car = new OwnedCar
                 {
@@ -8312,13 +8414,65 @@ namespace PSXRacing.EditorTools
                                                  suspension = 2, tires = 2 };
             var trims = TuneExtremeSetups();
 
+            // THE TOP-SPEED RULE, on every car, on the physics itself. Its own
+            // gearbox reaches the build's figure; no gearing the sliders allow
+            // beats it by more than the power curve's shape round its peak.
+            int reachBad = 0; string reachWorst = null; float reachWorstRel = 0f;
+            float overWorst = 0f; string overName = null;
+            var gearingTrims = new[] { -1f, -0.6f, -0.3f, 0.3f, 1f };
+            void Reach(CarController car, string who)
+            {
+                float build = car.BuildTopSpeedMps;
+                float rel = Mathf.Abs(car.ReachableTopSpeedMps / build - 1f);
+                if (rel > 0.015f)
+                {
+                    reachBad++;
+                    if (rel > reachWorstRel)
+                    {
+                        reachWorstRel = rel;
+                        reachWorst = who + " reaches " + (car.ReachableTopSpeedMps * 3.6f).ToString("0") +
+                                     " of " + (build * 3.6f).ToString("0") + " km/h";
+                    }
+                }
+                foreach (float t in gearingTrims)
+                {
+                    var s = new CarSetup();
+                    s.Set(SetupParam.FinalDrive, t);
+                    for (int g = 0; g < CarSetup.MaxGears; g++) s.Set(CarSetupTable.GearParam(g), t);
+                    car.SetSetup(s);
+                    float over = car.ReachableTopSpeedMps / build;
+                    if (over > overWorst) { overWorst = over; overName = who + " at " + t.ToString("0.0"); }
+                }
+                car.SetSetup(null);
+            }
+
             foreach (var spec in CarCatalog.All)
             {
                 var c = TuneBenchCar(spec);
                 c.ApplySpec(spec, sweepTune);
+                Reach(c, spec.name);
 
                 var fromCar = CarSetupBasis.FromController(c);
                 var fromSpec = CarSetupBasis.FromSpec(spec, sweepTune, false);
+
+                // A BLOWER moves the power peak, and top gear is anchored
+                // there: the garage has to be told about it to draw the same
+                // gearbox the race builds.
+                if (!spec.IsForcedInduction && !spec.IsRaceCar)
+                {
+                    var blown = TuneBenchCar(spec);
+                    blown.supercharged = true;
+                    blown.ApplySpec(spec, sweepTune);
+                    Reach(blown, spec.name + " +blower");
+                    var bCar = CarSetupBasis.FromController(blown);
+                    var bSpec = CarSetupBasis.FromSpec(spec, sweepTune, false, supercharged: true);
+                    Agree(spec.name + " +blower", "top speed", bCar.topSpeedMps, bSpec.topSpeedMps);
+                    if (bCar.GearCount == bSpec.GearCount)
+                        for (int g = 0; g < bCar.GearCount; g++)
+                            Agree(spec.name + " +blower", "gear " + (g + 1),
+                                  bCar.gearRatios[g], bSpec.gearRatios[g]);
+                    TuneDrop(blown);
+                }
                 Agree(spec.name, "mass", fromCar.massKg, fromSpec.massKg);
                 Agree(spec.name, "wheel radius", fromCar.wheelRadius, fromSpec.wheelRadius);
                 Agree(spec.name, "static load", fromCar.staticWheelLoad, fromSpec.staticWheelLoad);
@@ -8420,6 +8574,14 @@ namespace PSXRacing.EditorTools
                   gearboxBad + " inverted, worst " + gearboxWorst);
             Check(gateBad == 0, "and no car is offered a gear it does not have",
                   gateBad + " wrong, worst " + gateWorst);
+            Check(reachBad == 0,
+                  "every car, stock gearing, reaches its build's top speed to within 1.5% — the "
+                  + "percentage is what the physics does, not just what the shop says",
+                  reachBad + " off, worst " + reachWorst);
+            Check(overWorst < 1.03f,
+                  "and no gearing the sliders allow beats it by more than 3% — top gear sits on the "
+                  + "power peak, so the stock box is already the fastest one",
+                  "worst +" + ((overWorst - 1f) * 100f).ToString("0.0") + "%, " + overName);
 
             // ---- the constants fence ------------------------------------
             // The garage quotes ranges off these consts for a car that has no
@@ -8716,6 +8878,47 @@ namespace PSXRacing.EditorTools
             Check(badGears == 0, "gear counts are sane (3-8)", badGears + " odd");
             Check(badTop == 0, "top speeds are sane (72-468 km/h)", badTop + " odd");
 
+            // ---- top speed: GT4's, and a build adds a percentage (2026-09-21)
+            // "Something is very wrong with top speeds. One car has over
+            // 300MPH." The stock figures were every one of them 1.290x RG2's
+            // own formula (a unit slip in the first bake), and a build then
+            // gained the cube root of its power with nothing to stop the
+            // gearing sliders using all of it. tools/bake_topspeed.py solves
+            // each car's stock figure from GT4's spec fields instead.
+            float fastestStock = 0f, fastestRoad = 0f; string fastestName = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (c.topSpeedMps > fastestStock) { fastestStock = c.topSpeedMps; fastestName = c.name; }
+                if (!c.IsRaceCar) fastestRoad = Mathf.Max(fastestRoad, c.topSpeedMps);
+            }
+            Check(fastestStock < 110f, "no car in the catalog is faster than ~246 mph stock",
+                  fastestName + " " + (fastestStock * 3.6f / 1.609344f).ToString("0") + " mph");
+            Check(fastestRoad < 100f, "and no ROAD car is faster than ~224 mph stock",
+                  (fastestRoad * 3.6f / 1.609344f).ToString("0") + " mph");
+            float fullBuild = fastestRoad * CarTune.TopSpeedMult(CarTune.MaxStage, true);
+            Check(fullBuild < 115f, "so the fastest road car fully built, blower and all, stays under 260 mph",
+                  (fullBuild * 3.6f / 1.609344f).ToString("0") + " mph");
+            Check(Mathf.Approximately(CarTune.TopSpeedMult(0, false), 1f) &&
+                  Mathf.Approximately(CarTune.TopSpeedMult(CarTune.MaxStage, false), 1f + CarTune.BuiltTopSpeedGain),
+                  "a stock engine adds nothing and a full build adds exactly the stated percentage",
+                  "+" + CarTune.TopSpeedGainPct(CarTune.MaxStage, false) + "%");
+            bool rising = true;
+            for (int st = 1; st <= CarTune.MaxStage; st++)
+                if (CarTune.TopSpeedMult(st, false) <= CarTune.TopSpeedMult(st - 1, false)) rising = false;
+            Check(rising, "and every power stage adds some");
+
+            var rx7 = FindSpec("RX-7 Type RS");
+            var raceSpec = FindSpec("Race Car");
+            if (rx7 != null)
+                Check(Mathf.Approximately(rx7.BuildTopSpeedMps(CarTune.MaxStage, false),
+                                          rx7.topSpeedMps * (1f + CarTune.BuiltTopSpeedGain)),
+                      "a road car's build is its stock figure times the percentage",
+                      (rx7.topSpeedMps * 3.6f).ToString("0") + " -> " +
+                      (rx7.BuildTopSpeedMps(CarTune.MaxStage, false) * 3.6f).ToString("0") + " km/h");
+            if (raceSpec != null)
+                Check(Mathf.Approximately(raceSpec.BuildTopSpeedMps(CarTune.MaxStage, true), raceSpec.topSpeedMps),
+                      "a race car takes no percentage — it is already built", raceSpec.name);
+
             // Gear ratios must descend: if the derivation inverts, first gear
             // becomes an overdrive and the car cannot pull away.
             int nonMonotonic = 0;
@@ -8987,7 +9190,10 @@ namespace PSXRacing.EditorTools
                 float df50 = CarController.DownforceFractionAt(CarController.DefaultDownforceWeightFraction, 50f, fd.topSpeedMps);
                 Check(df30 > 0.08f && df30 < 0.12f, "the FD carries ~10% of its weight at 30 m/s (was 5%)",
                       (df30 * 100f).ToString("0.0") + "%");
-                Check(df50 > 0.24f && df50 < 0.30f, "and ~27% at 50 m/s (was 13%)",
+                // ~31% since 2026-09-21: the FD's stock top speed came down from
+                // an inflated 81 m/s to GT4's 74.6, and the fraction is set AT
+                // that speed. 27% before; the built-in FD sits at 42%.
+                Check(df50 > 0.26f && df50 < 0.36f, "and ~31% at 50 m/s (was 13%)",
                       (df50 * 100f).ToString("0.0") + "%");
                 // The lateral budget mu*g*(1 + df/W) and the damper's share of it.
                 float budget50 = 1.25f * CarController.DefaultTireMuFront * (1f + df50);
@@ -9868,8 +10074,11 @@ namespace PSXRacing.EditorTools
                   DebugCarOps.ModRefusal(turboSpec, Upgrades.Mod.Supercharger));
             Check(DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.AeroKit, true) != null && !owned.aeroKit,
                   "a road car still cannot have a wing");
-            Check(DebugCarOps.SetMod(raceCar, raceSpec, Upgrades.Mod.AeroKit, true) == null && raceCar.aeroKit,
-                  "and a race car can");
+            // A race car is not sold one either (2026-09-21): it comes with
+            // every tuning row open, the aero rows included.
+            Check(DebugCarOps.SetMod(raceCar, raceSpec, Upgrades.Mod.AeroKit, true) == Upgrades.RaceCarBuilt &&
+                  !raceCar.aeroKit && CarSetupGate.Unlocked(raceCar, raceSpec, SetupParam.AeroLevel),
+                  "and a race car needs none — it is already built, its aero rows open without one");
 
             DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.LimitedSlip, true);
             DebugCarOps.SetMod(owned, naSpec, Upgrades.Mod.WeldedDiff, true);

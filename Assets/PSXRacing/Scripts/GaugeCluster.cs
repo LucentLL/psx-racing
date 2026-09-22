@@ -431,7 +431,7 @@ namespace PSXRacing
             // the sheet leaves its needle on the end stop — reading "280" at
             // any speed above it. See CarController.ReachableTopSpeedMps.
             float speedMax = SpeedScale(SpeedUnits.FromKmh(car != null
-                ? Mathf.Max(car.topSpeedMps, car.ReachableTopSpeedMps) * 3.6f : 240f));
+                ? Mathf.Max(car.BuildTopSpeedMps, car.ReachableTopSpeedMps) * 3.6f : 240f));
             int bulb = ClusterBulbs.Revision;
             // The canvas is ConstantPixelSize on the PSX camera, so its height
             // IS the framebuffer line count -- which the player can change.
@@ -992,13 +992,13 @@ namespace PSXRacing
         /// </summary>
         static float SpeedScale(float top)
         {
-            // The ceiling was 440 km/h — 273 mph, which is the STOCK catalog's
-            // fastest car and so could never hold a built one: every dial in
-            // MPH topped out at 280 whatever was under the bonnet. 600 km/h is
-            // past anything the catalog's biggest build can reach (~340 mph
-            // geared for it), so the ceiling is a guard again, not a limit.
+            // A guard, not a limit. It was 440 km/h and every MPH dial ended at
+            // 280, which a built car on the old (29% high) catalog cleared
+            // with its needle on the end stop. The fastest thing in the game
+            // now is ~395 km/h (a built Cizeta V16T, a GT-One on its own), and
+            // 480 holds that with the 8% the scale adds and a numeral to spare.
             float want = Mathf.Clamp(top * 1.08f,
-                                     SpeedUnits.FromKmh(140f), SpeedUnits.FromKmh(600f));
+                                     SpeedUnits.FromKmh(140f), SpeedUnits.FromKmh(480f));
             float step = SpeedTick(want);
             return Mathf.Ceil(want / step) * step;
         }

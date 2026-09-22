@@ -216,10 +216,19 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static Plan NextStagePlan(LifeState s, OwnedCar car, CarSpec spec, Kind kind)
         {
-            var p = new Plan { kind = kind, valid = false };
-            if (s == null || car == null || spec == null) return p;
+            if (s == null || car == null || spec == null || RaceCarRefuses(spec, kind) != null)
+                return new Plan { kind = kind, valid = false };
+            return PlanStep(s, car, spec, kind, GetStage(car, kind));
+        }
 
-            int from = GetStage(car, kind);
+        /// <summary>The quote for one step up a ladder from
+        /// <paramref name="from"/>, with no question asked about whether the
+        /// car may have it. <see cref="NextStagePlan"/> asks; the v16
+        /// migration, which is pricing stages a race car should never have
+        /// been sold, does not.</summary>
+        static Plan PlanStep(LifeState s, OwnedCar car, CarSpec spec, Kind kind, int from)
+        {
+            var p = new Plan { kind = kind, valid = false };
             int to = from + 1;
             if (to > MaxStage) return p;
 
@@ -236,6 +245,13 @@ namespace PSXRacing.LifeSim
                     p.delta = Mathf.Max(0, p.toVal - p.fromVal);
                     p.unit = "hp";
                     basePrice = p.delta * PerHp;
+                    // The top speed goes up with it, by the percentage the
+                    // physics is then solved to reach (CarTune.TopSpeedMult) —
+                    // so the row that sells the stage says what it is worth on
+                    // a straight, in the unit the player reads.
+                    p.sideEffect = "top speed " + TopSpeedText(spec, from, car.supercharged) + " -> " +
+                                   TopSpeedText(spec, to, car.supercharged) + " (+" +
+                                   CarTune.TopSpeedGainPct(to, car.supercharged) + "% over stock)";
                     break;
                 case Kind.Weight:
                     p.fromVal = CarTune.WeightAtStage(spec.kg, spec.minKg, from);
@@ -347,6 +363,8 @@ namespace PSXRacing.LifeSim
         public static string Order(LifeState s, OwnedCar car, CarSpec spec, Kind kind, bool useShop)
         {
             if (car == null || spec == null) return "no car";
+            string race = RaceCarRefuses(spec, kind);
+            if (race != null) return race;
             var plan = NextStagePlan(s, car, spec, kind);
             if (!plan.valid) return "already maxed";
             if (PendingFor(s, car, kind) != null) return "already booked";
@@ -555,6 +573,10 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static string CarRefuses(CarSpec spec, Mod mod)
         {
+            // First: a race car has every one of these already, in effect —
+            // its tuning rows all open without them (CarSetupGate), and a
+            // blower or a weld on a prototype is not a thing anybody sells.
+            if (spec != null && spec.IsRaceCar) return RaceCarBuilt;
             if (mod == Mod.AeroKit && !AeroKitAllowed(spec)) return "RACE CARS ONLY";
             if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
                 return spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
@@ -629,13 +651,92 @@ namespace PSXRacing.LifeSim
         };
 
         /// <summary>Crank HP as built — what the SPECS screen should show
-        /// instead of the factory figure once anything is bolted on.</summary>
+        /// instead of the factory figure once anything is bolted on. A race
+        /// car's stock figure IS its built one.</summary>
         public static int EffectiveHp(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
-                         : CarTune.PowerAtStage(spec.hp, spec.builtHp, GetStage(car, Kind.Power));
+            : spec.IsRaceCar ? spec.hp
+            : CarTune.PowerAtStage(spec.hp, spec.builtHp, GetStage(car, Kind.Power));
 
         public static int EffectiveKg(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
-                         : CarTune.WeightAtStage(spec.kg, spec.minKg, GetStage(car, Kind.Weight));
+            : spec.IsRaceCar ? spec.kg
+            : CarTune.WeightAtStage(spec.kg, spec.minKg, GetStage(car, Kind.Weight));
+
+        /// <summary>This car's top speed AS BUILT, m/s: the stock GT4 figure
+        /// times its power build's percentage. The physics is solved to reach
+        /// exactly this on the car's own gearing (CarController.DeriveDrag).
+        /// </summary>
+        public static float EffectiveTopSpeedMps(OwnedCar car, CarSpec spec) =>
+            spec == null ? 0f
+            : spec.BuildTopSpeedMps(GetStage(car, Kind.Power), car != null && car.supercharged);
+
+        /// <summary>A top speed in the player's unit, rounded, for a shop row.</summary>
+        static string TopSpeedText(CarSpec spec, int powerStage, bool blower) =>
+            Mathf.RoundToInt(SpeedUnits.FromKmh(spec.BuildTopSpeedMps(powerStage, blower) * 3.6f)) +
+            SpeedUnits.Suffix;
+
+        // ---- race cars ----------------------------------------------------
+        //
+        // The owner, 2026-09-21: "Race cars are assumed to already be maxed
+        // out by default so they don't get upgrades, but they should also be
+        // close to the upper limit of speed, handling, etc." The physics half
+        // is CarTune.HandlingOf / BoughtOf; this is the shop half, and it is
+        // one sentence on every row that would otherwise have sold something.
+
+        public const string RaceCarBuilt = "RACE CAR — ALREADY BUILT";
+
+        /// <summary>Why this ladder is not for sale on this car, or null. The
+        /// SEAT is not a performance part — it is the passenger seat the pizza
+        /// rides on — so a race car can still have one fitted.</summary>
+        public static string RaceCarRefuses(CarSpec spec, Kind kind) =>
+            spec != null && spec.IsRaceCar && kind != Kind.Seat ? RaceCarBuilt : null;
+
+        /// <summary>
+        /// Take off a race car everything the shop used to sell it and will
+        /// not any more — the performance stages, every bolt-on, and any of
+        /// those still queued at a shop — and return what they cost. The
+        /// money goes back into <paramref name="s"/>; the caller writes the
+        /// diary line. The seat stays: it is the pizza's.
+        ///
+        /// Refunded at the DIY price, stage by stage and at this car's own
+        /// multiplier: that is what the parts cost, and a save does not
+        /// remember whether the labour was bought too. A queued job is
+        /// refunded the same way, as the one stage it would have fitted.
+        /// </summary>
+        public static int StripRaceCar(LifeState s, OwnedCar car, CarSpec spec)
+        {
+            if (s == null || car == null || spec == null || !spec.IsRaceCar) return 0;
+            int back = 0;
+            for (var k = Kind.Power; k <= LastKind; k++)
+            {
+                if (RaceCarRefuses(spec, k) == null) continue;
+                for (int from = GetStage(car, k) - 1; from >= 0; from--)
+                {
+                    var p = PlanStep(s, car, spec, k, from);
+                    if (p.valid) back += p.diyPrice;
+                }
+                SetStage(car, k, 0);
+            }
+            foreach (var mod in AllMods)
+            {
+                if (!HasMod(car, mod)) continue;
+                back += OfferFor(s, car, spec, mod).price;
+                SetMod(car, mod, false);
+            }
+            if (s.pendingParts != null)
+                s.pendingParts.RemoveAll(job =>
+                {
+                    if (job == null || job.carId != car.id || string.IsNullOrEmpty(job.upgradeKind))
+                        return false;
+                    var k = KindFromKey(job.upgradeKind);
+                    if (RaceCarRefuses(spec, k) == null) return false;
+                    var p = PlanStep(s, car, spec, k, Mathf.Clamp(job.upgradeStage, 1, MaxStage) - 1);
+                    if (p.valid) back += p.diyPrice;
+                    return true;
+                });
+            s.money += back;
+            return back;
+        }
     }
 }

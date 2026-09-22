@@ -133,20 +133,98 @@ namespace PSXRacing
         static readonly float[] Shape6 = { 4.98f, 2.88f, 1.99f, 1.43f, 1.15f, 1.00f };
 
         /// <summary>
-        /// Gear ratios for this car: the shape above, scaled so the engine
-        /// reaches redline exactly at the car's spec'd top speed. That anchor is
-        /// what makes a 90 hp hatchback and a 600 hp supercar both gear
-        /// sensibly off one table.
+        /// Torque off this car's STOCK curve, Nm: CarController.RawTorqueAtRPM's
+        /// walk exactly (ramp from zero under the first sample, linear between
+        /// samples, flat past the last), on the unscaled curve. A power stage
+        /// scales the whole curve, so for finding WHERE the engine peaks the
+        /// stock shape is the only input there is.
         /// </summary>
-        public float[] BuildGearRatios(float wheelRadius, float finalDrive)
+        public float StockTorqueAt(float rpm)
+        {
+            Decode();
+            var xs = curveRPM; var ys = curveNm;
+            if (xs == null || ys == null || xs.Length < 2) return Mathf.Max(1f, peakTorqueNm);
+            if (rpm <= xs[0]) return ys[0] * Mathf.InverseLerp(0f, xs[0], rpm);
+            for (int i = 0; i < xs.Length - 1; i++)
+            {
+                if (rpm > xs[i + 1]) continue;
+                float f = Mathf.InverseLerp(xs[i], xs[i + 1], rpm);
+                return Mathf.Lerp(ys[i], ys[i + 1], f);
+            }
+            return ys[ys.Length - 1];
+        }
+
+        /// <summary>
+        /// Where this engine makes its most power, between idle and redline —
+        /// with the blower's curve on top when one is fitted, because a Roots
+        /// blower boosts the bottom of the range hardest and so moves the peak.
+        /// It is where top gear is anchored (see <see cref="BuildGearRatios"/>).
+        ///
+        /// Searched on a fixed 25 rpm grid so the race side and the garage side
+        /// arrive at the same float, and memoised: both ask on every spec.
+        /// </summary>
+        public float PeakPowerRPM(bool blower)
+        {
+            int slot = blower ? 1 : 0;
+            if (peakPowerRpmMemo != null && peakPowerRpmMemo[slot] > 0f) return peakPowerRpmMemo[slot];
+            Decode();
+            float best = -1f, at = redline;
+            float from = Mathf.Max(idleRPM, 500);
+            for (float rpm = from; rpm <= redline + 1e-3f; rpm += 25f)
+            {
+                float p = StockTorqueAt(rpm) * rpm *
+                          (blower ? CarTune.BlowerBoost(rpm, idleRPM, redline) : 1f);
+                if (p > best) { best = p; at = rpm; }
+            }
+            if (peakPowerRpmMemo == null) peakPowerRpmMemo = new float[2];
+            peakPowerRpmMemo[slot] = at;
+            return at;
+        }
+        [NonSerialized] float[] peakPowerRpmMemo;
+
+        /// <summary>
+        /// The top speed of this car AS BUILT, m/s: the stock figure
+        /// (<see cref="topSpeedMps"/>, baked from GT4's spec fields) times the
+        /// power build's percentage (<see cref="CarTune.TopSpeedMult"/>). A race
+        /// car is already built and takes nothing — see
+        /// <see cref="CarTune.BoughtOf"/>.
+        /// </summary>
+        public float BuildTopSpeedMps(int powerStage, bool blower)
+        {
+            float stock = topSpeedMps > 1f ? topSpeedMps : 60f;
+            return IsRaceCar ? stock : stock * CarTune.TopSpeedMult(powerStage, blower);
+        }
+
+        /// <summary>The stock gearbox: see the overload below.</summary>
+        public float[] BuildGearRatios(float wheelRadius, float finalDrive) =>
+            BuildGearRatios(wheelRadius, finalDrive, BuildTopSpeedMps(0, false), PeakPowerRPM(false));
+
+        /// <summary>
+        /// Gear ratios for this car: the shape above, scaled so that in top
+        /// gear the engine is at <paramref name="anchorRpm"/> exactly at
+        /// <paramref name="vmax"/>. That anchor is what makes a 90 hp hatchback
+        /// and a 600 hp supercar both gear sensibly off one table.
+        ///
+        /// THE ANCHOR IS PEAK POWER, not redline (2026-09-21). With redline at
+        /// top speed, a car whose power falls away before redline could be
+        /// geared LONGER on the tuning page and go faster than its own top
+        /// speed — up to 32% faster on the '71 Cuda, whose torque dies at the
+        /// top of the range. With the power peak there, this gearbox is the
+        /// fastest the car can have: go longer and the engine is below its peak
+        /// at that speed, go shorter and it is past it. Over the catalog that
+        /// puts first gear a median 3% LONGER than the old anchor did, so the
+        /// feel of a launch barely moved.
+        /// </summary>
+        public float[] BuildGearRatios(float wheelRadius, float finalDrive, float vmax, float anchorRpm)
         {
             Decode();
             int n = Mathf.Clamp(gears, 3, 8);
             float[] shape = n <= 4 ? Shape4 : (n == 5 ? Shape5 : Shape6);
 
-            float vmax = topSpeedMps > 1f ? topSpeedMps : 60f;
+            vmax = vmax > 1f ? vmax : 60f;
+            float anchor = anchorRpm > 1f ? Mathf.Min(anchorRpm, redline) : redline;
             float wheelRpmAtVmax = vmax / (2f * Mathf.PI * wheelRadius) * 60f;
-            float topRatio = redline / Mathf.Max(1f, wheelRpmAtVmax * finalDrive);
+            float topRatio = anchor / Mathf.Max(1f, wheelRpmAtVmax * finalDrive);
 
             var ratios = new float[n];
             for (int g = 0; g < n; g++)
