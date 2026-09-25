@@ -47,8 +47,45 @@ namespace PSXRacing
 
         void OnDisable() => IsOpen = false;
 
+        RectTransform menuBtnRT;
+        bool menuBtnTouch;
+
+        /// <summary>
+        /// Top-left on a PC; on a PHONE, MIDDLE-LEFT, standing just above the
+        /// steering wheel's box — the owner, 2026-09-25: "race map should be
+        /// top of screen, menu button can be lowered to middle left". Same
+        /// canvas reference as the touch panel, so its WheelTop is in these
+        /// units. Re-placed when the touch panel comes or goes.
+        /// </summary>
+        void PlaceMenuButton()
+        {
+            if (menuBtnRT == null) return;
+            menuBtnTouch = TouchControls.Showing;
+            Vector2 pos = MenuButtonPos(menuBtnTouch, out Vector2 a);
+            menuBtnRT.anchorMin = menuBtnRT.anchorMax = a;
+            menuBtnRT.pivot = a;
+            menuBtnRT.anchoredPosition = pos;
+        }
+
+        /// <summary>The MENU button's anchor (also its pivot) and position —
+        /// public so the HUD preview measures the same rectangle.</summary>
+        public static Vector2 MenuButtonPos(bool touch, out Vector2 anchor)
+        {
+            anchor = touch ? new Vector2(0f, 0f) : new Vector2(0f, 1f);
+            return touch ? new Vector2(24f, TouchControls.WheelTop + MenuOverWheelGap)
+                         : new Vector2(24f, -24f);
+        }
+
+        public static readonly Vector2 MenuButtonSize = new Vector2(120f, 62f);
+
+        /// <summary>Between the wheel's box and the MENU button: enough that a
+        /// thumb reaching for the top of the rim does not pause the race.</summary>
+        const float MenuOverWheelGap = 16f;
+
         void Update()
         {
+            if (menuBtnRT != null && TouchControls.Showing != menuBtnTouch) PlaceMenuButton();
+
             // THE BENCH OWNS THE KEYS WHILE IT IS UP — and for the rest of the
             // frame it closed on. Escape, START and B all mean "close" to both
             // pages, and two Updates have no defined order between them: read
@@ -546,8 +583,10 @@ namespace PSXRacing
             // leaving it on Automatic navigation would let a stray stick flick
             // land on it and a Submit press pause the race.
             var menuBtn = MakeButton(canvasGO.transform, "MENU", font, new Vector2(0f, 1f),
-                       new Vector2(24f, -24f), new Vector2(120f, 62f), 20, () => SetOpen(true));
+                       new Vector2(24f, -24f), MenuButtonSize, 20, () => SetOpen(true));
             menuBtn.navigation = new Navigation { mode = Navigation.Mode.None };
+            menuBtnRT = (RectTransform)menuBtn.transform;
+            PlaceMenuButton();
 
             // Dimmed modal panel — GT2 charcoal with the blueprint grid, the
             // same ground every LifeSim menu stands on, so pausing mid-race

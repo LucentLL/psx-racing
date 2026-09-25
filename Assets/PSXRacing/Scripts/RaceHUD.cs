@@ -324,11 +324,13 @@ namespace PSXRacing
         void EnsureCityMap()
         {
             if (world == null || world.Map == null || car == null) return;
-            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * mapFrac));
-            if (cityMap != null && px == cityMapPx) return;
+            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * MapFracNow()));
+            float centre = MapCentreNow();
+            if (cityMap != null && px == cityMapPx && Mathf.Approximately(centre, cityMapBuiltCentre)) return;
             if (cityMap != null && cityMap.Root != null) Destroy(cityMap.Root);
             cityMapPx = px;
-            cityMap = City.CityMinimap.Create(transform, px, mapCentreYFrac, world.Map, car.transform);
+            cityMapBuiltCentre = centre;
+            cityMap = City.CityMinimap.Create(transform, px, centre, world.Map, car.transform);
         }
 
         /// <summary>
@@ -359,10 +361,26 @@ namespace PSXRacing
         /// size the reference draws it.</summary>
         public float mapFrac = 0.30f;
         /// <summary>Where the map's centre sits up the left edge, as a
-        /// fraction of the frame height. Above the tach on a desktop layout
-        /// and above the touch wheel on a phone, under the lap counter on
-        /// both.</summary>
+        /// fraction of the frame height. Above the tach on a desktop layout,
+        /// under the lap counter. (Not on a phone: see TouchMapTopFrac.)</summary>
         public float mapCentreYFrac = 0.60f;
+
+        /// <summary>
+        /// On a PHONE the map goes to the TOP of the left edge, just under the
+        /// lap/DROP line — the owner, 2026-09-25: "On mobile, pizza cam and
+        /// race map should be top of screen, menu button can be lowered to
+        /// middle left". A shade smaller than the desktop map, because the
+        /// MENU button now stands between it and the steering wheel and a
+        /// 20:9 phone has only so much left edge.
+        /// </summary>
+        public const float TouchMapTopFrac = 0.11f, TouchMapFrac = 0.26f;
+
+        float MapFracNow() => TouchControls.Showing ? TouchMapFrac : mapFrac;
+        float MapCentreNow() => TouchControls.Showing
+            ? 1f - TouchMapTopFrac - TouchMapFrac * 0.5f : mapCentreYFrac;
+        /// <summary>The centre the map was last built at, so plugging in a
+        /// pad (the touch panel hides) moves it back.</summary>
+        float mapBuiltCentre = -1f, cityMapBuiltCentre = -1f;
 
         GameObject mapRoot;
         RectTransform playerDot;
@@ -410,14 +428,16 @@ namespace PSXRacing
 
         void EnsureMap()
         {
-            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * mapFrac));
-            if (mapRoot != null && px == mapBuiltPx) return;
+            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * MapFracNow()));
+            float centre = MapCentreNow();
+            if (mapRoot != null && px == mapBuiltPx && Mathf.Approximately(centre, mapBuiltCentre)) return;
             if (mapRoot != null)
             {
                 if (Application.isPlaying) Destroy(mapRoot); else DestroyImmediate(mapRoot);
             }
             rivalDots.Clear();
             mapBuiltPx = px;
+            mapBuiltCentre = centre;
 
             var def = VenueDef();
             mapValid = TrackCatalog.MapFrameFor(def, px, out mapFrame);
@@ -427,7 +447,7 @@ namespace PSXRacing
             mapRoot = new GameObject("TrackMap", typeof(RectTransform));
             mapRoot.transform.SetParent(transform, false);
             var rt = (RectTransform)mapRoot.transform;
-            rt.anchorMin = rt.anchorMax = new Vector2(0f, mapCentreYFrac);
+            rt.anchorMin = rt.anchorMax = new Vector2(0f, centre);
             rt.pivot = new Vector2(0f, 0.5f);
             rt.anchoredPosition = new Vector2(4f, 0f);
             rt.sizeDelta = new Vector2(px, px);

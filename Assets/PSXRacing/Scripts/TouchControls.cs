@@ -176,8 +176,8 @@ namespace PSXRacing
             // something that has just appeared rather than as a control that was
             // always there and is only now being noticed.
             actionBtn = MakeButton(canvasGO.transform, "Action", "FUEL", font,
-                                   new Vector2(1f, 1f), new Vector2(-30f, -30f),
-                                   new Vector2(252f, 74f),
+                                   new Vector2(1f, 1f), new Vector2(-30f, -ActionTopInset),
+                                   new Vector2(252f, ActionH),
                                    new Color(0.55f, 0.36f, 0.02f, 0.82f), 24);
             actionBtn.gameObject.SetActive(false);
 
@@ -298,7 +298,7 @@ namespace PSXRacing
             zoneRT.anchorMin = zoneRT.anchorMax = new Vector2(0f, 0f);
             zoneRT.pivot = new Vector2(0f, 0f);
             zoneRT.anchoredPosition = new Vector2(EdgeMargin, EdgeMargin);
-            zoneRT.sizeDelta = new Vector2(300f, 300f);
+            zoneRT.sizeDelta = new Vector2(300f, WheelTop - EdgeMargin);
             WheelInset = zoneRT.anchoredPosition.x + zoneRT.sizeDelta.x;
             wheel = zone.AddComponent<TouchWheel>();
 
@@ -341,6 +341,22 @@ namespace PSXRacing
         /// against the left one — and the gap they left was spent on nothing.
         /// </summary>
         public const float EdgeMargin = 18f;
+
+        /// <summary>The contextual button's slot in the top-right corner (FUEL,
+        /// ORDER, OPEN...): its inset from the top and its height. Published
+        /// because the pizza cam stands under it on a phone.</summary>
+        public const float ActionTopInset = 30f, ActionH = 74f;
+
+        /// <summary>The top of the steering wheel's box, from the bottom edge,
+        /// in this panel's canvas units. The pause menu's MENU button stands on
+        /// it on a phone (2026-09-25: "menu button can be lowered to middle
+        /// left"), since the race map took the top-left corner it had.</summary>
+        public const float WheelTop = EdgeMargin + 300f;
+
+        /// <summary>Whether a phone's controls are on screen now — the one
+        /// question every HUD piece that lays out differently for touch asks.
+        /// </summary>
+        public static bool Showing => Instance != null && Instance.Visible;
 
         /// <summary>A control bar's width: the source's 45 CSS pixels.</summary>
         const float BarW = 45f * BarScale;

@@ -312,6 +312,16 @@ namespace PSXRacing
         /// </summary>
         public static float CornerTop { get; private set; }
 
+        /// <summary>
+        /// The same for the RIGHT-hand side, where the pizza cam lives now
+        /// (2026-09-25, "opposite of the race map"): the top of the speedometer
+        /// in the twin-dial layouts — in the corner on a PC, beside the pedals
+        /// on a phone, and under the cam either way — and of the binnacle when
+        /// the cockpit puts it on the right. Zero when nothing of this
+        /// cluster's is over there.
+        /// </summary>
+        public static float RightCornerTop { get; private set; }
+
         /// <summary>Everything the cockpit layout adds, under one parent so a
         /// rebuild is one Destroy rather than a hunt for stragglers.</summary>
         GameObject cockpitRoot;
@@ -483,6 +493,7 @@ namespace PSXRacing
             // the last one is worse than none — it would push the pizza cam up
             // the screen to clear a dial that has moved.
             CornerTop = 0f;
+            RightCornerTop = 0f;
 
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
@@ -609,6 +620,7 @@ namespace PSXRacing
                 MakeGearPanel(font, radius, margin, tachAnchor, tachPos);
                 CornerTop = tachPos.y + radius;
             }
+            RightCornerTop = speedoPos.y + radius;
 
             // Everything above was created just now, so it is wearing the stock
             // depth-tested UI material and would vanish behind the bonnet in the
@@ -761,6 +773,11 @@ namespace PSXRacing
                 tachCx = -(margin + gearW + gap + radius);
                 speedCx = -(margin + gearW + gap * 2f + radius * 2f + speedW * 0.5f);
             }
+            // Behind the wheel the group sits on the column, clear of either
+            // side; otherwise its top (the dial, or the gear box and the AT/MT
+            // head over it) is what the pizza cam has to stand above.
+            if (!behindWheel)
+                RightCornerTop = groupCy + Mathf.Max(radius, gearH * 0.5f + capH);
 
             // Everything shares one CENTRE LINE. The dial is the tallest thing
             // in the group, so the two boxes hang off its middle rather than

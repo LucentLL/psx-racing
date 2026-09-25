@@ -38,12 +38,10 @@ namespace PSXRacing
         /// against the steering wheel's reported box.</summary>
         const float PanelW = 236f, PanelH = 159f;
 
-        /// <summary>Clearance above whatever is in the bottom-left corner. The
-        /// wheel's box is 300 units tall sitting 18 off the bottom; the owner
-        /// asked for the cam ABOVE it on mobile, and a gap is what keeps a thumb
-        /// resting on the rim from covering the picture. The same gap does for
-        /// the tachometer on a PC — there it is only keeping the caption off the
-        /// bezel.</summary>
+        /// <summary>Clearance from whatever the panel stands beside or above in
+        /// the bottom-right: the speedometer's bezel, and on a phone the pedal
+        /// column, where a gap is what keeps a thumb on the throttle from
+        /// covering the picture.</summary>
         const float AboveWheelGap = 14f;
 
         PizzaCargo cargo;
@@ -53,8 +51,8 @@ namespace PSXRacing
         Text caption;
         RectTransform panelRT;
         bool builtTouch;
-        /// <summary>The corner height this panel was last placed against, so a
-        /// cluster rebuild that moves the dials moves this too.</summary>
+        /// <summary>The right-corner height this panel was last placed against,
+        /// so a cluster rebuild that moves the dials moves this too.</summary>
         float builtCornerTop = -1f;
 
         /// <summary>
@@ -90,6 +88,28 @@ namespace PSXRacing
             pc.Build();
             return pc;
         }
+
+        /// <summary>
+        /// The panel alone — no cargo, no lens, a flat stand-in picture — for
+        /// the editor's HUD preview, which measures where it lands against the
+        /// dials and the pedals. Same Place() as the real one, so the check is
+        /// of the player's layout.
+        /// </summary>
+        public static PizzaCam SpawnPanelForPreview()
+        {
+            var go = new GameObject("PizzaCam");
+            var pc = go.AddComponent<PizzaCam>();
+            var tex = new Texture2D(1, 1);
+            tex.SetPixel(0, 0, new Color(0.85f, 0.55f, 0.20f, 1f));
+            tex.Apply();
+            pc.BuildPanel(tex);
+            pc.caption.text = "PIZZA CAM  x3";
+            return pc;
+        }
+
+        /// <summary>For the preview: re-place against whatever the cluster
+        /// and the touch panel have published since.</summary>
+        public void PlaceNow() => Place();
 
         void Awake() { if (Instance == null) Instance = this; }
 
@@ -143,6 +163,11 @@ namespace PSXRacing
             // is ready when the UI draws.
             cam.depth = -10f;
 
+            BuildPanel(rt);
+        }
+
+        void BuildPanel(Texture picture)
+        {
             var canvasGO = new GameObject("PizzaCamCanvas");
             canvasGO.transform.SetParent(transform, false);
             var canvas = canvasGO.AddComponent<Canvas>();
@@ -160,8 +185,8 @@ namespace PSXRacing
             var panel = new GameObject("Panel", typeof(RectTransform));
             panel.transform.SetParent(canvasGO.transform, false);
             panelRT = (RectTransform)panel.transform;
-            panelRT.anchorMin = panelRT.anchorMax = new Vector2(0f, 0f);
-            panelRT.pivot = new Vector2(0f, 0f);
+            panelRT.anchorMin = panelRT.anchorMax = new Vector2(1f, 0f);
+            panelRT.pivot = new Vector2(1f, 0f);
             panelRT.sizeDelta = new Vector2(PanelW, PanelH);
             // No panel behind the picture either — the frame exists only to give
             // the caption and the view something to lay out against.
@@ -172,7 +197,7 @@ namespace PSXRacing
             var viewGO = new GameObject("View", typeof(RectTransform));
             viewGO.transform.SetParent(panel.transform, false);
             view = viewGO.AddComponent<RawImage>();
-            view.texture = rt;
+            view.texture = picture;
             view.raycastTarget = false;
             var vrt = view.rectTransform;
             vrt.anchorMin = Vector2.zero; vrt.anchorMax = Vector2.one;
@@ -185,7 +210,9 @@ namespace PSXRacing
             caption = capGO.AddComponent<Text>();
             caption.font = font;
             caption.fontSize = 15;
-            caption.alignment = TextAnchor.MiddleLeft;
+            // Right-aligned: the panel stands on the right edge, and a caption
+            // that starts at the picture's far side reads as floating.
+            caption.alignment = TextAnchor.MiddleRight;
             caption.raycastTarget = false;
             caption.horizontalOverflow = HorizontalWrapMode.Overflow;
             // The caption now sits over the world rather than over a black
@@ -196,26 +223,34 @@ namespace PSXRacing
             capShadow.effectDistance = new Vector2(1f, -1f);
             var crt = caption.rectTransform;
             crt.anchorMin = new Vector2(0f, 1f); crt.anchorMax = new Vector2(1f, 1f);
-            crt.pivot = new Vector2(0f, 1f);
-            crt.anchoredPosition = new Vector2(7f, -2f);
+            crt.pivot = new Vector2(1f, 1f);
+            crt.anchoredPosition = new Vector2(-7f, -2f);
             crt.sizeDelta = new Vector2(-10f, 18f);
 
             Place();
         }
 
         /// <summary>
-        /// Where the panel sits: in the bottom-left corner, above whatever else
-        /// is already in it.
+        /// Where the panel sits: on the RIGHT edge, opposite the race map on
+        /// the left — "opposite of the race map" (owner, 2026-09-25). It used
+        /// to stand in the bottom-left corner under the map, which stacked the
+        /// two things a driver glances at on one side and left the other empty.
         ///
-        /// On a phone that is the steering wheel. On a PC it is the TACHOMETER,
-        /// which this used to sit straight on top of — the corner reads as
-        /// empty until you remember the cluster puts its dials there when there
-        /// is no touch panel to push them into the middle.
+        /// ON A PHONE, AT THE TOP, like the map ("On mobile, pizza cam and race
+        /// map should be top of screen", same day): under the slot the FUEL /
+        /// ORDER button appears in, and in off the pedal column, whose
+        /// handbrake reaches most of the way up that edge.
         ///
-        /// Both boxes are asked for rather than guessed, TouchControls.
-        /// WheelInset and GaugeCluster.CornerTop being published for exactly
-        /// this: a fraction of the screen that clears a wheel or a dial is a
-        /// different fraction every time either is retuned. All three canvases
+        /// Level with the map unless that would put it on whatever is already
+        /// in the bottom-right: the speedometer on a PC, the speedometer beside
+        /// the pedals on a phone (where the panel also steps in off the pedal
+        /// column, which runs up that edge), or the cockpit's binnacle. Then it
+        /// stands just clear above it.
+        ///
+        /// Every box is asked for rather than guessed — TouchControls.
+        /// PedalsInset and GaugeCluster.RightCornerTop are published for
+        /// exactly this, since a fraction of the screen that clears a dial is a
+        /// different fraction every time it is retuned. All three canvases
         /// scale off the same 1280x720 reference, so the numbers are directly
         /// comparable.
         /// </summary>
@@ -224,9 +259,34 @@ namespace PSXRacing
             if (panelRT == null) return;
             bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
             builtTouch = touch;
-            builtCornerTop = GaugeCluster.CornerTop;
-            float below = touch ? 18f + 300f : builtCornerTop;
-            panelRT.anchoredPosition = new Vector2(18f, below + AboveWheelGap);
+            builtCornerTop = GaugeCluster.RightCornerTop;
+            float frameH = builtFrameH = FrameH();
+            if (mapCentreYFrac < 0f)
+            {
+                var hud = FindAnyObjectByType<RaceHUD>();
+                mapCentreYFrac = hud != null ? hud.mapCentreYFrac : 0.60f;
+            }
+            float levelWithMap = frameH * mapCentreYFrac - PanelH * 0.5f;
+            float underAction = frameH - TouchControls.ActionTopInset - TouchControls.ActionH
+                              - AboveWheelGap - PanelH;
+            float y = Mathf.Max(touch ? underAction : levelWithMap, builtCornerTop + AboveWheelGap);
+            // Never off the top: a short landscape window gives up "level with
+            // the map" before it gives up the picture.
+            y = Mathf.Min(y, frameH - PanelH - 18f);
+            float x = touch ? TouchControls.PedalsInset + AboveWheelGap : 18f;
+            panelRT.anchoredPosition = new Vector2(-x, y);
+        }
+
+        /// <summary>RaceHUD's map height, read once; negative until then.</summary>
+        float mapCentreYFrac = -1f;
+        /// <summary>The canvas height this was placed on. The scaler settles
+        /// after Build, and a window can be resized mid-race.</summary>
+        float builtFrameH = -1f;
+
+        float FrameH()
+        {
+            var canvasRT = panelRT != null ? panelRT.parent as RectTransform : null;
+            return canvasRT != null && canvasRT.rect.height > 32f ? canvasRT.rect.height : 720f;
         }
 
         void LateUpdate()
@@ -238,7 +298,8 @@ namespace PSXRacing
             // assumed to have settled by the time the touch flag flips.
             bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
             if (touch != builtTouch
-                || !Mathf.Approximately(GaugeCluster.CornerTop, builtCornerTop)) Place();
+                || !Mathf.Approximately(GaugeCluster.RightCornerTop, builtCornerTop)
+                || !Mathf.Approximately(FrameH(), builtFrameH)) Place();
 
             if (caption == null || cargo == null) return;
             float c = cargo.Condition;
