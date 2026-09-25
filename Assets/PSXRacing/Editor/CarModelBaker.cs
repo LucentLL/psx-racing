@@ -615,12 +615,14 @@ namespace PSXRacing.EditorTools
         {
             var imp = AssetImporter.GetAtPath(assetPath) as TextureImporter;
             if (imp == null) return;
+            int max = PSXTextureCaps.MaxFor(assetPath);
             if (imp.filterMode == FilterMode.Point && !imp.mipmapEnabled &&
-                imp.textureCompression == TextureImporterCompression.Uncompressed) return;
+                imp.textureCompression == TextureImporterCompression.Uncompressed &&
+                imp.maxTextureSize == max) return;
             imp.filterMode = FilterMode.Point;
             imp.mipmapEnabled = false;
             imp.textureCompression = TextureImporterCompression.Uncompressed;
-            imp.maxTextureSize = 256;
+            imp.maxTextureSize = max;
             imp.SaveAndReimport();
         }
 

@@ -61,14 +61,32 @@ const MODELS = [
   // `skins` names it — the folder also holds reference shots and renders
   // that must not become liveries. Sized to GT4's own spec sheet for the
   // SiR-II (EG): "reference dimensions should be in GT4 specs for scaling".
-  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/eg_civic_cleaned.obj`,
-    tex: `${ownerCars}/EG_Civic_Source_PSX`, skins: /^civic_psx_atlas_256$/,
+  // The REPAIRED revision (2026-09-25): rebuilt from the original GLB with
+  // sealed panel backs and repaired window/roof seams, on its own atlas.
+  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/repaired/eg_civic_repaired.obj`,
+    tex: `${ownerCars}/EG_Civic_Source_PSX/repaired`, skins: /^civic_psx_atlas_256$/,
     gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
-  { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/nissan_240sx_psx.obj`,
-    tex: `${ownerCars}/Nissan_240SX_PSX`, skins: /^nissan_psx_atlas_256$/,
+  // The REBUILT shell (2026-09-25, "it should seal the gaps"): the first one
+  // was the decimated source with 733 open edges, and the road showed through
+  // them; this one was re-lofted closed from the source's cross-sections, on
+  // a new atlas of its own.
+  { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/rebuilt/nissan_240sx_psx.obj`,
+    tex: `${ownerCars}/Nissan_240SX_PSX/rebuilt`, skins: /^nissan_atlas_256$/,
     gt4LengthM: 4.520 },
+
+  // Ripped PS1-era cars from the owner's Cars folder (2026-09-25: "add these
+  // vehicles as traffic"), converted by convert_rip.py - aligned, sized to
+  // the real car, wheels split out, every source page baked onto one 512
+  // atlas (the one exemption from the 256 clamp: ConfigureTextureImporters).
+  // Configs in rips/.
+  { key: 'crown_victoria', obj: `${here}/converted/crown_victoria/crown_victoria.obj`,
+    tex: `${here}/converted/crown_victoria`, skins: /^crown_victoria_atlas_512$/ },
+  { key: 'camry_2001',     obj: `${here}/converted/camry_2001/camry_2001.obj`,
+    tex: `${here}/converted/camry_2001`, skins: /^camry_2001_atlas_512$/ },
+  { key: 'ford_transit',   obj: `${here}/converted/ford_transit/ford_transit.obj`,
+    tex: `${here}/converted/ford_transit`, skins: /^ford_transit_atlas_512$/ },
 ];
 
 // `node export_models.mjs civic_eg` re-exports one model and leaves the rest

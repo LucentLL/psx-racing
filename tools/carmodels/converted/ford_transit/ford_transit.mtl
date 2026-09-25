@@ -1,0 +1,4 @@
+newmtl PSX
+Kd 1 1 1
+illum 1
+map_Kd ford_transit_atlas_512.png

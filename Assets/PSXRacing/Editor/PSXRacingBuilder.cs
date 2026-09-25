@@ -1030,10 +1030,8 @@ namespace PSXRacing.EditorTools
                 var p = AssetDatabase.GUIDToAssetPath(guid);
                 var imp = AssetImporter.GetAtPath(p) as TextureImporter;
                 if (imp == null) continue;
-                // The forest atlas is 4x4 species on one 512 sheet: clamping it
-                // to 256 would halve every tree to 64 px — chunkier than the
-                // circuit trees it replaces. One page of exemption, explicitly.
-                int wantMax = p.Contains("/BRP/Gen/TreeAtlas") ? 512 : 256;
+                // 256 everywhere but the exemptions PSXTextureCaps names.
+                int wantMax = PSXTextureCaps.MaxFor(p);
                 bool dirty = imp.filterMode != FilterMode.Point || imp.mipmapEnabled ||
                              imp.textureCompression != TextureImporterCompression.Uncompressed ||
                              (wantMax != 256 && imp.maxTextureSize != wantMax);
@@ -5005,7 +5003,12 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void PlaceParkedCars(List<Vector3> pts, Transform parent)
         {
-            string[] keys = { "classic_van", "jdm_pickup", "landrover", "euro_hatch",
+            // The owner's traffic cars (2026-09-25, "add these vehicles as
+            // traffic ... just race tracks") are interleaved rather than
+            // appended, so a short street still shows them: the keys are dealt
+            // in order.
+            string[] keys = { "crown_victoria", "classic_van", "camry_2001", "jdm_pickup",
+                              "ford_transit", "landrover", "euro_hatch",
                               "volvo_estate", "citroen_cx", "bmw_e30", "audi_saloon" };
 
             var rng = new System.Random(31);
@@ -5027,7 +5030,10 @@ namespace PSXRacing.EditorTools
 
                 float side = (i / theme.parkedEvery) % 2 == 0 ? 1f : -1f;
                 Vector3 right = RightAt(pts, i);
-                Vector3 fwd = Vector3.Cross(Vector3.up, right);
+                // The direction of TRAVEL here. (Cross(up, right) is the
+                // reverse of it: RightAt is Cross(up, travel), so crossing
+                // back the same way turns round.)
+                Vector3 travel = Vector3.Cross(right, Vector3.up);
 
                 var go = new GameObject("Parked_" + def.key);
                 go.transform.SetParent(parent, false);
@@ -5041,11 +5047,15 @@ namespace PSXRacing.EditorTools
                 // field above the mesh would leave the car standing on air.
                 parkAt.y = ShoulderLatticeY(parkAt.x, parkAt.z);
                 go.transform.position = parkAt;
-                // Nose-to-tail along the kerb, some facing the other way, and a
-                // couple of degrees off true — a row of perfectly aligned cars
-                // reads as a texture, not as parking.
+                // NORTH AMERICA: a car parks WITH the traffic on its own side
+                // of the street (owner, 2026-09-25: "Cars should drive on the
+                // right side of the road"). Right of the direction of travel
+                // faces forward, left faces back — this used to be a coin flip
+                // per car, which parked half the street against traffic. A
+                // couple of degrees off true still: a row of perfectly aligned
+                // cars reads as a texture, not as parking.
                 go.transform.rotation = Quaternion.LookRotation(
-                    rng.NextDouble() < 0.5 ? fwd : -fwd, Vector3.up)
+                    side > 0f ? travel : -travel, Vector3.up)
                     * Quaternion.Euler(0f, (float)(rng.NextDouble() * 6.0 - 3.0), 0f);
 
                 DressProp(go.transform, def, rng.Next(Mathf.Max(1, def.SkinCount)));

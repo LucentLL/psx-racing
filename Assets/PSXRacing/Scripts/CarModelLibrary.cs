@@ -79,6 +79,13 @@ namespace PSXRacing
             new Model { key = "mb_pagoda",    name = "Mercedes-Benz SL 'Pagoda'", region = Region.Europe,  year = 1965, body = Body.Roadster, kg = 1350 },
             new Model { key = "landrover",    name = "Land Rover pickup",         region = Region.Europe,  year = 1985, body = Body.Offroad,  kg = 1900 },
             new Model { key = "classic_van",  name = "Classic panel van",         region = Region.Europe,  year = 1960, body = Body.Van,      kg = 1400 },
+
+            // Ripped PS1-era cars (GT1/GT2 via the owner's Cars folder), added
+            // 2026-09-25 as parked TRAFFIC on the race tracks. Hand-only so the
+            // scorer never hands a catalog car a police-spec Crown Vic.
+            new Model { key = "crown_victoria", name = "Ford Crown Victoria", region = Region.America, year = 1998, body = Body.Saloon, kg = 1790, handOnly = true },
+            new Model { key = "camry_2001",     name = "Toyota Camry (XV20)", region = Region.Japan,   year = 1997, body = Body.Saloon, kg = 1400, handOnly = true },
+            new Model { key = "ford_transit",   name = "Ford Transit (Mk5)",  region = Region.Europe,  year = 1994, body = Body.Van,    kg = 1900, handOnly = true },
         };
 
         static Dictionary<string, Model> byKey;

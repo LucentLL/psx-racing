@@ -54,18 +54,18 @@ MonoBehaviour:
   - civic_psx_atlas_256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.42488736, g: 0.19152187, b: 0.18985781, a: 1}
+  - {r: 0.45214048, g: 0.19585116, b: 0.19295737, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.032018743
-  bodyZOffset: 0.017537534
-  wheelbase: 2.574503
-  trackWidth: 1.447093
-  wheelRadius: 0.26561776
+  bodyYOffset: -0.03200331
+  bodyZOffset: 0.01752919
+  wheelbase: 2.5732913
+  trackWidth: 1.446412
+  wheelRadius: 0.26549268
   wheelMeshScale: 0.93
-  cowlZ: 0.9516213
-  cowlY: 0.86890787
-  noseZ: 2.1090276
-  roofY: 1.3164417
-  colliderCenter: {x: 0, y: 0.72313476, z: 0.07402754}
-  colliderSize: {x: 1.7606367, y: 1.10447, z: 3.88685}
-  blobSize: {x: 2.3475156, y: 4.3549004}
+  cowlZ: 0.9760665
+  cowlY: 0.85742337
+  noseZ: 2.1080353
+  roofY: 1.3159982
+  colliderCenter: {x: 0, y: 0.7228042, z: 0.07303524}
+  colliderSize: {x: 1.7598076, y: 1.1039498, z: 3.88685}
+  blobSize: {x: 2.34641, y: 4.3549004}

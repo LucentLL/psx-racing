@@ -310,6 +310,15 @@ Shader "PSX/CarPaint"
                 float hi3 = max(tex.r, max(tex.g, tex.b)), lo3 = min(tex.r, min(tex.g, tex.b));
                 float chroma = (hi3 - lo3) / max(hi3, GLASS_GREY_FLOOR);
                 float glass = saturate((GLASS_LUM - lum) / GLASS_LUM) * (1.0 - saturate(chroma * 2.5 - 0.75));
+                // MATTE, flagged in the sheet's alpha at one half. The ripped
+                // PS1 cars (convert_rip.py) have no cut-out wheel arches: the
+                // wells are BLACK PAINT on flat side panels, and by the rule
+                // above black is glass, so every arch became a grey mirror. The
+                // converter marks the black texels low on the body. Of the
+                // other 130 car sheets only the pickup's wheel sheet has any
+                // texels in this band (32), on a wheel that is dulled anyway.
+                float matte = step(abs(tex.a - 0.5), 0.1);
+                glass *= 1.0 - matte;
                 float dull = _Dull;
 
                 // THE ONE LIGHT. A hemisphere ambient — the sky's colour from
@@ -409,7 +418,7 @@ Shader "PSX/CarPaint"
                 }
 
                 col = lerp(col, PSXFogTowardSun(_PSXFogColor.rgb, V), i.fog);
-                return fixed4(col, tex.a);
+                return fixed4(col, lerp(tex.a, 1.0, matte));
             }
             ENDCG
         }

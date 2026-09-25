@@ -5112,6 +5112,15 @@ namespace PSXRacing.LifeSim
             OptionRow("SUN SHADOWS", SunShadowPrefs.Label,
                 "Daylight casts shadows; tunnels go dark. Off if the game runs slowly by day.",
                 () => SunShadowPrefs.Toggle(), ref y);
+            // Frame pacing and the meter to judge it by (2026-09-25: "60fps
+            // minimum. Preferably 120fps"). MAX is the screen's own refresh -
+            // 120 on the owner's S24+ - and 60 is there for battery.
+            OptionRow("FRAME RATE", FrameRatePrefs.Label,
+                "MAX runs as fast as the screen refreshes (up to 120). 60 saves battery.",
+                () => FrameRatePrefs.Toggle(), ref y);
+            OptionRow("SHOW FPS", FpsOverlayPrefs.Label,
+                "Frame rate, frame time and the worst frame, along the bottom edge.",
+                () => FpsOverlayPrefs.Toggle(), ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries most of these,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,

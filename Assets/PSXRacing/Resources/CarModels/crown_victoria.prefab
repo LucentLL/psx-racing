@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8657638833129218091
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1027247682578291220}
+  - component: {fileID: 7559276114200006300}
+  m_Layer: 0
+  m_Name: crown_victoria
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1027247682578291220
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8657638833129218091}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7559276114200006300
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8657638833129218091}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: crown_victoria
+  displayName: Ford Crown Victoria
+  bodyMesh: {fileID: -2432090755550338912, guid: 1c86fba0ffd7f0848b254de0ec989ce1, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 7318819ebdebc3d43b89ffc98188ca39, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 20fd9befd10d14a4a982265015ad1f82, type: 2}
+  skinNames:
+  - crown_victoria_atlas_512
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.5221647, g: 0.55006564, b: 0.55181897, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.026189094
+  bodyZOffset: -0.21358621
+  wheelbase: 3.2210295
+  trackWidth: 1.6050694
+  wheelRadius: 0.3479484
+  wheelMeshScale: 0.93
+  cowlZ: 0.8129295
+  cowlY: 1.0983036
+  noseZ: 2.4789138
+  roofY: 1.5443549
+  colliderCenter: {x: 0, y: 0.92728937, z: -0.21358621}
+  colliderSize: {x: 1.7370672, y: 1.1470186, z: 5.142675}
+  blobSize: {x: 2.3160896, y: 5.7619505}

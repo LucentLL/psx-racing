@@ -8,14 +8,17 @@ namespace PSXRacing
     /// </summary>
     public class PSXBootstrap : MonoBehaviour
     {
+        /// <summary>No longer read: FrameRatePrefs decides. Kept so the baked
+        /// scenes that serialize it still load cleanly.</summary>
         public int targetFrameRate = 60;
         public float fixedTimestep = 1f / 60f;
 
         void Awake()
         {
-            Application.targetFrameRate = targetFrameRate;
+            // The player's FRAME RATE setting, not the serialized 60 above -
+            // that field is left in the baked scenes but no longer read.
+            FrameRatePrefs.Apply();
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
-            QualitySettings.vSyncCount = 0;
 
             // 60 Hz physics keeps the tire model stable without costing a phone too much.
             Time.fixedDeltaTime = fixedTimestep;

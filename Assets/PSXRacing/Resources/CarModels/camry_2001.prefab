@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4259832320260957985
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3233015704593107406}
+  - component: {fileID: 2699410472584218853}
+  m_Layer: 0
+  m_Name: camry_2001
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3233015704593107406
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4259832320260957985}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2699410472584218853
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4259832320260957985}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: camry_2001
+  displayName: Toyota Camry (XV20)
+  bodyMesh: {fileID: -2432090755550338912, guid: a333af22c469cee4b8add3034054545e, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 64290d531610bba4d919508bbe34506f, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 2c2a78cd48166b144bd12b948b8f419c, type: 2}
+  skinNames:
+  - camry_2001_atlas_512
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.4723212, g: 0.48141727, b: 0.49000084, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.023559969
+  bodyZOffset: -0.1575185
+  wheelbase: 2.934705
+  trackWidth: 1.496655
+  wheelRadius: 0.31301105
+  wheelMeshScale: 0.93
+  cowlZ: 0.934744
+  cowlY: 1.0594865
+  noseZ: 2.2364817
+  roofY: 1.4618949
+  colliderCenter: {x: 0, y: 0.8809111, z: -0.1575185}
+  colliderSize: {x: 1.713773, y: 1.08297, z: 4.57254}
+  blobSize: {x: 2.2850306, y: 5.1231604}

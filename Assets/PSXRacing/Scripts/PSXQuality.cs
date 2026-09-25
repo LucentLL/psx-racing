@@ -136,6 +136,96 @@ namespace PSXRacing
         public static float Amount => Enabled ? 1f : 0f;
     }
 
+    /// <summary>
+    /// FRAME RATE: MAX (the screen's own refresh) or 60. The owner, 2026-09-25:
+    /// "60fps minimum. Preferably 120fps" on a 120 Hz Galaxy S24+.
+    ///
+    /// It was a hard 60 in PSXBootstrap, which made 120 impossible and, on
+    /// WebGL, paced even the 60 off a TIMER: any targetFrameRate there but -1
+    /// replaces the browser's requestAnimationFrame with setTimeout, which is
+    /// what makes a steady 60 feel uneven. MAX on the web is -1 - the browser
+    /// draws at the display's rate. A native build has no browser to ask, and
+    /// -1 there means 30 on a phone, so MAX is the display's refresh rate.
+    /// Physics stays a fixed 60 Hz either way; every car is an interpolated
+    /// rigidbody, so frames between steps are smooth rather than repeated.
+    /// </summary>
+    public static class FrameRatePrefs
+    {
+        const string PrefKey = "psx.frameCap";   // 0 = MAX, 60 = locked 60
+
+        static int cached = -1;
+
+        public static bool Max
+        {
+            get
+            {
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 0);
+                return cached == 0;
+            }
+            set
+            {
+                int v = value ? 0 : 60;
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+                Apply();
+            }
+        }
+
+        public static void Toggle() => Max = !Max;
+
+        public static string Label => Max ? "MAX" : "60";
+
+        /// <summary>What Application.targetFrameRate should be now.</summary>
+        public static int Target
+        {
+            get
+            {
+                if (!Max) return 60;
+                if (Application.platform == RuntimePlatform.WebGLPlayer) return -1;
+                int hz = Mathf.RoundToInt((float)Screen.currentResolution.refreshRateRatio.value);
+                return hz >= 30 ? hz : 120;
+            }
+        }
+
+        public static void Apply()
+        {
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = Target;
+        }
+    }
+
+    /// <summary>SHOW FPS: the frame-rate readout (FpsOverlay). Ships OFF - it is
+    /// an instrument for tuning, not part of the picture.</summary>
+    public static class FpsOverlayPrefs
+    {
+        const string PrefKey = "psx.showFps";
+
+        static int cached = -1;
+
+        public static bool Enabled
+        {
+            get
+            {
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 0);
+                return cached != 0;
+            }
+            set
+            {
+                int v = value ? 1 : 0;
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+            }
+        }
+
+        public static void Toggle() => Enabled = !Enabled;
+
+        public static string Label => Enabled ? "ON" : "OFF";
+    }
+
     public static class LensFxPrefs
     {
         const string PrefKey = "psx.lensFx";
