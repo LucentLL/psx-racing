@@ -567,6 +567,15 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static bool SaveSeat(SeatSource src)
         {
+            // READABLE, before anything is loaded from it: the seat's meshes
+            // are its colliders (below), and a WebGL player can only cook a
+            // MeshCollider from a mesh it can read. Checked first — a
+            // SaveAndReimport re-encodes whether or not anything changed.
+            if (AssetImporter.GetAtPath(src.fbx) is ModelImporter mi && !mi.isReadable)
+            {
+                mi.isReadable = true;
+                mi.SaveAndReimport();
+            }
             var model = AssetDatabase.LoadAssetAtPath<GameObject>(src.fbx);
             if (model == null) { Debug.LogError("[PizzaCargo] no seat at " + src.fbx); return false; }
             var atlas = PointTexture(src.atlas);
@@ -670,6 +679,42 @@ namespace PSXRacing.EditorTools
             cf.SetParent(holder.transform, false);
             cf.localPosition = f.front;
             cf.localRotation = Quaternion.Euler(-f.slopeDeg, 0f, 0f);
+            // What the shop quotes, as measured: x is half the clear width
+            // between the bolsters, y how tall they stand above the surface
+            // the box lies on. Absent when the seat has no bolsters beside a
+            // box (the stock seat's are a centimetre of padding).
+            if (!float.IsInfinity(f.channel))
+            {
+                var bl = new GameObject("Bolster").transform;
+                bl.SetParent(holder.transform, false);
+                bl.localPosition = new Vector3(f.channel, f.bolsterRise, 0f);
+            }
+
+            // THE MODEL IS THE COLLIDER. Owner, 2026-09-25: "physics should
+            // match the models. If I think they need to be adjusted I will get
+            // new models." So every part — cushion, bolsters, squab, shell —
+            // collides as drawn; the rig adds no seat slabs of its own around
+            // it. The meshes were made readable at the top of this method.
+            //
+            // CONVEX WHERE THE PART IS CONVEX, and only there. Every pad and
+            // cushion is a lofted, closed, convex block, and as a triangle
+            // mesh PhysX snagged a sliding box on the edges between its
+            // triangles: a lone box on the stock seat rolled to 40 degrees
+            // slid 0.000 m (friction lets go at 35). As convex hulls the same
+            // parts slide it 0.15 m, to the door. But a hull of a CONCAVE part
+            // is not the part — the professional bucket's side walls dip
+            // between a tall back and a low front, and a hull would stand a
+            // wall across that dip — so those keep their exact triangles.
+            int hulls = 0, exact = 0;
+            foreach (var mf in inst.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                var mc = mf.gameObject.AddComponent<MeshCollider>();
+                mc.sharedMesh = mf.sharedMesh;
+                mc.convex = IsConvex(mf, 0.002f);
+                if (mc.convex) hulls++; else exact++;
+            }
+            Debug.Log("[PizzaCargo] " + src.prefab + " colliders: " + hulls + " convex parts, " + exact + " concave kept exact");
 
             PSXRacingBuilder.ConvertToPSXMaterials(holder);
             float depth = Vector3.Distance(f.rear, f.front);
@@ -734,23 +779,47 @@ namespace PSXRacing.EditorTools
 
             // Rear: whatever stands in the box's way behind it, above the
             // cushion — the squab, or bolsters wrapped in front of it.
-            float rearZ = squabZ;
+            float RearStop(float above)
+            {
+                float r = squabZ;
+                foreach (var v in all)
+                {
+                    if (cushionVerts.Contains(v) || v.z > midZ || Mathf.Abs(v.x) > boxHalf + 0.005f) continue;
+                    float h = H(v);
+                    if (h > above && h < 0.25f) r = Mathf.Max(r, v.z);
+                }
+                return r;
+            }
+            float rearZ = RearStop(0.02f);
+
+            // THE SURFACE A BOX RESTS ON is the highest thing under it, not
+            // the pad the plane was fitted to: the stock seat's cushion
+            // bolsters stand a centimetre proud of its centre pad, and now
+            // that the seat's own meshes are the colliders a box lies on
+            // THEM. A stack placed on the centre pad would start the run
+            // inside them.
+            float z0 = rearZ + PSXRacing.PizzaCargo.SquabGapM, z1 = z0 + 2f * boxHalf;
+            float lift = 0f;
             foreach (var v in all)
             {
-                if (cushionVerts.Contains(v) || v.z > midZ || Mathf.Abs(v.x) > boxHalf + 0.005f) continue;
+                if (Mathf.Abs(v.x) > boxHalf || v.z < z0 || v.z > z1) continue;
                 float h = H(v);
-                if (h > 0.02f && h < 0.25f) rearZ = Mathf.Max(rearZ, v.z);
+                if (h > -0.01f && h < 0.03f) lift = Mathf.Max(lift, h);
             }
+            a += lift;
+            // And measured from there, anything above that surface is in the
+            // box's way, however low.
+            rearZ = RearStop(0.003f);
 
             // The channel: the nearest bolster face to the centreline beside
             // where the box will lie, over the stack's height.
-            float z0 = rearZ + PSXRacing.PizzaCargo.SquabGapM, z1 = z0 + 2f * boxHalf;
+            z0 = rearZ + PSXRacing.PizzaCargo.SquabGapM; z1 = z0 + 2f * boxHalf;
             float channel = float.PositiveInfinity, rise = 0f;
             foreach (var v in all)
             {
                 if (cushionVerts.Contains(v) || v.z < z0 || v.z > z1 || Mathf.Abs(v.x) < 0.03f) continue;
                 float h = H(v);
-                if (h > 0.02f && h < 0.20f) channel = Mathf.Min(channel, Mathf.Abs(v.x));
+                if (h > 0.003f && h < 0.20f) channel = Mathf.Min(channel, Mathf.Abs(v.x));
             }
             if (!float.IsInfinity(channel))
                 foreach (var v in all)
@@ -764,6 +833,42 @@ namespace PSXRacing.EditorTools
             f.reclineDeg = Mathf.Atan(-d) * Mathf.Rad2Deg;
             f.channel = channel;
             f.bolsterRise = rise;
+            return true;
+        }
+
+        /// <summary>
+        /// Is this closed mesh convex? It is if no vertex stands outside the
+        /// plane of any of its faces, by more than <paramref name="tol"/>
+        /// METRES. Winding-blind: a face's "outside" is whichever side the
+        /// mesh's centroid is not on.
+        ///
+        /// In world space, because a Blender FBX arrives as vertices in
+        /// hundredths under a x100 node: in mesh units every face's cross
+        /// product fell under the degenerate cut-off, every face was skipped,
+        /// and every part — the pro bucket's walls, 30 cm concave — read
+        /// convex.
+        /// </summary>
+        static bool IsConvex(MeshFilter mf, float tol)
+        {
+            var mesh = mf.sharedMesh;
+            var m = mf.transform.localToWorldMatrix;
+            var v = mesh.vertices;
+            for (int i = 0; i < v.Length; i++) v[i] = m.MultiplyPoint3x4(v[i]);
+            var t = mesh.triangles;
+            if (v.Length == 0 || t.Length < 12) return false;
+            Vector3 c = Vector3.zero;
+            foreach (var p in v) c += p;
+            c /= v.Length;
+            for (int i = 0; i + 2 < t.Length; i += 3)
+            {
+                Vector3 a = v[t[i]];
+                Vector3 n = Vector3.Cross(v[t[i + 1]] - a, v[t[i + 2]] - a);
+                if (n.sqrMagnitude < 1e-12f) continue;
+                n.Normalize();
+                if (Vector3.Dot(c - a, n) > 0f) n = -n;   // outward
+                foreach (var p in v)
+                    if (Vector3.Dot(p - a, n) > tol) return false;
+            }
             return true;
         }
 

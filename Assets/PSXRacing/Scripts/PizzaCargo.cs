@@ -560,6 +560,22 @@ namespace PSXRacing
             Seats[Mathf.Clamp(stage, 0, Seats.Length - 1)];
 
         /// <summary>
+        /// A rung's bolsters as the parts page should quote them: half the
+        /// clear width between them and how tall they stand above the cushion.
+        /// Off the owner's MODEL where the rung has one — its meshes are the
+        /// colliders, so its measurements are the physics — else off the table.
+        /// </summary>
+        public static void SeatBolsters(int stage, out float innerHalf, out float tall)
+        {
+            var spec = SeatAt(stage);
+            innerHalf = spec.bolsterHalf - BolsterSlabHalf;
+            tall = spec.NominalHeightMm * 0.001f;
+            var prefab = Resources.Load<GameObject>(PizzaCargoBakerNames.SeatFor(stage));
+            var mark = prefab != null ? prefab.transform.Find("Bolster") : null;
+            if (mark != null) { innerHalf = mark.localPosition.x; tall = mark.localPosition.y; }
+        }
+
+        /// <summary>
         /// The pan is not flat. A seat cushion rises toward the knees — about
         /// twelve degrees on a road car — and that tilt is what lets braking
         /// and cornering come apart. The game's brakes and its tyres both top
@@ -1238,7 +1254,7 @@ namespace PSXRacing
                     if (pbb.size.y > 0.005f) boxHalf = Mathf.Max(pbb.size.x, pbb.size.z) * 0.5f;
                 }
             }
-            float panBackU = -SeatD * 0.5f, panFrontU = SeatD * 0.5f, panW = SeatW;
+            float panBackU = -SeatD * 0.5f, panFrontU = SeatD * 0.5f;
             bool modelSeat = false;
             // The rung's own seat if the owner made one (the buckets), else the
             // stock seat — which the sport and bucket rungs dress with slabs.
@@ -1258,29 +1274,24 @@ namespace PSXRacing
                 model.name = "SeatModel";
                 model.transform.localRotation = seatRot;
                 model.transform.localPosition = PanRot * new Vector3(0f, 0f, panBackU) - seatRot * s;
-                panW = Bounds(model).size.x;
                 panFrontZ = (PanRot * new Vector3(0f, 0f, panFrontU)).z;
 
-                // The squab, lying along the model's own face and as wide as
-                // its shell. Reclined, so a lid folding back meets it further
-                // over than it met the old upright slab, which is what a lid
-                // does against a real seat back.
-                var backRot = seatRot * squabMark.localRotation;
-                float backPitch = Mathf.DeltaAngle(0f, backRot.eulerAngles.x);
-                var sAt = PanRot * new Vector3(0f, 0f, panBackU);
-                Slab(tray, "Back", sAt + backRot * new Vector3(0f, 0.22f, -0.025f),
-                     new Vector3(panW * 0.9f, 0.44f, 0.05f), visible: false, pitchDeg: backPitch);
+                // THE MODEL IS THE COLLIDER — the baker put a MeshCollider on
+                // every part of it, cushion and squab included. Owner:
+                // "physics should match the models. If I think they need to
+                // be adjusted I will get new models." So no pan, back or
+                // bolster slab is laid over a model seat: a box lies on the
+                // cushion it is drawn on, stops against the squab it is drawn
+                // against, and is held by the bolsters the seat actually has.
+                foreach (var col in model.GetComponentsInChildren<Collider>(true))
+                    col.sharedMaterial = grip;
                 modelSeat = true;
             }
-            // Run a little way under the squab, so a box shoved back into it
-            // never finds the pan's back edge first.
-            float panLen = panFrontU - (panBackU - (modelSeat ? 0.10f : 0f));
-            float panMid = panFrontU - panLen * 0.5f;
-            Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f) + PanRot * new Vector3(0f, 0f, panMid),
-                 new Vector3(panW, 0.04f, panLen), visible: !modelSeat, pitchDeg: -panPitch);
             if (!modelSeat)
             {
                 Debug.LogWarning("[PizzaCargo] no baked seat - run PSX Racing/Bake Pizza Cargo; using the slab bench");
+                Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f), new Vector3(SeatW, 0.04f, SeatD),
+                     pitchDeg: -panPitch);
                 Slab(tray, "Back", new Vector3(0f, 0.17f, -SeatD * 0.5f + 0.02f),
                      new Vector3(SeatW, 0.38f, 0.05f));
             }
@@ -1323,14 +1334,22 @@ namespace PSXRacing
             // that the seats either side of it held — a bucket's bolsters run
             // the whole cushion for the same reason.
             // On the owner's seat that cushion runs squab to lip, and so do they.
-            float bolsterLen = modelSeat ? panFrontU - panBackU : SeatD;
-            var bolsterMid = PanRot * new Vector3(0f, 0f, modelSeat ? (panBackU + panFrontU) * 0.5f : 0f);
-            Slab(tray, "BolsterL", new Vector3(-seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
-                 new Vector3(0.04f, bolsterH, bolsterLen),
-                 visible: seat.bolstersVisible && !ownSeat, pitchDeg: -panPitch);
-            Slab(tray, "BolsterR", new Vector3(seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
-                 new Vector3(0.04f, bolsterH, bolsterLen),
-                 visible: seat.bolstersVisible && !ownSeat, pitchDeg: -panPitch);
+            // Only where they are DRAWN. A model seat's bolsters are the
+            // model's own (its colliders); the sport and bucket rungs, which
+            // ride on the stock seat, get these slabs drawn on it — what the
+            // player sees is what holds. The stock seat's old invisible 3 cm
+            // ridge stood beside a seat that has none, and is gone.
+            if (!modelSeat || (seat.bolstersVisible && !ownSeat))
+            {
+                float bolsterLen = modelSeat ? panFrontU - panBackU : SeatD;
+                var bolsterMid = PanRot * new Vector3(0f, 0f, modelSeat ? (panBackU + panFrontU) * 0.5f : 0f);
+                Slab(tray, "BolsterL", new Vector3(-seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
+                     new Vector3(0.04f, bolsterH, bolsterLen),
+                     visible: seat.bolstersVisible && !ownSeat, pitchDeg: -panPitch);
+                Slab(tray, "BolsterR", new Vector3(seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
+                     new Vector3(0.04f, bolsterH, bolsterLen),
+                     visible: seat.bolstersVisible && !ownSeat, pitchDeg: -panPitch);
+            }
             // THE CAR AROUND THE SEAT: door card one side, transmission tunnel
             // the other, and the dash ahead.
             //

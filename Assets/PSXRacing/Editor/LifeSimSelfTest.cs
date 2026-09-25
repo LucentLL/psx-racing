@@ -117,6 +117,22 @@ namespace PSXRacing.EditorTools
             Line((ok ? "  ok   " : "  FAIL ") + what + (got != null ? "  (got " + got + ")" : ""));
         }
 
+        /// <summary>
+        /// A promise about how the CARGO behaves on a seat that the seat's
+        /// SHAPE decides — how far a crash throws a box, whether a better seat
+        /// holds better. Printed, never failed. Owner, 2026-09-25: "physics
+        /// should match the models. If I think they need to be adjusted I will
+        /// get new models." Since then the seats' own meshes are the colliders,
+        /// so these numbers are the models' to set, and a miss is a report for
+        /// him (a "SEAT" line), not a regression. Integrity checks — friction,
+        /// rest, a pizza never leaving a shut box, lids on their hinges — stay
+        /// on Check.
+        /// </summary>
+        static void SeatCheck(bool ok, string what, object got = null)
+        {
+            Line((ok ? "  ok   " : "  SEAT ") + what + " [seat model]" + (got != null ? "  (got " + got + ")" : ""));
+        }
+
         // ---------------------------------------------------------------
         //  Housing, delivery job, and the props the world stands up
         // ---------------------------------------------------------------
@@ -4569,7 +4585,7 @@ namespace PSXRacing.EditorTools
             // Twice the old 0.12 was measured against doubled grip. A third
             // is the ceiling: still well short of the crash's half, still
             // an order that arrives.
-            Check(sim.knockCost < 0.35f,
+            SeatCheck(sim.knockCost < 0.35f,
                   "and a 3 m/s knock jostles it rather than losing it",
                   "cost " + sim.knockCost.ToString("0.000"));
             Check(sim.afterCrash < sim.afterRough - 0.05f,
@@ -4664,7 +4680,7 @@ namespace PSXRacing.EditorTools
                   "a handbrake 180 visibly throws a lone box across a stock seat",
                   stockOneBox.ToString("0.000") + " m (three-box stack, most-moved box: " +
                   (sim.tierSlideSpin != null ? sim.tierSlideSpin[0].ToString("0.00") : "?") + " m)");
-            Check(stockOneBox > topOneBox * 3f,
+            SeatCheck(stockOneBox > topOneBox * 3f,
                   "and at least three times as far as the race seat lets it go",
                   stockOneBox.ToString("0.000") + " m vs " + topOneBox.ToString("0.000") + " m");
 
@@ -4684,7 +4700,7 @@ namespace PSXRacing.EditorTools
                 bool monotone = true;
                 for (int t = 1; t < n; t++)
                     if (sim.singleSpin[t] < sim.singleSpin[t - 1] - 0.03f) monotone = false;
-                Check(monotone,
+                SeatCheck(monotone,
                       "every seat holds a lone box through a spin at least as well as the one below it");
                 // NOT "still" any more. The owner, with his buckets in: "the
                 // pizza boxes should fit comfortably between the bolsters, but
@@ -4695,7 +4711,7 @@ namespace PSXRacing.EditorTools
                 // a third of the bench's slide.
                 var top = PizzaCargo.SeatAt(n - 1);
                 float room = top.bolsterHalf - PizzaCargo.BolsterSlabHalf - 0.205f;
-                Check(sim.singleSlide[n - 1] < room + 0.01f,
+                SeatCheck(sim.singleSlide[n - 1] < room + 0.01f,
                       "and the race seat stops it at its bolsters",
                       sim.singleSlide[n - 1].ToString("0.000") + " m in " + room.ToString("0.000") +
                       " m of room, vs " + sim.singleSlide[0].ToString("0.00") + " m on the stock seat");
@@ -4715,7 +4731,7 @@ namespace PSXRacing.EditorTools
             if (sim.tierSpin != null && sim.tierSpin.Length == PizzaCargo.Seats.Length)
             {
                 int n = sim.tierSpin.Length;
-                Check(sim.tierBraking[n - 1] > 0.95f,
+                SeatCheck(sim.tierBraking[n - 1] > 0.95f,
                       "and the race seat holds a three-box order through a panic stop",
                       sim.tierBraking[n - 1].ToString("0.000"));
                 for (int t = 0; t < n; t++)
@@ -4853,15 +4869,15 @@ namespace PSXRacing.EditorTools
                       sim.shutMaxHomeError.ToString("0.0000") + " m");
 
                 // S8. The owner's configuration: one box, stock seat, a wall.
-                Check(sim.oneBoxCrashZ > HeadOnThrowMinM,
+                SeatCheck(sim.oneBoxCrashZ > HeadOnThrowMinM,
                       "a head-on that costs the car 15 m/s throws a lone box off the front of a stock seat",
                       sim.oneBoxCrashZ.ToString("0.00") + " m");
-                Check(sim.oneBoxCrashLeftSeat, "into the footwell",
+                SeatCheck(sim.oneBoxCrashLeftSeat, "into the footwell",
                       sim.oneBoxCrashOpened ? "opened" : "still shut");
-                Check(sim.oneBoxCrashBottleZ > HeadOnThrowMinM,
+                SeatCheck(sim.oneBoxCrashBottleZ > HeadOnThrowMinM,
                       "and a bottle parked in front of it does not save it",
                       sim.oneBoxCrashBottleZ.ToString("0.00") + " m");
-                Check(sim.oneBoxCrashBottleLeftSeat, "into the footwell, bottle and all",
+                SeatCheck(sim.oneBoxCrashBottleLeftSeat, "into the footwell, bottle and all",
                       sim.oneBoxCrashBottleOpened ? "opened" : "still shut");
                 Check(sim.oneBoxSixGZ > SixGStopMinM,
                       "a 6 g stop the responder never sees still moves a lone box",

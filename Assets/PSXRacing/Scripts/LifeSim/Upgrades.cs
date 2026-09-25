@@ -305,8 +305,9 @@ namespace PSXRacing.LifeSim
                         p.delta = Mathf.Max(0, p.toVal - p.fromVal);
                         p.unit = "cg";
                         basePrice = BaseSeat;
-                        int gapMm = Mathf.RoundToInt((b.bolsterHalf - 0.02f - 0.205f) * 1000f);
-                        int tallMm = b.NominalHeightMm;
+                        PizzaCargo.SeatBolsters(to, out float innerHalf, out float tall);
+                        int gapMm = Mathf.RoundToInt((innerHalf - 0.205f) * 1000f);
+                        int tallMm = Mathf.RoundToInt(tall * 1000f);
                         p.sideEffect = "bolsters " + tallMm + " mm tall, " +
                                        Mathf.Max(0, gapMm) + " mm off a pizza box";
                     }
