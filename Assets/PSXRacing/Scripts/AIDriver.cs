@@ -88,6 +88,9 @@ namespace PSXRacing
         /// </summary>
         const float AvoidMaxM = 2.4f;
         const float AvoidSlew = 4.0f;      // metres/s of give-way movement
+        /// <summary>Centre-to-centre gap wanted beside a traffic car: two
+        /// half-widths and a little air.</summary>
+        const float TrafficClearM = 2.4f;
 
         // ---- recovery (P2) ----
         /// <summary>Stuck in clear air — probably facing a kerb or in the scenery.
@@ -263,6 +266,41 @@ namespace PSXRacing
                     if (Mathf.Abs(pull) > Mathf.Abs(wanted)) wanted = pull;
 
                     float closing = car.forwardSpeed - other.forwardSpeed;
+                    if (closing > 0.5f)
+                        throttleLift = Mathf.Max(throttleLift,
+                            closeness * Mathf.Clamp01(closing / 8f));
+                }
+            }
+
+            // TRAFFIC (TrafficSystem): the same rule, but seen from further
+            // off. A racer at 150 km/h closes on 60 km/h traffic at 25 m/s -
+            // AvoidLookM is half a second of that - and on oncoming traffic at
+            // twice it. So the look grows with the closing speed.
+            var traffic = TrafficSystem.Instance;
+            if (traffic != null)
+            {
+                var bodies = traffic.Obstacles;
+                for (int i = 0; i < bodies.Count; i++)
+                {
+                    var rb = bodies[i];
+                    if (rb == null) continue;
+                    Vector3 local = transform.InverseTransformPoint(rb.position);
+                    float closing = car.forwardSpeed - Vector3.Dot(rb.linearVelocity, transform.forward);
+                    float look = Mathf.Clamp(AvoidLookM + closing * 2.2f, AvoidLookM, 70f);
+                    if (local.z < 1.5f || local.z > look) continue;
+                    if (Mathf.Abs(local.x) > AvoidWidthM) continue;
+
+                    float closeness = 1f - local.z / look;
+                    // Move over by the clearance actually NEEDED, as soon as
+                    // the car is in the look - not scaled down by distance,
+                    // which left racers still on the centre line when an
+                    // oncoming car arrived (four head-ons in thirty seconds).
+                    // Traffic dead ahead in this car's own lane is passed on
+                    // the LEFT, North American style.
+                    float dir = local.x >= 0f ? -1f : 1f;
+                    float need = TrafficClearM - Mathf.Abs(local.x);
+                    float pull = dir * Mathf.Clamp(need + 0.2f, 0f, AvoidMaxM);
+                    if (Mathf.Abs(pull) > Mathf.Abs(wanted)) wanted = pull;
                     if (closing > 0.5f)
                         throttleLift = Mathf.Max(throttleLift,
                             closeness * Mathf.Clamp01(closing / 8f));

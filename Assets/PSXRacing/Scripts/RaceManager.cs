@@ -118,6 +118,11 @@ namespace PSXRacing
             if (RaceHandoff.Delivery && path != null && !path.HasEnds)
                 sprintFinishIndex = SprintFinishIndexFor(path.Count, RaceHandoff.DeliveryDropFraction);
 
+            // Moving traffic, races and deliveries alike, on the final path
+            // (the reverse twin has been turned round by now). It waits for
+            // the green before anything moves.
+            TrafficSystem.Begin(this);
+
             // ROLLING START: "it would be nice if pizza delivery race tracks
             // started with the car driving the speed limit, not turning on
             // ignition." The handoff says what speed; a DRAG-PRESENTATION
