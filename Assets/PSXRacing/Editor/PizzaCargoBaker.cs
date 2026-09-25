@@ -162,6 +162,7 @@ namespace PSXRacing.EditorTools
             }
 
             if (SaveBottle()) baked++;
+            if (SaveSeat()) baked++;
 
             Object.DestroyImmediate(inst);
             AssetDatabase.SaveAssets();
@@ -488,14 +489,245 @@ namespace PSXRacing.EditorTools
             return (float)sum;
         }
 
+        // ------------------------------------------------------------------
+        /// <summary>The owner's seat, 2026-09-25: "use this as the default car
+        /// seat that pizzas and drinks are placed on". Built in Blender at real
+        /// size — 0.54 m wide, 0.94 m to the top of the headrest, a cushion
+        /// 0.40 m from squab to front lip — and it stays at real size, because
+        /// the box beside it is a real 16-inch one (BoxWidthM). A 41 cm box
+        /// covers that cushion from the backrest to the front edge, which is
+        /// what one does on a real passenger seat.</summary>
+        const string SeatFbx = Root + "/Art/LifeSim/Seat/psx_seat.fbx";
+        const string SeatAtlas = Root + "/Art/LifeSim/Seat/seat_atlas.png";
+        public const string SeatPrefab = "car_seat";
+
+        /// <summary>
+        /// THE SEAT, stood up and MEASURED, with the two landmarks the cargo
+        /// rig needs written into it as empty children.
+        ///
+        /// Which way is up and which way is forward are read off the model's
+        /// own parts — the headrest is above the base, the cushion's front lip
+        /// is ahead of the headrest — rather than trusted to an exporter's axis
+        /// conversion, which is right until somebody re-exports.
+        ///
+        /// `SquabPoint` is where the squab's face meets the cushion's top, on
+        /// the centreline; its up runs up the face of the squab. `CushionFront`
+        /// is the front edge of the cushion on the same plane. Both are
+        /// PLANE FITS to the faces a box actually touches — the cushion's
+        /// centre pad top and the squab's lower pad front — because those are
+        /// what the pan and backrest colliders have to coincide with, and a
+        /// bounds corner is the bolster or the headrest instead.
+        ///
+        /// Children rather than a component, so the runtime reads landmarks
+        /// off transforms it already understands and no new script type has to
+        /// keep its GUID across a sandbox mirror.
+        /// </summary>
+        static bool SaveSeat()
+        {
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(SeatFbx);
+            if (model == null) { Debug.LogError("[PizzaCargo] no seat at " + SeatFbx); return false; }
+            var atlas = PointTexture(SeatAtlas);
+
+            var holder = new GameObject(SeatPrefab);
+            var pivot = new GameObject("Mesh");
+            pivot.transform.SetParent(holder.transform, false);
+            var inst = (GameObject)Object.Instantiate(model);
+            inst.name = "psx_seat";
+            inst.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            inst.transform.localScale = Vector3.one;
+            inst.transform.SetParent(pivot.transform, true);
+            foreach (var col in inst.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(col);
+
+            // The same road the bottles take: a throwaway Standard material
+            // carrying the atlas, which the PSX converter then rebuilds.
+            var tmp = new Material(Shader.Find("Standard")) { mainTexture = atlas, name = "SeatUpholstery" };
+            foreach (var r in inst.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var ms = r.sharedMaterials;
+                for (int i = 0; i < ms.Length; i++) ms[i] = tmp;
+                r.sharedMaterials = ms;
+            }
+
+            var head = Find(holder, "Headrest");
+            var lip = Find(holder, "Cushion_Front_Lip");
+            var cushion = Find(holder, "Cushion_Center");
+            var squab = Find(holder, "Back_Lower_Pad");
+            var seatBase = Find(holder, "Seat_Base");
+            if (head == null || lip == null || cushion == null || squab == null || seatBase == null)
+            {
+                Debug.LogError("[PizzaCargo] the seat is missing a part it is measured by " +
+                               "(Headrest, Cushion_Front_Lip, Cushion_Center, Back_Lower_Pad, Seat_Base)");
+                Object.DestroyImmediate(holder); Object.DestroyImmediate(tmp);
+                return false;
+            }
+
+            // Up: base to headrest. Forward: headrest to front lip, level.
+            Vector3 up = Snap(WorldBounds(head).center - WorldBounds(seatBase).center);
+            Vector3 fwd = WorldBounds(lip).center - WorldBounds(head).center;
+            fwd = Snap(fwd - Vector3.Dot(fwd, up) * up);
+            pivot.transform.rotation = Quaternion.Inverse(Quaternion.LookRotation(fwd, up)) *
+                                       pivot.transform.rotation;
+
+            // Metres as authored. A unit slip (centimetres, or a scale-0.01
+            // FBX) is the only correction: the seat's SIZE is the owner's.
+            var b = WorldBounds(holder.transform);
+            float unit = b.size.y > 10f ? 0.01f : b.size.y < 0.1f ? 100f : 1f;
+            if (unit != 1f)
+            {
+                pivot.transform.localScale *= unit;
+                Debug.LogWarning("[PizzaCargo] the seat arrived " + b.size.y.ToString("0.000") +
+                                 " units tall - rescaled x" + unit + " to metres");
+                b = WorldBounds(holder.transform);
+            }
+            pivot.transform.position += new Vector3(-b.center.x, -b.min.y, -b.center.z);
+            b = WorldBounds(holder.transform);
+
+            // THE CUSHION: y = a + s z through the pad's upward faces.
+            // THE SQUAB: z = c + d y through the lower pad's forward faces.
+            if (!FitPlane(cushion, Vector3.up, out float a, out float s) ||
+                !FitPlane(squab, Vector3.forward, out float c, out float d))
+            {
+                Debug.LogError("[PizzaCargo] could not find the seat's cushion or squab faces");
+                Object.DestroyImmediate(holder); Object.DestroyImmediate(tmp);
+                return false;
+            }
+            float sy = (a + s * c) / (1f - s * d);
+            var squabPoint = new Vector3(0f, sy, c + d * sy);
+            float frontZ = float.MinValue;
+            foreach (var v in WorldVerts(lip)) frontZ = Mathf.Max(frontZ, v.z);
+            var cushionFront = new Vector3(0f, a + s * frontZ, frontZ);
+            float slopeDeg = Mathf.Atan(s) * Mathf.Rad2Deg;
+            float reclineDeg = Mathf.Atan(-d) * Mathf.Rad2Deg;
+
+            var sp = new GameObject("SquabPoint").transform;
+            sp.SetParent(holder.transform, false);
+            sp.localPosition = squabPoint;
+            sp.localRotation = Quaternion.Euler(-reclineDeg, 0f, 0f);
+            var cf = new GameObject("CushionFront").transform;
+            cf.SetParent(holder.transform, false);
+            cf.localPosition = cushionFront;
+            cf.localRotation = Quaternion.Euler(-slopeDeg, 0f, 0f);
+
+            PSXRacingBuilder.ConvertToPSXMaterials(holder);
+            float depth = Vector3.Distance(squabPoint, cushionFront);
+            Debug.Log("[PizzaCargo] seat " + b.size.ToString("0.000") + " m; cushion " +
+                      depth.ToString("0.000") + " m deep at " + slopeDeg.ToString("0.0") +
+                      " deg, squab reclined " + reclineDeg.ToString("0.0") + " deg; a " +
+                      BoxWidthM.ToString("0.00") + " m box is " + (BoxWidthM / b.size.x).ToString("0.00") +
+                      " of its width and " + (BoxWidthM / depth).ToString("0.00") + " of its depth");
+
+            PrefabUtility.SaveAsPrefabAsset(holder, ResDir + "/" + SeatPrefab + ".prefab");
+            Object.DestroyImmediate(holder);
+            Object.DestroyImmediate(tmp);
+            return true;
+        }
+
+        /// <summary>The signed world axis nearest a direction.</summary>
+        static Vector3 Snap(Vector3 v)
+        {
+            Vector3 a = new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
+            if (a.x >= a.y && a.x >= a.z) return new Vector3(Mathf.Sign(v.x), 0f, 0f);
+            if (a.y >= a.z) return new Vector3(0f, Mathf.Sign(v.y), 0f);
+            return new Vector3(0f, 0f, Mathf.Sign(v.z));
+        }
+
+        static List<Vector3> WorldVerts(Transform part)
+        {
+            var list = new List<Vector3>();
+            foreach (var mf in part.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                var m = mf.transform.localToWorldMatrix;
+                foreach (var v in mf.sharedMesh.vertices) list.Add(m.MultiplyPoint3x4(v));
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// The CAP of a padded part that faces <paramref name="facing"/>, as a
+        /// line in the seat's side view (up: y = k0 + k1 z; forward:
+        /// z = k0 + k1 y).
+        ///
+        /// A pad is rings of vertices lofted into a solid, so it has two big
+        /// flat caps — the one a box touches and the one against the seat —
+        /// and bevels between the rings that point MOSTLY the same way (a 12%
+        /// shrink over 9 mm is only 27 degrees off). Averaging "faces that
+        /// point roughly up" mixes all three. So triangles are grouped into
+        /// exact planes, planes too small to be a cap are dropped, and of what
+        /// is left the one furthest along <paramref name="facing"/> is the
+        /// face. Either winding: a mirrored export still reads.
+        /// </summary>
+        static bool FitPlane(Transform part, Vector3 facing, out float k0, out float k1)
+        {
+            k0 = k1 = 0f;
+            bool upward = facing.y > 0.5f;
+            var normals = new List<Vector3>();
+            var offsets = new List<float>();
+            var areas = new List<float>();
+            var members = new List<List<Vector3>>();
+            foreach (var mf in part.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                var m = mf.transform.localToWorldMatrix;
+                var vs = mf.sharedMesh.vertices;
+                var ts = mf.sharedMesh.triangles;
+                for (int i = 0; i + 2 < ts.Length; i += 3)
+                {
+                    Vector3 p0 = m.MultiplyPoint3x4(vs[ts[i]]);
+                    Vector3 p1 = m.MultiplyPoint3x4(vs[ts[i + 1]]);
+                    Vector3 p2 = m.MultiplyPoint3x4(vs[ts[i + 2]]);
+                    Vector3 cr = Vector3.Cross(p1 - p0, p2 - p0);
+                    float area = cr.magnitude * 0.5f;
+                    if (area < 1e-8f) continue;
+                    Vector3 nrm = cr.normalized;
+                    if (Vector3.Dot(nrm, facing) < 0f) nrm = -nrm;
+                    if (Vector3.Dot(nrm, facing) < 0.8f) continue;
+                    float off = Vector3.Dot(nrm, p0);
+                    int g = -1;
+                    for (int k = 0; k < normals.Count && g < 0; k++)
+                        if (Vector3.Dot(normals[k], nrm) > 0.9995f && Mathf.Abs(offsets[k] - off) < 0.001f) g = k;
+                    if (g < 0) { normals.Add(nrm); offsets.Add(off); areas.Add(0f); members.Add(new List<Vector3>()); g = normals.Count - 1; }
+                    areas[g] += area;
+                    members[g].Add(p0); members[g].Add(p1); members[g].Add(p2);
+                }
+            }
+            float biggest = 0f;
+            foreach (var a in areas) biggest = Mathf.Max(biggest, a);
+            int best = -1;
+            float bestAlong = float.MinValue;
+            for (int k = 0; k < normals.Count; k++)
+            {
+                if (areas[k] < biggest * 0.25f) continue;
+                float along = 0f;
+                foreach (var p in members[k]) along += Vector3.Dot(p, facing);
+                along /= members[k].Count;
+                if (along > bestAlong) { bestAlong = along; best = k; }
+            }
+            if (best < 0) return false;
+
+            double n = 0, su = 0, sw = 0, suu = 0, suw = 0;
+            foreach (var p in members[best])
+            {
+                double u = upward ? p.z : p.y, w = upward ? p.y : p.z;
+                n++; su += u; sw += w; suu += u * u; suw += u * w;
+            }
+            double den = n * suu - su * su;
+            if (n < 3 || System.Math.Abs(den) < 1e-9) return false;
+            k1 = (float)((n * suw - su * sw) / den);
+            k0 = (float)((sw - k1 * su) / n);
+            return true;
+        }
+
         /// <summary>The sheet, imported by the renderer's own rules for a
         /// texture: point filtered, no mips, clamped, uncompressed. Checked
         /// before it is changed — SaveAndReimport re-encodes even when nothing
         /// moved, and an unconditional one on every bake is how the audio
         /// importer once cost every build five minutes.</summary>
-        static Texture2D SodaSheetTexture()
+        static Texture2D SodaSheetTexture() => PointTexture(SodaSheet);
+
+        static Texture2D PointTexture(string path)
         {
-            if (AssetImporter.GetAtPath(SodaSheet) is TextureImporter imp &&
+            if (AssetImporter.GetAtPath(path) is TextureImporter imp &&
                 (imp.filterMode != FilterMode.Point || imp.mipmapEnabled ||
                  imp.wrapMode != TextureWrapMode.Clamp ||
                  imp.textureCompression != TextureImporterCompression.Uncompressed))
@@ -506,7 +738,7 @@ namespace PSXRacing.EditorTools
                 imp.textureCompression = TextureImporterCompression.Uncompressed;
                 imp.SaveAndReimport();
             }
-            return AssetDatabase.LoadAssetAtPath<Texture2D>(SodaSheet);
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
         /// <summary>

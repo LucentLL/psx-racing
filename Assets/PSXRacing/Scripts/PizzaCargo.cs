@@ -366,6 +366,12 @@ namespace PSXRacing
         /// as void. This one fills it, while the BOLSTERS still stand at a real
         /// seat's width so the cargo is confined by the same geometry it always
         /// was.
+        ///
+        /// Since 2026-09-25 this is the CABIN rather than the seat: the door
+        /// card, tunnel and footwell still stand off these numbers, while the
+        /// cushion and squab are fitted to the owner's seat model (0.54 m wide)
+        /// in BuildIsland. The slab bench of this size is only the fallback
+        /// for a build whose seat was never baked.
         /// </summary>
         const float SeatW = 0.80f, SeatD = 0.62f;
         /// <summary>
@@ -559,8 +565,12 @@ namespace PSXRacing
         /// front edge and PROPS, nose down at seventy degrees, lid open,
         /// origin only 5-10 cm below the pan — "still on the seat" by the
         /// old test, on the floor by any other.
+        ///
+        /// An instance value since the owner's seat: BuildIsland sets it from
+        /// that seat's measured cushion. The default is the old slab bench,
+        /// which is what gets built if the seat was never baked.
         /// </summary>
-        static readonly float PanFrontZ = SeatD * 0.5f * Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
+        float panFrontZ = SeatD * 0.5f * Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
 
         /// <summary>How far below the cushion's front lip a box's base has to
         /// have sunk, once it is past <see cref="PanFrontZ"/>, to count as gone
@@ -638,8 +648,22 @@ namespace PSXRacing
         /// read that. Back here the strip is 12.5 cm, the squab is still 8.5 cm
         /// behind the boxes, and a load that starts two centimetres further
         /// from the footwell is if anything the way this pass wants to err.
+        ///
+        /// (Since the owner's seat the bottles ride on top of the stack and the
+        /// strip is gone — the seat is placed off the stack instead, see
+        /// SquabGapM — so this only says where in the island the load sits,
+        /// which the Pizza Cam's framing is aimed at.)
         /// </summary>
         const float StackBackM = 0.02f;
+        /// <summary>
+        /// Daylight between the back of the stack and the owner's seat's squab,
+        /// at the cushion. A centimetre and a half: nothing touches at rest (a
+        /// solver handed a contact on frame one moves something), and the
+        /// squab reclines, so higher up the stack the gap only grows. The
+        /// cushion is 0.40 m and the box 0.41, so the box's nose stands about
+        /// 2.5 cm proud of the front lip — a 16-inch box on a real seat.
+        /// </summary>
+        const float SquabGapM = 0.015f;
         /// <summary>Which rung of <see cref="Seats"/> this cargo was built on.</summary>
         public int SeatStage { get; private set; }
         CarController car;
@@ -1164,10 +1188,70 @@ namespace PSXRacing
             // THE PAN IS TILTED, front up, by PanPitchDeg — see that constant
             // for why. Pitched about its own centre, so the surface at z = 0,
             // where the stack stands, is exactly where it always was.
-            Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f), new Vector3(SeatW, 0.04f, SeatD),
-                 pitchDeg: -PanPitchDeg);
-            Slab(tray, "Back", new Vector3(0f, 0.17f, -SeatD * 0.5f + 0.02f),
-                 new Vector3(SeatW, 0.38f, 0.05f));
+            //
+            // THE OWNER'S SEAT, 2026-09-25: "use this as the default car seat
+            // that pizzas and drinks are placed on ... scaled correctly
+            // relative to pizza box size". So the slabs stop being what is
+            // drawn and become what the model is fitted to. Real size, both
+            // of them: a 0.41 m box on a 0.54 m seat whose cushion is 0.40 m
+            // from squab to lip — the box covers the cushion, as it does in a
+            // car. The seat is turned so its own cushion lies ON the 12 degree
+            // pan (it was modelled nearly flat; a real seat's rails tilt it
+            // back the same way, and its squab reclines with it), and set so
+            // its squab stands SquabGapM behind the stack. The pan and back
+            // colliders then follow the model's cushion and squab rather than
+            // the bench's, so a box that looks like it is on the seat is.
+            float boxHalf = 0.205f;
+            {
+                var probe = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+                if (probe != null)
+                {
+                    var pbb = Bounds(probe);
+                    if (pbb.size.y > 0.005f) boxHalf = Mathf.Max(pbb.size.x, pbb.size.z) * 0.5f;
+                }
+            }
+            float panBackU = -SeatD * 0.5f, panFrontU = SeatD * 0.5f, panW = SeatW;
+            bool modelSeat = false;
+            var seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Seat);
+            var squabMark = seatPrefab != null ? seatPrefab.transform.Find("SquabPoint") : null;
+            var frontMark = seatPrefab != null ? seatPrefab.transform.Find("CushionFront") : null;
+            if (squabMark != null && frontMark != null)
+            {
+                Vector3 s = squabMark.localPosition, f = frontMark.localPosition;
+                float slopeDeg = Mathf.Atan2(f.y - s.y, f.z - s.z) * Mathf.Rad2Deg;
+                var seatRot = Quaternion.Euler(-(PanPitchDeg - slopeDeg), 0f, 0f);
+                panBackU = -StackBackM - boxHalf - SquabGapM;
+                panFrontU = panBackU + Vector3.Distance(s, f);
+                var model = Instantiate(seatPrefab, tray, false);
+                model.name = "SeatModel";
+                model.transform.localRotation = seatRot;
+                model.transform.localPosition = PanRot * new Vector3(0f, 0f, panBackU) - seatRot * s;
+                panW = Bounds(model).size.x;
+                panFrontZ = (PanRot * new Vector3(0f, 0f, panFrontU)).z;
+
+                // The squab, lying along the model's own face and as wide as
+                // its shell. Reclined, so a lid folding back meets it further
+                // over than it met the old upright slab, which is what a lid
+                // does against a real seat back.
+                var backRot = seatRot * squabMark.localRotation;
+                float backPitch = Mathf.DeltaAngle(0f, backRot.eulerAngles.x);
+                var sAt = PanRot * new Vector3(0f, 0f, panBackU);
+                Slab(tray, "Back", sAt + backRot * new Vector3(0f, 0.22f, -0.025f),
+                     new Vector3(panW * 0.9f, 0.44f, 0.05f), visible: false, pitchDeg: backPitch);
+                modelSeat = true;
+            }
+            // Run a little way under the squab, so a box shoved back into it
+            // never finds the pan's back edge first.
+            float panLen = panFrontU - (panBackU - (modelSeat ? 0.10f : 0f));
+            float panMid = panFrontU - panLen * 0.5f;
+            Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f) + PanRot * new Vector3(0f, 0f, panMid),
+                 new Vector3(panW, 0.04f, panLen), visible: !modelSeat, pitchDeg: -PanPitchDeg);
+            if (!modelSeat)
+            {
+                Debug.LogWarning("[PizzaCargo] no baked seat - run PSX Racing/Bake Pizza Cargo; using the slab bench");
+                Slab(tray, "Back", new Vector3(0f, 0.17f, -SeatD * 0.5f + 0.02f),
+                     new Vector3(SeatW, 0.38f, 0.05f));
+            }
 
             // THE BOLSTERS ARE THE SEAT UPGRADE. Where they stand and how tall
             // they are comes off the seat table: a stock bench's are 11 cm off
@@ -1206,11 +1290,14 @@ namespace PSXRacing
             // seat in the middle of the ladder losing a box in a panic stop
             // that the seats either side of it held — a bucket's bolsters run
             // the whole cushion for the same reason.
-            Slab(tray, "BolsterL", new Vector3(-seat.bolsterHalf, bolsterH * 0.5f, 0f),
-                 new Vector3(0.04f, bolsterH, SeatD),
+            // On the owner's seat that cushion runs squab to lip, and so do they.
+            float bolsterLen = modelSeat ? panFrontU - panBackU : SeatD;
+            var bolsterMid = PanRot * new Vector3(0f, 0f, modelSeat ? (panBackU + panFrontU) * 0.5f : 0f);
+            Slab(tray, "BolsterL", new Vector3(-seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
+                 new Vector3(0.04f, bolsterH, bolsterLen),
                  visible: seat.bolstersVisible, pitchDeg: -PanPitchDeg);
-            Slab(tray, "BolsterR", new Vector3(seat.bolsterHalf, bolsterH * 0.5f, 0f),
-                 new Vector3(0.04f, bolsterH, SeatD),
+            Slab(tray, "BolsterR", new Vector3(seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
+                 new Vector3(0.04f, bolsterH, bolsterLen),
                  visible: seat.bolstersVisible, pitchDeg: -PanPitchDeg);
             // THE CAR AROUND THE SEAT: door card one side, transmission tunnel
             // the other, and the dash ahead.
@@ -1345,19 +1432,19 @@ namespace PSXRacing
 
             // A different look per bottle: the two on a seat were the same
             // model, and two identical bottles side by side read as one thing.
+            // The top of the stack, along the pan's normal: where the next box
+            // WOULD have gone, hair of daylight included.
+            float stackTop = 0.01f + toppings.Length * (boxH + 0.004f);
             for (int i = 0; i < bottles; i++)
             {
                 var bottlePrefab = PizzaCargoBakerNames.LoadBottle(i);
                 if (bottlePrefab == null) return;
-                // The front face of the stack, in the tray's z: where the
-                // bottles' strip begins. Off the MEASURED box, like the stack.
-                float boxHalf = bb.size.y > 0.005f ? Mathf.Max(bb.size.x, bb.size.z) * 0.5f : 0.205f;
-                BuildBottle(bottlePrefab, i, boxHalf - StackBackM);
+                BuildBottle(bottlePrefab, i, stackTop, boxHalf);
             }
         }
 
         /// <summary>
-        /// A two litre bottle, IN FRONT OF THE STACK.
+        /// A two litre bottle, LYING ON TOP OF THE STACK.
         /// </summary>
         ///
         /// <remarks>
@@ -1399,43 +1486,35 @@ namespace PSXRacing
         ///
         /// NOT a slot either way — <see cref="Condition"/> averages slots, and
         /// a bottle in that list would be scored.
+        ///
+        /// 2026-09-25, AND THE STRIP IS GONE. The owner's seat is real size and
+        /// so is the box: a 41 cm box covers a 40 cm cushion squab to lip, and
+        /// there is no in front of it any more. Beside needs the stack pushed
+        /// against one bolster; on top is what people actually do. Asked, the
+        /// owner chose ON TOP, knowing the cost written above — two kilos on
+        /// the top box presses the stack into the seat and makes it harder to
+        /// lose. So both lie across the car on the top box, one behind the
+        /// other, parallel (a yaw that differs between two bottles a
+        /// centimetre apart closes that centimetre at one end). Under braking
+        /// they slide off the front and into the footwell; the top box's lid
+        /// is held shut under them.
         /// </remarks>
-        void BuildBottle(GameObject prefab, int index, float stackFrontZ)
+        void BuildBottle(GameObject prefab, int index, float stackTop, float boxHalf)
         {
-            bool upright = index != 0;
-
             var pb = Bounds(prefab);
             float h = Mathf.Max(0.05f, pb.size.y);
             float r = Mathf.Max(0.02f, Mathf.Max(pb.size.x, pb.size.z) * 0.5f);
 
-            // IN THE MIDDLE OF ITS STRIP, measured off both things it must not
-            // touch. This used to be hung off the seat's front edge alone — r
-            // and eight millimetres back from it — which clears the boxes for
-            // as long as the bottle is thinner than the strip and says nothing
-            // on the day it is not: the owner's real two-litre is 11.1 cm in a
-            // strip that was 10.5, and it spawned inside the stack. Whatever is
-            // spare is split between the two sides, and a bottle that does not
-            // fit at all is REPORTED, because the solver's answer to starting
-            // a run interpenetrating is to throw something.
-            float spare = SeatD * 0.5f - stackFrontZ - 2f * r;
-            if (spare < 0.004f)
-                Debug.LogWarning("[PizzaCargo] a " + (2f * r).ToString("0.000") + " m bottle does not fit the " +
-                                 (SeatD * 0.5f - stackFrontZ).ToString("0.000") +
-                                 " m strip in front of the stack - it will start the run touching the boxes");
-            float z = stackFrontZ + Mathf.Max(0f, spare) * 0.5f + r;
-            // The lying one runs across the car and is 33 cm long, so it is
-            // offset to leave the standing one a place to be.
-            float x = upright ? 0.20f : -0.10f;
-
-            // Lifted by the pan's own rise at this z: the bottles sit at the
-            // FRONT of the cushion, which on a tilted pan is six centimetres
-            // above its middle, and a bottle placed for a flat pan spawned with
-            // its base inside the seat.
-            float lift = PanTop(z);
-            var local = upright ? new Vector3(x, 0.012f + lift, z)
-                                : new Vector3(x, r + 0.012f + lift, z);
-            var rot = upright ? Quaternion.Euler(0f, index * 47f, 0f)
-                              : Quaternion.Euler(0f, 4f, 90f);
+            // Front first, then back along the box, a centimetre apart.
+            float u = -StackBackM + boxHalf - r - 0.01f - index * (2f * r + 0.01f);
+            if (u - r < -StackBackM - boxHalf)
+                Debug.LogWarning("[PizzaCargo] bottle " + index + " does not fit on top of the " +
+                                 (2f * boxHalf).ToString("0.00") + " m box - it hangs off the back");
+            // Staggered across the car, so two lengths of bottle side by side
+            // read as two things and not one extrusion.
+            float x = index % 2 == 0 ? -0.025f : 0.025f;
+            var local = PanRot * new Vector3(x, stackTop + r, u);
+            var rot = PanRot * Quaternion.Euler(0f, 3f, 90f);
 
             var go = Instantiate(prefab, tray.TransformPoint(local), tray.rotation * rot, transform);
             go.name = "Bottle" + index;
@@ -1443,7 +1522,6 @@ namespace PSXRacing
             // its base — the right datum for standing one up and the wrong one
             // for laying it down, because on its side the base is an END and
             // the bottle hangs a third of a metre off whichever way it turned.
-            if (!upright)
             {
                 var got = Bounds(go);
                 go.transform.position += tray.TransformPoint(local) - got.center;
@@ -2065,9 +2143,9 @@ namespace PSXRacing
                 // flat. One still level and still up there is overhanging, and
                 // overhanging is a thing to watch, not a thing to pay for.
                 var inTray = tray.InverseTransformPoint(s.box.position);
-                bool overFront = inTray.z > PanFrontZ &&
+                bool overFront = inTray.z > panFrontZ &&
                                  (upness < lidOpenCos ||
-                                  inTray.y < PanTop(PanFrontZ) - FrontDropM);
+                                  inTray.y < PanTop(panFrontZ) - FrontDropM);
                 if (inTray.y < -0.12f || overFront) { s.grounded = true; Open(s, LidKickGrounded); }
 
                 // THE SLAM. A box that gathers speed across a seat and stops
@@ -2743,6 +2821,10 @@ namespace PSXRacing
         /// on its own base, so the runtime stands one up by putting its origin
         /// on the seat and lays one down by turning it ninety degrees.</summary>
         public const string Bottle = Dir + "soda_bottle";
+        /// <summary>The owner's padded seat, stood up by the baker with its
+        /// `SquabPoint` and `CushionFront` landmarks as children — see
+        /// PizzaCargo.BuildIsland.</summary>
+        public const string Seat = Dir + "car_seat";
         /// <summary>How many looks the baker writes — the four bottles of the
         /// shelf's second row, cola first and lemon-lime second because most
         /// orders carry one bottle or two, then citrus and the other

@@ -41,8 +41,8 @@ Get-ChildItem $from -Filter *.prefab | ForEach-Object {
         foreach ($m in $_.Matches) { $wanted[$m.Groups[1].Value] = $true }
     }
 }
-$mats = 0; $missing = @()
-foreach ($g in $wanted.Keys) {
+$mats = 0; $artMetas = 0; $missing = @()
+foreach ($g in @($wanted.Keys)) {
     if (-not $guidToPath.ContainsKey($g)) { continue }        # a package or built-in asset
     $asset = $guidToPath[$g]
     if ($asset -notlike "*\Assets\PSXRacing\Materials\*") { continue }
@@ -51,6 +51,26 @@ foreach ($g in $wanted.Keys) {
     Copy-Item $asset $dest -Force
     Copy-Item ($asset + ".meta") ($dest + ".meta") -Force
     $mats++
+    # And what the material wears (the seat's atlas, the bottles' sheet).
+    if ($asset -like "*.mat") {
+        Select-String -Path $asset -Pattern 'guid: ([0-9a-f]{32})' -AllMatches | ForEach-Object {
+            foreach ($m in $_.Matches) { $wanted[$m.Groups[1].Value] = $true }
+        }
+    }
+}
+# ART the prefabs and materials reference (the seat's FBX mesh, its atlas):
+# the files are committed from the owner's folder, but their .meta - and so
+# the GUID everything points at - was minted in the sandbox. .meta ONLY: the
+# art itself is the source's, and an /E of an art dir has clobbered a re-bake.
+foreach ($g in $wanted.Keys) {
+    if (-not $guidToPath.ContainsKey($g)) { continue }
+    $asset = $guidToPath[$g]
+    if ($asset -notlike "*\Assets\PSXRacing\Art\*") { continue }
+    $dest = Join-Path $src $asset.Substring($proj.Length + 1)
+    if ((Test-Path $dest) -and -not (Test-Path ($dest + ".meta"))) {
+        Copy-Item ($asset + ".meta") ($dest + ".meta") -Force
+        $artMetas++
+    }
 }
 # Anything the prefabs point at must now exist in the source too.
 $srcGuids = @{}
@@ -61,7 +81,7 @@ Get-ChildItem (Join-Path $src "Assets") -Recurse -Filter *.meta | ForEach-Object
 foreach ($g in $wanted.Keys) {
     if ($guidToPath.ContainsKey($g) -and -not $srcGuids.ContainsKey($g)) { $missing += ($g + " -> " + $guidToPath[$g]) }
 }
-Write-Host "cargo sync-back: $copied bake files, $mats materials copied."
+Write-Host "cargo sync-back: $copied bake files, $mats materials, $artMetas art metas copied."
 if ($missing.Count -gt 0) {
     Write-Host "STILL MISSING IN SOURCE:" -ForegroundColor Red
     $missing | ForEach-Object { "  $_" }
