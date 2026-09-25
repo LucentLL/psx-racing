@@ -173,6 +173,10 @@ namespace PSXRacing.EditorTools
             /// went, indexed by seat stage.
             /// </summary>
             public float[] singleSpin, singleSlide;
+            /// <summary>Deepest any box or bottle was found sunk into a seat
+            /// model's colliders, over every seat, settled and after its runs.</summary>
+            public float seatSinkM;
+            public int seatSinkStage;
             /// <summary>How far the BOTTOM box slid on the rough corner and in
             /// the crash, in metres. Condition alone cannot see the bug this
             /// exists for: a box wedged between two bolsters 3.5 cm off its own
@@ -590,6 +594,7 @@ namespace PSXRacing.EditorTools
                     var c = PizzaCargo.Spawn(null, new[] { 0, 3, 6 }, 0, seatStage: t);
                     if (c == null) break;
                     Step(c, Vector3.zero, Quaternion.identity, 60);
+                    Sink(ref r, c, t);
                     // The spin FIRST, from a centred load, and as a delta — the
                     // same false positive the main run had: a box the corner has
                     // already parked against a bolster has nowhere to be thrown.
@@ -604,6 +609,7 @@ namespace PSXRacing.EditorTools
                     Step(c, new Vector3(0f, 0f, -9.81f), Quaternion.Euler(-4f, 0f, 0f), 75);
                     Step(c, Vector3.zero, Quaternion.identity, 60);
                     r.tierBraking[t] = c.Condition;
+                    Sink(ref r, c, t);
                     r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
                     r.lidsOff += c.LidsOffTheirBox();
                     if (shoot) Shoot(c, dir, "sim_5_seat" + t);
@@ -625,10 +631,12 @@ namespace PSXRacing.EditorTools
                     var c = PizzaCargo.Spawn(null, new[] { 4 }, 0, seatStage: t);
                     if (c == null) break;
                     Step(c, Vector3.zero, Quaternion.identity, 60);
+                    Sink(ref r, c, t);
                     Spin(c, 60);
                     Step(c, Vector3.zero, Quaternion.identity, 60);
                     r.singleSpin[t] = c.Condition;
                     r.singleSlide[t] = c.BoxSlide(0);
+                    Sink(ref r, c, t);
                     r.pizzaOnShutBox += c.ShutBoxesWithPizzaOut();
                     r.lidsOff += c.LidsOffTheirBox();
                     if (shoot) Shoot(c, dir, "sim_6_onebox_seat" + t);
@@ -1386,6 +1394,17 @@ namespace PSXRacing.EditorTools
         /// that with a level Step and call it a return — that one-frame snap
         /// is what put a box under the pan (PizzaCargo.MaxTiltRateDeg).
         /// </summary>
+        /// <summary>Record how deep this load is sunk into its seat, and say
+        /// so when it is more than contact offset.</summary>
+        static void Sink(ref Reading r, PizzaCargo c, int stage)
+        {
+            float d = c.SeatPenetration();
+            if (d > r.seatSinkM) { r.seatSinkM = d; r.seatSinkStage = stage; }
+            if (d > 0.015f)
+                Debug.Log("[PizzaSim] seat " + stage + " " + PizzaCargo.Seats[stage].name +
+                          ": load sunk " + d.ToString("0.000") + " m into the seat  " + c.Describe());
+        }
+
         static void Lean(PizzaCargo cargo, float rollDeg, int rampFrames, int holdFrames,
                          int returnFrames = 0, string trace = null)
         {

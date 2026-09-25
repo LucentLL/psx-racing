@@ -705,12 +705,44 @@ namespace PSXRacing.EditorTools
             // is not the part — the professional bucket's side walls dip
             // between a tall back and a low front, and a hull would stand a
             // wall across that dip — so those keep their exact triangles.
+            //
+            // IN METRES, ON THEIR OWN MESHES. The owner's FBX parts arrive as
+            // vertices in hundredths under a x100 node (and the buckets under
+            // the fit scale besides), and PhysX cooks a convex hull from the
+            // mesh as stored: a 0.4 m pad is 0.004 units there, inside the
+            // cooker's weld tolerance, and the hull it made let a box sink
+            // through the professional bucket's cushion ("the pizza box is
+            // clipping through the seat"). So each part is copied into the
+            // seat's own frame in real metres, saved beside the prefab, and
+            // collides from a plain child with no scale anywhere above it.
+            string colPath = ResDir + "/" + src.prefab + "_colliders.asset";
+            AssetDatabase.DeleteAsset(colPath);
+            Mesh container = null;
+            var colRoot = new GameObject("Colliders").transform;
+            colRoot.SetParent(holder.transform, false);
             int hulls = 0, exact = 0;
             foreach (var mf in inst.GetComponentsInChildren<MeshFilter>(true))
             {
                 if (mf.sharedMesh == null) continue;
-                var mc = mf.gameObject.AddComponent<MeshCollider>();
-                mc.sharedMesh = mf.sharedMesh;
+                var m = mf.transform.localToWorldMatrix;
+                var src2 = mf.sharedMesh;
+                var vs = src2.vertices;
+                for (int i = 0; i < vs.Length; i++) vs[i] = m.MultiplyPoint3x4(vs[i]);
+                var tris = src2.triangles;
+                if (m.determinant < 0f)
+                    for (int i = 0; i + 2 < tris.Length; i += 3) { int k = tris[i + 1]; tris[i + 1] = tris[i + 2]; tris[i + 2] = k; }
+                var cm = new Mesh { name = src.prefab + "_" + mf.name };
+                cm.vertices = vs;
+                cm.triangles = tris;
+                cm.RecalculateBounds();
+                cm.RecalculateNormals();
+                if (container == null) { AssetDatabase.CreateAsset(cm, colPath); container = cm; }
+                else AssetDatabase.AddObjectToAsset(cm, container);
+
+                var cgo = new GameObject(mf.name);
+                cgo.transform.SetParent(colRoot, false);
+                var mc = cgo.AddComponent<MeshCollider>();
+                mc.sharedMesh = cm;
                 mc.convex = IsConvex(mf, 0.002f);
                 if (mc.convex) hulls++; else exact++;
             }

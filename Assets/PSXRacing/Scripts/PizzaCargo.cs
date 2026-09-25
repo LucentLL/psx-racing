@@ -697,11 +697,11 @@ namespace PSXRacing
         const float StackBackM = 0.02f;
         /// <summary>
         /// Daylight between the back of the stack and the owner's seat's squab,
-        /// at the cushion. A centimetre and a half: nothing touches at rest (a
+        /// at the cushion. Enough that nothing touches at rest (a
         /// solver handed a contact on frame one moves something), and the
         /// squab reclines, so higher up the stack the gap only grows. The
-        /// cushion is 0.40 m and the box 0.41, so the box's nose stands about
-        /// 2.5 cm proud of the front lip — a 16-inch box on a real seat.
+        /// cushion is 0.40 m and the box 0.41, so the box's nose stands a couple of
+        /// centimetres proud of the front lip — a 16-inch box on a real seat.
         /// </summary>
         public const float SquabGapM = 0.015f;
         /// <summary>Half the thickness of a bolster slab: its inner face stands
@@ -1470,6 +1470,7 @@ namespace PSXRacing
             // stack is a moving one, which is exactly what the at-rest case
             // exists to say never happens.
             var panUp = PanRot * Vector3.up;
+            float spawnClear = modelSeat ? 0.003f : 0.01f;
             // Set back along the pan to leave the bottles their strip — see
             // StackBackM.
             var stackAt = PanRot * new Vector3(0f, 0f, -StackBackM);
@@ -1477,7 +1478,11 @@ namespace PSXRacing
             {
                 // Stacked, with a hair of daylight between them so the solver
                 // does not start the race resolving an interpenetration.
-                var at = stackAt + panUp * (0.01f + i * (boxH + 0.004f));
+                // Three millimetres off the seat on a model seat, whose surface
+                // is measured to the millimetre: the slab bench's centimetre
+                // dropped the upper boxes far enough to land as a SLAM, and a
+                // parked car wore its own top box 0.03.
+                var at = stackAt + panUp * (spawnClear + i * (boxH + 0.004f));
                 slots.Add(BuildBox(boxPrefab, toppings[i], at, boxH));
             }
 
@@ -1485,7 +1490,7 @@ namespace PSXRacing
             // model, and two identical bottles side by side read as one thing.
             // The top of the stack, along the pan's normal: where the next box
             // WOULD have gone, hair of daylight included.
-            float stackTop = 0.01f + toppings.Length * (boxH + 0.004f);
+            float stackTop = spawnClear + toppings.Length * (boxH + 0.004f);
             for (int i = 0; i < bottles; i++)
             {
                 var bottlePrefab = PizzaCargoBakerNames.LoadBottle(i);
@@ -2773,6 +2778,39 @@ namespace PSXRacing
         /// tumble exercises — so the box is turned by hand and the seat is
         /// left alone.
         /// </summary>
+        /// <summary>
+        /// How deep, in metres, the worst box or bottle is sunk INTO the seat
+        /// model's colliders right now. A load at rest on a seat should read a
+        /// millimetre or two of contact offset; anything more is a box drawn
+        /// through the upholstery, which is what the owner saw on the
+        /// professional bucket before its colliders were baked in metres.
+        /// </summary>
+        public float SeatPenetration()
+        {
+            var seatModel = tray != null ? tray.Find("SeatModel") : null;
+            if (seatModel == null) return 0f;
+            var seatCols = seatModel.GetComponentsInChildren<Collider>();
+            var load = new List<Collider>();
+            foreach (var s in slots)
+                if (s.box != null) load.AddRange(s.box.GetComponentsInChildren<Collider>());
+            foreach (var b in bottles)
+                if (b != null) load.AddRange(b.GetComponentsInChildren<Collider>());
+            float worst = 0f;
+            foreach (var a in load)
+            {
+                if (a == null || !a.enabled || a.isTrigger) continue;
+                foreach (var sc in seatCols)
+                {
+                    if (!sc.enabled) continue;
+                    if (Physics.ComputePenetration(a, a.transform.position, a.transform.rotation,
+                                                   sc, sc.transform.position, sc.transform.rotation,
+                                                   out _, out float d))
+                        worst = Mathf.Max(worst, d);
+                }
+            }
+            return worst;
+        }
+
         public void TurnBoxOver(int i, float rollDeg)
         {
             if (!Valid(i) || slots[i].box == null || tray == null) return;

@@ -4968,6 +4968,18 @@ namespace PSXRacing.EditorTools
                 Check(sim.pizzaOnShutBox == 0,
                       "a pizza is never found on top of a shut box, anywhere in the suite",
                       sim.pizzaOnShutBox);
+
+                // And never INSIDE the seat. The owner's screenshot of a box
+                // drawn through the professional bucket's cushion: an
+                // integrity check, not a seat-shape one — no model makes it
+                // right for cardboard to occupy upholstery. A centimetre and a
+                // half: the screenshot was 5-7 cm; a box that has slid off the
+                // stack and leans on the stock seat's rounded edge under two
+                // more boxes rests 8 mm in, which is contact, not clipping.
+                Check(sim.seatSinkM < 0.015f,
+                      "no box or bottle is ever sunk into a seat, on any seat",
+                      sim.seatSinkM.ToString("0.000") + " m" +
+                      (sim.seatSinkM > 0f ? " (worst on " + PizzaCargo.Seats[sim.seatSinkStage].name + ")" : ""));
             }
 
             Line("  .. " + sim.detail);
