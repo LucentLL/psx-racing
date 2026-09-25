@@ -162,7 +162,7 @@ namespace PSXRacing.EditorTools
             }
 
             if (SaveBottle()) baked++;
-            if (SaveSeat()) baked++;
+            if (SaveSeats()) baked += SeatSources.Length;
 
             Object.DestroyImmediate(inst);
             AssetDatabase.SaveAssets();
@@ -490,49 +490,92 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
-        /// <summary>The owner's seat, 2026-09-25: "use this as the default car
-        /// seat that pizzas and drinks are placed on". Built in Blender at real
-        /// size — 0.54 m wide, 0.94 m to the top of the headrest, a cushion
-        /// 0.40 m from squab to front lip — and it stays at real size, because
-        /// the box beside it is a real 16-inch one (BoxWidthM). A 41 cm box
-        /// covers that cushion from the backrest to the front edge, which is
-        /// what one does on a real passenger seat.</summary>
-        const string SeatFbx = Root + "/Art/LifeSim/Seat/psx_seat.fbx";
-        const string SeatAtlas = Root + "/Art/LifeSim/Seat/seat_atlas.png";
+        /// <summary>
+        /// The owner's seats, from his art folder, one per rung that has one.
+        ///
+        /// 2026-09-25, the stock seat: "use this as the default car seat that
+        /// pizzas and drinks are placed on ... scaled correctly relative to
+        /// pizza box size". Built at real size — 0.54 m wide, a cushion 0.39 m
+        /// from squab to lip — and it STAYS at real size: a 41 cm box covers
+        /// that cushion, which is what one does on a real passenger seat.
+        ///
+        /// Later the same day, the two buckets for stages 3 and 4. At real size
+        /// neither takes a box — both are 35 cm between the bolsters and the
+        /// box is 41 — and the owner chose to SCALE THEM UP until it fits:
+        /// "the pizza boxes should fit comfortably between the bolsters, but
+        /// still have enough room to move side to side". So a bucket is scaled,
+        /// uniformly, until its narrowest bolster face stands exactly where the
+        /// seat ladder's bolster collider does (SeatSpec.bolsterHalf), which is
+        /// what makes the drawn bolster the thing that stops the box.
+        /// </summary>
+        struct SeatSource
+        {
+            public string prefab, fbx, atlas;
+            /// <summary>The pad a box lies on; its top cap is the pan.</summary>
+            public string cushion;
+            /// <summary>The pad a box's back meets; its front cap gives the
+            /// recline.</summary>
+            public string squab;
+            /// <summary>The ladder rung whose bolsters this seat is scaled to
+            /// meet, or -1 for "real size, as modelled".</summary>
+            public int fitStage;
+        }
+
+        const string SeatDir = Root + "/Art/LifeSim/Seat/";
         public const string SeatPrefab = "car_seat";
 
+        static readonly SeatSource[] SeatSources =
+        {
+            new SeatSource { prefab = SeatPrefab, fbx = SeatDir + "psx_seat.fbx", atlas = SeatDir + "seat_atlas.png",
+                             cushion = "Cushion_Center", squab = "Back_Lower_Pad", fitStage = -1 },
+            new SeatSource { prefab = SeatPrefab + "_3", fbx = SeatDir + "amateur_bucket.fbx", atlas = SeatDir + "bucket_atlas.png",
+                             cushion = "Seat_Cushion", squab = "Back_Cushion", fitStage = 3 },
+            // The THIGH pad, not the pelvis one: it stands 1.9 cm proud of the
+            // pelvis pad, and a rigid box lies on the highest thing under it.
+            new SeatSource { prefab = SeatPrefab + "_4", fbx = SeatDir + "professional_bucket_seat.fbx", atlas = SeatDir + "pro_seat_atlas.png",
+                             cushion = "Thigh_Cushion", squab = "Lumbar_Pad", fitStage = 4 },
+        };
+
+        static bool SaveSeats()
+        {
+            bool all = true;
+            foreach (var src in SeatSources) all &= SaveSeat(src);
+            return all;
+        }
+
         /// <summary>
-        /// THE SEAT, stood up and MEASURED, with the two landmarks the cargo
+        /// One seat, stood up and MEASURED, with the two landmarks the cargo
         /// rig needs written into it as empty children.
         ///
-        /// Which way is up and which way is forward are read off the model's
-        /// own parts — the headrest is above the base, the cushion's front lip
-        /// is ahead of the headrest — rather than trusted to an exporter's axis
-        /// conversion, which is right until somebody re-exports.
+        /// Up and forward are read off the model rather than trusted to an
+        /// exporter's axis conversion: up is its tallest axis, pointing away
+        /// from the cushion (which is at the bottom); forward is its longer
+        /// level axis, pointing toward the cushion (which is at the front).
         ///
-        /// `SquabPoint` is where the squab's face meets the cushion's top, on
-        /// the centreline; its up runs up the face of the squab. `CushionFront`
-        /// is the front edge of the cushion on the same plane. Both are
-        /// PLANE FITS to the faces a box actually touches — the cushion's
-        /// centre pad top and the squab's lower pad front — because those are
-        /// what the pan and backrest colliders have to coincide with, and a
-        /// bounds corner is the bolster or the headrest instead.
+        /// `SquabPoint` is where the box's BACK stops, on the cushion plane:
+        /// the squab's face, or whatever stands in front of it within a box's
+        /// width — the amateur bucket's torso bolsters wrap four centimetres
+        /// ahead of its back pad and fourteen off the centreline, and a box
+        /// set against the pad would start the run inside them. Its rotation
+        /// is the squab's recline. `CushionFront` is the front edge of the
+        /// cushion on the same plane. The cushion and squab are PLANE FITS to
+        /// the pad caps a box touches, because those are what the pan and back
+        /// colliders have to coincide with.
         ///
-        /// Children rather than a component, so the runtime reads landmarks
-        /// off transforms it already understands and no new script type has to
+        /// Children rather than a component, so no new script type has to
         /// keep its GUID across a sandbox mirror.
         /// </summary>
-        static bool SaveSeat()
+        static bool SaveSeat(SeatSource src)
         {
-            var model = AssetDatabase.LoadAssetAtPath<GameObject>(SeatFbx);
-            if (model == null) { Debug.LogError("[PizzaCargo] no seat at " + SeatFbx); return false; }
-            var atlas = PointTexture(SeatAtlas);
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(src.fbx);
+            if (model == null) { Debug.LogError("[PizzaCargo] no seat at " + src.fbx); return false; }
+            var atlas = PointTexture(src.atlas);
 
-            var holder = new GameObject(SeatPrefab);
+            var holder = new GameObject(src.prefab);
             var pivot = new GameObject("Mesh");
             pivot.transform.SetParent(holder.transform, false);
             var inst = (GameObject)Object.Instantiate(model);
-            inst.name = "psx_seat";
+            inst.name = model.name;
             inst.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             inst.transform.localScale = Vector3.one;
             inst.transform.SetParent(pivot.transform, true);
@@ -540,7 +583,7 @@ namespace PSXRacing.EditorTools
 
             // The same road the bottles take: a throwaway Standard material
             // carrying the atlas, which the PSX converter then rebuilds.
-            var tmp = new Material(Shader.Find("Standard")) { mainTexture = atlas, name = "SeatUpholstery" };
+            var tmp = new Material(Shader.Find("Standard")) { mainTexture = atlas, name = "Upholstery" };
             foreach (var r in inst.GetComponentsInChildren<MeshRenderer>(true))
             {
                 var ms = r.sharedMaterials;
@@ -548,77 +591,179 @@ namespace PSXRacing.EditorTools
                 r.sharedMaterials = ms;
             }
 
-            var head = Find(holder, "Headrest");
-            var lip = Find(holder, "Cushion_Front_Lip");
-            var cushion = Find(holder, "Cushion_Center");
-            var squab = Find(holder, "Back_Lower_Pad");
-            var seatBase = Find(holder, "Seat_Base");
-            if (head == null || lip == null || cushion == null || squab == null || seatBase == null)
+            var cushion = Find(holder, src.cushion);
+            var squab = Find(holder, src.squab);
+            if (cushion == null || squab == null)
             {
-                Debug.LogError("[PizzaCargo] the seat is missing a part it is measured by " +
-                               "(Headrest, Cushion_Front_Lip, Cushion_Center, Back_Lower_Pad, Seat_Base)");
+                Debug.LogError("[PizzaCargo] " + src.prefab + " has no '" + src.cushion + "' or '" + src.squab + "'");
                 Object.DestroyImmediate(holder); Object.DestroyImmediate(tmp);
                 return false;
             }
 
-            // Up: base to headrest. Forward: headrest to front lip, level.
-            Vector3 up = Snap(WorldBounds(head).center - WorldBounds(seatBase).center);
-            Vector3 fwd = WorldBounds(lip).center - WorldBounds(head).center;
-            fwd = Snap(fwd - Vector3.Dot(fwd, up) * up);
+            // Up and forward, from the model's own shape.
+            var b = WorldBounds(holder.transform);
+            Vector3 cc = WorldBounds(cushion).center - b.center;
+            Vector3 sz = b.size;
+            int upAx = sz.x >= sz.y && sz.x >= sz.z ? 0 : sz.y >= sz.z ? 1 : 2;
+            int fwAx = -1;
+            for (int ax = 0; ax < 3; ax++)
+                if (ax != upAx && (fwAx < 0 || sz[ax] > sz[fwAx])) fwAx = ax;
+            Vector3 up = Vector3.zero, fwd = Vector3.zero;
+            up[upAx] = -Mathf.Sign(cc[upAx]);
+            fwd[fwAx] = Mathf.Sign(cc[fwAx]);
             pivot.transform.rotation = Quaternion.Inverse(Quaternion.LookRotation(fwd, up)) *
                                        pivot.transform.rotation;
 
             // Metres as authored. A unit slip (centimetres, or a scale-0.01
-            // FBX) is the only correction: the seat's SIZE is the owner's.
-            var b = WorldBounds(holder.transform);
+            // FBX) is corrected; the seat's SIZE is the owner's unless a rung
+            // below asks for it to fit.
+            b = WorldBounds(holder.transform);
             float unit = b.size.y > 10f ? 0.01f : b.size.y < 0.1f ? 100f : 1f;
             if (unit != 1f)
             {
                 pivot.transform.localScale *= unit;
-                Debug.LogWarning("[PizzaCargo] the seat arrived " + b.size.y.ToString("0.000") +
+                Debug.LogWarning("[PizzaCargo] " + src.prefab + " arrived " + b.size.y.ToString("0.000") +
                                  " units tall - rescaled x" + unit + " to metres");
-                b = WorldBounds(holder.transform);
             }
-            pivot.transform.position += new Vector3(-b.center.x, -b.min.y, -b.center.z);
-            b = WorldBounds(holder.transform);
+            Recentre(holder, pivot);
 
-            // THE CUSHION: y = a + s z through the pad's upward faces.
-            // THE SQUAB: z = c + d y through the lower pad's forward faces.
-            if (!FitPlane(cushion, Vector3.up, out float a, out float s) ||
-                !FitPlane(squab, Vector3.forward, out float c, out float d))
+            float boxHalf = BoxWidthM * 0.5f;
+            SeatFrame f;
+            if (!MeasureSeat(holder, cushion, squab, boxHalf, out f))
             {
-                Debug.LogError("[PizzaCargo] could not find the seat's cushion or squab faces");
+                Debug.LogError("[PizzaCargo] could not find " + src.prefab + "'s cushion or squab faces");
                 Object.DestroyImmediate(holder); Object.DestroyImmediate(tmp);
                 return false;
             }
-            float sy = (a + s * c) / (1f - s * d);
-            var squabPoint = new Vector3(0f, sy, c + d * sy);
-            float frontZ = float.MinValue;
-            foreach (var v in WorldVerts(lip)) frontZ = Mathf.Max(frontZ, v.z);
-            var cushionFront = new Vector3(0f, a + s * frontZ, frontZ);
-            float slopeDeg = Mathf.Atan(s) * Mathf.Rad2Deg;
-            float reclineDeg = Mathf.Atan(-d) * Mathf.Rad2Deg;
+
+            // FITTED TO THE LADDER: scaled until the narrowest bolster face
+            // beside the box stands where this rung's bolster collider does.
+            // Measured again after every step, because the band a box occupies
+            // does not scale with the seat.
+            float fitScale = 1f;
+            if (src.fitStage >= 0)
+            {
+                float target = PSXRacing.PizzaCargo.SeatAt(src.fitStage).bolsterHalf -
+                               PSXRacing.PizzaCargo.BolsterSlabHalf;
+                for (int it = 0; it < 6; it++)
+                {
+                    if (float.IsInfinity(f.channel))
+                    {
+                        Debug.LogError("[PizzaCargo] " + src.prefab + " has no bolsters beside the box to fit");
+                        break;
+                    }
+                    float k = target / f.channel;
+                    if (Mathf.Abs(k - 1f) < 0.001f) break;
+                    pivot.transform.localScale *= k;
+                    fitScale *= k;
+                    Recentre(holder, pivot);
+                    MeasureSeat(holder, cushion, squab, boxHalf, out f);
+                }
+            }
+            b = WorldBounds(holder.transform);
 
             var sp = new GameObject("SquabPoint").transform;
             sp.SetParent(holder.transform, false);
-            sp.localPosition = squabPoint;
-            sp.localRotation = Quaternion.Euler(-reclineDeg, 0f, 0f);
+            sp.localPosition = f.rear;
+            sp.localRotation = Quaternion.Euler(-f.reclineDeg, 0f, 0f);
             var cf = new GameObject("CushionFront").transform;
             cf.SetParent(holder.transform, false);
-            cf.localPosition = cushionFront;
-            cf.localRotation = Quaternion.Euler(-slopeDeg, 0f, 0f);
+            cf.localPosition = f.front;
+            cf.localRotation = Quaternion.Euler(-f.slopeDeg, 0f, 0f);
 
             PSXRacingBuilder.ConvertToPSXMaterials(holder);
-            float depth = Vector3.Distance(squabPoint, cushionFront);
-            Debug.Log("[PizzaCargo] seat " + b.size.ToString("0.000") + " m; cushion " +
-                      depth.ToString("0.000") + " m deep at " + slopeDeg.ToString("0.0") +
-                      " deg, squab reclined " + reclineDeg.ToString("0.0") + " deg; a " +
-                      BoxWidthM.ToString("0.00") + " m box is " + (BoxWidthM / b.size.x).ToString("0.00") +
-                      " of its width and " + (BoxWidthM / depth).ToString("0.00") + " of its depth");
+            float depth = Vector3.Distance(f.rear, f.front);
+            Debug.Log("[PizzaCargo] " + src.prefab + " " + b.size.ToString("0.000") + " m (x" +
+                      fitScale.ToString("0.00") + "); cushion " + depth.ToString("0.000") + " m deep at " +
+                      f.slopeDeg.ToString("0.0") + " deg, squab reclined " + f.reclineDeg.ToString("0.0") +
+                      " deg; bolsters " + (float.IsInfinity(f.channel) ? "none" : (2f * f.channel).ToString("0.000") + " m apart") +
+                      ", " + f.bolsterRise.ToString("0.000") + " m tall; a " + BoxWidthM.ToString("0.00") +
+                      " m box is " + (BoxWidthM / depth).ToString("0.00") + " of the cushion's depth");
 
-            PrefabUtility.SaveAsPrefabAsset(holder, ResDir + "/" + SeatPrefab + ".prefab");
+            PrefabUtility.SaveAsPrefabAsset(holder, ResDir + "/" + src.prefab + ".prefab");
             Object.DestroyImmediate(holder);
             Object.DestroyImmediate(tmp);
+            return true;
+        }
+
+        static void Recentre(GameObject holder, GameObject pivot)
+        {
+            var b = WorldBounds(holder.transform);
+            pivot.transform.position += new Vector3(-b.center.x, -b.min.y, -b.center.z);
+        }
+
+        struct SeatFrame
+        {
+            public Vector3 rear, front;
+            public float slopeDeg, reclineDeg;
+            /// <summary>Half the clear width between the bolsters, beside the
+            /// box, over the height a stack occupies. Infinity: no bolsters.</summary>
+            public float channel;
+            /// <summary>How far the bolsters that set the channel stand above
+            /// the cushion.</summary>
+            public float bolsterRise;
+        }
+
+        /// <summary>
+        /// Everything the rig needs, in the holder's metres. A box's
+        /// footprint is judged against the cushion PLANE (height above it, not
+        /// world y), and only parts that are not the cushion itself count as
+        /// something the box can meet.
+        /// </summary>
+        static bool MeasureSeat(GameObject holder, Transform cushion, Transform squab, float boxHalf,
+                                out SeatFrame f)
+        {
+            f = default;
+            if (!FitPlane(cushion, Vector3.up, out float a, out float s) ||
+                !FitPlane(squab, Vector3.forward, out float c, out float d)) return false;
+            float sy = (a + s * c) / (1f - s * d);
+            float squabZ = c + d * sy;
+
+            var cushionVerts = new HashSet<Vector3>(WorldVerts(cushion));
+            var all = WorldVerts(holder.transform);
+            float H(Vector3 v) => v.y - (a + s * v.z);
+
+            // Front: the furthest-forward point of anything at cushion height.
+            // Any width: the professional bucket's thigh pad is bevelled in to
+            // 21 cm off the centreline, so "under the box" found nothing and
+            // measured its cushion one millimetre deep.
+            float frontZ = squabZ;
+            foreach (var v in all)
+                if (Mathf.Abs(H(v)) < 0.03f) frontZ = Mathf.Max(frontZ, v.z);
+            float midZ = (squabZ + frontZ) * 0.5f;
+
+            // Rear: whatever stands in the box's way behind it, above the
+            // cushion — the squab, or bolsters wrapped in front of it.
+            float rearZ = squabZ;
+            foreach (var v in all)
+            {
+                if (cushionVerts.Contains(v) || v.z > midZ || Mathf.Abs(v.x) > boxHalf + 0.005f) continue;
+                float h = H(v);
+                if (h > 0.02f && h < 0.25f) rearZ = Mathf.Max(rearZ, v.z);
+            }
+
+            // The channel: the nearest bolster face to the centreline beside
+            // where the box will lie, over the stack's height.
+            float z0 = rearZ + PSXRacing.PizzaCargo.SquabGapM, z1 = z0 + 2f * boxHalf;
+            float channel = float.PositiveInfinity, rise = 0f;
+            foreach (var v in all)
+            {
+                if (cushionVerts.Contains(v) || v.z < z0 || v.z > z1 || Mathf.Abs(v.x) < 0.03f) continue;
+                float h = H(v);
+                if (h > 0.02f && h < 0.20f) channel = Mathf.Min(channel, Mathf.Abs(v.x));
+            }
+            if (!float.IsInfinity(channel))
+                foreach (var v in all)
+                    if (!cushionVerts.Contains(v) && v.z >= z0 && v.z <= z1 &&
+                        Mathf.Abs(v.x) < channel + 0.03f && Mathf.Abs(v.x) >= channel - 0.001f)
+                        rise = Mathf.Max(rise, H(v));
+
+            f.rear = new Vector3(0f, a + s * rearZ, rearZ);
+            f.front = new Vector3(0f, a + s * frontZ, frontZ);
+            f.slopeDeg = Mathf.Atan(s) * Mathf.Rad2Deg;
+            f.reclineDeg = Mathf.Atan(-d) * Mathf.Rad2Deg;
+            f.channel = channel;
+            f.bolsterRise = rise;
             return true;
         }
 

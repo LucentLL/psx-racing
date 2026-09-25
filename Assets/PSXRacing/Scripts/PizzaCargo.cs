@@ -469,11 +469,24 @@ namespace PSXRacing
             /// <summary>Drawn? A stock bench has no bolster worth looking at; a
             /// bucket IS its bolsters.</summary>
             public bool bolstersVisible;
+            /// <summary>
+            /// How far the cushion is tipped back, front up. Zero means the
+            /// ladder's usual <see cref="PanPitchDeg"/>.
+            ///
+            /// Per seat since the owner's professional bucket: "should be
+            /// deeper and/or leaned back more to better secure boxes from
+            /// shifting forward during hard braking or collision". The tilt is
+            /// the one term in <see cref="HoldsBrakingG"/> that works forward
+            /// and not sideways, so leaning a seat back is exactly the knob
+            /// that asks for.
+            /// </summary>
+            public float panPitchDeg;
+            public float Pitch => panPitchDeg > 0f ? panPitchDeg : PanPitchDeg;
 
             /// <summary>Lateral acceleration, in g, at which a box on the pan
             /// starts to slide sideways: mu on a pan tilted PanPitchDeg is mu
             /// times the cosine of that tilt.</summary>
-            public float HoldsG => muStatic * Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
+            public float HoldsG => muStatic * Mathf.Cos(Pitch * Mathf.Deg2Rad);
             /// <summary>
             /// The same, forward — braking — which the pan's tilt helps with
             /// and the bolsters do not.
@@ -493,8 +506,8 @@ namespace PSXRacing
             {
                 get
                 {
-                    float c = Mathf.Cos(PanPitchDeg * Mathf.Deg2Rad);
-                    float s = Mathf.Sin(PanPitchDeg * Mathf.Deg2Rad);
+                    float c = Mathf.Cos(Pitch * Mathf.Deg2Rad);
+                    float s = Mathf.Sin(Pitch * Mathf.Deg2Rad);
                     return (s + muStatic * c) / Mathf.Max(0.05f, c - muStatic * s);
                 }
             }
@@ -531,8 +544,16 @@ namespace PSXRacing
             new SeatSpec { name = "STOCK",          bolsterHalf = 0.335f, bolsterBoxes = 0.5f, muStatic = 0.70f, muKinetic = 0.60f, bolstersVisible = false },
             new SeatSpec { name = "SPORT SEAT",     bolsterHalf = 0.300f, bolsterBoxes = 1f,   muStatic = 0.76f, muKinetic = 0.66f, bolstersVisible = true  },
             new SeatSpec { name = "BUCKET SEAT",    bolsterHalf = 0.270f, bolsterBoxes = 2f,   muStatic = 0.80f, muKinetic = 0.70f, bolstersVisible = true  },
-            new SeatSpec { name = "RACE BUCKET",    bolsterHalf = 0.250f, bolsterBoxes = 3f,   muStatic = 0.86f, muKinetic = 0.76f, bolstersVisible = true  },
-            new SeatSpec { name = "FIXED-BACK",     bolsterHalf = 0.235f, bolsterBoxes = 99f,  muStatic = 0.92f, muKinetic = 0.82f, bolstersVisible = true  },
+            // STAGES 3 AND 4 ARE THE OWNER'S BUCKETS (amateur, professional),
+            // and their bolsters stood 2.5 and 1 cm off the box — a jig. "The
+            // pizza boxes should fit comfortably between the bolsters, but
+            // still have enough room to move side to side": 4 and 3 cm now,
+            // still inside the bucket seat's 4.5, so the ladder keeps its
+            // order. The models are scaled to put their bolsters exactly here
+            // (PizzaCargoBaker.SaveSeat). The professional one also leans
+            // back further — see panPitchDeg.
+            new SeatSpec { name = "RACE BUCKET",    bolsterHalf = 0.265f, bolsterBoxes = 3f,   muStatic = 0.86f, muKinetic = 0.76f, bolstersVisible = true  },
+            new SeatSpec { name = "FIXED-BACK",     bolsterHalf = 0.255f, bolsterBoxes = 99f,  muStatic = 0.92f, muKinetic = 0.82f, bolstersVisible = true, panPitchDeg = 18f },
         };
 
         public static SeatSpec SeatAt(int stage) =>
@@ -553,7 +574,10 @@ namespace PSXRacing
         public const float PanPitchDeg = 12f;
 
         /// <summary>The pan's attitude in the tray's frame: front up.</summary>
-        static Quaternion PanRot => Quaternion.Euler(-PanPitchDeg, 0f, 0f);
+        Quaternion PanRot => Quaternion.Euler(-panPitch, 0f, 0f);
+        /// <summary>This cargo's seat's tilt — <see cref="SeatSpec.Pitch"/>,
+        /// set when the seat is chosen.</summary>
+        float panPitch = PanPitchDeg;
 
         /// <summary>
         /// Where the cushion ENDS, in tray-local z: half its depth, foreshortened
@@ -632,7 +656,7 @@ namespace PSXRacing
         /// <paramref name="z"/>. Zero at the centre, rising toward the front
         /// — anything placed on the cushion away from its middle has to be
         /// lifted by this or it spawns inside it.</summary>
-        static float PanTop(float z) => z * Mathf.Tan(PanPitchDeg * Mathf.Deg2Rad);
+        float PanTop(float z) => z * Mathf.Tan(panPitch * Mathf.Deg2Rad);
 
         /// <summary>
         /// How far BEHIND the cushion's centre the stack is put, along the pan.
@@ -663,7 +687,10 @@ namespace PSXRacing
         /// cushion is 0.40 m and the box 0.41, so the box's nose stands about
         /// 2.5 cm proud of the front lip — a 16-inch box on a real seat.
         /// </summary>
-        const float SquabGapM = 0.015f;
+        public const float SquabGapM = 0.015f;
+        /// <summary>Half the thickness of a bolster slab: its inner face stands
+        /// this far inside <see cref="SeatSpec.bolsterHalf"/>.</summary>
+        public const float BolsterSlabHalf = 0.02f;
         /// <summary>Which rung of <see cref="Seats"/> this cargo was built on.</summary>
         public int SeatStage { get; private set; }
         CarController car;
@@ -1123,6 +1150,7 @@ namespace PSXRacing
             cargo.carBody = player != null ? player.Body : null;
             cargo.SeatStage = Mathf.Clamp(seatStage < 0 ? RaceHandoff.UpSeat : seatStage,
                                           0, Seats.Length - 1);
+            cargo.panPitch = SeatAt(cargo.SeatStage).Pitch;
             cargo.BuildIsland(toppings, bottles);
             return cargo;
         }
@@ -1212,14 +1240,18 @@ namespace PSXRacing
             }
             float panBackU = -SeatD * 0.5f, panFrontU = SeatD * 0.5f, panW = SeatW;
             bool modelSeat = false;
-            var seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Seat);
+            // The rung's own seat if the owner made one (the buckets), else the
+            // stock seat — which the sport and bucket rungs dress with slabs.
+            var seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.SeatFor(SeatStage));
+            bool ownSeat = seatPrefab != null;
+            if (seatPrefab == null) seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Seat);
             var squabMark = seatPrefab != null ? seatPrefab.transform.Find("SquabPoint") : null;
             var frontMark = seatPrefab != null ? seatPrefab.transform.Find("CushionFront") : null;
             if (squabMark != null && frontMark != null)
             {
                 Vector3 s = squabMark.localPosition, f = frontMark.localPosition;
                 float slopeDeg = Mathf.Atan2(f.y - s.y, f.z - s.z) * Mathf.Rad2Deg;
-                var seatRot = Quaternion.Euler(-(PanPitchDeg - slopeDeg), 0f, 0f);
+                var seatRot = Quaternion.Euler(-(panPitch - slopeDeg), 0f, 0f);
                 panBackU = -StackBackM - boxHalf - SquabGapM;
                 panFrontU = panBackU + Vector3.Distance(s, f);
                 var model = Instantiate(seatPrefab, tray, false);
@@ -1245,7 +1277,7 @@ namespace PSXRacing
             float panLen = panFrontU - (panBackU - (modelSeat ? 0.10f : 0f));
             float panMid = panFrontU - panLen * 0.5f;
             Slab(tray, "Pan", new Vector3(0f, -0.02f, 0f) + PanRot * new Vector3(0f, 0f, panMid),
-                 new Vector3(panW, 0.04f, panLen), visible: !modelSeat, pitchDeg: -PanPitchDeg);
+                 new Vector3(panW, 0.04f, panLen), visible: !modelSeat, pitchDeg: -panPitch);
             if (!modelSeat)
             {
                 Debug.LogWarning("[PizzaCargo] no baked seat - run PSX Racing/Bake Pizza Cargo; using the slab bench");
@@ -1295,10 +1327,10 @@ namespace PSXRacing
             var bolsterMid = PanRot * new Vector3(0f, 0f, modelSeat ? (panBackU + panFrontU) * 0.5f : 0f);
             Slab(tray, "BolsterL", new Vector3(-seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
                  new Vector3(0.04f, bolsterH, bolsterLen),
-                 visible: seat.bolstersVisible, pitchDeg: -PanPitchDeg);
+                 visible: seat.bolstersVisible && !ownSeat, pitchDeg: -panPitch);
             Slab(tray, "BolsterR", new Vector3(seat.bolsterHalf, bolsterH * 0.5f, 0f) + bolsterMid,
                  new Vector3(0.04f, bolsterH, bolsterLen),
-                 visible: seat.bolstersVisible, pitchDeg: -PanPitchDeg);
+                 visible: seat.bolstersVisible && !ownSeat, pitchDeg: -panPitch);
             // THE CAR AROUND THE SEAT: door card one side, transmission tunnel
             // the other, and the dash ahead.
             //
@@ -2825,6 +2857,9 @@ namespace PSXRacing
         /// `SquabPoint` and `CushionFront` landmarks as children — see
         /// PizzaCargo.BuildIsland.</summary>
         public const string Seat = Dir + "car_seat";
+        /// <summary>A rung's own seat — the owner's buckets are car_seat_3 and
+        /// car_seat_4. A rung without one rides on <see cref="Seat"/>.</summary>
+        public static string SeatFor(int stage) => Seat + "_" + stage;
         /// <summary>How many looks the baker writes — the four bottles of the
         /// shelf's second row, cola first and lemon-lime second because most
         /// orders carry one bottle or two, then citrus and the other

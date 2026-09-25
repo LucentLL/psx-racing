@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: scenery_seat_atlas_SeatUpholstery
+  m_Name: scenery_seat_atlas_Upholstery
   m_Shader: {fileID: 4800000, guid: 8e5fd0c4978b3af46a27d1b2ff8b281b, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0

@@ -4686,10 +4686,19 @@ namespace PSXRacing.EditorTools
                     if (sim.singleSpin[t] < sim.singleSpin[t - 1] - 0.03f) monotone = false;
                 Check(monotone,
                       "every seat holds a lone box through a spin at least as well as the one below it");
-                Check(sim.singleSlide[n - 1] < 0.03f,
-                      "and the race seat holds it still",
-                      sim.singleSlide[n - 1].ToString("0.00") + " m vs " +
-                      sim.singleSlide[0].ToString("0.00") + " m on the stock seat");
+                // NOT "still" any more. The owner, with his buckets in: "the
+                // pizza boxes should fit comfortably between the bolsters, but
+                // still have enough room to move side to side". So the top
+                // seat's promise is that the box goes no further than its
+                // bolsters let it — the room the ladder gives it, and a
+                // centimetre for the solver — while the ratio above keeps it
+                // a third of the bench's slide.
+                var top = PizzaCargo.SeatAt(n - 1);
+                float room = top.bolsterHalf - PizzaCargo.BolsterSlabHalf - 0.205f;
+                Check(sim.singleSlide[n - 1] < room + 0.01f,
+                      "and the race seat stops it at its bolsters",
+                      sim.singleSlide[n - 1].ToString("0.000") + " m in " + room.ToString("0.000") +
+                      " m of room, vs " + sim.singleSlide[0].ToString("0.00") + " m on the stock seat");
                 Check(sim.singleSpin[n - 1] >= sim.singleSpin[0],
                       "and it costs no more than the stock seat did",
                       sim.singleSpin[n - 1].ToString("0.000") + " vs " +
