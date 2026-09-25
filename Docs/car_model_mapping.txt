@@ -1,9 +1,9 @@
 PSX Racing — catalog car to body shell
-317 cars across 14 of 16 shells; 155 hand-mapped, 162 scored.
+317 cars across 16 of 18 shells; 160 hand-mapped, 157 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
 
-=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 77 cars
+=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 76 cars
     wheelbase 2.43 m, track 1.46 m, tyre 0.310 m, 10 liveries
     = 1967 jpn FR  1006kg  110hp GT       Mazda 110S (L10A) `67
     ~ 1968 jpn FR   753kg  100hp Coupe    Honda S800 RSC Race Car `68
@@ -57,7 +57,6 @@ PSX Racing — catalog car to body shell
     = 1996 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS (FD, J) `96
     = 1996 jpn FR  1249kg  265hp Coupe    Mazda RX-7 Type RZ (FD, J) `96
     ~ 1996 jpn FR  1249kg  220hp Coupe    Nissan 240SX (S14) `96
-    ~ 1996 jpn FR  1262kg  205hp Coupe    Nissan 240SX `96
     ~ 1996 jpn FR  1232kg  160hp Coupe    Nissan SILVIA Q's AERO (S14) `96
     ~ 1997 usa FF  1252kg  140hp Coupe    EAGLE Talon Esi `97
     ~ 1997 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata SR-Limited (NA, J) `97
@@ -214,6 +213,17 @@ PSX Racing — catalog car to body shell
     wheelbase 2.33 m, track 1.20 m, tyre 0.282 m, 11 liveries
     (no catalog car — used as roadside scenery)
 
+=== civic_eg  (Honda Civic (EG), Japan 1991 Hatch)  — 4 cars
+    wheelbase 2.57 m, track 1.45 m, tyre 0.266 m, 1 liveries
+    = 1991 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `91
+    = 1992 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `92
+    = 1993 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `93
+    = 1995 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `95
+
+=== nissan_180sx  (Nissan 180SX / 240SX (S13), Japan 1989 Sports)  — 1 car
+    wheelbase 2.46 m, track 1.46 m, tyre 0.292 m, 1 liveries
+    = 1996 jpn FR  1262kg  205hp Coupe    Nissan 240SX `96
+
 === gto_66  (Pontiac GTO '66, America 1966 Muscle)  — 7 cars
     wheelbase 2.99 m, track 1.56 m, tyre 0.314 m, 10 liveries
     = 1962 usa FR  1364kg  564hp Muscle   BUICK Special `62
@@ -271,7 +281,7 @@ PSX Racing — catalog car to body shell
     = 1998 ger 4WD 1474kg  265hp Coupe    Audi S4 `98
     ~ 1998 usa FF  1473kg  238hp Saloon   Ford Taurus SHO `98
 
-=== euro_hatch  (European supermini, Europe 1983 Hatch)  — 46 cars
+=== euro_hatch  (European supermini, Europe 1983 Hatch)  — 42 cars
     wheelbase 2.22 m, track 1.23 m, tyre 0.243 m, 6 liveries
     ~ 1965 ita FR   796kg  115hp Hatch    Alfa Romeo Giulia Sprint GTA 1600 `65
     ~ 1970 jpn FF   964kg  110hp Hatch    Honda 1300 Coupe 9 S `70
@@ -290,15 +300,11 @@ PSX Racing — catalog car to body shell
     ~ 1987 jpn FF  1047kg  225hp Hatch    Honda MUGEN MOTUL CIVIC Si Race Car `87
     ~ 1988 jpn FF  1107kg  120hp Hatch    Nissan EXA CANOPY L.A.Version Type S (N13) `88
     ~ 1990 jpn FF  1055kg  160hp Hatch    Honda CR-X SiR `90
-    ~ 1991 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `91
     ~ 1991 ita 4WD 1349kg  213hp Hatch    Lancia DELTA HF Integrale Evoluzione `91
-    ~ 1992 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `92
     ~ 1992 jpn FF  1139kg  170hp Hatch    Honda CR-X del Sol SiR `92
     ~ 1992 ita 4WD 1318kg  300hp Hatch    Lancia DELTA HF Integrale Rally Car `92
     ~ 1992 jpn FF   974kg  110hp Hatch    Toyota SERA `92
-    ~ 1993 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `93
     ~ 1993 jpn FF  1284kg  170hp Hatch    Mazda Mazda 323F `93
-    ~ 1995 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `95
     ~ 1995 jpn FF  1096kg  200hp Hatch    Honda INTEGRA TYPE R (DC2) `95
     ~ 1997 jpn FF  1087kg  185hp Hatch    Honda CIVIC TYPE R (EK) `97
     ~ 1997 jpn FF  1096kg  175hp Hatch    Mitsubishi MIRAGE CYBORG ZR `97

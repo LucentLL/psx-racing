@@ -41,6 +41,11 @@ namespace PSXRacing
             /// per car - comparing a 834 kg Civic against a 1700 kg Charger
             /// separates them the way a player's eye does.</summary>
             public int kg;
+            /// <summary>Worn only by the cars its hand rule names — never
+            /// offered to the scorer. The owner's own models come in for a
+            /// specific car; letting the scorer hand them to every car of the
+            /// same body and era is a separate decision.</summary>
+            public bool handOnly;
         }
 
         /// <summary>
@@ -57,6 +62,9 @@ namespace PSXRacing
             new Model { key = "supra_a80",    name = "Toyota Supra (A80)",        region = Region.Japan,   year = 1993, body = Body.GT,       kg = 1510 },
             new Model { key = "skyline_r32",  name = "Nissan Skyline GT-R (R32)", region = Region.Japan,   year = 1989, body = Body.Sports,   kg = 1480 },
             new Model { key = "jdm_pickup",   name = "Compact pickup",            region = Region.Japan,   year = 1983, body = Body.Pickup,   kg = 1100 },
+            // The owner's own model (2026-09-25), sized to GT4's SiR-II sheet.
+            new Model { key = "civic_eg",     name = "Honda Civic (EG)",          region = Region.Japan,   year = 1991, body = Body.Hatch,    kg = 1076, handOnly = true },
+            new Model { key = "nissan_180sx", name = "Nissan 180SX / 240SX (S13)", region = Region.Japan,  year = 1989, body = Body.Sports,   kg = 1262, handOnly = true },
 
             new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650 },
             new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400 },
@@ -104,6 +112,11 @@ namespace PSXRacing
             // Silvia and an Integra. These go first because the broad NISMO rule
             // below would otherwise swallow the 270R.
             ("SILEIGHTY|NISMO 270R",                             "rx7_fd"),
+            // The EG hatch, every year GT4 sells it.
+            (@"CIVIC SiR-II \(EG\)",                            "civic_eg"),
+            // The S13 hatch. GT4 files it as "240SX `96"; the S14 has its own
+            // row, "240SX (S14)", and its own body, so the backtick keeps it out.
+            ("Nissan 240SX `",                                   "nissan_180sx"),
             ("Spoon INTEGRA",                                    "euro_hatch"),
             // The Cosmo Sport rides along with the rotary it started.
             ("Mazda RX-7|Mazda 110S",                            "rx7_fd"),
@@ -276,7 +289,7 @@ namespace PSXRacing
                 // catalog is a 1950s delivery van or a work truck, and letting
                 // the scorer reach for them just means the worst-matched car on
                 // the grid turns up to a race in a van.
-                if (m.body == Body.Van || m.body == Body.Pickup) continue;
+                if (m.body == Body.Van || m.body == Body.Pickup || m.handOnly) continue;
                 float s = Score(car, m);
                 if (s > bestScore) { bestScore = s; best = m.key; }
             }

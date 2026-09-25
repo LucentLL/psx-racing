@@ -4573,7 +4573,12 @@ namespace PSXRacing.EditorTools
             // and a stop that cost nothing was failing on a corner's wear.
             Check(sim.firmStopCost < 0.01f,
                   "a firm stop costs nothing", "cost " + sim.firmStopCost.ToString("0.000"));
-            Check(sim.afterBraking > 0.55f,
+            // A SEAT promise since the owner's real-size stock seat: its 0.39 m
+            // cushion is shorter than a 0.41 m box and has no bolsters, so
+            // whether a 1 g stop puts the stack on the floor depends on where
+            // the corners before it left the stack — 0.39 to 0.87 across four
+            // builds of unchanged cargo code. Refusal still needs a HIT.
+            SeatCheck(sim.afterBraking > 0.55f,
                   "a panic stop on a stock seat does not lose the order",
                   sim.afterBraking.ToString("0.000"));
             // As a delta, like the firm stop: the absolute number carried the

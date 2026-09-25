@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1872670673155340415
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4815877451283166391}
+  - component: {fileID: 5514655992901817159}
+  m_Layer: 0
+  m_Name: nissan_180sx
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4815877451283166391
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1872670673155340415}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5514655992901817159
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1872670673155340415}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: nissan_180sx
+  displayName: Nissan 180SX / 240SX (S13)
+  bodyMesh: {fileID: -2432090755550338912, guid: 8d81c36dcfb065344a50d20a7365fc70, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 820f3a5198b1a7d47988130b58347629, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: d98d980acd423a04995eec792a37ec73, type: 2}
+  skinNames:
+  - nissan_psx_atlas_256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.6322914, g: 0.40436614, b: 0.14719616, a: 1}
+  bodyYaw: 0
+  bodyYOffset: -0.021991862
+  bodyZOffset: -0.058514
+  wheelbase: 2.461067
+  trackWidth: 1.4614935
+  wheelRadius: 0.29217765
+  wheelMeshScale: 0.93
+  cowlZ: 0.79510105
+  cowlY: 0.8525427
+  noseZ: 2.221726
+  roofY: 1.2727562
+  colliderCenter: {x: 0, y: 0.7187141, z: -0.03827393}
+  colliderSize: {x: 1.8329473, y: 1.0347139, z: 4.3166}
+  blobSize: {x: 2.4439297, y: 4.8364}

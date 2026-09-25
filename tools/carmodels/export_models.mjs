@@ -24,6 +24,7 @@ const project = path.resolve(here, '..', '..');
 const pack = 'C:/Users/mcgee/OneDrive/Documents/Game Development/PSX Assets/psx_vehicles_by_boggle_V28062025/psx_vehicles_by_boggle';
 const smallPickup = 'C:/Users/mcgee/OneDrive/Documents/Game Development/PSX Assets/small_pickup/small_pickup';
 const outRoot = path.join(project, 'Assets/PSXRacing/Art/Car/Models');
+const ownerCars = 'C:/Users/mcgee/OneDrive/Documents/Game Development/PSX Assets/PSX Racing/Cars';
 
 // `parts` lists the body objects to keep, in source naming. Wheels are found by
 // name and never listed. Leaving `parts` null keeps every non-wheel object,
@@ -55,7 +56,24 @@ const MODELS = [
   { key: 'mb_pagoda',    obj: `${pack}/European/grand_tourer/grand_tourer.obj` },
   { key: 'landrover',    obj: `${pack}/European/pickup/pickup.obj` },
   { key: 'classic_van',  obj: `${pack}/European/van/van.obj` },
+
+  // The owner's EG Civic (2026-09-25), from its own folder. One atlas, so
+  // `skins` names it — the folder also holds reference shots and renders
+  // that must not become liveries. Sized to GT4's own spec sheet for the
+  // SiR-II (EG): "reference dimensions should be in GT4 specs for scaling".
+  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/eg_civic_cleaned.obj`,
+    tex: `${ownerCars}/EG_Civic_Source_PSX`, skins: /^civic_psx_atlas_256$/,
+    gt4LengthM: 4.070 },
+  // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
+  // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
+  { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/nissan_240sx_psx.obj`,
+    tex: `${ownerCars}/Nissan_240SX_PSX`, skins: /^nissan_psx_atlas_256$/,
+    gt4LengthM: 4.520 },
 ];
+
+// `node export_models.mjs civic_eg` re-exports one model and leaves the rest
+// of the folder exactly as it is.
+const only = process.argv.slice(2);
 
 // Not liveries: a specular map, a shading swatch, the pickup's UV template, and
 // the one model that paints its wheels off a sheet of their own — copied
@@ -129,7 +147,23 @@ const safe = n => n.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, 
 
 let report = [];
 for (const m of MODELS) {
+  if (only.length && !only.includes(m.key)) continue;
   const src = parseObj(m.obj);
+  // THE ONE EXCEPTION to "nothing here moves geometry": a model that comes
+  // with a GT4 length is scaled, uniformly, to it. A car's length is its
+  // longest extent whichever way the file is turned, so this needs no axis
+  // convention — which is the reason the rule above exists.
+  if (m.gt4LengthM) {
+    let len = 0;
+    for (let k = 0; k < 3; k++) {
+      let lo = Infinity, hi = -Infinity;
+      for (const p of src.v) { lo = Math.min(lo, p[k]); hi = Math.max(hi, p[k]); }
+      len = Math.max(len, hi - lo);
+    }
+    const s = m.gt4LengthM / len;
+    for (const p of src.v) { p[0] *= s; p[1] *= s; p[2] *= s; }
+    report.push(`${m.key.padEnd(14)} scaled x${s.toFixed(4)}: ${len.toFixed(3)} m -> GT4 ${m.gt4LengthM.toFixed(3)} m long`);
+  }
   const texDir = m.tex || path.join(path.dirname(m.obj), 'textures');
   const dir = path.join(outRoot, m.key);
   fs.mkdirSync(path.join(dir, 'textures'), { recursive: true });
