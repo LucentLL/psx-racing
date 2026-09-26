@@ -12,7 +12,7 @@ $proj = "C:\Users\mcgee\PSXBuild"
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 
-foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Resources", "Assets\PSXRacing\Art")) {
+foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders", "Assets\PSXRacing\Resources", "Assets\PSXRacing\Art")) {
     robocopy "$src\$d" "$proj\$d" /E /XO /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
 Remove-Item "$proj\PSXRacing_stage_lab.txt" -ErrorAction SilentlyContinue

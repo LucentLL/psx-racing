@@ -75,6 +75,20 @@ Shader "PSX/Sky"
             float4 _PSXLightDir;
             float4 _PSXFogSun;
             #define SKY_SUN_GLOW 0.45
+            // The horizon ring (PSXFogRing.cginc): the band below is the fog's
+            // colour, so it takes the fog's ratio by bearing - through this
+            // material's own rotation, the one the photograph is turned by.
+            #include "PSXFogRing.cginc"
+            // THE NIGHT SKY (the Tidewater pass). Stars twinkle - more near
+            // the horizon, where the air is thicker - and a band of the Milky
+            // Way crosses the sky: denser stars and a faint glow along a great
+            // circle whose pole is MILKY_POLE.
+            #define TWINKLE_HIGH   0.06   // twinkle depth overhead
+            #define TWINKLE_LOW    0.30   // and near the horizon
+            #define MILKY_POLE     float3(0.34, 0.52, -0.78)
+            #define MILKY_WIDTH    3.6    // band = exp(-(dot(dir, pole) * WIDTH)^2)
+            #define MILKY_STARS    0.10   // extra share of cells holding a star inside the band
+            #define MILKY_GLOW     float3(0.030, 0.032, 0.042)
 
             struct appdata { float4 vertex : POSITION; };
             struct v2f
@@ -95,20 +109,34 @@ Shader "PSX/Sky"
             // one point in each, at a hashed offset inside it. Sizing the cells
             // off the DIRECTION rather than off screen space is what nails a
             // star to the sky while the car turns underneath it.
-            float StarField(float3 dir)
+            // Dave Hoskins' hash13, sine-free: sin() of a large argument loses
+            // its fraction on a mobile GPU, and the old hash put the same
+            // stars in rows there (PSX/Lit's PSXLitHash says the same).
+            float StarHash(float3 p3)
+            {
+                p3 = frac(p3 * 0.1031);
+                p3 += dot(p3, p3.zyx + 31.32);
+                return frac((p3.x + p3.y) * p3.z);
+            }
+
+            float StarField(float3 dir, float density)
             {
                 float3 p = dir * 190.0;
                 float3 cell = floor(p);
                 float3 f = p - cell;
-                float h = frac(sin(dot(cell, float3(12.9898, 78.233, 37.719))) * 43758.5453);
+                float h = StarHash(cell);
                 // Most cells are empty. A star in one cell in fourteen is a
                 // country sky; a star in every cell is white noise.
-                if (h > 0.072) return 0.0;
+                if (h > density) return 0.0;
+                h /= density;
                 float3 at = float3(frac(h * 137.13), frac(h * 311.7), frac(h * 71.9));
                 float d = length(f - at);
                 // Magnitude varies per star, and the faint ones are most of them.
                 float mag = 0.35 + frac(h * 953.7) * 0.65;
-                return saturate(1.0 - d * 6.0) * mag;
+                // Twinkle: each star on its own beat, harder low in the sky.
+                float depth = lerp(TWINKLE_LOW, TWINKLE_HIGH, saturate(dir.y * 2.0));
+                float tw = 1.0 + sin(_Time.y * (h * 9.0 + 5.0) + h * 40.0) * depth;
+                return saturate(1.0 - d * 6.0) * mag * tw;
             }
 
             fixed4 frag (v2f i) : SV_Target
@@ -166,7 +194,9 @@ Shader "PSX/Sky"
                         // None below the horizon, and none in the haze just
                         // above it, where a real star is extinguished.
                         float high = saturate((y - 0.04) * 5.0);
-                        pano += StarField(dir) * _Stars * clear * high;
+                        float band = exp(-pow(dot(dir, normalize(MILKY_POLE)) * MILKY_WIDTH, 2.0));
+                        pano += StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high;
+                        pano += MILKY_GLOW * band * _Stars * clear * high;
                     }
 
 
@@ -184,7 +214,7 @@ Shader "PSX/Sky"
                     col += sunHaze * (SKY_SUN_GLOW * saturate(y * 4.0 + 0.2));
                 }
                 float hz = saturate(1.0 - abs(y) / _HorizonFade);
-                col = lerp(col, _HorizonColor.rgb + sunHaze, hz * hz);
+                col = lerp(col, _HorizonColor.rgb * PSXFogRing(dir, _Rotation) + sunHaze, hz * hz);
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.

@@ -3025,13 +3025,50 @@ namespace PSXRacing.EditorTools
         /// held 0.4 m above the plane and the seabed 4 m below it — so there is
         /// nothing to z-fight either.
         /// </summary>
+        /// <summary>The sea grid near land: a coarse cell with any shallow
+        /// water or shore in it is drawn in these instead, so the depth each
+        /// vertex carries can draw the shallows and the foam line.</summary>
+        const float SeaFineCell = 15f;
+        /// <summary>Water deeper than this everywhere in a coarse cell is
+        /// open sea, and one quad.</summary>
+        const float SeaShallowM = 3.5f;
+        /// <summary>The depth range PSX/Water reads out of vertex red: 0.5 at
+        /// the waterline, +/- this many metres at 0 and 1.</summary>
+        const float SeaDepthRangeM = 12f;
+
+        /// <summary>How far the drawn ground stands under the sea plane at a
+        /// point (negative on land): the near lattice where the near ground
+        /// is built, the DEM beyond it.</summary>
+        static float SeaDepthAt(float x, float z, float y)
+        {
+            float g = RouteDistanceCoarse(x, z) < NearCoverage ? StageLatticeY(x, z) : StageDemY(x, z);
+            return y - g;
+        }
+
+        /// <summary>
+        /// The sea, as a flat plane at the bake's water height - drawn by
+        /// PSX/Water since the Tidewater pass (2026-09-26), which needs to know
+        /// how deep it is: each vertex carries its depth in its colour. Open
+        /// water is the old 90 m grid; a cell with shallows or shore in it is
+        /// drawn in 15 m cells so the shallows and the foam line have vertices
+        /// to live on; a cell that is land throughout is not drawn at all. The
+        /// plane is dead flat, so the T-junctions between the grids cannot
+        /// crack.
+        ///
+        /// Still no shoreline polygon: the coast is wherever the ground rises
+        /// through the plane, exact by construction and free - every
+        /// disagreement between a drawn shoreline and the terrain would be a
+        /// crack you could see the sky through. The bake keeps land 0.4 m over
+        /// the plane and the seabed 4 m under it, so nothing z-fights. The
+        /// depth only paints the water either side of the coast.
+        /// </summary>
         static void BuildStageSea(Bounds routeBounds, Transform parent)
         {
             float y = track != null ? track.stageWaterY : 0f;
             if (y <= 0f || string.IsNullOrEmpty(theme.water)) return;
 
-            var mat = MakeMat(MeshPrefix + "Sea", theme.water, affine: 0f,
-                              tint: new Color(0.86f, 0.94f, 1f));
+            var mat = MakeWaterMat(MeshPrefix + "Sea", theme.water,
+                                   string.IsNullOrEmpty(theme.waterDeep) ? theme.water : theme.waterDeep);
             // Out to the far ring, so the water reaches the fog wall on every
             // heading rather than ending in a visible edge over the shoulder.
             float reach = FarCoverage + FarChunk;
@@ -3039,30 +3076,70 @@ namespace PSXRacing.EditorTools
             float minZ = routeBounds.min.z - reach, maxZ = routeBounds.max.z + reach;
             int cols = Mathf.CeilToInt((maxX - minX) / SeaCell);
             int rows = Mathf.CeilToInt((maxZ - minZ) / SeaCell);
+            int sub = Mathf.RoundToInt(SeaCell / SeaFineCell);
 
-            var verts = new Vector3[(cols + 1) * (rows + 1)];
-            var norms = new Vector3[verts.Length];
-            var uvs = new Vector2[verts.Length];
-            var tris = new int[cols * rows * 6];
-            for (int r = 0, v = 0; r <= rows; r++)
-                for (int c = 0; c <= cols; c++, v++)
-                {
-                    float wx = minX + c * SeaCell, wz = minZ + r * SeaCell;
-                    verts[v] = new Vector3(wx, y, wz);
-                    uvs[v] = new Vector2(wx / theme.waterTile, wz / theme.waterTile);
-                    norms[v] = Vector3.up;
-                }
-            for (int r = 0, t = 0; r < rows; r++)
+            var verts = new List<Vector3>();
+            var cols32 = new List<Color32>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            var depthAt = new Dictionary<long, float>();
+            float Depth(float wx, float wz)
+            {
+                long key = ((long)Mathf.RoundToInt(wx * 4f) << 32) ^ (uint)Mathf.RoundToInt(wz * 4f);
+                if (!depthAt.TryGetValue(key, out float d)) depthAt[key] = d = SeaDepthAt(wx, wz, y);
+                return d;
+            }
+            void Vert(float wx, float wz)
+            {
+                float d = Depth(wx, wz);
+                byte red = (byte)Mathf.RoundToInt(Mathf.Clamp01(0.5f + d / (2f * SeaDepthRangeM)) * 255f);
+                verts.Add(new Vector3(wx, y, wz));
+                cols32.Add(new Color32(red, 0, 0, 255));
+                uvs.Add(new Vector2(wx / theme.waterTile, wz / theme.waterTile));
+            }
+            void Grid(float ox, float oz, float size, int n)
+            {
+                int v0 = verts.Count;
+                float step = size / n;
+                for (int r = 0; r <= n; r++)
+                    for (int c = 0; c <= n; c++) Vert(ox + c * step, oz + r * step);
+                for (int r = 0; r < n; r++)
+                    for (int c = 0; c < n; c++)
+                    {
+                        int v = v0 + r * (n + 1) + c;
+                        tris.Add(v); tris.Add(v + n + 1); tris.Add(v + n + 2);
+                        tris.Add(v); tris.Add(v + n + 2); tris.Add(v + 1);
+                    }
+            }
+
+            int open = 0, shore = 0, land = 0;
+            for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
                 {
-                    int v = r * (cols + 1) + c;
-                    tris[t++] = v; tris[t++] = v + cols + 1; tris[t++] = v + cols + 2;
-                    tris[t++] = v; tris[t++] = v + cols + 2; tris[t++] = v + 1;
+                    float ox = minX + c * SeaCell, oz = minZ + r * SeaCell;
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    for (int j = 0; j <= sub; j++)
+                        for (int i = 0; i <= sub; i++)
+                        {
+                            float d = Depth(ox + i * SeaFineCell, oz + j * SeaFineCell);
+                            lo = Mathf.Min(lo, d); hi = Mathf.Max(hi, d);
+                        }
+                    if (hi < -1f) { land++; continue; }
+                    // Shore detail only where it can be seen: out past the near
+                    // ground the foam line is under a pixel and in the fog.
+                    bool nearRoad = RouteDistanceCoarse(ox + SeaCell * 0.5f, oz + SeaCell * 0.5f) <
+                                    NearCoverage + SeaCell;
+                    if (lo >= SeaShallowM || !nearRoad) { Grid(ox, oz, SeaCell, 1); open++; }
+                    else { Grid(ox, oz, SeaCell, sub); shore++; }
                 }
+            if (verts.Count == 0) return;
+            var norms = new Vector3[verts.Count];
+            for (int k = 0; k < norms.Length; k++) norms[k] = Vector3.up;
             var mesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
-                vertices = verts, normals = norms, uv = uvs, triangles = tris,
+                vertices = verts.ToArray(), normals = norms, uv = uvs.ToArray(),
+                colors32 = cols32.ToArray(), triangles = tris.ToArray(),
             };
             SaveMesh(mesh, "StageSea");
             var go = new GameObject("Sea");
@@ -3072,8 +3149,31 @@ namespace PSXRacing.EditorTools
             go.isStatic = true;
             // NO COLLIDER, deliberately. A car that goes over the parapet
             // should end up in the sound, and StuckRecovery is what brings it
-            // back — a collider here would let it drive on the water instead.
-            Log($"Stage sea: {cols}x{rows} @ {SeaCell} m at y={y:0.0} ({verts.Length} verts).");
+            // back; a collider here would let it drive on the water instead.
+            Log($"Stage sea: {open} open + {shore} shore cells ({land} land cells skipped) at y={y:0.0}, " +
+                $"{verts.Count} verts, PSX/Water.");
+        }
+
+        /// <summary>The sea's material: PSX/Water over the owner's pack water
+        /// (a shallow sheet and a deep one).</summary>
+        static Material MakeWaterMat(string name, string shallowTex, string deepTex)
+        {
+            var shader = Shader.Find("PSX/Water");
+            if (shader == null) throw new Exception("PSX/Water shader not found");
+            string assetPath = MatDir + "/" + name + ".mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, assetPath);
+            }
+            mat.shader = shader;
+            mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(shallowTex);
+            mat.SetTexture("_DeepTex", AssetDatabase.LoadAssetAtPath<Texture2D>(deepTex));
+            mat.SetColor("_Color", theme.waterDeepTint);
+            mat.SetColor("_SandColor", theme.waterSandColor);
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         static void ForEachChunk(Bounds b, float chunk, float coverage,

@@ -215,6 +215,9 @@ Shader "PSX/Lit"
             // The hour's sky (the _PSXSky* globals and PSXSkyIn). AFTER the
             // fog/ambient/light uniforms it reads, and after the band above.
             #include "PSXSkyReflect.cginc"
+            // The horizon ring (PSXFogRing.cginc): the fog's colour by bearing.
+            // After SkyReflect, whose _PSXSkyRotation it is turned by.
+            #include "PSXFogRing.cginc"
 
             // THE LIT WINDOWS (the NIGHT PASS in the header). The facade's
             // mask says where the windows are; which of them are lit is a
@@ -296,6 +299,9 @@ Shader "PSX/Lit"
                 // the way; sun is what the shadow map gets a say in.
                 half3 amb : TEXCOORD4;
                 half3 sun : TEXCOORD5;
+                // The horizon ring's ratio for this vertex's bearing: exactly
+                // 1 in a scene that never applied an hour.
+                half3 ring : TEXCOORD6;
             };
 
             v2f vert (appdata v)
@@ -351,6 +357,7 @@ Shader "PSX/Lit"
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
+                o.ring = PSXFogRing(wpos - _WorldSpaceCameraPos, _PSXSkyRotation);
                 return o;
             }
 
@@ -418,7 +425,7 @@ Shader "PSX/Lit"
                 float3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 // The haze is brighter toward the sun (zero extra with no
                 // _PSXFogSun set, which is every interior and every night).
-                float3 fogCol = PSXFogTowardSun(_PSXFogColor.rgb, V);
+                float3 fogCol = PSXFogTowardSun(_PSXFogColor.rgb * i.ring, V);
                 float3 col = lerp(lit, fogCol, i.fog);
 
                 // THE WET ROAD, two: the mirror. Water reflects what the car

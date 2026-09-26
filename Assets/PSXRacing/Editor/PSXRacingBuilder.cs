@@ -266,6 +266,12 @@ namespace PSXRacing.EditorTools
             public string marsh;
             /// <summary>Metres of ground per repeat for those three.</summary>
             public float sandTile = 8f, waterTile = 26f, marshTile = 6f;
+            /// <summary>The sea's deep sheet (PSX/Water's _DeepTex), its tint,
+            /// and the sand the shallows show through - the Tidewater pass.
+            /// Null deep = the shallow sheet again.</summary>
+            public string waterDeep;
+            public Color waterDeepTint = new Color(0.70f, 0.82f, 0.80f);
+            public Color waterSandColor = new Color(0.66f, 0.60f, 0.46f);
 
             // --------------------------------------------------------------
             //  Stage LOOK. The defaults are the mountain's — every field here
@@ -495,7 +501,10 @@ namespace PSXRacing.EditorTools
         {
             ground = Root + "/Art/Bogue/Gen/Scrub.png",
             sand = Root + "/Art/Bogue/Gen/Sand.png",
-            water = Root + "/Art/Bogue/Gen/Sea.png",
+            // The owner's PSX Textures water sheets (v3.1 water_2 teal, water_1
+            // blue), drawn by PSX/Water - see BuildStageSea.
+            water = Root + "/Art/Water/water_2.png",
+            waterDeep = Root + "/Art/Water/water_1.png",
             marsh = Root + "/Art/Bogue/Gen/Marsh.png",
             wall = Root + "/Art/Roads/T (4).jpg",   // concrete — a bridge parapet
             groundTile = 11f,
@@ -1036,6 +1045,14 @@ namespace PSXRacing.EditorTools
         static string StageRockTexPath => Root + "/Art/Roadside/rock_pt_2.png";
         static string StageGravelTexPath => Root + "/Art/Roadside/dirt_pt_5.png";
         static bool MountainStage => theme.stageForest && !theme.stageUrban;
+        /// <summary>The texture a venue's verge strip wears, by asset name -
+        /// for the self-test: a mountain stage's is the pack gravel.</summary>
+        internal static string VergeTextureNameFor(TrackCatalog.TrackDef t)
+        {
+            var th = ThemeFor(t);
+            return t.stage && th.stageForest && !th.stageUrban
+                ? System.IO.Path.GetFileNameWithoutExtension(StageGravelTexPath) : "Shoulder";
+        }
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a

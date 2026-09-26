@@ -88,6 +88,9 @@ Shader "PSX/LitTransparent"
             float _PSXSnap;         // 1 = vertex snapping on
             // For PSXFogTowardSun only: glass takes the haze the walls take.
             #include "PSXSunShadow.cginc"
+            // The horizon ring, turned with the sky (see PSXFogRing.cginc).
+            float _PSXSkyRotation;
+            #include "PSXFogRing.cginc"
 
             struct appdata
             {
@@ -155,7 +158,7 @@ Shader "PSX/LitTransparent"
                 // The same haze the wall beside it fades into: brighter
                 // toward the sun (the DAY PASS, PSXSunShadow.cginc).
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
-                fixed3 col = lerp(lit, PSXFogTowardSun(_PSXFogColor.rgb, V), i.fog);
+                fixed3 col = lerp(lit, PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V), i.fog);
                 // Fog also closes the glass: at full fog a window is as opaque
                 // as the wall beside it, because both are simply haze by then.
                 return fixed4(col, lerp(tex.a, 1.0, i.fog));

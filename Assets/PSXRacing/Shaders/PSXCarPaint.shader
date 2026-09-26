@@ -243,6 +243,7 @@ Shader "PSX/CarPaint"
             // the sky it cannot see no more than the walls are. Off (exactly
             // 1) at night, at dusk and in every scene that set no hour.
             #include "PSXSunShadow.cginc"
+            #include "PSXFogRing.cginc"
 
             struct appdata
             {
@@ -417,7 +418,7 @@ Shader "PSX/CarPaint"
                     return fixed4(col, 1);
                 }
 
-                col = lerp(col, PSXFogTowardSun(_PSXFogColor.rgb, V), i.fog);
+                col = lerp(col, PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V), i.fog);
                 return fixed4(col, lerp(tex.a, 1.0, matte));
             }
             ENDCG

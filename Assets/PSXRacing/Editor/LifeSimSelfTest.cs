@@ -5256,7 +5256,8 @@ namespace PSXRacing.EditorTools
                     var style = PSXRacingBuilder.KerbStyleFor(t);
                     bool street = style == PSXRacingBuilder.KerbStyle.Street;
                     string wantTex = street ? "StreetKerb"
-                                   : style == PSXRacingBuilder.KerbStyle.Racing ? "Kerb" : "Shoulder";
+                                   : style == PSXRacingBuilder.KerbStyle.Racing ? "Kerb"
+                                   : PSXRacingBuilder.VergeTextureNameFor(t);
                     // The forecourt is planned on padSide = +1, i.e. KerbR;
                     // its presence in the scene is what says a drop is owed.
                     bool hasPad = false;

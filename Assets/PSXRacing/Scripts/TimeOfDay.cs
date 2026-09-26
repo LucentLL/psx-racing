@@ -883,8 +883,46 @@ namespace PSXRacing
                 Shader.SetGlobalColor("_PSXSkyTop", p.skyTop);
                 Shader.SetGlobalColor("_PSXSkyHorizon", p.skyHorizon);
                 Shader.SetGlobalFloat("_PSXSkySharpness", p.skySharpness);
+
+                // THE HORIZON RING (Shaders/PSXFogRing.cginc): this panorama's
+                // eight bearings, so the fog is the photograph's own horizon
+                // colour in every direction. Off (exactly the old fog) when the
+                // bake has no line for this sky.
+                var ring = tex != null ? HorizonRing(p.skyTex) : null;
+                if (ring != null) Shader.SetGlobalVectorArray("_PSXFogRing", ring);
+                Shader.SetGlobalFloat("_PSXFogRingOn", ring != null ? FogRingAmount : 0f);
             }
             RenderSettings.skybox = skyInstance;
+        }
+
+        /// <summary>How much of the horizon ring the fog takes (0..1).</summary>
+        public const float FogRingAmount = 0.9f;
+
+        static System.Collections.Generic.Dictionary<string, Vector4[]> horizonRings;
+
+        /// <summary>The baked ring for a panorama (tools/sky/bake_horizon_rings.py
+        /// writes Resources/Sky/horizon_rings.txt: a name and eight rgb
+        /// ratios), or null. Parsed once.</summary>
+        static Vector4[] HorizonRing(string sky)
+        {
+            if (horizonRings == null)
+            {
+                horizonRings = new System.Collections.Generic.Dictionary<string, Vector4[]>();
+                var txt = Resources.Load<TextAsset>("Sky/horizon_rings");
+                if (txt != null)
+                    foreach (var line in txt.text.Split((char)10))
+                    {
+                        var f = line.Trim().Split(' ');
+                        if (f.Length != 25) continue;
+                        var ring = new Vector4[8];
+                        var ci = System.Globalization.CultureInfo.InvariantCulture;
+                        for (int k = 0; k < 8; k++)
+                            ring[k] = new Vector4(float.Parse(f[1 + k * 3], ci), float.Parse(f[2 + k * 3], ci),
+                                                  float.Parse(f[3 + k * 3], ci), 1f);
+                        horizonRings[f[0]] = ring;
+                    }
+            }
+            return sky != null && horizonRings.TryGetValue(sky, out var r) ? r : null;
         }
     }
 }
