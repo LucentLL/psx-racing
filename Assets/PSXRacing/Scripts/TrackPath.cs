@@ -40,6 +40,36 @@ namespace PSXRacing
         /// PRINT the direction rather than follow it.</summary>
         public bool reversed;
 
+        /// <summary>A SPRINT ON THIS LOOP finishes at this waypoint, after
+        /// crossing waypoint 0 once; -1 for a lap race. Set at load by
+        /// RaceHandoffApplier.ApplySprint, never baked - the scene is the
+        /// loop's and serves both.</summary>
+        [System.NonSerialized] public int sprintFinish = -1;
+
+        /// <summary>
+        /// Make waypoint <paramref name="start"/> the first one, on a loop:
+        /// a sprint that starts part-way round the circuit gets the lap line,
+        /// the grid and every "from the start" count at its own start. The
+        /// order of the road is unchanged; only where the list begins moves.
+        /// Nothing on a route with ends: its ends are real.
+        /// </summary>
+        public void RotateInPlace(int start)
+        {
+            if (waypoints == null || HasEnds) return;
+            int n = waypoints.Length;
+            start = ((start % n) + n) % n;
+            if (start == 0) return;
+            var wp = new Vector3[n];
+            var cv = curvatures != null && curvatures.Length == n ? new float[n] : null;
+            for (int i = 0; i < n; i++)
+            {
+                wp[i] = waypoints[(i + start) % n];
+                if (cv != null) cv[i] = curvatures[(i + start) % n];
+            }
+            waypoints = wp;
+            if (cv != null) curvatures = cv;
+        }
+
         /// <summary>
         /// TURN THE CIRCUIT ROUND.
         ///

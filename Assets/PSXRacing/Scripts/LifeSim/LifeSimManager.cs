@@ -493,6 +493,27 @@ namespace PSXRacing.LifeSim
                         MenuKit.Money(refunded) + " back for the difference");
                 s.saveVersion = 17;
             }
+
+            if (s.saveVersion < 18)
+            {
+                // v18 appended NC 226A (down from Little Switzerland) to the
+                // authored list and every twin moved one place along. (The
+                // Blowing Rock Parkway sprint races on the loop's own scene
+                // and is appended after the twins, so it moves nothing.) Only for a save WRITTEN
+                // under v12..v17: older ones were remapped onto today's list
+                // above. Every stored venue: the last one picked, the diary's
+                // bookings, and a blacklist series' road.
+                if (written >= 12)
+                {
+                    s.trackIndex = TrackCatalog.RemapV17Index(s.trackIndex);
+                    if (s.bookings != null)
+                        foreach (var b in s.bookings)
+                            if (b != null) b.trackIndex = TrackCatalog.RemapV17Index(b.trackIndex);
+                    if (s.blChallenge != null && s.blChallenge.trackIndex >= 0)
+                        s.blChallenge.trackIndex = TrackCatalog.RemapV17Index(s.blChallenge.trackIndex);
+                }
+                s.saveVersion = 18;
+            }
         }
 
         public static void DeleteSave()

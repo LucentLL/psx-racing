@@ -173,6 +173,15 @@ namespace PSXRacing
             public bool stage;
             /// <summary>Resources name of the stage bake (e.g. "brp_stage").</summary>
             public string stageData;
+            /// <summary>
+            /// This stage's tightest-corner floor, when the road is tighter than
+            /// the 12 m every other stage keeps and that is the ROAD, not a bake
+            /// fault: Chimney Rock's park road climbs on 6 m switchbacks. Set
+            /// from the car and the road, never below the width's own fold
+            /// (half the road plus 1.5 m, where the inner kerb would close).
+            /// 0 = the usual 12.
+            /// </summary>
+            public float minCornerR;
 
             /// <summary>
             /// A stage whose ENDS MEET: the I-277 belt round uptown Charlotte
@@ -271,6 +280,14 @@ namespace PSXRacing
                         EnsureRoute(this);
                         return loop ? routeLengthM * laps : routeFinishM - routeStartM;
                     }
+                    // A sprint on a loop: start line to finish, the way it
+                    // is driven, round the ring.
+                    if (IsSprintVariant)
+                    {
+                        EnsureStage(this);
+                        float d = sprintReverse ? sprintStartM - sprintFinishM : sprintFinishM - sprintStartM;
+                        return Mathf.Repeat(d, Mathf.Max(1f, LengthM));
+                    }
                     if (stage && loop) { EnsureStage(this); return LengthM * laps; }
                     if (stage) { EnsureStage(this); return dragMeters - stageStartLineM; }
                     return drag ? dragMeters : LengthM * laps;
@@ -329,6 +346,26 @@ namespace PSXRacing
             public bool Reversed => !string.IsNullOrEmpty(reverseOf);
 
             /// <summary>
+            /// A SPRINT ON ANOTHER VENUE'S ROAD: the id of the loop it is raced
+            /// on, or null. Owner, 2026-09-26: "take half of the Blowing Rock
+            /// circuit and make it a sprint" - and then, of the first cut, which
+            /// copied half the road into a scene of its own: "Just leave the
+            /// track alone and make start/finish at arbitrary halfway points."
+            /// So a sprint has NO SCENE, like a reverse twin: it races in its
+            /// loop's, with the whole track standing, and at load the list is
+            /// turned round if it runs backwards, rotated so its start is
+            /// waypoint 0, and given a finish part-way round (see
+            /// RaceHandoffApplier.ApplySprint and RaceManager.sprintFinishIndex).
+            /// </summary>
+            public string sprintOf;
+            /// <summary>Where it starts and finishes, in metres along the
+            /// loop's FORWARD bake, whichever way it is driven.</summary>
+            public float sprintStartM, sprintFinishM;
+            /// <summary>Driven against the loop's direction.</summary>
+            public bool sprintReverse;
+            public bool IsSprintVariant => !string.IsNullOrEmpty(sprintOf);
+
+            /// <summary>
             /// Is this venue worth driving the other way?
             ///
             /// Everything that is a real ROAD rather than a straight: the four
@@ -338,7 +375,7 @@ namespace PSXRacing
             /// not the bridge and beach runs, which are drag events on real
             /// roads; and not the city, which has no centreline at all.
             /// </summary>
-            public bool CanReverse => !drag && !dragEvent && !IsRoam && !noReverse && !Reversed;
+            public bool CanReverse => !drag && !dragEvent && !IsRoam && !noReverse && !Reversed && !IsSprintVariant;
         }
 
         /// <summary>Waypoint spacing, metres. The scene builder reads its own
@@ -785,6 +822,90 @@ namespace PSXRacing
                 dragLabel = "THE TUNNEL",
                 bridgeDepth = 6f,
             },
+
+            // ----------------------------------------------------------------
+            //  2026-09-26, the owner: "Blowing Rock and Little Switzerland do
+            //  not seem to match the tracks in the game ... additional tracks
+            //  can be added that are more accurate", "Chimney Rock ascent/
+            //  descent could be a good sprint race", and "not every race needs
+            //  to be a full circuit - you could take half of the Blowing Rock
+            //  circuit and make it a sprint." SPRINTS, each with its twin (the
+            //  other direction), appended as ever. Two more - Chimney Rock and
+            //  NC 226 up to Gillespie Gap - are baked and held back: see
+            //  HeldBack.
+            //
+            //  The accurate Little Switzerland loop - the Parkway from
+            //  Gillespie Gap to the village, NC 226A down the south face, NC
+            //  226 back up - is 27 km, twice what a tank does at race load. So
+            //  it is raced as its two mountain roads: NC 226A down (and up, in
+            //  its twin) and NC 226 up to the gap (and down).
+            // ----------------------------------------------------------------
+            new TrackDef
+            {
+                id = "SwissNC226A",
+                name = "LITTLE SWITZERLAND — NC 226A",
+                blurb = "From the village at 1,040 m down NC 226A's switchbacks on the south " +
+                        "face of the mountain to the valley at 470 m: 570 m of descent in " +
+                        "11.7 km. Map (c) OpenStreetMap contributors.",
+                roadWidth = 9.5f,
+                laps = 1,
+                speedLimitKmh = 56f,    // NC 226A, 35 mph through the bends
+                stage = true,
+                stageData = "swa_stage",
+                dragLabel = "THE VALLEY",
+                minCornerR = 10f,       // one switchback at 11.0 m, 6.9 km down
+            },
+        };
+
+        /// <summary>
+        /// BAKED AND HELD BACK (2026-09-26). Both are in Resources and both
+        /// build, and both fail the roadside audits in ways a new road should
+        /// not ship with: Chimney Rock's 6 m switchbacks are tighter than the
+        /// stage builder's shoulder ribbon is wide, so on the inside of the
+        /// two tightest groups the shoulder folds over itself (faces pointing
+        /// down, walls that are not closed solids, falls left unguarded); and
+        /// NC 226's cut banks leave edge faces and walled-in pockets on 26
+        /// half-sections. Not in <see cref="Authored"/> - a venue appended and
+        /// then taken away would move every twin twice - until the builder
+        /// handles them; then appended, with a v19 remap like v18's.
+        /// </summary>
+        public static readonly TrackDef[] HeldBack =
+        {
+            new TrackDef
+            {
+                id = "ChimneyRock",
+                name = "CHIMNEY ROCK — PARK ROAD",
+                blurb = "Off Main Street over the Rocky Broad River and up the park road's " +
+                        "switchbacks to the lot under the Chimney: 265 m of climb in 4.3 km, " +
+                        "on hairpins tighter than any other road in the game. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 8f,
+                laps = 1,
+                speedLimitKmh = 40f,    // a 25 mph park road
+                stage = true,
+                stageData = "chimney_stage",
+                dragLabel = "THE CHIMNEY",
+                // 6.1 m at the top, 8-9 m on the climb, on OSM's own geometry.
+                // A front axle describes ~6.7 m at full lock and an 8 m road
+                // gives a car swung wide 3.1 m more than its centreline; the
+                // road's inner edge folds first, at 4 + 1.5 = 5.5.
+                minCornerR = 5.5f,
+            },
+            new TrackDef
+            {
+                id = "GillespieGap",
+                name = "GILLESPIE GAP — NC 226",
+                blurb = "Up NC 226 from where NC 226A comes down to meet it, 410 m of climb " +
+                        "in 6.5 km to the Parkway at the Museum of North Carolina Minerals. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 9f,
+                laps = 1,
+                speedLimitKmh = 72f,    // NC 226, 45 mph
+                stage = true,
+                stageData = "gap_stage",
+                dragLabel = "THE GAP",
+                minCornerR = 8f,        // the turn onto the ramp at the gap, past the finish
+            },
         };
 
         /// <summary>
@@ -828,6 +949,7 @@ namespace PSXRacing
             cityRoute = f.cityRoute,
             stage = f.stage,
             stageData = f.stageData,
+            minCornerR = f.minCornerR,
             reverseOf = f.id,
         };
 
@@ -846,8 +968,83 @@ namespace PSXRacing
         {
             var list = new List<TrackDef>(Authored);
             foreach (var f in Authored) if (f.CanReverse) list.Add(ReverseTwin(f));
+            // SPRINTS ON LOOPS go after the twins: no scene of their own, and
+            // appended so no saved index moves.
+            foreach (var sd in SprintVariants)
+            {
+                TrackDef baseDef = null;
+                foreach (var f in Authored) if (f.id == sd.baseId) baseDef = f;
+                if (baseDef != null) list.Add(SprintOn(baseDef, sd));
+            }
             return list.ToArray();
         }
+
+        /// <summary>One sprint on a loop, as data.</summary>
+        struct SprintVariant
+        {
+            public string id, baseId, name, blurb, label;
+            public float startM, finishM;
+            public bool reverse;
+        }
+
+        /// <summary>
+        /// THE SPRINTS RACED ON A LOOP'S OWN ROAD. The Blowing Rock Parkway
+        /// sprint is the loop's first 6.3 km: the loop's own start line at Flat
+        /// Top, the Parkway west past the Cone estate, off at the Cone access
+        /// and down US 221 to the Yonahlossee Road turn - and its II is the
+        /// climb back up the same road to the same line.
+        /// </summary>
+        /// A PROPERTY, not a field: <see cref="All"/> is built by a static
+        /// initialiser above this one, and field initialisers run in the
+        /// order they are written - a field here would still be null then.
+        static SprintVariant[] SprintVariants => new[]
+        {
+            new SprintVariant
+            {
+                id = "BlowingRockSprint", baseId = "BlowingRock",
+                name = "BLOWING ROCK — PARKWAY SPRINT",
+                blurb = "Half the Moses Cone loop, as a sprint: from the loop's start line at " +
+                        "Flat Top, the Parkway west past the Cone estate, off at the Cone access " +
+                        "and down US 221 to Yonahlossee Road. 6.3 km. Map (c) OpenStreetMap contributors.",
+                label = "YONAHLOSSEE", startM = 0f, finishM = 6328f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "BlowingRockSprintRev", baseId = "BlowingRock",
+                name = "BLOWING ROCK — PARKWAY SPRINT II",
+                blurb = "The same road the other way: up US 221 from Yonahlossee Road, onto the " +
+                        "Parkway at the Cone access and east to the loop's line at Flat Top. " +
+                        "6.3 km. Map (c) OpenStreetMap contributors.",
+                label = "FLAT TOP", startM = 6328f, finishM = 0f, reverse = true,
+            },
+        };
+
+        static TrackDef SprintOn(TrackDef f, SprintVariant v) => new TrackDef
+        {
+            id = v.id,
+            name = v.name,
+            blurb = v.blurb,
+            controlPoints = f.controlPoints,
+            controlHeights = f.controlHeights,
+            bridges = f.bridges,
+            tunnels = f.tunnels,
+            crossings = f.crossings,
+            bridgeDepth = f.bridgeDepth,
+            roadWidth = f.roadWidth,
+            speedLimitKmh = f.speedLimitKmh,
+            // The LOOP's shape, because the road is the loop: its bake says
+            // loop and EnsureStage holds a row to what its bake says. One run.
+            loop = f.loop,
+            laps = 1,
+            stage = f.stage,
+            stageData = f.stageData,
+            minCornerR = f.minCornerR,
+            dragLabel = v.label,
+            sprintOf = f.id,
+            sprintStartM = v.startM,
+            sprintFinishM = v.finishM,
+            sprintReverse = v.reverse,
+        };
 
         /// <summary>How many venues have a SCENE. The reverses do not — they
         /// race in their twin's — so this, not All.Length, is what the scene
@@ -916,6 +1113,21 @@ namespace PSXRacing
             return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
         }
 
+        /// <summary>How many venues the authored list held under saves v12 to
+        /// v17: the sixteen of v11 plus the two Parkway loops. The sprints of
+        /// 2026-09-26 went on after them and moved every twin along by their
+        /// number. A constant, for the reason V10AuthoredCount is.</summary>
+        public const int V17AuthoredCount = 18;
+
+        /// <summary>A venue index from a v12..v17 save, in today's list. Same
+        /// shape as <see cref="RemapV10Index"/>.</summary>
+        public static int RemapV17Index(int oldIndex)
+        {
+            if (oldIndex < V17AuthoredCount) return Mathf.Max(0, oldIndex);
+            int twin = oldIndex - V17AuthoredCount;
+            return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
+        }
+
         /// <summary>Build-settings index of a track's scene. Scene 0 is
         /// LifeHome, so the tracks start at 1.</summary>
         public static int SceneIndex(int trackIndex)
@@ -925,6 +1137,8 @@ namespace PSXRacing
             // by arithmetic on the index, so the two lists can never drift.
             var def = All[i];
             if (def.Reversed) i = IndexOf(def.reverseOf);
+            // A sprint on a loop races in the loop's scene.
+            else if (def.IsSprintVariant) i = IndexOf(def.sprintOf);
             return 1 + Mathf.Clamp(i, 0, SceneCount - 1);
         }
 
@@ -1489,6 +1703,14 @@ namespace PSXRacing
             var red = new Color32(255, 90, 70, 255);
             bool flip = ends && def.Reversed && def.FinishIndex > 0 && def.FinishIndex < pts.Count;
             var startPt = flip ? pts[def.FinishIndex] : pts[0];
+            // A sprint on a loop starts and finishes where it says, on the
+            // loop's forward bake, and the map marks both.
+            if (def.IsSprintVariant && pts.Count > 1)
+            {
+                startPt = pts[Mathf.Clamp(Mathf.RoundToInt(def.sprintStartM / Spacing), 0, pts.Count - 1)];
+                var fin = pts[Mathf.Clamp(Mathf.RoundToInt(def.sprintFinishM / Spacing), 0, pts.Count - 1)];
+                Plot(px, size, fin.x * scale + ox, fin.z * scale + oz, red, red);
+            }
             Plot(px, size, startPt.x * scale + ox, startPt.z * scale + oz, white, white);
             // On a strip the interesting end is the OTHER one: a horizontal bar
             // with one dot on it says nothing about where the traps are. Same

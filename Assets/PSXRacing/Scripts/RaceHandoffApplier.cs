@@ -66,6 +66,9 @@ namespace PSXRacing
                 var tp = Object.FindFirstObjectByType<TrackPath>();
                 ApplyReversal(tp, venue);
             }
+            // A SPRINT ON A LOOP: same moment, same reason.
+            if (RaceHandoff.FromLifeSim && venue.IsSprintVariant)
+                ApplySprint(Object.FindFirstObjectByType<TrackPath>(), venue);
             // Time of day is applied EVEN on a standalone editor race, unlike
             // everything else here: the scene is baked at one hour, and the
             // hour is now the cheapest thing to vary while testing. Pressing
@@ -646,6 +649,66 @@ namespace PSXRacing
                 if (bj.path == tp) bj.ReverseIndices();
 
             return datum;
+        }
+
+        /// <summary>
+        /// A SPRINT ON A LOOP'S ROAD (TrackDef.sprintOf): the whole circuit
+        /// stands; the race starts and finishes at two points on it.
+        ///
+        /// The list is turned round first if the sprint runs against the loop
+        /// (a loop keeps waypoint 0 when it turns), then ROTATED so the
+        /// sprint's start is waypoint 0 - the lap line, the grid and "crossed
+        /// the start once" all key off index 0 - and handed a finish part-way
+        /// round, which RaceManager races exactly like a delivery to a door.
+        /// A band is painted across the road at the finish, and at the start
+        /// if the loop's own line is not already there. The grid is restaged
+        /// behind the new line, and the bridge joints - the only other thing
+        /// holding a waypoint INDEX - follow the list, after the grid, for the
+        /// reason ApplyReversal gives.
+        /// </summary>
+        public void ApplySprint(TrackPath tp, TrackCatalog.TrackDef venue)
+        {
+            if (tp == null || venue == null || tp.HasEnds || tp.Count < 20) return;
+            int n = tp.Count;
+            float sp = tp.spacing;
+            int s0 = Mathf.RoundToInt(venue.sprintStartM / sp) % n;
+            int s1 = Mathf.RoundToInt(venue.sprintFinishM / sp) % n;
+            if (venue.sprintReverse)
+            {
+                tp.ReverseInPlace();
+                s0 = (n - s0) % n;
+                s1 = (n - s1) % n;
+            }
+            // In the list as it is now: the loop's own line is at 0.
+            if (Mathf.Min(s1, n - s1) > 3) PaintLine(tp, s1, "SprintFinish");
+            if (Mathf.Min(s0, n - s0) > 3) PaintLine(tp, s0, "SprintStart");
+
+            tp.RotateInPlace(s0);
+            tp.sprintFinish = ((s1 - s0) % n + n) % n;
+            if (!string.IsNullOrEmpty(venue.dragLabel)) tp.dragLabel = venue.dragLabel;
+            StageReversedGrid(tp, 0);
+            foreach (var bj in Object.FindObjectsByType<BridgeJoints>(FindObjectsSortMode.None))
+            {
+                if (bj.path != tp) continue;
+                if (venue.sprintReverse) bj.ReverseIndices();
+                bj.ShiftIndices(s0);
+            }
+        }
+
+        /// <summary>A start/finish band across the road at waypoint
+        /// <paramref name="i"/>: the scene's own StartLine, copied - same
+        /// paint, same size, same height over the tarmac.</summary>
+        static void PaintLine(TrackPath tp, int i, string name)
+        {
+            var src = GameObject.Find("StartLine");
+            if (src == null) return;
+            var go = Object.Instantiate(src, src.transform.parent);
+            go.name = name;
+            go.isStatic = false;
+            float lift = src.transform.position.y - tp.GetPoint(tp.NearestIndex(src.transform.position)).y;
+            go.transform.SetPositionAndRotation(
+                tp.GetPoint(i) + Vector3.up * Mathf.Clamp(lift, 0.05f, 0.3f),
+                Quaternion.LookRotation(Vector3.down, tp.GetTangent(i)));
         }
 
         public void StageReversedGrid(TrackPath path) =>

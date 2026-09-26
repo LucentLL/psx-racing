@@ -451,7 +451,9 @@ namespace PSXRacing.LifeSim
             {
                 int idx = (start + i) % n;
                 var t = all[idx];
-                if (t.IsRoam || t.drag) continue;
+                // A sprint on a loop is the loop's road a second time; the
+                // loop is in the pool already.
+                if (t.IsRoam || t.drag || t.IsSprintVariant) continue;
                 if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
                 return idx;
             }
@@ -469,7 +471,7 @@ namespace PSXRacing.LifeSim
                 // cheapest run in the catalog by a mile — and the venue the
                 // roll refuses on principle would be the one a dry tank
                 // always gets.
-                if (all[i].IsRoam || all[i].drag) continue;
+                if (all[i].IsRoam || all[i].drag || all[i].IsSprintVariant) continue;
                 float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
                 if (need < least) { least = need; cheapest = i; }
             }

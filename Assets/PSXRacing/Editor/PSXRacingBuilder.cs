@@ -456,6 +456,13 @@ namespace PSXRacing.EditorTools
             ["BlowingRock"] = MountainLoopTheme(Root + "/Art/BlowingRock", "brock"),
             ["LittleSwitzerland"] = MountainLoopTheme(Root + "/Art/Switzerland", "swiss"),
 
+            // The sprints of 2026-09-26 with roads of their own: the same
+            // mountain look, each reading its own DEM. (The Blowing Rock
+            // sprint races in the loop's scene and needs none.)
+            ["ChimneyRock"] = MountainLoopTheme(Root + "/Art/ChimneyRock", "chimney"),
+            ["SwissNC226A"] = MountainLoopTheme(Root + "/Art/Swiss226A", "swa"),
+            ["GillespieGap"] = MountainLoopTheme(Root + "/Art/Gillespie", "gap"),
+
             // Bogue Banks. One look, three venues: pale sand, scrub behind the
             // dune line, water on both sides of everything. All three share a
             // folder because they share an island; the DEM PREFIX is what keeps

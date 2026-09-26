@@ -115,6 +115,10 @@ namespace PSXRacing
             // turned the list round — the count is the same either way (the
             // self-test says so), but the decision belongs after the last
             // thing that touches the path.
+            // A SPRINT ON A LOOP'S ROAD (TrackDef.sprintOf): the applier has
+            // just rotated the list to its start and set where it finishes.
+            if (path != null && !path.HasEnds && path.sprintFinish > 0)
+                sprintFinishIndex = Mathf.Clamp(path.sprintFinish, SprintFinishMinIndex, path.Count - SprintFinishEndMargin);
             if (RaceHandoff.Delivery && path != null && !path.HasEnds)
                 sprintFinishIndex = SprintFinishIndexFor(path.Count, RaceHandoff.DeliveryDropFraction);
 

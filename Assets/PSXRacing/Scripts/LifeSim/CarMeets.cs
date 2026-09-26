@@ -265,7 +265,8 @@ namespace PSXRacing.LifeSim
         // not care. One that is missing from a build is skipped.
         static readonly string[] DragVenues = { "DragQuarter", "DragEighth", "EmeraldIsle", "LangstonBridge" };
         static readonly string[] GripVenues = { "CityCircuit", "HarborPoint", "RidgePass", "AirfieldSprint" };
-        static readonly string[] TougeVenues = { "BlueRidge", "MtMitchell", "BlowingRock", "LittleSwitzerland" };
+        static readonly string[] TougeVenues = { "BlueRidge", "MtMitchell", "BlowingRock", "LittleSwitzerland",
+                                                  "SwissNC226A", "BlowingRockSprint" };
         static readonly string[] StreetVenues = { "TryonSprint", "UptownLoop", "IndependenceSprint" };
 
         static int PickVenue(string[] ids, System.Random rng)

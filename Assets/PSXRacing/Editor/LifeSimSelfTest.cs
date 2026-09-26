@@ -1297,6 +1297,18 @@ namespace PSXRacing.EditorTools
                 // the wrong way up.
                 Check(!t.loop || t.stage || t.IsCityRace, t.id + " loop is a stage or a city route");
                 Check(!t.oneWay || t.noReverse, t.id + " one-way road is not offered backwards");
+                if (t.IsSprintVariant)
+                {
+                    // A sprint on a loop's road has no scene of its own: it
+                    // races in the loop's, with the whole track standing.
+                    var baseDef = TrackCatalog.At(TrackCatalog.IndexOf(t.sprintOf));
+                    Check(baseDef.id == t.sprintOf && baseDef.loop && !baseDef.IsSprintVariant,
+                          t.id + " is raced on a real loop", t.sprintOf);
+                    Check(TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.id)) ==
+                          TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.sprintOf)),
+                          t.id + " races in " + t.sprintOf + " s scene");
+                    continue;
+                }
                 if (t.Reversed)
                 {
                     var fwd = TrackCatalog.At(TrackCatalog.IndexOf(t.reverseOf));
@@ -1458,8 +1470,14 @@ namespace PSXRacing.EditorTools
                     // about 6.7 m, so a 12 m centreline with a 9 m road around
                     // it is a hairpin you take slowly, not one you cannot take.
                     float stageMinR = MinCornerRadius(pts);
-                    Check(stageMinR >= 12f, t.id + " tightest corner is drivable",
-                          stageMinR.ToString("0.0") + " m");
+                    // A venue may carry its own floor (Chimney Rock's switchbacks
+                    // are 6 m), but never under the road's own fold: half its
+                    // width plus 1.5 m, where the inner kerb would close.
+                    float floorR = t.minCornerR > 0f ? t.minCornerR : 12f;
+                    Check(floorR >= t.roadWidth * 0.5f + 1.5f - 1e-3f,
+                          t.id + " corner floor is not under the road's own fold", floorR);
+                    Check(stageMinR >= floorR - 0.05f, t.id + " tightest corner is drivable",
+                          stageMinR.ToString("0.0") + " m (floor " + floorR.ToString("0.0") + ")");
                     // Asked of the builder rather than restated: the stage
                     // barrier line follows the road's width now, and a literal
                     // here would go on testing the parkway's number against
@@ -1572,7 +1590,8 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                int want = t.Reversed ? TrackCatalog.IndexOf(t.reverseOf) + 1 : i + 1;
+                int want = t.Reversed ? TrackCatalog.IndexOf(t.reverseOf) + 1
+                         : t.IsSprintVariant ? TrackCatalog.IndexOf(t.sprintOf) + 1 : i + 1;
                 Check(TrackCatalog.SceneIndex(i) == want,
                       "scene index " + i + " (" + t.id + ") is " + want,
                       TrackCatalog.SceneIndex(i));
@@ -5911,7 +5930,12 @@ namespace PSXRacing.EditorTools
             }
 
             float minVertR = float.MaxValue;
-            for (int i = 0; i < n; i++)
+            // On a route with ENDS, only where the whole window exists: at the
+            // first and last three points the clamped window compared a point
+            // with itself, read the road's own grade as a change of grade, and
+            // called a sprint that starts on a steady 7% climb (the Blowing
+            // Rock Parkway sprint, cut out of the loop mid-hill) a 176 m crest.
+            for (int i = hasEnds ? 3 : 0; i < (hasEnds ? n - 3 : n); i++)
             {
                 Vector3 a = pts[hasEnds ? Mathf.Max(0, i - 3) : (i - 3 + n) % n],
                         b = pts[i],
@@ -6120,6 +6144,71 @@ namespace PSXRacing.EditorTools
                   "a v11 save's first twin is today's first twin",
                   TrackCatalog.RemapV11Index(TrackCatalog.V11AuthoredCount));
             Check(TrackCatalog.RemapV11Index(3) == 3, "and authored indices stand");
+
+            // THE SPRINTS (2026-09-26): each is a stage with ends, each has
+            // its twin, and the twins moved along again - a
+            // v17 save's twin is the same twin today, whatever it is called.
+            {
+                int i = TrackCatalog.IndexOf("SwissNC226A");
+                var d = TrackCatalog.At(i);
+                Check(d.id == "SwissNC226A" && d.stage && !d.loop && d.FinishIndex > 0, "NC 226A is a sprint with a finish");
+                Check(TrackCatalog.IndexOf("SwissNC226ARev") > 0, "and has its twin, the other way");
+                Check(d.RaceMeters < 14200f, "and fits a tank at race load", (d.RaceMeters / 1000f).ToString("0.0") + " km");
+            }
+            int v17FirstTwin = TrackCatalog.V17AuthoredCount;
+            Check(TrackCatalog.RemapV17Index(v17FirstTwin) == TrackCatalog.SceneCount,
+                  "a v17 save's first twin is today's first twin", TrackCatalog.RemapV17Index(v17FirstTwin));
+            Check(TrackCatalog.RemapV17Index(17) == 17, "and authored indices stand");
+            {
+                // A v17 save racing LITTLE SWITZERLAND II comes out on it still.
+                var mig = new LifeState { saveVersion = 17 };
+                int lsRev = TrackCatalog.IndexOf("LittleSwitzerlandRev");
+                int oldLsRev = v17FirstTwin + (lsRev - TrackCatalog.SceneCount);
+                mig.trackIndex = oldLsRev;
+                mig.bookings.Add(new RaceBooking { day = 3, trackIndex = oldLsRev });
+                LifeSimManager.Migrate(mig);
+                Check(mig.trackIndex == lsRev && mig.bookings[0].trackIndex == lsRev && mig.saveVersion == 18,
+                      "a v17 save's LITTLE SWITZERLAND II is still that road after the migration",
+                      TrackCatalog.At(mig.trackIndex).id);
+            }
+
+            // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
+            // the track alone and make start/finish at arbitrary halfway
+            // points"). Driven through the applier on the loop's own bake:
+            // the list is the whole loop, rotated to the sprint's start, with
+            // the finish where the catalog says - both ways round.
+            TrackCatalog.EnsureStage(br);
+            foreach (var id in new[] { "BlowingRockSprint", "BlowingRockSprintRev" })
+            {
+                var v = TrackCatalog.At(TrackCatalog.IndexOf(id));
+                Check(v.id == id && v.IsSprintVariant && v.sprintOf == "BlowingRock", id + " is a sprint on the loop");
+                Check(Mathf.Abs(v.RaceMeters - 6328f) < 8f, id + " is the loop's first 6.3 km",
+                      v.RaceMeters.ToString("0") + " m");
+                var go = new GameObject("SprintProbe");
+                try
+                {
+                    var tp = go.AddComponent<PSXRacing.TrackPath>();
+                    tp.waypoints = (Vector3[])br.stagePts.Clone();
+                    tp.spacing = TrackCatalog.Spacing;
+                    var ap = go.AddComponent<PSXRacing.RaceHandoffApplier>();
+                    ap.ApplySprint(tp, v);
+                    int n = br.stagePts.Length;
+                    int s0 = Mathf.RoundToInt(v.sprintStartM / TrackCatalog.Spacing) % n;
+                    int s1 = Mathf.RoundToInt(v.sprintFinishM / TrackCatalog.Spacing) % n;
+                    Check(tp.Count == n, id + " keeps the whole loop", tp.Count + " of " + n);
+                    Check(Vector3.Distance(tp.waypoints[0], br.stagePts[s0]) < 0.01f,
+                          id + " starts where it says", tp.waypoints[0].ToString("0.0"));
+                    Check(tp.sprintFinish > 0 && Vector3.Distance(tp.waypoints[tp.sprintFinish], br.stagePts[s1]) < 0.01f,
+                          id + " finishes where it says", tp.sprintFinish);
+                    Check(Mathf.Abs(tp.sprintFinish * TrackCatalog.Spacing - v.RaceMeters) < 8f,
+                          id + " finish is its quoted distance from the start", (tp.sprintFinish * TrackCatalog.Spacing).ToString("0") + " m");
+                    // Driven the right way: the second waypoint is the road
+                    // AFTER the start in the direction of the sprint.
+                    int next = v.sprintReverse ? (s0 - 1 + n) % n : (s0 + 1) % n;
+                    Check(Vector3.Distance(tp.waypoints[1], br.stagePts[next]) < 0.01f, id + " runs the right way round");
+                }
+                finally { Object.DestroyImmediate(go); }
+            }
         }
 
         // ---------------------------------------------------------------

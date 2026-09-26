@@ -752,11 +752,14 @@ namespace PSXRacing
                 }
                 else
                 {
-                    int lap = ends ? 1 : Mathf.Min(p.lap, rm.totalLaps);
+                    // A sprint round part of a loop is ONE run too: its
+                    // finish's name, not "LAP 1/1".
+                    bool oneRun = ends || rm.Sprint;
+                    int lap = oneRun ? 1 : Mathf.Min(p.lap, rm.totalLaps);
                     if (lap != lastLap)
                     {
                         lastLap = lap;
-                        Set(lapText, ends ? rm.path.dragLabel : "LAP " + lap + "/" + rm.totalLaps);
+                        Set(lapText, oneRun ? rm.path.dragLabel : "LAP " + lap + "/" + rm.totalLaps);
                     }
                 }
 

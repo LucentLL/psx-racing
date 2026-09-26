@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import {
   fetchOverpass, srtmSampler, makeProjection,
   arcPositions, pointAtS, projectOntoChain, splineResample,
-  tightestPlan, radiusFloorMessage, waypointBridgeFlags, smoothHeights,
+  tightestPlan, radiusFloorMessage, planRadius, waypointBridgeFlags, smoothHeights,
   bridgeSpans, bakeGrid, writeDemMeta, writeStage,
 } from './lib.mjs';
 
@@ -127,6 +127,72 @@ const ROADS = {
     start: { lat: 35.465741, lon: -83.919882, elevM: 596 },   // Deals Gap
     end:   { lat: 35.524821, lon: -83.993306, elevM: 268 },   // Tabcat Creek
     leadM: 60, shutdownM: 250, smoothSigma: 55, maxGrade: 0.10,
+  },
+
+  // ---- 2026-09-26, the owner's three: "Blowing Rock and Little Switzerland
+  // do not seem to match the tracks in the game ... additional tracks can be
+  // added that are more accurate", "Chimney Rock ascent/descent could be a
+  // good sprint race", and "not every race needs to be a full circuit". The
+  // accurate Little Switzerland loop (the Parkway, NC 226A down the south
+  // face, NC 226 back up to Gillespie Gap) is 27 km - twice what a tank does
+  // at race load - so it is raced as its two climbs, each with its twin.
+  //
+  // These endpoint elevations are from the places' published heights where
+  // there is one (the village of Chimney Rock 325 m, Gillespie Gap 859 m, as
+  // the older Little Switzerland bake already uses) and read off SRTM where
+  // there is not; the bake prints SRTM's opinion beside them.
+
+  // CHIMNEY ROCK PARK ROAD: off Main Street across the Rocky Broad River and
+  // up the switchbacks to the upper lot under the Chimney. The ascent; its
+  // twin is the descent.
+  chimney: {
+    name: 'Chimney Rock — Park Road',
+    artDir: 'ChimneyRock', prefix: 'chimney', resKey: 'chimney_stage',
+    bbox: { s: 35.420, w: -82.265, n: 35.448, e: -82.230 },
+    match: { names: ['chimney rock park road'], refs: [] },
+    start: { lat: 35.4391, lon: -82.2489, elevM: 325 },   // Main Street, the river bridge
+    end:   { lat: 35.4313, lon: -82.2487, elevM: 590 },   // the upper lot (SRTM; the Chimney itself is 695 m)
+    leadM: 40, shutdownM: 100, smoothSigma: 45, maxGrade: 0.13,
+    // ITS SWITCHBACKS ARE REAL, and tighter than the 12 m every other stage
+    // keeps: 8-9 m on the climb and 6.1 m at the top, on OSM's own geometry.
+    // The floor here is the one the refusal asks for, from the CAR and the
+    // road: a front axle describes ~6.7 m at full lock, and on an 8 m road a
+    // car swung to the outside of the bend has 3.1 m more than the centreline
+    // (so 3.6 m would do); the road's own inner edge folds first, at half the
+    // width plus 1.5 m = 5.5. TrackDef.minCornerR carries the same number.
+    minRadiusM: 5.5,
+  },
+
+  // NC 226A DOWN THE SOUTH FACE: from the village where 226A leaves the
+  // Parkway's link road, down the switchbacks OSM tags "NC 226 Alternate", to
+  // the foot of them. The descent; its twin climbs.
+  swiss226a: {
+    name: 'Little Switzerland — NC 226A',
+    artDir: 'Swiss226A', prefix: 'swa', resKey: 'swa_stage',
+    bbox: { s: 35.79, w: -82.17, n: 35.93, e: -81.98 },
+    match: { names: [], refs: ['NC 226A', 'NC 226 Alternate'] },
+    start: { lat: 35.8480, lon: -82.0932, elevM: 1036 },  // the village
+    end:   { lat: 35.8116, lon: -82.0733, elevM: 469 },   // the foot of the switchbacks (SRTM; no published height)
+    leadM: 60, shutdownM: 200, smoothSigma: 60, maxGrade: 0.11,
+    // One switchback 6.9 km down measures 11.0 m. The car/road floor (see
+    // chimney) on 9.5 m of road is 6.3; 10 keeps the margin.
+    minRadiusM: 10,
+  },
+
+  // NC 226 UP TO GILLESPIE GAP: from where NC 226A comes down to meet it, up
+  // the climb to the Parkway at the Museum of North Carolina Minerals. The
+  // climb; its twin comes down.
+  gillespie: {
+    name: 'Gillespie Gap — NC 226',
+    artDir: 'Gillespie', prefix: 'gap', resKey: 'gap_stage',
+    bbox: { s: 35.79, w: -82.17, n: 35.93, e: -81.98 },
+    match: { names: [], refs: ['NC 226'] },
+    start: { lat: 35.8115, lon: -82.0437, elevM: 443 },   // NC 226A joins (SRTM; no published height)
+    end:   { lat: 35.8526, lon: -82.0508, elevM: 859 },   // Gillespie Gap
+    leadM: 60, shutdownM: 150, smoothSigma: 60, maxGrade: 0.10,
+    // The one corner under 12 m (8.6) is the turn onto the ramp at the gap,
+    // in the run-out past the finish. Car/road floor on 9 m: 6.0.
+    minRadiusM: 8,
   },
 };
 
@@ -383,7 +449,18 @@ console.log(`waypoints: ${wp.length} (${(wp.length * SPACING / 1000).toFixed(2)}
   const t = tightestPlan(wp, RADIUS_FLOOR_M);
   console.log(`tightest corner ${t.minR.toFixed(1)} m at wp ${t.at}` +
               (t.under ? `  — ${t.under} waypoint(s) under the ${RADIUS_FLOOR_M} m floor` : ''));
-  if (t.under) throw new Error(radiusFloorMessage(t, RADIUS_FLOOR_M));
+  if (t.under) {
+    // WHERE, not just how many: a different cut is the usual answer, and it
+    // needs to know which stretch of the road the hairpins are on.
+    let runStart = -1, prev = -9;
+    for (let i = 1; i < wp.length - 1; i++) {
+      const R = planRadius(wp, i, false);
+      if (R >= RADIUS_FLOOR_M) continue;
+      if (i - prev > 3) console.log(`    under: wp ${i} (${(i * SPACING).toFixed(0)} m in) R ${R.toFixed(1)} m`);
+      prev = i;
+    }
+    throw new Error(radiusFloorMessage(t, RADIUS_FLOOR_M));
+  }
 }
 
 // THE TWO LINES ARE MEASURED ON THE WAYPOINT LIST, WHICH IS THE ROAD THE GAME

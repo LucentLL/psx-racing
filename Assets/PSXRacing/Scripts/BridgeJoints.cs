@@ -57,14 +57,26 @@ namespace PSXRacing
         {
             if (path == null || path.Count == 0 || jointIndex == null) return;
             int n = path.Count;
-            for (int i = 0; i < jointIndex.Length; i++)
-            {
-                int j = jointIndex[i];
-                // The mapping ReverseInPlace itself used: a straight flip on a
-                // route with ends, and on a loop 0 stays put while the rest
-                // walk backwards round it.
-                jointIndex[i] = path.HasEnds ? n - 1 - j : (j == 0 ? 0 : n - j);
-            }
+            // The mapping ReverseInPlace itself used: a straight flip on a
+            // route with ends, and on a loop 0 stays put while the rest walk
+            // backwards round it.
+            RemapIndices(j => path.HasEnds ? n - 1 - j : (j == 0 ? 0 : n - j));
+        }
+
+        /// <summary>The joints after TrackPath.RotateInPlace(start): every
+        /// index moves back by <paramref name="start"/> round the ring.</summary>
+        public void ShiftIndices(int start)
+        {
+            if (path == null || path.Count == 0 || jointIndex == null) return;
+            int n = path.Count;
+            RemapIndices(j => ((j - start) % n + n) % n);
+        }
+
+        void RemapIndices(System.Func<int, int> map)
+        {
+            if (path == null || path.Count == 0 || jointIndex == null) return;
+            int n = path.Count;
+            for (int i = 0; i < jointIndex.Length; i++) jointIndex[i] = map(jointIndex[i]);
             System.Array.Sort(jointIndex);   // the walk below assumes ascending
 
             // Rebuild the lookup if Start already built one; leave it null if it
