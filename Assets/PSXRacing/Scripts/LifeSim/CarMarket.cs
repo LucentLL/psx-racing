@@ -557,10 +557,19 @@ namespace PSXRacing.LifeSim
             int targetMo = Mathf.Max(80, Mathf.RoundToInt(jobDailyPay * 20 * 0.25f));
             float aprAdj = CreditTier(creditScore).aprAdj;
 
+            // THE OWNER'S STARTERS (2026-09-26): "make sure 240sx `96 and
+            // Honda Civics that use the EG body model are available as starter
+            // cars in varying conditions and mileage." The BEATER and USED
+            // lanes are those two cars, one each, which way round is a coin
+            // flip - so every new game offers both, one rough and high-mileage,
+            // one tidier and financed. Chosen by BODY, not by name: whatever
+            // wears the 240SX or the EG Civic shell is in the pool.
+            PickStarters(out var starterRough, out var starterTidy);
+
             // BEATER — cash, high miles, rough, and it ships with a fault.
             var beaterPool = CarCatalog.InPriceBand(400, 3000);
             if (beaterPool.Count == 0) beaterPool = CarCatalog.InPriceBand(0, 8000);
-            var beater = CarCatalog.PickFromUpperHalf(beaterPool);
+            var beater = starterRough ?? CarCatalog.PickFromUpperHalf(beaterPool);
             if (beater != null)
             {
                 int cond = Random.Range(15, 40);
@@ -577,7 +586,7 @@ namespace PSXRacing.LifeSim
             // USED RELIABLE — 15% down, 48 months.
             var usedPool = CarCatalog.InPriceBand(Mathf.Max(4000, targetMo * 35),
                                                   Mathf.Max(10000, targetMo * 80), 7, gameYear);
-            var used = CarCatalog.PickFromUpperHalf(usedPool);
+            var used = starterTidy ?? CarCatalog.PickFromUpperHalf(usedPool);
             if (used != null)
             {
                 int cond = Random.Range(55, 75);
@@ -612,6 +621,29 @@ namespace PSXRacing.LifeSim
             }
 
             return lanes;
+        }
+
+        /// <summary>The bodies the starter lanes draw from (the owner's models).</summary>
+        public static readonly string[] StarterBodies = { "nissan_180sx", "civic_eg" };
+
+        /// <summary>One car off each starter body, in a random order: the
+        /// first for the BEATER lane, the second for USED. Nulls when the
+        /// catalog has neither, so the price-band picks take over.</summary>
+        static void PickStarters(out CarSpec rough, out CarSpec tidy)
+        {
+            rough = tidy = null;
+            var picks = new List<CarSpec>();
+            foreach (string body in StarterBodies)
+            {
+                var pool = new List<CarSpec>();
+                foreach (var c in CarCatalog.All)
+                    if (!c.IsRaceCar && CarModelLibrary.KeyFor(c) == body) pool.Add(c);
+                if (pool.Count > 0) picks.Add(pool[Random.Range(0, pool.Count)]);
+            }
+            if (picks.Count == 0) return;
+            if (picks.Count == 2 && Random.value < 0.5f) picks.Reverse();
+            rough = picks[0];
+            tidy = picks.Count > 1 ? picks[1] : null;
         }
 
         public static void ApplyStartingLane(LifeState s, StartingLane lane)

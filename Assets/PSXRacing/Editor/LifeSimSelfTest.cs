@@ -9504,6 +9504,38 @@ namespace PSXRacing.EditorTools
                       "lane '" + lane.label + "' is a real car: " + lane.spec?.name +
                       " " + MenuKit.Money(lane.price));
 
+            // The owner's starters: the 240SX and an EG Civic, every game, in
+            // both roles over enough games, at different condition and mileage.
+            int s13Rough = 0, s13Tidy = 0, egRough = 0, egTidy = 0, both = 0, rolls = 40;
+            float odoLo = float.MaxValue, odoHi = 0f; int condLo = 101, condHi = -1;
+            for (int r = 0; r < rolls; r++)
+            {
+                var ls = CarMarket.RollStartingLanes(s.basePay, s.creditScore);
+                var bl = ls.Find(l => l.label == "BEATER");
+                var ul = ls.Find(l => l.label == "USED, RELIABLE");
+                string bk = bl != null ? CarModelLibrary.KeyFor(bl.spec) : null;
+                string uk = ul != null ? CarModelLibrary.KeyFor(ul.spec) : null;
+                if (bk == "nissan_180sx") s13Rough++; if (bk == "civic_eg") egRough++;
+                if (uk == "nissan_180sx") s13Tidy++; if (uk == "civic_eg") egTidy++;
+                if (bk != null && uk != null && bk != uk &&
+                    System.Array.IndexOf(CarMarket.StarterBodies, bk) >= 0 &&
+                    System.Array.IndexOf(CarMarket.StarterBodies, uk) >= 0) both++;
+                foreach (var l in ls)
+                {
+                    if (l.label == "NEW, ON FINANCE") continue;
+                    odoLo = Mathf.Min(odoLo, l.odoMiles); odoHi = Mathf.Max(odoHi, l.odoMiles);
+                    condLo = Mathf.Min(condLo, l.cond); condHi = Mathf.Max(condHi, l.cond);
+                }
+            }
+            Check(both == rolls, "every new game offers the 240SX `96 and an EG Civic as starters",
+                  both + " of " + rolls);
+            Check(s13Rough > 0 && s13Tidy > 0 && egRough > 0 && egTidy > 0,
+                  "each turns up both rough (beater) and tidy (used)",
+                  "240SX " + s13Rough + "/" + s13Tidy + ", Civic " + egRough + "/" + egTidy);
+            Check(odoHi - odoLo > 50000f && condHi - condLo > 20,
+                  "in varying condition and mileage",
+                  "cond " + condLo + "-" + condHi + ", " + odoLo.ToString("N0") + "-" + odoHi.ToString("N0") + " mi");
+
             // H1287: picking a financed lane must not touch starting cash.
             var financed = lanes.Find(l => l.financed);
             if (financed != null)
