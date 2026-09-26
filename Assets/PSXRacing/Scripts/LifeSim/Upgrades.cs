@@ -199,6 +199,10 @@ namespace PSXRacing.LifeSim
             /// <summary>Positive magnitude of the change (hp gained, kg shed, % gained).</summary>
             public int delta;
             public string unit;          // "hp" / "kg" / "%"
+            /// <summary>Peak torque before/after, Nm, on a POWER plan (0 on
+            /// the others) - shown beside the horsepower (owner, 2026-09-26:
+            /// "Torque should be displayed by HP when upgrading power").</summary>
+            public int fromTqNm, toTqNm;
             public int diyPrice, shopPrice, days, skillReq;
             public bool canDiy;
             public string stageName;
@@ -343,6 +347,8 @@ namespace PSXRacing.LifeSim
                 case Kind.Power:
                     p.fromVal = spec.HpAtStage(from, turboKit);
                     p.toVal = spec.HpAtStage(to, turboKit);
+                    p.fromTqNm = spec.TorqueAtStage(from, turboKit);
+                    p.toTqNm = spec.TorqueAtStage(to, turboKit);
                     p.delta = Mathf.Max(0, p.toVal - p.fromVal);
                     p.unit = "hp";
                     basePrice = p.delta * PerHp;
@@ -771,6 +777,18 @@ namespace PSXRacing.LifeSim
             tires = GetStage(car, Kind.Tires),
             seat = GetStage(car, Kind.Seat),
         };
+
+        /// <summary>A torque in the player's units: lb-ft beside MPH, Nm
+        /// beside km/h - the pair every spec sheet of the era printed.</summary>
+        public static int TorqueIn(int nm) => SpeedUnits.Mph ? Mathf.RoundToInt(nm * 0.73756f) : nm;
+        public static string TorqueUnit => SpeedUnits.Mph ? "lb-ft" : "Nm";
+        public static string TorqueText(int nm) => TorqueIn(nm) + " " + TorqueUnit;
+
+        /// <summary>Peak torque as built, Nm.</summary>
+        public static int EffectiveTorqueNm(OwnedCar car, CarSpec spec) =>
+            spec == null ? 0
+            : spec.IsRaceCar ? spec.peakTorqueNm
+            : spec.TorqueAtStage(GetStage(car, Kind.Power), car != null && car.turbo);
 
         /// <summary>Crank HP as built — what the SPECS screen should show
         /// instead of the factory figure once anything is bolted on. A race

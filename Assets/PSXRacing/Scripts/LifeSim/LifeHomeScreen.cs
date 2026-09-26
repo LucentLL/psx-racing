@@ -3160,6 +3160,11 @@ namespace PSXRacing.LifeSim
             SpecRow("POWER", effHp == spec.hp ? spec.hp + " hp"
                                               : spec.hp + " → " + effHp + " hp", ref y,
                     effHp != spec.hp);
+            int effTqNm = Upgrades.EffectiveTorqueNm(car, spec);
+            SpecRow("TORQUE", effTqNm == spec.peakTorqueNm ? Upgrades.TorqueText(spec.peakTorqueNm)
+                                              : Upgrades.TorqueIn(spec.peakTorqueNm) + " → " +
+                                                Upgrades.TorqueText(effTqNm), ref y,
+                    effTqNm != spec.peakTorqueNm);
             SpecRow("MASS", effKg == spec.kg ? spec.kg + " kg"
                                              : spec.kg + " → " + effKg + " kg", ref y,
                     effKg != spec.kg);
@@ -3806,7 +3811,11 @@ namespace PSXRacing.LifeSim
             // inside it.
             int effHp = Upgrades.EffectiveHp(car, spec);
             int effKg = Upgrades.EffectiveKg(car, spec);
-            string power = effHp == spec.hp ? spec.hp + " hp" : spec.hp + " -> " + effHp + " hp";
+            int effTq = Upgrades.EffectiveTorqueNm(car, spec);
+            string power = effHp == spec.hp
+                ? spec.hp + " hp / " + Upgrades.TorqueText(spec.peakTorqueNm)
+                : spec.hp + " -> " + effHp + " hp  ·  " + Upgrades.TorqueIn(spec.peakTorqueNm) + " -> " +
+                  Upgrades.TorqueText(effTq);
             string weight = effKg == spec.kg ? spec.kg + " kg" : spec.kg + " -> " + effKg + " kg";
             MenuKit.Label(body, power + "   ·   " + weight + "   ·   " +
                 (effKg > 0 ? (effHp / (float)effKg * 1000f).ToString("0") + " hp/tonne" : ""),
@@ -4310,6 +4319,13 @@ namespace PSXRacing.LifeSim
                 gain = plan.unit == "kg" ? "-" + plan.delta + " kg"
                                          : "+" + plan.delta + " " + plan.unit;
                 span = plan.fromVal + " -> " + plan.toVal + " " + plan.unit;
+                if (plan.unit == "hp" && plan.toTqNm > 0)
+                {
+                    // Torque beside the horsepower (owner, 2026-09-26).
+                    gain += " / +" + (Upgrades.TorqueIn(plan.toTqNm) - Upgrades.TorqueIn(plan.fromTqNm)) +
+                            " " + Upgrades.TorqueUnit;
+                    span += ", " + Upgrades.TorqueIn(plan.fromTqNm) + " -> " + Upgrades.TorqueText(plan.toTqNm);
+                }
             }
             // The days are said once and mean two different things: done at
             // home the car stays on the drive, done at the shop it is THEIRS
@@ -4379,7 +4395,10 @@ namespace PSXRacing.LifeSim
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Accent, 600f, bold: true);
                 y -= 24f;
-                MenuKit.Label(body, "  +" + kit.delta + " hp (" + kit.fromVal + " -> " + kit.toVal + " hp)   " +
+                MenuKit.Label(body, "  +" + kit.delta + " hp / +" +
+                    (Upgrades.TorqueIn(kit.toTqNm) - Upgrades.TorqueIn(kit.fromTqNm)) + " " + Upgrades.TorqueUnit +
+                    " (" + kit.fromVal + " -> " + kit.toVal + " hp, " + Upgrades.TorqueIn(kit.fromTqNm) + " -> " +
+                    Upgrades.TorqueText(kit.toTqNm) + ")   " +
                     kit.days + "d   ·   builds to " + spec.CeilingHp(true) + " hp, against " +
                     spec.CeilingHp(false) + " hp naturally aspirated", 14, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);

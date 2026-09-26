@@ -224,6 +224,12 @@ namespace PSXRacing
         public float PathShare(bool turboKit) =>
             builtHp > hp ? (CeilingHp(turboKit) - hp) / (float)(builtHp - hp) : 1f;
 
+        /// <summary>Peak torque, Nm, at a power stage on this car's path. A
+        /// stage scales the whole torque curve by the same factor as the
+        /// horsepower (CarController.ApplySpec), so the peak scales with it.</summary>
+        public int TorqueAtStage(int stage, bool turboKit) =>
+            hp > 0 ? Mathf.RoundToInt(peakTorqueNm * HpAtStage(stage, turboKit) / (float)hp) : peakTorqueNm;
+
         /// <summary>Crank hp at a power stage on this car's path.</summary>
         public int HpAtStage(int stage, bool turboKit) =>
             CarTune.PowerAtStage(hp, CeilingHp(turboKit), stage);

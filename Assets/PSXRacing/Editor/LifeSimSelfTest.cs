@@ -7984,6 +7984,14 @@ namespace PSXRacing.EditorTools
                             factory.topSpeedMps * CarTune.TopSpeedMult(4, false)) < 0.01f,
                   "a factory turbo's build keeps the full +15%");
 
+            // ---- torque beside the horsepower (owner, 2026-09-26) ---------------
+            Check(na.TorqueAtStage(0, false) == na.peakTorqueNm, "stock torque is the catalog's peak",
+                  na.TorqueAtStage(0, false) + " Nm");
+            float hpRatio = na.HpAtStage(4, true) / (float)na.hp;
+            float tqRatio = na.TorqueAtStage(4, true) / (float)na.peakTorqueNm;
+            Check(Mathf.Abs(hpRatio - tqRatio) < 0.02f, "a build scales torque with the horsepower (the curve scales)",
+                  "hp x" + hpRatio.ToString("0.00") + ", torque x" + tqRatio.ToString("0.00"));
+
             // ---- the shop: choosing the path ------------------------------------
             var car = new OwnedCar { id = "tp_na", specId = na.id, displayName = na.name,
                                      catalogPrice = na.price, paidPrice = na.price };
@@ -7994,6 +8002,8 @@ namespace PSXRacing.EditorTools
             var kitPlan = Upgrades.TurboKitPlan(s, car, na);
             Check(kitPlan.stageName == "TURBO KIT" && kitPlan.toVal > Upgrades.NextStagePlan(s, car, na, Upgrades.Kind.Power).toVal,
                   "the turbo kit makes more at stage 1 than the NA stage", kitPlan.toVal + " hp");
+            Check(kitPlan.fromTqNm == na.peakTorqueNm && kitPlan.toTqNm > kitPlan.fromTqNm,
+                  "and quotes its torque too", kitPlan.fromTqNm + " -> " + kitPlan.toTqNm + " Nm");
             Check(Upgrades.Order(s, car, na, Upgrades.Kind.Power, false, turboKit: true) == null, "the kit can be ordered");
             Check(car.turbo, "and ordering it commits the car to the turbo path");
             for (int d = 0; d < kitPlan.days; d++) LifeRules.SleepUntilMorning(s);
