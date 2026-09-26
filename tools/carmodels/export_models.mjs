@@ -61,10 +61,13 @@ const MODELS = [
   // `skins` names it — the folder also holds reference shots and renders
   // that must not become liveries. Sized to GT4's own spec sheet for the
   // SiR-II (EG): "reference dimensions should be in GT4 specs for scaling".
-  // The REPAIRED revision (2026-09-25): rebuilt from the original GLB with
-  // sealed panel backs and repaired window/roof seams, on its own atlas.
-  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/repaired/eg_civic_repaired.obj`,
-    tex: `${ownerCars}/EG_Civic_Source_PSX/repaired`, skins: /^civic_psx_atlas_256$/,
+  // The FAITHFUL revision (2026-09-25, "best and newest"): built to
+  // Docs/CarModelSpec.md on the original Civic's proportions - 1,740 body
+  // tris, 92 per wheel, sealed, matte alpha 128, red/amber/clear tail lamps,
+  // stock-size rims. Replaced the repaired shell whose bumper looked "run
+  // over by a train" (and the spec_rebuild / uv_corrected tries between).
+  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/faithful/eg_civic.obj`,
+    tex: `${ownerCars}/EG_Civic_Source_PSX/faithful`, skins: /^civic_atlas_256$/,
     gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
@@ -75,6 +78,14 @@ const MODELS = [
   { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/rebuilt/nissan_240sx_psx.obj`,
     tex: `${ownerCars}/Nissan_240SX_PSX/rebuilt`, skins: /^nissan_atlas_256$/,
     gt4LengthM: 4.520 },
+
+  // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
+  // rip rebuilt as a game asset - reflection shell gone, levelled on its
+  // wheels, arches cut, panel backs closed. It is GT4's "Dodge VIPER GTS `99"
+  // (4488 mm, 2443 mm wheelbase), not traffic.
+  { key: 'viper_gts',    obj: `${ownerCars}/Viper_GTS_PSX/viper_gts_psx.obj`,
+    tex: `${ownerCars}/Viper_GTS_PSX`, skins: /^viper_atlas_256$/,
+    gt4LengthM: 4.488 },
 
   // Ripped PS1-era cars from the owner's Cars folder (2026-09-25: "add these
   // vehicles as traffic"), converted by convert_rip.py - aligned, sized to

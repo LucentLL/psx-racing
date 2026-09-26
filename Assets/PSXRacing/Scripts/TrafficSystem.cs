@@ -59,8 +59,10 @@ namespace PSXRacing
         /// <summary>A hit that changes the car's speed by this much (m/s) ends
         /// the drive.</summary>
         const float WreckSpeed = 1.5f;
-        /// <summary>Gap between the collision box and the road.</summary>
+        /// <summary>Gap between the collision box and the road, driving.</summary>
         const float RideClear = 0.22f;
+        /// <summary>...and once it is a wreck.</summary>
+        const float WreckFloor = 0.01f;
 
         /// <summary>The owner's traffic cars twice, then the pack's everyday
         /// shells for variety.</summary>
@@ -118,6 +120,10 @@ namespace PSXRacing
             public Vector3 commanded;
             public bool hasCommand;
             public string lastContact;
+            /// <summary>The box as driven (lifted clear of the road) and as the
+            /// bake measured it (down to the ground).</summary>
+            public BoxCollider box;
+            public Vector3 rideCenter, rideSize, fullCenter, fullSize;
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -209,7 +215,17 @@ namespace PSXRacing
                     if (w != null) wheels.Add(w);
                 }
             go.SetActive(false);
-            return new Car { go = go, rb = rb, wheels = wheels.ToArray(), wheelR = Mathf.Max(0.2f, def.wheelRadius) };
+            return new Car
+            {
+                go = go, rb = rb, wheels = wheels.ToArray(), wheelR = Mathf.Max(0.2f, def.wheelRadius),
+                box = box, rideCenter = box.center, rideSize = box.size,
+                // A WRECK has no suspension to stand on, so its box reaches
+                // down to the tyres' contact. The baked box stops at the sills,
+                // like a driven car's: a wreck resting on that sat 35 cm into
+                // the road.
+                fullCenter = new Vector3(0f, (top + WreckFloor) * 0.5f, 0f),
+                fullSize = new Vector3(def.colliderSize.x, top - WreckFloor, def.colliderSize.z),
+            };
         }
 
         // ---- the road ---------------------------------------------------------
@@ -392,6 +408,7 @@ namespace PSXRacing
             var free = pool.Find(x => !x.active);
             if (free == null) return false;
             free.active = true; free.wrecked = false; free.hasCommand = false; free.lastContact = null;
+            free.box.center = free.rideCenter; free.box.size = free.rideSize;
             free.dir = dir; free.lat = lat; free.s = s; free.hint = -1;
             var def = TrackCatalog.At(RaceHandoff.TrackIndex);
             float limit = (def != null ? def.speedLimitKmh : 80f) / 3.6f;
@@ -452,8 +469,11 @@ namespace PSXRacing
             float gap = LeaderGap(c, out float leaderV);
             if (gap < 120f)
                 v = Mathf.Min(v, Mathf.Max(0f, leaderV + (gap - StopGap - leaderV * TimeGap) * 0.5f));
-            // A driver, not a servo: 2.5 m/s^2 up, 6 down.
-            c.speed = Mathf.MoveTowards(c.speed, v, (v > c.speed ? 2.5f : 6f) * dt);
+            // A driver, not a servo: 2.5 m/s^2 up, 6 down - and a full 9 when
+            // what is ahead is closer than a 6 m/s^2 stop needs (a car ahead
+            // just wrecked by a racer: at 6 the ones behind piled into it).
+            float decel = gap < c.speed * c.speed / 12f + StopGap ? 9f : 6f;
+            c.speed = Mathf.MoveTowards(c.speed, v, (v > c.speed ? 2.5f : decel) * dt);
 
             c.s = Wrap(c.s + c.speed * dt * c.dir);
             Place(c, false);
@@ -551,6 +571,13 @@ namespace PSXRacing
             if (c == null || c.wrecked) return;
             c.wrecked = true;
             c.wreckedAt = Time.time;
+            // THE BOX DOWN TO THE TYRES. Driving, it stops 22 cm above the
+            // road so no crest can graze it; a wreck landed on that and settled
+            // INTO the road - wheels buried to the hubs (owner, 2026-09-25:
+            // "traffic gets stuck in the road (literally)"). The body is at
+            // ride height when it is hit, so this box starts just above the
+            // tarmac, not in it.
+            c.box.center = c.fullCenter; c.box.size = c.fullSize;
             WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?"));
             c.rb.useGravity = true;
         }

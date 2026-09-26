@@ -3,4 +3,4 @@ newmtl civic_eg_wheels_f
 Ka 1 1 1
 Kd 1 1 1
 illum 1
-map_Kd textures/civic_psx_atlas_256.png
+map_Kd textures/civic_atlas_256.png

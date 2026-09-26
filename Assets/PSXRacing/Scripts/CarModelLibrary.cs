@@ -65,6 +65,7 @@ namespace PSXRacing
             // The owner's own model (2026-09-25), sized to GT4's SiR-II sheet.
             new Model { key = "civic_eg",     name = "Honda Civic (EG)",          region = Region.Japan,   year = 1991, body = Body.Hatch,    kg = 1076, handOnly = true },
             new Model { key = "nissan_180sx", name = "Nissan 180SX / 240SX (S13)", region = Region.Japan,  year = 1989, body = Body.Sports,   kg = 1262, handOnly = true },
+            new Model { key = "viper_gts",    name = "Dodge Viper GTS",           region = Region.America, year = 1996, body = Body.Sports,   kg = 1532, handOnly = true },
 
             new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650 },
             new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400 },
@@ -148,7 +149,9 @@ namespace PSXRacing
             // The pack has no post-1970 American shell, so left to the scorer a
             // C4 Corvette lands in an RX-7 on shape alone. An American V8 two-
             // seater belongs in an American V8 two-seater whatever the decade.
-            ("Chevrolet Corvette|Ford GT40|Dodge VIPER|Chaparral", "mustang_67"),
+            // The owner's own Viper GTS (2026-09-25).
+            ("Dodge VIPER",                                      "viper_gts"),
+            ("Chevrolet Corvette|Ford GT40|Chaparral",           "mustang_67"),
             ("Chevrolet Camaro|BUICK",                           "gto_66"),
 
             // --- Europe ---

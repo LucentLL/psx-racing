@@ -176,14 +176,13 @@ namespace PSXRacing.EditorTools
                 foreach (var rb in ts.Obstacles)
                 {
                     if (rb == null || rb.useGravity) continue;
-                    int i = path.NearestIndex(rb.position);
-                    if (Vector3.Dot(rb.transform.forward, path.GetTangent(i)) < 0.8f) continue;
+                    // Either direction: a T-bone does not care which way it is going.
                     float d = (rb.position - car.transform.position).sqrMagnitude;
                     if (d < best) { best = d; victim = rb; }
                 }
                 if (victim == null) yield return new WaitForSeconds(0.5f);
             }
-            TrafficPlayCheck.Check(victim != null, "a same-direction car to rear-end");
+            TrafficPlayCheck.Check(victim != null, "a driving traffic car to hit");
             if (victim != null)
             {
                 Destroy(auto);
@@ -218,6 +217,16 @@ namespace PSXRacing.EditorTools
                                        damage0.ToString("0.0") + " -> " + damage1.ToString("0.0"));
                 TrafficPlayCheck.Note("wreck moving at " + victim.linearVelocity.magnitude.ToString("0.0") +
                                       " m/s a second later");
+                // "Traffic gets stuck in the road (literally)": a wreck must come
+                // to rest ON the tarmac, not sunk into it by a lifted box.
+                yield return new WaitForSeconds(3f);
+                if (Physics.Raycast(victim.position + Vector3.up * 2f, Vector3.down, out RaycastHit rest, 5f, 1 << 8))
+                {
+                    float sunk = rest.point.y - victim.position.y;
+                    TrafficPlayCheck.Check(sunk < 0.04f, "the wreck rests ON the road, not sunk into it",
+                                           (sunk * 100f).ToString("0") + " cm below the surface");
+                }
+                else TrafficPlayCheck.Note("the wreck left the road; rest height not measured");
                 Shoot("traffic_wreck");
             }
             Done();

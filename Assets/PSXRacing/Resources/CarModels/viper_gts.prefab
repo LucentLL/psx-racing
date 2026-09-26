@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!1 &2502862599902678761
+--- !u!1 &5344646586647388990
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -8,22 +8,22 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1692739215072790152}
-  - component: {fileID: 481115999676131913}
+  - component: {fileID: 9024177128540036831}
+  - component: {fileID: 6743434533975471013}
   m_Layer: 0
-  m_Name: civic_eg
+  m_Name: viper_gts
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!4 &1692739215072790152
+--- !u!4 &9024177128540036831
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2502862599902678761}
+  m_GameObject: {fileID: 5344646586647388990}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -32,40 +32,40 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &481115999676131913
+--- !u!114 &6743434533975471013
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2502862599902678761}
+  m_GameObject: {fileID: 5344646586647388990}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
-  key: civic_eg
-  displayName: Honda Civic (EG)
-  bodyMesh: {fileID: -2432090755550338912, guid: dad75c84de04c114ab04f948283ff8dd, type: 3}
-  wheelMesh: {fileID: 4300000, guid: fcb81c314621acf42a6ab686215ba13a, type: 2}
+  key: viper_gts
+  displayName: Dodge Viper GTS
+  bodyMesh: {fileID: -2432090755550338912, guid: db3da1938e95c4d4db47d39535b1de4e, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 59c9045f5aeae8a448ad62001f102991, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: 04378c25cb4d1e4409427a05d6f6cbb6, type: 2}
+  - {fileID: 2100000, guid: 009a2e0f06ad4ef439cffa00f0fdc021, type: 2}
   skinNames:
-  - civic_atlas_256
+  - viper_atlas_256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.44891703, g: 0.10879567, b: 0.11119165, a: 1}
+  - {r: 0.24677633, g: 0.30013752, b: 0.40698156, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.020292403
-  bodyZOffset: 0
-  wheelbase: 2.579713
-  trackWidth: 1.475556
-  wheelRadius: 0.2695991
+  bodyYOffset: -0.030575572
+  bodyZOffset: -0.14329052
+  wheelbase: 2.455596
+  trackWidth: 1.471018
+  wheelRadius: 0.30432343
   wheelMeshScale: 0.93
-  cowlZ: 0.97193605
-  cowlY: 0.8700759
-  noseZ: 2.1039047
-  roofY: 1.3305155
-  colliderCenter: {x: 0, y: 0.7712046, z: 0.068904996}
-  colliderSize: {x: 1.7138426, y: 1.043017, z: 3.8868496}
-  blobSize: {x: 2.2851236, y: 4.3549}
+  cowlZ: 0.39770347
+  cowlY: 0.80081904
+  noseZ: 2.0947285
+  roofY: 1.1720761
+  colliderCenter: {x: 0, y: 0.64074594, z: -0.14927149}
+  colliderSize: {x: 1.7683866, y: 0.9936567, z: 4.28604}
+  blobSize: {x: 2.357849, y: 4.8021603}
