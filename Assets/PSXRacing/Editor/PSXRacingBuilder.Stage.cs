@@ -3992,8 +3992,7 @@ namespace PSXRacing.EditorTools
         {
             EnsureStageRoadside(pts);
             if (rsBankRuns == null) return;
-            string tex = System.IO.File.Exists(StageGenDir + "/CutBank.png")
-                       ? StageGenDir + "/CutBank.png" : theme.wall;
+            string tex = MountainStage ? StageRockTexPath : theme.wall;
             var mat = MakeMat(MeshPrefix + "Bank", tex, affine: 0f);
             // The rock top IS the hillside: the near ground's own material
             // (BuildStageGround makes the same asset and registers its
@@ -4473,8 +4472,7 @@ namespace PSXRacing.EditorTools
             if (!hasTunnels) return;
             var runs = StationRuns(tunnelIn, 3);
             if (runs.Count == 0) return;
-            string tex = File.Exists(ProjectRootPath(StageGenDir + "/CutBank.png"))
-                       ? StageGenDir + "/CutBank.png" : theme.wall;
+            string tex = MountainStage ? StageRockTexPath : theme.wall;
             var mat = MakeMat(MeshPrefix + "Tunnel", tex, affine: 0f, tint: new Color(0.62f, 0.60f, 0.58f));
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Tunnels");
@@ -4806,51 +4804,8 @@ namespace PSXRacing.EditorTools
                                    (byte)Mathf.Clamp(c.b + g, 0, 255), 255);
             });
 
-            // The shoulder: the parkway runs tarmac into a mown gravel-grass
-            // verge, not a red-and-white racing kerb.
-            WriteTexture(StageGenDir + "/Shoulder.png", 32, 16, (x, y) =>
-            {
-                int h = (x * 7 + y * 13) % 17;
-                byte v = (byte)(96 + (h * 5) % 28);
-                return new Color32(v, (byte)(v - 8), (byte)(v - 22), 255);
-            });
-
-            // The cut bank: blasted Blue Ridge gneiss.
-            //
-            // Vertical, because both the foliation and the drill lines run up
-            // the face and it is the verticality that makes a cut read as cut.
-            //
-            // TWO THINGS IT MUST NOT HAVE, both learned by photographing them:
-            // even spacing (clean sines at one frequency are FLUTING, and 5 km
-            // of that is a precast retaining wall), and any strong HORIZONTAL
-            // feature. Dark bedding joints across the face were the second
-            // attempt and they came back as swags of bunting draped along the
-            // parkway — a curve that crosses the direction of travel reads as
-            // decoration however geological the intent. So: four incommensurate
-            // vertical frequencies leaning very slightly, and everything else
-            // is COLOUR blotching rather than lines.
-            WriteTexture(StageGenDir + "/CutBank.png", 64, 64, (x, y) =>
-            {
-                float u = x / 64f, v = y / 64f;
-                float band = Mathf.Sin(u * 31f + v * 2.2f)
-                           + 0.9f * Mathf.Sin(u * 19f - v * 1.4f + 2.1f)
-                           + 0.6f * Mathf.Sin(u * 53f + 0.8f)
-                           + 0.4f * Mathf.Sin(u * 7f + v * 1.1f + 4.3f);
-                // Weathering and lichen, coarse and soft, over the top of it.
-                float stain = Mathf.Sin(u * 9f + 1.4f) * Mathf.Cos(v * 4.5f - 0.6f)
-                            + 0.7f * Mathf.Sin(u * 3f - v * 5f + 2.6f);
-                float grit = ((x * 29 + y * 71) % 23) / 23f;
-                float shade = 0.52f + band * 0.075f + grit * 0.15f;
-                byte r = (byte)Mathf.Clamp(116 * shade + 44 + stain * 10f, 0, 255);
-                byte g = (byte)Mathf.Clamp(108 * shade + 40 + stain * 5f, 0, 255);
-                byte b = (byte)Mathf.Clamp(94 * shade + 36 - stain * 4f, 0, 255);
-                // Soil and scrub at the toe, over the bottom fifth.
-                float soil = Mathf.Clamp01((0.2f - v) * 5f);
-                r = (byte)Mathf.Lerp(r, 74 + grit * 22f, soil);
-                g = (byte)Mathf.Lerp(g, 72 + grit * 26f, soil);
-                b = (byte)Mathf.Lerp(b, 46 + grit * 16f, soil);
-                return new Color32(r, g, b, 255);
-            });
+            // The shoulder and the cut bank were drawn here; they are the
+            // owner's pack textures now (StageGravelTexPath, StageRockTexPath).
         }
 
         /// <summary>

@@ -1028,6 +1028,14 @@ namespace PSXRacing.EditorTools
         /// wood, rock, etc." Nothing drawn in code.</summary>
         static string GuardrailTexPath => Root + "/Art/Guardrail/corrugated_steel_pt_3.png";
         static string GuardrailPostTexPath => Root + "/Art/Guardrail/wood_pt_4.png";
+        /// <summary>A mountain stage's rock (cut faces, tunnel bores) and its
+        /// gravel shoulder, from the same pack: PSX Textures II rock_pt_2 - the
+        /// light grey-brown of a sunlit Blue Ridge cut - and dirt_pt_5, grey
+        /// gravel. They replace CutBank.png and Shoulder.png, which were drawn
+        /// in code.</summary>
+        static string StageRockTexPath => Root + "/Art/Roadside/rock_pt_2.png";
+        static string StageGravelTexPath => Root + "/Art/Roadside/dirt_pt_5.png";
+        static bool MountainStage => theme.stageForest && !theme.stageUrban;
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a
@@ -3183,7 +3191,8 @@ namespace PSXRacing.EditorTools
             // the same texture, and a trap the moment there were two: the last
             // venue built repaints every other venue's kerb, exactly as
             // BuildRoad records for its Road material.
-            string tex = style == KerbStyle.Verge ? StageGenDir + "/Shoulder.png"
+            string tex = style == KerbStyle.Verge
+                           ? (MountainStage ? StageGravelTexPath : StageGenDir + "/Shoulder.png")
                        : style == KerbStyle.Street ? StreetKerbTexPath
                        : KerbTexPath;
             var mat = MakeMat(MeshPrefix + "Kerb", tex, affine: 0f, wet: WetKerb);
