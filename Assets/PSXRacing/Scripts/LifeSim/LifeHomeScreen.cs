@@ -5221,6 +5221,11 @@ namespace PSXRacing.LifeSim
             // bright light shows up at night — the owner's "particle effects
             // on screen for rain and light", after NFS (2015). Ships ON; the
             // pause menu carries the same switch.
+            // The sky: the photographs, or the computed sky after Tidewater
+            // (2026-09-26). A switch so the two can be compared.
+            OptionRow("SKY", SkyModePrefs.Label,
+                "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
+                () => SkyModePrefs.Toggle(), ref y);
             OptionRow("LENS FX", LensFxPrefs.Label,
                 "Rain drops and light bokeh on the lens. Off for a clean lens.",
                 () => LensFxPrefs.Toggle(), ref y);

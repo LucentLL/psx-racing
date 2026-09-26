@@ -427,6 +427,7 @@ namespace PSXRacing
                 globals.fogSun = FogSunFor(index, weather);
             }
 
+            lastSkyPreset = p; lastSkySun = sun; lastSkyIndex = index; lastSkyWeather = weather; skyApplied = true;
             ApplySky(p, sun);
             CarLights.SetAll(lights);
             NightGlow.SetAll(p.lightsOn);
@@ -891,8 +892,33 @@ namespace PSXRacing
                 var ring = tex != null ? HorizonRing(p.skyTex) : null;
                 if (ring != null) Shader.SetGlobalVectorArray("_PSXFogRing", ring);
                 Shader.SetGlobalFloat("_PSXFogRingOn", ring != null ? FogRingAmount : 0f);
+
+                // THE DYNAMIC SKY (SkyModePrefs): the same material in its
+                // computed mode, and everything that read the photograph -
+                // reflections, the horizon ring - pointed at the computed sky.
+                bool dyn = SkyModePrefs.Dynamic;
+                if (skyInstance.HasProperty("_Dynamic")) skyInstance.SetFloat("_Dynamic", dyn ? 1f : 0f);
+                if (dyn)
+                {
+                    skyInstance.SetFloat("_Rotation", 0f);
+                    DynamicSky.Apply(lastSkyIndex, lastSkyWeather, sun, p);
+                }
+                else DynamicSky.Stop();
             }
             RenderSettings.skybox = skyInstance;
+        }
+
+        static Preset lastSkyPreset;
+        static Light lastSkySun;
+        static int lastSkyIndex;
+        static Weather lastSkyWeather;
+        static bool skyApplied;
+
+        /// <summary>Re-apply the last hour's sky - the pause menu's SKY switch,
+        /// thrown mid-drive.</summary>
+        public static void RefreshSky()
+        {
+            if (skyApplied) ApplySky(lastSkyPreset, lastSkySun);
         }
 
         /// <summary>How much of the horizon ring the fog takes (0..1).</summary>

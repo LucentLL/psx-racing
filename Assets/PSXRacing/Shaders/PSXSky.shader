@@ -43,6 +43,9 @@ Shader "PSX/Sky"
         _Exposure ("Exposure", Range(0.1, 3)) = 1
         _HorizonFade ("Horizon Fade", Range(0.005, 0.5)) = 0.10
         _Stars ("Stars", Range(0, 1)) = 0
+        // 1 = the DYNAMIC sky (PSXAtmosphere.cginc) instead of the photograph:
+        // the owner's switch (SkyModePrefs), set by TimeOfDay.ApplySky.
+        _Dynamic ("Dynamic sky", Float) = 0
     }
     SubShader
     {
@@ -66,6 +69,7 @@ Shader "PSX/Sky"
             float _Exposure;
             float _HorizonFade;
             float _Stars;
+            float _Dynamic;
             // THE SUN IN THE HAZE (the DAY PASS, 2026-09-21; PSXSunShadow.cginc
             // and TimeOfDay.FogSunFor). The world's fog is brighter toward the
             // sun now, and the horizon band below IS the fog's colour - the two
@@ -79,6 +83,7 @@ Shader "PSX/Sky"
             // colour, so it takes the fog's ratio by bearing - through this
             // material's own rotation, the one the photograph is turned by.
             #include "PSXFogRing.cginc"
+            #include "PSXAtmosphere.cginc"
             // THE NIGHT SKY (the Tidewater pass). Stars twinkle - more near
             // the horizon, where the air is thicker - and a band of the Milky
             // Way crosses the sky: denser stars and a faint glow along a great
@@ -152,7 +157,22 @@ Shader "PSX/Sky"
                 grad = lerp(grad, _BottomColor.rgb, below);
 
                 fixed3 col = grad;
-                if (_PanoAmount > 0.001)
+                if (_Dynamic > 0.5)
+                {
+                    // THE DYNAMIC SKY (PSXAtmosphere.cginc), with the stars
+                    // under it the way they go under the photograph's cloud.
+                    col = PSXDynamicSky(dir);
+                    if (_Stars > 0.001)
+                    {
+                        float lum = dot(col, float3(0.299, 0.587, 0.114));
+                        float clear = saturate(1.0 - lum * 3.2);
+                        float high = saturate((y - 0.04) * 5.0);
+                        float band = exp(-pow(dot(dir, normalize(MILKY_POLE)) * MILKY_WIDTH, 2.0));
+                        col += StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high;
+                        col += MILKY_GLOW * band * _Stars * clear * high;
+                    }
+                }
+                else if (_PanoAmount > 0.001)
                 {
                     // Equirectangular lookup. u wraps with azimuth; v is the
                     // SINE of the elevation, so the photographed horizon lands

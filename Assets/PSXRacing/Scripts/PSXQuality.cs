@@ -37,6 +37,42 @@ namespace PSXRacing
     /// frames); this is only the switch. Ships ON — it is the picture the
     /// owner asked for — and the OPTIONS / pause row is how to say no.
     /// </summary>
+    /// <summary>
+    /// THE SKY: the photographed panoramas (PHOTO, the look the game shipped
+    /// with) or the computed one after Tidewater (DYNAMIC: PSXAtmosphere.cginc -
+    /// scattering from the sun's real position, drifting cloud, sun and moon
+    /// discs). The owner asked for it as a SWITCH (2026-09-26) so the two can
+    /// be compared on the live build; ships PHOTO until they choose.
+    /// </summary>
+    public static class SkyModePrefs
+    {
+        const string PrefKey = "psx.skyDynamic";
+        static int cached = -1;
+
+        public static bool Dynamic
+        {
+            get
+            {
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 0);
+                return cached != 0;
+            }
+            set
+            {
+                int v = value ? 1 : 0;
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+                Changed++;
+                TimeOfDay.RefreshSky();
+            }
+        }
+
+        public static int Changed { get; private set; }
+        public static void Toggle() => Dynamic = !Dynamic;
+        public static string Label => Dynamic ? "DYNAMIC" : "PHOTO";
+    }
+
     public static class FilmGradePrefs
     {
         const string PrefKey = "psx.filmGrade";

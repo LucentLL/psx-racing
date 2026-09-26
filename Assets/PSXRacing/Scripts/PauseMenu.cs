@@ -451,6 +451,18 @@ namespace PSXRacing
         }
 
         Text lensLabel;
+        Text skyLabel;
+
+        static string SkyLabel() => "SKY: " + SkyModePrefs.Label;
+
+        /// <summary>The photographed sky or the computed one (SkyModePrefs).
+        /// TimeOfDay re-applies the hour's sky at once, so the frame behind
+        /// the menu changes while the player looks.</summary>
+        void ToggleSky()
+        {
+            SkyModePrefs.Toggle();
+            if (skyLabel != null) skyLabel.text = SkyLabel();
+        }
 
         static string LensLabel() => "LENS FX: " + LensFxPrefs.Label;
 
@@ -719,6 +731,15 @@ namespace PSXRacing
             // exactly as that one does. Added before FILM GRADE so the
             // creation-order chain MenuNav.Column builds first (before the
             // geometric graph takes over) reads top to bottom.
+            // SKY, above LENS FX on the left (on the fifth row's line): the
+            // owner's PHOTO / DYNAMIC switch, placed beside the full column
+            // like the other picture switches.
+            var skyBtn = MakeButton(panel.transform, SkyLabel(), font,
+                       new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 4f * RowStep),
+                       new Vector2(280f, RowH), 19, ToggleSky);
+            skyLabel = skyBtn.GetComponentInChildren<Text>();
+            menuItems.Add(skyBtn);
+
             var lensBtn = MakeButton(panel.transform, LensLabel(), font,
                        new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 5f * RowStep),
                        new Vector2(280f, RowH), 19, ToggleLens);
