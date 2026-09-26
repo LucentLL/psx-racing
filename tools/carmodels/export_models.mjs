@@ -71,12 +71,12 @@ const MODELS = [
     gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
-  // The REBUILT shell (2026-09-25, "it should seal the gaps"): the first one
-  // was the decimated source with 733 open edges, and the road showed through
-  // them; this one was re-lofted closed from the source's cross-sections, on
-  // a new atlas of its own.
-  { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/rebuilt/nissan_240sx_psx.obj`,
-    tex: `${ownerCars}/Nissan_240SX_PSX/rebuilt`, skins: /^nissan_atlas_256$/,
+  // reference_v2 (2026-09-25, the newest): the source's own body, glass, rear
+  // lamp cluster and spoiler reduced and sealed (2,990 body tris, 92 per
+  // wheel), source UVs baked to one atlas, matte alpha 128. Replaced the
+  // "rebuilt" re-loft, which had in turn replaced the 733-open-edge first cut.
+  { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/reference_v2/sport_coupe.obj`,
+    tex: `${ownerCars}/Nissan_240SX_PSX/reference_v2`, skins: /^car_atlas_256$/,
     gt4LengthM: 4.520 },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1

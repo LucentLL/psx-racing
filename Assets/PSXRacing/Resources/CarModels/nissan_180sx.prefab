@@ -51,21 +51,21 @@ MonoBehaviour:
   skinMaterials:
   - {fileID: 2100000, guid: d98d980acd423a04995eec792a37ec73, type: 2}
   skinNames:
-  - nissan_atlas_256
+  - car_atlas_256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.68323916, g: 0.42078388, b: 0.10601971, a: 1}
-  bodyYaw: 0
-  bodyYOffset: -0.022201357
-  bodyZOffset: -0.059072196
-  wheelbase: 2.4845667
-  trackWidth: 1.4571775
-  wheelRadius: 0.29496765
+  - {r: 0.6372632, g: 0.43842512, b: 0.17212023, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.021579457
+  bodyZOffset: 0
+  wheelbase: 2.462208
+  trackWidth: 1.516286
+  wheelRadius: 0.28669855
   wheelMeshScale: 0.93
-  cowlZ: 0.8126877
-  cowlY: 0.85950875
-  noseZ: 2.2110627
-  roofY: 1.2773739
-  colliderCenter: {x: 0, y: 0.7388216, z: -0.04893726}
-  colliderSize: {x: 1.7465768, y: 1.0054817, z: 4.3166}
-  blobSize: {x: 2.328769, y: 4.8364}
+  cowlZ: 0.8560081
+  cowlY: 0.8540456
+  noseZ: 2.282633
+  roofY: 1.2701453
+  colliderCenter: {x: 0, y: 0.71760553, z: 0.022633076}
+  colliderSize: {x: 1.832908, y: 1.0318716, z: 4.3166}
+  blobSize: {x: 2.4438775, y: 4.8364}

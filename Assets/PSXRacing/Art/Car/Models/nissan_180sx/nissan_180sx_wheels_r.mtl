@@ -3,4 +3,4 @@ newmtl nissan_180sx_wheels_r
 Ka 1 1 1
 Kd 1 1 1
 illum 1
-map_Kd textures/nissan_atlas_256.png
+map_Kd textures/car_atlas_256.png
