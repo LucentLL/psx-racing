@@ -417,6 +417,25 @@ namespace PSXRacing.EditorTools
         /// reported: their posts follow the guard walls, which exist only
         /// where the mountain falls away.
         /// </summary>
+        /// <summary>
+        /// Is a post vertex BEHIND a barrier's traffic face - a ray from the
+        /// road out to it meets a wall collider first? A guardrail's posts
+        /// stand 0.13 m behind its beam, inside the band a verge post must
+        /// keep clear of, and inside the wall solid: no car reaches them, and
+        /// they were 3,043 "vertices inside the kerb" down NC 226A. Only a
+        /// post in FRONT of every barrier is one a car can hit.
+        /// </summary>
+        static bool BehindBarrier(Vector3 v, Vector3 road)
+        {
+            Vector3 from = new Vector3(road.x, v.y, road.z);
+            Vector3 d = v - from;
+            float len = d.magnitude;
+            if (len < 1e-3f) return false;
+            foreach (var h in Physics.RaycastAll(from, d / len, len + 0.01f, ~0, QueryTriggerInteraction.Ignore))
+                if (h.collider != null && h.collider.name.StartsWith("WallColl")) return true;
+            return false;
+        }
+
         static void AuditPosts(TrackCatalog.TrackDef def, TrackPath path,
                                float trackHalf, StringBuilder log)
         {
@@ -438,8 +457,9 @@ namespace PSXRacing.EditorTools
                     Vector3 c = path.GetPoint(hint);
                     Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(hint)).normalized;
                     float lateral = Mathf.Abs(Vector3.Dot(v - c, right));
+                    if (lateral < trackHalf + PostClearance && !BehindBarrier(v, c)) bad++;
+                    else continue;
                     if (lateral < nearest) { nearest = lateral; worst = mf.name + " near wp " + hint; }
-                    if (lateral < trackHalf + PostClearance) bad++;
                 }
             }
 
@@ -451,8 +471,9 @@ namespace PSXRacing.EditorTools
                 return;
             }
             float perKm = posts / Mathf.Max(def.LengthM / 1000f, 0.01f);
-            log.AppendLine("  posts: " + posts + " (" + perKm.ToString("0") + "/km), nearest vertex " +
-                           nearest.ToString("0.00") + " m off the centreline (" + worst + ")" +
+            log.AppendLine("  posts: " + posts + " (" + perKm.ToString("0") + "/km)" +
+                           (bad > 0 ? ", nearest exposed vertex " + nearest.ToString("0.00") +
+                                      " m off the centreline (" + worst + ")" : ", none in front of a barrier inside the band") +
                            (bad > 0 ? "  " + bad + " VERTICES INSIDE THE KERB + " +
                                       PostClearance.ToString("0.0") + " m BAND" : ""));
             if (!def.stage && perKm < PostsPerKmMin)
@@ -2095,6 +2116,18 @@ namespace PSXRacing.EditorTools
         /// stone on purpose (see StageWallCollH); this is the line between that
         /// and a collider with no barrier under it at all.</summary>
         const float GhostOver = 1.0f;
+        /// <summary>
+        /// A GUARDRAIL IS OPEN UNDERNEATH. A W-beam's bottom lip stands 0.54 m
+        /// over the waypoint plane, and under it are only posts every 2 m, so
+        /// the bottom samples of a ray fired out between two posts meet
+        /// nothing - which read as "1.7 m of collider over NOTHING drawn" at
+        /// every rail chord. Misses BELOW the first thing drawn, and under this
+        /// height, are the open band under a rail, and a car's bumper meets the
+        /// beam above them; a miss above the first hit is still the top of the
+        /// drawn barrier. Stone and concrete walls are hit from the first
+        /// sample and never reach this.
+        /// </summary>
+        const float GhostUnderRail = 0.6f;
         /// <summary>How far outside the barrier line a collider can be and
         /// still be this venue's barrier rather than scenery.</summary>
         const float GhostOut = 5f;
@@ -2149,7 +2182,12 @@ namespace PSXRacing.EditorTools
                     }
                     // The first height with nothing in front of it is the top
                     // of the drawn barrier. Everything above that is overshoot,
-                    // whether or not something reappears higher up.
+                    // whether or not something reappears higher up - except the
+                    // open band under a guardrail's beam (GhostUnderRail).
+                    // Under a rail's beam, what a ray finds between two posts -
+                    // nothing, or the ground a metre behind - is the open band,
+                    // not a barrier held off by air.
+                    if (!anyDrawn && y < GhostUnderRail && (hit < 0f || hit - GhostBack > GhostGap)) continue;
                     if (hit < 0f) break;
                     anyDrawn = true;
                     drawnTop = y;

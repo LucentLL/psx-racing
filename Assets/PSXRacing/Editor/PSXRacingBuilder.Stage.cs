@@ -3376,7 +3376,12 @@ namespace PSXRacing.EditorTools
             EnsureStageRoadside(pts);
             if (rsWallRuns == null) return;
             int n = pts.Count;
-            var mat = MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
+            // The pack's steel is a dark, oily sheet; a roadside rail is
+            // weathered galvanising, a stop or two lighter.
+            var mat = theme.guardrail
+                ? MakeMat(MeshPrefix + "Guardrail", GuardrailTexPath, tint: new Color(1.45f, 1.45f, 1.5f), affine: 0f)
+                : MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
+            railPostVerts.Clear(); railPostUvs.Clear(); railPostTris.Clear();
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Walls");
             root.transform.SetParent(parent, false);
@@ -3389,11 +3394,26 @@ namespace PSXRacing.EditorTools
                 BuildOneStageWall(pts, run.from, run.len, run.side, root.transform, mat, phys, runs++);
                 walled += run.len;
             }
-            Log($"Stage guard walls: {runs} warranted runs covering {walled * Spacing:0} m of shoulder " +
+            Log($"Stage guard {(theme.guardrail ? "rails" : "walls")}: {runs} warranted runs covering {walled * Spacing:0} m of shoulder " +
                 $"(of {n * Spacing * 2:0} m of roadside); {wallSolidCount - solids0} wall solid(s), " +
                 $"{wallSolidM - solidM0:0} m of collider face.");
             PlaceStagePosts(pts, parent);
+            // Every rail post on the stage in one mesh, where the reflector
+            // posts' mesh was: the timber costs no draw call the stone's
+            // posts did not.
+            if (railPostVerts.Count > 0)
+            {
+                CombinedPosts(railPostVerts, railPostUvs, railPostTris, "RailPosts", "StagePosts",
+                              MakeMat("RailPost", GuardrailPostTexPath, affine: 0f), parent);
+                Log($"Guardrail posts: {railPostVerts.Count / PostVerts} timber posts.");
+            }
         }
+
+        /// <summary>The stage's rail posts, gathered run by run by
+        /// DrawGuardrail and built as one mesh at the end of BuildStageWalls.</summary>
+        static readonly List<Vector3> railPostVerts = new List<Vector3>();
+        static readonly List<Vector2> railPostUvs = new List<Vector2>();
+        static readonly List<int> railPostTris = new List<int>();
 
         // ------------------------------------------------------------------
         //  Reflector posts along the guard walls (sense of speed)
@@ -3424,6 +3444,9 @@ namespace PSXRacing.EditorTools
         static void PlaceStagePosts(List<Vector3> pts, Transform parent)
         {
             if (theme.postEvery <= 0 || rsWallRuns == null || rsWallRuns.Count == 0) return;
+            // A guardrail stands on its own posts (DrawGuardrail); reflector
+            // posts behind it would be a second fence.
+            if (theme.guardrail) return;
             var mat = MakeMat("RoadPost", PostTexPath, affine: 0f);
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
@@ -3520,13 +3543,15 @@ namespace PSXRacing.EditorTools
             /// bend radius (0 when not a tight inside).</summary>
             public float faceE, up, baseY, topY, collTopY, groundY, sag, tightR;
             public bool mid;
+            /// <summary>The station this ring stands at; -1 for a half ring.</summary>
+            public int station;
         }
 
         static WallRing StageWallRing(List<Vector3> pts, int i, int s, float side)
         {
             var g = new WallRing
             {
-                centre = pts[i], right = rsRight[i],
+                centre = pts[i], right = rsRight[i], station = i,
                 faceE = rsWallE[s][i], up = rsWallUp[s][i],
                 sag = WallChordSag(pts, i, side),
             };
@@ -3573,6 +3598,7 @@ namespace PSXRacing.EditorTools
             groundY = (a.groundY + b.groundY) * 0.5f,
             tightR = Mathf.Max(a.tightR, b.tightR),
             mid = true,
+            station = -1,
         };
 
         static void WallQuad(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
@@ -3583,6 +3609,145 @@ namespace PSXRacing.EditorTools
             verts.Add(p0); verts.Add(p1); verts.Add(p2); verts.Add(p3);
             uvs.Add(u0); uvs.Add(u1); uvs.Add(u2); uvs.Add(u3);
             QuadFacing(verts, tris, v, v + 1, v + 2, v + 3, facing);
+        }
+
+        /// <summary>The Parkway's dry stone, from the rings' four corners.</summary>
+        static void DrawStone(List<WallRing> rings, float side, Vector3[] fb, Vector3[] ft,
+                              Vector3[] bt, Vector3[] bb, float[] along,
+                              List<Vector3> verts, List<Vector2> uvs, List<int> tris)
+        {
+            int R = rings.Count;
+            const float Tex = 3.2f;
+
+            Vector2 UV(float u, Vector3 p, int k) => new Vector2(u / Tex, (p.y - (rings[k].centre.y - 0.45f)) / Tex);
+            for (int k = 1; k < R; k++)
+            {
+                Vector3 toRoad = -(rings[k - 1].right + rings[k].right) * side;
+                Vector3 away = -toRoad;
+                WallQuad(verts, uvs, tris, fb[k - 1], ft[k - 1], ft[k], fb[k],
+                         UV(along[k - 1], fb[k - 1], k - 1), UV(along[k - 1], ft[k - 1], k - 1),
+                         UV(along[k], ft[k], k), UV(along[k], fb[k], k), toRoad);
+                WallQuad(verts, uvs, tris, ft[k - 1], bt[k - 1], bt[k], ft[k],
+                         new Vector2(along[k - 1] / Tex, 0f), new Vector2(along[k - 1] / Tex, StageWallDrawThick / Tex),
+                         new Vector2(along[k] / Tex, StageWallDrawThick / Tex), new Vector2(along[k] / Tex, 0f), Vector3.up);
+                WallQuad(verts, uvs, tris, bb[k - 1], bt[k - 1], bt[k], bb[k],
+                         UV(along[k - 1], bb[k - 1], k - 1), UV(along[k - 1], bt[k - 1], k - 1),
+                         UV(along[k], bt[k], k), UV(along[k], bb[k], k), away);
+            }
+            // End caps, so the run's end reads as a block of masonry.
+            for (int e = 0; e < 2; e++)
+            {
+                int k = e == 0 ? 0 : R - 1, k2 = e == 0 ? Mathf.Min(1, R - 1) : Mathf.Max(R - 2, 0);
+                Vector3 outward = ft[k] - ft[k2]; outward.y = 0f;
+                if (outward.sqrMagnitude < 1e-6f) continue;
+                WallQuad(verts, uvs, tris, fb[k], ft[k], bt[k], bb[k],
+                         UV(0f, fb[k], k), UV(0f, ft[k], k),
+                         UV(StageWallDrawThick, bt[k], k), UV(StageWallDrawThick, bb[k], k), outward);
+            }
+        }
+
+        /// <summary>
+        /// The W-beam's section, bottom lip to top lip: how far under the
+        /// rail's top each crease is, and how far back of the traffic face.
+        /// A 310 mm beam 83 mm deep with its two ridges toward the road, its
+        /// top at the stone's 0.85 m over the waypoint plane (0.73 m over the
+        /// lifted tarmac - a 29-inch rail, NCDOT's).
+        /// </summary>
+        static readonly (float down, float back)[] RailSection =
+        {
+            (0.31f, 0.03f), (0.24f, 0f), (0.155f, 0.083f), (0.07f, 0f), (0f, 0.03f),
+        };
+        /// <summary>A W6 post, square in plan, stood right behind the valley.</summary>
+        const float RailPostW = 0.15f;
+        /// <summary>Less beam than this over the ground at a ring and it gets
+        /// no post: the rail is turning down into its buried end.</summary>
+        const float RailPostMinH = 0.35f;
+
+        /// <summary>
+        /// A GUARDRAIL where the stone would be: the same rings, so the same
+        /// line, the same heights, the same flares and turned-down ends (a
+        /// buried terminal is exactly what an NCDOT rail does at its ends), and
+        /// the same wall solid behind it. The beam is its real section - four
+        /// facets, both sides, so the ridges catch the sun and the valley
+        /// doesn't, and it reads from the valley as well as the road - on a
+        /// post at every station and between (2 m, as the real ones are).
+        /// No post where the beam is going into the ground, where a deck
+        /// carries it (the post would hang through the concrete), or where the
+        /// run hands over to a rock face.
+        /// </summary>
+        static void DrawGuardrail(List<WallRing> rings, float[] extra, float side, float half, int s, float[] along,
+                                  List<Vector3> verts, List<Vector2> uvs, List<int> tris)
+        {
+            int R = rings.Count, P = RailSection.Length;
+            // ON THE CONTACT LINE, not the stone's face. The wall solid's face
+            // stands out from the drawn face by a one-station chord's sag on
+            // the outside of a bend (up to 0.5 m at a hairpin) so that its
+            // straight chords never lead the stone - which half a metre of
+            // stone absorbs, and an 83 mm beam does not: the beam stood in
+            // front of what the car hits, and the obstacle audit's rays,
+            // starting just in front of the collider, began BEHIND the rail
+            // ("held off by 1.10 m of air", NC 226A wp 1734). The rail's rings
+            // take the collider's own offsets, so between any two rings the
+            // beam runs the same straight chord the collider does, a
+            // StageWallFaceIn behind it.
+            float Line(int k) => rings[k].faceE + extra[k] + StageWallFaceIn;
+            Vector3 Crease(int k, int j)
+            {
+                var g = rings[k];
+                Vector3 p = g.centre + g.right * (side * (half + Line(k) + RailSection[j].back));
+                p.y = g.topY - RailSection[j].down;
+                return p;
+            }
+            // The pack sheet's corrugations run across it every ~10.7 texels,
+            // with a bolt row every ~51. The beam takes rows 61-83 from the
+            // top: two ridges, the bolt row (72) in the valley between them.
+            float V(int j) => Mathf.Lerp(1f - 83f / 256f, 1f - 61f / 256f,
+                                         1f - RailSection[j].down / RailSection[0].down);
+            for (int k = 1; k < R; k++)
+            {
+                Vector3 toRoad = -(rings[k - 1].right + rings[k].right) * side;
+                // One sheet per station; its bolt column at x 50 on the posts.
+                float u0 = along[k - 1] / Spacing + 50f / 256f, u1 = along[k] / Spacing + 50f / 256f;
+                for (int j = 1; j < P; j++)
+                    for (int face = 0; face < 2; face++)
+                        WallQuad(verts, uvs, tris,
+                                 Crease(k - 1, j - 1), Crease(k - 1, j),
+                                 Crease(k, j), Crease(k, j - 1),
+                                 new Vector2(u0, V(j - 1)), new Vector2(u0, V(j)),
+                                 new Vector2(u1, V(j)), new Vector2(u1, V(j - 1)),
+                                 face == 0 ? toRoad : -toRoad);
+            }
+
+            int posts = 0;
+            bool NoPost(int station) =>
+                station >= 0 && (DeckCoversStation(station) || rsFaceH[s][station] > 0f);
+            void Post(in WallRing g, float line)
+            {
+                if (g.topY - g.groundY < RailPostMinH) return;
+                Vector3 c = g.centre + g.right * (side * (half + line + RailSection[2].back + RailPostW * 0.5f));
+                c.y = g.baseY;
+                int v0 = railPostUvs.Count;
+                float h = g.topY - 0.03f - g.baseY;
+                AppendPost(railPostVerts, railPostUvs, railPostTris, c, g.right, RailPostW, h);
+                // A strip of the timber sheet a post wide (0.15 m of its 256
+                // texels is about 40), a metre of grain per sheet height, and
+                // each post from a different strip so no two match.
+                float col = (posts % 6) / 6f;
+                for (int q = v0; q < railPostUvs.Count; q++)
+                    railPostUvs[q] = new Vector2(col + railPostUvs[q].x / 6f, railPostUvs[q].y * h);
+                posts++;
+            }
+            bool Allowed(int k) => rings[k].mid
+                ? !NoPost(rings[k - 1].station) && !NoPost(rings[k + 1].station)
+                : !NoPost(rings[k].station);
+            // A post at every ring - station, or half ring on a tight inside -
+            // and one between two station rings: every 2 m either way.
+            for (int k = 0; k < R; k++)
+            {
+                if (Allowed(k)) Post(rings[k], Line(k));
+                if (k + 1 < R && !rings[k].mid && !rings[k + 1].mid && Allowed(k) && Allowed(k + 1))
+                    Post(MidWallRing(rings[k], rings[k + 1]), 0.5f * (Line(k) + Line(k + 1)));
+            }
         }
 
         static void BuildOneStageWall(List<Vector3> pts, int from, int stations, float side,
@@ -3641,32 +3806,7 @@ namespace PSXRacing.EditorTools
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
-            const float Tex = 3.2f;
-            Vector2 UV(float u, Vector3 p, int k) => new Vector2(u / Tex, (p.y - (rings[k].centre.y - 0.45f)) / Tex);
-            for (int k = 1; k < R; k++)
-            {
-                Vector3 toRoad = -(rings[k - 1].right + rings[k].right) * side;
-                Vector3 away = -toRoad;
-                WallQuad(verts, uvs, tris, fb[k - 1], ft[k - 1], ft[k], fb[k],
-                         UV(along[k - 1], fb[k - 1], k - 1), UV(along[k - 1], ft[k - 1], k - 1),
-                         UV(along[k], ft[k], k), UV(along[k], fb[k], k), toRoad);
-                WallQuad(verts, uvs, tris, ft[k - 1], bt[k - 1], bt[k], ft[k],
-                         new Vector2(along[k - 1] / Tex, 0f), new Vector2(along[k - 1] / Tex, StageWallDrawThick / Tex),
-                         new Vector2(along[k] / Tex, StageWallDrawThick / Tex), new Vector2(along[k] / Tex, 0f), Vector3.up);
-                WallQuad(verts, uvs, tris, bb[k - 1], bt[k - 1], bt[k], bb[k],
-                         UV(along[k - 1], bb[k - 1], k - 1), UV(along[k - 1], bt[k - 1], k - 1),
-                         UV(along[k], bt[k], k), UV(along[k], bb[k], k), away);
-            }
-            // End caps, so the run's end reads as a block of masonry.
-            for (int e = 0; e < 2; e++)
-            {
-                int k = e == 0 ? 0 : R - 1, k2 = e == 0 ? Mathf.Min(1, R - 1) : Mathf.Max(R - 2, 0);
-                Vector3 outward = ft[k] - ft[k2]; outward.y = 0f;
-                if (outward.sqrMagnitude < 1e-6f) continue;
-                WallQuad(verts, uvs, tris, fb[k], ft[k], bt[k], bb[k],
-                         UV(0f, fb[k], k), UV(0f, ft[k], k),
-                         UV(StageWallDrawThick, bt[k], k), UV(StageWallDrawThick, bb[k], k), outward);
-            }
+            if (!theme.guardrail) DrawStone(rings, side, fb, ft, bt, bb, along, verts, uvs, tris);
 
             // THE COLLIDER: ONE SOLID PER RUN, built from the same rings.
             //
@@ -3734,6 +3874,9 @@ namespace PSXRacing.EditorTools
                 for (int k = 1; k + 1 < R; k++)
                     if (rings[k].mid) extra[k] = 0.5f * (extra[k - 1] + extra[k + 1]);
             }
+            // A guardrail is drawn ON the contact line (see DrawGuardrail), so
+            // it waits for it.
+            if (theme.guardrail) DrawGuardrail(rings, extra, side, half, s, along, verts, uvs, tris);
             bool ChordSolid(int k) =>   // the chord from ring k-1 to ring k
                 Mathf.Min(rings[k - 1].collTopY, rings[k].collTopY)
                 - Mathf.Max(rings[k - 1].groundY, rings[k].groundY) >= StageWallCollMinH;
@@ -3917,7 +4060,7 @@ namespace PSXRacing.EditorTools
         /// section under its lattice.
         /// </summary>
         static Vector2[] BankTopRing(List<Vector3> pts, int i, float side, float hh, float crestE, float release,
-                                     bool hold, bool shaped = true)
+                                     bool hold, bool shaped = true, float climb = 1f / BankBatter)
         {
             float half = RoadWidth * 0.5f;
             int count = BankTopSampleE.Length;
@@ -3941,7 +4084,7 @@ namespace PSXRacing.EditorTools
                 }
                 if (stopped) { ring[k + 1] = new Vector2(lastE, lastY); continue; }
                 float lattice = StageLatticeY(p.x, p.z);
-                float hill = Mathf.Min(StageDemY(p.x, p.z), crestY + (e - crestE) / BankBatter);
+                float hill = Mathf.Min(StageDemY(p.x, p.z), crestY + (e - crestE) * climb);
                 float keep = release * (1f - Mathf.SmoothStep(0f, 1f,
                                  Mathf.InverseLerp(farE - BankTopTailM, farE, e)));
                 float y = Mathf.Lerp(lattice - RoadsideRules.ToeTuckM, hill, keep);
@@ -4052,7 +4195,13 @@ namespace PSXRacing.EditorTools
                     crest[k] = pts[i] + outw * (half + crestE);
                     crest[k].y = pts[i].y + RoadLift + rise;
                     toe[k] = plinthTop[k] = crest[k];
-                    ring = BankTopRing(pts, i, side, RoadLift + rise, crestE, rel[k], held[k]);
+                    // A graded top climbs on at the backslope it was graded
+                    // to. At the rock's batter (2:1) it stood up behind the
+                    // traversable slope as a lip - 0.12 m in the 0.13 m the
+                    // edge audit reads, all down NC 226 - where there is no
+                    // rock face to excuse one.
+                    ring = BankTopRing(pts, i, side, RoadLift + rise, crestE, rel[k], held[k],
+                                       climb: RoadsideRules.BackSlope);
                 }
                 else
                 {

@@ -989,36 +989,6 @@ namespace PSXRacing.EditorTools
                 y >= 29 ? new Color32(190, 36, 34, 255)
                         : new Color32(226, 224, 218, 255));
 
-            // A W-beam guardrail, one station (4 m) of it. Rows 0-23 run up the
-            // beam from its bottom lip to its top lip; rows 24-31 are the post,
-            // in four 8-texel columns. The geometry carries the corrugation
-            // (DrawGuardrail); this makes it galvanised steel: highlights on
-            // the two ridges, grime in the valley and on the lips, a pair of
-            // bolt heads in the valley at each post (x 0 and 16 - posts every
-            // 2 m), and a faint roll grain along the beam.
-            WriteTexture(GuardrailTexPath, 32, 32, (x, y) =>
-            {
-                uint h = (uint)(x * 374761393 + y * 668265263) + 2246822519u;
-                h = (h ^ (h >> 13)) * 1274126177u;
-                int n = (int)((h >> 8) & 0x0F);
-                if (y >= 24)
-                {
-                    int c = x % 8;
-                    int p = 108 + n / 2 + (c == 0 || c == 7 ? -26 : c == 1 ? 14 : 0);
-                    return new Color32((byte)p, (byte)p, (byte)(p + 5), 255);
-                }
-                int g = 146 + n / 2 + ((x * 7) % 13) - 6;
-                if (y <= 1 || y >= 22) g -= 18;                    // the lips
-                else if (y >= 5 && y <= 7) g += 24;                // lower ridge
-                else if (y >= 16 && y <= 18) g += 24;              // upper ridge
-                else if (y >= 10 && y <= 13) g -= 24;              // the valley
-                bool bolt = y >= 11 && y <= 12 && (x % 16 == 1 || x % 16 == 2);
-                if (bolt) g = 62;
-                if (x == 31) g -= 14;                               // the splice lap
-                byte b = (byte)Mathf.Clamp(g, 0, 255);
-                return new Color32(b, b, (byte)Mathf.Clamp(g + 6, 0, 255), 255);
-            });
-
             // A bridge expansion joint, seen from a car: two steel angle plates
             // with the finger gap between them, dark with the grease and grit
             // that collects in it. v runs ACROSS the band (along the road), so
@@ -1052,7 +1022,12 @@ namespace PSXRacing.EditorTools
         static string GridTexPath => TrackTexDir + "/StartGrid.png";
         static string JointTexPath => TrackTexDir + "/Joint.png";
         static string PostTexPath => TrackTexDir + "/Post.png";
-        static string GuardrailTexPath => TrackTexDir + "/Guardrail.png";
+        /// <summary>The guardrail's steel and its posts' timber, both from the
+        /// owner's PSX texture packs (PSX Textures II: corrugated_steel_pt_3,
+        /// wood_pt_4) - "make sure you're using PSX texture assets ... metal,
+        /// wood, rock, etc." Nothing drawn in code.</summary>
+        static string GuardrailTexPath => Root + "/Art/Guardrail/corrugated_steel_pt_3.png";
+        static string GuardrailPostTexPath => Root + "/Art/Guardrail/wood_pt_4.png";
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a
