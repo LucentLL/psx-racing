@@ -1563,13 +1563,14 @@ namespace PSXRacing.LifeSim
             if (f.hidden)
             {
                 // The car is genuinely worse now and the player will feel it,
-                // but nobody has looked at it. Naming the part here would hand
-                // over the answer an inspection exists to find — so the log and
-                // the result screen report the SYMPTOM, which is all a driver
-                // gets from the seat.
-                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + car.displayName +
-                                  " is not running right");
-                lastSymptom = SymptomFor(f.stat);
+                // but nobody has looked at it - and nothing SAYS so. The owner,
+                // 2026-09-26: "I don't like the message about car condition
+                // after a race. Player should inspect car for issues." It used
+                // to post a symptom under the result ("THE CAR DOES NOT WANT
+                // TO HOLD A LINE - WORTH AN INSPECTION") and "... is not
+                // running right" in the calendar, which is the inspection's
+                // answer handed over before anyone looked. What is left is the
+                // car itself: it drives worse, and INSPECT finds why.
                 return;
             }
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": DIAGNOSED — " + f.label +
@@ -1577,29 +1578,11 @@ namespace PSXRacing.LifeSim
             lastDiagnosed = f.label;
         }
 
-        /// <summary>What a fault in this lane feels like from the driver's seat.
-        /// Deliberately vague about the part and specific about the sensation:
-        /// it should send the player to INSPECT, not stand in for it.</summary>
-        static string SymptomFor(string stat)
-        {
-            switch (stat)
-            {
-                case "tires": return "the car does not want to hold a line";
-                case "hp": return "something is loose in the bodywork";
-                case "paint": return "the paint has taken a knock";
-                default: return "the engine is down on song";
-            }
-        }
-
         /// <summary>Set by the last apply-back so the result screen can show a
         /// "DIAGNOSED:" line. Read once, then cleared. Only faults somebody has
         /// actually diagnosed reach it.</summary>
         public static string lastDiagnosed;
 
-        /// <summary>Set instead of <see cref="lastDiagnosed"/> when the race
-        /// left the car with a fault nobody has found yet. Read once, then
-        /// cleared.</summary>
-        public static string lastSymptom;
 
         /// <summary>
         /// The one line the result toast appends, and the only place the
@@ -1629,15 +1612,11 @@ namespace PSXRacing.LifeSim
                 !string.IsNullOrEmpty(lastBlownEngine)
                     ? lastBlownEngine + " — REBUILD OR SWAP IT"
                 : !string.IsNullOrEmpty(lastHeatWarning)
-                    ? lastHeatWarning + (string.IsNullOrEmpty(lastDiagnosed) &&
-                                         string.IsNullOrEmpty(lastSymptom)
-                                            ? "" : ", AND SOMETHING BROKE")
+                    ? lastHeatWarning + (string.IsNullOrEmpty(lastDiagnosed) ? "" : ", AND SOMETHING BROKE")
                 : !string.IsNullOrEmpty(lastDiagnosed)
                     ? "DIAGNOSED: " + lastDiagnosed
-                : !string.IsNullOrEmpty(lastSymptom)
-                    ? lastSymptom.ToUpper() + " — WORTH AN INSPECTION"
                     : null;
-            lastBlownEngine = lastDiagnosed = lastSymptom = lastHeatWarning = null;
+            lastBlownEngine = lastDiagnosed = lastHeatWarning = null;
             return note;
         }
 

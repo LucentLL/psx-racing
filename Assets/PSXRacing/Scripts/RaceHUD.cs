@@ -251,7 +251,7 @@ namespace PSXRacing
             var cityTouch = TouchControls.Instance;
             if (cityTouch != null)
             {
-                if (GasPump.AtPump && GasPump.Prompt != null)
+                if ((GasPump.AtPump && GasPump.Prompt != null) || OnFoot.ForecourtMode.OfferFuel)
                     cityTouch.SetAction(true, "FUEL");
                 else if (DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
                 else if (Town.TownVenue.AtVenue) cityTouch.SetAction(true, "OPEN");
@@ -1155,7 +1155,8 @@ namespace PSXRacing
                     // race is over and there is one to offer.
                     bool replayOffer = over && RaceReplay.Instance != null && RaceReplay.Instance.Available;
                     if (replayOffer) touch.SetAction(true, "REPLAY");
-                    else touch.SetAction(!over && GasPump.AtPump && GasPump.Prompt != null, "FUEL");
+                    else touch.SetAction(!over && ((GasPump.AtPump && GasPump.Prompt != null) ||
+                                                   OnFoot.ForecourtMode.OfferFuel), "FUEL");
                 }
                 touch.SetContinue(over);
             }

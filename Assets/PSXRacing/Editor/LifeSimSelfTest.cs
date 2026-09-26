@@ -1302,8 +1302,11 @@ namespace PSXRacing.EditorTools
                     // A sprint on a loop's road has no scene of its own: it
                     // races in the loop's, with the whole track standing.
                     var baseDef = TrackCatalog.At(TrackCatalog.IndexOf(t.sprintOf));
-                    Check(baseDef.id == t.sprintOf && baseDef.loop && !baseDef.IsSprintVariant,
-                          t.id + " is raced on a real loop", t.sprintOf);
+                    // A loop (started and finished part-way round) or a stage
+                    // with ends (a section of it) - never another variant.
+                    Check(baseDef.id == t.sprintOf && baseDef.stage && !baseDef.IsSprintVariant &&
+                          !baseDef.Reversed && t.RaceMeters > 400f && t.RaceMeters < baseDef.RaceMeters + 1f,
+                          t.id + " is raced on a real road, and is part of it", t.sprintOf);
                     Check(TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.id)) ==
                           TrackCatalog.SceneIndex(TrackCatalog.IndexOf(t.sprintOf)),
                           t.id + " races in " + t.sprintOf + " s scene");
@@ -5449,6 +5452,27 @@ namespace PSXRacing.EditorTools
         ///   * a stage's rock cuts have solid tops, its tunnel mouths solid
         ///     portals, and its sea no collider at the height StuckRecovery reads.
         /// </summary>
+        /// <summary>StageLab: the roadside checks on one freshly built scene,
+        /// returned as text.</summary>
+        public static string LabRoadside(TrackCatalog.TrackDef t, string scenePath)
+        {
+            log = new StringBuilder();
+            failures = 0;
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                scenePath, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+            try
+            {
+                Transform trackRoot = null;
+                foreach (var go in scene.GetRootGameObjects())
+                    if (go.name == "Track") { trackRoot = go.transform; break; }
+                if (trackRoot == null) return "no Track root";
+                CheckRoadside(t, trackRoot);
+                if (t.stage) CheckStageFurniture(t, trackRoot);
+            }
+            finally { UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true); }
+            return "roadside checks: " + failures + " failing" + System.Environment.NewLine + log;
+        }
+
         static void CheckRoadside(TrackCatalog.TrackDef t, Transform trackRoot)
         {
             var path = trackRoot.GetComponent<TrackPath>();

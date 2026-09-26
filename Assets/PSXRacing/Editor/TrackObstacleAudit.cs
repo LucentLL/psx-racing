@@ -68,6 +68,14 @@ namespace PSXRacing.EditorTools
                 log.ToString());
         }
 
+        /// <summary>StageLab: this audit on one scene, returned as text.</summary>
+        public static string AuditForLab(TrackCatalog.TrackDef def, string scenePath)
+        {
+            var sb = new StringBuilder();
+            AuditOne(def, sb);
+            return sb.ToString();
+        }
+
         static void AuditOne(TrackCatalog.TrackDef def, StringBuilder log)
         {
             string scenePath = "Assets/PSXRacing/Scenes/" + def.id + ".unity";

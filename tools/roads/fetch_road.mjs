@@ -151,8 +151,11 @@ const ROADS = {
     bbox: { s: 35.420, w: -82.265, n: 35.448, e: -82.230 },
     match: { names: ['chimney rock park road'], refs: [] },
     start: { lat: 35.4391, lon: -82.2489, elevM: 325 },   // Main Street, the river bridge
-    end:   { lat: 35.4313, lon: -82.2487, elevM: 590 },   // the upper lot (SRTM; the Chimney itself is 695 m)
-    leadM: 40, shutdownM: 100, smoothSigma: 45, maxGrade: 0.13,
+    // The finish is on the straight after the last switchback, 90 m short of
+    // the lot: the run-out past it must end BEFORE the lot's own turnaround,
+    // which doubles back on itself and folded the shoulder at the route's end.
+    end:   { lat: 35.43152, lon: -82.24880, elevM: 585 },  // under the upper lot (SRTM; the Chimney itself is 695 m)
+    leadM: 40, shutdownM: 90, smoothSigma: 45, maxGrade: 0.13,
     // ITS SWITCHBACKS ARE REAL, and tighter than the 12 m every other stage
     // keeps: 8-9 m on the climb and 6.1 m at the top, on OSM's own geometry.
     // The floor here is the one the refusal asks for, from the CAR and the

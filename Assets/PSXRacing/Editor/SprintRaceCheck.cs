@@ -111,26 +111,37 @@ namespace PSXRacing.EditorTools
             var bake = baseDef.stagePts;
             int n = tp.Count;
 
-            SprintRaceCheck.Check(!tp.HasEnds && bake != null && n == bake.Length,
-                "the whole loop stands - no half of it cut away", n + " of " + (bake != null ? bake.Length : 0));
+            bool ends = tp.HasEnds;
+            SprintRaceCheck.Check(bake != null && n == bake.Length,
+                "the whole road stands - no part of it cut away", n + " of " + (bake != null ? bake.Length : 0));
             int s0 = Mathf.RoundToInt(v.sprintStartM / tp.spacing) % n;
             int s1 = Mathf.RoundToInt(v.sprintFinishM / tp.spacing) % n;
             Vector3 startPt = bake[s0], finishPt = bake[s1];
-            SprintRaceCheck.Check(Vector3.Distance(tp.waypoints[0], startPt) < 0.5f,
-                "the race starts at the sprint's start", Vector3.Distance(tp.waypoints[0], startPt).ToString("0.00") + " m");
-            SprintRaceCheck.Check(rm.Sprint && Mathf.Abs(rm.sprintFinishIndex * tp.spacing - v.RaceMeters) < 12f,
-                "and finishes part-way round, at its quoted distance",
-                (rm.sprintFinishIndex * tp.spacing).ToString("0") + " m vs " + v.RaceMeters.ToString("0"));
-            SprintRaceCheck.Check(Vector3.Distance(tp.GetPoint(rm.sprintFinishIndex), finishPt) < 8f,
-                "at the finish the catalog names", Vector3.Distance(tp.GetPoint(rm.sprintFinishIndex), finishPt).ToString("0.0") + " m");
+            // Where the race starts and finishes in the list AS RACED.
+            int startIdx = ends ? (v.sprintReverse ? n - 1 - s0 : s0) : 0;
+            int finIdx = ends ? tp.finishIndex : rm.sprintFinishIndex;
+            SprintRaceCheck.Check(Vector3.Distance(tp.GetPoint(startIdx), startPt) < 0.5f,
+                "the race starts at the sprint's start", Vector3.Distance(tp.GetPoint(startIdx), startPt).ToString("0.00") + " m");
+            SprintRaceCheck.Check((ends || rm.Sprint) && Mathf.Abs((finIdx - startIdx) * tp.spacing - v.RaceMeters) < 12f,
+                "and finishes at its quoted distance",
+                ((finIdx - startIdx) * tp.spacing).ToString("0") + " m vs " + v.RaceMeters.ToString("0"));
+            SprintRaceCheck.Check(Vector3.Distance(tp.GetPoint(finIdx), finishPt) < 8f,
+                "at the finish the catalog names", Vector3.Distance(tp.GetPoint(finIdx), finishPt).ToString("0.0") + " m");
 
-            // The finish band: painted, unless the finish IS the loop's line.
+            // The finish band: painted, unless the finish is on a line the
+            // scene already has.
             var band = GameObject.Find("SprintFinish");
-            bool onLoopLine = Mathf.Min(s1, n - s1) <= 3;
-            SprintRaceCheck.Check(onLoopLine || (band != null && Vector3.Distance(
-                    new Vector3(band.transform.position.x, 0f, band.transform.position.z),
-                    new Vector3(finishPt.x, 0f, finishPt.z)) < 2f),
-                onLoopLine ? "it finishes on the loop's own line" : "a finish band is painted across the road there");
+            bool onOwnLine = false;
+            foreach (var nm in new[] { "StartLine", "FinishLine" })
+            {
+                var go = GameObject.Find(nm);
+                if (go != null && Vector2.Distance(new Vector2(go.transform.position.x, go.transform.position.z),
+                                                   new Vector2(finishPt.x, finishPt.z)) < 8f) onOwnLine = true;
+            }
+            SprintRaceCheck.Check(onOwnLine || (band != null && Vector2.Distance(
+                    new Vector2(band.transform.position.x, band.transform.position.z),
+                    new Vector2(finishPt.x, finishPt.z)) < 2f),
+                onOwnLine ? "it finishes on a line the road already has" : "a finish band is painted across the road there");
 
             // The grid: behind the line, together, facing down the road.
             int facing = 0, behind = 0, counted = 0; float spread = 0f;
@@ -140,7 +151,7 @@ namespace PSXRacing.EditorTools
                 counted++;
                 int idx = tp.NearestIndex(car.transform.position);
                 if (Vector3.Dot(car.transform.forward, tp.GetTangent(idx)) > 0.9f) facing++;
-                if (idx > n - 40) behind++;
+                if (ends ? (idx <= startIdx + 1 && idx > startIdx - 40) : idx > n - 40) behind++;
                 spread = Mathf.Max(spread, Vector3.Distance(car.transform.position, rm.playerCar.transform.position));
             }
             SprintRaceCheck.Check(counted > 1 && facing == counted, "every car faces down the sprint", facing + "/" + counted);
@@ -153,12 +164,13 @@ namespace PSXRacing.EditorTools
             float t0 = Time.realtimeSinceStartup;
             while (rm.State != RaceManager.RaceState.Racing && Time.realtimeSinceStartup - t0 < 20f) yield return null;
             var p = rm.GetProgress(rm.playerCar);
-            var body = rm.playerCar.GetComponent<Rigidbody>();
-            int from = n - 3, to = n + rm.sprintFinishIndex + 4;
+            int from = ends ? tp.NearestIndex(rm.playerCar.transform.position) : n - 3;
+            int to = ends ? finIdx + 4 : n + rm.sprintFinishIndex + 4;
+            int earliest = ends ? finIdx - 2 : n + rm.sprintFinishIndex - 6;
             bool finishedEarly = false;
             for (int k = from; k <= to && p != null && !p.finished; k += 3)
             {
-                int i = k % n;
+                int i = ends ? Mathf.Clamp(k, 0, n - 1) : k % n;
                 var pos = tp.GetPoint(i) + Vector3.up * 0.4f;
                 rm.playerCar.TeleportTo(pos, tp.GetRotation(i));
                 // A physics step AND a frame: the tracker runs in Update, and
@@ -166,14 +178,14 @@ namespace PSXRacing.EditorTools
                 // straight over the line without the tracker seeing it cross.
                 yield return new WaitForFixedUpdate();
                 yield return null;
-                if (p.finished && k < n + rm.sprintFinishIndex - 6) finishedEarly = true;
+                if (p.finished && k < earliest) finishedEarly = true;
             }
             yield return null;
             SprintRaceCheck.Check(p != null && p.finished && !finishedEarly,
                 "driven from the line, the player is timed out at the finish",
                 p == null ? "no progress" : p.finished ? "ET " + p.finishTime.ToString("0.0") + " s"
                     : "never finished: state " + rm.State + ", crossed " + p.crossedStartOnce + ", at " + p.nearestIdx +
-                      " of finish " + rm.sprintFinishIndex + ", lap " + p.lap + ", car at " +
+                      " of finish " + finIdx + ", lap " + p.lap + ", car at " +
                       tp.NearestIndex(rm.playerCar.transform.position));
         }
     }

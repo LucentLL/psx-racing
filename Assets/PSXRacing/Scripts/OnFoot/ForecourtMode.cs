@@ -79,6 +79,14 @@ namespace PSXRacing.OnFoot
         /// when no pump, venue or order window is claiming it.</summary>
         public static bool OfferGetOut { get; private set; }
 
+        /// <summary>Stopped at a pump with a tank that wants fuel: the touch
+        /// ACTION button is FUEL, and pressing it gets you out at the nozzle.
+        /// The HUD used to show FUEL only when the PUMP had a prompt - and the
+        /// pump says nothing until someone is standing at it - so from the
+        /// driver's seat a phone was told "TAP FUEL (TOP RIGHT)" with no button
+        /// there to tap.</summary>
+        public static bool OfferFuel { get; private set; }
+
         /// <summary>True from the moment the driver's door shuts behind them to
         /// the moment it shuts in front of them. Read by the HUD and by
         /// StuckRecovery, both of which have nothing useful to say about a car
@@ -107,7 +115,15 @@ namespace PSXRacing.OnFoot
         FootTouchPanel touchPanel;
         StoreScreen store;
 
-        FootTarget pumpTarget, storeTarget, carTarget;
+        FootTarget storeTarget, carTarget;
+        /// <summary>One prompt per pump in the scene. A single moving one sat
+        /// on whichever fuelling volume claimed the car, and an island's
+        /// volumes overlap (pumps 2 m apart, volumes 7 m wide), so the claim
+        /// was often the pump next to the one the player walked up to. Every
+        /// pump offers FILL UP; whichever you use fills the car that is parked
+        /// at the island.</summary>
+        readonly System.Collections.Generic.List<FootTarget> pumpTargets =
+            new System.Collections.Generic.List<FootTarget>();
         Transform camHome;
         AudioSource carAudio;
         float engineVolume = 1f;
@@ -147,6 +163,7 @@ namespace PSXRacing.OnFoot
             OnFoot = false;
             Prompt = null;
             OfferGetOut = false;
+            OfferFuel = false;
             GetInRefusal = null;
             DecorateCarTarget = null;
         }
@@ -187,6 +204,7 @@ namespace PSXRacing.OnFoot
         {
             Prompt = null;
             OfferGetOut = false;
+            OfferFuel = false;
             if (playerCar == null || PauseMenu.IsOpen) return;
             // Not on the grid and not after the flag — the two windows where the
             // player does not have the car.
@@ -210,6 +228,7 @@ namespace PSXRacing.OnFoot
                         return;
                     }
                     Prompt = UseControlName() + " TO GET OUT AND FUEL";
+                    OfferFuel = true;
                     if (UsePressed() || (anywhereInTown && OutPressed()))
                         StartCoroutine(GetOut());
                     return;
@@ -263,7 +282,8 @@ namespace PSXRacing.OnFoot
             // The pump fills only for somebody standing at it. GasPump keeps the
             // whole transaction — wallet, tank, save — so that there is one
             // implementation of buying fuel and not two.
-            GasPump.WalkerAtNozzle = interactor != null && interactor.Current == pumpTarget;
+            GasPump.WalkerAtNozzle = interactor != null && interactor.Current != null &&
+                                     pumpTargets.Contains(interactor.Current);
 
             RefreshLabels();
         }
@@ -272,20 +292,24 @@ namespace PSXRacing.OnFoot
         {
             var tank = playerCar != null ? playerCar.GetComponent<FuelTank>() : null;
 
-            if (pumpTarget != null)
+            foreach (var pumpTarget in pumpTargets)
             {
+                if (pumpTarget == null) continue;
+                // A PROMPT YOU PRESS (owner, 2026-09-26: "I should be prompted
+                // when looking at the gas pump"). It used to have no action, so
+                // a phone's USE button never appeared at it and the only way to
+                // fill was a hold on a driving-panel button that is hidden on
+                // foot. FILL UP latches the nozzle on (GasPump.FillLatched) until
+                // the tank is full or you press STOP; F / pad-south still fill
+                // while held.
+                bool full = tank == null || tank.percent >= 99.5f;
                 pumpTarget.title = "FUEL PUMP";
                 pumpTarget.detail = tank == null ? ""
-                    : tank.percent >= 99.5f
-                        ? "The tank is full."
-                        : "Tank " + Mathf.FloorToInt(tank.percent) + "%   ·   " +
-                          HoldName() + " to fill it";
-                // No ACTION on purpose. An action would consume the same key the
-                // pump reads to fill, and a nozzle is a thing you hold, not a
-                // thing you press once. No verb either: the verb is the word
-                // on a button this target does not have.
-                pumpTarget.action = "";
-                pumpTarget.verb = "";
+                    : GasPump.Fuelling || GasPump.FillLatched ? (GasPump.Prompt ?? "Fuelling...")
+                    : full ? (GasPump.Prompt ?? "The tank is full.")
+                    : GasPump.Prompt ?? "Tank " + Mathf.FloorToInt(tank.percent) + "%";
+                pumpTarget.action = full ? "" : GasPump.FillLatched ? "STOP FUELLING" : "FILL UP";
+                pumpTarget.verb = full ? "" : GasPump.FillLatched ? "STOP" : "FILL";
             }
 
             if (carTarget != null)
@@ -366,6 +390,7 @@ namespace PSXRacing.OnFoot
             yield return new WaitForSeconds(0.25f);
 
             EnsureRig();
+            PlaceTargets();
             PlaceWalker();
             TakeCamera();
             SetDrivingPanel(false);
@@ -394,6 +419,7 @@ namespace PSXRacing.OnFoot
             }
             if (engine != null) engine.masterVolume = 0f;
             EnsureRig();
+            PlaceTargets();
             walker.transform.SetPositionAndRotation(at, facing);
             TakeCamera();
             SetDrivingPanel(false);
@@ -511,12 +537,28 @@ namespace PSXRacing.OnFoot
 
         void BuildTargets()
         {
-            // The pump the car is actually parked at, not the first one in the
-            // scene: the station carries several and they are metres apart.
-            Transform pump = NearestNamed("Pump");
             Transform door = NearestNamed("StoreDoor");
 
-            pumpTarget = MakeTarget(pump, "PumpTarget", 4.2f);
+            // A prompt on EVERY pump: see pumpTargets.
+            pumpTargets.Clear();
+            foreach (var gp in FindObjectsByType<GasPump>(FindObjectsSortMode.None))
+            {
+                var pumpTarget = MakeTarget(gp.transform, "PumpTarget", 2.8f);
+                if (pumpTarget == null) continue;
+                pumpTargets.Add(pumpTarget);
+                // Its anchor is the pump's middle, INSIDE the pump's own solid,
+                // and the sight test forgives only the anchor's parent - the
+                // fuelling volume, not the pump. The pump itself hid its own
+                // prompt from everywhere you could stand. A forecourt has no
+                // wall between you and a pump within reach, so no sight test.
+                pumpTarget.requireLineOfSight = false;
+                pumpTarget.onUse = () =>
+                {
+                    GasPump.FillLatched = !GasPump.FillLatched;
+                    RefreshLabels();
+                    screen?.Invalidate();
+                };
+            }
             storeTarget = MakeTarget(door, "StoreTarget", 4.2f);
             carTarget = MakeTarget(playerCar != null ? playerCar.transform : null, "CarTarget", 3.6f);
 
@@ -528,6 +570,22 @@ namespace PSXRacing.OnFoot
                 if (no != null) { screen?.Toast(no); return; }
                 StartCoroutine(GetIn());
             };
+        }
+
+        /// <summary>
+        /// THE SHOP DOOR NEAREST WHERE YOU ARE, EVERY TIME. The targets were
+        /// hung once, on the first get-out of the session, nearest the car
+        /// then - so at any other forecourt the door prompt was on the first
+        /// one's door. (The pumps each carry their own now.)
+        /// </summary>
+        void PlaceTargets()
+        {
+            var door = NearestNamed("StoreDoor");
+            if (storeTarget != null && door != null)
+            {
+                storeTarget.transform.SetParent(door, false);
+                storeTarget.transform.localPosition = Vector3.zero;
+            }
         }
 
         /// <summary>The nearest object with this name to the parked car. The
@@ -563,10 +621,39 @@ namespace PSXRacing.OnFoot
         void PlaceWalker()
         {
             var car = playerCar.transform;
-            Vector3 at = car.position - car.right * 1.35f + car.forward * 0.2f;
-            at.y = car.position.y + 0.4f;
+            // The driver's side first, as ever - but only where a person fits.
+            // Parked with that door against a pump island, the walker used to
+            // be put down ON the island's pump, two metres up, where the pump
+            // was out of reach below and the prompt never came. Then the
+            // passenger side, behind the car and in front of it: the first spot
+            // with a body's room and ground near the car's own level.
+            Vector3[] tries =
+            {
+                -car.right * 1.35f + car.forward * 0.2f,
+                car.right * 1.35f + car.forward * 0.2f,
+                -car.forward * 3.0f,
+                car.forward * 3.0f,
+                -car.right * 2.2f,
+                car.right * 2.2f,
+            };
+            float baseY = car.position.y;
+            Vector3 at = car.position + tries[0];
+            at.y = baseY + 0.4f;
+            foreach (var off in tries)
+            {
+                Vector3 p = car.position + off;
+                if (!Physics.Raycast(p + Vector3.up * 2.5f, Vector3.down, out var hit, 5f, ~(1 << 2),
+                                     QueryTriggerInteraction.Ignore)) continue;
+                if (hit.point.y > baseY + 0.6f) continue;   // on top of something
+                Vector3 feet = hit.point + Vector3.up * 0.05f;
+                bool blocked = Physics.CheckCapsule(feet + Vector3.up * 0.35f, feet + Vector3.up * 1.6f, 0.3f,
+                                                    ~(1 << 2), QueryTriggerInteraction.Ignore);
+                if (blocked) continue;
+                at = feet + Vector3.up * 0.05f;
+                break;
+            }
             walker.transform.SetPositionAndRotation(
-                at, Quaternion.LookRotation(car.position - at, Vector3.up));
+                at, Quaternion.LookRotation(Vector3.ProjectOnPlane(car.position - at, Vector3.up), Vector3.up));
         }
 
         void TakeCamera()

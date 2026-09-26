@@ -286,7 +286,7 @@ namespace PSXRacing
                     {
                         EnsureStage(this);
                         float d = sprintReverse ? sprintStartM - sprintFinishM : sprintFinishM - sprintStartM;
-                        return Mathf.Repeat(d, Mathf.Max(1f, LengthM));
+                        return loop ? Mathf.Repeat(d, Mathf.Max(1f, LengthM)) : Mathf.Abs(d);
                     }
                     if (stage && loop) { EnsureStage(this); return LengthM * laps; }
                     if (stage) { EnsureStage(this); return dragMeters - stageStartLineM; }
@@ -305,6 +305,9 @@ namespace PSXRacing
                         EnsureRoute(this);
                         return loop ? -1 : Mathf.RoundToInt(routeFinishM / Spacing);
                     }
+                    // A section of a route with ends finishes where it says, on
+                    // the FORWARD bake (the map reads this, never the race).
+                    if (IsSprintVariant) return loop ? -1 : Mathf.RoundToInt(sprintFinishM / Spacing);
                     if (stage && loop) return -1;    // a lap has no traps
                     if (stage) { EnsureStage(this); return Mathf.RoundToInt(dragMeters / Spacing); }
                     return drag ? Mathf.RoundToInt(dragMeters / Spacing) : -1;
@@ -844,9 +847,10 @@ namespace PSXRacing
             {
                 id = "SwissNC226A",
                 name = "LITTLE SWITZERLAND — NC 226A",
-                blurb = "From the village at 1,040 m down NC 226A's switchbacks on the south " +
-                        "face of the mountain to the valley at 470 m: 570 m of descent in " +
-                        "11.7 km. Map (c) OpenStreetMap contributors.",
+                blurb = "The LONG run: the whole of NC 226A, from the village at 1,040 m down " +
+                        "the switchbacks on the south face of the mountain to the valley at " +
+                        "470 m - 570 m of descent in 11.7 km. Raced in thirds as UPPER, MIDDLE " +
+                        "and LOWER. Map (c) OpenStreetMap contributors.",
                 roadWidth = 9.5f,
                 laps = 1,
                 speedLimitKmh = 56f,    // NC 226A, 35 mph through the bends
@@ -1016,6 +1020,61 @@ namespace PSXRacing
                         "Parkway at the Cone access and east to the loop's line at Flat Top. " +
                         "6.3 km. Map (c) OpenStreetMap contributors.",
                 label = "FLAT TOP", startM = 6328f, finishM = 0f, reverse = true,
+            },
+
+            // NC 226A IN THREE (owner, 2026-09-26: "This race took over 9
+            // minutes. This is a good candidate for splitting into sprints. It
+            // could be three separate sprints. The full track can be a long
+            // distance race option."). The whole descent stays as it is; these
+            // are its thirds, each cut on a gentle stretch (no bend tighter
+            // than 90 m within 48 m of a line), each with its climb as II.
+            new SprintVariant
+            {
+                id = "SwissNC226AUpper", baseId = "SwissNC226A",
+                name = "NC 226A — UPPER",
+                blurb = "The top third of NC 226A: from Little Switzerland at 1,041 m down the " +
+                        "first switchbacks to 860 m. 3.7 km. Map (c) OpenStreetMap contributors.",
+                label = "860 M", startM = 33f, finishM = 3688f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "SwissNC226AUpperRev", baseId = "SwissNC226A",
+                name = "NC 226A — UPPER II",
+                blurb = "The top third climbed: from 860 m up the switchbacks to the village. " +
+                        "3.7 km. Map (c) OpenStreetMap contributors.",
+                label = "THE VILLAGE", startM = 3688f, finishM = 33f, reverse = true,
+            },
+            new SprintVariant
+            {
+                id = "SwissNC226AMiddle", baseId = "SwissNC226A",
+                name = "NC 226A — MIDDLE",
+                blurb = "The middle of the south face, 860 m down to 636 m. 4.1 km. " +
+                        "Map (c) OpenStreetMap contributors.",
+                label = "636 M", startM = 3688f, finishM = 7832f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "SwissNC226AMiddleRev", baseId = "SwissNC226A",
+                name = "NC 226A — MIDDLE II",
+                blurb = "The middle of the south face climbed, 636 m up to 860 m. 4.1 km. " +
+                        "Map (c) OpenStreetMap contributors.",
+                label = "860 M", startM = 7832f, finishM = 3688f, reverse = true,
+            },
+            new SprintVariant
+            {
+                id = "SwissNC226ALower", baseId = "SwissNC226A",
+                name = "NC 226A — LOWER",
+                blurb = "The last of the switchbacks to the valley, 636 m down to 479 m. 3.9 km. " +
+                        "Map (c) OpenStreetMap contributors.",
+                label = "THE VALLEY", startM = 7832f, finishM = 11721f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "SwissNC226ALowerRev", baseId = "SwissNC226A",
+                name = "NC 226A — LOWER II",
+                blurb = "Out of the valley up the lower switchbacks, 479 m to 636 m. 3.9 km. " +
+                        "Map (c) OpenStreetMap contributors.",
+                label = "636 M", startM = 11721f, finishM = 7832f, reverse = true,
             },
         };
 

@@ -207,6 +207,16 @@ namespace PSXRacing.EditorTools
             /// twenty unlit vertices in one combined mesh per side.
             /// </summary>
             public int postEvery = 3;
+            /// <summary>
+            /// A stage's guard walls drawn as STEEL: a W-beam guardrail on
+            /// posts instead of dry stone. Owner, 2026-09-26: "I would like to
+            /// see more guardrails instead of always using stone barriers." The
+            /// Parkway and Mount Mitchell keep their stone - the real roads'
+            /// own masonry - and the state roads get what NCDOT puts up. The
+            /// runs are the same runs and the collider the same solid; only
+            /// what is drawn changes (see DrawGuardrail).
+            /// </summary>
+            public bool guardrail;
             /// <summary>Chance a candidate site is skipped, so a run of scenery
             /// reads as a street rather than as a fence. The city's trees were
             /// every 28 m with a third skipped and are now every 16 m with a
@@ -443,6 +453,7 @@ namespace PSXRacing.EditorTools
                 // near-road vertical a stage can carry without breaking the
                 // "nothing built" rule, and the real parkway has them.
                 postEvery = 4,
+                guardrail = true,                       // NC 215 is a state road
                 gasStation = false,
                 stageDir = Root + "/Art/BeechGap",
                 stagePrefix = "beech",
@@ -513,7 +524,8 @@ namespace PSXRacing.EditorTools
             return t;
         }
 
-        /// <summary>The Parkway's look, pointed at a loop's own DEM folder.</summary>
+        /// <summary>The Parkway's look, pointed at a loop's own DEM folder -
+        /// with the state roads' steel guardrail in place of its stone.</summary>
         static Theme MountainLoopTheme(string dir, string prefix) => new Theme
         {
             ground = Root + "/Art/GasStation/Textures/Ground.jpg",
@@ -522,6 +534,8 @@ namespace PSXRacing.EditorTools
             relief = 0f,
             buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
             postEvery = 4,
+            // US 221, NC 226A, NC 226, US 64: state roads, W-beam on posts.
+            guardrail = true,
             gasStation = false,
             stageDir = dir,
             stagePrefix = prefix,
@@ -679,6 +693,22 @@ namespace PSXRacing.EditorTools
         /// did; the only change is that the shape and the look now come from
         /// <see cref="track"/> and <see cref="theme"/> rather than from consts.
         /// </summary>
+        /// <summary>StageLab: one venue's scene, with the setup Build() does
+        /// first - held-back venues included, so a road the builder does not
+        /// yet handle can be shaped without shipping it.</summary>
+        public static string BuildOneForLab(TrackCatalog.TrackDef def)
+        {
+            log = new StringBuilder();
+            EnsureFolders();
+            GenerateTrackTextures();
+            EnsureRoadLayer();
+            psxLit = Shader.Find("PSX/Lit");
+            if (psxLit == null) throw new Exception("PSX/Lit shader not found");
+            string path = BuildTrack(def);
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_build_log.txt"), log.ToString());
+            return path;
+        }
+
         static string BuildTrack(TrackCatalog.TrackDef def)
         {
             track = def;
@@ -959,6 +989,36 @@ namespace PSXRacing.EditorTools
                 y >= 29 ? new Color32(190, 36, 34, 255)
                         : new Color32(226, 224, 218, 255));
 
+            // A W-beam guardrail, one station (4 m) of it. Rows 0-23 run up the
+            // beam from its bottom lip to its top lip; rows 24-31 are the post,
+            // in four 8-texel columns. The geometry carries the corrugation
+            // (DrawGuardrail); this makes it galvanised steel: highlights on
+            // the two ridges, grime in the valley and on the lips, a pair of
+            // bolt heads in the valley at each post (x 0 and 16 - posts every
+            // 2 m), and a faint roll grain along the beam.
+            WriteTexture(GuardrailTexPath, 32, 32, (x, y) =>
+            {
+                uint h = (uint)(x * 374761393 + y * 668265263) + 2246822519u;
+                h = (h ^ (h >> 13)) * 1274126177u;
+                int n = (int)((h >> 8) & 0x0F);
+                if (y >= 24)
+                {
+                    int c = x % 8;
+                    int p = 108 + n / 2 + (c == 0 || c == 7 ? -26 : c == 1 ? 14 : 0);
+                    return new Color32((byte)p, (byte)p, (byte)(p + 5), 255);
+                }
+                int g = 146 + n / 2 + ((x * 7) % 13) - 6;
+                if (y <= 1 || y >= 22) g -= 18;                    // the lips
+                else if (y >= 5 && y <= 7) g += 24;                // lower ridge
+                else if (y >= 16 && y <= 18) g += 24;              // upper ridge
+                else if (y >= 10 && y <= 13) g -= 24;              // the valley
+                bool bolt = y >= 11 && y <= 12 && (x % 16 == 1 || x % 16 == 2);
+                if (bolt) g = 62;
+                if (x == 31) g -= 14;                               // the splice lap
+                byte b = (byte)Mathf.Clamp(g, 0, 255);
+                return new Color32(b, b, (byte)Mathf.Clamp(g + 6, 0, 255), 255);
+            });
+
             // A bridge expansion joint, seen from a car: two steel angle plates
             // with the finger gap between them, dark with the grease and grit
             // that collects in it. v runs ACROSS the band (along the road), so
@@ -992,6 +1052,7 @@ namespace PSXRacing.EditorTools
         static string GridTexPath => TrackTexDir + "/StartGrid.png";
         static string JointTexPath => TrackTexDir + "/Joint.png";
         static string PostTexPath => TrackTexDir + "/Post.png";
+        static string GuardrailTexPath => TrackTexDir + "/Guardrail.png";
 
         /// <summary>Write a PNG, but only when it would differ from the one
         /// already there. Rewriting two textures unconditionally costs a

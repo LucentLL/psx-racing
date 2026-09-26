@@ -67,6 +67,22 @@ namespace PSXRacing
         /// </summary>
         public static bool WalkerAtNozzle;
 
+        /// <summary>
+        /// THE NOZZLE IS LATCHED ON: FILL UP was pressed at the pump and it runs
+        /// until the tank is full, the money runs out, the walker steps away or
+        /// presses STOP. Owner, 2026-09-26: "I'm unable to fill up gas on mobile
+        /// or PC. I should be prompted when looking at the gas pump." The hold
+        /// read the DRIVING panel's button, which is hidden the moment you are
+        /// out of the car - so a phone had nothing to hold - and the pump never
+        /// had a prompt of its own to press. A latch is one press on any
+        /// device; F / pad-south still fill while held, as they always did.
+        /// </summary>
+        public static bool FillLatched;
+
+        /// <summary>The fuelling volume the car is parked in (its centre is
+        /// the pump's), or null. The walker's pump prompt hangs on it.</summary>
+        public static Transform ActivePump => active != null ? active.transform : null;
+
         /// <summary>Frames a visit survives with nothing claiming the car.
         /// Long enough to cover a hand-off between two overlapping volumes —
         /// which happens on a physics tick, not a frame — and short enough
@@ -103,6 +119,7 @@ namespace PSXRacing
             Fuelling = false;
             AtPump = false;
             WalkerAtNozzle = false;
+            FillLatched = false;
             active = null;
             tank = null;
             car = null;
@@ -178,6 +195,8 @@ namespace PSXRacing
             // ignition; this stays quiet until they are stood at the pump.
             if (PauseMenu.IsOpen || !WalkerAtNozzle)
             {
+                // Walked away from it: the nozzle goes back on its hook.
+                if (!WalkerAtNozzle) FillLatched = false;
                 StopFlow();
                 Prompt = null;
                 return;
@@ -187,6 +206,7 @@ namespace PSXRacing
 
             if (tank.percent >= 99.95f)
             {
+                FillLatched = false;
                 StopFlow();
                 Prompt = visitSpent > 0 ? "TANK FULL — " + MenuKit.Money(visitSpent)
                                         : "TANK FULL";
@@ -197,15 +217,15 @@ namespace PSXRacing
             if (wallet <= 0)
             {
                 StopFlow();
+                FillLatched = false;
                 Prompt = "NO MONEY FOR FUEL";
                 return;
             }
 
-            if (!HoldPressed())
+            if (!HoldPressed() && !FillLatched)
             {
                 StopFlow();
-                Prompt = HoldControlName() + " TO FUEL   ·   TANK " +
-                         Mathf.FloorToInt(tank.percent) + "%   ·   FILL " +
+                Prompt = "TANK " + Mathf.FloorToInt(tank.percent) + "%   ·   FILL " +
                          MenuKit.Money(tank.Profile.CostToFill(tank.percent));
                 return;
             }
@@ -316,6 +336,7 @@ namespace PSXRacing
             Fuelling = false;
             AtPump = false;
             WalkerAtNozzle = false;
+            FillLatched = false;
             Prompt = null;
             tank = null;
             car = null;

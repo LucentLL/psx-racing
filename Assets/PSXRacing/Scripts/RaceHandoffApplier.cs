@@ -668,7 +668,8 @@ namespace PSXRacing
         /// </summary>
         public void ApplySprint(TrackPath tp, TrackCatalog.TrackDef venue)
         {
-            if (tp == null || venue == null || tp.HasEnds || tp.Count < 20) return;
+            if (tp == null || venue == null || tp.Count < 20) return;
+            if (tp.HasEnds) { ApplySection(tp, venue); return; }
             int n = tp.Count;
             float sp = tp.spacing;
             int s0 = Mathf.RoundToInt(venue.sprintStartM / sp) % n;
@@ -693,6 +694,49 @@ namespace PSXRacing
                 if (venue.sprintReverse) bj.ReverseIndices();
                 bj.ShiftIndices(s0);
             }
+        }
+
+        /// <summary>
+        /// A SECTION OF A ROUTE WITH ENDS (NC 226A in thirds): the list stays
+        /// whole - the road the scene was built on, both ends - and only the
+        /// race moves. Turned round if it is driven the other way (a route
+        /// with ends simply flips), the finish set to the section's, the grid
+        /// staged behind the section's start, bands painted where the stage's
+        /// own lines are not already, and the bridge joints turned with it.
+        /// </summary>
+        void ApplySection(TrackPath tp, TrackCatalog.TrackDef venue)
+        {
+            int n = tp.Count;
+            float sp = tp.spacing;
+            int s0 = Mathf.Clamp(Mathf.RoundToInt(venue.sprintStartM / sp), 0, n - 1);
+            int s1 = Mathf.Clamp(Mathf.RoundToInt(venue.sprintFinishM / sp), 0, n - 1);
+            if (venue.sprintReverse)
+            {
+                tp.ReverseInPlace();
+                s0 = n - 1 - s0;
+                s1 = n - 1 - s1;
+            }
+            if (!LineNear(tp.GetPoint(s0))) PaintLine(tp, s0, "SprintStart");
+            if (!LineNear(tp.GetPoint(s1))) PaintLine(tp, s1, "SprintFinish");
+            tp.finishIndex = s1;
+            if (!string.IsNullOrEmpty(venue.dragLabel)) tp.dragLabel = venue.dragLabel;
+            StageReversedGrid(tp, s0);
+            if (venue.sprintReverse)
+                foreach (var bj in Object.FindObjectsByType<BridgeJoints>(FindObjectsSortMode.None))
+                    if (bj.path == tp) bj.ReverseIndices();
+        }
+
+        /// <summary>Is one of the stage's own painted lines already here?</summary>
+        static bool LineNear(Vector3 p)
+        {
+            foreach (var name in new[] { "StartLine", "FinishLine" })
+            {
+                var go = GameObject.Find(name);
+                if (go == null) continue;
+                Vector3 d = go.transform.position - p; d.y = 0f;
+                if (d.magnitude < 8f) return true;
+            }
+            return false;
         }
 
         /// <summary>A start/finish band across the road at waypoint
