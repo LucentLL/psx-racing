@@ -851,6 +851,7 @@ namespace PSXRacing
                              ?? DriveThru.Prompt
                              ?? SeizedPrompt()
                              ?? DryTankPrompt()
+                             ?? RetiredPrompt(rm)
                              ?? "";
                     break;
                 case RaceManager.RaceState.Finished:
@@ -896,7 +897,9 @@ namespace PSXRacing
                     // wants at that moment is whether the tip survived.
                     string head = RaceHandoff.Delivery
                         ? DeliverySheet(p != null ? p.finishTime : 0f)
-                        : ladder + "FINISH!  P" + pos + sheet;
+                        : ladder + "FINISH!  P" + pos + sheet +
+                          (rm.RetiredCount > 0 ? "\n" + rm.RetiredCount + " RIVAL" +
+                                                 (rm.RetiredCount > 1 ? "S" : "") + " OUT (DNF)" : "");
                     center = head +
                              "\n\n" + how +
                              (RaceHandoff.FromLifeSim ? " TO GO HOME" : " TO RESTART") +
@@ -905,6 +908,16 @@ namespace PSXRacing
             }
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
         }
+
+        /// <summary>A rival crashed out (RaceManager.RetireCar): said for a
+        /// few seconds, then the road is the road again.</summary>
+        string RetiredPrompt(RaceManager rm)
+        {
+            if (rm.RetiredCount != seenRetired) { seenRetired = rm.RetiredCount; retiredShownAt = Time.time; }
+            return seenRetired > 0 && Time.time - retiredShownAt < 3f ? "RIVAL OUT - WRECKED" : null;
+        }
+        int seenRetired;
+        float retiredShownAt = -99f;
 
         // =================== the delivery readout ===================
         //

@@ -105,6 +105,27 @@ namespace PSXRacing
         /// avoidance (AIDriver).</summary>
         public readonly List<Rigidbody> Obstacles = new List<Rigidbody>();
 
+        /// <summary>
+        /// HOW A DRIVER TAKES A RACER COMING (owner, 2026-09-26: "traffic
+        /// should have variance; sometimes move to side of road, brake, be
+        /// oblivious"). Rolled per car at birth (TemperOdds). A racer is
+        /// COMING when one closes from behind in this car's direction, or one
+        /// is on its way toward it from ahead.
+        ///   Normal    - keeps its lane and its speed; minds only what is ahead.
+        ///   Yielder   - eases onto the shoulder and lifts to three-quarters.
+        ///   Braker    - stays in lane and brakes to under half its speed.
+        ///   Oblivious - does nothing about it, and wanders a little in its lane.
+        /// </summary>
+        public enum Temper { Normal, Yielder, Braker, Oblivious }
+
+        /// <summary>Normal, Yielder, Braker, Oblivious - shares at birth.</summary>
+        static readonly float[] TemperOdds = { 0.40f, 0.30f, 0.15f, 0.15f };
+        /// <summary>How far behind (m) a racer is noticed, and how far ahead
+        /// an oncoming one is.</summary>
+        const float NoticeBehindM = 70f, NoticeAheadM = 110f;
+        /// <summary>How fast (m/s) a driver moves across its lane.</summary>
+        const float LaneShiftMps = 1.4f;
+
         class Car
         {
             public GameObject go;
@@ -114,6 +135,12 @@ namespace PSXRacing
             public bool active, wrecked;
             public int dir;          // +1 with the race, -1 against
             public float lat;        // lane centre, m right of the centreline
+            /// <summary>Where it actually is across the road, slewing toward
+            /// the lane centre or, for a Yielder with a racer coming, toward
+            /// the shoulder. Place puts the car here.</summary>
+            public float latNow;
+            public Temper temper;
+            public float wanderPhase;
             public float s;          // metres along the path
             public float speed, cruise;
             public float spin;
@@ -412,7 +439,10 @@ namespace PSXRacing
             if (free == null) return false;
             free.active = true; free.wrecked = false; free.hasCommand = false; free.lastContact = null;
             free.box.center = free.rideCenter; free.box.size = free.rideSize;
-            free.dir = dir; free.lat = lat; free.s = s; free.hint = -1;
+            free.dir = dir; free.lat = lat; free.latNow = lat; free.s = s; free.hint = -1;
+            free.temper = RollTemper();
+            TempersSeen[(int)free.temper]++;
+            free.wanderPhase = Random.Range(0f, 6.2832f);
             var def = TrackCatalog.At(RaceHandoff.TrackIndex);
             float limit = (def != null ? def.speedLimitKmh : 80f) / 3.6f;
             free.cruise = limit * Random.Range(0.82f, 1.05f);
@@ -476,6 +506,29 @@ namespace PSXRacing
             // what is ahead is closer than a 6 m/s^2 stop needs (a car ahead
             // just wrecked by a racer: at 6 the ones behind piled into it).
             float decel = gap < c.speed * c.speed / 12f + StopGap ? 9f : 6f;
+
+            // A RACER COMING, and what this driver does about it (Temper).
+            float latTarget = c.lat;
+            bool coming = RacerComing(c);
+            switch (c.temper)
+            {
+                case Temper.Yielder:
+                    if (coming)
+                    {
+                        float side = c.lat >= 0f ? 1f : -1f;
+                        float room = path.roadWidth * 0.5f - 1.0f - Mathf.Abs(c.lat);
+                        latTarget = c.lat + side * Mathf.Clamp(room, 0f, LaneM * 0.6f);
+                        v = Mathf.Min(v, c.cruise * 0.75f);
+                    }
+                    break;
+                case Temper.Braker:
+                    if (coming) { v = Mathf.Min(v, c.cruise * 0.4f); decel = Mathf.Max(decel, 7f); }
+                    break;
+                case Temper.Oblivious:
+                    latTarget = c.lat + Mathf.Sin(Time.time * 0.35f + c.wanderPhase) * 0.35f;
+                    break;
+            }
+            c.latNow = Mathf.MoveTowards(c.latNow, latTarget, LaneShiftMps * dt);
             c.speed = Mathf.MoveTowards(c.speed, v, (v > c.speed ? 2.5f : decel) * dt);
 
             c.s = Wrap(c.s + c.speed * dt * c.dir);
@@ -491,7 +544,7 @@ namespace PSXRacing
             Sample(c.s, out Vector3 p, out Vector3 tan);
             Vector3 fwd = tan * c.dir;
             Vector3 right = Vector3.Cross(Vector3.up, tan).normalized;
-            Vector3 target = p + right * c.lat;
+            Vector3 target = p + right * c.latNow;
             // The tarmac, where there is a Road collider; the datum plus the
             // builder's road lift where there is not.
             float y = p.y + 0.12f;
@@ -543,6 +596,33 @@ namespace PSXRacing
             return best - 4.5f;
         }
 
+        static Temper RollTemper()
+        {
+            float r = Random.value;
+            for (int i = 0; i < TemperOdds.Length; i++)
+            {
+                if (r < TemperOdds[i]) return (Temper)i;
+                r -= TemperOdds[i];
+            }
+            return Temper.Normal;
+        }
+
+        /// <summary>Is a racer (or the player) coming at this car: closing
+        /// from behind in its direction, or on its way toward it from ahead?</summary>
+        bool RacerComing(Car c)
+        {
+            Sample(c.s, out _, out Vector3 tan);
+            Vector3 fwd = tan * c.dir;
+            foreach (var f in field)
+            {
+                float d = Delta(c.s, f.s) * c.dir;
+                float vAlong = Vector3.Dot(f.vel, fwd);
+                if (d < -2f && d > -NoticeBehindM && vAlong > c.speed + 4f) return true;
+                if (d > 2f && d < NoticeAheadM && vAlong < -3f) return true;
+            }
+            return false;
+        }
+
         bool LateralNear(Vector3 pos, float s, float lat)
         {
             Sample(s, out Vector3 p, out Vector3 tan);
@@ -572,6 +652,9 @@ namespace PSXRacing
         /// good and becomes a physics object: whatever the hit did, it keeps.</summary>
         /// <summary>What each wreck hit, for the play check.</summary>
         public readonly List<string> WreckLog = new List<string>();
+        /// <summary>How many cars of each Temper have been born this race
+        /// (for TrafficPlayCheck).</summary>
+        public readonly int[] TempersSeen = new int[4];
 
         internal void Wreck(GameObject go, string by = null)
         {

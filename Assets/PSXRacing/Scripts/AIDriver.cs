@@ -88,9 +88,41 @@ namespace PSXRacing
         /// </summary>
         const float AvoidMaxM = 2.4f;
         const float AvoidSlew = 4.0f;      // metres/s of give-way movement
+        /// <summary>...and round TRAFFIC, which is met at a closing speed a
+        /// racer is not: a 5 m move at 4 m/s takes 30 m at 25 m/s closing.</summary>
+        const float TrafficSlew = 6.5f;
         /// <summary>Centre-to-centre gap wanted beside a traffic car: two
         /// half-widths and a little air.</summary>
         const float TrafficClearM = 2.4f;
+        /// <summary>How close to the tarmac edge a pass may take the car's
+        /// centre: a half-width and a little shoulder.</summary>
+        const float EdgeMarginM = 1.15f;
+        /// <summary>Metres behind a traffic car a racer that cannot pass holds
+        /// station at, plus this many seconds of its own speed.</summary>
+        const float FollowGapM = 7f, FollowTimeS = 0.45f;
+        /// <summary>The deceleration a full brake input gives, about - for
+        /// turning a stopping distance into a pedal.</summary>
+        const float BrakeDecel = 8.5f;
+
+        // ---- serious crashes (2026-09-26) ----
+        /// <summary>
+        /// "One serious crash can take a car out of racing condition." A
+        /// single hard hit at this closing speed into what the car hit (m/s,
+        /// the normal component: 61 km/h square into a wall or a car), or this
+        /// much damage over the race, and an AI car RETIRES: it coasts to the
+        /// side, drops to the back of the order as DNF, and is never respawned.
+        /// </summary>
+        public const float RetireHitMps = 17f;
+        public const float RetireDamage = 95f;
+        /// <summary>Out of the race (RaceManager.RetireCar).</summary>
+        public bool Retired { get; private set; }
+
+        /// <summary>Retire the car: coast to a stop and stay there.</summary>
+        public void Retire()
+        {
+            Retired = true;
+            ShutDown();
+        }
 
         // ---- recovery (P2) ----
         /// <summary>Stuck in clear air — probably facing a kerb or in the scenery.
@@ -176,8 +208,15 @@ namespace PSXRacing
 
             float speed = Mathf.Abs(car.forwardSpeed);
 
+            // ---- a serious crash ends this car's race ----
+            if (responder != null && (responder.WorstHit >= RetireHitMps || responder.DamageScore >= RetireDamage))
+            {
+                RaceManager.Instance?.RetireCar(car);
+                if (Retired) return;
+            }
+
             // ---- give way to whatever is about to be hit ----
-            UpdateAvoidance(dt, out float throttleLift);
+            UpdateAvoidance(dt, out float throttleLift, out float trafficBrake);
 
             // ---- steering: chase a lookahead point ----
             float steer = SteerToLine(speed);
@@ -222,6 +261,13 @@ namespace PSXRacing
                 throttle *= 1f - Mathf.Clamp01(throttleLift);
                 if (throttleLift > 0.7f) brake = Mathf.Max(brake, (throttleLift - 0.7f) * 1.5f);
             }
+            // Traffic that cannot be passed yet: the brake it takes to stop
+            // behind it (UpdateAvoidance), not a lift that tops out at 0.45.
+            if (trafficBrake > 0f)
+            {
+                throttle = 0f;
+                brake = Mathf.Max(brake, trafficBrake);
+            }
 
             car.steerInput = steer;
             car.throttleInput = throttle;
@@ -237,10 +283,15 @@ namespace PSXRacing
         /// and pretending otherwise would have it dive for gaps it cannot make.
         /// The goal is only that a car ahead stops being furniture.
         /// </summary>
-        void UpdateAvoidance(float dt, out float throttleLift)
+        struct Obs { public float z, lat, closing; public bool oncoming; }
+        readonly System.Collections.Generic.List<Obs> obs = new System.Collections.Generic.List<Obs>(16);
+
+        void UpdateAvoidance(float dt, out float throttleLift, out float trafficBrake)
         {
             throttleLift = 0f;
+            trafficBrake = 0f;
             float wanted = 0f;
+            float slew = AvoidSlew;
             var rm = RaceManager.Instance;
             if (rm != null)
             {
@@ -272,44 +323,138 @@ namespace PSXRacing
                 }
             }
 
-            // TRAFFIC (TrafficSystem): the same rule, but seen from further
-            // off. A racer at 150 km/h closes on 60 km/h traffic at 25 m/s -
-            // AvoidLookM is half a second of that - and on oncoming traffic at
-            // twice it. So the look grows with the closing speed.
+            // TRAFFIC (TrafficSystem), 2026-09-26: "I don't like how often AI
+            // crashes into traffic. They should slow down or drive around."
+            // It used to be the racers' rule seen from further off: always
+            // pass on the LEFT, whatever was coming the other way, and brake
+            // only once the lift passed 0.7 - 0.45 of pedal at most, with no
+            // stopping distance in it. So a racer swung out round a car in
+            // its lane straight into the oncoming one, or ran up the back of
+            // it at 20 m/s closing.
+            //
+            // Now, in the ROAD's frame (metres right of the centreline, the
+            // frame the lanes are drawn in): the nearest car in this racer's
+            // corridor is the one to deal with; each side of it is a line to
+            // pass on if it is on the tarmac and nothing else - oncoming
+            // traffic above all - stands in that line before the pass is done;
+            // the nearer clear line wins (left first, North American style,
+            // when both are); and when neither is clear the racer FOLLOWS -
+            // brakes to hold station behind it, with the stopping distance
+            // worked out, until a line opens.
             var traffic = TrafficSystem.Instance;
-            if (traffic != null)
+            if (traffic != null && traffic.Obstacles.Count > 0)
             {
+                Vector3 myRight = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
+                float myLat = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), myRight);
+                float edge = Mathf.Max(0.5f, path.roadWidth * 0.5f - EdgeMarginM);
+                float mySpeed = car.forwardSpeed;
+                obs.Clear();
                 var bodies = traffic.Obstacles;
                 for (int i = 0; i < bodies.Count; i++)
                 {
                     var rb = bodies[i];
                     if (rb == null) continue;
                     Vector3 local = transform.InverseTransformPoint(rb.position);
-                    float closing = car.forwardSpeed - Vector3.Dot(rb.linearVelocity, transform.forward);
-                    float look = Mathf.Clamp(AvoidLookM + closing * 2.2f, AvoidLookM, 70f);
-                    if (local.z < 1.5f || local.z > look) continue;
-                    if (Mathf.Abs(local.x) > AvoidWidthM) continue;
+                    float along = Vector3.Dot(rb.linearVelocity, transform.forward);
+                    float closing = mySpeed - along;
+                    float look = Mathf.Clamp(AvoidLookM + Mathf.Max(closing, 0f) * 2.4f, AvoidLookM, 80f);
+                    if (local.z < -3f || local.z > look) continue;
+                    int oi = path.NearestIndex(rb.position, nearestIdx);
+                    Vector3 r = Vector3.Cross(Vector3.up, path.GetTangent(oi)).normalized;
+                    float lat = Vector3.Dot(rb.position - path.GetPoint(oi), r);
+                    obs.Add(new Obs { z = local.z, lat = lat, closing = closing, oncoming = along < -1f });
+                }
 
-                    float closeness = 1f - local.z / look;
-                    // Move over by the clearance actually NEEDED, as soon as
-                    // the car is in the look - not scaled down by distance,
-                    // which left racers still on the centre line when an
-                    // oncoming car arrived (four head-ons in thirty seconds).
-                    // Traffic dead ahead in this car's own lane is passed on
-                    // the LEFT, North American style.
-                    float dir = local.x >= 0f ? -1f : 1f;
-                    float need = TrafficClearM - Mathf.Abs(local.x);
-                    float pull = dir * Mathf.Clamp(need + 0.2f, 0f, AvoidMaxM);
-                    if (Mathf.Abs(pull) > Mathf.Abs(wanted)) wanted = pull;
-                    if (closing > 0.5f)
-                        throttleLift = Mathf.Max(throttleLift,
-                            closeness * Mathf.Clamp01(closing / 8f));
+                // The one to deal with: the nearest ahead, in this corridor.
+                int block = -1;
+                for (int i = 0; i < obs.Count; i++)
+                {
+                    var o = obs[i];
+                    if (o.z < 1.5f || Mathf.Abs(o.lat - myLat) >= TrafficClearM) continue;
+                    if (o.closing <= 0.3f) continue;
+                    if (block < 0 || o.z < obs[block].z) block = i;
+                }
+                if (block >= 0)
+                {
+                    var bo = obs[block];
+                    // How far the pass runs: to the car, and a car's length
+                    // and a second past it at the speed we pass it at.
+                    float passEnd = bo.z + 6f + Mathf.Max(bo.closing, 3f) * 1f;
+                    bool Clear(float line)
+                    {
+                        if (Mathf.Abs(line) > edge) return false;
+                        for (int i = 0; i < obs.Count; i++)
+                        {
+                            if (i == block) continue;
+                            var o = obs[i];
+                            if (Mathf.Abs(o.lat - line) >= TrafficClearM) continue;
+                            // An oncoming car is met sooner than it stands: it
+                            // comes to us while we go to it. Anything within
+                            // the pass, meeting point included, blocks the line.
+                            float meet = o.oncoming ? o.z * mySpeed / Mathf.Max(mySpeed + Mathf.Abs(o.closing - mySpeed), 1f) : o.z;
+                            if (meet > -3f && meet < passEnd + (o.oncoming ? 25f : 0f)) return false;
+                        }
+                        return true;
+                    }
+                    float left = bo.lat - TrafficClearM - 0.2f;
+                    float right = bo.lat + TrafficClearM + 0.2f;
+                    bool leftOk = Clear(left), rightOk = Clear(right);
+                    float pick = float.NaN;
+                    if (leftOk && rightOk)
+                        pick = Mathf.Abs(left - myLat) <= Mathf.Abs(right - myLat) + 0.5f ? left : right;
+                    else if (leftOk) pick = left;
+                    else if (rightOk) pick = right;
+
+                    // Time to be beside it versus time to reach it: if the
+                    // move will not be made in time, brake for the gap too.
+                    float gap = bo.z - 4.5f;
+                    float need = FollowGapM + Mathf.Max(mySpeed, 0f) * FollowTimeS;
+                    float stopBrake = 0f;
+                    if (bo.closing > 0.3f)
+                    {
+                        float room = Mathf.Max(gap - need, 0.5f);
+                        stopBrake = Mathf.Clamp01(bo.closing * bo.closing / (2f * room) / BrakeDecel);
+                    }
+                    if (!float.IsNaN(pick))
+                    {
+                        wanted = pick - lateralOffset;
+                        slew = TrafficSlew;
+                        float lateralLeft = Mathf.Max(0f, TrafficClearM - Mathf.Abs(bo.lat - myLat));
+                        float tSide = lateralLeft / TrafficSlew;
+                        float tHit = gap / Mathf.Max(bo.closing, 0.3f);
+                        if (tHit < tSide * 1.3f) trafficBrake = Mathf.Max(trafficBrake, stopBrake);
+                        throttleLift = Mathf.Max(throttleLift, Mathf.Clamp01(tSide * 1.3f / Mathf.Max(tHit, 0.1f)) * 0.6f);
+                    }
+                    else
+                    {
+                        // Nowhere to go: follow it.
+                        wanted = Mathf.Clamp(myLat - lateralOffset, -edge - lateralOffset, edge - lateralOffset);
+                        trafficBrake = Mathf.Max(trafficBrake, stopBrake);
+                        if (gap < need * 1.5f) throttleLift = 1f;
+                    }
+                }
+                // An oncoming car beside this racer's line but not in it:
+                // never drift toward it while it goes by.
+                for (int i = 0; i < obs.Count; i++)
+                {
+                    var o = obs[i];
+                    if (!o.oncoming || o.z < -3f || o.z > 45f) continue;
+                    float away = myLat - o.lat;
+                    // Only one BESIDE the corridor: one in it is the pass
+                    // above, and pushing "away" from it could be pushing
+                    // across its bow.
+                    if (Mathf.Abs(away) >= TrafficClearM - 0.1f && Mathf.Abs(away) < TrafficClearM + 1.2f)
+                    {
+                        float keep = o.lat + Mathf.Sign(away == 0f ? 1f : away) * (TrafficClearM + 0.4f);
+                        keep = Mathf.Clamp(keep, -edge, edge) - lateralOffset;
+                        if (block < 0 || Mathf.Abs(keep) > Mathf.Abs(wanted)) { wanted = keep; slew = TrafficSlew; }
+                    }
                 }
             }
 
             // Slewed, not snapped: the offset feeds the steering target, and a
             // step change in it reads as a flick of the wheel.
-            avoidBias = Mathf.MoveTowards(avoidBias, wanted, AvoidSlew * dt);
+            avoidBias = Mathf.MoveTowards(avoidBias, wanted, slew * dt);
         }
 
         /// <summary>
@@ -331,6 +476,7 @@ namespace PSXRacing
             if (alignment < WrongWayDot && speed > WrongWayMinSpeed) wrongWayTimer += dt;
             else wrongWayTimer = 0f;
 
+            if (Retired) return;
             if (stuckTimer > limit || wrongWayTimer > WrongWaySeconds)
             {
                 stuckTimer = 0f;

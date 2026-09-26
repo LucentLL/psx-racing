@@ -156,6 +156,26 @@ namespace PSXRacing.EditorTools
             TrafficPlayCheck.Note("peak " + maxLive + " traffic cars live; " + samples + " samples (" +
                                   sawFwd + " with the race, " + sawBack + " oncoming)");
             TrafficPlayCheck.Note(ts.WreckLog.Count + " wrecks in the drive: " + string.Join("; ", ts.WreckLog));
+            // "I don't like how often AI crashes into traffic ... Crashes should
+            // be less common" (2026-09-26). Three racers on autopilot (the
+            // player and two AI) for thirty seconds through the rush hour:
+            // before the pass this could be four head-ons.
+            TrafficPlayCheck.Check(ts.WreckLog.Count <= 1, "racers pass or follow traffic instead of hitting it (at most one wreck in 30 s)",
+                                   ts.WreckLog.Count);
+            TrafficPlayCheck.Note("tempers born: normal " + ts.TempersSeen[0] + ", yielder " + ts.TempersSeen[1] +
+                                  ", braker " + ts.TempersSeen[2] + ", oblivious " + ts.TempersSeen[3]);
+            int kinds = 0;
+            foreach (int k in ts.TempersSeen) if (k > 0) kinds++;
+            TrafficPlayCheck.Check(kinds >= 2, "traffic drivers differ (more than one temper on the road)", kinds);
+            foreach (var other in rm.allCars)
+            {
+                if (other == null || other == car) continue;
+                var resp = other.GetComponent<CollisionResponder>();
+                var pr = rm.GetProgress(other);
+                TrafficPlayCheck.Note(other.name + ": damage " + (resp != null ? resp.DamageScore.ToString("0") : "?") +
+                                      ", worst hit " + (resp != null ? resp.WorstHit.ToString("0.0") + " m/s into " + resp.WorstHitWhat : "?") +
+                                      (pr != null && pr.retired ? ", RETIRED" : ""));
+            }
             TrafficPlayCheck.Check(maxLive > 0 && samples > 20, "traffic appears once the race is on", maxLive);
             TrafficPlayCheck.Check(sawBack > 0, "some of it is ONCOMING on a two-way road", sawBack);
             TrafficPlayCheck.Check(wrongSide == 0, "every car keeps RIGHT of its own direction of travel",
@@ -228,6 +248,33 @@ namespace PSXRacing.EditorTools
                 }
                 else TrafficPlayCheck.Note("the wreck left the road; rest height not measured");
                 Shoot("traffic_wreck");
+            }
+
+            // ---- A SERIOUS CRASH RETIRES A RIVAL -------------------------------
+            // "One serious crash can take a car out of racing condition." Retire
+            // the first AI rival the way AIDriver does past RetireHitMps: it must
+            // coast to a stop, drop to the back of the order, and stay out.
+            AIDriver rival = null;
+            foreach (var other in rm.allCars)
+                if (other != null && other != car && other.GetComponent<AIDriver>() != null)
+                { rival = other.GetComponent<AIDriver>(); break; }
+            TrafficPlayCheck.Check(rival != null, "a rival to retire");
+            if (rival != null && rm.State == RaceManager.RaceState.Racing)
+            {
+                var rc = rival.GetComponent<CarController>();
+                rm.RetireCar(rc);
+                TrafficPlayCheck.Check(rival.Retired && rm.GetProgress(rc).retired, "a retired rival is out of the race");
+                yield return new WaitForSeconds(9f);
+                TrafficPlayCheck.Check(Mathf.Abs(rc.forwardSpeed) < 2f, "and rolls to a stop instead of racing on",
+                                       Mathf.Abs(rc.forwardSpeed).ToString("0.0") + " m/s");
+                int running = 0;
+                foreach (var o in rm.allCars)
+                {
+                    var op = o != null ? rm.GetProgress(o) : null;
+                    if (op != null && !op.retired) running++;
+                }
+                TrafficPlayCheck.Check(rm.GetPosition(rc) > running, "and is behind every car still racing",
+                                       "P" + rm.GetPosition(rc) + " with " + running + " running");
             }
             Done();
         }

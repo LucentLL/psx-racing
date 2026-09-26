@@ -78,6 +78,9 @@ namespace PSXRacing
             public float lapStartTime;
             public bool finished;
             public float finishTime;
+            /// <summary>Out of the race after a serious crash (RetireCar):
+            /// never finishes, sorts behind every running car, shown DNF.</summary>
+            public bool retired;
             /// <summary>Speed through the traps, km/h. Drag only.</summary>
             public float trapSpeedKmh;
         }
@@ -214,7 +217,7 @@ namespace PSXRacing
 
             foreach (var p in progressMap.Values)
             {
-                if (p.finished) continue;
+                if (p.finished || p.retired) continue;
                 p.raceTime += Time.deltaTime;
 
                 int prev = p.nearestIdx;
@@ -453,6 +456,8 @@ namespace PSXRacing
         // compares exactly equal and the final standings come out arbitrary.
         static readonly Comparison<CarProgress> ByProgress = (a, b) =>
         {
+            if (a.retired != b.retired) return a.retired ? 1 : -1;
+            if (a.retired) return b.progress.CompareTo(a.progress);
             if (a.finished != b.finished) return a.finished ? -1 : 1;
             if (a.finished) return a.finishTime.CompareTo(b.finishTime);
             return b.progress.CompareTo(a.progress);
@@ -469,6 +474,30 @@ namespace PSXRacing
         /// <summary>1-based race position of a car, from this frame's cache.</summary>
         public int GetPosition(CarController car) =>
             positionCache.TryGetValue(car, out int pos) ? pos : 1;
+
+        /// <summary>
+        /// A racer out of the race: "one serious crash can take a car out of
+        /// racing condition" (owner, 2026-09-26). AI only - the player's damage
+        /// is the LifeSim's business after the flag. The car coasts to a stop
+        /// on its own line (AIDriver.ShutDown's roll), is never respawned, and
+        /// drops behind every running car in the order.
+        /// </summary>
+        public void RetireCar(CarController car)
+        {
+            if (car == null || car == playerCar || State != RaceState.Racing) return;
+            if (!progressMap.TryGetValue(car, out var p) || p.finished || p.retired) return;
+            p.retired = true;
+            var ai = car.GetComponent<AIDriver>();
+            if (ai != null) ai.Retire();
+            RetiredCount++;
+            LastRetired = car;
+            Debug.Log("[Race] " + car.name + " retired after a serious crash");
+        }
+
+        /// <summary>How many rivals are out this race, and the latest - for
+        /// the HUD's notice.</summary>
+        public int RetiredCount { get; private set; }
+        public CarController LastRetired { get; private set; }
 
         public CarProgress GetProgress(CarController car) =>
             progressMap.TryGetValue(car, out var p) ? p : null;

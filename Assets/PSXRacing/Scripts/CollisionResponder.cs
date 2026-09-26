@@ -135,6 +135,7 @@ namespace PSXRacing
 
             bool hard = incidence >= GlancingIncidence;
             DamageScore += normalSpeed * (hard ? 1.6f : 0.4f);
+            if (hard && normalSpeed > WorstHit) { WorstHit = normalSpeed; WorstHitWhat = c.collider != null ? c.collider.name : "?"; }
             lastContactTime = Time.time;
 
             if (hard && normalSpeed >= IncidentSpeed &&
@@ -312,6 +313,12 @@ namespace PSXRacing
             return true;
         }
 
-        public void ResetDamage() { DamageScore = 0f; HardHits = 0; }
+        public void ResetDamage() { DamageScore = 0f; HardHits = 0; WorstHit = 0f; }
+
+        /// <summary>The hardest square hit this race (m/s into what was hit):
+        /// what AIDriver retires a car on (RetireHitMps).</summary>
+        public float WorstHit { get; private set; }
+        /// <summary>What that hardest hit was into (a collider name).</summary>
+        public string WorstHitWhat { get; private set; }
     }
 }
