@@ -173,6 +173,58 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
+        //  the same rooms, round the house on the home street
+        // ------------------------------------------------------------------
+        /// <summary>Everything GarageWorld hangs its hooks on.</summary>
+        public class HomeRooms
+        {
+            public Transform[] bays, beds;
+            public Transform rack, crateAnchor, board, toolAnchor, bench, fridge, door;
+            public Material crateMat, toolMat, rigMat;
+        }
+
+        /// <summary>
+        /// THE WALK-IN ROOMS, BUILT ROUND ANOTHER COPY OF THE HOUSE - the one
+        /// on the home street (owner, 2026-09-26: the walk-in "shouldn't take
+        /// me to a different house and map than when choosing Drive").
+        /// <paramref name="house"/> is house_hero already placed, scaled and
+        /// seated by its caller, and the door datum is the same wide
+        /// Garage_Door measurement this lot takes: both copies stand the model
+        /// at the pack's 0.81 turned 180 degrees with the garage floor at
+        /// y = 0, so every fixture below - laid out from garX/garZ - lands on
+        /// the same furniture in both.
+        /// </summary>
+        public static HomeRooms BuildHomeRooms(Transform parent, Transform house, float doorX, float doorZ)
+        {
+            psxLit = Shader.Find("PSX/Lit");
+            garX = doorX;
+            garZ = doorZ;
+            var shelfMat = Mat("GarageShelf", "Metal_02.jpg", new Vector2(3f, 1f));
+            var benchMat = Mat("GarageBench", "Wood.jpg", new Vector2(2f, 1f));
+            var boardMat = Mat("GarageBoard", "Board.jpg", Vector2.one);
+            var lineMat = Mat("GarageLine", null, Vector2.one, new Color(0.85f, 0.72f, 0.18f));
+            var r = new HomeRooms
+            {
+                crateMat = Mat("GarageCrate", "Deposit.jpg", Vector2.one),
+                toolMat = Mat("GarageTool", "Metal_01.jpg", Vector2.one),
+                rigMat = Mat("GarageRig", null, Vector2.one, new Color(0.62f, 0.15f, 0.12f)),
+            };
+            var fridgeMat = Mat("HomeFridge", "Refrigerator.png", Vector2.one, texDir: HouseDir + "/Textures");
+
+            var rooms = new GameObject("HomeRooms");
+            rooms.transform.SetParent(parent, false);
+            r.beds = house != null ? BuildBedAnchors(house) : new Transform[0];
+            r.bays = BuildBays(rooms.transform, lineMat);
+            r.rack = BuildRack(rooms.transform, shelfMat, out r.crateAnchor);
+            r.board = BuildToolBoard(rooms.transform, boardMat, out r.toolAnchor);
+            r.bench = BuildBench(rooms.transform, benchMat, shelfMat);
+            r.fridge = BuildFridge(rooms.transform, fridgeMat);
+            BuildEngineHoist(rooms.transform, r.rigMat);
+            r.door = BuildDoorAnchor(rooms.transform);
+            return r;
+        }
+
+        // ------------------------------------------------------------------
         //  the lot
         // ------------------------------------------------------------------
         static void BuildGrounds(Transform parent, Material grass, Material drive,
@@ -415,6 +467,9 @@ namespace PSXRacing.EditorTools
                 }
             }
             else Debug.LogWarning("[Home] house_hero_colliders.fbx missing — house is a ghost.");
+            // Nothing falls indoors - the same shelter the home street's copy has.
+            var colsGo = GameObject.Find("HouseColliders");
+            PSXRacing.WeatherShelter.AddTo(colsGo != null ? colsGo : house, roof: house);
 
             // LAST, because these are WORLD points on a house that has just
             // been scaled and seated, and a bed anchor measured before the Y
@@ -496,7 +551,10 @@ namespace PSXRacing.EditorTools
             // with a thickness now rather than a stripe at 1.2 cm, and a car
             // left seated on the old lawn height parks with 9 cm of each wheel
             // in the concrete.
-            Bay(1, new Vector3(garX, DriveY, -14.5f), 180f);
+            // Relative to the DOOR (it was -14.5 on this lot, whose door
+            // measures at z -5.19): the same rooms are laid out round the
+            // house on the home street too, where the door is somewhere else.
+            Bay(1, new Vector3(garX, DriveY, garZ - 9.31f), 180f);
             // Bays 2-7: THE YARD. On the front lawn either side of the drive,
             // noses to the street and none of them quite square, the way cars
             // end up on grass. They were three kerbside spaces on the street,
@@ -512,7 +570,7 @@ namespace PSXRacing.EditorTools
             // MEASURED (garX moves with the model), and the strip in front of
             // the porch beside it is left clear so the walk from the front
             // door to the drive does not run through a bumper.
-            float lawnZ = -13.4f;
+            float lawnZ = garZ - 8.21f;   // -13.4 on this lot; see bay 1
             Bay(2, new Vector3(garX + 8.0f, 0f, lawnZ), 172f);
             Bay(3, new Vector3(garX - 11.0f, 0f, lawnZ - 0.4f), 187f);
             Bay(4, new Vector3(garX + 12.6f, 0f, lawnZ + 0.5f), 184f);

@@ -299,18 +299,20 @@ namespace PSXRacing.LifeSim
             // and wear — and then loads the room. The player sees one loading
             // screen and arrives inside the garage, which is what walking
             // through a door should cost.
+            // INTO YOUR OWN STREET, on foot (2026-09-26): the house you walk
+            // round is the one on the street you drive, not a second copy in a
+            // scene of its own - see OnFoot.HomeWalk.
             if (tab == "garagewalk")
             {
                 tab = "garage";
-                int gIdx = TrackCatalog.GarageSceneIndex;
-                if (gIdx > 0 && gIdx < SceneManager.sceneCountInBuildSettings)
+                if (TrackCatalog.NeighborhoodSceneIndex > 0 &&
+                    TrackCatalog.NeighborhoodSceneIndex < SceneManager.sceneCountInBuildSettings)
                 {
                     BuildChrome();
-                    LifeSimManager.Save();
-                    SceneManager.LoadScene(gIdx);
+                    PSXRacing.OnFoot.HomeWalk.Enter();
                     return;
                 }
-                // No garage in this build: fall through to the tab, which is
+                // No street in this build: fall through to the tab, which is
                 // the page that has a button to it.
             }
 
@@ -2738,11 +2740,9 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void HouseDoor(float centreX, float y, float w, float h) =>
             MenuKit.Button(body, "WALK INTO THE HOUSE  >>",
-                new Vector2(0.5f, 1f), new Vector2(centreX, y), new Vector2(w, h), () =>
-                {
-                    LifeSimManager.Save();
-                    SceneManager.LoadScene(TrackCatalog.GarageSceneIndex);
-                }, 17, new Color(0.20f, 0.30f, 0.24f, 1f));
+                new Vector2(0.5f, 1f), new Vector2(centreX, y), new Vector2(w, h),
+                // The house on YOUR STREET - the one DRIVE leaves from.
+                PSXRacing.OnFoot.HomeWalk.Enter, 17, new Color(0.20f, 0.30f, 0.24f, 1f));
 
         /// <summary>
         /// The top of MY CARS: the car the player is in — or was in last, if it
@@ -3419,7 +3419,12 @@ namespace PSXRacing.LifeSim
                     {
                         int back = InspectReturnScene;
                         InspectReturnScene = -1;
-                        SceneManager.LoadScene(back);
+                        // Home is a street you arrive on, with a car to put
+                        // in its garage - not a scene index to load bare.
+                        if (back == TrackCatalog.NeighborhoodSceneIndex || back == TrackCatalog.GarageSceneIndex)
+                            PSXRacing.OnFoot.HomeWalk.Enter();
+                        else
+                            SceneManager.LoadScene(back);
                         return;
                     }
                     InspectReturnScene = -1;

@@ -167,6 +167,7 @@ namespace PSXRacing.EditorTools
             ClearSeasonEntries();
             townPizzaKerb = townDealerDoor =
                 townYardGate = townHomeDoor = townMechanicDoor = townPaintDoor = null;
+            townHomeHouse = null;
             townPizzaHooks = null;
             psxLit = Shader.Find("PSX/Lit");
             if (psxLit == null) throw new System.Exception("PSX/Lit not found");
@@ -193,6 +194,20 @@ namespace PSXRacing.EditorTools
             var homeDrive = BuildTownHome(root.transform, mats);
             BuildNbPlots(root.transform, mats);
             BuildNbBounds(root.transform);
+
+            // THE HOUSE YOU WALK ROUND IS THIS ONE (owner, 2026-09-26: the
+            // walk-in "shouldn't take me to a different house and map than when
+            // choosing Drive"). The walk-in scene's rooms - bays, rack, board,
+            // bench, fridge, hoist, beds, front door - laid out round this copy
+            // of the house from the same garage-door datum; GarageWorld runs
+            // them below, beside the real car.
+            GarageSceneBuilder.HomeRooms rooms = null;
+            if (townHomeHouse != null)
+            {
+                rooms = GarageSceneBuilder.BuildHomeRooms(root.transform, townHomeHouse,
+                                                          townHomeDoorX, townHomeDoorZ);
+                SettleHomeBays(rooms.bays);
+            }
 
             // THE JUNCTION AT THE BOTTOM OF THE STREET is the LINE below, and
             // nothing else.
@@ -312,7 +327,50 @@ namespace PSXRacing.EditorTools
             // Drive home mid-errand and the order still has to be visible.
             var world = systems.AddComponent<TownWorld>();
             world.player = player;
-            world.homeDoor = townHomeDoor;
+            // No walk-up door into a SEPARATE garage any more: the garage is
+            // right there, and you walk into it.
+            world.homeDoor = rooms != null ? null : townHomeDoor;
+
+            if (rooms != null)
+            {
+                forecourt.footPlace = "HOME";
+                forecourt.footWallet = true;
+
+                var home = systems.AddComponent<PSXRacing.OnFoot.GarageWorld>();
+                home.embedded = true;
+                home.liveCar = player;
+                home.bays = rooms.bays;
+                home.partsRack = rooms.rack;
+                home.toolBoard = rooms.board;
+                home.workbench = rooms.bench;
+                home.exitDoor = rooms.door;
+                home.fridge = rooms.fridge;
+                home.beds = rooms.beds;
+                home.crateAnchor = rooms.crateAnchor;
+                home.toolAnchor = rooms.toolAnchor;
+                home.crateMaterial = rooms.crateMat;
+                home.toolMaterial = rooms.toolMat;
+                home.rigMaterial = rooms.rigMat;
+
+                // Walking in from the menu: on the drive, eight metres out,
+                // looking up at the house and the open garage - where the
+                // walk-in scene always stood the player.
+                var start = new GameObject("WalkInStart");
+                start.transform.SetParent(root.transform, false);
+                float sz = townHomeDoorZ - 8.3f;
+                start.transform.SetPositionAndRotation(
+                    new Vector3(townHomeDoorX, GroundYAt(townHomeDoorX, sz) + 0.2f, sz),
+                    Quaternion.LookRotation(Vector3.forward, Vector3.up));
+
+                var arrival = systems.AddComponent<PSXRacing.OnFoot.HomeArrival>();
+                arrival.car = player;
+                arrival.garageBay = rooms.bays[0];
+                arrival.walkerStart = start.transform;
+                arrival.forecourt = forecourt;
+                Log("[Neighborhood] walk-in rooms: " + rooms.bays.Length + " bays, " +
+                    rooms.beds.Length + " beds, door at (" + townHomeDoorX.ToString("0.00") + ", " +
+                    townHomeDoorZ.ToString("0.00") + ")");
+            }
             world.blockMaterial = MakeMat("TownCinder", null,
                 tint: new Color(0.56f, 0.56f, 0.52f));
 
@@ -322,6 +380,64 @@ namespace PSXRacing.EditorTools
             return NeighborhoodScenePath;
         }
 
+
+        /// <summary>The top of whatever solid is under (x, z): ground, drive,
+        /// road. Colliders only, after a sync - the slabs are all built.</summary>
+        static float GroundYAt(float x, float z)
+        {
+            Physics.SyncTransforms();
+            var hits = Physics.RaycastAll(new Vector3(x, 60f, z), Vector3.down, 120f, ~(1 << 2),
+                                          QueryTriggerInteraction.Ignore);
+            float best = float.NegativeInfinity;
+            foreach (var h in hits)
+            {
+                // The house's own collider shell is not ground to stand a car on.
+                if (h.collider.gameObject.layer == WorldKit.SolidLayer) continue;
+                if (h.point.y > best) best = h.point.y;
+            }
+            return float.IsNegativeInfinity(best) ? 0f : best;
+        }
+
+        /// <summary>
+        /// THE LAWN BAYS ON THIS LOT. The walk-in scene lays its six yard
+        /// spaces out 8.2 m in front of the garage door, on a lot whose street
+        /// is 19 m away; here the turning head's kerb is 7.3 m from the door,
+        /// and a car at the old spot put a corner on the tarmac. Each yard bay
+        /// (2..) steps back toward the house until its whole footprint - a
+        /// 2 x 4.8 m car and a hand round it - clears the head's kerb, then
+        /// sits on the ground under it. The garage bay (0) is on the garage
+        /// floor at y 0 and stays; the drive bay (1) is never used here.
+        /// </summary>
+        static void SettleHomeBays(Transform[] bays)
+        {
+            var bulb = new Vector2(HomeStreetX, NbBulbCz);
+            float clear = NbBulbR + 1.3f;
+            for (int i = 2; i < bays.Length; i++)
+            {
+                var b = bays[i];
+                if (b == null) continue;
+                Vector3 p = b.position;
+                for (int step = 0; step < 16; step++)
+                {
+                    float worst = float.MaxValue;
+                    foreach (var c in new[] { new Vector2(-1.1f, -2.5f), new Vector2(1.1f, -2.5f),
+                                              new Vector2(-1.1f, 2.5f), new Vector2(1.1f, 2.5f) })
+                    {
+                        Vector3 w = b.rotation * new Vector3(c.x, 0f, c.y);
+                        worst = Mathf.Min(worst, Vector2.Distance(new Vector2(p.x + w.x, p.z + w.z), bulb));
+                    }
+                    if (worst >= clear) break;
+                    p.z += 0.4f;
+                }
+                p.y = GroundYAt(p.x, p.z);
+                b.position = p;
+                // A bay standing inside the house's walls is a car in the
+                // lounge; say so rather than find it in a screenshot.
+                if (Physics.CheckBox(p + Vector3.up * 0.9f, new Vector3(1f, 0.6f, 2.3f), b.rotation,
+                                     1 << WorldKit.SolidLayer, QueryTriggerInteraction.Ignore))
+                    Log("[Neighborhood] WARN: yard bay " + i + " overlaps the house at " + p);
+            }
+        }
 
         // ------------------------------------------------------------------
         //  Verticality

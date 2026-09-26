@@ -60,7 +60,7 @@ namespace PSXRacing
         {
             get
             {
-                if (instance == null || instance.rainSince < 0f) return 0f;
+                if (instance == null || instance.rainSince < 0f || instance.covered) return 0f;
                 float x = Mathf.Clamp01((Time.time - instance.rainSince) / LensRainEase);
                 return x * x * (3f - 2f * x);
             }
@@ -154,7 +154,54 @@ namespace PSXRacing
             if (cam == null) return;
             var t = cam.transform;
             transform.position = SlabOver(t) + RainLead(t.position);
+            CullSheltered(t.position);
         }
+
+        // ------------------------------------------------------------------
+        //  under a roof
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// NOTHING FALLS INDOORS. Owner, 2026-09-26, standing in their own
+        /// bedroom in the snow: "Buildings should not let weather through the
+        /// roof." The slab rides over the CAMERA and knows nothing of what is
+        /// between it and the sky, so walking into the house carried the
+        /// weather in with you.
+        ///
+        /// Every drop or flake that falls INTO a building's shelter
+        /// (<see cref="WeatherShelter"/>, the rooms' own volume up to the roof
+        /// ridge) is ended where it enters - so the weather goes on falling
+        /// past the open garage door and the windows, and not on the bed. Only
+        /// while a shelter is near the camera: the list is empty on every
+        /// circuit but its pump canopies, and a street of scenery with nobody
+        /// near a door costs nothing. The lens stays dry while the eye itself
+        /// is under one.
+        /// </summary>
+        void CullSheltered(Vector3 eye)
+        {
+            covered = WeatherShelter.Contains(eye);
+            if (ps == null || !WeatherShelter.AnyNear(eye, ShelterReach)) return;
+            int max = ps.main.maxParticles;
+            if (buf == null || buf.Length < max) buf = new ParticleSystem.Particle[max];
+            int n = ps.GetParticles(buf);
+            bool changed = false;
+            for (int i = 0; i < n; i++)
+            {
+                if (buf[i].remainingLifetime <= 0f || !WeatherShelter.Contains(buf[i].position)) continue;
+                buf[i].remainingLifetime = 0f;
+                changed = true;
+            }
+            if (changed) ps.SetParticles(buf, n);
+        }
+
+        /// <summary>How close a shelter has to be to the camera for its drops
+        /// to be worth checking: the slab is 48 m across at most.</summary>
+        const float ShelterReach = 60f;
+        ParticleSystem.Particle[] buf;
+        bool covered;
+
+        /// <summary>True while the camera is under a building's roof: no drops
+        /// on the lens, and none falling round it. For the checks.</summary>
+        public static bool Covered => instance != null && instance.covered;
 
         /// <summary>
         /// Where the slab sits for a still camera. Above and a little ahead of

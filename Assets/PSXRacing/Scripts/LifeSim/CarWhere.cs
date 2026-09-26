@@ -48,12 +48,16 @@ namespace PSXRacing.LifeSim
         public const string PaintName = "COLOURWORKS";
 
         /// <summary>How the home lot fills up: one car in the garage (the
-        /// starting rung is "SMALL HOUSE — 1-CAR GARAGE"), one on the drive
-        /// behind it, and everything after that out on the grass. The walk-in
-        /// scene's bays are laid out in this order — see
-        /// GarageSceneBuilder.BuildBays — so the page and the lot cannot
-        /// disagree about which car is where.</summary>
-        public const int GarageBays = 1, DrivewayBays = 1;
+        /// starting rung is "SMALL HOUSE — 1-CAR GARAGE") and everything after
+        /// that out on the grass. The home street's rooms are laid out in this
+        /// order — see GarageWorld.BuildCars — so the page and the lot cannot
+        /// disagree about which car is where.
+        ///
+        /// NO DRIVEWAY BAY since 2026-09-26, when the walk-in moved onto the
+        /// home street: there the drive is the garage's only way out, and a
+        /// car parked on it would wall the one with the keys in. The second
+        /// car stands on the lawn beside it, and the page says YARD.</summary>
+        public const int GarageBays = 1, DrivewayBays = 0;
 
         /// <summary>
         /// The job keeping this car away from home, or null when it is at home.

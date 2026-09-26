@@ -433,12 +433,13 @@ namespace PSXRacing.EditorTools
 
             Check(CarWhere.PlaceOf(s, a) == CarPlace.Garage, "the car you drive is in the GARAGE",
                   CarWhere.PlaceOf(s, a));
-            Check(CarWhere.PlaceOf(s, b) == CarPlace.Driveway, "the next one is on the DRIVEWAY",
-                  CarWhere.PlaceOf(s, b));
-            Check(CarWhere.PlaceOf(s, c) == CarPlace.Yard && CarWhere.PlaceOf(s, d) == CarPlace.Yard,
-                  "and the rest are in the YARD");
+            // No DRIVEWAY bay: on the home street the drive is the garage's
+            // only way out (see CarWhere.DrivewayBays).
+            Check(CarWhere.PlaceOf(s, b) == CarPlace.Yard && CarWhere.PlaceOf(s, c) == CarPlace.Yard &&
+                  CarWhere.PlaceOf(s, d) == CarPlace.Yard,
+                  "the rest are in the YARD, the drive left clear", CarWhere.PlaceOf(s, b));
             s.activeCar = c.id;
-            Check(CarWhere.PlaceOf(s, c) == CarPlace.Garage && CarWhere.PlaceOf(s, a) == CarPlace.Driveway,
+            Check(CarWhere.PlaceOf(s, c) == CarPlace.Garage && CarWhere.PlaceOf(s, a) == CarPlace.Yard,
                   "taking another car's keys puts THAT one in the garage");
             s.activeCar = a.id;
 
@@ -2567,8 +2568,10 @@ namespace PSXRacing.EditorTools
                   mode != null ? mode.respawnPoints.Length : 0);
             Check(forecourt != null && forecourt.anywhereInTown,
                   "you can get out anywhere on your own street");
-            Check(world != null && world.homeDoor != null,
-                  "and walk in through your own garage door");
+            // The garage door used to be a walk-up that LOADED a separate
+            // copy of the house. The rooms are here now (see the checks at the
+            // end); the door is just a door you walk through.
+            Check(world != null, "and the street's world is running");
 
             // HOME moved out of the town with the house. DEPART did not come
             // with it: the junction VOLUME — stop inside forty metres, then
@@ -2713,6 +2716,74 @@ namespace PSXRacing.EditorTools
             Check(drawnSolid == 0,
                   "a garden footing is drawn whole and solid only along a critical fall",
                   solidRuns + " solid run(s), " + drawnSolid + " collider(s) on drawn footings");
+
+            // THE HOUSE YOU WALK ROUND IS THIS ONE (owner, 2026-09-26: the
+            // walk-in "shouldn't take me to a different house and map than when
+            // choosing Drive"). The walk-in rooms stand round this copy of the
+            // house, run beside the real car, and a walk-in arrives here.
+            PSXRacing.OnFoot.GarageWorld nbHome = null;
+            PSXRacing.OnFoot.HomeArrival arrival = null;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                nbHome = nbHome ?? go.GetComponentInChildren<PSXRacing.OnFoot.GarageWorld>(true);
+                arrival = arrival ?? go.GetComponentInChildren<PSXRacing.OnFoot.HomeArrival>(true);
+            }
+            Check(nbHome != null && nbHome.embedded && nbHome.liveCar == player,
+                  "the walk-in rooms run on your street, beside the car on the drive");
+            Check(arrival != null && arrival.car == player && arrival.garageBay != null &&
+                  arrival.walkerStart != null && arrival.forecourt == forecourt,
+                  "a walk-in arrives on foot, with the car put in the garage");
+            Check(world != null && world.homeDoor == null,
+                  "no door out of the street into a separate garage");
+            if (nbHome != null)
+            {
+                int beds = nbHome.beds != null ? nbHome.beds.Length : 0;
+                Check(beds > 0, "there is a bed to sleep in on your street", beds);
+                Check(nbHome.bays != null && nbHome.bays.Length >= 8 && nbHome.partsRack != null &&
+                      nbHome.toolBoard != null && nbHome.workbench != null && nbHome.fridge != null &&
+                      nbHome.exitDoor != null, "and the bays, rack, board, bench, fridge and front door");
+                // Nothing parked on the tarmac or in the lounge: the yard bays
+                // clear the turning head's kerb and the house's walls.
+                Physics.SyncTransforms();
+                var badBay = new List<string>();
+                for (int i = 2; nbHome.bays != null && i < nbHome.bays.Length; i++)
+                {
+                    var b = nbHome.bays[i];
+                    if (b == null) continue;
+                    bool inHouse = Physics.CheckBox(b.position + Vector3.up * 0.9f, new Vector3(1f, 0.6f, 2.3f),
+                        b.rotation, 1 << PSXRacing.EditorTools.WorldKit.SolidLayer, QueryTriggerInteraction.Ignore);
+                    bool onRoad = Physics.Raycast(b.position + Vector3.up * 3f, Vector3.down, out var hit, 6f,
+                        ~(1 << 2), QueryTriggerInteraction.Ignore) &&
+                        hit.collider.gameObject.layer == PSXRacing.EditorTools.WorldKit.RoadLayer;
+                    if (inHouse || onRoad) badBay.Add(i + (inHouse ? "(in the house)" : "(on the road)"));
+                }
+                Check(badBay.Count == 0, "every yard bay is on the lawn",
+                      badBay.Count == 0 ? null : string.Join(" ", badBay));
+
+                // AND THE WEATHER STAYS OUTSIDE. The roof has no collider for
+                // WeatherFx to find overhead, so the house carries a shelter
+                // box: every bed and the garage bay inside it, the drive's
+                // far end and the lawn bays out in the weather.
+                PSXRacing.WeatherShelter shelter = null;
+                foreach (var go in scene.GetRootGameObjects())
+                    shelter = shelter ?? go.GetComponentInChildren<PSXRacing.WeatherShelter>(true);
+                bool In(Vector3 p)
+                {
+                    if (shelter == null) return false;
+                    Vector3 dd = p - shelter.center, h = shelter.size * 0.5f;
+                    return Mathf.Abs(dd.x) <= h.x && Mathf.Abs(dd.y) <= h.y && Mathf.Abs(dd.z) <= h.z;
+                }
+                int roofed = 0;
+                for (int i = 0; i < beds; i++)
+                    if (nbHome.beds[i] != null && In(nbHome.beds[i].position)) roofed++;
+                bool bay0In = nbHome.bays != null && nbHome.bays[0] != null && In(nbHome.bays[0].position + Vector3.up * 1.6f);
+                int lawnIn = 0;
+                for (int i = 2; nbHome.bays != null && i < nbHome.bays.Length; i++)
+                    if (nbHome.bays[i] != null && In(nbHome.bays[i].position + Vector3.up * 1.6f)) lawnIn++;
+                Check(shelter != null && beds > 0 && roofed == beds && bay0In && lawnIn == 0,
+                      "the house keeps the weather off every bed and the garage, and not off the lawn",
+                      shelter == null ? "no shelter" : roofed + "/" + beds + " beds, garage " + bay0In + ", " + lawnIn + " lawn bays under it");
+            }
 
             UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
         }

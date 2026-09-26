@@ -53,6 +53,27 @@ namespace PSXRacing.OnFoot
         /// </summary>
         public bool anywhereInTown;
 
+        /// <summary>What the on-foot header calls this place, and whether it
+        /// quotes the wallet and the date. The forecourt's race HUD already
+        /// prints the fuel and the lap; on your own street (HOME) there is no
+        /// race and the header is the walk-in garage's.</summary>
+        public string footPlace = "FORECOURT";
+        public bool footWallet;
+
+        public static ForecourtMode Instance { get; private set; }
+        /// <summary>The on-foot header, once the rig exists - for GarageWorld's
+        /// toasts when it stands in the same street.</summary>
+        public FootScreen Screen => screen;
+
+        /// <summary>Asked before the walker gets back in: a reason not to (the
+        /// car is up on the lift), or null. Set by whoever owns the place the
+        /// car is parked in; cleared on every scene load.</summary>
+        public static System.Func<string> GetInRefusal;
+        /// <summary>Lets the place the car is parked in say more about it than
+        /// YOUR CAR / GET IN - at home, its name, its condition and INSPECT IT.
+        /// Called after the defaults are written.</summary>
+        public static System.Action<FootTarget> DecorateCarTarget;
+
         /// <summary>True when a stopped car could be got out of right here,
         /// right now. The HUD reads it to hand the touch ACTION button over
         /// when no pump, venue or order window is claiming it.</summary>
@@ -92,7 +113,13 @@ namespace PSXRacing.OnFoot
         float engineVolume = 1f;
         bool drivingPanelWasVisible;
 
-        void Awake() => ClearStatics();
+        void Awake()
+        {
+            Instance = this;
+            ClearStatics();
+        }
+
+        void OnDestroy() { if (Instance == this) Instance = null; }
 
         /// <summary>
         /// NOBODY IS ON FOOT IN A SCENE THAT HAS JUST LOADED.
@@ -120,6 +147,8 @@ namespace PSXRacing.OnFoot
             OnFoot = false;
             Prompt = null;
             OfferGetOut = false;
+            GetInRefusal = null;
+            DecorateCarTarget = null;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -268,6 +297,7 @@ namespace PSXRacing.OnFoot
                 // The button word, beside the sentence it belongs to, the way
                 // every registrar writes it; see FootTarget.verb.
                 carTarget.verb = "GET IN";
+                DecorateCarTarget?.Invoke(carTarget);
             }
 
             if (storeTarget != null)
@@ -345,6 +375,40 @@ namespace PSXRacing.OnFoot
             phase = Phase.Afoot;
             RefreshLabels();
         }
+
+        /// <summary>
+        /// Start the scene ALREADY on foot, at <paramref name="at"/> - walking
+        /// into your own house from the menu. No ceremony: nobody got out of
+        /// anything. The car (when there is one) is parked, handbrake on,
+        /// engine silent, exactly as if the player had got out and shut it off.
+        /// </summary>
+        public void BeginAfoot(Vector3 at, Quaternion facing)
+        {
+            if (phase != Phase.InCar) return;
+            if (carInput != null) carInput.inputEnabled = false;
+            if (playerCar != null)
+            {
+                playerCar.throttleInput = 0f;
+                playerCar.brakeInput = 0f;
+                playerCar.handbrakeInput = true;
+            }
+            if (engine != null) engine.masterVolume = 0f;
+            EnsureRig();
+            walker.transform.SetPositionAndRotation(at, facing);
+            TakeCamera();
+            SetDrivingPanel(false);
+            walker.SetActive(true);
+            if (screen != null) screen.show = true;
+            OnFoot = true;
+            Prompt = null;
+            OfferGetOut = false;
+            phase = Phase.Afoot;
+            RefreshLabels();
+        }
+
+        /// <summary>Rewrite the walker's prompts - the car's line changes when
+        /// something at home (the lift) changes it.</summary>
+        public void Relabel() { if (phase == Phase.Afoot) RefreshLabels(); screen?.Invalidate(); }
 
         /// <summary>Back in. The view returns first so the press feels
         /// answered; the doors and the starter play over the top of it, which
@@ -430,11 +494,12 @@ namespace PSXRacing.OnFoot
             screen.interactor = interactor;
             screen.walker = walk;
             screen.panel = touchPanel;
-            screen.place = "FORECOURT";
+            screen.place = footPlace;
             // The race HUD is already printing the lap, the position and the
             // fuel bar. A second header quoting the wallet and the date over
-            // the top of it would be two games talking at once.
-            screen.showWallet = false;
+            // the top of it would be two games talking at once - except at
+            // home, where there is no race and the header is the house's.
+            screen.showWallet = footWallet;
             screen.show = false;
 
             store = ui.AddComponent<StoreScreen>();
@@ -458,7 +523,10 @@ namespace PSXRacing.OnFoot
             if (storeTarget != null) storeTarget.onUse = OpenStore;
             if (carTarget != null) carTarget.onUse = () =>
             {
-                if (phase == Phase.Afoot) StartCoroutine(GetIn());
+                if (phase != Phase.Afoot) return;
+                string no = GetInRefusal?.Invoke();
+                if (no != null) { screen?.Toast(no); return; }
+                StartCoroutine(GetIn());
             };
         }
 

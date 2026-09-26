@@ -61,6 +61,19 @@ namespace PSXRacing.OnFoot
         public Material rigMaterial;
 
         /// <summary>
+        /// STANDING IN THE NEIGHBOURHOOD rather than in a scene of its own
+        /// (owner, 2026-09-26: the walk-in "shouldn't take me to a different
+        /// house and map than when choosing Drive"). The rooms are the same;
+        /// what changes is that the car with the keys is a REAL car
+        /// (<see cref="liveCar"/>) - you get into it and drive off the drive
+        /// rather than loading a scene - so it is not drawn as a shell, the
+        /// drive is left clear for it, and every way out banks the visit
+        /// through TownExit like any other exit from the street.
+        /// </summary>
+        public bool embedded;
+        public CarController liveCar;
+
+        /// <summary>
         /// One parking spot and everything the room knows about it: whose car
         /// is in it, the two things the player can do to that car, and the gear
         /// that holds it up when it is in the air.
@@ -82,6 +95,12 @@ namespace PSXRacing.OnFoot
             /// four red two-post lifts on the front lawn now that the cars the
             /// garage cannot hold stand in the yard.</summary>
             public bool garage;
+            /// <summary>The bay holds the LIVE car (embedded): no shell, the
+            /// car itself goes up on the lift.</summary>
+            public bool live;
+            /// <summary>The live car's root height over its bay when it is on
+            /// its wheels, taken as it goes up.</summary>
+            public float liveBase = 0.35f;
             public FootTarget hook;      // the car itself
             public FootTarget rigHook;   // the jack, or the lift
             public Transform shell;      // body + wheels + collider, as one
@@ -114,7 +133,32 @@ namespace PSXRacing.OnFoot
 
         bool built;
 
-        void Start() => PreviewBuild();
+        System.Collections.IEnumerator Start()
+        {
+            // In the street, wait for the arrival to put the car where it is
+            // going (the garage, or nowhere) - whether the live car is here
+            // decides which bays the others stand in.
+            if (embedded)
+            {
+                float waited = 0f;
+                while (!HomeArrival.Settled && waited < 3f)
+                {
+                    waited += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+            }
+            PreviewBuild();
+            if (embedded) HookForecourt();
+        }
+
+        /// <summary>The header to toast on: this room's own in the walk-in
+        /// scene, the forecourt walker's in the street.</summary>
+        FootScreen Scr => screen != null ? screen : ForecourtMode.Instance != null ? ForecourtMode.Instance.Screen : null;
+
+        /// <summary>The car with the keys, in the street and drivable.</summary>
+        bool LiveHere => embedded && liveCar != null && liveCar.gameObject.activeInHierarchy;
+
+        BayState liveSt;
 
         /// <summary>
         /// Fill the room.
@@ -161,12 +205,24 @@ namespace PSXRacing.OnFoot
             // have stood a car in its bay while the page said it was across
             // town on a ramp.
             var cars = CarWhere.HomeOrder(S);
+            // IN THE STREET the car with the keys is the real one, parked in
+            // the garage or wherever the player left it, and the drive is its
+            // way out - so the others stand on the lawn (bays 2..) and the
+            // drive bay (1) is never used. With no live car (the keys are on a
+            // car at a shop, or one with no engine) the garage takes a shell
+            // as it always did.
+            bool live = LiveHere;
+            if (live && S.ActiveCar != null) cars.Remove(S.ActiveCar);
+            var order = new System.Collections.Generic.List<int>();
             for (int i = 0; i < bays.Length; i++)
+                if (!embedded || (i != 1 && !(live && i == 0))) order.Add(i);
+            for (int k = 0; k < order.Count; k++)
             {
+                int i = order[k];
                 var bay = bays[i];
                 if (bay == null) continue;
 
-                OwnedCar car = i < cars.Count ? cars[i] : null;
+                OwnedCar car = k < cars.Count ? cars[k] : null;
                 var st = new BayState { bay = bay, car = car, garage = i == 0 };
                 bayStates.Add(st);
 
@@ -219,6 +275,45 @@ namespace PSXRacing.OnFoot
                 // select the thing you are standing under.
                 hook.focus.localPosition = roofPoint;
             }
+            if (live) BuildLiveBay();
+        }
+
+        /// <summary>
+        /// Bay 0 for the LIVE car: no shell and no hook of its own (the walker's
+        /// GET IN target is on the car), but the jack, the stands and the lift
+        /// all work on it - the car itself goes up. Only while it is standing
+        /// in the bay; parked anywhere else it is a car on a drive.
+        /// </summary>
+        void BuildLiveBay()
+        {
+            var car = S.ActiveCar;
+            if (car == null || bays.Length == 0 || bays[0] == null) return;
+            var spec = CarCatalog.Get(car.specId);
+            var def = spec != null ? CarModelLibrary.LoadFor(spec) : CarModelLibrary.Load(CarModelLibrary.Default);
+            if (def == null) return;
+            liveSt = new BayState { bay = bays[0], car = car, garage = true, live = true };
+            bayStates.Add(liveSt);
+            BuildRaiseRig(liveSt, def);
+            if (LiveInBay())
+                SetRaise(liveSt, RaiseHere(liveSt), instant: true);
+            else if (Toolbox.RaiseOf(S, car) != Toolbox.Raise.Ground)
+            {
+                // It was driven here, so it is on its wheels whatever the
+                // save last said about it.
+                Toolbox.SetRaise(S, car, Toolbox.Raise.Ground);
+                LifeSimManager.Save();
+            }
+        }
+
+        /// <summary>The live car is standing in the garage bay, square to it.</summary>
+        bool LiveInBay()
+        {
+            if (!LiveHere || bays.Length == 0 || bays[0] == null) return false;
+            Vector3 d = liveCar.transform.position - bays[0].position;
+            d.y = 0f;
+            return d.magnitude < 0.8f &&
+                   Vector3.Angle(liveCar.transform.forward, bays[0].forward) < 15f &&
+                   Mathf.Abs(liveCar.speedKmh) < 1f;
         }
 
         /// <summary>
@@ -259,6 +354,7 @@ namespace PSXRacing.OnFoot
         Toolbox.Raise RaiseHere(BayState st)
         {
             var r = Toolbox.RaiseOf(S, st.car);
+            if (st.live && st.height <= 0f && st.target <= 0f && !LiveInBay()) return Toolbox.Raise.Ground;
             return !st.garage && r == Toolbox.Raise.Lift ? Toolbox.Raise.Stands : r;
         }
 
@@ -369,7 +465,10 @@ namespace PSXRacing.OnFoot
             // The arms ride WITH the car: parented to the shell, so they hold
             // the sills at every height instead of being drawn at one.
             var armsGO = new GameObject("LiftArms");
-            armsGO.transform.SetParent(st.shell, false);
+            // The live car's own frame is the def's, not the shell's: CarShell
+            // slides a body back by the collider's centre, the car does not.
+            armsGO.transform.SetParent(st.live ? liveCar.transform : st.shell, false);
+            if (st.live) armsGO.transform.localPosition = new Vector3(0f, 0f, centre);
             st.arms = armsGO.transform;
             for (int i = 0; i < 4; i++)
             {
@@ -427,9 +526,45 @@ namespace PSXRacing.OnFoot
 
         void Place(BayState st)
         {
+            if (st.live) { PlaceLive(st); return; }
             if (st.shell == null) return;
             var p = st.shell.localPosition;
             st.shell.localPosition = new Vector3(p.x, st.height, p.z);
+        }
+
+        /// <summary>The real car, up or down. Up, it is kinematic and square
+        /// to the bay; back on its wheels it is handed back to the physics
+        /// exactly where it went up from.</summary>
+        void PlaceLive(BayState st)
+        {
+            if (liveCar == null) return;
+            var rb = liveCar.Body != null ? liveCar.Body : liveCar.GetComponent<Rigidbody>();
+            if (rb == null) return;
+            bool up = st.height > 0.001f || st.target > 0.001f;
+            if (up)
+            {
+                if (!rb.isKinematic)
+                {
+                    // Taken off its wheels from where it stands, which the
+                    // bay test has just called square to the bay.
+                    st.liveBase = liveCar.transform.position.y - st.bay.position.y;
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.isKinematic = true;
+                }
+                Vector3 p = st.bay.position + Vector3.up * (st.liveBase + st.height);
+                var interp = rb.interpolation;
+                rb.interpolation = RigidbodyInterpolation.None;
+                rb.position = p;
+                rb.rotation = st.bay.rotation;
+                liveCar.transform.SetPositionAndRotation(p, st.bay.rotation);
+                rb.interpolation = interp;
+            }
+            else if (rb.isKinematic)
+            {
+                liveCar.TeleportTo(st.bay.position + Vector3.up * st.liveBase, st.bay.rotation);
+                rb.isKinematic = false;
+            }
         }
 
         void RefreshRig(BayState st)
@@ -446,7 +581,18 @@ namespace PSXRacing.OnFoot
             for (int i = 0; i < bayStates.Count; i++)
             {
                 var st = bayStates[i];
-                if (st.shell == null || st.height == st.target) continue;
+                if (st.live && st.rigHook != null)
+                {
+                    // The jack is offered while the car stands in the bay, or
+                    // while it is up - never to a car parked on the drive.
+                    bool show = st.height > 0f || st.target > 0f || LiveInBay();
+                    if (st.rigHook.gameObject.activeSelf != show)
+                    {
+                        st.rigHook.gameObject.SetActive(show);
+                        if (show) RefreshRigLabel(st);
+                    }
+                }
+                if ((st.shell == null && !st.live) || st.height == st.target) continue;
                 st.height = Mathf.MoveTowards(st.height, st.target, RaiseSpeed * Time.deltaTime);
                 Place(st);
                 if (st.height == st.target && st.target <= 0f) st.drawn = Toolbox.Raise.Ground;
@@ -589,6 +735,7 @@ namespace PSXRacing.OnFoot
             for (int i = 0; i < bayStates.Count; i++)
             {
                 var st = bayStates[i];
+                if (st.live) { RefreshRigLabel(st); continue; }
                 var hook = st.hook;
                 if (hook == null) continue;
                 var car = st.car;
@@ -641,8 +788,13 @@ namespace PSXRacing.OnFoot
                         S.activeCar = target.id;
                         S.calendarLog.Add(LifeRules.LogDate(S.day) + ": took the keys to " + target.displayName);
                         LifeSimManager.Save();
+                        // In the street the car with the keys is the one you
+                        // can get into: it has to be put in the garage, and
+                        // the one it replaces out on the lawn. Round through
+                        // the front end, which banks this visit, and back.
+                        if (embedded) { Leave("garagewalk"); return; }
                         RefreshLabels();
-                        screen?.Toast("NOW DRIVING: " + target.displayName.ToUpperInvariant());
+                        Scr?.Toast("NOW DRIVING: " + target.displayName.ToUpperInvariant());
                     };
 
                 // The second verb on a car, and the only second verb in the
@@ -734,7 +886,8 @@ namespace PSXRacing.OnFoot
             // are already looking at without changing which one it is. Without
             // this the car they just took the keys to still says TAKE THE KEYS
             // until they look away and back.
-            screen?.Invalidate();
+            Scr?.Invalidate();
+            if (embedded) ForecourtMode.Instance?.Relabel();
         }
 
         /// <summary>Eat standing at the fridge — the same rule the EAT tab
@@ -747,7 +900,7 @@ namespace PSXRacing.OnFoot
             LifeRules.EatMeal(S, tier);
             LifeSimManager.Save();
             RefreshLabels();
-            screen?.Toast("ATE A " + tier.ToUpperInvariant() + " MEAL — " +
+            Scr?.Toast("ATE A " + tier.ToUpperInvariant() + " MEAL — " +
                           S.foodStock + " LEFT");
         }
 
@@ -787,7 +940,7 @@ namespace PSXRacing.OnFoot
             LifeRules.Sleep(S);
             LifeSimManager.Save();
             RefreshLabels();
-            screen?.Toast(overnight
+            Scr?.Toast(overnight
                 ? "SLEPT THE NIGHT — " + LifeRules.SlotNames[S.slotIndex]
                 : "EIGHT HOURS ON — " + LifeRules.SlotNames[S.slotIndex]);
         }
@@ -826,6 +979,11 @@ namespace PSXRacing.OnFoot
             var bay = st;
             hook.onUse = () =>
             {
+                if (bay.live && RaiseHere(bay) == Toolbox.Raise.Ground && !LiveInBay())
+                {
+                    Scr?.Toast("PARK IT SQUARE IN THE GARAGE FIRST");
+                    return;
+                }
                 // Up to the best THIS BAY has, or back down. Toolbox.ToggleRaise
                 // would send a car on the lawn up a lift that is in the garage.
                 var to = Toolbox.SetRaise(S, bay.car,
@@ -833,7 +991,7 @@ namespace PSXRacing.OnFoot
                 SetRaise(bay, to);
                 LifeSimManager.Save();
                 RefreshLabels();
-                screen?.Toast(to == Toolbox.Raise.Ground
+                Scr?.Toast(to == Toolbox.Raise.Ground
                     ? "WHEELS BACK ON THE FLOOR"
                     : "UP " + Toolbox.RaiseName(to));
             };
@@ -928,8 +1086,9 @@ namespace PSXRacing.OnFoot
             LifeHomeScreen.PendingInspectCar = car.id;
             // FINISH INSPECTION walks back in here rather than dropping the
             // player in a menu they never opened.
-            LifeHomeScreen.InspectReturnScene = TrackCatalog.GarageSceneIndex;
-            screen?.Toast(wasOpen ? "BACK UNDER " + car.displayName.ToUpperInvariant()
+            LifeHomeScreen.InspectReturnScene = embedded ? TrackCatalog.NeighborhoodSceneIndex
+                                                         : TrackCatalog.GarageSceneIndex;
+            Scr?.Toast(wasOpen ? "BACK UNDER " + car.displayName.ToUpperInvariant()
                                   : "INSPECTING " + car.displayName.ToUpperInvariant());
             GoHome("inspect");
         }
@@ -966,10 +1125,10 @@ namespace PSXRacing.OnFoot
             // standing in its own bay with no engine in it is at home and still
             // not going anywhere.
             string refused = LifeRules.DriveRefusal(S, car);
-            if (refused != null) { screen?.Toast(refused); return; }
+            if (refused != null) { Scr?.Toast(refused); return; }
             if (car.fuel <= 5f)
             {
-                screen?.Toast("THE TANK IS DRY — FUEL IT ON THE BILLS PAGE FIRST");
+                Scr?.Toast("THE TANK IS DRY — FUEL IT ON THE BILLS PAGE FIRST");
                 return;
             }
 
@@ -997,8 +1156,48 @@ namespace PSXRacing.OnFoot
             SceneManager.LoadScene(idx);
         }
 
+        /// <summary>
+        /// Out of the street to the front end, the way every exit from it
+        /// goes: TownExit stamps the visit, so a drive round the block before
+        /// walking in the front door is banked (metres, fuel, wear) - and a
+        /// visit that never went anywhere costs no time. Walking round your own
+        /// house is not a drive; it did not cost a block in the walk-in scene
+        /// and it does not here.
+        /// </summary>
+        void Leave(string tab)
+        {
+            var cm = City.CityMode.Instance;
+            bool stayedHome = cm == null || cm.MetersDriven < 60f;
+            Town.TownExit.GoHome(liveCar, tab, commute: stayedHome);
+        }
+
+        /// <summary>The walker's GET IN target on the live car says what the
+        /// bay hooks say about a car at home - its name, condition and miles -
+        /// and carries INSPECT as its second verb; and nobody drives a car off
+        /// the lift.</summary>
+        void HookForecourt()
+        {
+            ForecourtMode.GetInRefusal = () =>
+                liveSt != null && (liveSt.height > 0.001f || liveSt.target > 0.001f)
+                    ? "SET IT BACK DOWN FIRST" : null;
+            ForecourtMode.DecorateCarTarget = t =>
+            {
+                var car = S.ActiveCar;
+                if (car == null || !LiveHere) return;
+                var spec = CarCatalog.Get(car.specId);
+                t.title = car.displayName.ToUpperInvariant() + "   ·   YOURS";
+                t.detail = Condition(car) + "   ·   " + car.odoMiles.ToString("N0") + " mi" +
+                           (spec != null ? "   ·   " + spec.name : "");
+                bool open = Inspection.OpenToday(S, car);
+                t.action2 = open ? "CARRY ON INSPECTING IT" : "INSPECT IT  (a time slot)";
+                t.onUse2 = () => OpenInspection(car);
+            };
+            ForecourtMode.Instance?.Relabel();
+        }
+
         void GoHome(string tab)
         {
+            if (embedded) { Leave(tab); return; }
             LifeHomeScreen.PendingTab = tab;
             LifeSimManager.Save();
             Cursor.lockState = CursorLockMode.None;

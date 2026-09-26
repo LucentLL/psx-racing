@@ -119,6 +119,10 @@ namespace PSXRacing.EditorTools
         // TownWorld at the end — the same static-scratch style the rest of the
         // builder uses. Nulled at the top of every build so a re-run cannot
         // wire last build's transforms.
+        /// <summary>The home street's house and its measured garage door, for
+        /// the walk-in rooms built round it (GarageSceneBuilder.BuildHomeRooms).</summary>
+        static Transform townHomeHouse;
+        static float townHomeDoorX, townHomeDoorZ;
         static Transform townPizzaKerb, townDealerDoor,
                          townYardGate, townHomeDoor, townMechanicDoor, townPaintDoor,
                          townMeetSign;
@@ -590,6 +594,10 @@ namespace PSXRacing.EditorTools
                     Log("[Town] WARN: no Garage_Door found — the drive is a guess.");
                 }
 
+                townHomeHouse = house.transform;
+                townHomeDoorX = doorX;
+                townHomeDoorZ = doorZ;
+
                 var collidersFbx = WorldKit.Place(home.transform,
                     TownHouseDir + "/house_hero_colliders.fbx", "HouseColliders",
                     new Vector3(HomeStreetX, 0f, TownHouseZ), Vector3.back,
@@ -613,6 +621,12 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 else WorldKit.AddColliders(house, WorldKit.SolidLayer);
+                // Nothing falls indoors (owner, 2026-09-26): the roof has no
+                // collider for WeatherFx to find overhead, so the rooms are a
+                // shelter box, measured off the collider shell.
+                var shelter = PSXRacing.WeatherShelter.AddTo(collidersFbx != null ? collidersFbx : house, roof: house);
+                if (shelter != null)
+                    Log("[Town] house shelter " + shelter.size.ToString("0.0") + " at " + shelter.center.ToString("0.0"));
             }
 
             // The drive: from the garage door down to where the road starts.
@@ -771,6 +785,8 @@ namespace PSXRacing.EditorTools
                 // WorldKit.HingeDoors.
                 WorldKit.HingeDoors(shop);
                 WorldKit.AddColliders(shop, WorldKit.SolidLayer);
+                // You walk in here for the counter: keep the weather outside.
+                PSXRacing.WeatherShelter.AddTo(shop);
             }
             // The apron, run UNDER the shopfront rather than up to it. Sized
             // off the bounding box it stopped two metres short of the wall and

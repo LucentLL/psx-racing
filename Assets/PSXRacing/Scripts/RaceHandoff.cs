@@ -67,6 +67,20 @@
         /// apply-back banks metres/fuel/wear but pays no purse and moves no
         /// rep — a drive is not a result.</summary>
         public static bool FreeRoam;
+        /// <summary>
+        /// Into your own street ON FOOT — "walk into the house" from the menu,
+        /// an inspection finished, the keys taken to another car. The
+        /// neighbourhood's HomeArrival stands the active car in the garage and
+        /// the player on the drive, with no drive in between. Owner,
+        /// 2026-09-26: walking round the house "shouldn't take me to a
+        /// different house and map than when choosing Drive" - the walk-in
+        /// Garage scene was a second copy of the house on a bare lawn.
+        /// </summary>
+        public static bool ArriveOnFoot;
+        /// <summary>...with no car of yours at home to put in the garage (none
+        /// owned, the one with the keys is at a shop, or has no engine). The
+        /// scene's own car is stood down and the player walks.</summary>
+        public static bool NoCar;
         /// <summary>What the free-roam session calls the place it happened in,
         /// for the line the apply-back writes into the diary. Stamped by
         /// CityMode on the way out — the town is not a TrackCatalog entry, so
@@ -391,6 +405,7 @@
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             WeatherOverride = -1;
             FreeRoam = false; FreeRoamPlace = null;
+            ArriveOnFoot = false; NoCar = false;
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;
             CarryHit = false;
