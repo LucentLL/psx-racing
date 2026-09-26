@@ -123,6 +123,12 @@ namespace PSXRacing.EditorTools
                               cargo != null ? cargo.BoxCount : 0);
             var trace = cargo != null ? gameObject.AddComponent<CargoTrace>() : null;
             if (trace != null) trace.cargo = cargo;
+            // The traffic, traced live the same way (owner, 2026-09-26:
+            // "traffic cars are not visible in the replays").
+            var ts = TrafficSystem.Instance;
+            ReplayCheck.Check(ts != null && ts.PoolCount > 0, "the race has traffic", ts != null ? ts.PoolCount : 0);
+            var ttrace = ts != null ? gameObject.AddComponent<TrafficTrace>() : null;
+            if (ttrace != null) ttrace.traffic = ts;
 
             // The player never touches a key; the AI race on. Twelve seconds
             // is a grid, a countdown and eight seconds of driving — and at
@@ -147,6 +153,21 @@ namespace PSXRacing.EditorTools
                               rp.CargoFirstSample + rp.CargoSamples == rp.FrameCount,
                               "the load was sampled on every step the cars were",
                               rp.CargoSamples + " from sample " + rp.CargoFirstSample + " of " + rp.FrameCount);
+            ReplayCheck.Check(rp.TrafficSamples > 0 && rp.TrafficFirstSample >= 0 &&
+                              rp.TrafficFirstSample + rp.TrafficSamples == rp.FrameCount,
+                              "the traffic was sampled on every step the cars were",
+                              rp.TrafficSamples + " from sample " + rp.TrafficFirstSample + " of " + rp.FrameCount);
+            int trafficOnBefore = 0;
+            var trafficPosBefore = new List<Vector3>();
+            var trafficOnWas = new List<bool>();
+            if (ts != null)
+                for (int j = 0; j < ts.PoolCount; j++)
+                {
+                    trafficPosBefore.Add(ts.PoolCar(j).position);
+                    trafficOnWas.Add(ts.PoolOn(j));
+                    if (ts.PoolOn(j)) trafficOnBefore++;
+                }
+            ReplayCheck.Check(trafficOnBefore > 0, "traffic is on the road when the replay starts", trafficOnBefore);
             var parts = cargo != null ? cargo.ReplayParts() : new List<Transform>();
             var partPosBefore = new List<Vector3>();
             var partRotBefore = new List<Quaternion>();
@@ -286,6 +307,40 @@ namespace PSXRacing.EditorTools
                 ReplayCheck.Check(moved > 0.05f, "and the replay shows it moving between the two, not parked at the flag",
                                   moved.ToString("0.00") + " m");
             }
+            // THE TRAFFIC REPLAYS ITS OWN PAST, still paused: at a sample
+            // before any was on the road (the countdown) and at one near the
+            // end, every pool car shown or hidden as it was live on that step
+            // and, where shown, on its live pose.
+            if (ts != null && ttrace != null)
+            {
+                int kinT = 0, onT = 0;
+                for (int j = 0; j < ts.PoolCount; j++)
+                    if (ts.PoolOn(j)) { onT++; if (ts.PoolCar(j).GetComponent<Rigidbody>().isKinematic) kinT++; }
+                ReplayCheck.Check(onT > 0 && kinT == onT, "the traffic is shown and kinematic in the replay", kinT + "/" + onT);
+                int[] tks = { Mathf.Clamp(Mathf.RoundToInt(1f * RaceReplay.SampleHz), 0, rp.FrameCount - 1),
+                              Mathf.Max(0, rp.FrameCount - 8) };
+                foreach (int k in tks)
+                {
+                    float clock = rp.SampleClock(k);
+                    rp.Seek(clock, hard: true);
+                    yield return null;
+                    bool found = ttrace.TryAt(rp.RecordStartFixedTime + clock, out var livePos, out var liveOn);
+                    int shownOn = 0, wasOn = 0, mismatch = 0; float worst = 0f;
+                    if (found)
+                        for (int j = 0; j < ts.PoolCount && j < liveOn.Length; j++)
+                        {
+                            bool on = ts.PoolOn(j);
+                            if (on) shownOn++;
+                            if (liveOn[j]) wasOn++;
+                            if (on != liveOn[j]) mismatch++;
+                            else if (on) worst = Mathf.Max(worst, Vector3.Distance(ts.PoolCar(j).position, livePos[j]));
+                        }
+                    ReplayCheck.Check(found && mismatch == 0 && worst < 0.01f,
+                                      "at " + clock.ToString("0.0") + " s the replay shows the traffic that was there",
+                                      found ? shownOn + " shown, " + wasOn + " live, " + mismatch + " wrong, " +
+                                              worst.ToString("0.0000") + " m worst" : "no live trace");
+                }
+            }
             pauseField.SetValue(rp, false);
 
             // End: everything back.
@@ -315,6 +370,29 @@ namespace PSXRacing.EditorTools
             ReplayCheck.Check(home == cars, "every car is back where the replay found it", home + "/" + cars);
             var chase = cam != null ? cam.GetComponent<ChaseCamera>() : null;
             ReplayCheck.Check(chase != null && chase.enabled, "the chase camera has the lens back");
+            if (ts != null)
+            {
+                int same = 0, dyn = 0, onNow = 0;
+                for (int j = 0; j < ts.PoolCount && j < trafficOnWas.Count; j++)
+                {
+                    bool on = ts.PoolOn(j);
+                    if (on == trafficOnWas[j]) same++;
+                    if (on) { onNow++; if (!ts.PoolCar(j).GetComponent<Rigidbody>().isKinematic) dyn++; }
+                }
+                ReplayCheck.Check(same == ts.PoolCount, "the traffic on the road is the traffic the replay found", same + "/" + ts.PoolCount);
+                ReplayCheck.Check(dyn == onNow, "and it is dynamic again", dyn + "/" + onNow);
+                // Two steps have passed, so each car is near where it was - not
+                // left at its replay pose at the far end of the recording.
+                float far = 0f;
+                for (int j = 0; j < ts.PoolCount && j < trafficOnWas.Count; j++)
+                    if (trafficOnWas[j] && ts.PoolOn(j))
+                        far = Mathf.Max(far, Vector3.Distance(ts.PoolCar(j).position, trafficPosBefore[j]));
+                ReplayCheck.Check(far < 3f, "each car back where it was, driving on", far.ToString("0.00") + " m worst");
+                int wrecks = ts.WreckLog.Count;
+                for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+                ReplayCheck.Check(ts.WreckLog.Count == wrecks, "and the put-back is not read as a hit",
+                                  (ts.WreckLog.Count - wrecks) + " wrecked");
+            }
 
             if (cargo != null && parts.Count > 1)
             {
@@ -352,6 +430,46 @@ namespace PSXRacing.EditorTools
         {
             ReplayCheck.Finish();
             EditorApplication.Exit(ReplayCheck.failures == 0 ? 0 : 1);
+        }
+    }
+
+    /// <summary>The traffic pool, traced LIVE on every physics step like the
+    /// load: which cars were on the road and where.</summary>
+    public class TrafficTrace : MonoBehaviour
+    {
+        public TrafficSystem traffic;
+        readonly List<float> clock = new List<float>();
+        readonly List<Vector3[]> poses = new List<Vector3[]>();
+        readonly List<bool[]> ons = new List<bool[]>();
+
+        void FixedUpdate()
+        {
+            if (traffic == null || RaceReplay.Playing) return;
+            int n = traffic.PoolCount;
+            var p = new Vector3[n];
+            var o = new bool[n];
+            for (int j = 0; j < n; j++)
+            {
+                o[j] = traffic.PoolOn(j);
+                p[j] = traffic.PoolCar(j).GetComponent<Rigidbody>().position;
+            }
+            clock.Add(Time.fixedTime);
+            poses.Add(p);
+            ons.Add(o);
+        }
+
+        public bool TryAt(float fixedTime, out Vector3[] pose, out bool[] on)
+        {
+            pose = null; on = null;
+            int best = -1; float bestD = float.MaxValue;
+            for (int i = 0; i < clock.Count; i++)
+            {
+                float d = Mathf.Abs(clock[i] - fixedTime);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best < 0 || bestD > Time.fixedDeltaTime * 0.5f) return false;
+            pose = poses[best]; on = ons[best];
+            return true;
         }
     }
 

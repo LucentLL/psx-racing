@@ -35,8 +35,12 @@ namespace PSXRacing
     /// out of the window. A small pool, built up front: the cost stays flat
     /// however long the track is.
     ///
-    /// Not recorded by the replay (it records the field), so it hides while a
-    /// replay plays. The racers do not yet steer round it.
+    /// THE REPLAY RECORDS IT (owner, 2026-09-26: "traffic cars are not
+    /// visible in the replays" - it used to hide while one played). Every pool
+    /// car's pose and wheel roll is sampled on the recorder's step
+    /// (<see cref="Capture"/>); for playback the pool is frozen kinematic
+    /// (<see cref="BeginReplay"/>), posed from the recording
+    /// (<see cref="ShowReplay"/>) and put back exactly on the way out.
     /// </summary>
     public class TrafficSystem : MonoBehaviour
     {
@@ -85,7 +89,7 @@ namespace PSXRacing
         readonly List<Car> pool = new List<Car>();
         readonly List<Car> live = new List<Car>();
         int playerHint = -1;
-        bool started, hidden;
+        bool started, replaying;
         int roadMask;
         /// <summary>The window, shrunk on a loop too short for it: at most
         /// 0.45 of the lap ahead and 0.25 behind, or a car born "ahead" is born
@@ -285,14 +289,8 @@ namespace PSXRacing
         {
             if (rm == null || rm.playerCar == null) return;
 
-            // Hidden for a replay: it plays back the recorded field only.
-            bool replay = RaceReplay.Playing;
-            if (replay != hidden)
-            {
-                hidden = replay;
-                foreach (var c in live) c.go.SetActive(!hidden);
-            }
-            if (hidden) { Obstacles.Clear(); return; }
+            // A replay is posing the pool from its recording: nothing drives.
+            if (replaying || RaceReplay.Playing) { Obstacles.Clear(); return; }
 
             // Nothing moves on the road until the race is on: a car arriving
             // at a grid of four stationary racers would be a pile-up the
@@ -552,6 +550,11 @@ namespace PSXRacing
         {
             if (c.wheels.Length == 0) return;
             c.spin = Mathf.Repeat(c.spin + v / c.wheelR * Mathf.Rad2Deg * dt, 360f);
+            PoseWheels(c);
+        }
+
+        static void PoseWheels(Car c)
+        {
             for (int i = 0; i < c.wheels.Length; i++)
             {
                 bool left = c.wheels[i].name.EndsWith("0") || c.wheels[i].name.EndsWith("2");
@@ -586,6 +589,117 @@ namespace PSXRacing
         {
             var c = live.Find(x => x.go == go);
             if (c != null) c.lastContact = what;
+        }
+
+        // ---- the replay ---------------------------------------------------------
+        /// <summary>One pool car on one recorder step.</summary>
+        public struct Pose
+        {
+            public Vector3 pos;
+            public Quaternion rot;
+            public float spin;
+            public bool on;
+        }
+
+        /// <summary>The pool is built up front and never grows, so pool index
+        /// j is the same car for the whole race.</summary>
+        public int PoolCount => pool.Count;
+        public Transform PoolCar(int j) => pool[j].go.transform;
+        public bool PoolOn(int j) => pool[j].go.activeSelf;
+
+        /// <summary>Every pool car's pose, in pool order, off the physics step
+        /// the recorder is sampling (the body's pose, not the interpolated
+        /// transform).</summary>
+        public void Capture(List<Pose> into)
+        {
+            foreach (var c in pool)
+                into.Add(c.active
+                    ? new Pose { pos = c.rb.position, rot = c.rb.rotation, spin = c.spin, on = true }
+                    : new Pose { rot = Quaternion.identity });
+        }
+
+        struct Saved
+        {
+            public bool on, kinematic;
+            public Vector3 pos, vel, angVel;
+            public Quaternion rot;
+            public float spin;
+        }
+        Saved[] saved;
+
+        /// <summary>Freeze the pool for a replay: every body kinematic (a
+        /// dynamic body the replay writes a pose into is one the solver takes
+        /// back, and a wreck's gravity would pull it through its recording),
+        /// its state kept to be put back.</summary>
+        public void BeginReplay()
+        {
+            if (replaying) return;
+            replaying = true;
+            Obstacles.Clear();
+            saved = new Saved[pool.Count];
+            for (int j = 0; j < pool.Count; j++)
+            {
+                var c = pool[j];
+                saved[j] = new Saved
+                {
+                    on = c.go.activeSelf, kinematic = c.rb.isKinematic,
+                    pos = c.rb.position, rot = c.rb.rotation, spin = c.spin,
+                    vel = c.rb.isKinematic ? Vector3.zero : c.rb.linearVelocity,
+                    angVel = c.rb.isKinematic ? Vector3.zero : c.rb.angularVelocity,
+                };
+                if (!c.rb.isKinematic) { c.rb.linearVelocity = Vector3.zero; c.rb.angularVelocity = Vector3.zero; }
+                c.rb.isKinematic = true;
+            }
+        }
+
+        /// <summary>Pose pool car j as the recording has it. A car appearing,
+        /// or one the replay jumps (a seek, a recycled car reborn elsewhere),
+        /// is placed outright; otherwise it is moved on the step so the
+        /// interpolation the racers are drawn with draws it too.</summary>
+        public void ShowReplay(int j, bool on, Vector3 pos, Quaternion rot, float spin, bool teleport)
+        {
+            if (!replaying || j < 0 || j >= pool.Count) return;
+            var c = pool[j];
+            if (!on) { if (c.go.activeSelf) c.go.SetActive(false); return; }
+            if (!c.go.activeSelf) { c.go.SetActive(true); teleport = true; }
+            if (teleport) Put(c, pos, rot);
+            else { c.rb.MovePosition(pos); c.rb.MoveRotation(rot); }
+            c.spin = spin;
+            PoseWheels(c);
+        }
+
+        /// <summary>Put the pool back exactly as the replay found it.</summary>
+        public void EndReplay()
+        {
+            if (!replaying) return;
+            for (int j = 0; j < pool.Count && saved != null; j++)
+            {
+                var c = pool[j];
+                var s = saved[j];
+                c.go.SetActive(s.on);
+                Put(c, s.pos, s.rot);
+                c.rb.isKinematic = s.kinematic;
+                if (!s.kinematic) { c.rb.linearVelocity = s.vel; c.rb.angularVelocity = s.angVel; }
+                c.spin = s.spin;
+                PoseWheels(c);
+                // The first step back must not read the put-back as a HIT.
+                c.hasCommand = false;
+            }
+            saved = null;
+            replaying = false;
+        }
+
+        /// <summary>Place a body outright, dropping its interpolation history
+        /// (a bare transform write is painted over by an interpolated body;
+        /// see CarController.TeleportTo).</summary>
+        static void Put(Car c, Vector3 pos, Quaternion rot)
+        {
+            var interp = c.rb.interpolation;
+            c.rb.interpolation = RigidbodyInterpolation.None;
+            c.rb.position = pos;
+            c.rb.rotation = rot;
+            c.go.transform.SetPositionAndRotation(pos, rot);
+            c.rb.interpolation = interp;
         }
     }
 

@@ -33,6 +33,9 @@ namespace PSXRacing
     /// pizza and lid, on the same clock as the cars — and played back into
     /// the Pizza Cam. See <see cref="CargoTrack"/>.
     ///
+    /// SO IS THE TRAFFIC — every car in TrafficSystem's pool, on the same
+    /// clock. See <see cref="TrafficTrack"/>.
+    ///
     /// Created at runtime by RaceManager rather than baked into the scenes:
     /// a replay is a property of a race, not of a circuit, and adding it
     /// here is one line that reaches every venue without a rebake.
@@ -143,6 +146,29 @@ namespace PSXRacing
             public Vector3[] savedVel, savedSpin;
         }
         CargoTrack cargoTrack;
+
+        /// <summary>
+        /// THE TRAFFIC, per sample (owner, 2026-09-26: "traffic cars are not
+        /// visible in the replays" — the recorder took the field only, and
+        /// the traffic hid while a replay played). The pool is a fixed set of
+        /// cars built before the race, so one sample is PoolCount poses in
+        /// pool order and pool car j is the same body all race: a car that
+        /// is recycled and reborn a kilometre on is the same index with a
+        /// jump in it, which playback places outright instead of sliding it
+        /// down the road. Its own first sample, like the load's.
+        /// </summary>
+        class TrafficTrack
+        {
+            public TrafficSystem traffic;
+            public int n;
+            public int first;
+            public readonly List<TrafficSystem.Pose> poses = new List<TrafficSystem.Pose>(16 * 4096);
+            public int Samples => n > 0 ? poses.Count / n : 0;
+        }
+        TrafficTrack trafficTrack;
+        /// <summary>Farther than this between two 30 Hz samples is a jump, not
+        /// driving (1800 km/h).</summary>
+        const float TrafficJumpM = 15f;
         /// <summary>Race clock per sample, seconds since the recording
         /// began. Frames are evenly spaced so this is index / SampleHz, but
         /// stored anyway: a dropped fixed step must not silently stretch the
@@ -222,6 +248,7 @@ namespace PSXRacing
             stepCounter = 0;
             tailLeft = -1f;
             cargoTrack = null;
+            trafficTrack = null;
         }
 
         /// <summary>The car's catalog name, or the built-in car's.</summary>
@@ -264,6 +291,20 @@ namespace PSXRacing
             foreach (var tr in tracks)
                 tr.frames.Add(Capture(tr, rm));
             CaptureCargo();
+            CaptureTraffic();
+        }
+
+        void CaptureTraffic()
+        {
+            var ts = TrafficSystem.Instance;
+            if (trafficTrack == null)
+            {
+                if (ts == null || ts.PoolCount == 0) return;
+                trafficTrack = new TrafficTrack { traffic = ts, n = ts.PoolCount, first = times.Count - 1 };
+            }
+            var tt = trafficTrack;
+            if (tt.traffic == null || tt.traffic != ts || ts.PoolCount != tt.n) return;
+            ts.Capture(tt.poses);
         }
 
         /// <summary>One sample of the load, taken on the same step as the
@@ -381,6 +422,7 @@ namespace PSXRacing
                 c.throttleInput = 0f; c.brakeInput = 0f; c.handbrakeInput = false;
             }
             BeginCargo();
+            if (trafficTrack != null && trafficTrack.traffic != null) trafficTrack.traffic.BeginReplay();
 
             // The lens. The chase rig stands down; the director takes the
             // same camera and the same AudioListener.
@@ -447,6 +489,7 @@ namespace PSXRacing
                 c.throttleInput = 0f; c.brakeInput = 0f; c.handbrakeInput = false;
             }
             EndCargo();
+            if (trafficTrack != null && trafficTrack.traffic != null) trafficTrack.traffic.EndReplay();
 
             if (replayCam != null) replayCam.enabled = false;
             if (chase != null)
@@ -567,6 +610,7 @@ namespace PSXRacing
             if (replayCam != null) replayCam.Retarget();
             ApplyVisuals();
             ApplyCargo(replayTime);
+            ApplyTraffic(replayTime, hard);
         }
 
         void StepPlayback()
@@ -584,7 +628,44 @@ namespace PSXRacing
                 tr.car.Body.MovePosition(f.pos);
                 tr.car.Body.MoveRotation(f.rot);
             }
+            ApplyTraffic(replayTime, hard: false);
             ApplyVisuals();
+        }
+
+        /// <summary>Pose the traffic pool at replay time t: moved on the step
+        /// like the racers, placed outright on a seek, a jump, or the sample
+        /// it appears on. Before the traffic's first sample the road is empty
+        /// (it drives only once the race is on).</summary>
+        void ApplyTraffic(float t, bool hard)
+        {
+            var tt = trafficTrack;
+            if (tt == null || tt.traffic == null || tt.Samples == 0 || times.Count == 0) return;
+            int i; float u;
+            if (times.Count == 1 || t <= times[0]) { i = 0; u = 0f; }
+            else if (t >= times[times.Count - 1]) { i = times.Count - 1; u = 0f; }
+            else
+            {
+                i = IndexAt(t);
+                float t0 = times[i], t1 = times[i + 1];
+                u = t1 > t0 ? Mathf.Clamp01((t - t0) / (t1 - t0)) : 0f;
+            }
+            int k0 = i - tt.first, k1 = i + 1 - tt.first;
+            int last = tt.Samples - 1;
+            for (int j = 0; j < tt.n; j++)
+            {
+                if (k0 < 0 && k1 < 0) { tt.traffic.ShowReplay(j, false, default, Quaternion.identity, 0f, true); continue; }
+                var a = tt.poses[Mathf.Clamp(k0, 0, last) * tt.n + j];
+                var b = tt.poses[Mathf.Clamp(k1, 0, last) * tt.n + j];
+                if (k0 < 0) a = b;
+                if (a.on && b.on && (a.pos - b.pos).sqrMagnitude < TrafficJumpM * TrafficJumpM)
+                    tt.traffic.ShowReplay(j, true, Vector3.Lerp(a.pos, b.pos, u), Quaternion.Slerp(a.rot, b.rot, u),
+                                          Mathf.LerpAngle(a.spin, b.spin, u), hard);
+                else
+                {
+                    var near = u < 0.5f ? a : b;
+                    tt.traffic.ShowReplay(j, near.on, near.pos, near.rot, near.spin, true);
+                }
+            }
         }
 
         /// <summary>Write the recorded state into the things that read the
@@ -860,6 +941,7 @@ namespace PSXRacing
             tracks.Add(new CarTrack { car = car, frames = frames, name = "TEST" });
             recording = false;
             cargoTrack = null;
+            trafficTrack = null;
         }
         public Frame SampleForTest(float t) => tracks.Count > 0 ? Sample(tracks[0], t) : default;
         public int FrameCount => times.Count;
@@ -872,5 +954,9 @@ namespace PSXRacing
         /// the recorder sample index the first of them was taken on.</summary>
         public int CargoSamples => cargoTrack != null ? cargoTrack.Samples : 0;
         public int CargoFirstSample => cargoTrack != null ? cargoTrack.first : -1;
+        /// <summary>How many samples of the traffic were recorded, and from
+        /// which recorder sample.</summary>
+        public int TrafficSamples => trafficTrack != null ? trafficTrack.Samples : 0;
+        public int TrafficFirstSample => trafficTrack != null ? trafficTrack.first : -1;
     }
 }
