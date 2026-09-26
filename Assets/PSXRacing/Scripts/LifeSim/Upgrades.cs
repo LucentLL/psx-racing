@@ -57,7 +57,8 @@ namespace PSXRacing.LifeSim
         /// Stage-indexed 1..4; index 0 is the stock car.</summary>
         public static readonly string[][] StageNames =
         {
-            new[] { "STOCK", "INTAKE + EXHAUST", "ECU + BOOST", "TURBO / CAMS", "BUILT ENGINE" },
+            // POWER, the NA path. The turbo path has its own names (below).
+            new[] { "STOCK", "INTAKE + EXHAUST", "CAMS + ECU", "HEADS + PORTING", "BUILT ENGINE" },
             new[] { "STOCK", "STRIP INTERIOR", "LIGHT WHEELS", "GLASS + SEATS", "CARBON PANELS" },
             new[] { "STOCK", "PADS + FLUID", "SLOTTED ROTORS", "BIG BRAKE KIT", "RACE CALIPERS" },
             new[] { "STOCK", "LOWERING SPRINGS", "SPORT DAMPERS", "COILOVERS", "RACE COILOVERS" },
@@ -120,7 +121,7 @@ namespace PSXRacing.LifeSim
                               Clamp(car.upSuspension) + Clamp(car.upTires) + Clamp(car.upSeat);
 
         // ---- pricing ------------------------------------------------------
-        const int PerHp = 55;
+        public const int PerHp = 55;
         /// <summary>Weight reduction is the CHEAP mod early — stage 1 is pulling
         /// the interior and a lighter battery, mostly labour. $45/kg made a Civic
         /// interior-strip cost ~$1.5k, which is absurd for 1999; $12/kg plus the
@@ -218,7 +219,107 @@ namespace PSXRacing.LifeSim
         {
             if (s == null || car == null || spec == null || RaceCarRefuses(spec, kind) != null)
                 return new Plan { kind = kind, valid = false };
-            return PlanStep(s, car, spec, kind, GetStage(car, kind));
+            return PlanStep(s, car, spec, kind, GetStage(car, kind), car.turbo);
+        }
+
+        // ---- the two power paths ------------------------------------------------
+        //
+        // (CarTune, "two ladders".) An NA road car picks one with its first
+        // power stage: the NA ladder (the POWER row) or a TURBO KIT (a row of
+        // its own until one is chosen). The choice holds until the engine is
+        // put back to stock (RevertEngine). A factory turbo car has only the
+        // turbo ladder, under the POWER row, and names it that way.
+
+        /// <summary>The turbo ladder on an NA engine.</summary>
+        public static readonly string[] TurboKitStageNames =
+            { "STOCK", "TURBO KIT", "BIGGER TURBO + INTERCOOLER", "RACE TURBO + FUEL", "BUILT ENGINE + BIG TURBO" };
+        /// <summary>The turbo ladder on a factory turbo engine.</summary>
+        public static readonly string[] FactoryTurboStageNames =
+            { "STOCK", "ECU + BOOST", "BIGGER TURBO + INTERCOOLER", "RACE TURBO + FUEL", "BUILT ENGINE" };
+
+        /// <summary>The name of a power stage on this car's own path.</summary>
+        public static string PowerStageName(CarSpec spec, bool turboKit, int stage)
+        {
+            stage = Mathf.Clamp(stage, 0, MaxStage);
+            if (spec != null && spec.IsTurbo) return FactoryTurboStageNames[stage];
+            if (spec != null && spec.OnTurboPath(turboKit)) return TurboKitStageNames[stage];
+            return StageNames[(int)Kind.Power][stage];
+        }
+
+        /// <summary>A stage's name, power on the car's own path.</summary>
+        public static string StageName(OwnedCar car, CarSpec spec, Kind kind, int stage) =>
+            kind == Kind.Power ? PowerStageName(spec, car != null && car.turbo, stage)
+                               : StageNames[(int)kind][Mathf.Clamp(stage, 0, MaxStage)];
+
+        /// <summary>Why this car cannot start the turbo path now, or null.</summary>
+        public static string TurboKitRefuses(LifeState s, OwnedCar car, CarSpec spec)
+        {
+            if (car == null || spec == null) return "no car";
+            if (spec.IsRaceCar) return RaceCarBuilt;
+            if (spec.IsTurbo) return "ALREADY TURBOCHARGED";
+            if (!spec.CanFitTurboKit) return "ALREADY SUPERCHARGED";
+            if (car.turbo) return "TURBO FITTED";
+            if (car.supercharged) return "BLOWER FITTED — NA BUILD";
+            if (GetStage(car, Kind.Power) > 0) return "NA BUILD FITTED";
+            if (s != null && PendingFor(s, car, Kind.Power) != null) return "already booked";
+            return null;
+        }
+
+        /// <summary>The quote for the first turbo stage on an NA car (the
+        /// TURBO KIT row). Valid only while the path is still open.</summary>
+        public static Plan TurboKitPlan(LifeState s, OwnedCar car, CarSpec spec)
+        {
+            if (s == null || TurboKitRefuses(s, car, spec) != null)
+                return new Plan { kind = Kind.Power, valid = false };
+            return PlanStep(s, car, spec, Kind.Power, 0, true);
+        }
+
+        /// <summary>Why the engine cannot be put back to stock now, or null.</summary>
+        public static string RevertRefuses(LifeState s, OwnedCar car, CarSpec spec)
+        {
+            if (s == null || car == null || spec == null) return "no car";
+            if (!spec.CanFitTurboKit) return "one path only";
+            if (PendingFor(s, car, Kind.Power) != null) return "power work booked";
+            if (GetStage(car, Kind.Power) <= 0 && !car.turbo && !car.supercharged) return "already stock";
+            return null;
+        }
+
+        /// <summary>What reverting would pay back: half the DIY price of every
+        /// power stage on the car's path, and half the blower's.</summary>
+        public static int RevertRefund(LifeState s, OwnedCar car, CarSpec spec)
+        {
+            if (s == null || car == null || spec == null) return 0;
+            int refund = 0, stage = GetStage(car, Kind.Power);
+            for (int from = 0; from < stage; from++)
+                refund += PlanStep(s, car, spec, Kind.Power, from, car.turbo).diyPrice / 2;
+            if (car.supercharged)
+            {
+                // Quoted as if not fitted: OfferFor answers "FITTED" otherwise.
+                car.supercharged = false;
+                refund += OfferFor(s, car, spec, Mod.Supercharger).price / 2;
+                car.supercharged = true;
+            }
+            return refund;
+        }
+
+        /// <summary>
+        /// Put the engine back to stock so the other path can be chosen: the
+        /// power stages and the blower come off and sell for half of what they
+        /// cost to fit yourself. Refused on a race car, a factory turbo (one
+        /// path, nothing to change to) and while power work is booked.
+        /// </summary>
+        public static string RevertEngine(LifeState s, OwnedCar car, CarSpec spec, out int refund)
+        {
+            string no = RevertRefuses(s, car, spec);
+            refund = no == null ? RevertRefund(s, car, spec) : 0;
+            if (no != null) return no;
+            SetStage(car, Kind.Power, 0);
+            car.supercharged = false;
+            car.turbo = false;
+            s.money += refund;
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + car.displayName +
+                              " engine back to stock (" + MenuKit.Money(refund) + " for the parts)");
+            return null;
         }
 
         /// <summary>The quote for one step up a ladder from
@@ -226,7 +327,7 @@ namespace PSXRacing.LifeSim
         /// car may have it. <see cref="NextStagePlan"/> asks; the v16
         /// migration, which is pricing stages a race car should never have
         /// been sold, does not.</summary>
-        static Plan PlanStep(LifeState s, OwnedCar car, CarSpec spec, Kind kind, int from)
+        static Plan PlanStep(LifeState s, OwnedCar car, CarSpec spec, Kind kind, int from, bool turboKit)
         {
             var p = new Plan { kind = kind, valid = false };
             int to = from + 1;
@@ -234,14 +335,14 @@ namespace PSXRacing.LifeSim
 
             p.fromStage = from;
             p.toStage = to;
-            p.stageName = StageNames[(int)kind][to];
+            p.stageName = kind == Kind.Power ? PowerStageName(spec, turboKit, to) : StageNames[(int)kind][to];
 
             int basePrice;
             switch (kind)
             {
                 case Kind.Power:
-                    p.fromVal = CarTune.PowerAtStage(spec.hp, spec.builtHp, from);
-                    p.toVal = CarTune.PowerAtStage(spec.hp, spec.builtHp, to);
+                    p.fromVal = spec.HpAtStage(from, turboKit);
+                    p.toVal = spec.HpAtStage(to, turboKit);
                     p.delta = Mathf.Max(0, p.toVal - p.fromVal);
                     p.unit = "hp";
                     basePrice = p.delta * PerHp;
@@ -249,9 +350,11 @@ namespace PSXRacing.LifeSim
                     // physics is then solved to reach (CarTune.TopSpeedMult) —
                     // so the row that sells the stage says what it is worth on
                     // a straight, in the unit the player reads.
-                    p.sideEffect = "top speed " + TopSpeedText(spec, from, car.supercharged) + " -> " +
-                                   TopSpeedText(spec, to, car.supercharged) + " (+" +
-                                   CarTune.TopSpeedGainPct(to, car.supercharged) + "% over stock)";
+                    bool blown = car.supercharged && !turboKit;
+                    p.sideEffect = "top speed " + TopSpeedText(spec, from, blown, turboKit) + " -> " +
+                                   TopSpeedText(spec, to, blown, turboKit) + " (+" +
+                                   CarTune.TopSpeedGainPct(to, blown, spec.PathShare(turboKit)) + "% over stock)" +
+                                   (spec.OnTurboPath(turboKit) ? "  ·  turbo lag grows with each stage" : "");
                     break;
                 case Kind.Weight:
                     p.fromVal = CarTune.WeightAtStage(spec.kg, spec.minKg, from);
@@ -361,12 +464,21 @@ namespace PSXRacing.LifeSim
         /// and so a car in the middle of a build is visibly in the shop.
         /// Returns null on success, or the reason it was refused.
         /// </summary>
-        public static string Order(LifeState s, OwnedCar car, CarSpec spec, Kind kind, bool useShop)
+        /// <param name="turboKit">Start the TURBO path with this order (the
+        /// TURBO KIT row): Power only, and only while the path is open.</param>
+        public static string Order(LifeState s, OwnedCar car, CarSpec spec, Kind kind, bool useShop,
+                                   bool turboKit = false)
         {
             if (car == null || spec == null) return "no car";
             string race = RaceCarRefuses(spec, kind);
             if (race != null) return race;
-            var plan = NextStagePlan(s, car, spec, kind);
+            if (turboKit && kind != Kind.Power) return "a turbo kit is a power part";
+            if (turboKit)
+            {
+                string no = TurboKitRefuses(s, car, spec);
+                if (no != null) return no;
+            }
+            var plan = turboKit ? TurboKitPlan(s, car, spec) : NextStagePlan(s, car, spec, kind);
             if (!plan.valid) return "already maxed";
             if (PendingFor(s, car, kind) != null) return "already booked";
             if (!useShop && !plan.canDiy) return "needs skill " + plan.skillReq;
@@ -384,11 +496,17 @@ namespace PSXRacing.LifeSim
                 s.mechSkill = Mathf.Min(100f, s.mechSkill +
                                         FaultCatalog.DiySkillGain(s.mechSkill, plan.skillReq));
 
+            // The path is chosen when the kit is PAID FOR, not when it is
+            // fitted: the car is committed to it from here, and the stage
+            // arrives with the job. (A turbo path at stage 0 is the stock
+            // engine exactly - see CarTune.TurboOffBoost.)
+            if (turboKit) car.turbo = true;
+
             s.pendingParts.Add(new PendingPart
             {
                 carId = car.id,
                 faultId = "",
-                label = KindLabels[(int)kind] + " STAGE " + plan.toStage,
+                label = (kind == Kind.Power ? plan.stageName : KindLabels[(int)kind] + " STAGE " + plan.toStage),
                 stat = "engine",
                 add = 0,
                 readyDay = s.day + plan.days,
@@ -603,6 +721,9 @@ namespace PSXRacing.LifeSim
             if (o.owned) { o.blockedReason = "FITTED"; return o; }
             string never = CarRefuses(spec, mod);
             if (never != null) { o.blockedReason = never; return o; }
+            // The blower is an NA part: a turbo build has its boost already.
+            if (mod == Mod.Supercharger && car != null && car.turbo)
+            { o.blockedReason = "TURBO FITTED"; return o; }
             // A weld and a plate pack are the same hole in the car. Whichever
             // went in first blocks the other, and says which.
             if (mod == Mod.LimitedSlip && car != null && car.welded)
@@ -657,7 +778,7 @@ namespace PSXRacing.LifeSim
         public static int EffectiveHp(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
             : spec.IsRaceCar ? spec.hp
-            : CarTune.PowerAtStage(spec.hp, spec.builtHp, GetStage(car, Kind.Power));
+            : spec.HpAtStage(GetStage(car, Kind.Power), car != null && car.turbo);
 
         public static int EffectiveKg(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
@@ -670,11 +791,19 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static float EffectiveTopSpeedMps(OwnedCar car, CarSpec spec) =>
             spec == null ? 0f
-            : spec.BuildTopSpeedMps(GetStage(car, Kind.Power), car != null && car.supercharged);
+            : spec.BuildTopSpeedMps(GetStage(car, Kind.Power), car != null && car.supercharged,
+                                    car != null && car.turbo);
+
+        /// <summary>The build's top speed over stock, whole percent.</summary>
+        public static int EffectiveTopSpeedPct(OwnedCar car, CarSpec spec) =>
+            spec == null || spec.IsRaceCar ? 0
+            : CarTune.TopSpeedGainPct(GetStage(car, Kind.Power),
+                                      car != null && car.supercharged && !car.turbo,
+                                      spec.PathShare(car != null && car.turbo));
 
         /// <summary>A top speed in the player's unit, rounded, for a shop row.</summary>
-        static string TopSpeedText(CarSpec spec, int powerStage, bool blower) =>
-            Mathf.RoundToInt(SpeedUnits.FromKmh(spec.BuildTopSpeedMps(powerStage, blower) * 3.6f)) +
+        static string TopSpeedText(CarSpec spec, int powerStage, bool blower, bool turboKit) =>
+            Mathf.RoundToInt(SpeedUnits.FromKmh(spec.BuildTopSpeedMps(powerStage, blower, turboKit) * 3.6f)) +
             SpeedUnits.Suffix;
 
         // ---- race cars ----------------------------------------------------
@@ -714,7 +843,7 @@ namespace PSXRacing.LifeSim
                 if (RaceCarRefuses(spec, k) == null) continue;
                 for (int from = GetStage(car, k) - 1; from >= 0; from--)
                 {
-                    var p = PlanStep(s, car, spec, k, from);
+                    var p = PlanStep(s, car, spec, k, from, car.turbo);
                     if (p.valid) back += p.diyPrice;
                 }
                 SetStage(car, k, 0);
@@ -732,7 +861,7 @@ namespace PSXRacing.LifeSim
                         return false;
                     var k = KindFromKey(job.upgradeKind);
                     if (RaceCarRefuses(spec, k) == null) return false;
-                    var p = PlanStep(s, car, spec, k, Mathf.Clamp(job.upgradeStage, 1, MaxStage) - 1);
+                    var p = PlanStep(s, car, spec, k, Mathf.Clamp(job.upgradeStage, 1, MaxStage) - 1, car.turbo);
                     if (p.valid) back += p.diyPrice;
                     return true;
                 });

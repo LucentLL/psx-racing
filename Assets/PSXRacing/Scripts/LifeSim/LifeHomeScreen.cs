@@ -3171,8 +3171,12 @@ namespace PSXRacing.LifeSim
                 TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
             y -= 28f;
             SpecRow("DRIVETRAIN", spec.drv, ref y);
+            bool kit = car != null && car.turbo && spec.CanFitTurboKit;
             string boost = spec.IsTurbo ? "turbocharged"
-                         : spec.IsSupercharged ? "supercharged" : "naturally aspirated";
+                         : spec.IsSupercharged ? "supercharged"
+                         : kit ? "turbocharged (turbo kit)"
+                         : car != null && car.supercharged ? "supercharged (Roots blower)"
+                         : "naturally aspirated";
             SpecRow("ENGINE", (spec.dispCc > 0 ? spec.dispCc + "cc  " : "") +
                     (string.IsNullOrEmpty(spec.eType) ? "" : spec.eType), ref y);
             SpecRow("ASPIRATION", boost, ref y);
@@ -3180,7 +3184,8 @@ namespace PSXRacing.LifeSim
             SpecRow("GEARS", spec.gears.ToString(), ref y);
             SpecRow("YEAR", spec.modelYear.ToString(), ref y);
             SpecRow("BUILD CEILING", spec.IsRaceCar ? "race car — already built"
-                                                    : spec.builtHp + " hp at stage 4", ref y);
+                : !spec.CanFitTurboKit ? spec.builtHp + " hp at stage 4"
+                : spec.CeilingHp(false) + " hp NA  ·  " + spec.CeilingHp(true) + " hp turbo", ref y);
 
             y -= 14f;
             float sBtnW = Mathf.Min(300f, (ColW - 12f) / 2f);
@@ -3814,13 +3819,13 @@ namespace PSXRacing.LifeSim
             int stockTop = Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f));
             int builtTop = Mathf.RoundToInt(SpeedUnits.FromKmh(
                 Upgrades.EffectiveTopSpeedMps(car, spec) * 3.6f));
-            int topPct = spec.IsRaceCar ? 0
-                : CarTune.TopSpeedGainPct(Upgrades.GetStage(car, Upgrades.Kind.Power), car.supercharged);
+            int topPct = Upgrades.EffectiveTopSpeedPct(car, spec);
             MenuKit.Label(body, "Top speed " + (builtTop == stockTop
                     ? stockTop + SpeedUnits.Suffix
                     : stockTop + " -> " + builtTop + SpeedUnits.Suffix + " (+" + topPct + "%)") +
                 (spec.IsRaceCar ? "   ·   race car"
-                                : "   ·   engine ceiling " + spec.builtHp + " hp at stage 4") +
+                                : "   ·   engine ceiling " + spec.CeilingHp(car.turbo) + " hp at stage 4" +
+                                  (spec.OnTurboPath(car.turbo) ? " (turbo)" : spec.CanFitTurboKit ? " (NA)" : "")) +
                 "   ·   mech skill " + Mathf.RoundToInt(S.mechSkill), 14,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 820f);
@@ -4248,10 +4253,26 @@ namespace PSXRacing.LifeSim
             string pips = "";
             for (int i = 1; i <= Upgrades.MaxStage; i++) pips += i <= stage ? "#" : "-";
 
-            MenuKit.Label(body, Upgrades.KindLabels[(int)kind] + "  [" + pips + "]  " +
-                Upgrades.StageNames[(int)kind][stage], 17, new Vector2(0.5f, 1f),
+            string rowName = Upgrades.KindLabels[(int)kind];
+            if (kind == Upgrades.Kind.Power && !spec.IsRaceCar)
+                rowName += spec.OnTurboPath(car.turbo) ? " · TURBO" : spec.CanFitTurboKit ? " · NA" : "";
+            MenuKit.Label(body, rowName + "  [" + pips + "]  " +
+                Upgrades.StageName(car, spec, kind, stage), 17, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 stage > 0 ? MenuKit.Good : Color.white, 500f, bold: true);
+            // The other path sits right under the POWER row it competes with.
+            if (kind == Upgrades.Kind.Power && spec.CanFitTurboKit)
+            {
+                DrawUpgradeRowBody(car, spec, kind, stage, pending, plan, ref y);
+                DrawTurboPathRow(car, spec, ref y);
+                return;
+            }
+            DrawUpgradeRowBody(car, spec, kind, stage, pending, plan, ref y);
+        }
+
+        void DrawUpgradeRowBody(OwnedCar car, CarSpec spec, Upgrades.Kind kind, int stage,
+                              PendingPart pending, Upgrades.Plan plan, ref float y)
+        {
 
             if (pending != null)
             {
@@ -4339,6 +4360,74 @@ namespace PSXRacing.LifeSim
                     usable ? (Color?)null : MenuKit.BtnBgDisabled);
                 x += btnW + 12f;
             }
+            y -= 52f;
+        }
+
+        /// <summary>
+        /// The other POWER PATH, under the POWER row of an NA road car
+        /// (CarTune, "two ladders"). Until a path is chosen it sells the first
+        /// turbo stage beside the NA ladder's; after, it says which path the
+        /// engine is on and how to change it - put the engine back to stock,
+        /// parts sold for half.
+        /// </summary>
+        void DrawTurboPathRow(OwnedCar car, CarSpec spec, ref float y)
+        {
+            var kit = Upgrades.TurboKitPlan(S, car, spec);
+            if (kit.valid)
+            {
+                MenuKit.Label(body, "OR TURBO  [----]  " + kit.stageName + " — the other path", 17,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Accent, 600f, bold: true);
+                y -= 24f;
+                MenuKit.Label(body, "  +" + kit.delta + " hp (" + kit.fromVal + " -> " + kit.toVal + " hp)   " +
+                    kit.days + "d   ·   builds to " + spec.CeilingHp(true) + " hp, against " +
+                    spec.CeilingHp(false) + " hp naturally aspirated", 14, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                y -= 24f;
+                MenuKit.Label(body, "  The boost comes in with the revs, with lag that grows with each stage. " +
+                    "Commits the engine to the turbo path.", 14, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+                y -= 34f;
+
+                float btnW = Mathf.Min(280f, (ColW - 12f) / 2f);
+                float x = MenuKit.ColLeft(ColL, btnW);
+                for (int venue = 0; venue < 2; venue++)
+                {
+                    bool shop = venue == 1;
+                    int price = shop ? kit.shopPrice : kit.diyPrice;
+                    bool usable = S.money >= price && (shop || kit.canDiy);
+                    string label = shop ? "SHOP " + MenuKit.Money(price)
+                        : (kit.canDiy ? "DIY " + MenuKit.Money(price) : "DIY needs skill " + kit.skillReq);
+                    if (usable && CarWhere.RefuseWork(S, car,
+                            shop ? CarWhere.VenueMechanic : CarWhere.VenueDiy) != null) usable = false;
+                    bool capturedShop = shop;
+                    MenuKit.Button(body, label, new Vector2(0.5f, 1f), new Vector2(x, y), new Vector2(btnW, 40f),
+                        usable ? (UnityEngine.Events.UnityAction)(() =>
+                        {
+                            string err = Upgrades.Order(S, car, spec, Upgrades.Kind.Power, capturedShop, turboKit: true);
+                            Booked(err, "TURBO KIT ordered");
+                        }) : null, 14, usable ? (Color?)null : MenuKit.BtnBgDisabled);
+                    x += btnW + 12f;
+                }
+                y -= 52f;
+                return;
+            }
+
+            if (Upgrades.RevertRefuses(S, car, spec) != null) return;
+            int refund = Upgrades.RevertRefund(S, car, spec);
+            string other = spec.OnTurboPath(car.turbo) ? "naturally aspirated" : "turbo";
+            MenuKit.Label(body, "  To build it " + other + " instead, put the engine back to stock first " +
+                "(the parts sell for half).", 14, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
+            y -= 30f;
+            float w = Mathf.Min(360f, ColW);
+            MenuKit.Button(body, "REVERT ENGINE TO STOCK  +" + MenuKit.Money(refund), new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(ColL, w), y), new Vector2(w, 40f),
+                () =>
+                {
+                    string err = Upgrades.RevertEngine(S, car, spec, out int back);
+                    Booked(err, "ENGINE BACK TO STOCK (+" + MenuKit.Money(back) + ")");
+                }, 14);
             y -= 52f;
         }
 
@@ -7353,6 +7442,7 @@ namespace PSXRacing.LifeSim
                 RaceHandoff.UpSeat = tuned.upSeat;
                 RaceHandoff.Welded = tuned.welded;
                 RaceHandoff.Supercharged = tuned.supercharged;
+                RaceHandoff.TurboKit = tuned.turbo;
                 // The advanced tune, gated HERE rather than in the race scene.
                 // This is already the one place that knows which parts this car
                 // carries, so it is the one place the unlock rule belongs;

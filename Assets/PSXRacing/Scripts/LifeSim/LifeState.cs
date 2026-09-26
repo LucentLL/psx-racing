@@ -53,7 +53,7 @@ namespace PSXRacing.LifeSim
         ///     retired to legacy; the migration reads them once to work out
         ///     where an existing career already stands and writes the order.
         /// </summary>
-        public int saveVersion = 16;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 17;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
@@ -429,6 +429,10 @@ namespace PSXRacing.LifeSim
         public bool welded;
         /// <summary>Roots blower. Offered on naturally-aspirated cars only.</summary>
         public bool supercharged;
+        /// <summary>A turbo kit on an NA engine: the car's power ladder is the
+        /// TURBO one (CarTune, "two ladders"). Chosen with the first turbo
+        /// stage; a factory turbo car is on that path without it.</summary>
+        public bool turbo;
 
         // The six adjustable parts. Each one exists to UNLOCK a group of
         // sliders on the advanced-tuning screen rather than to change the car

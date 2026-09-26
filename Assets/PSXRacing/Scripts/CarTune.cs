@@ -98,14 +98,67 @@ namespace PSXRacing
         /// ladder, just not one of its rungs.</summary>
         public const float BlowerTopSpeedGain = 0.04f;
 
-        /// <summary>Stock top speed times this is the build's.</summary>
-        public static float TopSpeedMult(int powerStage, bool blower) =>
-            1f + BuiltTopSpeedGain * PowerFrac[Clamp(powerStage)] + (blower ? BlowerTopSpeedGain : 0f);
+        /// <summary>Stock top speed times this is the build's.
+        /// <paramref name="pathShare"/> is how much of the engine's full build
+        /// the car's power PATH reaches (1 for a turbo build, NaPathShare for
+        /// a naturally aspirated one - see CarSpec.PathShare).</summary>
+        public static float TopSpeedMult(int powerStage, bool blower, float pathShare = 1f) =>
+            1f + BuiltTopSpeedGain * pathShare * PowerFrac[Clamp(powerStage)] + (blower ? BlowerTopSpeedGain : 0f);
 
         /// <summary>The build's top speed over stock, as a whole percentage, for
         /// the shop and the spec page.</summary>
-        public static int TopSpeedGainPct(int powerStage, bool blower) =>
-            Mathf.RoundToInt((TopSpeedMult(powerStage, blower) - 1f) * 100f);
+        public static int TopSpeedGainPct(int powerStage, bool blower, float pathShare = 1f) =>
+            Mathf.RoundToInt((TopSpeedMult(powerStage, blower, pathShare) - 1f) * 100f);
+
+        // ---- the two power paths (owner, 2026-09-25) ---------------------------
+        //
+        // "When maxing out power upgrades, cars do not acquire a turbo. Max NA
+        // builds are fine, but cars need options for turbos. And that may lead
+        // to an alternate power path than NA builds." Chosen: TWO LADDERS per
+        // car - NA (instant response, lower ceiling; the Roots blower is an NA
+        // part) or TURBO (the engine's full built ceiling, with lag that grows
+        // with the turbo). A factory-turbo car is on the turbo path only.
+        //
+        // The baked builtHp was always a TURBO figure for an NA car (RG2's 1.9x
+        // bucket says so: "small-displacement engines turbo well and ~double"),
+        // so the turbo path keeps it and the NA path takes a share of the gain.
+
+        /// <summary>Share of the stock->built gain an NA build reaches: a 1.9x
+        /// small-displacement engine tops out at ~1.5x naturally aspirated, a
+        /// 1.4x big V8 at ~1.22x (plus a blower, if it wants more).</summary>
+        public const float NaPathShare = 0.55f;
+
+        /// <summary>
+        /// Torque a turbo engine makes with NO boost, as a share of its boosted
+        /// curve. A turbo kit on an NA engine leaves the NA engine underneath
+        /// (stock hp over built hp); a factory turbo engine off boost makes
+        /// about 75% of its rated torque. The bigger the build, the more of the
+        /// engine is boost - and the more there is to wait for.
+        /// </summary>
+        public static float TurboOffBoost(int stockHp, int stageHp, bool factoryTurbo)
+        {
+            if (stageHp <= 0) return 1f;
+            float natural = (factoryTurbo ? 0.75f : 1f) * stockHp;
+            return Mathf.Clamp(natural / stageHp, 0.35f, 1f);
+        }
+
+        /// <summary>How much boost the turbo CAN make at this point in the rev
+        /// range (0..1). Nothing below the threshold, full a quarter of the
+        /// range later; a bigger turbo (higher stage) comes on later.</summary>
+        public static float BoostAvailable(float rpmFrac, int stage)
+        {
+            float t0 = 0.20f + 0.05f * Clamp(stage);
+            return Mathf.Clamp01((rpmFrac - t0) / 0.25f);
+        }
+
+        /// <summary>How fast boost builds, per second: quicker at high rpm
+        /// (more exhaust), slower for a bigger turbo - stage 4 spools at half
+        /// the rate of a small one. RG2's monolith spool, 3.0 x (1 + rpm).</summary>
+        public static float SpoolRate(float rpmFrac, int stage) =>
+            2.4f * (0.5f + rpmFrac) / (1f + 0.25f * Clamp(stage));
+
+        /// <summary>Boost bleeding off with the throttle shut, per second.</summary>
+        public const float BoostBleedRate = 2.5f;
 
         // ---- the Roots blower's torque curve ----------------------------------
         // Here rather than in CarController because the GEARBOX needs it now:

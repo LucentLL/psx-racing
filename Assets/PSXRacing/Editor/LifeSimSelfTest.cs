@@ -55,6 +55,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestEngineVoices), TestEngineVoices);
             Guard(nameof(TestCarModels), TestCarModels);
             Guard(nameof(TestUpgrades), TestUpgrades);
+            Guard(nameof(TestTurboPath), TestTurboPath);
             Guard(nameof(TestAdvancedTuning), TestAdvancedTuning);
             Guard(nameof(TestDebugBench), TestDebugBench);
             Guard(nameof(TestMarket), TestMarket);
@@ -7904,9 +7905,9 @@ namespace PSXRacing.EditorTools
                 Check(cheapest >= 40 && dearest < 200000,
                       "stage prices stay in a payable range for " + probe.name);
 
-                Check(Upgrades.EffectiveHp(car, probe) == probe.builtHp,
-                      "a full power build reaches the engine's ceiling",
-                      Upgrades.EffectiveHp(car, probe));
+                Check(Upgrades.EffectiveHp(car, probe) == probe.CeilingHp(car.turbo),
+                      "a full power build reaches the ceiling of its path",
+                      Upgrades.EffectiveHp(car, probe) + " of " + probe.CeilingHp(car.turbo));
                 Check(Upgrades.EffectiveKg(car, probe) == probe.minKg,
                       "a full weight build reaches the minimum weight",
                       Upgrades.EffectiveKg(car, probe));
@@ -7941,6 +7942,156 @@ namespace PSXRacing.EditorTools
                 Check(!Upgrades.OfferFor(s, naCar, na, Upgrades.Mod.Supercharger).available,
                       "and cannot be bought twice");
             }
+        }
+
+        /// <summary>
+        /// TWO POWER PATHS (owner, 2026-09-25: "cars need options for turbos
+        /// ... an alternate power path than NA builds"). An NA road car picks
+        /// NA or TURBO with its first power stage; a factory turbo has the
+        /// turbo ladder only; the blower is an NA part; the engine can be put
+        /// back to stock to change path. And the physics: a turbo engine has
+        /// lag that grows with the build, and still tops out on its figure.
+        /// </summary>
+        static void TestTurboPath()
+        {
+            Line("turbo path:");
+            var s = LifeRules.SeedNewGame("TURBO", 25, 0);
+            s.money = 100000000;
+            s.mechSkill = 100f;
+            CarSpec na = null, factory = null, blowerNa = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (c.IsRaceCar || c.builtHp <= c.hp) continue;
+                if (na == null && c.CanFitTurboKit && c.dispCc > 0 && c.dispCc < 2500) na = c;
+                else if (blowerNa == null && c.CanFitTurboKit) blowerNa = c;
+                if (factory == null && c.IsTurbo) factory = c;
+            }
+            Check(na != null && factory != null && blowerNa != null, "the catalog has NA and turbo road cars");
+            if (na == null || factory == null || blowerNa == null) return;
+
+            // ---- ceilings -------------------------------------------------------
+            Check(na.CeilingHp(true) == na.builtHp, "an NA engine's turbo ceiling is its build ceiling",
+                  na.CeilingHp(true) + " vs " + na.builtHp);
+            Check(na.CeilingHp(false) < na.CeilingHp(true) && na.CeilingHp(false) > na.hp,
+                  "and its NA ceiling sits between stock and that", na.hp + " < " + na.CeilingHp(false) + " < " + na.CeilingHp(true));
+            Check(factory.CeilingHp(false) == factory.builtHp && factory.OnTurboPath(false),
+                  "a factory turbo is on the turbo path with its full ceiling");
+            Check(na.BuildTopSpeedMps(4, false, false) < na.BuildTopSpeedMps(4, false, true),
+                  "a full NA build is slower at the top than a full turbo build",
+                  (na.BuildTopSpeedMps(4, false, false) * 3.6f).ToString("0") + " vs " +
+                  (na.BuildTopSpeedMps(4, false, true) * 3.6f).ToString("0") + " km/h");
+            Check(Mathf.Abs(factory.BuildTopSpeedMps(4, false, false) -
+                            factory.topSpeedMps * CarTune.TopSpeedMult(4, false)) < 0.01f,
+                  "a factory turbo's build keeps the full +15%");
+
+            // ---- the shop: choosing the path ------------------------------------
+            var car = new OwnedCar { id = "tp_na", specId = na.id, displayName = na.name,
+                                     catalogPrice = na.price, paidPrice = na.price };
+            s.cars.Add(car);
+            Check(Upgrades.TurboKitPlan(s, car, na).valid, "a stock NA car is offered a turbo kit", Upgrades.TurboKitRefuses(s, car, na));
+            Check(Upgrades.NextStagePlan(s, car, na, Upgrades.Kind.Power).stageName == "INTAKE + EXHAUST",
+                  "and the NA ladder beside it", Upgrades.NextStagePlan(s, car, na, Upgrades.Kind.Power).stageName);
+            var kitPlan = Upgrades.TurboKitPlan(s, car, na);
+            Check(kitPlan.stageName == "TURBO KIT" && kitPlan.toVal > Upgrades.NextStagePlan(s, car, na, Upgrades.Kind.Power).toVal,
+                  "the turbo kit makes more at stage 1 than the NA stage", kitPlan.toVal + " hp");
+            Check(Upgrades.Order(s, car, na, Upgrades.Kind.Power, false, turboKit: true) == null, "the kit can be ordered");
+            Check(car.turbo, "and ordering it commits the car to the turbo path");
+            for (int d = 0; d < kitPlan.days; d++) LifeRules.SleepUntilMorning(s);
+            Check(Upgrades.GetStage(car, Upgrades.Kind.Power) == 1, "the kit lands as power stage 1");
+            Check(Upgrades.EffectiveHp(car, na) == na.HpAtStage(1, true), "at the turbo path's stage-1 figure",
+                  Upgrades.EffectiveHp(car, na));
+            Check(Upgrades.NextStagePlan(s, car, na, Upgrades.Kind.Power).stageName == "BIGGER TURBO + INTERCOOLER",
+                  "and the POWER row now sells the turbo ladder",
+                  Upgrades.NextStagePlan(s, car, na, Upgrades.Kind.Power).stageName);
+            Check(!Upgrades.OfferFor(s, car, na, Upgrades.Mod.Supercharger).available,
+                  "a turbo build is not sold a blower", Upgrades.OfferFor(s, car, na, Upgrades.Mod.Supercharger).blockedReason);
+            Check(!Upgrades.TurboKitPlan(s, car, na).valid, "and is not offered a second kit");
+
+            // ---- reverting ------------------------------------------------------
+            int before = s.money;
+            Check(Upgrades.RevertEngine(s, car, na, out int back) == null && back > 0,
+                  "the engine goes back to stock, parts sold", MenuKit.Money(back));
+            Check(s.money == before + back, "and the money arrives");
+            Check(!car.turbo && Upgrades.GetStage(car, Upgrades.Kind.Power) == 0, "and the car is stock again");
+            Check(Upgrades.TurboKitPlan(s, car, na).valid, "so either path is open again");
+
+            // ---- the NA path blocks the kit; the blower is NA -------------------
+            var naCar = new OwnedCar { id = "tp_na2", specId = blowerNa.id, displayName = blowerNa.name,
+                                       catalogPrice = blowerNa.price, paidPrice = blowerNa.price };
+            s.cars.Add(naCar);
+            Check(Upgrades.OrderMod(s, naCar, blowerNa, Upgrades.Mod.Supercharger) == null, "a blower goes on an NA car");
+            Check(!Upgrades.TurboKitPlan(s, naCar, blowerNa).valid, "and blocks the turbo kit",
+                  Upgrades.TurboKitRefuses(s, naCar, blowerNa));
+
+            // ---- factory turbo: one path ----------------------------------------
+            var fCar = new OwnedCar { id = "tp_f", specId = factory.id, displayName = factory.name };
+            s.cars.Add(fCar);
+            Check(!Upgrades.TurboKitPlan(s, fCar, factory).valid, "a factory turbo is not sold a turbo kit",
+                  Upgrades.TurboKitRefuses(s, fCar, factory));
+            Check(Upgrades.NextStagePlan(s, fCar, factory, Upgrades.Kind.Power).stageName == "ECU + BOOST",
+                  "its POWER row is the turbo ladder", Upgrades.NextStagePlan(s, fCar, factory, Upgrades.Kind.Power).stageName);
+            Check(Upgrades.RevertRefuses(s, fCar, factory) != null, "and it has no other path to revert to");
+
+            // ---- the physics ----------------------------------------------------
+            var stockNa = TuneBenchCar(na);
+            stockNa.ApplySpec(na, default);
+            Check(!stockNa.HasTurbo, "a stock NA engine has no turbo lag");
+            TuneDrop(stockNa);
+
+            var tStock = TuneBenchCar(factory);
+            tStock.ApplySpec(factory, default);
+            Check(tStock.HasTurbo && Mathf.Abs(tStock.turboOffBoost - 0.75f) < 0.01f,
+                  "a stock factory turbo makes 75% off boost", tStock.turboOffBoost.ToString("0.00"));
+            TuneDrop(tStock);
+
+            var kit1 = TuneBenchCar(na);
+            kit1.turboKit = true;
+            kit1.ApplySpec(na, new CarTune.Stages { power = 1 });
+            var kit4 = TuneBenchCar(na);
+            kit4.turboKit = true;
+            kit4.ApplySpec(na, new CarTune.Stages { power = 4 });
+            Check(kit1.HasTurbo && kit4.turboOffBoost < kit1.turboOffBoost,
+                  "a bigger turbo build is more of the engine off boost",
+                  "stage 1 " + kit1.turboOffBoost.ToString("0.00") + ", stage 4 " + kit4.turboOffBoost.ToString("0.00"));
+            Check(Mathf.Abs(kit4.BuildTopSpeedMps - na.BuildTopSpeedMps(4, false, true)) < 0.01f,
+                  "the race car's build top speed is the turbo path's");
+            Check(CarTune.SpoolRate(0.7f, 4) < CarTune.SpoolRate(0.7f, 1) &&
+                  CarTune.BoostAvailable(0.35f, 4) < CarTune.BoostAvailable(0.35f, 1),
+                  "a bigger turbo spools slower and comes on later");
+            Check(CarTune.BoostAvailable(0.8f, 4) >= 1f,
+                  "every turbo is on full boost by 80% of the rev range (where top speed is set)");
+            TuneDrop(kit1); TuneDrop(kit4);
+
+            // A turbo-kit car still takes a blower on the handoff? No: the kit
+            // replaces it, on the race side too.
+            var both = TuneBenchCar(na);
+            both.turboKit = true;
+            both.supercharged = true;
+            both.ApplySpec(na, new CarTune.Stages { power = 2 });
+            Check(!both.supercharged, "a turbo kit and a blower are never on one engine");
+            TuneDrop(both);
+
+            // ---- v17: builds made on the old single ladder -----------------------
+            // That ladder was a turbo build in all but name, so an NA car with
+            // stages keeps every horsepower on the turbo path; a blown NA build
+            // stays NA and is paid the difference.
+            var old = LifeRules.SeedNewGame("V16", 25, 0);
+            old.saveVersion = 16;
+            var built = new OwnedCar { id = "v16_na", specId = na.id, displayName = na.name, upPower = 3 };
+            var blown = new OwnedCar { id = "v16_bl", specId = blowerNa.id, displayName = blowerNa.name,
+                                       upPower = 4, supercharged = true };
+            old.cars.Add(built); old.cars.Add(blown);
+            int hpBefore = CarTune.PowerAtStage(na.hp, na.builtHp, 3);
+            int money0 = old.money;
+            LifeSimManager.Migrate(old);
+            Check(old.saveVersion >= 17, "the save migrates to v17", old.saveVersion);
+            Check(built.turbo && Upgrades.EffectiveHp(built, na) == hpBefore,
+                  "an old NA build keeps its power on the turbo path",
+                  Upgrades.EffectiveHp(built, na) + " hp, was " + hpBefore);
+            Check(!blown.turbo && blown.supercharged, "a blown NA build stays NA");
+            int owed = (blowerNa.HpAtStage(4, true) - blowerNa.HpAtStage(4, false)) * Upgrades.PerHp;
+            Check(old.money == money0 + owed, "and is paid for the horsepower the NA ceiling takes back",
+                  MenuKit.Money(old.money - money0) + " of " + MenuKit.Money(owed));
         }
 
         /// <summary>
@@ -8514,6 +8665,22 @@ namespace PSXRacing.EditorTools
                             Agree(spec.name + " +blower", "gear " + (g + 1),
                                   bCar.gearRatios[g], bSpec.gearRatios[g]);
                     TuneDrop(blown);
+
+                    // A TURBO KIT: a different ceiling, the same gearbox rule.
+                    // The garage must quote the race's top speed and gears.
+                    var kit = TuneBenchCar(spec);
+                    kit.turboKit = true;
+                    kit.ApplySpec(spec, sweepTune);
+                    Reach(kit, spec.name + " +turbo kit");
+                    var kCar = CarSetupBasis.FromController(kit);
+                    var kSpec = CarSetupBasis.FromSpec(spec, sweepTune, false, turboKit: true);
+                    Agree(spec.name + " +turbo kit", "top speed", kCar.topSpeedMps, kSpec.topSpeedMps);
+                    Agree(spec.name + " +turbo kit", "first gear force", kCar.firstGearForceN, kSpec.firstGearForceN);
+                    if (kCar.GearCount == kSpec.GearCount)
+                        for (int g = 0; g < kCar.GearCount; g++)
+                            Agree(spec.name + " +turbo kit", "gear " + (g + 1),
+                                  kCar.gearRatios[g], kSpec.gearRatios[g]);
+                    TuneDrop(kit);
                 }
                 Agree(spec.name, "mass", fromCar.massKg, fromSpec.massKg);
                 Agree(spec.name, "wheel radius", fromCar.wheelRadius, fromSpec.wheelRadius);

@@ -100,6 +100,7 @@ namespace PSXRacing.EditorTools
             public CarSpec spec;
             public int power;
             public bool blower;
+            public bool turboKit;
             public string why;
         }
 
@@ -174,6 +175,17 @@ namespace PSXRacing.EditorTools
             if (fastestNA != null)
                 runs.Add(new Run { spec = fastestNA, power = CarTune.MaxStage, blower = true,
                                    why = "fastest NA road car, stage 4 + blower" });
+            // A TURBO KIT: the drive force waits for boost, and the top speed
+            // must not - it is set on full boost at the power peak.
+            var smallNA = Pick(c => !c.IsRaceCar && c.CanFitTurboKit && c.dispCc > 0 && c.dispCc < 2500 && c.builtHp > c.hp,
+                               (a, b) => b.topSpeedMps.CompareTo(a.topSpeedMps));
+            if (smallNA != null)
+            {
+                runs.Add(new Run { spec = smallNA, power = CarTune.MaxStage, turboKit = true,
+                                   why = "small NA engine, stage-4 TURBO KIT" });
+                runs.Add(new Run { spec = smallNA, power = CarTune.MaxStage,
+                                   why = "same engine, stage-4 NA build" });
+            }
             if (fastestRoad != null && fastestRoad != fastestNA)
                 runs.Add(new Run { spec = fastestRoad, power = CarTune.MaxStage, why = "fastest road car, stage 4" });
             if (fastestRace != null) runs.Add(new Run { spec = fastestRace, power = 0, why = "fastest race car" });
@@ -186,6 +198,7 @@ namespace PSXRacing.EditorTools
                 RaceHandoff.UpPower = run.power;
                 RaceHandoff.UpWeight = RaceHandoff.UpBrakes = RaceHandoff.UpSuspension = RaceHandoff.UpTires = 0;
                 RaceHandoff.Supercharged = run.blower;
+                RaceHandoff.TurboKit = run.turboKit;
                 RaceHandoff.Welded = false;
                 RaceHandoff.Setup = null;
                 RaceHandoff.StartFuelPct = 100f;
@@ -246,7 +259,8 @@ namespace PSXRacing.EditorTools
                                         Mathf.Rad2Deg).ToString("+0.00;-0.00") + " deg" +
                     "  ·  spin " + car.wheelSpin.ToString("0.00") + ", limiter " + car.RevLimiterActive +
                     ", grounded " + car.anyWheelGrounded + ", on road " + car.onRoad +
-                    ", heat x" + car.heatAccelMult.ToString("0.00") + ", fault x" + car.faultAccelMult.ToString("0.00"));
+                    ", heat x" + car.heatAccelMult.ToString("0.00") + ", fault x" + car.faultAccelMult.ToString("0.00") +
+                    (car.HasTurbo ? ", boost " + car.Boost.ToString("0.00") + " (off-boost " + car.turboOffBoost.ToString("0.00") + ")" : ""));
                 hold = false;
                 float settled = car.Body.linearVelocity.magnitude;
                 float rel = peak / target;

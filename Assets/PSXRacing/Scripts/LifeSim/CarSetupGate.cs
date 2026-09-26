@@ -226,7 +226,7 @@ namespace PSXRacing.LifeSim
             // The blower as well as the weld: it moves the engine's power peak,
             // and top gear is anchored there, so the gear rows depend on it.
             CarSetupBasis.FromSpec(spec, Upgrades.StagesOf(car), car != null && car.welded,
-                                   car != null && car.supercharged);
+                                   car != null && car.supercharged, car != null && car.turbo);
 
         /// <summary>How many of the 30-odd rows this car can actually touch.
         /// The one number the parts page shows to say "there is a reason to buy

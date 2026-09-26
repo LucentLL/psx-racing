@@ -114,7 +114,7 @@ namespace PSXRacing
         /// ScaleChassisToMass / DeriveDownforce and must keep mirroring it.
         /// </summary>
         public static CarSetupBasis FromSpec(CarSpec spec, CarTune.Stages tune, bool welded,
-                                             bool supercharged = false)
+                                             bool supercharged = false, bool turboKit = false)
         {
             var b = new CarSetupBasis();
             if (spec == null) return b;
@@ -122,7 +122,11 @@ namespace PSXRacing
             // ApplySpec's first line, on this side too: a race car's bought
             // stages count for nothing, and it carries no blower and no weld.
             tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
-            if (spec.IsRaceCar) { welded = false; supercharged = false; }
+            if (spec.IsRaceCar) { welded = false; supercharged = false; turboKit = false; }
+            // ApplySpec's path rule, mirrored: only an NA road car takes a
+            // turbo kit, and a kit replaces the blower.
+            if (!spec.CanFitTurboKit) turboKit = false;
+            if (turboKit) supercharged = false;
             var hw = CarTune.HandlingOf(spec.IsRaceCar, tune);
 
             // The shell decides the wheel radius (CarBody.ApplySpec writes it),
@@ -180,7 +184,7 @@ namespace PSXRacing
                 b.rawCorneringStiffness, CarController.CorneringStiffnessCap);
 
             // The build's top speed and the gearbox ApplySpec anchors to it.
-            b.topSpeedMps = spec.BuildTopSpeedMps(tune.power, supercharged);
+            b.topSpeedMps = spec.BuildTopSpeedMps(tune.power, supercharged, turboKit);
             b.redlineRPM = spec.redline;
             b.gearRatios = spec.BuildGearRatios(b.wheelRadius, b.finalDrive, b.topSpeedMps,
                                                 spec.PeakPowerRPM(supercharged));
@@ -189,7 +193,7 @@ namespace PSXRacing
             b.welded = welded;
 
             float scale = spec.hp > 0
-                ? CarTune.PowerAtStage(spec.hp, spec.builtHp, tune.power) / (float)spec.hp : 1f;
+                ? spec.HpAtStage(tune.power, turboKit) / (float)spec.hp : 1f;
             b.firstGearForceN = FirstGearForce(
                 TorqueOnCurve(spec, 0.6f * spec.redline) * scale, b.gearRatios,
                 b.finalDrive, b.drivetrainEfficiency, b.wheelRadius);

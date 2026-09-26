@@ -140,6 +140,7 @@ namespace PSXRacing
             // preload range is scaled from.
             playerCar.weldedDiff = RaceHandoff.Welded;
             playerCar.supercharged = RaceHandoff.Supercharged;
+            playerCar.turboKit = RaceHandoff.TurboKit;
             // The driver's own tune goes on before the spec too. ApplySpec
             // applies it at the end whichever order this is written in, but
             // handing it over here says plainly that it is part of specing the
@@ -160,7 +161,8 @@ namespace PSXRacing
             // The voice comes after the spec, and reads the mods set above it:
             // a blower changes what the car sounds like as well as what it
             // makes.
-            ApplyVoice(playerCar, spec, RaceHandoff.Supercharged, isPlayer: true);
+            ApplyVoice(playerCar, spec, RaceHandoff.Supercharged && !RaceHandoff.TurboKit, isPlayer: true,
+                       turboFitted: spec.OnTurboPath(RaceHandoff.TurboKit));
         }
 
         /// <summary>
@@ -513,7 +515,8 @@ namespace PSXRacing
         /// layer comes from the GT4 aspiration field. Before this, every car in
         /// the game idled like a 13B and blew off like a sequential twin-turbo.
         /// </summary>
-        static void ApplyVoice(CarController car, CarSpec spec, bool blowerFitted = false, bool isPlayer = false)
+        static void ApplyVoice(CarController car, CarSpec spec, bool blowerFitted = false, bool isPlayer = false,
+                               bool turboFitted = false)
         {
             var engine = car.GetComponent<EngineAudio>();
             if (engine != null)
@@ -539,7 +542,8 @@ namespace PSXRacing
             var boost = car.GetComponent<TurboAudio>();
             if (boost != null)
                 boost.SetAspiration(
-                    spec.IsTurbo ? TurboAudio.Aspiration.Turbo :
+                    // A turbo KIT sounds like a turbo: spool, blow-off, the lot.
+                    (spec.IsTurbo || turboFitted) ? TurboAudio.Aspiration.Turbo :
                     (spec.IsSupercharged || blowerFitted) ? TurboAudio.Aspiration.Supercharger :
                     TurboAudio.Aspiration.NaturallyAspirated);
         }

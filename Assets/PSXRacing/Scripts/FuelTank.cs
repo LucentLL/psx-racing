@@ -97,7 +97,7 @@ namespace PSXRacing
                     profilePower = power;
                     profileWeight = weight;
                     profile = spec != null
-                        ? FuelProfile.For(spec, car.activeTune)
+                        ? FuelProfile.For(spec, car.activeTune, car.turboKit)
                         // No catalog entry: the controller's built-in RX-7, but
                         // with whatever mass the scene actually gave it.
                         : FuelProfile.Of(FuelModel.FallbackHp,

@@ -148,6 +148,10 @@ namespace PSXRacing.LifeSim
             (Upgrades.Kind.Seat,       "SPORT SEAT, TORN BOLSTER", 2),
         };
 
+        /// <summary>A power pull that is a turbo, not generic engine parts.</summary>
+        static bool IsTurboPull(YardPart part) =>
+            part != null && part.upgradeKind == "power" && part.label != null && part.label.Contains("TURBO");
+
         static readonly (Upgrades.Kind kind, string label, int maxStage)[] BackLotHardware =
         {
             (Upgrades.Kind.Power,      "TURBO + MANIFOLD, USED",   4),
@@ -358,6 +362,20 @@ namespace PSXRacing.LifeSim
                 }
                 var kind = Upgrades.KindFromKey(part.upgradeKind);
                 var plan = Upgrades.NextStagePlan(s, car, spec, kind);
+                // A USED TURBO is turbo hardware (CarTune, "two ladders"): it
+                // goes on a turbo engine, or it starts an unbuilt NA engine
+                // down the turbo path - never onto an NA build.
+                if (IsTurboPull(part) && !spec.OnTurboPath(car.turbo))
+                {
+                    string no = Upgrades.TurboKitRefuses(s, car, spec);
+                    if (no != null)
+                    {
+                        q.blockedReason = spec.IsSupercharged || spec.IsRaceCar ? no
+                                        : "turbo hardware — this engine is an NA build";
+                        return q;
+                    }
+                    plan = Upgrades.TurboKitPlan(s, car, spec);
+                }
                 if (!plan.valid) { q.blockedReason = "already maxed"; return q; }
                 if (plan.toStage > part.maxStage)
                 {
@@ -381,7 +399,7 @@ namespace PSXRacing.LifeSim
                 // price on a part with no warranty behind it.
                 q.price = Mathf.RoundToInt(plan.diyPrice *
                                            (0.30f + 0.30f * Mathf.Clamp01(part.grade / 100f)));
-                q.effect = Upgrades.StageNames[(int)kind][plan.toStage] +
+                q.effect = plan.stageName +
                            "  ·  stage " + plan.toStage +
                            (plan.unit == "kg" ? "  ·  -" + plan.delta + " kg"
                                               : "  ·  +" + plan.delta + " " + plan.unit);
@@ -451,6 +469,9 @@ namespace PSXRacing.LifeSim
                 upgradeStage = q.isUpgrade ? q.stage : 0,
                 junkRisk = q.risk,
             });
+            // Bought a used turbo for an unbuilt NA engine: it is on the turbo
+            // path from here, as a turbo kit from the shop would put it.
+            if (q.isUpgrade && IsTurboPull(part)) car.turbo = true;
             s.junkyard.Remove(part);
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": bought " + part.label +
                               " at the yard (" + MenuKit.Money(q.price) + ", " +
@@ -701,6 +722,7 @@ namespace PSXRacing.LifeSim
                 upgradeStage = o.quote.isUpgrade ? o.quote.stage : 0,
                 junkRisk = o.quote.risk,
             });
+            if (o.quote.isUpgrade && IsTurboPull(o.part)) car.turbo = true;
 
             Forget(s);
             s.yardPulls.Add(PullKey(s, wreck, slot));

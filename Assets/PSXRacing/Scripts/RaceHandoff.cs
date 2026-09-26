@@ -220,6 +220,8 @@
         public static int UpSeat;
         /// <summary>One-off bolt-ons: welded rear diff, Roots blower.</summary>
         public static bool Welded, Supercharged;
+        /// <summary>A turbo kit on an NA engine: the TURBO power path.</summary>
+        public static bool TurboKit;
         /// <summary>
         /// The driver's advanced tune, ALREADY GATED. The menu sanitizes it
         /// against the parts this car actually carries before it crosses, so the
@@ -407,7 +409,7 @@
             // car: these statics survive a scene load by design, so the tune the
             // player set on one car would silently be applied to another.
             Setup = null;
-            Welded = Supercharged = false;
+            Welded = Supercharged = TurboKit = false;
             AccelMult = GripMult = BrakeMult = ShiftMult = FuelMult = CoolMult = 1f;
             SteerPull = 0f; HideGauges = false; RpmFlutter = false;
             RadiatorCond = FanCond = HoseCond = CoolantPct = EngineCond = 100f;

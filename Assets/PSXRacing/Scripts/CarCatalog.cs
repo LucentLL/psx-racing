@@ -189,11 +189,44 @@ namespace PSXRacing
         /// car is already built and takes nothing — see
         /// <see cref="CarTune.BoughtOf"/>.
         /// </summary>
-        public float BuildTopSpeedMps(int powerStage, bool blower)
+        public float BuildTopSpeedMps(int powerStage, bool blower) =>
+            BuildTopSpeedMps(powerStage, blower, false);
+
+        /// <param name="turboKit">A turbo kit fitted to an NA engine: the car is
+        /// on the TURBO path (see <see cref="OnTurboPath"/>).</param>
+        public float BuildTopSpeedMps(int powerStage, bool blower, bool turboKit)
         {
             float stock = topSpeedMps > 1f ? topSpeedMps : 60f;
-            return IsRaceCar ? stock : stock * CarTune.TopSpeedMult(powerStage, blower);
+            return IsRaceCar ? stock
+                : stock * CarTune.TopSpeedMult(powerStage, blower && !turboKit, PathShare(turboKit));
         }
+
+        // ---- the two power paths (CarTune: "two ladders") ----------------------
+
+        public bool IsNaturallyAspirated => !IsForcedInduction;
+        /// <summary>May take a turbo kit: an NA road car. A factory turbo is
+        /// already on the turbo path; a factory blower and a race car stay put.</summary>
+        public bool CanFitTurboKit => IsNaturallyAspirated && !IsRaceCar;
+        /// <summary>Whether this car's power ladder is the TURBO one.</summary>
+        public bool OnTurboPath(bool turboKit) => IsTurbo || (turboKit && CanFitTurboKit);
+
+        /// <summary>Crank hp at stage 4 on this car's path: the baked build
+        /// ceiling on the turbo path (and for anything with only one path), a
+        /// share of its gain on the NA path.</summary>
+        public int CeilingHp(bool turboKit)
+        {
+            if (!CanFitTurboKit || turboKit) return builtHp;
+            return Mathf.RoundToInt(hp + (builtHp - hp) * CarTune.NaPathShare);
+        }
+
+        /// <summary>The ceiling's share of the full build's gain (1 or
+        /// NaPathShare): what the top-speed rule scales by.</summary>
+        public float PathShare(bool turboKit) =>
+            builtHp > hp ? (CeilingHp(turboKit) - hp) / (float)(builtHp - hp) : 1f;
+
+        /// <summary>Crank hp at a power stage on this car's path.</summary>
+        public int HpAtStage(int stage, bool turboKit) =>
+            CarTune.PowerAtStage(hp, CeilingHp(turboKit), stage);
 
         /// <summary>The stock gearbox: see the overload below.</summary>
         public float[] BuildGearRatios(float wheelRadius, float finalDrive) =>

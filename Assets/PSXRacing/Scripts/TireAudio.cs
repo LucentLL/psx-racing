@@ -39,9 +39,6 @@ namespace PSXRacing
         const float DriftMaxVol = 0.50f;
         const float GripUseCap = 1.6f;
         const float GainTau = 0.015f;          // fast, so the screech tracks a flick
-        const float LockThreshRoad = 0.80f;
-        const float LockThreshOff = 0.40f;
-        const float FootLockSpeed = 5.6f;      // m/s
         const float EbrakeLockSpeed = 2.4f;    // m/s
         const float WheelspinGate = 0.15f;
         const float BurnoutGasThresh = 0.7f;
@@ -93,7 +90,6 @@ namespace PSXRacing
             float pitchTarget = 1f;
             float slip = Mathf.Max(Mathf.Abs(car.rearSlipAngle), Mathf.Abs(car.frontSlipAngle));
             bool grounded = car.anyWheelGrounded;
-            float lockThresh = car.onRoad ? LockThreshRoad : LockThreshOff;
 
             if (!grounded)
             {
@@ -116,11 +112,9 @@ namespace PSXRacing
                 target = ScrubMaxVol * u;
                 pitchTarget = 0.88f + 0.16f * u;
             }
-            else if (car.brakeInput > lockThresh && speed > FootLockSpeed && car.forwardSpeed > 0f)
-            {
-                target = ScrubMaxVol * 1.2f;
-                pitchTarget = 1.0f;
-            }
+            // (No foot-brake "lock" branch: it screeched whenever the PEDAL was
+            // past 0.8, lock or no lock, and the ABS never locks a wheel. A tyre
+            // braking at its limit is heard through GripUse above.)
             else if (car.handbrakeInput && speed > EbrakeLockSpeed)
             {
                 target = ScrubMaxVol * 1.3f;

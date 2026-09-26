@@ -156,7 +156,14 @@ namespace PSXRacing
         public static FuelProfile For(CarSpec spec, CarTune.Stages tune)
         {
             if (spec == null) return FuelModel.Fallback;
-            return Of(CarTune.PowerAtStage(spec.hp, spec.builtHp, tune.power),
+            return For(spec, tune, false);
+        }
+
+        /// <param name="turboKit">The car's power path (CarSpec.CeilingHp).</param>
+        public static FuelProfile For(CarSpec spec, CarTune.Stages tune, bool turboKit)
+        {
+            if (spec == null) return FuelModel.Fallback;
+            return Of(spec.HpAtStage(tune.power, turboKit),
                       CarTune.WeightAtStage(spec.kg, spec.minKg, tune.weight));
         }
 
@@ -168,7 +175,7 @@ namespace PSXRacing
             if (car == null) return FuelModel.Fallback;
             var spec = CarCatalog.Get(car.specId);
             if (spec == null) return FuelModel.Fallback;
-            return For(spec, new CarTune.Stages { power = car.upPower, weight = car.upWeight });
+            return For(spec, new CarTune.Stages { power = car.upPower, weight = car.upWeight }, car.turbo);
         }
     }
 }

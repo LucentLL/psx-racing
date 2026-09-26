@@ -462,6 +462,37 @@ namespace PSXRacing.LifeSim
                         MenuKit.Money(refunded) + ")");
                 s.saveVersion = 16;
             }
+
+            if (s.saveVersion < 17)
+            {
+                // v17: TWO POWER PATHS (the owner, 2026-09-25: "cars need
+                // options for turbos ... an alternate power path than NA
+                // builds"). The old single ladder was a turbo build in all but
+                // name - "ECU + BOOST", "TURBO / CAMS", up to the engine's
+                // turbo ceiling - so an NA car that bought stages on it is put
+                // on the TURBO path and keeps every horsepower it paid for.
+                // A car with the blower was building NA: it stays NA, whose
+                // ceiling is lower, and the difference comes back as money at
+                // the price the shop charged for it.
+                int moved = 0, refunded = 0;
+                foreach (var car in s.cars)
+                {
+                    var spec = car != null ? CarCatalog.Get(car.specId) : null;
+                    if (spec == null || !spec.CanFitTurboKit) continue;
+                    bool pendingPower = s.pendingParts.Exists(p => p.carId == car.id && p.upgradeKind == "power");
+                    if (car.upPower <= 0 && !pendingPower) continue;
+                    if (!car.supercharged) { car.turbo = true; moved++; continue; }
+                    int lost = spec.HpAtStage(car.upPower, true) - spec.HpAtStage(car.upPower, false);
+                    if (lost > 0) { int back = lost * Upgrades.PerHp; s.money += back; refunded += back; }
+                }
+                if (moved > 0)
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + moved +
+                        (moved == 1 ? " power build is" : " power builds are") + " TURBO builds now");
+                if (refunded > 0)
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": blown NA builds top out lower — " +
+                        MenuKit.Money(refunded) + " back for the difference");
+                s.saveVersion = 17;
+            }
         }
 
         public static void DeleteSave()

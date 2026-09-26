@@ -374,6 +374,22 @@ namespace PSXRacing
         // already have boost. It moved because the GEARBOX reads it: a blower
         // shifts the engine's power peak, and top gear is anchored there.
 
+        /// <summary>A turbo kit fitted to an NA engine: the car is on the TURBO
+        /// power path (CarTune, "two ladders"). Set before ApplySpec, like the
+        /// blower; a factory turbo is on that path without it.</summary>
+        public bool turboKit;
+        /// <summary>Torque with NO boost as a share of the boosted curve; 1 on
+        /// an engine without a turbo. See CarTune.TurboOffBoost.</summary>
+        public float turboOffBoost = 1f;
+        /// <summary>The turbo's size, as the power stage it was fitted at: a
+        /// bigger turbo comes on later and spools slower.</summary>
+        public int turboStage;
+        /// <summary>Boost now, 0..1: builds with revs and throttle at the
+        /// turbo's own pace, bleeds off when the throttle shuts. 1 on an
+        /// engine without a turbo. For the audio and a boost gauge.</summary>
+        public float Boost { get; private set; } = 1f;
+        public bool HasTurbo => turboOffBoost < 0.999f;
+
         [Header("Brakes")]
         public float brakeDemandG = 0.9f;
         public float brakeFrontShare = DefaultBrakeFrontShare;
@@ -383,10 +399,22 @@ namespace PSXRacing
         public const float BrakeLoadSensitivity = 0.5f;
         /// <summary>The most of its friction circle a wheel may spend on
         /// stopping, engine braking included — the ABS. See the brake block
-        /// in TireForces. Front 0.92 keeps sqrt(1 - 0.92^2) = 39% of its
+        /// in TireForces. Front 0.80 keeps sqrt(1 - 0.80^2) = 60% of its
         /// cornering force at the limit; rear 0.75 keeps 66%, so the rear is
-        /// never the axle that lets go under the pedal.</summary>
-        public const float FrontBrakeLockShare = 0.92f;
+        /// never the axle that lets go under the pedal.
+        ///
+        /// It was 0.92, which kept 39%: full brake and the wheel barely
+        /// turned the car - the owner's "locking steering" (2026-09-25), who
+        /// then chose "more steering". A driver can trail-brake into a corner
+        /// now; overdo it and the nose still washes wide.</summary>
+        public const float FrontBrakeLockShare = 0.80f;
+        /// <summary>How much of a braking tyre's over-demand shows up as scrub
+        /// on the road. The ABS never lets a wheel lock, so a stop leaves the
+        /// faint marks of a tyre at its peak slip, not the black stripes of a
+        /// locked one - which is what every hard stop used to draw, and what
+        /// made the car look (and, with the old screech, sound) locked up.
+        /// The handbrake is a real lock and still marks in full.</summary>
+        const float AbsScrub = 0.06f;
         public const float RearBrakeLockShare = 0.75f;
 
         /// <summary>Layer holding the drivable road surface. Checked by layer
@@ -919,7 +947,11 @@ namespace PSXRacing
             tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
             // (The weld's backing field, not the property: the property re-runs
             // the setup, and this method runs it once, at the end.)
-            if (spec.IsRaceCar) { supercharged = false; weldedDiffFitted = false; }
+            if (spec.IsRaceCar) { supercharged = false; weldedDiffFitted = false; turboKit = false; }
+            // One path: a turbo kit replaces the blower, and only an NA road
+            // car takes one.
+            if (!spec.CanFitTurboKit) turboKit = false;
+            if (turboKit) supercharged = false;
             activeSpec = spec;
             activeTune = tune;
             spec.Decode();
@@ -941,7 +973,7 @@ namespace PSXRacing
                 // place would tune every other car of the same model, including
                 // the opponents, and would compound each time a race loaded.
                 powerScale = spec.hp > 0
-                    ? CarTune.PowerAtStage(spec.hp, spec.builtHp, tune.power) / (float)spec.hp
+                    ? spec.HpAtStage(tune.power, turboKit) / (float)spec.hp
                     : 1f;
                 if (Mathf.Abs(powerScale - 1f) < 1e-4f) curveNm = spec.curveNm;
                 else
@@ -955,7 +987,17 @@ namespace PSXRacing
             // puts the engine's power peak (blown, when a blower is fitted) at
             // exactly that speed. DeriveDrag then solves the body to balance
             // there. See CarTune.TopSpeedMult and CarSpec.BuildGearRatios.
-            buildTopSpeed = spec.BuildTopSpeedMps(tune.power, supercharged);
+            buildTopSpeed = spec.BuildTopSpeedMps(tune.power, supercharged, turboKit);
+            // THE TURBO: on the turbo path (a factory turbo, or a kit), the
+            // torque below the boost comes in with lag. Only the drive force
+            // waits for it (TireForces): gearing, top speed and the drag solve
+            // all read the steady, full-boost curve, so a turbo car still tops
+            // out exactly where its build says.
+            turboStage = CarTune.Clamp(tune.power);
+            turboOffBoost = spec.OnTurboPath(turboKit)
+                ? CarTune.TurboOffBoost(spec.hp, spec.HpAtStage(tune.power, turboKit), spec.IsTurbo)
+                : 1f;
+            Boost = HasTurbo ? 0f : 1f;
             topSpeedAnchorRPM = spec.PeakPowerRPM(supercharged);
             var ratios = spec.BuildGearRatios(wheelRadius, finalDrive, buildTopSpeed, topSpeedAnchorRPM);
             if (ratios != null && ratios.Length > 0) gearRatios = ratios;
@@ -2147,6 +2189,32 @@ namespace PSXRacing
                        Mathf.Max(idleRPM, Mathf.Min(LaunchTargetRPM, upshiftRPM - LaunchUpshiftMarginRPM)),
                        Mathf.Clamp01(pedal));
 
+        /// <summary>
+        /// Boost this tick, and the share of the curve's torque it makes
+        /// available. The turbo can only make what the revs allow
+        /// (CarTune.BoostAvailable) and gets there at its own pace
+        /// (CarTune.SpoolRate) - the lag, bigger for a bigger turbo - and
+        /// bleeds off with the throttle shut, so a lift mid-corner costs the
+        /// boost back. Off boost the engine makes turboOffBoost of the curve.
+        /// </summary>
+        float TurboTorqueMult(float pedal, float dt)
+        {
+            if (!HasTurbo) { Boost = 1f; return 1f; }
+            float frac = Mathf.Clamp01((currentRPM - idleRPM) / Mathf.Max(redlineRPM - idleRPM, 1f));
+            float target = pedal > 0.1f ? CarTune.BoostAvailable(frac, turboStage) * Mathf.Clamp01(pedal * 1.25f) : 0f;
+            float rate = target > Boost ? CarTune.SpoolRate(frac, turboStage) : CarTune.BoostBleedRate;
+            Boost = Mathf.MoveTowards(Boost, target, rate * dt);
+            return turboOffBoost + (1f - turboOffBoost) * Boost;
+        }
+
+        /// <summary>Ground speed in any direction, sideways included.</summary>
+        float PlanarSpeed()
+        {
+            Vector3 v = Body != null ? Body.linearVelocity : Vector3.zero;
+            v.y = 0f;
+            return v.magnitude;
+        }
+
         void UpdateGearbox(float dt)
         {
             if (shiftTimer > 0f) shiftTimer -= dt;
@@ -2158,8 +2226,13 @@ namespace PSXRacing
             {
                 if (throttleInput > 0.3f && forwardSpeed > -0.5f) { currentGear = 1; reverseHold = 0f; }
             }
+            // STOPPED means stopped, not "stopped along the nose": forwardSpeed
+            // of a car sliding SIDEWAYS is near zero, and a held brake then
+            // selected reverse half a second into the slide - after which the
+            // brake pedal drove the car backwards and the brakes answered only
+            // to the gas. Part of "sometimes braking does nothing".
             else if (allowReverse && brakeInput > 0.3f && throttleInput < 0.05f &&
-                     speed < 0.6f && shiftTimer <= 0f)
+                     speed < 0.6f && PlanarSpeed() < 0.6f && shiftTimer <= 0f)
             {
                 // Require a deliberate hold. A car merely being held stationary on
                 // the brake — the whole grid during the countdown — must not
@@ -2488,9 +2561,12 @@ namespace PSXRacing
             // count toward wheelspin.
             float tractionForce = 0f;
             RevLimiterActive = false;
+            // Every tick, pedal or not: the boost has to bleed off while the
+            // throttle is shut, or a lift would cost nothing.
+            float turboMult = TurboTorqueMult(accelPedal, dt);
             if (accelPedal > 0.01f)
             {
-                float torque = GetTorqueAtRPM(currentRPM) * accelPedal;
+                float torque = GetTorqueAtRPM(currentRPM) * accelPedal * turboMult;
                 if (shiftTimer > 0f) torque *= 0.15f;
                 RevLimiterActive = currentRPM >= revLimitRPM - 50f;
                 if (RevLimiterActive) torque *= 0.05f;                  // hard ECU cut
@@ -2814,7 +2890,8 @@ namespace PSXRacing
                     fLong = Mathf.Clamp(
                         -Vector3.Dot(Physics.gravity, wheelForward) * parkShareKg
                         - vLong * ParkHoldDamp * parkShareKg, -longCap, longCap);
-                if (!front && handbrakeInput && speed > 0.3f)
+                bool handLocked = !front && handbrakeInput && speed > 0.3f;
+                if (handLocked)
                 {
                     fLong = -Mathf.Sign(vLong) * Mathf.Min(circle * 0.9f, Mathf.Abs(fLong) + circle * 0.6f);
                     // A pulled handbrake is a locked rear wheel by definition,
@@ -2845,6 +2922,7 @@ namespace PSXRacing
                     ? Mathf.Clamp01((Mathf.Abs(driveDemand) / longCap - 1f) * LockSharpness) : 0f;
                 float brakeOver = longCap > 1f
                     ? Mathf.Clamp01((brakeDemand / longCap - 1f) * LockSharpness) : 0f;
+                if (!handLocked) brakeOver *= AbsScrub;
                 float rollSpeed = Mathf.Abs(vLong);
                 float longSlide = Mathf.Max(driveOver * Mathf.Max(rollSpeed, SpinScrubSpeed),
                                             brakeOver * rollSpeed);

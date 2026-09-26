@@ -356,6 +356,25 @@ namespace PSXRacing.EditorTools
                 Shoot(outDir, "specs_catalog", "specs");
                 Shoot(outDir, "carmenu_catalog", "carmenu");
                 Shoot(outDir, "tune_catalog", "tune");
+                // THE TWO POWER PATHS on an NA road car: the TURBO KIT row
+                // offered beside the NA ladder, then - once on the turbo path -
+                // the REVERT ENGINE row that reopens the choice.
+                CarSpec naSpec = null;
+                foreach (var c in CarCatalog.All)
+                    if (c.CanFitTurboKit && c.builtHp > c.hp && CarModelLibrary.LoadFor(c) != null) { naSpec = c; break; }
+                if (naSpec != null)
+                {
+                    s.garageSlots = Mathf.Max(s.garageSlots, s.cars.Count + 1);
+                    var naCar = CarMarket.MakeOwnedCar(s, naSpec, 80, 15000f, 12000);
+                    s.activeCar = naCar.id;
+                    LifeSimManager.Save();
+                    Shoot(outDir, "tune_turbo_choice", "tune", scrollTo: 1f);
+                    naCar.turbo = true;
+                    naCar.upPower = 2;
+                    LifeSimManager.Save();
+                    Shoot(outDir, "tune_turbo_path", "tune", scrollTo: 1f);
+                    s.activeCar = speccd.id;
+                }
                 // The setup screen on a car with NOTHING fitted: every row
                 // padlocked, each naming the part that opens it. That is the
                 // first thing a player sees and the whole unlock story, and the

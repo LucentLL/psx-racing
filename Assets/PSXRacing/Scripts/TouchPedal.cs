@@ -23,8 +23,14 @@ namespace PSXRacing
     /// covers the fine range you actually drive in.
     /// </summary>
     public class TouchPedal : MonoBehaviour,
-        IPointerDownHandler, IPointerUpHandler, IDragHandler
+        IPointerDownHandler, IPointerUpHandler, IDragHandler, IInitializePotentialDragHandler
     {
+        /// <summary>No drag threshold on a pedal: the EventSystem's default
+        /// swallows the first 10 px of every drag, so the start of a press
+        /// was travel that did nothing - part of "sometimes braking does
+        /// nothing". Still drag-to-brake (the owner's choice for touch).</summary>
+        public void OnInitializePotentialDrag(PointerEventData e) => e.useDragThreshold = false;
+
         /// <summary>
         /// 0..1 pedal travel FROM TOUCH. This is the number the car drives on,
         /// and nothing but a finger may write it.
