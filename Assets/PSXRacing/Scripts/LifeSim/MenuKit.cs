@@ -403,6 +403,52 @@ namespace PSXRacing.LifeSim
             return t;
         }
 
+        /// <summary>
+        /// A label that WRAPS inside <paramref name="width"/> and reports the
+        /// height it took, so the caller moves down by what was drawn. For any
+        /// sentence that can outgrow a column: every Label is one line that
+        /// ignores its width, and with the type floor lifting 14-19 pt requests
+        /// to 20 a sentence written for a desktop column ran off a tablet's
+        /// (owner, 2026-09-26: "no text should clip in the game").
+        /// </summary>
+        public static Text Para(Transform parent, string text, int size, Vector2 anchor, Vector2 pos,
+            out float usedHeight, TextAnchor align = TextAnchor.UpperLeft, Color? color = null,
+            float width = 560f, bool bold = false)
+        {
+            var t = Label(parent, text, size, anchor, pos, align, color, width, 40f, bold);
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            var rt = t.rectTransform;
+            // Top edge at pos whatever the anchor: the text grows DOWN the
+            // column, the way the callers stack.
+            rt.pivot = new Vector2(rt.pivot.x, 1f);
+            usedHeight = Mathf.Ceil(t.preferredHeight) + 2f;
+            rt.sizeDelta = new Vector2(width, usedHeight);
+            return t;
+        }
+
+        /// <summary>
+        /// Keep a ONE-LINE label inside <paramref name="width"/>: when it is
+        /// wider, cut it at a word and end it with an ellipsis. For list rows
+        /// and headlines, where a second line would collide with the next row
+        /// and the full text is available elsewhere (the log, the car page).
+        /// </summary>
+        public static void FitOneLine(Text t, float width)
+        {
+            if (t == null || string.IsNullOrEmpty(t.text) || t.preferredWidth <= width) return;
+            string full = t.text;
+            int lo = 0, hi = full.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                t.text = full.Substring(0, mid).TrimEnd() + "…";
+                if (t.preferredWidth <= width) lo = mid; else hi = mid - 1;
+            }
+            string cut = full.Substring(0, lo);
+            int space = cut.LastIndexOf(' ');
+            if (space > lo / 2) cut = cut.Substring(0, space);
+            t.text = cut.TrimEnd(' ', ',', ';', ':', '·', '—', '-') + "…";
+        }
+
         public static Button Button(Transform parent, string label, Vector2 anchor,
             Vector2 pos, Vector2 size, UnityEngine.Events.UnityAction onClick,
             int fontSize = Body, Color? bg = null)

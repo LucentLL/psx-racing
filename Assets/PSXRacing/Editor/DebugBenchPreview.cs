@@ -145,6 +145,7 @@ namespace PSXRacing.EditorTools
 
                 CheckReach(host.transform, label + "/" + size.name);
                 CheckOverflow(host.transform, label + "/" + size.name);
+                LifeHomePreview.ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
                 Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
             }
         }
@@ -224,6 +225,7 @@ namespace PSXRacing.EditorTools
 
                 CheckReach(host.transform, label + "/" + size.name);
                 CheckOverflow(host.transform, label + "/" + size.name);
+                LifeHomePreview.ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
                 Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
             }
         }

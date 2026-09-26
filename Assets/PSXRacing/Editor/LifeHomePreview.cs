@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
@@ -44,6 +45,9 @@ namespace PSXRacing.EditorTools
             // Then seed a running game and capture the screens that actually get
             // used day to day — the home hub was where the overlap was reported.
             LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
+            // Step two of the wizard, WHAT ARE YOU DRIVING? - the starter lanes
+            // (the 240SX and an EG Civic, rough and tidy, then a new car).
+            Shoot(outDir, "carpick");
             LifeRules.SeedFallbackCar(LifeSimManager.State);
             var st = LifeSimManager.State;
 
@@ -485,6 +489,114 @@ namespace PSXRacing.EditorTools
         /// <param name="garageCar">Which owned car (OwnedCar.id) a car page is
         /// about. Without it the page falls back to the active car, which is
         /// never the one that is away at a shop.</param>
+        /// <summary>Clipped-text findings over the whole run.</summary>
+        internal static int clipCount;
+
+        /// <summary>
+        /// "No text should clip in the game" (owner, 2026-09-26). Every visible
+        /// UI Text on the screen, measured by its GLYPHS - the text generator's
+        /// own quads, not the rect it was given, since most labels here
+        /// overflow their rect on purpose - against three things:
+        ///   * the screen: a glyph past an edge is cut off by the device;
+        ///   * any RectMask2D above it, sideways only - a scroll list clips
+        ///     rows above and below it by design, and those are a scroll away;
+        ///   * truncation: a wrapping, truncating label that drew fewer
+        ///     characters than it holds.
+        /// Logged as "[HomePreview] CLIP", with the text and how far over.
+        /// </summary>
+        internal static void ReportClippedText(Camera cam, string where, int w, int h)
+        {
+            const float Slack = 2f;   // pixels: antialiased glyph edges
+            foreach (var t in Object.FindObjectsByType<Text>(FindObjectsSortMode.None))
+            {
+                if (!t.isActiveAndEnabled || string.IsNullOrEmpty(t.text) || t.color.a < 0.05f) continue;
+                var gen = t.cachedTextGenerator;
+                if (gen == null || gen.vertexCount == 0) continue;
+                float unitsPerPixel = 1f / Mathf.Max(0.0001f, t.pixelsPerUnit);
+                var verts = gen.verts;
+                float xMin = float.MaxValue, xMax = float.MinValue, yMin = float.MaxValue, yMax = float.MinValue;
+                for (int i = 0; i < verts.Count; i++)
+                {
+                    Vector3 world = t.rectTransform.TransformPoint(verts[i].position * unitsPerPixel);
+                    Vector2 sp = RectTransformUtility.WorldToScreenPoint(cam, world);
+                    xMin = Mathf.Min(xMin, sp.x); xMax = Mathf.Max(xMax, sp.x);
+                    yMin = Mathf.Min(yMin, sp.y); yMax = Mathf.Max(yMax, sp.y);
+                }
+                string snippet = t.text.Replace("\n", " ");
+                if (snippet.Length > 48) snippet = snippet.Substring(0, 48) + "…";
+                var issues = new List<string>();
+
+                // Scrolled content is judged against its viewport, not the
+                // screen: a row below the fold is a scroll away, not clipped.
+                var mask = t.GetComponentInParent<RectMask2D>();
+                bool inScroll = mask != null && t.GetComponentInParent<ScrollRect>() != null;
+                if (!inScroll)
+                {
+                    if (xMin < -Slack) issues.Add("off the LEFT edge by " + (-xMin).ToString("0") + " px");
+                    if (xMax > w + Slack) issues.Add("off the RIGHT edge by " + (xMax - w).ToString("0") + " px");
+                    if (yMin < -Slack) issues.Add("off the BOTTOM by " + (-yMin).ToString("0") + " px");
+                    if (yMax > h + Slack) issues.Add("off the TOP by " + (yMax - h).ToString("0") + " px");
+                }
+                if (mask != null)
+                {
+                    var c = new Vector3[4];
+                    mask.rectTransform.GetWorldCorners(c);
+                    Vector2 a = RectTransformUtility.WorldToScreenPoint(cam, c[0]);
+                    Vector2 b = RectTransformUtility.WorldToScreenPoint(cam, c[2]);
+                    bool visibleRow = yMax > a.y && yMin < b.y;   // on screen in the list
+                    if (visibleRow && xMin < a.x - Slack) issues.Add("cut on the LEFT by its panel, " + (a.x - xMin).ToString("0") + " px");
+                    if (visibleRow && xMax > b.x + Slack) issues.Add("cut on the RIGHT by its panel, " + (xMax - b.x).ToString("0") + " px");
+                    if (!inScroll && yMax > b.y + Slack) issues.Add("cut at the TOP by its panel");
+                    if (!inScroll && yMin < a.y - Slack) issues.Add("cut at the BOTTOM by its panel");
+                }
+                int shown = gen.characterCountVisible;
+                int plain = System.Text.RegularExpressions.Regex.Replace(t.text, "<[^>]+>", "").Replace("\n", "").Length;
+                if (t.verticalOverflow == VerticalWrapMode.Truncate && shown < plain - 1)
+                    issues.Add("TRUNCATED: " + shown + " of " + plain + " characters drawn");
+                // For the overlap test, only the part of the text the player
+                // can SEE: a scrolled row that has slid under the page header
+                // is hidden by its list's mask, not printed over the header.
+                var box = new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
+                if (mask != null)
+                {
+                    var mc = new Vector3[4];
+                    mask.rectTransform.GetWorldCorners(mc);
+                    Vector2 m0 = RectTransformUtility.WorldToScreenPoint(cam, mc[0]);
+                    Vector2 m1 = RectTransformUtility.WorldToScreenPoint(cam, mc[2]);
+                    float bx0 = Mathf.Max(box.xMin, m0.x), by0 = Mathf.Max(box.yMin, m0.y);
+                    float bx1 = Mathf.Min(box.xMax, m1.x), by1 = Mathf.Min(box.yMax, m1.y);
+                    box = bx1 > bx0 && by1 > by0 ? Rect.MinMaxRect(bx0, by0, bx1, by1) : Rect.zero;
+                }
+                if (box.width > 0f && box.height > 0f)
+                    glyphBoxes.Add((box, snippet, inScroll ? mask : null));
+                if (issues.Count == 0) continue;
+                clipCount++;
+                Debug.LogWarning("[HomePreview] CLIP " + where + "  \"" + snippet + "\"  " + string.Join("; ", issues));
+            }
+
+            // TEXT ON TEXT. Not clipping, but the same failure to a reader:
+            // the first pass at wrapping the parts page's long rows put them
+            // over the row headings, and no clip test could see it. Two glyph
+            // boxes overlapping by more than a third of the smaller one's
+            // HEIGHT, and by a real width, are two lines printed over each
+            // other.
+            for (int i = 0; i < glyphBoxes.Count; i++)
+                for (int j = i + 1; j < glyphBoxes.Count; j++)
+                {
+                    var a = glyphBoxes[i].box; var b = glyphBoxes[j].box;
+                    float ox = Mathf.Min(a.xMax, b.xMax) - Mathf.Max(a.xMin, b.xMin);
+                    float oy = Mathf.Min(a.yMax, b.yMax) - Mathf.Max(a.yMin, b.yMin);
+                    if (ox < 8f || oy < 0.34f * Mathf.Min(a.height, b.height)) continue;
+                    clipCount++;
+                    Debug.LogWarning("[HomePreview] CLIP " + where + "  OVERLAP  \"" + glyphBoxes[i].text +
+                                     "\"  over  \"" + glyphBoxes[j].text + "\"");
+                }
+            glyphBoxes.Clear();
+        }
+
+        static readonly List<(Rect box, string text, RectMask2D scroll)> glyphBoxes =
+            new List<(Rect, string, RectMask2D)>();
+
         static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
                           bool mustFit = false, SetupPage? setupPage = null,
                           string calView = null, int calDay = 0, int calSlot = -1,
@@ -597,6 +709,8 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 Canvas.ForceUpdateCanvases();
+
+                ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
 
                 // Report whether this screen can actually be scrolled to the
                 // bottom. A static render cannot show that, and "the options are

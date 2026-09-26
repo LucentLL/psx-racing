@@ -687,9 +687,11 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void BuildCarPick()
         {
+            // As tall as its three lanes, not a fixed 640: a wide phone's
+            // canvas is ~590 units high and the title went off the top.
             var root = MenuKit.Rect(canvas.transform, "CarPick",
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(900f, 640f), MenuKit.PanelBg);
+                Vector2.zero, new Vector2(900f, 110f + 3 * 132f + 14f), MenuKit.PanelBg);
 
             MenuKit.Label(root, "WHAT ARE YOU DRIVING?", 30, new Vector2(0.5f, 1f),
                 new Vector2(0f, -28f), TextAnchor.MiddleCenter, MenuKit.Accent, 840f, bold: true)
@@ -1704,11 +1706,14 @@ namespace PSXRacing.LifeSim
             // what is left of a phone's half-column.
             if (now && l2 == MeetLine2) l2 = MeetLine2Short;
             float tx = 16f + NameW, tw = w - tx - (now ? 70f : 16f);
-            MenuKit.Label(rt, Clip(l1, 24), MenuKit.Tiny, new Vector2(0f, 0.5f),
-                new Vector2(tx, 11f), TextAnchor.MiddleLeft, c1, tw, height: 24f, bold: true);
+            // Held to tw, which already leaves the NOW tag its room: a label
+            // ignores its width, and on a 4:3 half-column "SHIFT · FOOD
+            // DELIVERY" ran under the tag.
+            MenuKit.FitOneLine(MenuKit.Label(rt, Clip(l1, 24), MenuKit.Tiny, new Vector2(0f, 0.5f),
+                new Vector2(tx, 11f), TextAnchor.MiddleLeft, c1, tw, height: 24f, bold: true), tw);
             if (l2.Length > 0)
-                MenuKit.Label(rt, Clip(l2, 26), MenuKit.Tiny, new Vector2(0f, 0.5f),
-                    new Vector2(tx, -12f), TextAnchor.MiddleLeft, c2, tw, height: 22f);
+                MenuKit.FitOneLine(MenuKit.Label(rt, Clip(l2, 26), MenuKit.Tiny, new Vector2(0f, 0.5f),
+                    new Vector2(tx, -12f), TextAnchor.MiddleLeft, c2, tw, height: 22f), tw);
             if (now)
                 MenuKit.Label(rt, "NOW", MenuKit.Tiny, new Vector2(1f, 0.5f),
                     new Vector2(-14f, 0f), TextAnchor.MiddleRight, MenuKit.Active, 60f,
@@ -1957,9 +1962,10 @@ namespace PSXRacing.LifeSim
                 y -= LogHead;
                 for (int i = S.calendarLog.Count - take; i < S.calendarLog.Count; i++)
                 {
-                    MenuKit.Label(body, Clip(S.calendarLog[i], 44), MenuKit.Tiny,
+                    var logLine = MenuKit.Label(body, Clip(S.calendarLog[i], 44), MenuKit.Tiny,
                         new Vector2(0.5f, 1f), new Vector2(x, y), TextAnchor.MiddleLeft,
                         Color.white, w, height: LogRow);
+                    MenuKit.FitOneLine(logLine, w);
                     y -= LogRow;
                 }
             }
@@ -3341,12 +3347,12 @@ namespace PSXRacing.LifeSim
             // Say what a clean result MEANS. Most checks find nothing, and
             // without this line a thorough inspection of a sound car reads as a
             // screen that does not work rather than as good news.
-            MenuKit.Label(body,
+            MenuKit.Para(body,
                 "A used car carries problems nobody told you about. Better tools and a "
                 + "steadier hand find more of them; a clean check is worth having.",
-                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
-                TextAnchor.UpperLeft, MenuKit.Dim, ColW, height: 44f);
-            y -= 50f;
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float introH,
+                TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= introH + 8f;
 
             // Sized near the plan-view aspect of a real car (about 2.4:1) so the
             // diagram fills the panel instead of sitting in two black bars.
@@ -3547,10 +3553,10 @@ namespace PSXRacing.LifeSim
             DrawChassis(panel, diagW, diagH, inspectComp, car);
             y -= diagH + 10f;
 
-            MenuKit.Label(body, Inspection.AccessLine(S, car, inspectComp), MenuKit.Tiny,
-                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, ColW, height: 22f);
-            y -= 28f;
+            MenuKit.Para(body, Inspection.AccessLine(S, car, inspectComp), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), out float accessH, TextAnchor.UpperLeft,
+                MenuKit.Dim, ColW);
+            y -= accessH + 6f;
 
             BuildRaiseRow(car, ref y);
 
@@ -3849,11 +3855,11 @@ namespace PSXRacing.LifeSim
                 MenuKit.Label(body, Upgrades.RaceCarBuilt, 17, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Good, 820f, bold: true);
                 y -= 28f;
-                MenuKit.Label(body, "Race brakes, suspension and tyres from the factory, and every " +
+                MenuKit.Para(body, "Race brakes, suspension and tyres from the factory, and every " +
                     "tuning row is open. There is nothing to buy for it but a seat.", 14,
-                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                    MenuKit.Dim, 820f);
-                y -= 36f;
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y - 8f), out float rcH, TextAnchor.UpperLeft,
+                    MenuKit.Dim, ColW);
+                y -= rcH + 16f;
                 DrawUpgradeRow(car, spec, Upgrades.Kind.Seat, ref y);
             }
             else
@@ -4331,19 +4337,20 @@ namespace PSXRacing.LifeSim
             // home the car stays on the drive, done at the shop it is THEIRS
             // for that long — which on a one-car career is the whole cost of
             // choosing the shop, so it is said before the button is pressed.
-            MenuKit.Label(body, "  next: " + plan.stageName + "   " + gain +
+            // Wrapped to the column: with the torque beside the horsepower
+            // (2026-09-26) this line outgrew a 4:3 tablet's column.
+            MenuKit.Para(body, "  next: " + plan.stageName + "   " + gain +
                 "   (" + span + ")   " + plan.days + "d — the shop keeps the car",
                 14, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-            y -= 28f;
+                new Vector2(ColL, y - 8f), out float nextH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= nextH + 2f;
             if (!string.IsNullOrEmpty(plan.sideEffect))
             {
-                MenuKit.Label(body, "  " + plan.sideEffect, 14, new Vector2(0.5f, 1f),
-                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-                // 34, not 24: at 24 the line's lower half sat under the two
-                // buttons below it (the seat's bolster line always had; the
-                // power row's top-speed line, 2026-09-21, made it two rows).
-                y -= 34f;
+                MenuKit.Para(body, "  " + plan.sideEffect, 14, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y - 8f), out float sideH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+                // Clear of the two buttons below it (the seat's bolster line
+                // and the power row's top-speed line both sat under them once).
+                y -= sideH + 8f;
             }
 
             float btnW = Mathf.Min(280f, (ColW - 12f) / 2f);
@@ -4395,18 +4402,18 @@ namespace PSXRacing.LifeSim
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Accent, 600f, bold: true);
                 y -= 24f;
-                MenuKit.Label(body, "  +" + kit.delta + " hp / +" +
+                MenuKit.Para(body, "  +" + kit.delta + " hp / +" +
                     (Upgrades.TorqueIn(kit.toTqNm) - Upgrades.TorqueIn(kit.fromTqNm)) + " " + Upgrades.TorqueUnit +
                     " (" + kit.fromVal + " -> " + kit.toVal + " hp, " + Upgrades.TorqueIn(kit.fromTqNm) + " -> " +
                     Upgrades.TorqueText(kit.toTqNm) + ")   " +
                     kit.days + "d   ·   builds to " + spec.CeilingHp(true) + " hp, against " +
                     spec.CeilingHp(false) + " hp naturally aspirated", 14, new Vector2(0.5f, 1f),
-                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-                y -= 24f;
-                MenuKit.Label(body, "  The boost comes in with the revs, with lag that grows with each stage. " +
+                    new Vector2(ColL, y - 8f), out float kitH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+                y -= kitH + 2f;
+                MenuKit.Para(body, "  The boost comes in with the revs, with lag that grows with each stage. " +
                     "Commits the engine to the turbo path.", 14, new Vector2(0.5f, 1f),
-                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-                y -= 34f;
+                    new Vector2(ColL, y - 8f), out float lagH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+                y -= lagH + 8f;
 
                 float btnW = Mathf.Min(280f, (ColW - 12f) / 2f);
                 float x = MenuKit.ColLeft(ColL, btnW);
@@ -4435,10 +4442,10 @@ namespace PSXRacing.LifeSim
             if (Upgrades.RevertRefuses(S, car, spec) != null) return;
             int refund = Upgrades.RevertRefund(S, car, spec);
             string other = spec.OnTurboPath(car.turbo) ? "naturally aspirated" : "turbo";
-            MenuKit.Label(body, "  To build it " + other + " instead, put the engine back to stock first " +
-                "(the parts sell for half).", 14, new Vector2(0.5f, 1f), new Vector2(ColL, y),
-                TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
-            y -= 30f;
+            MenuKit.Para(body, "  To build it " + other + " instead, put the engine back to stock first " +
+                "(the parts sell for half).", 14, new Vector2(0.5f, 1f), new Vector2(ColL, y - 8f),
+                out float revH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= revH + 6f;
             float w = Mathf.Min(360f, ColW);
             MenuKit.Button(body, "REVERT ENGINE TO STOCK  +" + MenuKit.Money(refund), new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, w), y), new Vector2(w, 40f),
@@ -6407,11 +6414,11 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, "BUY GROCERIES", 15, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 400f);
             y -= 30f;
-            MenuKit.Label(body, "Also sold out in the world: the 6TWELVE at the pumps, " +
+            MenuKit.Para(body, "Also sold out in the world: the 6TWELVE at the pumps, " +
                 "STACK BURGER drive-thrus and SLICE HOUSE pizzerias around Charlotte " +
                 "and Emerald Isle.", MenuKit.Tiny, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 40f);
-            y -= 44f;
+                new Vector2(ColL, y), out float soldH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= soldH + 8f;
             foreach (var g in LifeRules.Groceries)
             {
                 var captured = g;
@@ -7105,12 +7112,14 @@ namespace PSXRacing.LifeSim
                         Toast("struck out of the diary");
                     }, 19);
                 y -= 62f;
-                MenuKit.Label(body,
+                // Centred on the column's CENTRE: vx is its left edge, and a
+                // centred label placed there hung half off the page.
+                MenuKit.Para(body,
                     "Booked for " + LifeRules.SlotNames[bookedNow.slot].ToLowerInvariant() +
                     ". DRIVE out and the line at the end of the street starts it.",
-                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y),
-                    TextAnchor.MiddleCenter, MenuKit.Accent, vw, height: 24f);
-                y -= 28f;
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx + vw * 0.5f, y - 2f), out float hintH,
+                    TextAnchor.UpperCenter, MenuKit.Accent, vw);
+                y -= hintH + 6f;
                 return;
             }
 
@@ -7133,12 +7142,12 @@ namespace PSXRacing.LifeSim
                     Toast("in the diary — drive out when you are ready");
                 }) : null, 19, canBook ? RaceBg : MenuKit.BtnBgDisabled);
             y -= 62f;
-            MenuKit.Label(body,
+            MenuKit.Para(body,
                 racedToday ? "One purse a day. The diary is open from tomorrow."
                            : "Sets the venue and the money. DRIVE out to start it.",
-                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y),
-                TextAnchor.MiddleCenter, MenuKit.Dim, vw, height: 24f);
-            y -= 28f;
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx + vw * 0.5f, y - 2f), out float bookH,
+                TextAnchor.UpperCenter, MenuKit.Dim, vw);
+            y -= bookH + 6f;
         }
 
         /// <summary>
