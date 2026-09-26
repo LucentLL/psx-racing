@@ -233,6 +233,8 @@ namespace PSXRacing.EditorTools
             MeasureCowl(bodyMesh, bodyYaw, bodyY, bodyZ, d);
 
             BakeSkins(d, texDir, model.key, shader);
+            // After the skins: the lamps are found on the sheets.
+            CarLampFinder.Apply(d, log);
 
             string prefabPath = OutDir + "/" + model.key + ".prefab";
             PrefabUtility.SaveAsPrefabAsset(def, prefabPath);

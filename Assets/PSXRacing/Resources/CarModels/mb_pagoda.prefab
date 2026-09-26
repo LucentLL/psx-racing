@@ -87,6 +87,12 @@ MonoBehaviour:
   cowlY: 0.88884693
   noseZ: 1.9659401
   roofY: 1.2873273
+  headLamp: {x: 0.7048476, y: 0.6324595, z: 1.795712}
+  headLampNormal: {x: 0, y: 0, z: 1}
+  headLampSize: {x: 0.15674967, y: 0.12784305}
+  tailLamp: {x: 0.5494498, y: 0.5910801, z: -2.1109}
+  tailLampNormal: {x: 0, y: 0, z: -1}
+  tailLampSize: {x: 0.23332328, y: 0.089873105}
   colliderCenter: {x: 0, y: 0.8010188, z: -0.09966552}
   colliderSize: {x: 1.6032685, y: 0.91135526, z: 3.9453068}
   blobSize: {x: 2.1376913, y: 4.4203963}

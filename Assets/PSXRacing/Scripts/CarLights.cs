@@ -52,6 +52,11 @@ namespace PSXRacing
     {
         public CarController car;
         public BoxCollider box;
+        /// <summary>For a car with no CarBody (traffic, CarShell): the shell
+        /// it wears, and how far its shell is slid along Z from the def's frame
+        /// (CarShell centres the body on the collider: -colliderCenter.z).</summary>
+        public CarModelDef shellDef;
+        public float shellZ;
 
         static readonly List<CarLights> all = new List<CarLights>();
         static bool lightsOn;
@@ -108,6 +113,9 @@ namespace PSXRacing
         /// <summary>How far behind the lenses the light sits, so the car's
         /// own tail panel is not what it lights most.</summary>
         public const float TailLampBack = 0.25f;
+        /// <summary>How far a measured lens stands off the skin it is seated
+        /// on: enough not to flicker into it, not enough to see a gap.</summary>
+        public const float LensProud = 0.012f;
 
         MeshRenderer[] headLens = new MeshRenderer[2];
         MeshRenderer[] tailLens = new MeshRenderer[2];
@@ -303,10 +311,12 @@ namespace PSXRacing
         /// and tail, which is why the eight corners go through the matrix
         /// rather than the centre and size.
         /// </summary>
+        CarModelDef Def => body != null && body.Def != null ? body.Def : shellDef;
+
         bool MeasureShell(out Bounds b)
         {
             b = default;
-            var def = body != null ? body.Def : null;
+            var def = Def;
             if (def == null || def.bodyMesh == null) return false;
             var m = Matrix4x4.TRS(new Vector3(0f, def.bodyYOffset, def.bodyZOffset),
                                   Quaternion.Euler(0f, def.bodyYaw, 0f), Vector3.one);
@@ -333,6 +343,33 @@ namespace PSXRacing
             }
             fittedMesh = body != null && body.bodyFilter != null ? body.bodyFilter.sharedMesh : null;
             if (box != null) { fitCenter = box.center; fitSize = box.size; }
+
+            // MEASURED (owner, 2026-09-26: lamps "off of the car, in the car,
+            // in front of or behind"): the baker found each shell's lamp glass
+            // on its sheet and seated it on the skin. The lens sits a shade
+            // proud of that surface, facing out of it but never further than
+            // halfway off the car's axis - a raked lamp is still aimed ahead.
+            var def = Def;
+            if (def != null && def.LampsMeasured)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    float side = i == 0 ? -1f : 1f;
+                    Vector3 M(Vector3 v) => new Vector3(v.x * side, v.y, v.z);
+                    Vector3 hn = M(Vector3.Slerp(Vector3.forward, def.headLampNormal.normalized, 0.5f));
+                    Vector3 tn = M(Vector3.Slerp(Vector3.back, def.tailLampNormal.normalized, 0.5f));
+                    Vector3 hp = M(def.headLamp), tp = M(def.tailLamp);
+                    Place(headLens[i].transform, hp + hn * LensProud,
+                          Quaternion.LookRotation(hn, Vector3.up),
+                          new Vector3(def.headLampSize.x, def.headLampSize.y, 1f));
+                    Place(tailLens[i].transform, tp + tn * LensProud,
+                          Quaternion.LookRotation(tn, Vector3.up),
+                          new Vector3(def.tailLampSize.x, def.tailLampSize.y, 1f));
+                    Place(beams[i].transform, hp - Vector3.forward * 0.05f,
+                          Quaternion.Euler(BeamDipDeg, side * BeamToeDeg, 0f), Vector3.one);
+                }
+                return;
+            }
 
             float halfW = b.extents.x;
             float noseZ = b.max.z, tailZ = b.min.z;
@@ -368,12 +405,12 @@ namespace PSXRacing
         {
             if (lampRoot == transform)
             {
-                t.localPosition = carPos;
+                t.localPosition = carPos + new Vector3(0f, 0f, body == null ? shellZ : 0f);
                 t.localRotation = carRot;
             }
             else
             {
-                var def = body != null ? body.Def : null;
+                var def = Def;
                 var bodyRot = Quaternion.Euler(0f, def != null ? def.bodyYaw : 0f, 0f);
                 var bodyPos = def != null ? new Vector3(0f, def.bodyYOffset, def.bodyZOffset) : Vector3.zero;
                 t.localPosition = Quaternion.Inverse(bodyRot) * (carPos - bodyPos);

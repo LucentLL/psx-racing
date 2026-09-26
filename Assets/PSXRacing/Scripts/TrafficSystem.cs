@@ -208,7 +208,12 @@ namespace PSXRacing
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
             rb.useGravity = false;
             foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = 2;
-            go.AddComponent<CarLights>().box = box;
+            // The shell's own measured lamps, slid as CarShell slid the body -
+            // the lifted, shrunk box buried them inside the car.
+            var lights = go.AddComponent<CarLights>();
+            lights.box = box;
+            lights.shellDef = def;
+            lights.shellZ = -def.colliderCenter.z;
             go.AddComponent<TrafficContact>();
 
             var wheels = new List<Transform>();

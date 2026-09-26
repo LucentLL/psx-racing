@@ -108,6 +108,24 @@ namespace PSXRacing
         /// camera inside the cabin on anything tall.</summary>
         public float roofY = 1.25f;
 
+        /// <summary>
+        /// THE LAMPS, MEASURED (owner, 2026-09-26: "headlights and taillights
+        /// are not correctly seated on models... off of the car, in the car, in
+        /// front of or behind"). The RIGHT-hand head and tail lamp in the same
+        /// frame as <see cref="cowlZ"/> (the left is the mirror), seated ON the
+        /// outer surface of the shell; the surface's outward normal there; and
+        /// the lens's width and height. Found by CarLampFinder from the sheet's
+        /// lamp texels, else a surface probe at the usual lamp line. A zero
+        /// size means never measured: CarLights falls back to the bounds.
+        /// </summary>
+        public Vector3 headLamp;
+        public Vector3 headLampNormal = Vector3.forward;
+        public Vector2 headLampSize;
+        public Vector3 tailLamp;
+        public Vector3 tailLampNormal = Vector3.back;
+        public Vector2 tailLampSize;
+        public bool LampsMeasured => headLampSize.x > 0f && tailLampSize.x > 0f;
+
         public Vector3 colliderCenter = new Vector3(0f, 0.72f, 0.05f);
         public Vector3 colliderSize = new Vector3(1.72f, 1.0f, 4.1f);
         /// <summary>Width/length of the blob shadow quad.</summary>

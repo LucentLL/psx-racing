@@ -7620,6 +7620,33 @@ namespace PSXRacing.EditorTools
                                eye.z.ToString("0.00") + " cowl " + def.cowlY.ToString("0.00") +
                                "/" + def.cowlZ.ToString("0.00") + " roof " + def.roofY.ToString("0.00") + ")");
             }
+            // THE LAMPS ARE ON THE CAR (owner, 2026-09-26: "off of the car, in
+            // the car, in front of or behind the cars"). Measured by the baker,
+            // seated on the skin: inside the body's width, between the ground
+            // and the roof, and at the right END - within half a metre of the
+            // nose (the Viper's sit back on its fenders) or of the tail.
+            var badLamp = new List<string>();
+            foreach (var m in CarModelLibrary.Models)
+            {
+                var def = CarModelLibrary.Load(m.key);
+                if (def == null) continue;
+                if (!def.LampsMeasured) { badLamp.Add(m.key + "(unmeasured)"); continue; }
+                float halfW = def.colliderSize.x / 0.915f * 0.5f + 0.03f;
+                float tailZ = def.colliderCenter.z - def.colliderSize.z / 0.955f * 0.5f;
+                bool headOk = def.headLamp.x > 0.1f && def.headLamp.x < halfW &&
+                              def.headLamp.y > 0.2f && def.headLamp.y < def.roofY &&
+                              def.headLamp.z <= def.noseZ + 0.02f && def.headLamp.z > def.noseZ - 0.5f &&
+                              def.headLampNormal.z > 0f;
+                bool tailOk = def.tailLamp.x > 0.1f && def.tailLamp.x < halfW &&
+                              def.tailLamp.y > 0.2f && def.tailLamp.y < def.roofY &&
+                              def.tailLamp.z >= tailZ - 0.05f && def.tailLamp.z < tailZ + 0.5f &&
+                              def.tailLampNormal.z < 0f;
+                if (!headOk || !tailOk)
+                    badLamp.Add(m.key + "(head " + def.headLamp.ToString("0.00") + " nose " + def.noseZ.ToString("0.00") +
+                                ", tail " + def.tailLamp.ToString("0.00") + " end " + tailZ.ToString("0.00") + ")");
+            }
+            Check(badLamp.Count == 0, "every shell's head and tail lamps are seated on its own nose and tail",
+                  badLamp.Count == 0 ? null : string.Join(" ", badLamp.ToArray()));
             Check(badCowl.Count == 0, "every shell's cowl is on the car and below its roof",
                   badCowl.Count == 0 ? null : string.Join(" ", badCowl.ToArray()));
             Check(badRoof.Count == 0, "every shell has a believable roof height",
