@@ -315,6 +315,10 @@ namespace PSXRacing.EditorTools
             /// The mountain's warm autumn tint stops its dirt reading
             /// grey-green against the orange mottle.</summary>
             public Color? groundTint = StageAutumnTint;
+            /// <summary>The coast's grass (scrub and marsh) tint. The owner's
+            /// pack grasses average ~60/255 against the mountain ground's ~120;
+            /// this brings the island's up to the same key. Null = none.</summary>
+            public Color? coastGroundTint;
             /// <summary>Texture for the far ring, or null for the default
             /// (FallMottle on a forest stage, the ground itself on the coast).
             /// </summary>
@@ -499,16 +503,24 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static Theme BogueTheme() => new Theme
         {
-            ground = Root + "/Art/Bogue/Gen/Scrub.png",
-            sand = Root + "/Art/Bogue/Gen/Sand.png",
+            // The owner's packs, not the placeholders drawn in code
+            // (2026-09-26): Textures/Result texture_21 for the sand, PSX
+            // Textures II grass_pt_3 for the scrub behind the dunes and
+            // grass_dead_pt_4 - gold-olive, cordgrass - for the marsh.
+            ground = Root + "/Art/Beach/grass_pt_3.png",
+            sand = Root + "/Art/Beach/sand_texture_21.png",
             // The owner's PSX Textures water sheets (v3.1 water_2 teal, water_1
             // blue), drawn by PSX/Water - see BuildStageSea.
             water = Root + "/Art/Water/water_2.png",
             waterDeep = Root + "/Art/Water/water_1.png",
-            marsh = Root + "/Art/Bogue/Gen/Marsh.png",
+            marsh = Root + "/Art/Beach/grass_dead_pt_4.png",
+            coastGroundTint = new Color(1.8f, 1.8f, 1.75f),
             wall = Root + "/Art/Roads/T (4).jpg",   // concrete — a bridge parapet
             groundTile = 11f,
-            sandTile = 7f,
+            // The pack sand's tone drifts in big soft blotches: at 7 m a tile
+            // they repeated as a grid of squares down the beach; at 16 m they
+            // read as the beach's own undulation.
+            sandTile = 16f,
             waterTile = 24f,
             // Tighter than the scrub: cordgrass is a fine texture and at 11 m
             // it smears into a flat olive field from the bridge deck.
@@ -1045,13 +1057,18 @@ namespace PSXRacing.EditorTools
         static string StageRockTexPath => Root + "/Art/Roadside/rock_pt_2.png";
         static string StageGravelTexPath => Root + "/Art/Roadside/dirt_pt_5.png";
         static bool MountainStage => theme.stageForest && !theme.stageUrban;
+        /// <summary>An island stage: its verge is the beach's own sand.</summary>
+        static bool CoastStage => !theme.stageForest && !theme.stageUrban && !string.IsNullOrEmpty(theme.sand);
         /// <summary>The texture a venue's verge strip wears, by asset name -
         /// for the self-test: a mountain stage's is the pack gravel.</summary>
         internal static string VergeTextureNameFor(TrackCatalog.TrackDef t)
         {
             var th = ThemeFor(t);
-            return t.stage && th.stageForest && !th.stageUrban
-                ? System.IO.Path.GetFileNameWithoutExtension(StageGravelTexPath) : "Shoulder";
+            if (t.stage && th.stageForest && !th.stageUrban)
+                return System.IO.Path.GetFileNameWithoutExtension(StageGravelTexPath);
+            if (t.stage && !th.stageForest && !th.stageUrban && !string.IsNullOrEmpty(th.sand))
+                return System.IO.Path.GetFileNameWithoutExtension(th.sand);
+            return "Shoulder";
         }
 
         /// <summary>Write a PNG, but only when it would differ from the one
@@ -3209,7 +3226,7 @@ namespace PSXRacing.EditorTools
             // venue built repaints every other venue's kerb, exactly as
             // BuildRoad records for its Road material.
             string tex = style == KerbStyle.Verge
-                           ? (MountainStage ? StageGravelTexPath : StageGenDir + "/Shoulder.png")
+                           ? (MountainStage ? StageGravelTexPath : CoastStage ? theme.sand : StageGenDir + "/Shoulder.png")
                        : style == KerbStyle.Street ? StreetKerbTexPath
                        : KerbTexPath;
             var mat = MakeMat(MeshPrefix + "Kerb", tex, affine: 0f, wet: WetKerb);

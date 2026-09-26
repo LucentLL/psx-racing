@@ -2903,21 +2903,29 @@ namespace PSXRacing.EditorTools
             // Sand needs no such correction — it is already the colour it is.
             bool sandy = surfNear != null && !string.IsNullOrEmpty(theme.sand);
             var nearMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f,
-                                  tint: sandy ? (Color?)null : theme.groundTint);
+                                  tint: sandy ? theme.coastGroundTint : theme.groundTint);
             var sandMat = sandy ? MakeMat(MeshPrefix + "Sand", theme.sand, affine: 0f) : null;
+            // THE SWASH (PSX/Lit _Shore): the beach below the run-up line is
+            // wet, and the wave's foam edge runs up it and back.
+            if (sandMat != null)
+            {
+                bool sea = track.stageWaterY > 0f;
+                sandMat.SetFloat("_Shore", sea ? 1f : 0f);
+                sandMat.SetFloat("_ShoreY", sea ? track.stageWaterY : 0f);
+            }
             var marshMat = sandy ? MakeMat(MeshPrefix + "Marsh",
                                            string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
-                                           affine: 0f) : null;
+                                           affine: 0f, tint: theme.coastGroundTint) : null;
             var nearMats = sandy ? new[] { nearMat, sandMat, marshMat } : new[] { nearMat };
             if (theme.stageForest)
                 RegisterSeasonalTexture(MeshPrefix + "Ground", nearMat, DressTurfPath, "ground");
             else
                 RegisterSeasonalGround(MeshPrefix + "Ground", theme.ground, nearMat,
-                                       (sandy ? (Color?)null : theme.groundTint) ?? Color.white, "ground");
+                                       (sandy ? theme.coastGroundTint : theme.groundTint) ?? Color.white, "ground");
             if (marshMat != null)
                 RegisterSeasonalGround(MeshPrefix + "Marsh",
                                        string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
-                                       marshMat, Color.white, "ground");
+                                       marshMat, theme.coastGroundTint ?? Color.white, "ground");
             // Far: the mountain paints its distance as autumn forest. An island
             // has no distance to paint — what is out there is water, and the
             // sea plane covers it — so the far ring reuses the near ground.
@@ -2935,7 +2943,7 @@ namespace PSXRacing.EditorTools
                 ? MakeMat(MeshPrefix + "GroundFar", theme.farGround, affine: 0f)
                 : string.IsNullOrEmpty(theme.sand)
                 ? MakeMat(MeshPrefix + "GroundFar", StageGenDir + "/FallMottle.png", affine: 0f)
-                : MakeMat(MeshPrefix + "GroundFar", theme.ground, affine: 0f);
+                : MakeMat(MeshPrefix + "GroundFar", theme.ground, affine: 0f, tint: theme.coastGroundTint);
             if (string.IsNullOrEmpty(theme.farGround) && string.IsNullOrEmpty(theme.sand))
                 RegisterSeasonalTexture(MeshPrefix + "GroundFar", farMat, DressMottlePath, "far");
 
@@ -4101,7 +4109,7 @@ namespace PSXRacing.EditorTools
             // it are one surface to look at.
             bool sandy = surfNear != null && !string.IsNullOrEmpty(theme.sand);
             var topMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f,
-                                 tint: sandy ? (Color?)null : theme.groundTint);
+                                 tint: sandy ? theme.coastGroundTint : theme.groundTint);
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Banks");
             root.transform.SetParent(parent, false);
@@ -4950,98 +4958,9 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void GenerateCoastTextures()
         {
-            // Beach sand. Warm, pale, and very low contrast — the grain is
-            // there to stop 24-bit banding across a flat surface, not to be
-            // seen as texture. A couple of darker grains per tile read as shell
-            // fragments at the scale a wheel passes over them.
-            WriteTexture(StageGenDir + "/Sand.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x, y);
-                float m = Noise(x >> 2, y >> 2);          // coarse tonal drift
-                byte r = (byte)(206 + n * 16 + m * 12);
-                byte g = (byte)(191 + n * 16 + m * 12);
-                byte b = (byte)(163 + n * 18 + m * 10);
-                if (Noise(x + 91, y + 17) > 0.965f) { r -= 34; g -= 30; b -= 24; }
-                return new Color32(r, g, b, 255);
-            });
-
-            // Behind the dune line: sea oats and wax myrtle over sand, so the
-            // green is thin and the sand shows through it. Blending TOWARD the
-            // sand colour rather than using a green of its own is what keeps
-            // the scrub/sand boundary from reading as a painted edge.
-            WriteTexture(StageGenDir + "/Scrub.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x, y);
-                float clump = Noise(x >> 3, y >> 3);      // patchy, not uniform
-                // 0.18..0.68 rather than 0.35..0.90: the first pass came back
-                // reading as mown lawn either side of the road. Dune scrub is
-                // mostly the sand it is growing out of.
-                float green = Mathf.Clamp01(0.18f + clump * 0.5f);
-                byte r = (byte)Mathf.Lerp(200 + n * 14, 108 + n * 26, green);
-                byte g = (byte)Mathf.Lerp(186 + n * 14, 126 + n * 28, green);
-                byte b = (byte)Mathf.Lerp(158 + n * 14, 74 + n * 20, green);
-                return new Color32(r, g, b, 255);
-            });
-
-            // The sea. Anisotropic on purpose: the swell runs in lines, so the
-            // noise is stretched along x and the wave terms are sines of y
-            // alone. Wrap-friendly (all terms are k*2pi*n/64) or the tile seam
-            // draws a straight line across the sound every 24 m.
-            WriteTexture(StageGenDir + "/Sea.png", 64, 64, (x, y) =>
-            {
-                float u = x * (Mathf.PI * 2f / 64f), v = y * (Mathf.PI * 2f / 64f);
-                float swell = Mathf.Sin(v * 3f + Mathf.Sin(u * 2f) * 0.6f)
-                            + 0.5f * Mathf.Sin(v * 7f - u * 1f + 1.1f)
-                            + 0.3f * Mathf.Sin(v * 11f + u * 3f + 2.2f);
-                float t = Mathf.InverseLerp(-1.8f, 1.8f, swell);
-                // Green-grey inshore water, not tropical blue: this is the
-                // Atlantic off North Carolina in the same frame as the sound.
-                byte r = (byte)Mathf.Lerp(28, 74, t);
-                byte g = (byte)Mathf.Lerp(66, 116, t);
-                byte b = (byte)Mathf.Lerp(78, 122, t);
-                // Sparse glint on the crests. Rare enough to read as sun on
-                // water rather than as noise.
-                if (t > 0.86f && Noise(x + 7, y + 53) > 0.90f) { r += 46; g += 44; b += 38; }
-                return new Color32(r, g, b, 255);
-            });
-
-            // Salt marsh: smooth cordgrass over dark tidal mud, cut through by
-            // creeks. The photographs of the Langston crossing are more than
-            // half this, and it was rendering as open sound.
-            //
-            // The creeks are the point. A flat olive field reads as a lawn from
-            // 20 m up; what makes marsh look like marsh from a bridge is the
-            // braided drainage running through it, so a couple of wrapping sine
-            // terms carve dark channels and the grass sits between them.
-            WriteTexture(StageGenDir + "/Marsh.png", 64, 64, (x, y) =>
-            {
-                float u = x * (Mathf.PI * 2f / 64f), v = y * (Mathf.PI * 2f / 64f);
-                float creek = Mathf.Sin(u * 2f + Mathf.Sin(v * 3f) * 1.1f)
-                            + 0.7f * Mathf.Sin(v * 3f - u * 1f + 2.0f);
-                float n = Noise(x, y);
-                if (Mathf.Abs(creek) < 0.16f)
-                {
-                    // Tidal channel: dark water over mud.
-                    byte b = (byte)(52 + n * 16);
-                    return new Color32((byte)(b - 8), b, (byte)(b + 10), 255);
-                }
-                // Cordgrass. Olive-brown and desaturated — Spartina is not a
-                // lawn green, and against the sea it must not read as one.
-                float clump = Noise(x >> 2, y >> 2);
-                byte r = (byte)(104 + clump * 34 + n * 12);
-                byte g = (byte)(112 + clump * 30 + n * 12);
-                byte bl = (byte)(62 + clump * 22 + n * 10);
-                return new Color32(r, g, bl, 255);
-            });
-
-            // The verge: crushed shell and sand, which is what a shoulder on
-            // this island actually is.
-            WriteTexture(StageGenDir + "/Shoulder.png", 32, 16, (x, y) =>
-            {
-                int h = (x * 7 + y * 13) % 19;
-                byte v = (byte)(172 + (h * 4) % 34);
-                return new Color32(v, (byte)(v - 6), (byte)(v - 20), 255);
-            });
+            // Sand, scrub, marsh, sea and the sand verge were drawn here as
+            // placeholders; they are the owner's pack textures now (BogueTheme,
+            // Art/Beach and Art/Water), so there is nothing left to draw.
         }
 
         /// <summary>Where the fall colour clumps. Same three-sine recipe as

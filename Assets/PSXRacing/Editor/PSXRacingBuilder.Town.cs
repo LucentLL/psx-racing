@@ -335,8 +335,10 @@ namespace PSXRacing.EditorTools
             // A yard is oil and hardcore, not paving. Shoulder.png tiled at
             // 10 m read as a floor of diamond tiles; the sand plate tinted
             // brown and tiled small reads as ground somebody parks wrecks on.
-            dirt = MakeMat("TownDirt", Root + "/Art/Bogue/Gen/Sand.png",
-                           tint: new Color(0.52f, 0.47f, 0.40f), wet: WetTownDirt),
+            // Now the pack's own dirt track (Textures/Result texture_8),
+            // not the island's code-drawn sand plate tinted brown.
+            dirt = MakeMat("TownDirt", Root + "/Art/Beach/dirt_texture_8.png",
+                           tint: new Color(0.92f, 0.90f, 0.88f), wet: WetTownDirt),
             // The yard's fence. This texture is already imported with the
             // trailer pack, which is the only reason a chain-link fence exists
             // in this project at all — there is no fence MODEL anywhere in

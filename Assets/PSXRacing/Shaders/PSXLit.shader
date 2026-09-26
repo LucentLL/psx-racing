@@ -111,6 +111,11 @@ Shader "PSX/Lit"
         // no windows and never samples the mask.
         _NightMask ("Night windows", 2D) = "black" {}
         _NightWin ("Night windows on", Float) = 0
+        // THE SWASH (2026-09-26, the Tidewater pass): 1 on a beach's sand,
+        // whose _ShoreY is the sea's height. 0 everywhere else, and then
+        // nothing below is read.
+        _Shore ("Shore swash", Float) = 0
+        _ShoreY ("Sea level", Float) = 0
     }
     SubShader
     {
@@ -138,6 +143,8 @@ Shader "PSX/Lit"
             float _Wet;
             sampler2D _NightMask;
             float _NightWin;
+            float _Shore;
+            float _ShoreY;
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -272,6 +279,37 @@ Shader "PSX/Lit"
                 return lerp(lerp(a, b, s.x), lerp(d, e, s.x), s.y);
             }
 
+            // THE SWASH on a beach (_Shore): Tidewater's run-up curve
+            // (ShoreWaves.shoreSwashRunup) - an uprush over the first 0.4 of
+            // the period that eases in as 1-(1-s)^1.5, a backwash over the
+            // next 0.55 that falls as 1-s^1.6, and a pause. Heights over the
+            // sea: the bake holds land 0.4 m above it, so that is where the
+            // sand starts. Under the front the sand is a sheet of water; under
+            // the highest reach it is damp; the front carries a foam bead.
+            #define SWASH_T            8.5    // seconds per wave
+            #define SWASH_BASE         0.40   // where the sand meets the sea, m over it
+            #define SWASH_RUN          0.50   // how far up (in height) a wave runs
+            #define SWASH_DAMP         0.62   // the damp band tops out this far up
+            #define SWASH_LOBE         0.08   // the front is lobed along the beach, +/- m
+            #define SWASH_SHEET        0.85   // how wet the sheet under the front is (mirror)
+            #define SWASH_DAMP_W       0.45   // and the damp sand above it
+            #define SWASH_DARKEN       0.42   // wet sand is darker: albedo x (1 - this)
+            #define SWASH_FOAM_H       0.035  // the bead's half-height, m
+            #define SWASH_FOAM         float3(0.90, 0.92, 0.90)
+
+            float SwashFront(float2 xz)
+            {
+                // Neighbouring stretches of beach are a little out of step.
+                float phase = PSXLitNoise(xz * 0.02) * 0.35;
+                float tau = frac(_Time.y / SWASH_T + phase);
+                float r = 0.0;
+                if (tau < 0.4) { float su = tau / 0.4; r = 1.0 - pow(1.0 - su, 1.5); }
+                else if (tau < 0.95) { float sb = (tau - 0.4) / 0.55; r = 1.0 - pow(sb, 1.6); }
+                float lobe = sin(xz.x * 0.61 + xz.y * 0.37 + tau * 2.3) * 0.5
+                           + sin(xz.x * 0.23 - xz.y * 0.51) * 0.5;
+                return SWASH_BASE + SWASH_RUN * r + SWASH_LOBE * lobe * r;
+            }
+
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -391,7 +429,7 @@ Shader "PSX/Lit"
                 // pixel of a draw, so the spec branch inside is uniform and a
                 // dry surface (every one in daylight) never pays for it.
                 float wetMat = _Wet * _PSXWetness;
-                float specOn = wetMat > WET_MIN ? 1.0 : 0.0;
+                float specOn = (wetMat > WET_MIN || _Shore > 0.5) ? 1.0 : 0.0;
                 float3 headD, headS, lampD, lampS;
                 PSXHeadlightsBoth(i.wpos, N, V, WET_HEAD_POW, specOn, headD, headS);
                 PSXLampsBoth(i.wpos, N, V, WET_LAMP_POW, specOn, lampD, lampS);
@@ -421,6 +459,23 @@ Shader "PSX/Lit"
                     tex.rgb *= 1.0 - WET_DARKEN * w;
                 }
                 else w = 0.0;
+
+                // THE SWASH (the SWASH_* #defines). A uniform branch: only a
+                // beach's sand ever takes it.
+                if (_Shore > 0.5)
+                {
+                    float h = i.wpos.y - _ShoreY;
+                    float front = SwashFront(i.wpos.xz);
+                    float sheet = step(h, front);
+                    float damp = 1.0 - smoothstep(front, SWASH_BASE + SWASH_DAMP, h);
+                    float sw = max(sheet * SWASH_SHEET, damp * SWASH_DAMP_W) * saturate(N.y * 2.0);
+                    tex.rgb *= 1.0 - SWASH_DARKEN * max(sheet, damp);
+                    w = max(w, sw);
+                    // The foam bead, dithered on world texels like the sea's.
+                    float bead = saturate(1.0 - abs(h - front) / SWASH_FOAM_H) * step(SWASH_BASE + 0.03, front);
+                    float grain = PSXLitHash(floor(i.wpos.xz * 6.0) + floor(_Time.y * 3.0));
+                    tex.rgb = lerp(tex.rgb, SWASH_FOAM, step(grain, bead * 1.2));
+                }
 
                 float3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 // The haze is brighter toward the sun (zero extra with no
