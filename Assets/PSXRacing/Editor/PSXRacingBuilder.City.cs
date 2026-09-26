@@ -115,7 +115,7 @@ namespace PSXRacing.EditorTools
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
             world.materials = CityMaterials();
-            RegisterSeasonalGround("CityGround", CityTexDir + "/city_grass.png",
+            RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
                                    world.materials[(int)CityMeshes.Slot.Ground], Color.white, "grass");
 
             // RaceManager + applier when there is a path, the free-roam
@@ -186,12 +186,12 @@ namespace PSXRacing.EditorTools
         internal static Material[] CityMaterials()
         {
             var m = new Material[(int)CityMeshes.Slot.COUNT];
-            m[(int)CityMeshes.Slot.Ground] = MakeMat("CityGround", CityTexDir + "/city_grass.png", affine: 0f);
+            m[(int)CityMeshes.Slot.Ground] = MakeMat("CityGround", CityPackDir + "/grass_7_city.png", affine: 0f);
             // Wet masks (see WetAsphalt in PSXRacingBuilder.cs): every road
             // slot takes the full night; pavement and the shared concrete soak
             // it and go dull. Unprefixed and shared by all four city scenes,
             // which is why wetness is a mask here and a global at runtime.
-            m[(int)CityMeshes.Slot.Pavement] = MakeMat("CityPavement", CityTexDir + "/city_pavement.png", affine: 0f,
+            m[(int)CityMeshes.Slot.Pavement] = MakeMat("CityPavement", CityPackDir + "/concrete_pt_5_city.png", affine: 0f,
                 wet: WetCityPavement);
             for (int p = 0; p < CityMeshes.RoadClassCount; p++)
                 for (int s = 0; s < CityMeshes.SurfaceCount; s++)
@@ -203,10 +203,9 @@ namespace PSXRacing.EditorTools
                                 CityTexDir + "/" + RoadTexFile(key, surf), affine: 0f,
                                 wet: WetAsphalt);
                 }
-            m[(int)CityMeshes.Slot.Concrete] = MakeMat("CityConcrete", CityTexDir + "/city_concrete.png", affine: 0f,
+            m[(int)CityMeshes.Slot.Concrete] = MakeMat("CityConcrete", EnsureConcreteTex(), affine: 0f,
                 wet: WetCityConcrete);
-            m[(int)CityMeshes.Slot.Water] = MakeMat("CityWater", CityTexDir + "/city_water.png", affine: 0f,
-                tint: new Color(0.9f, 0.95f, 1f));
+            m[(int)CityMeshes.Slot.Water] = CityWaterMat();
             // Night windows: the five facades with glass in them carry a mask
             // (Art/City/Night, see WithNightWindows); brick and both roofs are
             // written WITHOUT one, which is not a no-op — it clears whatever a
@@ -226,8 +225,27 @@ namespace PSXRacing.EditorTools
             m[(int)CityMeshes.Slot.RoofTiles] = WithNightWindows(
                 MakeMat("CityRoofTiles", CityTexDir + "/city_roof_tiles.jpg", affine: 0f), null);
             m[(int)CityMeshes.Slot.RoofFlat] = WithNightWindows(
-                MakeMat("CityRoofFlat", CityTexDir + "/city_roof_flat.png", affine: 0f), null);
+                MakeMat("CityRoofFlat", CityPackDir + "/concrete_pt_2_city.png", affine: 0f), null);
             return m;
+        }
+
+        /// <summary>The city's lakes and rivers: PSX/Water over the pack's water
+        /// sheets, like the sea. City meshes carry no depth colour, so every
+        /// pixel reads as deep water - which a reservoir is.</summary>
+        static Material CityWaterMat()
+        {
+            var shader = Shader.Find("PSX/Water");
+            if (shader == null) return MakeMat("CityWater", Root + "/Art/Water/water_2.png", affine: 0f);
+            string assetPath = MatDir + "/CityWater.mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            if (mat == null) { mat = new Material(shader); AssetDatabase.CreateAsset(mat, assetPath); }
+            mat.shader = shader;
+            mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Art/Water/water_2.png");
+            mat.SetTexture("_DeepTex", AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Art/Water/water_1.png"));
+            mat.SetColor("_Color", new Color(0.62f, 0.72f, 0.66f));   // a brown-green river, not a sea
+            mat.SetColor("_SandColor", new Color(0.50f, 0.46f, 0.36f));
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         /// <summary>Where the night-window masks live: committed art, made by
@@ -348,23 +366,12 @@ namespace PSXRacing.EditorTools
                     64, 64, (x, y) => Grain(x, y, captured));
             }
 
-            WriteTexture(CityTexDir + "/city_grass.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x, y);
-                byte g = (byte)(96 + n * 34);
-                return new Color32((byte)(58 + n * 26), g, (byte)(44 + n * 18), 255);
-            });
-            WriteTexture(CityTexDir + "/city_concrete.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x + 31, y + 7);
-                byte v = (byte)(148 + n * 26);
-                return new Color32(v, v, (byte)(v - 4), 255);
-            });
-            WriteTexture(CityTexDir + "/city_water.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x, y * 3);
-                return new Color32((byte)(38 + n * 18), (byte)(84 + n * 26), (byte)(128 + n * 30), 255);
-            });
+            // Grass, pavement, structural concrete, the flat roofs and the
+            // water were drawn here; they are the owner's pack textures now
+            // (CityPackDir: PSX Textures v3.1 grass_7, PSX Textures II
+            // concrete_pt_5 / _1 / _2, each copied at the brightness of the
+            // texture it replaced - a deck is road surface, and road colours
+            // are not to move - and the water is PSX/Water).
 
             // A curtain wall: 4x4 panes per 8 m repeat, dark mullions, panes
             // that vary a little so a forty-storey slab is not one flat blue.
@@ -399,22 +406,6 @@ namespace PSXRacing.EditorTools
                 bool lap = (y % 4) == 0;
                 byte v = (byte)Mathf.Clamp((lap ? 178 : 214) + n * 14f, 0, 255);
                 return new Color32(v, (byte)(v - 6), (byte)(v - 22), 255);
-            });
-
-            // Sidewalk and plaza: poured concrete with a joint every 3 m. The
-            // ground of the core, where a downtown is paved edge to edge.
-            WriteTexture(CityTexDir + "/city_pavement.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x + 7, y + 19) - 0.5f;
-                bool joint = (x % 32) == 0 || (y % 32) == 0;
-                byte v = (byte)Mathf.Clamp((joint ? 118 : 150) + n * 16f, 0, 255);
-                return new Color32(v, v, (byte)(v - 5), 255);
-            });
-            WriteTexture(CityTexDir + "/city_roof_flat.png", 32, 32, (x, y) =>
-            {
-                float n = Noise(x * 3 + 11, y * 3 + 5) - 0.5f;
-                byte v = (byte)Mathf.Clamp(92 + n * 22f, 0, 255);
-                return new Color32(v, v, (byte)(v + 3), 255);
             });
         }
 
@@ -560,14 +551,12 @@ namespace PSXRacing.EditorTools
         internal static string EnsureConcreteTex()
         {
             EnsureCityFolders();
-            WriteTexture(CityTexDir + "/city_concrete.png", 64, 64, (x, y) =>
-            {
-                float n = Noise(x + 31, y + 7);
-                byte v = (byte)(148 + n * 26);
-                return new Color32(v, v, (byte)(v - 4), 255);
-            });
-            return CityTexDir + "/city_concrete.png";
+            return CityPackDir + "/concrete_pt_1_city.png";
         }
+
+        /// <summary>The owner's pack textures the city wears, each a copy at
+        /// the brightness of the code-drawn one it replaced.</summary>
+        const string CityPackDir = CityTexDir + "/Pack";
 
         /// <summary>The circuit painter: symmetric shoulders, a given total
         /// width, the double yellow on a two-way road.</summary>
