@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 namespace PSXRacing
 {
@@ -45,6 +45,9 @@ namespace PSXRacing
         const float ShutdownBrake = 0.22f;
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
         const float RetiredBrake = 0.6f;
+        /// <summary>How far past the tarmac edge a retired car parks its
+        /// centre: over the verge strip, clear of the lane.</summary>
+        const float RetiredVergeM = 0.8f;
         /// <summary>Below this the shutdown hands over to the grid pose and the
         /// car is simply held where it stopped.</summary>
         const float ShutdownRestMps = 1.5f;
@@ -82,12 +85,83 @@ namespace PSXRacing
             if (ts != null && ts.TwoWay)
             {
                 float turn = Vector3.SignedAngle(path.GetTangent(nearestIdx), path.GetTangent(lookIdx), Vector3.up) * Mathf.Deg2Rad;
-                if (turn < 0f) cutBack = Mathf.Min(MaxCutBackM, lookDist * -turn / 8f);
+                // Only for the circuits' steering law below: pure pursuit, which
+                // two-way roads use now, holds a steady bend with no offset.
+                if (turn < 0f && !PurePursuit) cutBack = Mathf.Min(MaxCutBackM, lookDist * -turn / 8f);
             }
+            // HOLDING THE MARK: the point-chase settles off it on a long bend
+            // (NC 226A: aimed at +1.7, sat at +0.6..+1.0 for three seconds on
+            // a left-hander, into an oncoming Audi), and a car that PULLS - a
+            // bad-alignment fault is up to 0.25 of lock - sits off it on a
+            // straight (Gillespie: +0.17 of steer held for three seconds just
+            // to go straight, half a metre over, into an oncoming Crown Vic).
+            // What error lasts, the wheel takes up: steer, not aim, because a
+            // pull is a steer offset at every speed. Slowly, leaking, and only
+            // near the mark, so a pass's own swing across the lane never winds
+            // it up.
+            float trim = 0f, laneErr = 0f;
+            if (ts != null && ts.TwoWay)
+            {
+                Vector3 pr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
+                float err = laneErr = lineOffset + avoidBias - Vector3.Dot(transform.position - path.GetPoint(nearestIdx), pr);
+                float dt = Time.deltaTime;
+                laneInt *= 1f - LaneLeak * dt;
+                if (Mathf.Abs(err) < LaneIntBandM && speed > 5f) laneInt += err * dt;
+                laneInt = Mathf.Clamp(laneInt, -LaneIntMax, LaneIntMax);
+                trim = LaneKi * laneInt;
+            }
+            else laneInt = 0f;
             target += right * (lineOffset + avoidBias + cutBack);
 
             Vector3 local = transform.InverseTransformPoint(target);
-            return Mathf.Clamp(Mathf.Atan2(local.x, Mathf.Max(local.z, 0.5f)) * 1.4f, -1f, 1f);
+            float steerCmd;
+            if (ts != null && ts.TwoWay && PurePursuit)
+            {
+                // PURE PURSUIT: the wheel angle that arcs the car through the
+                // aim point, atan(2 wb sin(a) / L), in units of the lock this
+                // speed allows. The old law (1.4 x the angle, in units of lock)
+                // turned the wheel 1.8-2x that at 60-110 km/h because the lock
+                // shrinks with speed: the car arced INSIDE every bend - over the
+                // centreline on a left-hander, which the cut-back only patched.
+                // Pure pursuit on a steady bend settles ON the line.
+                float ld = Mathf.Max(new Vector2(local.x, local.z).magnitude, 1f);
+                float alpha = Mathf.Atan2(local.x, Mathf.Max(local.z, 0.5f));
+                float wheelDeg = Mathf.Atan(2f * car.wheelbase * Mathf.Sin(alpha) / ld) * Mathf.Rad2Deg;
+                steerCmd = PursuitGain * wheelDeg / Mathf.Max(car.CurrentMaxSteerDeg, 1f) + trim;
+            }
+            else steerCmd = Mathf.Atan2(local.x, Mathf.Max(local.z, 0.5f)) * 1.4f + trim;
+            // LANE DISCIPLINE on a two-way road: damp the drift across it. The
+            // point-chase alone let a car weave +-1 m round its line for
+            // seconds after a knock (Mount Mitchell: +0.8, -0.6, +1.6 m in two
+            // seconds with the line held at +1.1) - in a 3 m lane, across the
+            // centre line into an oncoming Camry. Off on closed circuits,
+            // whose racing line this would change.
+            if (ts != null && ts.TwoWay && speed > 5f)
+            {
+                var rb = car.Body;
+                if (rb != null)
+                {
+                    Vector3 pr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
+                    float vLat = Vector3.Dot(rb.linearVelocity, pr);
+                    // Damped toward the drift the mark ASKS for, not toward none:
+                    // against all drift it fought the car's own passes, and the
+                    // autopilot crossed a lane at 0.5 m/s into the Transit it
+                    // was going round (Mount Mitchell).
+                    float vWant = Mathf.Clamp(laneErr * LaneCloseRate, -LaneMaxDriftMps, LaneMaxDriftMps);
+                    steerCmd -= LaneDamp * (vLat - vWant) / speed;
+                    // YAW DAMPING: turning faster or slower than the road
+                    // does is steered against. The point-chase fixes WHERE
+                    // the car is, not which way it is rotating, so a loose car
+                    // (Charger, Blue Ridge, 110 km/h on a straight) sawed the
+                    // wheel +-0.8 into a 17 deg tank-slapper, off the verge
+                    // and back across its lane into traffic.
+                    int ahead = Mathf.Max(1, Mathf.RoundToInt(8f / path.spacing));
+                    float roadYaw = Vector3.SignedAngle(path.GetTangent(nearestIdx), path.GetTangent(nearestIdx + ahead), Vector3.up)
+                                    * Mathf.Deg2Rad / (ahead * path.spacing) * speed;
+                    steerCmd -= YawDamp * (rb.angularVelocity.y - roadYaw);
+                }
+            }
+            return Mathf.Clamp(steerCmd, -1f, 1f);
         }
 
         // ---- proximity (P2) ----
@@ -112,6 +186,9 @@ namespace PSXRacing
         /// <summary>How close to the tarmac edge a pass may take the car's
         /// centre: a half-width and a little shoulder.</summary>
         const float EdgeMarginM = 1.15f;
+        /// <summary>The nearest any steering target may put the car's centre to
+        /// the tarmac edge: a half-width and a little.</summary>
+        const float TarmacKeepM = 1.0f;
         /// <summary>Metres behind a traffic car a racer that cannot pass holds
         /// station at, plus this many seconds of its own speed.</summary>
         const float FollowGapM = 7f, FollowTimeS = 0.45f;
@@ -129,6 +206,25 @@ namespace PSXRacing
         public float DebugLine => lineOffset;
         public float DebugBias => avoidBias;
         public float DebugLeftLimit { get; private set; } = float.NegativeInfinity;
+
+        /// <summary>Steer against sideways drift across the road (per unit of
+        /// drift angle), on two-way roads.</summary>
+        const float LaneDamp = 2.2f;
+        /// <summary>The drift across the road asked for per metre off the
+        /// mark, and its most.</summary>
+        const float LaneCloseRate = 1.2f, LaneMaxDriftMps = 3f;
+        /// <summary>Steer per rad/s of yaw the road does not ask for.</summary>
+        const float YawDamp = 0.8f;
+        /// <summary>Lane-error integral: steer per metre-second of error, its
+        /// leak per second, its cap (0.1 x 3.5 = 0.35 of lock, more than the
+        /// worst alignment fault), and the error band it grows in.</summary>
+        const float LaneKi = 0.1f, LaneLeak = 0.15f, LaneIntMax = 3.5f, LaneIntBandM = 1.5f;
+        float laneInt;
+
+        /// <summary>Two-way roads steer by pure pursuit (SteerToLine), a touch
+        /// over geometric for the tyres' own slip.</summary>
+        const bool PurePursuit = true;
+        const float PursuitGain = 1.15f;
 
         /// <summary>The most the steering point moves out on a left-hander.</summary>
         const float MaxCutBackM = 2.5f;
@@ -273,6 +369,16 @@ namespace PSXRacing
             return ts.RaceLanesCentre + Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f);
         }
         float lineOffset;
+        /// <summary>Where a recovery should put this car across the road: its
+        /// own lane on a two-way road, the centreline otherwise.</summary>
+        public float RecoveryLateral
+        {
+            get
+            {
+                var ts = TrafficSystem.Instance;
+                return ts != null && ts.TwoWay ? LineOffset() : 0f;
+            }
+        }
 
         /// <summary>Retire the car: coast to a stop and stay there.</summary>
         public void Retire()
@@ -296,6 +402,12 @@ namespace PSXRacing
         /// car spun past 90 degrees can chase it around in a circle forever.</summary>
         const float WrongWaySeconds = 2f;
         const float WrongWayDot = -0.3f;
+        /// <summary>Road a racer must make in CrawlSeconds or be recovered.</summary>
+        const float CrawlMinM = 12f, CrawlSeconds = 8f;
+        /// <summary>Which clock ran out last time: stuck, pinned, wrong way, crawling.</summary>
+        public string LastRecoveryWhy { get; private set; } = "";
+        int crawlIdx;
+        float crawlTimer;
         const float WrongWayMinSpeed = 3f;
 
         // ---- top speed (sense of speed) ----
@@ -358,6 +470,12 @@ namespace PSXRacing
             {
                 float rolling = Mathf.Abs(car.forwardSpeed);
                 bool coasting = ShuttingDown && rolling > ShutdownRestMps;
+                // A WRECK PULLS OVER: onto the verge past the right-hand edge,
+                // not stopped in its lane - on a 6 m mountain road a car
+                // parked in one lane is a roadblock the field queues behind.
+                if (Retired)
+                    avoidBias = Mathf.MoveTowards(avoidBias,
+                        path.roadWidth * 0.5f + RetiredVergeM - lineOffset, 2.5f * dt);
                 car.steerInput = coasting ? SteerToLine(rolling) : 0f;
                 car.throttleInput = 0f;
                 // A wreck pulls up; a finisher rolls down (ShutdownBrake).
@@ -463,6 +581,9 @@ namespace PSXRacing
         /// The goal is only that a car ahead stops being furniture.
         /// </summary>
         struct Obs { public float z, lat, closing; public bool oncoming; }
+        readonly System.Collections.Generic.List<Rigidbody> stopped = new System.Collections.Generic.List<Rigidbody>(4);
+        /// <summary>Under this a rival counts as stopped in the road.</summary>
+        const float StoppedRacerMps = 4f;
         readonly System.Collections.Generic.List<Obs> obs = new System.Collections.Generic.List<Obs>(16);
 
         void UpdateAvoidance(float dt, out float throttleLift, out float trafficBrake)
@@ -535,17 +656,32 @@ namespace PSXRacing
             // brakes to hold station behind it, with the stopping distance
             // worked out, until a line opens.
             var traffic = TrafficSystem.Instance;
-            if (traffic != null && traffic.Obstacles.Count > 0)
+            // A RIVAL STOPPED IN THE ROAD - retired, or crawling out of a
+            // spin - is furniture the racer loop above only sees 14 m out,
+            // 0.7 s at 70 km/h: NC 226A, a rival passed a retired Supra at 21
+            // m/s with 0.9 m between centres. It joins the traffic here, with
+            // the look distance, the pass lines and the stopping distance.
+            stopped.Clear();
+            if (rm != null)
+                for (int i = 0; i < rm.allCars.Count; i++)
+                {
+                    var o = rm.allCars[i];
+                    if (o == null || o == car || o.Body == null) continue;
+                    var op = rm.GetProgress(o);
+                    if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < StoppedRacerMps) stopped.Add(o.Body);
+                }
+            int nTraffic = traffic != null ? traffic.Obstacles.Count : 0;
+            obs.Clear();
+            if (nTraffic + stopped.Count > 0)
             {
                 Vector3 myRight = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float myLat = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), myRight);
                 float edge = Mathf.Max(0.5f, path.roadWidth * 0.5f - EdgeMarginM);
                 float mySpeed = car.forwardSpeed;
                 obs.Clear();
-                var bodies = traffic.Obstacles;
-                for (int i = 0; i < bodies.Count; i++)
+                for (int i = 0; i < nTraffic + stopped.Count; i++)
                 {
-                    var rb = bodies[i];
+                    var rb = i < nTraffic ? traffic.Obstacles[i] : stopped[i - nTraffic];
                     if (rb == null) continue;
                     Vector3 local = transform.InverseTransformPoint(rb.position);
                     float along = Vector3.Dot(rb.linearVelocity, transform.forward);
@@ -554,7 +690,9 @@ namespace PSXRacing
                     // m/s on a car that then brake-checked it (a Braker, 70 m
                     // ahead) saw it 66 m out and hit it (Gillespie Gap, 2026-09-27).
                     float look = Mathf.Clamp(AvoidLookM + Mathf.Max(closing, 0f) * 3.2f, AvoidLookM, 110f);
-                    if (local.z < -3f || local.z > look) continue;
+                    // From 6 m back: a car level with this one is part of the
+                    // pass until it is behind (see ALONGSIDE below).
+                    if (local.z < -6f || local.z > look) continue;
                     int oi = path.NearestIndex(rb.position, nearestIdx);
                     Vector3 r = Vector3.Cross(Vector3.up, path.GetTangent(oi)).normalized;
                     float lat = Vector3.Dot(rb.position - path.GetPoint(oi), r);
@@ -566,7 +704,14 @@ namespace PSXRacing
                 for (int i = 0; i < obs.Count; i++)
                 {
                     var o = obs[i];
-                    if (o.z < 1.5f || Mathf.Abs(o.lat - myLat) >= TrafficClearM) continue;
+                    // In this car's corridor - OR in the lane it will come back
+                    // to. Out passing, the next car up its own lane was in
+                    // neither the corridor nor anything else: the racer dropped
+                    // back in behind the first car at 150 km/h and met the second
+                    // at 30 m/s closing (Blowing Rock, twice). Now that car is
+                    // the one to deal with: stay out and take it too, or follow.
+                    if (o.z < 1.5f) continue;
+                    if (Mathf.Abs(o.lat - myLat) >= TrafficClearM && Mathf.Abs(o.lat - lineOffset) >= TrafficClearM) continue;
                     if (o.closing <= 0.3f) continue;
                     if (block < 0 || o.z < obs[block].z) block = i;
                 }
@@ -595,8 +740,11 @@ namespace PSXRacing
                         }
                         return true;
                     }
-                    float left = bo.lat - TrafficClearM - 0.2f;
-                    float right = bo.lat + TrafficClearM + 0.2f;
+                    // Half a metre of air, not 0.2: a rival that passed a car
+                    // pulled onto the verge 1.9 m centre to centre clipped it at
+                    // 20 m/s (NC 226A at its real 6.1 m).
+                    float left = bo.lat - TrafficClearM - 0.5f;
+                    float right = bo.lat + TrafficClearM + 0.5f;
                     bool leftOk = Clear(left), rightOk = Clear(right);
                     float pick = float.NaN;
                     if (leftOk && rightOk)
@@ -654,11 +802,55 @@ namespace PSXRacing
                 }
             }
 
+            // ALONGSIDE: the car being passed drops out of "ahead" once level,
+            // and with nothing ahead the racer steered back to its line - into
+            // that car's door (Blowing Rock: a Skyline half past a Crown Vic at
+            // 132 km/h came back across onto it). Level with a car, the line
+            // may not come nearer to it than the clearance.
+            bool alongsideHold = false;
+            float roadHalf = path.roadWidth * 0.5f;
+            if (obs.Count > 0)
+            {
+                Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
+                float at = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), rr);
+                for (int i = 0; i < obs.Count; i++)
+                {
+                    var o = obs[i];
+                    if (o.z < -5.5f || o.z > 1.5f || o.oncoming) continue;
+                    float side = at - o.lat;
+                    if (Mathf.Abs(side) > TrafficClearM + 1.5f) continue;
+                    float keep = o.lat + (side >= 0f ? 1f : -1f) * TrafficClearM - lineOffset;
+                    if (side < 0f ? wanted > keep : wanted < keep)
+                    {
+                        wanted = keep;
+                        slew = TrafficSlew;
+                        alongsideHold = side < 0f;
+                        // No room beside it on the tarmac: not off the road
+                        // for it (Blowing Rock: aimed at +4.0 on a road whose
+                        // edge is +3.2, into the wall) - drop in behind.
+                        if (Mathf.Abs(keep + lineOffset) > roadHalf - TarmacKeepM)
+                        {
+                            throttleLift = 1f;
+                            trafficBrake = Mathf.Max(trafficBrake, 0.9f);
+                        }
+                    }
+                }
+            }
+
             // And whatever asked for it, never over the line with something
             // coming: a pass already out there comes back at the traffic slew.
             // (Gillespie/Mount Mitchell: a rival on the centreline passing
             // another met an oncoming Camry head-on at 42 m/s.)
-            if (wanted < leftLimit)
+            if (wanted < leftLimit && alongsideHold)
+            {
+                // Out in the other lane, level with the car being passed, and
+                // something coming: not into its door - off the throttle and on
+                // the brakes to drop in BEHIND it, then the follow above takes
+                // the car back into the lane.
+                throttleLift = 1f;
+                trafficBrake = Mathf.Max(trafficBrake, 0.9f);
+            }
+            else if (wanted < leftLimit)
             {
                 wanted = leftLimit;
                 if (avoidBias < leftLimit)
@@ -679,6 +871,10 @@ namespace PSXRacing
                         }
                 }
             }
+            // Whatever asked for it, the car's centre stays on the tarmac: a
+            // half-width and a little in from each edge.
+            float onRoad = Mathf.Max(roadHalf - TarmacKeepM, 0.3f);
+            wanted = Mathf.Clamp(wanted, -onRoad - lineOffset, onRoad - lineOffset);
             // Slewed, not snapped: the offset feeds the steering target, and a
             // step change in it reads as a flick of the wheel.
             avoidBias = Mathf.MoveTowards(avoidBias, wanted, slew * dt);
@@ -691,7 +887,7 @@ namespace PSXRacing
         /// </summary>
         void UpdateRecovery(float dt, float speed)
         {
-            bool pinned = responder != null && responder.InWallContact;
+            bool pinned = responder != null && responder.InSolidContact;
             float limit = pinned ? PinnedSeconds : StuckSeconds;
             if (speed < 1f) stuckTimer += dt;
             else stuckTimer = 0f;
@@ -703,12 +899,25 @@ namespace PSXRacing
             if (alignment < WrongWayDot && speed > WrongWayMinSpeed) wrongWayTimer += dt;
             else wrongWayTimer = 0f;
 
+            // CRAWLING IN PLACE: jammed against a wreck at 2-8 km/h, never
+            // under the 1 m/s the stuck clock wants - on NC 226A a rival spent
+            // four minutes of a five-minute race like that. Progress, not
+            // speed: under CrawlMinM of road in CrawlSeconds is stuck too.
+            if (nearestIdx > crawlIdx + Mathf.CeilToInt(CrawlMinM / path.spacing) || nearestIdx < crawlIdx - 20)
+            { crawlIdx = nearestIdx; crawlTimer = 0f; }
+            else crawlTimer += dt;
+
             if (Retired) return;
-            if (stuckTimer > limit || wrongWayTimer > WrongWaySeconds)
+            if (stuckTimer > limit || wrongWayTimer > WrongWaySeconds || crawlTimer > CrawlSeconds)
             {
+                LastRecoveryWhy = stuckTimer > limit ? (pinned ? "pinned" : "stuck")
+                                : wrongWayTimer > WrongWaySeconds ? "wrong way" : "crawling";
                 stuckTimer = 0f;
                 wrongWayTimer = 0f;
+                crawlTimer = 0f;
+                crawlIdx = nearestIdx;
                 avoidBias = 0f;
+                laneInt = 0f;
                 RaceManager.Instance?.RespawnCar(car);
             }
         }

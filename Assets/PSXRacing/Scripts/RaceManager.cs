@@ -581,6 +581,22 @@ namespace PSXRacing
         /// the line until it finds a clear station, which is also the direction
         /// the player wants to be pointed in.
         /// </summary>
+        /// <summary>Every recovery, for the race harness: the car, the stations
+        /// walked forward before a clear one (-1: none was, seated on the
+        /// centreline anyway) and the lane offset asked for.</summary>
+        public static event System.Action<CarController, int, float> Respawned;
+        readonly Dictionary<CarController, (int idx, float time, int repeats)> lastRespawn =
+            new Dictionary<CarController, (int idx, float time, int repeats)>();
+
+        const float RespawnRacerClearM = 9f;
+
+        bool RacerNear(CarController car, Vector3 at, float r)
+        {
+            foreach (var o in allCars)
+                if (o != null && o != car && (o.transform.position - at).sqrMagnitude < r * r) return true;
+            return false;
+        }
+
         public void RespawnCar(CarController car)
         {
             if (car == null || path == null || path.Count == 0) return;
@@ -590,13 +606,33 @@ namespace PSXRacing
             // Roughly 60 m of line at 4 m stations, then give up and take the
             // nearest one anyway: a car left where it is would be worse than a
             // car put back somewhere imperfect.
-            const int Search = 15;
+            // A rival on a two-way road goes back in ITS LANE, and looks
+            // further for room: put back on the centreline it sat half in the
+            // oncoming lane, boxed in by traffic queued both ways, and crawled
+            // there until the next recovery put it back in the same spot.
+            var ai = car.GetComponent<AIDriver>();
+            float lat = ai != null ? ai.RecoveryLateral : 0f;
+            int Search = lat != 0f ? 25 : 15;
             int n = path.Count;
-            for (int step = 0; step <= Search; step++)
+            // Recovered HERE again, and soon: the clear station it got last
+            // time is not one it can drive away from (Mount Mitchell: put back
+            // on the same waypoint nineteen times, every four seconds, to the
+            // end of the race). Each repeat starts the walk three stations on.
+            int skip = 0;
+            if (ai != null && lastRespawn.TryGetValue(car, out var last) &&
+                Time.time - last.time < 20f && Mathf.Abs(path.Wrap(start - last.idx + n / 2) - n / 2) <= 6)
+                skip = Mathf.Min(last.repeats + 1, 8) * 3;
+            lastRespawn[car] = (start, Time.time, skip / 3);
+            for (int step = skip; step <= Search + skip; step++)
             {
                 int raw = start + step;
                 int idx = path.Wrap(raw);
-                if (!DriveSession.TryPlace(car, path.GetPoint(idx), path.GetRotation(idx))) continue;
+                Vector3 at = path.GetPoint(idx) + Vector3.Cross(Vector3.up, path.GetTangent(idx)).normalized * lat;
+                if (!DriveSession.TryPlace(car, at, path.GetRotation(idx))) continue;
+                // Nor on top of another racer: the clearance box is shrunk for
+                // kerbs, and two cars recovered together landed 4 m apart,
+                // touching, and were recovered again.
+                if (RacerNear(car, at, RespawnRacerClearM)) continue;
                 if (p != null)
                 {
                     // The walk went THROUGH waypoint 0, which is a line
@@ -613,6 +649,7 @@ namespace PSXRacing
                     }
                     p.nearestIdx = idx;
                 }
+                Respawned?.Invoke(car, step, lat);
                 return;
             }
 
@@ -622,6 +659,7 @@ namespace PSXRacing
             // crossing overhead, or the hillside over a tunnel.
             car.ResetTo(path.GetPoint(start), path.GetRotation(start), seated: true);
             if (p != null) p.nearestIdx = start;
+            Respawned?.Invoke(car, -1, lat);
         }
     }
 }

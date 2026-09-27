@@ -97,7 +97,7 @@ namespace PSXRacing.OnFoot
                 if (def != null)
                 {
                     int skin = CarShell.SkinFor(def, spec, visit.key.GetHashCode());
-                    CarShell.Spawn(carSpot, def, skin, out Vector3 roof);
+                    CarShell.Spawn(carSpot, def, skin, out Vector3 roof, widthMm: spec != null ? spec.widthMm : 0);
 
                     var hookGO = new GameObject("SellerCar");
                     hookGO.transform.SetParent(carSpot, false);

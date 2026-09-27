@@ -212,17 +212,23 @@ namespace PSXRacing
         void BuildLanes(float width, bool oneWay)
         {
             lanesFwd.Clear(); lanesBack.Clear();
+            // A lane is a US lane where there is room for one, and otherwise
+            // the road's own share: a mountain road is two 10 ft (3.05 m)
+            // lanes, and 3.66 m lanes on it put the cars' centres 0.2 m off
+            // where its lanes are.
             if (oneWay)
             {
                 int n = Mathf.Max(1, Mathf.FloorToInt((width - 0.8f) / LaneM));
-                for (int k = 0; k < n; k++) lanesFwd.Add((k - (n - 1) * 0.5f) * LaneM);
+                float lw = Mathf.Min(LaneM, width / n);
+                for (int k = 0; k < n; k++) lanesFwd.Add((k - (n - 1) * 0.5f) * lw);
                 return;
             }
             int per = Mathf.Max(1, Mathf.FloorToInt((width - 0.8f) / (2f * LaneM)));
+            float laneW = Mathf.Min(LaneM, width / (2f * per));
             for (int k = 0; k < per; k++)
             {
-                lanesFwd.Add((k + 0.5f) * LaneM);      // right of the race direction
-                lanesBack.Add(-(k + 0.5f) * LaneM);    // right of the oncoming direction
+                lanesFwd.Add((k + 0.5f) * laneW);      // right of the race direction
+                lanesBack.Add(-(k + 0.5f) * laneW);    // right of the oncoming direction
             }
         }
 
@@ -240,10 +246,12 @@ namespace PSXRacing
             // tarmac grazes it on every crest and dip (the first play check
             // wrecked three cars in thirty seconds "hit by Road at 19 m/s").
             var box = go.AddComponent<BoxCollider>();
+            // As wide as the shell CarShell just scaled to its reference car.
+            float boxW = def.colliderSize.x * CarModelLibrary.WidthScale(def, 0);
             float top = def.colliderCenter.y + def.colliderSize.y * 0.5f;
             float bottom = Mathf.Max(def.colliderCenter.y - def.colliderSize.y * 0.5f, RideClear);
             box.center = new Vector3(0f, (top + bottom) * 0.5f, 0f);
-            box.size = new Vector3(def.colliderSize.x, Mathf.Max(0.3f, top - bottom), def.colliderSize.z);
+            box.size = new Vector3(boxW, Mathf.Max(0.3f, top - bottom), def.colliderSize.z);
             var rb = go.AddComponent<Rigidbody>();
             rb.mass = 1400f;
             rb.interpolation = RigidbodyInterpolation.Interpolate;
@@ -275,7 +283,7 @@ namespace PSXRacing
                 // like a driven car's: a wreck resting on that sat 35 cm into
                 // the road.
                 fullCenter = new Vector3(0f, (top + WreckFloor) * 0.5f, 0f),
-                fullSize = new Vector3(def.colliderSize.x, top - WreckFloor, def.colliderSize.z),
+                fullSize = new Vector3(boxW, top - WreckFloor, def.colliderSize.z),
             };
         }
 
@@ -479,6 +487,21 @@ namespace PSXRacing
             return true;
         }
 
+        /// <summary>Seconds a wreck stays at least; past it, it goes the
+        /// moment no camera can see it (Recycle).</summary>
+        const float WreckClearS = 20f;
+        static readonly Plane[] frustum = new Plane[6];
+
+        /// <summary>Is a point inside the main camera's view (within 250 m)?
+        /// No camera: nothing is in view.</summary>
+        static bool InView(Vector3 p)
+        {
+            var cam = Camera.main;
+            if (cam == null || (p - cam.transform.position).sqrMagnitude > 250f * 250f) return false;
+            GeometryUtility.CalculateFrustumPlanes(cam, frustum);
+            return GeometryUtility.TestPlanesAABB(frustum, new Bounds(p, new Vector3(5f, 3f, 5f)));
+        }
+
         void Recycle(float ps)
         {
             for (int i = live.Count - 1; i >= 0; i--)
@@ -490,8 +513,14 @@ namespace PSXRacing
                                    || c.go.transform.position.y < -500f;
                 // A wreck stays where physics left it: until it is out of the
                 // window, or a minute old and behind the player (out of sight).
+                // Or twenty seconds old and out of the camera's view, wherever it
+                // is: on a 6 m mountain road a wreck AHEAD of the player stood in
+                // its lane for the rest of the race, the traffic behind it queued
+                // for good, and the rivals racing past it gridlocked (NC 226A,
+                // Mount Mitchell and Gillespie Gap, all in one afternoon).
                 bool keep = c.wrecked
                     ? !outOfWindow && !(Time.time - c.wreckedAt > 60f && d < -40f)
+                      && !(Time.time - c.wreckedAt > WreckClearS && !InView(c.go.transform.position))
                     : !outOfWindow;
                 if (keep) continue;
                 c.active = false;

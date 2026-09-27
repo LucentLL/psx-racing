@@ -48,6 +48,9 @@ namespace PSXRacing
         /// <summary>Every counted hit (car, closing speed, hard?, what it hit):
         /// for the race harnesses that ask what the field is crashing into.</summary>
         public static event System.Action<CollisionResponder, float, bool, string> HitReported;
+        /// <summary>The same hit with the collider itself - traffic cars share
+        /// names, so a harness that finds "what" by name finds another car.</summary>
+        public static event System.Action<CollisionResponder, float, bool, Collider> HitReportedOn;
 
         /// <summary>Count of DISCRETE heavy impacts, as opposed to the continuous
         /// <see cref="DamageScore"/>. The insurance record wants incidents, not
@@ -102,6 +105,20 @@ namespace PSXRacing
         /// clear air is just going slowly.</summary>
         public bool InWallContact => Time.time - lastContactTime < 0.25f;
 
+        /// <summary>InWallContact with anything but another RACER. Two rivals
+        /// nose to tail in a slow queue are touching, not pinned: counted as
+        /// pinned, the AI recovered both after 1.5 s onto neighbouring stations,
+        /// where they touched again (Blowing Rock: nine times in 12 s).</summary>
+        public bool InSolidContact => Time.time - lastSolidContactTime < 0.25f;
+        float lastSolidContactTime = -10f;
+
+        void StampContact(Collision c)
+        {
+            lastContactTime = Time.time;
+            var other = c.rigidbody;
+            if (other == null || other.GetComponent<CarController>() == null) lastSolidContactTime = Time.time;
+        }
+
         void Awake()
         {
             car = GetComponent<CarController>();
@@ -137,10 +154,11 @@ namespace PSXRacing
             if (normalSpeed < minImpactSpeed) return;
 
             bool hard = incidence >= GlancingIncidence;
+            HitReportedOn?.Invoke(this, normalSpeed, hard, c.collider);
             HitReported?.Invoke(this, normalSpeed, hard, c.collider != null ? c.collider.name : "?");
             DamageScore += normalSpeed * (hard ? 1.6f : 0.4f);
             if (hard && normalSpeed > WorstHit) { WorstHit = normalSpeed; WorstHitWhat = c.collider != null ? c.collider.name : "?"; }
-            lastContactTime = Time.time;
+            StampContact(c);
 
             if (hard && normalSpeed >= IncidentSpeed &&
                 Time.time - lastIncidentTime > IncidentWindow)
@@ -229,7 +247,7 @@ namespace PSXRacing
         void OnCollisionStay(Collision c)
         {
             if (!Classify(c, out float normalSpeed, out float incidence, out Vector3 n)) return;
-            lastContactTime = Time.time;
+            StampContact(c);
 
             Vector3 v = rb.linearVelocity;
             Vector3 tangential = v - Vector3.Project(v, n);

@@ -60,8 +60,12 @@ namespace PSXRacing
                              Seasons.SkyMul(weather);
             Shader.SetGlobalFloat("_PSXDynExposure", exposure);
 
+            // The zenith, single-scattered: what PSXAtmosphere's multiple-
+            // scattering stand-in lends the low sky (and this CPU copy too).
+            zenith = Scatter(Vector3.up, sunTrue.normalized, false);
+            Shader.SetGlobalVector("_PSXZenith", zenith);
             // The ring, from the scattering.
-            Shader.SetGlobalVectorArray("_PSXFogRing", Ring(sunTrue.normalized, exposure));
+            Shader.SetGlobalVectorArray("_PSXFogRing", Ring(sunTrue.normalized, exposure, p.fogColor));
             Shader.SetGlobalFloat("_PSXFogRingOn", TimeOfDay.FogRingAmount);
 
             RenderPanorama();
@@ -123,6 +127,10 @@ namespace PSXRacing
         // clouds): eight calls per hour applied.
         const float RGround = 6360e3f, RTop = 6420e3f, HR = 7994f, HM = 1200f, G = 0.76f, BetaM = 21e-6f;
         static readonly Vector3 BetaR = new Vector3(5.8e-6f, 13.5e-6f, 33.1e-6f);
+        // ATMO_VIEW_CAP, ATMO_MS, ATMO_BETA_O x ATMO_OZONE - see the cginc.
+        const float ViewCap = 60000f, MultiScatter = 0.6f;
+        static readonly Vector3 BetaOzone = new Vector3(0.650e-6f, 1.881e-6f, 0.085e-6f) * 3.5f;
+        static Vector3 zenith;
 
         static float RaySphereFar(Vector3 o, Vector3 d, float r)
         {
@@ -134,11 +142,11 @@ namespace PSXRacing
 
         static Vector3 Exp(Vector3 v) => new Vector3(Mathf.Exp(v.x), Mathf.Exp(v.y), Mathf.Exp(v.z));
 
-        static Vector3 Scatter(Vector3 dir, Vector3 sunDir)
+        static Vector3 Scatter(Vector3 dir, Vector3 sunDir, bool multi = true)
         {
             var o = new Vector3(0f, RGround + 2f, 0f);
             dir.y = Mathf.Max(dir.y, 0f); dir.Normalize();
-            float seg = RaySphereFar(o, dir, RTop) / 8f;
+            float seg = Mathf.Min(RaySphereFar(o, dir, RTop), ViewCap) / 8f;
             float mu = Vector3.Dot(dir, sunDir);
             float phaseR = 3f / (16f * Mathf.PI) * (1f + mu * mu);
             float g2 = G * G;
@@ -163,35 +171,63 @@ namespace PSXRacing
                     odML += Mathf.Exp(-hl / HM) * segL;
                 }
                 if (!lit) continue;
-                Vector3 tau = BetaR * (odR + odRL) + Vector3.one * (BetaM * 1.1f * (odM + odML));
+                Vector3 tau = BetaR * (odR + odRL) + Vector3.one * (BetaM * 1.1f * (odM + odML)) +
+                              BetaOzone * (odR + odRL);
                 Vector3 att = Exp(-tau);
                 sumR += att * hr; sumM += att * hm;
             }
-            return 22f * (Vector3.Scale(sumR, BetaR) * phaseR + sumM * (BetaM * phaseM));
+            Vector3 single = 22f * (Vector3.Scale(sumR, BetaR) * phaseR + sumM * (BetaM * phaseM));
+            if (!multi) return single;
+            float air = 1f - Mathf.Exp(-(BetaR.y * odR + BetaM * odM));
+            return single + zenith * (MultiScatter * air);
         }
 
-        static Vector4[] Ring(Vector3 sunDir, float exposure)
+        /// <summary>The scattered sky's saturation before the grade - the dome's
+        /// SKY_PRE_SAT, so the ring is the colour the dome actually shows.</summary>
+        const float PreSat = 1.35f;
+
+        /// <summary>
+        /// THE RING, IN THE SKY'S OWN COLOURS. The owner, 2026-09-27, of a dawn
+        /// in every direction: "Sunset/sunrise shouldn't be 360 degrees." The
+        /// band at the horizon and the fog under it were the HOUR's colour
+        /// (warm at dawn, afternoon and sunset) with only a ratio per bearing
+        /// on top, clamped to 0.7-1.35 a channel and its brightness squashed to
+        /// the 0.3 power - so the side away from the sun could never go blue:
+        /// it was the same gold, a shade dimmer. Now each bearing is the
+        /// computed sky's own colour just above the horizon (exposed and rolled
+        /// off exactly as the dome is): orange toward a low sun, the blue-violet
+        /// of the earth's shadow opposite, white-blue haze round the rest. Only
+        /// the BRIGHTNESS is the hour's - the ring's mean luminance is scaled to
+        /// the hour's fog colour, the owner's signed-off value - so the fog does
+        /// not lighten or darken, it takes the sky's hue by bearing.
+        /// </summary>
+        static Vector4[] Ring(Vector3 sunDir, float exposure, Color fog)
         {
             var c = new Vector3[8];
-            Vector3 mean = Vector3.zero;
+            float meanLum = 0f;
             float el = 3f * Mathf.Deg2Rad;
             for (int k = 0; k < 8; k++)
             {
                 float az = ((k + 0.5f) / 8f - 0.5f) * 2f * Mathf.PI;
                 var d = new Vector3(Mathf.Cos(el) * Mathf.Cos(az), Mathf.Sin(el), Mathf.Cos(el) * Mathf.Sin(az));
-                Vector3 s = Scatter(d, sunDir) * exposure;
+                Vector3 s = Scatter(d, sunDir);
+                float l = 0.2126f * s.x + 0.7152f * s.y + 0.0722f * s.z;
+                s = new Vector3(Mathf.Max(l + (s.x - l) * PreSat, 0f), Mathf.Max(l + (s.y - l) * PreSat, 0f),
+                                Mathf.Max(l + (s.z - l) * PreSat, 0f)) * exposure;
                 c[k] = new Vector3(1f - Mathf.Exp(-s.x), 1f - Mathf.Exp(-s.y), 1f - Mathf.Exp(-s.z));
-                mean += c[k] / 8f;
+                meanLum += (0.2126f * c[k].x + 0.7152f * c[k].y + 0.0722f * c[k].z) / 8f;
             }
+            float fogLum = 0.2126f * fog.r + 0.7152f * fog.g + 0.0722f * fog.b;
+            float scale = fogLum / Mathf.Max(meanLum, 1e-4f);
             var ring = new Vector4[8];
             for (int k = 0; k < 8; k++)
             {
-                var rat = new Vector3(c[k].x / Mathf.Max(mean.x, 1e-6f), c[k].y / Mathf.Max(mean.y, 1e-6f),
-                                      c[k].z / Mathf.Max(mean.z, 1e-6f));
-                float lum = Mathf.Max(0.2126f * rat.x + 0.7152f * rat.y + 0.0722f * rat.z, 1e-6f);
-                float keep = Mathf.Pow(lum, 0.3f) / lum;
-                ring[k] = new Vector4(Mathf.Clamp(rat.x * keep, 0.7f, 1.35f), Mathf.Clamp(rat.y * keep, 0.7f, 1.35f),
-                                      Mathf.Clamp(rat.z * keep, 0.7f, 1.35f), 1f);
+                // As a ratio to the fog colour, because that is what the fog
+                // and the band multiply: fog x ratio = this bearing's colour.
+                Vector3 want = c[k] * scale;
+                ring[k] = new Vector4(Mathf.Clamp(want.x / Mathf.Max(fog.r, 0.02f), 0.25f, 3f),
+                                      Mathf.Clamp(want.y / Mathf.Max(fog.g, 0.02f), 0.25f, 3f),
+                                      Mathf.Clamp(want.z / Mathf.Max(fog.b, 0.02f), 0.25f, 3f), 1f);
             }
             return ring;
         }

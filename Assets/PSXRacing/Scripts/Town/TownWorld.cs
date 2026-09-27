@@ -793,7 +793,7 @@ namespace PSXRacing.Town
                 // Seeded off the DRIVER, so their car is the same colour every
                 // time the lot is rebuilt tonight.
                 int skin = CarShell.SkinFor(def, racer.spec, racer.Key.GetHashCode());
-                CarShell.Spawn(spot, def, skin, out Vector3 roof);
+                CarShell.Spawn(spot, def, skin, out Vector3 roof, widthMm: racer.spec.widthMm);
 
                 var go = new GameObject("MeetCarTarget");
                 go.transform.SetParent(spot, false);
@@ -884,7 +884,7 @@ namespace PSXRacing.Town
                 // Seeded off the LISTING, not the slot, so the blue one stays
                 // the blue one when the lot reshuffles around it.
                 int skin = CarShell.SkinFor(def, spec, Viewings.KeyOf(listing).GetHashCode());
-                CarShell.Spawn(spot, def, skin, out Vector3 roof);
+                CarShell.Spawn(spot, def, skin, out Vector3 roof, widthMm: spec != null ? spec.widthMm : 0);
                 MakeDealerCarTarget(spot, listing, roof);
             }
         }
@@ -981,7 +981,7 @@ namespace PSXRacing.Town
                 // ("I am also walk through the cars"). A wreck you can lean
                 // on is a wreck; a hologram is a bug.
                 CarShell.Spawn(spot, def, rng.Next(8), out Vector3 roof, solid: true,
-                               missingWheels: mask, blockMat: blockMaterial);
+                               missingWheels: mask, blockMat: blockMaterial, widthMm: spec != null ? spec.widthMm : 0);
                 MakeWreckTarget(spot, i, spec, roof);
             }
         }

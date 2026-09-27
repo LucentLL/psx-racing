@@ -2169,6 +2169,11 @@ namespace PSXRacing
         /// </summary>
         public float SteerCommand => Mathf.Clamp(steerCommandDeg / currentMaxSteerDeg, -1f, 1f);
 
+        /// <summary>Degrees of wheel a full steerInput buys at this speed (the
+        /// lock falls from maxSteerLowSpeedDeg to maxSteerHighSpeedDeg) - for a
+        /// driver that wants a wheel ANGLE, the AI's pure pursuit.</summary>
+        public float CurrentMaxSteerDeg => currentMaxSteerDeg;
+
         /// <summary>
         /// Revs the clutch holds the engine at on a full-pedal launch — the
         /// old hardcoded 5200. Now bounded under the upshift point: five cars

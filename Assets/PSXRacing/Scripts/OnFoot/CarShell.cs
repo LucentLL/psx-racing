@@ -63,12 +63,16 @@ namespace PSXRacing.OnFoot
         /// blocks goes under that corner so the car is supported rather than
         /// half buried — the material is the caller's, because a runtime class
         /// cannot conjure a PSX/Lit material that fits the scene.</param>
+        /// <param name="widthMm">The real car's width (CarSpec.widthMm); 0 for
+        /// the model's own reference car. The shell is scaled across to it
+        /// (CarModelLibrary.WidthScale), wheels and box with it.</param>
         public static Transform Spawn(Transform at, CarModelDef def, int skin,
                                       out Vector3 roofPoint, bool solid = true,
-                                      int missingWheels = 0, Material blockMat = null)
+                                      int missingWheels = 0, Material blockMat = null, int widthMm = 0)
         {
             roofPoint = new Vector3(0f, 1.1f, 0f);
             if (at == null || def == null) return null;
+            float sx = CarModelLibrary.WidthScale(def, widthMm);
 
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)] : null;
@@ -83,6 +87,7 @@ namespace PSXRacing.OnFoot
             body.transform.SetParent(shell, false);
             body.transform.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset - centre);
             body.transform.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
+            body.transform.localScale = CarBody.AcrossScale(def.bodyYaw, sx);
             body.AddComponent<MeshFilter>().sharedMesh = def.bodyMesh;
             var br = body.AddComponent<MeshRenderer>();
             if (mat != null) br.sharedMaterial = mat;
@@ -91,7 +96,7 @@ namespace PSXRacing.OnFoot
             {
                 bool left = i % 2 == 0;
                 var hub = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth,
+                    (left ? -0.5f : 0.5f) * def.trackWidth * sx,
                     def.wheelRadius,
                     (i < 2 ? 0.5f : -0.5f) * def.wheelbase - centre);
 
@@ -122,7 +127,7 @@ namespace PSXRacing.OnFoot
                 col.transform.SetParent(shell, false);
                 col.transform.localPosition = new Vector3(0f, def.colliderCenter.y, 0f);
                 var box = col.AddComponent<BoxCollider>();
-                box.size = def.colliderSize;
+                box.size = new Vector3(def.colliderSize.x * sx, def.colliderSize.y, def.colliderSize.z);
             }
 
             roofPoint = new Vector3(0f, Mathf.Max(def.roofY, 1.1f) * 0.82f, 0f);

@@ -582,7 +582,7 @@ namespace PSXRacing
                 name = "BLUE RIDGE PARKWAY",
                 blurb = "Grandfather Mountain at 1:1 — down from Rough Ridge, out over the " +
                         "Linn Cove Viaduct. Map (c) OpenStreetMap contributors.",
-                roadWidth = 9.5f,
+                roadWidth = 6.4f,   // Blue Ridge Parkway: two 10.5 ft lanes (was 9.5 m)
                 laps = 1,
                 speedLimitKmh = 72f,    // the Parkway's posted maximum, 45 mph
                 stage = true,
@@ -681,7 +681,7 @@ namespace PSXRacing
                 // nine — and the number is also load-bearing: the 1v1 restage
                 // check asks whether a car can sit 5.2 m off the rival and
                 // still be on tarmac, which a 7.5 m road cannot answer yes to.
-                roadWidth = 9f,
+                roadWidth = 6.1f,   // NC 128: two 10 ft lanes (was 9 m)
                 laps = 1,
                 speedLimitKmh = 56f,    // a 35 mph park road
                 stage = true,
@@ -705,7 +705,7 @@ namespace PSXRacing
                 blurb = "From under the Parkway bridge at 1,623 m down to Balsam Grove: " +
                         "736 m of descent in eleven kilometres, and no straight long " +
                         "enough to rest on. Map (c) OpenStreetMap contributors.",
-                roadWidth = 8.5f,
+                roadWidth = 6.1f,   // NC 215: two 10 ft lanes (was 8.5 m)
                 laps = 1,
                 speedLimitKmh = 72f,    // NC 215, 45 mph
                 stage = true,
@@ -800,7 +800,7 @@ namespace PSXRacing
                 blurb = "The Parkway west from the US 321 interchange to Moses Cone, down " +
                         "Cone Road to US 221, Main Street through the village, and back " +
                         "under the Parkway's own bridge. 9.9 km. Map (c) OpenStreetMap contributors.",
-                roadWidth = 10f,
+                roadWidth = 6.4f,   // the Parkway and US 221: two 10.5 ft lanes (was 10 m)
                 laps = 1,
                 speedLimitKmh = 56f,    // 35 mph through the village; the Parkway is 45
                 stage = true,
@@ -816,7 +816,7 @@ namespace PSXRacing
                 blurb = "The Parkway west from Gillespie Gap through the Little Switzerland " +
                         "Tunnel, the village links onto NC 226A, and NC 226A back along the " +
                         "ridge under the Parkway bridge. 9.7 km. Map (c) OpenStreetMap contributors.",
-                roadWidth = 9.5f,
+                roadWidth = 6.4f,   // the Parkway and NC 226A: two 10.5 ft lanes (was 9.5 m)
                 laps = 1,
                 speedLimitKmh = 56f,    // NC 226A is posted 35 mph
                 stage = true,
@@ -851,7 +851,7 @@ namespace PSXRacing
                         "the switchbacks on the south face of the mountain to the valley at " +
                         "470 m - 570 m of descent in 11.7 km. Raced in thirds as UPPER, MIDDLE " +
                         "and LOWER. Map (c) OpenStreetMap contributors.",
-                roadWidth = 9.5f,
+                roadWidth = 6.1f,   // NC 226A: two 10 ft lanes (was 9.5 m)
                 laps = 1,
                 speedLimitKmh = 56f,    // NC 226A, 35 mph through the bends
                 stage = true,
@@ -871,7 +871,7 @@ namespace PSXRacing
                 blurb = "Up NC 226 from where NC 226A comes down to meet it, 410 m of climb " +
                         "in 6.5 km to the Parkway at the Museum of North Carolina Minerals. " +
                         "Map (c) OpenStreetMap contributors.",
-                roadWidth = 9f,
+                roadWidth = 6.7f,   // NC 226, a primary route: two 11 ft lanes (was 9 m)
                 laps = 1,
                 speedLimitKmh = 72f,    // NC 226, 45 mph
                 stage = true,
@@ -905,11 +905,12 @@ namespace PSXRacing
                         "switchbacks to the lot under the Chimney: 265 m of climb in 4.3 km, " +
                         "on hairpins tighter than any other road in the game. " +
                         "Map (c) OpenStreetMap contributors.",
-                // A narrow two-lane park road, 7 m kerb to kerb. At 8 m the top
-                // hairpin's inside kerbs all but met at the turn's centre, and
-                // the island wall between its legs had nowhere to end that was
-                // not in the kerb band of the road coming round the apex.
-                roadWidth = 7f,
+                // A narrow two-lane park road. At 8 m the top hairpin's inside
+                // kerbs all but met at the turn's centre, and the island wall
+                // between its legs had nowhere to end that was not in the kerb
+                // band of the road coming round the apex; the real road is
+                // narrower still.
+                roadWidth = 6.1f,   // the park road: two 10 ft lanes (was 7 m)
                 laps = 1,
                 speedLimitKmh = 40f,    // a 25 mph park road
                 stage = true,

@@ -102,12 +102,26 @@ namespace PSXRacing.EditorTools
             if (rm == null || car == null) { Done(); yield break; }
 
             CollisionResponder.HitReported += OnHit;
+            CollisionResponder.HitReportedOn += OnHitOn;
+            RaceManager.Respawned += OnRespawn;
+            // Repeatable per seed: the traffic laid at the green and the race's
+            // incident roll both draw from here.
+            int seedN = 0;
+            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seedN);
+            Random.InitState(9173 + seedN * 101);
             float until = Time.realtimeSinceStartup + 15f;
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
+            RacePlayCheck.Note($"  road grip x{Seasons.RoadGripMult:0.00}, road {rm.path.roadWidth:0.0} m, two-way {(TrafficSystem.Instance != null && TrafficSystem.Instance.TwoWay)}");
 
+            // The player's own input stack OFF, not just told to stand down: it
+            // still wrote the parking brake over the autopilot every tick, the
+            // player sat on the grid, and the traffic - spawned and recycled
+            // round the PLAYER - never went where the rivals raced.
             var input = car.GetComponent<PlayerCarInput>();
-            if (input != null) input.inputEnabled = false;
+            if (input != null) { input.inputEnabled = false; input.enabled = false; }
+            var tank = car.GetComponent<FuelTank>();
+            if (tank != null) tank.percent = 100f;
             var auto = car.gameObject.AddComponent<AIDriver>();
             auto.path = rm.path;
             auto.skill = 0.9f;
@@ -155,6 +169,8 @@ namespace PSXRacing.EditorTools
                 }
             }
             CollisionResponder.HitReported -= OnHit;
+            CollisionResponder.HitReportedOn -= OnHitOn;
+            RaceManager.Respawned -= OnRespawn;
             float raced = Time.time - t0;
             int rivals = 0;
             foreach (var c in rm.allCars)
@@ -171,6 +187,42 @@ namespace PSXRacing.EditorTools
             }
             var ts = TrafficSystem.Instance;
             if (ts != null) RacePlayCheck.Note(ts.WreckLog.Count + " traffic wrecks: " + string.Join("; ", ts.WreckLog));
+            // A rival that is barely moving at the end: where it is, what it
+            // is doing, and what traffic is round it.
+            foreach (var c in rm.allCars)
+            {
+                // The autopilot player too: it races the same AIDriver.
+                var ai = c != null ? c.GetComponent<AIDriver>() : null;
+                var p = c != null ? rm.GetProgress(c) : null;
+                if (ai == null || p == null || p.retired || p.finished || Mathf.Abs(c.forwardSpeed) > 3f) continue;
+                RacePlayCheck.Note($"STALLED {c.name}: {Mathf.Abs(c.forwardSpeed) * 3.6f:0} km/h, trail: " +
+                                   (trail.TryGetValue(c.name, out var tq) ? string.Join(" | ", tq) : "?"));
+                // What is physically in front of it, at bumper height.
+                foreach (var h in Physics.RaycastAll(c.transform.position + Vector3.up * 0.5f, c.transform.forward, 12f,
+                                                     ~0, QueryTriggerInteraction.Ignore))
+                    if (h.collider != null && !h.collider.transform.IsChildOf(c.transform))
+                        RacePlayCheck.Note($"    in front: {h.collider.name} (layer {h.collider.gameObject.layer}) at {h.distance:0.0} m");
+                if (ts != null)
+                    foreach (var rb in ts.Obstacles)
+                    {
+                        if (rb == null) continue;
+                        Vector3 lo = c.transform.InverseTransformPoint(rb.position);
+                        if (lo.z < -10f || lo.z > 150f) continue;
+                        int i = rm.path.NearestIndex(rb.position);
+                        Vector3 r = Vector3.Cross(Vector3.up, rm.path.GetTangent(i)).normalized;
+                        float lat = Vector3.Dot(rb.position - rm.path.GetPoint(i), r);
+                        RacePlayCheck.Note($"    traffic {rb.name} {lo.z:0} m ahead, lat {lat:+0.0;-0.0}, " +
+                                           $"{rb.linearVelocity.magnitude * 3.6f:0} km/h{(rb.useGravity ? ", WRECK" : "")}");
+                    }
+                foreach (var o in rm.allCars)
+                {
+                    if (o == null || o == c) continue;
+                    Vector3 lo = c.transform.InverseTransformPoint(o.transform.position);
+                    if (lo.z < -10f || lo.z > 60f) continue;
+                    RacePlayCheck.Note($"    racer {o.name} {lo.z:0} m ahead, {lo.x:+0.0;-0.0} across, {Mathf.Abs(o.forwardSpeed) * 3.6f:0} km/h" +
+                                       (rm.GetProgress(o) != null && rm.GetProgress(o).retired ? ", RETIRED" : ""));
+                }
+            }
             RacePlayCheck.Note($"hits by kind: {string.Join(", ", kinds)}");
             RacePlayCheck.Note($"raced {raced:0} s; {retiredAt.Count} of {rivals} rivals retired");
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
@@ -193,7 +245,17 @@ namespace PSXRacing.EditorTools
                 int i = rm.path.NearestIndex(c.transform.position);
                 Vector3 r = Vector3.Cross(Vector3.up, rm.path.GetTangent(i)).normalized;
                 float lat = Vector3.Dot(c.transform.position - rm.path.GetPoint(i), r);
+                // Steer input and slip (velocity off the nose): a weave with the
+                // wheel swinging is the controller; with slip, the car let go.
+                // Everything in PLAN: a grade's pitch read as 7 deg of slip.
+                var body = c.Body;
+                Vector3 nose = Vector3.ProjectOnPlane(c.transform.forward, Vector3.up);
+                Vector3 vel = body != null ? Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up) : Vector3.zero;
+                float slip = vel.sqrMagnitude > 4f ? Vector3.SignedAngle(nose, vel, Vector3.up) : 0f;
+                float head = Vector3.SignedAngle(Vector3.ProjectOnPlane(rm.path.GetTangent(i), Vector3.up), nose, Vector3.up);
+                float vAcross = Vector3.Dot(vel, r);
                 string s = $"{Time.time - t0:0.00}s lat {lat:+0.0;-0.0} {Mathf.Abs(c.forwardSpeed) * 3.6f:0}kmh" +
+                           $" st {c.steerInput:+0.00;-0.00} sl {slip:+0;-0} hd {head:+0;-0} vx {vAcross:+0.0;-0.0}" +
                            (ai != null ? $" line {ai.DebugLine:+0.0;-0.0} bias {ai.DebugBias:+0.0;-0.0}" +
                                          (float.IsNegativeInfinity(ai.DebugLeftLimit) ? "" : $" LIM {ai.DebugLeftLimit:+0.0;-0.0}") : "");
                 if (!trail.TryGetValue(c.name, out var q)) trail[c.name] = q = new Queue<string>();
@@ -205,6 +267,16 @@ namespace PSXRacing.EditorTools
 
         readonly List<string> kinds = new List<string>();
         readonly Dictionary<string, int> kindCount = new Dictionary<string, int>();
+
+        void OnRespawn(CarController c, int step, float lat)
+        {
+            if (rm == null || c == null) return;
+            var ai = c.GetComponent<AIDriver>();
+            RacePlayCheck.Note($"  recover {c.name} at {Time.time - t0:0}s ({(ai != null ? ai.LastRecoveryWhy : "?")}), " +
+                               $"wp {rm.path.NearestIndex(c.transform.position)}: " +
+                               (step < 0 ? $"NO clear station, seated on the centreline (asked lat {lat:+0.0;-0.0})"
+                                         : $"{step} stations on, lat {lat:+0.0;-0.0}"));
+        }
 
         void OnHit(CollisionResponder who, float speed, bool hard, string what)
         {
@@ -228,13 +300,30 @@ namespace PSXRacing.EditorTools
                 Vector3 r = Vector3.Cross(Vector3.up, rm.path.GetTangent(i)).normalized;
                 return Vector3.Dot(p - rm.path.GetPoint(i), r);
             }
-            var other = GameObject.Find(what);
+            // The collider that was hit (OnHitOn keeps it), not a Find by
+            // name: traffic cars share names, and the old lookup reported
+            // wherever ANOTHER Crown Vic happened to be.
+            var other = lastHitOther != null && lastHitOther.name == what ? lastHitOther.gameObject : null;
             Vector3 t0v = rm.path.GetTangent(wp), t1v = rm.path.GetTangent(Mathf.Min(wp + 5, rm.path.Count - 1));
             float turn = Vector3.SignedAngle(t0v, t1v, Vector3.up);
             RacePlayCheck.Note($"  hit {Time.time - t0,5:0.0}s {who.name}: {speed:0.0} m/s {(hard ? "HARD" : "glancing")} into {what} at wp {wp}" +
                                $"  car lat {Lat(who.transform.position):+0.0;-0.0}" +
                                (other != null ? $", its lat {Lat(other.transform.position):+0.0;-0.0}" : "") +
-                               $", road {(turn < -3f ? "bends LEFT" : turn > 3f ? "bends right" : "straight")} ({turn:0} deg over 20 m)");
+                               $", road {(turn < -3f ? "bends LEFT" : turn > 3f ? "bends right" : "straight")} ({turn:0} deg over 20 m)" +
+                               (other != null ? OtherInCarFrame(who.transform, other) : ""));
+        }
+
+        Collider lastHitOther;
+
+        // HitReportedOn is raised just before HitReported for the same contact.
+        void OnHitOn(CollisionResponder who, float speed, bool hard, Collider c) { lastHitOther = c; }
+
+        static string OtherInCarFrame(Transform car, GameObject other)
+        {
+            Vector3 lo = car.InverseTransformPoint(other.transform.position);
+            var rb = other.GetComponentInParent<Rigidbody>();
+            float along = rb != null ? Vector3.Dot(rb.linearVelocity, car.forward) : 0f;
+            return $" | it was {lo.z:+0.0;-0.0} m ahead, {lo.x:+0.0;-0.0} right, moving {along * 3.6f:+0;-0} km/h along our heading";
         }
 
         bool IsCarName(string what)

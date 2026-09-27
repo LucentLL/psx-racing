@@ -29,6 +29,8 @@ float4 _PSXMoonDir;
 float _PSXCloudCover;
 float4 _PSXCloudWind;
 float _PSXDynExposure;
+float4 _PSXZenith;       // the single-scattered zenith (DynamicSky, CPU): the light the
+                         // multiple-scattering stand-in lends the low sky
 
 #define ATMO_R_GROUND   6360e3
 #define ATMO_R_TOP      6420e3
@@ -39,6 +41,24 @@ float _PSXDynExposure;
 #define ATMO_G          0.76
 #define ATMO_SUN        22.0
 #define ATMO_VIEW_STEPS 8
+// THE HORIZON IS NOT YELLOW (owner, 2026-09-27: "Sunset/sunrise shouldn't be
+// 360"). Marched to the top of the atmosphere, a ray 3 degrees up crosses
+// hundreds of km of air; single scattering along that path strips every
+// bit of blue and has nothing to put it back, so the whole horizon came out
+// gold at sunset and yellow-grey at NOON. Three stand-ins for what the real
+// sky has and an 8-step march does not (Hillaire, whose sky Tidewater uses,
+// has all three properly):
+//   VIEW_CAP  - the march stops at this range: past it the light that reaches
+//               us is multiply scattered, not the single-scattered sliver left.
+//   MS        - that multiple scattering: the zenith's own light, lent to the
+//               air a ray crosses in proportion to how much air it is.
+//   OZONE     - absorbs orange-yellow (the Chappuis band) on the long sun paths
+//               of a low sun: why a twilight sky away from the sun is blue-grey,
+//               not green-grey. Carried on the Rayleigh column for cheapness.
+#define ATMO_VIEW_CAP   60000.0
+#define ATMO_MS         0.6
+#define ATMO_BETA_O     float3(0.650e-6, 1.881e-6, 0.085e-6)
+#define ATMO_OZONE      3.5
 #define ATMO_SUN_STEPS  3
 // THE CLOUDS HAVE VOLUME (owner, 2026-09-26, with a photograph of fair-weather
 // cumulus: "Clouds could use more volume"). A flat deck of noise was a sheet
@@ -75,7 +95,7 @@ float3 AtmoScatter(float3 dir, float3 sunDir)
     // grazed, which is the haze the fog band paints over anyway.
     dir.y = max(dir.y, 0.0);
     dir = normalize(dir);
-    float tMax = AtmoRaySphere(o, dir, ATMO_R_TOP).y;
+    float tMax = min(AtmoRaySphere(o, dir, ATMO_R_TOP).y, ATMO_VIEW_CAP);
     float seg = tMax / ATMO_VIEW_STEPS;
     float mu = dot(dir, sunDir);
     float phaseR = 3.0 / (16.0 * 3.14159265) * (1.0 + mu * mu);
@@ -104,13 +124,16 @@ float3 AtmoScatter(float3 dir, float3 sunDir)
         }
         if (lit)
         {
-            float3 tau = ATMO_BETA_R * (odR + odRL) + ATMO_BETA_M * 1.1 * (odM + odML);
+            float3 tau = ATMO_BETA_R * (odR + odRL) + ATMO_BETA_M * 1.1 * (odM + odML) +
+                         ATMO_BETA_O * ATMO_OZONE * (odR + odRL);
             float3 att = exp(-tau);
             sumR += att * hr;
             sumM += att * hm;
         }
     }
-    return ATMO_SUN * (sumR * ATMO_BETA_R * phaseR + sumM * ATMO_BETA_M * phaseM);
+    float3 single = ATMO_SUN * (sumR * ATMO_BETA_R * phaseR + sumM * ATMO_BETA_M * phaseM);
+    float air = 1.0 - exp(-(ATMO_BETA_R.g * odR + ATMO_BETA_M * odM));
+    return single + ATMO_MS * _PSXZenith.rgb * air;
 }
 
 /// How much of the sun gets through the air to the ground: its colour.
@@ -127,7 +150,8 @@ float3 AtmoSunColor(float3 sunDir)
         odR += exp(-hl / ATMO_H_R) * segL;
         odM += exp(-hl / ATMO_H_M) * segL;
     }
-    return exp(-(ATMO_BETA_R * odR + ATMO_BETA_M * 1.1 * odM)) * saturate(sunDir.y * 20.0 + 1.0);
+    return exp(-(ATMO_BETA_R * odR + ATMO_BETA_M * 1.1 * odM + ATMO_BETA_O * ATMO_OZONE * odR)) *
+           saturate(sunDir.y * 20.0 + 1.0);
 }
 
 float AtmoHash(float2 p)
@@ -183,38 +207,84 @@ float AtmoCloudThickness(float2 xz)
 // ---- cumulus puffs --------------------------------------------------------
 #define PUFF_CELL       2800.0    // one cloud slot per cell of this size (m)
 #define PUFF_BASE       1500.0    // the flat base every cloud sits on
-#define PUFF_COUNT      7         // puffs in a cloud
+#define PUFF_COUNT      8         // most puffs a cell draws
 #define PUFF_R_MIN      240.0
 #define PUFF_R_MAX      560.0
 #define PUFF_SQUASH     0.68      // a puff is this tall for its width: heaped, not a ball
 #define PUFF_SOFT       0.62      // how far in from the rim the edge is soft (share of r)
 #define PUFF_OCCUPY     0.72      // share of _PSXCloudCover that becomes cloud cells
+// KINDS OF CLOUD (owner, 2026-09-27, with photographs of towering and broken
+// cumulus: "There should be cloud variance, not just one type/size"). Every
+// cell used to hold the same heap at the same scale, so the sky was one cloud
+// and its copies shrinking toward the horizon. A cell now holds one of three:
+#define KIND_HUMILIS    0.38      // under this: a SPRAY of small flat fair-weather clouds
+#define KIND_CONGESTUS  0.80      // over this: one TOWERING heap, taller than it is wide
+// ...and a thin high layer of CIRRUS streaks above them all, in patches.
+#define CIRRUS_ALT      8500.0
+#define CIRRUS_SCALE    0.00012
+#define CIRRUS_MAX      0.55
 
-/// Puff k of the cloud in a cell: its centre and radius, or false past the
-/// cloud's own puff count. NOTHING REGULAR (owner: "a bit too defined,
-/// symmetrical, and repetitive"): each cloud has its own count (3-7), size
-/// (0.5-1.6), height (+/- 180 m), place anywhere in its cell, and a stretch
-/// along its own random heading; its puffs fall at random angles and
-/// distances about the biggest, not round it in a rosette.
-bool AtmoPuff(float2 cell, int k, float2 wind, out float3 c, out float r, out float baseY)
+/// Puff k of the cloud in a cell: its centre, radius, flat base and how tall it
+/// is for its width, or false past the cell's own puff count. NOTHING REGULAR
+/// (owner: "a bit too defined, symmetrical, and repetitive") and now NOT ONE
+/// KIND (owner: "cloud variance, not just one type/size"):
+///   HUMILIS   - two to four small flat clouds spread across the cell, each a
+///               main puff and a smaller companion: the broken fair-weather sky.
+///   MEDIOCRIS - the heap there was: 3-7 puffs about the biggest, stretched
+///               along its own heading, 0.5-1.4 of the base size.
+///   CONGESTUS - a big heap that GROWS UP: puffs stacked in tiers, shrinking
+///               toward a cauliflower crown, taller for their width.
+bool AtmoPuff(float2 cell, int k, float2 wind, out float3 c, out float r, out float baseY, out float squash)
 {
-    c = 0.0; r = 1.0; baseY = PUFF_BASE;
-    int count = 3 + (int)(AtmoHash(cell + 12.3) * 4.99);
+    c = 0.0; r = 1.0; baseY = PUFF_BASE; squash = PUFF_SQUASH;
+    float kind = AtmoHash(cell + 21.7);
+    float lift = (AtmoHash(cell + 6.1) - 0.5) * 360.0;
+    if (kind < KIND_HUMILIS)
+    {
+        int clouds = 2 + (int)(AtmoHash(cell + 12.3) * 2.99);          // 2..4
+        int j = k / 2;
+        if (j >= clouds) return false;
+        float2 home = (cell + 0.08 + 0.84 * float2(AtmoHash(cell * 1.9 + j * 7.1), AtmoHash(cell * 2.7 + j * 3.9)))
+                      * PUFF_CELL + wind;
+        float rj = lerp(110.0, 280.0, AtmoHash(cell * 4.1 + j * 2.3));
+        squash = 0.5;
+        baseY = PUFF_BASE + lift * 0.5 + (AtmoHash(cell + j * 8.1) - 0.5) * 140.0;
+        if (k == j * 2) { r = rj; c = float3(home.x, baseY + r * squash * 0.35, home.y); return true; }
+        float ang = AtmoHash(cell * 5.3 + j * 1.7) * 6.2831853;
+        r = rj * lerp(0.55, 0.8, AtmoHash(cell * 6.7 + j * 4.3));
+        float2 off = float2(cos(ang), sin(ang)) * rj * 0.85;
+        c = float3(home.x + off.x, baseY + r * squash * 0.3, home.y + off.y);
+        return true;
+    }
+    bool tower = kind > KIND_CONGESTUS;
+    int count = tower ? 6 + (int)(AtmoHash(cell + 12.3) * 2.99)       // 6..8
+                      : 3 + (int)(AtmoHash(cell + 12.3) * 4.99);      // 3..7
     if (k >= count) return false;
-    float2 ctr = (cell + 0.1 + 0.8 * float2(AtmoHash(cell + 7.7), AtmoHash(cell + 1.9))) * PUFF_CELL + wind;
-    float size = lerp(0.5, 1.6, AtmoHash(cell + 4.4) * AtmoHash(cell + 8.8) + 0.25);
+    float2 ctr = (cell + 0.15 + 0.7 * float2(AtmoHash(cell + 7.7), AtmoHash(cell + 1.9))) * PUFF_CELL + wind;
+    float size = tower ? lerp(1.15, 1.7, AtmoHash(cell + 4.4))
+                       : lerp(0.5, 1.4, AtmoHash(cell + 4.4) * AtmoHash(cell + 8.8) + 0.2);
     float head = AtmoHash(cell + 2.6) * 6.2831853;
-    float stretch = lerp(1.0, 2.2, AtmoHash(cell + 5.5));
+    float stretch = tower ? 1.0 : lerp(1.0, 2.2, AtmoHash(cell + 5.5));
     float2 ax = float2(cos(head), sin(head)), ay = float2(-ax.y, ax.x);
     float ang = AtmoHash(cell * 3.1 + k * 17.3) * 6.2831853;
-    float spread = k == 0 ? 0.0 : lerp(0.3, 1.2, AtmoHash(cell * 2.3 + k * 5.1));
-    float2 off = (ax * cos(ang) * stretch + ay * sin(ang)) * spread * PUFF_R_MAX * 0.8 * size;
-    r = lerp(PUFF_R_MIN, PUFF_R_MAX, k == 0 ? 1.0 : AtmoHash(cell * 1.7 + k * 9.7)) * size * (k == 0 ? 1.0 : 0.85);
-    float lift = (AtmoHash(cell + 6.1) - 0.5) * 360.0;
     // ONE flat base for the whole cloud: cut per puff, every puff left a
     // shelf at its own height inside the cloud.
     baseY = PUFF_BASE + lift;
-    c = float3(ctr.x + off.x, PUFF_BASE + lift + r * PUFF_SQUASH * (k == 0 ? 0.5 : lerp(0.05, 0.4, AtmoHash(cell + k * 3.3))), ctr.y + off.y);
+    if (tower)
+    {
+        // Tiers: the higher the puff, the nearer the axis and the smaller.
+        float tier = k == 0 ? 0.0 : (k + AtmoHash(cell * 1.3 + k * 2.9) * 0.8) / count;
+        float spread = k == 0 ? 0.0 : lerp(0.25, 0.75, AtmoHash(cell * 2.3 + k * 5.1)) * (1.0 - tier * 0.6);
+        float2 off = (ax * cos(ang) + ay * sin(ang)) * spread * PUFF_R_MAX * 0.8 * size;
+        r = PUFF_R_MAX * size * lerp(1.0, 0.55, tier) * (k == 0 ? 1.0 : lerp(0.8, 1.0, AtmoHash(cell * 1.7 + k * 9.7)));
+        squash = 0.9;
+        c = float3(ctr.x + off.x, baseY + r * squash * 0.5 + tier * 1250.0, ctr.y + off.y);
+        return true;
+    }
+    float spread = k == 0 ? 0.0 : lerp(0.3, 1.2, AtmoHash(cell * 2.3 + k * 5.1));
+    float2 off = (ax * cos(ang) * stretch + ay * sin(ang)) * spread * PUFF_R_MAX * 0.8 * size;
+    r = lerp(PUFF_R_MIN, PUFF_R_MAX, k == 0 ? 1.0 : AtmoHash(cell * 1.7 + k * 9.7)) * size * (k == 0 ? 1.0 : 0.85);
+    c = float3(ctr.x + off.x, baseY + r * squash * (k == 0 ? 0.5 : lerp(0.05, 0.4, AtmoHash(cell + k * 3.3))), ctr.y + off.y);
     return true;
 }
 
@@ -227,11 +297,11 @@ float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night
 {
     float3 cam = float3(_WorldSpaceCameraPos.x, 2.0, _WorldSpaceCameraPos.z);
     float2 wind = _PSXCloudWind.xy * _Time.y * 4000.0;      // metres drifted
-    float tMid = (PUFF_BASE + 400.0 - cam.y) / max(dir.y, 0.02);
+    // Cells picked where the ray is at the clouds' middle height - a little
+    // higher than it was, for the towers.
+    float tMid = (PUFF_BASE + 550.0 - cam.y) / max(dir.y, 0.02);
     float2 cell0 = floor((cam.xz + dir.xz * tMid - wind) / PUFF_CELL);
-    float3 sq = float3(1.0, 1.0 / PUFF_SQUASH, 1.0);          // into round space
-    float3 d = dir * sq;
-    float bestT = 1e20, coverA = 0.0, bestBase = PUFF_BASE;
+    float bestT = 1e20, coverA = 0.0, bestBase = PUFF_BASE, bestTall = PUFF_R_MAX * PUFF_SQUASH;
     float3 bestP = 0.0;
     for (int cy = -1; cy <= 1; cy++)
     for (int cx = -1; cx <= 1; cx++)
@@ -240,8 +310,10 @@ float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night
         if (AtmoHash(cell * 1.37 + 3.1) > _PSXCloudCover * PUFF_OCCUPY) continue;
         for (int k = 0; k < PUFF_COUNT; k++)
         {
-            float3 c; float r; float baseY;
-            if (!AtmoPuff(cell, k, wind, c, r, baseY)) break;
+            float3 c; float r; float baseY; float squash;
+            if (!AtmoPuff(cell, k, wind, c, r, baseY, squash)) break;
+            float3 sq = float3(1.0, 1.0 / squash, 1.0);          // into round space
+            float3 d = dir * sq;
             float3 oc = (cam - c) * sq;
             float qa = dot(d, d), qb = dot(oc, d), qc = dot(oc, oc) - r * r;
             float disc = qb * qb - qa * qc;
@@ -268,7 +340,7 @@ float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night
             // behind show through it - translucent shells stacked in a jar.
             coverA = max(coverA, a);
             if (t >= bestT) continue;
-            bestT = t; bestP = p; bestBase = baseY;
+            bestT = t; bestP = p; bestBase = baseY; bestTall = max(c.y + r * squash - baseY, 1.0);
         }
     }
     if (coverA <= 0.0 || bestT >= 1e19) return float4(0, 0, 0, 0);
@@ -284,9 +356,9 @@ float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night
         if (AtmoHash(cell * 1.37 + 3.1) > _PSXCloudCover * PUFF_OCCUPY) continue;
         for (int k = 0; k < PUFF_COUNT; k++)
         {
-            float3 c; float r; float baseY;
-            if (!AtmoPuff(cell, k, wind, c, r, baseY)) break;
-            float3 e = (bestP - c) * sq;
+            float3 c; float r; float baseY; float squash;
+            if (!AtmoPuff(cell, k, wind, c, r, baseY, squash)) break;
+            float3 e = (bestP - c) * float3(1.0, 1.0 / squash, 1.0);
             float dist = length(e);
             float w = saturate(1.35 - dist / r);
             n += (e / max(dist, 1.0)) * w * w;
@@ -294,12 +366,18 @@ float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night
     }
     n = normalize(n + float3(0, 0.05, 0));
     if (bestP.y <= bestBase + 0.5) n = normalize(n * 0.3 + float3(0, -1, 0));
+    // Above the base nothing faces the ground: a tower's upper puffs stand out
+    // sideways past the ones under them, and their bellies read as grey lenses
+    // stuck to its flank. Only the real base is a dark underside.
+    else n = normalize(float3(n.x, max(n.y, -0.12), n.z));
     // Cauliflower: a little noise in the normal.
     float3 np = bestP * 0.004;
     float3 bump = float3(AtmoNoise(np.xz + 3.0), AtmoNoise(np.zx + 7.0), AtmoNoise(np.xy + 11.0)) - 0.5;
     n = normalize(n + bump * 0.35);
 
-    float h = saturate((bestP.y - bestBase) / (PUFF_R_MAX * PUFF_SQUASH * 1.3));
+    // How far up ITS OWN cloud the hit is: measured against the biggest puff
+    // there could be, a 70 m fair-weather cumulus was all belly - tan and dull.
+    float h = saturate((bestP.y - bestBase) / bestTall);
     float sunUp = saturate(sunDir.y * 4.0 + 0.3);
     float wrap = saturate(dot(n, sunDir) * 0.38 + 0.62);       // soft, wrapped light: cotton, not plastic
     float under = lerp(0.6, 1.0, h);                           // grey bellies, bright crowns
@@ -348,6 +426,28 @@ float3 PSXDynamicSky(float3 dir)
     // dome - white where it faces the sun, soft grey underneath and in the
     // shade of its neighbours - with a fuzzy rim that goes silver toward the
     // sun. The fair-weather cumulus of the owner's photograph.
+    // CIRRUS: thin streaks far above the cumulus, in patches - some days
+    // a sky full, most of it none. Drawn first; the heaps go in front. Lit by
+    // the sun through the air, so at a low sun they burn orange-pink.
+    if (dir.y > 0.01 && _PSXCloudCover > 0.01)
+    {
+        float tc = (CIRRUS_ALT - 2.0) / max(dir.y, 0.03);
+        float2 q = (_WorldSpaceCameraPos.xz + dir.xz * tc) * CIRRUS_SCALE + _PSXCloudWind.xy * _Time.y * 1.6;
+        float2 cax = float2(0.92, 0.39);
+        float2 qs = float2(dot(q, cax) * 0.28, dot(q, float2(-cax.y, cax.x)) * 1.7);   // long along, fine across
+        float patchy = saturate((AtmoNoise(q * 0.21 + 5.0) - 0.42) * 3.2);
+        if (patchy > 0.0)
+        {
+            float cir = saturate((AtmoFbm(qs) - 0.5) * 2.8) * patchy * CIRRUS_MAX;
+            if (cir > 0.005)
+            {
+                float3 cirCol = sunCol * 1.25 * saturate(sunDir.y * 4.0 + 0.6) +
+                                AtmoScatter(float3(0, 1, 0), sunDir) * 0.8 + NIGHT_FLOOR * night;
+                col = lerp(col, cirCol, cir * saturate((dir.y - 0.02) * 6.0));
+            }
+        }
+    }
+
     if (dir.y > 0.005 && _PSXCloudCover > 0.01)
     {
         float4 cl = AtmoPuffs(dir, sunDir, sunCol, mu, night);

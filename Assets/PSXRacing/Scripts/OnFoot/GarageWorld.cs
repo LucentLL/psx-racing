@@ -255,7 +255,7 @@ namespace PSXRacing.OnFoot
                 // nothing anywhere claiming they were the same colour. One
                 // answer now, and it is the one the body shop can change.
                 int skin = Paint.SkinFor(car, spec, def);
-                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint);
+                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec != null ? spec.widthMm : 0);
 
                 BuildRaiseRig(st, def);
                 // Straight to wherever the save says it was left. A car the
@@ -329,8 +329,8 @@ namespace PSXRacing.OnFoot
         /// SOLIDITY is the one thing the garage cares about specially: the box
         /// is inside the shell, so a car on the lift takes it up and the player
         /// can walk underneath, which is the whole point of the lift.</summary>
-        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint) =>
-            CarShell.Spawn(bay, def, skin, out roofPoint);
+        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, int widthMm = 0) =>
+            CarShell.Spawn(bay, def, skin, out roofPoint, widthMm: widthMm);
 
         // ------------------------------------------------------------------
         //  getting the car in the air

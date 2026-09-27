@@ -107,6 +107,8 @@ namespace PSXRacing.LifeSim
             }
         }
 
+        int shownWidth;
+
         string shownKey;
         int shownSkin = -1;
         /// <summary>Front three-quarter to start: the angle every showroom
@@ -274,7 +276,7 @@ namespace PSXRacing.LifeSim
             // Paint's answer, which is CarBody's answer, so the car on the
             // turntable is the car on the grid rather than a different colour
             // of it.
-            Show(def, Paint.FactorySkin(spec, def));
+            Show(def, Paint.FactorySkin(spec, def), spec.widthMm);
         }
 
         /// <summary>
@@ -290,14 +292,19 @@ namespace PSXRacing.LifeSim
         {
             var def = Paint.DefFor(spec);
             if (def == null) return;
-            Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def));
+            Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), spec != null ? spec.widthMm : 0);
         }
 
-        public void Show(CarModelDef def, int skin)
+        /// <param name="widthMm">The real car's width (CarSpec.widthMm), 0 for
+        /// the model's reference car: the turntable shows the car as wide as it
+        /// races (CarModelLibrary.WidthScale).</param>
+        public void Show(CarModelDef def, int skin, int widthMm = 0)
         {
             if (def == null) return;
             EnsureRig();
-            if (def.key == shownKey && skin == shownSkin) return;
+            if (def.key == shownKey && skin == shownSkin && widthMm == shownWidth) return;
+            shownWidth = widthMm;
+            float sx = CarModelLibrary.WidthScale(def, widthMm);
             shownKey = def.key;
             shownSkin = skin;
             Shown = def;
@@ -318,13 +325,14 @@ namespace PSXRacing.LifeSim
             bodyRenderer.sharedMaterial = mat;
             bodyRoot.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset - centre);
             bodyRoot.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
+            bodyRoot.localScale = CarBody.AcrossScale(def.bodyYaw, sx);
 
             for (int i = 0; i < 4; i++)
             {
                 bool left = i % 2 == 0;
                 var t = wheelFilters[i].transform;
                 t.localPosition = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth,
+                    (left ? -0.5f : 0.5f) * def.trackWidth * sx,
                     def.wheelRadius,
                     (i < 2 ? 0.5f : -0.5f) * def.wheelbase - centre);
                 t.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
@@ -335,7 +343,7 @@ namespace PSXRacing.LifeSim
             }
 
             if (shadow != null)
-                shadow.localScale = new Vector3(def.blobSize.x * 1.5f, def.blobSize.y * 1.5f, 1f);
+                shadow.localScale = new Vector3(def.blobSize.x * sx * 1.5f, def.blobSize.y * 1.5f, 1f);
 
             // Frame the car it IS, not the car the framing was picked on. A
             // Daytona is a metre longer than an FD and a supermini a metre

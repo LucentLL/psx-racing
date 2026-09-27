@@ -78,6 +78,7 @@ Shader "PSX/Sky"
             // air is thinner up there, and the photograph has its own sun.
             float4 _PSXLightDir;
             float4 _PSXFogSun;
+            float4 _PSXFogColor;
             #define SKY_SUN_GLOW 0.45
             // The horizon ring (PSXFogRing.cginc): the band below is the fog's
             // colour, so it takes the fog's ratio by bearing - through this
@@ -234,7 +235,13 @@ Shader "PSX/Sky"
                     col += sunHaze * (SKY_SUN_GLOW * saturate(y * 4.0 + 0.2));
                 }
                 float hz = saturate(1.0 - abs(y) / _HorizonFade);
-                col = lerp(col, _HorizonColor.rgb * PSXFogRing(dir, _Rotation) + sunHaze, hz * hz);
+                // The dynamic sky's band is the FOG's colour by bearing, which
+                // DynamicSky.Ring sets from the scattering itself (orange toward
+                // a low sun, blue-violet opposite): the same paint the land
+                // fades into, in every direction. The photograph keeps its
+                // hour's horizon stop, which its own ring was measured against.
+                float3 bandCol = _Dynamic > 0.5 ? _PSXFogColor.rgb : _HorizonColor.rgb;
+                col = lerp(col, bandCol * PSXFogRing(dir, _Rotation) + sunHaze, hz * hz);
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.

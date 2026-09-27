@@ -19,6 +19,10 @@ namespace PSXRacing
     {
         public string id, name, drv, color, origin;
         public int price, hp, kg, gears, modelYear, redline, idleRPM, peakTorqueNm;
+        /// <summary>The real car's width and front/rear track, mm, from GT4
+        /// (tools/bake_dims.py). The shell is scaled across to the width
+        /// (CarBody); 0 means "use the shell's own reference car".</summary>
+        public int widthMm, trackFMm, trackRMm;
         public bool defaultManual;
         public float topSpeedMps;
         public string tcRPMs, tcNorm, gearSpeeds;

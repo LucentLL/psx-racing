@@ -39,6 +39,21 @@ namespace PSXRacing
         [Header("State")]
         public string modelKey = CarModelLibrary.Default;
         public int skinIndex;
+        /// <summary>The real width this car is scaled across to, mm
+        /// (CarSpec.widthMm); 0 = the model's reference car. Kept, so a
+        /// respray (Apply with the same shell) keeps the car's width.</summary>
+        public int widthMm;
+        /// <summary>The across-scale last applied (CarModelLibrary.WidthScale).</summary>
+        public float WidthScale { get; private set; } = 1f;
+
+        /// <summary>A body transform's local scale that makes the car
+        /// <paramref name="sx"/> times as wide - across the CAR, whichever of
+        /// the body's own axes that is after its yaw.</summary>
+        public static Vector3 AcrossScale(float bodyYaw, float sx)
+        {
+            float s = Mathf.Abs(Mathf.Sin(bodyYaw * Mathf.Deg2Rad));
+            return s > 0.7f ? new Vector3(1f, 1f, sx) : new Vector3(sx, 1f, 1f);
+        }
 
         CarModelDef cachedDef;
         /// <summary>
@@ -75,16 +90,25 @@ namespace PSXRacing
             // Salt the livery with the id so two identical opponents are not
             // guaranteed to be the same colour when the catalog colour is
             // missing or when several liveries tie.
+            widthMm = spec.widthMm;
             Apply(def, def.SkinFor(spec.color, Mathf.Abs(spec.id != null ? spec.id.GetHashCode() : 0) % 97));
         }
 
-        public void ApplyKey(string key, int skin) => Apply(CarModelLibrary.Load(key), skin);
+        public void ApplyKey(string key, int skin)
+        {
+            widthMm = 0;
+            Apply(CarModelLibrary.Load(key), skin);
+        }
 
         public void Apply(CarModelDef def, int skin)
         {
             if (def == null) return;
             modelKey = def.key;
             cachedDef = def;
+            // With the chassis left alone (applyGeometry off) the wheels stay on
+            // the model's track, so the body keeps its width too.
+            float sx = applyGeometry ? CarModelLibrary.WidthScale(def, widthMm) : 1f;
+            WidthScale = sx;
 
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)]
@@ -101,6 +125,9 @@ namespace PSXRacing
                 // leaving this at zero is what put a GTO's wheels a quarter of a
                 // metre behind its arches.
                 bodyRoot.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset);
+                // As wide as the real car (the lamps hang off this root and
+                // move with it).
+                bodyRoot.localScale = AcrossScale(def.bodyYaw, sx);
             }
 
             // Wheels ride on the body's livery: the pack draws them on a neutral
@@ -118,7 +145,7 @@ namespace PSXRacing
 
             if (blobShadow != null)
             {
-                blobShadow.localScale = new Vector3(def.blobSize.x, def.blobSize.y, 1f);
+                blobShadow.localScale = new Vector3(def.blobSize.x * sx, def.blobSize.y, 1f);
                 // Under the BODY, which is no longer over the rig's origin.
                 var bs = blobShadow.localPosition;
                 blobShadow.localPosition = new Vector3(0f, bs.y, def.bodyZOffset);
@@ -129,10 +156,11 @@ namespace PSXRacing
             if (box != null)
             {
                 box.center = def.colliderCenter;
-                box.size = def.colliderSize;
+                box.size = new Vector3(def.colliderSize.x * sx, def.colliderSize.y, def.colliderSize.z);
             }
             car.wheelbase = def.wheelbase;
-            car.trackWidth = def.trackWidth;
+            // The wheels stay in the arches of the narrowed body.
+            car.trackWidth = def.trackWidth * sx;
             car.wheelRadius = def.wheelRadius;
             car.RebuildGeometry();
         }

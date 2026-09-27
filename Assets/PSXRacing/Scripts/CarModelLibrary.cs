@@ -46,6 +46,10 @@ namespace PSXRacing
             /// specific car; letting the scorer hand them to every car of the
             /// same body and era is a separate decision.</summary>
             public bool handOnly;
+            /// <summary>The reference car's real width, mm, mirrors excluded -
+            /// what a car with no catalog row (traffic, the starter FD, a
+            /// parked car) is scaled across to. See WidthScale.</summary>
+            public int widthMm;
         }
 
         /// <summary>
@@ -58,38 +62,38 @@ namespace PSXRacing
         /// </summary>
         public static readonly Model[] Models =
         {
-            new Model { key = "rx7_fd",       name = "Mazda RX-7 (FD)",           region = Region.Japan,   year = 1992, body = Body.Sports,   kg = 1280 },
-            new Model { key = "supra_a80",    name = "Toyota Supra (A80)",        region = Region.Japan,   year = 1993, body = Body.GT,       kg = 1510 },
-            new Model { key = "skyline_r32",  name = "Nissan Skyline GT-R (R32)", region = Region.Japan,   year = 1989, body = Body.Sports,   kg = 1480 },
-            new Model { key = "jdm_pickup",   name = "Compact pickup",            region = Region.Japan,   year = 1983, body = Body.Pickup,   kg = 1100 },
+            new Model { key = "rx7_fd",       name = "Mazda RX-7 (FD)",           region = Region.Japan,   year = 1992, body = Body.Sports,   kg = 1280, widthMm = 1760 },
+            new Model { key = "supra_a80",    name = "Toyota Supra (A80)",        region = Region.Japan,   year = 1993, body = Body.GT,       kg = 1510, widthMm = 1810 },
+            new Model { key = "skyline_r32",  name = "Nissan Skyline GT-R (R32)", region = Region.Japan,   year = 1989, body = Body.Sports,   kg = 1480, widthMm = 1755 },
+            new Model { key = "jdm_pickup",   name = "Compact pickup",            region = Region.Japan,   year = 1983, body = Body.Pickup,   kg = 1100, widthMm = 1650 },
             // The owner's own model (2026-09-25), sized to GT4's SiR-II sheet.
-            new Model { key = "civic_eg",     name = "Honda Civic (EG)",          region = Region.Japan,   year = 1991, body = Body.Hatch,    kg = 1076, handOnly = true },
-            new Model { key = "nissan_180sx", name = "Nissan 180SX / 240SX (S13)", region = Region.Japan,  year = 1989, body = Body.Sports,   kg = 1262, handOnly = true },
-            new Model { key = "viper_gts",    name = "Dodge Viper GTS",           region = Region.America, year = 1996, body = Body.Sports,   kg = 1532, handOnly = true },
+            new Model { key = "civic_eg",     name = "Honda Civic (EG)",          region = Region.Japan,   year = 1991, body = Body.Hatch,    kg = 1076, handOnly = true, widthMm = 1695 },
+            new Model { key = "nissan_180sx", name = "Nissan 180SX / 240SX (S13)", region = Region.Japan,  year = 1989, body = Body.Sports,   kg = 1262, handOnly = true, widthMm = 1690 },
+            new Model { key = "viper_gts",    name = "Dodge Viper GTS",           region = Region.America, year = 1996, body = Body.Sports,   kg = 1532, handOnly = true, widthMm = 1923 },
             // The owner's FlatSix Coupe (2026-09-26): the 911 shape, for every
             // RUF (all three are 911s underneath) and any Porsche 911.
-            new Model { key = "flatsix_coupe", name = "Flat-six coupe (911)",     region = Region.Europe,  year = 1987, body = Body.Sports,   kg = 1272, handOnly = true },
+            new Model { key = "flatsix_coupe", name = "Flat-six coupe (911)",     region = Region.Europe,  year = 1987, body = Body.Sports,   kg = 1272, handOnly = true, widthMm = 1652 },
 
-            new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650 },
-            new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400 },
-            new Model { key = "charger_69",   name = "Dodge Charger '69",         region = Region.America, year = 1969, body = Body.Muscle,   kg = 1700 },
-            new Model { key = "daytona_69",   name = "Charger Daytona '69",       region = Region.America, year = 1969, body = Body.Muscle,   kg = 1750 },
+            new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650, widthMm = 1880 },
+            new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400, widthMm = 1811 },
+            new Model { key = "charger_69",   name = "Dodge Charger '69",         region = Region.America, year = 1969, body = Body.Muscle,   kg = 1700, widthMm = 1951 },
+            new Model { key = "daytona_69",   name = "Charger Daytona '69",       region = Region.America, year = 1969, body = Body.Muscle,   kg = 1750, widthMm = 1951 },
 
-            new Model { key = "bmw_e30",      name = "BMW 3-Series (E30)",        region = Region.Europe,  year = 1985, body = Body.Saloon,   kg = 1150 },
-            new Model { key = "audi_saloon",  name = "Audi 80/100",               region = Region.Europe,  year = 1986, body = Body.Saloon,   kg = 1220 },
-            new Model { key = "euro_hatch",   name = "European supermini",        region = Region.Europe,  year = 1983, body = Body.Hatch,    kg =  850 },
-            new Model { key = "volvo_estate", name = "Volvo 240 Estate",          region = Region.Europe,  year = 1985, body = Body.Estate,   kg = 1350 },
-            new Model { key = "citroen_cx",   name = "Citroen CX",                region = Region.Europe,  year = 1980, body = Body.Saloon,   kg = 1320 },
-            new Model { key = "mb_pagoda",    name = "Mercedes-Benz SL 'Pagoda'", region = Region.Europe,  year = 1965, body = Body.Roadster, kg = 1350 },
-            new Model { key = "landrover",    name = "Land Rover pickup",         region = Region.Europe,  year = 1985, body = Body.Offroad,  kg = 1900 },
-            new Model { key = "classic_van",  name = "Classic panel van",         region = Region.Europe,  year = 1960, body = Body.Van,      kg = 1400 },
+            new Model { key = "bmw_e30",      name = "BMW 3-Series (E30)",        region = Region.Europe,  year = 1985, body = Body.Saloon,   kg = 1150, widthMm = 1645 },
+            new Model { key = "audi_saloon",  name = "Audi 80/100",               region = Region.Europe,  year = 1986, body = Body.Saloon,   kg = 1220, widthMm = 1700 },
+            new Model { key = "euro_hatch",   name = "European supermini",        region = Region.Europe,  year = 1983, body = Body.Hatch,    kg =  850, widthMm = 1572 },
+            new Model { key = "volvo_estate", name = "Volvo 240 Estate",          region = Region.Europe,  year = 1985, body = Body.Estate,   kg = 1350, widthMm = 1715 },
+            new Model { key = "citroen_cx",   name = "Citroen CX",                region = Region.Europe,  year = 1980, body = Body.Saloon,   kg = 1320, widthMm = 1730 },
+            new Model { key = "mb_pagoda",    name = "Mercedes-Benz SL 'Pagoda'", region = Region.Europe,  year = 1965, body = Body.Roadster, kg = 1350, widthMm = 1760 },
+            new Model { key = "landrover",    name = "Land Rover pickup",         region = Region.Europe,  year = 1985, body = Body.Offroad,  kg = 1900, widthMm = 1790 },
+            new Model { key = "classic_van",  name = "Classic panel van",         region = Region.Europe,  year = 1960, body = Body.Van,      kg = 1400, widthMm = 1750 },
 
             // Ripped PS1-era cars (GT1/GT2 via the owner's Cars folder), added
             // 2026-09-25 as parked TRAFFIC on the race tracks. Hand-only so the
             // scorer never hands a catalog car a police-spec Crown Vic.
-            new Model { key = "crown_victoria", name = "Ford Crown Victoria", region = Region.America, year = 1998, body = Body.Saloon, kg = 1790, handOnly = true },
-            new Model { key = "camry_2001",     name = "Toyota Camry (XV20)", region = Region.Japan,   year = 1997, body = Body.Saloon, kg = 1400, handOnly = true },
-            new Model { key = "ford_transit",   name = "Ford Transit (Mk5)",  region = Region.Europe,  year = 1994, body = Body.Van,    kg = 1900, handOnly = true },
+            new Model { key = "crown_victoria", name = "Ford Crown Victoria", region = Region.America, year = 1998, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
+            new Model { key = "camry_2001",     name = "Toyota Camry (XV20)", region = Region.Japan,   year = 1997, body = Body.Saloon, kg = 1400, handOnly = true, widthMm = 1785 },
+            new Model { key = "ford_transit",   name = "Ford Transit (Mk5)",  region = Region.Europe,  year = 1994, body = Body.Van,    kg = 1900, handOnly = true, widthMm = 1938 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -104,6 +108,63 @@ namespace PSXRacing
         }
 
         public const string Default = "rx7_fd";
+
+        // ------------------------------------------------------------------
+        //  Real width
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// "I want all cars to be realistic width" (owner, 2026-09-27). The
+        /// pack drew its shells chunky - most stand 10-18% wider than the car
+        /// they are of - and one shell dresses many cars. So a car's shell is
+        /// scaled ACROSS to the real width: its own catalog row's (GT4's `wid`,
+        /// CarSpec.widthMm) or, with no row, its model's reference car
+        /// (Model.widthMm). Clamped: a stretch past these reads as a different
+        /// car, not a narrower one.
+        /// </summary>
+        public static float WidthScale(CarModelDef def, int widthMm)
+        {
+            if (def == null) return 1f;
+            if (widthMm <= 0) { var m = Get(def.key); widthMm = m != null ? m.widthMm : 0; }
+            float body = BodyWidth(def);
+            if (widthMm <= 0 || body < 0.5f) return 1f;
+            return Mathf.Clamp(widthMm / 1000f / body, 0.7f, 1.2f);
+        }
+
+        /// <summary>
+        /// A shell's body width in the car's frame, the way a spec sheet gives
+        /// it: across the LOWER body (bumpers, arches, sills - the bottom 55% of
+        /// its height), so mirrors at the window line are not counted. Cached
+        /// per mesh; the bounds when the mesh cannot be read.
+        /// </summary>
+        public static float BodyWidth(CarModelDef def)
+        {
+            if (def == null || def.bodyMesh == null) return 0f;
+            if (bodyWidths.TryGetValue(def.bodyMesh, out float w)) return w;
+            var rot = Quaternion.Euler(0f, def.bodyYaw, 0f);
+            var v = def.bodyMesh.isReadable ? def.bodyMesh.vertices : null;
+            if (v == null || v.Length == 0)
+            {
+                var e = def.bodyMesh.bounds.extents;
+                w = 2f * (Mathf.Abs((rot * new Vector3(e.x, 0f, 0f)).x) + Mathf.Abs((rot * new Vector3(0f, 0f, e.z)).x));
+            }
+            else
+            {
+                float minY = float.MaxValue, maxY = float.MinValue;
+                foreach (var p in v) { minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y); }
+                float cut = minY + (maxY - minY) * 0.55f;
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var p in v)
+                {
+                    if (p.y > cut) continue;
+                    float x = (rot * p).x;
+                    lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x);
+                }
+                w = hi > lo ? hi - lo : def.bodyMesh.bounds.size.x;
+            }
+            bodyWidths[def.bodyMesh] = w;
+            return w;
+        }
+        static readonly Dictionary<Mesh, float> bodyWidths = new Dictionary<Mesh, float>();
 
         // ------------------------------------------------------------------
         //  Pass 1: hand-mapped
