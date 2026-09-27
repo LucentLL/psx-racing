@@ -200,6 +200,7 @@ namespace PSXRacing
                     State = RaceState.Racing;
                     foreach (var car in allCars) SetCarInputEnabled(car, true);
                     foreach (var p in progressMap.Values) p.lapStartTime = Time.time;
+                    PlanIncident();
                 }
                 return;
             }
@@ -497,6 +498,47 @@ namespace PSXRacing
         /// <summary>How many rivals are out this race, and the latest - for
         /// the HUD's notice.</summary>
         public int RetiredCount { get; private set; }
+
+        /// <summary>
+        /// THE RACE'S INCIDENT (owner, 2026-09-27): "Maybe 50% of races a racer
+        /// gets damaged to the point of exiting ... more tension if it happens
+        /// later." Rolled once at the green: in IncidentChance of races one
+        /// rival is handed a driver error (AIDriver.PlanMistake) at a point
+        /// between 20% and 88% of the distance, drawn toward the end (the square
+        /// root of a uniform draw). Whether it ends the car's race is the
+        /// physics': a mistake into open run-off only costs it time.
+        /// </summary>
+        void PlanIncident()
+        {
+            var rivals = new List<AIDriver>();
+            foreach (var c in allCars)
+            {
+                if (c == null || c == playerCar) continue;
+                var ai = c.GetComponent<AIDriver>();
+                if (ai != null) rivals.Add(ai);
+            }
+            if (rivals.Count == 0 || UnityEngine.Random.value >= IncidentChance) return;
+            var who = rivals[UnityEngine.Random.Range(0, rivals.Count)];
+            float at = Mathf.Lerp(0.2f, 0.88f, Mathf.Sqrt(UnityEngine.Random.value));
+            who.PlanMistake(at);
+            Debug.Log($"[Race] {who.name} will make a mistake {at * 100f:0}% of the way in");
+        }
+        // 0.65, not the owner's 0.5: about a third of planned mistakes are saved
+        // (a car that runs wide onto open run-off and rejoins), so this lands
+        // near half of races with a rival out.
+        public const float IncidentChance = 0.65f;
+
+        /// <summary>How far through its race a car is, 0 to 1: a stage's or a
+        /// sprint's distance to the finish, a circuit's laps.</summary>
+        public float RaceFraction(CarController car)
+        {
+            var p = GetProgress(car);
+            if (p == null || path == null) return 0f;
+            float total = path.HasEnds ? (path.finishIndex > 0 ? path.finishIndex : path.Count) * path.spacing
+                        : Sprint ? sprintFinishIndex * path.spacing
+                        : totalLaps * path.TotalLength;
+            return total > 1f ? Mathf.Clamp01(p.progress / total) : 0f;
+        }
         public CarController LastRetired { get; private set; }
 
         public CarProgress GetProgress(CarController car) =>

@@ -45,6 +45,9 @@ namespace PSXRacing
         /// <summary>Accumulated hit energy for the LifeSim's damage apply-back.
         /// Written here, consumed by RaceManager when it stamps RaceHandoff.</summary>
         public float DamageScore { get; private set; }
+        /// <summary>Every counted hit (car, closing speed, hard?, what it hit):
+        /// for the race harnesses that ask what the field is crashing into.</summary>
+        public static event System.Action<CollisionResponder, float, bool, string> HitReported;
 
         /// <summary>Count of DISCRETE heavy impacts, as opposed to the continuous
         /// <see cref="DamageScore"/>. The insurance record wants incidents, not
@@ -134,6 +137,7 @@ namespace PSXRacing
             if (normalSpeed < minImpactSpeed) return;
 
             bool hard = incidence >= GlancingIncidence;
+            HitReported?.Invoke(this, normalSpeed, hard, c.collider != null ? c.collider.name : "?");
             DamageScore += normalSpeed * (hard ? 1.6f : 0.4f);
             if (hard && normalSpeed > WorstHit) { WorstHit = normalSpeed; WorstHitWhat = c.collider != null ? c.collider.name : "?"; }
             lastContactTime = Time.time;

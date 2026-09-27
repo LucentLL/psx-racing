@@ -1,0 +1,29 @@
+# A whole field racing on autopilot: every hard hit and every retirement,
+# logged (RacePlayCheck). Copies Scripts + Editor into the sandbox (no mirror,
+# no scene build: the scenes must already be built there).
+#
+#   powershell -ExecutionPolicy Bypass -File tools\race-play-check.ps1 -Venue GillespieGap -Seconds 150 -Seed 0
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "")
+$ErrorActionPreference = "Stop"
+$proj = "C:\Users\mcgee\PSXBuild"
+$src  = Split-Path -Parent $PSScriptRoot
+. "$PSScriptRoot\unity-wait.ps1"
+
+foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
+    robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+}
+Remove-Item "$proj\PSXRacing_race_play_check.txt" -ErrorAction SilentlyContinue
+$env:PSX_RACE_VENUE = $Venue
+$env:PSX_RACE_SECONDS = "$Seconds"
+$env:PSX_RACE_SEED = "$Seed"
+$env:PSX_RACE_HOUR = $Hour
+$env:PSX_RACE_MISTAKE = $Mistake
+Invoke-UnityJob -Log "$proj\raceplay.log" -MaxMinutes 20 -UnityArgs @(
+    "-batchmode","-nographics","-projectPath",$proj,
+    "-executeMethod","PSXRacing.EditorTools.RacePlayCheck.Run",
+    "-logFile","$proj\raceplay.log","-accept-apiupdate") | Out-Null
+Select-String -Path "$proj\raceplay.log" -Pattern "error CS" | Select-Object -First 10 | ForEach-Object { $_.Line }
+if (Test-Path "$proj\PSXRacing_race_play_check.txt") { Get-Content "$proj\PSXRacing_race_play_check.txt"; exit 0 }
+"NO REPORT. Tail of raceplay.log:"
+Get-Content "$proj\raceplay.log" -Tail 30
+exit 1

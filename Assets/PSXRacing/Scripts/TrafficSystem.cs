@@ -86,6 +86,21 @@ namespace PSXRacing
         /// <summary>Lateral lane centres, metres right of the centreline, per
         /// direction: +1 is the race direction, -1 against it.</summary>
         readonly List<float> lanesFwd = new List<float>(), lanesBack = new List<float>();
+        /// <summary>Is there ONCOMING traffic on this road - and so a lane the
+        /// racers must keep out of except to pass (AIDriver)?</summary>
+        public bool TwoWay => lanesBack.Count > 0;
+        /// <summary>The middle of the race direction's lanes, metres right of
+        /// the centreline (0 when there are none).</summary>
+        public float RaceLanesCentre
+        {
+            get
+            {
+                if (lanesFwd.Count == 0) return 0f;
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (float l in lanesFwd) { lo = Mathf.Min(lo, l); hi = Mathf.Max(hi, l); }
+                return (lo + hi) * 0.5f;
+            }
+        }
         readonly List<Car> pool = new List<Car>();
         readonly List<Car> live = new List<Car>();
         int playerHint = -1;
@@ -370,8 +385,12 @@ namespace PSXRacing
             foreach (int dir in Dirs())
                 foreach (float lat in LanesFor(dir))
                 {
-                    // Random gaps from just ahead of the grid to the far edge.
-                    float d = 90f + Gap();
+                    // Random gaps from just ahead of the grid to the far edge -
+                    // ONCOMING cars from further off: the grid stands across both
+                    // lanes, and at 90 m one met a rival still merging into its
+                    // own lane 7.5 s in (NC 226A). At 400 m the field is in single
+                    // file before the first one arrives.
+                    float d = (dir < 0 ? OncomingStartM : 90f) + Gap();
                     while (d < ahead && live.Count < PoolSize)
                     {
                         TrySpawn(Wrap(ps + d), dir, lat);
@@ -379,6 +398,10 @@ namespace PSXRacing
                     }
                 }
         }
+
+        /// <summary>Nearest an ONCOMING car is placed ahead of the grid at the
+        /// green (Populate).</summary>
+        const float OncomingStartM = 400f;
 
         IEnumerable<int> Dirs()
         {
@@ -522,7 +545,9 @@ namespace PSXRacing
                     }
                     break;
                 case Temper.Braker:
-                    if (coming) { v = Mathf.Min(v, c.cruise * 0.4f); decel = Mathf.Max(decel, 7f); }
+                    // A firm brake, not an emergency stop: at 7 m/s^2 it was a
+                    // brake-check a racer closing at 22 m/s ran straight into.
+                    if (coming) { v = Mathf.Min(v, c.cruise * 0.4f); decel = Mathf.Max(decel, 5f); }
                     break;
                 case Temper.Oblivious:
                     latTarget = c.lat + Mathf.Sin(Time.time * 0.35f + c.wanderPhase) * 0.35f;

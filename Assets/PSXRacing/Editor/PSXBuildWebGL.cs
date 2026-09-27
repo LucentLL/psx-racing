@@ -119,6 +119,10 @@ namespace PSXRacing.EditorTools
                 PlayerSettings.SetManagedStrippingLevel(
                     NamedBuildTarget.WebGL, ManagedStrippingLevel.Medium);
 
+                // What the player carries: 16-bit textures, prop models without
+                // tangents, no URP post data, no splash, LTO wasm.
+                ReleaseBudget.Apply();
+
                 Directory.CreateDirectory(outDir);
 
                 var options = new BuildPlayerOptions

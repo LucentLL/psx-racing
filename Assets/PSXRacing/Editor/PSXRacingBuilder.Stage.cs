@@ -4918,23 +4918,30 @@ namespace PSXRacing.EditorTools
             // "BankTopMesh", not "StageBank...": a surface a car can drive on
             // stays out of CompressibleMesh's 16-bit quantisation.
             SaveMesh(top, "BankTopMesh" + no);
-            int off = cVerts.Count;
-            cVerts.AddRange(tVerts);
-            foreach (int ix in tTris) cTris.Add(ix + off);
-            var coll = new Mesh
-            {
-                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
-                vertices = cVerts.ToArray(), triangles = cTris.ToArray(),
-            };
-            SaveMesh(coll, "BankTopColl" + no);
             var topGo = new GameObject("BankTop" + no);
             topGo.transform.SetParent(parent, false);
             topGo.AddComponent<MeshFilter>().sharedMesh = top;
             topGo.AddComponent<MeshRenderer>().sharedMaterial = topMat;
+            // Two colliders on the one object: the drawn top IS the top's
+            // collider, and the face has its own small mesh. They were one
+            // collider mesh holding a second copy of every top vertex - 7 MB of
+            // a shipped build that stood at GitHub's file limit.
             var mc = topGo.AddComponent<MeshCollider>();
-            mc.sharedMesh = coll;
+            mc.sharedMesh = top;
             // The shell's friction off the road, like the ground it continues.
             mc.sharedMaterial = SlidePhys();
+            if (cTris.Count > 0)
+            {
+                var coll = new Mesh
+                {
+                    indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                    vertices = cVerts.ToArray(), triangles = cTris.ToArray(),
+                };
+                SaveMesh(coll, "BankTopColl" + no);
+                var fc = topGo.AddComponent<MeshCollider>();
+                fc.sharedMesh = coll;
+                fc.sharedMaterial = SlidePhys();
+            }
             topGo.isStatic = true;
         }
 
