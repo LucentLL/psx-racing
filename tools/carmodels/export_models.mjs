@@ -87,6 +87,14 @@ const MODELS = [
     tex: `${ownerCars}/Viper_GTS_PSX`, skins: /^viper_atlas_256$/,
     gt4LengthM: 4.488 },
 
+  // The owner's FlatSix Coupe (2026-09-26, "add FlatSixCoupe for all Porsche
+  // 911's and/or RUF or the Yellowbird one"): an unbranded rear-engined coupe
+  // built to Docs/CarModelSpec.md - 2,290 body tris, 92 per wheel, sealed,
+  // one 256 atlas with matte alpha 128. Kept at its delivered, reference-
+  // scaled 4.276 m (a G-body 911 is 4.29 m; the catalog carries no length).
+  { key: 'flatsix_coupe', obj: `${ownerCars}/FlatSix_Coupe_PSX/flat_six_coupe.obj`,
+    tex: `${ownerCars}/FlatSix_Coupe_PSX`, skins: /^coupe_atlas_256$/ },
+
   // Ripped PS1-era cars from the owner's Cars folder (2026-09-25: "add these
   // vehicles as traffic"), converted by convert_rip.py - aligned, sized to
   // the real car, wheels split out, every source page baked onto one 512

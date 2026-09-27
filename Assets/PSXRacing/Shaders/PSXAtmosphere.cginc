@@ -180,6 +180,135 @@ float AtmoCloudThickness(float2 xz)
     return saturate(t * 1.45);
 }
 
+// ---- cumulus puffs --------------------------------------------------------
+#define PUFF_CELL       2800.0    // one cloud slot per cell of this size (m)
+#define PUFF_BASE       1500.0    // the flat base every cloud sits on
+#define PUFF_COUNT      7         // puffs in a cloud
+#define PUFF_R_MIN      240.0
+#define PUFF_R_MAX      560.0
+#define PUFF_SQUASH     0.68      // a puff is this tall for its width: heaped, not a ball
+#define PUFF_SOFT       0.62      // how far in from the rim the edge is soft (share of r)
+#define PUFF_OCCUPY     0.72      // share of _PSXCloudCover that becomes cloud cells
+
+/// Puff k of the cloud in a cell: its centre and radius, or false past the
+/// cloud's own puff count. NOTHING REGULAR (owner: "a bit too defined,
+/// symmetrical, and repetitive"): each cloud has its own count (3-7), size
+/// (0.5-1.6), height (+/- 180 m), place anywhere in its cell, and a stretch
+/// along its own random heading; its puffs fall at random angles and
+/// distances about the biggest, not round it in a rosette.
+bool AtmoPuff(float2 cell, int k, float2 wind, out float3 c, out float r, out float baseY)
+{
+    c = 0.0; r = 1.0; baseY = PUFF_BASE;
+    int count = 3 + (int)(AtmoHash(cell + 12.3) * 4.99);
+    if (k >= count) return false;
+    float2 ctr = (cell + 0.1 + 0.8 * float2(AtmoHash(cell + 7.7), AtmoHash(cell + 1.9))) * PUFF_CELL + wind;
+    float size = lerp(0.5, 1.6, AtmoHash(cell + 4.4) * AtmoHash(cell + 8.8) + 0.25);
+    float head = AtmoHash(cell + 2.6) * 6.2831853;
+    float stretch = lerp(1.0, 2.2, AtmoHash(cell + 5.5));
+    float2 ax = float2(cos(head), sin(head)), ay = float2(-ax.y, ax.x);
+    float ang = AtmoHash(cell * 3.1 + k * 17.3) * 6.2831853;
+    float spread = k == 0 ? 0.0 : lerp(0.3, 1.2, AtmoHash(cell * 2.3 + k * 5.1));
+    float2 off = (ax * cos(ang) * stretch + ay * sin(ang)) * spread * PUFF_R_MAX * 0.8 * size;
+    r = lerp(PUFF_R_MIN, PUFF_R_MAX, k == 0 ? 1.0 : AtmoHash(cell * 1.7 + k * 9.7)) * size * (k == 0 ? 1.0 : 0.85);
+    float lift = (AtmoHash(cell + 6.1) - 0.5) * 360.0;
+    // ONE flat base for the whole cloud: cut per puff, every puff left a
+    // shelf at its own height inside the cloud.
+    baseY = PUFF_BASE + lift;
+    c = float3(ctr.x + off.x, PUFF_BASE + lift + r * PUFF_SQUASH * (k == 0 ? 0.5 : lerp(0.05, 0.4, AtmoHash(cell + k * 3.3))), ctr.y + off.y);
+    return true;
+}
+
+/// Front-most soft puff along the view ray, among the clouds in the 3x3 cells
+/// around where the ray crosses the layer; rgb lit colour, a coverage. Puffs
+/// are squashed spheres with their bottoms cut flat at PUFF_BASE; the light
+/// takes a normal BLENDED over every puff near the hit (a metaball's), so
+/// where two puffs meet there is a soft valley and no crease.
+float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night)
+{
+    float3 cam = float3(_WorldSpaceCameraPos.x, 2.0, _WorldSpaceCameraPos.z);
+    float2 wind = _PSXCloudWind.xy * _Time.y * 4000.0;      // metres drifted
+    float tMid = (PUFF_BASE + 400.0 - cam.y) / max(dir.y, 0.02);
+    float2 cell0 = floor((cam.xz + dir.xz * tMid - wind) / PUFF_CELL);
+    float3 sq = float3(1.0, 1.0 / PUFF_SQUASH, 1.0);          // into round space
+    float3 d = dir * sq;
+    float bestT = 1e20, coverA = 0.0, bestBase = PUFF_BASE;
+    float3 bestP = 0.0;
+    for (int cy = -1; cy <= 1; cy++)
+    for (int cx = -1; cx <= 1; cx++)
+    {
+        float2 cell = cell0 + float2(cx, cy);
+        if (AtmoHash(cell * 1.37 + 3.1) > _PSXCloudCover * PUFF_OCCUPY) continue;
+        for (int k = 0; k < PUFF_COUNT; k++)
+        {
+            float3 c; float r; float baseY;
+            if (!AtmoPuff(cell, k, wind, c, r, baseY)) break;
+            float3 oc = (cam - c) * sq;
+            float qa = dot(d, d), qb = dot(oc, d), qc = dot(oc, oc) - r * r;
+            float disc = qb * qb - qa * qc;
+            if (disc <= 0.0) continue;
+            float t = (-qb - sqrt(disc)) / qa;
+            if (t <= 0.0) continue;
+            float3 p = cam + dir * t;
+            if (p.y < baseY)
+            {
+                float tb = (baseY - cam.y) / max(dir.y, 1e-4);
+                float3 pb = cam + dir * tb;
+                float3 e = (pb - c) * sq;
+                if (dot(e, e) > r * r) continue;
+                t = tb; p = pb;
+            }
+            // A soft, broken rim: how far inside the silhouette the ray runs,
+            // roughed by a noise so the edge is cotton, not a cut-out.
+            float closest = sqrt(max(dot(oc, oc) - qb * qb / qa, 0.0));
+            float rough = (AtmoNoise(p.xz * 0.006 + p.y * 0.004) * 0.6 + AtmoNoise(p.xz * 0.017) * 0.4 - 0.5) * 0.8;
+            float a = saturate((r - closest) / (r * PUFF_SOFT) + rough);
+            if (a <= 0.02) continue;
+            // COVERAGE IS THE UNION: a cloud is as solid as its most solid
+            // puff here. Taking the front puff's own rim alpha let the puffs
+            // behind show through it - translucent shells stacked in a jar.
+            coverA = max(coverA, a);
+            if (t >= bestT) continue;
+            bestT = t; bestP = p; bestBase = baseY;
+        }
+    }
+    if (coverA <= 0.0 || bestT >= 1e19) return float4(0, 0, 0, 0);
+    float bestA = coverA;
+
+    // The blended normal: every puff near the hit pulls it toward itself,
+    // weighted by how deep in its reach the hit lies.
+    float3 n = 0.0;
+    for (int cy2 = -1; cy2 <= 1; cy2++)
+    for (int cx2 = -1; cx2 <= 1; cx2++)
+    {
+        float2 cell = cell0 + float2(cx2, cy2);
+        if (AtmoHash(cell * 1.37 + 3.1) > _PSXCloudCover * PUFF_OCCUPY) continue;
+        for (int k = 0; k < PUFF_COUNT; k++)
+        {
+            float3 c; float r; float baseY;
+            if (!AtmoPuff(cell, k, wind, c, r, baseY)) break;
+            float3 e = (bestP - c) * sq;
+            float dist = length(e);
+            float w = saturate(1.35 - dist / r);
+            n += (e / max(dist, 1.0)) * w * w;
+        }
+    }
+    n = normalize(n + float3(0, 0.05, 0));
+    if (bestP.y <= bestBase + 0.5) n = normalize(n * 0.3 + float3(0, -1, 0));
+    // Cauliflower: a little noise in the normal.
+    float3 np = bestP * 0.004;
+    float3 bump = float3(AtmoNoise(np.xz + 3.0), AtmoNoise(np.zx + 7.0), AtmoNoise(np.xy + 11.0)) - 0.5;
+    n = normalize(n + bump * 0.35);
+
+    float h = saturate((bestP.y - bestBase) / (PUFF_R_MAX * PUFF_SQUASH * 1.3));
+    float sunUp = saturate(sunDir.y * 4.0 + 0.3);
+    float wrap = saturate(dot(n, sunDir) * 0.38 + 0.62);       // soft, wrapped light: cotton, not plastic
+    float under = lerp(0.6, 1.0, h);                           // grey bellies, bright crowns
+    float silver = pow(saturate(mu), 8.0) * (1.0 - bestA) * 1.6;
+    float3 skyTop = AtmoScatter(float3(0, 1, 0), sunDir) * 1.45 + NIGHT_FLOOR * 2.0 * night;
+    float3 lum = sunCol * (2.0 * wrap * under + silver) * sunUp + skyTop * lerp(0.65, 1.0, h);
+    return float4(lum, bestA);
+}
+
 /// The whole dynamic sky in direction dir (unit, world), before the horizon
 /// band and the stars, which PSX/Sky adds as it does for a photograph.
 /// Returned in the display's range (exposed, rolled off).
@@ -211,48 +340,20 @@ float3 PSXDynamicSky(float3 dir)
         col += float3(0.95, 0.93, 0.85) * step(MOON_DISC_COS, mc) * 2.2 * night;
     }
 
-    // THE CLOUDS, AS A LAYER WITH VOLUME. The march through the slab (the
-    // first answer to "clouds could use more volume") drew each of its ten
-    // steps as its own slice where the ray runs nearly flat toward the
-    // horizon - "stacks of grainy pancakes", in the owner's words - and a
-    // phone paid ~100 noise evaluations a sky pixel for it. Now: where a
-    // cloud stands and how tall is a thickness map; the ray meets it at the
-    // layer's base and once more half way up what stands there (parallax, so
-    // a tall cloud rises over its own base); it is lit from the map's own
-    // slope toward the sun, self-shadowed by what lies sunward, darker in its
-    // thick heart and at its base, silver at a thin edge toward the sun.
-    // Six evaluations, no steps, no slices.
-    if (dir.y > 0.01 && _PSXCloudCover > 0.01)
+    // THE CLOUDS: CUMULUS MADE OF PUFFS. The owner, twice: "clouds could use
+    // more volume" and then, of a noise layer shaded from its own slope,
+    // "creepy looking clouds. Not fluffy or comforting, but sharp and
+    // smeared". Noise at 240 lines is smeared by nature. So each cloud is a
+    // cluster of soft ROUND puffs on a flat base (AtmoPuffs): each lit like a
+    // dome - white where it faces the sun, soft grey underneath and in the
+    // shade of its neighbours - with a fuzzy rim that goes silver toward the
+    // sun. The fair-weather cumulus of the owner's photograph.
+    if (dir.y > 0.005 && _PSXCloudCover > 0.01)
     {
-        float camY = 2.0;
-        float2 cam = _WorldSpaceCameraPos.xz;
-        float2 p0 = cam + dir.xz * ((CLOUD_BASE - camY) / dir.y);
-        float th = AtmoCloudThickness(p0);
-        float midY = CLOUD_BASE + th * (CLOUD_TOP - CLOUD_BASE) * 0.5;
-        float2 p1 = cam + dir.xz * ((midY - camY) / dir.y);
-        th = AtmoCloudThickness(p1);
-        if (th > 0.002)
-        {
-            // Opacity: thicker is denser, and a cloud seen edge-on (low in
-            // the sky) is looked through more of it.
-            float path = th / max(dir.y * 3.0, 0.25);
-            float alpha = smoothstep(0.0, 0.12, th) * (1.0 - exp(-path * 6.0));
-            // The slope of the map is the cloud's surface.
-            float e = 90.0;
-            float gx = AtmoCloudThickness(p1 + float2(e, 0.0)) - th;
-            float gz = AtmoCloudThickness(p1 + float2(0.0, e)) - th;
-            float3 n = normalize(float3(-gx * 5.0, 0.3 + th * 0.35, -gz * 5.0));
-            float sunUp = saturate(sunDir.y * 4.0 + 0.3);
-            float shadow = exp(-AtmoCloudThickness(p1 + sunDir.xz * 380.0) * 1.7);
-            float lambert = saturate(dot(n, sunDir) * 0.6 + 0.4);
-            float silver = pow(saturate(mu), 10.0) * (1.0 - th) * 1.8;
-            float3 skyTop = AtmoScatter(float3(0, 1, 0), sunDir) * 1.4 + NIGHT_FLOOR * 2.0 * night;
-            float3 ambient = skyTop * lerp(1.0, 0.45, th);             // the thick heart and base go grey-blue
-            float3 lum = sunCol * (2.2 * lambert * shadow + silver) * sunUp + ambient;
-            // The far layer thins into the haze.
-            float fade = saturate(dir.y * 6.0);
-            col = lerp(col, lum, alpha * fade);
-        }
+        float4 cl = AtmoPuffs(dir, sunDir, sunCol, mu, night);
+        // The far rows thin into the haze (and stop reading as rows).
+        float fade = saturate((dir.y - 0.015) * 7.0);
+        col = lerp(col, cl.rgb, cl.a * fade);
     }
 
     // Exposure and a soft shoulder: the display's range.

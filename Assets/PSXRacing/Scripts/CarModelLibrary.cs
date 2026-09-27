@@ -66,6 +66,9 @@ namespace PSXRacing
             new Model { key = "civic_eg",     name = "Honda Civic (EG)",          region = Region.Japan,   year = 1991, body = Body.Hatch,    kg = 1076, handOnly = true },
             new Model { key = "nissan_180sx", name = "Nissan 180SX / 240SX (S13)", region = Region.Japan,  year = 1989, body = Body.Sports,   kg = 1262, handOnly = true },
             new Model { key = "viper_gts",    name = "Dodge Viper GTS",           region = Region.America, year = 1996, body = Body.Sports,   kg = 1532, handOnly = true },
+            // The owner's FlatSix Coupe (2026-09-26): the 911 shape, for every
+            // RUF (all three are 911s underneath) and any Porsche 911.
+            new Model { key = "flatsix_coupe", name = "Flat-six coupe (911)",     region = Region.Europe,  year = 1987, body = Body.Sports,   kg = 1272, handOnly = true },
 
             new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650 },
             new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400 },
@@ -158,11 +161,14 @@ namespace PSXRacing
             ("Volvo 240",                                        "volvo_estate"),
             // The SL line, from the 300 SL the Pagoda replaced to the R129.
             ("Mercedes-Benz (300 SL|SL |SLK)",                   "mb_pagoda"),
+            // Every RUF is a 911 underneath - the BTR, the CTR "Yellow Bird",
+            // the CTR2 - and wears the owner's FlatSix Coupe (2026-09-26); so
+            // does any Porsche 911 the catalog ever carries. (They borrowed
+            // the E30 while the pack had no rear-engined shell.)
+            (@"RUF |Porsche 911|Porsche.*911|\b911\b",       "flatsix_coupe"),
             // E30-class German compact saloons: the 2002 is its ancestor, the
-            // 190 E its period rival, and the DTM cars are those two. RUF builds
-            // 911s, and with no rear-engined shell in the pack a compact German
-            // two-door of the same decade beats the Audi saloon the scorer picks.
-            ("BMW 2002|BMW M Coupe|Mercedes-Benz 190 E|Mercedes 190 E|RUF ", "bmw_e30"),
+            // 190 E its period rival, and the DTM cars are those two.
+            ("BMW 2002|BMW M Coupe|Mercedes-Benz 190 E|Mercedes 190 E", "bmw_e30"),
             ("Audi quattro|Audi S4|Opel Calibra|Lotus Carlton",  "audi_saloon"),
             ("Volkswagen Golf|Peugeot 20[56]|Renault 5|Citroen Xsara|Opel Tigra|Mercedes-Benz A 160|Ford (Escort|FOCUS)", "euro_hatch"),
             ("Peugeot 406|Alfa Romeo 1[556][56]",                "citroen_cx"),
