@@ -193,6 +193,7 @@ namespace PSXRacing.EditorTools
                 // reaches to the centreline.
                 float nearest = float.MaxValue;
                 int worstIdx = -1;
+                Vector3 worstAt = Vector3.zero;
                 for (int i = 0; i < path.Count; i++)
                 {
                     Vector3 c = path.GetPoint(i);
@@ -228,8 +229,20 @@ namespace PSXRacing.EditorTools
                     float lateral = Mathf.Abs(Vector3.Dot(closest - c, right));
                     float along = Mathf.Abs(Vector3.Dot(closest - c, path.GetTangent(i)));
                     if (along > path.spacing) continue;       // belongs to another waypoint
+                    // ...and off the CENTRELINE, not off this waypoint's right
+                    // vector: on a hairpin that vector swings a third of a right
+                    // angle in one station, and a wall standing 0.6 m past the
+                    // kerb on the outside read 4.55 m "off the centreline" at
+                    // Chimney Rock wp 1048 - projected, it was 5.5 m away in
+                    // plan. The distance to the polyline either side of the
+                    // waypoint is what a car's wheel is from it; on a straight
+                    // it is the projection exactly. The larger of the two: on an
+                    // INSIDE the chords cut the bend and read nearer than the
+                    // drawn kerb, and there the projection stands as it was.
+                    float seg = Mathf.Min(PlanSegDist(path, i - 1, i, closest), PlanSegDist(path, i, i + 1, closest));
+                    if (seg < float.MaxValue) lateral = Mathf.Max(lateral, seg);
 
-                    if (lateral < nearest) { nearest = lateral; worstIdx = i; }
+                    if (lateral < nearest) { nearest = lateral; worstIdx = i; worstAt = closest; }
                 }
 
                 if (nearest >= reachHalf) continue;
@@ -242,6 +255,7 @@ namespace PSXRacing.EditorTools
                 {
                     o.nearest = nearest;
                     o.waypoint = worstIdx;
+                    o.at = worstAt;
                     o.type = col.GetType().Name;
                     o.layer = LayerMask.LayerToName(col.gameObject.layer);
                     if (string.IsNullOrEmpty(o.layer)) o.layer = col.gameObject.layer.ToString();
@@ -270,7 +284,8 @@ namespace PSXRacing.EditorTools
                                " m off the centreline  x" + o.count +
                                "  [" + o.type + ", layer " + o.layer +
                                (o.hasRenderer ? "" : ", NO RENDERER — invisible") +
-                               "]  near wp " + o.waypoint + "  " + o.key);
+                               "]  near wp " + o.waypoint + "  " + o.key +
+                               string.Format("  [{0:0.0}, {1:0.0}, {2:0.0}]", o.at.x, o.at.y, o.at.z));
             }
         }
 
@@ -744,6 +759,18 @@ namespace PSXRacing.EditorTools
                     {
                         float e = EdgeStartM + k * EdgePitch;
                         if (e > limit + 1e-4f) break;
+                        // A BARRIER STANDING ON THE LAND. The rays above look at
+                        // body height over the TARMAC; where the land climbs (a
+                        // backslope up to another leg's retaining wall) it rises
+                        // past them first, the rays call it a floor, and the
+                        // profile - cast down from just over the land - starts
+                        // INSIDE the wall's collider, which a ray does not see,
+                        // and walks on through the stone measuring what is under
+                        // it (a "1.74 m face" inside Chimney Rock's island wall
+                        // off wp 1045 L). So each step is also looked along at
+                        // body height over the land it left; a wall or rock face
+                        // met there ends the walk, as the barrier ends it.
+                        if (k > 0 && BarrierAlongLand(c + o * (half + e - EdgePitch), o, prevY)) break;
                         ys[k] = ProfileAt(c + o * (half + e), prevY, out on[k], out ny[k]);
                         if (!float.IsNaN(ys[k])) prevY = ys[k];
                         count = k + 1;
@@ -1017,9 +1044,14 @@ namespace PSXRacing.EditorTools
             // otherwise list twenty of them and never name its one open deck.
             var listed = new List<EdgeRun>();
             var perKind = new Dictionary<string, int>();
+            // Every FAILING run is named, however many there are: a list that
+            // stops at five of one kind leaves the rest to be found by rebuild.
+            foreach (var run in runs)
+                if (run.fail) listed.Add(run);
             foreach (var run in runs)
             {
                 if (listed.Count >= EdgeWorstListed) break;
+                if (run.fail) continue;
                 perKind.TryGetValue(run.label, out int had);
                 if (had >= EdgeWorstListed / 4) continue;
                 perKind[run.label] = had + 1;
@@ -1171,6 +1203,27 @@ namespace PSXRacing.EditorTools
         /// a bank — there is no barrier at this height: the land is the next
         /// surface, and the profile measures it.
         /// </summary>
+        /// <summary>Does one EdgePitch step outward from <paramref name="at"/>,
+        /// at each of RoadsideRules.BarrierRayHeights over the land there
+        /// (<paramref name="landY"/>), meet a guard wall's or a rock face's
+        /// collider at a wall-class normal? (See the profile walk.)</summary>
+        static bool BarrierAlongLand(Vector3 at, Vector3 dir, float landY)
+        {
+            foreach (float bh in RoadsideRules.BarrierRayHeights)
+            {
+                var from = new Vector3(at.x, landY + bh, at.z);
+                int count = Physics.RaycastNonAlloc(from, dir, EdgeHits, EdgePitch + 0.01f, NotCars, QueryTriggerInteraction.Ignore);
+                for (int k = 0; k < count; k++)
+                {
+                    var h = EdgeHits[k];
+                    if (IsCar(h.collider) || Mathf.Abs(h.normal.y) > WallNormalY) continue;
+                    string nm = h.collider.name;
+                    if (nm.StartsWith("WallColl") || nm.StartsWith("BankColl")) return true;
+                }
+            }
+            return false;
+        }
+
         static bool FirstBarrier(Vector3 from, Vector3 dir, float len, out float dist, out Collider col)
         {
             dist = 0f; col = null;
@@ -2728,6 +2781,22 @@ namespace PSXRacing.EditorTools
             public int count, waypoint;
             public float nearest;
             public bool hasRenderer;
+            public Vector3 at;
+        }
+
+        /// <summary>Plan distance from <paramref name="p"/> to the centreline
+        /// segment between waypoints a and b (wrapped on a loop; a segment off
+        /// either end of a route with ends reads as infinitely far).</summary>
+        static float PlanSegDist(TrackPath path, int a, int b, Vector3 p)
+        {
+            int n = path.Count;
+            if (!path.HasEnds) { a = (a % n + n) % n; b = (b % n + n) % n; }
+            else if (a < 0 || b >= n) return float.MaxValue;
+            Vector3 pa = path.GetPoint(a), pb = path.GetPoint(b);
+            Vector2 A = new Vector2(pa.x, pa.z), B = new Vector2(pb.x, pb.z), P = new Vector2(p.x, p.z);
+            Vector2 ab = B - A;
+            float t = ab.sqrMagnitude < 1e-8f ? 0f : Mathf.Clamp01(Vector2.Dot(P - A, ab) / ab.sqrMagnitude);
+            return Vector2.Distance(P, A + ab * t);
         }
 
         /// <summary>Collapse siblings into one bucket: the 292 wall segment boxes

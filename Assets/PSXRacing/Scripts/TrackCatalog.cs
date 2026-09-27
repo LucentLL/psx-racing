@@ -882,16 +882,18 @@ namespace PSXRacing
         };
 
         /// <summary>
-        /// BAKED AND HELD BACK (2026-09-26). Both are in Resources and both
-        /// build, and both fail the roadside audits in ways a new road should
-        /// not ship with: Chimney Rock's 6 m switchbacks are tighter than the
-        /// stage builder's shoulder ribbon is wide, so on the inside of the
-        /// two tightest groups the shoulder folds over itself (faces pointing
-        /// down, walls that are not closed solids, falls left unguarded); and
-        /// NC 226's cut banks leave edge faces and walled-in pockets on 26
-        /// half-sections. Not in <see cref="Authored"/> - a venue appended and
-        /// then taken away would move every twin twice - until the builder
-        /// handles them; then appended, with a v19 remap like v18's.
+        /// BAKED AND HELD BACK. Chimney Rock builds and, since 2026-09-27,
+        /// passes its roadside checks with nothing solid inside the barrier
+        /// line, no pockets but one, and ends that do not step (see the stage
+        /// builder's end pads, square hairpin wall ends and rock tops carried
+        /// to another leg's seam); what it still has is a few 0.1-0.3 m lips
+        /// where the shoulders of the two tightest hairpins' legs meet round
+        /// the turn's centre. It is held for SIZE: the shipped WebGL.data
+        /// stands at 99.6 MiB against GitHub's 100 MiB file limit, and 4.4 km
+        /// of stage is ~10 MB more. Not in <see cref="Authored"/> - a venue
+        /// appended and then taken away would move every twin twice - until
+        /// there is room; then appended, with a v20 remap like v19's (and
+        /// RemapV18Index must leave it out of the v18 list as well).
         /// </summary>
         public static readonly TrackDef[] HeldBack =
         {
@@ -903,16 +905,21 @@ namespace PSXRacing
                         "switchbacks to the lot under the Chimney: 265 m of climb in 4.3 km, " +
                         "on hairpins tighter than any other road in the game. " +
                         "Map (c) OpenStreetMap contributors.",
-                roadWidth = 8f,
+                // A narrow two-lane park road, 7 m kerb to kerb. At 8 m the top
+                // hairpin's inside kerbs all but met at the turn's centre, and
+                // the island wall between its legs had nowhere to end that was
+                // not in the kerb band of the road coming round the apex.
+                roadWidth = 7f,
                 laps = 1,
                 speedLimitKmh = 40f,    // a 25 mph park road
                 stage = true,
                 stageData = "chimney_stage",
                 dragLabel = "THE CHIMNEY",
                 // 6.1 m at the top, 8-9 m on the climb, on OSM's own geometry.
-                // A front axle describes ~6.7 m at full lock and an 8 m road
-                // gives a car swung wide 3.1 m more than its centreline; the
-                // road's inner edge folds first, at 4 + 1.5 = 5.5.
+                // A front axle describes ~6.7 m at full lock and a 7 m road
+                // gives a car swung wide 2.6 m more than its centreline; the
+                // road's inner edge folds first, at 3.5 + 1.5 = 5.0. The bake
+                // (fetch_road.mjs) keeps the 5.5 it was cut to.
                 minCornerR = 5.5f,
             },
         };

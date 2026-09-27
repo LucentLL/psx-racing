@@ -807,7 +807,8 @@ namespace PSXRacing.EditorTools
             if (def.stage) { BuildStageWalls(waypoints, pathGO.transform);
                              if (theme.stageBanks) BuildStageBanks(waypoints, pathGO.transform); }
             else BuildWalls(waypoints, pathGO.transform);
-            if (def.stage) BuildStageGround(waypoints, pathGO.transform);
+            if (def.stage) { BuildStageGround(waypoints, pathGO.transform);
+                             BuildStageEndPads(waypoints, pathGO.transform); }
             else BuildGround(waypoints, pathGO.transform);
             if (def.stage) BuildStageTunnels(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);

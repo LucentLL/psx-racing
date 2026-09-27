@@ -17,7 +17,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\
 }
 Remove-Item "$proj\PSXRacing_stage_lab.txt" -ErrorAction SilentlyContinue
 $env:PSX_LAB_IDS = $Ids
-Invoke-UnityJob -Log "$proj\stagelab.log" -MaxMinutes 30 -UnityArgs @(
+Invoke-UnityJob -Log "$proj\stagelab.log" -MaxMinutes ([Math]::Max(30, 12 * $Ids.Split(',').Count)) -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.StageLab.Run",
     "-logFile","$proj\stagelab.log","-accept-apiupdate") | Out-Null
