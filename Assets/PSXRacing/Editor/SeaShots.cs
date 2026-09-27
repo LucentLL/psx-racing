@@ -68,6 +68,44 @@ namespace PSXRacing.EditorTools
                 }
                 Debug.Log("[SeaShots] " + id + " crest wp " + crest + " at " + at);
 
+                // THE OPEN OCEAN: the station with the sea closest to its south
+                // (-z, the Atlantic side), shot from the last of the land before
+                // it, looking out - the swell and its whitecaps.
+                var seaR = GameObject.Find("Sea");
+                if (seaR != null)
+                {
+                    int bestI = -1; float bestD = 1e9f; Vector3 bestHit = Vector3.zero;
+                    for (int i = 5; i < path.Count - 5; i += 8)
+                    {
+                        Vector3 pt = path.GetPoint(i);
+                        for (float m = 40f; m < 900f; m += 20f)
+                        {
+                            Vector3 probe = pt + Vector3.back * m + Vector3.up * 80f;
+                            if (!Physics.Raycast(probe, Vector3.down, out RaycastHit hh, 200f)) continue;
+                            // No collider on the sea: land ends where the ray drops below it.
+                            if (hh.point.y > seaR.GetComponent<Renderer>().bounds.center.y + 0.05f) continue;
+                            if (m < bestD) { bestD = m; bestI = i; bestHit = pt + Vector3.back * m; }
+                            break;
+                        }
+                    }
+                    if (bestI >= 0)
+                    {
+                        Vector3 oe = bestHit + Vector3.forward * 25f;
+                        oe.y = seaR.GetComponent<Renderer>().bounds.center.y + 4f;
+                        foreach (var hn in new[] { "noon", "sunset" })
+                        {
+                            int hi = -1;
+                            for (int h = 0; h < TimeOfDay.Count; h++) if (TimeOfDay.At(h).name.ToLower() == hn) hi = h;
+                            if (hi < 0) continue;
+                            TimeOfDay.Apply(hi, sun);
+                            if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+                            Shot(cam, id + "_ocean_" + hn, oe, Vector3.back, -7f);
+                            Shot(cam, id + "_ocean_" + hn + "_wide", oe + Vector3.up * 12f, (Vector3.back + Vector3.right * 0.6f).normalized, -12f);
+                        }
+                        Debug.Log("[SeaShots] " + id + " ocean " + bestD.ToString("0") + " m south of wp " + bestI);
+                    }
+                }
+
                 // THE BEACH: a station with sand at the waterline beside it -
                 // ground 0.4-1.2 m over the sea 10-40 m off the road - shot at
                 // noon and sunset from above the shoulder, looking at it.
@@ -106,6 +144,9 @@ namespace PSXRacing.EditorTools
                                 TimeOfDay.Apply(hi, sun);
                                 if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
                                 Shot(cam, id + "_beach" + beaches + "_" + hn, beachEye, flat.normalized, pitch);
+                                // And straight out to the Atlantic (south, -z): the swell.
+                                Shot(cam, id + "_beach" + beaches + "_" + hn + "_south", beachEye + Vector3.up * 2f,
+                                     Vector3.back, -6f);
                             }
                             Debug.Log("[SeaShots] " + id + " beach " + beaches + " at wp " + i + ", sand " +
                                       over.ToString("0.00") + " m over the sea");

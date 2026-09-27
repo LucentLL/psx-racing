@@ -514,6 +514,24 @@ namespace PSXRacing.LifeSim
                 }
                 s.saveVersion = 18;
             }
+
+            if (s.saveVersion < 19)
+            {
+                // v19 appended Gillespie Gap (NC 226) to the authored list: its
+                // twin went in after the other twins and every sprint section
+                // moved two places. Only for a save WRITTEN under v18; older ones
+                // were mapped straight onto today's list above.
+                if (written >= 18)
+                {
+                    s.trackIndex = TrackCatalog.RemapV18Index(s.trackIndex);
+                    if (s.bookings != null)
+                        foreach (var b in s.bookings)
+                            if (b != null) b.trackIndex = TrackCatalog.RemapV18Index(b.trackIndex);
+                    if (s.blChallenge != null && s.blChallenge.trackIndex >= 0)
+                        s.blChallenge.trackIndex = TrackCatalog.RemapV18Index(s.blChallenge.trackIndex);
+                }
+                s.saveVersion = 19;
+            }
         }
 
         public static void DeleteSave()

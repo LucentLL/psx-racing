@@ -29,7 +29,7 @@ namespace PSXRacing
         /// Night): how bright the computed sky is drawn.</summary>
         static readonly float[] ExposureByHour = { 1.6f, 1.05f, 0.85f, 1.0f, 1.5f, 2.6f, 2.4f };
         /// <summary>Cloud cover by weather (Clear, Fog, Rain, Snow).</summary>
-        static readonly float[] CoverByWeather = { 0.38f, 0.72f, 0.88f, 0.82f };
+        static readonly float[] CoverByWeather = { 0.42f, 0.74f, 0.88f, 0.82f };
         const float RefreshSeconds = 3f;
 
         static RenderTexture pano;

@@ -272,6 +272,12 @@ namespace PSXRacing.EditorTools
             public string waterDeep;
             public Color waterDeepTint = new Color(0.70f, 0.82f, 0.80f);
             public Color waterSandColor = new Color(0.66f, 0.60f, 0.46f);
+            /// <summary>Compass bearing (degrees, clockwise from north = +z)
+            /// from the coast toward the OPEN OCEAN, or negative for none. The
+            /// sea's swell comes from there (PSX/Water _OceanWaves); water with
+            /// land between it and the ocean - a sound behind an island - does
+            /// not take it.</summary>
+            public float oceanBearingDeg = -1f;
 
             // --------------------------------------------------------------
             //  Stage LOOK. The defaults are the mountain's — every field here
@@ -515,6 +521,9 @@ namespace PSXRacing.EditorTools
             waterDeep = Root + "/Art/Water/water_1.png",
             marsh = Root + "/Art/Beach/grass_dead_pt_4.png",
             coastGroundTint = new Color(1.8f, 1.8f, 1.75f),
+            // Bogue Banks runs east-west with the Atlantic to its south; Bogue
+            // Sound, under the bridges, lies behind it.
+            oceanBearingDeg = 180f,
             wall = Root + "/Art/Roads/T (4).jpg",   // concrete — a bridge parapet
             groundTile = 11f,
             // The pack sand's tone drifts in big soft blotches: at 7 m a tile
@@ -2695,18 +2704,34 @@ namespace PSXRacing.EditorTools
                 kneeE = eEnd;
                 kneeY = yEnd;
             }
-            int steps = Mathf.FloorToInt(Mathf.Min(ShoulderTailRunM, foldE - kneeE) / ShoulderCatchStepM);
-            for (int k = 1; k <= steps; k++)
+            // Twice: the tail as it has always been, then - where the land
+            // falls away faster than that for longer (a fill on a flat 10%
+            // grade down NC 226, 1V:2.5H or steeper for its whole length) - a
+            // steeper, longer one that still stays under the edge audit's face
+            // (ShoulderTailSteepSlope < 0.06 / 0.13). Without it the carry
+            // ended where it ran out of depth, in the air, and its tuck dropped
+            // half a metre to the ground nine metres out.
+            for (int pass = 0; pass < 2; pass++)
             {
-                float d = k * ShoulderCatchStepM;
-                float y = kneeY - ShoulderTailSlope * d;
-                if (y > land(kneeE + d)) continue;
-                carryE = kneeE + d;
-                carryY = y;
-                return true;
+                float slope = pass == 0 ? ShoulderTailSlope : ShoulderTailSteepSlope;
+                float run = pass == 0 ? ShoulderTailRunM : ShoulderTailSteepRunM;
+                int steps = Mathf.FloorToInt(Mathf.Min(run, foldE - kneeE) / ShoulderCatchStepM);
+                for (int k = 1; k <= steps; k++)
+                {
+                    float d = k * ShoulderCatchStepM;
+                    float y = kneeY - slope * d;
+                    if (y > land(kneeE + d)) continue;
+                    carryE = kneeE + d;
+                    carryY = y;
+                    return true;
+                }
             }
             return false;
         }
+
+        /// <summary>The second tail's fall and reach (ShoulderTail): as steep
+        /// as a rise the edge audit lets pass (0.46), and twice as long.</summary>
+        const float ShoulderTailSteepSlope = 0.45f, ShoulderTailSteepRunM = 24f;
 
         /// <summary>
         /// Triangles between two stations' point runs, advancing along
@@ -2803,6 +2828,7 @@ namespace PSXRacing.EditorTools
         /// on the outside of a bend and on a straight.</summary>
         static float ShoulderBendReach(List<Vector3> pts, int idx, float side) =>
             ShoulderLinesMeet(pts, idx, side, ShoulderInsideBendReach);
+
 
         /// <summary>Largest e a CARRIED slope's end may reach on the inside of
         /// a bend: <see cref="ShoulderFoldFraction"/> of the way to where the

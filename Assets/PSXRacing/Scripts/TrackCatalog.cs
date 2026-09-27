@@ -859,6 +859,26 @@ namespace PSXRacing
                 dragLabel = "THE VALLEY",
                 minCornerR = 10f,       // one switchback at 11.0 m, 6.9 km down
             },
+
+            // NC 226 up to Gillespie Gap, out of HeldBack (2026-09-26): its
+            // graded bank tops climb at the backslope, a fill no slope can
+            // meet gets its barrier, and the audit's LAUNCH probe turns with
+            // the road. Appended - save v19 (RemapV18Index).
+            new TrackDef
+            {
+                id = "GillespieGap",
+                name = "GILLESPIE GAP — NC 226",
+                blurb = "Up NC 226 from where NC 226A comes down to meet it, 410 m of climb " +
+                        "in 6.5 km to the Parkway at the Museum of North Carolina Minerals. " +
+                        "Map (c) OpenStreetMap contributors.",
+                roadWidth = 9f,
+                laps = 1,
+                speedLimitKmh = 72f,    // NC 226, 45 mph
+                stage = true,
+                stageData = "gap_stage",
+                dragLabel = "THE GAP",
+                minCornerR = 8f,        // the turn onto the ramp at the gap, past the finish
+            },
         };
 
         /// <summary>
@@ -894,21 +914,6 @@ namespace PSXRacing
                 // gives a car swung wide 3.1 m more than its centreline; the
                 // road's inner edge folds first, at 4 + 1.5 = 5.5.
                 minCornerR = 5.5f,
-            },
-            new TrackDef
-            {
-                id = "GillespieGap",
-                name = "GILLESPIE GAP — NC 226",
-                blurb = "Up NC 226 from where NC 226A comes down to meet it, 410 m of climb " +
-                        "in 6.5 km to the Parkway at the Museum of North Carolina Minerals. " +
-                        "Map (c) OpenStreetMap contributors.",
-                roadWidth = 9f,
-                laps = 1,
-                speedLimitKmh = 72f,    // NC 226, 45 mph
-                stage = true,
-                stageData = "gap_stage",
-                dragLabel = "THE GAP",
-                minCornerR = 8f,        // the turn onto the ramp at the gap, past the finish
             },
         };
 
@@ -1180,6 +1185,31 @@ namespace PSXRacing
 
         /// <summary>A venue index from a v12..v17 save, in today's list. Same
         /// shape as <see cref="RemapV10Index"/>.</summary>
+        /// <summary>
+        /// A venue index from a v18 save, in today's list. v19 appended
+        /// Gillespie Gap to the authored list, which moved its twins one place
+        /// and the sprint sections after them two - so the shift is not one
+        /// number. Mapped by IDENTITY: the v18 list is today's without the
+        /// venues v19 added, and an old index is that list's id, found again.
+        /// </summary>
+        public static int RemapV18Index(int oldIndex)
+        {
+            if (v18Ids == null)
+            {
+                var ids = new System.Collections.Generic.List<string>();
+                foreach (var d in All)
+                    if (System.Array.IndexOf(V19Added, d.id) < 0) ids.Add(d.id);
+                v18Ids = ids.ToArray();
+            }
+            if (oldIndex < 0) return oldIndex;
+            if (oldIndex >= v18Ids.Length) return Mathf.Clamp(oldIndex, 0, All.Length - 1);
+            int now = IndexOf(v18Ids[oldIndex]);
+            return now >= 0 ? now : 0;
+        }
+        /// <summary>The venues v19 added (a twin is its base's id + "Rev").</summary>
+        static readonly string[] V19Added = { "GillespieGap", "GillespieGapRev" };
+        static string[] v18Ids;
+
         public static int RemapV17Index(int oldIndex)
         {
             if (oldIndex < V17AuthoredCount) return Mathf.Max(0, oldIndex);

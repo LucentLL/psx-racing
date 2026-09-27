@@ -40,8 +40,18 @@ float _PSXDynExposure;
 #define ATMO_SUN        22.0
 #define ATMO_VIEW_STEPS 8
 #define ATMO_SUN_STEPS  3
-#define CLOUD_ALT       1600.0
-#define CLOUD_SCALE     0.00028   // noise cells per metre on the deck
+// THE CLOUDS HAVE VOLUME (owner, 2026-09-26, with a photograph of fair-weather
+// cumulus: "Clouds could use more volume"). A flat deck of noise was a sheet
+// of fog painted on a ceiling; a march through a slab (the first answer) drew
+// its steps as horizontal slices - "stacks of grainy pancakes". Now each
+// cumulus is a THICKNESS over a flat base (CLOUD_BASE), up toward CLOUD_TOP:
+// met by the ray with a parallax offset, lit from its own slope, shadowed by
+// what lies sunward - white lit flanks, grey-blue bases, a silver thin edge.
+#define CLOUD_BASE      1400.0
+#define CLOUD_TOP       2900.0
+#define CLOUD_SCALE     0.00032   // coverage cells per metre
+#define CLOUD_DETAIL    0.0021    // billow cells per metre
+
 #define SUN_DISC_COS    0.99985   // ~1.0 degree radius: a PS1 sun is a big sun
 #define MOON_DISC_COS   0.99992
 #define NIGHT_FLOOR     float3(0.006, 0.009, 0.020)
@@ -142,13 +152,32 @@ float AtmoFbm(float2 p)
     return v;
 }
 
-/// Cloud density (0..1) on the deck at a point on it.
-float AtmoCloud(float2 xz)
+float AtmoFbm3(float2 p)
 {
-    float2 uv = xz * CLOUD_SCALE + _PSXCloudWind.xy * _Time.y;
-    float n = AtmoFbm(uv);
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 3; i++) { v += AtmoNoise(p) * a; p = p * 2.07 + 7.3; a *= 0.5; }
+    return v;
+}
+
+/// How thick the cloud is over a point, 0..1 of the layer: the coverage
+/// field decides where a cumulus stands and how tall, a finer noise eats
+/// its edges into billows. A THICKNESS MAP, not a density in the volume -
+/// see the cloud pass in PSXDynamicSky for why.
+float AtmoCloudThickness(float2 xz)
+{
+    float2 wind = _PSXCloudWind.xy * _Time.y;
+    float c = AtmoFbm3(xz * CLOUD_SCALE + wind);
     float cut = 1.0 - _PSXCloudCover;
-    return saturate((n - cut * 0.85) / 0.22);
+    // A firm body: the coverage crosses into cloud over a shortish band, so
+    // a cumulus is a mass with an edge, not a smear of haze.
+    float t = saturate((c - cut * 0.82) / 0.26);
+    float det = AtmoNoise(xz * CLOUD_DETAIL + wind * 3.1) * 0.6 +
+                AtmoNoise(xz * CLOUD_DETAIL * 2.3 + wind * 4.7) * 0.4;
+    // Billows only at the edges, and only ever eating in (never adding cloud
+    // to clear sky - adding it turned the whole sky to marbled overcast):
+    // the heart of a cloud stays whole.
+    t -= det * 0.35 * (1.0 - smoothstep(0.25, 0.7, t));
+    return saturate(t * 1.45);
 }
 
 /// The whole dynamic sky in direction dir (unit, world), before the horizon
@@ -182,23 +211,47 @@ float3 PSXDynamicSky(float3 dir)
         col += float3(0.95, 0.93, 0.85) * step(MOON_DISC_COS, mc) * 2.2 * night;
     }
 
-    // The cloud deck.
-    if (dir.y > 0.015 && _PSXCloudCover > 0.01)
+    // THE CLOUDS, AS A LAYER WITH VOLUME. The march through the slab (the
+    // first answer to "clouds could use more volume") drew each of its ten
+    // steps as its own slice where the ray runs nearly flat toward the
+    // horizon - "stacks of grainy pancakes", in the owner's words - and a
+    // phone paid ~100 noise evaluations a sky pixel for it. Now: where a
+    // cloud stands and how tall is a thickness map; the ray meets it at the
+    // layer's base and once more half way up what stands there (parallax, so
+    // a tall cloud rises over its own base); it is lit from the map's own
+    // slope toward the sun, self-shadowed by what lies sunward, darker in its
+    // thick heart and at its base, silver at a thin edge toward the sun.
+    // Six evaluations, no steps, no slices.
+    if (dir.y > 0.01 && _PSXCloudCover > 0.01)
     {
-        float t = CLOUD_ALT / dir.y;
-        float2 xz = _WorldSpaceCameraPos.xz + dir.xz * t;
-        float d = AtmoCloud(xz);
-        if (d > 0.001)
+        float camY = 2.0;
+        float2 cam = _WorldSpaceCameraPos.xz;
+        float2 p0 = cam + dir.xz * ((CLOUD_BASE - camY) / dir.y);
+        float th = AtmoCloudThickness(p0);
+        float midY = CLOUD_BASE + th * (CLOUD_TOP - CLOUD_BASE) * 0.5;
+        float2 p1 = cam + dir.xz * ((midY - camY) / dir.y);
+        th = AtmoCloudThickness(p1);
+        if (th > 0.002)
         {
-            // Self-shadow: density a little toward the sun.
-            float toward = AtmoCloud(xz + sunDir.xz * 350.0);
-            float lightT = exp(-toward * 2.2);
-            float silver = pow(saturate(mu), 12.0) * (1.0 - d) * 2.0;
-            float3 skyAmb = AtmoScatter(float3(0, 1, 0), sunDir) * 1.3 + NIGHT_FLOOR * 2.0 * night;
-            float3 lit = sunCol * (0.75 * lightT + silver) * saturate(sunDir.y * 4.0 + 0.3) * 2.6 + skyAmb;
-            // The far deck thins into the haze.
-            float fade = saturate(dir.y * 7.0);
-            col = lerp(col, lit, d * fade);
+            // Opacity: thicker is denser, and a cloud seen edge-on (low in
+            // the sky) is looked through more of it.
+            float path = th / max(dir.y * 3.0, 0.25);
+            float alpha = smoothstep(0.0, 0.12, th) * (1.0 - exp(-path * 6.0));
+            // The slope of the map is the cloud's surface.
+            float e = 90.0;
+            float gx = AtmoCloudThickness(p1 + float2(e, 0.0)) - th;
+            float gz = AtmoCloudThickness(p1 + float2(0.0, e)) - th;
+            float3 n = normalize(float3(-gx * 5.0, 0.3 + th * 0.35, -gz * 5.0));
+            float sunUp = saturate(sunDir.y * 4.0 + 0.3);
+            float shadow = exp(-AtmoCloudThickness(p1 + sunDir.xz * 380.0) * 1.7);
+            float lambert = saturate(dot(n, sunDir) * 0.6 + 0.4);
+            float silver = pow(saturate(mu), 10.0) * (1.0 - th) * 1.8;
+            float3 skyTop = AtmoScatter(float3(0, 1, 0), sunDir) * 1.4 + NIGHT_FLOOR * 2.0 * night;
+            float3 ambient = skyTop * lerp(1.0, 0.45, th);             // the thick heart and base go grey-blue
+            float3 lum = sunCol * (2.2 * lambert * shadow + silver) * sunUp + ambient;
+            // The far layer thins into the haze.
+            float fade = saturate(dir.y * 6.0);
+            col = lerp(col, lum, alpha * fade);
         }
     }
 

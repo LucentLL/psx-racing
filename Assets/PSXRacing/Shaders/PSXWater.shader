@@ -38,6 +38,14 @@ Shader "PSX/Water"
         _DeepTex ("Water (deep)", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
         _SandColor ("Sand under the shallows", Color) = (0.62, 0.56, 0.42, 1)
+        // THE SWELL (owner, 2026-09-26: "Ocean, specially the ocean, not the
+        // sound under the bridges, could use proper waves. Lakes and rivers
+        // with a much more subtle tide."). 1 on the sea, whose vertices say in
+        // their GREEN how open to the ocean they are (0 in the sound behind
+        // the island, 1 off the beach); 0 on a city's rivers and lakes, which
+        // take only the ripple. _WaveDir: the way the swell travels, world xz.
+        _OceanWaves ("Ocean swell", Float) = 0
+        _WaveDir ("Swell direction (xz)", Vector) = (0, 1, 0, 0)
     }
     SubShader
     {
@@ -56,6 +64,8 @@ Shader "PSX/Water"
             sampler2D _DeepTex;
             fixed4 _Color;
             fixed4 _SandColor;
+            float _OceanWaves;
+            float4 _WaveDir;
 
             // The PSX/Lit globals (PSXGlobals / TimeOfDay). See PSXLit.shader.
             float4 _PSXLightDir;
@@ -102,6 +112,43 @@ Shader "PSX/Water"
             #define FOAM_COLOR    float3(0.86, 0.88, 0.86)
             #define LAMP_POW      70.0
             #define LAMP_GAIN     1.4
+            // THE SWELL: three Gerstner trains off the open ocean, spread +/-
+            // 22 degrees about _WaveDir (amplitude m, wavelength m), shrinking
+            // into the shallows so the sea meets the beach at rest and the
+            // swash does the rest. Deep-water speed sqrt(g L / 2 pi).
+            #define SWELL_A       float3(0.55, 0.30, 0.15)
+            #define SWELL_L       float3(88.0, 47.0, 23.0)
+            #define SWELL_SPREAD  float3(0.0, 0.38, -0.30)   // radians off _WaveDir
+            #define SWELL_Q       0.55                       // Gerstner steepness share
+            #define SWELL_SHOAL_M 3.0                        // full height past this depth
+            // THE RIPPLE, everywhere (the sound, a river, a lake): a few
+            // centimetres of a short train - "a much more subtle tide".
+            #define RIPPLE_A      0.035
+            #define RIPPLE_L      7.5
+            #define WHITECAP      0.50                       // crest height share above which the swell breaks white
+            // THE CHOP on the open ocean: short wind waves the mesh is too
+            // coarse to move, so they live in the pixel's normal only - the
+            // light and the sky break up across them, which is what makes
+            // open water read as open water from a beach.
+            #define CHOP_A        float2(0.16, 0.07)
+            #define CHOP_L        float2(12.0, 5.5)
+            #define CHOP_SPREAD   float2(0.85, -1.15)
+
+            // One Gerstner train: adds its displacement, its normal's slopes
+            // and its crest height (0..1 of its amplitude).
+            void Gerstner(float2 xz, float2 dir, float A, float L, float Q, float t,
+                          inout float3 disp, inout float2 slope)
+            {
+                float k = 6.2831853 / L;
+                float w = sqrt(9.81 * k);
+                float ph = k * dot(dir, xz) - w * t;
+                float c = cos(ph), s = sin(ph);
+                disp.xz += Q * A * dir * c;
+                disp.y += A * s;
+                slope += dir * (k * A * c);
+            }
+
+            float2 Rot(float2 v, float a) { float c = cos(a), s = sin(a); return float2(c * v.x - s * v.y, s * v.x + c * v.y); }
 
             float WaterHash(float2 p)
             {
@@ -126,12 +173,36 @@ Shader "PSX/Water"
                 half3 amb : TEXCOORD3;
                 half3 sun : TEXCOORD4;
                 float depth : TEXCOORD5;
+                // How open to the ocean (x), the swell's crest share (y), and
+                // how much ripple the depth allows (z). The slopes themselves
+                // are worked out per pixel.
+                float3 swell : TEXCOORD6;
             };
 
             v2f vert (appdata v)
             {
                 v2f o;
-                float4 clipPos = UnityObjectToClipPos(v.vertex);
+                float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                float depthM = (v.color.r - 0.5) * 2.0 * DEPTH_RANGE_M;
+                // THE SWELL and THE RIPPLE, displacing the vertex.
+                float t = _Time.y;
+                float3 disp = 0.0;
+                float2 slope = 0.0;
+                float ocean = _OceanWaves * v.color.g * saturate(depthM / SWELL_SHOAL_M);
+                float2 wd = normalize(_WaveDir.xz + float2(1e-4, 0.0));
+                if (ocean > 0.001)
+                {
+                    float3 A = SWELL_A * ocean;
+                    float Q = SWELL_Q / (dot(SWELL_A, 6.2831853 / SWELL_L) * 3.0);
+                    Gerstner(wpos.xz, Rot(wd, SWELL_SPREAD.x), A.x, SWELL_L.x, Q, t, disp, slope);
+                    Gerstner(wpos.xz, Rot(wd, SWELL_SPREAD.y), A.y, SWELL_L.y, Q, t * 1.03, disp, slope);
+                    Gerstner(wpos.xz, Rot(wd, SWELL_SPREAD.z), A.z, SWELL_L.z, Q, t * 0.97, disp, slope);
+                }
+                Gerstner(wpos.xz, Rot(wd, 0.9), RIPPLE_A * saturate(depthM), RIPPLE_L, 0.3, t, disp, slope);
+                float crest = ocean > 0.001 ? saturate(disp.y / max(dot(SWELL_A, float3(1, 1, 1)) * ocean, 1e-3)) : 0.0;
+                o.swell = float3(ocean, crest, saturate(depthM));
+                wpos += disp;
+                float4 clipPos = mul(UNITY_MATRIX_VP, float4(wpos, 1.0));
                 if (_PSXSnap > 0.5 && clipPos.w > 0.0)
                 {
                     float2 grid = _ScreenParams.xy * 0.5;
@@ -141,7 +212,6 @@ Shader "PSX/Water"
                 }
                 o.pos = clipPos;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-                float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.wpos = wpos;
                 // A sea faces up: the sky's ambient, and the sun at its
                 // elevation. The same split as PSX/Lit (the shoulder is not
@@ -152,8 +222,8 @@ Shader "PSX/Water"
                 if (_PSXSunModel < 0.5) { amb = saturate(amb + sunL); sunL = half3(0, 0, 0); }
                 o.amb = amb;
                 o.sun = sunL;
-                o.depth = (v.color.r - 0.5) * 2.0 * DEPTH_RANGE_M;
-                float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
+                o.depth = depthM;
+                float dist = length(wpos - _WorldSpaceCameraPos);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
                 return o;
@@ -171,7 +241,26 @@ Shader "PSX/Water"
                 // A normal from the two sheets: where one is brighter than the
                 // other the surface leans. Cheap, and it moves with them.
                 float2 slope = float2(a.g - b.g, a.b - b.r) * NORMAL_GAIN;
-                float3 N = normalize(float3(slope.x, 1.0, slope.y));
+                // Plus the swell's own slope: the faces toward the sun light,
+                // the backs go dark, and the sky slides over the crests.
+                {
+                    float3 dummy = 0.0;
+                    float2 ws = 0.0;
+                    float2 wd = normalize(_WaveDir.xz + float2(1e-4, 0.0));
+                    float oc = i.swell.x;
+                    if (oc > 0.001)
+                    {
+                        float3 A = SWELL_A * oc;
+                        Gerstner(i.wpos.xz, Rot(wd, SWELL_SPREAD.x), A.x, SWELL_L.x, 0.0, t, dummy, ws);
+                        Gerstner(i.wpos.xz, Rot(wd, SWELL_SPREAD.y), A.y, SWELL_L.y, 0.0, t * 1.03, dummy, ws);
+                        Gerstner(i.wpos.xz, Rot(wd, SWELL_SPREAD.z), A.z, SWELL_L.z, 0.0, t * 0.97, dummy, ws);
+                        Gerstner(i.wpos.xz, Rot(wd, CHOP_SPREAD.x), CHOP_A.x * oc, CHOP_L.x, 0.0, t, dummy, ws);
+                        Gerstner(i.wpos.xz, Rot(wd, CHOP_SPREAD.y), CHOP_A.y * oc, CHOP_L.y, 0.0, t, dummy, ws);
+                    }
+                    Gerstner(i.wpos.xz, Rot(wd, 0.9), RIPPLE_A * i.swell.z, RIPPLE_L, 0.0, t, dummy, ws);
+                    slope += ws;
+                }
+                float3 N = normalize(float3(-slope.x, 1.0, -slope.y));
 
                 float3 toEye = _WorldSpaceCameraPos - i.wpos;
                 float eyeDist = length(toEye);
@@ -217,6 +306,10 @@ Shader "PSX/Water"
                 float grain = WaterHash(floor(i.wpos.xz * 6.0) + floor(t * 3.0));
                 float foamOn = step(grain, foam * foam * 1.3);
                 col = lerp(col, FOAM_COLOR * (light + lampD), foamOn);
+                // WHITECAPS: the swell breaking white along its crests, dithered.
+                float cap = saturate((i.swell.y - WHITECAP) / (1.0 - WHITECAP));
+                float capGrain = WaterHash(floor(i.wpos.xz * 3.0) + floor(t * 2.0) * 7.0);
+                col = lerp(col, FOAM_COLOR * light, step(capGrain, cap * cap * 0.9));
 
                 float3 fogCol = PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V);
                 col = lerp(col, fogCol, i.fog);

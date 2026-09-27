@@ -1821,7 +1821,15 @@ namespace PSXRacing.EditorTools
                     int i = Mathf.FloorToInt(fi);
                     float t = fi - i;
                     Vector3 c = Vector3.Lerp(path.GetPoint(i), path.GetPoint(i + 1), t);
-                    Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+                    // The right vector TURNS between stations, as the road
+                    // does. Held at segment i's and then snapped to i+1's, an
+                    // outside lane jumped forward at every waypoint - 1.5 m at
+                    // a 6 m hairpin - and the probe pair read the road's own
+                    // grade over that jump as a 0.13 m LAUNCH on flat tarmac
+                    // (Chimney Rock 1048-1052, NC 226's kerbs).
+                    Vector3 r0 = Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+                    Vector3 r1 = Vector3.Cross(Vector3.up, path.GetTangent(i + 1)).normalized;
+                    Vector3 right = Vector3.Slerp(r0, r1, t).normalized;
                     Vector3 at = c + right * lane;
 
                     // From only just above the road: a ray dropped from 4 m up

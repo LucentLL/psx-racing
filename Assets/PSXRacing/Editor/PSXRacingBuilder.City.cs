@@ -244,6 +244,7 @@ namespace PSXRacing.EditorTools
             mat.SetTexture("_DeepTex", AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Art/Water/water_1.png"));
             mat.SetColor("_Color", new Color(0.62f, 0.72f, 0.66f));   // a brown-green river, not a sea
             mat.SetColor("_SandColor", new Color(0.50f, 0.46f, 0.36f));
+            mat.SetFloat("_OceanWaves", 0f);   // a river takes the ripple, not a swell
             EditorUtility.SetDirty(mat);
             return mat;
         }

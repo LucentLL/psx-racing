@@ -6192,9 +6192,33 @@ namespace PSXRacing.EditorTools
                 mig.trackIndex = oldLsRev;
                 mig.bookings.Add(new RaceBooking { day = 3, trackIndex = oldLsRev });
                 LifeSimManager.Migrate(mig);
-                Check(mig.trackIndex == lsRev && mig.bookings[0].trackIndex == lsRev && mig.saveVersion == 18,
+                Check(mig.trackIndex == lsRev && mig.bookings[0].trackIndex == lsRev && mig.saveVersion == 19,
                       "a v17 save's LITTLE SWITZERLAND II is still that road after the migration",
                       TrackCatalog.At(mig.trackIndex).id);
+            }
+
+            // GILLESPIE GAP (v19): in the list, a sprint with a finish, and a
+            // v18 save's sprint section - which moved past Gillespie and its
+            // twin - is the same section after the migration.
+            {
+                int g = TrackCatalog.IndexOf("GillespieGap");
+                Check(g >= 0 && g < TrackCatalog.SceneCount && TrackCatalog.At(g).FinishIndex > 0,
+                      "Gillespie Gap is an authored sprint with a finish", g);
+                int now = TrackCatalog.IndexOf("SwissNC226ALowerRev");
+                int shift = 0;
+                foreach (var id in new[] { "GillespieGap", "GillespieGapRev" })
+                {
+                    int k = TrackCatalog.IndexOf(id);
+                    if (k >= 0 && k < now) shift++;
+                }
+                var mig18 = new LifeState { saveVersion = 18 };
+                mig18.trackIndex = now - shift;
+                mig18.bookings.Add(new RaceBooking { day = 3, trackIndex = now - shift });
+                LifeSimManager.Migrate(mig18);
+                Check(mig18.trackIndex == now && mig18.bookings[0].trackIndex == now && mig18.saveVersion == 19,
+                      "a v18 save's NC 226A LOWER II is still that section after the v19 migration",
+                      TrackCatalog.At(mig18.trackIndex).id);
+                Check(TrackCatalog.RemapV18Index(3) == 3, "and v18 authored indices stand");
             }
 
             // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
@@ -7887,6 +7911,18 @@ namespace PSXRacing.EditorTools
                 if (skin < 0 || skin >= def.SkinCount) unresolved++;
             }
             Check(unresolved == 0, "every catalog car resolves to a real shell and livery", unresolved);
+            // The owner's FlatSix Coupe (2026-09-26): every RUF - a 911 under
+            // the badge - and any Porsche 911 wears it.
+            {
+                int rufs = 0, flat = 0;
+                foreach (var c in CarCatalog.All)
+                {
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(c.name, @"RUF |Porsche.*911")) continue;
+                    rufs++;
+                    if (CarModelLibrary.KeyFor(c) == "flatsix_coupe") flat++;
+                }
+                Check(rufs >= 3 && flat == rufs, "every RUF and 911 wears the FlatSix Coupe", flat + " of " + rufs);
+            }
             Line($"  ..   {hand}/{CarCatalog.All.Count} hand-mapped, " +
                  $"{used.Count} of {CarModelLibrary.Models.Length} shells raced " +
                  "(the van and the work truck are scenery)");

@@ -2409,7 +2409,7 @@ namespace PSXRacing.EditorTools
                 $"); " +
                 $"{rsBankRuns.Count} cut faces over {cutM:0} m ({facedM:0} m faced in rock, " +
                 $"{gradedM:0} m graded to a 1V:{1f / RoadsideRules.BackSlope:0}H backslope; " +
-                $"{lowered} face heights landed lower on the hill behind them); " +
+                $"{lowered} face heights landed lower on the hill behind them; {stageCutsUnfaced} graded - a tight inside or a pocket behind); " +
                 $"{openM:0} m of open graded roadside" +
                 (catches.Count > 0
                     ? $" meeting the land {catches[catches.Count / 2]:0.00} m (p50) / {catches[catches.Count - 1]:0.00} m (max) past the tarmac edge"
@@ -2553,8 +2553,18 @@ namespace PSXRacing.EditorTools
             // The emitter's own carry (ShoulderCarry), knee and all.
             float carryE = endE, carryDy = endDy, kneeE = float.NaN, kneeDy = 0f;
             if (sloped && Ground(endE) < endDy)
+            {
                 ShoulderCarry(endE, endDy, fall, bendReach, ShoulderFoldReach(pts, i, side), ShoulderTailE, Ground,
-                              out kneeE, out kneeDy, out carryE, out carryDy, out _, out _, out _);
+                              out kneeE, out kneeDy, out carryE, out carryDy, out bool met, out _, out _);
+                // A FILL NO SLOPE CAN MEET is critical, and gets its barrier:
+                // the carry ran out of depth and neither tail (1V:2.5H over 12
+                // m, 1V:2.2H over 24) found the land, because the land falls
+                // away faster than anything the edge audit lets a slope be. The
+                // ribbon would otherwise end in the air and skirt straight down
+                // to the ground - a metre-high face nine metres out on NC 226's
+                // flat 10% fills.
+                if (!met) return true;
+            }
             float CarriedDy(float e) => !float.IsNaN(kneeE) && e > kneeE
                 ? kneeDy + (carryDy - kneeDy) * (e - kneeE) / Mathf.Max(carryE - kneeE, 1e-5f)
                 : endDy - fall * (e - endE);
@@ -2670,6 +2680,10 @@ namespace PSXRacing.EditorTools
         /// the plan lays that end again as a buried terminal
         /// (<paramref name="softened"/> newly marked).
         /// </summary>
+        /// <summary>Stations FinishStageCuts graded because a face could not
+        /// stand there (a tight inside, or a pocket behind it).</summary>
+        static int stageCutsUnfaced;
+
         static void FinishStageCuts(List<Vector3> pts, bool[][] softRock, out float facedM, out float gradedM,
                                     out int lowered, out int handOvers, out int softened)
         {
@@ -2681,6 +2695,7 @@ namespace PSXRacing.EditorTools
             var face = new List<bool>();
             var kerbHigh = new List<bool>();
             var landDy = new List<float>();
+            stageCutsUnfaced = 0;
             foreach (var (run, side) in rsBankRuns)
             {
                 int s = SideIx(side), L = run.Length;
@@ -2701,10 +2716,12 @@ namespace PSXRacing.EditorTools
                     // landed on the raw base there had road-height land behind
                     // it again.
                     float holds = h, firstE = CutToeE + BankTopSampleE[0];
+                    Vector2[] lastRing = null;
                     for (int it = 0; it < 2; it++)
                     {
                         float crestE = CutToeE + Mathf.Max(0f, h - BankPlinth) * BankBatter;
                         var ring = BankTopRing(pts, i, side, Mathf.Max(h, RoadLift), crestE, keep, false, false);
+                        lastRing = ring;
                         Vector2 far = ring[ring.Length - 1];
                         float y1 = Mathf.Min(ring[1].y, far.y + (far.x - ring[1].x) * RoadsideRules.TraversableSlope);
                         float y2 = Mathf.Min(ring[2].y, far.y + (far.x - ring[2].x) * RoadsideRules.TraversableSlope);
@@ -2721,7 +2738,53 @@ namespace PSXRacing.EditorTools
                     if (!reach && h < BankRiseM) h = Mathf.Min(holds, BankRiseM);
                     if (h < h0 - 0.01f) lowered++;
                     rsFaceH[s][i] = h;
-                    face.Add(h >= BankRiseM || !reach);
+                    bool faced = h >= BankRiseM || !reach;
+                    // NO ROCK FACE WHERE IT CANNOT STAND:
+                    //  * on an inside tighter than the cut's own section - toe,
+                    //    collider depth and a metre - the rings fold through
+                    //    the turn's centre (Chimney Rock's 6 m hairpins: an
+                    //    open wall solid, faces fanning into each other);
+                    //  * where the land a car would reach behind the collider -
+                    //    PocketBehindM past its back face - is within
+                    //    PocketBandM of the road: a face there only makes a
+                    //    pocket (the next leg of a switchback, climbing away
+                    //    four to ten metres further on, lets the rock top fall
+                    //    to road height behind it). Graded instead: the
+                    //    backslope climbs to what is there.
+                    if (faced && !rsCutHold[s][i])
+                    {
+                        bool tight = TightInside(pts, i, side, out float tr) &&
+                                     tr < RoadWidth * 0.5f + CutToeE + StageWallCollThick + 1f;
+                        // What stands there is the ROCK TOP where it reaches -
+                        // the grid behind a cut is held at ditch depth under it,
+                        // so the grid alone reads "road height" behind every
+                        // face (1,552 stations graded away when it was asked).
+                        float behindE = CutToeE - 0.05f + StageWallCollThick + RoadsideRules.PocketBehindM;
+                        float behindY = float.NaN;
+                        if (lastRing != null && lastRing.Length > 1 && lastRing[lastRing.Length - 1].x >= behindE)
+                            for (int q = 1; q < lastRing.Length; q++)
+                                if (lastRing[q].x >= behindE)
+                                {
+                                    float tq = Mathf.InverseLerp(lastRing[q - 1].x, lastRing[q].x, behindE);
+                                    behindY = Mathf.Lerp(lastRing[q - 1].y, lastRing[q].y, tq);
+                                    break;
+                                }
+                        if (float.IsNaN(behindY))
+                        {
+                            Vector3 bp = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + behindE));
+                            behindY = StageLatticeY(bp.x, bp.z);
+                        }
+                        float behindDy = behindY - (pts[i].y + RoadLift);
+                        // And where another leg of a switchback owns the hill
+                        // behind the collider (BankTopOwns), the rock top stops
+                        // short of it and the ground there is that leg's
+                        // roadside: a pocket, whatever the ring says.
+                        Vector3 bpo = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + behindE));
+                        bool foreign = !BankTopOwns(bpo, i, side);
+                        bool pocket = foreign || behindDy < RoadsideRules.PocketBandM + 0.05f;
+                        if (tight || pocket) { faced = false; stageCutsUnfaced++; }
+                    }
+                    face.Add(faced);
                     // Under BankRiseM a face stands only because the land is
                     // just out of the backslope's reach (land under 0.78 m).
                     kerbHigh.Add(h < BankRiseM && !rsCutHold[s][i]);
@@ -3043,6 +3106,13 @@ namespace PSXRacing.EditorTools
         /// <summary>The depth range PSX/Water reads out of vertex red: 0.5 at
         /// the waterline, +/- this many metres at 0 and 1.</summary>
         const float SeaDepthRangeM = 12f;
+        /// <summary>Land within this far toward the ocean shelters the water
+        /// (a sound behind an island): no swell. Past it the swell ramps up
+        /// over SeaOpenRampM.</summary>
+        const float SeaShelterM = 1500f, SeaOpenRampM = 1200f;
+        /// <summary>How far past the near ground band the open ocean is drawn
+        /// fine enough to roll.</summary>
+        const float SeaSwellReachM = 900f;
 
         /// <summary>How far the drawn ground stands under the sea plane at a
         /// point (negative on land): the near lattice where the near ground
@@ -3091,6 +3161,55 @@ namespace PSXRacing.EditorTools
             var uvs = new List<Vector2>();
             var tris = new List<int>();
             var depthAt = new Dictionary<long, float>();
+
+            // HOW OPEN TO THE OCEAN each point is (vertex green, PSX/Water's
+            // swell): march from it toward the ocean's bearing and see whether
+            // land comes first. Land inside SeaShelterM - an island between it
+            // and the ocean - is a sound, and flat; none inside
+            // SeaShelterM + SeaOpenRampM is the open sea. Measured on the DEM
+            // (a land/water question at 75 m steps), at the coarse grid's
+            // corners, and interpolated between.
+            bool hasOcean = theme.oceanBearingDeg >= 0f;
+            Vector2 toOcean = hasOcean
+                ? new Vector2(Mathf.Sin(theme.oceanBearingDeg * Mathf.Deg2Rad), Mathf.Cos(theme.oceanBearingDeg * Mathf.Deg2Rad))
+                : Vector2.zero;
+            var openAt = new Dictionary<long, float>();
+            float OpenCorner(int c, int r)
+            {
+                long key = ((long)c << 32) ^ (uint)r;
+                if (openAt.TryGetValue(key, out float o)) return o;
+                o = 0f;
+                if (hasOcean)
+                {
+                    float x = minX + c * SeaCell, z = minZ + r * SeaCell;
+                    float landAt = SeaShelterM + SeaOpenRampM;
+                    if (StageDemY(x, z) > y + 0.2f) landAt = 0f;
+                    else
+                        for (float m = 75f; m < SeaShelterM + SeaOpenRampM; m += 75f)
+                        {
+                            float px = x + toOcean.x * m, pz = z + toOcean.y * m;
+                            // Past the DEM's edge is open water, not the edge
+                            // row stretched out to the horizon - DemBilinear
+                            // clamps, and a clamped beach read as land walled
+                            // the whole Atlantic off as a "sound".
+                            var fm = demFarMeta;
+                            if (px < fm.originX || px > fm.originX + (fm.cols - 1) * fm.cell ||
+                                pz < fm.originZ || pz > fm.originZ + (fm.rows - 1) * fm.cell) break;
+                            if (StageDemY(px, pz) > y + 0.2f) { landAt = m; break; }
+                        }
+                    o = Mathf.Clamp01((landAt - SeaShelterM) / SeaOpenRampM);
+                }
+                openAt[key] = o;
+                return o;
+            }
+            float Open(float wx, float wz)
+            {
+                float fx = (wx - minX) / SeaCell, fz = (wz - minZ) / SeaCell;
+                int c = Mathf.Clamp(Mathf.FloorToInt(fx), 0, cols - 1), r = Mathf.Clamp(Mathf.FloorToInt(fz), 0, rows - 1);
+                float u = Mathf.Clamp01(fx - c), w = Mathf.Clamp01(fz - r);
+                return Mathf.Lerp(Mathf.Lerp(OpenCorner(c, r), OpenCorner(c + 1, r), u),
+                                  Mathf.Lerp(OpenCorner(c, r + 1), OpenCorner(c + 1, r + 1), u), w);
+            }
             float Depth(float wx, float wz)
             {
                 long key = ((long)Mathf.RoundToInt(wx * 4f) << 32) ^ (uint)Mathf.RoundToInt(wz * 4f);
@@ -3102,7 +3221,7 @@ namespace PSXRacing.EditorTools
                 float d = Depth(wx, wz);
                 byte red = (byte)Mathf.RoundToInt(Mathf.Clamp01(0.5f + d / (2f * SeaDepthRangeM)) * 255f);
                 verts.Add(new Vector3(wx, y, wz));
-                cols32.Add(new Color32(red, 0, 0, 255));
+                cols32.Add(new Color32(red, (byte)Mathf.RoundToInt(Open(wx, wz) * 255f), 0, 255));
                 uvs.Add(new Vector2(wx / theme.waterTile, wz / theme.waterTile));
             }
             void Grid(float ox, float oz, float size, int n)
@@ -3120,7 +3239,7 @@ namespace PSXRacing.EditorTools
                     }
             }
 
-            int open = 0, shore = 0, land = 0;
+            int open = 0, shore = 0, land = 0, swellCells = 0;
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
                 {
@@ -3135,9 +3254,15 @@ namespace PSXRacing.EditorTools
                     if (hi < -1f) { land++; continue; }
                     // Shore detail only where it can be seen: out past the near
                     // ground the foam line is under a pixel and in the fog.
-                    bool nearRoad = RouteDistanceCoarse(ox + SeaCell * 0.5f, oz + SeaCell * 0.5f) <
-                                    NearCoverage + SeaCell;
-                    if (lo >= SeaShallowM || !nearRoad) { Grid(ox, oz, SeaCell, 1); open++; }
+                    float routeD = RouteDistanceCoarse(ox + SeaCell * 0.5f, oz + SeaCell * 0.5f);
+                    bool nearRoad = routeD < NearCoverage + SeaCell;
+                    // The open ocean within sight of the road rolls: it needs
+                    // vertices a swell can move (SeaFineCell against a 23-88 m
+                    // swell).
+                    bool swell = hasOcean && routeD < NearCoverage + SeaSwellReachM &&
+                                 Open(ox + SeaCell * 0.5f, oz + SeaCell * 0.5f) > 0.05f;
+                    if (swell) swellCells++;
+                    if ((lo >= SeaShallowM || !nearRoad) && !swell) { Grid(ox, oz, SeaCell, 1); open++; }
                     else { Grid(ox, oz, SeaCell, sub); shore++; }
                 }
             if (verts.Count == 0) return;
@@ -3158,6 +3283,9 @@ namespace PSXRacing.EditorTools
             // NO COLLIDER, deliberately. A car that goes over the parapet
             // should end up in the sound, and StuckRecovery is what brings it
             // back; a collider here would let it drive on the water instead.
+            int openVerts = 0;
+            foreach (var c32 in cols32) if (c32.g > 127) openVerts++;
+            Log($"Stage sea swell: {swellCells} cells drawn fine for it; {openVerts} of {cols32.Count} verts open to the ocean.");
             Log($"Stage sea: {open} open + {shore} shore cells ({land} land cells skipped) at y={y:0.0}, " +
                 $"{verts.Count} verts, PSX/Water.");
         }
@@ -3180,6 +3308,11 @@ namespace PSXRacing.EditorTools
             mat.SetTexture("_DeepTex", AssetDatabase.LoadAssetAtPath<Texture2D>(deepTex));
             mat.SetColor("_Color", theme.waterDeepTint);
             mat.SetColor("_SandColor", theme.waterSandColor);
+            // The swell travels AWAY from the ocean's bearing - toward the shore.
+            bool ocean = theme.oceanBearingDeg >= 0f;
+            float b = theme.oceanBearingDeg * Mathf.Deg2Rad;
+            mat.SetFloat("_OceanWaves", ocean ? 1f : 0f);
+            mat.SetVector("_WaveDir", ocean ? new Vector4(-Mathf.Sin(b), 0f, -Mathf.Cos(b), 0f) : new Vector4(0f, 0f, 1f, 0f));
             EditorUtility.SetDirty(mat);
             return mat;
         }
