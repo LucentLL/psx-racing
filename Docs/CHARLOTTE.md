@@ -483,6 +483,47 @@ alike). The city part:
   5-11 cm over the lower road at a handful of steep gore noses; 41
   buildings are missing where a road runs through their footprint.
 
+## The test page (2026-09-28)
+
+The Charlotte refinement is built on the `charlotte` branch and tested on
+its own page until it is merged into the game (owner decision, 2026-09-28):
+
+- **https://lucentll.github.io/psx-racing/city/** is published with
+  `tools\build-and-publish.ps1 -PagesDir city`, with
+  `$env:PSX_SANDBOX='C:\Users\mcgee\PSXCity'` (the branch's own sandbox,
+  never `PSXBuild`). The game stays at the site root.
+- **Neither publish wipes the other.** gh-pages is still one orphan commit,
+  force-pushed each time, so its history never grows (each build is about
+  85 MB). But every publish now reads the live gh-pages first (trees only,
+  under a second, no build bytes downloaded) and replaces only its own part:
+  `-PagesDir city` replaces `city/` and keeps everything else, and a root
+  publish keeps `city/` (`-KeepDirs`, default `city`) plus any folder holding
+  a `psx-subpage.txt`. Before pushing, it checks that every kept entry has
+  the same git hash (so the same bytes). It pushes with a lease against the
+  commit it read, so a publish that lands in between makes it start again
+  instead of being overwritten.
+- **Main needs the root half too.** Until the commit "Publish keeps gh-pages
+  test folders" is on `main`, a publish from `main` runs the old script and
+  wipes `/city/`.
+- **The page says it is a test.** The tab title is "PSX Racing - CHARLOTTE
+  TEST", and a tag at the top of the loading screen shows the branch, commit
+  and build time. `curl .../city/psx-subpage.txt` gives the same details.
+- `-DryRun` does all of it against the live gh-pages and then stops before
+  the push. It prints what is kept, replaced and removed, the changes per
+  folder, and the upload size.
+- **Saves are separate (measured).** The career is PlayerPrefs, which Unity's
+  WebGL runtime keeps in the origin's `/idbfs` IndexedDB under
+  `/idbfs/<md5 of the page URL up to its last '/'>/PlayerPrefs`. With the
+  published tree served locally, a new career on `/` went to
+  `/idbfs/573c4e13...` (md5 of `http://127.0.0.1:8765`) and one on `/city/`
+  to `/idbfs/c07f8b88...` (md5 of `http://127.0.0.1:8765/city`). Each page
+  reloaded its own career: $407 at the root, $1,266 (the Civic) on /city/.
+  Live, the two folders are md5 of
+  `https://lucentll.github.io/psx-racing` (`bcbc7f3e...`) and md5 of `.../city`
+  (`2bcb837e...`). Two things are shared by origin: the fullscreen choice
+  (localStorage `psx.fullscreen`), and Unity's data cache. The cache is keyed
+  by URL, so a phone that plays both pages stores two data files.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

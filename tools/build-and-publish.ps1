@@ -39,9 +39,34 @@
 # is ~80 MB). The force is a --force-with-lease against the commit this run
 # fetched, so two publishes racing cannot silently wipe each other: the loser
 # is refused, re-fetches and stages again.
+#
+# A TEST PAGE IN A SUBFOLDER (the Charlotte branch):
+#
+#   ...            -File tools\build-and-publish.ps1 -PagesDir city
+#                  -> https://lucentll.github.io/psx-racing/city/
+#
+# -PagesDir publishes the build into that one folder of gh-pages and keeps
+# EVERYTHING else exactly as it is (the game at the root, other test folders).
+# The page is labelled so nobody mistakes it for the game: " - CHARLOTTE TEST"
+# on the tab title and a tag on the loading screen (-PagesLabel overrides the
+# text; the default for any other folder is "<FOLDER> TEST"). It also writes
+# <folder>/psx-subpage.txt - the marker a root publish keeps a folder by - with
+# the source branch and commit, so `curl .../city/psx-subpage.txt` says which
+# build is up.
+#
+# SAVES DO NOT COLLIDE. Both pages share an origin (lucentll.github.io), but
+# the game saves through PlayerPrefs, which Unity's WebGL runtime keeps in the
+# origin's "/idbfs" IndexedDB under /idbfs/<md5 of the page's folder URL>/ -
+# so /psx-racing/ and /psx-racing/city/ are two separate saves (the framework
+# hands the native side document.URL; checked in a browser, see
+# Docs/CHARLOTTE.md "The test page"). Shared on purpose: only the fullscreen
+# preference (localStorage "psx.fullscreen", per origin). Unity's data cache
+# is keyed by URL, so a phone that plays both keeps two copies of the data.
 param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$DryRun,
       [string]$BuildDir = "",
+      [string]$PagesDir = "",
+      [string]$PagesLabel = "",
       [string[]]$KeepDirs = @("city"),
       [string]$StageDir = "",
       # For offline tests against a local bare repo (file:///...). The live
@@ -60,6 +85,19 @@ $liveUrl    = "https://lucentll.github.io/psx-racing/"
 if ($BuildDir -and -not $SkipBuild) {
     Write-Host "-BuildDir publishes an existing WebGL output, so it needs -SkipBuild (a build always writes to $proj\Build\WebGL)." -ForegroundColor Red
     exit 1
+}
+# Checked BEFORE a forty-minute build, not after it.
+if ($PagesDir) {
+    if ($PagesDir -cnotmatch '^[a-z0-9][a-z0-9-]*$' -or @("build", "streamingassets", "templatedata") -contains $PagesDir) {
+        Write-Host "-PagesDir '$PagesDir' must be one lowercase folder name (a-z, 0-9, -), and not one the root build writes." -ForegroundColor Red
+        exit 1
+    }
+    if (-not $PagesLabel) { $PagesLabel = if ($PagesDir -eq "city") { "CHARLOTTE TEST" } else { $PagesDir.ToUpper() + " TEST" } }
+    if ($PagesLabel -notmatch '^[A-Za-z0-9 .:_-]{1,32}$') {
+        Write-Host "-PagesLabel '$PagesLabel' must be 1-32 plain characters (letters, digits, space . : _ -)." -ForegroundColor Red
+        exit 1
+    }
+    $pages = "$pages-$PagesDir"
 }
 
 # Unity.exe is a launcher: it spawns the real editor and returns immediately, so
@@ -275,7 +313,8 @@ if (-not $SkipDeploy) {
         Show-AuditWaiver
     }
     $how = if ($DryRun) { "DRY RUN (stage and show; nothing is pushed)" } else { "Publishing" }
-    Write-Host "[3/3] $how to gh-pages from $build" -ForegroundColor Cyan
+    $where = if ($PagesDir) { "gh-pages/$PagesDir/ (test page; the rest of gh-pages is kept)" } else { "gh-pages/ (root)" }
+    Write-Host "[3/3] $how to $where from $build" -ForegroundColor Cyan
     if (-not (Test-Path "$build\index.html")) { Write-Host "No build to deploy." -ForegroundColor Red; exit 1 }
 
     # -File hands "-KeepDirs city,lab" over as ONE string; split it here.
@@ -388,6 +427,49 @@ if (-not $SkipDeploy) {
         return [pscustomobject]@{ Names = $names; Stamp = $stamp; DataFile = $dataFile }
     }
 
+    # What the source tree was at publish time, for the label and the marker.
+    # (The build itself came from the sandbox's last mirror of it.)
+    $srcNote = "source unknown"
+    $r1 = Invoke-GitOut @("-C", $src, "rev-parse", "--short", "HEAD") -AllowFail
+    $r2 = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
+    if ($r1.Code -eq 0 -and $r2.Code -eq 0) {
+        $r3 = Invoke-GitOut @("-C", $src, "status", "--porcelain", "--untracked-files=no") -AllowFail
+        $dirty = @($r3.Out | Where-Object { $_ -and $_ -notmatch '^warning:' }).Count -gt 0
+        $srcNote = "$($r2.Out[0].Trim())@$($r1.Out[0].Trim())" + $(if ($dirty) { "+uncommitted" } else { "" })
+    }
+
+    # A TEST PAGE MUST SAY SO. " - <label>" on the tab title, and a tag at
+    # the top of the loading screen with the source and the build time, so
+    # the owner can tell at a glance which build he is on. Put in by anchor
+    # and checked; a template that lost either anchor stops the publish
+    # rather than shipping an unlabelled test build.
+    function Add-PagesLabel([string]$idx, [string]$stamp) {
+        $html = [IO.File]::ReadAllText($idx, $utf8NoBom)
+        $t = [regex]::Match($html, '<title>([^<]*)</title>')
+        $anchor = '<div id="splash">'
+        if (-not $t.Success -or -not $html.Contains($anchor)) {
+            Write-Host "CANNOT LABEL THE TEST PAGE - index.html has no <title> or no <div id=`"splash`"> (did the WebGL template change?). Not publishing an unlabelled test build." -ForegroundColor Red
+            exit 1
+        }
+        $html = $html.Substring(0, $t.Index) + "<title>" + $t.Groups[1].Value + " - " + $PagesLabel + "</title>" + $html.Substring($t.Index + $t.Length)
+        $built = [DateTime]::ParseExact($stamp, "yyyyMMddHHmmss", [Globalization.CultureInfo]::InvariantCulture).ToString("yyyy-MM-dd HH:mm")
+        $sub = [Net.WebUtility]::HtmlEncode("$srcNote - built $built UTC")
+        $tag = '<div id="pages-tag" style="position:absolute;top:calc(14px + env(safe-area-inset-top, 0px));left:50%;' +
+               'transform:translateX(-50%);width:max-content;max-width:92vw;box-sizing:border-box;padding:5px 12px;border:2px solid #ffd766;' +
+               'background:#000000aa;color:#ffd766;text-align:center;pointer-events:none;">' +
+               '<div style="font-size:13px;font-weight:800;letter-spacing:.22em;white-space:nowrap;">' + $PagesLabel + '</div>' +
+               '<div style="font-size:10px;font-weight:600;letter-spacing:.08em;opacity:.8;margin-top:3px;">' + $sub + '</div></div>'
+        $i = $html.IndexOf($anchor) + $anchor.Length
+        $html = $html.Insert($i, "`n    " + $tag)
+        [IO.File]::WriteAllText($idx, $html, $utf8NoBom)
+        $check = [IO.File]::ReadAllText($idx, $utf8NoBom)
+        if (-not $check.Contains(" - $PagesLabel</title>") -or -not $check.Contains('id="pages-tag"')) {
+            Write-Host "LABEL CHECK FAILED - the test page would not say it is a test page." -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  label: '$PagesLabel' on the tab title and the loading screen ($srcNote)"
+    }
+
     # Orphan branch, force-pushed: the build is ~80 MB and committing each
     # iteration onto a normal branch would grow history by that much every time.
     #
@@ -430,56 +512,100 @@ if (-not $SkipDeploy) {
             exit 1
         }
 
-        # 2. WHAT STAYS. A root publish owns the root; the test folders beside
-        # it are not its to replace.
+        # 2. WHAT STAYS.
+        #   Root publish: the root is ours; the test folders beside it
+        #     (-KeepDirs, or holding a psx-subpage.txt) are not.
+        #   -PagesDir: only that one folder is ours; EVERYTHING else stays.
         $kept = @(); $dropped = @()
         if ($base) {
             foreach ($l in (Invoke-GitOut @("-C", $stage, "ls-tree", $base)).Out) {
                 if ($l -notmatch '^(\d+) (\w+) ([0-9a-f]+)\t(.+)$') { continue }
                 $type = $Matches[2]; $sha = $Matches[3]; $name = $Matches[4]
                 $keep = $false
-                if ($type -eq "tree") {
+                if ($PagesDir) {
+                    $keep = ($name -ne $PagesDir)
+                } elseif ($type -eq "tree") {
                     if ($KeepDirs -contains $name) { $keep = $true }
                     else {
                         $mk = Invoke-GitOut @("-C", $stage, "ls-tree", "--name-only", $base, "--", "$name/psx-subpage.txt")
                         if ($mk.Text.Trim()) { $keep = $true }
                     }
                 }
-                if ($keep) { $kept += [pscustomobject]@{ Name = $name; Sha = $sha } }
-                elseif ($type -eq "tree") { $dropped += "$name/" }
-                else { $dropped += $name }
+                $shown = if ($type -eq "tree") { "$name/" } else { $name }
+                if ($keep) { $kept += [pscustomobject]@{ Name = $name; Sha = $sha; Type = $type; Shown = $shown } }
+                else { $dropped += $shown }
             }
         }
-        foreach ($k in $kept) {
-            Invoke-Git @("-C", $stage, "read-tree", "--prefix=$($k.Name)/", $k.Sha)
+        if ($PagesDir) {
+            # The whole live tree into the index, minus our folder. None of it
+            # is on disk and none of it needs to be.
+            if ($base) {
+                Invoke-Git @("-C", $stage, "read-tree", $base)
+                Invoke-Git @("-C", $stage, "rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--", $PagesDir)
+            }
+        } else {
+            foreach ($k in $kept) {
+                Invoke-Git @("-C", $stage, "read-tree", "--prefix=$($k.Name)/", $k.Sha)
+            }
         }
 
-        # 3. THE NEW BUILD, at the root.
-        $st = Stage-Build $stage
-        $newNames = @($st.Names) + ".nojekyll"
-        foreach ($k in $kept) {
-            if ($newNames -contains $k.Name) {
-                Write-Host "THE BUILD WRITES A TOP-LEVEL '$($k.Name)' AND gh-pages KEEPS A TEST FOLDER OF THAT NAME - refusing to merge them." -ForegroundColor Red
-                exit 1
+        # 3. THE NEW BUILD: at the root, or into -PagesDir (labelled, marked).
+        $target = if ($PagesDir) { Join-Path $stage $PagesDir } else { $stage }
+        $st = Stage-Build $target
+        if ($PagesDir) {
+            Add-PagesLabel (Join-Path $target "index.html") $st.Stamp
+            $marker = @(
+                "PSX Racing test build: tools\build-and-publish.ps1 -PagesDir $PagesDir",
+                "A root publish (no -PagesDir) keeps every gh-pages folder holding this file.",
+                "label: $PagesLabel",
+                "source at publish: $srcNote",
+                "build stamp: $($st.Stamp) (the ?v= on this folder's index.html)",
+                ("published: " + [DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + " UTC")
+            ) -join "`n"
+            [IO.File]::WriteAllText((Join-Path $target "psx-subpage.txt"), $marker + "`n", $utf8NoBom)
+            $newNames = @($PagesDir)
+            # A subfolder publish onto a site with no root still needs this.
+            if (-not @($kept | Where-Object { $_.Name -eq ".nojekyll" }).Count) {
+                New-Item -ItemType File -Force "$stage\.nojekyll" | Out-Null
+                $newNames += ".nojekyll"
             }
+        } else {
+            $newNames = @($st.Names) + ".nojekyll"
+            foreach ($k in $kept) {
+                if ($newNames -contains $k.Name) {
+                    Write-Host "THE BUILD WRITES A TOP-LEVEL '$($k.Name)' AND gh-pages KEEPS A TEST FOLDER OF THAT NAME - refusing to merge them." -ForegroundColor Red
+                    exit 1
+                }
+            }
+            # Without this, Pages runs Jekyll and drops anything starting with an underscore.
+            New-Item -ItemType File -Force "$stage\.nojekyll" | Out-Null
         }
-        # Without this, Pages runs Jekyll and drops anything starting with an underscore.
-        New-Item -ItemType File -Force "$stage\.nojekyll" | Out-Null
-        # Named paths only, never -A: the kept folders are in the index but not
+        # Named paths only, never -A: the kept entries are in the index but not
         # on disk, and -A would record them as deleted.
         Invoke-Git (@("-C", $stage, "add", "--") + $newNames)
         $tree = (Invoke-GitOut @("-C", $stage, "write-tree")).Out[0].Trim()
 
-        # 4. PROVE IT BEFORE IT LEAVES. Every kept folder is the SAME TREE
-        # (same hash = same bytes, all of them), and the new page is there.
+        # 4. PROVE IT BEFORE IT LEAVES. Every kept entry is the SAME OBJECT
+        # (same hash = same bytes, all of them), nothing appeared beside a
+        # subfolder publish, and the new page is there.
         foreach ($k in $kept) {
             $now = (Invoke-GitOut @("-C", $stage, "rev-parse", "$($tree):$($k.Name)")).Out[0].Trim()
             if ($now -ne $k.Sha) {
-                Write-Host "KEPT FOLDER $($k.Name)/ WOULD CHANGE ($($k.Sha) -> $now) - refusing to push." -ForegroundColor Red
+                Write-Host "KEPT ENTRY $($k.Shown) WOULD CHANGE ($($k.Sha) -> $now) - refusing to push." -ForegroundColor Red
                 exit 1
             }
         }
-        $need = @("index.html", "Build/$($st.DataFile)")
+        if ($PagesDir) {
+            $tops = @((Invoke-GitOut @("-C", $stage, "ls-tree", "--name-only", $tree)).Out | Where-Object { $_ })
+            $allowed = @($kept | ForEach-Object { $_.Name }) + @($PagesDir, ".nojekyll")
+            $extra = @($tops | Where-Object { $allowed -notcontains $_ })
+            if ($extra.Count) {
+                Write-Host "A -PagesDir PUBLISH WOULD ADD $($extra -join ', ') BESIDE $PagesDir/ - refusing to push." -ForegroundColor Red
+                exit 1
+            }
+        }
+        $pre = if ($PagesDir) { "$PagesDir/" } else { "" }
+        $need = @("${pre}index.html", "${pre}Build/$($st.DataFile)")
         $have = @((Invoke-GitOut (@("-C", $stage, "ls-tree", "-r", "--name-only", $tree, "--") + $need)).Out | Where-Object { $_ })
         if ($have.Count -ne $need.Count) {
             Write-Host "THE NEW TREE LACKS $($need -join ' or ') - refusing to push." -ForegroundColor Red
@@ -497,17 +623,31 @@ if (-not $SkipDeploy) {
             Write-Host "  WARN: $($b.Name) is $mib MiB, over the 95 MiB ratchet." -ForegroundColor Yellow
         }
 
-        $keptNote = if ($kept.Count) { " (kept: " + (($kept | ForEach-Object { "$($_.Name)/" }) -join ", ") + ")" } else { "" }
-        $msg = "Deploy PSX Racing WebGL build to /$keptNote"
+        if ($PagesDir) {
+            $msg = "Deploy PSX Racing test build to /$PagesDir/ ($PagesLabel, $srcNote)"
+        } else {
+            $keptNote = if ($kept.Count) { " (kept: " + (($kept | ForEach-Object { $_.Shown }) -join ", ") + ")" } else { "" }
+            $msg = "Deploy PSX Racing WebGL build to /$keptNote"
+        }
         $commit = (Invoke-GitOut @("-C", $stage, "commit-tree", $tree, "-m", $msg)).Out[0].Trim()
 
         # 5. SAY WHAT IS ABOUT TO HAPPEN.
-        Write-Host "  publishing   : / (the game, v=$($st.Stamp))"
+        if ($PagesDir) {
+            Write-Host "  publishing   : /$PagesDir/ ($PagesLabel, v=$($st.Stamp), source $srcNote)"
+        } else {
+            Write-Host "  publishing   : / (the game, v=$($st.Stamp))"
+        }
         if ($kept.Count) {
             foreach ($k in $kept) {
-                $n = @((Invoke-GitOut @("-C", $stage, "ls-tree", "-r", "--name-only", $k.Sha)).Out | Where-Object { $_ }).Count
-                Write-Host ("  kept as is   : {0}/  (tree {1}, {2} file(s), byte-identical)" -f $k.Name, $k.Sha.Substring(0, 7), $n)
+                if ($k.Type -eq "tree") {
+                    $n = @((Invoke-GitOut @("-C", $stage, "ls-tree", "-r", "--name-only", $k.Sha)).Out | Where-Object { $_ }).Count
+                    Write-Host ("  kept as is   : {0,-14} (tree {1}, {2} file(s), byte-identical)" -f $k.Shown, $k.Sha.Substring(0, 7), $n)
+                } else {
+                    Write-Host ("  kept as is   : {0,-14} (blob {1}, byte-identical)" -f $k.Shown, $k.Sha.Substring(0, 7))
+                }
             }
+        } elseif ($PagesDir) {
+            Write-Host "  kept as is   : (gh-pages holds nothing else)"
         } else {
             Write-Host "  kept as is   : (no test folders on gh-pages)"
         }
@@ -589,24 +729,29 @@ if (-not $SkipDeploy) {
             # Pages serves a push in ~20-60 s. Ask for index.html past the CDN
             # cache and look for THIS build's stamp.
             [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-            $pageUrl = $liveUrl
+            $pageUrl = if ($PagesDir) { "$liveUrl$PagesDir/" } else { $liveUrl }
+            $want = @("?v=$($st.Stamp)")
+            if ($PagesDir) { $want += 'id="pages-tag"' }
             $seen = $false
             $deadline = (Get-Date).AddMinutes(4)
             while (-not $seen -and (Get-Date) -lt $deadline) {
                 Start-Sleep -Seconds 15
                 try {
                     $r = Invoke-WebRequest -Uri ($pageUrl + "index.html?nocache=" + [DateTime]::UtcNow.Ticks) -UseBasicParsing -TimeoutSec 30
-                    if ($r.Content.Contains("?v=$($st.Stamp)")) { $seen = $true }
+                    $seen = -not @($want | Where-Object { -not $r.Content.Contains($_) }).Count
                 } catch {}
             }
             if ($seen) { Write-Host "  live         : $pageUrl serves v=$($st.Stamp)" -ForegroundColor Green }
             else { Write-Host "  NOT CONFIRMED: after 4 min $pageUrl does not serve v=$($st.Stamp) yet. Pages can lag - check again before calling it live." -ForegroundColor Yellow }
-            foreach ($k in $kept) {
+            # And what this publish kept is still there: the game beside a test
+            # page, the test folders beside the game.
+            $others = if ($PagesDir) { @("") } else { @($kept | ForEach-Object { "$($_.Name)/" }) }
+            foreach ($o in $others) {
                 try {
-                    $r = Invoke-WebRequest -Uri ($liveUrl + $k.Name + "/?nocache=" + [DateTime]::UtcNow.Ticks) -UseBasicParsing -TimeoutSec 30
-                    Write-Host "  still served : $liveUrl$($k.Name)/ ($($r.StatusCode))" -ForegroundColor Green
+                    $r = Invoke-WebRequest -Uri ($liveUrl + $o + "?nocache=" + [DateTime]::UtcNow.Ticks) -UseBasicParsing -TimeoutSec 30
+                    Write-Host "  still served : $liveUrl$o ($($r.StatusCode))" -ForegroundColor Green
                 } catch {
-                    Write-Host "  WARN: $liveUrl$($k.Name)/ did not answer: $($_.Exception.Message)" -ForegroundColor Yellow
+                    Write-Host "  WARN: $liveUrl$o did not answer: $($_.Exception.Message)" -ForegroundColor Yellow
                 }
             }
             Write-Host "`nLive: $pageUrl" -ForegroundColor Green
