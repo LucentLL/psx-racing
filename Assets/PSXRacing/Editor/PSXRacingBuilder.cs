@@ -7373,13 +7373,17 @@ namespace PSXRacing.EditorTools
             chase.rotationLagDrift = ChaseCamera.DefaultRotationLagDrift;
             chase.aimVelBlendMax = ChaseCamera.DefaultAimVelBlendMax;
             chase.aimSlipFullRad = ChaseCamera.DefaultAimSlipFullRad;
-            chase.speedFOV = ChaseCamera.DefaultChaseSpeedFOV;
             chase.velFilterGrip = ChaseCamera.DefaultVelFilterGrip;
             chase.velFilterDrift = ChaseCamera.DefaultVelFilterDrift;
             chase.speedFullMps = ChaseCamera.DefaultSpeedFullMps;
-            chase.speedLookAhead = ChaseCamera.DefaultSpeedLookAhead;
-            camGO.transform.position = player.transform.position - player.transform.forward * 5.4f + Vector3.up * 1.8f;
-            camGO.transform.rotation = Quaternion.LookRotation(player.transform.forward);
+            // Where the chase view stands (and its FOV pull) is no longer a
+            // field to stamp: it is fitted per car and screen in code
+            // (ChaseCamera.Fit). The baked pose is just that fit for this
+            // scene's grid car at 16:9, so the editor opens on the game's view.
+            ChaseCamera.SteadyPose(ChaseCamera.View.Chase, ChaseCamera.RefAspect, 0f, ChaseCamera.DefaultSpeedFullMps,
+                                   player.transform, ChaseCamera.FrameOf(player.gameObject), default,
+                                   out Vector3 camPos, out Quaternion camRot, out _, out _);
+            camGO.transform.SetPositionAndRotation(camPos, camRot);
 
             var output = camGO.AddComponent<PSXCameraOutput>();
             // The serialized value is what a scene opened in the editor uses;

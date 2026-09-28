@@ -115,19 +115,16 @@ namespace PSXRacing.EditorTools
                     lights.PreviewBuild(true);
             }
 
-            // The far chase view, reconstructed the way CaptureCameras does.
+            // The far chase view at rest, through the game's own fit
+            // (ChaseCamera.SteadyPose), the way CaptureCameras frames it. No
+            // lens shift: the tunnel focus is measured on the unshifted frame.
             var t = player.transform;
-            var box = player.GetComponent<BoxCollider>();
-            Vector3 size = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
-            Vector3 fwd = t.forward; fwd.y = 0f;
-            fwd = fwd.sqrMagnitude > 0.01f ? fwd.normalized : Vector3.forward;
-            float fit = Mathf.Clamp(size.z / 4.1f, 0.9f, 1.3f);
             ChaseCamera.PreviewView(ChaseCamera.View.Chase);
-            ChaseCamera.ChaseParams(ChaseCamera.View.Chase, out float dm, out float hm, out float lm);
-            Vector3 pos = t.position - fwd * (5.4f * fit * dm) + Vector3.up * (1.8f * hm);
-            cam.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(
-                t.position + Vector3.up * (0.9f * lm) + fwd * 1.5f - pos, Vector3.up));
-            cam.fieldOfView = ChaseCamera.ViewFOV(ChaseCamera.View.Chase, 58f);
+            ChaseCamera.SteadyPose(ChaseCamera.View.Chase, w / (float)h, 0f, ChaseCamera.DefaultSpeedFullMps, t,
+                                   ChaseCamera.FrameOf(player), default,
+                                   out Vector3 pos, out Quaternion rot, out float chaseFov, out _);
+            cam.transform.SetPositionAndRotation(pos, rot);
+            cam.fieldOfView = chaseFov;
 
             int fails = 0;
             // The owner's four speeds, and the last of them is as far as the

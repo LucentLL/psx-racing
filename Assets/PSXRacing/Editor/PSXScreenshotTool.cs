@@ -216,18 +216,12 @@ namespace PSXRacing.EditorTools
             Debug.Log("[PSXShot] Garage shots written to " + OutDir);
         }
 
-        /// <summary>
-        /// The seven driving views on one circuit, and nothing else.
-        ///
-        /// The same argument as the garage pass: the cabin overlay is a dozen
-        /// fractions of the frame that can ONLY be judged by looking at the
-        /// picture, and iterating on them should not cost six circuits and a
-        /// seven-hour sweep per attempt.
-        /// </summary>
-        [MenuItem("PSX Racing/Capture Camera Views")]
         /// <summary>The car close up, every view and every hour, on the
         /// first circuit: the paint pass's reference shots, without the
-        /// eighteen-venue sweep. ~2 minutes.</summary>
+        /// eighteen-venue sweep. ~2 minutes. (This carried the "Capture Camera
+        /// Views" menu item until 2026-09-28; that item is CaptureCamerasOnly
+        /// now, which is what its name says.)</summary>
+        [MenuItem("PSX Racing/Capture Paint Shots")]
         public static void CapturePaintOnly()
         {
             Directory.CreateDirectory(OutDir);
@@ -258,11 +252,26 @@ namespace PSXRacing.EditorTools
             Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
         }
 
+        /// <summary>
+        /// The seven driving views on one circuit, and nothing else
+        /// (tools\camera-shots.ps1).
+        ///
+        /// The same argument as the garage pass: the cabin overlay is a dozen
+        /// fractions of the frame that can ONLY be judged by looking at the
+        /// picture, and iterating on them should not cost six circuits and a
+        /// seven-hour sweep per attempt. PSX_SHOT_VENUE picks another venue
+        /// by id.
+        /// </summary>
+        [MenuItem("PSX Racing/Capture Camera Views")]
         public static void CaptureCamerasOnly()
         {
             Directory.CreateDirectory(OutDir);
-            CaptureCameras(TrackCatalog.At(0));
-            Debug.Log("[PSXShot] Camera-view shots written to " + OutDir);
+            var def = TrackCatalog.At(0);
+            string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
+            if (!string.IsNullOrEmpty(only))
+                foreach (var d in TrackCatalog.All) if (d.id == only) { def = d; break; }
+            CaptureCameras(def);
+            Debug.Log("[PSXShot] Camera-view shots of " + def.id + " written to " + OutDir);
         }
 
         // ------------------------------------------------------------------
@@ -274,9 +283,15 @@ namespace PSXRacing.EditorTools
             string tag = def.id;
             var t = player.transform;
 
-            Vector3 eye = t.position - t.forward * 5.4f + Vector3.up * 1.9f;
-            Shot(cam, tag + "_1_chase", eye,
-                Quaternion.LookRotation(t.position + Vector3.up * 0.8f + t.forward * 2f - eye));
+            // The game's own chase pose for this car at rest (ChaseCamera.Fit),
+            // not a copy of numbers that drift the moment the rig is retuned.
+            ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, t,
+                                   ChaseCamera.FrameOf(player), default,
+                                   out Vector3 eye, out Quaternion eyeRot, out float eyeFov, out _);
+            float keepChaseFov = cam.fieldOfView;
+            cam.fieldOfView = eyeFov;
+            Shot(cam, tag + "_1_chase", eye, eyeRot);
+            cam.fieldOfView = keepChaseFov;
 
             Vector3 grid = t.TransformPoint(new Vector3(3.6f, 2.0f, 5.5f));
             Shot(cam, tag + "_2_grid34", grid,
@@ -896,7 +911,11 @@ namespace PSXRacing.EditorTools
         ///
         /// The chase views are reconstructed geometrically instead of by
         /// running the follow code: that code lerps by Time.deltaTime, which is
-        /// zero outside play mode, so the rig would never leave the car.
+        /// zero outside play mode, so the rig would never leave the car. They
+        /// go through ChaseCamera.SteadyPose — the pose Follow converges on —
+        /// so a retune of the rig moves these shots with it. (They used to be a
+        /// literal copy of the old 5.4 / 1.8 / 0.9 rig.) At rest and 16:9: the
+        /// framing at speed and on a phone is PSX Racing/Camera Framing Probe.
         /// </summary>
         static void CaptureCameras(TrackCatalog.TrackDef def)
         {
@@ -912,6 +931,7 @@ namespace PSXRacing.EditorTools
             Vector3 fwd = t.forward; fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 0.01f ? fwd.normalized : Vector3.forward;
             float fit = Mathf.Clamp(s.z / 4.1f, 0.9f, 1.3f);
+            var frame = ChaseCamera.FrameOf(player);
 
             var keepView = ChaseCamera.Current;
             foreach (ChaseCamera.View v in System.Enum.GetValues(typeof(ChaseCamera.View)))
@@ -944,10 +964,9 @@ namespace PSXRacing.EditorTools
                 {
                     case ChaseCamera.View.Chase:
                     case ChaseCamera.View.Close:
-                        ChaseCamera.ChaseParams(v, out float dm, out float hm, out float lm);
-                        pos = t.position - fwd * (5.4f * fit * dm) + Vector3.up * (1.8f * hm);
-                        rot = Quaternion.LookRotation(
-                            t.position + Vector3.up * (0.9f * lm) + fwd * 1.5f - pos, Vector3.up);
+                        ChaseCamera.SteadyPose(v, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, t, frame, default,
+                                               out pos, out rot, out float chaseFov, out _);
+                        cam.fieldOfView = chaseFov;
                         break;
                     case ChaseCamera.View.TopDown:
                         float h = 14f * fit;

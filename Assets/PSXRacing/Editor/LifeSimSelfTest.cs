@@ -9467,7 +9467,6 @@ namespace PSXRacing.EditorTools
 
             // ---- the camera rig --------------------------------------------
             float full = ChaseCamera.DefaultSpeedFullMps;
-            float pull = ChaseCamera.DefaultChaseSpeedFOV;
             Check(ChaseCamera.SpeedT(0f, full) == 0f, "the speed rig is fully off at rest");
             Check(Mathf.Approximately(ChaseCamera.SpeedT(full, full), 1f), "and fully wound in at 200 km/h");
             bool mono = true; float prevT = -1f;
@@ -9481,14 +9480,51 @@ namespace PSXRacing.EditorTools
             Check(ChaseCamera.SpeedT(10f, full) < 0.1f, "and nearly nothing at town speed (36 km/h)",
                   ChaseCamera.SpeedT(10f, full).ToString("0.000"));
 
-            float fovRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, pull, full);
-            float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, pull, full);
-            float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, pull, full);
-            Check(fovRest == 58f, "chase FOV at rest is the scene camera's 58", fovRest);
-            Check(fov100 > 60f && fov100 < 64f, "chase FOV at 100 km/h is ~62 — a pull you feel, not a lens you notice", fov100.ToString("0.0"));
-            Check(Mathf.Abs(fov200 - 66f) < 0.1f, "chase FOV at 200 km/h is 66 (was 76, which read as a boost effect)", fov200.ToString("0.0"));
-            float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, pull, full);
-            float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, pull, full);
+            // The chase pair's lenses are the NFS U / MW rig's (2026-09-28),
+            // not offsets from the scene's 58: FOVFor ignores baseFOV for them.
+            float fovRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, full);
+            float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, full);
+            float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, full);
+            Check(fovRest == 58f, "chase FOV at rest is 58 at 16:9 (MW05's far camera, hFOV 89)", fovRest);
+            Check(fov100 > 59f && fov100 < 61f, "chase FOV at 100 km/h is ~60 — a pull you feel, not a lens you notice", fov100.ToString("0.0"));
+            Check(Mathf.Abs(fov200 - 61.5f) < 0.1f,
+                  "chase FOV at 200 km/h is 61.5 (was 66 on top of a 0.9 m pull-back: the car shrank by a third, MW's by 5-9%)",
+                  fov200.ToString("0.0"));
+            float phoneRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, full, 19.5f / 9f);
+            Check(Mathf.Abs(phoneRest - 48.9f) < 0.2f,
+                  "a 19.5:9 phone holds the 16:9 HORIZONTAL field (vertical ~48.9, not 58: the car would shrink by a fifth)",
+                  phoneRest.ToString("0.0"));
+            Check(ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full) == ChaseCamera.CloseRig.vfov,
+                  "the close chase has its own, longer lens", ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full));
+            // Every shell the catalog can put a player in has a rear silhouette
+            // for the chase rig's width fit; without one the car is framed as a
+            // box (the probe's numbers only hold for shells with a row).
+            var noSil = new System.Collections.Generic.List<string>();
+            foreach (var m in CarModelLibrary.Models)
+                if (!ChaseSilhouettes.TryGet(m.key, out _)) noSil.Add(m.key);
+            Check(noSil.Count == 0, "every body shell has a chase-camera silhouette row (Camera Framing Probe -Emit)",
+                  string.Join(", ", noSil));
+            // The fit on the reference FD at 16:9: a quarter of the frame, lens
+            // off the tail inside the rig's range, and never under the roof.
+            {
+                var fdShell = CarModelLibrary.Load(CarModelLibrary.Default);
+                if (fdShell != null)
+                {
+                    var fr = ChaseCamera.FrameOf(fdShell.colliderCenter,
+                        new Vector3(fdShell.colliderSize.x * CarModelLibrary.WidthScale(fdShell, 0), fdShell.colliderSize.y, fdShell.colliderSize.z),
+                        fdShell, fdShell.wheelbase, CarModelLibrary.WidthScale(fdShell, 0), 0);
+                    var fit = ChaseCamera.Fit(ChaseCamera.View.Chase, 16f / 9f, fr, default);
+                    Check(fit.D >= ChaseCamera.FarRig.dMin && fit.D <= ChaseCamera.FarRig.dMax,
+                          "the FD's chase lens stands inside the rig's range off its tail", fit.D.ToString("0.00") + " m");
+                    Check(fit.h0 >= fdShell.roofY + ChaseCamera.FarRig.roofClear - 1e-3f,
+                          "and high enough over its roof to show the road", fit.h0.ToString("0.00") + " m");
+                    var shape = ChaseCamera.Shape(ChaseCamera.View.Chase, fit, 0f, 16f / 9f);
+                    Check(shape.pitch > 0.5f && shape.pitch < 5f, "and nearly level, NFS-style (pitch 1-5 deg)",
+                          shape.pitch.ToString("0.0"));
+                }
+            }
+            float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, full);
+            float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, full);
             Check(hoodMax <= ChaseCamera.HoodMaxFOV, "the hood cam never passes its 80 deg cap", hoodMax);
             Check(bumperMax <= ChaseCamera.BumperMaxFOV, "nor the bumper cam its 86", bumperMax);
             // The near-plane geometry MountClearance was sized against: the
@@ -9500,7 +9536,7 @@ namespace PSXRacing.EditorTools
                   "at the hood cam's widest lens (" + hoodMax.ToString("0") + " deg) the bonnet enters the " +
                   "frame past the near plane with margin",
                   entry.ToString("0.000") + " m vs " + ChaseCamera.MountNearClip + " m x1.2");
-            Check(ChaseCamera.FOVFor(ChaseCamera.View.TopDown, 58f, 90f, pull, full) == 52f,
+            Check(ChaseCamera.FOVFor(ChaseCamera.View.TopDown, 58f, 90f, full) == 52f,
                   "top-down gets no pull at all");
 
             Check(ChaseCamera.RollDegFor(0.5f) == 0f, "no camera roll under the roll's start latG");
