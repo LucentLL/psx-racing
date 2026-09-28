@@ -70,7 +70,11 @@
 #     "frame 640x480 (aspect 1.333)") reports 16:9 numbers when watched. Use
 #     -NoWatch for numbers comparable with older hidden runs.
 # On a 150% Windows display the Game view's "Scale" reads 1.5x when the frame
-# exactly fits: that is one game pixel per screen pixel, not a crop.
+# exactly fits: that is one game pixel per screen pixel, not a crop (the view's
+# own numbers, 2026-09-28: a 2233x1256 frame at x 163.5 in a 2560x1256 view).
+# A screen grab by a DPI-UNAWARE process (Windows PowerShell's CopyFromScreen)
+# copies only the top-left two thirds of a 150% screen and looks cropped at the
+# right and bottom; call SetProcessDPIAware first.
 #
 # Unattended safety, because a visible editor can ask questions batch mode never
 # does. Flags: -ignoreCompilerErrors (no Safe Mode prompt), -skipUpgradeDialogs
@@ -80,20 +84,60 @@
 # "[PSX WATCH] alive" every 30 s from EditorApplication.update, and any log
 # line counts too EXCEPT the ones Unity's background threads write whatever
 # the main thread is doing (licensing, ADB scans) - those used to keep a
-# stuck editor looking busy. The waiter closes the editor (politely, then by
-# force) with the log's tail printed when:
+# stuck editor looking busy. The waiter asks the editor to close, with the
+# log's tail printed, when:
 #   - the log shows compile errors (a visible editor would otherwise run the
 #     LAST GOOD assemblies, i.e. a stale test), or -executeMethod failed;
 #   - a Windows dialog with buttons stays up longer than PSX_WATCH_DIALOG_SECONDS
 #     (default 90) while the editor is not alive - you can answer it yourself;
-#   - the editor has not been alive for PSX_WATCH_STALL_MINUTES (default 10);
+#   - the editor has not been alive for PSX_WATCH_STALL_MINUTES (default 10) -
+#     except mid-import, where a quiet log is a long import step (the FMOD
+#     bank build writes nothing for minutes): that is noted, not closed;
 #   - the job outlives its budget. -MaxMinutes alone does NOT close a watched
 #     editor (a cold sandbox imports for longer than a check's budget; it is
 #     still watched, by every rule above): it is closed once play mode itself
 #     has run -MaxMinutes without the check ending, or at PSX_WATCH_HARD_MINUTES
-#     (default -MaxMinutes + 60) whatever it is doing. A watched editor is
-#     never left behind: the tool does not return while it runs, and Ctrl+C
-#     on the tool closes it too.
+#     (default -MaxMinutes + 60) whatever it is doing;
+#   - the tool itself is stopped (Ctrl+C).
+#
+# CLOSING, AND NEVER KILLING MID-IMPORT. Killing an editor while it imports
+# corrupts the artifact database (the rule for every Unity job here: a batch
+# job that times out is left running, never killed). So a watched editor is
+# asked first - a stop file that PlayCheckWatch reads on the next free tick of
+# the main loop (never inside an import) and answers with EditorApplication.
+# Exit(3), plus a close of its window - and is killed 20 s later ONLY if its
+# log has said for at least 10 s that it is not importing. An import or a
+# compile begins with a line like "Initial Refresh Start", "Importing 'GUID:
+# ..." or "Begin MonoManager ReloadAssembly", and ends at "Initial Refresh
+# End", "Asset Pipeline Refresh (id=...): Total" or a line from PlayCheckWatch's
+# own tick; an editor counts as importing from its launch until the first such
+# end (the 10 s: back-to-back imports put an end line between them and start
+# the next within a second). A visible editor also imports in the BACKGROUND
+# while its main loop runs (the search indexer hands assets to the import
+# workers: "[Worker1] Imported GUID: ..." lines, heartbeats and all), so any
+# such line in the last 30 s counts as importing too. An editor that is
+# importing is waited for instead: the window close it was sent waits in its
+# queue and is honoured the moment the import ends (sandbox probe, 2026-09-28:
+# a 150 s forced reimport, asked to close 10 s in, shut down cleanly within a
+# second of its last import, both with the tool waiting and after a Ctrl+C);
+# failing that the stop file closes it on its first free tick; and it is killed
+# 20 s after the import ends only if neither has.
+# The trade-off, in both directions:
+#   - A rule that fires mid-import (compile errors, which a cold sandbox shows
+#     in its first minutes and then imports for most of an hour; a dialog; the
+#     hard budget) costs the rest of that import: the tool waits for it, up to
+#     the hard budget, and prints what the editor is importing.
+#   - An editor still importing at the hard budget, or when the tool is
+#     stopped with Ctrl+C (which never waits for an import), is LEFT RUNNING
+#     with its PID printed. It closes itself when the import ends; until then
+#     the next watched run on the sandbox refuses to start beside it, and a
+#     scene build waits for it (Wait-ProjectIdle).
+#   - An editor HUNG inside an import (or before its first import has ended)
+#     is never killed by the tool: it is left running at the hard budget, and
+#     only you can close it. Everywhere else - playing, idle, holding a
+#     dialog, hung after its import - it is killed when it will not close.
+# The tool does not return while a watched editor runs, except in those two
+# left-running cases, which it says in capitals ("LEFT RUNNING").
 # And before it opens one: a watched job never starts beside another Unity
 # already working on the same sandbox, and it clears the scene backups a
 # killed editor leaves in Temp\__Backupscenes - with them there, the next
@@ -403,6 +447,108 @@ $script:WatchLifeRx = New-Object Text.RegularExpressions.Regex(
 $script:WatchErrRx  = New-Object Text.RegularExpressions.Regex('(?m)^[^\r\n]*error CS\d{4}[^\r\n]*')
 $script:WatchExecRx = New-Object Text.RegularExpressions.Regex('(?m)^[^\r\n]*executeMethod (class|method) [^\r\n]*(could not be found|threw exception)[^\r\n]*')
 
+# IS THE EDITOR IMPORTING? The one thing that decides whether a watched editor
+# may be killed (never mid-import: that corrupts the artifact database). Read
+# off the log as a state that the LAST marker sets: an import or a compile
+# begins with one of the $WatchBusyMarks, and the editor is free again at one
+# of the $WatchIdleMarks - the end of the initial refresh or of any later one,
+# or a line from PlayCheckWatch, which writes only from the main loop's own
+# tick (no tick runs inside an import). A long single step that writes nothing
+# (the FMOD bank build) leaves the last marker a busy one, so it still counts
+# as importing. An editor starts out importing: it opens the project and its
+# first import before it says anything we can read.
+# Seen in the sandbox logs (6000.5.5f1, batch and GUI alike):
+#   Application.AssetDatabase Initial Refresh Start ... Initial Refresh End
+#   Importing 'GUID: <guid> - Path: <path>' with importer (<Importer>)
+#   [ScriptCompilation] Requested script compilation because: ...
+#   Begin MonoManager ReloadAssembly
+#   Asset Pipeline Refresh (id=<hex>): Total: 8.185 seconds - Initiated by ...
+$script:WatchBusyMarks = @('Application.AssetDatabase Initial Refresh Start', "Importing 'GUID: ", 'Start importing ',
+                          'DisplayProgressbar: ', '[ScriptCompilation] Requested', 'Begin MonoManager ReloadAssembly')
+$script:WatchIdleMarks = @('Application.AssetDatabase Initial Refresh End', 'Asset Pipeline Refresh (id=',
+                          '[PSX WATCH] alive', '[PSX WATCH] playing')
+
+function Update-WatchImport([hashtable]$W, [string]$Text) {
+    $busy = -1; $idle = -1
+    foreach ($k in $script:WatchBusyMarks) { $i = $Text.LastIndexOf($k, [StringComparison]::Ordinal); if ($i -gt $busy) { $busy = $i } }
+    foreach ($k in $script:WatchIdleMarks) { $i = $Text.LastIndexOf($k, [StringComparison]::Ordinal); if ($i -gt $idle) { $idle = $i } }
+    if ($busy -gt $idle) {
+        $a = $Text.LastIndexOf("`n", $busy) + 1
+        $b = $Text.IndexOf("`n", $busy); if ($b -lt 0) { $b = $Text.Length }
+        $line = $Text.Substring($a, $b - $a).Trim()
+        if ($line.Length -gt 160) { $line = $line.Substring(0, 160) + '...' }
+        if (-not $W.Importing) { $W.ImportSince = Get-Date }
+        $W.Importing = $true; $W.ImportWhat = $line; $W.ImportNoted = $false; $W.IdleSince = $null
+    } elseif ($idle -gt $busy) {
+        if ($W.Importing -or -not $W.IdleSince) { $W.IdleSince = Get-Date }
+        $W.Importing = $false
+    }
+    # BACKGROUND imports: a visible editor also imports WHILE its main loop
+    # runs - the search indexer's "Initial Indexing" hands every asset to the
+    # import workers, heartbeats and all (sandbox probe, 2026-09-28: 3776
+    # "[Worker1] Imported GUID: ... ScriptedImporter/UnityEditor.
+    # QuickSearchModule" lines after the project had opened). Batch mode never
+    # does this. They write artifacts too, so a line of theirs in the last
+    # $WatchBgSeconds counts as importing.
+    $m = $script:WatchBgRx.Match($Text)
+    if ($m.Success) {
+        $W.BgAt = Get-Date
+        $W.BgWhat = if ($m.Value.Length -gt 160) { $m.Value.Substring(0, 160) + '...' } else { $m.Value.Trim() }
+    }
+}
+
+$script:WatchBgRx = New-Object Text.RegularExpressions.Regex('(?m)^\[Worker\d+\] [^\r\n]*',
+    ([Text.RegularExpressions.RegexOptions]::RightToLeft -bor [Text.RegularExpressions.RegexOptions]::Compiled))
+$script:WatchBgSeconds = 30
+
+function Test-WatchBgImport([hashtable]$W) {
+    return ($W.BgAt -and ((Get-Date) - $W.BgAt).TotalSeconds -lt $script:WatchBgSeconds)
+}
+
+# Importing now, in the foreground (the main loop's) or the background?
+function Test-WatchImporting([hashtable]$W) {
+    return ($W.Importing -or (Test-WatchBgImport $W))
+}
+
+# May the editor be killed? Only once the log has said "not importing" for
+# 10 s: one ImportAsset after another (a harness's, or AssetDatabase work in a
+# loop) puts an "Asset Pipeline Refresh ... Total" line between them and starts
+# the next import well under a second later (seen in a sandbox probe,
+# 2026-09-28), so a single idle reading is not enough. And no background import
+# in the last $WatchBgSeconds.
+function Test-WatchKillable([hashtable]$W) {
+    return ((-not $W.Importing) -and $W.IdleSince -and ((Get-Date) - $W.IdleSince).TotalSeconds -ge 10 -and
+            -not (Test-WatchBgImport $W))
+}
+
+# Whole new lines of the log (a partial last line waits for the next poll),
+# with the signs of life and the import state taken from them.
+function Update-WatchLog([hashtable]$W, [string]$Log) {
+    $new = Read-WatchLog $W $Log
+    if (-not $new) { return "" }
+    $text = $W.Carry + $new
+    $cut = $text.LastIndexOf("`n")
+    if ($cut -lt 0) { $W.Carry = $text; $text = "" }
+    else { $W.Carry = $text.Substring($cut + 1); $text = $text.Substring(0, $cut + 1) }
+    if ($W.Carry.Length -gt 65536) { $W.Carry = "" }
+    if ($text) {
+        if ($script:WatchLifeRx.IsMatch($text)) { $W.LastLife = Get-Date }
+        Update-WatchImport $W $text
+    }
+    return $text
+}
+
+# What the editor is doing, for a message.
+function Get-WatchDoing([hashtable]$W) {
+    if ($W.Importing) {
+        $for = if ($W.ImportSince) { " for {0:0} min" -f ((Get-Date) - $W.ImportSince).TotalMinutes } else { "" }
+        return "importing$for - last: $($W.ImportWhat)"
+    }
+    if (Test-WatchBgImport $W) { return "importing in the background (the editor's search index) - last: $($W.BgWhat)" }
+    if ($W.Played) { return "playing" }
+    return "not importing, not playing yet"
+}
+
 # New text in a log Unity still has open (shared read), from the last offset;
 # at most 8 MB a poll (the rest comes on the next).
 function Read-WatchLog([hashtable]$W, [string]$Path) {
@@ -431,7 +577,9 @@ function Get-WatchLogTail([string]$Path, [int]$Lines = 30) {
     if (-not $text) { return @("(no log at $Path)") }
     # Blank lines, compiler WARNINGS and a run of heartbeats drown the lines
     # that matter: keep the last heartbeat (it says what the editor was doing).
-    $all = @($text -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch ': warning (CS|UAC)\d+' })
+    # So does the "Imported 'GUID: ..." half of each import's pair of lines (the
+    # "Importing 'GUID: ... - Path: ..." half says which asset).
+    $all = @($text -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch ': warning (CS|UAC)\d+' -and -not $_.StartsWith("Imported 'GUID: ") })
     $lastBeat = -1
     for ($i = 0; $i -lt $all.Count; $i++) { if ($all[$i].Contains('[PSX WATCH] alive')) { $lastBeat = $i } }
     $keep = for ($i = 0; $i -lt $all.Count; $i++) { if (-not $all[$i].Contains('[PSX WATCH] alive') -or $i -eq $lastBeat) { $all[$i] } }
@@ -443,38 +591,29 @@ function Get-WatchLogTail([string]$Path, [int]$Lines = 30) {
 # dialog). Returns $null to keep waiting, or the reason to close the editor.
 function Step-Watch([hashtable]$W, [int[]]$Pids, [string]$Log, [int]$StallMinutes, [int]$DialogSeconds) {
     $now = Get-Date
-    $new = Read-WatchLog $W $Log
-    if ($new) {
-        # Whole lines only; a partial last line waits for the next poll.
-        $text = $W.Carry + $new
-        $cut = $text.LastIndexOf("`n")
-        if ($cut -lt 0) { $W.Carry = $text; $text = "" }
-        else { $W.Carry = $text.Substring($cut + 1); $text = $text.Substring(0, $cut + 1) }
-        if ($W.Carry.Length -gt 65536) { $W.Carry = "" }
-        if ($text) {
-            if ($script:WatchLifeRx.IsMatch($text)) { $W.LastLife = $now }
-            if ($text.Contains('error CS')) {
-                foreach ($m in $script:WatchErrRx.Matches($text)) {
-                    if ($W.Errors.Count -lt 15) { $W.Errors.Add($m.Value.Trim()) }
-                }
+    $text = Update-WatchLog $W $Log
+    if ($text) {
+        if ($text.Contains('error CS')) {
+            foreach ($m in $script:WatchErrRx.Matches($text)) {
+                if ($W.Errors.Count -lt 15) { $W.Errors.Add($m.Value.Trim()) }
             }
-            $m = $script:WatchExecRx.Match($text)
-            if ($m.Success) { return "-executeMethod failed: $($m.Value.Trim())" }
-            if (-not $W.BeatSeen -and $text.Contains('[PSX WATCH] alive')) {
-                $W.BeatSeen = $true
-                Write-Host "WATCH: the editor's heartbeat is in the log (every 30 s from its main loop)"
-            }
-            if (-not $W.InputOff) {
-                $m = [regex]::Match($text, "\[PSX WATCH\] (this PC's own input is OFF[^\r\n]*)")
-                if ($m.Success) { $W.InputOff = $true; Write-Host "WATCH: $($m.Groups[1].Value.Trim())" }
-            }
-            if (-not $W.Played) {
-                $m = [regex]::Match($text, '\[PSX WATCH\] playing[^\r\n]*')
-                if ($m.Success) {
-                    $W.Played = $true; $W.PlayedAt = $now
-                    $W.RaiseUntil = $now.AddSeconds($script:WatchRaiseSeconds)
-                    Write-Host "WATCH: $($m.Value.Trim())"
-                }
+        }
+        $m = $script:WatchExecRx.Match($text)
+        if ($m.Success) { return "-executeMethod failed: $($m.Value.Trim())" }
+        if (-not $W.BeatSeen -and $text.Contains('[PSX WATCH] alive')) {
+            $W.BeatSeen = $true
+            Write-Host "WATCH: the editor's heartbeat is in the log (every 30 s from its main loop)"
+        }
+        if (-not $W.InputOff) {
+            $m = [regex]::Match($text, "\[PSX WATCH\] (this PC's own input is OFF[^\r\n]*)")
+            if ($m.Success) { $W.InputOff = $true; Write-Host "WATCH: $($m.Groups[1].Value.Trim())" }
+        }
+        if (-not $W.Played) {
+            $m = [regex]::Match($text, '\[PSX WATCH\] playing[^\r\n]*')
+            if ($m.Success) {
+                $W.Played = $true; $W.PlayedAt = $now
+                $W.RaiseUntil = $now.AddSeconds($script:WatchRaiseSeconds)
+                Write-Host "WATCH: $($m.Value.Trim())"
             }
         }
     }
@@ -586,39 +725,111 @@ function Step-Watch([hashtable]$W, [int[]]$Pids, [string]$Log, [int]$StallMinute
     } catch { }
 
     if (($now - $W.LastLife).TotalMinutes -gt $StallMinutes) {
+        # Mid-import a quiet log is a long import step (the FMOD bank build
+        # writes nothing for minutes), and an editor there may not be killed
+        # anyway: it is left to finish, under the hard budget.
+        if ($W.Importing) {
+            if (-not $W.ImportNoted) {
+                $W.ImportNoted = $true
+                Write-Host ("WATCH: nothing in the log for {0} minutes, mid-import ({1}) - a long import step; not closed mid-import (the hard budget, {2:HH:mm}, still stands)" -f
+                    $StallMinutes, $W.ImportWhat, $W.HardAt)
+            }
+            return $null
+        }
         return "the editor has shown no sign of life for $StallMinutes minutes (no heartbeat from its main loop, no work in the log)"
     }
     return $null
 }
 
-# Close a watched editor: ask its window first (a clean exit leaves no lock
-# behind), then force whatever of the job is still there after 20 s, and wait
-# for the lot - the editor's import worker outlives it by a few seconds - so
-# the next job does not start beside a leftover. Only processes this job
-# started (not in $Before) whose command line we can read and which name the
-# sandbox; never the owner's editor.
-function Stop-WatchedEditor([string]$Project, $Before) {
+# Close a watched editor - and NEVER KILL IT MID-IMPORT (killing an editor
+# while it imports corrupts the artifact database; see "Unattended safety" at
+# the top). Only processes this job started (not in $Before) whose command
+# line we can read and which name the sandbox; never the owner's editor.
+#
+#   1. Ask, two polite ways at once: the stop file, which PlayCheckWatch reads
+#      on the next free tick of the editor's main loop - so never inside an
+#      import - and answers with EditorApplication.Exit(3) (no save-scene
+#      question); and a close of the main window, for an editor whose
+#      PlayCheckWatch did not compile. A clean exit leaves no lock behind.
+#   2. Still there 20 s later: killed ONLY if the log says it is not importing
+#      (Test-WatchKillable: no import for 10 s, no background import for 30).
+#      An editor that is importing is left to finish:
+#      the moment the import ends it closes (the queued window close, or the
+#      stop file); if not, it is asked again once the log has been quiet of
+#      imports for 10 s, and killed 20 s after that if it still has not gone.
+#   3. -WaitUntil is how long to wait for an import to end (the hard budget);
+#      -Quick (the tool itself was stopped) does not wait for one at all. An
+#      editor still importing then is LEFT RUNNING, with its PID printed: it
+#      closes itself when the import ends, and until then the next watched job
+#      refuses to start beside it (Wait-ProjectIdle waits for it too).
+# Then the lot is waited for - the editor's import worker outlives it by a few
+# seconds - so the next job does not start beside a leftover. The stop file is
+# left where it is (only an editor this tool launched watched ever reads it,
+# and the next watched launch deletes it first), so an editor that appears
+# only after a Ctrl+C still finds it.
+function Stop-WatchedEditor([string]$Project, $Before, [hashtable]$W, [string]$Log, [datetime]$WaitUntil, [string]$Why = "", [switch]$Quick) {
     $job = { @(Get-UnityPids $Project -Strict | Where-Object { $Before -notcontains $_ }) }
-    foreach ($id in (& $job)) {
-        try {
-            $p = Get-Process -Id $id -ErrorAction Stop
-            if ($p.MainWindowHandle -ne [IntPtr]::Zero) { [void]$p.CloseMainWindow() }
-        } catch { }
+    $ask = {
+        try { [IO.File]::WriteAllText($W.StopFile, "$Why`r`n") } catch { }
+        foreach ($id in (& $job)) {
+            try {
+                $p = Get-Process -Id $id -ErrorAction Stop
+                if ($p.MainWindowHandle -ne [IntPtr]::Zero) { [void]$p.CloseMainWindow() }
+            } catch { }
+        }
     }
-    $until = (Get-Date).AddSeconds(20)
-    while ((Get-Date) -lt $until) {
-        if (-not (& $job).Count) { Write-Host "WATCH: the editor closed"; return }
+    [void](Update-WatchLog $W $Log)
+    & $ask
+    Write-Host ("WATCH: asked the editor to close (a stop file its main loop reads between imports, and its window's close) - it is {0}" -f (Get-WatchDoing $W))
+    $grace = (Get-Date).AddSeconds(20)
+    $wasImporting = Test-WatchImporting $W
+    $said = $false
+    while ($true) {
         Start-Sleep -Seconds 2
+        [void](Update-WatchLog $W $Log)
+        if (-not (& $job).Count) {
+            Write-Host "WATCH: the editor closed"
+            if (-not @(Get-UnityPids $Project).Count) { Clear-WatchSceneBackups $Project }
+            return
+        }
+        $now = Get-Date
+        # An import it was in has ended (and stayed ended for 10 s): the stop
+        # file should have closed it on its first free tick. Ask again - the
+        # window's close may have been eaten by the import's progress bar -
+        # and give it another 20 s before the kill.
+        if (Test-WatchImporting $W) { $wasImporting = $true }
+        elseif ($wasImporting -and (Test-WatchKillable $W)) {
+            $wasImporting = $false
+            Write-Host "WATCH: the import is over - asking the editor again to close (it is killed in 20 s if it has not)"
+            & $ask
+            $grace = $now.AddSeconds(20)
+            continue
+        }
+        if ($now -lt $grace) { continue }
+        if (Test-WatchKillable $W) { break }
+        if (-not (Test-WatchImporting $W)) { continue }   # an import only just ended: 10 s of quiet first
+        if (-not $said) {
+            $said = $true
+            Write-Host ("WATCH: NOT killing it: it is {0}, and killing an editor mid-import corrupts the artifact database. It closes itself when the import ends." -f (Get-WatchDoing $W))
+            if (-not $Quick -and $now -lt $WaitUntil) { Write-Host ("WATCH: waiting for that (until {0:HH:mm}, the hard budget)" -f $WaitUntil) }
+        }
+        if ($Quick -or $now -ge $WaitUntil) {
+            Write-Host ("WATCH: LEFT RUNNING, still importing: PID {0} on {1}. It closes itself when the import ends; until then a watched run on this sandbox will not start beside it." -f ((& $job) -join ', '), $Project)
+            return
+        }
     }
     foreach ($id in (& $job)) {
-        Write-Host "WATCH: the editor did not close - killing PID $id"
+        Write-Host "WATCH: the editor did not close and is not importing - killing PID $id"
         Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
     }
     $until = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $until -and (& $job).Count) { Start-Sleep -Seconds 2 }
     $left = & $job
     if ($left.Count) { Write-Host "WATCH: still running after the kill: PID $($left -join ', ')" }
-    elseif (-not @(Get-UnityPids $Project).Count) { Clear-WatchSceneBackups $Project }
+    else {
+        Write-Host "WATCH: the editor is gone"
+        if (-not @(Get-UnityPids $Project).Count) { Clear-WatchSceneBackups $Project }
+    }
 }
 
 # An editor killed in play mode (by the rules above, or a crash) leaves the
@@ -681,44 +892,24 @@ function Invoke-UnityJob {
     if (Test-Path $Log) { Remove-Item $Log -Force }
     $before = @(Get-UnityPids $Project)
     $fgAtLaunch = [IntPtr]::Zero; $launchedAt = Get-Date
+    $stopFile = $null
     if ($Watch) {
         if (-not $before.Count) { Clear-WatchSceneBackups $Project }
         Initialize-PSXWatchWin
+        # A stale stop file would close the new editor at its first tick.
+        $stopFile = Join-Path $target 'PSXWatch_stop.txt'
+        Remove-Item -LiteralPath $stopFile -Force -ErrorAction SilentlyContinue
         # Where the keyboard is now: where it goes back to if Unity takes it.
         $fgAtLaunch = [PSXWatchWindows]::GetForegroundWindow(); $launchedAt = Get-Date
         if (-not [PSXWatchWindows]::IsWindowVisible($fgAtLaunch)) { $fgAtLaunch = [IntPtr]::Zero }
         $UnityArgs = ConvertTo-WatchArgs $UnityArgs
-        $savedActive = $env:PSX_WATCH_ACTIVE
-        $savedReporter = $env:UNITY_DONOTSTARTBUGREPORTER
-        # Set for the one process launched here (the environment is copied at
-        # launch), then put back so nothing else inherits it.
-        $env:PSX_WATCH_ACTIVE = '1'
-        $env:UNITY_DONOTSTARTBUGREPORTER = '1'
-        try { Start-Process -FilePath $Unity -ArgumentList $UnityArgs -WindowStyle Maximized | Out-Null }
-        finally { $env:PSX_WATCH_ACTIVE = $savedActive; $env:UNITY_DONOTSTARTBUGREPORTER = $savedReporter }
-        Write-Host "WATCH: opening $target in a visible Unity editor (-NoWatch or PSX_WATCH=0 runs it hidden)"
-    } else {
-        Start-Process -FilePath $Unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
-    }
-
-    # Phase one: wait for a Unity process that was not there before. Up to two
-    # minutes, because a cold sandbox spends that long opening the project
-    # before it is visible as a child at all.
-    $appeared = $false
-    $spawnDeadline = (Get-Date).AddMinutes(2)
-    while ((Get-Date) -lt $spawnDeadline) {
-        Start-Sleep -Seconds 2
-        $now = @(Get-UnityPids $Project)
-        if (@($now | Where-Object { $before -notcontains $_ })) { $appeared = $true; break }
-    }
-    if (-not $appeared) {
-        Write-Host "UNITY NEVER STARTED - check the argument list (a path with a space must be ONE quoted string)"
-        return $false
     }
 
     # Hold a handle on every process of the job as it appears, so its exit
     # code can still be read after it is gone (EditorApplication.Exit(n) in a
     # harness lands here). The editor is the one that is not an import worker.
+    # $w is a watched job's state (see Step-Watch). An editor starts out
+    # IMPORTING: it opens the project before it writes anything we can read.
     $held = @{}
     $start = Get-Date
     $soft = $start.AddMinutes($MaxMinutes)
@@ -728,24 +919,66 @@ function Invoke-UnityJob {
             BeatSeen = $false; InputOff = $false; PastBudget = $false;
             FgBefore = $fgAtLaunch; FgSeenAt = $launchedAt; FgEditor = $false; KbReturns = 0;
             Dialogs = @{}; Errors = (New-Object System.Collections.Generic.List[string]);
+            Importing = $true; ImportWhat = "opening the project"; ImportSince = $start; ImportNoted = $false; IdleSince = $null; BgAt = $null; BgWhat = "";
+            HardAt = $hard; StopFile = $stopFile;
             Leaf = (Split-Path -Leaf $Project) }
 
-    # Phase two: wait for every new PID to go away, and STAY away.
-    #
-    # One empty sighting is not enough. The launcher is itself a Unity process,
-    # so the sequence is: launcher appears, launcher exits, gap, real editor
-    # appears. A single empty poll landing in that gap declares the job finished
-    # a fraction of a second before it starts. Requiring the gap to hold for
-    # half a minute is longer than the handoff has ever taken and costs half a
-    # minute on a job that runs for five.
-    #
     # A batch job is given up on at -MaxMinutes (and left running, as ever). A
     # watched one is not: it is watched until it quits, trips a rule, or runs
-    # out of its hard budget - and closed then. The finally closes it if the
-    # tool itself is stopped (Ctrl+C), so no window is left on the desk.
-    $quietSince = $null
+    # out of its hard budget - and asked to close then (Stop-WatchedEditor,
+    # which never kills it mid-import). The finally does the same, without
+    # waiting for an import, if the tool itself is stopped (Ctrl+C) at any
+    # point after the launch.
     $settled = -not $Watch
     try {
+        if ($Watch) {
+            $savedActive = $env:PSX_WATCH_ACTIVE
+            $savedReporter = $env:UNITY_DONOTSTARTBUGREPORTER
+            $savedStop = $env:PSX_WATCH_STOP_FILE
+            # Set for the one process launched here (the environment is copied
+            # at launch), then put back so nothing else inherits it.
+            $env:PSX_WATCH_ACTIVE = '1'
+            $env:UNITY_DONOTSTARTBUGREPORTER = '1'
+            $env:PSX_WATCH_STOP_FILE = $stopFile
+            try { Start-Process -FilePath $Unity -ArgumentList $UnityArgs -WindowStyle Maximized | Out-Null }
+            finally {
+                $env:PSX_WATCH_ACTIVE = $savedActive; $env:UNITY_DONOTSTARTBUGREPORTER = $savedReporter
+                $env:PSX_WATCH_STOP_FILE = $savedStop
+            }
+            Write-Host "WATCH: opening $target in a visible Unity editor (-NoWatch or PSX_WATCH=0 runs it hidden)"
+        } else {
+            Start-Process -FilePath $Unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
+        }
+
+        # Phase one: wait for a Unity process that was not there before. Up to
+        # two minutes, because a cold sandbox spends that long opening the
+        # project before it is visible as a child at all.
+        $appeared = $false
+        $spawnDeadline = (Get-Date).AddMinutes(2)
+        while ((Get-Date) -lt $spawnDeadline) {
+            Start-Sleep -Seconds 2
+            $now = @(Get-UnityPids $Project)
+            if (@($now | Where-Object { $before -notcontains $_ })) { $appeared = $true; break }
+        }
+        if (-not $appeared) {
+            $settled = $true
+            Write-Host "UNITY NEVER STARTED - check the argument list (a path with a space must be ONE quoted string)"
+            return $false
+        }
+        $start = Get-Date
+        $soft = $start.AddMinutes($MaxMinutes)
+        $hard = $start.AddMinutes($HardMinutes)
+        $w.LastLife = $start; $w.ImportSince = $start; $w.HardAt = $hard
+
+        # Phase two: wait for every new PID to go away, and STAY away.
+        #
+        # One empty sighting is not enough. The launcher is itself a Unity
+        # process, so the sequence is: launcher appears, launcher exits, gap,
+        # real editor appears. A single empty poll landing in that gap declares
+        # the job finished a fraction of a second before it starts. Requiring
+        # the gap to hold for half a minute is longer than the handoff has ever
+        # taken and costs half a minute on a job that runs for five.
+        $quietSince = $null
         while ($true) {
             $now = Get-Date
             if (-not $Watch -and $now -ge $soft) { break }
@@ -774,8 +1007,8 @@ function Invoke-UnityJob {
                         }
                         if (-not $w.PastBudget -and $now -ge $soft) {
                             $w.PastBudget = $true
-                            Write-Host ("WATCH: the job has used its {0}-minute budget and the editor is still at work ({1}) - still watching it; it is closed at {2:HH:mm} if it has not quit by then" -f
-                                $MaxMinutes, $(if ($w.Played) { "playing" } else { "not playing yet - importing?" }), $killAt)
+                            Write-Host ("WATCH: the job has used its {0}-minute budget and the editor is still at work ({1}) - still watching it; it is asked to close at {2:HH:mm} if it has not quit by then" -f
+                                $MaxMinutes, (Get-WatchDoing $w), $killAt)
                         }
                         if ($now -ge $killAt) {
                             $why = if ($killAt -lt $hard) { "play mode has run $MaxMinutes minutes (the whole job's budget) without the check ending" }
@@ -786,7 +1019,7 @@ function Invoke-UnityJob {
                         Write-Host "WATCH: closing the editor - $why"
                         Write-Host "Tail of ${Log}:"
                         Get-WatchLogTail $Log 30 | ForEach-Object { Write-Host "  $_" }
-                        Stop-WatchedEditor $Project $before
+                        Stop-WatchedEditor $Project $before $w $Log $hard ($why -split "`n")[0]
                         $settled = $true
                         return $false
                     }
@@ -820,8 +1053,8 @@ function Invoke-UnityJob {
         }
     } finally {
         if (-not $settled) {
-            Write-Host "WATCH: the tool was stopped - closing the watched editor"
-            Stop-WatchedEditor $Project $before
+            Write-Host "WATCH: the tool was stopped - asking the watched editor to close"
+            Stop-WatchedEditor $Project $before $w $Log (Get-Date) "the tool was stopped" -Quick
         }
     }
     Write-Host "UNITY TIMED OUT after $MaxMinutes minutes - see $Log"

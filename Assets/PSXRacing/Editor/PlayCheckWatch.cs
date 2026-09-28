@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -34,6 +35,16 @@ namespace PSXRacing.EditorTools
     ///     the editor still working, or is something holding it?" - Unity's
     ///     background threads (licensing, ADB scans) write to the log whatever
     ///     the main thread is doing, so a growing log alone proves nothing.
+    ///     Its lines also tell the waiter the editor is NOT importing (no tick
+    ///     runs inside an import), which is when it may be killed.
+    ///   * A POLITE CLOSE. When unity-wait.ps1 has to end a watched run it
+    ///     writes the stop file (PSX_WATCH_STOP_FILE, set for this editor
+    ///     only); the first free tick of the main loop after that - never one
+    ///     inside an import - exits with EditorApplication.Exit(3), which asks
+    ///     no save-scene question. The waiter never kills an editor that is
+    ///     importing (that corrupts the artifact database), so this is how an
+    ///     editor it asked to close mid-import closes itself when the import
+    ///     ends.
     ///
     /// It touches no seed, car, scene or check - only editor windows and the
     /// real input devices. What a window cannot help changing is written up in
@@ -110,6 +121,7 @@ namespace PSXRacing.EditorTools
         static void Beat()
         {
             double now = EditorApplication.timeSinceStartup;
+            CheckStop(now);
             if (now < nextBeat) return;
             nextBeat = now + BeatSeconds;
             string state = EditorApplication.isPlaying ? (EditorApplication.isPaused ? "play mode, PAUSED" : "play mode")
@@ -117,6 +129,35 @@ namespace PSXRacing.EditorTools
             Debug.LogFormat(LogType.Log, LogOption.NoStacktrace, null,
                 "[PSX WATCH] alive: {0}, frame {1}, time scale {2:0.##}, {3:0} s since the editor started",
                 state, Time.frameCount, Time.timeScale, now);
+        }
+
+        // ---- the polite close ------------------------------------------------
+
+        /// <summary>The file unity-wait.ps1 writes to ask this editor to close
+        /// (it deletes a stale one before the launch).</summary>
+        static readonly string StopFile = Environment.GetEnvironmentVariable("PSX_WATCH_STOP_FILE");
+        static double nextStopCheck;
+        static bool stopping;
+
+        /// <summary>Twice a second, from the main loop's own tick: if the waiter
+        /// has asked, exit. Code 3, so a closed run is never read as a pass or
+        /// a harness's own failure (0 / 1).</summary>
+        static void CheckStop(double now)
+        {
+            if (stopping || string.IsNullOrEmpty(StopFile) || now < nextStopCheck) return;
+            nextStopCheck = now + 0.5;
+            string why;
+            try
+            {
+                if (!File.Exists(StopFile)) return;
+                why = File.ReadAllText(StopFile).Trim();
+                File.Delete(StopFile);
+            }
+            catch (Exception) { return; }   // being written: the next check
+            stopping = true;
+            Note("[PSX WATCH] closing: unity-wait.ps1 asked (" + (why.Length > 0 ? why : "no reason given") +
+                 ") - EditorApplication.Exit(3) from the main loop, between imports");
+            EditorApplication.Exit(3);
         }
 
         // ---- hands off ---------------------------------------------------
