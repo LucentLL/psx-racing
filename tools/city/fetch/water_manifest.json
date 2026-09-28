@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "layers": {
+    "meck_creeks": {
+      "file": "tools/city/cache/water/meck_creeks.geojson",
+      "what": "county creek centrelines (inside Mecklenburg)",
+      "licence": "CC0 (Mecklenburg County Open Mapping)",
+      "query": "https://meckgis.mecklenburgcountync.gov/server/rest/services/CreeksAndStreams/FeatureServer/0/query?where=1%3D1&outFields=objectid_12%2Cclass%2Cname%2Cstream%2Cus_station%2Cds_station%2Cbuff_width%2Cstatus&returnGeometry=true&outSR=4326&f=geojson&orderByFields=objectid_12&resultRecordCount=1000",
+      "fetched": "2026-09-28T21:49:55.227Z",
+      "features": 3991,
+      "bytes": 16292794,
+      "sha256": "2a75c9b3f5e19d631ceb8beef1266c49230cb1c8bc4022a425bfc35d1c26fe80"
+    },
+    "meck_lakes": {
+      "file": "tools/city/cache/water/meck_lakes.geojson",
+      "what": "county lakes and ponds (the Catawba chain and ponds)",
+      "licence": "CC0 (Mecklenburg County Open Mapping)",
+      "query": "https://meckgis.mecklenburgcountync.gov/server/rest/services/LakesAndPonds/FeatureServer/0/query?where=1%3D1&outFields=objectid%2Cfeat_type%2Csq_feet&returnGeometry=true&outSR=4326&f=geojson&orderByFields=objectid&resultRecordCount=1000&geometry=-81.12%2C34.975%2C-80.555%2C35.495&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects",
+      "fetched": "2026-09-28T21:50:12.693Z",
+      "features": 2269,
+      "bytes": 28749078,
+      "sha256": "760235e051f1ad88964dc2c3dfb75ab06555c138603d36fc33d5d80470b039ad"
+    },
+    "usgs_flowlines": {
+      "file": "tools/city/cache/water/usgs_flowlines.geojson",
+      "what": "3DHP flowlines in the DEM box (outside the county)",
+      "licence": "public domain (USGS)",
+      "query": "https://3dhp.nationalmap.gov/arcgis/rest/services/usgs_3dhp_all/FeatureServer/50/query?where=1%3D1&outFields=OBJECTID%2Cid3dhp%2Cgnisid%2Cgnisidlabel%2Cfeaturetype%2Cfeaturetypelabel%2Clengthkm%2Cflowdirection%2Cstreamorder%2Clevelpath%2Chydrosequence%2Cdnhydrosequence%2Cfeaturedate&returnGeometry=true&outSR=4326&f=geojson&orderByFields=OBJECTID&resultRecordCount=1000&geometry=-81.12%2C34.975%2C-80.555%2C35.495&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects",
+      "fetched": "2026-09-28T21:50:45.962Z",
+      "features": 12195,
+      "bytes": 18730218,
+      "sha256": "53df1b23a70fa69ae3aa834341d14cbf0ab8a4ea93d77d110c3264895748b651"
+    },
+    "usgs_waterbodies": {
+      "file": "tools/city/cache/water/usgs_waterbodies.geojson",
+      "what": "3DHP waterbodies in the DEM box",
+      "licence": "public domain (USGS)",
+      "query": "https://3dhp.nationalmap.gov/arcgis/rest/services/usgs_3dhp_all/FeatureServer/60/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson&orderByFields=OBJECTID&resultRecordCount=1000&geometry=-81.12%2C34.975%2C-80.555%2C35.495&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects",
+      "fetched": "2026-09-28T21:51:00.241Z",
+      "features": 3375,
+      "bytes": 12331360,
+      "sha256": "c5669d52d04978f479848072170d8fe2b96f5a8ff501304463907fde1804088d"
+    },
+    "county": {
+      "file": "tools/city/cache/water/county.geojson",
+      "what": "Mecklenburg County boundary (inside/outside)",
+      "licence": "public domain (US Census TIGER)",
+      "query": "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query?where=GEOID%3D%2737119%27&outFields=OBJECTID%2CGEOID%2CNAME&returnGeometry=true&outSR=4326&f=geojson&orderByFields=OBJECTID&resultRecordCount=1000",
+      "fetched": "2026-09-28T21:51:01.684Z",
+      "features": 1,
+      "bytes": 160114,
+      "sha256": "1c525747581233fb61494ac36dadcb52d3c2000227a316470c0901bdf13baa07"
+    }
+  },
+  "note": "Creek centrelines and water bodies for the Charlotte export (WP-04b), fetched by tools/city/fetch/fetch_water.mjs into tools/city/cache/water/ (gitignored). Features are sorted by object id; coordinates WGS84.",
+  "box": [
+    -81.12,
+    34.975,
+    -80.555,
+    35.495
+  ]
+}

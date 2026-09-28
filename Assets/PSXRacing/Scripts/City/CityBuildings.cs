@@ -117,6 +117,8 @@ namespace PSXRacing.City
                         scratch.Clear();
                         map.WaterSegsInRect(new Vector2(c.x - 18f, c.y - 18f), new Vector2(c.x + 18f, c.y + 18f), scratch);
                         if (scratch.Count > 0) { at += step; continue; }
+                        // nor in a ravine's carved channel, nor out in a lake (WP-04b)
+                        if (map.NearRavine(c, CityMeshes.RavineClearM) || map.InLake(c)) { at += step; continue; }
 
                         // one building per 18 m occupancy cell; a real model
                         // claims every cell under its lot
@@ -310,6 +312,7 @@ namespace PSXRacing.City
                 scratch.Clear();
                 map.WaterSegsInRect(new Vector2(c.x - 24f, c.y - 24f), new Vector2(c.x + 24f, c.y + 24f), scratch);
                 if (scratch.Count > 0) continue;
+                if (map.NearRavine(c, CityMeshes.RavineClearM + Mathf.Max(def.w, def.d) * 0.5f) || map.InLake(c)) continue;
 
                 if (!ClaimCells(occupied, c, def.w, def.d)) continue;
 

@@ -182,13 +182,21 @@ namespace PSXRacing.EditorTools
 
             // ---- rule: every water span is on structure ------------------
             int wetFails = 0;
+            var wetBad = new List<string>();
             foreach (var ws in map.wspans)
             {
                 var e = map.edges[ws.edge];
                 float mid = Mathf.Clamp((ws.s0 + ws.s1) * 0.5f, 0f, e.length);
-                if (!e.ElevatedAt(mid)) wetFails++;
+                if (!e.ElevatedAt(mid))
+                {
+                    wetFails++;
+                    var p = e.PointAt(mid);
+                    int si = 0; while (si + 1 < e.stS.Length && e.stS[si + 1] <= mid) si++;
+                    if (wetBad.Count < 6) wetBad.Add($"    span e{e.index} '{e.name}'{(e.link ? " L" : "")} s {ws.s0:0.0}..{ws.s1:0.0} of {e.length:0} at ({p.x:0},{p.y:0}) {LatLon(p.x, p.y)}; seated {e.SeatedAt(si)}/{e.SeatedAt(Mathf.Min(si + 1, e.stS.Length - 1))}");
+                }
             }
             Check(wetFails == 0, "every water crossing carries a deck", wetFails);
+            foreach (var l in wetBad) Line(l);
 
             GradeAudit(map);
 
@@ -356,6 +364,7 @@ namespace PSXRacing.EditorTools
             ReportFanMouths();
             fanMouths = null;
             LampAudit(map, trims, buildings);
+            TerrainFidelity(map);
 
             // ---- the budget (WP-01): nine sites through CityWorld's own
             // path; city_budget.txt holds the table, the audit its summary.
@@ -726,9 +735,16 @@ namespace PSXRacing.EditorTools
             return tiles;
         }
 
+        /// <summary>Metres of cut (retaining) wall on the roadside audit's
+        /// tiles, for <see cref="TerrainFidelity"/>.</summary>
+        static float roadsideCutWallM;
+        static int roadsideTiles;
+
         static void RoadsideAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
         {
+            roadsideCutWallM = 0f;
             var probeTiles = RoadsideTiles(map, RoadsideTopElevatedTiles);
+            roadsideTiles = probeTiles.Count;
             var root = new GameObject("~roadsideAudit");
             var live = new Dictionary<long, (GameObject go, int used)>();
             int clock = 0;
@@ -841,6 +857,7 @@ namespace PSXRacing.EditorTools
                     // the centre LAST: CityMeshes' clip and gore tables are then this tile's
                     var tmC = CityMeshes.Build(map, trims, buildings, tx, tz);
                     vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count; lampsBuilt += tmC.lamps.Count;
+                    roadsideCutWallM += tmC.cutWallM;
                     footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
                     long ck = TileKey(tx, tz);
                     if (live.TryGetValue(ck, out var ct)) { live[ck] = (ct.go, ++clock); Discard(tmC); }
@@ -2035,6 +2052,231 @@ namespace PSXRacing.EditorTools
         }
 
         static int VCount(Mesh m) => m == null ? 0 : m.vertexCount;
+
+        // ==================================================================
+        //  TERRAIN FIDELITY (plan WP-04 / WP-04b). The land is USGS 3DEP
+        //  averaged over each 60 m cell with no filter, and the creeks are the
+        //  county's and USGS's lines carved to beds sampled from 3DEP. The
+        //  offline numbers (DEM RMSE, core relief, slopes) are in
+        //  tools/city/metrics.mjs; this measures what only the solve and the
+        //  ground function know. Each check fails on a REGRESSION against the
+        //  values WP-04 shipped with (the constants below, with their
+        //  pre-WP-04 values beside them), or on the plan's own targets.
+        // ==================================================================
+
+        /// <summary>The five creek transects of survey_src_terrain section 1,
+        /// the bed of each on the USGS 3DEP 1 m DEM (tools/city/truth/
+        /// creek_transects.json, made by make_creek_truth.mjs): id, line
+        /// centre (lat, lon), bearing, half length, bed metres ASL, the bed's
+        /// offset along the line, and the line's relief.</summary>
+        static readonly (string id, double lat, double lon, float bearing, float half, float bedASL, float bedAt, float relief)[] CreekTransects =
+        {
+            ("little_sugar", 35.248572, -80.812851, 90f, 600f, 204.60f, 2f, 18.91f),
+            ("irwin", 35.256324, -80.841592, 90f, 600f, 198.41f, 4f, 21.45f),
+            ("stewart", 35.246464, -80.869493, 90f, 600f, 194.43f, 0f, 24.18f),
+            ("briar", 35.2045, -80.7925, 90f, 600f, 201.32f, 270f, 14.99f),
+            ("mcalpine", 35.168, -80.748, 45f, 600f, 195.82f, -176f, 21.66f),
+        };
+        /// <summary>The creek bed within this of the 3DEP 1 m bed (critic C2).</summary>
+        const float CreekBedTolM = 1.0f;
+        /// <summary>No crest sharper than this on a route off structure
+        /// (critic C23: real crests are R 622 m or more; under 400 m a car
+        /// goes light at road speed).</summary>
+        const float CrestMinR = 400f;
+        /// <summary>The 3.5 m last-resort structure: at most the pre-WP-04
+        /// count + 25% (plan WP-04).</summary>
+        const int MarginStationsBefore = TfMarginBefore;
+        /// <summary>Cut-wall metres on the roadside tiles: at most the
+        /// pre-WP-04 length + 20% (plan WP-04).</summary>
+        const float CutWallBeforeM = TfCutWallBefore;
+        // Measured with this code on the pre-WP-04 data (HEAD 2565d60, the
+        // cut test at its old single sample: PSX_CITY_CUTWALL_ONE=1),
+        // 2026-09-28. The same run: creek beds +3.47..+6.79 m over 3DEP and
+        // no creek line within 50 m of any of the five beds; sharpest route
+        // crest off structure R 487 m (uptown), on structure R 481 m.
+        const int TfMarginBefore = 1874;
+        const float TfCutWallBefore = 1340f;
+
+        static void TerrainFidelity(CityMap map)
+        {
+            float datum = CityElevation.DatumASL;
+            int creeks = 0, ravines = 0, lakes = 0, beds = 0;
+            foreach (var w in map.waters)
+            {
+                if (w.lake) lakes++; else if (w.ravine) ravines++; else creeks++;
+                if (w.bedY != null) beds += w.bedY.Length;
+            }
+            Line($"terrain fidelity (WP-04): datum {datum:0.0} m; the roads read the grid through a {CityElevation.RoadDemSigmaCells:0.0#}-cell Gaussian ({CityElevation.PairedStations} stations and nodes at a divided road's midline); water: {creeks} creek lines, {ravines} ravines, {lakes} lakes, " +
+                 $"{beds} bed samples{(beds == 0 ? " (NO WBED: the fixed 3.6 m carve)" : "")}; {map.wspans.Length} water spans");
+
+            // ---- creek beds at the five transects
+            int bedsOk = 0;
+            foreach (var t in CreekTransects)
+            {
+                var c = LLtoGame(t.lat, t.lon);
+                float br = t.bearing * Mathf.Deg2Rad;
+                var dir = new Vector2(Mathf.Sin(br), Mathf.Cos(br));
+                float gMin = float.MaxValue, dMin = float.MaxValue, gAt = 0f;
+                for (float a = t.bedAt - 60f; a <= t.bedAt + 60f; a += 1f)
+                {
+                    var q = c + dir * a;
+                    float g = CityElevation.GroundY(map, q.x, q.y), d = CityElevation.BaseY(q.x, q.y);
+                    if (g < gMin) { gMin = g; gAt = a; }
+                    if (d < dMin) dMin = d;
+                }
+                float gHi = float.MinValue, gLo = float.MaxValue;
+                for (float a = -t.half; a <= t.half; a += 2f)
+                {
+                    var q = c + dir * a;
+                    float g = CityElevation.GroundY(map, q.x, q.y);
+                    gHi = Mathf.Max(gHi, g); gLo = Mathf.Min(gLo, g);
+                }
+                // the water there: the nearest creek's surface (a ravine has none)
+                var at = c + dir * gAt;
+                string water = "no creek within 50 m";
+                var seen = new HashSet<int>();
+                map.WaterSegsInRect(at - Vector2.one * 50f, at + Vector2.one * 50f, seen);
+                map.RavineSegsInRect(at - Vector2.one * 50f, at + Vector2.one * 50f, seen);
+                float best = 50f;
+                foreach (int packed in seen)
+                {
+                    var w = map.waters[packed >> 12];
+                    if (w.lake) continue;
+                    float dd = CityElevation.WaterFoot(w, packed & 0xFFF, at, out float sw);
+                    if (dd >= best) continue;
+                    best = dd;
+                    water = w.ravine ? $"ravine '{w.name}' {dd:0.0} m off (no water)"
+                        : $"creek '{w.name}' {dd:0.0} m off, water {CityElevation.CreekSurfaceY(w, sw, at) + datum:0.00} m ({CityElevation.CreekSurfaceY(w, sw, at) + datum - t.bedASL:+0.00;-0.00})";
+                }
+                float err = gMin + datum - t.bedASL;
+                bool ok = Mathf.Abs(err) <= CreekBedTolM;
+                if (ok) bedsOk++;
+                Line($"    creek {t.id,-13} 3DEP 1 m bed {t.bedASL:0.00} m: ground {gMin + datum:0.00} ({err:+0.00;-0.00}), 60 m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); " +
+                     $"{water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
+            }
+            Check(bedsOk == CreekTransects.Length, $"every creek transect's bed is within {CreekBedTolM:0.0} m of 3DEP (terrain fidelity, critic C2)",
+                  $"{bedsOk} of {CreekTransects.Length}");
+
+            // ---- crests on the three routes, and the land beside them
+            var land = new List<float>[] { new List<float>(), new List<float>(), new List<float>() };
+            float[] offs = { 30f, 60f, 100f };
+            float worstOff = float.MaxValue, worstOn = float.MaxValue;
+            string worstOffWhere = "", worstOnWhere = "";
+            foreach (var r in map.routes)
+            {
+                var go = new GameObject("~tfProbe");
+                var tp = go.AddComponent<TrackPath>();
+                CityMode.BuildPath(map, r, tp);
+                int n = tp.Count;
+                float sp = tp.spacing;
+                // the crests2.py method: heights smoothed over the car's
+                // scale (sigma 16 m), curvature over +-16 m
+                var y = new float[n];
+                for (int i = 0; i < n; i++) y[i] = tp.waypoints[i].y;
+                int sg = Mathf.Max(1, Mathf.RoundToInt(16f / sp)), kr = sg * 3;
+                var ys = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    float sw = 0f, sy = 0f;
+                    for (int k = -kr; k <= kr; k++)
+                    {
+                        int j = r.loop ? ((i + k) % n + n) % n : Mathf.Clamp(i + k, 0, n - 1);
+                        float wgt = Mathf.Exp(-0.5f * k * k / (sg * sg));
+                        sw += wgt; sy += wgt * y[j];
+                    }
+                    ys[i] = sy / sw;
+                }
+                int kc = Mathf.Max(1, Mathf.RoundToInt(16f / sp));
+                float H = kc * sp;
+                float rOff = float.MaxValue, rOn = float.MaxValue; int iOff = -1, iOn = -1;
+                for (int i = 0; i < n; i++)
+                {
+                    int ia = i - kc, ib = i + kc;
+                    if (r.loop) { ia = (ia % n + n) % n; ib %= n; }
+                    else if (ia < 0 || ib >= n) continue;
+                    float curv = (ys[ib] - 2f * ys[i] + ys[ia]) / (H * H);
+                    if (curv >= 0f) continue;
+                    float R = -1f / curv;
+                    var wp = tp.waypoints[i];
+                    bool onStructure = map.NearestRoadPoint(new Vector2(wp.x, wp.z), 12f, false, out int ei, out float es, out _) && map.edges[ei].ElevatedAt(es);
+                    if (onStructure) { if (R < rOn) { rOn = R; iOn = i; } }
+                    else if (R < rOff) { rOff = R; iOff = i; }
+                }
+                string Where(int i) => i < 0 ? "" : $" at wp {i} ({tp.waypoints[i].x:0},{tp.waypoints[i].z:0}) {LatLon(tp.waypoints[i].x, tp.waypoints[i].z)}";
+                Line($"    route {r.id}: sharpest crest off structure R {(rOff < 1e9f ? rOff.ToString("0") : "-")} m{Where(iOff)}; on structure R {(rOn < 1e9f ? rOn.ToString("0") : "-")} m{Where(iOn)} " +
+                     $"(lift-off near {Mathf.Sqrt(9.81f * Mathf.Min(rOff, rOn)) * 3.6f:0} km/h)");
+                if (rOff < worstOff) { worstOff = rOff; worstOffWhere = r.id + Where(iOff); }
+                if (rOn < worstOn) { worstOn = rOn; worstOnWhere = r.id + Where(iOn); }
+                // land beside the road, every 10th waypoint
+                for (int i = 1; i + 1 < n; i += 10)
+                {
+                    var a = tp.waypoints[i - 1]; var b = tp.waypoints[i + 1]; var m = tp.waypoints[i];
+                    var d2 = new Vector2(b.x - a.x, b.z - a.z);
+                    if (d2.sqrMagnitude < 1e-4f) continue;
+                    d2.Normalize();
+                    var nrm = new Vector2(-d2.y, d2.x);
+                    for (int k = 0; k < offs.Length; k++)
+                        for (int side = -1; side <= 1; side += 2)
+                        {
+                            var q = new Vector2(m.x, m.z) + nrm * (offs[k] * side);
+                            land[k].Add(Mathf.Abs(CityElevation.GroundY(map, q.x, q.y) - m.y));
+                        }
+                }
+                Object.DestroyImmediate(go);
+            }
+            Check(worstOff >= CrestMinR, $"no crest on a route sharper than R {CrestMinR:0} m off structure (terrain fidelity, critic C23)",
+                  $"sharpest R {worstOff:0} m ({worstOffWhere}); on structure R {worstOn:0} m ({worstOnWhere}), not judged: the humps are WP-06's");
+            string P90(List<float> v) { if (v.Count == 0) return "-"; v.Sort(); return v[Mathf.Min(v.Count - 1, (int)(v.Count * 0.9f))].ToString("0.00"); }
+            Line($"    land beside the three routes, |land - road| p90: at 30 m {P90(land[0])} m, at 60 m {P90(land[1])} m, at 100 m {P90(land[2])} m (the corridor blend holds it until WP-14)");
+
+            // ---- structure and walls
+            int margin = CityElevation.MarginStructureStations;
+            Line($"    stations made structure by the {CityElevation.ElevMarginM} m last resort: {margin} (before WP-04 {MarginStationsBefore}); trenches {CityElevation.TrenchCount}; " +
+                 $"cut walls on the {roadsideTiles} roadside tiles {roadsideCutWallM / 1000f:0.00} km (before WP-04 {CutWallBeforeM / 1000f:0.00} km)");
+            if (MarginStationsBefore > 0)
+                Check(margin <= MarginStationsBefore * 1.25f, "stations made structure by the 3.5 m margin: at most +25% on WP-04's baseline (terrain fidelity)",
+                      $"{margin} vs {MarginStationsBefore}");
+            if (CutWallBeforeM > 0f)
+                Check(roadsideCutWallM <= CutWallBeforeM * 1.2f, "cut (retaining) walls: at most +20% on WP-04's baseline (terrain fidelity)",
+                      $"{roadsideCutWallM:0} m vs {CutWallBeforeM:0} m on the roadside tiles");
+
+            // ---- decks over water: the soffit against the water under it
+            int under1 = 0, under0 = 0, judged = 0; float worst = float.MaxValue; string worstWhere = "";
+            var near = new HashSet<int>();
+            foreach (var ws in map.wspans)
+            {
+                var e = map.edges[ws.edge];
+                float sm = (Mathf.Clamp(ws.s0, 0f, e.length) + Mathf.Clamp(ws.s1, 0f, e.length)) * 0.5f;
+                var p = e.PointAt(sm);
+                float soffit = e.YAt(sm) - CityElevation.DeckThick;
+                near.Clear();
+                map.WaterSegsInRect(p - Vector2.one * 40f, p + Vector2.one * 40f, near);
+                float level = float.NaN, bestD = 40f;
+                foreach (int packed in near)
+                {
+                    var w = map.waters[packed >> 12];
+                    if (w.lake) { if (CityMap.PointInPoly(w.pts, p)) { level = w.surfaceY; bestD = 0f; } continue; }
+                    float dd = CityElevation.WaterFoot(w, packed & 0xFFF, p, out float sw);
+                    if (dd < bestD) { bestD = dd; level = CityElevation.CreekSurfaceY(w, sw, p); }
+                }
+                if (float.IsNaN(level)) continue;
+                judged++;
+                float clear = soffit - level;
+                if (clear < 1f) under1++;
+                if (clear < 0f) under0++;
+                if (clear < worst) { worst = clear; worstWhere = $"e{e.index} '{e.name}' at ({p.x:0},{p.y:0}) {LatLon(p.x, p.y)}"; }
+            }
+            Line($"    decks over water: {judged} spans judged; soffit under 1 m above the water {under1}, under the water {under0}; lowest {worst:0.00} m {worstWhere} (WP-25 asks >= 1 m); " +
+                 $"the solve lifted {CityElevation.SpansLiftedForWater} spans to clear their water by {CityElevation.WaterDeckClearM:0.0} m, the most by {CityElevation.SpanWaterLiftMax:0.00} m");
+            Check(under0 == 0, "no water stands above a deck's soffit (terrain fidelity)", $"{under0} of {judged} spans; lowest {worst:0.00} m {worstWhere}");
+        }
+
+        static Vector2 LLtoGame(double lat, double lon)
+        {
+            const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
+            double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
+            return new Vector2((float)((lon - Lon0) * mLon), (float)((lat - Lat0) * 111132.0)) * CityMap.LayoutScale;
+        }
 
         static void Check(bool ok, string what, object detail = null)
         {

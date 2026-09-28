@@ -17,11 +17,17 @@
 //     Unity solver holds those stations on structure and lifts them clear.
 //   * REAL RAMPS. Every *_link way, joined to its mainline at the node OSM
 //     joins it at, with the merge gore drawn by the tile builder.
-//   * REAL GROUND. A 60 m height grid over the whole beltway, sampled from
-//     the AWS Terrain Tiles "skadi" 1" tiles (Tilezen: in the US a BARE-EARTH
-//     mosaic built from USGS NED/3DEP, not raw SRTM radar - it has no towers
-//     in it), then opened/closed/blurred (see the DEM section), instead of
-//     value noise.
+//   * REAL GROUND. A 60 m height grid over the whole beltway: every node the
+//     mean of the USGS 3DEP 1/3 arc-second bare earth over its 60 m cell
+//     (WP-04), with no filter after it. Until WP-04 it was the AWS "skadi"
+//     1" tiles run through an opening, a closing and a blur written to take
+//     out radar "roofs" that were never there; that took out 66% of the
+//     core's relief instead.
+//   * REAL WATER. The creeks are the county's surveyed centrelines
+//     (Mecklenburg Creeks_Streams) inside Mecklenburg and USGS 3DHP flowlines
+//     outside it, the lakes the county's and 3DHP's water bodies, each creek
+//     with its BED sampled from 3DEP every 20 m (lib/water.mjs, WP-04b). They
+//     replace RG2's hand-traced water.
 //   * REAL BUILDINGS in the core: 35k footprints with heights, so the skyline
 //     is Charlotte's and the neighbourhoods are the neighbourhoods.
 //   * THE THREE RACE ROUTES (Uptown Loop, Tryon Sprint, Independence Sprint)
@@ -35,20 +41,21 @@
 //   tools/city/cache/nodes_all.json     signal / stop / yield nodes (OSM)
 //   tools/city/cache/streets_core.json  residential/unclassified in the core (OSM)
 //   tools/city/cache/buildings_core.json footprints in the core (OSM)
-//   tools/roads/cache/N3?W08?.hgt.gz    four skadi 1" tiles (.hgt format, via
-//                                       lib.mjs; bare earth, see REAL GROUND)
-//   tools/city/vendor/rg2/baselineWater.ts  RG2's traced creeks + Lake Wylie
-//   tools/city/vendor/rg2/i485_fit.json     RG2's legacy and OSM I-485 rows,
-//                                           ONLY to register that water
-// (the last two were read out of a Racing-Game-2 checkout until WP-02; see
-// tools/city/vendor/README.md). Every input's size, sha256 and Overpass
-// snapshot time is recorded in tools/city/cache_manifest.json; --check
-// verifies them.
+//   tools/city/cache/3dep/box13.f32     USGS 3DEP 1/3" over the DEM box (public
+//                                       domain; fetch/fetch_3dep.mjs; or
+//                                       %PSX_GIS_DIR%dep)
+//   tools/city/cache/water/*.geojson    creeks, lakes and the county line
+//                                       (fetch/fetch_water.mjs; CC0 and
+//                                       public domain, see SOURCES.md)
+// Every input's size, sha256 and Overpass snapshot time is recorded in
+// tools/city/cache_manifest.json; --check verifies them. (RG2's traced water,
+// vendored in tools/city/vendor/rg2/ by WP-02, is no longer read: WP-04b.)
 //
 // Outputs (the four files the game loads from Resources; the layouts are in
 // tools/city/lib/citydata.mjs, which reads them the way the game does):
 //   charlotte_city.bytes    PSXC v2: a section table, then META NODE NAME EDGE
-//                           PNTS WATR XING SPAN ROUT and GHSH, the graph hash
+//                           PNTS WATR WBED XING SPAN ROUT and GHSH, the graph
+//                           hash (WBED, the creek beds, since WP-04b)
 //   charlotte_dem.bytes     PDEM v2: height grid, datum pinned at 97.0 m
 //   charlotte_bld.bytes     PBLD v1: footprints
 //   charlotte_routes.json   the menu's copy of the routes
@@ -80,17 +87,16 @@ import { deflateSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { srtmSampler } from '../roads/lib.mjs';
+import { load3dep } from './lib/dem3dep.mjs';
+import { buildWaters, waterInputPaths } from './lib/water.mjs';
 import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
 import { readCredits } from './lib/sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
 const CACHE = join(HERE, 'cache');
-const VENDOR = join(HERE, 'vendor', 'rg2');
 const SOURCES = join(HERE, 'SOURCES.md');
 const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
-const SRTM_CACHE = join(HERE, '..', 'roads', 'cache');
 const MANIFEST = join(HERE, 'cache_manifest.json');
 const FINGERPRINT = join(HERE, 'fingerprint.json');
 
@@ -135,10 +141,10 @@ const emit = (name, bytes) => OUTPUTS.set(name, Buffer.isBuffer(bytes) ? bytes :
 const LANE_M = 3.6576;                 // 12 ft, the section currency (never scaled)
 const LAT0 = 35.18456015184093, LON0 = -80.81770185962013;   // RG2 fixture centre
 const M_LAT = 111132, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
-const MPT = 17.212235294117647;        // RG2 tile size, for the water fit only
-const CENTER = 1250;
 const XDEDUP_M = 8;                    // two crossings of one pair closer than this are one
 const BANK_M = 6;                      // dry bank either side of water under a deck
+/// The creek beds (WBED) are stored as u16 centimetres above the datum.
+const BED_UNITS = 100;
 const DEM_CELL = 60;                   // metres per height sample
 const DEM_MARGIN = 1500;
 /// THE DATUM, metres above sea level: world y = 0. PINNED (WP-02). It was
@@ -156,10 +162,10 @@ const DEM_SCALE = 1 / DEM_UNITS;
 /// DEM_FLOOR; a cell below it is clamped up to it only inside one of these
 /// named boxes, and the export FAILS anywhere else - a u16 below the datum
 /// would otherwise wrap to a 6.5 km spike, or be silently flattened. The two
-/// boxes are the quarry pits USGS 3DEP (30 m) puts below 97.5 m: the
-/// Pineville Quarry floor at 70.5 m (145 cells) and the Arrowood Quarry at
-/// 89.5 m (83 cells), so a pit loses up to ~27 m of depth when 3DEP ships
-/// (WP-04). Today's skadi grid never goes below 99.2 m and nothing is clamped.
+/// boxes are the quarry pits USGS 3DEP puts below 97.5 m: the Pineville
+/// Quarry floor (69.1 m in the 1/3" DEM) and the Arrowood Quarry (89.5 m on
+/// the 30 m grid), so a pit loses up to ~27 m of depth on the 60 m grid
+/// (WP-04; the skadi grid before it never went below 99.2 m).
 /// Keyed by the OpenStreetMap way that outlines each pit (ODbL); boxes are
 /// [south, west, north, east] in degrees, ~100 m beyond the cells.
 const DEM_FLOOR = DEM_BASE + 0.5;
@@ -545,115 +551,21 @@ const crossings = [];   // { over, under, x, z, forced }
 }
 
 // --------------------------------------------------------------- water
-function tsArray(file, exportName) {
-  const src = readFileSync(file, 'utf8');
-  const at = src.indexOf(exportName);
-  if (at < 0) throw new Error(`${exportName} not in ${file}`);
-  const eq = src.indexOf('=', at);
-  const open = src.indexOf('[', eq);
-  let depth = 0, i = open;
-  for (; i < src.length; i++) {
-    if (src[i] === '[') depth++;
-    else if (src[i] === ']') { depth--; if (depth === 0) break; }
-  }
-  return new Function(`return ${src.slice(open, i + 1)};`)();
+// The box the ground grid covers (every road point plus DEM_MARGIN): the
+// DEM below and the water both use it.
+let bbox = { x0: 1e18, x1: -1e18, z0: 1e18, z1: -1e18 };
+for (const e of edges) for (const p of e.pts) {
+  bbox.x0 = Math.min(bbox.x0, p[0]); bbox.x1 = Math.max(bbox.x1, p[0]);
+  bbox.z0 = Math.min(bbox.z0, p[1]); bbox.z1 = Math.max(bbox.z1, p[1]);
 }
-// RG2's traced water and the two I-485 rows that register it, vendored
-// (tools/city/vendor/README.md says where each came from).
-const RIVERS = tsArray(join(VENDOR, 'baselineWater.ts'), 'BASELINE_RIVERS');
-const LAKES = tsArray(join(VENDOR, 'baselineWater.ts'), 'BASELINE_LAKES');
-const I485_FIT = loadJson(join(VENDOR, 'i485_fit.json'));
+bbox = { x0: bbox.x0 - DEM_MARGIN, x1: bbox.x1 + DEM_MARGIN, z0: bbox.z0 - DEM_MARGIN, z1: bbox.z1 + DEM_MARGIN };
+/// USGS 3DEP 1/3" over the box (lib/dem3dep.mjs): the ground and the beds.
+const dem3 = load3dep();
+console.log(`3DEP: ${relative(UNITY, dem3.f32Path)} (${dem3.meta.cols} x ${dem3.meta.rows} px, sha256 ${dem3.meta.sha256.slice(0, 12)})`);
 
-function rowPts(r, header) { const p = []; for (let i = header; i < r.length; i += 2) p.push([r[i], r[i + 1]]); return p; }
-function polyResample(pts, step) {
-  const out = [pts[0].slice()];
-  let carry = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
-    const seg = Math.hypot(bx - ax, by - ay);
-    let t = step - carry;
-    while (t < seg) { out.push([ax + (bx - ax) * t / seg, ay + (by - ay) * t / seg]); t += step; }
-    carry = (seg - (t - step)) % step;
-  }
-  return out;
-}
-function nearestOnPoly(pts, x, y) {
-  let best = Infinity, bx = 0, by = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [cx, cy] = pts[i];
-    const dx = cx - ax, dy = cy - ay, L2 = dx * dx + dy * dy;
-    let t = L2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / L2 : 0;
-    t = Math.max(0, Math.min(1, t));
-    const px = ax + dx * t, py = ay + dy * t;
-    const d = (x - px) ** 2 + (y - py) ** 2;
-    if (d < best) { best = d; bx = px; by = py; }
-  }
-  return { d: Math.sqrt(best), x: bx, y: by };
-}
-function umeyama(src, dst) {
-  const n = src.length;
-  let mx = 0, my = 0, ux = 0, uy = 0;
-  for (let i = 0; i < n; i++) { mx += src[i][0]; my += src[i][1]; ux += dst[i][0]; uy += dst[i][1]; }
-  mx /= n; my /= n; ux /= n; uy /= n;
-  let sxx = 0, sxy = 0, syx = 0, syy = 0, varS = 0;
-  for (let i = 0; i < n; i++) {
-    const ax = src[i][0] - mx, ay = src[i][1] - my, bx = dst[i][0] - ux, by = dst[i][1] - uy;
-    sxx += ax * bx; sxy += ax * by; syx += ay * bx; syy += ay * by;
-    varS += ax * ax + ay * ay;
-  }
-  const dot = sxx + syy, cross = sxy - syx;
-  const th = Math.atan2(cross, dot);
-  const c = Math.cos(th), s = Math.sin(th);
-  const scale = (dot * c + cross * s) / varS;
-  return { s: scale, c, sn: s, tx: ux - scale * (c * mx - s * my), ty: uy - scale * (s * mx + c * my) };
-}
-const applySim = (T, x, y) => [T.s * (T.c * x - T.sn * y) + T.tx, T.s * (T.sn * x + T.c * y) + T.ty];
-
-// The fit runs in RG2's TILE frame (both legacy sets live there). The OSM
-// side of it is RG2's own baked I-485 row — ONE merged centreline of the
-// loop — rather than this snapshot's two carriageways: a ring assembled from
-// both carriageways plus the ramps that share the ref is not a curve
-// nearestOnPoly can walk, and the ICP collapsed its scale to 0.22 against it.
-// The frames agree (RG2's tile = this metre frame / MPT about the same
-// centre), so the fit carries over exactly.
-const osm485 = rowPts(I485_FIT.osm_i485, 4);
-const leg485 = polyResample(rowPts(I485_FIT.legacy_i485, 4), 8);
-let T;
-{
-  const cen = pts => pts.reduce((a, p) => [a[0] + p[0] / pts.length, a[1] + p[1] / pts.length], [0, 0]);
-  const rms = (pts, c) => Math.sqrt(pts.reduce((a, p) => a + (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2, 0) / pts.length);
-  const cl = cen(leg485), co = cen(osm485);
-  const s0 = rms(osm485, co) / rms(leg485, cl);
-  T = { s: s0, c: 1, sn: 0, tx: co[0] - s0 * cl[0], ty: co[1] - s0 * cl[1] };
-}
-let fitResid = Infinity;
-for (let it = 0; it < 14; it++) {
-  const src = [], dst = [];
-  let sum = 0;
-  for (const p of leg485) {
-    const [x, y] = applySim(T, p[0], p[1]);
-    const nb = nearestOnPoly(osm485, x, y);
-    src.push(p); dst.push([nb.x, nb.y]); sum += nb.d;
-  }
-  fitResid = sum / leg485.length;
-  T = umeyama(src, dst);
-}
-console.log(`water fit: scale ${T.s.toFixed(4)} rot ${(Math.atan2(T.sn, T.c) * 180 / Math.PI).toFixed(3)}deg resid ${(fitResid * MPT).toFixed(0)} m`);
-if (fitResid * MPT > 120) throw new Error('water co-registration failed');
-const tileToM = ([tx, ty]) => [(tx - CENTER) * MPT, (CENTER - ty) * MPT];
-
-const waters = [];
-for (const rv of RIVERS) {
-  const w = rv[0], name = rv[1];
-  const pts = [];
-  for (let i = 2; i < rv.length; i += 2) pts.push(tileToM(applySim(T, rv[i], rv[i + 1])));
-  waters.push({ name, widthM: Math.max(5, w * LANE_M / 1.275), lake: false, pts });
-}
-for (const lk of LAKES) {
-  const pts = [];
-  for (let i = 1; i < lk.length; i += 2) pts.push(tileToM(applySim(T, lk[i], lk[i + 1])));
-  waters.push({ name: lk[0], widthM: 0, lake: true, pts });
-}
+// Creeks and lakes from open data with their beds from 3DEP (WP-04b; the
+// rules are in lib/water.mjs). Each water is { name, widthM, lake, pts, bed }.
+const waters = buildWaters({ cacheDir: CACHE, dem3, toX, toZ, toLat, toLon, box: bbox }).waters;
 function pointInPoly(pts, x, y) {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -667,7 +579,9 @@ const wspans = [];
   // water segments hashed so 40k edges do not each walk 30 creeks
   const wHash = new Map();
   waters.forEach((w, wi) => {
-    if (w.lake) return;
+    // a ravine carries no water sheet and a road over it keeps its
+    // embankment (a culvert, WP-25): only creeks and lakes make spans
+    if (w.lake || w.ravine) return;
     for (let i = 1; i < w.pts.length; i++) {
       const [ax, az] = w.pts[i - 1], [bx, bz] = w.pts[i];
       const x0 = Math.floor(Math.min(ax, bx) / SEGCELL), x1 = Math.floor(Math.max(ax, bx) / SEGCELL);
@@ -761,81 +675,24 @@ const nodeCtl = new Uint8Array(nodes.length);
 }
 
 // ------------------------------------------------------------------- DEM
-let bbox = { x0: 1e18, x1: -1e18, z0: 1e18, z1: -1e18 };
-for (const e of edges) for (const p of e.pts) {
-  bbox.x0 = Math.min(bbox.x0, p[0]); bbox.x1 = Math.max(bbox.x1, p[0]);
-  bbox.z0 = Math.min(bbox.z0, p[1]); bbox.z1 = Math.max(bbox.z1, p[1]);
-}
-bbox = { x0: bbox.x0 - DEM_MARGIN, x1: bbox.x1 + DEM_MARGIN, z0: bbox.z0 - DEM_MARGIN, z1: bbox.z1 + DEM_MARGIN };
 const demNX = Math.ceil((bbox.x1 - bbox.x0) / DEM_CELL) + 1;
 const demNZ = Math.ceil((bbox.z1 - bbox.z0) / DEM_CELL) + 1;
 console.log(`DEM grid ${demNX} x ${demNZ} at ${DEM_CELL} m over ${((bbox.x1 - bbox.x0) / 1000).toFixed(1)} x ${((bbox.z1 - bbox.z0) / 1000).toFixed(1)} km`);
-const srtm = await srtmSampler({ s: toLat(bbox.z0), n: toLat(bbox.z1), w: toLon(bbox.x0), e: toLon(bbox.x1) }, SRTM_CACHE);
+// Every node is the MEAN of the 3DEP 1/3" pixels (about 8.4 x 10.3 m) whose
+// centres lie in its own 60 m cell: an area average, so the grid neither
+// aliases the 10 m detail nor loses the ridges and valleys a 60 m grid can
+// hold. NOTHING FILTERS IT AFTERWARDS. The opening (erode, dilate), closing
+// and Gaussian that stood here until WP-04 were written against radar
+// "roofs": the source was taken to be SRTM with uptown's towers 200 m proud.
+// It never was (the skadi tiles were bare earth, and so is 3DEP), so all they
+// removed was the real terrain - 66% of the core's relief, every creek valley
+// and ridge line (survey_flatness, 2026-09-27).
 let dem = new Float32Array(demNX * demNZ);
 for (let iz = 0; iz < demNZ; iz++)
-  for (let ix = 0; ix < demNX; ix++)
-    dem[iz * demNX + ix] = srtm(toLat(bbox.z0 + iz * DEM_CELL), toLon(bbox.x0 + ix * DEM_CELL));
-// The filters below were written for "roofs": the source was taken to be
-// SRTM radar with uptown's towers 200 m proud of the street. It is not -
-// the skadi tile is bare earth (215-232 m in a 1 km window round the Bank of
-// America tower, 1.5 m RMSE against 3DEP; survey_flatness 2026-09-27) - so
-// the opening/closing/Gaussian removes real ridges and valleys, and is the
-// main reason the city looks flat. Kept as is until WP-04 replaces the
-// ground: this pass (WP-01) must reproduce the shipped bytes.
-function minFilter(src, r) {
-  const out = new Float32Array(src.length);
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let m = Infinity;
-    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
-      const x = Math.min(demNX - 1, Math.max(0, ix + dx)), z = Math.min(demNZ - 1, Math.max(0, iz + dz));
-      m = Math.min(m, src[z * demNX + x]);
-    }
-    out[iz * demNX + ix] = m;
+  for (let ix = 0; ix < demNX; ix++) {
+    const x = bbox.x0 + ix * DEM_CELL, z = bbox.z0 + iz * DEM_CELL, h = DEM_CELL / 2;
+    dem[iz * demNX + ix] = dem3.blockMean(toLat(z - h), toLat(z + h), toLon(x - h), toLon(x + h));
   }
-  return out;
-}
-function gauss(src, sigma) {
-  const r = Math.ceil(sigma * 2.5);
-  const k = [];
-  let ks = 0;
-  for (let i = -r; i <= r; i++) { const v = Math.exp(-i * i / (2 * sigma * sigma)); k.push(v); ks += v; }
-  const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let s = 0;
-    for (let i = -r; i <= r; i++) s += k[i + r] * src[iz * demNX + Math.min(demNX - 1, Math.max(0, ix + i))];
-    tmp[iz * demNX + ix] = s / ks;
-  }
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let s = 0;
-    for (let i = -r; i <= r; i++) s += k[i + r] * tmp[Math.min(demNZ - 1, Math.max(0, iz + i)) * demNX + ix];
-    out[iz * demNX + ix] = s / ks;
-  }
-  return out;
-}
-function maxFilter(src, r) {
-  const out = new Float32Array(src.length);
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let m = -Infinity;
-    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
-      const x = Math.min(demNX - 1, Math.max(0, ix + dx)), z = Math.min(demNZ - 1, Math.max(0, iz + dz));
-      m = Math.max(m, src[z * demNX + x]);
-    }
-    out[iz * demNX + ix] = m;
-  }
-  return out;
-}
-// A bare MIN filter (the first cut) took the roofs out and the hills with
-// them: 6.6 m low on average, 20 m low beside every valley, so every road
-// on a hillside stood proud of the "ground" and was built as a deck. A
-// morphological OPENING (erode, then dilate back) removes only what is
-// narrower than the kernel — the towers — and returns the surface
-// everywhere else (2 m mean, and Trade & Tryon lands at 227 m ASL, which
-// is right); the CLOSING after it fills the one-pixel pits the radar left.
-{
-  const opened = maxFilter(minFilter(dem, 2), 2);
-  const closed = minFilter(maxFilter(opened, 1), 1);
-  dem = gauss(closed, 1.1);
-}
 // The pit clamp (DEM_CLAMP): below DEM_FLOOR only inside a named box, and
 // there the ground is lifted to it; anywhere else the export stops.
 {
@@ -1231,9 +1088,28 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   section('WATR', w => {
     w.u32(waters.length);
     for (const wt of waters) {
-      w.u32(nameIdx(wt.name)); w.f32(wt.widthM); w.u8(wt.lake ? 1 : 0);
+      w.u32(nameIdx(wt.name)); w.f32(wt.widthM); w.u8(wt.kind);   // 0 creek, 1 lake, 2 ravine
       w.u32(wt.pts.length);
       for (const p of wt.pts) { w.f32(p[0]); w.f32(p[1]); }
+    }
+  });
+  // WBED (WP-04b): each water's bed in WATR's order (lib/citydata.mjs has
+  // the layout): the first sample as u16 cm above the datum, then i16 cm
+  // steps. A bed below the datum would wrap: the export stops instead, as the
+  // DEM clamp does.
+  section('WBED', w => {
+    w.u32(waters.length); w.f32(DEM_BASE); w.f32(1 / BED_UNITS);
+    for (const wt of waters) {
+      const bed = wt.bed || [];
+      w.u32(bed.length); w.f32(wt.bedStep || 0);
+      let prev = 0;
+      bed.forEach((v, k) => {
+        const u = Math.round((v - DEM_BASE) * BED_UNITS);
+        if (!(u >= 0 && u <= 65535)) throw new Error(`water "${wt.name}": bed ${v.toFixed(2)} m does not fit u16 cm above the ${DEM_BASE} m datum`);
+        if (k === 0) w.u16(u);
+        else { const d = u - prev; if (d < -32768 || d > 32767) throw new Error(`water "${wt.name}": a bed step of ${d} cm`); w.u16(d & 0xffff); }
+        prev = u;
+      });
     }
   });
   section('XING', w => {
@@ -1426,9 +1302,10 @@ console.log('wrote debug PNGs');
 
 // ------------------------------------------------- write, or check, the result
 // The inputs this export read: the Overpass cache (with its snapshot time),
-// the skadi tiles the DEM bbox touched, the vendored RG2 files the water fit
-// reads, and SOURCES.md (the credits are part of the output). --manifest records them; --check verifies them, so a failed check
-// says whether the INPUTS moved or the CODE did.
+// the 3DEP box the ground and the beds come from, the water layers, and
+// SOURCES.md (the credits are part of the output). --manifest records them;
+// --check verifies them, so a failed check says whether the INPUTS moved or
+// the CODE did.
 function inputFiles() {
   const files = [];
   const add = (label, path, kind) => { if (existsSync(path)) files.push({ label, path, kind }); };
@@ -1436,14 +1313,10 @@ function inputFiles() {
   add('tools/city/cache/nodes_all.json', join(CACHE, 'nodes_all.json'), 'overpass');
   add('tools/city/cache/streets_core.json', join(CACHE, 'streets_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
-  const s = toLat(bbox.z0), n = toLat(bbox.z1), w = toLon(bbox.x0), e = toLon(bbox.x1);
-  for (let lat = Math.floor(s); lat <= Math.floor(n); lat++)
-    for (let lon = Math.floor(w); lon <= Math.floor(e); lon++) {
-      const key = `N${String(lat).padStart(2, '0')}W${String(-lon).padStart(3, '0')}`;
-      add(`tools/roads/cache/${key}.hgt.gz`, join(SRTM_CACHE, key + '.hgt.gz'), 'skadi');
-    }
-  add('tools/city/vendor/rg2/baselineWater.ts', join(VENDOR, 'baselineWater.ts'), 'vendor');
-  add('tools/city/vendor/rg2/i485_fit.json', join(VENDOR, 'i485_fit.json'), 'vendor');
+  // the 3DEP box (PSX_GIS_DIRdep when that is set) and its georeference
+  add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');
+  add('tools/city/cache/3dep/box13.json', dem3.jsonPath, '3dep');
+  for (const f of waterInputPaths(CACHE)) add(f.label, f.path, 'water');
   // SOURCES.md by its Credits only: the rest of the registry is prose that
   // later packages edit without changing a byte of the output
   files.push({ label: 'tools/city/SOURCES.md#credits', content: Buffer.from(ATTRIBUTION, 'utf8'), kind: 'registry' });

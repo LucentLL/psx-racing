@@ -31,7 +31,10 @@ seconds; the full credits are these lines.
 | id | credit | licence | licence link | shipped in |
 |---|---|---|---|---|
 | osm | Road network data (c) OpenStreetMap contributors, ODbL 1.0 | ODbL 1.0 | https://opendatacommons.org/licenses/odbl/1-0/ | charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json |
-| terrain | Terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey | public domain; attribution requested | https://github.com/tilezen/joerd/blob/master/docs/attribution.md | charlotte_dem.bytes |
+| usgs3dep | Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP) | public domain | https://www.usgs.gov/3d-elevation-program | charlotte_dem.bytes, charlotte_city.bytes |
+| meckgis | Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0 | CC0 1.0 | https://creativecommons.org/publicdomain/zero/1.0/ | charlotte_city.bytes |
+| usgs3dhp | Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP) | public domain | https://www.usgs.gov/3d-hydrography-program | charlotte_city.bytes |
+| terrain | Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey | public domain; attribution requested | https://github.com/tilezen/joerd/blob/master/docs/attribution.md | the mountain stages' ground (tools/roads) |
 
 ## Registry
 
@@ -40,29 +43,37 @@ seconds; the full credits are these lines.
 | Source | Used for | Licence | Duty | Files, snapshot |
 |---|---|---|---|---|
 | **OpenStreetMap**, via the Overpass API | Roads, ramps, junction controls, streets in the core, building footprints, the three race routes | ODbL 1.0 | Credit (above). Keep the city graph a separable derivative: non-OSM data goes in its own sections (WATR) or files. | `tools/city/cache/` (gitignored, on this machine only; sha256 in `cache_manifest.json`). `ways_all.json` and `nodes_all.json` snapshot `2026-09-12T02:44:33Z`; `streets_core.json` and `buildings_core.json` `2026-09-12T02:39:51Z`. Queries: `tools/city/fetch/`. |
-| **AWS Terrain Tiles "skadi"** (Mapzen/Tilezen joerd; in the US a bare-earth mosaic built from USGS NED/3DEP, with SRTM) | The 60 m ground grid (`charlotte_dem.bytes`); the mountain stages' ground too (`tools/roads`) | Built on public-domain USGS data; Tilezen asks for attribution | Credit (above), while any of it ships. **It was missing until WP-02 (2026-09-28).** | `tools/roads/cache/N34W081`, `N34W082`, `N35W081`, `N35W082` `.hgt.gz` from `https://s3.amazonaws.com/elevation-tiles-prod/skadi/` (sha256 in `cache_manifest.json`). |
-| **Racing-Game-2 traced water** (owner's own work) | The creeks and Lake Wylie (section WATR), and the water spans they cause (SPAN) | Owner's own work | None. **Open question for the owner: what map was `Maps/Rivers and Lake.png` drawn over?** It is a GIMP 2.10 drawing (saved 2026-07-02), blue lines on black, with nothing in its metadata about a base map. If it was traced over Google Maps it must go; WP-04b replaces it with Mecklenburg `Creeks_Streams` and USGS 3DHP anyway. | Vendored in `tools/city/vendor/rg2/baselineWater.ts` (byte for byte). See `tools/city/vendor/README.md`. |
-| **Racing-Game-2 I-485 rows** (the water fit's registration pair) | Registering the traced water into the game frame (ICP, 23 m mean residual) | The legacy row: owner's own trace (`Maps/485.png`). The OSM row: ODbL 1.0 (RG2's own OSM bake) | None beyond the OSM credit. | `tools/city/vendor/rg2/i485_fit.json`, with the source files' sha256 and commits. |
+| **USGS 3DEP 1/3 arc-second DEM**, cells n35w081, n35w082, n36w081, n36w082 (Last-Modified 2026-04-17 on the USGS staging bucket) | Charlotte's 60 m ground grid (`charlotte_dem.bytes`: the mean of the pixels in each 60 m cell, no filter; WP-04) and the creek beds (section WBED; WP-04b) | Public domain (US Government work) | Credit "U.S. Geological Survey, 3D Elevation Program" (above). | `tools/city/fetch/fetch_3dep.mjs` range-reads the COGs from `https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current/` into `tools/city/cache/3dep/box13.f32` (or `%PSX_GIS_DIR%dep`), 6102 x 5616 px, 137 MB, gitignored; `box13.json` holds the georeference, the source files' Last-Modified/ETag and the sha256 (also in `cache_manifest.json`). |
+| **Mecklenburg County GIS "Creeks and Streams"** (`CreeksAndStreams/FeatureServer/0`) and **"Lakes and Ponds"** (`LakesAndPonds/FeatureServer/0`) | Creek centrelines inside the county (class `mt640`: open channels draining more than 640 acres) and the lakes and ponds of 2 ha or more (section WATR; WP-04b) | **CC0 1.0.** The county's Open Mapping site: "Unless otherwise specified, our data is released under a CC0 ('No Rights Reserved') license and our open source software projects are released under a MIT software license" (checked 2026-09-28). The layers' metadata specifies no other licence (its use limitations are a warranty disclaimer and "does not support secondary distribution", i.e. no support, not a restriction). The "MIT" the surveys quoted is the site's software licence, not the data's. | Credit (above), as a courtesy. | `tools/city/fetch/fetch_water.mjs` into `tools/city/cache/water/meck_creeks.geojson` and `meck_lakes.geojson` (gitignored); query, fetch time, count and sha256 in `tools/city/fetch/water_manifest.json`. |
+| **USGS 3D Hydrography Program (3DHP)** flowlines (layer 50) and waterbodies (layer 60) | Creek centrelines outside Mecklenburg (channel lines of Strahler order 4 or more), the stream order that sets every creek's modelled width, and lakes outside the county (WP-04b) | Public domain (US Government work) | Credit "U.S. Geological Survey, 3D Hydrography Program" (above). | `fetch_water.mjs` into `tools/city/cache/water/usgs_flowlines.geojson` and `usgs_waterbodies.geojson`; see `water_manifest.json`. |
+| **US Census TIGERweb**, Mecklenburg County boundary (GEOID 37119) | Deciding which creeks are inside the county (county lines) and which outside (3DHP) | Public domain (US Government work) | None; not shipped. | `tools/city/cache/water/county.geojson`, same manifest. |
+| **AWS Terrain Tiles "skadi"** (Mapzen/Tilezen joerd; in the US a bare-earth mosaic built from USGS NED/3DEP, with SRTM) | The mountain stages' ground (`tools/roads`). Charlotte's ground until WP-04 (2026-09-28) | Built on public-domain USGS data; Tilezen asks for attribution | Credit (above), while any of it ships. | `tools/roads/cache/*.hgt.gz` from `https://s3.amazonaws.com/elevation-tiles-prod/skadi/`. |
 | **Quarry outlines**, OpenStreetMap ways 246229420 (Arrowood Quarry) and 246229422 (Pineville Quarry) | Naming the two places where the ground may be clamped to the datum (`DEM_CLAMP` in the exporter) | ODbL 1.0 | Covered by the OSM credit. | Hand-entered boxes in `export_osm.mjs`, keyed by the way ids. |
-| **USGS 3DEP** 1 m, 1/3" (the flatness survey, 2026-09-27) | Editor-only truth for the metrics: `tools/city/truth/` (8 transects at 2 m, core at 10 m, city at 120 m) | Public domain | Credit "U.S. Geological Survey, 3D Elevation Program" wherever it is shown. Not shipped in the game. | `tools/city/truth/`; `transects_meta.json` says how each file was made. |
+| **USGS 3DEP** 1 m, 1/3" (the flatness survey, 2026-09-27; the exporter's own 1/3" box since WP-04) | Editor-only truth for the metrics: `tools/city/truth/` (8 transects at 2 m, core at 10 m, city at 120 m) | Public domain | Credit "U.S. Geological Survey, 3D Elevation Program" wherever it is shown. Not shipped in the game. | `tools/city/truth/`; `transects_meta.json` says how each file was made. |
 | **Owner's PSX texture packs** | Every material (owner rule) | The packs' own licences | Materials only from the packs. | `Assets/PSXRacing/Art`. |
 
 ### Planned (not used yet): add the row above when a package starts using it
 
 | Source | For | Licence | Duty |
 |---|---|---|---|
-| USGS 3DEP 1/3" tiles n35w081, n35w082, n36w081, n36w082 (2026-04-17) | WP-04 60 m grid, WP-05 road heights, WP-13 30 m grid | Public domain | Credit "U.S. Geological Survey, 3D Elevation Program". Replaces the skadi credit only when skadi is no longer used anywhere (the stages use it too). |
 | USGS 3DEP 1 m / NC Phase 4 QL1 lidar (2016-17) | Ditch templates and spot checks (not shipped) | Public domain | Same credit. |
 | NC Spatial Data Download / NC OneMap | Alternative lidar access | Verify the terms first | Record on use. |
-| USGS 3DHP / NHDPlus | WP-04b/WP-25 creeks and lakes outside Mecklenburg | Public domain | Credit USGS. |
-| Mecklenburg County GIS (`Creeks_Streams`, TreeCanopy, Streets `SPEEDLIMIT`/`NUMBEROFLANES`/`PAVEMENTWIDTH`, EdgeOfPavement) | WP-04b, 08, 20, 25, 32; metrics ACCURACY | MIT or CC0 per dataset (the county's GitHub and catalog disagree) | Record per file; verify before shipping. MIT needs its notice to travel with copies. |
+| USGS NHDPlus HR | Flow and slope attributes, if ever needed (3DHP replaced it for WP-04b) | Public domain | Credit USGS. |
+| Mecklenburg County GIS (TreeCanopy, Streets `SPEEDLIMIT`/`NUMBEROFLANES`/`PAVEMENTWIDTH`, EdgeOfPavement) | WP-08, 20, 25, 32; metrics ACCURACY | CC0 unless a layer says otherwise (see the Creeks and Streams row above; the "MIT" is the county site's software licence) | Check each layer's metadata before shipping it. |
 | City of Charlotte open data (signals, street trees, sidewalks, resurfacing `CURB`, storm channels) | WP-16, 20, 22, 25 | CC BY 4.0 | In-game credit "City of Charlotte", a licence link, and a note that the data was modified. |
 | USFS / NLCD tree canopy and land cover | WP-08, WP-21 | Public domain | Credit USFS/USGS; verify the canopy year. |
 | FHWA NBI | Bridges | Public domain | - |
 | NCDOT GIS (outdoor advertising, structures, guardrail, road characteristics, signals, AADT) | Validation and statistics only | No licence stated | Derived placements only with the owner's OK and NCDOT's confirmation. Credit "NCDOT GIS Unit". Strip `Google_Map` / `GOOGLE_LINK` fields from anything kept. |
 | FHWA MUTCD; AASHTO | Taper lengths, sign mounting, radii | Formulas only | Nothing copied. |
-| npm `geotiff` | WP-04 acquisition (dev only) | MIT | Dev dependency only. |
+| npm `geotiff` | Not needed: `fetch_3dep.mjs` reads the COGs itself (TIFF directory, LZW, floating-point predictor) | MIT | - |
 | tinf inflate (only if `DeflateStream` fails on WebGL) | WP-13 | zlib | Keep the notice in the source. |
+
+### Retired
+
+| Source | Used for | Until | Notes |
+|---|---|---|---|
+| **Racing-Game-2 traced water** (owner's own work) | The creeks and Lake Wylie (WATR) and the water spans they caused | WP-04b (2026-09-28) | 30 lines and 2 lakes traced from RG2 `Maps/Rivers and Lake.png`, registered with a 23 m ICP residual; none of its lines passed within 50 m of the five creek beds the terrain audit measures. What the drawing was traced over was never recorded; nothing ships from it now. Kept byte for byte in `tools/city/vendor/rg2/` as the record. |
+| **Racing-Game-2 I-485 rows** | Registering that traced water (ICP) | WP-04b | `tools/city/vendor/rg2/i485_fit.json`, kept as the record. |
 
 ### Not a source
 

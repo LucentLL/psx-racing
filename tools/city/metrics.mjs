@@ -58,6 +58,34 @@ const files = {
   routes: readFileSync(join(DATA, 'charlotte_routes.json')),
 };
 const city = parseCity(files.city), dem = parseDem(files.dem), bld = parseBld(files.bld);
+/// THE ROADS' GROUND (WP-04): the solve reads the grid through a Gaussian of
+/// CityElevation.RoadDemSigmaDefault cells (the land reads it raw). Read out of
+/// the C# so the emulation of solver step 1 below can never drift from it.
+const ROAD_SIGMA = (() => {
+  // the same measuring override the game reads (PSX_CITY_ROADSIGMA)
+  if (process.env.PSX_CITY_ROADSIGMA !== undefined) return +process.env.PSX_CITY_ROADSIGMA;
+  try {
+    const cs = readFileSync(join(HERE, '..', '..', 'Assets', 'PSXRacing', 'Scripts', 'City', 'CityElevation.cs'), 'utf8');
+    const m = /RoadDemSigmaDefault\s*=\s*([\d.]+)f/.exec(cs);
+    return m ? +m[1] : 0;
+  } catch { return 0; }
+})();
+const roadDem = (() => {
+  if (!(ROAD_SIGMA > 0.05)) return dem;
+  const { nx, nz } = dem, r = Math.ceil(ROAD_SIGMA * 3), k = [];
+  let ks = 0; for (let i = -r; i <= r; i++) { const v = Math.exp(-0.5 * i * i / (ROAD_SIGMA * ROAD_SIGMA)); k.push(v); ks += v; }
+  const tmp = new Float64Array(nx * nz), h = new Float32Array(nx * nz);
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) { let a = 0; for (let i = -r; i <= r; i++) a += k[i + r] * dem.h[z * nx + Math.min(nx - 1, Math.max(0, x + i))]; tmp[z * nx + x] = a / ks; }
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) { let a = 0; for (let i = -r; i <= r; i++) a += k[i + r] * tmp[Math.min(nz - 1, Math.max(0, z + i)) * nx + x]; h[z * nx + x] = a / ks; }
+  const at = (x, z) => {
+    const fx = (x - dem.x0) / dem.cell, fz = (z - dem.z0) / dem.cell;
+    const ix = Math.min(nx - 2, Math.max(0, Math.floor(fx))), iz = Math.min(nz - 2, Math.max(0, Math.floor(fz)));
+    const tx = Math.min(1, Math.max(0, fx - ix)), tz = Math.min(1, Math.max(0, fz - iz));
+    const a = h[iz * nx + ix], b = h[iz * nx + ix + 1], c = h[(iz + 1) * nx + ix], d = h[(iz + 1) * nx + ix + 1];
+    return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+  };
+  return { ...dem, h, at, asl: (x, z) => at(x, z) + dem.base };
+})();
 const R = { schema: 1, data: DATA.replace(/\\/g, '/').replace(UNITY.replace(/\\/g, '/') + '/', ''), node: process.version };
 const out = [];
 const P = s => out.push(s);
@@ -402,6 +430,22 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
     P(`  city-wide DEM vs 3DEP: bias ${c.bias} m, RMSE ${c.rmse} m (p1 ${c.p1}, p99 ${c.p99}); high ridges ${c.bias_by_position.high_ridge.bias} m, deep valleys ${c.bias_by_position.deep_valley.bias >= 0 ? '+' : ''}${c.bias_by_position.deep_valley.bias} m`);
     P(`    relief in 600 m p50 ${c.relief600_p50.game} m (real ${c.relief600_p50.truth}), p90 ${c.relief600_p90.game} (real ${c.relief600_p90.truth}); slope p90 at 120 m ${c.slope120_p90_pct.game}% (real ${c.slope120_p90_pct.truth}%)`);
   }
+  // --- the game grid's own slope at 60 m, the plan's WP-04 targets (slope p90
+  // >= 8%, cells over 6% >= 15%), measured as survey_flatness did (flat/city.py):
+  // forward differences over one cell, the 1.5 km margin (25 cells) dropped.
+  // 3DEP block means at 60 m give p90 9.02% and 28.6% over 6% (the survey).
+  {
+    const m = 25, sl = [];
+    for (let iz = m; iz < dem.nz - m - 1; iz++) for (let ix = m; ix < dem.nx - m - 1; ix++) {
+      const i = iz * dem.nx + ix;
+      sl.push(Math.hypot(dem.h[i + 1] - dem.h[i], dem.h[i + dem.nx] - dem.h[i]) / dem.cell * 100);
+    }
+    R.height.grid60 = { method: 'survey_flatness: forward differences over one 60 m cell, 25-cell margin dropped',
+                        slope_p50_pct: r2(percentile(sl, 50)), slope_p90_pct: r2(percentile(sl, 90)), slope_p99_pct: r2(percentile(sl, 99)),
+                        share_over_6pct: r3(sl.filter(v => v > 6).length / sl.length), real_3dep_60m: { slope_p90_pct: 9.02, share_over_6pct: 0.286 } };
+    const g = R.height.grid60;
+    P(`  game grid slope at 60 m: p50 ${g.slope_p50_pct}%, p90 ${g.slope_p90_pct}%, p99 ${g.slope_p99_pct}%; cells over 6%: ${(g.share_over_6pct * 100).toFixed(1)}% (3DEP at 60 m: p90 9.02%, 28.6%)`);
+  }
   // --- the core's relief, against 3DEP 10 m
   {
     const C = readPtru(join(TRUTH, 'core10.ptru.gz'));
@@ -439,7 +483,7 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
     const land = { 30: { t: [], g: [] }, 60: { t: [], g: [] } };
     for (const t of T.values()) {
       const game = t.x.map((x, i) => dem.asl(x, t.z[i]));
-      const road = gameRoad(game, t.s, t.grade);
+      const road = gameRoad(t.x.map((x, i) => roadDem.asl(x, t.z[i])), t.s, t.grade);
       const a = compare(t.truth, game, t.bad), b = compare(t.truth, road, t.bad);
       agg.dem.push(a); agg.road.push(b);
       const cr = crestR(road, t.bad), crt = crestR(t.truth, t.bad);
@@ -469,7 +513,7 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
                            roadside: { note: '|land - road| both sides at every 5th station; game land = the shipped DEM (the tiles pin it nearer the road), game road = solver step 1 emulated', at_30m: lp(30), at_60m: lp(60) } };
     const A = R.height.transects.all_dem, B = R.height.transects.all_road;
     P(`  transects (${A.km} km measured of 51.8): game DEM on the road line RMSE ${A.rmse} m, fidelity ${A.fidelity}, climb kept ${A.climb_kept}, crests+dips kept ${A.features_kept}/${A.features_real} (${(A.features_kept_share * 100).toFixed(0)}%)`);
-    P(`    game road~ (solver step 1): RMSE ${B.rmse} m, grade p95 ${B.grade_p95}% (real ${B.grade_p95_real}%), crests+dips kept ${B.features_kept}/${B.features_real} (${(B.features_kept_share * 100).toFixed(0)}%)`);
+    P(`    game road~ (solver step 1, the grid through a ${ROAD_SIGMA}-cell Gaussian): RMSE ${B.rmse} m, grade p95 ${B.grade_p95}% (real ${B.grade_p95_real}%), crests+dips kept ${B.features_kept}/${B.features_real} (${(B.features_kept_share * 100).toFixed(0)}%)`);
     for (const [id, p] of Object.entries(per))
       P(`    ${id.padEnd(13)} ${String(p.km_measured).padStart(5)} km  RMSE ${String(p.road.rmse).padStart(5)}  bias ${String(p.road.bias).padStart(6)}  kept ${p.road.features.padStart(5)}  crest R min ${p.road.crest_r_min} m (real ${p.road.crest_r_min_real})`);
     const L30 = R.height.transects.roadside.at_30m, L60 = R.height.transects.roadside.at_60m;

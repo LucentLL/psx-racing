@@ -1,5 +1,15 @@
 # Vendored inputs of the Charlotte export
 
+**RETIRED by WP-04b (2026-09-28).** The export no longer reads either file:
+Charlotte's creeks and lakes now come from Mecklenburg County GIS (CC0) and
+USGS 3DHP (public domain), each with its bed sampled from USGS 3DEP
+(`tools/city/lib/water.mjs`, `tools/city/fetch/fetch_water.mjs`). The files
+stay here, byte for byte, as the record of what shipped until then (the
+exports up to WP-02 can still be rebuilt from their commits), and they are no
+longer inputs in `cache_manifest.json`. What the RG2 drawing was traced over is
+still unrecorded; since nothing ships from it any more, the question no longer
+blocks anything.
+
 `tools/city/export_osm.mjs` used to read three files straight out of a
 Racing-Game-2 checkout at `C:/Users/mcgee/code/Racing-Game-2`. Since WP-02
 (2026-09-28) it reads these copies instead, so the export runs from this

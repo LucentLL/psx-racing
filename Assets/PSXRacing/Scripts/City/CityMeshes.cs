@@ -319,6 +319,10 @@ namespace PSXRacing.City
             /// or the audit fails the build.</summary>
             public int wallFacingErrors;
             public int footprintCount, houseCount, goreCount, patchCount, branchCount;
+            /// <summary>Metres of retaining (cut) wall this tile stood on an
+            /// outside edge (<see cref="InCut"/>), for the audit's
+            /// TerrainFidelity: real hills must not wall every hillside.</summary>
+            public float cutWallM;
             /// <summary>Footprints this tile cut back off the drawn pavement,
             /// and those it left out (<see cref="FitFootprint"/>).</summary>
             public int footprintsCut, footprintsLeftOut;
@@ -2363,18 +2367,15 @@ namespace PSXRacing.City
             {
                 int wi = packed >> 12, si = packed & 0xFFF;
                 var w = map.waters[wi];
-                if (w.lake)
-                {
-                    if (lampLakes.Add(wi) && CityMap.PointInPoly(w.pts, p)) return true;
-                    continue;
-                }
+                if (w.lake) continue;   // the inside is asked below
+
                 if (si + 1 >= w.pts.Length) continue;
                 Vector2 a = w.pts[si], d = w.pts[si + 1] - a;
                 float L2 = d.sqrMagnitude;
                 float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
                 if (Vector2.Distance(p, a + d * t) < w.width * 0.5f + LampWaterClearM) return true;
             }
-            return false;
+            return map.InLake(p);
         }
 
         /// <summary>The ground a post stands on <paramref name="d"/> metres out
@@ -3243,6 +3244,7 @@ namespace PSXRacing.City
 
             if (sf.cut && !sf.rail)
             {
+                tm.cutWallM += Vector3.Distance(fA, fB);
                 EmitBarrier(fA, fB, outA, v0, v1, sf.capStart, sf.capEnd);
                 // A flared end stands its face off the edge, and there was
                 // nothing between the two but the lattice a sink and more
@@ -3927,17 +3929,32 @@ namespace PSXRacing.City
         public const float CutWallM = 2.0f;
 
         /// <summary>Is the land beside this span's outside edge well above
-        /// the road? Sampled from the raw DEM a few metres out from the
-        /// pavement, at mid-span — the corridor grading has pulled the
-        /// lattice down to the road there, but the DEM still says what the
-        /// hill was.</summary>
+        /// the road? Sampled from the raw DEM beside the pavement, at
+        /// mid-span — the corridor grading has pulled the lattice down to the
+        /// road there, but the DEM still says what the hill was. THREE
+        /// samples, 4, 8 and 12 m out, must all stand <see cref="CutWallM"/>
+        /// above the road (plan WP-04's interim guard). One sample 4 m out was
+        /// enough while the grid was filtered flat; on the real 3DEP ground a
+        /// road along any hillside would have been walled for its length,
+        /// against the owner's DOT rule (walls only where a slope cannot fit).
+        /// WP-14 replaces this with graded cut sections.</summary>
         static bool InCut(TileMeshes tm, Section A, Section B, Vector2 outward)
         {
             var m = (A.L + B.L) * 0.5f;
-            float wx = m.x + tm.origin.x + outward.x * 4f;
-            float wz = m.z + tm.origin.z + outward.y * 4f;
-            return CityElevation.BaseY(wx, wz) - m.y > CutWallM;
+            foreach (float o in CutProbeM)
+            {
+                float wx = m.x + tm.origin.x + outward.x * o;
+                float wz = m.z + tm.origin.z + outward.y * o;
+                if (!(CityElevation.BaseY(wx, wz) - m.y > CutWallM)) return false;
+            }
+            return true;
         }
+        /// <summary>Where the cut test samples the DEM. PSX_CITY_CUTWALL_ONE=1
+        /// in the environment puts back the pre-WP-04 single sample, 4 m out,
+        /// so the audit can measure the old wall length on the same code (a
+        /// measuring switch; nothing sets it in a build).</summary>
+        static readonly float[] CutProbeM =
+            System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_ONE") == "1" ? new[] { 4f } : new[] { 4f, 8f, 12f };
 
         static Vector3 Flat(Vector2 v) => new Vector3(v.x, 0f, v.y);
 
@@ -5736,15 +5753,111 @@ namespace PSXRacing.City
         }
 
         // ------------------------------------------------------------------
+        /// <summary>How far a procedural house or lot stands from a ravine's
+        /// line (WP-04b): out of its floor and the foot of its banks.</summary>
+        public const float RavineClearM = 12f;
+        /// <summary>A creek's water sheet is cut into pieces this long, so its
+        /// surface follows the bed and a road over a culvert can take a piece
+        /// out.</summary>
+        const float WaterPieceM = 8f;
+        /// <summary>How far past the flat floor the sheet reaches, under the
+        /// banks: the lattice is 8 m, so the banks meet the water between its
+        /// vertices, never exactly at the floor's edge.</summary>
+        const float WaterSheetPad = 8f;
+        static readonly HashSet<int> waterRoadScratch = new HashSet<int>();
+
+        /// <summary>
+        /// A creek's water (WP-04b): a sheet at the surface over its bed
+        /// (<see cref="CityElevation.CreekSurfaceY"/>), from bank to bank:
+        /// flat across the carved floor, then out under the banks, where the
+        /// rising land hides its edges. An outer edge over land lower than the
+        /// water (a confluence, a road's cut) comes down to that land instead
+        /// of hanging over it, and a piece over a grounded road's pavement
+        /// lower than the water is left out: water never stands on a road.
+        /// </summary>
+        static void BuildCreek(CityMap map, TileMeshes tm, Vector2 min, Vector2 max, CityMap.Water w, Bucket bk)
+        {
+            float flat = CityElevation.CreekFlatHalf(w), reach = flat + WaterSheetPad;
+            var o = tm.origin;
+            for (int i = 0; i + 1 < w.pts.Length; i++)
+            {
+                Vector2 a = w.pts[i], b = w.pts[i + 1];
+                float len = Vector2.Distance(a, b);
+                if (len < 0.01f) continue;
+                var dir = (b - a) / len;
+                var right = new Vector2(dir.y, -dir.x);
+                int n = Mathf.Max(1, Mathf.CeilToInt(len / WaterPieceM));
+                for (int k = 0; k < n; k++)
+                {
+                    float t0 = (float)k / n, t1 = (float)(k + 1) / n;
+                    Vector2 p0 = Vector2.Lerp(a, b, t0), p1 = Vector2.Lerp(a, b, t1);
+                    var mid = (p0 + p1) * 0.5f;
+                    if (mid.x < min.x || mid.x >= max.x || mid.y < min.y || mid.y >= max.y) continue;
+                    float s0 = w.s[i] + len * t0, s1 = w.s[i] + len * t1;
+                    float y0 = CityElevation.CreekSurfaceY(w, s0, p0), y1 = CityElevation.CreekSurfaceY(w, s1, p1);
+                    float v0 = s0 / 40f, v1 = s1 / 40f;
+                    // water never stands on a grounded road lower than it
+                    if (WaterOnRoad(map, mid, Mathf.Max(y0, y1))) continue;
+                    // columns: -reach, -flat, +flat, +reach
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        Vector2 i0 = p0 + right * (flat * side), i1 = p1 + right * (flat * side);
+                        Vector2 e0 = p0 + right * (reach * side), e1 = p1 + right * (reach * side);
+                        float ye0 = Mathf.Min(y0, LatticeY(map, e0.x, e0.y) - 0.05f);
+                        float ye1 = Mathf.Min(y1, LatticeY(map, e1.x, e1.y) - 0.05f);
+                        if (WaterOnRoad(map, (i0 + i1 + e0 + e1) * 0.25f, Mathf.Max(y0, y1))) continue;   // an outer piece over a road beside the creek
+                        float uIn = 0.5f + 0.5f * side * flat / reach, uOut = 0.5f + 0.5f * side;
+                        var A = new Vector3(i0.x - o.x, y0, i0.y - o.z); var B = new Vector3(i1.x - o.x, y1, i1.y - o.z);
+                        var C = new Vector3(e1.x - o.x, ye1, e1.y - o.z); var D = new Vector3(e0.x - o.x, ye0, e0.y - o.z);
+                        bk.Up(A, B, C, D, new Vector2(uIn, v0), new Vector2(uIn, v1), new Vector2(uOut, v1), new Vector2(uOut, v0));
+                    }
+                    // the floor between the two inner columns
+                    {
+                        Vector2 l0 = p0 - right * flat, l1 = p1 - right * flat, r0 = p0 + right * flat, r1 = p1 + right * flat;
+                        float uL = 0.5f - 0.5f * flat / reach, uR = 0.5f + 0.5f * flat / reach;
+                        bk.Up(new Vector3(r0.x - o.x, y0, r0.y - o.z), new Vector3(r1.x - o.x, y1, r1.y - o.z),
+                                new Vector3(l1.x - o.x, y1, l1.y - o.z), new Vector3(l0.x - o.x, y0, l0.y - o.z),
+                                new Vector2(uR, v0), new Vector2(uR, v1), new Vector2(uL, v1), new Vector2(uL, v0));
+                    }
+                }
+            }
+        }
+
+        /// <summary>Is there grounded pavement at p lower than a water
+        /// surface at y (plus a margin)? Then the water would stand on the
+        /// road: a creek under a road that is not a span (a culvert, WP-25) or
+        /// a road beside a creek in its floodplain.</summary>
+        static bool WaterOnRoad(CityMap map, Vector2 p, float y)
+        {
+            waterRoadScratch.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * 16f, p + Vector2.one * 16f, waterRoadScratch);
+            foreach (int packed in waterRoadScratch)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var e = map.edges[ei];
+                if (si + 1 >= e.pts.Length) continue;
+                Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+                if (Vector2.Distance(p, a + d * t) > e.width * 0.5f + 1.5f) continue;
+                float at = e.s[si] + Mathf.Sqrt(L2) * t;
+                if (e.ElevatedAt(at)) continue;
+                if (e.YAt(at) < y + 0.5f) return true;
+            }
+            return false;
+        }
+
         static void BuildWater(CityMap map, TileMeshes tm, Vector2 min, Vector2 max)
         {
             var bk = buckets[(int)Slot.Water];
 
             foreach (var w in map.waters)
             {
+                if (w.ravine) continue;   // a ravine carries no water (WP-04b)
                 if (w.bbMax.x < min.x - 60f || w.bbMin.x > max.x + 60f ||
                     w.bbMax.y < min.y - 60f || w.bbMin.y > max.y + 60f) continue;
 
+                if (!w.lake && w.bedY != null) { BuildCreek(map, tm, min, max, w, bk); continue; }
                 if (!w.lake)
                 {
                     float hw = w.width * 0.5f;
@@ -6507,6 +6620,9 @@ namespace PSXRacing.City
                     segScratch.Clear();
                     map.WaterSegsInRect(c - Vector2.one * 30f, c + Vector2.one * 30f, segScratch);
                     if (segScratch.Count > 0) continue;
+                    // nor in a ravine's carved channel, nor out in a lake (WP-04b:
+                    // a lake's inside is no longer in the water hash)
+                    if (map.NearRavine(c, RavineClearM) || map.InLake(c)) continue;
 
                     float hu = 4.6f + Hash01(gx, gz, 4) * 2.2f;   // half length, along the street
                     float hv = 3.8f + Hash01(gx, gz, 5) * 1.6f;   // half depth

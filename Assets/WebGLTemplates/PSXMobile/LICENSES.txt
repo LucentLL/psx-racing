@@ -9,10 +9,25 @@ Road network data (c) OpenStreetMap contributors, ODbL 1.0
   https://opendatacommons.org/licenses/odbl/1-0/
   In: charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json
 
-Terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
+Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP)
+  Licence: public domain
+  https://www.usgs.gov/3d-elevation-program
+  In: charlotte_dem.bytes, charlotte_city.bytes
+
+Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0
+  Licence: CC0 1.0
+  https://creativecommons.org/publicdomain/zero/1.0/
+  In: charlotte_city.bytes
+
+Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP)
+  Licence: public domain
+  https://www.usgs.gov/3d-hydrography-program
+  In: charlotte_city.bytes
+
+Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
   Licence: public domain; attribution requested
   https://github.com/tilezen/joerd/blob/master/docs/attribution.md
-  In: charlotte_dem.bytes
+  In: the mountain stages' ground (tools/roads)
 
 Contains information from OpenStreetMap, which is made available here
 under the Open Database License (ODbL): https://www.openstreetmap.org/copyright

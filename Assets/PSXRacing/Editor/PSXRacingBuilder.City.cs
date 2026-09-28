@@ -714,7 +714,10 @@ namespace PSXRacing.EditorTools
             var art = new Color32(150, 140, 90, 255);
             var fwy = new Color32(255, 190, 70, 255);
             foreach (var w in map.waters)
+            {
+                if (w.ravine) continue;   // a dry ravine is not water (WP-04b)
                 for (int i = 0; i + 1 < w.pts.Length; i++) Line(w.pts[i], w.pts[i + 1], water);
+            }
             foreach (var e in map.edges)
             {
                 if (e.link || e.cls == 0) continue;   // ramps and local streets are noise at 128 px

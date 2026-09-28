@@ -10,7 +10,9 @@ namespace PSXRacing.City
     /// The circuits' rule carries over whole: the land is graded TO the road,
     /// never the other way round. Every edge starts life following the real
     /// ground (a 60 m SRTM grid, see <see cref="BaseY"/>), smoothed and
-    /// grade-limited; then OpenStreetMap's FACTS turn into structure:
+    /// grade-limited (the grid is the USGS 3DEP bare earth averaged over each
+    /// 60 m cell since WP-04, no longer filtered); then OpenStreetMap's FACTS
+    /// turn into structure:
     ///
     ///   bridge=yes on an edge     -> the whole edge is a deck: it holds a
     ///                                straight line between its ends and never
@@ -25,7 +27,8 @@ namespace PSXRacing.City
     ///   cuts under streets that stay at grade; raising every cross street
     ///   onto an embankment would hump the whole uptown grid.
     ///   water span                -> the road HOLDS its line across the span
-    ///                                while the ground carves a creek bed.
+    ///                                while the ground is carved to the creek's
+    ///                                bed (sampled from 3DEP, WP-04b).
     ///
     /// Stations marked elevated get a deck and piers and NO ground pin; the
     /// ground query pins only to grounded stations, with the circuits' shelf /
@@ -100,6 +103,100 @@ namespace PSXRacing.City
         /// above the terrain is an EMBANKMENT and the ground is graded up to
         /// it. This margin only catches an untagged viaduct.</summary>
         public const float ElevMarginM = 3.5f;
+        /// <summary>Stations the <see cref="ElevMarginM"/> last resort made
+        /// structure in the last solve (the audit's TerrainFidelity reports
+        /// it: real hills put more roads above the 60 m grid).</summary>
+        public static int MarginStructureStations { get; private set; }
+
+        // ------------------------------------------------------------------
+        //  Water (WP-04b). The exporter samples each creek's BED from USGS
+        //  3DEP 1/3" every 20 m along the county's (or 3DHP's) surveyed line
+        //  and makes it fall downstream (section WBED). The ground is carved
+        //  to it: a flat floor under the water, then banks at 1V:2H until
+        //  they meet the land. It replaced a fixed 3.6 m carve along RG2's
+        //  traced lines, which sat 3-8 m high in valleys the old grid had
+        //  filled, and would have dug a second trench into the valleys the
+        //  real ground now shows. The numbers below are the whole shape.
+        // ------------------------------------------------------------------
+        /// <summary>The water surface stands this far under the sampled bed
+        /// (the 10 m pixels straddle the channel, so the bed reads high).</summary>
+        public const float WaterBelowBed = 0.1f;
+        /// <summary>A creek's carved floor, under its water surface: deep
+        /// enough that the 8 m lattice, which only meets the floor at its
+        /// vertices, still shows water along the whole line.</summary>
+        public const float CarveBelowWater = 0.8f;
+        /// <summary>A creek's flat floor reaches this far each side of its
+        /// line: the lattice's half diagonal at least, so the vertex nearest
+        /// any point of the line is on the floor.</summary>
+        public const float CreekFlatMin = 6f, CreekFlatPad = 3f;
+        /// <summary>The bank, from the floor's edge up to the land.</summary>
+        public const float BankSlope = 0.5f;
+        /// <summary>A ravine (a small stream: no water, no span) is carved
+        /// this far under its bed, with a floor this wide each side.</summary>
+        public const float RavineBelowBed = 0.4f, RavineFlat = 3f;
+        /// <summary>No carve past this distance from a line (the query box
+        /// of <see cref="Ground"/>).</summary>
+        public const float CarveReachM = 36f;
+        /// <summary>A lake's surface under its level in the hydro-flattened
+        /// 3DEP (WBED's one value for a lake).</summary>
+        public const float LakeBelowLevel = 0.3f;
+
+        /// <summary>A water span's soffit stands at least this far over the
+        /// water under it (WP-25's figure). The span is lifted to it, with
+        /// 4.5% approaches, like a crossing's hump: the water is at its real
+        /// level since WP-04b, and a road the 60 m grid averages down into a
+        /// valley (I-485 over Reedy Creek's tributary, on a fill the grid
+        /// cannot see) would otherwise have the creek standing over its deck.</summary>
+        public const float WaterDeckClearM = 1.0f;
+        /// <summary>The water surface under each water span (NaN where no
+        /// water is found), measured once per solve.</summary>
+        static float[] spanWaterY;
+        static bool[] spanLifted;
+        public static float SpanWaterY(int span) => spanWaterY != null && span < spanWaterY.Length ? spanWaterY[span] : float.NaN;
+        /// <summary>Water spans the solve lifted to clear their water, and
+        /// the most any was lifted, for the audit.</summary>
+        public static int SpansLiftedForWater { get; private set; }
+        public static float SpanWaterLiftMax { get; private set; }
+
+        public static float CreekFlatHalf(CityMap.Water w) => Mathf.Max(CreekFlatMin, w.width * 0.5f + CreekFlatPad);
+
+        /// <summary>The bed, metres above the datum, at arc length
+        /// <paramref name="s"/> along the water's line; NaN without WBED.
+        /// Samples stand every bedStep metres from the first point, and the
+        /// last one at the line's end.</summary>
+        public static float BedYAt(CityMap.Water w, float s)
+        {
+            var b = w.bedY;
+            if (b == null || b.Length == 0) return float.NaN;
+            if (b.Length == 1 || !(w.bedStep > 0f)) return b[0];
+            int last = b.Length - 1;
+            float sLast = (last - 1) * w.bedStep;
+            if (s >= sLast)
+                return Mathf.Lerp(b[last - 1], b[last], Mathf.Clamp01((s - sLast) / Mathf.Max(1e-3f, w.length - sLast)));
+            float f = Mathf.Max(0f, s) / w.bedStep;
+            int k = Mathf.Min(last - 1, (int)f);
+            return Mathf.Lerp(b[k], b[k + 1], f - k);
+        }
+
+        /// <summary>A creek's water surface at arc length s (above the datum),
+        /// or the old fixed rule where the data has no bed.</summary>
+        public static float CreekSurfaceY(CityMap.Water w, float s, Vector2 p)
+        {
+            float bed = BedYAt(w, s);
+            return float.IsNaN(bed) ? RiverSurfaceY(p.x, p.y) : bed - WaterBelowBed;
+        }
+
+        /// <summary>Distance from p to segment si of a water line, and the
+        /// arc length of the foot.</summary>
+        public static float WaterFoot(CityMap.Water w, int si, Vector2 p, out float s)
+        {
+            if (si + 1 >= w.pts.Length) si = Mathf.Max(0, w.pts.Length - 2);
+            Vector2 a = w.pts[si], d = w.pts[si + 1] - a;
+            float L2 = d.sqrMagnitude;
+            float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+            s = w.s[si] + Mathf.Sqrt(L2) * t;
+            return Vector2.Distance(p, a + d * t);
+        }
 
         const float ApproachGrade = 0.045f;
         /// <summary>A crossing closer than this to the end of the freeway
@@ -111,9 +208,9 @@ namespace PSXRacing.City
 
         // ------------------------------------------------------------------
         //  Base terrain: the real one. A 60 m grid baked by the exporter from
-        //  the AWS Terrain Tiles (bare earth from USGS 3DEP; opened, closed
-        //  and blurred until WP-04 retires those filters), bilinear per
-        //  query. Heights are metres above the DATUM, pinned at 97.0 m ASL
+        //  USGS 3DEP 1/3" bare earth, each node the mean of its 60 m cell
+        //  (WP-04; until then the AWS skadi tiles, opened, closed and blurred
+        //  flat), bilinear per query. Heights are metres above the DATUM, pinned at 97.0 m ASL
         //  (WP-02; it used to be the grid's lowest point less two metres, and
         //  would have moved with the ground), so world y = 0 is 97 m ASL.
         //
@@ -200,6 +297,122 @@ namespace PSXRacing.City
             return ((a * (1f - tx) + b * tx) * (1f - tz) + (c * (1f - tx) + d * tx) * tz) * demScale;
         }
 
+        // ------------------------------------------------------------------
+        //  THE ROADS' GROUND (WP-04). The solve reads the grid through a
+        //  Gaussian of RoadDemSigmaCells cells; the land (Ground) reads it raw.
+        //  On the real 3DEP ground two carriageways 20-40 m apart, or a ramp
+        //  and the road it runs inside, sampled the grid's local slope at
+        //  their own centrelines and came out at different heights (1.85 m
+        //  between I-277's squeezed carriageways, a 2.5 m step where a slip
+        //  lane changes host), which the filtered grid had hidden. Smoothing
+        //  what the ROADS read, not the land, puts every road that shares a
+        //  hillside on the same hill; the corridor grading still meets the
+        //  real land beside them. WP-06 replaces it with measured road
+        //  profiles (plan R2).
+        // ------------------------------------------------------------------
+        public static float RoadDemSigmaCells = ReadRoadSigma();
+        static float ReadRoadSigma()
+        {
+            // a measuring override (nothing sets it in a build)
+            var v = System.Environment.GetEnvironmentVariable("PSX_CITY_ROADSIGMA");
+            return v != null && float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) ? f : RoadDemSigmaDefault;
+        }
+        public const float RoadDemSigmaDefault = 0.8f;
+        static float[] roadDem;
+
+        /// <summary>The grid the solve reads (see RoadDemSigmaCells), built at
+        /// the start of a solve and dropped at its end.</summary>
+        static void BuildRoadDem()
+        {
+            roadDem = null;
+            if (dem == null || !(RoadDemSigmaCells > 0.05f)) return;
+            int nx = demNX, nz = demNZ;
+            float sg = RoadDemSigmaCells;
+            int r = Mathf.CeilToInt(sg * 3f);
+            var k = new float[2 * r + 1];
+            float ks = 0f;
+            for (int i = -r; i <= r; i++) { k[i + r] = Mathf.Exp(-0.5f * i * i / (sg * sg)); ks += k[i + r]; }
+            for (int i = 0; i < k.Length; i++) k[i] /= ks;
+            var tmp = new float[nx * nz];
+            var outp = new float[nx * nz];
+            for (int z = 0; z < nz; z++)
+                for (int x = 0; x < nx; x++)
+                {
+                    float acc = 0f;
+                    for (int i = -r; i <= r; i++) acc += k[i + r] * dem[z * nx + Mathf.Clamp(x + i, 0, nx - 1)];
+                    tmp[z * nx + x] = acc;
+                }
+            for (int z = 0; z < nz; z++)
+                for (int x = 0; x < nx; x++)
+                {
+                    float acc = 0f;
+                    for (int i = -r; i <= r; i++) acc += k[i + r] * tmp[Mathf.Clamp(z + i, 0, nz - 1) * nx + x];
+                    outp[z * nx + x] = acc * demScale;
+                }
+            roadDem = outp;
+        }
+
+        /// <summary>The ground as the road solve reads it: <see cref="BaseY"/>
+        /// through the roads' Gaussian while a solve runs.</summary>
+        public static float RoadBaseY(float x, float z)
+        {
+            if (roadDem == null) return BaseY(x, z);
+            x /= CityMap.LayoutScale; z /= CityMap.LayoutScale;
+            float fx = (x - demX0) / demCell, fz = (z - demZ0) / demCell;
+            int ix = Mathf.Clamp(Mathf.FloorToInt(fx), 0, demNX - 2);
+            int iz = Mathf.Clamp(Mathf.FloorToInt(fz), 0, demNZ - 2);
+            float tx = Mathf.Clamp01(fx - ix), tz = Mathf.Clamp01(fz - iz);
+            float a = roadDem[iz * demNX + ix], b = roadDem[iz * demNX + ix + 1];
+            float c = roadDem[(iz + 1) * demNX + ix], d = roadDem[(iz + 1) * demNX + ix + 1];
+            return (a * (1f - tx) + b * tx) * (1f - tz) + (c * (1f - tx) + d * tx) * tz;
+        }
+
+        /// <summary>How far apart two carriageways of one divided road may be
+        /// and still read one terrain line (see <see cref="PairedRoadBaseY"/>).</summary>
+        public const float PairReachM = 45f;
+        static readonly HashSet<int> pairScratch = new HashSet<int>();
+        /// <summary>Stations and nodes that read the ground at a divided
+        /// road's midline in the last solve.</summary>
+        public static int PairedStations { get; private set; }
+
+        /// <summary>
+        /// The roads' ground under a carriageway of a DIVIDED road, read at
+        /// the midline between it and its opposite carriageway: the nearest
+        /// one-way, non-ramp edge of the same name within
+        /// <see cref="PairReachM"/>, running the other way. Both carriageways
+        /// then climb the same hill. On the real ground (WP-04) the two sides
+        /// of I-77, I-85 or I-277 read the grid's slope 20-40 m apart and
+        /// solved up to a metre apart, which squeezed carriageways show as an
+        /// open edge between them. Anything else reads
+        /// <see cref="RoadBaseY"/> at its own point.
+        /// </summary>
+        static float PairedRoadBaseY(CityMap map, CityMap.Edge e, Vector2 p, Vector2 dir)
+        {
+            if (!e.oneway || e.link || e.cls < 2 || string.IsNullOrEmpty(e.name)) return RoadBaseY(p.x, p.y);
+            pairScratch.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * PairReachM, p + Vector2.one * PairReachM, pairScratch);
+            float best = PairReachM; Vector2 q = p; bool found = false;
+            foreach (int packed in pairScratch)
+            {
+                var o = map.edges[packed >> 12];
+                if (o == e || !o.oneway || o.link || o.name != e.name) continue;
+                int si = packed & 0xFFF;
+                if (si + 1 >= o.pts.Length) continue;
+                Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                if (L2 < 1e-6f) continue;
+                if (Vector2.Dot(d / Mathf.Sqrt(L2), dir) > -0.85f) continue;   // not running the other way
+                float t = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
+                var f = a + d * t;
+                float dist = Vector2.Distance(p, f);
+                if (dist < best) { best = dist; q = f; found = true; }
+            }
+            if (!found) return RoadBaseY(p.x, p.y);
+            PairedStations++;
+            var m = (p + q) * 0.5f;
+            return RoadBaseY(m.x, m.y);
+        }
+
         static float NoiseY(float x, float z)
         {
             return ValueNoise(x, z, 1701f) * 8.0f
@@ -246,9 +459,25 @@ namespace PSXRacing.City
         {
             crossingOn = null;
             crossingTarget = null;
+            EnsureDem();
+            BuildRoadDem();
+            PrepareWater(map);
             map.nodeY = new float[map.nodes.Length];
+            PairedStations = 0;
             for (int i = 0; i < map.nodes.Length; i++)
-                map.nodeY[i] = BaseY(map.nodes[i].x, map.nodes[i].y);
+            {
+                // a node of a divided road reads the midline too, through its
+                // first carriageway arm (its ends must agree with the stations)
+                map.nodeY[i] = RoadBaseY(map.nodes[i].x, map.nodes[i].y);
+                foreach (int ei in map.nodeEdges[i])
+                {
+                    var ne = map.edges[ei];
+                    if (!ne.oneway || ne.link || ne.cls < 2 || ne.length < 1f) continue;
+                    var dir = ne.a == i ? ne.TangentAt(0f) : ne.TangentAt(ne.length);
+                    map.nodeY[i] = PairedRoadBaseY(map, ne, map.nodes[i], dir);
+                    break;
+                }
+            }
 
             // 1. per-edge profile from the terrain
             foreach (var e in map.edges)
@@ -262,7 +491,7 @@ namespace PSXRacing.City
                     float at = i == n - 1 ? e.length : i * e.length / (n - 1);
                     e.stS[i] = at;
                     var p = e.PointAt(at);
-                    e.stY[i] = BaseY(p.x, p.y);
+                    e.stY[i] = PairedRoadBaseY(map, e, p, e.TangentAt(at));
                 }
                 Smooth(e.stY, 2.5f);
                 ClampGrade(e, MaxGrade(e));
@@ -386,13 +615,59 @@ namespace PSXRacing.City
             InheritSeatStructure(map);
             MeasureSags(map);
 
-            // 10. lakes get one flat surface each; the shore owns the level
+            // (10. the water was prepared first: PrepareWater)
+            roadDem = null;
+        }
+
+        /// <summary>
+        /// The water, before any road is solved (it depends on no road): each
+        /// bed into the world frame (WBED is metres ASL); each lake one flat
+        /// surface, its level in the hydro-flattened 3DEP where the data has
+        /// it, else the lowest of its shore; and the water surface under each
+        /// water span, which <see cref="HoldWaterSpans"/> keeps the deck
+        /// clear of.
+        /// </summary>
+        static void PrepareWater(CityMap map)
+        {
             foreach (var w in map.waters)
             {
+                w.bedY = null;
+                if (w.bedASL != null && HasDem)
+                {
+                    w.bedY = new float[w.bedASL.Length];
+                    for (int k = 0; k < w.bedY.Length; k++) w.bedY[k] = w.bedASL[k] - DatumASL;
+                }
                 if (!w.lake) { w.surfaceY = 0f; continue; }
+                if (w.bedY != null) { w.surfaceY = w.bedY[0] - LakeBelowLevel; continue; }
                 float min = float.MaxValue;
                 foreach (var p in w.pts) min = Mathf.Min(min, BaseY(p.x, p.y));
                 w.surfaceY = min - 0.6f;
+            }
+            spanWaterY = new float[map.wspans.Length];
+            spanLifted = new bool[map.wspans.Length];
+            SpansLiftedForWater = 0; SpanWaterLiftMax = 0f;
+            var near = new HashSet<int>();
+            for (int k = 0; k < map.wspans.Length; k++)
+            {
+                spanWaterY[k] = float.NaN;
+                var ws = map.wspans[k];
+                var e = map.edges[ws.edge];
+                var p = e.PointAt((Mathf.Clamp(ws.s0, 0f, e.length) + Mathf.Clamp(ws.s1, 0f, e.length)) * 0.5f);
+                near.Clear();
+                map.WaterSegsInRect(p - Vector2.one * 40f, p + Vector2.one * 40f, near);
+                float best = 40f;
+                foreach (int packed in near)
+                {
+                    var w = map.waters[packed >> 12];
+                    if (w.lake)
+                    {
+                        if (CityMap.LakeContains(w, p)) { spanWaterY[k] = w.surfaceY; best = 0f; }
+                        continue;
+                    }
+                    if (w.bedY == null) continue;   // no bed, no level: the old rules stand
+                    float d = WaterFoot(w, packed & 0xFFF, p, out float sw);
+                    if (d < best) { best = d; spanWaterY[k] = CreekSurfaceY(w, sw, p); }
+                }
             }
         }
 
@@ -546,15 +821,17 @@ namespace PSXRacing.City
                 for (int i = 0; i < over.stS.Length; i++)
                     if (Mathf.Abs(over.stS[i] - sO) <= reach) over.stElev[i] = true;
             }
+            int margin = 0;
             foreach (var e in map.edges)
             {
                 for (int i = 0; i < e.stS.Length; i++)
                 {
                     if (e.stElev[i]) continue;
                     var p = e.PointAt(e.stS[i]);
-                    if (e.stY[i] > BaseY(p.x, p.y) + ElevMarginM) e.stElev[i] = true;
+                    if (e.stY[i] > RoadBaseY(p.x, p.y) + ElevMarginM) { e.stElev[i] = true; margin++; }
                 }
             }
+            MarginStructureStations = margin;
         }
 
         /// <summary>
@@ -831,7 +1108,7 @@ namespace PSXRacing.City
         /// </summary>
         static bool LowerFarNode(CityMap map, int node, CityMap.Edge from, float y)
         {
-            if (map.nodeY[node] > BaseY(map.nodes[node].x, map.nodes[node].y) + 0.5f) return false;
+            if (map.nodeY[node] > RoadBaseY(map.nodes[node].x, map.nodes[node].y) + 0.5f) return false;
             if (pinnedNodeY != null && !float.IsNaN(pinnedNodeY[node])) return false;
             foreach (var oi in map.nodeEdges[node])
             {
@@ -989,13 +1266,31 @@ namespace PSXRacing.City
         /// heights and are always structure.</summary>
         static void HoldWaterSpans(CityMap map)
         {
-            foreach (var ws in map.wspans)
+            for (int k = 0; k < map.wspans.Length; k++)
             {
+                var ws = map.wspans[k];
                 var e = map.edges[ws.edge];
                 float s0 = Mathf.Clamp(ws.s0, 0f, e.length);
                 float s1 = Mathf.Clamp(ws.s1, 0f, e.length);
                 if (s1 - s0 < 2f) continue;
+                // THE DECK CLEARS ITS WATER (WP-04b): lifted, never lowered,
+                // with its approaches at the crossings' grade
+                float wy = SpanWaterY(k);
+                if (!float.IsNaN(wy))
+                {
+                    float want = wy + WaterDeckClearM + DeckThick;
+                    float low = float.MaxValue;
+                    for (int i = 0; i < e.stS.Length; i++)
+                        if (e.stS[i] >= s0 && e.stS[i] <= s1 && !e.SeatedAt(i)) low = Mathf.Min(low, e.stY[i]);
+                    if (low < want)
+                    {
+                        RaiseSpan(e, s0, s1, want);
+                        if (!spanLifted[k]) { spanLifted[k] = true; SpansLiftedForWater++; }
+                        SpanWaterLiftMax = Mathf.Max(SpanWaterLiftMax, want - low);
+                    }
+                }
                 float y0 = e.YAt(s0), y1 = e.YAt(s1);
+                bool any = false;
                 for (int i = 0; i < e.stS.Length; i++)
                 {
                     if (e.stS[i] < s0 || e.stS[i] > s1 || e.SeatedAt(i)) continue;
@@ -1003,7 +1298,33 @@ namespace PSXRacing.City
                     float hold = Mathf.Lerp(y0, y1, t);
                     if (e.stY[i] < hold) e.stY[i] = hold;
                     e.stElev[i] = true;
+                    any = true;
                 }
+                // A span narrower than the station step can fall between two
+                // stations (the surveyed creeks are narrower than RG2's
+                // traced ones): the two stations round its middle carry it.
+                if (!any)
+                {
+                    float mid = (s0 + s1) * 0.5f;
+                    int lo = 0;
+                    while (lo + 2 < e.stS.Length && e.stS[lo + 1] <= mid) lo++;
+                    for (int i = lo; i <= lo + 1 && i < e.stS.Length; i++)
+                        if (!e.SeatedAt(i)) e.stElev[i] = true;
+                }
+            }
+        }
+
+        /// <summary>A flat-topped hump: at least <paramref name="targetY"/>
+        /// from s0 to s1, falling away at the approach grade either side
+        /// (seated stations are their hosts').</summary>
+        static void RaiseSpan(CityMap.Edge e, float s0, float s1, float targetY)
+        {
+            for (int i = 0; i < e.stS.Length; i++)
+            {
+                if (e.SeatedAt(i)) continue;
+                float off = Mathf.Max(0f, Mathf.Max(s0 - e.stS[i], e.stS[i] - s1));
+                float want = targetY - off * ApproachGrade;
+                if (e.stY[i] < want) e.stY[i] = want;
             }
         }
 
@@ -1139,7 +1460,7 @@ namespace PSXRacing.City
             for (int n = 0; n < map.nodes.Length; n++)
             {
                 float y = map.nodeY[n];
-                bool seed = y > BaseY(map.nodes[n].x, map.nodes[n].y) + 0.5f;
+                bool seed = y > RoadBaseY(map.nodes[n].x, map.nodes[n].y) + 0.5f;
                 if (!seed)
                     foreach (var ei in map.nodeEdges[n])
                     {
@@ -1280,6 +1601,8 @@ namespace PSXRacing.City
         public struct GroundTerms
         {
             public float dem, blended, result;
+            /// <summary>How far the water carved the DEM here (WP-04b).</summary>
+            public float carve;
             public float floor; public int floorEdge;
             public float protect; public int protectEdge;
             public float deckProtect, deckCap; public int deckEdge;
@@ -1324,22 +1647,39 @@ namespace PSXRacing.City
             };
             float baseY = BaseY(x, z);
 
-            // creeks carve, lakes sink
+            // creeks and ravines carve, lakes sink
             waterScratch ??= new HashSet<int>();
             waterScratch.Clear();
-            float reachW = 40f;
+            float reachW = CarveReachM;
             map.WaterSegsInRect(new Vector2(x - reachW, z - reachW), new Vector2(x + reachW, z + reachW), waterScratch);
+            map.RavineSegsInRect(new Vector2(x - reachW, z - reachW), new Vector2(x + reachW, z + reachW), waterScratch);
             var p2 = new Vector2(x, z);
+            float demY = baseY;
             foreach (var packed in waterScratch)
             {
                 int wi = packed >> 12, si = packed & 0xFFF;
                 var w = map.waters[wi];
+                if (w.bedY != null && !w.lake)
+                {
+                    // CARVED TO THE BED: a flat floor, then banks at
+                    // BankSlope until they meet the land (a min, so a valley
+                    // the grid already shows is not dug twice)
+                    float d = WaterFoot(w, si, p2, out float sAt);
+                    if (d >= CarveReachM) continue;
+                    float bed = BedYAt(w, sAt);
+                    float floorY, flat;
+                    if (w.ravine) { floorY = bed - RavineBelowBed; flat = RavineFlat; }
+                    else { floorY = bed - WaterBelowBed - CarveBelowWater; flat = CreekFlatHalf(w); }
+                    float cut = floorY + Mathf.Max(0f, d - flat) * BankSlope;
+                    if (cut < baseY) baseY = cut;
+                    continue;
+                }
+                if (w.ravine) continue;
                 if (w.lake)
                 {
-                    // inside: pinned under the surface; near shore: blended down
-                    if (CityMap.PointInPoly(w.pts, p2))
-                        baseY = Mathf.Min(baseY, w.surfaceY - 2.2f);
-                    else
+                    // inside: pinned under the surface (below, for every lake
+                    // the point is in); near shore: blended down
+                    if (!CityMap.LakeContains(w, p2))
                     {
                         float dsh = DistToSeg(w.pts, si, p2);
                         if (dsh < 14f)
@@ -1358,6 +1698,15 @@ namespace PSXRacing.City
                     }
                 }
             }
+
+            // THE INSIDE OF A LAKE, whatever its shore is doing (WP-04b: the
+            // hash holds only a lake's shore now)
+            foreach (int li in map.lakes)
+            {
+                var w = map.waters[li];
+                if (CityMap.LakeContains(w, p2)) baseY = Mathf.Min(baseY, w.surfaceY - 2.2f);
+            }
+            terms.carve = demY - baseY;
 
             // road corridors pin the land to the tarmac (grounded stations only)
             segScratch ??= new HashSet<int>();

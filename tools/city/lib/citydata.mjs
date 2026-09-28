@@ -20,7 +20,18 @@
 //     EDGE  u32 edges { u32 a, b, name; u8 rank; u8 flags; u8 lanes; i8 level;
 //                       f32 width, shl, shr; u8 speed; u32 wayId; u16 n }
 //     PNTS  u32 points; points x f32 x, z   every edge's n points, in edge order
-//     WATR  u32 waters { u32 name; f32 width; u8 lake; u32 n; n x f32 x, z }
+//     WATR  u32 waters { u32 name; f32 width; u8 kind; u32 n; n x f32 x, z }
+//           kind 0 creek, 1 lake (a closed ring), 2 ravine (WP-04b: a small
+//           stream the ground is carved for, with no water and no span);
+//           before WP-04b only 0 and 1
+//     WBED  u32 waters (= WATR's) | f32 base | f32 scale                (WP-04b)
+//           | per water, in WATR's order: u32 m; f32 step;
+//             if m > 0: u16 first; (m - 1) x i16 step to the next
+//           Heights are base + units * scale metres ASL (centimetres above
+//           the datum): a creek's or ravine's bed every `step` metres along
+//           its WATR line from its first point (the last sample at its end),
+//           a lake's level (m = 1, step 0). From USGS 3DEP 1/3". Absent
+//           before WP-04b: a reader without it carves creeks a fixed 3.6 m.
 //     XING  u32 crossings { u32 over, under; f32 x, z; u8 forced }
 //     SPAN  u32 wspans { u32 edge; f32 s0, s1 }
 //     ROUT  u32 routes { str id, name; u8 loop, oneway; f32 roadWidth; u8 speed;
@@ -51,6 +62,7 @@ class Reader {
   u8() { const v = this.b.readUInt8(this.p); this.p += 1; return v; }
   i8() { const v = this.b.readInt8(this.p); this.p += 1; return v; }
   u16() { const v = this.b.readUInt16LE(this.p); this.p += 2; return v; }
+  i16() { const v = this.b.readInt16LE(this.p); this.p += 2; return v; }
   i32() { const v = this.b.readInt32LE(this.p); this.p += 4; return v; }
   u32() { const v = this.b.readUInt32LE(this.p); this.p += 4; return v; }
   f32() { const v = this.b.readFloatLE(this.p); this.p += 4; return v; }
@@ -62,7 +74,10 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'XING', 'SPAN', 'ROUT', 'GHSH'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH'];
+/// Sections a file may lack: added after the version-2 layout first shipped,
+/// so a file exported before them still parses (WBED: WP-04b).
+export const CITY_OPTIONAL = new Set(['WBED']);
 
 /// THE GRAPH HASH (WP-02): what derived data keyed by (edge, s) is stamped
 /// with, so data made for one graph is refused by another. CRC-32 (zlib's,
@@ -114,7 +129,7 @@ export function parseCity(buf) {
     }
     sections.HEAD = [0, r.p];
     for (const [tag, s] of table) sections[tag] = [s.offset, s.offset + s.length];
-    for (const tag of CITY_SECTIONS) if (!table.has(tag)) throw new Error(`charlotte_city.bytes: no ${tag} section`);
+    for (const tag of CITY_SECTIONS) if (!table.has(tag) && !CITY_OPTIONAL.has(tag)) throw new Error(`charlotte_city.bytes: no ${tag} section`);
   }
   // v2: jump to a section, and check afterwards that it was read exactly
   const open = tag => { if (table) r.p = table.get(tag).offset; return r.p; };
@@ -181,12 +196,27 @@ export function parseCity(buf) {
   const nw = r.u32();
   const waters = new Array(nw);
   for (let i = 0; i < nw; i++) {
-    const w = { name: names[r.u32()], width: r.f32(), lake: r.u8() !== 0 };
+    const w = { name: names[r.u32()], width: r.f32(), kind: r.u8() };
+    w.lake = w.kind === 1; w.ravine = w.kind === 2;
     const np = r.u32(); w.pts = new Array(np);
     for (let k = 0; k < np; k++) w.pts[k] = [r.f32(), r.f32()];
     waters[i] = w;
   }
   close('WATR');
+  let bedSamples = 0;
+  if (table && table.has('WBED')) {
+    open('WBED');
+    const nb = r.u32();
+    if (nb !== nw) throw new Error(`charlotte_city.bytes: WBED has ${nb} beds for ${nw} waters`);
+    const base = r.f32(), scale = r.f32();
+    for (let i = 0; i < nw; i++) {
+      const m = r.u32(), step = r.f32(), bed = new Float64Array(m);
+      let u = 0;
+      for (let k = 0; k < m; k++) { u = k ? u + r.i16() : r.u16(); bed[k] = base + u * scale; }
+      waters[i].bed = bed; waters[i].bedStep = step; bedSamples += m;
+    }
+    close('WBED');
+  }
   open('XING');
   const nc = r.u32();
   const crossings = new Array(nc);
@@ -228,7 +258,7 @@ export function parseCity(buf) {
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
   return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes,
-           graphHash: hash, storedHash };
+           graphHash: hash, storedHash, bedSamples };
 }
 
 export function parseDem(buf) {
@@ -430,6 +460,7 @@ export function fingerprint(city, dem, bld) {
       names: city.names.length,
       waters: city.waters.length,
       water_points: waterPts,
+      ...(city.bedSamples ? { water_bed_samples: city.bedSamples, lakes: city.waters.filter(w => w.lake).length, ravines: city.waters.filter(w => w.ravine).length } : {}),
       crossings: city.crossings.length,
       crossings_forced: city.crossings.filter(c => c.forced).length,
       water_spans: city.wspans.length,
