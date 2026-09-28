@@ -363,6 +363,87 @@ before and after. The baselines are in `tools/city/baseline/`.
     from above;
   - the 11 named crests and dips.
 
+### Smoothness gate (WP-G, 2026-09-28)
+
+The owner's rule: "I circled some concerning squiggly road lines. This should
+never happen. Nor should any sharp angles of road or road lines." Painted
+lines and road edges never wobble and never kink. The gate proves it on what
+the renderer draws, not on the data (the circled creek deck is dead straight
+in OSM).
+
+- **What it measures.** Every painted line is found per TRIANGLE of every
+  ribbon quad, as the iso-line U = u of its texture run (U is affine inside a
+  triangle, so a bend at a quad diagonal is sampled at its peak, never between
+  samples). The runs (u, width, colour, dash band) are read from the road PNGs,
+  not from the painter's code. Both ribbon edges, the ribbon midline and (mesh
+  gate) fan perimeters are measured too. Lines are chained through mitred
+  nodes and tile seams. The reference is a PaintPlan built from data only:
+  the graph polyline, RoadProfiles' layout rules and the Trims taper table;
+  never the builder's sections, U or quads.
+  - A (position): A1 OFF against the plan, A2 SKEW of the centre pair on the
+    drawn ribbon, A3 INSET of an edge line, A4 LINEWIDTH, A5 STRAY, A5b
+    MISSING (report-only).
+  - B (shape): B1 JITTER (circle fit over ±2 m), B2 KINK (facet sagitta
+    min(chords, 10 m)·turn/8), B3 CURVE (radius under the class minimum), B4
+    JUMP where a line continues, B4s SEAM at a tile seam.
+  - C (continuity): C1 GAP, C2 END (only at mouths, dead ends, gores or plan
+    lane drops), C3 DASH (10 ft dash / 30 ft gap ±20% along the chain).
+  - D1 CROSS: paint more than 20 cm inside other pavement at the same level.
+- **V = 2.5 cm**, one framebuffer pixel at 6 m in the 240-line chase view, is
+  every lateral limit. Every number is in `Editor/SmoothRules.cs`; the texture
+  runs' own quantisation (up to 2.8 cm on tw4/ow4) is subtracted, because V is
+  half a texel.
+- **Two implementations, one answer.** `node tools/city/linecheck.mjs`
+  (offline, about 90 s, the plan-view replica of the builder in
+  `tools/city/lib/linesim.mjs`) and `Editor/CitySmooth.cs` (the built meshes,
+  through the tap in CityMeshes). They must agree on every check both measure;
+  **a disagreement is a gate bug**, fixed before anything else. Only the mesh
+  gate sees tile seams, fans and heights. linecheck's replica follows the
+  builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
+  same commit. `metrics.mjs` gains a SMOOTH section: B2/B3 on the exported
+  centreline and its offset curves, in half a second, as an early warning.
+- **Modes.** FAST runs inside every `CityAudit.Run` (the drive and roadside
+  audits' tiles, the reference spots, one band of 1/12 of the road tiles:
+  `PSX_SMOOTH_BAND`). FULL (`tools/city-smooth.ps1 -Mode FULL`) runs every road
+  tile and is the G-ship run of every city release. SHOTS shoots each worst
+  offender from above (2.2 cm a pixel, with the measured line and the plan
+  drawn over it), from the chase camera at 240 lines and from `_high`.
+- **The ratchet.** The first cycle only reports (`SmoothRules.ReportOnly`).
+  From the next, a RATCHET check fails on any new violation key, any rise in
+  its count or a worse worst case; a ZERO check (B4s now) fails on any run; a
+  REPORT check never fails. A key is (OSM way, arc along the way in 5 m steps,
+  check, line), so it survives re-exports that keep the ways; a re-export that
+  moves geometry re-records the baseline with before and after numbers in the
+  commit. Baselines: `tools/city/baseline/smooth_baseline.json` (mesh, by
+  `city-smooth.ps1 -Mode FULL -WriteBaseline`) and `linecheck_baseline.json`
+  (offline, per graph and builder model). The creek (ways 1078015030,
+  16671358, 1252904925) is pinned: any run there fails from the day its fix
+  lands (`SmoothRules.PinActive`). A check goes to hard zero when the package
+  named in its row of `SmoothRules.Checks` lands; nothing is ever loosened.
+- **Reading `city_smooth.txt`** (linecheck prints the same). The header gives
+  V, the mode and band, the graph hash, the tiles and kilometres. The table
+  gives, per check: its state, the violation runs, their metres, the worst
+  value in the check's unit, the worst as a multiple of its limit, how many
+  runs are DATA (the exported line kinks there) or BUILDER (the mesh added
+  it), and the baseline. Indented REPORT rows are the parts not gated yet (D1
+  inside BranchSeats attach arcs, C3 stubs). Then the creek pin, and the
+  worst 40 (ratio capped at 40, times class weight, times 2 on a race route or
+  1.5 at a reference spot; one per way, check and line within 40 m). Each row
+  names the line (EL/ER edge line, RL/RR ribbon edge right/left of travel,
+  MID, CPAIR, `C<colour><s|d><offset>` a centre or lane line), the edge, OSM
+  way and name, the profile, deck or ground, s, the run length, game
+  coordinates, lat/lon, the tile, the cause (TAPER, DIAGONAL, VERTEX, MITRE,
+  SQUEEZE, CLIP, STRUCTURE-END, SEAM, FAN) and a spot token that
+  `PSX_SMOOTH_SPOTS` shoots. Every run is in `city_smooth.csv`.
+- **Where it stands** (linecheck, graph 27bccd93, today's builder): 99,799 A1,
+  15,178 A2, 183,935 B2 and 253,731 B1 runs; 17,835 C2 and 8,582 C3. The creek
+  as built: yellow 0.39 m off at s 51.6, white lane line 1.92 m off and STRAY
+  from s 19.7 to 56.2, yellow kink 8.4 cm, the 6 cm dash break at node 12848.
+  Under the M0 stopgap (`--model m0`) the creek's centre and lane lines read
+  0; its tw4 edge lines still slide 0.36 m to the drawn edge before the crop
+  removes them (A1, A3, C2). linecheck also reproduces the 2026-09-28 census
+  exactly (264.88 km of wobble of 5 cm or more, 75,073 edge kinks over 2°).
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not
