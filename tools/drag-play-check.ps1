@@ -4,7 +4,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools/drag-play-check.ps1
 #
-param([switch]$NoWatch)
+param([switch]$NoWatch, [int]$MaxMinutes = 30)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -20,8 +20,9 @@ Remove-Item "$proj\PSXRacing_drag_play_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: it enters play mode and exits itself when it is done.
 # Watched by default: a visible editor plays the test in front of you.
-# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
-Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\dragplay.log" -MaxMinutes 30 -UnityArgs @(
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\dragplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.DragPlayCheck.Run",
     "-logFile","$proj\dragplay.log","-accept-apiupdate") | Out-Null

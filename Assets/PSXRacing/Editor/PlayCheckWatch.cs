@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace PSXRacing.EditorTools
 {
@@ -11,16 +13,34 @@ namespace PSXRacing.EditorTools
     /// -batchmode -nographics in a hidden window, so the owner heard the race
     /// and saw nothing. By default they now open the sandbox in a normal,
     /// visible editor and set PSX_WATCH_ACTIVE=1 for it; this class then puts
-    /// the race in front of him when play mode starts: the Game view focused,
-    /// set to 16:9 and maximised (Play Maximized) so the game fills the window,
-    /// with the audio unmuted.
+    /// the race in front of him when play mode starts: the Game view set to
+    /// 16:9 and maximised (Play Maximized) so the game fills the window, with
+    /// the audio unmuted.
     ///
-    /// It touches no seed, car, scene or check - only editor windows. What a
-    /// window cannot help changing is written up in unity-wait.ps1: the frame
-    /// is this 16:9 Game view instead of batch mode's 640x480, and the frame
-    /// rate is a drawing editor's. It does nothing at all in batch mode or in
-    /// an editor someone opened by hand (the variable is only ever set by the
-    /// tools, for the one process they launch).
+    /// Three more jobs, all because a visible editor sits on a desk where
+    /// somebody is working:
+    ///   * HANDS OFF. While the test plays, this PC's own keyboard, mouse,
+    ///     pads and touch screen are switched off in the Input System, so a key
+    ///     typed into what the owner thinks is another window - Escape opens
+    ///     the pause menu and stops the clock; a click in the walk test grabs
+    ///     the cursor; WASD steers a car the harness is driving - never reaches
+    ///     the check. The harnesses' own VIRTUAL pads (InputSystem.AddDevice)
+    ///     are not native and keep working. Batch mode never had a keyboard.
+    ///   * NO FOCUS GRAB. Nothing here asks for the keyboard focus (no
+    ///     EditorWindow.Focus): unity-wait.ps1 raises the window above the
+    ///     others without activating it, so typing carries on where it was.
+    ///   * A HEARTBEAT. "[PSX WATCH] alive: ..." every 30 s from the editor's
+    ///     main loop, which is what unity-wait.ps1 believes when it asks "is
+    ///     the editor still working, or is something holding it?" - Unity's
+    ///     background threads (licensing, ADB scans) write to the log whatever
+    ///     the main thread is doing, so a growing log alone proves nothing.
+    ///
+    /// It touches no seed, car, scene or check - only editor windows and the
+    /// real input devices. What a window cannot help changing is written up in
+    /// unity-wait.ps1: the frame is this 16:9 Game view instead of batch mode's
+    /// 640x480, and the frame rate is a drawing editor's. It does nothing at
+    /// all in batch mode or in an editor someone opened by hand (the variable
+    /// is only ever set by the tools, for the one process they launch).
     /// </summary>
     [InitializeOnLoad]
     public static class PlayCheckWatch
@@ -37,28 +57,141 @@ namespace PSXRacing.EditorTools
 
         static bool announced;
 
+        // Every line without a stack trace: they are lines for unity-wait.ps1
+        // to find and for a person to read in the log's tail, and a four-line
+        // trace under each would push the lines that matter out of it.
+        static void Note(string s) => Debug.LogFormat(LogType.Log, LogOption.NoStacktrace, null, "{0}", s);
+        static void Warn(string s) => Debug.LogFormat(LogType.Warning, LogOption.NoStacktrace, null, "{0}", s);
+
         static PlayCheckWatch()
         {
             if (!Active) return;
             EditorApplication.playModeStateChanged -= OnState;
             EditorApplication.playModeStateChanged += OnState;
+            EditorApplication.update -= Beat;
+            EditorApplication.update += Beat;
+            nextBeat = 0;   // the first beat right away: proof the domain came up
+            // A domain that loads while already playing (a script reload in
+            // play) gets no EnteredPlayMode: lock once the editor is settled.
+            // Deferred, because the Input System initialises itself from its
+            // own InitializeOnLoad and the order of those is not defined.
+            if (EditorApplication.isPlaying) EditorApplication.delayCall += LockInput;
         }
 
         static void OnState(PlayModeStateChange st)
         {
             // Before the switch: pick 16:9 and Play Maximized, so the first
-            // frame of play is already the right shape. After it: maximise and
-            // focus again (entering play re-docks the views), then keep the
-            // frame fitted to the view while it settles (see Refit).
+            // frame of play is already the right shape. After it: maximise
+            // again (entering play re-docks the views), keep the frame fitted
+            // to the view while it settles (see Refit), and take this PC's own
+            // input away from the game until play ends.
             if (st == PlayModeStateChange.ExitingEditMode) Frame(false);
             else if (st == PlayModeStateChange.EnteredPlayMode)
             {
+                LockInput();
                 Frame(true);
                 fitted = Vector2.zero;
                 EditorApplication.update -= Refit;
                 EditorApplication.update += Refit;
             }
+            else if (st == PlayModeStateChange.ExitingPlayMode) UnlockInput();
         }
+
+        // ---- heartbeat ---------------------------------------------------
+
+        const double BeatSeconds = 30;
+        static double nextBeat;
+
+        /// <summary>One line every 30 s from EditorApplication.update, i.e. from
+        /// the main thread's own loop. Stops when that loop stops (a modal
+        /// dialog that holds it, a hang); does not stop for a background
+        /// thread. No stack trace: it is a line for a script to find, and a
+        /// four-line trace every 30 s would bury the log's tail.</summary>
+        static void Beat()
+        {
+            double now = EditorApplication.timeSinceStartup;
+            if (now < nextBeat) return;
+            nextBeat = now + BeatSeconds;
+            string state = EditorApplication.isPlaying ? (EditorApplication.isPaused ? "play mode, PAUSED" : "play mode")
+                         : EditorApplication.isCompiling ? "edit mode, compiling" : "edit mode";
+            Debug.LogFormat(LogType.Log, LogOption.NoStacktrace, null,
+                "[PSX WATCH] alive: {0}, frame {1}, time scale {2:0.##}, {3:0} s since the editor started",
+                state, Time.frameCount, Time.timeScale, now);
+        }
+
+        // ---- hands off ---------------------------------------------------
+
+        /// <summary>The real devices this class switched off, to switch back on
+        /// when play ends (and nothing else: a device something else disabled
+        /// stays as it was).</summary>
+        static readonly List<InputDevice> locked = new List<InputDevice>();
+        static bool listening;
+
+        static void LockInput()
+        {
+            try
+            {
+                var names = new List<string>();
+                foreach (var d in InputSystem.devices.ToArray())
+                    if (LockOne(d)) names.Add(d.displayName ?? d.name);
+                if (!listening)
+                {
+                    InputSystem.onDeviceChange += OnDeviceChange;
+                    listening = true;
+                }
+                Note("[PSX WATCH] this PC's own input is OFF while the test plays (" +
+                          (names.Count > 0 ? string.Join(", ", names) : "no devices") +
+                          "): keys, clicks and pads cannot reach the check. The harness's virtual pads still work.");
+            }
+            catch (Exception e)
+            {
+                Warn("[PSX WATCH] could not switch this PC's input off: " + e.GetType().Name + ": " + e.Message);
+            }
+        }
+
+        /// <summary>Switches one device off if it is a real one (reported by the
+        /// platform, not added by script) and on. True if it did.</summary>
+        static bool LockOne(InputDevice d)
+        {
+            if (d == null || !d.native || !d.enabled) return false;
+            InputSystem.DisableDevice(d);
+            if (!locked.Contains(d)) locked.Add(d);
+            return true;
+        }
+
+        /// <summary>A pad plugged in mid-race, or a device something switched
+        /// back on, is switched off again while the test plays.</summary>
+        static void OnDeviceChange(InputDevice d, InputDeviceChange change)
+        {
+            if (!EditorApplication.isPlaying) return;
+            if (change != InputDeviceChange.Added && change != InputDeviceChange.Reconnected &&
+                change != InputDeviceChange.Enabled) return;
+            try
+            {
+                if (LockOne(d)) Note("[PSX WATCH] switched off " + (d.displayName ?? d.name) + " (" + change + ") while the test plays");
+            }
+            catch (Exception e)
+            {
+                Warn("[PSX WATCH] could not switch " + d.name + " off: " + e.Message);
+            }
+        }
+
+        static void UnlockInput()
+        {
+            if (listening)
+            {
+                InputSystem.onDeviceChange -= OnDeviceChange;
+                listening = false;
+            }
+            foreach (var d in locked)
+            {
+                try { if (d != null && d.added && !d.enabled) InputSystem.EnableDevice(d); }
+                catch (Exception) { /* a device that went away */ }
+            }
+            locked.Clear();
+        }
+
+        // ---- the Game view ---------------------------------------------------
 
         const BindingFlags Any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -73,27 +206,28 @@ namespace PSXRacing.EditorTools
             {
                 EditorUtility.audioMasterMute = false;
                 var gvType = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");
-                if (gvType == null) { Debug.LogWarning("[PSX WATCH] no UnityEditor.GameView type in this editor"); return; }
-                var gv = EditorWindow.GetWindow(gvType, false, null, true);
+                if (gvType == null) { Warn("[PSX WATCH] no UnityEditor.GameView type in this editor"); return; }
+                // focus: false. The window is raised by unity-wait.ps1 WITHOUT
+                // taking the keyboard; a Focus() here would ask Windows for it.
+                var gv = EditorWindow.GetWindow(gvType, false, null, false);
                 view = gv;
                 aspect = SelectSixteenByNine(gv);
                 how = SetPlayMaximized(gv);
                 if (playing && !gv.maximized) gv.maximized = true;
-                gv.Focus();
                 gv.Repaint();
                 if (playing && !announced)
                 {
                     announced = true;
                     // unity-wait.ps1 watches the log for this marker and brings
-                    // the editor's main window to the front, maximised.
-                    Debug.Log($"[PSX WATCH] playing in the Game view: {aspect}, {how}, maximised {gv.maximized}, " +
+                    // the editor's main window to the front.
+                    Note($"[PSX WATCH] playing in the Game view: {aspect}, {how}, maximised {gv.maximized}, " +
                               $"audio muted {EditorUtility.audioMasterMute}, {gv.position.width:0}x{gv.position.height:0}");
                 }
             }
             catch (Exception e)
             {
                 // Watching is a courtesy: never let it break the check.
-                Debug.LogWarning("[PSX WATCH] could not frame the Game view: " + e.GetType().Name + ": " + e.Message);
+                Warn("[PSX WATCH] could not frame the Game view: " + e.GetType().Name + ": " + e.Message);
             }
         }
 
@@ -129,12 +263,12 @@ namespace PSXRacing.EditorTools
                 float scale = (float)min.GetValue(view);
                 snap.Invoke(view, new object[] { scale });
                 view.Repaint();
-                if (refits++ < 4) Debug.Log($"[PSX WATCH] fitted the frame to the view: {size.x:0}x{size.y:0}, scale {scale:0.##}x");
+                if (refits++ < 4) Note($"[PSX WATCH] fitted the frame to the view: {size.x:0}x{size.y:0}, scale {scale:0.##}x");
             }
             catch (Exception e)
             {
                 EditorApplication.update -= Refit;
-                Debug.LogWarning("[PSX WATCH] could not fit the frame: " + e.GetType().Name + ": " + e.Message);
+                Warn("[PSX WATCH] could not fit the frame: " + e.GetType().Name + ": " + e.Message);
             }
         }
 

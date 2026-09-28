@@ -7,7 +7,7 @@
 # shells survive, so this is a ~4 minute answer rather than a 40 minute one.
 #
 # Exit code 0 = every twin lines up; 1 = something in the report says FAIL.
-param([switch]$NoWatch)
+param([switch]$NoWatch, [int]$MaxMinutes = 25)
 $ErrorActionPreference = "Stop"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src   = Split-Path -Parent $PSScriptRoot
@@ -25,8 +25,9 @@ Remove-Item "$proj\PSXRacing_reverse_check.txt" -ErrorAction SilentlyContinue
 # Invoke-UnityJob waits for the child editor to APPEAR (the launcher exits
 # immediately) and then to stay gone, counting only this sandbox's processes.
 # Watched by default: a visible editor plays the test in front of you.
-# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
-Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\reversecheck.log" -MaxMinutes 25 -UnityArgs @(
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\reversecheck.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.ReverseRaceCheck.Run",
     "-logFile","$proj\reversecheck.log","-accept-apiupdate") | Out-Null
