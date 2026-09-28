@@ -38,9 +38,12 @@ namespace PSXRacing.EditorTools
     /// disagreement is a gate bug (Docs/CHARLOTTE.md, "Smoothness gate").
     ///
     /// Modes (gate spec 5.3):
-    ///   FAST   inside every CityAudit.Run (BeginFast / Collect / EndFast): the
-    ///          drive and roadside audits' tiles, the reference spots' rings and
-    ///          one band of 1/12 of the road tiles (PSX_SMOOTH_BAND).
+    ///   FAST   inside CityAudit.Run (BeginFast / Collect / EndCollect / EndFast):
+    ///          the drive and roadside audits' tiles, the reference spots' rings
+    ///          and one band of 1/12 of the road tiles (PSX_SMOOTH_BAND). OPT-IN
+    ///          (PSX_SMOOTH_FAST=1) until its first Unity run validates it; then
+    ///          SmoothRules.FastInAudit. Run counts are compared only with the
+    ///          baseline's runs in the tiles it analysed; keys one by one.
     ///   FULL   -executeMethod PSXRacing.EditorTools.CitySmooth.RunFull: every
     ///          road tile, raster order, three tile rows of fragments live.
     ///   SHOTS  -executeMethod PSXRacing.EditorTools.CitySmooth.RunShots: plan,
@@ -147,12 +150,14 @@ namespace PSXRacing.EditorTools
             public string key; public double width;
             public List<PaintRun> runs = new List<PaintRun>();
             public List<PlanLine> plan = new List<PlanLine>();
-            public int[] runPlan = new int[0], planRun = new int[0]; public double[] runQ = new double[0];
-            public bool painted;
+            public int[] runPlan = new int[0], planRun = new int[0]; public double[] runQ = new double[0], runQc = new double[0];
+            public bool painted; public int texW; public double cap;
         }
         static readonly Dictionary<int, Layout> layouts = new Dictionary<int, Layout>();
         static readonly Color32 Yellow = new Color32(196, 160, 40, 255), White = new Color32(200, 200, 196, 255);
         static readonly List<string> textureNotes = new List<string>();
+        /// <summary>A0 TEXTURE failures: (what, |q| in m, ratio).</summary>
+        static readonly List<(string what, double val, double ratio)> textureFails = new List<(string, double, double)>();
 
         static string SurfaceKey(int surf) => surf == 0 ? "asphalt_new" : surf == 1 ? "asphalt_old" : surf == 2 ? "concrete_new" : "concrete_old";
 
@@ -175,9 +180,10 @@ namespace PSXRacing.EditorTools
             {
                 tex.LoadImage(File.ReadAllBytes(file));
                 lay.runs = ScanRuns(tex.GetPixels32(), tex.width, tex.height);
+                lay.texW = tex.width;
             }
             finally { UnityEngine.Object.DestroyImmediate(tex); }
-            MatchLayout(lay);
+            MatchLayout(lay, pr.key + "_" + SurfaceKey(surf));
             return lay;
         }
 
@@ -264,10 +270,13 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>Texture runs to plan lines at nominal scale: colour,
-        /// pattern, nearest within StrayM. runQ is the texture's own
-        /// quantisation (run centre minus plan), which the position checks
-        /// subtract: V is half a texel precisely so geometry is told from it.</summary>
-        static void MatchLayout(Layout lay)
+        /// pattern, nearest within StrayM. runQ is the run centre minus the
+        /// plan. Only up to HALF A TEXEL of it (cap = width / texW / 2 +
+        /// TexelPadM) is the texture's own rounding, which the position checks
+        /// subtract (runQc): V is half a texel precisely so geometry is told
+        /// from it. A run further off, a run with no plan line or a plan line
+        /// with no run is a painter fault: A0 TEXTURE fails.</summary>
+        static void MatchLayout(Layout lay, string name)
         {
             var cand = new List<(int k, int j, double d)>();
             for (int k = 0; k < lay.runs.Count; k++)
@@ -284,8 +293,17 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < lay.planRun.Length; i++) lay.planRun[i] = -1;
             foreach (var c in cand)
                 if (lay.runPlan[c.k] < 0 && lay.planRun[c.j] < 0) { lay.runPlan[c.k] = c.j; lay.runQ[c.k] = c.d; lay.planRun[c.j] = c.k; }
-            for (int k = 0; k < lay.runs.Count; k++) if (lay.runPlan[k] < 0) textureNotes.Add($"{lay.key}: texture run at u {lay.runs[k].u:0.0000} has no plan line");
-            for (int j = 0; j < lay.plan.Count; j++) if (lay.planRun[j] < 0) textureNotes.Add($"{lay.key}: plan line {lay.plan[j].id} has no texture run");
+            lay.cap = (lay.texW > 0 ? lay.width / lay.texW / 2 : 0) + SmoothRules.TexelPadM;
+            lay.runQc = new double[lay.runs.Count];
+            for (int k = 0; k < lay.runs.Count; k++) lay.runQc[k] = Math.Max(-lay.cap, Math.Min(lay.cap, lay.runQ[k]));
+            void Fail(string what, double val, double ratio) { textureNotes.Add($"{name}: {what}"); textureFails.Add(($"{name}: {what}", val, ratio)); }
+            for (int k = 0; k < lay.runs.Count; k++)
+            {
+                if (lay.runPlan[k] < 0) Fail($"texture run at u {lay.runs[k].u.ToString("0.0000", Inv)} has no plan line", 0, 99);
+                else if (Math.Abs(lay.runQ[k]) > lay.cap)
+                    Fail($"texture run at u {lay.runs[k].u.ToString("0.0000", Inv)} sits {lay.runQ[k] * 100:0.0} cm from plan line {lay.plan[lay.runPlan[k]].id}, over half a texel ({lay.cap * 100:0.0} cm)", Math.Abs(lay.runQ[k]), Math.Abs(lay.runQ[k]) / lay.cap);
+            }
+            for (int j = 0; j < lay.plan.Count; j++) if (lay.planRun[j] < 0) Fail($"plan line {lay.plan[j].id} has no texture run", 0, 99);
         }
 
         // ================================================================
@@ -314,11 +332,23 @@ namespace PSXRacing.EditorTools
             public string check, lineId, kind, what, reportOnly, cause, data, key;
             public int e, span = -1, node = -1; public double s, x, z, y, val, len, ratio, score, exposure = 1, rLimit;
             public int e0, e1; public double s0, s1; public char tag; public char side; public bool pinned;
+            /// <summary>The analysed tile that kept the run (FAST's per-tile counts).</summary>
+            public long tile;
+            /// <summary>Bucket ids the bad samples touched, with each one's worst value
+            /// (see <see cref="Bucket"/>); FinishRuns turns them into keys + ratios.</summary>
+            public List<long> bk; public List<double> bv;
+            public List<string> kk; public List<double> kq;
+            public double lastArc;
         }
+
+        /// <summary>A key bucket: wayId * 2^20 + round(s on way / KeyStepM);
+        /// on a fan perimeter -(node * 4096 + corner + 1).</summary>
+        static long Bucket(int e, double s) => (long)map.edges[e].wayId * 1048576L + Math.Max(0L, KeyStep(e, s));
+        static long KeyStep(int e, double s) => (long)Math.Floor((wayOff[e] + s) / SmoothRules.KeyStepM + 0.5);   // JS Math.round, not banker's
 
         static void Reset()
         {
-            frags.Clear(); runs.Clear(); analysed.Clear(); layouts.Clear(); textureNotes.Clear();
+            frags.Clear(); runs.Clear(); analysed.Clear(); layouts.Clear(); textureNotes.Clear(); textureFails.Clear();
             ribbonKm = lineKm = 0; strands = 0; tapNotes = 0; band = -1;
             t0 = Time.realtimeSinceStartup;
         }
@@ -513,7 +543,9 @@ namespace PSXRacing.EditorTools
         // ================================================================
 
         /// <summary>Consecutive samples over their limit along one line,
-        /// merged, streamed (no sample objects).</summary>
+        /// merged, streamed (no sample objects). A run breaks where two bad
+        /// samples lie more than RunBreakM apart, and keeps the worst value of
+        /// every KeyStepM bucket it touches (its ratchet keys).</summary>
         sealed class RunBuilder
         {
             readonly string check, lineId, kind, reportOnly; readonly bool minIsWorse;
@@ -521,34 +553,47 @@ namespace PSXRacing.EditorTools
             public RunBuilder(string check, string lineId, string kind = null, string reportOnly = null, bool minIsWorse = false)
             { this.check = check; this.lineId = lineId; this.kind = kind; this.reportOnly = reportOnly; this.minIsWorse = minIsWorse; }
             public double rLimit;
+            /// <summary>The fan whose perimeter this is (-1: none): set on every run at creation.</summary>
+            public int node = -1;
+            bool Worse(double a, double b) => minIsWorse ? a < b : Math.Abs(a) > Math.Abs(b);
+            /// <summary>A break in the samples: closes, no arc across it.</summary>
+            public void Gap() { Close(); px = double.NaN; }
             public void Push(double x, double y, double z, int e, double s, double val, bool bad, char tag = ' ', int span = -1, char side = ' ')
             {
                 if (!double.IsNaN(px)) arc += Math.Sqrt((x - px) * (x - px) + (z - pz) * (z - pz));
                 px = x; pz = z;
                 if (!bad) { Close(); return; }
+                if (cur != null && arc - cur.lastArc > SmoothRules.RunBreakM) Close();
                 if (cur == null)
                     cur = new Run { check = check, lineId = lineId, kind = kind, reportOnly = reportOnly, e = e, s = s, x = x, y = y, z = z, val = val,
-                                    e0 = e, s0 = s, e1 = e, s1 = s, tag = tag, span = span, side = side, rLimit = rLimit, len = -arc };
-                cur.e1 = e; cur.s1 = s;
-                cur.ratio = arc;   // scratch: the arc at the last bad sample
-                if (minIsWorse ? val < cur.val : Math.Abs(val) > Math.Abs(cur.val))
+                                    e0 = e, s0 = s, e1 = e, s1 = s, tag = tag, span = span, side = side, rLimit = rLimit, node = node, len = -arc,
+                                    bk = new List<long>(), bv = new List<double>() };
+                cur.e1 = e; cur.s1 = s; cur.lastArc = arc;
+                long bid = node >= 0 ? -(node * 4096L + Math.Min(Math.Max(span, 0), 4094) + 1) : Bucket(e, s);
+                int nb = cur.bk.Count;
+                if (nb > 0 && cur.bk[nb - 1] == bid) { if (Worse(val, cur.bv[nb - 1])) cur.bv[nb - 1] = val; }
+                else { cur.bk.Add(bid); cur.bv.Add(val); }
+                if (Worse(val, cur.val))
                 { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; }
             }
             public void Close()
             {
                 if (cur == null) return;
-                cur.len = cur.ratio + cur.len; cur.ratio = 0;
+                cur.len = cur.lastArc + cur.len;
                 Keep(cur); cur = null;
             }
         }
 
         // the tile being analysed: a run is built over the whole 3x3 ring and kept
         // by the tile its worst sample lies in, so a run crossing a tile edge is
-        // counted once, as linecheck.mjs counts it
+        // counted once, as linecheck.mjs counts it. A fan is analysed once, by the
+        // tile that built it, so its runs are kept wherever their worst corner is.
         static double cx0, cz0, cx1, cz1;
+        static long curTile;
+        static bool keepAnywhere;
         static bool InCentre(double x, double z) => x >= cx0 && x < cx1 && z >= cz0 && z < cz1;
         static bool NearCentre(double x, double z, double m) => x >= cx0 - m && x < cx1 + m && z >= cz0 - m && z < cz1 + m;
-        static void Keep(Run r) { if (InCentre(r.x, r.z)) runs.Add(r); }
+        static void Keep(Run r) { if (keepAnywhere || InCentre(r.x, r.z)) { r.tile = curTile; runs.Add(r); } }
 
         // ================================================================
         //  One tile: chains over its 3x3 ring (gate spec 5.2)
@@ -578,6 +623,7 @@ namespace PSXRacing.EditorTools
                     ringFans.AddRange(f.fans); ringGores.AddRange(f.gores);
                 }
             cx0 = tx * CityMeshes.TileSize; cz0 = tz * CityMeshes.TileSize; cx1 = cx0 + CityMeshes.TileSize; cz1 = cz0 + CityMeshes.TileSize;
+            curTile = TileKey(tx, tz);
             foreach (var l in byEdge.Values) l.Sort((a, b) => a.sA.CompareTo(b.sA));
             var grid = new PaveGrid(byEdge, ringGores, ringFans);
             // chains through mitred nodes, over the ring's edges, that touch this tile
@@ -591,8 +637,11 @@ namespace PSXRacing.EditorTools
                 var chain = ChainFrom(map.edges[kv.Key], byEdge, used);
                 AnalyzeChain(chain, byEdge, grid);
             }
-            // fan perimeters (curb returns) in this tile
-            foreach (var fan in ringFans) if (fan.tx == tx && fan.tz == tz) FanChecks(fan);
+            // fan perimeters (curb returns) built by this tile: analysed once, here, so their runs are kept
+            // wherever their worst corner lies (a corner can sit 10-30 m out, over the tile edge)
+            keepAnywhere = true;
+            try { foreach (var fan in ringFans) if (fan.tx == tx && fan.tz == tz) FanChecks(fan); }
+            finally { keepAnywhere = false; }
         }
 
         static List<(CityMap.Edge e, bool fwd)> ChainFrom(CityMap.Edge e0, Dictionary<int, List<Quad>> byEdge, HashSet<int> used)
@@ -762,29 +811,48 @@ namespace PSXRacing.EditorTools
         static List<IsoSeg> QuadIso(Quad q, double u)
         {
             isoOut.Clear();
-            var X = new (bool ok, double x, double y, double z, double v)[5];
+            var X = new (bool ok, double x, double y, double z, double v, double t)[5];
             X[0] = Cross(q.AL, q.uAL, q.AR, q.uAR, u); X[1] = Cross(q.BL, q.uBL, q.BR, q.uBR, u);
             X[2] = Cross(q.AL, q.uAL, q.BR, q.uBR, u); X[3] = Cross(q.AL, q.uAL, q.BL, q.uBL, u);
             X[4] = Cross(q.AR, q.uAR, q.BR, q.uBR, u);
             const string letters = "ABDLR";
-            int[] ord = { 0, 3, 2, 1, 1 };   // travel order: A < L/R < D < B
+            // each triangle's two crossings (T2 owns A, R, D; T1 owns D, B, L)
+            var segs = new List<(int h0, int h1, double grad)>(2);
             foreach (var tri in new[] { new[] { 0, 4, 2 }, new[] { 2, 1, 3 } })
             {
                 int h0 = -1, h1 = -1;
                 foreach (int k in tri) if (X[k].ok) { if (h0 < 0) h0 = k; else if (h1 < 0) h1 = k; else h1 = -2; }
                 if (h0 < 0 || h1 < 0) continue;
-                if (ord[h1] < ord[h0]) { int t = h0; h0 = h1; h1 = t; }
                 double grad = tri[0] == 0 ? GradU(q.AL, q.uAL.x, q.AR, q.uAR.x, q.BR, q.uBR.x) : GradU(q.AL, q.uAL.x, q.BR, q.uBR.x, q.BL, q.uBL.x);
+                segs.Add((h0, h1, grad));
+            }
+            // TRAVEL order (paintiso.mjs quadIso): A = 0, B = 1, on L / R / D the edge's own parameter (each runs A to B).
+            // Two segments sharing D are one path X - D - Y walked from its earlier outer end, so a line cropped out
+            // through the L chord comes back A->D, D->L - never a reversed tail.
+            double T(int k) => k == 0 ? 0 : k == 1 ? 1 : X[k].t;
+            void Emit(int h0, int h1, double grad) =>
                 isoOut.Add(new IsoSeg { ax = X[h0].x, ay = X[h0].y, az = X[h0].z, av = X[h0].v, bx = X[h1].x, by = X[h1].y, bz = X[h1].z, bv = X[h1].v, ea = letters[h0], eb = letters[h1], grad = grad });
+            if (segs.Count == 2 && (segs[0].h0 == 2 || segs[0].h1 == 2) && (segs[1].h0 == 2 || segs[1].h1 == 2))
+            {
+                int x = segs[0].h0 == 2 ? segs[0].h1 : segs[0].h0, y = segs[1].h0 == 2 ? segs[1].h1 : segs[1].h0;
+                bool xFirst = T(x) < T(y) || (T(x) == T(y) && x <= y);
+                if (xFirst) { Emit(x, 2, segs[0].grad); Emit(2, y, segs[1].grad); }
+                else { Emit(y, 2, segs[1].grad); Emit(2, x, segs[0].grad); }
+                return isoOut;
+            }
+            foreach (var (h0, h1, grad) in segs)
+            {
+                bool swap = T(h1) < T(h0) || (T(h1) == T(h0) && h1 < h0);
+                if (swap) Emit(h1, h0, grad); else Emit(h0, h1, grad);
             }
             return isoOut;
         }
-        static (bool, double, double, double, double) Cross(Vector3d a, Vector2 ua, Vector3d b, Vector2 ub, double u)
+        static (bool ok, double x, double y, double z, double v, double t) Cross(Vector3d a, Vector2 ua, Vector3d b, Vector2 ub, double u)
         {
             double da = ua.x - u, db = ub.x - u;
-            if ((da >= 0) == (db >= 0)) return (false, 0, 0, 0, 0);
+            if ((da >= 0) == (db >= 0)) return (false, 0, 0, 0, 0, 0);
             double t = da / (da - db);
-            return (true, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, ua.y + (ub.y - ua.y) * t);
+            return (true, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, ua.y + (ub.y - ua.y) * t, t);
         }
         static double GradU(Vector3d p, double up, Vector3d q, double uq, Vector3d r, double ur)
         {
@@ -879,15 +947,11 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static bool MergeZone(int e, int other)
-        {
-            if (other < 0) return false;
-            if (mergePairs.Contains(Pair(e, other))) return true;
-            var a = map.edges[e]; var o = map.edges[other];
-            foreach (int n in new[] { a.a, a.b })
-                if ((n == o.a || n == o.b) && (trims.mitre[n])) return true;
-            return false;
-        }
+        /// <summary>A plan merge zone is a branch/host pair only (the trims'
+        /// branch table and BranchSeats, <see cref="Setup"/>), as linecheck's
+        /// clip pairs. Sharing a fan or a mitred node is NOT one: paint there
+        /// inside another road is "paint crossing the junction", which D1 gates.</summary>
+        static bool MergeZone(int e, int other) => other >= 0 && mergePairs.Contains(Pair(e, other));
 
         // ---- the A-family, grids and D1 on one edge (its own direction)
         static void CheckEdge(EdgeData ed, HashSet<int> chainSet, PaveGrid grid)
@@ -912,13 +976,13 @@ namespace PSXRacing.EditorTools
             // ---- painted lines: A1, A4, A5, D1 on samples
             for (int k = 0; k < lay.runs.Count; k++)
             {
-                int j = lay.runPlan[k]; var plan = j >= 0 ? lay.plan[j] : null; char col = lay.runs[k].col; double q = lay.runQ[k];
+                int j = lay.runPlan[k]; var plan = j >= 0 ? lay.plan[j] : null; char col = lay.runs[k].col; double q = lay.runQc[k];
                 string lineId = PlanIdOf(lay, k);
                 for (int pi = 0; pi < ed.lines[k].Count; pi++)
                 {
                     var pc = ed.lines[k][pi]; var rat = ed.ratios[k][pi];
                     var bA1 = new RunBuilder("A1", lineId); var bA4 = new RunBuilder("A4", lineId); var bA5 = new RunBuilder("A5", lineId);
-                    var bD1 = new RunBuilder("D1", lineId); var bD1m = new RunBuilder("D1", lineId, null, "merge zone (BranchSeats attach arc): report-only until WP-18b");
+                    var bD1 = new RunBuilder("D1", lineId); var bD1m = new RunBuilder("D1", lineId, null, "merge zone (a branch/host pair: the trims branch table or BranchSeats): report-only until WP-18b");
                     for (int i = 1; i < pc.Count; i++)
                     {
                         var a = pc[i - 1]; var b = pc[i];
@@ -948,7 +1012,7 @@ namespace PSXRacing.EditorTools
                                 var pj = lay.plan[jj];
                                 if (pj.col != col || !PlanExists(pj, hw)) continue;
                                 int kk = lay.planRun[jj];
-                                double d = Math.Abs(sd - PlanOff(pj, e, s, hw) - (kk >= 0 ? lay.runQ[kk] : 0));
+                                double d = Math.Abs(sd - PlanOff(pj, e, s, hw) - (kk >= 0 ? lay.runQc[kk] : 0));
                                 if (d < dmin) dmin = d;
                             }
                             bA5.Push(x, y, z, e.index, s, Math.Min(dmin, 10), dmin > SmoothRules.StrayM, tag, span);
@@ -1014,18 +1078,19 @@ namespace PSXRacing.EditorTools
                         double s = BinS(b); var p = e.PointAt((float)s); int sp = SpanAt(s);
                         double va = G[k1][b], vb = G[k2][b], l = GL[b], r = GR[b];
                         if (Cropped(sp, ' ') || double.IsNaN(va) || double.IsNaN(vb) || double.IsNaN(l) || double.IsNaN(r)) { b2.Push(p.x, 0, p.y, e.index, s, 0, false); continue; }
-                        double skew = (va + vb) / 2 - (lay.runQ[k1] + lay.runQ[k2]) / 2 - (l + r) / 2;
+                        double skew = (va + vb) / 2 - (lay.runQc[k1] + lay.runQc[k2]) / 2 - (l + r) / 2;
                         b2.Push(p.x, 0, p.y, e.index, s, skew, Math.Abs(skew) > V, ' ', sp);
                     }
                     b2.Close();
                 }
             }
             // ---- A3 INSET: each edge line against its own drawn edge
-            foreach (var (pid, side) in new[] { ("EL", 'R'), ("ER", 'L') })
+            foreach (var (pid, side, sgn) in new[] { ("EL", 'R', 1.0), ("ER", 'L', -1.0) })
             {
                 int j = lay.plan.FindIndex(p => p.id == pid); int k = j >= 0 ? lay.planRun[j] : -1;
                 if (k < 0) continue;
-                double planInset = lay.width / 2 - Math.Abs((0.5 - lay.runs[k].u) * lay.width);
+                // the PLAN's inset (shoulder + EdgeLineInsetM), less only the texture's half-texel rounding
+                double planInset = lay.plan[j].inset - sgn * lay.runQc[k];
                 var b3 = new RunBuilder("A3", pid);
                 for (int b = 0; b < nb; b++)
                 {
@@ -1049,7 +1114,7 @@ namespace PSXRacing.EditorTools
                     for (int k = 0; k < lay.runs.Count; k++)
                     {
                         if (lay.runs[k].col != pj.col || double.IsNaN(G[k][b])) continue;
-                        near = Math.Min(near, Math.Abs(G[k][b] - (PlanOff(pj, e, s, hw) + lay.runQ[k])));
+                        near = Math.Min(near, Math.Abs(G[k][b] - (PlanOff(pj, e, s, hw) + lay.runQc[k])));
                     }
                     b5.Push(p.x, 0, p.y, e.index, s, Math.Min(near, 10), near > SmoothRules.StrayM);
                 }
@@ -1075,7 +1140,7 @@ namespace PSXRacing.EditorTools
         }
 
         // ---- the B-family on one strand
-        static void ShapeChecks(string kind, string lineId, List<Pt> pts, double rLimit)
+        static void ShapeChecks(string kind, string lineId, List<Pt> pts, double rLimit, int node = -1)
         {
             if (pts.Count < 3) return;
             // drop collinear vertices and duplicates
@@ -1102,21 +1167,26 @@ namespace PSXRacing.EditorTools
                 double t = L > 1e-9 ? Math.Max(0, Math.Min(1, (a - C[i]) / L)) : 0;
                 return (p.x + (q.x - p.x) * t, p.z + (q.z - p.z) * t, i);
             }
-            // B2 KINK
-            var b2 = new RunBuilder("B2", lineId, kind);
+            // B2 KINK; the chords reach past noise turns (KinkChord, lib/kink.mjs)
+            var TH = new double[keep.Count];
             for (int m = 1; m + 1 < keep.Count; m++)
             {
                 var a = pts[keep[m - 1]]; var b = pts[keep[m]]; var c = pts[keep[m + 1]];
+                TH[m] = Turn(a.x, a.z, b.x, b.z, c.x, c.z);
+            }
+            var b2 = new RunBuilder("B2", lineId, kind) { node = node };
+            for (int m = 1; m + 1 < keep.Count; m++)
+            {
+                var b = pts[keep[m]];
                 if (b.x3 || b.gore) { b2.Push(b.x, b.y, b.z, b.e, b.s, 0, false); continue; }
-                double th = Turn(a.x, a.z, b.x, b.z, c.x, c.z);
-                double f = Math.Min(Math.Min(C[m] - C[m - 1], C[m + 1] - C[m]), SmoothRules.ChordCapM) * Math.Abs(th) / 8;
+                double f = KinkChord(C, TH, m) * Math.Abs(TH[m]) / 8;
                 b2.Push(b.x, b.y, b.z, b.e, b.s, f, f > V, b.tag, b.span, b.side);
             }
             b2.Close();
             // B3 CURVE (ribbon edges, midline, fans)
             if (rLimit > 0)
             {
-                var b3 = new RunBuilder("B3", lineId, kind, null, true) { rLimit = rLimit };
+                var b3 = new RunBuilder("B3", lineId, kind, null, true) { rLimit = rLimit, node = node };
                 for (int m = 1; m + 1 < keep.Count; m++)
                 {
                     var b = pts[keep[m]];
@@ -1137,13 +1207,13 @@ namespace PSXRacing.EditorTools
                     if (a >= H && a <= Ltot - H) cand.Add(a);
             if (cand.Count == 0) return;
             cand.Sort();
-            var b1 = new RunBuilder("B1", lineId, kind);
+            var b1 = new RunBuilder("B1", lineId, kind) { node = node };
             var xs = new double[2 * nH + 1]; var zs = new double[2 * nH + 1];
             double last = -1; int hint = 0, wlo = 0;
             foreach (double a in cand)
             {
                 if (Math.Abs(a - last) < 1e-6) continue;
-                if (last >= 0 && a - last > step * 1.5) b1.Close();
+                if (last >= 0 && a - last > step * 1.5) b1.Gap();
                 last = a;
                 bool exempt = false;
                 for (int j = -nH; j <= nH; j++)
@@ -1170,6 +1240,19 @@ namespace PSXRacing.EditorTools
             b1.Close();
         }
         static double Dist(Pt a, Pt b) => Math.Sqrt((a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z));
+
+        /// <summary>B2's chord at kept vertex m (tools/city/lib/kink.mjs): the
+        /// arc to the nearest kept vertex on each side turning at least
+        /// KinkNoiseShare of this one's turn, capped at ChordCapM. Smaller turns
+        /// (the bisector pinch, diagonal crossings, sections a few hundredths of
+        /// a degree off straight next to a kink) never shorten the chord.</summary>
+        static double KinkChord(double[] C, double[] TH, int m)
+        {
+            int n = C.Length; double thr = Math.Abs(TH[m]) * SmoothRules.KinkNoiseShare, cap = SmoothRules.ChordCapM;
+            int j = m - 1; while (j > 0 && Math.Abs(TH[j]) < thr && C[m] - C[j] < cap) j--;
+            int k = m + 1; while (k < n - 1 && Math.Abs(TH[k]) < thr && C[k] - C[m] < cap) k++;
+            return Math.Min(Math.Min(C[m] - C[j], C[k] - C[m]), cap);
+        }
 
         /// <summary>B1's local model: the Kasa circle, or the least-squares line
         /// when the line fits the window at least as well (Kasa's algebraic fit
@@ -1392,6 +1475,9 @@ namespace PSXRacing.EditorTools
             int j = lay.runPlan[p.k]; var plan = j >= 0 ? lay.plan[j] : null;
             if (legit == null && plan != null)
             {
+                // the plan drops or adds the line here; or at a joint the plan across carries fewer lines of this colour
+                // and pattern (a lane drop: one must end), or none within a lane (MatchM). A line that continues across
+                // the node was paired in AnalyzeChain (a JUMP) and never gets here.
                 double s0 = Math.Max(sMin, pt.s - SmoothRules.FanMouthM), s1 = Math.Min(sMax, pt.s + SmoothRules.FanMouthM);
                 if (PlanExists(plan, HwD(e, s0)) != PlanExists(plan, HwD(e, s1))) legit = "plan lane drop";
                 else if (node >= 0 && JointAt(e, node) >= 0)
@@ -1400,13 +1486,20 @@ namespace PSXRacing.EditorTools
                     var op = PlanOf(RoadProfiles.All[o.profile]);
                     double lat = Sd(RefOf(e), pt.x, pt.z, pt.s);
                     bool same = (e.b == node) == (o.a == node);
-                    double so = o.a == node ? 0 : o.length, hwo = HwD(o, so);
-                    bool has = false;
-                    foreach (var qq in op) if (qq.col == p.col && qq.dashed == p.dashed && Math.Abs((same ? 1 : -1) * PlanOff(qq, o, so, hwo) - lat) <= SmoothRules.MatchM) { has = true; break; }
-                    if (!has) legit = "plan lane drop at a node";
+                    double so = o.a == node ? 0 : o.length, hwo = HwD(o, so), hwn = HwD(e, node == e.a ? 0 : e.length);
+                    int nOther = 0, nThis = 0; bool has = false;
+                    foreach (var qq in op)
+                        if (qq.col == p.col && qq.dashed == p.dashed && PlanExists(qq, hwo))
+                        {
+                            nOther++;
+                            if (Math.Abs((same ? 1 : -1) * PlanOff(qq, o, so, hwo) - lat) <= SmoothRules.MatchM) has = true;
+                        }
+                    foreach (var qq in lay.plan) if (qq.col == p.col && qq.dashed == p.dashed && PlanExists(qq, hwn)) nThis++;
+                    if (nOther < nThis) legit = "plan lane drop at a node";
+                    else if (!has) legit = "plan line ends at a node";
                 }
             }
-            double err = plan != null ? Sd(RefOf(e), pt.x, pt.z, pt.s) - (PlanOff(plan, e, pt.s, HwD(e, pt.s)) + lay.runQ[p.k]) : 0;
+            double err = plan != null ? Sd(RefOf(e), pt.x, pt.z, pt.s) - (PlanOff(plan, e, pt.s, HwD(e, pt.s)) + lay.runQc[p.k]) : 0;
             if (legit == null || Math.Abs(err) > SmoothRules.StrayM)
                 Keep(new Run { check = "C2", lineId = p.id, e = e.index, s = pt.s, x = pt.x, y = pt.y, z = pt.z, val = Math.Max(1, Math.Abs(err) / SmoothRules.StrayM),
                                e0 = e.index, s0 = pt.s, e1 = e.index, s1 = pt.s, span = pt.span,
@@ -1434,22 +1527,21 @@ namespace PSXRacing.EditorTools
             {
                 int i = (s0 + k) % n;
                 var c = f.corners[i];
-                cur.Add(new Pt { x = c.x, y = c.y, z = c.z, e = eAny, s = 0, tag = 'F' });
+                cur.Add(new Pt { x = c.x, y = c.y, z = c.z, e = eAny, s = 0, span = i, tag = 'F' });
                 bool mouthNext = (f.mouths >> i & 1UL) != 0;
                 if (mouthNext || k == n)
                 {
-                    if (cur.Count >= 3) { strands++; ShapeChecks("fan", "FAN", cur, rLim); }
+                    if (cur.Count >= 3) { strands++; ShapeChecks("fan", "FAN", cur, rLim, f.node); }
                     cur = new List<Pt>();
                 }
             }
-            foreach (var r in runs) if (r.kind == "fan" && r.node < 0) r.node = f.node;
         }
 
         // ================================================================
         //  Keys, causes, ranking, report
         // ================================================================
 
-        static readonly string[] CheckOrder = { "A1", "A2", "A3", "A4", "A5", "A5b", "B1", "B2", "B3", "B4", "B4s", "C1", "C2", "C3", "D1", "E1" };
+        static readonly string[] CheckOrder = { "A0", "A1", "A2", "A3", "A4", "A5", "A5b", "B1", "B2", "B3", "B4", "B4s", "C1", "C2", "C3", "D1", "E1" };
 
         static void FinishRuns()
         {
@@ -1458,11 +1550,25 @@ namespace PSXRacing.EditorTools
                 var e = map.edges[r.e];
                 if (r.kind == "edge" && r.side != ' ' && r.side != '\0') r.lineId = "R" + r.side;
                 r.pinned = pinnedWays.Contains(e.wayId);
-                r.key = r.kind == "fan" ? $"{e.wayId}:n{r.node}:{r.check}:FAN" : $"{e.wayId}:{Math.Round((wayOff[e.index] + r.s) / SmoothRules.KeyStepM).ToString(Inv)}:{r.check}:{r.lineId}";
+                r.key = r.kind == "fan" ? $"{e.wayId}:n{r.node}:{r.check}:FAN" : $"{e.wayId}:{KeyStep(e.index, r.s).ToString(Inv)}:{r.check}:{r.lineId}";
                 double limit = r.check == "A4" ? SmoothRules.LineWidthTol : r.check == "A5" || r.check == "A5b" ? SmoothRules.StrayM : r.check == "B3" ? r.rLimit
                     : r.check == "C1" ? SmoothRules.GapM : r.check == "C2" ? 1 : r.check == "C3" ? SmoothRules.DashTol : r.check == "D1" ? SmoothRules.CrossM
                     : r.check == "B4s" ? SmoothRules.SeamM : V;
-                r.ratio = r.check == "B3" ? limit / Math.Max(1e-6, r.val) : r.check == "C2" ? r.val : Math.Abs(r.val) / limit;
+                double RatioOf(double v) => r.check == "B3" ? limit / Math.Max(1e-6, v) : r.check == "C2" ? v : Math.Abs(v) / limit;
+                r.ratio = RatioOf(r.val);
+                // the ratchet keys (linegate.mjs): (way, round(s on way / KeyStepM), check, line) for EVERY bucket the run's
+                // bad samples touch, each with its own worst ratio; on a fan (way, n<node>c<corner>, check, FAN); a point run
+                // (B4, B4s, C2, C3) has its one, a gap (C1) every bucket it spans
+                r.kk = new List<string>(); r.kq = new List<double>();
+                void AddKey(long bid, double v)
+                {
+                    r.kk.Add(bid < 0 ? $"{e.wayId}:n{(-bid - 1) / 4096}c{(-bid - 1) % 4096}:{r.check}:FAN" : $"{bid / 1048576L}:{(bid % 1048576L).ToString(Inv)}:{r.check}:{r.lineId}");
+                    r.kq.Add(RatioOf(v));
+                }
+                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i]);
+                else if (r.check == "C1") for (long b = Bucket(r.e, Math.Min(r.s0, r.s1)); b <= Bucket(r.e, Math.Max(r.s0, r.s1)); b++) AddKey(b, r.val);
+                else AddKey(Bucket(r.e, r.s), r.val);
+                r.bk = null; r.bv = null;
                 // causes: the tap's flags and the data near the worst sample
                 var causes = new List<string>();
                 double lo = r.check == "C1" ? Math.Min(r.s0, r.s1) - 1 : r.s - 1, hi = r.check == "C1" ? Math.Max(r.s0, r.s1) + 1 : r.s + 1;
@@ -1483,7 +1589,14 @@ namespace PSXRacing.EditorTools
             runs.RemoveAll(r => (r.check == "A5" || r.check == "A5b") && r.len < SmoothRules.StrayRunM);
         }
 
-        sealed class Tally { public int runs, data, builder, roRuns; public double metres, worst, worstRatio, roMetres; public readonly HashSet<string> keys = new HashSet<string>(); }
+        sealed class Tally
+        {
+            public int runs, data, builder, roRuns; public double metres, worst, worstRatio, roMetres;
+            /// <summary>Every key with its worst ratio.</summary>
+            public readonly Dictionary<string, double> keys = new Dictionary<string, double>();
+            /// <summary>Runs per analysed tile (TileKey).</summary>
+            public readonly Dictionary<long, int> tiles = new Dictionary<long, int>();
+        }
 
         static Dictionary<string, Tally> Summarize()
         {
@@ -1493,9 +1606,18 @@ namespace PSXRacing.EditorTools
             {
                 if (!t.TryGetValue(r.check, out var s)) continue;
                 if (r.reportOnly != null) { s.roRuns++; s.roMetres += r.len; continue; }
-                s.runs++; s.metres += r.len; s.keys.Add(r.key);
+                s.runs++; s.metres += r.len;
+                for (int i = 0; i < r.kk.Count; i++) if (!s.keys.TryGetValue(r.kk[i], out double q) || r.kq[i] > q) s.keys[r.kk[i]] = r.kq[i];
+                s.tiles.TryGetValue(r.tile, out int n); s.tiles[r.tile] = n + 1;
                 if (r.ratio > s.worstRatio) { s.worstRatio = r.ratio; s.worst = r.val; }
                 if (r.data == "DATA") s.data++; else s.builder++;
+            }
+            // A0 TEXTURE: the textures this run read, against the plan
+            var a0 = t["A0"];
+            foreach (var (what, val, ratio) in textureFails)
+            {
+                a0.runs++; a0.builder++; a0.keys["tex:" + what] = ratio;
+                if (ratio > a0.worstRatio) { a0.worstRatio = ratio; a0.worst = val; }
             }
             return t;
         }
@@ -1538,17 +1660,30 @@ namespace PSXRacing.EditorTools
             {
                 var s = sum[c.id];
                 BaselineCheck b = null; baseE?.checks.TryGetValue(c.id, out b);
-                int fresh = 0;
-                if (b != null && b.keys != null) foreach (var k in s.keys) if (!b.keys.Contains(Fnv1a(k))) fresh++;
+                // per key: new, or worse than its own baseline ratio (keys are per 5 m bucket, so growth adds keys)
+                int fresh = 0, worseKeys = 0;
+                if (b != null && b.keys != null)
+                    foreach (var kv in s.keys)
+                    {
+                        if (!b.keys.TryGetValue(Fnv1a(kv.Key), out int q)) fresh++;
+                        else if (kv.Value > Unquant(q) * (1 + 1e-9)) worseKeys++;
+                    }
+                // runs: FULL against the whole baseline; FAST only against the baseline's runs in the tiles it analysed
+                int baseRuns = b?.runs ?? 0;
+                if (b != null && mode != "FULL" && b.tiles != null)
+                {
+                    baseRuns = 0;
+                    foreach (long tk in analysed) if (b.tiles.TryGetValue(TileId(tk), out int n)) baseRuns += n;
+                }
                 bool ok = c.state == SmoothRules.State.Report ? true
                         : c.state == SmoothRules.State.Zero ? s.runs == 0
-                        : b != null && fresh == 0 && s.runs <= b.runs && s.worstRatio <= b.worstRatio + 1e-3;
+                        : b != null && b.keys != null && fresh == 0 && worseKeys == 0 && s.runs <= baseRuns && s.worstRatio <= b.worstRatio + 1e-3;
                 if (!ok) allOk = false;
-                string bl = b != null ? $"{b.runs} runs, worst x{b.worstRatio:0.0}, {fresh} new keys" : "-";
+                string bl = b != null ? $"{baseRuns} runs{(mode != "FULL" ? " in these tiles" : "")}, worst x{b.worstRatio:0.0}, {fresh} new / {worseKeys} worse keys of {s.keys.Count}" : "-";
                 sb.AppendLine($"  {(c.id + " " + c.name).PadRight(14)} {c.state.ToString().ToUpperInvariant().PadRight(8)} {s.runs,6} {s.metres,10:0}   {Unit(c.id, s.worst).PadRight(12)} {s.worstRatio,6:0.0}   {(s.data + "/" + s.builder).PadRight(14)} {bl}");
-                if (s.roRuns > 0) sb.AppendLine($"  {"",-14} {"REPORT",-8} {s.roRuns,6} {s.roMetres,10:0}   {(c.id == "D1" ? "inside BranchSeats attach arcs (report-only until WP-18b)" : "truncated dash stubs at mouths and gores (report-only until WP-17)")}");
+                if (s.roRuns > 0) sb.AppendLine($"  {"",-14} {"REPORT",-8} {s.roRuns,6} {s.roMetres,10:0}   {(c.id == "D1" ? "inside a branch/host merge zone (trims branch table, BranchSeats; report-only until WP-18b)" : "truncated dash stubs at mouths and gores (report-only until WP-17)")}");
                 string what = $"smoothness {c.id} {c.name}: {c.what}";
-                string detail = $"{s.runs} runs, worst {Unit(c.id, s.worst)} (x{s.worstRatio:0.0}){(b != null ? $" (baseline {b.runs}, {c.state.ToString().ToUpperInvariant()}: {fresh} new keys)" : c.state == SmoothRules.State.Zero ? " (ZERO)" : " (no baseline)")}";
+                string detail = $"{s.runs} runs, worst {Unit(c.id, s.worst)} (x{s.worstRatio:0.0}){(b != null ? $" (baseline {baseRuns}, {c.state.ToString().ToUpperInvariant()}: {fresh} new keys, {worseKeys} worse)" : c.state == SmoothRules.State.Zero ? " (ZERO)" : " (no baseline)")}";
                 if (SmoothRules.ReportOnly || c.state == SmoothRules.State.Report) line?.Invoke($"  info {what} - {detail}");
                 else check?.Invoke(ok, what, detail);
             }
@@ -1624,7 +1759,7 @@ namespace PSXRacing.EditorTools
         //  (packed as tools/city/linecheck.mjs packs them)
         // ================================================================
 
-        sealed class BaselineCheck { public int runs; public double worstRatio; public HashSet<uint> keys; }
+        sealed class BaselineCheck { public int runs; public double worstRatio; public Dictionary<uint, int> keys; public Dictionary<uint, int> tiles; }
         sealed class BaselineEntry { public readonly Dictionary<string, BaselineCheck> checks = new Dictionary<string, BaselineCheck>(); }
 
         static uint Fnv1a(string s)
@@ -1634,37 +1769,68 @@ namespace PSXRacing.EditorTools
             return h;
         }
 
-        static string PackKeys(HashSet<string> keys, out int n)
+        /// <summary>A ratio stored as the power of RatioQuantum at or above it
+        /// (tools/city/lib/gatebase.mjs quantRatio): the same data always passes
+        /// its own baseline.</summary>
+        static int QuantRatio(double r)
         {
-            var hs = new SortedSet<uint>();
-            foreach (var k in keys) hs.Add(Fnv1a(k));
-            n = hs.Count;
-            var raw = new MemoryStream();
-            uint prev = 0;
-            foreach (var h in hs)
-            {
-                uint d = h - prev; prev = h;
-                do { byte b = (byte)(d & 0x7f); d >>= 7; if (d != 0) b |= 0x80; raw.WriteByte(b); } while (d != 0);
-            }
+            double Q = SmoothRules.RatioQuantum;
+            if (!(r > 1)) return 0;
+            int q = (int)Math.Ceiling(Math.Log(r) / Math.Log(Q));
+            while (Math.Pow(Q, q) < r) q++;
+            return q;
+        }
+        static double Unquant(int q) => Math.Pow(SmoothRules.RatioQuantum, q);
+        /// <summary>The shared tile id: (tx + 32768) &lt;&lt; 16 | (tz + 32768).</summary>
+        static uint TileId(long tileKey)
+        {
+            int tx = (int)(tileKey >> 32), tz = (int)(uint)(tileKey & 0xffffffffL);
+            return (uint)(((tx + 32768) << 16) | ((tz + 32768) & 0xffff));
+        }
+
+        static void Leb(MemoryStream raw, uint v) { do { byte b = (byte)(v & 0x7f); v >>= 7; if (v != 0) b |= 0x80; raw.WriteByte(b); } while (v != 0); }
+        static string Gz64(MemoryStream raw)
+        {
             var outp = new MemoryStream();
             using (var gz = new GZipStream(outp, System.IO.Compression.CompressionLevel.Optimal, true)) { var a = raw.ToArray(); gz.Write(a, 0, a.Length); }
             return Convert.ToBase64String(outp.ToArray());
         }
-
-        static HashSet<uint> UnpackKeys(string b64)
+        /// <summary>Schema 2 (gatebase.mjs packKeys): (FNV-1a hash delta,
+        /// quantised worst ratio) LEB128 pairs sorted by hash, gzipped, base64.</summary>
+        static string PackKeys(Dictionary<string, double> keys, out int n)
         {
-            var set = new HashSet<uint>();
+            var byHash = new SortedDictionary<uint, int>();
+            foreach (var kv in keys) { uint h = Fnv1a(kv.Key); int q = QuantRatio(kv.Value); if (!byHash.TryGetValue(h, out int o) || q > o) byHash[h] = q; }
+            n = byHash.Count;
+            var raw = new MemoryStream(); uint prev = 0;
+            foreach (var kv in byHash) { Leb(raw, kv.Key - prev); prev = kv.Key; Leb(raw, (uint)kv.Value); }
+            return Gz64(raw);
+        }
+        static string PackTiles(Dictionary<long, int> tiles)
+        {
+            var byId = new SortedDictionary<uint, int>();
+            foreach (var kv in tiles) { uint id = TileId(kv.Key); byId.TryGetValue(id, out int o); byId[id] = o + kv.Value; }
+            var raw = new MemoryStream(); uint prev = 0;
+            foreach (var kv in byId) { Leb(raw, kv.Key - prev); prev = kv.Key; Leb(raw, (uint)kv.Value); }
+            return Gz64(raw);
+        }
+        /// <summary>(key, value) LEB128 pairs, the key delta-coded: keys and tiles alike.</summary>
+        static Dictionary<uint, int> UnpackPairs(string b64)
+        {
+            var map = new Dictionary<uint, int>();
             using (var gz = new GZipStream(new MemoryStream(Convert.FromBase64String(b64)), CompressionMode.Decompress))
             {
-                uint prev = 0, v = 0; int shift = 0, c;
+                uint prev = 0, v = 0, key = 0; int shift = 0, c; bool second = false;
                 while ((c = gz.ReadByte()) >= 0)
                 {
                     v |= (uint)(c & 0x7f) << shift;
                     if ((c & 0x80) != 0) { shift += 7; continue; }
-                    prev += v; set.Add(prev); v = 0; shift = 0;
+                    if (!second) { prev += v; key = prev; second = true; }
+                    else { map[key] = (int)v; second = false; }
+                    v = 0; shift = 0;
                 }
             }
-            return set;
+            return map;
         }
 
         static Dictionary<string, BaselineEntry> ReadBaseline(out string path)
@@ -1682,16 +1848,19 @@ namespace PSXRacing.EditorTools
                 foreach (var kv in entries)
                 {
                     var be = new BaselineEntry();
-                    if (kv.Value is Dictionary<string, object> ent && ent.TryGetValue("checks", out var co) && co is Dictionary<string, object> checks)
+                    // schema 1 entries (hashes without ratios) are skipped: re-record
+                    if (kv.Value is Dictionary<string, object> ent && ent.TryGetValue("schema", out var sv) && Convert.ToInt32(sv, Inv) == 2
+                        && ent.TryGetValue("checks", out var co) && co is Dictionary<string, object> checks)
                         foreach (var ck in checks)
                             if (ck.Value is Dictionary<string, object> c)
                                 be.checks[ck.Key] = new BaselineCheck
                                 {
                                     runs = c.TryGetValue("runs", out var r) ? Convert.ToInt32(r, Inv) : 0,
                                     worstRatio = c.TryGetValue("worstRatio", out var w) ? Convert.ToDouble(w, Inv) : 0,
-                                    keys = c.TryGetValue("keys_b64", out var kb) && kb is string ks ? UnpackKeys(ks) : null,
+                                    keys = c.TryGetValue("keys_b64", out var kb) && kb is string ks ? UnpackPairs(ks) : null,
+                                    tiles = c.TryGetValue("tiles_b64", out var tb) && tb is string ts ? UnpackPairs(ts) : null,
                                 };
-                    outp[kv.Key] = be;
+                    if (be.checks.Count > 0) outp[kv.Key] = be;
                 }
                 return outp;
             }
@@ -1703,14 +1872,15 @@ namespace PSXRacing.EditorTools
         /// numbers in the commit).</summary>
         static void WriteBaseline(Dictionary<string, Tally> sum, uint graph, string path)
         {
-            var sb = new StringBuilder("{\n \"schema\": 1, \"tool\": \"Editor/CitySmooth.cs\", \"note\": \"per graph hash (':mesh'): per-check runs, metres and worst, and the violation keys (way, round(s on way / 5 m), check, line) as packed FNV-1a hashes\",\n \"entries\": {\n");
-            sb.Append("  \"").Append(graph.ToString("x8")).Append(":mesh\": { \"date\": \"").Append(DateTime.UtcNow.ToString("yyyy-MM-dd", Inv)).Append("\", \"mode\": \"").Append(mode).Append("\", \"checks\": {\n");
+            var sb = new StringBuilder("{\n \"schema\": 2, \"tool\": \"Editor/CitySmooth.cs\", \"note\": \"per graph hash (':mesh'): per-check runs, metres and worst; every violation key (way, round(s on way / 5 m), check, line) with its worst ratio, as FNV-1a hash deltas + ratio quanta (RatioQuantum) in LEB128, gzipped; runs per tile (the format of tools/city/lib/gatebase.mjs)\",\n \"entries\": {\n");
+            sb.Append("  \"").Append(graph.ToString("x8")).Append(":mesh\": { \"schema\": 2, \"date\": \"").Append(DateTime.UtcNow.ToString("yyyy-MM-dd", Inv)).Append("\", \"mode\": \"").Append(mode).Append("\", \"checks\": {\n");
             int i = 0;
             foreach (var kv in sum)
             {
                 string b64 = PackKeys(kv.Value.keys, out int n);
                 sb.Append("   \"").Append(kv.Key).Append("\": { \"runs\": ").Append(kv.Value.runs).Append(", \"metres\": ").Append(F(kv.Value.metres)).Append(", \"worst\": ").Append(F(kv.Value.worst))
-                  .Append(", \"worstRatio\": ").Append(F(kv.Value.worstRatio)).Append(", \"keys\": ").Append(n).Append(", \"keys_b64\": \"").Append(b64).Append("\" }").Append(++i < sum.Count ? ",\n" : "\n");
+                  .Append(", \"worstRatio\": ").Append(F(kv.Value.worstRatio)).Append(", \"keys\": ").Append(n).Append(", \"keys_b64\": \"").Append(b64)
+                  .Append("\", \"tiles_b64\": \"").Append(PackTiles(kv.Value.tiles)).Append("\" }").Append(++i < sum.Count ? ",\n" : "\n");
             }
             sb.Append("  } }\n }\n}\n");
             File.WriteAllText(path, sb.ToString());
@@ -1762,26 +1932,53 @@ namespace PSXRacing.EditorTools
         //  Modes
         // ================================================================
 
+        /// <summary>FAST runs inside CityAudit.Run only when SmoothRules.FastInAudit
+        /// is set or PSX_SMOOTH_FAST=1 (tools/city-smooth.ps1 FAST sets it): until
+        /// its first run in Unity validates the tap and its cost, a city cycle
+        /// never runs code nobody has run.</summary>
+        static bool FastWanted => SmoothRules.FastInAudit || Environment.GetEnvironmentVariable("PSX_SMOOTH_FAST") == "1";
+        static bool armed;
+
         /// <summary>FAST, step 1 (CityAudit.Run, before its drive and roadside
         /// audits): every tile they build is collected from here on.</summary>
         public static void BeginFast()
         {
+            armed = false;
+            if (!FastWanted) return;
             Reset();
             mode = "FAST";
+            armed = true;
             collecting = true;
             CityMeshes.RecordTap = true;
+        }
+
+        /// <summary>FAST, step 1b (CityAudit.Run's finally around the drive and
+        /// roadside audits): stop tapping. The tap never outlives the two
+        /// audits, even when one of them throws; a later Build (CityPreview,
+        /// play mode) then allocates no RoadTap.</summary>
+        public static void EndCollect()
+        {
+            collecting = false;
+            CityMeshes.RecordTap = false;
         }
 
         /// <summary>FAST, step 2: analyse every collected tile whose ring is
         /// complete (the drive and roadside audits' tiles), the reference
         /// spots' rings and one band of the road tiles; report through the
-        /// audit's own Line / Check.</summary>
+        /// audit's own Line / Check. While SmoothRules.ReportOnly, even a crash
+        /// of the gate is an info line, never a failed cycle.</summary>
         public static void EndFast(CityMap m, CityMeshes.Trims t, Dictionary<long, List<CityBuildings.B>> buildings,
                                    Action<string> line, Action<bool, string, object> check)
         {
-            if (!collecting) return;
+            if (!armed)
+            {
+                line?.Invoke("  info smoothness gate (FAST): not run in the city audit until its first Unity run validates it (PSX_SMOOTH_FAST=1, or tools/city-smooth.ps1 FAST; SmoothRules.FastInAudit)");
+                return;
+            }
+            armed = false;
             try
             {
+                collecting = true; CityMeshes.RecordTap = true;   // the passes below build and read tiles of their own
                 Setup(m, t);
                 var done = new List<long>(frags.Keys);
                 foreach (var k in done)
@@ -1802,7 +1999,8 @@ namespace PSXRacing.EditorTools
             }
             catch (Exception ex)
             {
-                check?.Invoke(false, "smoothness gate ran", ex.GetType().Name + ": " + ex.Message);
+                if (ReportOnly) line?.Invoke($"  info smoothness gate (FAST) crashed - {ex.GetType().Name}: {ex.Message} (report-only cycle: not a failure)");
+                else check?.Invoke(false, "smoothness gate ran", ex.GetType().Name + ": " + ex.Message);
                 Debug.LogException(ex);
             }
             finally { collecting = false; CityMeshes.RecordTap = false; frags.Clear(); refCache.Clear(); }

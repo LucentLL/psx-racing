@@ -12,6 +12,10 @@
 #   FAST   the city audit (CityAudit.Run) with its FAST hook: the drive and
 #          roadside audits' tiles, the reference spots and one band of 1/12 of
 #          the road tiles (-Band k, else the day of the year mod 12). ~4.5 min.
+#          The hook is OPT-IN (PSX_SMOOTH_FAST=1, set here) until its first Unity
+#          run validates it (R4); then SmoothRules.FastInAudit = true puts it in
+#          every city cycle. Its run counts are compared only with the baseline's
+#          runs in the tiles it analysed.
 #   FULL   every road tile (CitySmooth.RunFull), then SHOTS of the worst. The
 #          G-ship run for every city release. ~5-7 min + shots.
 #   SHOTS  plan / chase (240-line frame, 3x) / high close-ups of the worst
@@ -61,6 +65,7 @@ $env:PSX_SMOOTH_BAND = if ($Band -ge 0) { "$Band" } else { $null }
 $env:PSX_SMOOTH_SPOTS = if ($Spots) { $Spots } else { $null }
 $env:PSX_SMOOTH_SHOTS = "$Shots"
 $env:PSX_SMOOTH_WRITE_BASELINE = if ($WriteBaseline) { "1" } else { $null }
+$env:PSX_SMOOTH_FAST = if ($Mode -eq "FAST") { "1" } else { $null }
 
 function Invoke-Method([string]$Method, [string]$Expect, [int]$Minutes) {
     $outFile = if ($Expect) { Join-Path $proj $Expect } else { $null }
@@ -115,7 +120,7 @@ if ($Mode -eq "SHOTS" -or ($Mode -eq "FULL" -and -not $NoShots)) {
     } else { $failed = $true }
 }
 
-foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_FAST")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
 if ($failed) { Write-Host "CITY SMOOTH $Mode DONE - FAILED -> $Out" -ForegroundColor Red; exit 1 }
 Write-Host "CITY SMOOTH $Mode DONE -> $Out"
 exit 0

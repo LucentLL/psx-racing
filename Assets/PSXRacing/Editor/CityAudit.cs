@@ -351,9 +351,13 @@ namespace PSXRacing.EditorTools
                   $"{CityElevation.SeatedStationCount} stations seated");
 
             fanMouths = new FanMouthTally();
-            CitySmooth.BeginFast();   // the smoothness gate reads every tile the next two audits build (WP-G)
-            DriveAudit(map, trims, buildings);
-            RoadsideAudit(map, trims, buildings);
+            CitySmooth.BeginFast();   // the smoothness gate reads every tile the next two audits build (WP-G; opt-in until R4: PSX_SMOOTH_FAST=1)
+            try
+            {
+                DriveAudit(map, trims, buildings);
+                RoadsideAudit(map, trims, buildings);
+            }
+            finally { CitySmooth.EndCollect(); }   // the tap never outlives the two audits, even when one throws
             ReportFanMouths();
             CitySmooth.EndFast(map, trims, buildings, Line, Check);
             fanMouths = null;
