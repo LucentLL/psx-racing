@@ -517,6 +517,28 @@ its own page until it is merged into the game (owner decision, 2026-09-28):
 - **The page says it is a test.** The tab title is "PSX Racing - CHARLOTTE
   TEST", and a tag at the top of the loading screen shows the branch, commit
   and build time. `curl .../city/psx-subpage.txt` gives the same details.
+  The tag is the first item of the splash column, in the flow, directly
+  above the title. It first floated at the top of the screen. That cleared
+  the title while the page was loading, but once START appeared the column
+  grew by about 100 px and the title slid up under the tag: on a phone held
+  landscape (640x360, 780x340) the tag covered half of "PSX Racing" on the
+  screen where the owner taps START. In the flow it cannot overlap anything.
+  On screens 420 px tall or less, the gap under the subtitle and the gap
+  above START close up by exactly what the tag adds (34 px), so the test
+  page's START screen is the same height as the game's and fits wherever
+  the game's does.
+- **Checked in a browser (2026-09-28)**, with the staged pages served
+  locally. The loader was swapped for a stub, so the template's own code put
+  each page into LOADING or READY. Every splash item was measured at 18
+  sizes, from 1280x720 down to 568x268 landscape plus four portrait phones.
+  The new page had no overlaps, nothing outside the screen and no text
+  spilling out of its box in all 36 cases. On every landscape screen of 420
+  px or less, its READY column was the same height as the root page's. A
+  32-character `-PagesLabel` wrapped inside the tag and stayed clean. The
+  previous page, run as a control, reproduced the overlap in 12 cases
+  (640x360: tag 14-62 px, title from 46.5 px). The real page then loaded
+  the live build to READY at 780x340 and at 640x360 (phone emulation) and
+  measured the same as the stub.
 - `-DryRun` does all of it against the live gh-pages and then stops before
   the push. It prints what is kept, replaced and removed, the changes per
   folder, and the upload size.

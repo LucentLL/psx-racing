@@ -483,6 +483,19 @@ if (-not $SkipDeploy) {
     # and checked; a template that lost either anchor stops the publish
     # rather than shipping an unlabelled test build.
     #
+    # THE TAG IS THE FIRST ITEM OF THE SPLASH COLUMN, IN THE FLOW. It used to
+    # float (position:absolute, 14 px from the top) over the flex-centred
+    # column, which cleared the title while the page was LOADING -- and then
+    # START and its hint appeared, the column grew by ~100 px, the title moved
+    # up under the tag, and on a phone held landscape (640x360, 780x340) the
+    # tag covered half of "PSX Racing" on the one screen the owner taps START
+    # on. A flex item in the column cannot overlap its neighbours, whatever the
+    # screen. What it costs in height it gives back on short screens (<= 420
+    # px): the column's two widest gaps (under the subtitle, above START) close
+    # up by as much as the tag adds, so the test page's splash fits wherever
+    # the game's own does. Checked LOADING and READY from 1280x720 down to
+    # 568x268 and in portrait (Docs/CHARLOTTE.md "The test page").
+    #
     # AND IT KEEPS ITS OWN SAVE (see the header): a script ahead of the
     # loader renames the one database Unity's IDBFS opens, "/idbfs", to
     # "/idbfs-<folder>" for this page only. It patches IDBFactory.open, which
@@ -522,21 +535,52 @@ if (-not $SkipDeploy) {
   </script>
 
 "@
+        # The tag's look, and the short-screen give-back (see above). The two
+        # gaps it closes are the template's #splash h2 margin-bottom (34 px)
+        # and #play margin-top (26 px). On a short screen the tag costs one
+        # 16 px line + 3+3 padding + 2+2 border = 26 px of box, plus 8 px under
+        # it = 34, and those gaps give back 18 + 16 = 34 (line-height is set,
+        # not "normal", so the sum holds whatever the platform's font). A
+        # landscape screen is wide enough for label and note on one row.
+        # overflow-wrap:anywhere so a long -PagesLabel or source note wraps
+        # inside the tag on a narrow screen instead of running out of it.
+        $css = @"
+  <style id="pages-tag-css">
+  /* $PagesLabel PAGE: the tag that says so. Put here by tools\build-and-publish.ps1 -PagesDir $PagesDir.
+     The first item of the splash column, in the flow, so it can never sit on the title. */
+  #pages-tag {
+    flex: none; max-width: 100%; box-sizing: border-box; margin: 0 0 14px;
+    padding: 3px 10px; border: 2px solid #ffd766; background: #000000aa; color: #ffd766;
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+    column-gap: 12px; row-gap: 0; line-height: 16px; text-align: center; pointer-events: none;
+  }
+  #pages-tag > b { font-size: 12px; font-weight: 800; letter-spacing: .22em; overflow-wrap: anywhere; }
+  #pages-tag > span { font-size: 10px; font-weight: 600; letter-spacing: .08em; opacity: .8; overflow-wrap: anywhere; }
+  /* Short screens (a phone held landscape): the tag pays for itself. */
+  @media (max-height: 420px) {
+    #pages-tag { margin-bottom: 8px; }
+    #splash h2 { margin-bottom: 16px; }
+    #play { margin-top: 10px; }
+  }
+  </style>
+
+"@
         $html = $html.Substring(0, $t.Index) + "<title>" + $t.Groups[1].Value + " - " + $PagesLabel + "</title>" + $html.Substring($t.Index + $t.Length)
-        $html = $html.Insert($html.IndexOf($head), ($shim -replace "`r`n", "`n"))
+        $html = $html.Insert($html.IndexOf($head), (($css + $shim) -replace "`r`n", "`n"))
         $built = [DateTime]::ParseExact($stamp, "yyyyMMddHHmmss", [Globalization.CultureInfo]::InvariantCulture).ToString("yyyy-MM-dd HH:mm")
         $sub = [Net.WebUtility]::HtmlEncode("$srcNote - built $built UTC")
-        $tag = '<div id="pages-tag" style="position:absolute;top:calc(14px + env(safe-area-inset-top, 0px));left:50%;' +
-               'transform:translateX(-50%);width:max-content;max-width:92vw;box-sizing:border-box;padding:5px 12px;border:2px solid #ffd766;' +
-               'background:#000000aa;color:#ffd766;text-align:center;pointer-events:none;">' +
-               '<div style="font-size:13px;font-weight:800;letter-spacing:.22em;white-space:nowrap;">' + $PagesLabel + '</div>' +
-               '<div style="font-size:10px;font-weight:600;letter-spacing:.08em;opacity:.8;margin-top:3px;">' + $sub + '</div></div>'
+        $tag = '<div id="pages-tag"><b>' + $PagesLabel + '</b><span>' + $sub + '</span></div>'
         $i = $html.IndexOf($anchor) + $anchor.Length
         $html = $html.Insert($i, "`n    " + $tag)
         [IO.File]::WriteAllText($idx, $html, $utf8NoBom)
         $check = [IO.File]::ReadAllText($idx, $utf8NoBom)
-        if (-not $check.Contains(" - $PagesLabel</title>") -or -not $check.Contains('id="pages-tag"')) {
-            Write-Host "LABEL CHECK FAILED - the test page would not say it is a test page." -ForegroundColor Red
+        # The tag must be the splash column's FIRST child (in the flow above
+        # the title), and its stylesheet must be there to lay it out.
+        $a = $check.IndexOf($anchor)
+        $firstChild = if ($a -ge 0) { [regex]::Match($check.Substring($a + $anchor.Length), '^\s*<([a-z0-9]+)([^>]*)>') } else { $null }
+        if (-not $check.Contains(" - $PagesLabel</title>") -or -not $check.Contains('<style id="pages-tag-css">') -or
+            -not $firstChild -or -not $firstChild.Success -or $firstChild.Groups[2].Value -notmatch '^\s*id="pages-tag"\s*$') {
+            Write-Host "LABEL CHECK FAILED - the test page would not say it is a test page (title, tag as the splash column's first item, or its stylesheet missing)." -ForegroundColor Red
             exit 1
         }
         # The rename must run before the loader script, or Unity has already
