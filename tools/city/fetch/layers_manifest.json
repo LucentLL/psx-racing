@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "note": "OpenStreetMap layers fetched by tools/city/fetch/fetch_layers.mjs, pinned to the road snapshot (ways_all.json). The bodies are in tools/city/cache/layers/ (gitignored). (c) OpenStreetMap contributors, ODbL 1.0.",
+  "date": "2026-09-12T02:44:33Z",
+  "bbox": "35.03,-81.03,35.42,-80.62",
+  "layers": {
+    "crossings": {
+      "for": "pedestrian crossings (WP-27 stop bars and crosswalks)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];node[\"highway\"=\"crossing\"](35.03,-81.03,35.42,-80.62);out;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T19:58:33Z",
+      "elements": {
+        "node": 34001
+      },
+      "bytes": 4575495,
+      "sha256": "2f06efbe878c47e3cbb457fb079c09195acccaeed1c8402f1538236d0b81f7b1",
+      "fetched": "2026-09-28"
+    },
+    "restrictions": {
+      "for": "turn restrictions (WP-26 lane graph)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];relation[\"type\"=\"restriction\"](35.03,-81.03,35.42,-80.62);out;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T19:59:36Z",
+      "elements": {
+        "relation": 2395
+      },
+      "bytes": 573313,
+      "sha256": "10c2a1c529d80188c0c29f4b419af983033d565910370183cdfe4928e40ffe45",
+      "fetched": "2026-09-28"
+    },
+    "calming": {
+      "for": "speed humps and tables (critic C39)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(node[\"traffic_calming\"](35.03,-81.03,35.42,-80.62);way[\"traffic_calming\"](35.03,-81.03,35.42,-80.62););out geom;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T20:00:36Z",
+      "elements": {
+        "node": 1389,
+        "way": 181
+      },
+      "bytes": 285473,
+      "sha256": "d50ba3f07a79c8d4415fd939f892d8cfa089e800b6eaa6364f1acefd095969de",
+      "fetched": "2026-09-28"
+    },
+    "railways": {
+      "for": "rail lines, bridges and level crossings (WP-25b)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(way[\"railway\"](35.03,-81.03,35.42,-80.62);node[\"railway\"~\"^(level_crossing|crossing)$\"](35.03,-81.03,35.42,-80.62););out geom;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T20:02:41Z",
+      "elements": {
+        "node": 768,
+        "way": 1299
+      },
+      "bytes": 1226569,
+      "sha256": "70cc438677ff9e00796ef9c6031f53e78d620da399154059ab1569409ddec504",
+      "fetched": "2026-09-28"
+    },
+    "power": {
+      "for": "utility poles and lines (WP-15)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(node[\"power\"~\"^(pole|tower)$\"](35.03,-81.03,35.42,-80.62);way[\"power\"~\"^(line|minor_line)$\"](35.03,-81.03,35.42,-80.62););out geom;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T20:03:42Z",
+      "elements": {
+        "node": 23845,
+        "way": 2331
+      },
+      "bytes": 4290596,
+      "sha256": "d8ab58df55b5025e0dbdfe6ee457e577d48d1e5e876a99f6b8725d7ebd532554",
+      "fetched": "2026-09-28"
+    },
+    "advertising": {
+      "for": "billboards (WP-23)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(node[\"advertising\"](35.03,-81.03,35.42,-80.62);way[\"advertising\"](35.03,-81.03,35.42,-80.62););out geom;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T20:08:51Z",
+      "elements": {
+        "node": 45,
+        "way": 12
+      },
+      "bytes": 9947,
+      "sha256": "adf2c61872ff4be53b655daa668344332a8fe2eb2c3fe72fcc6becaea9ddd8c5",
+      "fetched": "2026-09-28"
+    },
+    "barriers": {
+      "for": "fences, walls, guard rails, gates (WP-24)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(node[\"barrier\"](<tile>);way[\"barrier\"](<tile>););out geom;",
+      "tiles": 16,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T20:09:51Z",
+      "elements": {
+        "node": 7483,
+        "way": 4927
+      },
+      "bytes": 3467451,
+      "sha256": "0ff8d6f0503e11bbccf7c42a91549a74fc8e99f277597a36c359884b6f3cb580",
+      "fetched": "2026-09-28"
+    },
+    "culverts": {
+      "for": "culverts (WP-25)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];way[\"tunnel\"=\"culvert\"](35.03,-81.03,35.42,-80.62);out geom;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-28T20:18:06Z",
+      "elements": {
+        "way": 3840
+      },
+      "bytes": 1694090,
+      "sha256": "966a76faab89b12eea99e1556dc3fee12bb71adb66a289fff2370150bd914628",
+      "fetched": "2026-09-28"
+    },
+    "trees": {
+      "for": "street trees and tree rows (WP-22)",
+      "pinned": "2026-09-12T02:44:33Z",
+      "not_fetched": "2026-09-28: HTTP 504",
+      "retry": "node tools/city/fetch/fetch_layers.mjs --only trees"
+    }
+  }
+}
