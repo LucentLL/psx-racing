@@ -11,6 +11,7 @@
 # compares where the needle stopped with the build's figure.
 #
 # Code and the catalog only, on an already-built sandbox. Exit 0 = they do.
+param([switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -25,7 +26,9 @@ Copy-Item "$src\Assets\PSXRacing\Resources\rg2_cars.json" "$proj\Assets\PSXRacin
 Remove-Item "$proj\PSXRacing_topspeed_play_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: it enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\topspeedplay.log" -MaxMinutes 30 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\topspeedplay.log" -MaxMinutes 30 -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TopSpeedPlayCheck.Run",
     "-logFile","$proj\topspeedplay.log","-accept-apiupdate") | Out-Null

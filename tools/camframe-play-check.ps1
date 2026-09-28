@@ -20,7 +20,7 @@
 #
 # Code only, on an already-built sandbox (Scripts and Editor copied over).
 # WITH a graphics device. Exit code 0 = no FAIL in the report.
-param([string]$Venue = "DragQuarter", [string]$Shell = "")
+param([string]$Venue = "DragQuarter", [string]$Shell = "", [switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -34,7 +34,9 @@ Remove-Item "$proj\PSXRacing_camframe_play_check.txt" -ErrorAction SilentlyConti
 $env:PSX_CAMPLAY_VENUE = $Venue
 $env:PSX_CAMPLAY_SHELL = $Shell
 # NO -quit: the check enters play mode and exits itself.
-Invoke-UnityJob -Log "$proj\camframeplay.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\camframeplay.log" -MaxMinutes 20 -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CamFramePlayCheck.Run",
     "-logFile","$proj\camframeplay.log","-accept-apiupdate") | Out-Null

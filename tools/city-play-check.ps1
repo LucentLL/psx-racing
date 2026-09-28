@@ -9,6 +9,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-play-check.ps1
 #
 # Exit code 0 = the report has no FAIL; 1 = it does, or the run threw.
+param([switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src   = Split-Path -Parent $PSScriptRoot
@@ -29,7 +30,9 @@ robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E
 Remove-Item "$proj\PSXRacing_city_play_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: this one enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\cityplaycheck.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\cityplaycheck.log" -MaxMinutes 20 -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CityPlayCheck.Run",
     "-logFile","$proj\cityplaycheck.log","-accept-apiupdate") | Out-Null

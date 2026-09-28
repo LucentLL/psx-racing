@@ -79,7 +79,9 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Check Wall Scrape (play mode)")]
         public static void Run()
         {
-            if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            // Unattended = batch, or a watched run (PlayCheckWatch): nobody is
+            // there to answer a save-scene question.
+            if (!PlayCheckWatch.Unattended && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             log = new StringBuilder();
             failures = 0;
             venues = new List<int>();
@@ -243,12 +245,13 @@ namespace PSXRacing.EditorTools
             EditorSettings.enterPlayModeOptions = savedOptions;
         }
 
-        /// <summary>Batch: exit with the verdict. From the menu: leave play
+        /// <summary>Batch (or a watched run, which the tool launched and waits
+        /// on the same way): exit with the verdict. From the menu: leave play
         /// mode and keep the editor — the other play checks close it, which
         /// is a rude way to hand back a report.</summary>
         internal static void Quit()
         {
-            if (Application.isBatchMode) EditorApplication.Exit(failures == 0 ? 0 : 1);
+            if (PlayCheckWatch.Unattended) EditorApplication.Exit(failures == 0 ? 0 : 1);
             else if (EditorApplication.isPlaying) EditorApplication.ExitPlaymode();
         }
     }

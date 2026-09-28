@@ -12,6 +12,7 @@
 #
 # Code and shaders only, on an already-built sandbox. Needs a graphics device
 # (the map is read back): no -nographics. Exit 0 = the shadows are honest.
+param([switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -26,7 +27,9 @@ Copy-Item "$src\ProjectSettings\GraphicsSettings.asset" "$proj\ProjectSettings\G
 Remove-Item "$proj\PSXRacing_sunshadow_play_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: it enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\sunshadowplay.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\sunshadowplay.log" -MaxMinutes 20 -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.SunShadowPlayCheck.Run",
     "-logFile","$proj\sunshadowplay.log","-accept-apiupdate") | Out-Null

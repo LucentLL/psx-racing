@@ -3,7 +3,7 @@
 # no scene build: the scenes must already be built there).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\race-play-check.ps1 -Venue GillespieGap -Seconds 150 -Seed 0
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "")
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -18,7 +18,9 @@ $env:PSX_RACE_SECONDS = "$Seconds"
 $env:PSX_RACE_SEED = "$Seed"
 $env:PSX_RACE_HOUR = $Hour
 $env:PSX_RACE_MISTAKE = $Mistake
-Invoke-UnityJob -Log "$proj\raceplay.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\raceplay.log" -MaxMinutes 20 -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.RacePlayCheck.Run",
     "-logFile","$proj\raceplay.log","-accept-apiupdate") | Out-Null

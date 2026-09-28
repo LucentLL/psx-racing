@@ -23,7 +23,7 @@
 #
 # Exit 0 = every stretch slid and every control stopped; 1 = a FAIL, or the
 # run threw.
-param([string]$Venues = "", [switch]$NoFilter)
+param([string]$Venues = "", [switch]$NoFilter, [switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -45,7 +45,9 @@ Remove-Item "$proj\PSXRacing_wall_scrape_play.txt" -ErrorAction SilentlyContinue
 $env:PSX_SCRAPE_VENUES = $Venues
 $env:PSX_SCRAPE_FILTER = if ($NoFilter) { "0" } else { "" }
 # NO -quit: this one enters play mode and exits itself when it is done.
-$finished = @(Invoke-UnityJob -Log "$proj\wallscrapeplay.log" -MaxMinutes 60 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden. See tools\unity-wait.ps1.
+$finished = @(Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\wallscrapeplay.log" -MaxMinutes 60 -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.WallScrapePlayCheck.Run",
     "-logFile","$proj\wallscrapeplay.log","-accept-apiupdate"))[-1]
