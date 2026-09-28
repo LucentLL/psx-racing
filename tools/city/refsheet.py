@@ -10,7 +10,7 @@ whether it snapped to the named road).
 import argparse, os, sys
 from PIL import Image, ImageDraw, ImageFont
 
-GROUPS = [('sv', 'Street View spots (survey A1-A15)'), ('kink', 'Kinks: verdict spots + census worst 20'),
+GROUPS = [('smooth', 'Smoothness gate: worst offenders (plan / chase / high)'), ('sv', 'Street View spots (survey A1-A15)'), ('kink', 'Kinks: verdict spots + census worst 20'),
           ('crest', 'Transect crests and dips')]
 
 
@@ -35,6 +35,8 @@ def labels(d):
 
 
 def group_of(name):
+    if name.startswith('smooth_'):
+        return 'smooth'
     if name.startswith('sv_'):
         return 'sv'
     if name.startswith('kink'):
