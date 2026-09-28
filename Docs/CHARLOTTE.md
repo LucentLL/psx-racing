@@ -157,7 +157,8 @@ The exporter writes nothing unless told where (2026-09-28):
 also the source of the pause menu's **CREDITS** page (a row beside the column,
 under TOGGLE DEBUG INFO; `CreditsPanel` shows
 `Resources/psx_credits.txt`, wrapped to the column) and of **`LICENSES.txt`**,
-which the WebGL template carries into every build beside `index.html`.
+which the WebGL template carries into every build beside `index.html` and
+`build-and-publish.ps1` publishes with it (live: `/city/LICENSES.txt`).
 `node tools/city/credits.mjs --write` regenerates both; without `--write` it
 checks them. `tools/bench-preview.ps1` photographs the page at the three
 aspects and logs any clipped text.
