@@ -1008,12 +1008,14 @@ namespace PSXRacing.EditorTools
                 {
                     var rival = applier.aiCars[0].transform;
                     bool ok;
-                    if (path.drag)
+                    if (path.drag || path.roadWidth < RaceHandoffApplier.RivalGridGapM * 2f)
                     {
+                        // The drag strip's centre lanes, or a real-width two-lane
+                        // road's two lanes - as the applier restages them.
                         int idx = path.NearestIndex(rival.position);
                         Vector3 centre = path.GetPoint(idx);
                         Vector3 right = path.GetRotation(idx) * Vector3.right;
-                        float lane = Mathf.Min(path.roadWidth / 6f, 2.75f);
+                        float lane = path.drag ? Mathf.Min(path.roadWidth / 6f, 2.75f) : path.roadWidth * 0.25f;
                         ok = OnRoad(path, centre - right * lane) &&
                              OnRoad(path, centre + right * lane);
                     }
@@ -1425,8 +1427,14 @@ namespace PSXRacing.EditorTools
                     // barrier line are both derived from the CATALOG's number,
                     // so a row that disagrees with its bake is a road half the
                     // width of the map it was cut from. Older bakes do not say.
-                    Check(t.stageRoadWidthM <= 0f || Mathf.Approximately(t.stageRoadWidthM, t.roadWidth),
-                          t.id + " catalog width matches its bake",
+                    // NOT WIDER than it, since 2026-09-27: the owner asked for
+                    // real lane widths, and the Parkway loops were cut for a
+                    // 9.5-10 m corridor that now carries 6.4 m of road. A road
+                    // inside its cut is graded land either side (the roadside
+                    // audits judge that edge); a road WIDER than its cut would
+                    // hang its shoulders off the graded corridor.
+                    Check(t.stageRoadWidthM <= 0f || t.roadWidth <= t.stageRoadWidthM + 0.01f,
+                          t.id + " catalog width fits its bake",
                           t.roadWidth + " vs bake " + t.stageRoadWidthM);
                     // The Charlotte bakes register into the city's frame (that
                     // is how the street front finds uptown); a bake that says

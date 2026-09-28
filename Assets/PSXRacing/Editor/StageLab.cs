@@ -42,6 +42,12 @@ namespace PSXRacing.EditorTools
                     {
                         sb.AppendLine(LifeSimSelfTest.LabRoadside(def, path));
                         sb.AppendLine(TrackObstacleAudit.AuditForLab(def, path));
+                        // And the terrain audit's pass on this one scene: the lattice
+                        // under the shoulder, props showing daylight - the verify's
+                        // third stage, in minutes.
+                        var terrain = new StringBuilder();
+                        TerrainAudit.AuditOne(def, terrain);
+                        sb.AppendLine(terrain.ToString());
                         sb.AppendLine(DownFaces(path));
                     }
                     string probes = System.Environment.GetEnvironmentVariable("PSX_LAB_WP") ?? "";
@@ -104,7 +110,7 @@ namespace PSXRacing.EditorTools
             Vector3 r = Vector3.Cross(Vector3.up, tp.GetTangent(w)).normalized * side;
             float half = tp.roadWidth * 0.5f;
             string lastName = null; float lastY = float.NaN;
-            for (float e = -0.1f; e <= 14f; e += 0.05f)
+            for (float e = -0.1f; e <= 20f; e += 0.05f)
             {
                 Vector3 o = c + r * (half + e) + Vector3.up * 30f;
                 string name = "(none)"; float y = float.NaN;

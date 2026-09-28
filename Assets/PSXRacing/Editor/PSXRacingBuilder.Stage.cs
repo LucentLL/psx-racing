@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -1015,7 +1015,9 @@ namespace PSXRacing.EditorTools
         /// 776 m summit) and a centimetre to spare; below a 1V:4H carried slope
         /// it moves the crossing 0.2 m out.
         /// </summary>
-        const float StageCatchHoldM = 0.05f;
+        // 0.06 since the real-width roads (2026-09-27): at 0.05 the built meshes
+        // came in at +0.023 to +0.030 m on three stages, 1-8 probes in 45,000.
+        const float StageCatchHoldM = 0.06f;
         /// <summary>Added to every correction so a sample the solve fixed is
         /// not left a float's width over its target.</summary>
         const float StageLatticeSolveSlackM = 0.002f;
@@ -1262,7 +1264,10 @@ namespace PSXRacing.EditorTools
         /// RoadsideRules.LatticeUnderMinM of the lattice and this much more —
         /// the stage chunks' own vertex quantisation and a float's width, as
         /// in <see cref="StageCatchHoldM"/>.</summary>
-        const float StageGrazeSlackM = 0.01f;
+        // 0.02 since the real-width roads (2026-09-27): 0.01 left grazes of
+        // +0.023 to +0.030 m on the built meshes at Beech Gap, Little
+        // Switzerland and Gillespie that the designed line had called clear.
+        const float StageGrazeSlackM = 0.02f;
         /// <summary>How much of the terrain audit's RoadsideRules.ToeCrossingMaxM
         /// the run-in to a real catch may use before its inner end is a graze:
         /// the audit counts that crossing from the toe, so the toe itself
@@ -1372,7 +1377,11 @@ namespace PSXRacing.EditorTools
                     for (float e = eEnd; e < readTo; e += StageCarryReadPitchM) gaps.Add(new Vector2(e, Line(e) - Land(e)));
                     int inner = gaps.Count;
                     if (met)
-                        while (inner > 0 && gaps[inner - 1].y < StageCatchHoldM && catchE - gaps[inner - 1].x <= StageCrossingAllowM)
+                        // The run-in ends where the AUDIT's does: at the first sample
+                        // with its 3 cm (not the solve's 6 cm catch margin). A graze
+                        // past a 0.035 m sample was run-in here and a failure there
+                        // (Little Switzerland wp 836 R, +0.030 m at 6.03 m).
+                        while (inner > 0 && gaps[inner - 1].y < RoadsideRules.LatticeUnderMinM && catchE - gaps[inner - 1].x <= StageCrossingAllowM)
                             inner--;
                     bool graze = false;
                     for (int k = 0; k < inner && !graze; k++)
@@ -1395,9 +1404,36 @@ namespace PSXRacing.EditorTools
                         Vector3 q = at + outw * (half + e);
                         into.Add(new Vector3(q.x, Line(e) - StageCatchHoldM, q.z));
                     }
+
+                    // A GRAZE ON A TAIL, WELL SHORT OF ITS CROSSING. The tail is
+                    // left alone above because holding it all chased the crossing
+                    // outward; but a lattice bump the straight 1V:2.5H line clips a
+                    // few metres before it meets the land is not the crossing
+                    // (Gillespie wp 1378 L, real-width road: +0.027 m at 11.78 m,
+                    // margin opening again past it). Held locally - half a metre
+                    // either side of the graze, never within StageTailGrazeClearM
+                    // of the catch - so the crossing itself does not move.
+                    if (tailed && met && !float.IsNaN(kneeE))
+                    {
+                        for (float e = kneeE; e < catchE - StageTailGrazeClearM; e += StageCarryReadPitchM)
+                        {
+                            if (Line(e) - Land(e) >= RoadsideRules.LatticeUnderMinM + StageGrazeSlackM) continue;
+                            for (float h = e - 0.5f; h <= e + 0.5f; h += StageCarryHoldPitchM)
+                            {
+                                Vector3 q = at + outw * (half + h);
+                                into.Add(new Vector3(q.x, Line(h) - StageCatchHoldM, q.z));
+                            }
+                            grazes++;
+                            e += 1f;
+                        }
+                    }
                 }
             }
         }
+
+        /// <summary>How far inside a tail's crossing a graze has to be before
+        /// it is held (the crossing's own run-in is the audit's to excuse).</summary>
+        const float StageTailGrazeClearM = 2.5f;
 
         /// <summary>
         /// THE FILL BEHIND A STONE IS BELOW THE ROAD.
@@ -1720,6 +1756,11 @@ namespace PSXRacing.EditorTools
         /// FinishStageCuts once the face heights have been landed on the hill
         /// behind them.</summary>
         static bool[][] rsCutGraded;
+        /// <summary>Per side and station: a cut run's station that stands as a
+        /// ROCK FACE (FinishStageCuts' final decision). A wall station over one
+        /// - a hand-over - carries no invisible collider extra over its stone:
+        /// the rock's own collider stands behind it.</summary>
+        static bool[][] rsCutFaced;
         /// <summary>Cut: this station's release fades toward a run end that
         /// runs INTO something — a warranted wall or a tunnel portal — rather
         /// than tapering into graded land, so its rock top holds the crest
@@ -1739,7 +1780,7 @@ namespace PSXRacing.EditorTools
         {
             rsKind = null;
             rsCatchE = rsWallE = rsWallUp = rsFaceH = rsRelease = null;
-            rsCutGraded = rsCutHold = null;
+            rsCutGraded = rsCutHold = rsCutFaced = null;
             rsRight = null;
             rsWallRuns = null; rsBankRuns = null; rsBankTop = null;
         }
@@ -2029,7 +2070,12 @@ namespace PSXRacing.EditorTools
             + RoadsideRules.EndFlareStations * RoadsideRules.EndFlareRatio * Spacing + StageWallDrawThick + 1.5f;
         /// <summary>Wall stations the last laying left unwalled out of another
         /// stretch's kerb band, and run ends it carried square.</summary>
-        static int wallsTooTight, squaredEnds;
+        static int wallsTooTight, squaredEnds, rockFlarePockets, cutGapsFilled, squaredNearLeg;
+        /// <summary>A run end with another leg of the route this near on its
+        /// side (m past the tarmac edge) ends square instead of buried.</summary>
+        const float StageSquareNearLegM = 18f;
+        /// <summary>Longest graded gap inside a faced cut run that is faced through.</summary>
+        const int CutGapFillStations = 2;
 
         /// <summary>Is <paramref name="p"/> within <paramref name="band"/> of the
         /// centreline of any station round the bend from i (not i and its two
@@ -2151,7 +2197,7 @@ namespace PSXRacing.EditorTools
                 Array.Clear(metresBy, 0, metresBy.Length);
                 openM = cutM = 0f;
                 flaredOpen = flaredRock = 0;
-                wallsTooTight = squaredEnds = 0;
+                wallsTooTight = squaredEnds = rockFlarePockets = cutGapsFilled = squaredNearLeg = 0;
                 catches.Clear();
 
                 for (int s = 0; s < 2; s++)
@@ -2361,7 +2407,46 @@ namespace PSXRacing.EditorTools
                             // portal; and so where the kerb band stopped it.
                             if (tightCut[beyond] ||
                                 (TightInside(pts, endSt, side, out float er) && er < StageSquareEndR)) { squaredEnds++; continue; }
+                            // SQUARE where the next leg of a switchback is close on
+                            // this side: a buried terminal is graded open, and its
+                            // foreslope carried down the fill ran on under that
+                            // leg's rock top to end in a face against it (Mount
+                            // Mitchell wp 1539 R on the real-width road: 0.65 m,
+                            // 16 m out). Full height to its last station, as on a
+                            // hairpin's inside.
+                            if (!(banked[beyond] && !softRock[beyond]) &&
+                                StageForeignSeamE(pts, endSt, side, StageSquareNearLegM) < StageSquareNearLegM)
+                            { squaredEnds++; squaredNearLeg++; continue; }
                             bool rock = banked[beyond] && !softRock[beyond];
+                            // Out to a rock face ONLY over a fall. A full-height
+                            // stone flared out to the toe stands in front of the
+                            // cut's own level land where the fill it guards has
+                            // not begun yet - a pocket (Gillespie wp 1623 L on the
+                            // real-width road: land 0.27 m under the tarmac 1.5 m
+                            // behind the flared stone). There it ends the way a
+                            // run into graded land does: buried, graded open.
+                            if (rock)
+                            {
+                                float flareE = CutToeE - StageWallFaceIn + StageWallCollThick + RoadsideRules.PocketBehindM;
+                                int probe = WrapIdx(endSt + (end == 0 ? 1 : -1), n);
+                                Vector3 behind = pts[probe] + rsRight[probe] * (side * (RoadWidth * 0.5f + flareE));
+                                // The lowest of what the land will be: the DEM, the
+                                // graded field and the lattice (the cut pass's own
+                                // pocket test reads the same pair behind a face).
+                                // (The graded field cannot be asked yet: it reads the
+                                // roadside kinds this plan is still deciding.)
+                                float landY = StageDemY(behind.x, behind.z);
+                                float dy = landY - (pts[probe].y + RoadLift);
+                                if (CutTrace(probe))
+                                    Log($"  flare trace wp {probe} {(side < 0 ? "L" : "R")}: run end {endSt}, rock flare behind at {flareE:0.00} m, land {dy:+0.00;-0.00} " +
+                                        $"(dem {StageDemY(behind.x, behind.z) - (pts[probe].y + RoadLift):+0.00;-0.00}, " +
+                                        $"dem only - the field and lattice read the kinds this plan is deciding)");
+                                // Under a face's height the cut there is graded down to
+                                // road level when it is built (+0.54 m of DEM at
+                                // Gillespie wp 1623 L was land at -0.27 m built); a
+                                // real drop behind the stone keeps its flare.
+                                if (dy >= -RoadsideRules.PocketBandM && dy < BankRiseM) { rock = false; rockFlarePockets++; }
+                            }
                             int stations;
                             float offset;
                             if (rock)
@@ -2491,7 +2576,7 @@ namespace PSXRacing.EditorTools
                 $"water {metresBy[3]:0}, tunnel mouth {metresBy[5]:0}" +
                 (metresBy[6] > 0f ? $", theme {metresBy[6]:0}" : "") + $"); " +
                 $"{wallsTooTight} hairpin-inside station-side(s) left unwalled out of another stretch's kerb band, " +
-                $"{squaredEnds} run end(s) carried square on a hairpin's inside; " +
+                $"{squaredEnds} run end(s) carried square on a hairpin's inside; {rockFlarePockets} flared-to-rock end(s) buried instead over level land; {squaredNearLeg} square beside another leg; " +
                 $"{flaredOpen} run ends flared and buried into graded land, {flaredRock} flared into a rock face " +
                 $"({handOvers} hand-over station(s) faced at least {BankRiseM:0.0} m where the cut there was graded; " +
                 $"{softEnds} end(s) laid again as buried terminals because their cut was graded where they met it" +
@@ -2499,7 +2584,7 @@ namespace PSXRacing.EditorTools
                 $"); " +
                 $"{rsBankRuns.Count} cut faces over {cutM:0} m ({facedM:0} m faced in rock, " +
                 $"{gradedM:0} m graded to a 1V:{1f / RoadsideRules.BackSlope:0}H backslope; " +
-                $"{lowered} face heights landed lower on the hill behind them; {stageCutsUnfaced} graded - a tight inside or a pocket behind); " +
+                $"{lowered} face heights landed lower on the hill behind them; {stageCutsUnfaced} graded - a tight inside or a pocket behind; {cutGapsFilled} faced through a short graded gap); " +
                 $"{openM:0} m of open graded roadside" +
                 (catches.Count > 0
                     ? $" meeting the land {catches[catches.Count / 2]:0.00} m (p50) / {catches[catches.Count - 1]:0.00} m (max) past the tarmac edge"
@@ -2800,15 +2885,17 @@ namespace PSXRacing.EditorTools
             lowered = handOvers = softened = 0;
             int n = pts.Count;
             rsCutGraded = new[] { new bool[n], new bool[n] };
+            rsCutFaced = new[] { new bool[n], new bool[n] };
             if (rsBankRuns == null) return;
             var face = new List<bool>();
             var kerbHigh = new List<bool>();
             var landDy = new List<float>();
+            var barred = new List<bool>();
             stageCutsUnfaced = 0;
             foreach (var (run, side) in rsBankRuns)
             {
                 int s = SideIx(side), L = run.Length;
-                face.Clear(); kerbHigh.Clear(); landDy.Clear();
+                face.Clear(); kerbHigh.Clear(); landDy.Clear(); barred.Clear();
                 for (int k = 0; k < L; k++)
                 {
                     int i = run[k];
@@ -2860,6 +2947,7 @@ namespace PSXRacing.EditorTools
                     //    four to ten metres further on, lets the rock top fall
                     //    to road height behind it). Graded instead: the
                     //    backslope climbs to what is there.
+                    bool isBarred = false;
                     if (faced && !rsCutHold[s][i])
                     {
                         bool tight = TightInside(pts, i, side, out float tr) &&
@@ -2918,11 +3006,13 @@ namespace PSXRacing.EditorTools
                             Log(line.ToString());
                         }
                         if (tight || pocket) { faced = false; stageCutsUnfaced++; }
+                        isBarred = tight || pocket;
                     }
                     else if (CutTrace(i))
                         Log($"  cut trace wp {i} {(side < 0 ? "L" : "R")}: h0 {h0:0.00} h {h:0.00} holds {holds:0.00} reach {reach} " +
                             $"faced {faced} hold {rsCutHold[s][i]} (no pocket test)");
                     face.Add(faced);
+                    barred.Add(isBarred);
                     // Under BankRiseM a face stands only because the land is
                     // just out of the backslope's reach (land under 0.78 m).
                     kerbHigh.Add(h < BankRiseM && !rsCutHold[s][i]);
@@ -2938,6 +3028,30 @@ namespace PSXRacing.EditorTools
                     if (len < CutFaceMinStations)
                         for (int q = k; q < k + len; q++)
                             if (kerbHigh[q]) face[q] = false;
+                    k += len;
+                }
+                // And no GRADED GAP of a station or two inside a faced run: where
+                // the face dips under what the backslope can reach for a few
+                // metres, the graded section between two rock tops leaves a lip
+                // where it meets them (Beech Gap wp 1285-1286 L on the real-
+                // width road: 0.07 m against BankTop1). Faced through at kerb
+                // height - unless a station was graded because a face there
+                // would make a pocket or fold on a tight inside.
+                for (int k = 1; k < L - 1; )
+                {
+                    if (face[k] || !face[k - 1]) { k++; continue; }
+                    int len = 1;
+                    while (k + len < L && !face[k + len]) len++;
+                    bool closed = k + len < L && face[k + len];
+                    bool free = true;
+                    for (int q = k; q < k + len && free; q++) free = !barred[q];
+                    if (closed && free && len <= CutGapFillStations)
+                        for (int q = k; q < k + len; q++)
+                        {
+                            face[q] = true;
+                            rsFaceH[s][run[q]] = Mathf.Max(rsFaceH[s][run[q]], BankRiseM);
+                            cutGapsFilled++;
+                        }
                     k += len;
                 }
                 // The hand-over stations: the run's walled ones (only a wall's
@@ -2978,6 +3092,7 @@ namespace PSXRacing.EditorTools
                 {
                     int i = run[k];
                     rsCutGraded[s][i] = !face[k];
+                    rsCutFaced[s][i] = face[k];
                     if (CutTrace(i)) Log($"  cut final wp {i} {(side < 0 ? "L" : "R")}: {(face[k] ? "FACE" : "graded")} h {rsFaceH[s][i]:0.00} kind {rsKind[s][i]} run {run[0]}..{run[L - 1]}");
                     if (face[k]) { facedM += Spacing; continue; }
                     // A graded crest IS the land behind it (never under the toe),
@@ -4085,7 +4200,19 @@ namespace PSXRacing.EditorTools
             float buryDy = terminal
                 ? OpenSectionDy(g.faceE + StageWallFaceIn + StageWallDrawThick) : faceDy;
             g.topY = Mathf.Lerp(pts[i].y + RoadLift + buryDy - 0.05f, pts[i].y + StageWallH, g.up);
-            g.collTopY = g.up >= 0.999f ? g.topY + (StageWallCollH - StageWallH) : g.topY;
+            // No invisible extra where a ROCK FACE stands right behind the
+            // stone (a wall/cut hand-over): above the stone a car would meet
+            // the collider in front of a drawn face half a metre back (Blue
+            // Ridge wp 976-977 R on the real-width road, the obstacle audit's
+            // GHOST BARRIERS "held off by 0.59 m of air"), and the rock's own
+            // collider stops it there anyway.
+            // At the station and its neighbours: the collider's top ramps across
+            // a chord, and one ramping up to the full extra from a rock ring
+            // stood over the end of the face behind (wp 919-920 R).
+            int nSt = pts.Count;
+            bool rockBehind = theme.stageBanks && rsCutFaced != null &&
+                              (rsCutFaced[s][i] || rsCutFaced[s][WrapIdx(i - 1, nSt)] || rsCutFaced[s][WrapIdx(i + 1, nSt)]);
+            g.collTopY = g.up >= 0.999f && !rockBehind ? g.topY + (StageWallCollH - StageWallH) : g.topY;
             return g;
         }
 
@@ -4524,6 +4651,30 @@ namespace PSXRacing.EditorTools
 
         /// <summary>Is <paramref name="p"/> still this station's own hillside —
         /// nearest to a station within BankTopOwnStations, on this side?</summary>
+        /// <summary>
+        /// How far out from station <paramref name="idx"/>, on its
+        /// <paramref name="side"/>, the nearest road first becomes ANOTHER
+        /// stretch of this route (a switchback's other leg) - within
+        /// <paramref name="maxE"/> of the tarmac edge, else +infinity.
+        /// </summary>
+        static float StageForeignSeamE(List<Vector3> pts, int idx, float side, float maxE)
+        {
+            if (stageWp == null || stageHash == null) return float.PositiveInfinity;
+            float half = RoadWidth * 0.5f;
+            Vector3 outw = rsRight[idx] * side;
+            for (float e = 1f; e <= maxE; e += 0.5f)
+            {
+                Vector3 q = pts[idx] + outw * (half + e);
+                if (!StageCorridor(q.x, q.z, half + e + 2f, out RoadFoot f)) continue;
+                int near = WrapIdx(Mathf.RoundToInt(f.station), stageWp.Count);
+                // The rock tops' own test for another stretch (BankTopOwns),
+                // not OverlapSep's 160 m: a hairpin's other leg is closer
+                // along the route than that.
+                if (StationSep(near, idx, stageWp.Count) > BankTopOwnStations) return e;
+            }
+            return float.PositiveInfinity;
+        }
+
         static bool BankTopOwns(Vector3 p, int i, float side)
         {
             float reach = RoadWidth * 0.5f + CutToeE + BankTopSampleE[BankTopSampleE.Length - 1] + 8f;

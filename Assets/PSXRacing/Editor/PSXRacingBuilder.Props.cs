@@ -578,15 +578,26 @@ namespace PSXRacing.EditorTools
                 // already baked carries it, so it is corrected here on the
                 // instance: put the box back over the geometry it is meant to
                 // stand for.
+                //
+                // IN THE OWNER'S OWN FRAME, AND OVER THE SKIRT TOO. The world
+                // AABB's centre took the SKIRT (the block under a prop seated
+                // on its highest corner) into the middle while the box kept
+                // the model's height alone: every beach-town box stood 1.4 m
+                // under its house, over nothing drawn at the top and short of
+                // the skirt at the bottom (the obstacle audit's GHOST
+                // BARRIERS, Emerald Isle). The box now stands over everything
+                // the prop draws - house and skirt - with the same plan shave.
                 foreach (var box in go.GetComponentsInChildren<BoxCollider>(true))
                 {
                     if (box.name != "Solid") continue;
-                    var rb = RendererBounds(go);
-                    if (rb.size.sqrMagnitude < 0.01f) continue;
                     var owner = box.transform.parent != null ? box.transform.parent : go.transform;
-                    box.transform.position = rb.center;
+                    var lb = LocalRendererBounds(owner.gameObject);
+                    if (lb.size.sqrMagnitude < 0.01f) continue;
+                    box.transform.position = owner.TransformPoint(lb.center);
                     box.transform.rotation = owner.rotation;
                     box.center = Vector3.zero;
+                    box.size = new Vector3(Mathf.Max(1f, lb.size.x - 0.6f), lb.size.y,
+                                           Mathf.Max(1f, lb.size.z - 0.6f));
                 }
 
                 // Measured through the collider's OWN TRANSFORM, never through

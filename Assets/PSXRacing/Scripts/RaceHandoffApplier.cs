@@ -459,6 +459,19 @@ namespace PSXRacing
                     aiCars[0].TeleportTo(centre - right * lane + lift, rot);
                     playerCar.TeleportTo(centre + right * lane + lift, rot);
                 }
+                else if (path != null && path.roadWidth < RivalGridGapM * 2f)
+                {
+                    // A REAL-WIDTH TWO-LANE ROAD (6.1-6.7 m) has no room for
+                    // 5.2 m between the two: side by side in its two lanes.
+                    int idx = path.NearestIndex(rival.position);
+                    Vector3 centre = path.GetPoint(idx);
+                    var rot = path.GetRotation(idx);
+                    Vector3 right = rot * Vector3.right;
+                    float lane = path.roadWidth * 0.25f;
+                    Vector3 lift = Vector3.up * (rival.position.y - centre.y);
+                    aiCars[0].TeleportTo(centre - right * lane + lift, rot);
+                    playerCar.TeleportTo(centre + right * lane + lift, rot);
+                }
                 else
                 {
                     playerCar.TeleportTo(
@@ -554,7 +567,7 @@ namespace PSXRacing
         /// <summary>Lateral gap for a 1v1 start. The AI car sits 2.6 m left of
         /// the centreline, so this puts the player 2.6 m right of it — clear of
         /// contact, and inside the 12 m road.</summary>
-        const float RivalGridGapM = 5.2f;
+        public const float RivalGridGapM = 5.2f;
 
         // ------------------------------------------------------------------
         //  reverse venues: the grid
@@ -812,6 +825,9 @@ namespace PSXRacing
                 // 4.25 m from the crown: at the circuit's 2.6 m the outer wheels
                 // of two of the four cars start out on the shoulder.
                 float half = path.HasEnds ? GridLateralStageM : GridLateralM;
+                // And never past the lane centre - the builder's own rule
+                // (real-width roads: 6.1-6.7 m, the two lanes).
+                half = Mathf.Min(half, path.roadWidth * 0.25f);
                 float lateral = (row % 2 == 0) ? -half : half;
 
                 PointAlong(path, datum, back,

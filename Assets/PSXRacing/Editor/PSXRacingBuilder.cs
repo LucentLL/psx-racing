@@ -6587,7 +6587,18 @@ namespace PSXRacing.EditorTools
                     t.transform.SetParent(parent, false);
                     // Sunk 20 cm. A billboard whose base is exactly on a facet edge
                     // shows a sliver of sky under itself the moment the ground tips.
-                    treeAt.y = GroundHeightAt(treeAt.x, treeAt.z) - 0.2f;
+                    // And under the LOWEST ground its card spans, not the centre's:
+                    // on a slope the card's downhill corner stood 0.11 m over the
+                    // land (RidgePass wp 230, the terrain audit's daylight test).
+                    float low = GroundHeightAt(treeAt.x, treeAt.z);
+                    float reach = TreeCardW * 0.5f * s;
+                    Quaternion yawRot = Quaternion.Euler(0f, yaw, 0f);
+                    for (int c4 = 0; c4 < 4; c4++)
+                    {
+                        Vector3 corner = treeAt + yawRot * (Quaternion.Euler(0f, c4 * 90f, 0f) * Vector3.right) * reach;
+                        low = Mathf.Min(low, GroundHeightAt(corner.x, corner.z));
+                    }
+                    treeAt.y = low - 0.2f;
                     t.transform.position = treeAt;
                     t.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
                     t.transform.localScale = new Vector3(s, s, s);
@@ -6750,7 +6761,11 @@ namespace PSXRacing.EditorTools
                     int lineIdx = Mathf.RoundToInt(track.stageStartLineM / Spacing);
                     int row = isPlayer ? 3 : c - 1;
                     float back = 9f + row * 6.5f;
-                    float lateral = (row % 2 == 0) ? -2.1f : 2.1f;
+                    // In the two real lanes on a real-width road (owner,
+                    // 2026-09-27: lanes realistic): 2.1 m off the crown was
+                    // for a 9 m stage, on 6.1 m it is the shoulder.
+                    float half = Mathf.Min(2.1f, RoadWidth * 0.25f);
+                    float lateral = (row % 2 == 0) ? -half : half;
                     float fIdx = lineIdx - back / Spacing;
                     int i0 = Mathf.Max(0, Mathf.FloorToInt(fIdx));
                     int i1 = Mathf.Min(pts.Count - 1, i0 + 1);
@@ -6763,7 +6778,10 @@ namespace PSXRacing.EditorTools
                 {
                     int row = isPlayer ? 3 : c - 1;
                     float back = 9f + row * 6.5f;
-                    float lateral = (row % 2 == 0) ? -2.6f : 2.6f;
+                    // The loops (Blowing Rock, Little Switzerland) come this
+                    // way too, on 6.4 m of road: lane centres there, not 2.6.
+                    float half = Mathf.Min(2.6f, RoadWidth * 0.25f);
+                    float lateral = (row % 2 == 0) ? -half : half;
                     // Interpolated between waypoints rather than snapped to one:
                     // rows are 6.5 m apart and waypoints 4 m, so rounding would
                     // put two of the four rows only 4 m apart.

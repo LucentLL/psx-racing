@@ -2602,6 +2602,10 @@ namespace PSXRacing.EditorTools
             readonly List<string> names = new List<string>();
 
             int unreadable;
+            /// <summary>Every model measured as its box, as the box: a ray that
+            /// STARTS inside one has something drawn right where it stands.</summary>
+            readonly List<(Matrix4x4 toLocal, Bounds local, Bounds world, int owner)> solids =
+                new List<(Matrix4x4, Bounds, Bounds, int)>();
 
             public int Triangles { get { return va.Count; } }
             /// <summary>What this could only measure as a box, for the report,
@@ -2686,6 +2690,9 @@ namespace PSXRacing.EditorTools
                                             (c & 2) == 0 ? -1f : 1f,
                                             (c & 4) == 0 ? -1f : 1f)));
                         tri = BoxTris;
+                        var wb = new Bounds(world[0], Vector3.zero);
+                        for (int c = 1; c < 8; c++) wb.Encapsulate(world[c]);
+                        solids.Add((xf.worldToLocalMatrix, bb, wb, me));
                     }
                     for (int t = 0; t + 2 < tri.Length; t += 3)
                     {
@@ -2725,6 +2732,21 @@ namespace PSXRacing.EditorTools
             public float RayOut(Vector3 origin, Vector3 dir, float len, out string who)
             {
                 who = null;
+                // INSIDE A MODEL MEASURED AS ITS BOX. A prop's Solid is shaved
+                // 0.3 m inside its drawn footprint each side (AddSolidBox: a porch
+                // step or a mailbox does not widen the wall a car hits), so a ray
+                // fired from GhostBack outside the collider starts INSIDE the
+                // drawn house, and a closed box's nearest face from in there is
+                // its far wall, 6-18 m off - every Emerald Isle house and trailer
+                // read "collider over NOTHING drawn" while the house stood all
+                // round it. Something drawn encloses the ray's start: distance 0.
+                foreach (var sb in solids)
+                {
+                    if (!sb.world.Contains(origin)) continue;
+                    if (!sb.local.Contains(sb.toLocal.MultiplyPoint3x4(origin))) continue;
+                    who = names[sb.owner];
+                    return 0f;
+                }
                 float best = -1f;
                 int bestOwner = -1;
                 var seen = new HashSet<int>();

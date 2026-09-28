@@ -123,7 +123,7 @@ namespace PSXRacing.EditorTools
                 log.ToString());
         }
 
-        static int AuditOne(TrackCatalog.TrackDef def, StringBuilder log)
+        internal static int AuditOne(TrackCatalog.TrackDef def, StringBuilder log)
         {
             // The city has no baked ground to ray — its terrain is generated
             // per tile at runtime and audited by CityAudit. Counting its
@@ -304,7 +304,7 @@ namespace PSXRacing.EditorTools
                 }
                 if (gap == float.MinValue) continue;
                 float showing = -gap;                     // >0 means daylight under it
-                if (showing > worstGap) { worstGap = showing; worstName = root.name; }
+                if (showing > worstGap) { worstGap = showing; worstName = root.name + " at wp " + path.NearestIndex(root.transform.position) + " " + root.transform.position.ToString("F1"); }
                 if (showing > 0.05f) floating++;
             }
 
