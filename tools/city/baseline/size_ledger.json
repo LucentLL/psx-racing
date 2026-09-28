@@ -1,0 +1,77 @@
+{
+ "sandbox": "C:\\Users\\mcgee\\PSXCity",
+ "data": {
+  "charlotte_city.bytes": {
+   "raw": 2548018,
+   "brotli": 1327920
+  },
+  "charlotte_dem.bytes": {
+   "raw": 1485784,
+   "brotli": 649649
+  },
+  "charlotte_bld.bytes": {
+   "raw": 1742686,
+   "brotli": 1149298
+  },
+  "charlotte_routes.json": {
+   "raw": 16176,
+   "brotli": 5024
+  }
+ },
+ "data_total": {
+  "raw": 5792664,
+  "brotli": 3131891
+ },
+ "git": {
+  "paths": {
+   "Assets/PSXRacing/Resources/charlotte_bld.bytes": {
+    "versions": 2,
+    "bytes": 3509798,
+    "disk": 2855229
+   },
+   "Assets/PSXRacing/Resources/charlotte_city.bytes": {
+    "versions": 2,
+    "bytes": 5124196,
+    "disk": 3508109
+   },
+   "Assets/PSXRacing/Resources/charlotte_dem.bytes": {
+    "versions": 2,
+    "bytes": 2971568,
+    "disk": 1767498
+   },
+   "Assets/PSXRacing/Resources/charlotte_routes.json": {
+    "versions": 1,
+    "bytes": 16176,
+    "disk": 7138
+   },
+   "tools/city/truth/city120.ptru.gz": {
+    "versions": 1,
+    "bytes": 232173,
+    "disk": 232266
+   },
+   "tools/city/truth/core10.ptru.gz": {
+    "versions": 1,
+    "bytes": 437262,
+    "disk": 437415
+   },
+   "tools/city/truth/roadside.csv": {
+    "versions": 1,
+    "bytes": 288554,
+    "disk": 104873
+   },
+   "tools/city/truth/transects.csv": {
+    "versions": 1,
+    "bytes": 1061620,
+    "disk": 366887
+   },
+   "tools/city/truth/transects_meta.json": {
+    "versions": 1,
+    "bytes": 2350,
+    "disk": 1215
+   }
+  },
+  "total_disk": 9280630,
+  "size_kib": 92884,
+  "size-pack_kib": 1059111
+ }
+}
