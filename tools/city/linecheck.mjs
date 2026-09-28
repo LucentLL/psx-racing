@@ -24,8 +24,10 @@
 //   --out <dir>                                           write linecheck.txt + linecheck.json there
 //   --csv <file>                                          every violation run, one row each
 //   --write-baseline [file]                               record this graph+model's numbers and keys
-//   --ratchet [file]                                      compare with them: exit 1 on any new key,
-//                                                         count increase or worse worst case
+//   --ratchet [file]                                      compare with them: exit 1 on any new key, any
+//                                                         key worse than its baseline ratio, a count
+//                                                         increase or a worse worst case (lib/gatebase.mjs;
+//                                                         keys per 5 m bucket, so growth adds keys)
 //   --pin                                                 enforce the creek pin now (SmoothRules.PinActive)
 //   --plan-taper linear|smooth                            the plan's design taper (default: SmoothRules
 //                                                         PlanTaperShape; --model m0 implies smooth)
@@ -35,7 +37,6 @@
 // About 1.5-3 minutes for the whole city (the census alone ~15 s of it).
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { gzipSync, gunzipSync } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCity, hashHex } from './lib/citydata.mjs';
@@ -44,6 +45,7 @@ import { runCensus } from './lib/linecensus.mjs';
 import { runGate } from './lib/linegate.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts } from './lib/paintruns.mjs';
+import { summarize, readBaseline, writeBaseline, ratchet } from './lib/gatebase.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -159,21 +161,13 @@ if (!has('--no-gate')) {
   const only = argVal('--edges') ? new Set(argVal('--edges').split(',').map(Number)) : null;
   gate = runGate(S, R, layouts, { planTaperShape: planTaper, refSpots, onlyEdges: only, log });
   const runs = gate.runs;
-  // ---- the per-check table
-  summary = {};
-  for (const c of R.Checks) summary[c.id] = { id: c.id, name: c.name, state: c.state, runs: 0, metres: 0, worst: 0, worstRatio: 0, data: 0, builder: 0, reportOnlyRuns: 0, reportOnlyMetres: 0, keys: new Set() };
-  for (const r of runs) {
-    const s = summary[r.check]; if (!s) continue;
-    if (r.reportOnly) { s.reportOnlyRuns++; s.reportOnlyMetres += r.len; continue; }
-    s.runs++; s.metres += r.len; s.keys.add(r.key);
-    if (r.ratio > s.worstRatio) { s.worstRatio = r.ratio; s.worst = r.val; }
-    if (r.data === 'DATA') s.data++; else s.builder++;
-  }
+  // ---- the per-check table: runs, metres, worst; every key with its worst ratio; runs per tile (lib/gatebase.mjs)
+  summary = summarize(gate, R);
   const unit = (id, v) => id === 'A4' ? `${(v * 100).toFixed(0)}%` : id === 'B3' ? `R ${r1(v)} m` : id === 'C2' ? `${r1(v)}x` : id === 'C3' ? `${(v * 100).toFixed(0)}%`
     : Math.abs(v) >= 1 ? `${r2(Math.abs(v))} m` : `${(Math.abs(v) * 100).toFixed(1)} cm`;
   // ---- baseline / ratchet
   const base = readBaseline(BASELINE)?.entries?.[`${graph}:${MODEL}`];
-  if (has('--ratchet')) verdict = ratchet(summary, base, runs);
+  if (has('--ratchet')) verdict = ratchet(summary, base, R, { pin: pinActive, runs });
   P('');
   P(`SMOOTHNESS GATE  ${gate.stats.edges} ribbons, ${r1(gate.stats.ribbonKm)} km of ribbon, ${r1(gate.stats.lineKm)} km of painted line, ${gate.chains} chains, ${gate.stats.strands} strands`);
   P(`  check          state    runs     metres   worst        x V/limit  data/builder   baseline`);
@@ -182,10 +176,11 @@ if (!has('--no-gate')) {
     const b = base?.checks?.[c.id];
     const bl = b ? `${b.runs} runs, worst ${unit(c.id, b.worst)}` : '-';
     P(`  ${(c.id + ' ' + c.name).padEnd(14)} ${c.state.padEnd(8)} ${String(s.runs).padStart(6)} ${String(Math.round(s.metres)).padStart(10)}   ${unit(c.id, s.worst).padEnd(12)} ${r1(s.worstRatio).toString().padStart(6)}   ${`${s.data}/${s.builder}`.padEnd(14)} ${bl}`);
-    if (s.reportOnlyRuns) P(`  ${''.padEnd(14)} ${'REPORT'.padEnd(8)} ${String(s.reportOnlyRuns).padStart(6)} ${String(Math.round(s.reportOnlyMetres)).padStart(10)}   ${c.id === 'D1' ? 'inside BranchSeats attach arcs (report-only until WP-18b)' : 'truncated dash stubs at mouths and gores (report-only until WP-17)'}`);
+    if (s.reportOnlyRuns) P(`  ${''.padEnd(14)} ${'REPORT'.padEnd(8)} ${String(s.reportOnlyRuns).padStart(6)} ${String(Math.round(s.reportOnlyMetres)).padStart(10)}   ${c.id === 'D1' ? 'inside a branch/host merge zone (trims branch table, BranchSeats; report-only until WP-18b)' : 'truncated dash stubs at mouths and gores (report-only until WP-17)'}`);
   }
+  P(`  keys: one per ${R.KeyStepM} m bucket a run's bad samples touch, each with its worst ratio (${[...Object.values(summary)].reduce((a, s) => a + s.keys.size, 0)} in all)`);
   P(`  not measurable offline: B4s SEAM (tile seams: one city-wide replica cuts every span once), B2/B3 on FAN perimeters and D1 into fans (the replica builds no fans), heights (D1's same-level test is the census's plan approximation), E1 (no strip paint yet)`);
-  P(`  texel quantisation per profile (texture run centre vs RoadProfiles, subtracted from A1/A3): ${Object.entries(gate.texQ).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v * 100).toFixed(1)}`).join(', ')} cm`);
+  P(`  texel quantisation per profile (texture run centre vs RoadProfiles; subtracted from A1-A3/A5/C2 up to half a texel, A0 fails past it): ${Object.entries(gate.texQ).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v * 100).toFixed(1)}/${(gate.texCap[k] * 100).toFixed(1)}`).join(', ')} cm`);
   if (gate.texNotes.length) for (const n of gate.texNotes.slice(0, 10)) P(`  TEXTURE ${n}`);
   if (notes.length) for (const n of notes.slice(0, 10)) P(`  PNG ${n}`);
 
@@ -239,7 +234,7 @@ if (!has('--no-gate')) {
   gate.worst = worst;
   gate.pin = { active: pinActive, runs: pinRuns.length, byCheck: pinBy };
   if (has('--write-baseline')) {
-    writeBaseline(BASELINE, `${graph}:${MODEL}`, summary);
+    writeBaseline(BASELINE, `${graph}:${MODEL}`, summary, R);
     P(`\nwrote the baseline for ${graph}:${MODEL} to ${BASELINE.replace(/\\/g, '/')}`);
   }
 }
@@ -253,16 +248,16 @@ if (outDir) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'linecheck.txt'), out.join('\n') + '\n');
   const J = { schema: 1, graph, model: MODEL, planTaper, V: R.V, census: census && { headline: census.headline, totals: census.totals, taperStats: census.taperStats, kinkCauses: census.kinkCauses, nodeStats: census.nodeStats, overlapM: census.overlapM, folds: census.folds, creek: census.creek, routes: census.routes },
-    gate: gate && { stats: gate.stats, texQ: gate.texQ, checks: Object.fromEntries(Object.entries(summary).map(([k, s]) => [k, { ...s, keys: s.keys.size, metres: r1(s.metres) }])),
+    gate: gate && { stats: gate.stats, texQ: gate.texQ, texCap: gate.texCap, texFails: gate.texFails, checks: Object.fromEntries(Object.entries(summary).map(([k, s]) => [k, { ...s, keys: s.keys.size, tiles: s.tiles.size, metres: r1(s.metres) }])),
       worst: gate.worst.map(r => pick(r)), pin: gate.pin }, ratchet: verdict };
   writeFileSync(join(dir, 'linecheck.json'), JSON.stringify(J, null, 1) + '\n');
   console.log(`wrote ${join(dir, 'linecheck.txt')} and linecheck.json`);
 }
 const csvPath = argVal('--csv');
 if (csvPath && gate) {
-  const cols = ['check', 'lineId', 'key', 'way', 'e', 'name', 'cls', 'profile', 's', 's0', 's1', 'len', 'val', 'ratio', 'x', 'z', 'cause', 'data', 'pinned', 'reportOnly', 'what'];
+  const cols = ['check', 'lineId', 'key', 'keys', 'way', 'e', 'name', 'cls', 'profile', 's', 's0', 's1', 'len', 'val', 'ratio', 'x', 'z', 'cause', 'data', 'pinned', 'reportOnly', 'what'];
   const lines = [cols.join(',')];
-  for (const r of gate.runs) lines.push(cols.map(c => { const v = r[c]; if (v === undefined || v === null) return ''; if (typeof v === 'number') return String(r3(v)); const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(','));
+  for (const r of gate.runs) lines.push(cols.map(c => { const v = c === 'keys' ? r.kk.length : r[c]; if (v === undefined || v === null) return ''; if (typeof v === 'number') return String(r3(v)); const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(','));
   writeFileSync(resolve(UNITY, csvPath), lines.join('\n') + '\n');
   console.log(`wrote ${gate.runs.length} runs to ${csvPath}`);
 }
@@ -275,66 +270,4 @@ function pick(r) {
     if (r[k] !== undefined) o[k] = typeof r[k] === 'number' ? r3(r[k]) : r[k];
   o.latlon = ll(r.x, r.z);
   return o;
-}
-/// FNV-1a over the key's UTF-8: the baseline stores 32-bit key hashes (about
-/// one collision in 8,600 new keys at today's key count).
-function fnv1a(str) {
-  let h = 0x811c9dc5;
-  for (const b of Buffer.from(str, 'utf8')) { h ^= b; h = Math.imul(h, 0x01000193) >>> 0; }
-  return h >>> 0;
-}
-/// Sorted, de-duplicated hashes as LEB128 deltas, gzipped, base64 (Editor/
-/// CitySmooth.cs reads and writes the same format).
-function packKeys(keys) {
-  const hs = [...new Set([...keys].map(fnv1a))].sort((a, b) => a - b);
-  const bytes = [];
-  let prev = 0;
-  for (const h of hs) { let d = h - prev; prev = h; do { let b = d & 0x7f; d = Math.floor(d / 128); if (d) b |= 0x80; bytes.push(b); } while (d); }
-  return { n: hs.length, b64: gzipSync(Buffer.from(bytes), { level: 9 }).toString('base64') };
-}
-function unpackKeys(b64) {
-  const raw = gunzipSync(Buffer.from(b64, 'base64')), set = new Set();
-  let prev = 0, v = 0, mul = 1;
-  for (const b of raw) { v += (b & 0x7f) * mul; if (b & 0x80) mul *= 128; else { prev += v; set.add(prev); v = 0; mul = 1; } }
-  return set;
-}
-function readBaseline(path) {
-  if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, 'utf8'));
-}
-function writeBaseline(path, id, summary) {
-  const B = readBaseline(path) || { schema: 1, tool: 'tools/city/linecheck.mjs', note: 'per graph hash and builder model: per-check runs, metres and worst, and the violation keys (way, round(s on way / 5 m), check, line) as packed FNV-1a hashes', entries: {} };
-  const checks = {};
-  for (const [id2, s] of Object.entries(summary)) { const k = packKeys(s.keys); checks[id2] = { runs: s.runs, metres: r1(s.metres), worst: r3(s.worst), worstRatio: r3(s.worstRatio), keys: k.n, keys_b64: k.b64 }; }
-  B.entries[id] = { date: new Date().toISOString().slice(0, 10), V: R.V, checks };
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(B, null, 1) + '\n');
-}
-/// The ratchet (gate spec 1/8): per check, FAIL on any new key, any count
-/// increase or a worse worst case; a ZERO check fails on any run; a REPORT
-/// check never fails; an active pin fails on any run on a pinned way.
-function ratchet(summary, base, runs) {
-  const lines = [];
-  let ok = true;
-  if (!base) { lines.push('no baseline for this graph and model: record one with --write-baseline (a re-export re-records, with before/after numbers in the commit)'); return { ok: false, lines }; }
-  for (const c of R.Checks) {
-    const s = summary[c.id], b = base.checks[c.id];
-    if (c.state === 'REPORT') { lines.push(`  ok   ${c.id} ${c.name}: report-only (${s.runs} runs)`); continue; }
-    if (c.state === 'ZERO') {
-      const pass = s.runs === 0; ok = ok && pass;
-      lines.push(`${pass ? '  ok  ' : '  FAIL'} ${c.id} ${c.name}: ${s.runs} runs (ZERO)`); continue;
-    }
-    if (!b) { ok = false; lines.push(`  FAIL ${c.id} ${c.name}: not in the baseline`); continue; }
-    const old = unpackKeys(b.keys_b64);
-    let fresh = 0; for (const k of s.keys) if (!old.has(fnv1a(k))) fresh++;
-    const worse = s.worstRatio > b.worstRatio + 1e-3, more = s.runs > b.runs;
-    const pass = !fresh && !worse && !more; ok = ok && pass;
-    lines.push(`${pass ? '  ok  ' : '  FAIL'} ${c.id} ${c.name}: ${s.runs} runs (baseline ${b.runs})${more ? ' MORE' : ''}, worst x${r1(s.worstRatio)} (baseline x${r1(b.worstRatio)})${worse ? ' WORSE' : ''}, ${fresh} new keys`);
-  }
-  if (pinActive) {
-    const n = runs.filter(r => r.pinned && !r.reportOnly).length;
-    ok = ok && n === 0;
-    lines.push(`${n === 0 ? '  ok  ' : '  FAIL'} creek pin: ${n} runs on ways ${R.PinnedWays.join(', ')}`);
-  }
-  return { ok, lines };
 }

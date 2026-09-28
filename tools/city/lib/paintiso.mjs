@@ -102,7 +102,7 @@ function crossAt(a, b, u) {
   const da = a.u - u, db = b.u - u;
   if ((da >= 0) === (db >= 0)) return null;
   const t = da / (da - db);
-  return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, v: a.v + (b.v - a.v) * t };
+  return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, v: a.v + (b.v - a.v) * t, t };
 }
 
 /// U's plan gradient magnitude over one triangle (1/m), for LINEWIDTH.
@@ -117,19 +117,38 @@ export function gradU(p, q, r) {
 
 /// Every segment of the iso-line U = u inside one quad: an array of up to two
 /// {a, b, ea, eb, grad} with a/b = {x, z, v} and ea/eb the quad-edge letters,
-/// ordered T2 then T1 (the travel order when the line enters through A).
+/// in TRAVEL order: each segment runs forward and the two are emitted in the
+/// order the line visits them, so a line that crosses the diagonal and is
+/// cropped out through the L chord (A -> D in T2, then D -> L in T1) comes back
+/// as A->D, D->L - one polyline, never a reversed tail.
+///
+/// Travel position of a crossing: A = 0, B = 1, and on the L, R and D edges
+/// (all of which run from section A to section B) the edge's own parameter.
+/// Two segments sharing the D crossing are one path X - D - Y, walked from
+/// whichever outer end lies earlier; two segments not sharing D (A->R in T2
+/// and L->B in T1) are separate pieces, T2's first.
 export function quadIso(q, u) {
   const X = new Array(5);
   for (let k = 0; k < 5; k++) X[k] = crossAt(q[QE_ENDS[k][0]], q[QE_ENDS[k][1]], u);
-  const out = [];
+  const segs = [];
   for (const [tri, verts] of [[TRI_T2, ['AL', 'AR', 'BR']], [TRI_T1, ['AL', 'BR', 'BL']]]) {
     const hit = tri.filter(k => X[k]);
     if (hit.length !== 2) continue;
-    // enter through the lower-order edge in travel terms: A < L/R < D < B
-    const ord = { 0: 0, 3: 1, 4: 1, 2: 2, 1: 3 };
-    hit.sort((m, n) => ord[m] - ord[n]);
-    out.push({ a: X[hit[0]], b: X[hit[1]], ea: QE[hit[0]], eb: QE[hit[1]],
-               grad: gradU(q[verts[0]], q[verts[1]], q[verts[2]]) });
+    segs.push({ hit, grad: gradU(q[verts[0]], q[verts[1]], q[verts[2]]) });
+  }
+  const tOf = k => k === 0 ? 0 : k === 1 ? 1 : X[k].t;
+  const mk = (h0, h1, grad) => ({ a: X[h0], b: X[h1], ea: QE[h0], eb: QE[h1], grad });
+  if (segs.length === 2 && segs[0].hit.includes(2) && segs[1].hit.includes(2)) {
+    // one path through the diagonal: X (T2's outer end) - D - Y (T1's outer end)
+    const x = segs[0].hit.find(k => k !== 2), y = segs[1].hit.find(k => k !== 2);
+    const xFirst = tOf(x) < tOf(y) || (tOf(x) === tOf(y) && x <= y);
+    return xFirst ? [mk(x, 2, segs[0].grad), mk(2, y, segs[1].grad)] : [mk(y, 2, segs[1].grad), mk(2, x, segs[0].grad)];
+  }
+  const out = [];
+  for (const sg of segs) {
+    let [h0, h1] = sg.hit;
+    if (tOf(h1) < tOf(h0) || (tOf(h1) === tOf(h0) && h1 < h0)) [h0, h1] = [h1, h0];
+    out.push(mk(h0, h1, sg.grad));
   }
   return out;
 }

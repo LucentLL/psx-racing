@@ -5,7 +5,9 @@
 // design line only, not the sections, U or paint the builder makes of it.
 //
 //   B2 KINK   facet sagitta f = min(c-, c+, ChordCapM) * |turn| / 8 > V at every
-//             vertex (collinear vertices under CollinearDeg dropped first)
+//             vertex (collinear vertices under CollinearDeg dropped first; the
+//             chords reach past neighbours turning under KinkNoiseShare of the
+//             vertex's turn - lib/kink.mjs, the gate's own rule)
 //   B3 CURVE  R = CurveHalfM / (heading change of the chords either side) under
 //             the class's R_min (the centreline), or under InnerEdgeMinRM (the
 //             inner offset curve)
@@ -17,6 +19,7 @@
 // Assets/PSXRacing/Editor/SmoothRules.cs.
 import { classOf, CLASSES } from './lib/citydata.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
+import { kinkChord } from './lib/kink.mjs';
 
 const DEG = 180 / Math.PI;
 const r1 = v => Math.round(v * 10) / 10, r3 = v => Math.round(v * 1000) / 1000;
@@ -99,10 +102,12 @@ function shape(pts, R, rLimitAt) {
     return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
   };
   const b2 = [], b3 = [];
+  const TH = new Float64Array(keep.length);
+  for (let m = 1; m + 1 < keep.length; m++) TH[m] = turnAt(pts[keep[m - 1]], pts[keep[m]], pts[keep[m + 1]]);
   for (let m = 1; m + 1 < keep.length; m++) {
-    const i = keep[m], a = pts[keep[m - 1]], b = pts[i], c = pts[keep[m + 1]];
-    const th = turnAt(a, b, c);
-    const f = Math.min(C[m] - C[m - 1], C[m + 1] - C[m], R.ChordCapM) * Math.abs(th) / 8;
+    const i = keep[m], b = pts[i];
+    const th = TH[m];
+    const f = kinkChord(C, TH, m, R.KinkNoiseShare, R.ChordCapM) * Math.abs(th) / 8;
     if (f > R.V) b2.push({ i, f, deg: Math.abs(th) * DEG, x: b[0], z: b[1] });
     if (rLimitAt && C[m] >= R.CurveHalfM && L - C[m] >= R.CurveHalfM) {
       const p0 = at(C[m] - R.CurveHalfM, m), p1 = at(C[m] + R.CurveHalfM, m);

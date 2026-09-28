@@ -36,6 +36,14 @@ namespace PSXRacing.EditorTools
         /// station step. A lone kink between long straights may turn
         /// 8V/10 m = 1.15 degrees.</summary>
         public const float ChordCapM = 10f;
+        /// <summary>B2's chords c-, c+ run to the nearest kept vertex on each
+        /// side that turns at least this share of the vertex's own turn;
+        /// smaller turns (the bisector pinch, diagonal crossings, sections
+        /// turning a few hundredths of a degree next to a kink) are noise and
+        /// never shorten the chord, so a lone kink is judged over the full
+        /// ChordCapM. On a smoothly sampled curve neighbouring turns share a
+        /// chord, so they are never this much smaller.</summary>
+        public const float KinkNoiseShare = 0.25f;
         /// <summary>B1: resample step and the half window of the circle fit.</summary>
         public const float JitterStepM = 0.25f;
         public const float JitterHalfM = 2f;
@@ -60,6 +68,11 @@ namespace PSXRacing.EditorTools
         /// <summary>The plan: an edge line's centre is the shoulder plus this
         /// inside the design edge (the painter's PaintHalf).</summary>
         public const float EdgeLineInsetM = 0.06f;
+        /// <summary>A0 TEXTURE: a painted run's centre may sit at most half a
+        /// texel (profile width / texture width / 2) plus this from its plan
+        /// line; that offset, and only that much, is subtracted from the
+        /// position checks (V is half a texel so geometry is told from it).</summary>
+        public const float TexelPadM = 0.001f;
         /// <summary>The plan's design edge through a taper: 0 linear (today's
         /// Trims.HalfWidthAt), 1 smoothstep (the M0 stopgap). A design
         /// decision, flipped in the commit that changes the builder.</summary>
@@ -69,9 +82,11 @@ namespace PSXRacing.EditorTools
         /// <summary>Two line ends within this across a section, node or seam
         /// are one line.</summary>
         public const float JoinM = 0.002f;
-        /// <summary>Otherwise a line is matched to the next piece of its
-        /// colour and pattern within this, and the offset is a JUMP.</summary>
-        public const float MatchM = 1.0f;
+        /// <summary>Otherwise a line is matched to the nearest piece of its
+        /// colour and pattern within this - one lane (RoadProfiles.LaneM) -
+        /// and the offset is a JUMP. Only an end with no partner left within a
+        /// lane is an END (judged by C2: a plan lane drop is legitimate).</summary>
+        public const float MatchM = 3.6576f;
         /// <summary>B4 SEAM: two tiles cut one span from identical sections,
         /// so any offset past this at a tile seam is a determinism bug.</summary>
         public const float SeamM = 0.01f;
@@ -108,8 +123,18 @@ namespace PSXRacing.EditorTools
         public const float DensifyEpsM = 0.02f;
 
         // ---- runs, ranking, report ----------------------------------------------
-        /// <summary>Violation keys bucket the arc along the OSM way by this.</summary>
+        /// <summary>Violation keys bucket the arc along the OSM way by this:
+        /// a run carries one key for EVERY bucket its bad samples touch, each
+        /// with its own worst ratio, so a run that grows or worsens anywhere
+        /// trips the ratchet.</summary>
         public const float KeyStepM = 5f;
+        /// <summary>Two bad samples further apart than this along one line are
+        /// two runs (B2 and B3 sample only the kept vertices, which a straight
+        /// leaves tens of metres apart).</summary>
+        public const float RunBreakM = 10f;
+        /// <summary>Baseline ratios are stored rounded UP to a power of this
+        /// (0.1% steps), so the same data always passes its own baseline.</summary>
+        public const float RatioQuantum = 1.001f;
         public const int WorstN = 40;
         public const float DedupM = 40f;
         public const int ShotsN = 24;
@@ -129,6 +154,10 @@ namespace PSXRacing.EditorTools
         /// road tiles every cycle (PSX_SMOOTH_BAND = 0..BandCount-1, default
         /// the day of the year mod BandCount).</summary>
         public const int BandCount = 12;
+        /// <summary>FAST inside CityAudit.Run is OPT-IN (PSX_SMOOTH_FAST=1)
+        /// until its first run in Unity validates the tap and its cost (R4);
+        /// flip to true in that commit, and every city cycle then runs it.</summary>
+        public const bool FastInAudit = false;
 
         // ---- rollout (gate spec section 8) ---------------------------------
         /// <summary>The first cycle only reports: its numbers become the
@@ -156,6 +185,7 @@ namespace PSXRacing.EditorTools
         /// package that takes it to hard zero (plan A4 / gate spec 8).</summary>
         public static readonly CheckDef[] Checks =
         {
+            new CheckDef("A0", "TEXTURE", State.Zero, "every painted run within half a texel of its plan line; every plan line painted, every run planned", "now"),
             new CheckDef("A1", "OFF", State.Ratchet, "every painted line and edge within V of its plan", "M0 (tapers), R4"),
             new CheckDef("A2", "SKEW", State.Ratchet, "the centre pair centred on the drawn ribbon", "M0 (tapers), R4"),
             new CheckDef("A3", "INSET", State.Ratchet, "every edge line at its inset from its own drawn edge", "M0 (tapers), R4"),
@@ -170,7 +200,7 @@ namespace PSXRacing.EditorTools
             new CheckDef("C1", "GAP", State.Ratchet, "no solid line interrupted between its plan ends", "R4"),
             new CheckDef("C2", "END", State.Ratchet, "lines end only at legitimate ends", "R4"),
             new CheckDef("C3", "DASH", State.Ratchet, "dash and gap lengths along the chained line", "R4 (stubs WP-17)"),
-            new CheckDef("D1", "CROSS", State.Ratchet, "no paint inside other pavement at the same level", "R4 (attach arcs WP-18b)"),
+            new CheckDef("D1", "CROSS", State.Ratchet, "no paint inside other pavement at the same level (branch/host merge zones report-only)", "R4 (merge zones WP-18b)"),
             new CheckDef("E1", "FLOAT", State.Report, "strip paint 0.5-3 cm over the surface (strip paint only)", "WP-17/WP-27"),
         };
 

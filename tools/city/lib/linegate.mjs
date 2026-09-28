@@ -24,6 +24,7 @@
 // here), E1 (strip paint does not exist yet).
 import { quadIso, frameOf } from './paintiso.mjs';
 import { dot, sub } from './linesim.mjs';
+import { kinkChord } from './kink.mjs';
 
 const DEG = 180 / Math.PI;
 const LANE = 3.6576;
@@ -70,9 +71,11 @@ export function planLinesOf(prof, R) {
 
 /// Match a texture's runs to the plan's lines at nominal scale (colour,
 /// pattern, nearest within StrayM). q = the run's lateral minus the plan's:
-/// the texture's own quantisation (up to half a texel), which the position
-/// checks subtract - V is chosen as half a texel precisely because below it
-/// the geometry cannot be told from the texture (gate spec 2).
+/// the texture's own quantisation. Only up to HALF A TEXEL of it (cap = W /
+/// texW / 2 + TexelPadM) is the texture's rounding, which the position checks
+/// subtract (runQc) - V is half a texel precisely because below it geometry
+/// cannot be told from the texture (gate spec 2). A run further off is a
+/// painter fault: A0 TEXTURE fails, and the checks still see the rest of it.
 export function matchLayout(runs, plan, W, R) {
   const cand = [];
   runs.forEach((r, k) => plan.forEach((p, j) => {
@@ -83,7 +86,10 @@ export function matchLayout(runs, plan, W, R) {
   cand.sort((a, b) => Math.abs(a.d) - Math.abs(b.d));
   const runPlan = new Array(runs.length).fill(-1), runQ = new Array(runs.length).fill(0), planRun = new Array(plan.length).fill(-1);
   for (const c of cand) if (runPlan[c.k] < 0 && planRun[c.j] < 0) { runPlan[c.k] = c.j; runQ[c.k] = c.d; planRun[c.j] = c.k; }
-  return { runPlan, runQ, planRun };
+  const texW = runs.length ? runs[0].texW : 0;
+  const cap = (texW ? W / texW / 2 : 0) + R.TexelPadM;
+  const runQc = runQ.map(q => Math.max(-cap, Math.min(cap, q)));
+  return { runPlan, runQ, runQc, planRun, cap };
 }
 
 // ------------------------------------------------------------ polyline helpers
@@ -178,7 +184,7 @@ export function runGate(S, R, layouts, opts = {}) {
   // ---- the plan and the texture per profile key
   const profOf = new Map();
   for (const e of E) profOf.set(e.profile.key, e.profile);
-  const plans = new Map(), texNotes = [], texQ = {};
+  const plans = new Map(), texNotes = [], texQ = {}, texCap = {}, texFails = [];
   for (const [key, prof] of profOf) {
     const plan = planLinesOf(prof, R);
     const bySurf = {};
@@ -187,9 +193,15 @@ export function runGate(S, R, layouts, opts = {}) {
       if (!runs) continue;
       const m = matchLayout(runs, plan, prof.width, R);
       bySurf[surf] = { runs, ...m };
-      runs.forEach((r, k) => { if (m.runPlan[k] < 0) texNotes.push(`${key}_${surf}: texture run at u ${r.u.toFixed(4)} (${r.col}${r.dashed ? ' dashed' : ''}) has no plan line`); });
-      plan.forEach((p, j) => { if (m.planRun[j] < 0) texNotes.push(`${key}_${surf}: plan line ${p.id} has no texture run`); });
+      // A0 TEXTURE: every run planned and within half a texel of its line, every plan line painted
+      const fail = (what, val, ratio) => { texNotes.push(`${key}_${surf}: ${what}`); texFails.push({ key, surf, what, val, ratio }); };
+      runs.forEach((r, k) => {
+        if (m.runPlan[k] < 0) fail(`texture run at u ${r.u.toFixed(4)} (${r.col}${r.dashed ? ' dashed' : ''}) has no plan line`, 0, 99);
+        else if (Math.abs(m.runQ[k]) > m.cap) fail(`texture run at u ${r.u.toFixed(4)} sits ${(m.runQ[k] * 100).toFixed(1)} cm from plan line ${plan[m.runPlan[k]].id}, over half a texel (${(m.cap * 100).toFixed(1)} cm)`, Math.abs(m.runQ[k]), Math.abs(m.runQ[k]) / m.cap);
+      });
+      plan.forEach((p, j) => { if (m.planRun[j] < 0) fail(`plan line ${p.id} has no texture run`, 0, 99); });
       let q = 0; for (const v of m.runQ) q = Math.max(q, Math.abs(v)); texQ[key] = Math.max(texQ[key] || 0, q);
+      texCap[key] = m.cap;
     }
     plans.set(key, { plan, bySurf });
   }
@@ -387,49 +399,51 @@ export function runGate(S, R, layouts, opts = {}) {
     const latL = A.latL + (B.latL - A.latL) * t, latR = A.latR + (B.latR - A.latR) * t;
     return Math.max(0, Math.min(lat - latL, latR - lat));
   }
-  const mergeZone = (e, o) => {
-    if (S.isClipPair(e.index, o.index)) return true;
-    for (const n of [e.a, e.b]) if ((n === o.a || n === o.b) && (T.mitre[n] || T.patch[n])) return true;
-    return false;
-  };
+  /// A plan merge zone is a branch/host pair only: the trims' branch table and
+  /// the BranchSeats chains built from it (the replica's clip pairs). Sharing a
+  /// fan or a mitred node is NOT a merge zone: paint there inside another road
+  /// is "paint crossing the junction", which D1 gates.
+  const mergeZone = (e, o) => S.isClipPair(e.index, o.index);
 
   // ---- runs
   const runs = [];
   const stats = { edges: 0, ribbonKm: 0, lineKm: 0, chains: chains.length, strands: 0, samples: 0 };
   const lineKey = (e, s) => Math.round((wayOff[e.index] + s) / R.KeyStepM);
-  /// Emit runs from an ordered sample list: [{x, z, e, s, val(or NaN), bad}]
-  function emitRuns(check, lineId, samples, limit, extra = {}, minIsWorse = false) {
-    let cur = null, arc = 0;
-    const worse = (a, b) => minIsWorse ? a < b : Math.abs(a) > Math.abs(b);
-    const close = () => { if (cur) { runs.push(cur); cur = null; } };
-    for (let i = 0; i < samples.length; i++) {
-      const p = samples[i];
-      if (i > 0) arc += Math.hypot(p.x - samples[i - 1].x, p.z - samples[i - 1].z);
-      if (!p.bad) { close(); continue; }
-      if (!cur) cur = { check, lineId, e: p.e, s: p.s, x: p.x, z: p.z, val: p.val, len: 0, a0: arc, e0: p.e, s0: p.s, e1: p.e, s1: p.s, tag: p.tag, span: p.span, side: p.side, ...extra };
-      cur.len = arc - cur.a0; cur.e1 = p.e; cur.s1 = p.s;
-      if (worse(p.val, cur.val)) { cur.val = p.val; cur.e = p.e; cur.s = p.s; cur.x = p.x; cur.z = p.z; cur.tag = p.tag; cur.span = p.span; cur.side = p.side; }
-    }
-    close();
-  }
+  const BUCKETS = 1048576;   // a bucket id is wayId * BUCKETS + round(s on way / KeyStepM)
+  const bucketOf = (e, s) => e.wayId * BUCKETS + Math.max(0, lineKey(e, s));
   const minRunLen = { A5: R.StrayRunM, A5b: R.StrayRunM };
-  /// The same, streamed: push samples in order along one line (no sample
-  /// objects - the city is thirty million of them).
+  /// Consecutive bad samples along one line, merged into a run and streamed
+  /// (no sample objects: the city is thirty million of them). A run breaks
+  /// where two bad samples lie more than RunBreakM apart, and keeps the worst
+  /// value of every KeyStepM bucket it touches (its ratchet keys).
   class RunBuilder {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
+    /// A break in the samples (between B1 windows): closes, no arc across it.
+    gap() { this.close(); this.px = NaN; }
     push(x, z, e, s, val, bad, tag, span, side) {
       if (!Number.isNaN(this.px)) this.arc += Math.hypot(x - this.px, z - this.pz);
       this.px = x; this.pz = z;
       if (!bad) { this.close(); return; }
       let c = this.cur;
+      if (c && this.arc - c.lastArc > R.RunBreakM) { this.close(); c = null; }
       if (!c) {
-        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side };
+        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [] };
         if (this.extra) Object.assign(c, this.extra);
       }
-      c.len = this.arc - c.a0; c.e1 = e; c.s1 = s;
-      if (this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val)) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; }
+      c.len = this.arc - c.a0; c.lastArc = this.arc; c.e1 = e; c.s1 = s;
+      const worse = this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val);
+      const bid = bucketOf(E[e], s), nb = c.bk.length;
+      if (nb && c.bk[nb - 1] === bid) { if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val; }
+      else { c.bk.push(bid); c.bv.push(val); }
+      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
+  }
+  /// Emit runs from an ordered sample list: [{x, z, e, s, val, bad}] or {gap: true}.
+  function emitRuns(check, lineId, samples, limit, extra = {}, minIsWorse = false) {
+    const b = new RunBuilder(check, lineId, extra, minIsWorse);
+    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side); }
+    b.close();
   }
 
   // ---- extraction of one edge (in its own direction)
@@ -467,7 +481,7 @@ export function runGate(S, R, layouts, opts = {}) {
     // painted lines, per run
     const lines = lay.runs.map((run, k) => {
       const j = lay.runPlan[k];
-      const L = { k, run, plan: j >= 0 ? P.plan[j] : null, q: lay.runQ[k], pieces: [] };
+      const L = { k, run, plan: j >= 0 ? P.plan[j] : null, q: lay.runQc[k], pieces: [] };
       let piece = null;
       for (const sp of spans) {
         if (sp.skip) { piece = null; continue; }
@@ -538,7 +552,7 @@ export function runGate(S, R, layouts, opts = {}) {
       const lineId = plan ? plan.id : `T${col}${L.run.dashed ? 'd' : 's'}u${L.run.u.toFixed(3)}`;
       for (const pc of L.pieces) {
         const bA1 = new RunBuilder('A1', lineId), bA4 = new RunBuilder('A4', lineId), bA5 = new RunBuilder('A5', lineId);
-        const bD1 = new RunBuilder('D1', lineId), bD1m = new RunBuilder('D1', lineId, { reportOnly: 'merge zone (BranchSeats attach arc): report-only until WP-18b' });
+        const bD1 = new RunBuilder('D1', lineId), bD1m = new RunBuilder('D1', lineId, { reportOnly: 'merge zone (a branch/host pair: the trims branch table or BranchSeats): report-only until WP-18b' });
         for (let i = 1; i < pc.pts.length; i++) {
           const a = pc.pts[i - 1], b = pc.pts[i];
           const segL = Math.hypot(b.x - a.x, b.z - a.z);
@@ -569,7 +583,7 @@ export function runGate(S, R, layouts, opts = {}) {
               if (pj.anchor === 'C' ? !(Math.abs(pj.off) < hw - R.ExistInsetM) : !(hw - pj.inset > 0)) continue;
               const kk = ed.lay.planRun[j];
               const off = pj.anchor === 'C' ? pj.off : pj.anchor === 'EL' ? hw - pj.inset : -(hw - pj.inset);
-              const d = Math.abs(sd - off - (kk >= 0 ? ed.lay.runQ[kk] : 0));
+              const d = Math.abs(sd - off - (kk >= 0 ? ed.lay.runQc[kk] : 0));
               if (d < dmin) dmin = d;
             }
             bA5.push(x, z, e.index, s, Math.min(dmin, 10), dmin > R.StrayM, tag, span);
@@ -629,7 +643,7 @@ export function runGate(S, R, layouts, opts = {}) {
             const a = grid[k1][k], b = grid[k2][k], l = gridRib.L[k], r = gridRib.R[k];
             const p = S.pointAt(e, s);
             if (sp.cropL || sp.cropR || [a, b, l, r].some(Number.isNaN)) { smp.push({ x: p[0], z: p[1], e: e.index, s, val: 0, bad: false }); continue; }
-            const skew = (a + b) / 2 - (ed.lay.runQ[k1] + ed.lay.runQ[k2]) / 2 - (l + r) / 2;
+            const skew = (a + b) / 2 - (ed.lay.runQc[k1] + ed.lay.runQc[k2]) / 2 - (l + r) / 2;
             smp.push({ x: p[0], z: p[1], e: e.index, s, val: skew, bad: Math.abs(skew) > V, span: sp.i });
           }
           emitRuns('A2', 'CPAIR', smp, V);
@@ -637,11 +651,11 @@ export function runGate(S, R, layouts, opts = {}) {
       }
     }
     // ---- A3 INSET: each edge line against its own drawn edge
-    for (const [pid, side] of [['EL', 'R'], ['ER', 'L']]) {
+    for (const [pid, side, sgn] of [['EL', 'R', 1], ['ER', 'L', -1]]) {
       const j = plan.findIndex(p => p.id === pid), k = j >= 0 ? ed.lay.planRun[j] : -1;
       if (k < 0) continue;
-      const run = ed.lay.runs[k], W = e.profile.width;
-      const planInset = W / 2 - Math.abs((0.5 - run.u) * W);   // the run's inset at nominal scale
+      // the PLAN's inset (shoulder + EdgeLineInsetM), less only the texture's half-texel rounding
+      const planInset = plan[j].inset - sgn * ed.lay.runQc[k];
       const smp = [];
       for (let b = 0; b < nb; b++) {
         const s = binS(b), sp = spanAt(s), p = S.pointAt(e, s);
@@ -690,13 +704,17 @@ export function runGate(S, R, layouts, opts = {}) {
     if (keep.length < 3) return;
     const C = arcOf(pts, keep);
     const Ltot = C[C.length - 1];
-    // B2 KINK at every kept interior vertex
-    const b2 = [];
+    // B2 KINK at every kept interior vertex; the chords reach past noise turns (lib/kink.mjs)
+    const TH = new Float64Array(keep.length);
     for (let m = 1; m + 1 < keep.length; m++) {
       const a = pts[keep[m - 1]], b = pts[keep[m]], c = pts[keep[m + 1]];
+      TH[m] = turnOf(a.x, a.z, b.x, b.z, c.x, c.z);
+    }
+    const b2 = [];
+    for (let m = 1; m + 1 < keep.length; m++) {
+      const b = pts[keep[m]];
       if (b.x3 || b.gore) { b2.push({ ...b, val: 0, bad: false }); continue; }
-      const th = turnOf(a.x, a.z, b.x, b.z, c.x, c.z);
-      const f = Math.min(C[m] - C[m - 1], C[m + 1] - C[m], R.ChordCapM) * Math.abs(th) / 8;
+      const f = kinkChord(C, TH, m, R.KinkNoiseShare, R.ChordCapM) * Math.abs(TH[m]) / 8;
       b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side });
     }
     emitRuns('B2', lineId, b2, V, { kind });
@@ -730,7 +748,7 @@ export function runGate(S, R, layouts, opts = {}) {
     let last = -1, hint = 0, wlo = 0;
     for (const a of cand) {
       if (Math.abs(a - last) < 1e-6) continue;
-      if (last >= 0 && a - last > step * 1.5) b1.push({ x: 0, z: 0, val: 0, bad: false, gap: true });
+      if (last >= 0 && a - last > step * 1.5) b1.push({ gap: true });
       last = a;
       let exempt = false;
       for (let j = -nH; j <= nH; j++) {
@@ -753,7 +771,7 @@ export function runGate(S, R, layouts, opts = {}) {
       const res = dev < V / 2 ? 0 : kasaResidual(xs, zs, nH);
       b1.push({ x: centre.x, z: centre.z, e: src.e, s: src.s, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side });
     }
-    emitRuns('B1', lineId, b1.filter(p => !p.gap), V, { kind });
+    emitRuns('B1', lineId, b1, V, { kind });
   }
 
   // ---- C3 DASH along one identity chain of a dashed line
@@ -918,17 +936,22 @@ export function runGate(S, R, layouts, opts = {}) {
         }
         const plan = p.L.plan;
         if (!legit && plan) {
-          // the plan drops or adds the line here (its existence changes within FanMouthM), or across the joint the other
-          // edge's plan has no line of this colour and pattern within MatchM
+          // the plan drops or adds the line here (its existence changes within FanMouthM); or at a joint the plan across
+          // carries fewer lines of this colour and pattern (a lane drop: one of them must end), or none within a lane
+          // (MatchM). A line that continues across the node was paired above (a JUMP) and never gets here.
           const s0 = Math.max(sMin, pt.s - R.FanMouthM), s1 = Math.min(sMax, pt.s + R.FanMouthM);
           if (planExists(plan, e, s0) !== planExists(plan, e, s1)) legit = 'plan lane drop';
           else if (node >= 0 && jointAt(e, node) >= 0) {
             const o = E[jointAt(e, node)], op = plans.get(o.profile.key).plan;
+            const so = o.a === node ? 0 : o.length, sn = node === e.a ? 0 : e.length;
             const lat = sdRef(ed.ref, pt.x, pt.z, pt.s);
             // the other edge's lateral frame: flip when the two run opposite ways through the node
             const same = (e.b === node) === (o.a === node);
-            const has = op.some(q => q.col === p.col && q.dashed === p.dashed && Math.abs((same ? 1 : -1) * planOff(q, o, o.a === node ? 0 : o.length) - lat) <= R.MatchM);
-            if (!has) legit = 'plan lane drop at a node';
+            const like = q => q.col === p.col && q.dashed === p.dashed;
+            const nOther = op.filter(q => like(q) && planExists(q, o, so)).length, nThis = ed.plan.filter(q => like(q) && planExists(q, e, sn)).length;
+            const has = op.some(q => like(q) && planExists(q, o, so) && Math.abs((same ? 1 : -1) * planOff(q, o, so) - lat) <= R.MatchM);
+            if (nOther < nThis) legit = 'plan lane drop at a node';
+            else if (!has) legit = 'plan line ends at a node';
           }
         }
         // a legitimate place is still a stray end when the line is off its plan there
@@ -959,7 +982,17 @@ export function runGate(S, R, layouts, opts = {}) {
     const limit = r.check === 'A4' ? R.LineWidthTol : r.check === 'A5' || r.check === 'A5b' ? R.StrayM : r.check === 'B3' ? r.rLimit
       : r.check === 'C1' ? R.GapM : r.check === 'C2' ? 1 : r.check === 'C3' ? R.DashTol : r.check === 'D1' ? R.CrossM : V;
     r.limit = limit;
-    r.ratio = r.check === 'B3' ? limit / Math.max(1e-6, r.val) : r.check === 'C2' ? r.val : Math.abs(r.val) / limit;
+    const ratioOf = v => r.check === 'B3' ? limit / Math.max(1e-6, v) : r.check === 'C2' ? v : Math.abs(v) / limit;
+    r.ratio = ratioOf(r.val);
+    // the ratchet keys: (way, round(s on way / KeyStepM), check, line) for EVERY bucket the run's bad samples touch,
+    // each with its own worst ratio; a point run (B4, C2, C3) has its one, a gap (C1) every bucket it spans
+    r.kk = []; r.kq = [];
+    const addKey = (bid, v) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.lineId}`); r.kq.push(ratioOf(v)); };
+    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i]));
+    else if (r.check === 'C1') for (let b = bucketOf(e, Math.min(r.s0, r.s1)); b <= bucketOf(e, Math.max(r.s0, r.s1)); b++) addKey(b, r.val);
+    else addKey(bucketOf(e, r.s), r.val);
+    delete r.bk; delete r.bv; delete r.lastArc;
+    r.tile = `${Math.floor(r.x / 256)},${Math.floor(r.z / 256)}`;
     if ((r.check === 'A5' || r.check === 'A5b') && r.len < minRunLen[r.check]) r.drop = true;
     // cause hint
     const near = r.check === 'C1' ? (e.secs || []).filter(c => c.s >= Math.min(r.s0, r.s1) - 1 && c.s <= Math.max(r.s0, r.s1) + 1) : secNear(e, r.s);
@@ -979,5 +1012,5 @@ export function runGate(S, R, layouts, opts = {}) {
     r.score = Math.min(r.ratio, R.RankRatioCap) * R.weightFor(e.klass) * r.exposure;
   }
   const kept = runs.filter(r => !r.drop);
-  return { runs: kept, stats, texQ, texNotes, chains: chains.length };
+  return { runs: kept, stats, texQ, texCap, texNotes, texFails, chains: chains.length };
 }
