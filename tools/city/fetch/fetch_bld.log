@@ -1,0 +1,5 @@
+[fetch] buildings_core.json from overpass-api.de
+  ok 35112 elements 27.8 MB 3 s
+[fetch] streets_core.json from overpass-api.de
+  ok 5728 elements 5.5 MB 2 s
+done

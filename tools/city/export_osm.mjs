@@ -17,8 +17,11 @@
 //     Unity solver holds those stations on structure and lifts them clear.
 //   * REAL RAMPS. Every *_link way, joined to its mainline at the node OSM
 //     joins it at, with the merge gore drawn by the tile builder.
-//   * REAL GROUND. A 60 m SRTM height grid over the whole beltway (min-filtered
-//     so uptown's roofs do not read as hills), instead of value noise.
+//   * REAL GROUND. A 60 m height grid over the whole beltway, sampled from
+//     the AWS Terrain Tiles "skadi" 1" tiles (Tilezen: in the US a BARE-EARTH
+//     mosaic built from USGS NED/3DEP, not raw SRTM radar - it has no towers
+//     in it), then opened/closed/blurred (see the DEM section), instead of
+//     value noise.
 //   * REAL BUILDINGS in the core: 35k footprints with heights, so the skyline
 //     is Charlotte's and the neighbourhoods are the neighbourhoods.
 //   * THE THREE RACE ROUTES (Uptown Loop, Tryon Sprint, Independence Sprint)
@@ -31,28 +34,46 @@
 //   tools/city/cache/nodes_all.json     signal / stop / yield nodes
 //   tools/city/cache/streets_core.json  residential/unclassified in the core
 //   tools/city/cache/buildings_core.json footprints in the core
-//   tools/roads/cache/N35W081.hgt.gz    SRTM 1-arcsecond (via lib.mjs)
+//   tools/roads/cache/N3?W08?.hgt.gz    four skadi 1" tiles (.hgt format, via
+//                                       lib.mjs; bare earth, see REAL GROUND)
 //   RG2/src/config/world/baselineWater.ts  the traced creeks + Lake Wylie
 //   RG2/src/config/world/baselineRoads.ts  legacy I-485, ONLY to register water
+//   RG2/fixtures/osm/charlotte_rows.json   RG2's merged I-485 row (water fit)
+// Every input's size, sha256 and Overpass snapshot time is recorded in
+// tools/city/cache_manifest.json; --check verifies them.
 //
-// Outputs:
-//   Assets/PSXRacing/Resources/charlotte_city.bytes    graph + water + routes
-//   Assets/PSXRacing/Resources/charlotte_dem.bytes     height grid
-//   Assets/PSXRacing/Resources/charlotte_bld.bytes     footprints
-//   Assets/PSXRacing/Resources/charlotte_routes.json   the menu's copy of the routes
-//   tools/city/charlotte_*.png                          debug plots
+// Outputs (the four files the game loads from Resources):
+//   charlotte_city.bytes    graph + water + routes
+//   charlotte_dem.bytes     height grid
+//   charlotte_bld.bytes     footprints
+//   charlotte_routes.json   the menu's copy of the routes
+//   tools/city/charlotte_*.png   debug plots (with --out only; gitignored)
 //
-// Run:  node tools/city/export_osm.mjs
+// Run (it never writes into Resources unless told to):
+//   node tools/city/export_osm.mjs --check
+//       export in memory and compare byte for byte with the shipped files
+//       in Assets/PSXRacing/Resources (or --against <dir>); also checks the
+//       inputs against cache_manifest.json and the result against
+//       tools/city/fingerprint.json. Exit 0 only when all of it matches.
+//   node tools/city/export_osm.mjs --out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json
+//       write the four files (to any directory), and the fingerprint.
+//   node tools/city/export_osm.mjs --manifest
+//       record the current inputs in cache_manifest.json (after a re-fetch).
+// Node is pinned in tools/city/package.json (engines): V8's trig is not
+// bit-stable across releases, so after a Node change compare the
+// fingerprint, not the bytes.
 //
 // Frame: plain equirectangular about RG2's fixture centre (the I-485 centroid),
 // x east, z north, metres — the same frame every previous bake registered
 // into, so nothing that stored a city coordinate moves.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { srtmSampler } from '../roads/lib.mjs';
+import { parseCity, parseDem, parseBld, fingerprint } from './lib/citydata.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -60,6 +81,44 @@ const CACHE = join(HERE, 'cache');
 const RG2 = 'C:/Users/mcgee/code/Racing-Game-2';
 const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
 const SRTM_CACHE = join(HERE, '..', 'roads', 'cache');
+const MANIFEST = join(HERE, 'cache_manifest.json');
+const FINGERPRINT = join(HERE, 'fingerprint.json');
+
+// ------------------------------------------------------------------ mode
+const ARGS = process.argv.slice(2);
+function argVal(name) {
+  const i = ARGS.indexOf(name);
+  if (i < 0) return null;
+  const v = ARGS[i + 1];
+  if (!v || v.startsWith('--')) throw new Error(`${name} needs a value`);
+  return v;
+}
+const MODE = {
+  check: ARGS.includes('--check'),
+  out: argVal('--out'),
+  against: argVal('--against') || RES,
+  fingerprint: argVal('--fingerprint'),
+  manifest: ARGS.includes('--manifest'),
+};
+if (!MODE.check && !MODE.out && !MODE.manifest) {
+  console.error('export_osm.mjs writes nothing unless told where. Use one of:\n' +
+    '  --check                     export in memory, compare with the shipped files (exit 1 on any difference)\n' +
+    '  --out <dir> [--fingerprint <file>]   write the four data files into <dir>\n' +
+    '  --manifest                  record the current inputs in tools/city/cache_manifest.json\n' +
+    'e.g. node tools/city/export_osm.mjs --out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json');
+  process.exit(2);
+}
+{
+  // Node is pinned for byte-identical output (see the header).
+  try {
+    const want = JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).engines?.node;
+    if (want && process.version.replace(/^v/, '') !== want.replace(/^v/, ''))
+      console.log(`NOTE: Node ${process.version}, but tools/city/package.json pins ${want}: bytes may differ; compare the fingerprint.`);
+  } catch { /* no package.json: nothing pinned */ }
+}
+/// The finished files, by name, written or compared at the end.
+const OUTPUTS = new Map();
+const emit = (name, bytes) => OUTPUTS.set(name, Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes));
 
 // --------------------------------------------------------------- constants
 const LANE_M = 3.6576;                 // 12 ft, the section currency (never scaled)
@@ -670,9 +729,13 @@ let dem = new Float32Array(demNX * demNZ);
 for (let iz = 0; iz < demNZ; iz++)
   for (let ix = 0; ix < demNX; ix++)
     dem[iz * demNX + ix] = srtm(toLat(bbox.z0 + iz * DEM_CELL), toLon(bbox.x0 + ix * DEM_CELL));
-// Roofs: SRTM is a radar return and uptown's towers stand 200 m proud of
-// the street. A 5x5 MIN over 60 m cells (a 120 m reach) finds street level
-// between blocks; then a Gaussian settles the erosion's flat tops.
+// The filters below were written for "roofs": the source was taken to be
+// SRTM radar with uptown's towers 200 m proud of the street. It is not -
+// the skadi tile is bare earth (215-232 m in a 1 km window round the Bank of
+// America tower, 1.5 m RMSE against 3DEP; survey_flatness 2026-09-27) - so
+// the opening/closing/Gaussian removes real ridges and valleys, and is the
+// main reason the city looks flat. Kept as is until WP-04 replaces the
+// ground: this pass (WP-01) must reproduce the shipped bytes.
 function minFilter(src, r) {
   const out = new Float32Array(src.length);
   for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
@@ -1055,8 +1118,6 @@ class Writer {
   }
   bytes() { this.chunks.push(this.buf.subarray(0, this.pos)); return Buffer.concat(this.chunks); }
 }
-mkdirSync(RES, { recursive: true });
-
 // uptown (Trade & Tryon)
 const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
 
@@ -1107,8 +1168,8 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     for (const c of r.chain) { w.u32(c.e.id); w.i8(c.dir); }
   }
   const bytes = w.bytes();
-  writeFileSync(join(RES, 'charlotte_city.bytes'), bytes);
-  console.log(`wrote charlotte_city.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  emit('charlotte_city.bytes', bytes);
+  console.log(`charlotte_city.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
 }
 
 // ---- DEM
@@ -1120,8 +1181,8 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   w.f32(bbox.x0); w.f32(bbox.z0); w.f32(DEM_CELL); w.f32(demBase);
   for (let i = 0; i < dem.length; i++) w.u16(Math.round(Math.max(0, dem[i] - demBase) * 10));
   const bytes = w.bytes();
-  writeFileSync(join(RES, 'charlotte_dem.bytes'), bytes);
-  console.log(`wrote charlotte_dem.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  emit('charlotte_dem.bytes', bytes);
+  console.log(`charlotte_dem.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
 }
 
 // ---- buildings
@@ -1138,8 +1199,8 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     for (const p of b.pts) { w.f32(p[0]); w.f32(p[1]); }
   }
   const bytes = w.bytes();
-  writeFileSync(join(RES, 'charlotte_bld.bytes'), bytes);
-  console.log(`wrote charlotte_bld.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  emit('charlotte_bld.bytes', bytes);
+  console.log(`charlotte_bld.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
 }
 
 // ---- the menu's routes (small JSON: lengths and a coarse line per venue)
@@ -1154,8 +1215,8 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
       pts: r.coarse.flatMap(p => [r1(p[0]), r1(p[1])]),
     })),
   };
-  writeFileSync(join(RES, 'charlotte_routes.json'), JSON.stringify(out));
-  console.log('wrote charlotte_routes.json');
+  emit('charlotte_routes.json', JSON.stringify(out));
+  console.log('charlotte_routes.json');
 }
 
 // ------------------------------------------------------------- stats
@@ -1239,6 +1300,7 @@ function plot(name, cx, cz, halfM, S) {
   for (const r of routes) for (let i = 1; i < r.coarse.length; i++) if (inView(r.coarse[i])) line(px(r.coarse[i - 1][0]), py(r.coarse[i - 1][1]), px(r.coarse[i][0]), py(r.coarse[i][1]), 2, 0, 200, 255);
   png(S, S, rgb, join(HERE, `charlotte_${name}.png`));
 }
+if (MODE.out) {
 plot('city', 0, 0, 18000, 1800);
 plot('uptown', uptownX, uptownZ, 1500, 1500);
 plot('core', uptownX, uptownZ, 4500, 1800);
@@ -1254,3 +1316,125 @@ plot('core', uptownX, uptownZ, 4500, 1800);
   if (best) plot('interchange', best.x, best.z, 500, 1200);
 }
 console.log('wrote debug PNGs');
+}
+
+// ------------------------------------------------- write, or check, the result
+// The inputs this export read: the Overpass cache (with its snapshot time),
+// the skadi tiles the DEM bbox touched, and the RG2 files the water fit
+// reads. --manifest records them; --check verifies them, so a failed check
+// says whether the INPUTS moved or the CODE did.
+function inputFiles() {
+  const files = [];
+  const add = (label, path, kind) => { if (existsSync(path)) files.push({ label, path, kind }); };
+  add('tools/city/cache/ways_all.json', join(CACHE, 'ways_all.json'), 'overpass');
+  add('tools/city/cache/nodes_all.json', join(CACHE, 'nodes_all.json'), 'overpass');
+  add('tools/city/cache/streets_core.json', join(CACHE, 'streets_core.json'), 'overpass');
+  add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
+  const s = toLat(bbox.z0), n = toLat(bbox.z1), w = toLon(bbox.x0), e = toLon(bbox.x1);
+  for (let lat = Math.floor(s); lat <= Math.floor(n); lat++)
+    for (let lon = Math.floor(w); lon <= Math.floor(e); lon++) {
+      const key = `N${String(lat).padStart(2, '0')}W${String(-lon).padStart(3, '0')}`;
+      add(`tools/roads/cache/${key}.hgt.gz`, join(SRTM_CACHE, key + '.hgt.gz'), 'skadi');
+    }
+  add('RG2/src/config/world/baselineWater.ts', `${RG2}/src/config/world/baselineWater.ts`, 'rg2');
+  add('RG2/src/config/world/baselineRoads.ts', `${RG2}/src/config/world/baselineRoads.ts`, 'rg2');
+  add('RG2/fixtures/osm/charlotte_rows.json', `${RG2}/fixtures/osm/charlotte_rows.json`, 'rg2');
+  return files;
+}
+const sha256 = buf => createHash('sha256').update(buf).digest('hex');
+function describeInputs() {
+  return inputFiles().map(f => {
+    const buf = readFileSync(f.path);
+    const d = { file: f.label, kind: f.kind, bytes: buf.length, sha256: sha256(buf) };
+    if (f.kind === 'overpass') {
+      // the snapshot line sits in the first few hundred bytes of an Overpass body
+      const m = /"timestamp_osm_base"\s*:\s*"([^"]+)"/.exec(buf.subarray(0, 2048).toString('utf8'));
+      d.timestamp_osm_base = m ? m[1] : null;
+    }
+    return d;
+  });
+}
+const withoutVolatile = fp => { const c = JSON.parse(JSON.stringify(fp)); delete c.outputs; delete c.generated; return c; };
+function diffJson(a, b, path = '', out = []) {
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
+    if (JSON.stringify(a) !== JSON.stringify(b)) out.push(`${path || '.'}: ${JSON.stringify(b)} -> ${JSON.stringify(a)}`);
+    return out;
+  }
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffJson(a[k], b[k], path ? `${path}.${k}` : k, out);
+  return out;
+}
+function makeFingerprint() {
+  const fp = fingerprint(parseCity(OUTPUTS.get('charlotte_city.bytes')),
+                         parseDem(OUTPUTS.get('charlotte_dem.bytes')),
+                         parseBld(OUTPUTS.get('charlotte_bld.bytes')));
+  const outputs = {};
+  for (const [name, buf] of OUTPUTS) outputs[name] = { bytes: buf.length, sha256: sha256(buf) };
+  return { schema: 1, ...fp, outputs, generated: { by: 'tools/city/export_osm.mjs', node: process.version } };
+}
+
+let failed = false;
+if (MODE.manifest) {
+  const m = { schema: 1, note: 'Inputs of tools/city/export_osm.mjs. The Overpass cache is gitignored and exists only on the machine that fetched it (tools/city/fetch/ holds the queries); this records exactly what the shipped data was made from.',
+              recorded_with: process.version, inputs: describeInputs() };
+  writeFileSync(MANIFEST, JSON.stringify(m, null, 2) + '\n');
+  console.log(`wrote ${relative(UNITY, MANIFEST)} (${m.inputs.length} inputs)`);
+}
+if (MODE.out) {
+  const dir = resolve(UNITY, MODE.out);
+  mkdirSync(dir, { recursive: true });
+  for (const [name, buf] of OUTPUTS) {
+    writeFileSync(join(dir, name), buf);
+    console.log(`wrote ${relative(UNITY, join(dir, name))}  ${buf.length} B  sha256 ${sha256(buf).slice(0, 16)}`);
+  }
+}
+if (MODE.fingerprint) {
+  const path = resolve(UNITY, MODE.fingerprint);
+  writeFileSync(path, JSON.stringify(makeFingerprint(), null, 2) + '\n');
+  console.log(`wrote ${relative(UNITY, path)}`);
+}
+if (MODE.check) {
+  console.log('\n==== CHECK ====');
+  // 1. inputs against the manifest
+  if (!existsSync(MANIFEST)) { console.log('inputs: no cache_manifest.json to check against'); failed = true; }
+  else {
+    const want = new Map(JSON.parse(readFileSync(MANIFEST, 'utf8')).inputs.map(d => [d.file, d]));
+    const have = describeInputs();
+    let bad = 0;
+    for (const d of have) {
+      const w = want.get(d.file);
+      if (!w) { console.log(`  input NEW       ${d.file}`); bad++; continue; }
+      want.delete(d.file);
+      if (w.sha256 !== d.sha256) {
+        console.log(`  input CHANGED   ${d.file}  ${w.sha256.slice(0, 12)} -> ${d.sha256.slice(0, 12)}` +
+                    (d.timestamp_osm_base ? `  snapshot ${w.timestamp_osm_base} -> ${d.timestamp_osm_base}` : ''));
+        bad++;
+      }
+    }
+    for (const w of want.values()) { console.log(`  input MISSING   ${w.file}`); bad++; }
+    console.log(bad ? `inputs: ${bad} differ from cache_manifest.json` : `inputs: all ${have.length} match cache_manifest.json`);
+    if (bad) failed = true;
+  }
+  // 2. the four files, byte for byte
+  const dir = resolve(UNITY, MODE.against);
+  for (const [name, buf] of OUTPUTS) {
+    const p = join(dir, name);
+    if (!existsSync(p)) { console.log(`  MISSING  ${name} (not in ${relative(UNITY, dir)})`); failed = true; continue; }
+    const old = readFileSync(p);
+    if (old.equals(buf)) { console.log(`  IDENTICAL  ${name}  ${buf.length} B  sha256 ${sha256(buf).slice(0, 16)}`); continue; }
+    let at = 0;
+    while (at < Math.min(old.length, buf.length) && old[at] === buf[at]) at++;
+    console.log(`  DIFFERENT  ${name}  shipped ${old.length} B, export ${buf.length} B, first difference at byte ${at}`);
+    failed = true;
+  }
+  // 3. the fingerprint (what survives a Node change that moves low bits)
+  if (existsSync(FINGERPRINT)) {
+    const d = diffJson(withoutVolatile(makeFingerprint()), withoutVolatile(JSON.parse(readFileSync(FINGERPRINT, 'utf8'))));
+    if (d.length) {
+      console.log(`fingerprint: ${d.length} differences from tools/city/fingerprint.json (was -> now)`);
+      for (const l of d.slice(0, 40)) console.log('  ' + l);
+      failed = true;
+    } else console.log('fingerprint: identical to tools/city/fingerprint.json');
+  } else { console.log('fingerprint: no tools/city/fingerprint.json yet'); failed = true; }
+  console.log(failed ? 'EXPORT CHECK: FAILED' : 'EXPORT CHECK OK: the cache reproduces the shipped data byte for byte');
+}
+if (failed) process.exitCode = 1;

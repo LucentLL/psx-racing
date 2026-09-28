@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "note": "Inputs of tools/city/export_osm.mjs. The Overpass cache is gitignored and exists only on the machine that fetched it (tools/city/fetch/ holds the queries); this records exactly what the shipped data was made from.",
+  "recorded_with": "v24.15.0",
+  "inputs": [
+    {
+      "file": "tools/city/cache/ways_all.json",
+      "kind": "overpass",
+      "bytes": 20071961,
+      "sha256": "7f1fceb08b8aee4697f1cfdf376bb5807b595dd217ec3ca078696bd5040d881a",
+      "timestamp_osm_base": "2026-09-12T02:44:33Z"
+    },
+    {
+      "file": "tools/city/cache/nodes_all.json",
+      "kind": "overpass",
+      "bytes": 1010738,
+      "sha256": "c6e5d49e6286b14b483a0c4d93f08a07f42dff7a4563475c13e4dd56bde68e08",
+      "timestamp_osm_base": "2026-09-12T02:44:33Z"
+    },
+    {
+      "file": "tools/city/cache/streets_core.json",
+      "kind": "overpass",
+      "bytes": 5467561,
+      "sha256": "b37ea5bb65821d85a93de7594a9e7193df48563c75f0a0a54bf7a1ae72a9f9c3",
+      "timestamp_osm_base": "2026-09-12T02:39:51Z"
+    },
+    {
+      "file": "tools/city/cache/buildings_core.json",
+      "kind": "overpass",
+      "bytes": 27750200,
+      "sha256": "80fe043969bbf2487e7fb8ca22e0e63cb62c662b204ceb58b62d61d8e1fd871b",
+      "timestamp_osm_base": "2026-09-12T02:39:51Z"
+    },
+    {
+      "file": "tools/roads/cache/N34W082.hgt.gz",
+      "kind": "skadi",
+      "bytes": 8050679,
+      "sha256": "adb2976945586114281088919c16856c88ea8d21335a29801293751aa6e66e39"
+    },
+    {
+      "file": "tools/roads/cache/N34W081.hgt.gz",
+      "kind": "skadi",
+      "bytes": 6826524,
+      "sha256": "a2e9b3814397e437a7cd5d32b51d617b1f9d48d7fbc08018146cc1d5aa7d9f6e"
+    },
+    {
+      "file": "tools/roads/cache/N35W082.hgt.gz",
+      "kind": "skadi",
+      "bytes": 10114125,
+      "sha256": "c13334900407e1c80cb4a944ea6611dfbd8806794687e447f0c0f4c7409b87cc"
+    },
+    {
+      "file": "tools/roads/cache/N35W081.hgt.gz",
+      "kind": "skadi",
+      "bytes": 8026641,
+      "sha256": "74a8666e437a5d9161537006a5d1cbfd2c85b2b767f43d33d34b2c4c7e3475c1"
+    },
+    {
+      "file": "RG2/src/config/world/baselineWater.ts",
+      "kind": "rg2",
+      "bytes": 12935,
+      "sha256": "fd98fa2f3ca216b05ddac921502cb5542c6817e418447e38b62925a027360da8"
+    },
+    {
+      "file": "RG2/src/config/world/baselineRoads.ts",
+      "kind": "rg2",
+      "bytes": 12026,
+      "sha256": "a9487e346b653172219673b43ab0009b03464c6dca76c6e7dc1e3527fda2c28c"
+    },
+    {
+      "file": "RG2/fixtures/osm/charlotte_rows.json",
+      "kind": "rg2",
+      "bytes": 531628,
+      "sha256": "427ebaac9d26f00fb81846b00244b0654a562c217e531be78cb078b80a66b31f"
+    }
+  ]
+}

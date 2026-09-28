@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "city": {
+    "version": 1,
+    "nodes": 20194,
+    "edges": 25042,
+    "points": 179325,
+    "node_degrees": [
+      0,
+      925,
+      10990,
+      6067,
+      2088,
+      118,
+      6,
+      0
+    ],
+    "km": 3845.6,
+    "bridges": 791,
+    "tunnels": 8,
+    "links": 2200,
+    "oneway": 13295,
+    "roundabout_edges": 381,
+    "names": 1834,
+    "waters": 32,
+    "water_points": 933,
+    "crossings": 782,
+    "crossings_forced": 782,
+    "water_spans": 264,
+    "controls": {
+      "signal": 1668,
+      "stop": 140,
+      "give_way": 5
+    },
+    "routes": [
+      {
+        "id": "uptown",
+        "edges": 68,
+        "length_m": 9195.2
+      },
+      {
+        "id": "tryon",
+        "edges": 78,
+        "length_m": 6018.1
+      },
+      {
+        "id": "independence",
+        "edges": 38,
+        "length_m": 7015.4
+      }
+    ],
+    "free_vertices": 138941,
+    "kinks_per_km": {
+      "ge5": 7.479,
+      "ge10": 2.475,
+      "ge25": 0.332
+    },
+    "kinks": {
+      "ge5": 28708,
+      "ge10": 9501,
+      "ge25": 1275,
+      "max_deg": 173.1,
+      "folds_over_10cm": 1531
+    }
+  },
+  "dem": {
+    "version": 1,
+    "nx": 811,
+    "nz": 916,
+    "cell": 60,
+    "x0": -26158.3,
+    "z0": -21898.3,
+    "datum_m": 97,
+    "min_asl": 99.2,
+    "max_asl": 273.9
+  },
+  "bld": {
+    "version": 1,
+    "footprints": 31695,
+    "points": 194061,
+    "bbox": [
+      -5844,
+      516,
+      2605,
+      8674
+    ]
+  },
+  "outputs": {
+    "charlotte_city.bytes": {
+      "bytes": 2548018,
+      "sha256": "db3cf4016250d9d478c9593be39034416fe0d83af383af96a3af3c87bc7ee925"
+    },
+    "charlotte_dem.bytes": {
+      "bytes": 1485784,
+      "sha256": "e1434d783fa47d46fb6097081fbaa60a831b47fb59629042ec7c986f29abb8fa"
+    },
+    "charlotte_bld.bytes": {
+      "bytes": 1742686,
+      "sha256": "01edae01ac7d007e1aa7b7b3e530b2662fe5252654d129048ea378843ca4655d"
+    },
+    "charlotte_routes.json": {
+      "bytes": 16176,
+      "sha256": "54b4dafb57ddd3719ad472d9f30fa06c87c4ccabc083c241b6318a2eb514812f"
+    }
+  },
+  "generated": {
+    "by": "tools/city/export_osm.mjs",
+    "node": "v24.15.0"
+  }
+}

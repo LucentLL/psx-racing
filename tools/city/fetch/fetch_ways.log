@@ -1,0 +1,5 @@
+[fetch] ways_all.json from overpass-api.de
+  ok 18628 elements 20.1 MB 4 s
+[fetch] nodes_all.json from overpass-api.de
+  ok 6155 elements 1.0 MB 2 s
+done
