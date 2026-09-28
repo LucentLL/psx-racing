@@ -848,62 +848,76 @@ namespace PSXRacing
         // "Adjust the camera angles to be more like NFS Underground and Most
         // Wanted while maintaining real car and road dimensions." The cars are
         // at their real widths now, so the camera does the work. What NFS
-        // holds, measured off MW / UG / UG2 frames (research, 2026-09-28):
-        // the car's rear tyres sit on the bottom edge (~89% down the frame),
-        // the horizon a little above the middle (~47% down), the camera level
-        // (pitch ~2 deg), vFOV ~58 at 16:9, and a 1.76 m car fills ~25% of the
-        // frame's width (CLOSE ~34%). At speed the car shrinks by 5-9%, never
-        // a third.
+        // holds, measured off MW / UG / UG2 frames (research, 2026-09-28), y
+        // from the BOTTOM of the frame at 16:9:
+        //
+        //            share (1.76 m car)  horizon     rear tyres   pitch    vFOV
+        //   CHASE    25% +-1.5           0.53 +-.02  0.11 +-.02   2 +-1    58
+        //   CLOSE    34% +-2             0.57 +-.02  0.07 +-.02   4.5 +-1  54
+        //
+        // with the roof a few percent of the frame under the horizon (the road
+        // ahead shows over the car), and at 200 km/h the car 5-9% smaller —
+        // never a third. On a phone wider than 16:9 the 16:9 HORIZONTAL field
+        // is held and the lens pitches 3 deg further down, so the car keeps its
+        // share and its tyres stay on the bottom edge.
         //
         // Nothing here is a baked scene value, so all of it ships with a code
-        // build. Per car and per screen shape the rig SOLVES:
-        //   distance  so the car's REAR SILHOUETTE (ChaseSilhouettes) fills its
-        //             width share — share x real width / 1.76 m. One distance
-        //             for every car does not do that: a tapered FD reads a
-        //             fifth narrower per metre than a Charger's square tail.
-        //   height    from the held composition angle (lens down to the rear
-        //             tyres), never lower than roof + clearance so the road
-        //             still shows over the car; a van's lens rises with it.
-        //   pitch     so the rear-tyre contact sits on its line, and never so
-        //             little that the tail's lowest edge leaves the frame.
-        //   field     the 16:9 vertical FOV on 16:9 and narrower screens; on a
-        //             wider one (a 19.5:9 phone) the 16:9 HORIZONTAL field is
-        //             held instead, or the car would shrink by a fifth.
+        // build. Per car and per screen shape the rig SOLVES, from the shell's
+        // own silhouette (ChaseSilhouettes):
+        //   distance  so the car's rear silhouette fills its share x real
+        //             width / 1.76 m. One distance for every car does not do
+        //             that: a tapered FD reads a fifth narrower per metre than
+        //             a Charger's square tail.
+        //   height    so the rear tyres sit on their line with the lens at the
+        //             target pitch. The ROOF then decides the rest: a lens that
+        //             would leave the roof less than gapLo of the frame under
+        //             the horizon (no road to drive by) rises, one that would
+        //             leave it more than gapHi under (a Viper, sat in a bowl)
+        //             comes down — the tyre line absorbing either within
+        //             contactTol, then the pitch.
+        //   pitch     held at the target (the horizon), moved only by the roof
+        //             or by the tail's lowest edge leaving the frame. Past
+        //             pitchTol the lens backs off instead — except on a tall
+        //             vehicle, which may pitch down up to tallPitch further, as
+        //             MW's van and pickup cameras do (ANGLE -6 to -10).
         //   lane      on a touch screen the dials sit either side of the road
         //             (GaugeCluster.TachCircle / SpeedoCircle); the picture is
         //             centred in the lane between them and the lens backs off
         //             until no part of the silhouette is under a dial.
         // FrameProbe (Editor\CamFrameProbe.cs, tools\camframe-probe.ps1)
-        // measures all of it on the real meshes and checks it against the
-        // bands. Before this pass the chase view was a fixed 5.4 m / 1.8 m /
-        // look at 0.9 m, pitched 7 deg down, and in motion the follow lag and
-        // the speed rig parked the lens 2 m further back: the FD was 20% of
-        // the frame at rest and 12-14% at speed.
+        // measures every shell in the library on its real meshes and checks
+        // it against the bands above. Before this pass the chase view was a
+        // fixed 5.4 m / 1.8 m / look at 0.9 m, pitched 7 deg down, and in
+        // motion the follow lag and the speed rig parked the lens 2 m further
+        // back: the FD was 20% of the frame at rest and 12-14% at speed.
 
         /// <summary>One chase view's framing, in the terms NFS is measured in.</summary>
         public struct ChaseRig
         {
-            /// <summary>Lens angle down to the rear tyres' contact, degrees:
-            /// the spread between horizon and contact line the view holds.
-            /// The lens HEIGHT follows from it and the distance.</summary>
-            public float alphaDeg;
-            /// <summary>Lens at least this far above the roof, metres, so the
-            /// road ahead shows over the car.</summary>
-            public float roofClear;
             /// <summary>Vertical FOV at 16:9 (see <see cref="HoldWide"/>).</summary>
             public float vfov;
             /// <summary>Width share of the frame for a 1.76 m car (an FD),
             /// scaled by the car's real width.</summary>
             public float share;
+            /// <summary>Target pitch, degrees down — the horizon — at 16:9 and
+            /// at 19.5:9 and wider (MW's lens, 3 deg further down).</summary>
+            public float pitch16, pitchWide;
             /// <summary>Rear-tyre contact line, fraction of the frame height
-            /// from the BOTTOM, at 16:9 and at 19.5:9 and wider (a phone's
-            /// narrower vertical field sits the car a little lower).</summary>
+            /// from the BOTTOM, at 16:9 and at 19.5:9 and wider.</summary>
             public float contact16, contactWide;
-            /// <summary>The lowest edge of the tail never below this line.</summary>
+            /// <summary>How far the contact line may move off its target to
+            /// absorb the roof or the tail before the pitch does.</summary>
+            public float contactTol;
+            /// <summary>How far the pitch may move off its target before the
+            /// lens backs off, and how much further a tall vehicle (roof at
+            /// <see cref="TallRoofFull"/> and up) may pitch down.</summary>
+            public float pitchTol, tallPitch;
+            /// <summary>The roof's top line under the horizon, fraction of a
+            /// 16:9 frame's height: at least gapLo (the road shows over the
+            /// car), at most gapHi (a low car does not sit in a bowl).</summary>
+            public float gapLo, gapHi;
+            /// <summary>The tail's lowest edge never below this line.</summary>
             public float bottom;
-            /// <summary>Ceiling on the rest pitch, degrees: past it the lens
-            /// backs off instead (a van, close up, would look straight down).</summary>
-            public float pitchMax;
             /// <summary>At 200 km/h: degrees of FOV pull (16:9 terms), metres
             /// back, metres down, and how far the contact line rises.</summary>
             public float speedFOV, speedPull, speedDrop, speedRise;
@@ -911,32 +925,34 @@ namespace PSXRacing
             public float dMin, dMax;
         }
 
-        /// <summary>CHASE: MW05's "far" camera. 25% for a 1.76 m car, contact
-        /// 11% up, horizon ~53%, vFOV 58. At 200 km/h +3.5 deg and 5 cm back
-        /// and down: the car shrinks ~7%, as MW's does.</summary>
+        /// <summary>CHASE: MW05's "far" camera. The tolerances sit a little
+        /// inside the reference bands (horizon 0.51-0.55, tyres 0.09-0.13) so
+        /// the measured frame lands inside them.</summary>
         public static readonly ChaseRig FarRig = new ChaseRig
         {
-            alphaDeg = 25.5f, roofClear = 0.45f, vfov = 58f, share = 0.25f,
-            contact16 = 0.11f, contactWide = 0.08f, bottom = 0.01f, pitchMax = 15f,
+            vfov = 58f, share = 0.25f, pitch16 = 2f, pitchWide = 5f,
+            contact16 = 0.11f, contactWide = 0.09f, contactTol = 0.017f,
+            pitchTol = 0.9f, tallPitch = 8f, gapLo = 0.07f, gapHi = 0.13f, bottom = 0.015f,
             speedFOV = 3.5f, speedPull = 0.05f, speedDrop = 0.05f, speedRise = 0.02f,
-            dMin = 2.3f, dMax = 4.0f,
+            dMin = 1.6f, dMax = 5f,
         };
 
         /// <summary>
-        /// CLOSE: nearer, lower over the roof and a longer lens — MW's close
-        /// camera sits 0.74 m nearer than its far one with a lens ~13%
-        /// narrower. 34% for a 1.76 m car. The owner's history with this view
-        /// is in the numbers: at 0.62 of the old rig with a lens level with the
-        /// roof it "filled half the screen with nothing of the road left to
-        /// drive by", so the lens keeps 0.40 m over the roof and the tail's
-        /// bottom edge may only just leave the frame.
+        /// CLOSE: MW05's close camera — nearer, a longer lens (54 against 58),
+        /// pitched 4.5 deg: the car is 34% of the frame with its tyres 7% off
+        /// the bottom edge and the horizon at 57%. The owner's history with
+        /// this view is in the roof gap: at 0.62 of the old rig with a lens
+        /// level with the roof it "filled half the screen with nothing of the
+        /// road left to drive by", so the roof keeps 6% of the frame under the
+        /// horizon, and the tail's bottom edge may only just leave the frame.
         /// </summary>
         public static readonly ChaseRig CloseRig = new ChaseRig
         {
-            alphaDeg = 26f, roofClear = 0.40f, vfov = 50f, share = 0.34f,
-            contact16 = 0.08f, contactWide = 0.08f, bottom = -0.03f, pitchMax = 15f,
-            speedFOV = 3f, speedPull = 0.10f, speedDrop = 0.05f, speedRise = 0.02f,
-            dMin = 2.0f, dMax = 3.8f,
+            vfov = 54f, share = 0.34f, pitch16 = 4.5f, pitchWide = 7.5f,
+            contact16 = 0.07f, contactWide = 0.06f, contactTol = 0.017f,
+            pitchTol = 0.6f, tallPitch = 8f, gapLo = 0.06f, gapHi = 0.15f, bottom = -0.035f,
+            speedFOV = 3f, speedPull = 0.03f, speedDrop = 0.05f, speedRise = 0.02f,
+            dMin = 1.4f, dMax = 4.5f,
         };
 
         public static ChaseRig RigFor(View v) => v == View.Close ? CloseRig : FarRig;
@@ -946,6 +962,10 @@ namespace PSXRacing
         public const float PhoneAspect = 19.5f / 9f;
         /// <summary>The FD's real width, which the shares are quoted at.</summary>
         public const float RefWidthM = 1.76f;
+        /// <summary>A roof line this high starts the tall-vehicle pitch
+        /// allowance, and this high has all of it (the reference's "tall":
+        /// over 1.45 m; MW's vans are ~2 m).</summary>
+        public const float TallRoofFrom = 1.45f, TallRoofFull = 1.95f;
         /// <summary>How far up the aim line the look point sits, metres.</summary>
         public const float LookAheadM = 1.5f;
         /// <summary>Clearance kept between the silhouette and a dial, as a
@@ -955,6 +975,8 @@ namespace PSXRacing
         /// CHASE share: a 16:9 tablet's touch layout leaves only ~15% of the
         /// width between its dials, and a car that small is the old camera.</summary>
         public const float LaneFloor = 0.85f;
+        /// <summary>The back-off step, metres.</summary>
+        const float FitStep = 0.02f;
         /// <summary>CarModelBaker.ColliderFit: the collider is this much of
         /// the body mesh's bounds (x, y, z).</summary>
         const float BoxFitX = 0.915f, BoxFitY = 0.90f, BoxFitZ = 0.955f;
@@ -966,11 +988,12 @@ namespace PSXRacing
             /// <summary>Rearmost bodywork and the rear tyres' contact (z), the
             /// roof (y), the real width.</summary>
             public float tailZ, rearAxleZ, roofY, widthM;
-            /// <summary>The tail's lowest edge: height, metres forward of the tail.</summary>
-            public float lowY, lowZ;
-            /// <summary>The rear silhouette: REAL half-width, height, metres
-            /// forward of the tail.</summary>
+            /// <summary>The rear silhouette: REAL x (signed, + = right),
+            /// height, metres forward of the tail.</summary>
             public Vector3[] sil;
+            /// <summary>The roof line and the tail's lowest edge off the side
+            /// profile: (height, metres forward of the tail).</summary>
+            public Vector2[] roof, low;
         }
 
         /// <summary>The frame of a car standing in the scene, from its own
@@ -1002,34 +1025,43 @@ namespace PSXRacing
                 if (m != null) mm = m.widthMm;
             }
             f.widthM = mm > 0f ? mm / 1000f : s.x / BoxFitX;
-            if (def != null && ChaseSilhouettes.TryGet(def.key, out var e) && e.Count > 0)
+            if (def != null && ChaseSilhouettes.TryGet(def.key, out var e) && e.Count > 0
+                && e.RoofCount > 0 && e.LowCount > 0)
             {
                 f.tailZ = e.tailZ;
-                f.lowY = e.lowY;
-                f.lowZ = e.lowZ;
                 f.sil = new Vector3[e.Count];
                 for (int i = 0; i < e.Count; i++)
                 {
                     var q = e.Point(i);
                     f.sil[i] = new Vector3(q.x * widthScale, q.y, q.z);
                 }
+                f.roof = new Vector2[e.RoofCount];
+                for (int i = 0; i < e.RoofCount; i++) f.roof[i] = e.Roof(i);
+                f.low = new Vector2[e.LowCount];
+                for (int i = 0; i < e.LowCount; i++) f.low[i] = e.Low(i);
             }
             else
             {
                 // No row: a box-shaped car, full width low down at the tail and
-                // the glasshouse narrower and further forward. The box already
-                // carries the across-scale.
+                // the glasshouse narrower and further forward, a roof over the
+                // middle of the box and a windscreen header ahead of it. The
+                // box already carries the across-scale.
                 f.tailZ = c.z - s.z * 0.5f / BoxFitZ;
-                float half = s.x * 0.5f / BoxFitX, roof = f.roofY;
-                f.lowY = Mathf.Max(0.15f, c.y - s.y * 0.5f / BoxFitY);
-                f.lowZ = 0.05f;
-                f.sil = new[]
+                float half = s.x * 0.5f / BoxFitX, roof = f.roofY, len = s.z / BoxFitZ;
+                float lowY = Mathf.Max(0.15f, c.y - s.y * 0.5f / BoxFitY);
+                var right = new[]
                 {
-                    new Vector3(half * 0.95f, roof * 0.30f, 0.05f),
-                    new Vector3(half * 0.97f, roof * 0.50f, 0.15f),
-                    new Vector3(half * 0.85f, roof * 0.75f, 0.40f),
-                    new Vector3(half * 0.65f, roof * 0.97f, 1.00f),
+                    new Vector3(half * 0.95f, roof * 0.30f, 0.05f), new Vector3(half * 0.97f, roof * 0.50f, 0.15f),
+                    new Vector3(half * 0.85f, roof * 0.75f, 0.40f), new Vector3(half * 0.65f, roof * 0.97f, 1.00f),
                 };
+                f.sil = new Vector3[right.Length * 2];
+                for (int i = 0; i < right.Length; i++)
+                {
+                    f.sil[i * 2] = right[i];
+                    f.sil[i * 2 + 1] = new Vector3(-right[i].x, right[i].y, right[i].z);
+                }
+                f.roof = new[] { new Vector2(roof, 0.9f), new Vector2(roof, len * 0.5f), new Vector2(roof * 0.68f, len - 0.3f) };
+                f.low = new[] { new Vector2(lowY, 0.05f) };
             }
             return f;
         }
@@ -1070,10 +1102,15 @@ namespace PSXRacing
         {
             /// <summary>Lens to the rearmost bodywork at rest, horizontal m.</summary>
             public float D;
-            /// <summary>Lens height at rest.</summary>
-            public float h0;
+            /// <summary>Lens height and pitch at rest.</summary>
+            public float h0, pitch0;
+            /// <summary>Lens shift, and the contact line the rest pose holds
+            /// (the speed rig raises it from there).</summary>
             public float shift, contact0;
-            public float tailZ, overhang, lowY, lowZ;
+            public float tailZ, overhang;
+            /// <summary>The car it was solved for (the speed rig re-reads the
+            /// roof line).</summary>
+            public CarFrame car;
         }
 
         /// <summary>The field of view that keeps the 16:9 HORIZONTAL field on
@@ -1085,15 +1122,25 @@ namespace PSXRacing
             aspect <= RefAspect ? vfov16
                 : 2f * Mathf.Atan(Mathf.Tan(vfov16 * 0.5f * Mathf.Deg2Rad) * RefAspect / aspect) * Mathf.Rad2Deg;
 
+        /// <summary>The target pitch (degrees down) of a chase view on a
+        /// screen: pitch16 at 16:9 and narrower, pitchWide at 19.5:9 and wider.</summary>
+        public static float TargetPitch(View v, float aspect)
+        {
+            var q = RigFor(v);
+            return Mathf.Lerp(q.pitch16, q.pitchWide, WideT(aspect));
+        }
+
+        static float WideT(float aspect) => Mathf.Clamp01((aspect - RefAspect) / (PhoneAspect - RefAspect));
+
         /// <summary>A car-local point seen from a lens D behind the tail, h up,
-        /// pitched down: half its x in viewport widths from the picture's
-        /// centre, and its viewport y.</summary>
+        /// pitched down: its x in viewport widths from the picture's centre
+        /// (signed), and its viewport y.</summary>
         static Vector2 ProjectSil(Vector3 p, float D, float h, float pitchDeg, float vfov, float aspect)
         {
             float a = pitchDeg * Mathf.Deg2Rad;
             float y = p.y - h, z = D + p.z;
             float zc = z * Mathf.Cos(a) - y * Mathf.Sin(a), yc = y * Mathf.Cos(a) + z * Mathf.Sin(a);
-            if (zc < 0.05f) return new Vector2(10f, 0f);
+            if (zc < 0.05f) return new Vector2(p.x >= 0f ? 10f : -10f, 0f);
             float tn = Mathf.Tan(vfov * 0.5f * Mathf.Deg2Rad);
             return new Vector2(p.x / (zc * tn * aspect) * 0.5f, 0.5f + 0.5f * yc / (zc * tn));
         }
@@ -1105,83 +1152,195 @@ namespace PSXRacing
             (Mathf.Atan2(h - py, depth) - Mathf.Atan((1f - 2f * y) * Mathf.Tan(vfov * 0.5f * Mathf.Deg2Rad)))
             * Mathf.Rad2Deg;
 
-        static float RigPitch(ChaseRig q, float overhang, float lowY, float lowZ, float D, float h, float vfov, float contact) =>
-            Mathf.Max(PitchToLine(contact, h, D + overhang, 0f, vfov),
-                      PitchToLine(q.bottom, h, D + lowZ, lowY, vfov));
+        /// <summary>Degrees below the lens axis of viewport line y.</summary>
+        static float LineAngle(float y, float tanHalf) => Mathf.Atan((1f - 2f * y) * tanHalf) * Mathf.Rad2Deg;
 
-        static bool ClearOfDial(Vector4 c, bool left, float carCx, float hx, float y)
+        /// <summary>The lens height at which the roof line's top sits
+        /// <paramref name="gap"/> of a 16:9 frame under the horizon, with the
+        /// lens pitched <paramref name="pitch"/> and D off the tail.</summary>
+        static float RoofHeight(Vector2[] roof, float D, float pitch, float gap, float tan16)
+        {
+            float tp = Mathf.Tan(pitch * Mathf.Deg2Rad);
+            float beta = pitch - Mathf.Atan(tp - 2f * tan16 * gap) * Mathf.Rad2Deg;
+            float tb = Mathf.Tan(beta * Mathf.Deg2Rad), h = float.MinValue;
+            foreach (var r in roof) h = Mathf.Max(h, r.x + (D + r.y) * tb);
+            return h;
+        }
+
+        /// <summary>The least pitch that keeps the tail's lowest edge on or
+        /// above the rig's bottom line.</summary>
+        static float BottomPitch(ChaseRig q, Vector2[] low, float D, float h, float vfov)
+        {
+            float p = float.MinValue;
+            foreach (var l in low) p = Mathf.Max(p, PitchToLine(q.bottom, h, D + l.y, l.x, vfov));
+            return p;
+        }
+
+        /// <summary>The highest lens, at a pitch, that keeps the tail's
+        /// lowest edge on or above the bottom line.</summary>
+        static float BottomHeight(ChaseRig q, Vector2[] low, float D, float pitch, float tanHalf)
+        {
+            float a = Mathf.Tan((pitch + LineAngle(q.bottom, tanHalf)) * Mathf.Deg2Rad), h = float.MaxValue;
+            foreach (var l in low) h = Mathf.Min(h, l.x + (D + l.y) * a);
+            return h;
+        }
+
+        /// <summary>
+        /// The lens height and pitch at a distance: the targets (pitch
+        /// <paramref name="p0"/>, contact <paramref name="c0"/>) where the car
+        /// allows, and otherwise the cascade — the roof gap and the tail's
+        /// lowest edge move the lens, the contact line absorbs that within
+        /// contactTol, then the pitch. Returns the contact line it ends on.
+        /// </summary>
+        static void SolvePose(ChaseRig q, CarFrame car, float overhang, float D, float vfov, float c0, float p0,
+                              out float h, out float pitch, out float contact)
+        {
+            float dc = D + overhang;
+            float t = Mathf.Tan(vfov * 0.5f * Mathf.Deg2Rad), t16 = Mathf.Tan(q.vfov * 0.5f * Mathf.Deg2Rad);
+            float Hc(float c, float pp) => dc * Mathf.Tan((pp + LineAngle(c, t)) * Mathf.Deg2Rad);
+            float p = p0;
+            h = Hc(c0, p0);
+            for (int it = 0; it < 6; it++)
+            {
+                float hLo = RoofHeight(car.roof, D, p, q.gapLo, t16);
+                float hHi = RoofHeight(car.roof, D, p, q.gapHi, t16);
+                p = p0;
+                h = Hc(c0, p);
+                if (h > hHi)
+                {
+                    // A low roof: the lens comes down, the tyres rising up
+                    // their band, then the lens levels off a little.
+                    h = Mathf.Max(hHi, Hc(c0 + q.contactTol, p));
+                    if (h > hHi + 1e-4f)
+                    {
+                        p = Mathf.Max(p0 - q.pitchTol,
+                                      Mathf.Atan2(hHi, dc) * Mathf.Rad2Deg - LineAngle(c0 + q.contactTol, t));
+                        h = Mathf.Max(hHi, Hc(c0 + q.contactTol, p));
+                    }
+                }
+                if (h < hLo)
+                {
+                    // A high roof: the lens goes up, the tyres dropping down
+                    // their band, then the lens pitches down (a van).
+                    h = hLo;
+                    p = Mathf.Max(p, Mathf.Atan2(h, dc) * Mathf.Rad2Deg - LineAngle(c0 - q.contactTol, t));
+                }
+                float hB = BottomHeight(q, car.low, D, p, t);
+                if (h > hB)
+                {
+                    // The tail's lowest edge leaves the frame: the lens comes
+                    // down (never under the roof line), then pitches down.
+                    h = Mathf.Max(hB, Mathf.Max(Hc(c0 + q.contactTol, p), hLo));
+                    p = Mathf.Max(p, BottomPitch(q, car.low, D, h, vfov));
+                }
+            }
+            pitch = p;
+            contact = 0.5f - 0.5f * Mathf.Tan((Mathf.Atan2(h, dc) * Mathf.Rad2Deg - p) * Mathf.Deg2Rad) / t;
+        }
+
+        static float WidthAt(CarFrame car, float D, float h, float pitch, float vfov, float aspect)
+        {
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var pt in car.sil)
+            {
+                float x = ProjectSil(pt, D, h, pitch, vfov, aspect).x;
+                lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x);
+            }
+            return hi > lo ? hi - lo : 0f;
+        }
+
+        /// <summary>Whether a projected point (x offset from the picture's
+        /// centre <paramref name="cx"/>) keeps its margin off a dial: the left
+        /// dial for a point left of centre, the right one otherwise.</summary>
+        static bool ClearOfDial(Vector4 c, bool left, float x, float y)
         {
             if (c.z <= 0f || c.w <= 0f) return true;
             float dy = (y - c.y) / c.w;
             if (Mathf.Abs(dy) >= 1f) return true;
             float half = c.z * Mathf.Sqrt(1f - dy * dy);
-            return left ? carCx - hx >= c.x + half + LaneMargin : carCx + hx <= c.x - half - LaneMargin;
+            return left ? x >= c.x + half + LaneMargin : x <= c.x - half - LaneMargin;
         }
 
-        /// <summary>Solve a view's distance, height and lens shift for a car
-        /// on a screen. Static and public: the framing probe and every
+        static bool LaneClear(CarFrame car, float D, float h, float pitch, float vfov, float aspect, float shift, HudDials d)
+        {
+            float cx = 0.5f + shift;
+            foreach (var pt in car.sil)
+            {
+                var o = ProjectSil(pt, D, h, pitch, vfov, aspect);
+                bool left = o.x < 0f;
+                if (!ClearOfDial(left ? d.left : d.right, left, cx + o.x, o.y)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Solve a view's distance, height, pitch and lens shift for
+        /// a car on a screen. Static and public: the framing probe and every
         /// screenshot tool frame through exactly this.</summary>
         public static ChaseFit Fit(View v, float aspect, CarFrame car, HudDials dials)
         {
             var q = RigFor(v);
-            float k = Mathf.Clamp01((aspect - RefAspect) / (PhoneAspect - RefAspect));
+            float k = WideT(aspect);
             float vfov0 = HoldWide(q.vfov, aspect);
-            float contact0 = Mathf.Lerp(q.contact16, q.contactWide, k);
+            float c0 = Mathf.Lerp(q.contact16, q.contactWide, k);
+            float p0 = Mathf.Lerp(q.pitch16, q.pitchWide, k);
             // Narrower than 16:9 (a 4:3 tablet) the lens is the 16:9 one
             // (Hor+), so the car keeps its size against the frame's HEIGHT
             // and takes a bigger share of the narrower width.
             float narrow = aspect < RefAspect ? RefAspect / Mathf.Max(aspect, 0.5f) : 1f;
             float share = q.share * car.widthM / RefWidthM * narrow;
             float floor = LaneFloor * FarRig.share * car.widthM / RefWidthM * narrow;
+            if (car.sil == null || car.sil.Length == 0 || car.roof == null || car.roof.Length == 0
+                || car.low == null || car.low.Length == 0)
+                car = FrameOf(new Vector3(0f, 0.72f, 0.05f), new Vector3(1.72f, 1.0f, 4.1f), null,
+                              Mathf.Max(-car.rearAxleZ * 2f, 1f), 1f, Mathf.RoundToInt(car.widthM * 1000f));
             float overhang = car.rearAxleZ - car.tailZ;
-            float hFloor = car.roofY + q.roofClear;
-            float ta = Mathf.Tan(q.alphaDeg * Mathf.Deg2Rad);
             float shift = LaneShift(dials);
-            var sil = car.sil ?? new Vector3[0];
+            float roofTop = float.MinValue;
+            foreach (var r in car.roof) roofTop = Mathf.Max(roofTop, r.x);
+            float tall = Mathf.Clamp01((roofTop - TallRoofFrom) / (TallRoofFull - TallRoofFrom));
+            float cap = p0 + q.pitchTol + (q.tallPitch - q.pitchTol) * tall;
 
-            float Height(float d) => Mathf.Max(hFloor, (d + overhang) * ta);
-            float PitchAt(float d) => RigPitch(q, overhang, car.lowY, car.lowZ, d, Height(d), vfov0, contact0);
-            float WidthAt(float d)
+            float h = 0f, p = 0f, c = 0f;
+            float WidthOf(float d)
             {
-                float h = Height(d), p = PitchAt(d), w = 0f;
-                foreach (var pt in sil) w = Mathf.Max(w, 2f * ProjectSil(pt, d, h, p, vfov0, aspect).x);
-                return w;
+                SolvePose(q, car, overhang, d, vfov0, c0, p0, out float wh, out float wp, out _);
+                return WidthAt(car, d, wh, wp, vfov0, aspect);
             }
-            bool LaneClear(float d)
-            {
-                float h = Height(d), p = PitchAt(d), cx = 0.5f + shift;
-                foreach (var pt in sil)
-                {
-                    var o = ProjectSil(pt, d, h, p, vfov0, aspect);
-                    if (!ClearOfDial(dials.left, true, cx, o.x, o.y) || !ClearOfDial(dials.right, false, cx, o.x, o.y))
-                        return false;
-                }
-                return true;
-            }
-
             // The share: a bisection, since the width falls as the lens backs off.
             float lo = q.dMin, hi = q.dMax, D;
-            if (WidthAt(lo) <= share) D = lo;
-            else if (WidthAt(hi) >= share) D = hi;
+            if (WidthOf(lo) <= share) D = lo;
+            else if (WidthOf(hi) >= share) D = hi;
             else
             {
                 for (int i = 0; i < 30; i++)
                 {
                     float mid = (lo + hi) * 0.5f;
-                    if (WidthAt(mid) > share) lo = mid; else hi = mid;
+                    if (WidthOf(mid) > share) lo = mid; else hi = mid;
                 }
                 D = (lo + hi) * 0.5f;
             }
-            // A lens that would have to look nearly straight down backs off.
-            for (int i = 0; i < 80 && D < q.dMax && PitchAt(D) > q.pitchMax; i++) D += 0.05f;
+            // A pose the car cannot be framed in at this distance — pitched past
+            // its cap, or the tyres pushed above their band by the tail — backs off.
+            for (int i = 0; i < 200 && D < q.dMax; i++)
+            {
+                SolvePose(q, car, overhang, D, vfov0, c0, p0, out h, out p, out c);
+                if (p <= cap + 1e-4f && c <= c0 + q.contactTol + 1e-4f) break;
+                D += FitStep;
+            }
             // And on a touch screen, off the dials.
             if (HasDials(dials))
-                for (int i = 0; i < 80 && D < q.dMax && !LaneClear(D) && WidthAt(D) > floor; i++) D += 0.05f;
+                for (int i = 0; i < 200 && D < q.dMax && WidthOf(D) > floor; i++)
+                {
+                    SolvePose(q, car, overhang, D, vfov0, c0, p0, out h, out p, out c);
+                    if (LaneClear(car, D, h, p, vfov0, aspect, shift, dials)) break;
+                    D += FitStep;
+                }
 
+            SolvePose(q, car, overhang, D, vfov0, c0, p0, out h, out p, out c);
             return new ChaseFit
             {
-                D = D, h0 = Height(D), shift = shift, contact0 = contact0,
-                tailZ = car.tailZ, overhang = overhang, lowY = car.lowY, lowZ = car.lowZ,
+                D = D, h0 = h, pitch0 = p, shift = shift, contact0 = c,
+                tailZ = car.tailZ, overhang = overhang, car = car,
             };
         }
 
@@ -1196,13 +1355,25 @@ namespace PSXRacing
             public float lookY;
         }
 
+        /// <summary>The speed rig on top of the fit: a wider lens, a few
+        /// centimetres back and down (never so far down the roof line closes
+        /// on the horizon), and the tyre line rising a little as the lens
+        /// levels — MW's squat, not the old third-of-the-car pull-back.</summary>
         public static ChaseShape Shape(View v, ChaseFit f, float speedT, float aspect)
         {
             var q = RigFor(v);
             float D = f.D + q.speedPull * speedT;
-            float h = f.h0 - q.speedDrop * speedT;
             float vfov = HoldWide(q.vfov + q.speedFOV * speedT, aspect);
-            float pitch = RigPitch(q, f.overhang, f.lowY, f.lowZ, D, h, vfov, f.contact0 + q.speedRise * speedT);
+            float t16 = Mathf.Tan(q.vfov * 0.5f * Mathf.Deg2Rad);
+            float hDrop = f.h0 - q.speedDrop * speedT;
+            float h = hDrop, pitch = f.pitch0;
+            bool hasRoof = f.car.roof != null && f.car.roof.Length > 0, hasLow = f.car.low != null && f.car.low.Length > 0;
+            for (int i = 0; i < 3; i++)
+            {
+                h = hasRoof ? Mathf.Max(hDrop, Mathf.Min(f.h0, RoofHeight(f.car.roof, D, pitch, q.gapLo, t16))) : hDrop;
+                pitch = PitchToLine(f.contact0 + q.speedRise * speedT, h, D + f.overhang, 0f, vfov);
+                if (hasLow) pitch = Mathf.Max(pitch, BottomPitch(q, f.car.low, D, h, vfov));
+            }
             var s = new ChaseShape { back = D - f.tailZ, height = h, pitch = pitch, vfov = vfov, shift = f.shift };
             s.lookY = h - Mathf.Tan(pitch * Mathf.Deg2Rad) * (s.back + LookAheadM);
             return s;
@@ -1220,14 +1391,20 @@ namespace PSXRacing
                                       CarFrame frame, HudDials dials,
                                       out Vector3 pos, out Quaternion rot, out float vfov, out float shift)
         {
+            var s = Shape(v, Fit(v, aspect, frame, dials), SpeedT(speedMps, fullMps), aspect);
+            PoseOf(s, car, out pos, out rot);
+            vfov = s.vfov;
+            shift = s.shift;
+        }
+
+        /// <summary>A shape stood behind a car: the lens and where it looks.</summary>
+        public static void PoseOf(ChaseShape s, Transform car, out Vector3 pos, out Quaternion rot)
+        {
             Vector3 fwd = car.forward; fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 0.01f ? fwd.normalized : Vector3.forward;
-            var s = Shape(v, Fit(v, aspect, frame, dials), SpeedT(speedMps, fullMps), aspect);
             pos = car.position - fwd * s.back + Vector3.up * s.height;
             Vector3 look = car.position + Vector3.up * s.lookY + fwd * LookAheadM;
             rot = Quaternion.LookRotation(look - pos, Vector3.up);
-            vfov = s.vfov;
-            shift = s.shift;
         }
 
         /// <summary>A camera's projection with the picture slid right by

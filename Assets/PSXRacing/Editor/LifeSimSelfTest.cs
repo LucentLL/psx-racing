@@ -9494,8 +9494,9 @@ namespace PSXRacing.EditorTools
             Check(Mathf.Abs(phoneRest - 48.9f) < 0.2f,
                   "a 19.5:9 phone holds the 16:9 HORIZONTAL field (vertical ~48.9, not 58: the car would shrink by a fifth)",
                   phoneRest.ToString("0.0"));
-            Check(ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full) == ChaseCamera.CloseRig.vfov,
-                  "the close chase has its own, longer lens", ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full));
+            Check(ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full) == 54f,
+                  "the close chase has its own, longer lens: 54 at 16:9 (MW05's close camera)",
+                  ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full));
             // Every shell the catalog can put a player in has a rear silhouette
             // for the chase rig's width fit; without one the car is framed as a
             // box (the probe's numbers only hold for shells with a row).
@@ -9505,7 +9506,8 @@ namespace PSXRacing.EditorTools
             Check(noSil.Count == 0, "every body shell has a chase-camera silhouette row (Camera Framing Probe -Emit)",
                   string.Join(", ", noSil));
             // The fit on the reference FD at 16:9: a quarter of the frame, lens
-            // off the tail inside the rig's range, and never under the roof.
+            // off the tail inside the rig's range, over the roof, and the NFS
+            // pitch (the reference: CHASE 2 +-1 deg, CLOSE 4.5 +-1).
             {
                 var fdShell = CarModelLibrary.Load(CarModelLibrary.Default);
                 if (fdShell != null)
@@ -9516,11 +9518,16 @@ namespace PSXRacing.EditorTools
                     var fit = ChaseCamera.Fit(ChaseCamera.View.Chase, 16f / 9f, fr, default);
                     Check(fit.D >= ChaseCamera.FarRig.dMin && fit.D <= ChaseCamera.FarRig.dMax,
                           "the FD's chase lens stands inside the rig's range off its tail", fit.D.ToString("0.00") + " m");
-                    Check(fit.h0 >= fdShell.roofY + ChaseCamera.FarRig.roofClear - 1e-3f,
+                    Check(fit.h0 >= fdShell.roofY + 0.25f,
                           "and high enough over its roof to show the road", fit.h0.ToString("0.00") + " m");
                     var shape = ChaseCamera.Shape(ChaseCamera.View.Chase, fit, 0f, 16f / 9f);
-                    Check(shape.pitch > 0.5f && shape.pitch < 5f, "and nearly level, NFS-style (pitch 1-5 deg)",
+                    Check(shape.pitch >= 1f && shape.pitch <= 3f, "and nearly level, NFS-style (pitch 2 +-1 deg)",
                           shape.pitch.ToString("0.0"));
+                    var closeFit = ChaseCamera.Fit(ChaseCamera.View.Close, 16f / 9f, fr, default);
+                    var closeShape = ChaseCamera.Shape(ChaseCamera.View.Close, closeFit, 0f, 16f / 9f);
+                    Check(closeShape.pitch >= 3.5f && closeShape.pitch <= 5.5f && closeFit.D < fit.D,
+                          "and the close view nearer, pitched 4.5 +-1 deg (not the 7-15 deg of a lens looking down on the car)",
+                          closeShape.pitch.ToString("0.0") + " deg, " + closeFit.D.ToString("0.00") + " m");
                 }
             }
             float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, full);

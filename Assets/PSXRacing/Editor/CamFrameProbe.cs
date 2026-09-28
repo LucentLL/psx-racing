@@ -21,7 +21,9 @@ namespace PSXRacing.EditorTools
     /// frame anybody actually drove (the follow lag parked the lens 1.2 m
     /// further back above 22 km/h, and the speed rig added 0.9 m and 8 deg).
     ///
-    /// So this stands each test car on a straight of a built venue, puts the
+    /// So this stands EVERY body shell in the library on a straight of a built
+    /// venue (2026-09-28 review: six test cars hid the hatchbacks, whose short
+    /// tails and long roofs broke the horizon), puts the
     /// scene's own camera exactly where the game would hold it in the STEADY
     /// STATE at 0, 100 and 200 km/h (speed rig, FOV pull and the follow lag's
     /// steady trail included), at 16:9 and at a 19.5:9 phone, and COMPUTES —
@@ -34,10 +36,12 @@ namespace PSXRacing.EditorTools
     /// out by the same arithmetic GaugeCluster and TouchControls use).
     ///
     /// Every number is checked against the NFS U / U2 / MW reference bands
-    /// (see Targets) and the run ends with "[CamFrame] ALL IN TARGET" or
-    /// "[CamFrame] FAIL n". It also writes a PNG of every case with the HUD
-    /// regions, the silhouette's box, the horizon and the contact line drawn
-    /// over it, and one contact sheet per view and screen.
+    /// (see Targets: the reference's own +-2 at 16:9, its phone rule on a
+    /// phone, and a short, named list of replaced targets) and the run ends
+    /// with "[CamFrame] ALL IN TARGET" or "[CamFrame] FAIL n". It also writes
+    /// a PNG of every case for the drawn cars (PngKeys) with the HUD regions,
+    /// the silhouette's box, the horizon and the contact line drawn over it,
+    /// and one contact sheet per view and screen.
     ///
     /// PSX_CAMFRAME_RIG = game (default: ChaseCamera.SteadyPose, the code the
     /// game runs) or legacy (the rig every scene carried on 2026-09-28, kept
@@ -51,11 +55,16 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class CamFrameProbe
     {
-        /// <summary>The narrow 911, the reference FD, the wide Charger, the
-        /// widest saloon (Crown Vic, traffic), a tall playable van and the
-        /// tallest, widest traffic shell (Transit).</summary>
-        static readonly string[] CarKeys =
-            { "flatsix_coupe", "rx7_fd", "charger_69", "crown_victoria", "classic_van", "ford_transit" };
+        /// <summary>Every shell in the library is measured and banded; these
+        /// are also DRAWN: the narrow 911, the reference FD, the wide Charger,
+        /// the widest saloon (Crown Vic, traffic), a tall playable van, the
+        /// tallest, widest traffic shell (Transit), and the two hatchbacks whose
+        /// short tails under long roofs are the hardest cars to frame.</summary>
+        static readonly string[] PngKeys =
+        {
+            "flatsix_coupe", "rx7_fd", "charger_69", "crown_victoria", "classic_van", "ford_transit",
+            "euro_hatch", "civic_eg",
+        };
         static readonly float[] SpeedsKmh = { 0f, 100f, 200f };
         static readonly ChaseCamera.View[] Views = { ChaseCamera.View.Chase, ChaseCamera.View.Close };
 
@@ -118,10 +127,13 @@ namespace PSXRacing.EditorTools
             /// <summary>Road visible over the car from this many metres ahead
             /// of its nose (999 = the car hides the road).</summary>
             public float road;
-            public int carCells, clusterCells, otherCells;
+            public int carCells, clusterCells, otherCells, nearDialCells;
             public string clusterHit = "", otherHit = "";
             public List<string> fails = new List<string>();
             public bool tall, info;
+            /// <summary>What held a touch-screen CLOSE view under its share
+            /// (proved in Targets), or null.</summary>
+            public string limitedBy;
         }
 
         static readonly List<Row> rows = new List<Row>();
@@ -181,9 +193,15 @@ namespace PSXRacing.EditorTools
             float keepFov = cam.fieldOfView, keepNear = cam.nearClipPlane;
             var sheets = new Dictionary<string, List<(Texture2D tex, int rowI, int colI)>>();
 
-            for (int ci = 0; ci < CarKeys.Length; ci++)
+            var carKeys = new List<string>();
+            string onlyCars = Env("PSX_CAMFRAME_CARS", "");
+            foreach (var m in CarModelLibrary.Models)
+                if (onlyCars.Length == 0 || System.Array.IndexOf(onlyCars.Split(','), m.key) >= 0)
+                    carKeys.Add(m.key);
+            for (int ci = 0; ci < carKeys.Count; ci++)
             {
-                string key = CarKeys[ci];
+                string key = carKeys[ci];
+                int pngRow = System.Array.IndexOf(PngKeys, key);
                 var shell = CarModelLibrary.Load(key);
                 if (shell == null) { Debug.LogError("[CamFrame] FAIL no shell " + key); continue; }
                 body.widthMm = 0; // the model's reference car
@@ -206,7 +224,7 @@ namespace PSXRacing.EditorTools
                             var pose = PoseFor(rig, v, scr, kmh / 3.6f, player);
                             var row = Evaluate(rig, scr, v, kmh, geo, pose, player.transform);
                             rows.Add(row);
-                            if (!pngs) continue;
+                            if (!pngs || pngRow < 0) continue;
                             var tex = RenderFrame(cam, pose, scr, geo, row);
                             if (tex == null) continue;
                             string name = string.Format("cf_{0}_{1}_{2}_{3}_{4:000}", rig, v.ToString().ToLower(),
@@ -215,7 +233,7 @@ namespace PSXRacing.EditorTools
                             string sheetKey = rig + "_" + v.ToString().ToLower() + "_" + scr.tag;
                             if (!sheets.TryGetValue(sheetKey, out var list))
                                 sheets[sheetKey] = list = new List<(Texture2D, int, int)>();
-                            list.Add((tex, ci, si));
+                            list.Add((tex, pngRow, si));
                         }
             }
             hulls.Append("\n}\n");
@@ -427,17 +445,31 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  The chase rig's silhouette table (ChaseSilhouettes.Table.cs)
         // ------------------------------------------------------------------
-        static readonly float[] SilBands = { 0f, 0.2f, 0.35f, 0.5f, 0.65f, 0.8f, 1.01f };
+        /// <summary>The silhouette is kept per this much of the body's height,
+        /// per side: fine enough that the lane test between a phone's dials,
+        /// which is a CIRCLE, meets the real outline (six coarse bands missed
+        /// the Crown Vic's tail-light corner by 1% of the frame).</summary>
+        const float SilBinM = 0.1f;
 
-        /// <summary>The lens poses a silhouette row has to hold over: 1.6-2.5 m
-        /// up, 2-16 deg down, 1.8-3.6 m off the tail — every chase and close
-        /// pose the rig can reach, and some it cannot.</summary>
+        /// <summary>The lens poses a silhouette point has to hold over: 1.5-2.5 m
+        /// up, 2-14 deg down, 1.5-3.8 m off the tail — every chase and close
+        /// pose the rig reaches, and some it cannot.</summary>
         static IEnumerable<(double h, double pitch, double d)> SilPoses()
         {
-            foreach (double h in new[] { 1.6, 2.0, 2.5 })
-                foreach (double pd in new[] { 2.0, 8.0, 16.0 })
-                    foreach (double d in new[] { 1.8, 2.6, 3.6 })
+            foreach (double h in new[] { 1.5, 2.0, 2.5 })
+                foreach (double pd in new[] { 2.0, 8.0, 14.0 })
+                    foreach (double d in new[] { 1.5, 2.2, 3.0, 3.8 })
                         yield return (h, pd, d);
+        }
+
+        /// <summary>Lens positions (height, metres off the tail) the roof line
+        /// and the tail's lowest edge are kept exact over: 1.2-3.2 m up,
+        /// 1.2-5.2 m back.</summary>
+        static IEnumerable<(double h, double d)> TangentPoses()
+        {
+            for (int i = 0; i <= 20; i++)
+                for (int j = 0; j <= 20; j++)
+                    yield return (1.2 + 0.1 * i, 1.2 + 0.2 * j);
         }
 
         /// <summary>The body's vertices in the car's frame, x divided back by
@@ -457,89 +489,163 @@ namespace PSXRacing.EditorTools
             return list;
         }
 
+        /// <summary>Monotone-chain hull of side-profile points (z, y), upper or
+        /// lower, z ascending.</summary>
+        static List<Vector2> Hull(List<Vector2> pts, bool upper)
+        {
+            pts.Sort((a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
+            var h = new List<Vector2>();
+            for (int i = 0; i < pts.Count; i++)
+            {
+                var p = pts[i];
+                if (i > 0 && pts[i - 1] == p) continue;
+                while (h.Count >= 2)
+                {
+                    Vector2 a = h[h.Count - 2], b = h[h.Count - 1];
+                    double cr = (double)(b.x - a.x) * (p.y - a.y) - (double)(b.y - a.y) * (p.x - a.x);
+                    if (upper ? cr >= 0 : cr <= 0) h.RemoveAt(h.Count - 1); else break;
+                }
+                h.Add(p);
+            }
+            return h;
+        }
+
         /// <summary>
-        /// A shell's ChaseSilhouettes row, from its mesh: per height band of
-        /// the body, and for the last 0.2 m of the tail, the vertex that is
-        /// widest seen from behind summed over <see cref="SilPoses"/>; and the
-        /// vertex a lens 2 m up and 2.6 m back sees lowest.
+        /// A shell's ChaseSilhouettes row, from its mesh. The silhouette: per
+        /// <see cref="SilBinM"/> of height and per SIDE (signed x — the Viper's
+        /// body is not symmetric), and for the last 0.2 m of the tail, every
+        /// vertex that is the widest seen from behind for some lens in
+        /// <see cref="SilPoses"/>. The
+        /// roof line: the side profile's upper-hull vertices that are the
+        /// highest thing in the picture for some lens in
+        /// <see cref="TangentPoses"/>. The tail's lowest edge: the lower-hull
+        /// vertices of the last 1.5 m that are the lowest for some lens.
+        /// Points are (x, y, z-forward-of-tail); roof / low are (y, z).
         /// </summary>
         static void SilhouetteRow(List<Vector3> v, float sx, out float tail, out List<Vector3> pts,
-                                  out float lowY, out float lowZ)
+                                  out List<Vector2> roof, out List<Vector2> low)
         {
             tail = float.MaxValue;
             float top = float.MinValue;
             foreach (var q in v) { tail = Mathf.Min(tail, q.z); top = Mathf.Max(top, q.y); }
             pts = new List<Vector3>();
-            for (int b = 0; b < SilBands.Length; b++)
-            {
-                var members = new List<Vector3>();
-                foreach (var q in v)
+            int nb = (int)(top / SilBinM) + 1;
+            for (int b = 0; b <= nb; b++)
+                foreach (int side in new[] { 1, -1 })
                 {
-                    bool inGroup = b < SilBands.Length - 1
-                        ? q.y >= SilBands[b] * top && q.y < SilBands[b + 1] * top
-                        : q.z < tail + 0.2f;
-                    if (inGroup) members.Add(q);
-                }
-                if (members.Count == 0) continue;
-                var score = new double[members.Count];
-                var r = new double[members.Count];
-                foreach (var pose in SilPoses())
-                {
-                    double a = pose.pitch * Mathf.Deg2Rad, max = 0;
-                    for (int i = 0; i < members.Count; i++)
+                    var members = new List<Vector3>();
+                    foreach (var q in v)
                     {
-                        var q = members[i];
-                        double y = q.y - pose.h, z = q.z - (tail - pose.d);
-                        r[i] = System.Math.Abs(q.x) * sx / (z * System.Math.Cos(a) - y * System.Math.Sin(a));
-                        if (r[i] > max) max = r[i];
+                        if (q.x * side <= 0f) continue;
+                        bool inGroup = b < nb ? q.y >= b * SilBinM && q.y < (b + 1) * SilBinM : q.z < tail + 0.2f;
+                        if (inGroup) members.Add(q);
                     }
-                    for (int i = 0; i < members.Count; i++) score[i] += r[i] / max;
+                    if (members.Count == 0) continue;
+                    foreach (var pose in SilPoses())
+                    {
+                        double a = pose.pitch * Mathf.Deg2Rad, max = double.MinValue;
+                        int best = 0;
+                        for (int i = 0; i < members.Count; i++)
+                        {
+                            var q = members[i];
+                            double y = q.y - pose.h, z = q.z - (tail - pose.d);
+                            double w = System.Math.Abs(q.x) * sx / (z * System.Math.Cos(a) - y * System.Math.Sin(a));
+                            if (w > max) { max = w; best = i; }
+                        }
+                        var m = members[best];
+                        var pt = new Vector3(R3(m.x), R3(m.y), R3(m.z - tail));
+                        if (!pts.Contains(pt)) pts.Add(pt);
+                    }
                 }
-                int best = 0;
-                for (int i = 1; i < members.Count; i++) if (score[i] > score[best]) best = i;
-                var m = members[best];
-                pts.Add(new Vector3(R3(Mathf.Abs(m.x)), R3(m.y), R3(m.z - tail)));
-            }
-            double bestAng = double.MinValue;
-            lowY = 0f; lowZ = 0f;
+
+            var side0 = new List<Vector2>();
+            var rear = new List<Vector2>();
             foreach (var q in v)
             {
-                if (q.z >= tail + 1.5f) continue;
-                double ang = System.Math.Atan2(2.0 - q.y, 2.6 + (q.z - tail));
-                if (ang > bestAng) { bestAng = ang; lowY = R3(q.y); lowZ = R3(q.z - tail); }
+                var zy = new Vector2(q.z - tail, q.y);
+                side0.Add(zy);
+                if (zy.x < 1.5f) rear.Add(zy);
             }
+            var up = Hull(side0, true);
+            var dn = Hull(rear, false);
+            var roofSet = new List<Vector2>();
+            var lowSet = new List<Vector2>();
+            foreach (var pose in TangentPoses())
+            {
+                int hi = 0, lo = 0;
+                double bestHi = double.MinValue, bestLo = double.MaxValue;
+                for (int i = 0; i < up.Count; i++)
+                {
+                    double sl = (up[i].y - pose.h) / (up[i].x + pose.d);
+                    if (sl > bestHi) { bestHi = sl; hi = i; }
+                }
+                for (int i = 0; i < dn.Count; i++)
+                {
+                    double sl = (dn[i].y - pose.h) / (dn[i].x + pose.d);
+                    if (sl < bestLo) { bestLo = sl; lo = i; }
+                }
+                var rp = new Vector2(R3(up[hi].y), R3(up[hi].x));
+                var lp = new Vector2(R3(dn[lo].y), R3(dn[lo].x));
+                if (!roofSet.Contains(rp)) roofSet.Add(rp);
+                if (!lowSet.Contains(lp)) lowSet.Add(lp);
+            }
+            roofSet.Sort((a, b) => a.y.CompareTo(b.y));
+            lowSet.Sort((a, b) => a.y.CompareTo(b.y));
+            roof = roofSet;
+            low = lowSet;
             tail = R3(tail);
         }
 
         static float R3(float x) => (float)System.Math.Round(x, 3);
 
-        /// <summary>The widest a set of car-local points (x native) reads from
-        /// a lens <paramref name="d"/> behind <paramref name="tail"/>, in x/z
-        /// units — only ever compared with itself.</summary>
+        /// <summary>How wide a set of car-local points (x native, SIGNED) reads
+        /// from a lens <paramref name="d"/> behind <paramref name="tail"/>: the
+        /// rightmost minus the leftmost, in x/z units — only ever compared
+        /// with itself.</summary>
         static double SilWidth(IEnumerable<Vector3> v, float sx, float tail, (double h, double pitch, double d) pose)
         {
-            double a = pose.pitch * Mathf.Deg2Rad, w = 0;
+            double a = pose.pitch * Mathf.Deg2Rad, lo = double.MaxValue, hi = double.MinValue;
             foreach (var q in v)
             {
                 double y = q.y - pose.h, z = q.z - (tail - pose.d);
                 double zc = z * System.Math.Cos(a) - y * System.Math.Sin(a);
-                if (zc > 0.05) w = System.Math.Max(w, System.Math.Abs(q.x) * sx / zc);
+                if (zc <= 0.05) continue;
+                double x = q.x * sx / zc;
+                lo = System.Math.Min(lo, x); hi = System.Math.Max(hi, x);
             }
-            return w;
+            return hi > lo ? hi - lo : 0;
+        }
+
+        /// <summary>The steepest (highest) or shallowest (lowest) sight line
+        /// from a lens h up and d behind the tail to side-profile points (z, y
+        /// with z forward of the tail).</summary>
+        static double Slope(IEnumerable<Vector2> zy, (double h, double d) pose, bool highest)
+        {
+            double best = highest ? double.MinValue : double.MaxValue;
+            foreach (var p in zy)
+            {
+                double sl = (p.y - pose.h) / (p.x + pose.d);
+                best = highest ? System.Math.Max(best, sl) : System.Math.Min(best, sl);
+            }
+            return best;
         }
 
         /// <summary>
         /// Every shell in the library against the table the game is running:
-        /// the table's points must read within 3% of the mesh's own widest
-        /// silhouette over every lens pose, and its tail within 2 cm. With
-        /// <paramref name="emit"/>, also writes the table as the meshes give
-        /// it, to Screenshots\CamFrame\ChaseSilhouettes.Table.cs, for copying
-        /// over Scripts\ChaseSilhouettes.Table.cs after a shell changes.
+        /// the table's silhouette must read within 1.5% of the mesh's own
+        /// (signed) width over every lens pose, its tail within 2 cm, and its
+        /// roof line and lowest tail edge must give the mesh's highest and
+        /// lowest sight lines to within 0.004 (a quarter of a degree) from
+        /// every lens position. With <paramref name="emit"/>, also writes the
+        /// table as the meshes give it, to Screenshots\CamFrame\
+        /// ChaseSilhouettes.Table.cs, for copying over
+        /// Scripts\ChaseSilhouettes.Table.cs after a shell changes.
         /// Returns the number of shells that fail.
         /// </summary>
         static int CheckSilhouettes(GameObject player, CarBody body, CarController car, Vector3 at, Vector3 fwd, bool emit)
         {
             var ci = CultureInfo.InvariantCulture;
+            string F(float x) => (System.Math.Abs(x) < 0.0005f ? 0f : x).ToString("0.000", ci) + "f";
             var file = new StringBuilder();
             file.Append("// <auto-generated>\n");
             file.Append("// Written by PSX Racing/Camera Framing Probe (PSX_CAMFRAME_EMIT=1,\n");
@@ -547,11 +653,12 @@ namespace PSXRacing.EditorTools
             file.Append("// re-run the probe after a shell is re-baked or added. See ChaseSilhouettes.cs.\n");
             file.Append("// </auto-generated>\n");
             file.Append("namespace PSXRacing\n{\n    public static partial class ChaseSilhouettes\n    {\n");
-            file.Append("        // key, tail z (car-local), lowest tail point (y, z-forward-of-tail),\n");
-            file.Append("        // then (native half-width, y, z-forward-of-tail) per silhouette point.\n");
+            file.Append("        // key, tail z (car-local); the rear silhouette as (native x, SIGNED so that\n");
+            file.Append("        // an asymmetric body reads true, y, z-forward-of-tail); the roof line and the\n");
+            file.Append("        // tail's lowest edge as (y, z-forward-of-tail) side-profile hull points.\n");
             file.Append("        static readonly Entry[] Table =\n        {\n");
             int fails = 0;
-            double worstAll = 0;
+            double worstW = 0, worstRoof = 0, worstLow = 0;
             foreach (var m in CarModelLibrary.Models)
             {
                 var shell = CarModelLibrary.Load(m.key);
@@ -562,21 +669,21 @@ namespace PSXRacing.EditorTools
                 var v = NativeBody(player, body);
                 if (v.Count == 0) continue;
                 float sx = body.WidthScale;
-                SilhouetteRow(v, sx, out float tail, out var pts, out float lowY, out float lowZ);
+                SilhouetteRow(v, sx, out float tail, out var pts, out var roof, out var low);
 
-                file.Append("            new Entry(\"").Append(m.key).Append("\", ")
-                    .Append(tail.ToString("0.000", ci)).Append("f, ").Append(lowY.ToString("0.000", ci)).Append("f, ")
-                    .Append(lowZ.ToString("0.000", ci)).Append("f, new[] { ");
+                file.Append("            new Entry(\"").Append(m.key).Append("\", ").Append(F(tail)).Append(",\n                new[] { ");
                 for (int i = 0; i < pts.Count; i++)
-                {
-                    if (i > 0) file.Append(", ");
-                    file.Append(pts[i].x.ToString("0.000", ci)).Append("f, ").Append(pts[i].y.ToString("0.000", ci))
-                        .Append("f, ").Append(pts[i].z.ToString("0.000", ci)).Append('f');
-                }
+                    file.Append(i > 0 ? ", " : "").Append(F(pts[i].x)).Append(", ").Append(F(pts[i].y)).Append(", ").Append(F(pts[i].z));
+                file.Append(" },\n                new[] { ");
+                for (int i = 0; i < roof.Count; i++)
+                    file.Append(i > 0 ? ", " : "").Append(F(roof[i].x)).Append(", ").Append(F(roof[i].y));
+                file.Append(" },\n                new[] { ");
+                for (int i = 0; i < low.Count; i++)
+                    file.Append(i > 0 ? ", " : "").Append(F(low[i].x)).Append(", ").Append(F(low[i].y));
                 file.Append(" }),\n");
 
                 // What the game runs with, against the mesh.
-                if (!ChaseSilhouettes.TryGet(m.key, out var e))
+                if (!ChaseSilhouettes.TryGet(m.key, out var e) || e.Count == 0 || e.RoofCount == 0 || e.LowCount == 0)
                 {
                     fails++;
                     Debug.LogError("[CamFrame] FAIL no ChaseSilhouettes row for " + m.key + " (run the probe with -Emit)");
@@ -584,19 +691,38 @@ namespace PSXRacing.EditorTools
                 }
                 var rowPts = new List<Vector3>();
                 for (int i = 0; i < e.Count; i++) { var q = e.Point(i); rowPts.Add(new Vector3(q.x, q.y, q.z + e.tailZ)); }
-                double worst = 0;
+                double wErr = 0, rErr = 0, lErr = 0;
                 foreach (var pose in SilPoses())
                 {
                     double wm = SilWidth(v, sx, tail, pose), wt = SilWidth(rowPts, sx, tail, pose);
-                    if (wm > 0) worst = System.Math.Max(worst, System.Math.Abs(1 - wt / wm));
+                    if (wm > 0) wErr = System.Math.Max(wErr, System.Math.Abs(1 - wt / wm));
                 }
-                worstAll = System.Math.Max(worstAll, worst);
-                bool ok = worst <= 0.03 && Mathf.Abs(e.tailZ - tail) <= 0.02f;
+                var meshZY = new List<Vector2>();
+                var rearZY = new List<Vector2>();
+                foreach (var q in v)
+                {
+                    var zy = new Vector2(q.z - tail, q.y);
+                    meshZY.Add(zy);
+                    if (zy.x < 1.5f) rearZY.Add(zy);
+                }
+                var tabRoof = new List<Vector2>();
+                for (int i = 0; i < e.RoofCount; i++) { var r = e.Roof(i); tabRoof.Add(new Vector2(r.y + e.tailZ - tail, r.x)); }
+                var tabLow = new List<Vector2>();
+                for (int i = 0; i < e.LowCount; i++) { var l = e.Low(i); tabLow.Add(new Vector2(l.y + e.tailZ - tail, l.x)); }
+                foreach (var pose in TangentPoses())
+                {
+                    rErr = System.Math.Max(rErr, System.Math.Abs(Slope(meshZY, pose, true) - Slope(tabRoof, pose, true)));
+                    lErr = System.Math.Max(lErr, System.Math.Abs(Slope(rearZY, pose, false) - Slope(tabLow, pose, false)));
+                }
+                worstW = System.Math.Max(worstW, wErr);
+                worstRoof = System.Math.Max(worstRoof, rErr);
+                worstLow = System.Math.Max(worstLow, lErr);
+                bool ok = wErr <= 0.015 && rErr <= 0.004 && lErr <= 0.004 && Mathf.Abs(e.tailZ - tail) <= 0.02f;
                 if (!ok)
                 {
                     fails++;
-                    Debug.LogError(string.Format(ci, "[CamFrame] FAIL ChaseSilhouettes row for {0} is stale: width off by up to {1:0.0}%, tail {2:0.000} vs mesh {3:0.000} (run the probe with -Emit)",
-                        m.key, worst * 100, e.tailZ, tail));
+                    Debug.LogError(string.Format(ci, "[CamFrame] FAIL ChaseSilhouettes row for {0} is stale: width off by up to {1:0.0}%, roof line {2:0.0000}, tail edge {3:0.0000}, tail {4:0.000} vs mesh {5:0.000} (run the probe with -Emit)",
+                        m.key, wErr * 100, rErr, lErr, e.tailZ, tail));
                 }
             }
             file.Append("        };\n    }\n}\n");
@@ -605,8 +731,8 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(OutDir, "ChaseSilhouettes.Table.cs"), file.ToString());
                 Debug.Log("[CamFrame] silhouette table written to " + Path.Combine(OutDir, "ChaseSilhouettes.Table.cs"));
             }
-            Debug.Log(string.Format(ci, "[CamFrame] silhouette table vs meshes: {0} shell(s) out, worst width error {1:0.0}%",
-                                    fails, worstAll * 100));
+            Debug.Log(string.Format(ci, "[CamFrame] silhouette table vs meshes: {0} shell(s) out, worst width error {1:0.00}%, roof line {2:0.0000}, tail edge {3:0.0000}",
+                                    fails, worstW * 100, worstRoof, worstLow));
             return fails;
         }
 
@@ -773,6 +899,8 @@ namespace PSXRacing.EditorTools
                     }
                     if (inCluster) r.clusterCells++;
                     if (inOther) r.otherCells++;
+                    foreach (var e in hud)
+                        if (e.round && e.Near(fx, fy, NearDial, scr.aspect)) { r.nearDialCells++; break; }
                 }
             r.clusterHit = string.Join("+", clusterNames);
             r.otherHit = string.Join("+", otherNames);
@@ -821,6 +949,16 @@ namespace PSXRacing.EditorTools
             public string name;
             public bool cluster, round;
             public float x0, x1, y0, y1; // normalised, y up
+            /// <summary>Within <paramref name="dx"/> of the frame's width of a
+            /// round element (the dial grown by that much every way).</summary>
+            public bool Near(float x, float y, float dx, float aspect)
+            {
+                float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+                float rx = (x1 - x0) * 0.5f + dx, ry = (y1 - y0) * 0.5f + dx * aspect;
+                float ex = (x - cx) / rx, ey = (y - cy) / ry;
+                return ex * ex + ey * ey <= 1f;
+            }
+
             public bool Contains(float x, float y)
             {
                 if (!round) return x >= x0 && x <= x1 && y >= y0 && y <= y1;
@@ -905,44 +1043,81 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  The reference bands (NFS U / U2 / MW, scratchpad cam_reference.md)
         // ------------------------------------------------------------------
-        /// <summary>Roof above this counts as a tall vehicle: the lens rises
-        /// with the roof and pitches down to keep the car on the bottom edge,
-        /// the way MW's van / pickup / news-van cameras do.</summary>
-        const float TallRoofM = 1.45f;
+        /// <summary>Roof above this is a tall vehicle and gets MW's van rule
+        /// (the Land Rover, the classic van, the Transit). The reference calls
+        /// anything over 1.45 m tall; every shell up to 1.65 m (the Daytona's
+        /// wing, the Crown Vic, the Camry) is held to the CAR bands instead,
+        /// which is the stricter test.</summary>
+        const float TallRoofM = 1.80f;
+
+        /// <summary>A car "at the lane's limit" on a touch screen has some of
+        /// its silhouette within this much of the frame's width of a dial.</summary>
+        const float NearDial = 0.015f;
 
         /// <summary>
         /// The bands, y measured from the BOTTOM of the frame (Unity's
-        /// viewport; the reference quotes from the top). Composition first —
-        /// it is what the player sees — from the NFS U / U2 / MW frames:
-        ///   W       the silhouette's share of the frame width: 25% x real
-        ///           width / 1.76 m in CHASE (+-1.5 points), 34% in CLOSE
-        ///           (+-2). At 200 km/h at most 10% smaller, and CHASE still
-        ///           at least 23% x width / 1.76.
-        ///   contact the rear tyres' line: CHASE 11% up at 16:9, 8% on a phone
-        ///           (+-2, 2.5 on the phone) and 7-15% at any speed; CLOSE 4-15%.
-        ///   horizon CHASE 51-55% at rest at 16:9, 49-53% at 200; 56-64% on
-        ///           the phone. CLOSE sits steeper: 55-67% (16:9), 60-80% (phone).
-        ///   roof    5-16% of the frame under the horizon: road over the car.
-        ///   bottom  the tail's lowest edge in frame (CHASE); CLOSE may clip
-        ///           it by 4% of the frame.
-        ///   HUD     no cell of the silhouette under the cluster: the dials,
-        ///           the gear panel, and on a phone the touch wheel and pedals.
-        /// Tall vehicles (roof above 1.45 m) are framed by MW's van rule: the
-        /// lens rises with the roof and pitches down, capped at 15 deg, and the
-        /// car may fall short of its share (CHASE 80%, CLOSE 70%). On a phone,
-        /// CLOSE may give up share to the lane between the dials, but never
-        /// below the CHASE view's. The lens itself (height, distance, pitch) is
-        /// REPORTED, not banded: with real shells the NFS reference lens (2.0 m
-        /// up, 3.2 m off a generic square tail) puts a tapered FD at 21%, so
-        /// the rig solves the lens per car to hold the composition instead.
+        /// viewport; the reference quotes from the top). The reference is the
+        /// NFS U / U2 / MW survey (cam_reference.md), with its own tolerances:
+        ///
+        ///            W (1.76 m car)   horizon     tyres       pitch      vFOV
+        ///   CHASE    25% +-1.5        0.51-0.55   0.09-0.13   2 +-1      58 +-2
+        ///   CLOSE    34% +-2          0.55-0.59   0.05-0.09   4.5 +-1    54 +-2
+        ///
+        /// W scales with the car's real width. On a screen wider than 16:9 the
+        /// reference's phone rule — hold the 16:9 HORIZONTAL field, pitch 3 deg
+        /// further down — sets the targets: pitch +3 +-1 (interpolated between
+        /// 16:9 and 19.5:9), the horizon that pitch gives, tyres CHASE
+        /// 0.09 +-0.02 (what that lens gives: the reference's "near 92%"),
+        /// CLOSE 0.06 +-0.02 (never under 0.04, the reference's floor), the
+        /// held horizontal field +-2 deg, and the same W.
+        ///
+        /// At 100 and 200 km/h: W at most 10% under rest, and at 200 the
+        /// reference's own shrink (CHASE 25 -> 23%, CLOSE 34 -> 31%) off the
+        /// rest width; the horizon never climbs
+        /// (the old rig's car rose up the frame at speed) and CHASE at 16:9
+        /// sits 0.49-0.53 at 200; tyres CHASE 0.07-0.15, CLOSE 0.04-0.15.
+        /// Always: the roof 5-16% of a 16:9 frame under the horizon (scaled on
+        /// a phone, whose vertical field is narrower) so the road shows over
+        /// the car; the tail's lowest edge in frame (CLOSE may clip 4%); and no
+        /// cell of the silhouette under the HUD cluster.
+        ///
+        /// Tall vehicles (roof over <see cref="TallRoofM"/>): MW's van
+        /// cameras sit higher and pitch 6-10 deg further down, so pitch is
+        /// banded at most 8 deg over the car pitch (horizon and tyres follow),
+        /// W at least 80% (CLOSE 70%) of the share, and the roof still under
+        /// the horizon.
+        ///
+        /// REPLACED TARGETS, stated rather than widened:
+        ///  - Lens height and distance (reference CHASE 2.0 m up / 3.2 m off
+        ///    the bumper, CLOSE 1.85 / 2.45) are REPORTED, not banded: the
+        ///    reference fitted them to a square-tailed car, and at that lens a
+        ///    tapered FD is 21% of the frame. The rig solves the lens per car
+        ///    to hold the composition above instead.
+        ///  - CLOSE width on a touch phone: where the car at its share would
+        ///    sit on a dial, it is as wide as the lane between the dials allows
+        ///    (proved: some of the silhouette within 1.5% of the frame width of
+        ///    a dial); where its tail would leave a phone's shorter frame (the
+        ///    911's engine hangs 1.1 m behind its rear axle) it is as wide as
+        ///    that allows (proved: the tail's lowest edge at the clip line, the
+        ///    tyres at the top of their band). Never narrower than CHASE.
+        ///  - The roof's top line (reference 57-60% / 55-59% from the top) is
+        ///    held as its gap under the horizon instead: roof heights across
+        ///    the library differ by 0.9 m.
         /// </summary>
         static void Targets(Row r, ChaseCamera.View v, CarGeo g, ScreenDef scr)
         {
             bool chase = v == ChaseCamera.View.Chase;
-            bool phone = scr.aspect > 1.9f;
             bool rest = r.kmh < 1f, top = r.kmh > 150f;
+            float k = Mathf.Clamp01((scr.aspect - 16f / 9f) / (19.5f / 9f - 16f / 9f));
+            bool wide = k > 0.001f;
+            float vRef = chase ? 58f : 54f;
+            float pRef = (chase ? 2f : 4.5f) + 3f * k;
+            float cRef = Mathf.Lerp(chase ? 0.11f : 0.07f, chase ? 0.09f : 0.06f, k);
             float wRef = (chase ? 0.25f : 0.34f) * g.widthM / RefWidthM;
             float tol = chase ? 0.015f : 0.02f;
+            float tRef = Mathf.Tan(ChaseCamera.HoldWide(vRef, scr.aspect) * 0.5f * Mathf.Deg2Rad);
+            float s = Mathf.Tan(vRef * 0.5f * Mathf.Deg2Rad) / tRef;
+            float Hz(float pitch) => 0.5f + 0.5f * Mathf.Tan(pitch * Mathf.Deg2Rad) / tRef;
             r.wTarget = wRef;
             var f = r.fails;
 
@@ -950,31 +1125,42 @@ namespace PSXRacing.EditorTools
             if (rest)
             {
                 if (r.tall) Band(f, "W (tall)", r.w, (chase ? 0.80f : 0.70f) * wRef, wRef + tol);
-                else if (chase || !phone) Band(f, "W", r.w, wRef - tol, wRef + tol);
-                else
+                else if (!chase && scr.touch && r.w < wRef - tol)
                 {
+                    // Named, and proved: the car stopped short of its share
+                    // because at its share it would sit on a dial (some of its
+                    // silhouette within NearDial of one), or its tail would
+                    // leave a phone's shorter frame (the lowest edge at the
+                    // clip line with the tyres at the top of their band).
                     float cw = ChaseRestW(r);
-                    Band(f, "W (lane)", r.w, float.IsNaN(cw) ? 0f : cw - 0.002f, wRef + tol);
+                    Band(f, "W (limited: never under CHASE)", r.w, float.IsNaN(cw) ? 1f : cw, wRef + tol);
+                    bool byDial = r.nearDialCells > 0;
+                    bool byTail = r.bottom <= -0.03f && r.contact >= cRef + 0.015f;
+                    if (byDial) r.limitedBy = "a dial";
+                    else if (byTail) r.limitedBy = "the tail";
+                    else
+                        f.Add(string.Format(CultureInfo.InvariantCulture,
+                            "W {0:0.000} under its {1:0.000} with neither a dial within {2:0.0}% of the car nor the tail at the frame's edge: backed off further than it needs",
+                            r.w, wRef, NearDial * 100f));
                 }
+                else Band(f, "W", r.w, wRef - tol, wRef + tol);
+                Band(f, "vFOV", r.vfov, ChaseCamera.HoldWide(vRef - 2f, scr.aspect) - 0.01f,
+                     ChaseCamera.HoldWide(vRef + 2f, scr.aspect) + 0.01f);
             }
             else
             {
                 float restW = RestW(r);
                 if (!float.IsNaN(restW) && r.w < restW * 0.90f)
                     f.Add(string.Format(CultureInfo.InvariantCulture, "W shrinks {0:0.0}% (max 10%)", (1f - r.w / restW) * 100f));
-                if (top && !r.tall && (chase || !phone))
-                    Band(f, "W@200", r.w, (chase ? 0.23f : 0.31f) * g.widthM / RefWidthM - 0.0005f, 1f);
+                // The reference's own shrink: CHASE 25% -> 23%, CLOSE 34% -> 31%.
+                if (top && !float.IsNaN(restW))
+                    Band(f, "W@200 (vs rest)", r.w, (chase ? 0.23f / 0.25f : 0.31f / 0.34f) * restW - 0.0005f, 1f);
             }
 
             // ---- where the car sits -------------------------------------------
             if (chase)
             {
                 Band(f, "contact", r.contact, 0.07f, 0.15f);
-                if (rest && !r.tall)
-                {
-                    float c = phone ? 0.08f : 0.11f, ct = phone ? 0.025f : 0.02f;
-                    Band(f, "contact@rest", r.contact, c - ct, c + ct);
-                }
                 Band(f, "bottom in frame", r.bottom, 0f, 1f);
             }
             else
@@ -982,17 +1168,30 @@ namespace PSXRacing.EditorTools
                 Band(f, "contact", r.contact, 0.04f, 0.15f);
                 Band(f, "bottom", r.bottom, -0.04f, 1f);
             }
+            if (rest && !r.tall) Band(f, "contact@rest", r.contact, cRef - 0.02f, cRef + 0.02f);
+
+            // ---- the horizon and the lens' pitch ----------------------------------
             if (!r.tall)
             {
                 if (rest)
                 {
-                    if (chase) Band(f, "horizon", r.horizon, phone ? 0.56f : 0.51f, phone ? 0.64f : 0.55f);
-                    else Band(f, "horizon", r.horizon, phone ? 0.60f : 0.55f, phone ? 0.80f : 0.67f);
+                    Band(f, "pitch", r.pitch, pRef - 1f, pRef + 1f);
+                    if (!wide) Band(f, "horizon", r.horizon, chase ? 0.51f : 0.55f, chase ? 0.55f : 0.59f);
+                    else Band(f, "horizon", r.horizon, Hz(pRef - 1f), Hz(pRef + 1f));
                 }
-                else if (top && chase && !phone) Band(f, "horizon@200", r.horizon, 0.49f, 0.53f);
-                Band(f, "roof under horizon", r.horizon - r.roof, 0.05f, 0.16f);
+                else
+                {
+                    float restHz = RestHorizon(r);
+                    if (!float.IsNaN(restHz)) Band(f, "horizon@speed (levels, never climbs)", r.horizon, restHz - 0.06f, restHz + 0.005f);
+                    if (top && chase && !wide) Band(f, "horizon@200", r.horizon, 0.49f, 0.53f);
+                }
+                Band(f, "roof under horizon", r.horizon - r.roof, 0.05f * s, 0.16f * s);
             }
-            else if (r.pitch > 15.05f) f.Add("pitch " + r.pitch.ToString("0.0", CultureInfo.InvariantCulture) + " over 15");
+            else
+            {
+                if (rest) Band(f, "pitch (tall: MW's van rule)", r.pitch, 0f, pRef + 8f + 0.05f);
+                Band(f, "roof under horizon", r.horizon - r.roof, 0.05f * s, 1f);
+            }
 
             // ---- the HUD ---------------------------------------------------------
             if (r.clusterCells > 0)
@@ -1016,6 +1215,14 @@ namespace PSXRacing.EditorTools
             return float.NaN;
         }
 
+        static float RestHorizon(Row r)
+        {
+            foreach (var o in rows)
+                if (o.rig == r.rig && o.screen == r.screen && o.view == r.view && o.car == r.car && o.kmh < 1f)
+                    return o.horizon;
+            return float.NaN;
+        }
+
         static void Band(List<string> f, string what, float v, float lo, float hi)
         {
             if (v >= lo && v <= hi) return;
@@ -1034,13 +1241,29 @@ namespace PSXRacing.EditorTools
             sb.AppendLine("xH = W x aspect; back = lens to the rearmost bodywork, horizontal; h = lens above the ground;");
             sb.AppendLine("contact = rear-axle ground point; bottom/roof = silhouette; HUD = % of the car's silhouette under the cluster.");
             sb.AppendLine();
+            sb.AppendLine("REFERENCE BANDS (NFS U / U2 / MW survey, its own tolerances), every shell in the library:");
+            sb.AppendLine("  CHASE 16:9  W 25% x width/1.76 +-1.5 | horizon 0.51-0.55 | tyres 0.09-0.13 | pitch 2 +-1   | vFOV 58 +-2");
+            sb.AppendLine("  CLOSE 16:9  W 34% x width/1.76 +-2   | horizon 0.55-0.59 | tyres 0.05-0.09 | pitch 4.5 +-1 | vFOV 54 +-2");
+            sb.AppendLine("  19.5:9      the reference's phone rule (hold the 16:9 horizontal field, pitch 3 deg further down):");
+            sb.AppendLine("              pitch +3 +-1 and the horizon it gives | tyres CHASE 0.07-0.11, CLOSE 0.04-0.08 | same W");
+            sb.AppendLine("  at speed    W at most 10% under rest, at 200 the reference's shrink (25->23%, 34->31%) | horizon never climbs,");
+            sb.AppendLine("              CHASE 16:9 0.49-0.53 at 200 | tyres CHASE 0.07-0.15, CLOSE 0.04-0.15");
+            sb.AppendLine("  always      roof 5-16% of a 16:9 frame under the horizon | tail in frame (CLOSE may clip 4%) | nothing under the HUD cluster");
+            sb.AppendLine("  tall        roof over 1.80 m (Land Rover, vans): MW's van rule, pitch at most 8 deg over the car pitch, W >= 80% (CLOSE 70%)");
+            sb.AppendLine("REPLACED TARGETS: lens height/distance are reported, not banded (the reference's lens was fitted to a square-tailed car;");
+            sb.AppendLine("  the rig solves it per car to hold the composition). CLOSE width on a touch phone is capped where the car at its");
+            sb.AppendLine("  share would sit on a dial (proved: silhouette within 1.5% of one) or push its tail out of the shorter frame (proved:");
+            sb.AppendLine("  lowest edge at the clip line, tyres at the top of their band); never under CHASE.");
+            sb.AppendLine("  The roof's top line is held as its gap under the horizon (roofs differ by 0.9 m across the library).");
+            sb.AppendLine();
             sb.AppendLine("screen  view  car             km/h  back   h     pitch  vFOV  hFOV   shift  W      Wtgt   xH     contact bottom roof   horizon road   HUD%   verdict");
             int fails = 0;
             var csv = new StringBuilder("rig,screen,view,car,kmh,back,height,pitch,vfov,hfov,shift,w,wtarget,xh,contact,bottom,roof,horizon,road,hudpct,hud,other,info,fails\n");
             foreach (var r in rows)
             {
                 float hud = 100f * r.clusterCells / Mathf.Max(1, r.carCells);
-                string verdict = r.fails.Count == 0 ? "ok" : (r.info ? "info: " : "FAIL: ") + string.Join("; ", r.fails);
+                string verdict = r.fails.Count == 0 ? (r.limitedBy != null ? "ok (W held by " + r.limitedBy + ")" : r.tall ? "ok (tall)" : "ok")
+                                                    : (r.info ? "info: " : "FAIL: ") + string.Join("; ", r.fails);
                 if (r.fails.Count > 0 && !r.info) fails++;
                 sb.AppendLine(string.Format(ci,
                     "{0,-7} {1,-5} {2,-15} {3,4:0}  {4,5:0.00} {5,5:0.00} {6,5:0.0}  {7,4:0.0}  {8,5:0.0}  {9,6:+0.000;-0.000}  {10,5:0.000}  {11,5:0.000}  {12,5:0.000}  {13,6:0.000}  {14,5:0.000}  {15,5:0.000}  {16,6:0.000}  {17,5:0.0}  {18,5:0.0}  {19}",
@@ -1053,8 +1276,20 @@ namespace PSXRacing.EditorTools
             }
             sb.AppendLine();
             int counted = 0;
-            foreach (var r in rows) if (!r.info) counted++;
-            sb.AppendLine(fails == 0 ? "ALL IN TARGET (" + counted + " cases)" : "OUT OF TARGET: " + fails + " of " + counted);
+            var cars = new List<string>();
+            var carFails = new Dictionary<string, int>();
+            foreach (var r in rows)
+            {
+                if (r.info) continue;
+                counted++;
+                if (!carFails.ContainsKey(r.car)) { carFails[r.car] = 0; cars.Add(r.car); }
+                if (r.fails.Count > 0) carFails[r.car]++;
+            }
+            var perCar = new StringBuilder("per shell (cases out of target):");
+            foreach (var c in cars) perCar.Append(' ').Append(c).Append(' ').Append(carFails[c]);
+            sb.AppendLine(perCar.ToString());
+            sb.AppendLine(fails == 0 ? "ALL IN TARGET (" + counted + " cases, " + cars.Count + " shells)"
+                                     : "OUT OF TARGET: " + fails + " of " + counted + " (" + cars.Count + " shells)");
             File.WriteAllText(Path.Combine(OutDir, "camframe_" + rig + ".txt"), sb.ToString());
             File.WriteAllText(Path.Combine(OutDir, "camframe_" + rig + ".csv"), csv.ToString());
             foreach (var line in sb.ToString().Split('\n'))
@@ -1199,7 +1434,7 @@ namespace PSXRacing.EditorTools
         {
             if (frames.Count == 0) return;
             int fw = frames[0].tex.width / 2, fh = frames[0].tex.height / 2;
-            int cols = SpeedsKmh.Length, rowsN = CarKeys.Length, pad = 4;
+            int cols = SpeedsKmh.Length, rowsN = PngKeys.Length, pad = 4;
             int W = cols * fw + (cols + 1) * pad, H = rowsN * fh + (rowsN + 1) * pad;
             var sheet = new Texture2D(W, H, TextureFormat.RGB24, false);
             var px = new Color32[W * H];

@@ -1,15 +1,18 @@
 # Measure the chase camera's FRAMING (PSX Racing/Camera Framing Probe,
-# Editor\CamFrameProbe.cs) on an already-built sandbox: six test cars on a
-# straight of a built venue, CHASE and CLOSE, at 0 / 100 / 200 km/h, at 16:9
-# and at a 19.5:9 phone with the touch HUD, projected analytically and checked
-# against the NFS U / MW reference bands. Scripts and Editor are copied over
-# first (no mirror, no scene build), so a camera change is a few minutes.
-# Graphics ON: the frames render through the pipeline.
+# Editor\CamFrameProbe.cs) on an already-built sandbox: EVERY body shell in the
+# library on a straight of a built venue, CHASE and CLOSE, at 0 / 100 / 200
+# km/h, at 16:9 and at a 19.5:9 phone with the touch HUD, projected
+# analytically and checked against the NFS U / MW reference bands (their own
+# +-2 at 16:9, their phone rule on a phone; the replaced targets are named in
+# the report's header). PNGs are drawn for eight of the shells. Scripts and
+# Editor are copied over first (no mirror, no scene build), so a camera change
+# is a few minutes. Graphics ON: the frames render through the pipeline.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\camframe-probe.ps1
 #   ... -Rig legacy          the rig every scene carried on 2026-09-28
 #   ... -Venue DragQuarter   another built venue
 #   ... -NoPng               numbers only
+#   ... -Cars a,b            only these shells (keys, comma-separated)
 #   ... -AllScreens          also 18:9 and 20:9 phones and a 16:9 touch tablet
 #                            (reported, not part of the verdict)
 #   ... -Emit                write the chase rig's per-shell silhouette table
@@ -27,7 +30,8 @@ param(
     [string]$Venue = "GillespieGap",
     [switch]$NoPng,
     [switch]$AllScreens,
-    [switch]$Emit
+    [switch]$Emit,
+    [string]$Cars = ""
 )
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
@@ -49,6 +53,7 @@ $env:PSX_CAMFRAME_VENUE = $Venue
 $env:PSX_CAMFRAME_PNG = if ($NoPng) { "0" } else { "1" }
 $env:PSX_CAMFRAME_SCREENS = if ($AllScreens) { "all" } else { "" }
 $env:PSX_CAMFRAME_EMIT = if ($Emit) { "1" } else { "" }
+$env:PSX_CAMFRAME_CARS = $Cars
 $log = "$proj\camframe_$Rig.log"
 Invoke-UnityJob -Log $log -MaxMinutes 20 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
