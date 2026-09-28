@@ -9528,8 +9528,38 @@ namespace PSXRacing.EditorTools
                     Check(closeShape.pitch >= 3.5f && closeShape.pitch <= 5.5f && closeFit.D < fit.D,
                           "and the close view nearer, pitched 4.5 +-1 deg (not the 7-15 deg of a lens looking down on the car)",
                           closeShape.pitch.ToString("0.0") + " deg, " + closeFit.D.ToString("0.00") + " m");
+                    // ON A HILL the rig stands in the road's frame: the pose on
+                    // a 7% grade, seen from the car, is the level pose exactly.
+                    // A level rig (the lens a fixed height over the car, aimed
+                    // along the level) loses the road over the roof on every
+                    // descent — the CLOSE FD's grazing line met a -7% road
+                    // 400 m out or never (tools\camframe-play-check.ps1).
+                    var carGo = new GameObject("SelfTestGradeCar");
+                    try
+                    {
+                        float gDeg = Mathf.Atan(0.07f) * Mathf.Rad2Deg;
+                        var ct = carGo.transform;
+                        ct.SetPositionAndRotation(new Vector3(10f, 5f, -3f), Quaternion.Euler(0f, 30f, 0f));
+                        ChaseCamera.PoseOf(closeShape, ct, out Vector3 lvlPos, out Quaternion lvlRot);
+                        Vector3 lvlLocal = ct.InverseTransformPoint(lvlPos);
+                        Quaternion lvlLocalRot = Quaternion.Inverse(ct.rotation) * lvlRot;
+                        ct.rotation = Quaternion.Euler(-gDeg, 30f, 0f);   // nose up the grade
+                        ChaseCamera.PoseOf(closeShape, ct, out Vector3 upPos, out Quaternion upRot, gDeg);
+                        float dp = (ct.InverseTransformPoint(upPos) - lvlLocal).magnitude;
+                        float da = Quaternion.Angle(Quaternion.Inverse(ct.rotation) * upRot, lvlLocalRot);
+                        Check(dp < 0.001f && da < 0.01f,
+                              "on a 7% climb the close lens stands, seen from the car, exactly where it does on the level (the rig turns onto the grade)",
+                              dp.ToString("0.0000") + " m, " + da.ToString("0.000") + " deg");
+                    }
+                    finally { Object.DestroyImmediate(carGo); }
                 }
             }
+            // The grade is low-passed off the car's travel: fast enough to
+            // hold the lens over the roof through a K 25 vertical curve at
+            // 200 km/h, slow enough that a bump's heave does not tip the view.
+            Check(ChaseCamera.GradeFollowRate >= 2f && ChaseCamera.GradeFollowRate <= 6f && ChaseCamera.GradeMaxDeg >= 8f,
+                  "the chase rig follows the road's grade at 2-6 /s, to at least 8 deg",
+                  ChaseCamera.GradeFollowRate + " /s, " + ChaseCamera.GradeMaxDeg + " deg");
             float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, full);
             float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, full);
             Check(hoodMax <= ChaseCamera.HoodMaxFOV, "the hood cam never passes its 80 deg cap", hoodMax);

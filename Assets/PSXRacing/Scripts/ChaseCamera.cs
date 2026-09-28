@@ -124,11 +124,47 @@ namespace PSXRacing
         /// off the pose it is chasing, metres. With the speed term gone from
         /// <see cref="positionLag"/> a launch would otherwise pull the car
         /// 11 m out of the frame; 1.2 m is enough to see it surge and not
-        /// enough to lose it. Lateral and vertical lag are left free — they
-        /// are what makes the rig feel hung on rubber through a corner. The
-        /// steady trail this clamp used to BE is led out in Follow.
+        /// enough to lose it. The forward axis is the ROAD's (the heading
+        /// turned up or down the grade, see <see cref="GradeDeg"/>), so the
+        /// steady trail of a climb is led out with the rest. Lateral lag, and
+        /// lag across the road's plane (a bump, a kerb), are left free — they
+        /// are what makes the rig feel hung on rubber. The steady trail this
+        /// clamp used to BE is led out in Follow.
         /// </summary>
         public float lagClampM = 1.2f;
+
+        // ---- the road's grade (2026-09-28) ---------------------------------
+        // The chase rig stood on a LEVEL frame: the lens a fixed height over
+        // the car, aimed by the level heading. On a hill that is wrong twice.
+        // (1) The follow lag's vertical half was never led out: a lens chasing
+        // a car that climbs at v x grade trails it by v x grade / positionLag,
+        // 0.44 m at 100 km/h on 8% and 0.9 m at 200. Measured on +7%: the FD's
+        // CLOSE lens 0.20 m over its roof at 100 km/h (0.29 on the level) and
+        // 0.20 m UNDER it at 200, with no road showing over the car at all.
+        // (2) Leading that out alone is not enough: a level lens on a -7%
+        // descent looks along the level while the road drops 4 deg under it,
+        // so the grazing line over the roof met the road 70-110 m out in
+        // CHASE and never in CLOSE (11-16 m on the level) — the lag had been
+        // hiding this by holding the lens HIGH on descents. So the rig is
+        // turned onto the grade: the lens stands behind and above the car in
+        // the road's own frame, and on a steady grade shows exactly the level
+        // road's picture, turned. The grade is read off the car's own travel
+        // (its origin's motion, so it works kinematic — replays, the play
+        // check — as well as driven) and low-passed, so a bump or a squat
+        // does not tip the lens.
+        /// <summary>Low-pass on the travel grade, 1/s, at full speed. Measured
+        /// (tools\camframe-play-check.ps1: FD, Supra, euro hatch): a sag into
+        /// +8% costs the lens at most 0.005 m of its roof margin at 100 km/h
+        /// over 80 m (K 10) and 0.03-0.055 m at 200 km/h over 200 m (K 25), of
+        /// 0.22-0.42 m; a steady grade costs nothing. At 3/s a 2 Hz body heave
+        /// reaches the rig's angle at under a quarter.</summary>
+        public const float GradeFollowRate = 3f;
+        /// <summary>The grade the rig follows at most, degrees (17.6%).</summary>
+        public const float GradeMaxDeg = 10f;
+        /// <summary>The follow fades in between these speeds, m/s: below them
+        /// the travel direction is too short a line to read a grade off, and
+        /// the rig holds the last one (a car stopped on a hill stays on it).</summary>
+        public const float GradeSpeedFrom = 2f, GradeSpeedFull = 8f;
         /// <summary>
         /// Acceleration-coupled distance (research A2): metres of chase
         /// distance per m/s^2 of forward acceleration, so throttle stretches
@@ -300,6 +336,13 @@ namespace PSXRacing
         float accelSmoothed;
         float prevForward;
         bool haveForward;
+        /// <summary>The grade the chase rig stands on, degrees, + = the road
+        /// rises ahead of the nose. See <see cref="GradeFollowRate"/>.</summary>
+        public float GradeDeg => gradeDeg;
+        float gradeDeg;
+        Vector3 gradePrevPos;
+        Transform gradePrevTarget;
+        bool haveGradePrev;
         /// <summary>The near plane the scene was built with, so a mounted view
         /// can tighten it and every other view can put it back.</summary>
         float baseNear = 0.25f;
@@ -482,6 +525,9 @@ namespace PSXRacing
             ChaseShape shape = default;
 
             UpdateAcceleration();
+            // Every view, so a switch back to a chase view mid-climb lands on
+            // the grade rather than easing onto it.
+            UpdateGrade();
 
             switch (Current)
             {
@@ -544,13 +590,60 @@ namespace PSXRacing
             accelSmoothed = Mathf.Lerp(accelSmoothed, raw, 1f - Mathf.Exp(-accelLag * dt));
         }
 
+        /// <summary>
+        /// The grade of the car's travel, low-passed. Read off the target's
+        /// own motion frame to frame rather than the body's pitch — the body
+        /// sits ~1.3 deg nose-up on its springs and squats and dives with the
+        /// pedals, none of which is the road — or the rigidbody's velocity,
+        /// which reads zero on a kinematic car (a replay). Held while the car
+        /// is airborne (a jump's arc is not a road) and below walking pace;
+        /// back to level across a teleport; kept on a change of target.
+        /// </summary>
+        void UpdateGrade()
+        {
+            float dt = Time.deltaTime;
+            Vector3 p = target.position;
+            if (!haveGradePrev || gradePrevTarget != target || dt <= 0f)
+            {
+                gradePrevPos = p; gradePrevTarget = target; haveGradePrev = true;
+                return;
+            }
+            Vector3 d = p - gradePrevPos;
+            gradePrevPos = p;
+            float horiz = new Vector2(d.x, d.z).magnitude;
+            // A respawn, a replay seek: the grade here is unknown until the
+            // car moves, and level is the least wrong guess (a held descent
+            // on a level grid would tip the whole picture until it did).
+            if (horiz / dt > 150f || Mathf.Abs(d.y) / dt > 50f) { gradeDeg = 0f; return; }
+            bool airborne = targetCar != null && targetCar.isActiveAndEnabled && !targetCar.anyWheelGrounded;
+            float w = Smooth01((horiz / dt - GradeSpeedFrom) / (GradeSpeedFull - GradeSpeedFrom));
+            if (airborne || w <= 0f) return;
+            Vector3 fwd = target.forward; fwd.y = 0f;
+            // Reversing up a hill is the road FALLING ahead of the nose.
+            float sign = Vector3.Dot(new Vector3(d.x, 0f, d.z), fwd) >= 0f ? 1f : -1f;
+            float raw = Mathf.Clamp(Mathf.Atan2(d.y * sign, horiz) * Mathf.Rad2Deg, -GradeMaxDeg, GradeMaxDeg);
+            gradeDeg = Mathf.Lerp(gradeDeg, raw, 1f - Mathf.Exp(-GradeFollowRate * w * dt));
+        }
+
+        /// <summary>The level heading turned up the grade, and the road's up:
+        /// the frame the chase rig stands in.</summary>
+        public static void GradeFrame(Vector3 flatFwd, float gradeDeg, out Vector3 fwdG, out Vector3 upG)
+        {
+            float g = gradeDeg * Mathf.Deg2Rad, c = Mathf.Cos(g), s = Mathf.Sin(g);
+            fwdG = flatFwd * c + Vector3.up * s;
+            upG = Vector3.up * c - flatFwd * s;
+        }
+
         void Follow(ChaseShape shape, float speed)
         {
             float dt = Time.deltaTime;
-            // Flatten forward so the camera doesn't dive with body pitch
+            // Flatten forward so the camera doesn't dive with body pitch, then
+            // turn it onto the ROAD's grade (low-passed travel, not the body):
+            // the rig stands in the road's frame. See GradeDeg.
             Vector3 fwd = target.forward; fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 0.01f ? fwd.normalized : Vector3.forward;
             Vector3 right = Vector3.Cross(Vector3.up, fwd);
+            GradeFrame(fwd, gradeDeg, out Vector3 fwdG, out Vector3 upG);
 
             // ---- the fitted pose, speed rig included (see Shape) -----------
             float dist = shape.back;
@@ -571,7 +664,7 @@ namespace PSXRacing
             float wantSwing = targetCar != null && targetCar.Drifting ? -slip * driftSwing : 0f;
             swing = Mathf.Lerp(swing, wantSwing, 1f - Mathf.Exp(-driftSwingLag * dt));
 
-            Vector3 wanted = target.position - fwd * dist + Vector3.up * h + right * swing;
+            Vector3 wanted = target.position - fwdG * dist + upG * h + right * swing;
 
             // ---- LEAD OUT THE STEADY TRAIL. A first-order lag chasing a
             // point that moves at v settles v / positionLag behind it, and the
@@ -582,18 +675,21 @@ namespace PSXRacing
             // that far AHEAD of the wanted pose, so its steady state IS the
             // wanted pose at any speed; what is left of the lag is the part
             // that means something -- the surge of a launch and the dip of a
-            // stop -- on top of the accel coupling above.
+            // stop -- on top of the accel coupling above. Ahead along the
+            // ROAD: on a climb the car's travel is up the grade, and a lead
+            // along the level heading left the rise to trail, v x grade /
+            // positionLag under the fit (the CLOSE lens level with the roof).
             float fwdV = targetCar != null ? targetCar.forwardSpeed : 0f;
             float lead = Mathf.Clamp(fwdV / Mathf.Max(positionLag, 0.01f), -lagClampM, lagClampM);
-            Vector3 chased = wanted + fwd * lead;
+            Vector3 chased = wanted + fwdG * lead;
             smoothPos = Vector3.Lerp(smoothPos, chased, 1f - Mathf.Exp(-positionLag * dt));
 
             // ---- the lag clamp: a launch never leaves the car behind the lens
-            // (nor a braking stop in front of it). Only the along-forward part
-            // is bounded; sideways and vertical lag stay soft.
-            float along = Vector3.Dot(smoothPos - chased, fwd);
+            // (nor a braking stop in front of it). Only the part along the
+            // road is bounded; sideways and across the road stay soft.
+            float along = Vector3.Dot(smoothPos - chased, fwdG);
             float bounded = Mathf.Clamp(along, -lagClampM, lagClampM);
-            if (bounded != along) smoothPos += fwd * (bounded - along);
+            if (bounded != along) smoothPos += fwdG * (bounded - along);
             transform.position = smoothPos;
 
             // ---- WHERE THE LENS POINTS: the heading, blended toward the
@@ -652,10 +748,11 @@ namespace PSXRacing
 
             // The look point is where the fitted PITCH comes from: LookAheadM
             // up the aim line, at the height that makes the steady-state lens
-            // pitch exactly shape.pitch. A point near the car rather than a
-            // bare angle keeps the car framed while the lateral and vertical
-            // lag are out.
-            Vector3 lookAt = target.position + Vector3.up * shape.lookY + aimFwd * LookAheadM;
+            // pitch exactly shape.pitch — to the ROAD, so both are in its
+            // frame. A point near the car rather than a bare angle keeps the
+            // car framed while the lateral and vertical lag are out.
+            GradeFrame(aimFwd, gradeDeg, out Vector3 aimG, out _);
+            Vector3 lookAt = target.position + upG * shape.lookY + aimG * LookAheadM;
             Quaternion wantedRot = Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
             // Slower while sideways, for the reason the reference gives. Reads
             // the same gated aimSlipT, so a spin or a reverse no longer slows
@@ -884,6 +981,9 @@ namespace PSXRacing
         //             (GaugeCluster.TachCircle / SpeedoCircle); the picture is
         //             centred in the lane between them and the lens backs off
         //             until no part of the silhouette is under a dial.
+        //   grade     all of the above is solved on a level road and stood in
+        //             the ROAD's frame (GradeDeg: the car's travel, low-passed),
+        //             so a climb or a descent shows the same picture, turned.
         // FrameProbe (Editor\CamFrameProbe.cs, tools\camframe-probe.ps1)
         // measures every shell in the library on its real meshes and checks
         // it against the bands above. Before this pass the chase view was a
@@ -1381,29 +1481,35 @@ namespace PSXRacing
 
         /// <summary>
         /// Where a chase view holds the lens in the STEADY STATE — steady
-        /// speed, straight road, no slide: the follow lag led out, the accel
+        /// speed on a straight of constant grade <paramref name="gradeDeg"/>
+        /// (+ = rising ahead), no slide: the follow lag led out, the accel
         /// term, swing and roll at zero. What Follow converges on, for the
         /// tools that cannot run it (Follow lerps by Time.deltaTime, which is
-        /// zero outside play mode). <paramref name="shift"/> is the lens shift
-        /// to apply with <see cref="ShiftedProjection"/>.
+        /// zero outside play mode). On a grade it is the level pose turned
+        /// about the car onto the grade. <paramref name="shift"/> is the lens
+        /// shift to apply with <see cref="ShiftedProjection"/>.
         /// </summary>
         public static void SteadyPose(View v, float aspect, float speedMps, float fullMps, Transform car,
                                       CarFrame frame, HudDials dials,
-                                      out Vector3 pos, out Quaternion rot, out float vfov, out float shift)
+                                      out Vector3 pos, out Quaternion rot, out float vfov, out float shift,
+                                      float gradeDeg = 0f)
         {
             var s = Shape(v, Fit(v, aspect, frame, dials), SpeedT(speedMps, fullMps), aspect);
-            PoseOf(s, car, out pos, out rot);
+            PoseOf(s, car, out pos, out rot, gradeDeg);
             vfov = s.vfov;
             shift = s.shift;
         }
 
-        /// <summary>A shape stood behind a car: the lens and where it looks.</summary>
-        public static void PoseOf(ChaseShape s, Transform car, out Vector3 pos, out Quaternion rot)
+        /// <summary>A shape stood behind a car on a road of grade
+        /// <paramref name="gradeDeg"/>: the lens and where it looks. The same
+        /// frame as Follow's.</summary>
+        public static void PoseOf(ChaseShape s, Transform car, out Vector3 pos, out Quaternion rot, float gradeDeg = 0f)
         {
             Vector3 fwd = car.forward; fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 0.01f ? fwd.normalized : Vector3.forward;
-            pos = car.position - fwd * s.back + Vector3.up * s.height;
-            Vector3 look = car.position + Vector3.up * s.lookY + fwd * LookAheadM;
+            GradeFrame(fwd, gradeDeg, out Vector3 fwdG, out Vector3 upG);
+            pos = car.position - fwdG * s.back + upG * s.height;
+            Vector3 look = car.position + upG * s.lookY + fwdG * LookAheadM;
             rot = Quaternion.LookRotation(look - pos, Vector3.up);
         }
 

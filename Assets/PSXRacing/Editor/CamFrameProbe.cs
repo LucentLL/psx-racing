@@ -49,6 +49,15 @@ namespace PSXRacing.EditorTools
     /// venue (default GillespieGap: two real 3.2 m lanes). PSX_CAMFRAME_PNG=0
     /// skips the pictures.
     ///
+    /// LEVEL ROAD ONLY, by design: the car stands level on the flattest
+    /// straight (FindStraight). The rig stands in the road's frame, so a
+    /// steady grade shows exactly the level picture turned (SteadyPose's
+    /// gradeDeg; pinned in the self-test); what a grade does to the RUNNING
+    /// camera — the follow lag up a climb, a vertical curve's transient — is
+    /// tools\camframe-play-check.ps1's job, which drives ±7% straights and
+    /// ±8% vertical curves at speed and reads the roof margin, the roof gap
+    /// under the road's horizon and how far past the nose the road shows.
+    ///
     ///   tools\camframe-probe.ps1 [-Rig legacy]  ->  Screenshots\CamFrame\
     ///
     /// NOT -nographics: the PNGs render through the pipeline.
@@ -66,6 +75,12 @@ namespace PSXRacing.EditorTools
             "euro_hatch", "civic_eg",
         };
         static readonly float[] SpeedsKmh = { 0f, 100f, 200f };
+        /// <summary>The reference band for the roof's top line under the
+        /// horizon, fraction of a 16:9 frame's height (scaled on a phone):
+        /// every view, every speed. The rig SOLVES inside it at rest
+        /// (ChaseRig.gapLo/gapHi); the play check applies it on the level and
+        /// on a grade (CamFramePlayCheck).</summary>
+        internal const float RoofGapLo = 0.05f, RoofGapHi = 0.16f;
         static readonly ChaseCamera.View[] Views = { ChaseCamera.View.Chase, ChaseCamera.View.Close };
 
         struct ScreenDef { public string tag; public float aspect; public bool touch, info; }
@@ -1185,7 +1200,7 @@ namespace PSXRacing.EditorTools
                     if (!float.IsNaN(restHz)) Band(f, "horizon@speed (levels, never climbs)", r.horizon, restHz - 0.06f, restHz + 0.005f);
                     if (top && chase && !wide) Band(f, "horizon@200", r.horizon, 0.49f, 0.53f);
                 }
-                Band(f, "roof under horizon", r.horizon - r.roof, 0.05f * s, 0.16f * s);
+                Band(f, "roof under horizon", r.horizon - r.roof, RoofGapLo * s, RoofGapHi * s);
             }
             else
             {
