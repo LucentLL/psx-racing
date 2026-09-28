@@ -31,43 +31,76 @@ seconds and in every venue blurb):
 - `buildings_core.json` — 35,112 building elements in the same core, with
   `height` / `building:levels` where mapped (every tower in uptown is).
 - `nodes_all.json` — signal / stop / yield nodes, matched to graph nodes BY ID.
-- SRTM 1-arcsecond (`tools/roads/cache/*.hgt.gz`, via `tools/roads/lib.mjs`).
+- Four 1" height tiles, N34W081, N34W082, N35W081 and N35W082
+  (`tools/roads/cache/*.hgt.gz`, via `tools/roads/lib.mjs`). They come from the
+  AWS Terrain Tiles "skadi" set (Tilezen), which in the US is a BARE-EARTH
+  mosaic built from USGS NED/3DEP. It is not SRTM radar and has no towers in
+  it: a 1 km window round the Bank of America tower reads 215-232 m, and the
+  tile agrees with 3DEP lidar to 1.5 m RMSE (survey_flatness, 2026-09-27).
 - The water still comes from RG2's hand-traced creeks and Lake Wylie
   (`baselineWater.ts`), co-registered onto the OSM frame by ICP against RG2's
-  own merged I-485 row (23 m residual).
+  own merged I-485 row (23 m residual). The exporter reads these from the RG2
+  checkout at `C:/Users/mcgee/code/Racing-Game-2` (`export_osm.mjs`, `RG2`).
+
+Every input is pinned in `tools/city/cache_manifest.json` (size, sha256, and
+the Overpass `timestamp_osm_base`: 2026-09-12T02:44:33Z for the arterials and
+controls, 02:39:51Z for the core streets and buildings). The Overpass cache is
+gitignored and exists only on the machine that fetched it; the queries that
+made it are in `tools/city/fetch/`.
 
 What the exporter makes of it:
 
 - **Real topology.** A junction is a node two ways share, by id. Ways are cut
-  at those nodes into 25,250 edges between 20,359 nodes (3,966 km). Dead ends
-  within 2.5 m of another edge are welded onto it (one, in this snapshot —
-  the arterial and minor-street fetches share their nodes).
+  at those nodes into 25,042 edges between 20,194 nodes (3,846 km; 179,325
+  polyline points). The 25,250 edges and 3,966 km this said before were
+  counted with the toll lanes still in. Dead ends within 2.5 m of another
+  edge are welded onto it (one, in this snapshot — the arterial and
+  minor-street fetches share their nodes).
 - **Real carriageways.** A divided road is two one-way edges with the ground
   showing between them. Each carries its own lane count (`lanes`, or
   `lanes:forward + backward`, or a per-class default), and a two-way road with
   an odd count has a centre turn lane (the TWLTL on every undivided Charlotte
   arterial).
 - **Real grade separations.** A crossing with no shared node IS a separation
-  and OSM says which road is on top: `tunnel < layer < bridge`. 928 of them,
-  every one decided by a tag; the class-rank fallback never fired.
-- **Real bridges.** `bridge=yes` marks the exact extent of every deck (56.5 km
-  of them), separately from the 275 water spans found geometrically.
+  and OSM says which road is on top: `tunnel < layer < bridge`. 782 of them
+  (928 before the toll lanes were dropped), every one decided by a tag; the
+  class-rank fallback never fired.
+- **Real bridges.** `bridge=yes` marks the exact extent of every deck (53.1 km
+  on 791 edges), separately from the 264 water spans found geometrically.
 - **Three race routes** as edge chains through this graph, from the way-id
   lists `tools/clt/fetch_clt.mjs` verified on 2026-09-07 (every id still
   present). Uptown Loop 9.20 km (loop, 1.61 km on structure), Tryon Street
   Sprint 6.02 km, Independence Sprint 7.02 km.
-- **The ground**: a 60 m SRTM grid over the whole beltway, min-filtered over a
-  120 m reach (uptown's roofs are 200 m radar returns) and blurred, stored as
-  metres above a datum a little under the county's lowest point.
-- **31,870 footprints** (styles glass / midrise / brick / house / shops,
+- **The ground**: a 60 m grid (811 x 916) over the whole beltway, sampled
+  from the four skadi tiles, then opened, closed and blurred. The filter was
+  written to take out "roofs", on the belief that the source was radar with
+  uptown's towers 200 m proud. The source is bare earth, so the filter removes
+  real ridges and valleys instead: only 34% of the core's relief survives, and
+  city-wide the grid is 3.63 m RMSE from 3DEP (1.53 m before the filter).
+  Heights are stored in decimetres above a **97 m** datum (`floor(min) - 2`;
+  the lowest cell, 99.2 m, is the quarry pit at 35.1203, -80.8975).
+- **31,695 footprints** (styles glass / midrise / brick / house / shops,
   gabled where the polygon is a house's), counter-clockwise, with heights.
 
 Outputs (all in `Assets/PSXRacing/Resources`): `charlotte_city.bytes` (2.5 MB
 graph + water + separations + spans + routes; a versioned binary the runtime
 reads through a BinaryReader — the JSON equivalent was 9 MB), `charlotte_dem.bytes`
-(1.4 MB), `charlotte_bld.bytes` (1.7 MB), `charlotte_routes.json` (the menu's
-copy of the routes: lengths, lines, a 20 m polyline each). Debug plots land in
-`tools/city/charlotte_*.png`.
+(1.5 MB), `charlotte_bld.bytes` (1.7 MB), `charlotte_routes.json` (the menu's
+copy of the routes: lengths, lines, a 20 m polyline each). 5.8 MB raw, about
+3.1 MB Brotli. Debug plots land in `tools/city/charlotte_*.png`.
+
+The exporter writes nothing unless told where (2026-09-28):
+
+- `node tools/city/export_osm.mjs --check` exports in memory and compares
+  byte for byte with the four shipped files. It also checks the inputs
+  against `cache_manifest.json` and the result against
+  `tools/city/fingerprint.json` (counts that survive a Node change), and
+  exits 1 on any difference. From the cache it reproduces the shipped files
+  **byte for byte**, on Node 24.15.0, which `tools/city/package.json` pins.
+- `--out <dir> [--fingerprint <file>]` writes the four files anywhere.
+  Resources is only written when it is named:
+  `--out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json`.
+- `--manifest` records the inputs again after a re-fetch.
 
 ## Scale: the layout scales, the streets do not
 
@@ -128,7 +161,8 @@ index. `CityElevation.Solve`:
    RUNS THROUGH THE INTERCHANGES: the trough is carried through the freeway's
    own nodes into the next mainline edge, those nodes are pinned to the cut
    (the one place the max-of-ends rule yields), and the ramps meeting them
-   are cut down along an 8% cone of their own — 285 crossings solve this way.
+   are cut down along an 8% cone of their own — 230 crossings solve this way
+   (CityAudit counts 230 on the shipped graph; this said 285 before).
    Freeway over freeway, ramp over anything, or a mainline carrying a water
    span keeps the hump rule. The street's OSM bridge tag makes it a deck; a
    bare `layer=1` gets its stations over the cut marked structure by the
@@ -206,6 +240,61 @@ are retired.
   height round a point, for chasing a GRASS note from the drive audit.
 - The live URL is the real test.
 
+### The refinement's instruments (WP-01, 2026-09-28)
+
+Built so every package of the Charlotte refinement is measured the same way
+before and after. The baselines are in `tools/city/baseline/`.
+
+- **`node tools/city/export_osm.mjs --check`**: the export reproduces the
+  shipped files (see above).
+- **`node tools/city/metrics.mjs`** (about 21 s, no Unity). It measures the
+  shipped files, or an `--out` export with `--data <dir>`.
+  - `--json` writes every number.
+  - `--compare tools/city/baseline/metrics_baseline.json` prints what moved.
+  - Sections:
+    - GRAPH;
+    - KINKS: free-vertex turns per km by class, folds, split nodes;
+    - LANES: painted centre turn lanes against the tags, uneven splits;
+    - HEIGHT: against USGS 3DEP in `tools/city/truth/`;
+    - CONTROL: signals, stops and give-ways by junction class;
+    - SIZE: raw and Brotli, per file and per section;
+    - ACCURACY: not measured yet, because the county pavement layers are
+      not fetched.
+  - Baseline: 7.48 kinks of 5° or more per km, and 1,531 inner-edge folds
+    over 10 cm. The centre turn lane is painted on 154.8 km but tagged on
+    only 23.3 km. The city DEM is 3.63 m RMSE from 3DEP. The core keeps 34%
+    of its relief. The 8 transects keep 13 of 91 real crests and dips.
+- **`tools/city/truth/`** freezes the flatness survey's 3DEP reference into
+  2 MB: the 8 transects at 2 m with masks, the land at ±30 and ±60 m, the
+  core at 10 m and the city at 120 m. 3DEP is public domain.
+- **`py tools/size-ledger.py`** reports:
+  - the files of a WebGL build, failing over 95 MiB;
+  - the Brotli size of each Charlotte data file;
+  - the Build Report split from the Unity log;
+  - every committed version of the data in git.
+- **`CityBudgetProbe`** runs at the end of `CityAudit` and writes
+  `city_budget.txt`.
+  - It builds the 5x5 ring through `CityWorld.EnsureTile` at 9 fixed sites.
+  - It times each tile: mesh build, stand-up, MeshCollider cook and props.
+  - From a 1.2 m eye it counts, four ways at 58° out to 500 m, the in-view
+    draw proxy, the sun-map casters, the vertices, triangles and colliders.
+  - It times Parse and Solve and weighs the heap the map holds.
+  - These are editor numbers; a phone is several times slower.
+- **The FPS overlay's CITY line** (SHOW FPS on, in Charlotte) shows:
+  - the live tiles and colliders;
+  - the slowest tile build of the last 10 s;
+  - the draw and SetPass counts where the player reports them.
+
+  The owner reads it on the phone at the test page. It decides WP-09: over
+  16.7 ms there, time-slice the tile build.
+- **`tools/city-refspots.ps1 -Label <name> [-Before <dir>]`**
+  (`CityRefSpots`) shoots fixed driver-eye views and makes contact sheets,
+  before and after side by side. The views are:
+  - the 21 Street View points (A1-A15);
+  - the 24 kink spots (the verdicts plus the census's worst 20), each also
+    from above;
+  - the 11 named crests and dips.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not
@@ -215,11 +304,14 @@ attention". Every item had a concrete cause, and the plan geometry was never
 one of them (it is OpenStreetMap's, and it matches the satellite view by
 construction). What changed:
 
-- **The ground.** The DEM was a bare 5x5 min filter of SRTM: 6.6 m low on
-  average and 20 m low beside every valley, so every hillside road stood in
-  the air. It is a morphological opening now (erode, dilate back; a closing
-  after it fills the radar's one-pixel pits): 2 m mean, and Trade & Tryon
-  lands at 227 m ASL.
+- **The ground.** The DEM was a bare 5x5 min filter of the height tiles: 6.6 m
+  low on average and 20 m low beside every valley, so every hillside road
+  stood in the air. It is a morphological opening now (erode, dilate back; a
+  closing after it). Trade & Tryon lands at 227.4 m ASL. **Corrected
+  2026-09-28:** the real ground there is 232.6 m (USGS EPQS on the 1 m 3DEP
+  lidar DEM, 232.59 m), so the game is 5.2 m low. The tiles are bare earth,
+  not radar, so there were never any roofs or radar pits to remove; the
+  opening still flattens real crests (see "The ground" above).
 - **Decks from facts only.** A station is on structure when it is a tagged
   bridge, a water span, a trench deck, or the OVER road of a crossing within
   `DeckReach` of it (the under road's corridor and most of its blend, plus
@@ -304,10 +396,13 @@ a map to view where I'm at in the city."
   vertices, while the road bends at its 10 m stations: where the profile
   breaks OVER (a cone meeting the flat, a trench mouth, a crest at a
   junction) the straight ground ran above the bent road by up to half the
-  break. `CityElevation.MeasureCrests` records each station's height above
-  its neighbours' chord (and each node's, between its two steepest arms),
-  and the corridor pin sinks the land by that much extra there; the kerb
-  face reaches down through it. A straight grade keeps its 20 cm kerb. (2)
+  break. `CityElevation.MeasureSags` records how much the grade increases at
+  each station, a sag (never negative; an edge end carries the worst pair it
+  forms with any other arm at its node). The corridor pin sinks the land by
+  that much extra there (`SagAt`), and the kerb face reaches down through it.
+  It was `MeasureCrests` and measured crests until 2026-09-13, which was the
+  wrong way round: the straight lattice runs above the road at a dip, not at
+  a crest. A straight grade keeps its 20 cm kerb. (2)
   A deck over land the DEM calls level — 790 edges tagged `bridge=yes`, most
   over creeks and railway cuts a 60 m grid cannot see — had the ground
   running through the concrete. Structure now CAPS the land at
@@ -320,6 +415,12 @@ a map to view where I'm at in the city."
   the mapped lines drifted. The game is set in 1999: the exporter drops
   every `toll=yes` way (I-77 Express, I-485 Express, the Monroe Expressway,
   their ramps — 177 ways) and the four ramp pieces that then led nowhere.
+  **Owner decision 2026-09-28:** roads, buildings and signals are present
+  day; only the cars are 1999. The toll and express lanes come back in the
+  refinement's lines phase (WP-10/11), with the parallel carriageways drawn
+  properly instead of squeezed. Until then the drop stands. Six I-77 ways
+  (3.6 km) still carry the express lanes inside their own `lanes` tag,
+  which leaves two kinks (35.33637,-80.84876 and 35.33150,-80.84806).
   Where a squeeze remains (tight divided arterials, frontage roads) the
   ribbon now CROPS the painted profile instead of compressing it: texture U
   comes from each vertex's true lateral offset.
@@ -580,5 +681,11 @@ its own page until it is merged into the game (owner decision, 2026-09-28):
 Traffic, gas stations / parking lots / mechanic shops in the city,
 neighbourhoods beyond the 8 km core (each 8 x 8 km box is one Overpass
 fetch), city race tracks drawn on the graph by the player, lane-level turn
-markings at junctions, lamps and signal heads, a skyline backdrop past the
-fog, a one-sided (MUTCD) lane taper on one-way carriageways, the ROVAL.
+markings at junctions, signal heads, a skyline backdrop past the fog, a
+one-sided (MUTCD) lane taper on one-way carriageways, the ROVAL.
+
+Street lamps are no longer on this list: they stand on the verges since the
+night pass (2026-09-21, `CityMeshes.PlaceLamps`, checked by `LampAudit`).
+Everything else here, and much more, is scheduled by the refinement plan
+(2026-09-28: hills, trees, smooth lines, lanes and paint, roadside detail,
+junction control, city traffic, street races).
