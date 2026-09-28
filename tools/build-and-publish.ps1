@@ -394,6 +394,11 @@ if (-not $SkipDeploy) {
         Copy-Item "$build\Build" $target -Recurse
         $names = @("index.html", "Build")
         if (Test-Path "$build\StreamingAssets") { Copy-Item "$build\StreamingAssets" $target -Recurse; $names += "StreamingAssets" }
+        # LICENSES.txt beside index.html: the data credits and licences, which
+        # the WebGL template carries into every build (tools/city/credits.mjs
+        # writes it from tools/city/SOURCES.md; plan critic C17). Published with
+        # the build it came with, so a root publish replaces it like the rest.
+        if (Test-Path "$build\LICENSES.txt") { Copy-Item "$build\LICENSES.txt" $target; $names += "LICENSES.txt" }
 
         # CACHE BUSTING. Every deploy writes the same four payloads — the data, the
         # wasm, the framework and the loader — and GitHub Pages serves
