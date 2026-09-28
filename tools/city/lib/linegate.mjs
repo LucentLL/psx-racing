@@ -1,0 +1,983 @@
+// linegate.mjs - THE SMOOTHNESS GATE, offline (gate spec sections 3-6; plan
+// amendment A2/A4 WP-G). The owner's rule of 2026-09-28: painted lines and
+// road edges never wobble or kink.
+//
+// What it measures is what the renderer draws: for every ribbon quad of the
+// replica (linesim.mjs), every painted line of the slot's texture (runs READ
+// FROM THE PNGs, paintruns.mjs) is found as the iso-line U = u inside each of
+// the quad's two triangles (paintiso.quadIso) - so a diagonal bulge is sampled
+// at its peak, never between samples (plan A7). Ribbon edges and the ribbon
+// midline come from the same sections. Those lines are then checked against
+//   * a PLAN built from data only (the graph, RoadProfiles' layout rules and
+//     the Trims taper TABLE, a design decision) - never the builder's
+//     sections, U or quads, so a bug in the line model cannot hide itself;
+//   * their own shape (jitter, facet sagitta, radius);
+//   * their continuity (jumps, gaps, ends, dash lengths), chained through
+//     mitred nodes;
+//   * other pavement (paint inside another ribbon at the same level).
+// Every lateral limit is V (SmoothRules.cs, read by smoothrules.mjs).
+//
+// Editor/CitySmooth.cs is the same gate on the BUILT meshes. The two must
+// agree on every check both measure; a disagreement is a gate bug. What only
+// the mesh gate can see: tile SEAMs (B4s), fan perimeters (B2/B3 FAN, D1 into
+// fans), heights (D1's same-level test is the census's plan approximation
+// here), E1 (strip paint does not exist yet).
+import { quadIso, frameOf } from './paintiso.mjs';
+import { dot, sub } from './linesim.mjs';
+
+const DEG = 180 / Math.PI;
+const LANE = 3.6576;
+
+// ------------------------------------------------------------ CityMeshes.IsFresh (the surface a span is drawn with)
+export function isFresh(x, z) {
+  const xi = Math.trunc(Math.fround(Math.fround(x) * 100)) | 0, zi = Math.trunc(Math.fround(Math.fround(z) * 100)) | 0;
+  let h = (Math.imul(xi, 0x9e3779b1 | 0) ^ Math.imul(zi, 0x6a09e667)) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0; h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return h % 100 < 40;
+}
+const surfaceKey = (e, elev) => { const f = isFresh(e.pts[0][0], e.pts[0][1]); return elev ? (f ? 'concrete_new' : 'concrete_old') : (f ? 'asphalt_new' : 'asphalt_old'); };
+
+// ------------------------------------------------------------ THE PLAN (gate spec 3.4)
+/// The lines a profile row should carry, from RoadProfiles' layout rules
+/// (lanes of 3.6576 m, shoulders; edge lines at shoulder + 0.06; a double
+/// yellow or TWLTL pair on an undivided road). Offsets are lateral from the
+/// design centreline, + = left of travel. Anchors: C (constant offset from the
+/// centreline), EL / ER (a constant inset from the design edge).
+export function planLinesOf(prof, R) {
+  const W = prof.width, hw = W / 2, oneway = !prof.key.startsWith('tw'), turn = prof.key.endsWith('t');
+  const PH = R.EdgeLineInsetM;
+  const out = [];
+  out.push({ id: 'EL', anchor: 'EL', col: oneway ? 'Y' : 'W', dashed: false, inset: prof.shl + PH, off: hw - (prof.shl + PH), kind: 'edge' });
+  out.push({ id: 'ER', anchor: 'ER', col: 'W', dashed: false, inset: prof.shr + PH, off: -(hw - (prof.shr + PH)), kind: 'edge' });
+  const C = (m, col, dashed, kind) => { const off = hw - m; out.push({ id: `C${col}${dashed ? 'd' : 's'}${off >= 0 ? '+' : '-'}${Math.abs(off).toFixed(2)}`, anchor: 'C', col, dashed, off, kind }); };
+  if (oneway) for (let i = 1; i < prof.lanes; i++) C(prof.shl + LANE * i, 'W', true, 'lane');
+  else {
+    const perSide = (prof.lanes - (turn ? 1 : 0)) / 2, medStart = prof.shl + perSide * LANE;
+    for (let i = 1; i < perSide; i++) C(prof.shl + LANE * i, 'W', true, 'lane');
+    if (turn) {
+      C(medStart - 2 * PH, 'Y', false, 'centre'); C(medStart + 2 * PH, 'Y', true, 'centre');
+      C(medStart + LANE - 2 * PH, 'Y', true, 'centre'); C(medStart + LANE + 2 * PH, 'Y', false, 'centre');
+      for (let i = 1; i < perSide; i++) C(medStart + LANE + LANE * i, 'W', true, 'lane');
+    } else {
+      C(medStart - 2 * PH, 'Y', false, 'centre'); C(medStart + 2 * PH, 'Y', false, 'centre');
+      for (let i = 1; i < perSide; i++) C(medStart + LANE * i, 'W', true, 'lane');
+    }
+  }
+  return out;
+}
+
+/// Match a texture's runs to the plan's lines at nominal scale (colour,
+/// pattern, nearest within StrayM). q = the run's lateral minus the plan's:
+/// the texture's own quantisation (up to half a texel), which the position
+/// checks subtract - V is chosen as half a texel precisely because below it
+/// the geometry cannot be told from the texture (gate spec 2).
+export function matchLayout(runs, plan, W, R) {
+  const cand = [];
+  runs.forEach((r, k) => plan.forEach((p, j) => {
+    if (r.col !== p.col || r.dashed !== p.dashed) return;
+    const d = (0.5 - r.u) * W - p.off;
+    if (Math.abs(d) <= R.StrayM) cand.push({ k, j, d });
+  }));
+  cand.sort((a, b) => Math.abs(a.d) - Math.abs(b.d));
+  const runPlan = new Array(runs.length).fill(-1), runQ = new Array(runs.length).fill(0), planRun = new Array(plan.length).fill(-1);
+  for (const c of cand) if (runPlan[c.k] < 0 && planRun[c.j] < 0) { runPlan[c.k] = c.j; runQ[c.k] = c.d; planRun[c.j] = c.k; }
+  return { runPlan, runQ, planRun };
+}
+
+// ------------------------------------------------------------ polyline helpers
+function turnOf(ax, az, bx, bz, cx, cz) {
+  const ux = bx - ax, uz = bz - az, vx = cx - bx, vz = cz - bz;
+  return Math.atan2(ux * vz - uz * vx, ux * vx + uz * vz);
+}
+/// Collinear vertices (|turn| < CollinearDeg) and near-duplicates dropped:
+/// the indices kept.
+function keepIdx(P, R) {
+  const n = P.length, keep = [];
+  if (!n) return keep;
+  keep.push(0);
+  const lim = R.CollinearDeg / DEG;
+  for (let i = 1; i + 1 < n; i++) {
+    const a = P[keep[keep.length - 1]], b = P[i], c = P[i + 1];
+    if (Math.hypot(b.x - a.x, b.z - a.z) < 1e-3) continue;
+    if (Math.hypot(c.x - b.x, c.z - b.z) < 1e-3) continue;
+    if (Math.abs(turnOf(a.x, a.z, b.x, b.z, c.x, c.z)) < lim) continue;
+    keep.push(i);
+  }
+  if (n > 1) keep.push(n - 1);
+  return keep;
+}
+function arcOf(P, idx) {
+  const C = new Float64Array(idx.length);
+  for (let i = 1; i < idx.length; i++) C[i] = C[i - 1] + Math.hypot(P[idx[i]].x - P[idx[i - 1]].x, P[idx[i]].z - P[idx[i - 1]].z);
+  return C;
+}
+function pointAtArc(P, idx, C, a, hint) {
+  let i = Math.max(0, Math.min(hint | 0, idx.length - 2));
+  while (i > 0 && C[i] > a) i--;
+  while (i + 2 < idx.length && C[i + 1] < a) i++;
+  const p = P[idx[i]], q = P[idx[i + 1]], L = C[i + 1] - C[i];
+  const t = L > 1e-9 ? Math.max(0, Math.min(1, (a - C[i]) / L)) : 0;
+  return { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t, i };
+}
+/// B1's local model of a window: the Kasa least-squares circle, or the
+/// least-squares line when the line fits the window at least as well (Kasa's
+/// algebraic fit is biased towards small circles on short, nearly straight
+/// windows, which is exactly what most windows are). Returns the residual of
+/// sample c from the chosen model.
+function kasaResidual(xs, zs, c) {
+  const n = xs.length;
+  const ox = xs[c], oz = zs[c];
+  let Sx = 0, Sz = 0, Sxx = 0, Szz = 0, Sxz = 0, Sxr = 0, Szr = 0, Sr = 0;
+  for (let i = 0; i < n; i++) {
+    const x = xs[i] - ox, z = zs[i] - oz, r = x * x + z * z;
+    Sx += x; Sz += z; Sxx += x * x; Szz += z * z; Sxz += x * z; Sxr += x * r; Szr += z * r; Sr += r;
+  }
+  // the line: principal axis through the centroid
+  const mx = Sx / n, mz = Sz / n;
+  const cxx = Sxx / n - mx * mx, czz = Szz / n - mz * mz, cxz = Sxz / n - mx * mz;
+  const th = 0.5 * Math.atan2(2 * cxz, cxx - czz), nx = -Math.sin(th), nz = Math.cos(th);
+  let lineSS = 0;
+  for (let i = 0; i < n; i++) { const d = (xs[i] - ox - mx) * nx + (zs[i] - oz - mz) * nz; lineSS += d * d; }
+  const lineRes = Math.abs((0 - mx) * nx + (0 - mz) * nz);
+  // the circle: [Sxx Sxz Sx; Sxz Szz Sz; Sx Sz n] [D E F]' = -[Sxr Szr Sr]' (Cramer)
+  const det3 = (a0, a1, a2, b0, b1, b2, c0, c1, c2) => a0 * (b1 * c2 - b2 * c1) - a1 * (b0 * c2 - b2 * c0) + a2 * (b0 * c1 - b1 * c0);
+  const d = det3(Sxx, Sxz, Sx, Sxz, Szz, Sz, Sx, Sz, n);
+  if (Math.abs(d) < 1e-30) return lineRes;
+  const r0 = -Sxr, r1 = -Szr, r2c = -Sr;
+  const D = det3(r0, Sxz, Sx, r1, Szz, Sz, r2c, Sz, n) / d;
+  const E = det3(Sxx, r0, Sx, Sxz, r1, Sz, Sx, r2c, n) / d;
+  const F = det3(Sxx, Sxz, r0, Sxz, Szz, r1, Sx, Sz, r2c) / d;
+  const cx = -D / 2, cz = -E / 2, r2 = cx * cx + cz * cz - F;
+  if (!(r2 > 0) || !Number.isFinite(r2)) return lineRes;
+  const r = Math.sqrt(r2);
+  let circSS = 0;
+  for (let i = 0; i < n; i++) { const g = Math.hypot(xs[i] - ox - cx, zs[i] - oz - cz) - r; circSS += g * g; }
+  if (circSS >= lineSS) return lineRes;
+  return Math.abs(Math.hypot(cx, cz) - r);   // the centre sample is the origin
+}
+
+// ------------------------------------------------------------ the gate
+/// S: a linesim with e.secs built. R: smoothrules. layouts: paintruns. opts:
+/// { planTaperShape: 'linear'|'smooth', refSpots: [[x,z]], log }.
+export function runGate(S, R, layouts, opts = {}) {
+  const { E, T, nodeEdges } = S;
+  const log = opts.log || (() => {});
+  const V = R.V;
+  const shape = opts.planTaperShape === 'smooth' ? (t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }) : (t => Math.max(0, Math.min(1, t)));
+  const hwD = (e, s) => {   // the plan's design half width: the Trims taper TABLE with the plan's shape
+    const hw = e.width * 0.5, i = e.index; let ha = hw, hb = hw;
+    if (T.taperA[i] > 0 && s < T.taperA[i]) ha = T.hwA[i] + (hw - T.hwA[i]) * shape(s / T.taperA[i]);
+    if (T.taperB[i] > 0 && e.length - s < T.taperB[i]) hb = T.hwB[i] + (hw - T.hwB[i]) * shape((e.length - s) / T.taperB[i]);
+    return Math.min(ha, hb);
+  };
+  const planOff = (L, e, s) => L.anchor === 'C' ? L.off : L.anchor === 'EL' ? hwD(e, s) - L.inset : -(hwD(e, s) - L.inset);
+  const planExists = (L, e, s) => L.anchor === 'C' ? Math.abs(L.off) < hwD(e, s) - R.ExistInsetM : hwD(e, s) - L.inset > 0;
+
+  // ---- the plan and the texture per profile key
+  const profOf = new Map();
+  for (const e of E) profOf.set(e.profile.key, e.profile);
+  const plans = new Map(), texNotes = [], texQ = {};
+  for (const [key, prof] of profOf) {
+    const plan = planLinesOf(prof, R);
+    const bySurf = {};
+    for (const surf of ['asphalt_new', 'asphalt_old', 'concrete_new', 'concrete_old']) {
+      const runs = layouts.get(`${key}_${surf}`);
+      if (!runs) continue;
+      const m = matchLayout(runs, plan, prof.width, R);
+      bySurf[surf] = { runs, ...m };
+      runs.forEach((r, k) => { if (m.runPlan[k] < 0) texNotes.push(`${key}_${surf}: texture run at u ${r.u.toFixed(4)} (${r.col}${r.dashed ? ' dashed' : ''}) has no plan line`); });
+      plan.forEach((p, j) => { if (m.planRun[j] < 0) texNotes.push(`${key}_${surf}: plan line ${p.id} has no texture run`); });
+      let q = 0; for (const v of m.runQ) q = Math.max(q, Math.abs(v)); texQ[key] = Math.max(texQ[key] || 0, q);
+    }
+    plans.set(key, { plan, bySurf });
+  }
+
+  // ---- ways: the arc of each edge along its OSM way (the stable key)
+  const wayOff = new Float64Array(E.length);
+  {
+    const byWay = new Map();
+    for (const e of E) { let l = byWay.get(e.wayId); if (!l) byWay.set(e.wayId, l = []); l.push(e); }
+    for (const list of byWay.values()) {
+      if (list.length === 1) continue;
+      const startAt = new Map(); for (const e of list) startAt.set(e.a, e);
+      const ends = new Set(list.map(e => e.b));
+      let first = list.find(e => !ends.has(e.a)) || list[0];
+      const seen = new Set(); let off = 0, cur = first;
+      while (cur && !seen.has(cur.index)) { seen.add(cur.index); wayOff[cur.index] = off; off += cur.length; cur = startAt.get(cur.b); }
+      for (const e of list) if (!seen.has(e.index)) wayOff[e.index] = 0;   // a branching way: keyed on its own arc
+    }
+  }
+  const pinned = new Set(R.PinnedWays);
+
+  // ---- routes and reference spots (exposure)
+  const onRoute = new Set();
+  for (const r of S.city.routes) for (const ei of r.edges) onRoute.add(ei);
+  const refSpots = opts.refSpots || [];
+  const exposureAt = (ei, x, z) => {
+    let ex = 1;
+    if (onRoute.has(ei)) ex = Math.max(ex, R.ExposureRoute);
+    for (const [sx, sz] of refSpots) if (Math.hypot(sx - x, sz - z) <= R.RefSpotReachM) { ex = Math.max(ex, R.ExposureRefSpot); break; }
+    return ex;
+  };
+
+  // ---- chains through mitred nodes
+  const hasRibbon = e => e.secs && e.secs.length >= 2;
+  const endsAt = (e, n) => hasRibbon(e) && (e.a === n ? e.secs[0].s < 1e-6 : Math.abs(e.secs[e.secs.length - 1].s - e.length) < 1e-6);
+  const jointAt = (e, n) => {
+    if (!T.mitre[n] || e.a === e.b) return -1;
+    const o = T.throughA[n] === e.index ? T.throughB[n] : T.throughB[n] === e.index ? T.throughA[n] : -1;
+    if (o < 0 || o === e.index || E[o].a === E[o].b) return -1;
+    return endsAt(e, n) && endsAt(E[o], n) ? o : -1;
+  };
+  const chainOf = new Int32Array(E.length).fill(-1);
+  const chains = [];
+  for (const e0 of E) {
+    if (!hasRibbon(e0) || chainOf[e0.index] >= 0) continue;
+    // walk back to the start (or round a ring)
+    let cur = e0, enter = e0.a, guard = 0;
+    for (;;) {
+      const o = jointAt(cur, enter);
+      if (o < 0 || o === e0.index || ++guard > 100000) break;
+      const oe = E[o];
+      enter = oe.a === enter ? oe.b : oe.a;
+      cur = oe;
+    }
+    const list = [];
+    let at = cur, from = enter;
+    const id = chains.length;
+    for (;;) {
+      if (chainOf[at.index] >= 0) break;
+      chainOf[at.index] = id;
+      const fwd = at.a === from;
+      list.push({ e: at, fwd });
+      const exit = fwd ? at.b : at.a;
+      const o = jointAt(at, exit);
+      if (o < 0) break;
+      at = E[o]; from = exit;
+    }
+    chains.push(list);
+  }
+  log(`gate: ${chains.length} chains`);
+
+  // ---- the design centreline of each edge, extended through its joints (A-family reference)
+  function refLine(e) {
+    const X = [], Z = [];
+    const pre = [];
+    const oa = jointAt(e, e.a);
+    if (oa >= 0) {   // the neighbour's points leading INTO e.a, up to 40 m
+      const o = E[oa], P = o.b === e.a ? o.pts : [...o.pts].reverse();
+      let acc = 0;
+      for (let i = P.length - 2; i >= 0 && acc < 40; i--) { acc += Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]); pre.unshift(P[i]); }
+    }
+    for (const p of pre) { X.push(p[0]); Z.push(p[1]); }
+    for (const p of e.pts) { X.push(p[0]); Z.push(p[1]); }
+    const ob = jointAt(e, e.b);
+    if (ob >= 0) {
+      const o = E[ob], P = o.a === e.b ? o.pts : [...o.pts].reverse();
+      let acc = 0;
+      for (let i = 1; i < P.length && acc < 40; i++) { acc += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); X.push(P[i][0]); Z.push(P[i][1]); }
+    }
+    const Sa = new Float64Array(X.length);
+    for (let i = 1; i < X.length; i++) Sa[i] = Sa[i - 1] + Math.hypot(X[i] - X[i - 1], Z[i] - Z[i - 1]);
+    let off = 0; for (let i = 1; i <= pre.length; i++) off = Sa[i]; if (!pre.length) off = 0;
+    return { X, Z, S: Sa, off: pre.length ? Sa[pre.length] : 0 };
+  }
+  /// Signed distance from the true offset curve's centreline (nearest point;
+  /// + = left of travel): an offset line's error is sd - offset.
+  function sdRef(ref, x, z, sHint) {
+    const { X, Z, S: Sa } = ref, n = X.length;
+    const target = sHint + ref.off;
+    let lo = 0, hi = n - 2;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (Sa[m] <= target) lo = m; else hi = m - 1; }
+    let best = Infinity, bi = lo, bt = 0;
+    const scan = i => {
+      const dx = X[i + 1] - X[i], dz = Z[i + 1] - Z[i], L2 = dx * dx + dz * dz;
+      const t = L2 > 1e-12 ? Math.max(0, Math.min(1, ((x - X[i]) * dx + (z - Z[i]) * dz) / L2)) : 0;
+      const qx = X[i] + dx * t - x, qz = Z[i] + dz * t - z, d = qx * qx + qz * qz;
+      if (d < best) { best = d; bi = i; bt = t; }
+    };
+    for (let i = lo; i >= 0 && Sa[lo] - Sa[i + 1] < 30; i--) scan(i);
+    for (let i = lo + 1; i + 1 < n && Sa[i] - Sa[lo + 1] < 30; i++) scan(i);
+    // tangent at the foot: the segment's, or at a vertex the mean of its two
+    let tx = X[bi + 1] - X[bi], tz = Z[bi + 1] - Z[bi];
+    const nrm = (a, b) => { const m = Math.hypot(a, b) || 1; return [a / m, b / m]; };
+    [tx, tz] = nrm(tx, tz);
+    if (bt <= 1e-9 && bi > 0) { const [px, pz] = nrm(X[bi] - X[bi - 1], Z[bi] - Z[bi - 1]); [tx, tz] = nrm(tx + px, tz + pz); }
+    else if (bt >= 1 - 1e-9 && bi + 2 < n) { const [nx, nz] = nrm(X[bi + 2] - X[bi + 1], Z[bi + 2] - Z[bi + 1]); [tx, tz] = nrm(tx + nx, tz + nz); }
+    const fx = X[bi] + (X[bi + 1] - X[bi]) * bt, fz = Z[bi] + (Z[bi + 1] - Z[bi]) * bt;
+    const side = tx * (z - fz) - tz * (x - fx);
+    return (side >= 0 ? 1 : -1) * Math.sqrt(best);
+  }
+  /// B2 on the design polyline near s (the DATA / BUILDER cause hint).
+  const refCache = new Map();
+  function dataKinkNear(e, s) {
+    let ref = refCache.get(e.index);
+    if (!ref) { ref = refLine(e); refCache.set(e.index, ref); }
+    const t = s + ref.off;
+    for (let i = 1; i + 1 < ref.X.length; i++) {
+      if (Math.abs(ref.S[i] - t) > 1) continue;
+      const th = Math.abs(turnOf(ref.X[i - 1], ref.Z[i - 1], ref.X[i], ref.Z[i], ref.X[i + 1], ref.Z[i + 1]));
+      const cm = Math.min(ref.S[i] - ref.S[i - 1], ref.S[i + 1] - ref.S[i], R.ChordCapM);
+      if (cm * th / 8 > V) return true;
+    }
+    return false;
+  }
+
+  // ---- D1: every ribbon triangle in a 16 m grid (the census's overlap machinery)
+  const TC = 16, triCells = new Map();
+  const triList = [];
+  const tkey = (cx, cz) => (cx + 8192) * 16384 + (cz + 8192);
+  for (const e of E) {
+    const secs = e.secs; if (!secs) continue;
+    for (let i = 1; i < secs.length; i++) {
+      const A = secs[i - 1], B = secs[i];
+      if (A.collapsed && B.collapsed) continue;
+      for (const [p, q, r] of [[A.L, B.R, B.L], [A.L, A.R, B.R]]) {
+        const area = (q[0] - p[0]) * (r[1] - p[1]) - (r[0] - p[0]) * (q[1] - p[1]);
+        if (Math.abs(area) < 1e-4) continue;
+        triList.push(p[0], p[1], q[0], q[1], r[0], r[1], e.index);
+      }
+    }
+  }
+  const nTri = triList.length / 7;
+  const triXZ = new Float64Array(nTri * 6), triBox = new Float64Array(nTri * 4), triOwner = new Int32Array(nTri);
+  for (let id = 0; id < nTri; id++) {
+    for (let k = 0; k < 6; k++) triXZ[id * 6 + k] = triList[id * 7 + k];
+    triOwner[id] = triList[id * 7 + 6];
+    const x0 = Math.min(triXZ[id * 6], triXZ[id * 6 + 2], triXZ[id * 6 + 4]), x1 = Math.max(triXZ[id * 6], triXZ[id * 6 + 2], triXZ[id * 6 + 4]);
+    const z0 = Math.min(triXZ[id * 6 + 1], triXZ[id * 6 + 3], triXZ[id * 6 + 5]), z1 = Math.max(triXZ[id * 6 + 1], triXZ[id * 6 + 3], triXZ[id * 6 + 5]);
+    triBox[id * 4] = x0; triBox[id * 4 + 1] = z0; triBox[id * 4 + 2] = x1; triBox[id * 4 + 3] = z1;
+    for (let cx = Math.floor(x0 / TC); cx <= Math.floor(x1 / TC); cx++)
+      for (let cz = Math.floor(z0 / TC); cz <= Math.floor(z1 / TC); cz++) { const k = tkey(cx, cz); let l = triCells.get(k); if (!l) triCells.set(k, l = []); l.push(id); }
+  }
+  triList.length = 0;
+  /// Minimum signed distance inside the triangle at T6[o..o+5] (positive inside).
+  const insideBy = (T6, o, x, z) => {
+    const ax = T6[o], az = T6[o + 1], bx = T6[o + 2], bz = T6[o + 3], cx = T6[o + 4], cz = T6[o + 5];
+    const sg = ((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) > 0 ? 1 : -1;
+    const ed = (px, pz, qx, qz) => { const ex = qx - px, ez = qz - pz; return sg * (ex * (z - pz) - ez * (x - px)) / Math.hypot(ex, ez); };
+    return Math.min(ed(ax, az, bx, bz), ed(bx, bz, cx, cz), ed(cx, cz, ax, az));
+  };
+  const XC = 128, xCells = new Map();
+  S.city.crossings.forEach((c, i) => { const k = tkey(Math.floor(c.x / XC), Math.floor(c.z / XC)); let l = xCells.get(k); if (!l) xCells.set(k, l = []); l.push(i); });
+  const nbrSet = e => e._nb || (e._nb = new Set([e.index, ...nodeEdges[e.a], ...nodeEdges[e.b]]));
+  const sameRoad = (e, i) => nbrSet(e).has(i) || (e.name && E[i].name === e.name);
+  function sepNear(e, o, x, z) {   // APPROX (no heights): the census's same-level test
+    const cx = Math.floor(x / XC), cz = Math.floor(z / XC);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const l = xCells.get(tkey(cx + dx, cz + dz)); if (!l) continue;
+      for (const i of l) {
+        const c = S.city.crossings[i];
+        if (Math.hypot(c.x - x, c.z - z) > 80) continue;
+        if ((sameRoad(e, c.over) && sameRoad(o, c.under)) || (sameRoad(e, c.under) && sameRoad(o, c.over))) return true;
+      }
+    }
+    return S.elevatedAt(e, S.projectOn(e, [x, z])) !== S.elevatedAt(o, S.projectOn(o, [x, z]));
+  }
+  function depthInEdge(o, x, z) {
+    const secs = o.secs; if (!secs) return 0;
+    const so = S.projectOn(o, [x, z]);
+    let k = 1; while (k < secs.length - 1 && secs[k].s < so) k++;
+    const A = secs[k - 1], B = secs[k];
+    const t = B.s - A.s > 1e-6 ? Math.max(0, Math.min(1, (so - A.s) / (B.s - A.s))) : 0;
+    const p = S.pointAt(o, so), tan = S.tangentAt(o, so);
+    const lat = (x - p[0]) * -tan[1] + (z - p[1]) * tan[0];
+    const latL = A.latL + (B.latL - A.latL) * t, latR = A.latR + (B.latR - A.latR) * t;
+    return Math.max(0, Math.min(lat - latL, latR - lat));
+  }
+  const mergeZone = (e, o) => {
+    if (S.isClipPair(e.index, o.index)) return true;
+    for (const n of [e.a, e.b]) if ((n === o.a || n === o.b) && (T.mitre[n] || T.patch[n])) return true;
+    return false;
+  };
+
+  // ---- runs
+  const runs = [];
+  const stats = { edges: 0, ribbonKm: 0, lineKm: 0, chains: chains.length, strands: 0, samples: 0 };
+  const lineKey = (e, s) => Math.round((wayOff[e.index] + s) / R.KeyStepM);
+  /// Emit runs from an ordered sample list: [{x, z, e, s, val(or NaN), bad}]
+  function emitRuns(check, lineId, samples, limit, extra = {}, minIsWorse = false) {
+    let cur = null, arc = 0;
+    const worse = (a, b) => minIsWorse ? a < b : Math.abs(a) > Math.abs(b);
+    const close = () => { if (cur) { runs.push(cur); cur = null; } };
+    for (let i = 0; i < samples.length; i++) {
+      const p = samples[i];
+      if (i > 0) arc += Math.hypot(p.x - samples[i - 1].x, p.z - samples[i - 1].z);
+      if (!p.bad) { close(); continue; }
+      if (!cur) cur = { check, lineId, e: p.e, s: p.s, x: p.x, z: p.z, val: p.val, len: 0, a0: arc, e0: p.e, s0: p.s, e1: p.e, s1: p.s, tag: p.tag, span: p.span, side: p.side, ...extra };
+      cur.len = arc - cur.a0; cur.e1 = p.e; cur.s1 = p.s;
+      if (worse(p.val, cur.val)) { cur.val = p.val; cur.e = p.e; cur.s = p.s; cur.x = p.x; cur.z = p.z; cur.tag = p.tag; cur.span = p.span; cur.side = p.side; }
+    }
+    close();
+  }
+  const minRunLen = { A5: R.StrayRunM, A5b: R.StrayRunM };
+  /// The same, streamed: push samples in order along one line (no sample
+  /// objects - the city is thirty million of them).
+  class RunBuilder {
+    constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
+    push(x, z, e, s, val, bad, tag, span, side) {
+      if (!Number.isNaN(this.px)) this.arc += Math.hypot(x - this.px, z - this.pz);
+      this.px = x; this.pz = z;
+      if (!bad) { this.close(); return; }
+      let c = this.cur;
+      if (!c) {
+        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side };
+        if (this.extra) Object.assign(c, this.extra);
+      }
+      c.len = this.arc - c.a0; c.e1 = e; c.s1 = s;
+      if (this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val)) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; }
+    }
+    close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
+  }
+
+  // ---- extraction of one edge (in its own direction)
+  function extract(e) {
+    const secs = e.secs, prof = e.profile, W = prof.width;
+    const P = plans.get(prof.key);
+    const nSpan = secs.length - 1;
+    const spans = [];
+    for (let i = 1; i < secs.length; i++) {
+      const A = secs[i - 1], B = secs[i];
+      const skip = A.collapsed && B.collapsed;
+      const elev = A.elev || B.elev;
+      const surf = surfaceKey(e, elev);
+      const q = { AL: { x: A.L[0], z: A.L[1], u: A.uL, v: A.v }, AR: { x: A.R[0], z: A.R[1], u: A.uR, v: A.v },
+                  BL: { x: B.L[0], z: B.L[1], u: B.uL, v: B.v }, BR: { x: B.R[0], z: B.R[1], u: B.uR, v: B.v } };
+      spans.push({ i, A, B, skip, surf, q, taper: Math.abs(A.hw - B.hw) > 0.005,
+        cropL: A.sqL || B.sqL || (A.clippedIn && A.innerSide < 0) || (B.clippedIn && B.innerSide < 0) || A.collapsed || B.collapsed,
+        cropR: A.sqR || B.sqR || (A.clippedIn && A.innerSide > 0) || (B.clippedIn && B.innerSide > 0) || A.collapsed || B.collapsed });
+    }
+    // the texture's runs (every span of one profile paints the same layout; the surface only changes grain)
+    const lay = P.bySurf[spans[0].surf] || Object.values(P.bySurf)[0];
+    const slat = (sp, x, z, tag) => {
+      const { A, B } = sp;
+      if (tag === 'A') return { s: A.s, lat: (x - A.p[0]) * A.right[0] + (z - A.p[1]) * A.right[1] };
+      if (tag === 'B') return { s: B.s, lat: (x - B.p[0]) * B.right[0] + (z - B.p[1]) * B.right[1] };
+      let f = frameOf(A, B, [x, z]);
+      if (!(f.t > -0.1 && f.t < 1.1)) {
+        const D = sub(B.p, A.p), DD = dot(D, D);
+        const t = DD > 1e-9 ? Math.max(0, Math.min(1, dot([x - A.p[0], z - A.p[1]], D) / DD)) : 0;
+        const r = [A.right[0] + (B.right[0] - A.right[0]) * t, A.right[1] + (B.right[1] - A.right[1]) * t], rl = Math.hypot(r[0], r[1]) || 1;
+        f = { t, lat: ((x - A.p[0] - D[0] * t) * r[0] + (z - A.p[1] - D[1] * t) * r[1]) / rl };
+      }
+      return { s: A.s + (B.s - A.s) * f.t, lat: f.lat };
+    };
+    // painted lines, per run
+    const lines = lay.runs.map((run, k) => {
+      const j = lay.runPlan[k];
+      const L = { k, run, plan: j >= 0 ? P.plan[j] : null, q: lay.runQ[k], pieces: [] };
+      let piece = null;
+      for (const sp of spans) {
+        if (sp.skip) { piece = null; continue; }
+        for (const sg of quadIso(sp.q, run.u)) {
+          const ratio = 1 / (sg.grad * W);
+          const mk = (c, tag) => { const f = slat(sp, c.x, c.z, tag); return { x: c.x, z: c.z, v: c.v, tag, span: sp.i, s: f.s, lat: f.lat, e: e.index }; };
+          const last = piece && piece.pts[piece.pts.length - 1];
+          if (last && Math.abs(last.x - sg.a.x) < 1e-9 && Math.abs(last.z - sg.a.z) < 1e-9) {
+            piece.pts.push(mk(sg.b, sg.eb)); piece.ratio.push(ratio);
+          } else {
+            piece = { pts: [mk(sg.a, sg.ea), mk(sg.b, sg.eb)], ratio: [ratio] };
+            L.pieces.push(piece);
+          }
+        }
+      }
+      return L;
+    });
+    // ribbon edges and midline, per section
+    const rib = { L: [], R: [] }, mid = [];
+    for (const side of ['L', 'R']) {
+      let piece = null;
+      for (const sp of spans) {
+        if (sp.skip) { piece = null; continue; }
+        const mk = (sec, si) => {
+          const P2 = side === 'L' ? sec.L : sec.R;
+          const crop = side === 'L' ? (sec.sqL || (sec.clippedIn && sec.innerSide < 0) || sec.collapsed) : (sec.sqR || (sec.clippedIn && sec.innerSide > 0) || sec.collapsed);
+          const x3 = (sec.clippedIn && sec.innerSide === (side === 'L' ? -1 : 1)) || sec.collapsed;
+          return { x: P2[0], z: P2[1], s: sec.s, lat: side === 'L' ? sec.latL : sec.latR, sec: si, crop, x3, e: e.index, side };
+        };
+        if (!piece) { piece = [mk(sp.A, sp.i - 1)]; rib[side].push(piece); }
+        piece.push(mk(sp.B, sp.i));
+      }
+    }
+    {
+      let piece = null;
+      for (const sp of spans) {
+        if (sp.skip) { piece = null; continue; }
+        const mk = (sec, si) => ({ x: (sec.L[0] + sec.R[0]) / 2, z: (sec.L[1] + sec.R[1]) / 2, s: sec.s, sec: si, e: e.index,
+          x3: sec.clippedIn || sec.collapsed, crop: sec.sqL || sec.sqR || sec.clippedIn || sec.collapsed });
+        if (!piece) { piece = [mk(sp.A, sp.i - 1)]; mid.push(piece); }
+        piece.push(mk(sp.B, sp.i));
+      }
+    }
+    return { e, secs, spans, nSpan, lines, rib, mid, plan: P.plan, lay, ref: refLine(e) };
+  }
+
+  // ---- A-family + D1 + grids on one edge
+  function checkEdge(ed, chainSet) {
+    const { e, spans, lines, rib, ref } = ed;
+    const sMin = ed.secs[0].s, sMax = ed.secs[ed.secs.length - 1].s;
+    const BIN = R.SampleStepM;
+    const nb = Math.max(1, Math.ceil((sMax - sMin) / BIN));
+    const binS = k => sMin + (k + 0.5) * BIN;
+    const spanAt = s => { let lo = 0, hi = spans.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (spans[m].B.s < s) lo = m + 1; else hi = m; } return spans[lo]; };
+    stats.edges++; stats.ribbonKm += (sMax - sMin) / 1000;
+    const sdOf = (x, z, s) => sdRef(ref, x, z, s);
+    // grid of each line's signed distance (first hit per bin, like the census)
+    const grid = lines.map(() => new Float64Array(nb).fill(NaN));
+    const gridRib = { L: new Float64Array(nb).fill(NaN), R: new Float64Array(nb).fill(NaN) };
+    const fillGrid = (G, a, b, sda, sdb) => {
+      const lo = Math.min(a.s, b.s), hi = Math.max(a.s, b.s);
+      const k0 = Math.max(0, Math.ceil((lo - sMin) / BIN - 0.5)), k1 = Math.min(nb - 1, Math.floor((hi - sMin) / BIN - 0.5));
+      for (let k = k0; k <= k1; k++) { const t = hi - lo > 1e-9 ? (binS(k) - a.s) / (b.s - a.s) : 0; if (Number.isNaN(G[k])) G[k] = sda + (sdb - sda) * t; }
+    };
+    // ---- painted lines: A1, A4, A5 (+ D1) on samples; the grid
+    for (const L of lines) {
+      const plan = L.plan, col = L.run.col;
+      const lineId = plan ? plan.id : `T${col}${L.run.dashed ? 'd' : 's'}u${L.run.u.toFixed(3)}`;
+      for (const pc of L.pieces) {
+        const bA1 = new RunBuilder('A1', lineId), bA4 = new RunBuilder('A4', lineId), bA5 = new RunBuilder('A5', lineId);
+        const bD1 = new RunBuilder('D1', lineId), bD1m = new RunBuilder('D1', lineId, { reportOnly: 'merge zone (BranchSeats attach arc): report-only until WP-18b' });
+        for (let i = 1; i < pc.pts.length; i++) {
+          const a = pc.pts[i - 1], b = pc.pts[i];
+          const segL = Math.hypot(b.x - a.x, b.z - a.z);
+          stats.lineKm += segL / 1000;
+          const n = Math.max(1, Math.ceil(segL / BIN));
+          const sda = sdOf(a.x, a.z, a.s), sdb = sdOf(b.x, b.z, b.s);
+          fillGrid(grid[L.k], a, b, sda, sdb);
+          const ratio = pc.ratio[i - 1];
+          const wv = Number.isFinite(ratio) ? ratio - 1 : 0, wbad = Math.abs(wv) > R.LineWidthTol;
+          for (let m = i === 1 ? 0 : 1; m <= n; m++) {
+            const t = m / n, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t, s = a.s + (b.s - a.s) * t;
+            const sd = m === 0 ? sda : m === n ? sdb : sdOf(x, z, s);
+            const tag = m === 0 ? a.tag : m === n ? b.tag : 'I', span = b.span;
+            const hw = hwD(e, s);
+            stats.samples++;
+            // A1: against its own plan line, where the plan has it
+            if (plan && (plan.anchor === 'C' ? Math.abs(plan.off) < hw - R.ExistInsetM : hw - plan.inset > 0)) {
+              const err = sd - ((plan.anchor === 'C' ? plan.off : plan.anchor === 'EL' ? hw - plan.inset : -(hw - plan.inset)) + L.q);
+              bA1.push(x, z, e.index, s, err, Math.abs(err) > V, tag, span);
+            } else bA1.push(x, z, e.index, s, 0, false);
+            // A4: rendered width against the run's at nominal scale
+            bA4.push(x, z, e.index, s, wv, wbad, tag, span);
+            // A5: nearest plan line of this colour
+            let dmin = Infinity;
+            for (let j = 0; j < ed.plan.length; j++) {
+              const pj = ed.plan[j];
+              if (pj.col !== col) continue;
+              if (pj.anchor === 'C' ? !(Math.abs(pj.off) < hw - R.ExistInsetM) : !(hw - pj.inset > 0)) continue;
+              const kk = ed.lay.planRun[j];
+              const off = pj.anchor === 'C' ? pj.off : pj.anchor === 'EL' ? hw - pj.inset : -(hw - pj.inset);
+              const d = Math.abs(sd - off - (kk >= 0 ? ed.lay.runQ[kk] : 0));
+              if (d < dmin) dmin = d;
+            }
+            bA5.push(x, z, e.index, s, Math.min(dmin, 10), dmin > R.StrayM, tag, span);
+            // D1: inside another ribbon at the same level
+            let depth = 0, other = -1;
+            const l = triCells.get(tkey(Math.floor(x / TC), Math.floor(z / TC)));
+            if (l) for (let q = 0; q < l.length; q++) {
+              const id = l[q], oi = triOwner[id];
+              if (oi === e.index || chainSet.has(oi)) continue;
+              if (x < triBox[id * 4] || x > triBox[id * 4 + 2] || z < triBox[id * 4 + 1] || z > triBox[id * 4 + 3]) continue;
+              if (insideBy(triXZ, id * 6, x, z) < 0.01) continue;
+              if (S.isSeparatedPair(e.index, oi) || sepNear(e, E[oi], x, z)) continue;
+              const d = depthInEdge(E[oi], x, z);
+              if (d > depth) { depth = d; other = oi; }
+            }
+            const cross = depth > R.CrossM, mz = cross && mergeZone(e, E[other]);
+            bD1.push(x, z, e.index, s, depth, cross && !mz, tag, span);
+            bD1m.push(x, z, e.index, s, depth, cross && mz, tag, span);
+          }
+        }
+        bA1.close(); bA4.close(); bA5.close(); bD1.close(); bD1m.close();
+      }
+    }
+    // ---- ribbon edges: A1-edge (uncropped sections only: X6)
+    for (const side of ['L', 'R']) {
+      const sgn = side === 'L' ? -1 : 1;
+      for (const pc of rib[side]) {
+        const bA1 = new RunBuilder('A1', 'R' + side);
+        for (let i = 1; i < pc.length; i++) {
+          const a = pc[i - 1], b = pc[i];
+          const segL = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(segL / BIN));
+          const sda = sdOf(a.x, a.z, a.s), sdb = sdOf(b.x, b.z, b.s);
+          fillGrid(gridRib[side], a, b, sda, sdb);
+          const cropped = a.crop || b.crop;
+          for (let m = i === 1 ? 0 : 1; m <= n; m++) {
+            const t = m / n, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t, s = a.s + (b.s - a.s) * t;
+            if (cropped) { bA1.push(x, z, e.index, s, 0, false); continue; }
+            const sd = m === 0 ? sda : m === n ? sdb : sdOf(x, z, s);
+            const err = sd - sgn * hwD(e, s);
+            bA1.push(x, z, e.index, s, err, Math.abs(err) > V, m === 0 || m === n ? 'S' : 'I', b.sec, side);
+          }
+        }
+        bA1.close();
+      }
+    }
+    // ---- A2 SKEW (undivided two-way rows): the centre pair against the drawn midline
+    const plan = ed.plan;
+    if (e.profile.key.startsWith('tw')) {
+      const ys = plan.map((p, j) => ({ p, j })).filter(o => o.p.anchor === 'C' && o.p.col === 'Y');
+      if (ys.length >= 2) {
+        ys.sort((a, b) => a.p.off - b.p.off);
+        const k1 = ed.lay.planRun[ys[0].j], k2 = ed.lay.planRun[ys[ys.length - 1].j];
+        if (k1 >= 0 && k2 >= 0) {
+          const smp = [];
+          for (let k = 0; k < nb; k++) {
+            const s = binS(k), sp = spanAt(s);
+            const a = grid[k1][k], b = grid[k2][k], l = gridRib.L[k], r = gridRib.R[k];
+            const p = S.pointAt(e, s);
+            if (sp.cropL || sp.cropR || [a, b, l, r].some(Number.isNaN)) { smp.push({ x: p[0], z: p[1], e: e.index, s, val: 0, bad: false }); continue; }
+            const skew = (a + b) / 2 - (ed.lay.runQ[k1] + ed.lay.runQ[k2]) / 2 - (l + r) / 2;
+            smp.push({ x: p[0], z: p[1], e: e.index, s, val: skew, bad: Math.abs(skew) > V, span: sp.i });
+          }
+          emitRuns('A2', 'CPAIR', smp, V);
+        }
+      }
+    }
+    // ---- A3 INSET: each edge line against its own drawn edge
+    for (const [pid, side] of [['EL', 'R'], ['ER', 'L']]) {
+      const j = plan.findIndex(p => p.id === pid), k = j >= 0 ? ed.lay.planRun[j] : -1;
+      if (k < 0) continue;
+      const run = ed.lay.runs[k], W = e.profile.width;
+      const planInset = W / 2 - Math.abs((0.5 - run.u) * W);   // the run's inset at nominal scale
+      const smp = [];
+      for (let b = 0; b < nb; b++) {
+        const s = binS(b), sp = spanAt(s), p = S.pointAt(e, s);
+        const ln = grid[k][b], rb = gridRib[side][b];
+        if ((side === 'L' ? sp.cropL : sp.cropR) || Number.isNaN(ln) || Number.isNaN(rb)) { smp.push({ x: p[0], z: p[1], e: e.index, s, val: 0, bad: false }); continue; }
+        const d = Math.abs(rb - ln) - planInset;
+        smp.push({ x: p[0], z: p[1], e: e.index, s, val: d, bad: Math.abs(d) > V, span: sp.i });
+      }
+      emitRuns('A3', pid, smp, V);
+    }
+    // ---- A5b MISSING (report-only): a plan line with no rendered line of its colour within StrayM
+    for (let j = 0; j < plan.length; j++) {
+      const pj = plan[j], smp = [];
+      for (let b = 0; b < nb; b++) {
+        const s = binS(b), p = S.pointAt(e, s);
+        if (!planExists(pj, e, s)) { smp.push({ x: p[0], z: p[1], e: e.index, s, val: 0, bad: false }); continue; }
+        let near = Infinity;
+        for (const L of lines) {
+          if (L.run.col !== pj.col) continue;
+          const g = grid[L.k][b]; if (Number.isNaN(g)) continue;
+          near = Math.min(near, Math.abs(g - (planOff(pj, e, s) + L.q)));
+        }
+        smp.push({ x: p[0], z: p[1], e: e.index, s, val: Math.min(near, 10), bad: near > R.StrayM });
+      }
+      emitRuns('A5b', pj.id, smp, R.StrayM);
+    }
+    // ---- C1 GAP: a solid line interrupted inside the edge where the plan has it
+    for (const L of lines) {
+      if (L.run.dashed || !L.plan) continue;
+      const ps = [...L.pieces].sort((a, b) => Math.min(a.pts[0].s, a.pts.at(-1).s) - Math.min(b.pts[0].s, b.pts.at(-1).s));
+      for (let i = 1; i < ps.length; i++) {
+        const a = ps[i - 1].pts.reduce((m, p) => p.s > m.s ? p : m), b = ps[i].pts.reduce((m, p) => p.s < m.s ? p : m);
+        const gap = Math.hypot(b.x - a.x, b.z - a.z);
+        const sm = (a.s + b.s) / 2;
+        if (gap > R.GapM && planExists(L.plan, e, sm))
+          runs.push({ check: 'C1', lineId: L.plan.id, e: e.index, s: sm, x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, val: gap, len: gap, e0: e.index, s0: a.s, e1: e.index, s1: b.s, span: a.span });
+      }
+    }
+    return { grid };
+  }
+
+  // ---- B-family on one strand (an ordered, joined polyline)
+  function shapeChecks(kind, lineId, pts, rLimit) {
+    if (pts.length < 3) return;
+    const keep = keepIdx(pts, R);
+    if (keep.length < 3) return;
+    const C = arcOf(pts, keep);
+    const Ltot = C[C.length - 1];
+    // B2 KINK at every kept interior vertex
+    const b2 = [];
+    for (let m = 1; m + 1 < keep.length; m++) {
+      const a = pts[keep[m - 1]], b = pts[keep[m]], c = pts[keep[m + 1]];
+      if (b.x3 || b.gore) { b2.push({ ...b, val: 0, bad: false }); continue; }
+      const th = turnOf(a.x, a.z, b.x, b.z, c.x, c.z);
+      const f = Math.min(C[m] - C[m - 1], C[m + 1] - C[m], R.ChordCapM) * Math.abs(th) / 8;
+      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side });
+    }
+    emitRuns('B2', lineId, b2, V, { kind });
+    // B3 CURVE (ribbon edges and midline only)
+    if (rLimit > 0) {
+      const b3 = [];
+      let hint = 0;
+      for (let m = 1; m + 1 < keep.length; m++) {
+        const b = pts[keep[m]];
+        if (C[m] < R.CurveHalfM || Ltot - C[m] < R.CurveHalfM || b.x3 || b.gore) { b3.push({ ...b, val: 0, bad: false }); continue; }
+        const p0 = pointAtArc(pts, keep, C, C[m] - R.CurveHalfM, hint), p1 = pointAtArc(pts, keep, C, C[m] + R.CurveHalfM, m);
+        hint = p0.i;
+        const h1 = Math.atan2(b.z - p0.z, b.x - p0.x), h2 = Math.atan2(p1.z - b.z, p1.x - b.x);
+        let dpsi = Math.abs(h2 - h1); if (dpsi > Math.PI) dpsi = 2 * Math.PI - dpsi;
+        const Rr = dpsi > 1e-9 ? R.CurveHalfM / dpsi : Infinity;
+        b3.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: Rr, bad: Rr < rLimit, span: b.span ?? b.sec, side: b.side });
+      }
+      emitRuns('B3', lineId, b3, rLimit, { kind, rLimit }, true);
+    }
+    // B1 JITTER: 0.25 m samples within JitterHalfM of a turning vertex, Kasa fit over +-JitterHalfM
+    const step = R.JitterStepM, H = R.JitterHalfM, nH = Math.round(H / step);
+    const cand = [];
+    for (let m = 1; m + 1 < keep.length; m++) {
+      const c = C[m];
+      for (let a = Math.ceil((c - H) / step) * step; a <= c + H + 1e-9; a += step) if (a >= H && a <= Ltot - H) cand.push(a);
+    }
+    if (!cand.length) return;
+    cand.sort((a, b) => a - b);
+    const b1 = [];
+    const xs = new Float64Array(2 * nH + 1), zs = new Float64Array(2 * nH + 1);
+    let last = -1, hint = 0, wlo = 0;
+    for (const a of cand) {
+      if (Math.abs(a - last) < 1e-6) continue;
+      if (last >= 0 && a - last > step * 1.5) b1.push({ x: 0, z: 0, val: 0, bad: false, gap: true });
+      last = a;
+      let exempt = false;
+      for (let j = -nH; j <= nH; j++) {
+        const p = pointAtArc(pts, keep, C, a + j * step, hint);
+        if (j === -nH) hint = p.i;
+        xs[j + nH] = p.x; zs[j + nH] = p.z;
+        const src = pts[keep[p.i]];
+        if (src.x3 || src.gore) exempt = true;
+      }
+      const centre = pointAtArc(pts, keep, C, a, hint), src = pts[keep[centre.i]];
+      if (exempt) { b1.push({ x: centre.x, z: centre.z, e: src.e, s: src.s, val: 0, bad: false }); continue; }
+      // prefilter: every vertex of the window within V/2 of the window's chord -> the fit leaves < V
+      const cx = xs[2 * nH] - xs[0], cz = zs[2 * nH] - zs[0], cl = Math.hypot(cx, cz) || 1;
+      let dev = 0;
+      while (wlo < keep.length && C[wlo] <= a - H) wlo++;
+      for (let m = wlo; m < keep.length && C[m] < a + H; m++) {
+        const p = pts[keep[m]];
+        dev = Math.max(dev, Math.abs(((p.x - xs[0]) * cz - (p.z - zs[0]) * cx) / cl));
+      }
+      const res = dev < V / 2 ? 0 : kasaResidual(xs, zs, nH);
+      b1.push({ x: centre.x, z: centre.z, e: src.e, s: src.s, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side });
+    }
+    emitRuns('B1', lineId, b1.filter(p => !p.gap), V, { kind });
+  }
+
+  // ---- C3 DASH along one identity chain of a dashed line
+  function dashChecks(lineId, pieces, run) {
+    // pieces: ordered [{pts}], linked end to start (joined or jumped at a node)
+    const lo = R.DashM * (1 - R.DashTol), hi = R.DashM * (1 + R.DashTol), glo = R.DashGapM * (1 - R.DashTol), ghi = R.DashGapM * (1 + R.DashTol);
+    const onAt = v => { const f = v - Math.floor(v); return f >= run.vOn0 && f < run.vOn1; };
+    let state = null, len = 0, start = null, truncatedStart = true;
+    const out = [];
+    const close = (endPt, truncatedEnd) => {
+      if (state === null) return;
+      const lim = state ? [lo, hi] : [glo, ghi];
+      if (!truncatedStart && !truncatedEnd && (len < lim[0] || len > lim[1]))
+        out.push({ check: 'C3', lineId, e: endPt.e, s: endPt.s, x: endPt.x, z: endPt.z, val: len / (state ? R.DashM : R.DashGapM) - 1, len,
+                   e0: start.e, s0: start.s, e1: endPt.e, s1: endPt.s, what: state ? 'dash' : 'gap', span: endPt.span });
+      else if (state && (truncatedStart || truncatedEnd) && len < R.StubM)
+        out.push({ check: 'C3', lineId, e: endPt.e, s: endPt.s, x: endPt.x, z: endPt.z, val: len / R.DashM - 1, len, e0: start.e, s0: start.s, e1: endPt.e, s1: endPt.s,
+                   what: 'stub', reportOnly: 'a truncated dash under 1 m at a mouth or gore: report-only until WP-17', span: endPt.span });
+    };
+    for (let pi = 0; pi < pieces.length; pi++) {
+      const pts = pieces[pi].pts;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const segL = Math.hypot(b.x - a.x, b.z - a.z);
+        if (segL < 1e-9) continue;
+        // the V boundaries (n + vOn0, n + vOn1) inside this segment, by t
+        const v0 = a.v, v1 = b.v;
+        const ts = [0];
+        const vmin = Math.min(v0, v1), vmax = Math.max(v0, v1);
+        for (let n = Math.floor(vmin) - 1; n <= Math.ceil(vmax) + 1; n++)
+          for (const edge of [n + run.vOn0, n + run.vOn1]) if (edge > vmin && edge < vmax) ts.push((edge - v0) / (v1 - v0));
+        ts.push(1); ts.sort((p, q) => p - q);
+        for (let k = 1; k < ts.length; k++) {
+          const tm = (ts[k - 1] + ts[k]) / 2, on = onAt(v0 + (v1 - v0) * tm), dl = segL * (ts[k] - ts[k - 1]);
+          if (dl < 1e-9) continue;
+          if (state !== on) {
+            const at = { x: a.x + (b.x - a.x) * ts[k - 1], z: a.z + (b.z - a.z) * ts[k - 1], e: a.e, s: a.s + (b.s - a.s) * ts[k - 1], span: b.span };
+            close(at, false);
+            truncatedStart = state === null; state = on; len = 0; start = at;
+          }
+          len += dl;
+        }
+      }
+    }
+    const lastPts = pieces[pieces.length - 1].pts, endPt = lastPts[lastPts.length - 1];
+    close(endPt, true);
+    for (const r of out) runs.push(r);
+  }
+
+  // ---- one chain at a time
+  let chainNo = 0;
+  for (const chain of chains) {
+    chainNo++;
+    if (opts.onlyEdges && !chain.some(c => opts.onlyEdges.has(c.e.index))) continue;
+    const chainSet = new Set(chain.map(c => c.e.index));
+    const eds = chain.map(c => ({ ...extract(c.e), fwd: c.fwd }));
+    for (const ed of eds) checkEdge(ed, chainSet);
+
+    // orient every strand to the chain's direction
+    const orient = (ed, pts) => ed.fwd ? pts : [...pts].reverse();
+    const nodeOf = (ed, end) => (end === 'start') === ed.fwd ? ed.e.a : ed.e.b;
+    // gore noses: within GoreNoseM of a collapsed section (X2, edge shape checks)
+    for (const ed of eds) {
+      const coll = ed.secs.filter(c => c.collapsed).map(c => c.s);
+      if (!coll.length) continue;
+      for (const side of ['L', 'R']) for (const pc of ed.rib[side]) for (const p of pc) if (coll.some(s => Math.abs(s - p.s) <= R.GoreNoseM)) p.gore = true;
+    }
+    // ---- ribbon edges and midline: join across joints (<= JoinM), else a JUMP (B4) and a new strand
+    const joinStrands = (getPieces, kindName, rLimitOf) => {
+      let open = null;   // the strand still open at the chain's current end
+      const finish = () => { if (open) { stats.strands++; shapeChecks(kindName, open.id, open.pts, open.rLimit); } open = null; };
+      for (let c = 0; c < eds.length; c++) {
+        const ed = eds[c];
+        const pcs = getPieces(ed).map(p => orient(ed, p));
+        if (!ed.fwd) pcs.reverse();
+        const startSec = ed.fwd ? 0 : ed.secs.length - 1, endSec = ed.fwd ? ed.secs.length - 1 : 0;
+        for (let i = 0; i < pcs.length; i++) {
+          const pc = pcs[i];
+          if (i === 0 && open && pc[0].sec === startSec) {
+            const a = open.pts[open.pts.length - 1], b = pc[0];
+            const d = Math.hypot(a.x - b.x, a.z - b.z);
+            if (d <= R.JoinM) { open.pts.push(...pc.slice(1)); continue; }
+            if (d > V) runs.push({ check: 'B4', lineId: kindName === 'midline' ? 'MID' : 'R' + b.side, e: b.e, s: b.s, x: b.x, z: b.z, val: d, len: 0,
+                        e0: a.e, s0: a.s, e1: b.e, s1: b.s, kind: kindName, node: nodeOf(ed, 'start') });
+          }
+          finish();
+          open = { pts: [...pc], id: kindName === 'midline' ? 'MID' : 'R' + pc[0].side, rLimit: rLimitOf(ed) };
+        }
+        // a strand that does not reach this edge's chain-end section cannot continue into the next edge
+        if (open && open.pts[open.pts.length - 1].sec !== endSec) finish();
+        if (!pcs.length) finish();
+      }
+      finish();
+    };
+    // chain-right is the edge's L going forward, its R going backward
+    joinStrands(ed => ed.fwd ? ed.rib.L : ed.rib.R, 'edge', () => R.InnerEdgeMinRM);
+    joinStrands(ed => ed.fwd ? ed.rib.R : ed.rib.L, 'edge', () => R.InnerEdgeMinRM);
+    joinStrands(ed => ed.mid, 'midline', ed => R.rMinFor(ed.e.klass));
+
+    // ---- painted lines: link pieces across joints (join <= JoinM, else JUMP within MatchM, else END)
+    // every piece, oriented, tagged with whether it touches the chain-start / chain-end section of its edge
+    const P = [];
+    eds.forEach((ed, c) => {
+      for (const L of ed.lines) for (const pc of L.pieces) {
+        const pts = orient(ed, pc.pts);
+        const first = pts[0], last = pts[pts.length - 1];
+        const onSec = (p, which) => {
+          const atStart = ed.fwd ? (p.tag === 'A' && p.span === 1) : (p.tag === 'B' && p.span === ed.nSpan);
+          const atEnd = ed.fwd ? (p.tag === 'B' && p.span === ed.nSpan) : (p.tag === 'A' && p.span === 1);
+          return which === 'start' ? atStart : atEnd;
+        };
+        P.push({ c, ed, L, pts, col: L.run.col, dashed: L.run.dashed, id: L.plan ? L.plan.id : `T${L.run.col}u${L.run.u.toFixed(3)}`,
+                 startsAtJoint: c > 0 && onSec(first, 'start'), endsAtJoint: c + 1 < eds.length && onSec(last, 'end'), next: null, prev: null, joined: false });
+      }
+    });
+    for (let c = 0; c + 1 < eds.length; c++) {
+      const ends = P.filter(p => p.c === c && p.endsAtJoint), starts = P.filter(p => p.c === c + 1 && p.startsAtJoint);
+      const pairs = [];
+      for (const a of ends) for (const b of starts) {
+        if (a.col !== b.col || a.dashed !== b.dashed) continue;
+        const pa = a.pts[a.pts.length - 1], pb = b.pts[0], d = Math.hypot(pa.x - pb.x, pa.z - pb.z);
+        if (d <= R.MatchM) pairs.push({ a, b, d });
+      }
+      pairs.sort((p, q) => p.d - q.d);
+      for (const { a, b, d } of pairs) {
+        if (a.next || b.prev) continue;
+        a.next = b; b.prev = a;
+        if (d <= R.JoinM) b.joined = true;
+        else if (d > V) {
+          const pb = b.pts[0];
+          runs.push({ check: 'B4', lineId: b.id, e: pb.e, s: pb.s, x: pb.x, z: pb.z, val: d, len: 0, e0: a.pts.at(-1).e, s0: a.pts.at(-1).s, e1: pb.e, s1: pb.s, kind: 'paint', node: nodeOf(b.ed, 'start') });
+        }
+      }
+    }
+    // identity chains: follow next from every piece with no prev
+    for (const head of P) {
+      if (head.prev) continue;
+      const seq = [];
+      for (let p = head; p; p = p.next) seq.push(p);
+      // B-family on joined runs of the sequence
+      let strand = null;
+      for (const p of seq) {
+        if (strand && p.joined) strand.push(...p.pts.slice(1));
+        else { if (strand) { stats.strands++; shapeChecks('paint', head.id, strand, 0); } strand = [...p.pts]; }
+      }
+      if (strand) { stats.strands++; shapeChecks('paint', head.id, strand, 0); }
+      // C2 END at both ends of the identity chain; C1 across a joint
+      for (const [p, which] of [[seq[0], 'start'], [seq[seq.length - 1], 'end']]) {
+        const pt = which === 'start' ? p.pts[0] : p.pts[p.pts.length - 1];
+        const ed = p.ed, e = ed.e;
+        const sMin = ed.secs[0].s, sMax = ed.secs[ed.secs.length - 1].s;
+        const atEdgeEnd = Math.abs(pt.s - sMin) <= R.FanMouthM ? 'a' : Math.abs(pt.s - sMax) <= R.FanMouthM ? 'b' : null;
+        const node = atEdgeEnd === 'a' ? e.a : atEdgeEnd === 'b' ? e.b : -1;
+        let legit = null;
+        if (node >= 0 && T.patch[node]) legit = 'fan mouth';
+        else if (node >= 0 && nodeEdges[node].length === 1) legit = 'dead end';
+        else if (node >= 0 && (T.branchA[e.index] >= 0 && node === e.a || T.branchB[e.index] >= 0 && node === e.b)) legit = 'branch mouth';
+        else {
+          // inside a clip (a gore) within GoreNoseM
+          const sc = ed.secs.find(c => (c.clipped || c.collapsed) && Math.abs(c.s - pt.s) <= R.GoreNoseM);
+          if (sc) legit = 'gore';
+        }
+        const plan = p.L.plan;
+        if (!legit && plan) {
+          // the plan drops or adds the line here (its existence changes within FanMouthM), or across the joint the other
+          // edge's plan has no line of this colour and pattern within MatchM
+          const s0 = Math.max(sMin, pt.s - R.FanMouthM), s1 = Math.min(sMax, pt.s + R.FanMouthM);
+          if (planExists(plan, e, s0) !== planExists(plan, e, s1)) legit = 'plan lane drop';
+          else if (node >= 0 && jointAt(e, node) >= 0) {
+            const o = E[jointAt(e, node)], op = plans.get(o.profile.key).plan;
+            const lat = sdRef(ed.ref, pt.x, pt.z, pt.s);
+            // the other edge's lateral frame: flip when the two run opposite ways through the node
+            const same = (e.b === node) === (o.a === node);
+            const has = op.some(q => q.col === p.col && q.dashed === p.dashed && Math.abs((same ? 1 : -1) * planOff(q, o, o.a === node ? 0 : o.length) - lat) <= R.MatchM);
+            if (!has) legit = 'plan lane drop at a node';
+          }
+        }
+        // a legitimate place is still a stray end when the line is off its plan there
+        let err = 0;
+        if (plan) err = sdRef(ed.ref, pt.x, pt.z, pt.s) - (planOff(plan, e, pt.s) + p.L.q);
+        if (!legit || Math.abs(err) > R.StrayM)
+          runs.push({ check: 'C2', lineId: p.id, e: e.index, s: pt.s, x: pt.x, z: pt.z, val: Math.max(1, Math.abs(err) / R.StrayM), len: 0, e0: e.index, s0: pt.s, e1: e.index, s1: pt.s,
+                      what: `${which} ${legit ? `at a ${legit} but ${Math.abs(err).toFixed(2)} m off its plan` : 'mid-road'}`, span: pt.span });
+      }
+      // C3 DASH along the identity chain
+      if (head.dashed) {
+        dashChecks(head.id, seq, head.L.run);
+      }
+    }
+    if (chainNo % 2000 === 0) log(`gate: ${chainNo}/${chains.length} chains, ${runs.length} runs`);
+  }
+
+  // ---- key, class, cause, score for every run
+  const secNear = (e, s) => {
+    const secs = e.secs; if (!secs) return [];
+    return secs.filter(c => Math.abs(c.s - s) <= 1.0);
+  };
+  for (const r of runs) {
+    const e = E[r.e];
+    if (r.kind === 'edge' && r.side) r.lineId = 'R' + r.side;
+    r.way = e.wayId; r.name = e.name; r.cls = e.klass; r.profile = e.profile.key;
+    r.key = `${e.wayId}:${lineKey(e, r.s)}:${r.check}:${r.lineId}`;
+    const limit = r.check === 'A4' ? R.LineWidthTol : r.check === 'A5' || r.check === 'A5b' ? R.StrayM : r.check === 'B3' ? r.rLimit
+      : r.check === 'C1' ? R.GapM : r.check === 'C2' ? 1 : r.check === 'C3' ? R.DashTol : r.check === 'D1' ? R.CrossM : V;
+    r.limit = limit;
+    r.ratio = r.check === 'B3' ? limit / Math.max(1e-6, r.val) : r.check === 'C2' ? r.val : Math.abs(r.val) / limit;
+    if ((r.check === 'A5' || r.check === 'A5b') && r.len < minRunLen[r.check]) r.drop = true;
+    // cause hint
+    const near = r.check === 'C1' ? (e.secs || []).filter(c => c.s >= Math.min(r.s0, r.s1) - 1 && c.s <= Math.max(r.s0, r.s1) + 1) : secNear(e, r.s);
+    const causes = [];
+    const sp = r.span && e.secs && e.secs[r.span] && e.secs[r.span - 1] ? [e.secs[r.span - 1], e.secs[r.span]] : null;
+    if (near.some(c => c.taper) || (sp && Math.abs(sp[0].hw - sp[1].hw) > 0.005)) causes.push('TAPER');
+    if (r.tag === 'D' || r.tag === 'I' && sp && Math.abs(sp[0].hw - sp[1].hw) > 0.005) causes.push('DIAGONAL');
+    if (near.some(c => c.kind === 'vertex')) causes.push('VERTEX');
+    if (near.some(c => c.kind === 'mitre') || r.node !== undefined) causes.push('MITRE');
+    if (near.some(c => c.sqL || c.sqR)) causes.push('SQUEEZE');
+    if (near.some(c => c.clipped || c.collapsed)) causes.push('CLIP');
+    if (near.some(c => c.structEnd)) causes.push('STRUCTURE-END');
+    r.cause = causes.join('+') || '-';
+    r.data = dataKinkNear(e, r.s) ? 'DATA' : 'BUILDER';
+    r.pinned = pinned.has(e.wayId);
+    r.exposure = exposureAt(e.index, r.x, r.z);
+    r.score = Math.min(r.ratio, R.RankRatioCap) * R.weightFor(e.klass) * r.exposure;
+  }
+  const kept = runs.filter(r => !r.drop);
+  return { runs: kept, stats, texQ, texNotes, chains: chains.length };
+}
