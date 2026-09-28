@@ -492,6 +492,15 @@ its own page until it is merged into the game (owner decision, 2026-09-28):
   `tools\build-and-publish.ps1 -PagesDir city`, with
   `$env:PSX_SANDBOX='C:\Users\mcgee\PSXCity'` (the branch's own sandbox,
   never `PSXBuild`). The game stays at the site root.
+- **Only `main` publishes the game at the root.** A root publish (no
+  `-PagesDir`) from this branch, from any branch but `main`, from a detached
+  HEAD, or from a checkout git cannot read is refused before the build
+  starts. The test folders beside the root would survive it, but the game
+  at the root would be replaced by this branch's work in progress. So "ship"
+  on this branch means `-PagesDir city` plus a push of the `charlotte`
+  branch, never a root publish or a push to `main`. `-AllowRootFromBranch`
+  overrides the refusal, and is only for when the owner has asked for this
+  branch's build at the root.
 - **Neither publish wipes the other.** gh-pages is still one orphan commit,
   force-pushed each time, so its history never grows (each build is about
   85 MB). But every publish now reads the live gh-pages first (trees only,

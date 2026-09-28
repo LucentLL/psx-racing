@@ -62,8 +62,18 @@
 # Docs/CHARLOTTE.md "The test page"). Shared on purpose: only the fullscreen
 # preference (localStorage "psx.fullscreen", per origin). Unity's data cache
 # is keyed by URL, so a phone that plays both keeps two copies of the data.
+#
+# ONLY main PUBLISHES THE GAME. The site root is the game the owner plays. A
+# root publish from any other branch (or a detached or unreadable checkout)
+# is refused before the build starts. The test folders beside the root would
+# survive it, but the game at the root would be replaced by that branch's
+# work in progress. A branch publishes its test page with -PagesDir (the
+# charlotte branch: -PagesDir city). -AllowRootFromBranch overrides the
+# refusal. Pass it only when the owner has asked for that branch's build at
+# the root.
 param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$DryRun,
+      [switch]$AllowRootFromBranch,
       [string]$BuildDir = "",
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
@@ -80,7 +90,6 @@ $src   = Split-Path -Parent $PSScriptRoot
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $pages = "C:\Users\mcgee\psx-pages"
 $repo  = $PagesRemote
-$liveRemote = "https://github.com/LucentLL/psx-racing.git"
 $liveUrl    = "https://lucentll.github.io/psx-racing/"
 if ($BuildDir -and -not $SkipBuild) {
     Write-Host "-BuildDir publishes an existing WebGL output, so it needs -SkipBuild (a build always writes to $proj\Build\WebGL)." -ForegroundColor Red
@@ -153,6 +162,27 @@ function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 40) {
         Start-Sleep -Seconds 5
     }
     return $false
+}
+
+# ONLY main PUBLISHES THE GAME (see the header). Asked of the source tree
+# BEFORE a forty-minute build, and only when the target is the real site:
+# -PagesRemote tests are not the site. A dry run is refused too, so that it
+# shows what the real run would do.
+$isLive = $PagesRemote -match '(?i)github\.com[/:]LucentLL/psx-racing(\.git)?/?$'
+if (-not $SkipDeploy -and -not $PagesDir -and $isLive) {
+    $b = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
+    $srcBranch = if ($b.Code -eq 0 -and $b.Out.Count) { ("" + $b.Out[0]).Trim() } else { "" }
+    if ($srcBranch -cne "main") {
+        $what = if ($b.Code -ne 0) { "a source tree git cannot read (${src}: $($b.Text))" }
+                elseif ($srcBranch -eq "HEAD") { "a detached HEAD in $src" }
+                else { "branch '$srcBranch' ($src)" }
+        if ($AllowRootFromBranch) {
+            Write-Host "ROOT PUBLISH FROM $what, under -AllowRootFromBranch: this REPLACES THE GAME at $liveUrl with that build." -ForegroundColor Yellow
+        } else {
+            Write-Host "REFUSING A ROOT PUBLISH FROM $what. $liveUrl is the game, and only main publishes it. Publish this branch's test page with -PagesDir instead (the charlotte branch: -PagesDir city -> ${liveUrl}city/). -AllowRootFromBranch overrides this, and is only for when the owner has asked for this branch's build at the root." -ForegroundColor Red
+            exit 1
+        }
+    }
 }
 
 if (-not $SkipBuild) {
@@ -723,7 +753,7 @@ if (-not $SkipDeploy) {
     }
 
     if (-not $DryRun) {
-        if ($repo -ne $liveRemote) {
+        if (-not $isLive) {
             Write-Host "`nPushed to $repo (a test remote: no live URL to check)." -ForegroundColor Green
         } else {
             # Pages serves a push in ~20-60 s. Ask for index.html past the CDN
