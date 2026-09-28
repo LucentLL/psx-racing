@@ -6,6 +6,9 @@ edges 25042, nodes 20194, waters 32, crossings 782 (230 trenched), wspans 264, f
   ok  the SRTM height grid loaded
   ok  the inner freeways run in trenches under the streets — 230
   ok  three race routes baked — 3
+graph hash 27bccd93 (GHSH), recomputed 27bccd93; datum 97.0 m ASL, DEM step 0.1 m
+  ok  the graph hash in the file matches the graph — 27bccd93
+  ok  the datum is pinned at 97.0 m — 97.000
   ok  nearly every separation is decided by OSM's layer tags — 782 of 782
   ok  road length reachable from spawn — 99.6%
 network: 3846 km total, 3830 km reachable
@@ -164,6 +167,7 @@ lamp audit: 12 tiles, 219 lamps of 220 stations; refused: building or lot 1; 0 p
   ok  no lamp stands under a structure (lamp audit) — 0
   ok  no lamp is stood twice across a tile seam (lamp audit) — 0
   ok  a tile stands the same lamps every build (lamp audit)
-budget: 225 tiles at 9 sites, tile build p50 18.3 / p95 59.8 / max 130.0 ms (editor), worst view 198 draws (trade_tryon)
-budget: parse 176 ms + solve 789 ms, map heap 25.6 MB (+1.4 MB DEM)
+budget: 225 tiles at 9 sites, tile build p50 18.2 / p95 63.2 / max 130.1 ms (editor), worst view 198 draws (trade_tryon)
+budget: spawn road y (m above the datum) trade_tryon 130.410, providence 115.324, i77_north 133.117, beatties_ford 141.702, tryon_start 127.613, dilworth 101.976, plaza_midwood 125.939, i485_south 116.063, suburb_6km 123.172
+budget: parse 207 ms + solve 790 ms, map heap 17.1 MB (+1.4 MB DEM)
 CITY AUDIT OK

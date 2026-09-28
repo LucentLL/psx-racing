@@ -246,6 +246,7 @@ P(`  node degrees ${fp.city.node_degrees.map((n, i) => `${i}:${n}`).join(' ')}`)
 P('  km by class: ' + CLASSES.filter(c => km[c] > 0).map(c => `${c} ${km[c].toFixed(1)}`).join(', '));
 P(`  routes: ${fp.city.routes.map(r => `${r.id} ${(r.length_m / 1000).toFixed(2)} km / ${r.edges} edges`).join(', ')}`);
 P(`  DEM ${fp.dem.nx} x ${fp.dem.nz} at ${fp.dem.cell} m, datum ${fp.dem.datum_m} m, ${fp.dem.min_asl}..${fp.dem.max_asl} m ASL; ${fp.bld.footprints} footprints`);
+P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.version}, step ${fp.dem.scale_m} m`);
 
 // ================================================================ KINKS
 {

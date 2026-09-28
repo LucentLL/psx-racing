@@ -23,6 +23,15 @@ namespace PSXRacing.City
     /// the magic + version at the top is what turns a mismatch into an error
     /// message instead of a graph of garbage.
     ///
+    /// Version 2 (Charlotte refinement WP-02) is a SECTION TABLE: {tag,
+    /// offset, length} per section, then META NODE NAME EDGE PNTS WATR XING
+    /// SPAN ROUT GHSH. The reader takes the sections it knows by tag and
+    /// skips any other, so a later export can add one (lanes, controls,
+    /// station heights) without breaking this build. GHSH is the GRAPH HASH
+    /// (<see cref="GraphHashOf"/>): derived data keyed by (edge, s) carries
+    /// it, and data made for another graph is refused. The layout is written
+    /// down once, in tools/city/lib/citydata.mjs.
+    ///
     /// The one scale knob is <see cref="LayoutScale"/>: it multiplies graph
     /// GEOMETRY only, at parse time. Road widths, lane widths and building
     /// sizes are section-currency (the car is real-size at any layout scale)
@@ -33,6 +42,11 @@ namespace PSXRacing.City
         public const float LayoutScale = 1.0f;
         const uint MagicCity = 0x43585350;   // "PSXC"
         const uint MagicBld = 0x444C4250;    // "PBLD"
+        /// <summary>The PSXC version this reader expects.</summary>
+        public const int CityVersion = 2;
+        /// <summary>A section tag as the u32 the table stores (its four ASCII
+        /// bytes, little-endian).</summary>
+        static uint Tag(string t) => (uint)(t[0] | t[1] << 8 | t[2] << 16 | t[3] << 24);
 
         // ---- runtime graph ------------------------------------------------
         public class Edge
@@ -230,6 +244,13 @@ namespace PSXRacing.City
         }
 
         public string attribution;
+        /// <summary>The graph hash the file carries (section GHSH), checked
+        /// against <see cref="GraphHashOf"/> at parse; see
+        /// <see cref="GraphHashMatches"/>.</summary>
+        public uint graphHash;
+        /// <summary>False when the recomputed hash disagreed with GHSH (logged
+        /// as an error at parse; CityAudit fails on it).</summary>
+        public bool GraphHashMatches { get; private set; }
         public Vector2 uptown;
         public Vector2[] nodes;
         public float[] nodeY;
@@ -298,10 +319,36 @@ namespace PSXRacing.City
             {
                 if (r.ReadUInt32() != MagicCity) throw new Exception("charlotte_city.bytes: bad magic");
                 int version = r.ReadInt32();
-                if (version != 1) throw new Exception("charlotte_city.bytes: version " + version + " (reader expects 1)");
+                if (version != CityVersion) throw new Exception("charlotte_city.bytes: version " + version + " (reader expects " + CityVersion + ": re-export with tools/city/export_osm.mjs)");
+                // The section table. Unknown tags are skipped; a missing one
+                // is an error, as is a section read short or long.
+                int nsec = r.ReadInt32();
+                var table = new Dictionary<uint, (int offset, int length)>(nsec);
+                for (int i = 0; i < nsec; i++)
+                {
+                    uint tag = r.ReadUInt32();
+                    int off = r.ReadInt32(), len = r.ReadInt32();
+                    if (off < 0 || len < 0 || (long)off + len > city.Length) throw new Exception("charlotte_city.bytes: a section runs past the end");
+                    table[tag] = (off, len);
+                }
+                void Open(string t)
+                {
+                    if (!table.TryGetValue(Tag(t), out var sec)) throw new Exception("charlotte_city.bytes: no " + t + " section");
+                    r.BaseStream.Position = sec.offset;
+                }
+                void Close(string t)
+                {
+                    var sec = table[Tag(t)];
+                    if (r.BaseStream.Position != sec.offset + sec.length)
+                        throw new Exception("charlotte_city.bytes: section " + t + " read " + (r.BaseStream.Position - sec.offset) + " of " + sec.length + " bytes");
+                }
+
+                Open("META");
                 map.attribution = r.ReadString();
                 map.uptown = new Vector2(r.ReadSingle(), r.ReadSingle()) * LayoutScale;
+                Close("META");
 
+                Open("NODE");
                 int nn = r.ReadInt32();
                 map.nodes = new Vector2[nn];
                 map.nodeControl = new int[nn];
@@ -310,12 +357,19 @@ namespace PSXRacing.City
                     map.nodes[i] = new Vector2(r.ReadSingle(), r.ReadSingle()) * LayoutScale;
                     map.nodeControl[i] = r.ReadByte();
                 }
+                Close("NODE");
 
+                Open("NAME");
                 int ns = r.ReadInt32();
                 var names = new string[ns];
                 for (int i = 0; i < ns; i++) names[i] = r.ReadString();
+                Close("NAME");
 
+                // EDGE holds each edge's record and its point COUNT; the
+                // points themselves are in PNTS, every edge's in edge order.
+                Open("EDGE");
                 int ne = r.ReadInt32();
+                var pointCount = new int[ne];
                 map.edges = new Edge[ne];
                 map.nodeEdges = new List<int>[nn];
                 for (int i = 0; i < nn; i++) map.nodeEdges[i] = new List<int>(3);
@@ -342,7 +396,22 @@ namespace PSXRacing.City
                     var prof = RoadProfiles.All[e.profile];
                     e.width = prof.Width;
                     e.shl = prof.shl; e.shr = prof.shr;
-                    int np = r.ReadUInt16();
+                    pointCount[i] = r.ReadUInt16();
+                    map.edges[i] = e;
+                    if (e.a >= 0 && e.a < nn) map.nodeEdges[e.a].Add(i);
+                    if (e.b >= 0 && e.b < nn) map.nodeEdges[e.b].Add(i);
+                }
+                Close("EDGE");
+
+                Open("PNTS");
+                int totalPts = r.ReadInt32();
+                long sumPts = 0;
+                for (int i = 0; i < ne; i++) sumPts += pointCount[i];
+                if (sumPts != totalPts) throw new Exception("charlotte_city.bytes: PNTS holds " + totalPts + " points, the edges " + sumPts);
+                for (int i = 0; i < ne; i++)
+                {
+                    var e = map.edges[i];
+                    int np = pointCount[i];
                     e.pts = new Vector2[np];
                     e.s = new float[np];
                     for (int p = 0; p < np; p++)
@@ -354,11 +423,10 @@ namespace PSXRacing.City
                         e.s[p] = acc;
                     }
                     e.length = acc;
-                    map.edges[i] = e;
-                    if (e.a >= 0 && e.a < nn) map.nodeEdges[e.a].Add(i);
-                    if (e.b >= 0 && e.b < nn) map.nodeEdges[e.b].Add(i);
                 }
+                Close("PNTS");
 
+                Open("WATR");
                 int nw = r.ReadInt32();
                 map.waters = new Water[nw];
                 for (int i = 0; i < nw; i++)
@@ -379,7 +447,9 @@ namespace PSXRacing.City
                     w.bbMin = mn; w.bbMax = mx;
                     map.waters[i] = w;
                 }
+                Close("WATR");
 
+                Open("XING");
                 int nc = r.ReadInt32();
                 map.crossings = new Crossing[nc];
                 for (int i = 0; i < nc; i++)
@@ -389,7 +459,9 @@ namespace PSXRacing.City
                         at = new Vector2(r.ReadSingle(), r.ReadSingle()) * LayoutScale,
                         forced = r.ReadByte() != 0,
                     };
+                Close("XING");
 
+                Open("SPAN");
                 int nws = r.ReadInt32();
                 map.wspans = new WaterSpan[nws];
                 for (int i = 0; i < nws; i++)
@@ -399,7 +471,9 @@ namespace PSXRacing.City
                         s0 = r.ReadSingle() * LayoutScale,
                         s1 = r.ReadSingle() * LayoutScale,
                     };
+                Close("SPAN");
 
+                Open("ROUT");
                 int nr = r.ReadInt32();
                 map.routes = new Route[nr];
                 for (int i = 0; i < nr; i++)
@@ -416,7 +490,16 @@ namespace PSXRacing.City
                     for (int k = 0; k < n; k++) { rt.edges[k] = r.ReadInt32(); rt.dirs[k] = r.ReadSByte(); }
                     map.routes[i] = rt;
                 }
+                Close("ROUT");
+
+                Open("GHSH");
+                map.graphHash = r.ReadUInt32();
+                Close("GHSH");
             }
+            uint computed = GraphHashOf(map.edges);
+            map.GraphHashMatches = computed == map.graphHash;
+            if (!map.GraphHashMatches)
+                Debug.LogError($"[City] charlotte_city.bytes: GHSH says {map.graphHash:x8}, the graph hashes to {computed:x8} - the file is damaged or was written by a different exporter");
 
             if (bld != null) map.ParseFootprints(bld);
             map.BuildHashes();
@@ -426,6 +509,59 @@ namespace PSXRacing.City
             LastSolveMs = (float)clock.Elapsed.TotalMilliseconds;
             Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
             return map;
+        }
+
+        // ---- the graph hash --------------------------------------------
+        static uint[] crcTable;
+        static uint Crc(uint c, uint v)
+        {
+            for (int k = 0; k < 4; k++, v >>= 8) c = crcTable[(c ^ v) & 0xFF] ^ (c >> 8);
+            return c;
+        }
+
+        /// <summary>
+        /// THE GRAPH HASH: CRC-32 (zlib's, the IEEE polynomial) of the
+        /// little-endian stream  u32 edge count | per edge u32 a, u32 b,
+        /// u32 length in cm  - the length summed in DOUBLE precision from the
+        /// edge's stored float points, sqrt(dx*dx + dz*dz) per segment, and
+        /// rounded half up. The exporter (tools/city/lib/citydata.mjs
+        /// graphHash) writes the same number into section GHSH; derived data
+        /// keyed by (edge, s) is stamped with it, so a graph whose edges,
+        /// ends or lengths moved refuses data made for the old one.
+        /// </summary>
+        public static uint GraphHashOf(Edge[] edges)
+        {
+            if (crcTable == null)
+            {
+                var t = new uint[256];
+                for (uint n = 0; n < 256; n++)
+                {
+                    uint c = n;
+                    for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                    t[n] = c;
+                }
+                crcTable = t;
+            }
+            uint h = 0xFFFFFFFFu;
+            h = Crc(h, (uint)edges.Length);
+            foreach (var e in edges)
+            {
+                double len = 0.0;
+                var P = e.pts;
+                for (int k = 1; k < P.Length; k++)
+                {
+                    // the file's floats (LayoutScale multiplies geometry at parse)
+                    double dx = (double)(P[k].x / LayoutScale) - (double)(P[k - 1].x / LayoutScale);
+                    double dz = (double)(P[k].y / LayoutScale) - (double)(P[k - 1].y / LayoutScale);
+                    double sq = dx * dx;
+                    sq += dz * dz;
+                    len += Math.Sqrt(sq);
+                }
+                h = Crc(h, (uint)e.a);
+                h = Crc(h, (uint)e.b);
+                h = Crc(h, (uint)Math.Floor(len * 100.0 + 0.5));
+            }
+            return ~h;
         }
 
         void ParseFootprints(byte[] bytes)

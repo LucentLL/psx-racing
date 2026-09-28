@@ -110,15 +110,22 @@ namespace PSXRacing.City
             e.cls >= 5 && !e.link ? 0.04f : e.link ? 0.08f : e.cls == 4 ? 0.05f : e.cls == 0 ? 0.08f : 0.065f;
 
         // ------------------------------------------------------------------
-        //  Base terrain: the real one. A 60 m grid baked from SRTM by the
-        //  exporter (min-filtered so uptown's roofs read as street level,
-        //  then blurred), bilinear per query. Heights are metres above the
-        //  grid's own datum, so the world's y = 0 is a little under the
-        //  lowest point in the county rather than sea level.
+        //  Base terrain: the real one. A 60 m grid baked by the exporter from
+        //  the AWS Terrain Tiles (bare earth from USGS 3DEP; opened, closed
+        //  and blurred until WP-04 retires those filters), bilinear per
+        //  query. Heights are metres above the DATUM, pinned at 97.0 m ASL
+        //  (WP-02; it used to be the grid's lowest point less two metres, and
+        //  would have moved with the ground), so world y = 0 is 97 m ASL.
+        //
+        //  PDEM v2 header: u32 'PDEM' | i32 2 | u32 nx, nz | f32 x0, z0,
+        //  cell, base, scale | nx*nz u16, where u16 * scale is metres above
+        //  base. v1 had no scale (0.1, hard-coded here until WP-02) and is
+        //  still read.
         // ------------------------------------------------------------------
+        const uint MagicDem = 0x4D454450;   // "PDEM"
         static bool demTried;
         static int demNX, demNZ;
-        static float demX0, demZ0, demCell, demBase;
+        static float demX0, demZ0, demCell, demBase, demScale = 0.1f;
         static ushort[] dem;
 
         static void EnsureDem()
@@ -127,16 +134,52 @@ namespace PSXRacing.City
             demTried = true;
             var ta = Resources.Load<TextAsset>("charlotte_dem");
             if (ta == null) { Debug.LogWarning("[City] charlotte_dem.bytes missing — using value-noise terrain"); return; }
-            using (var r = new BinaryReader(new MemoryStream(ta.bytes)))
-            {
-                if (r.ReadUInt32() != 0x4D454450 || r.ReadInt32() != 1) { Debug.LogError("[City] charlotte_dem.bytes: bad header"); return; }
-                demNX = r.ReadInt32(); demNZ = r.ReadInt32();
-                demX0 = r.ReadSingle(); demZ0 = r.ReadSingle(); demCell = r.ReadSingle(); demBase = r.ReadSingle();
-                dem = new ushort[demNX * demNZ];
-                for (int i = 0; i < dem.Length; i++) dem[i] = r.ReadUInt16();
-            }
+            // Take the bytes and let the asset go BEFORE the grid is built,
+            // so the TextAsset's copy and the ushort[] are never both held.
+            byte[] bytes = ta.bytes;
             Resources.UnloadAsset(ta);
+            LoadDem(bytes);
         }
+
+        /// <summary>
+        /// Install a height grid from PDEM bytes (v1 or v2), wherever they
+        /// came from: Resources today (<see cref="EnsureDem"/>), a separately
+        /// downloaded Charlotte data file later (plan WP-29, critic C46). The
+        /// u16 payload is block-copied, not read one value at a time. Returns
+        /// false (and keeps the previous grid) on a bad header.
+        /// </summary>
+        public static bool LoadDem(byte[] bytes)
+        {
+            demTried = true;
+            if (bytes == null || bytes.Length < 32) { Debug.LogError("[City] charlotte_dem.bytes: too short"); return false; }
+            int version, nx, nz, headLen;
+            float x0, z0, cell, bas, scale;
+            using (var r = new BinaryReader(new MemoryStream(bytes)))
+            {
+                if (r.ReadUInt32() != MagicDem) { Debug.LogError("[City] charlotte_dem.bytes: bad magic"); return false; }
+                version = r.ReadInt32();
+                if (version != 1 && version != 2) { Debug.LogError("[City] charlotte_dem.bytes: version " + version + " (reader knows 1 and 2)"); return false; }
+                nx = r.ReadInt32(); nz = r.ReadInt32();
+                x0 = r.ReadSingle(); z0 = r.ReadSingle(); cell = r.ReadSingle(); bas = r.ReadSingle();
+                scale = version >= 2 ? r.ReadSingle() : 0.1f;
+                headLen = (int)r.BaseStream.Position;
+            }
+            long want = (long)nx * nz * 2;
+            if (nx < 2 || nz < 2 || !(cell > 0f) || !(scale > 0f) || headLen + want != bytes.Length)
+            {
+                Debug.LogError($"[City] charlotte_dem.bytes: header says {nx} x {nz} (cell {cell}, scale {scale}) but holds {bytes.Length - headLen} bytes of grid");
+                return false;
+            }
+            var grid = new ushort[nx * nz];
+            if (System.BitConverter.IsLittleEndian) System.Buffer.BlockCopy(bytes, headLen, grid, 0, (int)want);
+            else for (int i = 0; i < grid.Length; i++) grid[i] = (ushort)(bytes[headLen + 2 * i] | bytes[headLen + 2 * i + 1] << 8);
+            demNX = nx; demNZ = nz; demX0 = x0; demZ0 = z0; demCell = cell; demBase = bas; demScale = scale;
+            dem = grid;
+            return true;
+        }
+
+        /// <summary>Metres per stored height step (the PDEM header's scale).</summary>
+        public static float DemScale { get { EnsureDem(); return dem != null ? demScale : 0f; } }
 
         /// <summary>The DEM's datum in metres above sea level: add it to a
         /// world y to get an altitude. 0 without a DEM.</summary>
@@ -154,7 +197,7 @@ namespace PSXRacing.City
             float tx = Mathf.Clamp01(fx - ix), tz = Mathf.Clamp01(fz - iz);
             float a = dem[iz * demNX + ix], b = dem[iz * demNX + ix + 1];
             float c = dem[(iz + 1) * demNX + ix], d = dem[(iz + 1) * demNX + ix + 1];
-            return ((a * (1f - tx) + b * tx) * (1f - tz) + (c * (1f - tx) + d * tx) * tz) * 0.1f;
+            return ((a * (1f - tx) + b * tx) * (1f - tz) + (c * (1f - tx) + d * tx) * tz) * demScale;
         }
 
         static float NoiseY(float x, float z)

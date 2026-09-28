@@ -56,22 +56,22 @@
       "sha256": "74a8666e437a5d9161537006a5d1cbfd2c85b2b767f43d33d34b2c4c7e3475c1"
     },
     {
-      "file": "RG2/src/config/world/baselineWater.ts",
-      "kind": "rg2",
+      "file": "tools/city/vendor/rg2/baselineWater.ts",
+      "kind": "vendor",
       "bytes": 12935,
       "sha256": "fd98fa2f3ca216b05ddac921502cb5542c6817e418447e38b62925a027360da8"
     },
     {
-      "file": "RG2/src/config/world/baselineRoads.ts",
-      "kind": "rg2",
-      "bytes": 12026,
-      "sha256": "a9487e346b653172219673b43ab0009b03464c6dca76c6e7dc1e3527fda2c28c"
+      "file": "tools/city/vendor/rg2/i485_fit.json",
+      "kind": "vendor",
+      "bytes": 7365,
+      "sha256": "f5ee06376b3b2a212bf72fecb2e53549140804bcaa7025963a065b9d63019a44"
     },
     {
-      "file": "RG2/fixtures/osm/charlotte_rows.json",
-      "kind": "rg2",
-      "bytes": 531628,
-      "sha256": "427ebaac9d26f00fb81846b00244b0654a562c217e531be78cb078b80a66b31f"
+      "file": "tools/city/SOURCES.md#credits",
+      "kind": "registry",
+      "bytes": 161,
+      "sha256": "d440a58a7df7858482773f6d16376b40856cd4e25d2b3ec64435fd1064becd13"
     }
   ]
 }

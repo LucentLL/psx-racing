@@ -19,7 +19,10 @@ carriageways merged into one painted ribbon, lane counts collapsed to a class
 index, junctions guessed from geometric crossings. `tools/city/export_osm.mjs`
 reads the raw Overpass ways instead (cached under `tools/city/cache/`, all
 © OpenStreetMap contributors, ODbL — the attribution is on the HUD's opening
-seconds and in every venue blurb):
+seconds and in every venue blurb). Every source and its licence is in the
+registry **`tools/city/SOURCES.md`** (WP-02); its Credits table is the one
+place a credit line is written, and the exporter copies those lines into the
+data (it refuses to run without them):
 
 - `ways_all.json` — every motorway/trunk/primary/secondary/tertiary way and
   their `_link` ramps inside the I-485 beltway bbox (18,628 ways), with per-node
@@ -37,10 +40,19 @@ seconds and in every venue blurb):
   mosaic built from USGS NED/3DEP. It is not SRTM radar and has no towers in
   it: a 1 km window round the Bank of America tower reads 215-232 m, and the
   tile agrees with 3DEP lidar to 1.5 m RMSE (survey_flatness, 2026-09-27).
+  Tilezen asks for a credit, which was missing until WP-02: "Terrain: AWS
+  Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S.
+  Geological Survey" is now the second credit line.
 - The water still comes from RG2's hand-traced creeks and Lake Wylie
   (`baselineWater.ts`), co-registered onto the OSM frame by ICP against RG2's
-  own merged I-485 row (23 m residual). The exporter reads these from the RG2
-  checkout at `C:/Users/mcgee/code/Racing-Game-2` (`export_osm.mjs`, `RG2`).
+  own merged I-485 row (23 m residual). Since WP-02 these are **vendored** in
+  `tools/city/vendor/rg2/` (the water file byte for byte, the two I-485 rows
+  cut out with their source files' sha256 and commits; `vendor/README.md` has
+  the provenance), so the export no longer needs an RG2 checkout, and a
+  missing Overpass cache is an error rather than a silent fall-back to RG2's
+  older snapshot. What RG2's `Maps/Rivers and Lake.png` was drawn over is NOT
+  recorded anywhere; that is an open question for the owner (WP-04b replaces
+  this water anyway).
 
 Every input is pinned in `tools/city/cache_manifest.json` (size, sha256, and
 the Overpass `timestamp_osm_base`: 2026-09-12T02:44:33Z for the arterials and
@@ -77,8 +89,16 @@ What the exporter makes of it:
   uptown's towers 200 m proud. The source is bare earth, so the filter removes
   real ridges and valleys instead: only 34% of the core's relief survives, and
   city-wide the grid is 3.63 m RMSE from 3DEP (1.53 m before the filter).
-  Heights are stored in decimetres above a **97 m** datum (`floor(min) - 2`;
-  the lowest cell, 99.2 m, is the quarry pit at 35.1203, -80.8975).
+  Heights are stored in decimetres above the **datum, pinned at 97.0 m**
+  (`DEM_BASE`, WP-02). It used to be `floor(min) - 2`, which is also 97 on
+  this grid (the lowest cell, 99.2 m, is the Pineville Quarry pit at
+  35.1203, -80.8975) but would have moved with any new ground, and every
+  world y with it. The lowest the ground may go is 97.5 m (`DEM_FLOOR`): a
+  cell below it is clamped up only inside a named pit box (`DEM_CLAMP`: the
+  Pineville and Arrowood quarries, keyed by their OSM ways), and anywhere else
+  the export fails, because a u16 below the datum wraps to a 6.5 km spike.
+  3DEP puts those pits at 70.5 m and 89.5 m, so they lose up to ~27 m of
+  depth when WP-04 ships it; today's grid clamps nothing.
 - **31,695 footprints** (styles glass / midrise / brick / house / shops,
   gabled where the polygon is a house's), counter-clockwise, with heights.
 
@@ -87,7 +107,32 @@ graph + water + separations + spans + routes; a versioned binary the runtime
 reads through a BinaryReader — the JSON equivalent was 9 MB), `charlotte_dem.bytes`
 (1.5 MB), `charlotte_bld.bytes` (1.7 MB), `charlotte_routes.json` (the menu's
 copy of the routes: lengths, lines, a 20 m polyline each). 5.8 MB raw, about
-3.1 MB Brotli. Debug plots land in `tools/city/charlotte_*.png`.
+3.0 MB Brotli. Debug plots land in `tools/city/charlotte_*.png`.
+
+**The container (WP-02, 2026-09-28).** `charlotte_city.bytes` is `PSXC`
+version 2: a header and a **section table** ({tag, offset, length}), then the
+sections META (attribution, uptown), NODE, NAME, EDGE (the edge records and
+their point counts), PNTS (every edge's points, in edge order), WATR, XING,
+SPAN, ROUT and **GHSH, the graph hash**. `CityMap.Parse` reads the sections it
+knows by tag and skips any other, so a later export can add a section (lanes,
+controls, station heights) without breaking an older build. Version 1 was the
+same content as one sequential record, with the points inline in EDGE;
+moving them to their own section also made the file 88 KB smaller after
+Brotli (1.328 -> 1.240 MB), for 246 more raw bytes. `charlotte_dem.bytes` is
+`PDEM` version 2: the v1 header plus the scale the u16 heights are multiplied
+by (0.1 m), which `CityElevation.BaseY` used to hard-code; it takes its bytes
+through `CityElevation.LoadDem(byte[])` and block-copies the grid (critic C46:
+the parser and the DEM both take bytes now, so a separately downloaded
+Charlotte file only swaps where the bytes come from). The layouts are written
+down once, in `tools/city/lib/citydata.mjs`, which reads v1 and v2.
+
+**The graph hash** is a CRC-32 (zlib's) of the edge count and, per edge, its
+two node indices and its length in centimetres (summed in double precision
+from the stored float points, rounded half up); `CityMap.GraphHashOf` computes
+the same number in C#. It does not depend on the layout: the v1 file and its
+v2 re-export both hash to **27bccd93**. Data derived per (edge, s) is stamped
+with it, and `CityAudit` fails if the file's GHSH and the recomputed hash
+disagree (`CityMap.Parse` logs an error too).
 
 The exporter writes nothing unless told where (2026-09-28):
 
@@ -100,7 +145,13 @@ The exporter writes nothing unless told where (2026-09-28):
 - `--out <dir> [--fingerprint <file>]` writes the four files anywhere.
   Resources is only written when it is named:
   `--out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json`.
-- `--manifest` records the inputs again after a re-fetch.
+- `--manifest` records the inputs again after a re-fetch. It records
+  `SOURCES.md` by its Credits lines only, so prose edits to the registry do
+  not trip `--check`.
+- `node tools/city/determinism.mjs` exports twice, in two separate Node
+  processes, into scratch directories (`--no-plots`), and compares every
+  file's sha256 (about 10 s). `--check` says the shipped files are the
+  export's output; this says the export is a function of its inputs.
 
 ## Scale: the layout scales, the streets do not
 

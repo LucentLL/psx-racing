@@ -95,6 +95,14 @@ namespace PSXRacing.EditorTools
             Check(CityElevation.HasDem, "the SRTM height grid loaded");
             Check(CityElevation.TrenchCount > 20, "the inner freeways run in trenches under the streets", CityElevation.TrenchCount);
             Check(map.routes.Length == 3, "three race routes baked", map.routes.Length);
+            // WP-02: the container's graph hash, and the pinned datum. Derived
+            // data keyed by (edge, s) is stamped with the hash; world y is
+            // metres above the datum, so a datum that moved would move every
+            // height anything ever stored.
+            uint recomputed = CityMap.GraphHashOf(map.edges);
+            Line($"graph hash {map.graphHash:x8} (GHSH), recomputed {recomputed:x8}; datum {CityElevation.DatumASL:0.0} m ASL, DEM step {CityElevation.DemScale:0.###} m");
+            Check(map.GraphHashMatches && recomputed == map.graphHash, "the graph hash in the file matches the graph", $"{map.graphHash:x8}");
+            Check(Mathf.Abs(CityElevation.DatumASL - 97f) < 1e-4f, "the datum is pinned at 97.0 m", $"{CityElevation.DatumASL:0.000}");
 
             int forced = 0;
             foreach (var c in map.crossings) if (c.forced) forced++;

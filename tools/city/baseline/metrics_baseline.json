@@ -3,7 +3,8 @@
  "data": "Assets/PSXRacing/Resources",
  "node": "v24.15.0",
  "graph": {
-  "version": 1,
+  "version": 2,
+  "graph_hash": "27bccd93",
   "nodes": 20194,
   "edges": 25042,
   "points": 179325,
@@ -68,13 +69,14 @@
   }
  },
  "dem": {
-  "version": 1,
+  "version": 2,
   "nx": 811,
   "nz": 916,
   "cell": 60,
   "x0": -26158.3,
   "z0": -21898.3,
   "datum_m": 97,
+  "scale_m": 0.1,
   "min_asl": 99.2,
   "max_asl": 273.9
  },
@@ -684,26 +686,30 @@
   "brotli_quality": 11,
   "files": {
    "charlotte_city.bytes": {
-    "raw": 2548018,
-    "brotli": 1327920
+    "raw": 2548264,
+    "brotli": 1240196
    },
    "charlotte_dem.bytes": {
-    "raw": 1485784,
-    "brotli": 649649
+    "raw": 1485788,
+    "brotli": 649729
    },
    "charlotte_bld.bytes": {
     "raw": 1742686,
     "brotli": 1149298
    },
    "charlotte_routes.json": {
-    "raw": 16176,
-    "brotli": 5024
+    "raw": 16280,
+    "brotli": 5337
    }
   },
   "city_sections": {
    "HEAD": {
-    "raw": 75,
-    "brotli": 79
+    "raw": 132,
+    "brotli": 136
+   },
+   "META": {
+    "raw": 171,
+    "brotli": 140
    },
    "NODE": {
     "raw": 181750,
@@ -714,9 +720,13 @@
     "brotli": 10741
    },
    "EDGE": {
-    "raw": 2311074,
-    "brotli": 1219874,
+    "raw": 876474,
+    "brotli": 196544,
     "points_raw": 1434600
+   },
+   "PNTS": {
+    "raw": 1434604,
+    "brotli": 937226
    },
    "WATR": {
     "raw": 7884,
@@ -733,16 +743,20 @@
    "ROUT": {
     "raw": 1071,
     "brotli": 491
+   },
+   "GHSH": {
+    "raw": 4,
+    "brotli": 8
    }
   },
   "total": {
-   "raw": 5792664,
-   "brotli": 3131891
+   "raw": 5793018,
+   "brotli": 3044560
   }
  },
  "accuracy": {
   "measured": false,
   "note": "Plan critic C12: centreline offset and drawn-minus-real width against Mecklenburg EdgeOfPavementImpervious (CC0/MIT) and County Streets PAVEMENTWIDTH (CC BY 4.0). Neither layer is fetched yet (they belong on D:\\gis\\charlotte, PSX_GIS_DIR); this section reports nothing until they are."
  },
- "elapsed_s": 22.1
+ "elapsed_s": 20.4
 }

@@ -119,6 +119,8 @@ namespace PSXRacing.EditorTools
             var all = new List<CityWorld.TileTiming>();
             int worstDraw = 0; string worstDrawAt = "";
             var rows = new List<string>();
+            var seats = new List<string>();
+            var seatSummary = new StringBuilder();
             try
             {
                 // warm-up: the first tile pays the JIT and the static caches
@@ -129,6 +131,22 @@ namespace PSXRacing.EditorTools
 
                 foreach (var site in Sites(map))
                 {
+                    // THE SPAWN SEAT here, by CityMode.SeatOnStreet's rule:
+                    // the nearest non-link road within 120 m, else any road
+                    // within 600 m, at its solved height. A format or datum
+                    // change must leave these to the tenth of a millimetre
+                    // (WP-02's acceptance); a ground change moves them on
+                    // purpose, and says by how much.
+                    if (map.NearestRoadPoint(site.at, 120f, true, out int sei, out float sat, out _) ||
+                        map.NearestRoadPoint(site.at, 600f, false, out sei, out sat, out _))
+                    {
+                        var se = map.edges[sei];
+                        var sq = se.PointAt(sat);
+                        seats.Add($"spawn {site.name,-14} edge {sei} way {se.wayId} at {sat:0.000} m  seat ({sq.x:0.000},{sq.y:0.000})  road y {se.YAt(sat):0.0000}  ground y at site {CityElevation.BaseY(site.at.x, site.at.y):0.0000}");
+                        seatSummary.Append(seatSummary.Length == 0 ? "" : ", ").Append($"{site.name} {se.YAt(sat):0.000}");
+                    }
+                    else { seats.Add($"spawn {site.name,-14} no road within 600 m"); seatSummary.Append(seatSummary.Length == 0 ? "" : ", ").Append($"{site.name} none"); }
+
                     timings.Clear();
                     world.EnsureRing(new Vector3(site.at.x, 0f, site.at.y), 2);
                     all.AddRange(timings);
@@ -203,6 +221,11 @@ namespace PSXRacing.EditorTools
             summary.Add($"budget: {all.Count} tiles at 9 sites, tile build p50 {P(totAll, 50):0.0} / p95 {P(totAll, 95):0.0} / max {P(totAll, 100):0.0} ms (editor), worst view {worstDraw} draws ({worstDrawAt})");
             // plan: this package decides WP-09's place (in the editor; the phone reading is C29's trigger)
             L($"WP-09 trigger (editor): tile p95 {(P(totAll, 95) > 8f ? "OVER" : "under")} 8 ms, worst view {(worstDraw > 300 ? "OVER" : "under")} 300 draws");
+
+            L("");
+            L($"spawn seats (CityMode.SeatOnStreet's rule; datum {CityElevation.DatumASL:0.000} m ASL, graph hash {map.graphHash:x8})");
+            foreach (var s in seats) L(s);
+            summary.Add("budget: spawn road y (m above the datum) " + seatSummary);
 
             // ---- Parse + Solve and the heap they hold ----------------------
             var cityTa = Resources.Load<TextAsset>("charlotte_city");

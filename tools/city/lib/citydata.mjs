@@ -6,22 +6,41 @@
 // metrics (metrics.mjs), so both describe the BYTES that ship rather than
 // the exporter's intermediate arrays. Nothing here reads the Overpass cache.
 //
-// Layouts (version 1, little-endian):
-//   PSXC  u32 magic 'PSXC' | i32 ver | str attribution | f32 uptownX, uptownZ
-//         | u32 nodes { f32 x, z; u8 ctl }            ctl 4 signal, 2 stop, 1 give way
-//         | u32 names { str }
-//         | u32 edges { u32 a, b, name; u8 rank; u8 flags; u8 lanes; i8 level;
-//                       f32 width, shl, shr; u8 speed; u32 wayId; u16 n; n x f32 x, z }
-//         | u32 waters { u32 name; f32 width; u8 lake; u32 n; n x f32 x, z }
-//         | u32 crossings { u32 over, under; f32 x, z; u8 forced }
-//         | u32 wspans { u32 edge; f32 s0, s1 }
-//         | u32 routes { str id, name; u8 loop, oneway; f32 roadWidth; u8 speed;
+// Layouts (little-endian). PSXC version 2 (WP-02, 2026-09-28) is a section
+// table; version 1 (everything up to WP-01) was one sequential record. Both
+// are read here, so a v1 file and its v2 re-export can be compared (the
+// graph hash below is the same for both).
+//
+//   PSXC v2  u32 magic 'PSXC' | i32 ver 2 | u32 nsec
+//            | nsec x { u8[4] tag; u32 offset (from the file start); u32 length }
+//            | the sections, each starting on a 4-byte boundary (zero pad)
+//     META  str attribution | f32 uptownX, uptownZ
+//     NODE  u32 nodes { f32 x, z; u8 ctl }            ctl 4 signal, 2 stop, 1 give way
+//     NAME  u32 names { str }
+//     EDGE  u32 edges { u32 a, b, name; u8 rank; u8 flags; u8 lanes; i8 level;
+//                       f32 width, shl, shr; u8 speed; u32 wayId; u16 n }
+//     PNTS  u32 points; points x f32 x, z   every edge's n points, in edge order
+//     WATR  u32 waters { u32 name; f32 width; u8 lake; u32 n; n x f32 x, z }
+//     XING  u32 crossings { u32 over, under; f32 x, z; u8 forced }
+//     SPAN  u32 wspans { u32 edge; f32 s0, s1 }
+//     ROUT  u32 routes { str id, name; u8 loop, oneway; f32 roadWidth; u8 speed;
 //                        f32 lengthM, startM, finishM; u32 n; n x (u32 edge; i8 dir) }
-//   PDEM  u32 magic | i32 ver | u32 nx, nz | f32 x0, z0, cell, base | nx*nz u16 dm above base
-//   PBLD  u32 magic | i32 ver | f32 x0, z0, x1, z1 | u32 n { u8 style|gable<<7; f32 h; u8 n; n x f32 x, z }
+//     GHSH  u32 graph hash (graphHash below)
+//   A reader takes the sections it knows by tag and skips the rest.
+//
+//   PSXC v1  u32 magic | i32 ver 1 | META's fields | NODE | NAME
+//            | EDGE with each edge's n x f32 x, z inline after its u16 n
+//            | WATR | XING | SPAN | ROUT              (no table, no hash)
+//
+//   PDEM v2  u32 magic | i32 ver 2 | u32 nx, nz | f32 x0, z0, cell, base, scale
+//            | nx*nz u16 (u16 * scale = metres above base)
+//   PDEM v1  the same without scale (it was 0.1, hard-coded in the reader)
+//   PBLD     u32 magic | i32 ver 1 | f32 x0, z0, x1, z1 | u32 n { u8 style|gable<<7; f32 h; u8 n; n x f32 x, z }
 // str = C#'s BinaryReader string: 7-bit-encoded byte length, then UTF-8.
 //
 // Edge flags: 1 link, 2 oneway, 4 bridge, 8 tunnel, 16 centre turn lane, 32 roundabout.
+
+import { crc32 } from 'node:zlib';
 
 export const LANE_M = 3.6576;
 export const STATION_STEP = 10;          // CityElevation.StationStep
@@ -42,30 +61,91 @@ class Reader {
   }
 }
 
-/// Parse charlotte_city.bytes. Also records each section's byte range, for
-/// the SIZE section of the metrics.
+/// The section tags of PSXC v2, in file order (a reader skips any other).
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'XING', 'SPAN', 'ROUT', 'GHSH'];
+
+/// THE GRAPH HASH (WP-02): what derived data keyed by (edge, s) is stamped
+/// with, so data made for one graph is refused by another. CRC-32 (zlib's,
+/// the IEEE polynomial) over the little-endian stream
+///   u32 edge count | per edge: u32 a, u32 b, u32 length in cm
+/// where the length is the edge's polyline length summed in double precision
+/// from its stored float32 points, sqrt(dx*dx + dz*dz) per segment (never
+/// Math.hypot, which rounds differently), rounded half up to a centimetre.
+/// CityMap.GraphHashOf computes the same number in C#. It does not depend on
+/// the file layout: a v1 file and its v2 re-export hash the same.
+export function graphHash(edges) {
+  const b = Buffer.alloc(4 + edges.length * 12);
+  b.writeUInt32LE(edges.length, 0);
+  let o = 4;
+  for (const e of edges) {
+    let len = 0;
+    const P = e.pts;
+    for (let k = 1; k < P.length; k++) {
+      const dx = P[k][0] - P[k - 1][0], dz = P[k][1] - P[k - 1][1];
+      len += Math.sqrt(dx * dx + dz * dz);
+    }
+    b.writeUInt32LE(e.a >>> 0, o); b.writeUInt32LE(e.b >>> 0, o + 4);
+    b.writeUInt32LE(Math.floor(len * 100 + 0.5) >>> 0, o + 8);
+    o += 12;
+  }
+  return crc32(b) >>> 0;
+}
+export const hashHex = h => (h >>> 0).toString(16).padStart(8, '0');
+
+/// Parse charlotte_city.bytes (v1 or v2). Also records each section's byte
+/// range, for the SIZE section of the metrics (v1 has no table: its ranges
+/// are where each part of the one record starts and ends).
 export function parseCity(buf) {
   const r = new Reader(buf);
   const sections = {};
-  let mark = 0;
-  const cut = name => { sections[name] = [mark, r.p]; mark = r.p; };
   if (r.u32() !== 0x43585350) throw new Error('charlotte_city.bytes: bad magic');
   const version = r.i32();
-  if (version !== 1) throw new Error('charlotte_city.bytes: version ' + version + ' (this reader knows 1)');
+  if (version !== 1 && version !== 2) throw new Error('charlotte_city.bytes: version ' + version + ' (this reader knows 1 and 2)');
+  let table = null;
+  if (version === 2) {
+    const nsec = r.u32();
+    table = new Map();
+    for (let i = 0; i < nsec; i++) {
+      const tag = buf.toString('latin1', r.p, r.p + 4); r.p += 4;
+      const offset = r.u32(), length = r.u32();
+      if (offset + length > buf.length) throw new Error(`charlotte_city.bytes: section ${tag} runs past the end`);
+      if (table.has(tag)) throw new Error(`charlotte_city.bytes: section ${tag} twice`);
+      table.set(tag, { offset, length });
+    }
+    sections.HEAD = [0, r.p];
+    for (const [tag, s] of table) sections[tag] = [s.offset, s.offset + s.length];
+    for (const tag of CITY_SECTIONS) if (!table.has(tag)) throw new Error(`charlotte_city.bytes: no ${tag} section`);
+  }
+  // v2: jump to a section, and check afterwards that it was read exactly
+  const open = tag => { if (table) r.p = table.get(tag).offset; return r.p; };
+  let mark = 0;
+  const close = tag => {
+    if (table) {
+      const s = table.get(tag);
+      if (r.p !== s.offset + s.length) throw new Error(`charlotte_city.bytes: section ${tag} read ${r.p - s.offset} of ${s.length} bytes`);
+    } else { sections[tag === 'META' ? 'HEAD' : tag] = [mark, r.p]; mark = r.p; }   // v1: magic..uptown was 'HEAD'
+  };
+
+  open('META');
   const attribution = r.str();
   const uptown = [r.f32(), r.f32()];
-  cut('HEAD');
+  close('META');
+  open('NODE');
   const nn = r.u32();
   const nodes = new Array(nn);
   for (let i = 0; i < nn; i++) nodes[i] = { x: r.f32(), z: r.f32(), ctl: r.u8() };
-  cut('NODE');
+  close('NODE');
+  open('NAME');
   const ns = r.u32();
   const names = new Array(ns);
   for (let i = 0; i < ns; i++) names[i] = r.str();
-  cut('NAME');
+  close('NAME');
+  open('EDGE');
   const ne = r.u32();
   const edges = new Array(ne);
+  const counts = new Array(ne);
   let pointBytes = 0;
+  const readPts = np => { const p0 = r.p; const pts = new Array(np); for (let k = 0; k < np; k++) pts[k] = [r.f32(), r.f32()]; pointBytes += r.p - p0; return pts; };
   for (let i = 0; i < ne; i++) {
     const e = { index: i, a: r.u32(), b: r.u32(), name: names[r.u32()] };
     e.rank = r.u8();
@@ -76,20 +156,28 @@ export function parseCity(buf) {
     e.lanes = Math.max(1, r.u8()); e.level = r.i8();
     e.exportWidth = r.f32(); e.shlExport = r.f32(); e.shrExport = r.f32();
     e.speed = r.u8(); e.wayId = r.u32();
-    const np = r.u16();
-    const p0 = r.p;
-    const pts = new Array(np);
-    for (let k = 0; k < np; k++) pts[k] = [r.f32(), r.f32()];
-    pointBytes += r.p - p0;
-    e.pts = pts;
+    counts[i] = r.u16();
+    if (version === 1) e.pts = readPts(counts[i]);
+    edges[i] = e;
+  }
+  close('EDGE');
+  if (version === 2) {
+    open('PNTS');
+    const total = r.u32();
+    let sum = 0; for (const n of counts) sum += n;
+    if (total !== sum) throw new Error(`charlotte_city.bytes: PNTS holds ${total} points, the edges ${sum}`);
+    for (const e of edges) e.pts = readPts(counts[e.index]);
+    close('PNTS');
+  }
+  for (const e of edges) {
+    const pts = e.pts, np = pts.length;
     const s = new Float64Array(np);
     for (let k = 1; k < np; k++) s[k] = s[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
     e.s = s; e.length = np ? s[np - 1] : 0;
     const prof = profileFor(e.rank, e.link, e.oneway, e.lanes, e.turn);
     e.profile = prof; e.width = prof.width; e.hw = prof.width / 2;
-    edges[i] = e;
   }
-  cut('EDGE');
+  open('WATR');
   const nw = r.u32();
   const waters = new Array(nw);
   for (let i = 0; i < nw; i++) {
@@ -98,15 +186,18 @@ export function parseCity(buf) {
     for (let k = 0; k < np; k++) w.pts[k] = [r.f32(), r.f32()];
     waters[i] = w;
   }
-  cut('WATR');
+  close('WATR');
+  open('XING');
   const nc = r.u32();
   const crossings = new Array(nc);
   for (let i = 0; i < nc; i++) crossings[i] = { over: r.u32(), under: r.u32(), x: r.f32(), z: r.f32(), forced: r.u8() !== 0 };
-  cut('XING');
+  close('XING');
+  open('SPAN');
   const nws = r.u32();
   const wspans = new Array(nws);
   for (let i = 0; i < nws; i++) wspans[i] = { edge: r.u32(), s0: r.f32(), s1: r.f32() };
-  cut('SPAN');
+  close('SPAN');
+  open('ROUT');
   const nr = r.u32();
   const routes = new Array(nr);
   for (let i = 0; i < nr; i++) {
@@ -116,23 +207,44 @@ export function parseCity(buf) {
     for (let k = 0; k < n; k++) { rt.edges[k] = r.u32(); rt.dirs[k] = r.i8(); }
     routes[i] = rt;
   }
-  cut('ROUT');
-  if (r.p !== buf.length) throw new Error(`charlotte_city.bytes: ${buf.length - r.p} trailing bytes`);
+  close('ROUT');
+  const hash = graphHash(edges);
+  let storedHash = null;
+  if (version === 2) {
+    open('GHSH');
+    storedHash = r.u32();
+    close('GHSH');
+    if (storedHash !== hash) throw new Error(`charlotte_city.bytes: GHSH says ${hashHex(storedHash)}, the graph hashes to ${hashHex(hash)}`);
+    // nothing may hide between the sections but alignment padding
+    const spans = [...table.values()].sort((p, q) => p.offset - q.offset);
+    let at = sections.HEAD[1];
+    for (const s of spans) {
+      if (s.offset < at || s.offset - at > 3) throw new Error('charlotte_city.bytes: sections overlap or leave a gap');
+      at = s.offset + s.length;
+    }
+    if (buf.length - at > 3) throw new Error(`charlotte_city.bytes: ${buf.length - at} trailing bytes`);
+  } else if (r.p !== buf.length) throw new Error(`charlotte_city.bytes: ${buf.length - r.p} trailing bytes`);
   // node -> incident edge ends
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
-  return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes };
+  return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes,
+           graphHash: hash, storedHash };
 }
 
 export function parseDem(buf) {
   const r = new Reader(buf);
   if (r.u32() !== 0x4D454450) throw new Error('charlotte_dem.bytes: bad magic');
   const version = r.i32();
-  if (version !== 1) throw new Error('charlotte_dem.bytes: version ' + version);
+  if (version !== 1 && version !== 2) throw new Error('charlotte_dem.bytes: version ' + version);
   const nx = r.u32(), nz = r.u32();
   const x0 = r.f32(), z0 = r.f32(), cell = r.f32(), base = r.f32();
+  // v1 hard-coded decimetres; v2 says so in the header. The header's f32 0.1
+  // is taken as the double 0.1 the v1 reader used, so a v1 file and its v2
+  // re-export give the metrics identical heights.
+  const scale = version >= 2 ? r.f32() : 0.1;
+  const mul = scale === Math.fround(0.1) ? 0.1 : scale;
   const h = new Float32Array(nx * nz);
-  for (let i = 0; i < h.length; i++) h[i] = r.u16() * 0.1;     // metres above base
+  for (let i = 0; i < h.length; i++) h[i] = r.u16() * mul;     // metres above base
   if (r.p !== buf.length) throw new Error('charlotte_dem.bytes: trailing bytes');
   /// CityElevation.BaseY: bilinear, metres above the datum (add base for ASL).
   const at = (x, z) => {
@@ -142,7 +254,7 @@ export function parseDem(buf) {
     const a = h[iz * nx + ix], b = h[iz * nx + ix + 1], c = h[(iz + 1) * nx + ix], d = h[(iz + 1) * nx + ix + 1];
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
   };
-  return { version, nx, nz, x0, z0, cell, base, h, at, asl: (x, z) => at(x, z) + base };
+  return { version, nx, nz, x0, z0, cell, base, scale, h, at, asl: (x, z) => at(x, z) + base };
 }
 
 export function parseBld(buf) {
@@ -304,6 +416,7 @@ export function fingerprint(city, dem, bld) {
   return {
     city: {
       version: city.version,
+      graph_hash: hashHex(city.graphHash),
       nodes: city.nodes.length,
       edges: city.edges.length,
       points,
@@ -327,6 +440,7 @@ export function fingerprint(city, dem, bld) {
       kinks: { ge5, ge10, ge25, max_deg: r1(maxDeg), folds_over_10cm: folds },
     },
     dem: { version: dem.version, nx: dem.nx, nz: dem.nz, cell: dem.cell, x0: r1(dem.x0), z0: r1(dem.z0), datum_m: dem.base,
+           scale_m: Math.round(dem.scale * 1e6) / 1e6,
            min_asl: r1(dmin + dem.base), max_asl: r1(dmax + dem.base) },
     bld: { version: bld.version, footprints: bld.footprints.length, points: bld.points,
            bbox: bld.bbox.map(v => Math.round(v)) },
