@@ -41,10 +41,29 @@ $ErrorActionPreference = "Stop"
 function Get-UnityPids([string]$ProjectPath) {
     $procs = @(Get-CimInstance Win32_Process -Filter "Name='Unity.exe'" -ErrorAction SilentlyContinue)
     if ($procs.Count -eq 0) { return @() }
-    $leaf = Split-Path -Leaf $ProjectPath
+    # The leaf as a WHOLE path segment: "PSXBuild" must not match the Charlotte
+    # branch's C:\Users\mcgee\PSXBuildWebGL output folder (2026-09-28: a camera
+    # job sat waiting on that branch's WebGL build).
+    $leaf = [regex]::Escape((Split-Path -Leaf $ProjectPath))
+    $rx = "[\\/]$leaf(?=[\\/`"'\s]|$)"
     @($procs | Where-Object {
-        $null -eq $_.CommandLine -or $_.CommandLine -like "*$leaf*"
+        $null -eq $_.CommandLine -or $_.CommandLine -match $rx
     } | ForEach-Object { $_.ProcessId })
+}
+
+# Wait until no Unity is working on this project. A job that TIMED OUT is still
+# running (it is never killed: killing an editor mid-import corrupts the
+# artifact database), so a retry must wait for it rather than start a second
+# editor on the same sandbox or trip over its locked log.
+function Wait-ProjectIdle([string]$ProjectPath, [int]$MaxMinutes = 60) {
+    $deadline = (Get-Date).AddMinutes($MaxMinutes)
+    $said = $false
+    while ((Get-Date) -lt $deadline) {
+        if (@(Get-UnityPids $ProjectPath).Count -eq 0) { return $true }
+        if (-not $said) { Write-Host "waiting for the Unity job still running on $ProjectPath to finish..."; $said = $true }
+        Start-Sleep -Seconds 10
+    }
+    return $false
 }
 
 function Invoke-UnityJob {
@@ -120,7 +139,13 @@ function Invoke-SceneBuild {
     if (Test-Path $marker) { Remove-Item $marker -Force }
 
     for ($i = 1; $i -le $Attempts; $i++) {
-        Invoke-UnityJob -Log "$Proj\scenebuild.log" -UnityArgs @(
+        if (-not (Wait-ProjectIdle $Proj)) {
+            Write-Host "a Unity job has held $Proj for an hour - not starting a second one"
+            return $false
+        }
+        # 75 minutes: a pass that also re-imports ~1700 assets overran 40 and was
+        # still building (2026-09-28).
+        Invoke-UnityJob -MaxMinutes 75 -Log "$Proj\scenebuild.log" -UnityArgs @(
             "-quit","-batchmode","-nographics","-projectPath",$Proj,
             "-executeMethod","PSXRacing.EditorTools.PSXRacingBuilder.Build",
             "-logFile","$Proj\scenebuild.log","-accept-apiupdate") | Out-Null
