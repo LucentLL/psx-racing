@@ -82,6 +82,7 @@ import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { srtmSampler } from '../roads/lib.mjs';
 import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
+import { readCredits } from './lib/sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -168,36 +169,9 @@ const DEM_CLAMP = [
 ];
 
 /// The credit lines of tools/city/SOURCES.md's Credits table, in order: the
-/// attribution this export writes into the data. SOURCES.md is the one place
-/// a credit is written down; a missing table or row is an error, not a
-/// silent fallback.
-function readCredits() {
-  if (!existsSync(SOURCES)) throw new Error('tools/city/SOURCES.md is missing: it holds the credits this export writes');
-  const md = readFileSync(SOURCES, 'utf8').replace(/\r\n/g, '\n');
-  const at = md.search(/^## Credits\s*$/m);
-  if (at < 0) throw new Error('tools/city/SOURCES.md has no "## Credits" section');
-  const lines = md.slice(at).split('\n').slice(1);
-  const rows = [];
-  let header = null;
-  for (const l of lines) {
-    if (/^## /.test(l)) break;
-    if (!l.startsWith('|')) { if (header) break; continue; }
-    const cells = l.split('|').slice(1, -1).map(c => c.trim());
-    if (!header) { header = cells; continue; }
-    if (cells.every(c => /^-+$/.test(c))) continue;
-    if (cells.length !== header.length) throw new Error(`SOURCES.md Credits: row "${l}" has ${cells.length} cells, the header ${header.length}`);
-    rows.push(Object.fromEntries(header.map((h, i) => [h, cells[i]])));
-  }
-  if (!header || !header.includes('id') || !header.includes('credit')) throw new Error('SOURCES.md Credits: no table with "id" and "credit" columns');
-  if (!rows.length) throw new Error('SOURCES.md Credits: the table is empty');
-  for (const r of rows) {
-    if (!r.id || !r.credit) throw new Error(`SOURCES.md Credits: a row with no id or credit (${JSON.stringify(r)})`);
-    if (!/^[\x20-\x7e]+$/.test(r.credit)) throw new Error(`SOURCES.md Credits: "${r.id}" is not plain one-line ASCII`);
-  }
-  if (!rows.some(r => r.id === 'osm')) throw new Error('SOURCES.md Credits: the OpenStreetMap row (id osm) is required by ODbL');
-  return rows;
-}
-const CREDITS = readCredits();
+/// attribution this export writes into the data (lib/sources.mjs reads it; a
+/// missing table or row is an error, not a silent fallback).
+const CREDITS = readCredits(SOURCES);
 const ATTRIBUTION = CREDITS.map(r => r.credit).join('\n');
 console.log(`credits (tools/city/SOURCES.md): ${CREDITS.map(r => r.id).join(', ')}`);
 

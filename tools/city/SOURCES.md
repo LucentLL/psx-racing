@@ -9,14 +9,24 @@ copied.
 
 ## Credits
 
-**This table is read by `tools/city/export_osm.mjs`.** Each row is one credit
-line. The exporter joins the lines (one per line, in this order) into the
-attribution string it writes into `charlotte_city.bytes` (section META) and
-`charlotte_routes.json` (`attribution`), and refuses to export if the table is
-missing or a row is malformed. Keep the `credit` column plain ASCII, one line,
-with no `|`. The in-race HUD shows its own short OpenStreetMap line
-(`RaceHUD.OsmAttribution`) for the first seven seconds; the full credits are
-these lines.
+**This table is read by tools** (`tools/city/lib/sources.mjs`). Each row is
+one credit line, and three things are made from it:
+
+- `tools/city/export_osm.mjs` joins the lines (one per line, in this order)
+  into the attribution it writes into `charlotte_city.bytes` (section META) and
+  `charlotte_routes.json` (`attribution`);
+- `tools/city/credits.mjs --write` writes the pause menu's **CREDITS** page
+  (`Assets/PSXRacing/Resources/psx_credits.txt`, shown by `CreditsPanel`) and
+  **`LICENSES.txt`**, which every WebGL build carries beside `index.html`
+  (`Assets/WebGLTemplates/PSXMobile/LICENSES.txt`);
+- `node tools/city/credits.mjs` (no flag) checks both are up to date.
+
+Both refuse to run if the table is missing or a row is malformed. Keep the
+`credit`, `licence` and `licence link` columns plain ASCII, one line, with no
+`|`. After an edit here: `credits.mjs --write`, then the export (`--out ...`),
+so the data, the page and the file say the same thing. The in-race HUD shows
+its own short OpenStreetMap line (`RaceHUD.OsmAttribution`) for the first seven
+seconds; the full credits are these lines.
 
 | id | credit | licence | licence link | shipped in |
 |---|---|---|---|---|
@@ -62,6 +72,21 @@ for NCDOT signal design plans (`Signal_Pla`).
 
 ## Notes
 
-- The fetch scripts in `tools/city/fetch/` send a User-Agent with the owner's
-  e-mail address, and they are in the public repository. Replacing it with the
-  repository URL is owner question Q12; they are unchanged until he answers.
+- **One pinned fetch for the layers later packages need** (critic C19):
+  `tools/city/fetch/fetch_layers.mjs` fetches pedestrian crossings, turn
+  restrictions, traffic calming, railways and level crossings, power poles and
+  lines, trees, advertising, barriers and culverts over the beltway bbox,
+  every query pinned with `[date:"2026-09-12T02:44:33Z"]` (the road
+  snapshot's `timestamp_osm_base`), so node ids and way splits match the
+  graph. Bodies in `tools/city/cache/layers/` (gitignored); what was fetched,
+  when, how many elements and each body's sha256 in
+  `tools/city/fetch/layers_manifest.json` (committed). An answer from a server
+  whose data ends before the pinned date is refused (a stale mirror silently
+  answers a future `[date:]` with its own last state). OpenStreetMap, ODbL,
+  covered by the OSM credit. Nothing ships from these until a package uses
+  them.
+- The fetch scripts in `tools/city/fetch/` that made the road cache send a
+  User-Agent with the owner's e-mail address, and they are in the public
+  repository. Replacing it with the repository URL is owner question Q12; they
+  are unchanged until he answers (the new `fetch_layers.mjs` names the
+  repository only).

@@ -1,0 +1,9 @@
+MAP AND TERRAIN DATA
+
+Road network data (c) OpenStreetMap contributors, ODbL 1.0
+Licence: ODbL 1.0 - opendatacommons.org/licenses/odbl/1-0
+
+Terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
+Licence: public domain; attribution requested - github.com/tilezen/joerd/blob/master/docs/attribution.md
+
+The data was adapted for the game: simplified, re-projected and baked into its own formats. Every source and its licence is listed in LICENSES.txt beside the game.

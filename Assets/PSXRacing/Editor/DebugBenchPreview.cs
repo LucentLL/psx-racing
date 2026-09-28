@@ -98,6 +98,7 @@ namespace PSXRacing.EditorTools
             Shoot(outDir, "bench_car_make", car, DebugCarPanel.Page.Car, make: longest);
 
             ShootPause(outDir, "bench_pause");
+            ShootCredits(outDir, "bench_credits");
 
             RaceHandoff.ClearAll();
             MenuKit.ScreenSizeOverride = Vector2.zero;
@@ -227,6 +228,42 @@ namespace PSXRacing.EditorTools
                 CheckOverflow(host.transform, label + "/" + size.name);
                 LifeHomePreview.ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
                 Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
+            }
+        }
+
+        /// <summary>The CREDITS page the pause menu opens (plan critic C17):
+        /// the generated credit lines wrapped to the column at every aspect,
+        /// BACK on the canvas and reachable, no glyph clipped.</summary>
+        static void ShootCredits(string outDir, string label)
+        {
+            foreach (var size in Sizes)
+            {
+                var cam = NewStage(size.w, size.h, out var rt);
+                MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
+                var host = new GameObject("Credits");
+                var panel = host.AddComponent<CreditsPanel>();
+                panel.Open();
+                Repoint(cam, size.w, size.h);
+                bool back = false;
+                foreach (var b in host.GetComponentsInChildren<Button>(true))
+                {
+                    if (!b.name.Contains("BACK")) continue;
+                    back = true;
+                    var corners = new Vector3[4];
+                    ((RectTransform)b.transform).GetWorldCorners(corners);
+                    var cc = new Vector3[4];
+                    ((RectTransform)b.GetComponentInParent<Canvas>().transform).GetWorldCorners(cc);
+                    bool inside = corners[0].x >= cc[0].x - 0.01f && corners[2].x <= cc[2].x + 0.01f &&
+                                  corners[0].y >= cc[0].y - 0.01f && corners[2].y <= cc[2].y + 0.01f;
+                    if (!inside) Debug.LogError("[BenchPreview] " + label + "/" + size.name + " OFF THE CANVAS - BACK");
+                    else Debug.Log("[BenchPreview] " + label + "/" + size.name + " BACK is on the canvas");
+                }
+                if (!back) Debug.LogError("[BenchPreview] " + label + "/" + size.name + " NO CONTROLS - the credits page has no BACK");
+                CheckReach(host.transform, label + "/" + size.name);
+                CheckOverflow(host.transform, label + "/" + size.name);
+                LifeHomePreview.ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
+                Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
+                panel.Close();
             }
         }
 
