@@ -1,0 +1,748 @@
+{
+ "schema": 1,
+ "data": "Assets/PSXRacing/Resources",
+ "node": "v24.15.0",
+ "graph": {
+  "version": 1,
+  "nodes": 20194,
+  "edges": 25042,
+  "points": 179325,
+  "node_degrees": [
+   0,
+   925,
+   10990,
+   6067,
+   2088,
+   118,
+   6,
+   0
+  ],
+  "km": 3845.6,
+  "bridges": 791,
+  "tunnels": 8,
+  "links": 2200,
+  "oneway": 13295,
+  "roundabout_edges": 381,
+  "names": 1834,
+  "waters": 32,
+  "water_points": 933,
+  "crossings": 782,
+  "crossings_forced": 782,
+  "water_spans": 264,
+  "controls": {
+   "signal": 1668,
+   "stop": 140,
+   "give_way": 5
+  },
+  "routes": [
+   {
+    "id": "uptown",
+    "edges": 68,
+    "length_m": 9195.2
+   },
+   {
+    "id": "tryon",
+    "edges": 78,
+    "length_m": 6018.1
+   },
+   {
+    "id": "independence",
+    "edges": 38,
+    "length_m": 7015.4
+   }
+  ],
+  "free_vertices": 138941,
+  "km_by_class": {
+   "motorway": 445.8,
+   "motorway_link": 257.1,
+   "trunk": 146.7,
+   "trunk_link": 29,
+   "primary": 489.9,
+   "primary_link": 31,
+   "secondary": 914.7,
+   "secondary_link": 17.9,
+   "tertiary": 988.9,
+   "tertiary_link": 5.5,
+   "local": 519.1,
+   "local_link": 0
+  }
+ },
+ "dem": {
+  "version": 1,
+  "nx": 811,
+  "nz": 916,
+  "cell": 60,
+  "x0": -26158.3,
+  "z0": -21898.3,
+  "datum_m": 97,
+  "min_asl": 99.2,
+  "max_asl": 273.9
+ },
+ "bld": {
+  "version": 1,
+  "footprints": 31695,
+  "points": 194061,
+  "bbox": [
+   -5844,
+   516,
+   2605,
+   8674
+  ]
+ },
+ "kinks": {
+  "km": 3838.5,
+  "free_vertices": 138941,
+  "ge5_per_km": 7.479,
+  "ge10_per_km": 2.475,
+  "ge25_per_km": 0.332,
+  "ge5": 28708,
+  "ge10": 9501,
+  "ge25": 1275,
+  "folds_over_10cm": 1531,
+  "folds_over_50cm": 233,
+  "max_free_kink": {
+   "deg": 173.1,
+   "cls": "motorway",
+   "at": "35.42326,-80.66992",
+   "edge": 1267,
+   "kind": "join"
+  },
+  "max_free_kink_major": {
+   "deg": 173.1,
+   "cls": "motorway",
+   "at": "35.42326,-80.66992",
+   "edge": 1267,
+   "kind": "join"
+  },
+  "max_shape_kink_major": {
+   "deg": 60.4,
+   "cls": "secondary",
+   "at": "35.35375,-80.85623",
+   "edge": 5431
+  },
+  "split_nodes": 919,
+  "split_nodes_fold_over_10cm": 59,
+  "split_worst": {
+   "fold": 4.86,
+   "turn_deg": 81.7,
+   "at": "35.22629,-80.85021",
+   "name": "South Mint Street"
+  },
+  "by_class": {
+   "motorway": {
+    "km": 445.8,
+    "shape_vertices": 4726,
+    "joins": 567,
+    "ge5": 157,
+    "ge10": 7,
+    "ge25": 2,
+    "ge5_per_km": 0.35,
+    "ge10_per_km": 0.02,
+    "ge25_per_km": 0,
+    "ge10_short_leg": 0,
+    "folds_over_10cm": 45,
+    "folds_over_50cm": 0,
+    "max_deg": 173.1,
+    "max_at": "35.42326,-80.66992",
+    "max_edge": 1267
+   },
+   "motorway_link": {
+    "km": 257.1,
+    "shape_vertices": 9290,
+    "joins": 434,
+    "ge5": 4004,
+    "ge10": 1089,
+    "ge25": 44,
+    "ge5_per_km": 15.58,
+    "ge10_per_km": 4.24,
+    "ge25_per_km": 0.17,
+    "ge10_short_leg": 652,
+    "folds_over_10cm": 126,
+    "folds_over_50cm": 8,
+    "max_deg": 46.3,
+    "max_at": "35.02728,-80.96404",
+    "max_edge": 10
+   },
+   "trunk": {
+    "km": 146.7,
+    "shape_vertices": 2442,
+    "joins": 431,
+    "ge5": 97,
+    "ge10": 20,
+    "ge25": 7,
+    "ge5_per_km": 0.66,
+    "ge10_per_km": 0.14,
+    "ge25_per_km": 0.05,
+    "ge10_short_leg": 6,
+    "folds_over_10cm": 19,
+    "folds_over_50cm": 5,
+    "max_deg": 41.1,
+    "max_at": "35.31603,-80.67730",
+    "max_edge": 15870
+   },
+   "trunk_link": {
+    "km": 29,
+    "shape_vertices": 2075,
+    "joins": 33,
+    "ge5": 1169,
+    "ge10": 494,
+    "ge25": 79,
+    "ge5_per_km": 40.29,
+    "ge10_per_km": 17.03,
+    "ge25_per_km": 2.72,
+    "ge10_short_leg": 390,
+    "folds_over_10cm": 49,
+    "folds_over_50cm": 4,
+    "max_deg": 100.5,
+    "max_at": "35.19978,-80.77323",
+    "max_edge": 1229
+   },
+   "primary": {
+    "km": 489.5,
+    "shape_vertices": 11492,
+    "joins": 2276,
+    "ge5": 1191,
+    "ge10": 417,
+    "ge25": 90,
+    "ge5_per_km": 2.43,
+    "ge10_per_km": 0.85,
+    "ge25_per_km": 0.18,
+    "ge10_short_leg": 260,
+    "folds_over_10cm": 136,
+    "folds_over_50cm": 39,
+    "max_deg": 57.3,
+    "max_at": "35.21204,-80.78178",
+    "max_edge": 10552
+   },
+   "primary_link": {
+    "km": 31,
+    "shape_vertices": 2270,
+    "joins": 14,
+    "ge5": 1554,
+    "ge10": 847,
+    "ge25": 139,
+    "ge5_per_km": 50.16,
+    "ge10_per_km": 27.34,
+    "ge25_per_km": 4.49,
+    "ge10_short_leg": 769,
+    "folds_over_10cm": 60,
+    "folds_over_50cm": 5,
+    "max_deg": 140.6,
+    "max_at": "35.28562,-80.76275",
+    "max_edge": 4056
+   },
+   "secondary": {
+    "km": 911.6,
+    "shape_vertices": 27474,
+    "joins": 4256,
+    "ge5": 4691,
+    "ge10": 1359,
+    "ge25": 236,
+    "ge5_per_km": 5.15,
+    "ge10_per_km": 1.49,
+    "ge25_per_km": 0.26,
+    "ge10_short_leg": 831,
+    "folds_over_10cm": 320,
+    "folds_over_50cm": 65,
+    "max_deg": 156.7,
+    "max_at": "35.03129,-80.61698",
+    "max_edge": 16348
+   },
+   "secondary_link": {
+    "km": 17.9,
+    "shape_vertices": 1669,
+    "joins": 8,
+    "ge5": 1096,
+    "ge10": 652,
+    "ge25": 125,
+    "ge5_per_km": 61.3,
+    "ge10_per_km": 36.47,
+    "ge25_per_km": 6.99,
+    "ge10_short_leg": 592,
+    "folds_over_10cm": 45,
+    "folds_over_50cm": 6,
+    "max_deg": 130.4,
+    "max_at": "35.24679,-80.89258",
+    "max_edge": 4199
+   },
+   "tertiary": {
+    "km": 985.4,
+    "shape_vertices": 35493,
+    "joins": 2651,
+    "ge5": 7753,
+    "ge10": 1754,
+    "ge25": 205,
+    "ge5_per_km": 7.87,
+    "ge10_per_km": 1.78,
+    "ge25_per_km": 0.21,
+    "ge10_short_leg": 1044,
+    "folds_over_10cm": 298,
+    "folds_over_50cm": 13,
+    "max_deg": 161.4,
+    "max_at": "35.42071,-80.88049",
+    "max_edge": 4535
+   },
+   "tertiary_link": {
+    "km": 5.5,
+    "shape_vertices": 718,
+    "joins": 2,
+    "ge5": 409,
+    "ge10": 174,
+    "ge25": 22,
+    "ge5_per_km": 74.74,
+    "ge10_per_km": 31.8,
+    "ge25_per_km": 4.02,
+    "ge10_short_leg": 166,
+    "folds_over_10cm": 9,
+    "folds_over_50cm": 1,
+    "max_deg": 68.9,
+    "max_at": "35.22490,-80.63490",
+    "max_edge": 19287
+   },
+   "local": {
+    "km": 519,
+    "shape_vertices": 30345,
+    "joins": 275,
+    "ge5": 6587,
+    "ge10": 2688,
+    "ge25": 326,
+    "ge5_per_km": 12.69,
+    "ge10_per_km": 5.18,
+    "ge25_per_km": 0.63,
+    "ge10_short_leg": 2365,
+    "folds_over_10cm": 424,
+    "folds_over_50cm": 87,
+    "max_deg": 123.2,
+    "max_at": "35.19978,-80.83888",
+    "max_edge": 24560
+   }
+  }
+ },
+ "lanes": {
+  "painted_twltl_km": 154.8,
+  "painted_twltl_edges": 2479,
+  "width_basis": "12 ft (3.6576 m) every lane, RoadProfiles",
+  "km_by_profile": {
+   "mw2": 87.9,
+   "mw3": 165.4,
+   "mw4": 140.9,
+   "mw5": 40.5,
+   "mw6": 11.1,
+   "ow1": 185.5,
+   "ow2": 574.2,
+   "ow3": 180.1,
+   "ow4": 72.9,
+   "ramp1": 188.7,
+   "ramp2": 77.7,
+   "ramp3": 19.3,
+   "tw2": 1651.3,
+   "tw3t": 115.9,
+   "tw4": 148,
+   "tw5t": 38.9,
+   "tw6": 5.3,
+   "xw2": 93.8,
+   "xw3": 30.3,
+   "xw4": 17.8
+  },
+  "twltl_tagged_km": 23.3,
+  "painted_twltl_with_tag_km": 21.8,
+  "painted_twltl_contradicted_km": 108.5,
+  "painted_twltl_contradicted_edges": 2174,
+  "uneven_split_km": 131.6,
+  "uneven_split_edges": 2619,
+  "lanes_tagged_share_km": 0.67,
+  "turn_lanes_tagged_km": 562.8
+ },
+ "height": {
+  "trade_tryon": {
+   "game_dem_asl": 227.38,
+   "truth_asl": 232.59,
+   "error": -5.21
+  },
+  "city": {
+   "grid": "3DEP 60 m block means at every 2nd game DEM node (120 m); the 1.5 km margin dropped",
+   "bias": -1.86,
+   "rmse": 3.63,
+   "p1": -10.9,
+   "p99": 4.1,
+   "bias_by_position": {
+    "deep_valley": {
+     "share": 0.069,
+     "bias": 2.18
+    },
+    "valley": {
+     "share": 0.155,
+     "bias": 0.35
+    },
+    "mid": {
+     "share": 0.557,
+     "bias": -1.76
+    },
+    "ridge": {
+     "share": 0.165,
+     "bias": -4.19
+    },
+    "high_ridge": {
+     "share": 0.054,
+     "bias": -7.29
+    }
+   },
+   "relief600_p50": {
+    "truth": 17.6,
+    "game": 12.1
+   },
+   "relief600_p90": {
+    "truth": 27.2,
+    "game": 19.7
+   },
+   "slope120_p90_pct": {
+    "truth": 7.95,
+    "game": 4.35
+   }
+  },
+  "core": {
+   "grid": "3DEP 10 m over the 8 x 8 km core, 200 m inset; relief = height minus its 100 m Gaussian",
+   "rmse": 2.53,
+   "bias": -0.98,
+   "relief_kept": 0.34,
+   "relief_fidelity": 0.15,
+   "relief_sd_truth": 2.01,
+   "slope10_p90_pct": {
+    "truth": 13,
+    "game": 4
+   },
+   "share_over_8pct": {
+    "truth": 0.243,
+    "game": 0.001
+   }
+  },
+  "transects": {
+   "all_dem": {
+    "km": 44.8,
+    "rmse": 2.84,
+    "grade_rmse_pp": 1.35,
+    "grade_p95": 3.3,
+    "grade_p95_real": 4,
+    "relief_kept": 0.8,
+    "fidelity": 0.07,
+    "climb_kept": 0.8,
+    "features_kept": 13,
+    "features_real": 91,
+    "features_kept_share": 0.143
+   },
+   "all_road": {
+    "km": 44.8,
+    "rmse": 2.84,
+    "grade_rmse_pp": 1.34,
+    "grade_p95": 3.2,
+    "grade_p95_real": 4,
+    "relief_kept": 0.77,
+    "fidelity": 0.08,
+    "climb_kept": 0.79,
+    "features_kept": 9,
+    "features_real": 91,
+    "features_kept_share": 0.099
+   },
+   "per_transect": {
+    "uptown": {
+     "km_measured": 5.05,
+     "dem": {
+      "rmse": 4.24,
+      "bias": -1.36,
+      "fidelity": 0.2,
+      "climb_kept": 0.63,
+      "features": "2/19"
+     },
+     "road": {
+      "rmse": 4.24,
+      "bias": -1.36,
+      "grade_p95": 3.5,
+      "grade_p95_real": 5.9,
+      "fidelity": 0.2,
+      "climb_kept": 0.62,
+      "features": "2/19",
+      "crest_r_min": 4383,
+      "crest_r_min_real": 1701
+     }
+    },
+    "tryon": {
+     "km_measured": 5.57,
+     "dem": {
+      "rmse": 2.41,
+      "bias": -1.63,
+      "fidelity": 0.24,
+      "climb_kept": 0.62,
+      "features": "2/13"
+     },
+     "road": {
+      "rmse": 2.42,
+      "bias": -1.63,
+      "grade_p95": 2.1,
+      "grade_p95_real": 4.2,
+      "fidelity": 0.24,
+      "climb_kept": 0.61,
+      "features": "1/13",
+      "crest_r_min": 4961,
+      "crest_r_min_real": 645
+     }
+    },
+    "independence": {
+     "km_measured": 6.35,
+     "dem": {
+      "rmse": 2.23,
+      "bias": -0.75,
+      "fidelity": 0.16,
+      "climb_kept": 0.63,
+      "features": "3/11"
+     },
+     "road": {
+      "rmse": 2.24,
+      "bias": -0.75,
+      "grade_p95": 3,
+      "grade_p95_real": 4,
+      "fidelity": 0.16,
+      "climb_kept": 0.62,
+      "features": "2/11",
+      "crest_r_min": 5371,
+      "crest_r_min_real": 2255
+     }
+    },
+    "dilworth": {
+     "km_measured": 2.68,
+     "dem": {
+      "rmse": 1.89,
+      "bias": -1.53,
+      "fidelity": 0.2,
+      "climb_kept": 0.88,
+      "features": "1/6"
+     },
+     "road": {
+      "rmse": 1.89,
+      "bias": -1.53,
+      "grade_p95": 3.9,
+      "grade_p95_real": 3.8,
+      "fidelity": 0.21,
+      "climb_kept": 0.87,
+      "features": "1/6",
+      "crest_r_min": 6180,
+      "crest_r_min_real": 852
+     }
+    },
+    "freedom": {
+     "km_measured": 6.08,
+     "dem": {
+      "rmse": 2.73,
+      "bias": -1.76,
+      "fidelity": 0.19,
+      "climb_kept": 0.73,
+      "features": "2/16"
+     },
+     "road": {
+      "rmse": 2.73,
+      "bias": -1.76,
+      "grade_p95": 2.8,
+      "grade_p95_real": 4.3,
+      "fidelity": 0.19,
+      "climb_kept": 0.72,
+      "features": "0/16",
+      "crest_r_min": 2889,
+      "crest_r_min_real": 679
+     }
+    },
+    "tyvola": {
+     "km_measured": 6.24,
+     "dem": {
+      "rmse": 3,
+      "bias": -2,
+      "fidelity": 0.26,
+      "climb_kept": 0.97,
+      "features": "2/14"
+     },
+     "road": {
+      "rmse": 3,
+      "bias": -2,
+      "grade_p95": 4.7,
+      "grade_p95_real": 4.9,
+      "fidelity": 0.28,
+      "climb_kept": 0.95,
+      "features": "2/14",
+      "crest_r_min": 2354,
+      "crest_r_min_real": 622
+     }
+    },
+    "providence": {
+     "km_measured": 7,
+     "dem": {
+      "rmse": 2.11,
+      "bias": -1.57,
+      "fidelity": 0.25,
+      "climb_kept": 0.8,
+      "features": "1/11"
+     },
+     "road": {
+      "rmse": 2.11,
+      "bias": -1.57,
+      "grade_p95": 3.1,
+      "grade_p95_real": 3.4,
+      "fidelity": 0.25,
+      "climb_kept": 0.79,
+      "features": "1/11",
+      "crest_r_min": 3392,
+      "crest_r_min_real": 803
+     }
+    },
+    "i485": {
+     "km_measured": 5.84,
+     "dem": {
+      "rmse": 3.33,
+      "bias": -1.75,
+      "fidelity": -0.9,
+      "climb_kept": 1.18,
+      "features": "0/1"
+     },
+     "road": {
+      "rmse": 3.33,
+      "bias": -1.76,
+      "grade_p95": 3,
+      "grade_p95_real": 1.9,
+      "fidelity": -0.87,
+      "climb_kept": 1.16,
+      "features": "0/1",
+      "crest_r_min": 4297,
+      "crest_r_min_real": 717
+     }
+    }
+   },
+   "roadside": {
+    "note": "|land - road| both sides at every 5th station; game land = the shipped DEM (the tiles pin it nearer the road), game road = solver step 1 emulated",
+    "at_30m": {
+     "p50_real": 0.69,
+     "p90_real": 3.55,
+     "share_over_2m_real": 0.204,
+     "p50_game": 0.3,
+     "p90_game": 0.76,
+     "share_over_2m_game": 0
+    },
+    "at_60m": {
+     "p50_real": 1.45,
+     "p90_real": 5.7,
+     "share_over_2m_real": 0.396,
+     "p50_game": 0.61,
+     "p90_game": 1.5,
+     "share_over_2m_game": 0.028
+    }
+   }
+  }
+ },
+ "control": {
+  "signal": 1668,
+  "stop": 140,
+  "give_way": 5,
+  "at_junction_nodes": 1483,
+  "at_mid_way_nodes": 322,
+  "at_dead_ends": 8,
+  "by_junction_class": {
+   "freeway": {
+    "junctions": 427,
+    "signal": 2,
+    "stop": 0,
+    "give_way": 0,
+    "controlled_share": 0.005
+   },
+   "minor_x_minor": {
+    "junctions": 3150,
+    "signal": 134,
+    "stop": 118,
+    "give_way": 0,
+    "controlled_share": 0.08
+   },
+   "ramp_terminal": {
+    "junctions": 1972,
+    "signal": 216,
+    "stop": 0,
+    "give_way": 0,
+    "controlled_share": 0.11
+   },
+   "arterial_x_arterial": {
+    "junctions": 2188,
+    "signal": 894,
+    "stop": 2,
+    "give_way": 3,
+    "controlled_share": 0.411
+   },
+   "arterial_x_minor": {
+    "junctions": 542,
+    "signal": 113,
+    "stop": 1,
+    "give_way": 0,
+    "controlled_share": 0.21
+   }
+  },
+  "note": "node tags only, matched by OSM id; a signal mapped on the approach (mid-way) does not control the junction yet"
+ },
+ "size": {
+  "brotli_quality": 11,
+  "files": {
+   "charlotte_city.bytes": {
+    "raw": 2548018,
+    "brotli": 1327920
+   },
+   "charlotte_dem.bytes": {
+    "raw": 1485784,
+    "brotli": 649649
+   },
+   "charlotte_bld.bytes": {
+    "raw": 1742686,
+    "brotli": 1149298
+   },
+   "charlotte_routes.json": {
+    "raw": 16176,
+    "brotli": 5024
+   }
+  },
+  "city_sections": {
+   "HEAD": {
+    "raw": 75,
+    "brotli": 79
+   },
+   "NODE": {
+    "raw": 181750,
+    "brotli": 151792
+   },
+   "NAME": {
+    "raw": 29694,
+    "brotli": 10741
+   },
+   "EDGE": {
+    "raw": 2311074,
+    "brotli": 1219874,
+    "points_raw": 1434600
+   },
+   "WATR": {
+    "raw": 7884,
+    "brotli": 6897
+   },
+   "XING": {
+    "raw": 13298,
+    "brotli": 7492
+   },
+   "SPAN": {
+    "raw": 3172,
+    "brotli": 2628
+   },
+   "ROUT": {
+    "raw": 1071,
+    "brotli": 491
+   }
+  },
+  "total": {
+   "raw": 5792664,
+   "brotli": 3131891
+  }
+ },
+ "accuracy": {
+  "measured": false,
+  "note": "Plan critic C12: centreline offset and drawn-minus-real width against Mecklenburg EdgeOfPavementImpervious (CC0/MIT) and County Streets PAVEMENTWIDTH (CC BY 4.0). Neither layer is fetched yet (they belong on D:\\gis\\charlotte, PSX_GIS_DIR); this section reports nothing until they are."
+ },
+ "elapsed_s": 22.1
+}

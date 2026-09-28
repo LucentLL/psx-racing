@@ -1,0 +1,67 @@
+GRAPH
+  20194 nodes, 25042 edges, 179325 points, 3845.6 km; 782 grade separations (782 by tag), 264 water spans, 791 bridge edges, 32 waters
+  node degrees 0:0 1:925 2:10990 3:6067 4:2088 5:118 6:6 7:0
+  km by class: motorway 445.8, motorway_link 257.1, trunk 146.7, trunk_link 29.0, primary 489.9, primary_link 31.0, secondary 914.7, secondary_link 17.9, tertiary 988.9, tertiary_link 5.5, local 519.1
+  routes: uptown 9.20 km / 68 edges, tryon 6.02 km / 78 edges, independence 7.02 km / 38 edges
+  DEM 811 x 916 at 60 m, datum 97 m, 99.2..273.9 m ASL; 31695 footprints
+
+KINKS (free vertices: interior polyline points + 2-arm joins; roundabouts out)
+  all: 7.479 >=5 deg/km, 2.475 >=10, 0.332 >=25 over 3838.5 km; folds >10 cm 1531, >50 cm 233
+  largest free kink 173.1 deg (motorway, join) at 35.42326,-80.66992; on motorway..secondary 173.1 deg (motorway) at 35.42326,-80.66992
+  largest interior (shape) vertex kink on motorway..secondary 60.4 deg (secondary) at 35.35375,-80.85623
+  split nodes (two-way -> two carriageways, same name): 919, 59 fold > 10 cm; worst 4.86 m, 81.7 deg, South Mint Street at 35.22629,-80.85021
+  class            km     >=5/km >=10/km >=25/km  >=10 short-leg  folds>10cm  max deg
+  motorway         445.8    0.35    0.02       0               0          45    173.1
+  motorway_link    257.1   15.58    4.24    0.17             652         126     46.3
+  trunk            146.7    0.66    0.14    0.05               6          19     41.1
+  trunk_link          29   40.29   17.03    2.72             390          49    100.5
+  primary          489.5    2.43    0.85    0.18             260         136     57.3
+  primary_link        31   50.16   27.34    4.49             769          60    140.6
+  secondary        911.6    5.15    1.49    0.26             831         320    156.7
+  secondary_link    17.9    61.3   36.47    6.99             592          45    130.4
+  tertiary         985.4    7.87    1.78    0.21            1044         298    161.4
+  tertiary_link      5.5   74.74    31.8    4.02             166           9     68.9
+  local              519   12.69    5.18    0.63            2365         424    123.2
+
+LANES
+  centre turn lane painted on 154.8 km (2479 edges); tagged as one (lanes:both_ways / turn:lanes:both_ways) on 23.3 km; painted with no tag and forward+backward = lanes (a turn pocket painted as a TWLTL) 108.5 km
+  uneven splits (lanes:forward != lanes:backward) 131.6 km on 2619 edges, drawn symmetric; lanes tagged on 67% of km; turn:lanes on 562.8 km (ignored)
+  width basis: 12 ft (3.6576 m) every lane, RoadProfiles
+
+HEIGHT (against USGS 3DEP, tools/city/truth; the shipped DEM, not the solved roads)
+  Trade & Tryon: game DEM 227.38 m ASL, 3DEP/EPQS 232.59 m (-5.21 m)
+  city-wide DEM vs 3DEP: bias -1.86 m, RMSE 3.63 m (p1 -10.9, p99 4.1); high ridges -7.29 m, deep valleys +2.18 m
+    relief in 600 m p50 12.1 m (real 17.6), p90 19.7 (real 27.2); slope p90 at 120 m 4.35% (real 7.95%)
+  core relief kept 0.34 (fidelity 0.15), RMSE 2.53 m, bias -0.98 m; slope p90 4% (real 13%), over 8%: 0.001 (real 0.243)
+  transects (44.8 km measured of 51.8): game DEM on the road line RMSE 2.84 m, fidelity 0.07, climb kept 0.8, crests+dips kept 13/91 (14%)
+    game road~ (solver step 1): RMSE 2.84 m, grade p95 3.2% (real 4%), crests+dips kept 9/91 (10%)
+    uptown         5.05 km  RMSE  4.24  bias  -1.36  kept  2/19  crest R min 4383 m (real 1701)
+    tryon          5.57 km  RMSE  2.42  bias  -1.63  kept  1/13  crest R min 4961 m (real 645)
+    independence   6.35 km  RMSE  2.24  bias  -0.75  kept  2/11  crest R min 5371 m (real 2255)
+    dilworth       2.68 km  RMSE  1.89  bias  -1.53  kept   1/6  crest R min 6180 m (real 852)
+    freedom        6.08 km  RMSE  2.73  bias  -1.76  kept  0/16  crest R min 2889 m (real 679)
+    tyvola         6.24 km  RMSE     3  bias     -2  kept  2/14  crest R min 2354 m (real 622)
+    providence        7 km  RMSE  2.11  bias  -1.57  kept  1/11  crest R min 3392 m (real 803)
+    i485           5.84 km  RMSE  3.33  bias  -1.76  kept   0/1  crest R min 4297 m (real 717)
+    land beside the road, |land-road| p90: at 30 m 0.76 m (real 3.55), at 60 m 1.5 m (real 5.7); share over 2 m at 60 m 0.028 (real 0.396)
+
+CONTROL (OSM highway=traffic_signals/stop/give_way matched to graph nodes by id)
+  1668 signals, 140 stops, 5 give-ways; 1483 on junction nodes (3+ arms), 322 mid-way (2 arms), 8 at dead ends
+    freeway                427 junctions     2 signal    0 stop  controlled 0.5%
+    minor_x_minor         3150 junctions   134 signal  118 stop  controlled 8.0%
+    ramp_terminal         1972 junctions   216 signal    0 stop  controlled 11.0%
+    arterial_x_arterial   2188 junctions   894 signal    2 stop  controlled 41.1%
+    arterial_x_minor       542 junctions   113 signal    1 stop  controlled 21.0%
+
+SIZE (Brotli q11, lgwin 24, each file alone: a proxy for WebGL.data.unityweb)
+  charlotte_city.bytes     2.548 MB raw    1.328 MB brotli
+  charlotte_dem.bytes      1.486 MB raw    0.650 MB brotli
+  charlotte_bld.bytes      1.743 MB raw    1.149 MB brotli
+  charlotte_routes.json    0.016 MB raw    0.005 MB brotli
+  total                    5.793 MB raw    3.132 MB brotli
+  charlotte_city.bytes by section: HEAD 0/0 KB, NODE 182/152 KB, NAME 30/11 KB, EDGE 2311/1220 KB, WATR 8/7 KB, XING 13/7 KB, SPAN 3/3 KB, ROUT 1/0 KB
+
+ACCURACY: not measured - the county pavement layers (plan C12) are not fetched yet
+
+(22.1 s, data Assets/PSXRacing/Resources)
+wrote tools/city/baseline/metrics_baseline.json
