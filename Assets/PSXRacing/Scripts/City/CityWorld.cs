@@ -56,6 +56,82 @@ namespace PSXRacing.City
         {
             public GameObject go;
             public Mesh[] meshes;
+            public int colliders;
+        }
+
+        // ---- the tile-build clock (WP-01 instruments) ----------------------
+        //
+        // What one EnsureTile cost, split the way the budget asks: the mesh
+        // build (CityMeshes.Build), standing it up (Attach: renderers and
+        // colliders; the MeshCollider cook is timed on its own inside that),
+        // and the prop models. The FpsOverlay CITY line shows the worst total
+        // of the last ten seconds, which on a phone is the hitch the owner
+        // feels (plan: WP-09's trigger is that number over 16.7 ms there);
+        // CityBudgetProbe reads the same numbers in the editor.
+
+        /// <summary>One tile build's cost, milliseconds.</summary>
+        public struct TileTiming
+        {
+            public int tx, tz;
+            public float buildMs, attachMs, cookMs, propsMs, totalMs;
+            public int colliders, props;
+        }
+
+        /// <summary>The most recent tile build, anywhere.</summary>
+        public static TileTiming LastTiming { get; private set; }
+        /// <summary>Every tile build, as it finishes (the budget probe listens).</summary>
+        public static event System.Action<TileTiming> TileBuilt;
+
+        static readonly List<(float at, float ms)> recentBuilds = new List<(float, float)>();
+
+        /// <summary>The slowest tile build (total ms) in the last
+        /// <paramref name="seconds"/> of unscaled time; 0 if none.</summary>
+        public static float RecentMaxBuildMs(float seconds)
+        {
+            float now = Time.realtimeSinceStartup, worst = 0f;
+            recentBuilds.RemoveAll(b => now - b.at > seconds);
+            foreach (var b in recentBuilds) if (b.ms > worst) worst = b.ms;
+            return worst;
+        }
+
+        /// <summary>The world streaming now, for the FPS overlay's CITY line
+        /// (null outside Charlotte).</summary>
+        public static CityWorld Active { get; private set; }
+        void OnEnable() => Active = this;
+        void OnDisable() { if (Active == this) Active = null; }
+
+        /// <summary>Colliders on the live tiles (MeshColliders and boxes).</summary>
+        public int LiveColliders
+        {
+            get { int n = 0; foreach (var t in live.Values) n += t.colliders; return n; }
+        }
+
+        static double cookTicks;
+        static readonly System.Diagnostics.Stopwatch cookClock = new System.Diagnostics.Stopwatch();
+
+        /// <summary>Assign a MeshCollider's mesh - which is when PhysX cooks
+        /// it - on the cook clock.</summary>
+        static void CookCollider(GameObject g, Mesh m)
+        {
+            cookClock.Restart();
+            g.AddComponent<MeshCollider>().sharedMesh = m;
+            cookClock.Stop();
+            cookTicks += cookClock.ElapsedTicks;
+        }
+
+        /// <summary>Destroy in play, DestroyImmediate in the editor: the
+        /// budget probe builds tiles through this component without play
+        /// mode, and Destroy is refused there.</summary>
+        static void Kill(Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) Destroy(o); else DestroyImmediate(o);
+        }
+
+        /// <summary>Drop every live tile (the budget probe, between sites).</summary>
+        public void DropAll()
+        {
+            foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
         readonly Dictionary<long, Tile> live = new Dictionary<long, Tile>();
@@ -230,9 +306,9 @@ namespace PSXRacing.City
         {
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
-            if (t.go != null) Destroy(t.go);
+            if (t.go != null) Kill(t.go);
             // runtime meshes are not garbage-collected with their GameObjects
-            foreach (var m in t.meshes) if (m != null) Destroy(m);
+            foreach (var m in t.meshes) if (m != null) Kill(m);
         }
 
         public void EnsureTile(int tx, int tz)
@@ -242,12 +318,18 @@ namespace PSXRacing.City
             long key = Key(tx, tz);
             if (live.ContainsKey(key)) return;
 
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             var tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
+            double tBuild = clock.Elapsed.TotalMilliseconds;
             var root = new GameObject($"Tile_{tx}_{tz}");
             root.transform.SetParent(transform, false);
             root.transform.position = tm.origin;
 
+            cookTicks = 0;
             var meshes = Attach(root, tm, MatFor);
+            double tAttach = clock.Elapsed.TotalMilliseconds;
+            float cookMs = (float)(cookTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+            int props = 0;
 
             // Real models on this tile — houses, trailers, restaurants, the
             // pack towers on their real lots. They parent under the tile root
@@ -267,8 +349,10 @@ namespace PSXRacing.City
                     go.transform.rotation = Quaternion.Euler(
                         0f, b.yaw * Mathf.Rad2Deg + def.yawOffsetDeg, 0f);
                     if (b.scale.sqrMagnitude > 0.01f) go.transform.localScale = b.scale;
+                    props++;
                 }
             }
+            double tProps = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A
             // NightGlow of its own per tile, under its own child, so the posts
@@ -286,10 +370,23 @@ namespace PSXRacing.City
                 lights.AddComponent<NightGlow>().Init(heads);
             }
 
-            live[key] = new Tile { go = root, meshes = meshes };
+            int colliders = root.GetComponentsInChildren<Collider>(true).Length;
+            live[key] = new Tile { go = root, meshes = meshes, colliders = colliders };
             // Its towers cast on the frame they appear, not at the next
             // re-count of the scene.
             SunShadows.Register(root);
+
+            var timing = new TileTiming
+            {
+                tx = tx, tz = tz,
+                buildMs = (float)tBuild, attachMs = (float)(tAttach - tBuild), cookMs = cookMs,
+                propsMs = (float)(tProps - tAttach), totalMs = (float)clock.Elapsed.TotalMilliseconds,
+                colliders = colliders, props = props,
+            };
+            LastTiming = timing;
+            recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
+            if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
+            TileBuilt?.Invoke(timing);
         }
 
         /// <summary>
@@ -312,14 +409,14 @@ namespace PSXRacing.City
                 // the kerbs or the water; and a lamp post's shadow is a pixel):
                 // each would be draw calls a tile a frame in the sun's map.
                 SunShadows.Exclude(g);
-                g.AddComponent<MeshCollider>().sharedMesh = tm.ground;
+                CookCollider(g, tm.ground);
                 meshes.Add(tm.ground);
             }
             if (tm.roads != null)
             {
                 var g = Child(root, "Roads", RoadLayer);
                 Render(g, tm.roads, tm.roadSlots, matFor);
-                g.AddComponent<MeshCollider>().sharedMesh = tm.roads;
+                CookCollider(g, tm.roads);
                 meshes.Add(tm.roads);
             }
             if (tm.barriers != null)
@@ -331,7 +428,7 @@ namespace PSXRacing.City
                 // skip only this layer) could stand a car on a rail's top.
                 var g = Child(root, "Barriers", SolidLayer);
                 Render(g, tm.barriers, new[] { CityMeshes.Slot.Concrete }, matFor);
-                g.AddComponent<MeshCollider>().sharedMesh = tm.barriers;
+                CookCollider(g, tm.barriers);
                 meshes.Add(tm.barriers);
             }
             if (tm.kerbs != null)
@@ -359,7 +456,7 @@ namespace PSXRacing.City
                 // street — an invisible wall across a lane, on the Solid layer.
                 var g = Child(root, "Buildings", SolidLayer);
                 Render(g, tm.buildings, tm.buildingSlots, matFor);
-                g.AddComponent<MeshCollider>().sharedMesh = tm.buildings;
+                CookCollider(g, tm.buildings);
                 meshes.Add(tm.buildings);
             }
             foreach (var box in tm.solids)

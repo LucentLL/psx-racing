@@ -427,8 +427,9 @@ P(`  DEM ${fp.dem.nx} x ${fp.dem.nz} at ${fp.dem.cell} m, datum ${fp.dem.datum_m
   }
   // --- the 8 transects
   {
-    const rows = readFileSync(join(TRUTH, 'transects.csv'), 'utf8').trim().split('\n').slice(1).map(l => l.split(','));
-    const side = readFileSync(join(TRUTH, 'roadside.csv'), 'utf8').trim().split('\n').slice(1).map(l => l.split(','));
+    // CRLF-safe: git's autocrlf checks these out with \r\n on Windows
+    const csv = f => readFileSync(join(TRUTH, f), 'utf8').trim().split(/\r?\n/).slice(1).map(l => l.split(','));
+    const rows = csv('transects.csv'), side = csv('roadside.csv');
     const T = new Map();
     for (const m of meta.transects) T.set(m.id, { ...m, s: [], x: [], z: [], truth: [], bad: [], side: [] });
     for (const r of rows) { const t = T.get(r[0]); t.s.push(+r[1]); t.x.push(+r[2]); t.z.push(+r[3]); t.truth.push(r[4] === '' ? NaN : +r[4]); t.bad.push(r[5] !== '0'); }

@@ -349,6 +349,11 @@ namespace PSXRacing.EditorTools
             fanMouths = null;
             LampAudit(map, trims, buildings);
 
+            // ---- the budget (WP-01): nine sites through CityWorld's own
+            // path; city_budget.txt holds the table, the audit its summary.
+            // Measured last - it parses and solves the map again.
+            foreach (var l in CityBudgetProbe.Run(map)) Line(l);
+
             Finish();
         }
 

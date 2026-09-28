@@ -284,8 +284,15 @@ namespace PSXRacing.City
             return loaded;
         }
 
+        /// <summary>What the last <see cref="Parse"/> cost, milliseconds: the
+        /// bytes into the graph, footprints and hashes; and the elevation
+        /// solve after it. For the FPS overlay's budget and CityBudgetProbe.</summary>
+        public static float LastParseMs { get; private set; }
+        public static float LastSolveMs { get; private set; }
+
         public static CityMap Parse(byte[] city, byte[] bld)
         {
+            var parseClock = System.Diagnostics.Stopwatch.StartNew();
             var map = new CityMap();
             using (var r = new BinaryReader(new MemoryStream(city)))
             {
@@ -413,9 +420,11 @@ namespace PSXRacing.City
 
             if (bld != null) map.ParseFootprints(bld);
             map.BuildHashes();
+            LastParseMs = (float)parseClock.Elapsed.TotalMilliseconds;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityElevation.Solve(map);
-            Debug.Log($"[City] elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
+            LastSolveMs = (float)clock.Elapsed.TotalMilliseconds;
+            Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
             return map;
         }
 
