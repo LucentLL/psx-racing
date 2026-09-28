@@ -520,18 +520,38 @@ its own page until it is merged into the game (owner decision, 2026-09-28):
 - `-DryRun` does all of it against the live gh-pages and then stops before
   the push. It prints what is kept, replaced and removed, the changes per
   folder, and the upload size.
-- **Saves are separate (measured).** The career is PlayerPrefs, which Unity's
-  WebGL runtime keeps in the origin's `/idbfs` IndexedDB under
-  `/idbfs/<md5 of the page URL up to its last '/'>/PlayerPrefs`. With the
-  published tree served locally, a new career on `/` went to
-  `/idbfs/573c4e13...` (md5 of `http://127.0.0.1:8765`) and one on `/city/`
-  to `/idbfs/c07f8b88...` (md5 of `http://127.0.0.1:8765/city`). Each page
-  reloaded its own career: $407 at the root, $1,266 (the Civic) on /city/.
-  Live, the two folders are md5 of
-  `https://lucentll.github.io/psx-racing` (`bcbc7f3e...`) and md5 of `.../city`
-  (`2bcb837e...`). Two things are shared by origin: the fullscreen choice
-  (localStorage `psx.fullscreen`), and Unity's data cache. The cache is keyed
+- **The test page has its own save database.** The career is PlayerPrefs.
+  Unity's WebGL runtime keeps it at
+  `/idbfs/<md5 of the page URL up to its last '/'>/PlayerPrefs`. Live, those
+  folders are md5 of `https://lucentll.github.io/psx-racing` (`bcbc7f3e...`)
+  and md5 of `.../city` (`2bcb837e...`). The folders differ, but Unity keeps
+  them all in one IndexedDB database per origin, named `/idbfs`. A page
+  loads the whole database into memory at start, and every save writes the
+  whole of it back from memory. Entries whose timestamp differs are
+  rewritten, and entries the tab does not hold are deleted. With one tab at
+  a time that is harmless. With `/` and `/city/` open together (two tabs, or
+  one left in the background on a phone), a save on either page restores
+  the other page's career as it was when this tab loaded, and deletes
+  anything the other page saved for the first time since. So a `-PagesDir`
+  page carries a small script ahead of the Unity loader (`psx-save-db`).
+  When Unity opens `/idbfs`, the script opens `/idbfs-city` instead. The
+  game at the root is untouched and keeps the owner's career in `/idbfs`. No
+  test page went live before this, so no save needs to be carried over.
+  Two things are still shared by origin: the fullscreen choice
+  (localStorage `psx.fullscreen`) and Unity's data cache. The cache is keyed
   by URL, so a phone that plays both pages stores two data files.
+- **Checked in a browser (2026-09-28)**, with the published pages served
+  locally and the live build. As a control, the city page was served with
+  the new script cut out. The root saved twice while it was open: a newer
+  version of a file it already had, then a file it had never saved before.
+  One save on the control page put back the old version of the first file
+  and deleted the second. With the script, the same sequence left `/idbfs`
+  exactly as the root had written it. Then with both real games open, a new
+  career on `/city/` ($1,377) was saved to `/idbfs-city`. The root career
+  ($407) was saved with SLEEP, and then the city career was saved with
+  SLEEP in the tab that had been open since before the root's save. Each
+  save changed only its own database. After reloading both pages, each
+  resumed its own career.
 
 ## Not in v1 (in order of likely next)
 

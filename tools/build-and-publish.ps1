@@ -54,14 +54,23 @@
 # the source branch and commit, so `curl .../city/psx-subpage.txt` says which
 # build is up.
 #
-# SAVES DO NOT COLLIDE. Both pages share an origin (lucentll.github.io), but
-# the game saves through PlayerPrefs, which Unity's WebGL runtime keeps in the
-# origin's "/idbfs" IndexedDB under /idbfs/<md5 of the page's folder URL>/ -
-# so /psx-racing/ and /psx-racing/city/ are two separate saves (the framework
-# hands the native side document.URL; checked in a browser, see
-# Docs/CHARLOTTE.md "The test page"). Shared on purpose: only the fullscreen
-# preference (localStorage "psx.fullscreen", per origin). Unity's data cache
-# is keyed by URL, so a phone that plays both keeps two copies of the data.
+# A TEST PAGE HAS ITS OWN SAVE DATABASE. Both pages share an origin
+# (lucentll.github.io). The game saves through PlayerPrefs, which Unity's
+# WebGL runtime keeps under /idbfs/<md5 of the page's folder URL>/ -- a
+# different FOLDER per page, but ONE IndexedDB database per origin, named
+# "/idbfs". A page loads that whole database into memory when it starts, and
+# every PlayerPrefs.Save writes all of it back from memory: an entry whose
+# timestamp differs is rewritten, and an entry the tab does not hold is
+# deleted. So with / and /city/ open at the same time (two tabs, or one left
+# in the background on a phone), a save on either page restores the other
+# page's career as it was when this tab loaded. One tab at a time is safe;
+# two are not. A -PagesDir page therefore carries a small script before the
+# loader. Whenever Unity opens "/idbfs", the script opens "/idbfs-<folder>"
+# instead. The root page is untouched and keeps the owner's career where it
+# is. Checked in a browser with both pages open (Docs/CHARLOTTE.md "The test
+# page"). Two things are still shared by origin: the fullscreen preference
+# (localStorage "psx.fullscreen") and Unity's data cache. The cache is keyed
+# by URL, so a phone that plays both pages keeps two copies of the data.
 #
 # ONLY main PUBLISHES THE GAME. The site root is the game the owner plays. A
 # root publish from any other branch (or a detached or unreadable checkout)
@@ -473,15 +482,48 @@ if (-not $SkipDeploy) {
     # the owner can tell at a glance which build he is on. Put in by anchor
     # and checked; a template that lost either anchor stops the publish
     # rather than shipping an unlabelled test build.
+    #
+    # AND IT KEEPS ITS OWN SAVE (see the header): a script ahead of the
+    # loader renames the one database Unity's IDBFS opens, "/idbfs", to
+    # "/idbfs-<folder>" for this page only. It patches IDBFactory.open, which
+    # both the framework (through the global indexedDB) and the loader's data
+    # cache call, and it changes that one name only, so "UnityCache" is left
+    # as it is. Checked the same way: no </head> to put it before, or a page
+    # where it does not come before the loader, stops the publish.
+    $saveDb = "/idbfs-$PagesDir"
     function Add-PagesLabel([string]$idx, [string]$stamp) {
         $html = [IO.File]::ReadAllText($idx, $utf8NoBom)
         $t = [regex]::Match($html, '<title>([^<]*)</title>')
         $anchor = '<div id="splash">'
-        if (-not $t.Success -or -not $html.Contains($anchor)) {
-            Write-Host "CANNOT LABEL THE TEST PAGE - index.html has no <title> or no <div id=`"splash`"> (did the WebGL template change?). Not publishing an unlabelled test build." -ForegroundColor Red
+        $head = '</head>'
+        if (-not $t.Success -or -not $html.Contains($anchor) -or -not $html.Contains($head)) {
+            Write-Host "CANNOT LABEL THE TEST PAGE - index.html has no <title>, no <div id=`"splash`"> or no </head> (did the WebGL template change?). Not publishing an unlabelled test build that shares the game's save." -ForegroundColor Red
             exit 1
         }
+        $shim = @"
+  <script id="psx-save-db">
+  /* $PagesLabel PAGE: ITS OWN SAVE. Put here by tools\build-and-publish.ps1 -PagesDir $PagesDir.
+     Unity keeps every page's PlayerPrefs (the career) in ONE IndexedDB database per
+     origin, "/idbfs", and each save writes that whole database back from the tab's
+     memory. So this page and the game at the site root, open at the same time, would
+     restore each other's old careers. This page opens "$saveDb" instead. Unity's
+     data cache ("UnityCache") is not touched. */
+  (function () {
+    try {
+      var P = window.IDBFactory && window.IDBFactory.prototype, open = P && P.open;
+      if (!open) return;
+      P.open = function (name) {
+        var a = Array.prototype.slice.call(arguments);
+        if (a[0] === "/idbfs") a[0] = "$saveDb";
+        return open.apply(this, a);
+      };
+    } catch (e) {}
+  })();
+  </script>
+
+"@
         $html = $html.Substring(0, $t.Index) + "<title>" + $t.Groups[1].Value + " - " + $PagesLabel + "</title>" + $html.Substring($t.Index + $t.Length)
+        $html = $html.Insert($html.IndexOf($head), ($shim -replace "`r`n", "`n"))
         $built = [DateTime]::ParseExact($stamp, "yyyyMMddHHmmss", [Globalization.CultureInfo]::InvariantCulture).ToString("yyyy-MM-dd HH:mm")
         $sub = [Net.WebUtility]::HtmlEncode("$srcNote - built $built UTC")
         $tag = '<div id="pages-tag" style="position:absolute;top:calc(14px + env(safe-area-inset-top, 0px));left:50%;' +
@@ -497,7 +539,16 @@ if (-not $SkipDeploy) {
             Write-Host "LABEL CHECK FAILED - the test page would not say it is a test page." -ForegroundColor Red
             exit 1
         }
+        # The rename must run before the loader script, or Unity has already
+        # opened "/idbfs" by the time it exists.
+        $s = $check.IndexOf('<script id="psx-save-db">')
+        $l = $check.IndexOf('<script src="Build/')
+        if ($s -lt 0 -or $l -lt 0 -or $s -gt $l -or -not $check.Contains("a[0] = `"$saveDb`"")) {
+            Write-Host "SAVE CHECK FAILED - the test page's own-save script is missing or comes after the loader; it would share the game's save." -ForegroundColor Red
+            exit 1
+        }
         Write-Host "  label: '$PagesLabel' on the tab title and the loading screen ($srcNote)"
+        Write-Host "  save : this page keeps its career in IndexedDB '$saveDb' (the game at the root keeps '/idbfs')"
     }
 
     # Orphan branch, force-pushed: the build is ~80 MB and committing each
@@ -588,6 +639,7 @@ if (-not $SkipDeploy) {
                 "PSX Racing test build: tools\build-and-publish.ps1 -PagesDir $PagesDir",
                 "A root publish (no -PagesDir) keeps every gh-pages folder holding this file.",
                 "label: $PagesLabel",
+                "save: IndexedDB $saveDb (the game at the site root keeps /idbfs)",
                 "source at publish: $srcNote",
                 "build stamp: $($st.Stamp) (the ?v= on this folder's index.html)",
                 ("published: " + [DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + " UTC")
