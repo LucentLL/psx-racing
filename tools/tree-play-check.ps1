@@ -12,7 +12,7 @@
 # Exit 0 = every reachable tree stopped the car; 1 = one did not, or the run threw.
 param([string]$Venue = "MtMitchell")
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

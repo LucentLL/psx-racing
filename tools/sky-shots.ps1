@@ -8,7 +8,7 @@
 # Scripts and Editor, which is everything EXCEPT the shaders, so a sky or fog
 # shader edit never reached the sandbox and the rerun photographed the old one.
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

@@ -16,7 +16,7 @@
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
 
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 
 # Shaders too: a stale copy of a shader in the sandbox is exactly how a bug

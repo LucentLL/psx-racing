@@ -13,7 +13,7 @@
 # Code and shaders only, on an already-built sandbox. Needs a graphics device
 # (the map is read back): no -nographics. Exit 0 = the shadows are honest.
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

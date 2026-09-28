@@ -5,7 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\dynsky-shots.ps1 [-Venue BlueRidge]
 param([string]$Venue = "BlueRidge")
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

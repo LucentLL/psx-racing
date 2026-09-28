@@ -526,6 +526,16 @@ namespace PSXRacing.EditorTools
                         gy.Add(hasGround ? g : float.NaN);
                         gOn.Add(what);
                     }
+                    // PSX_LATTICE_TRACE="836R": the whole probe row, shoulder over
+                    // lattice, for one half-section.
+                    string ltr = System.Environment.GetEnvironmentVariable("PSX_LATTICE_TRACE");
+                    if (!string.IsNullOrEmpty(ltr) && ltr == i + (side < 0f ? "L" : "R"))
+                    {
+                        var row = new StringBuilder($"  lattice trace wp {ltr}:");
+                        for (int k = 0; k < sy.Count; k++)
+                            row.Append($" {kerb + ShoulderPitchM * (k + 0.5f):0.00}:{(float.IsNaN(gy[k]) ? "-" : (sy[k] - gy[k]).ToString("0.000"))}");
+                        log.AppendLine(row.ToString());
+                    }
                     // The designed crossing: inward from the toe while the
                     // lattice is within the margin, as far as CrossingMaxM —
                     // and only if a probe further in has the full margin, so a

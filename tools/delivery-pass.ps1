@@ -11,7 +11,7 @@
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
 $src  = Split-Path -Parent $PSScriptRoot
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 
 Write-Host "--- mirror ---" -ForegroundColor Cyan
 foreach ($d in @("Assets", "Packages", "ProjectSettings")) {

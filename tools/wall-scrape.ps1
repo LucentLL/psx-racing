@@ -28,7 +28,7 @@
 # a suspect harness, or the run threw.
 param([string]$Only = "", [switch]$Filter)
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

@@ -6,7 +6,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\verify-pass.ps1
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 
 $jobs = @(
     @{ Name = "city audit";    Method = "PSXRacing.EditorTools.CityAudit.Run";       Out = "city_audit.txt" },

@@ -2,7 +2,7 @@
 # pass introduced from one it inherited. Point -Src at a git worktree.
 param([string]$Src = "C:\Users\mcgee\psxhead")
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
     robocopy "$Src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }

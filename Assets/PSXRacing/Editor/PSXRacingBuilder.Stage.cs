@@ -1377,16 +1377,38 @@ namespace PSXRacing.EditorTools
                     for (float e = eEnd; e < readTo; e += StageCarryReadPitchM) gaps.Add(new Vector2(e, Line(e) - Land(e)));
                     int inner = gaps.Count;
                     if (met)
-                        // The run-in ends where the AUDIT's does: at the first sample
-                        // with its 3 cm (not the solve's 6 cm catch margin). A graze
-                        // past a 0.035 m sample was run-in here and a failure there
-                        // (Little Switzerland wp 836 R, +0.030 m at 6.03 m).
-                        while (inner > 0 && gaps[inner - 1].y < RoadsideRules.LatticeUnderMinM && catchE - gaps[inner - 1].x <= StageCrossingAllowM)
+                        while (inner > 0 && gaps[inner - 1].y < StageCatchHoldM && catchE - gaps[inner - 1].x <= StageCrossingAllowM)
                             inner--;
                     bool graze = false;
                     for (int k = 0; k < inner && !graze; k++)
                         graze = gaps[k].y < RoadsideRules.LatticeUnderMinM + StageGrazeSlackM;
                     if (graze) { holdTo = gaps[inner - 1].x; grazes++; }
+
+                    // A DIP INSIDE THE RUN-IN. The run-in above is the solve's
+                    // (gap under the 6 cm catch margin); the terrain audit
+                    // excuses only the part under ITS 3 cm, counted inward from
+                    // the catch, and a sample under 3 cm with one nearer the catch
+                    // that has its 3 cm is a failure there (Little Switzerland wp
+                    // 836 R: +0.030 m at 6.03 m past a 0.035 m sample). Ending the
+                    // whole run-in at 3 cm instead flagged 841 slopes on Gillespie
+                    // Gap and the holds never converged, so only such a dip is
+                    // held - locally, and the catch itself does not move.
+                    bool margin = false;
+                    for (int k = gaps.Count - 1; k >= inner; k--)
+                    {
+                        // Margin as the AUDIT counts it (its 3 cm exactly): Little
+                        // Switzerland 836 R ran 0.066, 0.030, 0.033, 0.024 outward, and
+                        // the 0.033 sample is what makes the 0.030 one a failure.
+                        if (gaps[k].y >= RoadsideRules.LatticeUnderMinM) { margin = true; continue; }
+                        if (!margin || gaps[k].y >= RoadsideRules.LatticeUnderMinM + StageGrazeSlackM * 0.5f) continue;
+                        for (float h = gaps[k].x - 0.3f; h <= gaps[k].x + 0.3f; h += StageCarryHoldPitchM)
+                        {
+                            Vector3 q = at + outw * (half + h);
+                            into.Add(new Vector3(q.x, Line(h) - StageCatchHoldM, q.z));
+                        }
+                        grazes++;
+                        break;
+                    }
 
                     if (catchE < czEnd + window)
                     {

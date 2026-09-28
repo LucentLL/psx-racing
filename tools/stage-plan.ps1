@@ -6,7 +6,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\stage-plan.ps1 ChimneyRock -Plan "1049,666:80" -Wp "1048L"
 param([Parameter(Mandatory=$true)][string]$Ids, [string]$Plan = "", [string]$Wp = "")
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

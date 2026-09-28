@@ -10,7 +10,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\sea-shots.ps1 -Dynamic    (the computed sky: psx_sea_dyn_*)
 param([string]$Venue = "LangstonBridge,AtlanticBeachBridge", [switch]$Dynamic)
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

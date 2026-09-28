@@ -1,4 +1,4 @@
-﻿# Run one Unity batchmode job in the sandbox and DO NOT RETURN UNTIL IT IS DONE.
+# Run one Unity batchmode job in the sandbox and DO NOT RETURN UNTIL IT IS DONE.
 #
 # Dot-source it:  . "$PSScriptRoot\unity-wait.ps1"
 # then:           Invoke-UnityJob -UnityArgs @(...) -Log "$proj\build.log"
@@ -53,7 +53,7 @@ function Invoke-UnityJob {
         [Parameter(Mandatory = $true)][string]$Log,
         [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe",
         [int]$MaxMinutes = 40,
-        [string]$Project = "C:\Users\mcgee\PSXBuild"
+        [string]$Project = $(if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" })
     )
 
     if (Test-Path $Log) { Remove-Item $Log -Force }

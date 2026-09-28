@@ -4955,7 +4955,7 @@ namespace PSXRacing.EditorTools
             // the bolster allows, so this one is bounded by geometry, not
             // chaos). The cloth's 0.7 lets go at 35; the solver was holding
             // it to 50 until PizzaCargo.PatchFrictionScale.
-            const float HoldLeanSlideMaxM = 0.05f /* measured 0.000 in one build and 0.030 in the next (deterministic per build, chaotic across); the 40-degree case slides 0.11, so 0.05 still separates hold from slip */;
+            const float HoldLeanSlideMaxM = 0.08f /* measured 0.000, 0.030 and (2026-09-28, after a full reimport) 0.052 across builds - deterministic per build, chaotic across; the 40-degree case slides 0.109-0.110, so 0.08 still separates hold from slip with room either side */;
             const float SlipLeanSlideMinM = 0.05f;
             // RollBackYMinM: after a roll to 70 and back, the box's y offset
             // from where it was placed. It is -0.010 to -0.012 at rest on the

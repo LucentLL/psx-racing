@@ -12,7 +12,7 @@ param([switch]$SkipBuild)
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
 
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 
 if (-not $SkipBuild) {

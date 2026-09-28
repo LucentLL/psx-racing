@@ -1,4 +1,4 @@
-﻿# Rebuild PSX Racing and publish it to https://lucentll.github.io/psx-racing/
+# Rebuild PSX Racing and publish it to https://lucentll.github.io/psx-racing/
 #
 #   powershell -ExecutionPolicy Bypass -File tools\build-and-publish.ps1
 #   ...            -File tools\build-and-publish.ps1 -SkipBuild    (republish last build)
@@ -23,7 +23,7 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
 $unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe"
 $src   = Split-Path -Parent $PSScriptRoot
-$proj  = "C:\Users\mcgee\PSXBuild"
+$proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $pages = "C:\Users\mcgee\psx-pages"
 $repo  = "https://github.com/LucentLL/psx-racing.git"
 

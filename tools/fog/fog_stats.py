@@ -26,7 +26,7 @@ import glob
 import numpy as np
 from PIL import Image
 
-SHOTS = r"C:\Users\mcgee\PSXBuild\Screenshots"
+SHOTS = os.path.join(os.environ.get("PSX_SANDBOX", r"C:\Users\mcgee\PSXBuild"), r"Screenshots")
 CONTROL = "7nofog"
 MOVED = 12          # a channel step a player could see, out of 255
 

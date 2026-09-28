@@ -12,7 +12,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\trees-sync-back.ps1
 $ErrorActionPreference = "Stop"
 $src  = Split-Path -Parent $PSScriptRoot
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 
 $copied = 0
 $gen = "Assets\PSXRacing\Art\BRP\Gen"

@@ -5,7 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\race-play-check.ps1 -Venue GillespieGap -Seconds 150 -Seed 0
 param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "")
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

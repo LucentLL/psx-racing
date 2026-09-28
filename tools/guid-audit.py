@@ -30,7 +30,7 @@ GUID_RE = re.compile(rb"guid: ?([0-9a-f]{32})")
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\mcgee\PSXBuild"
+    root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ.get("PSX_SANDBOX", r"C:\Users\mcgee\PSXBuild"))
     assets = os.path.join(root, "Assets")
     if not os.path.isdir(assets):
         print("no Assets folder under " + root)

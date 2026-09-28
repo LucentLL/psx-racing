@@ -8,7 +8,7 @@
 # Code (and Resources/Art) are copied over the sandbox; no mirror, no other scene.
 param([Parameter(Mandatory=$true)][string]$Ids)
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 

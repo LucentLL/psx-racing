@@ -18,7 +18,7 @@ and the two renderer assets. Prints what it copied.
 import os, sys, filecmp, shutil
 
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SANDBOX = r'C:\Users\mcgee\PSXBuild'
+SANDBOX = os.path.join(os.environ.get("PSX_SANDBOX", r"C:\Users\mcgee\PSXBuild"))
 write = '--write' in sys.argv
 copied = []
 

@@ -7,7 +7,7 @@
 # anything about a scene.
 $ErrorActionPreference = "Stop"
 $unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe"
-$proj  = "C:\Users\mcgee\PSXBuild"
+$proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src   = Split-Path -Parent $PSScriptRoot
 
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {

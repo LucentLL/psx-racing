@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 $unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe"
 $src   = Split-Path -Parent $PSScriptRoot
-$proj  = "C:\Users\mcgee\PSXBuild"
+$proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 
 New-Item -ItemType Directory -Force $proj | Out-Null
 foreach ($d in @("Assets", "Packages", "ProjectSettings")) {

@@ -1,7 +1,7 @@
 # Run the self-test against whatever is ALREADY in the sandbox. No copy, no
 # mirror — for isolating one hand-patched variable without disturbing source.
 $ErrorActionPreference = "Stop"
-$proj = "C:\Users\mcgee\PSXBuild"
+$proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 Remove-Item "$proj\PSXRacing_selftest_log.txt" -ErrorAction SilentlyContinue
 $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
 Start-Process -FilePath "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe" -WindowStyle Hidden -ArgumentList @(
