@@ -322,6 +322,21 @@ namespace PSXRacing
         /// </summary>
         public static float RightCornerTop { get; private set; }
 
+        /// <summary>
+        /// Where the two round dials are, as FRACTIONS OF THE SCREEN: centre x,
+        /// centre y (from the bottom-left) and the x and y radius. Zero when
+        /// the twin-dial layout is not up (the cockpit's binnacle, or before
+        /// the first build).
+        ///
+        /// Published for the chase camera (2026-09-28): it keeps the car in
+        /// the lane between the dials. On a phone the touch wheel and pedals
+        /// push the dials in to ~0.37 and ~0.71 of the width, and a car framed
+        /// NFS-size would otherwise sit its rear corners under the rev
+        /// counter's rim.
+        /// </summary>
+        public static Vector4 TachCircle { get; private set; }
+        public static Vector4 SpeedoCircle { get; private set; }
+
         /// <summary>Everything the cockpit layout adds, under one parent so a
         /// rebuild is one Destroy rather than a hunt for stragglers.</summary>
         GameObject cockpitRoot;
@@ -494,6 +509,8 @@ namespace PSXRacing
             // the screen to clear a dial that has moved.
             CornerTop = 0f;
             RightCornerTop = 0f;
+            TachCircle = Vector4.zero;
+            SpeedoCircle = Vector4.zero;
 
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
@@ -621,6 +638,16 @@ namespace PSXRacing
                 CornerTop = tachPos.y + radius;
             }
             RightCornerTop = speedoPos.y + radius;
+
+            // For the chase camera's lane (see TachCircle). Anchored as above:
+            // the tach from the bottom-left, the speedo from the bottom-left on
+            // a touch screen and from the bottom-RIGHT on a PC.
+            {
+                float fw = Mathf.Max(1f, FrameWidth()), fh = Mathf.Max(1f, frame);
+                float tx = tachPos.x + tachAnchor.x * fw, sxp = speedoPos.x + speedoAnchor.x * fw;
+                TachCircle = new Vector4(tx / fw, tachPos.y / fh, radius / fw, radius / fh);
+                SpeedoCircle = new Vector4(sxp / fw, speedoPos.y / fh, radius / fw, radius / fh);
+            }
 
             // Everything above was created just now, so it is wearing the stock
             // depth-tested UI material and would vanish behind the bonnet in the

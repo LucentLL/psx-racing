@@ -419,7 +419,9 @@ namespace PSXRacing.LifeSim
         /// The two SYNTHETIC strips are excluded too, "for logic": a quarter
         /// mile of flat tarmac with a Christmas tree at one end is not a road
         /// anybody lives on, and a delivery that starts from a burnout box
-        /// reads as the game not knowing what a delivery is. The Bogue Banks
+        /// reads as the game not knowing what a delivery is. A venue marked
+        /// <c>noDelivery</c> is out too (Chimney Rock: a tourist lot up
+        /// hairpins no drop can make at par). The Bogue Banks
         /// bridges stay — drag PRESENTATION on a real road is still a real
         /// road with a house at the far end of it. Everything else is fair
         /// game: <see cref="DeliveryParSeconds"/> sizes the clock off the
@@ -453,7 +455,7 @@ namespace PSXRacing.LifeSim
                 var t = all[idx];
                 // A sprint on a loop is the loop's road a second time; the
                 // loop is in the pool already.
-                if (t.IsRoam || t.drag || t.IsSprintVariant) continue;
+                if (t.IsRoam || t.drag || t.IsSprintVariant || t.noDelivery) continue;
                 if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
                 return idx;
             }
@@ -471,7 +473,7 @@ namespace PSXRacing.LifeSim
                 // cheapest run in the catalog by a mile — and the venue the
                 // roll refuses on principle would be the one a dry tank
                 // always gets.
-                if (all[i].IsRoam || all[i].drag || all[i].IsSprintVariant) continue;
+                if (all[i].IsRoam || all[i].drag || all[i].IsSprintVariant || all[i].noDelivery) continue;
                 float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
                 if (need < least) { least = need; cheapest = i; }
             }

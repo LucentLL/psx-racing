@@ -125,6 +125,12 @@ namespace PSXRacing.EditorTools
             var auto = car.gameObject.AddComponent<AIDriver>();
             auto.path = rm.path;
             auto.skill = 0.9f;
+            // Driven like the rivals, it must shift like them: the player's car
+            // selects reverse on a held brake at a standstill, and the
+            // autopilot, holding the brake behind a queue on a grade, drove it
+            // backwards down Chimney Rock at 15 km/h ("WRONG WAY RX-7 Player").
+            // The builder sets this false on every AI car for the same reason.
+            car.allowReverse = false;
 
             // PSX_RACE_MISTAKE=0.3: hand every rival a driver error at that
             // fraction of the race (AIDriver.PlanMistake), to see what one does.
@@ -141,9 +147,53 @@ namespace PSXRacing.EditorTools
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SECONDS") ?? "150", out seconds);
             t0 = Time.time;
             var retiredAt = new Dictionary<CarController, float>();
-            while (Time.time - t0 < seconds && rm.State == RaceManager.RaceState.Racing)
+            // PSX_RACE_FINISH=1 (race-play-check.ps1 -Finish): the run is the
+            // whole race - it goes on past the player's flag until every rival
+            // has finished or retired (or the time is up), and every rival has
+            // to get there, neither stalled nor driving the wrong way.
+            bool toFinish = System.Environment.GetEnvironmentVariable("PSX_RACE_FINISH") == "1";
+            var finishedAt = new Dictionary<CarController, float>();
+            var wrongWay = new Dictionary<CarController, float>();
+            bool RivalsRunning()
+            {
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null || c == car) continue;
+                    var p = rm.GetProgress(c);
+                    if (p != null && !p.finished && !p.retired) return true;
+                }
+                return false;
+            }
+            while (Time.time - t0 < seconds &&
+                   (rm.State == RaceManager.RaceState.Racing || (toFinish && RivalsRunning())))
             {
                 yield return new WaitForSeconds(0.5f);
+                foreach (var c in rm.allCars)
+                {
+                    var p = c != null ? rm.GetProgress(c) : null;
+                    if (p == null) continue;
+                    if (p.finished && !finishedAt.ContainsKey(c))
+                    {
+                        finishedAt[c] = Time.time - t0;
+                        RacePlayCheck.Note($"FINISHED {c.name}{(c == car ? " (player, autopilot)" : "")} at {Time.time - t0:0}s");
+                    }
+                    if (p.finished || p.retired) continue;
+                    // Wrong way: moving, nose against the road's direction.
+                    Vector3 vel = c.Body != null ? Vector3.ProjectOnPlane(c.Body.linearVelocity, Vector3.up) : Vector3.zero;
+                    if (vel.sqrMagnitude < 9f) continue;
+                    // The car's own station (the race's progress hint): on a
+                    // switchback the NEAREST station can be on the leg the other
+                    // side of the hairpin, 13 m away and running the other way.
+                    int wi = rm.path.NearestIndex(c.transform.position, p.nearestIdx);
+                    Vector3 tan = Vector3.ProjectOnPlane(rm.path.GetTangent(wi), Vector3.up);
+                    if (Vector3.Angle(vel, tan) > 110f)
+                    {
+                        wrongWay.TryGetValue(c, out float had);
+                        wrongWay[c] = had + 0.5f;
+                        if (had < 0.25f)
+                            RacePlayCheck.Note($"WRONG WAY {c.name} at {Time.time - t0:0}s, wp {wi}, {vel.magnitude * 3.6f:0} km/h");
+                    }
+                }
                 foreach (var c in rm.allCars)
                 {
                     var ai = c != null ? c.GetComponent<AIDriver>() : null;
@@ -236,6 +286,29 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
             }
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
+            if (toFinish)
+            {
+                int rivalsHome = 0, stalled = 0;
+                float worstWrong = 0f;
+                string wrongWho = "";
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null) continue;
+                    var p = rm.GetProgress(c);
+                    if (c != car && p != null && (p.finished || p.retired)) rivalsHome++;
+                    if (c != car && p != null && !p.finished && !p.retired) stalled++;
+                    if (wrongWay.TryGetValue(c, out float w) && w > worstWrong) { worstWrong = w; wrongWho = c.name; }
+                }
+                RacePlayCheck.Check(rivalsHome == rivals && stalled == 0,
+                                    "every rival reaches the finish (or retires) within the run",
+                                    rivalsHome + " of " + rivals + (stalled > 0 ? ", " + stalled + " still out there" : ""));
+                RacePlayCheck.Check(finishedAt.Count >= rivals - retiredAt.Count, "and the finishers are counted",
+                                    finishedAt.Count + " finished");
+                // A spin can point a car backwards for a moment; a car that
+                // DRIVES the wrong way does it for seconds.
+                RacePlayCheck.Check(worstWrong <= 2f, "no car drives the wrong way for more than 2 s",
+                                    worstWrong > 0f ? wrongWho + " " + worstWrong.ToString("0.0") + " s" : "none");
+            }
             Done();
         }
 
@@ -267,13 +340,21 @@ namespace PSXRacing.EditorTools
                 string s = $"{Time.time - t0:0.00}s lat {lat:+0.0;-0.0} {Mathf.Abs(c.forwardSpeed) * 3.6f:0}kmh" +
                            $" st {c.steerInput:+0.00;-0.00} sl {slip:+0;-0} hd {head:+0;-0} vx {vAcross:+0.0;-0.0}" +
                            (ai != null ? $" line {ai.DebugLine:+0.0;-0.0} bias {ai.DebugBias:+0.0;-0.0}" +
-                                         (float.IsNegativeInfinity(ai.DebugLeftLimit) ? "" : $" LIM {ai.DebugLeftLimit:+0.0;-0.0}") : "");
+                                         (float.IsNegativeInfinity(ai.DebugLeftLimit) ? "" : $" LIM {ai.DebugLeftLimit:+0.0;-0.0}") +
+                                         // pedals, gear, and what the give-way asked for
+                                         $" th {c.throttleInput:0.00} br {c.brakeInput:0.00} g {c.currentGear}" +
+                                         (ai.DebugLift > 0f || ai.DebugTrafficBrake > 0f
+                                             ? $" give {ai.DebugLift:0.00}/{ai.DebugTrafficBrake:0.00}" : "") : "");
                 if (!trail.TryGetValue(c.name, out var q)) trail[c.name] = q = new Queue<string>();
                 q.Enqueue(s);
                 while (q.Count > 12) q.Dequeue();
+                lastPose[c.name] = (c.transform.position, c.transform.rotation);
             }
         }
         float lastTrail;
+        /// <summary>Each car's pose at its last trail sample (the recovery
+        /// note looks round where the car WAS, not where it was put).</summary>
+        readonly Dictionary<string, (Vector3 pos, Quaternion rot)> lastPose = new Dictionary<string, (Vector3, Quaternion)>();
 
         readonly List<string> kinds = new List<string>();
         readonly Dictionary<string, int> kindCount = new Dictionary<string, int>();
@@ -286,6 +367,24 @@ namespace PSXRacing.EditorTools
                                $"wp {rm.path.NearestIndex(c.transform.position)}: " +
                                (step < 0 ? $"NO clear station, seated on the centreline (asked lat {lat:+0.0;-0.0})"
                                          : $"{step} stations on, lat {lat:+0.0;-0.0}"));
+            // PSX_RACE_WHY=1: what the car was doing before it was put back,
+            // and what stood round it (the trail is from before the respawn:
+            // FixedUpdate has not sampled the new pose yet).
+            if (System.Environment.GetEnvironmentVariable("PSX_RACE_WHY") == "1")
+            {
+                if (trail.TryGetValue(c.name, out var tq))
+                    RacePlayCheck.Note("      trail: " + string.Join(" | ", tq));
+                var ts = TrafficSystem.Instance;
+                if (ts != null && lastPose.TryGetValue(c.name, out var pose))
+                    foreach (var rb in ts.Obstacles)
+                    {
+                        if (rb == null) continue;
+                        Vector3 lo = Quaternion.Inverse(pose.rot) * (rb.position - pose.pos);
+                        if (lo.z < -12f || lo.z > 40f || Mathf.Abs(lo.x) > 12f) continue;
+                        RacePlayCheck.Note($"      traffic {rb.name} {lo.z:+0;-0} m ahead, {lo.x:+0.0;-0.0} across, " +
+                                           $"{rb.linearVelocity.magnitude * 3.6f:0} km/h{(rb.useGravity ? ", WRECK" : "")}");
+                    }
+            }
         }
 
         void OnHit(CollisionResponder who, float speed, bool hard, string what)

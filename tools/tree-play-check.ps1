@@ -10,7 +10,7 @@
 # sandbox (Scripts and Editor copied over the top, no mirror).
 #
 # Exit 0 = every reachable tree stopped the car; 1 = one did not, or the run threw.
-param([string]$Venue = "MtMitchell")
+param([string]$Venue = "MtMitchell", [switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -26,7 +26,10 @@ Remove-Item "$proj\PSXRacing_tree_play_check.txt" -ErrorAction SilentlyContinue
 
 $env:PSX_TREE_VENUE = $Venue
 # NO -quit: this one enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\treeplay.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\treeplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TreePlayCheck.Run",
     "-logFile","$proj\treeplay.log","-accept-apiupdate") | Out-Null

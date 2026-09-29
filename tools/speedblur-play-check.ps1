@@ -14,6 +14,7 @@
 # assets there). WITH a graphics device: it reads pixels, so no -nographics.
 #
 # Exit code 0 = the report has no FAIL; 1 = it does, or the run threw.
+param([switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src   = Split-Path -Parent $PSScriptRoot
@@ -30,7 +31,10 @@ Remove-Item "$proj\PSXRacing_speedblur_play_check.txt" -ErrorAction SilentlyCont
 Get-ChildItem "$proj\Screenshots\speedblur_play_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 # NO -quit: this one enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\speedblurplay.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\speedblurplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.SpeedBlurPlayCheck.Run",
     "-logFile","$proj\speedblurplay.log","-accept-apiupdate") | Out-Null

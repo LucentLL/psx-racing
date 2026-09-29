@@ -5,6 +5,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools/brake-play-check.ps1
 #
+param([switch]$NoWatch, [int]$MaxMinutes = 30)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -19,7 +20,10 @@ Copy-Item "$src\Assets\PSXRacing\Resources\rg2_cars.json" "$proj\Assets\PSXRacin
 Remove-Item "$proj\PSXRacing_brake_play_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: it enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\brakeplay.log" -MaxMinutes 30 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\brakeplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.BrakePlayCheck.Run",
     "-logFile","$proj\brakeplay.log","-accept-apiupdate") | Out-Null

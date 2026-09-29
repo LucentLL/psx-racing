@@ -344,6 +344,16 @@ namespace PSXRacing
             /// be reversed for a real reason can say so, rather than the rule
             /// below growing a list of exceptions.</summary>
             public bool noReverse;
+            /// <summary>
+            /// Never a pizza drop (LifeRules.DeliveryTrackIndex skips it).
+            /// Set on Chimney Rock: a park road up to a tourist lot has no
+            /// door to deliver to, and its hairpins cannot be driven at the
+            /// delivery par pace (LifeRules.DeliveryParSpeed, 22 m/s) - a
+            /// grip-limited run takes ~215-220 s against a 201 s par, so every
+            /// drop would be late. Whether it should instead get a par of its
+            /// own is an economy call for the owner. Copied to the twin.
+            /// </summary>
+            public bool noDelivery;
 
             /// <summary>This entry IS a reverse of something else.</summary>
             public bool Reversed => !string.IsNullOrEmpty(reverseOf);
@@ -833,9 +843,9 @@ namespace PSXRacing
             //  descent could be a good sprint race", and "not every race needs
             //  to be a full circuit - you could take half of the Blowing Rock
             //  circuit and make it a sprint." SPRINTS, each with its twin (the
-            //  other direction), appended as ever. Two more - Chimney Rock and
-            //  NC 226 up to Gillespie Gap - are baked and held back: see
-            //  HeldBack.
+            //  other direction), appended as ever. Two more - NC 226 up to
+            //  Gillespie Gap (v19) and Chimney Rock (v20) - waited in HeldBack
+            //  for the stage builder and were appended after these when ready.
             //
             //  The accurate Little Switzerland loop - the Parkway from
             //  Gillespie Gap to the village, NC 226A down the south face, NC
@@ -879,24 +889,16 @@ namespace PSXRacing
                 dragLabel = "THE GAP",
                 minCornerR = 8f,        // the turn onto the ramp at the gap, past the finish
             },
-        };
 
-        /// <summary>
-        /// BAKED AND HELD BACK. Chimney Rock builds and, since 2026-09-27,
-        /// passes its roadside checks with nothing solid inside the barrier
-        /// line, no pockets but one, and ends that do not step (see the stage
-        /// builder's end pads, square hairpin wall ends and rock tops carried
-        /// to another leg's seam); what it still has is a few 0.1-0.3 m lips
-        /// where the shoulders of the two tightest hairpins' legs meet round
-        /// the turn's centre. It is held for SIZE: the shipped WebGL.data
-        /// stands at 99.6 MiB against GitHub's 100 MiB file limit, and 4.4 km
-        /// of stage is ~10 MB more. Not in <see cref="Authored"/> - a venue
-        /// appended and then taken away would move every twin twice - until
-        /// there is room; then appended, with a v20 remap like v19's (and
-        /// RemapV18Index must leave it out of the v18 list as well).
-        /// </summary>
-        public static readonly TrackDef[] HeldBack =
-        {
+            // Chimney Rock's park road, out of HeldBack (2026-09-29): held
+            // for build SIZE (the release budget took the data to ~81 MiB,
+            // room for it), its hairpins built at the park road's real 6.1 m
+            // with the stage builder's end pads, square hairpin wall ends,
+            // rock tops carried to another leg's seam, the inside of a
+            // hairpin's carried slope eased down to the land where the fold
+            // stops it (ShoulderTuckCapSlope), and a pad under the toe that
+            // crosses the apex over its pit (BuildApexPads). Appended - save
+            // v20 (RemapV19Index).
             new TrackDef
             {
                 id = "ChimneyRock",
@@ -916,14 +918,30 @@ namespace PSXRacing
                 stage = true,
                 stageData = "chimney_stage",
                 dragLabel = "THE CHIMNEY",
+                noDelivery = true,      // a tourist lot, and hairpins no drop can make at par
                 // 6.1 m at the top, 8-9 m on the climb, on OSM's own geometry.
-                // A front axle describes ~6.7 m at full lock and a 7 m road
-                // gives a car swung wide 2.6 m more than its centreline; the
-                // road's inner edge folds first, at 3.5 + 1.5 = 5.0. The bake
-                // (fetch_road.mjs) keeps the 5.5 it was cut to.
+                // A front axle describes ~6.7 m at full lock and a 6.1 m road
+                // gives a car swung wide 2.2 m more than its centreline; the
+                // road's inner edge folds first, at 3.05 + 1.5 = 4.55 m, under
+                // this floor. The bake (fetch_road.mjs) keeps the 5.5 it was
+                // cut to.
                 minCornerR = 5.5f,
             },
         };
+
+        /// <summary>
+        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
+        /// stage the builder does not yet handle well enough to ship. Empty
+        /// since Chimney Rock went into <see cref="Authored"/> (2026-09-29,
+        /// save v20); kept as the place the next one waits, because the stage
+        /// lab (tools\stage-lab.ps1), the rail shots, the lane audit and the
+        /// self-test's roadside sweep all build and measure what is in here
+        /// as well. A venue is NOT appended to Authored and then taken away
+        /// again - that would move every twin twice - so a road waits here
+        /// until it is ready; then it is appended, with a save remap like
+        /// v20's (see <see cref="RemapV19Index"/>).
+        /// </summary>
+        public static readonly TrackDef[] HeldBack = { };
 
         /// <summary>
         /// A reverse twin: the same venue driven backwards, named the way Gran
@@ -967,6 +985,8 @@ namespace PSXRacing
             stage = f.stage,
             stageData = f.stageData,
             minCornerR = f.minCornerR,
+            // Not a drop going up, not one coming down either.
+            noDelivery = f.noDelivery,
             reverseOf = f.id,
         };
 
@@ -1191,14 +1211,16 @@ namespace PSXRacing
         /// number. A constant, for the reason V10AuthoredCount is.</summary>
         public const int V17AuthoredCount = 18;
 
-        /// <summary>A venue index from a v12..v17 save, in today's list. Same
-        /// shape as <see cref="RemapV10Index"/>.</summary>
         /// <summary>
         /// A venue index from a v18 save, in today's list. v19 appended
         /// Gillespie Gap to the authored list, which moved its twins one place
         /// and the sprint sections after them two - so the shift is not one
-        /// number. Mapped by IDENTITY: the v18 list is today's without the
-        /// venues v19 added, and an old index is that list's id, found again.
+        /// number. Mapped by IDENTITY: the v18 list is today's list without
+        /// the venues v19 AND v20 added (every later append has to come off
+        /// it too, or the v18 list gains a venue it never had - with Chimney
+        /// Rock left in, v18's index 19 would read CHIMNEY ROCK and every v18
+        /// twin and sprint would land one place off), and an old index is
+        /// that list's id, found again.
         /// </summary>
         public static int RemapV18Index(int oldIndex)
         {
@@ -1206,7 +1228,8 @@ namespace PSXRacing
             {
                 var ids = new System.Collections.Generic.List<string>();
                 foreach (var d in All)
-                    if (System.Array.IndexOf(V19Added, d.id) < 0) ids.Add(d.id);
+                    if (System.Array.IndexOf(V19Added, d.id) < 0 &&
+                        System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
                 v18Ids = ids.ToArray();
             }
             if (oldIndex < 0) return oldIndex;
@@ -1218,6 +1241,36 @@ namespace PSXRacing
         static readonly string[] V19Added = { "GillespieGap", "GillespieGapRev" };
         static string[] v18Ids;
 
+        /// <summary>
+        /// A venue index from a v19 save, in today's list. v20 appended
+        /// Chimney Rock after Gillespie Gap: its twin went in after the other
+        /// twins (every twin but the new one stands, Gillespie's moved one
+        /// place) and every sprint section moved two. Same identity shape as
+        /// <see cref="RemapV18Index"/>: the v19 list is today's without the
+        /// venues v20 added. The id lists are read when this is CALLED, so
+        /// the order the static initialisers are written in does not matter.
+        /// </summary>
+        public static int RemapV19Index(int oldIndex)
+        {
+            if (v19Ids == null)
+            {
+                var ids = new System.Collections.Generic.List<string>();
+                foreach (var d in All)
+                    if (System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
+                v19Ids = ids.ToArray();
+            }
+            if (oldIndex < 0) return oldIndex;
+            if (oldIndex >= v19Ids.Length) return Mathf.Clamp(oldIndex, 0, All.Length - 1);
+            int now = IndexOf(v19Ids[oldIndex]);
+            return now >= 0 ? now : 0;
+        }
+        /// <summary>The venues v20 added. A Chimney Rock sprint section added
+        /// in the same release would join this list.</summary>
+        static readonly string[] V20Added = { "ChimneyRock", "ChimneyRockRev" };
+        static string[] v19Ids;
+
+        /// <summary>A venue index from a v12..v17 save, in today's list. Same
+        /// shape as <see cref="RemapV10Index"/>.</summary>
         public static int RemapV17Index(int oldIndex)
         {
             if (oldIndex < V17AuthoredCount) return Mathf.Max(0, oldIndex);

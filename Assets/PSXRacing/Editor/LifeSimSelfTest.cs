@@ -64,6 +64,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestRaceField), TestRaceField);
             Guard(nameof(TestBlacklist), TestBlacklist);
             Guard(nameof(TestTracks), TestTracks);
+            Guard(nameof(TestLaneLadder), TestLaneLadder);
             Guard(nameof(TestParkwayLoops), TestParkwayLoops);
             Guard(nameof(TestReplay), TestReplay);
             Guard(nameof(TestRaceMap), TestRaceMap);
@@ -1263,6 +1264,64 @@ namespace PSXRacing.EditorTools
                 if (pct > worst) worst = pct;
             }
             return worst;
+        }
+
+        /// <summary>
+        /// THE LANES ON A CIRCUIT OR STAGE RIBBON ARE EVEN. 2026-09-28, the
+        /// owner: "one side of the road looks wider than the other". The
+        /// painter kept a 12 ft lane on roads too narrow for two of them and
+        /// put the double yellow 3.658 m in from the left edge of every
+        /// real-width stage (6.1-6.7 m) - a 3.60 m lane beside a 2.68 m one on
+        /// the Parkway loops. Scene-free: the lane ladder for every venue's
+        /// width puts its lanes edge to edge with the centre line at the
+        /// middle, and the PNG the painter wrote (when this project holds one)
+        /// has its centre line at u = 0.5 and mirrored edge lines. The built
+        /// ribbons themselves are LaneAudit's (tools\verify.ps1).
+        /// </summary>
+        static void TestLaneLadder()
+        {
+            Line("lane ladder (circuit + stage road paint):");
+            var venues = new List<TrackCatalog.TrackDef>(TrackCatalog.Scened);
+            venues.AddRange(TrackCatalog.HeldBack);
+            int bad = 0, painted = 0, missing = 0, off = 0;
+            string first = null, firstPaint = null;
+            var seen = new HashSet<string>();
+            foreach (var t in venues)
+            {
+                if (t.city) continue;               // the city paints by road class
+                bool oneWay = t.drag || t.oneWay;
+                string key = t.roadWidth.ToString("0.00") + (oneWay ? " ow" : "");
+                if (!seen.Add(key)) continue;
+                PSXRacingBuilder.TrackLaneLadder(t.roadWidth, oneWay, out int perSide, out float shoulder, out float lane);
+                int count = oneWay ? perSide : perSide * 2;
+                float filled = 2f * shoulder + count * lane;
+                float centre = shoulder + perSide * lane;
+                bool ok = shoulder >= 0f && lane <= PSXRacing.City.RoadProfiles.LaneM + 1e-4f &&
+                          Mathf.Abs(filled - t.roadWidth) < 1e-3f &&
+                          (oneWay || Mathf.Abs(centre - t.roadWidth * 0.5f) < 1e-3f);
+                if (!ok)
+                {
+                    bad++;
+                    if (first == null)
+                        first = t.id + " " + t.roadWidth.ToString("0.00") + " m: " + count + " lanes of " + lane.ToString("0.000") +
+                                " + shoulders " + shoulder.ToString("0.000") + ", centre at " + centre.ToString("0.000");
+                }
+                for (int s = 0; s < PSXRacing.City.CityMeshes.SurfaceCount; s++)
+                {
+                    string png = PSXRacingBuilder.TrackRoadTexPath(t.roadWidth, oneWay, (PSXRacing.City.CityMeshes.Surface)s);
+                    var lines = LaneAudit.ReadLinesAt(png);
+                    if (lines == null) { missing++; continue; }
+                    painted++;
+                    string why = LaneAudit.PaintProblem(lines);
+                    if (why != null) { off++; if (firstPaint == null) firstPaint = System.IO.Path.GetFileName(png) + ": " + why; }
+                }
+            }
+            Check(bad == 0, "every venue's lanes fill its road edge to edge, the centre line at the middle, no lane over 12 ft",
+                  bad == 0 ? seen.Count + " widths" : bad + " do not, first " + first);
+            if (painted == 0) Skip("no track road PNG in this project to read (" + missing + " not drawn here)");
+            else
+                Check(off == 0, "every track road PNG paints its centre line at u = 0.5 with mirrored edge lines",
+                      off == 0 ? painted + " read" + (missing > 0 ? ", " + missing + " not drawn here" : "") : off + " do not, first " + firstPaint);
         }
 
         static void TestTracks()
@@ -6200,7 +6259,8 @@ namespace PSXRacing.EditorTools
                 mig.trackIndex = oldLsRev;
                 mig.bookings.Add(new RaceBooking { day = 3, trackIndex = oldLsRev });
                 LifeSimManager.Migrate(mig);
-                Check(mig.trackIndex == lsRev && mig.bookings[0].trackIndex == lsRev && mig.saveVersion == 19,
+                Check(mig.trackIndex == lsRev && mig.bookings[0].trackIndex == lsRev &&
+                      mig.saveVersion == new LifeState().saveVersion,
                       "a v17 save's LITTLE SWITZERLAND II is still that road after the migration",
                       TrackCatalog.At(mig.trackIndex).id);
             }
@@ -6209,24 +6269,121 @@ namespace PSXRacing.EditorTools
             // v18 save's sprint section - which moved past Gillespie and its
             // twin - is the same section after the migration.
             {
+                // IndexOf answers 0 (City Circuit) for an id it does not know,
+                // never -1: ask for the id back rather than for a sign.
                 int g = TrackCatalog.IndexOf("GillespieGap");
-                Check(g >= 0 && g < TrackCatalog.SceneCount && TrackCatalog.At(g).FinishIndex > 0,
+                Check(TrackCatalog.At(g).id == "GillespieGap" && g < TrackCatalog.SceneCount &&
+                      TrackCatalog.At(g).FinishIndex > 0,
                       "Gillespie Gap is an authored sprint with a finish", g);
+                // Everything appended since v18 that sits before the section
+                // moved it along: Gillespie and its twin (v19), Chimney Rock
+                // and its twin (v20).
                 int now = TrackCatalog.IndexOf("SwissNC226ALowerRev");
                 int shift = 0;
-                foreach (var id in new[] { "GillespieGap", "GillespieGapRev" })
+                foreach (var id in new[] { "GillespieGap", "GillespieGapRev", "ChimneyRock", "ChimneyRockRev" })
                 {
                     int k = TrackCatalog.IndexOf(id);
-                    if (k >= 0 && k < now) shift++;
+                    if (TrackCatalog.At(k).id == id && k < now) shift++;
                 }
+                Check(shift == 4, "four venues went in before a v18 save's NC 226A LOWER II", shift);
                 var mig18 = new LifeState { saveVersion = 18 };
                 mig18.trackIndex = now - shift;
                 mig18.bookings.Add(new RaceBooking { day = 3, trackIndex = now - shift });
                 LifeSimManager.Migrate(mig18);
-                Check(mig18.trackIndex == now && mig18.bookings[0].trackIndex == now && mig18.saveVersion == 19,
-                      "a v18 save's NC 226A LOWER II is still that section after the v19 migration",
+                Check(mig18.trackIndex == now && mig18.bookings[0].trackIndex == now &&
+                      mig18.saveVersion == new LifeState().saveVersion,
+                      "a v18 save's NC 226A LOWER II is still that section after the v19 and v20 migrations",
                       TrackCatalog.At(mig18.trackIndex).id);
                 Check(TrackCatalog.RemapV18Index(3) == 3, "and v18 authored indices stand");
+            }
+
+            // CHIMNEY ROCK (v20): the park road's switchbacks, appended after
+            // Gillespie Gap. In the list as the last scened venue, a sprint
+            // with a finish and a twin in the same scene; a v19 save's twins
+            // and sprint sections come out on the same road; and the trap the
+            // v18 remap had to be fixed for is pinned: no old index, from a
+            // v18 or a v19 save, may land on either Chimney Rock entry.
+            {
+                int c = TrackCatalog.IndexOf("ChimneyRock");
+                var cd = TrackCatalog.At(c);
+                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 1,
+                      "Chimney Rock is the last scened venue", c + " of " + TrackCatalog.SceneCount);
+                Check(cd.stage && !cd.loop && cd.FinishIndex > 0, "Chimney Rock is a stage sprint with a finish",
+                      cd.FinishIndex);
+                int cr = TrackCatalog.IndexOf("ChimneyRockRev");
+                Check(TrackCatalog.At(cr).id == "ChimneyRockRev" &&
+                      TrackCatalog.SceneIndex(cr) == TrackCatalog.SceneIndex(c),
+                      "and has its twin, raced in the same scene", cr);
+                // Never a pizza drop, either way up: the par pace (22 m/s)
+                // cannot be driven round its hairpins. The owner's call
+                // whether it gets a par of its own instead.
+                Check(cd.noDelivery && TrackCatalog.At(cr).noDelivery,
+                      "Chimney Rock and its twin are out of the delivery roll");
+                {
+                    // The rolls draw on UnityEngine.Random; hand its state back
+                    // afterwards, or every later check that reads a random tip
+                    // (the missed-shift dock, TestShiftRoster) sees another day.
+                    var keepRandom = Random.state;
+                    var ds = new LifeState { day = 1 };
+                    bool sentUp = false;
+                    for (int i = 0; i < 400 && !sentUp; i++)
+                    {
+                        int t = LifeRules.DeliveryTrackIndex(ds);
+                        if (t == c || t == cr) sentUp = true;
+                    }
+                    Random.state = keepRandom;
+                    Check(!sentUp, "and 400 rolls never send a drop up the park road");
+                }
+
+                var mig19 = new LifeState { saveVersion = 19 };
+                string[] probe = { "SwissNC226ALowerRev", "GillespieGapRev", "BlowingRockSprint" };
+                int[] moved = { 2, 1, 2 };
+                bool allSame = true;
+                string firstWrong = null;
+                for (int p = 0; p < probe.Length; p++)
+                {
+                    int nowIdx = TrackCatalog.IndexOf(probe[p]);
+                    int oldIdx = nowIdx - moved[p];
+                    var m = new LifeState { saveVersion = 19, trackIndex = oldIdx };
+                    m.bookings.Add(new RaceBooking { day = 3, trackIndex = oldIdx });
+                    m.blChallenge = new RankChallenge { trackIndex = oldIdx };
+                    LifeSimManager.Migrate(m);
+                    bool same = TrackCatalog.At(nowIdx).id == probe[p] && m.trackIndex == nowIdx &&
+                                m.bookings[0].trackIndex == nowIdx && m.blChallenge.trackIndex == nowIdx &&
+                                m.saveVersion == 20;
+                    if (!same) { allSame = false; if (firstWrong == null) firstWrong = probe[p] + " -> " + TrackCatalog.At(m.trackIndex).id; }
+                }
+                Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
+                      firstWrong ?? "all three");
+                LifeSimManager.Migrate(mig19);
+                Check(mig19.saveVersion == 20 && new LifeState().saveVersion == 20, "a v19 save migrates to v20, where new careers start");
+                Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
+                Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.IndexOf("GillespieGap"),
+                      "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));
+
+                // The trap: the v18 and v19 lists are today's without what was
+                // appended since. Leave an append in and every later index
+                // lands one place off - a v18 CITY CIRCUIT II would come back
+                // as CHIMNEY ROCK.
+                int oldLen18 = TrackCatalog.Count - 4, oldLen19 = TrackCatalog.Count - 2;
+                string leak = null;
+                for (int k = 0; k < oldLen18 && leak == null; k++)
+                {
+                    string id = TrackCatalog.At(TrackCatalog.RemapV18Index(k)).id;
+                    if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v18 " + k + " -> " + id;
+                }
+                for (int k = 0; k < oldLen19 && leak == null; k++)
+                {
+                    string id = TrackCatalog.At(TrackCatalog.RemapV19Index(k)).id;
+                    if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v19 " + k + " -> " + id;
+                }
+                Check(leak == null, "no v18 or v19 index lands on Chimney Rock", leak ?? "none of " + oldLen18 + " / " + oldLen19);
+
+                bool both = false;
+                foreach (var h in TrackCatalog.HeldBack)
+                    foreach (var a in TrackCatalog.All)
+                        if (a.id == h.id) both = true;
+                Check(!both, "no venue is both held back and in the list");
             }
 
             // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
@@ -9467,7 +9624,6 @@ namespace PSXRacing.EditorTools
 
             // ---- the camera rig --------------------------------------------
             float full = ChaseCamera.DefaultSpeedFullMps;
-            float pull = ChaseCamera.DefaultChaseSpeedFOV;
             Check(ChaseCamera.SpeedT(0f, full) == 0f, "the speed rig is fully off at rest");
             Check(Mathf.Approximately(ChaseCamera.SpeedT(full, full), 1f), "and fully wound in at 200 km/h");
             bool mono = true; float prevT = -1f;
@@ -9481,14 +9637,88 @@ namespace PSXRacing.EditorTools
             Check(ChaseCamera.SpeedT(10f, full) < 0.1f, "and nearly nothing at town speed (36 km/h)",
                   ChaseCamera.SpeedT(10f, full).ToString("0.000"));
 
-            float fovRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, pull, full);
-            float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, pull, full);
-            float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, pull, full);
-            Check(fovRest == 58f, "chase FOV at rest is the scene camera's 58", fovRest);
-            Check(fov100 > 60f && fov100 < 64f, "chase FOV at 100 km/h is ~62 — a pull you feel, not a lens you notice", fov100.ToString("0.0"));
-            Check(Mathf.Abs(fov200 - 66f) < 0.1f, "chase FOV at 200 km/h is 66 (was 76, which read as a boost effect)", fov200.ToString("0.0"));
-            float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, pull, full);
-            float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, pull, full);
+            // The chase pair's lenses are the NFS U / MW rig's (2026-09-28),
+            // not offsets from the scene's 58: FOVFor ignores baseFOV for them.
+            float fovRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, full);
+            float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, full);
+            float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, full);
+            Check(fovRest == 58f, "chase FOV at rest is 58 at 16:9 (MW05's far camera, hFOV 89)", fovRest);
+            Check(fov100 > 59f && fov100 < 61f, "chase FOV at 100 km/h is ~60 — a pull you feel, not a lens you notice", fov100.ToString("0.0"));
+            Check(Mathf.Abs(fov200 - 61.5f) < 0.1f,
+                  "chase FOV at 200 km/h is 61.5 (was 66 on top of a 0.9 m pull-back: the car shrank by a third, MW's by 5-9%)",
+                  fov200.ToString("0.0"));
+            float phoneRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, full, 19.5f / 9f);
+            Check(Mathf.Abs(phoneRest - 48.9f) < 0.2f,
+                  "a 19.5:9 phone holds the 16:9 HORIZONTAL field (vertical ~48.9, not 58: the car would shrink by a fifth)",
+                  phoneRest.ToString("0.0"));
+            Check(ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full) == 54f,
+                  "the close chase has its own, longer lens: 54 at 16:9 (MW05's close camera)",
+                  ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full));
+            // Every shell the catalog can put a player in has a rear silhouette
+            // for the chase rig's width fit; without one the car is framed as a
+            // box (the probe's numbers only hold for shells with a row).
+            var noSil = new System.Collections.Generic.List<string>();
+            foreach (var m in CarModelLibrary.Models)
+                if (!ChaseSilhouettes.TryGet(m.key, out _)) noSil.Add(m.key);
+            Check(noSil.Count == 0, "every body shell has a chase-camera silhouette row (Camera Framing Probe -Emit)",
+                  string.Join(", ", noSil));
+            // The fit on the reference FD at 16:9: a quarter of the frame, lens
+            // off the tail inside the rig's range, over the roof, and the NFS
+            // pitch (the reference: CHASE 2 +-1 deg, CLOSE 4.5 +-1).
+            {
+                var fdShell = CarModelLibrary.Load(CarModelLibrary.Default);
+                if (fdShell != null)
+                {
+                    var fr = ChaseCamera.FrameOf(fdShell.colliderCenter,
+                        new Vector3(fdShell.colliderSize.x * CarModelLibrary.WidthScale(fdShell, 0), fdShell.colliderSize.y, fdShell.colliderSize.z),
+                        fdShell, fdShell.wheelbase, CarModelLibrary.WidthScale(fdShell, 0), 0);
+                    var fit = ChaseCamera.Fit(ChaseCamera.View.Chase, 16f / 9f, fr, default);
+                    Check(fit.D >= ChaseCamera.FarRig.dMin && fit.D <= ChaseCamera.FarRig.dMax,
+                          "the FD's chase lens stands inside the rig's range off its tail", fit.D.ToString("0.00") + " m");
+                    Check(fit.h0 >= fdShell.roofY + 0.25f,
+                          "and high enough over its roof to show the road", fit.h0.ToString("0.00") + " m");
+                    var shape = ChaseCamera.Shape(ChaseCamera.View.Chase, fit, 0f, 16f / 9f);
+                    Check(shape.pitch >= 1f && shape.pitch <= 3f, "and nearly level, NFS-style (pitch 2 +-1 deg)",
+                          shape.pitch.ToString("0.0"));
+                    var closeFit = ChaseCamera.Fit(ChaseCamera.View.Close, 16f / 9f, fr, default);
+                    var closeShape = ChaseCamera.Shape(ChaseCamera.View.Close, closeFit, 0f, 16f / 9f);
+                    Check(closeShape.pitch >= 3.5f && closeShape.pitch <= 5.5f && closeFit.D < fit.D,
+                          "and the close view nearer, pitched 4.5 +-1 deg (not the 7-15 deg of a lens looking down on the car)",
+                          closeShape.pitch.ToString("0.0") + " deg, " + closeFit.D.ToString("0.00") + " m");
+                    // ON A HILL the rig stands in the road's frame: the pose on
+                    // a 7% grade, seen from the car, is the level pose exactly.
+                    // A level rig (the lens a fixed height over the car, aimed
+                    // along the level) loses the road over the roof on every
+                    // descent — the CLOSE FD's grazing line met a -7% road
+                    // 400 m out or never (tools\camframe-play-check.ps1).
+                    var carGo = new GameObject("SelfTestGradeCar");
+                    try
+                    {
+                        float gDeg = Mathf.Atan(0.07f) * Mathf.Rad2Deg;
+                        var ct = carGo.transform;
+                        ct.SetPositionAndRotation(new Vector3(10f, 5f, -3f), Quaternion.Euler(0f, 30f, 0f));
+                        ChaseCamera.PoseOf(closeShape, ct, out Vector3 lvlPos, out Quaternion lvlRot);
+                        Vector3 lvlLocal = ct.InverseTransformPoint(lvlPos);
+                        Quaternion lvlLocalRot = Quaternion.Inverse(ct.rotation) * lvlRot;
+                        ct.rotation = Quaternion.Euler(-gDeg, 30f, 0f);   // nose up the grade
+                        ChaseCamera.PoseOf(closeShape, ct, out Vector3 upPos, out Quaternion upRot, gDeg);
+                        float dp = (ct.InverseTransformPoint(upPos) - lvlLocal).magnitude;
+                        float da = Quaternion.Angle(Quaternion.Inverse(ct.rotation) * upRot, lvlLocalRot);
+                        Check(dp < 0.001f && da < 0.01f,
+                              "on a 7% climb the close lens stands, seen from the car, exactly where it does on the level (the rig turns onto the grade)",
+                              dp.ToString("0.0000") + " m, " + da.ToString("0.000") + " deg");
+                    }
+                    finally { Object.DestroyImmediate(carGo); }
+                }
+            }
+            // The grade is low-passed off the car's travel: fast enough to
+            // hold the lens over the roof through a K 25 vertical curve at
+            // 200 km/h, slow enough that a bump's heave does not tip the view.
+            Check(ChaseCamera.GradeFollowRate >= 2f && ChaseCamera.GradeFollowRate <= 6f && ChaseCamera.GradeMaxDeg >= 8f,
+                  "the chase rig follows the road's grade at 2-6 /s, to at least 8 deg",
+                  ChaseCamera.GradeFollowRate + " /s, " + ChaseCamera.GradeMaxDeg + " deg");
+            float hoodMax = ChaseCamera.FOVFor(ChaseCamera.View.Hood, 58f, 90f, full);
+            float bumperMax = ChaseCamera.FOVFor(ChaseCamera.View.Bumper, 58f, 90f, full);
             Check(hoodMax <= ChaseCamera.HoodMaxFOV, "the hood cam never passes its 80 deg cap", hoodMax);
             Check(bumperMax <= ChaseCamera.BumperMaxFOV, "nor the bumper cam its 86", bumperMax);
             // The near-plane geometry MountClearance was sized against: the
@@ -9500,7 +9730,7 @@ namespace PSXRacing.EditorTools
                   "at the hood cam's widest lens (" + hoodMax.ToString("0") + " deg) the bonnet enters the " +
                   "frame past the near plane with margin",
                   entry.ToString("0.000") + " m vs " + ChaseCamera.MountNearClip + " m x1.2");
-            Check(ChaseCamera.FOVFor(ChaseCamera.View.TopDown, 58f, 90f, pull, full) == 52f,
+            Check(ChaseCamera.FOVFor(ChaseCamera.View.TopDown, 58f, 90f, full) == 52f,
                   "top-down gets no pull at all");
 
             Check(ChaseCamera.RollDegFor(0.5f) == 0f, "no camera roll under the roll's start latG");
