@@ -245,7 +245,7 @@ namespace PSXRacing.EditorTools
             tex.SetPixels32(px);
             tex.Apply();
             string file = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_plan_" + id + "_" + w + ".png");
-            File.WriteAllBytes(file, tex.EncodeToPNG());
+            ShotSidecar.WritePng(file, tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             sb.Append("  hit:");
             foreach (var kv in names) if (kv.Value > N * N / 400) sb.Append(" " + kv.Key + " " + kv.Value);

@@ -104,7 +104,7 @@ namespace PSXRacing.EditorTools
                 o.SetPixel(x, y, c);
             }
             o.Apply();
-            File.WriteAllBytes(Path.Combine(OutDir, key + "_atlas.png"), o.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(OutDir, key + "_atlas.png"), o.EncodeToPNG());
             Object.DestroyImmediate(src); Object.DestroyImmediate(o);
         }
 
@@ -124,7 +124,7 @@ namespace PSXRacing.EditorTools
                 tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                 tex.Apply();
                 RenderTexture.active = prev;
-                File.WriteAllBytes(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
+                ShotSidecar.WritePng(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
                 Object.DestroyImmediate(tex);
             }
             rt.Release();

@@ -55,12 +55,19 @@ namespace PSXRacing.EditorTools
             var args = Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length - 1; i++)
                 if (args[i] == "-psxOutput") outDir = args[i + 1];
+            // -psxDevelopment: a DEVELOPMENT player (the colour harness,
+            // Scripts\Dev\ShotLink.cs, wakes only in one), uncompressed so it
+            // builds faster and any static server serves it. Never published:
+            // build-and-publish.ps1 does not pass it.
+            development = Array.IndexOf(args, "-psxDevelopment") >= 0;
 
             // THE EDITION: -psxEdition MAIN|CITY|ALL (tools\build-and-publish.ps1
             // passes it; a root publish is MAIN, a -PagesDir city publish CITY).
             int code = Run(outDir, EditionTarget.Current) ? 0 : 1;
             EditorApplication.Exit(code);
         }
+
+        static bool development;
 
         static bool Run(string outDir, EditionKind edition)
         {
@@ -109,8 +116,8 @@ namespace PSXRacing.EditorTools
                 // after a successful forty-minute build. Uncompressed was never
                 // really free either — Pages was gzipping the whole 48 MB on
                 // every single request before this.
-                PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
-                PlayerSettings.WebGL.decompressionFallback = true;
+                PlayerSettings.WebGL.compressionFormat = development ? WebGLCompressionFormat.Disabled : WebGLCompressionFormat.Brotli;
+                PlayerSettings.WebGL.decompressionFallback = !development;
                 PlayerSettings.WebGL.dataCaching = true;
                 PlayerSettings.WebGL.linkerTarget = WebGLLinkerTarget.Wasm;
                 PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.None;
@@ -142,8 +149,9 @@ namespace PSXRacing.EditorTools
                     locationPathName = outDir,
                     target = BuildTarget.WebGL,
                     targetGroup = BuildTargetGroup.WebGL,
-                    options = BuildOptions.None,
+                    options = development ? BuildOptions.Development : BuildOptions.None,
                 };
+                if (development) Debug.Log("[PSXBuildWebGL] DEVELOPMENT build (uncompressed) - never published");
                 // THE SWITCH. The player's scripts compile with the edition's
                 // define (Edition.Baked); nothing is written to the project, so
                 // nothing needs restoring and nothing leaks into the editor.
@@ -182,7 +190,7 @@ namespace PSXRacing.EditorTools
                 SplashLine(outDir, edition);
                 File.WriteAllText(Path.Combine(outDir, "psx-edition.txt"), ed + "\n");
                 File.WriteAllText(Path.Combine(outDir, "build_ok.txt"),
-                    $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB edition {ed}");
+                    $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB edition {ed}" + (development ? " DEVELOPMENT" : ""));
                 return true;
             }
             catch (Exception e)

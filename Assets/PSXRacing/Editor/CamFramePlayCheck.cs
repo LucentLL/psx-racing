@@ -711,7 +711,7 @@ namespace PSXRacing.EditorTools
                 RenderTexture.active = prev == rt || prev == shown ? null : prev;
                 if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
                 Directory.CreateDirectory(OutDir);
-                File.WriteAllBytes(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
+                ShotSidecar.WritePng(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
                 Object.DestroyImmediate(tex);
             }
             cam.targetTexture = target;

@@ -1288,7 +1288,14 @@ namespace PSXRacing.EditorTools
                 if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
 
                 var big = PointDouble(tex);
-                File.WriteAllBytes(Path.Combine(OutDir, fileName + ".png"), big.EncodeToPNG());
+                // The eye, for the sidecar: two frames are one shot only if
+                // this matches too.
+                ShotSidecar.Pending["camera"] = new Dictionary<string, object>
+                {
+                    ["pos"] = pos, ["euler"] = rot.eulerAngles, ["fov"] = cam.fieldOfView,
+                    ["width"] = big.width, ["height"] = big.height, ["framebuffer"] = new Vector2(rt.width, rt.height),
+                };
+                ShotSidecar.WritePng(Path.Combine(OutDir, fileName + ".png"), big.EncodeToPNG());
                 if (big != tex) Object.DestroyImmediate(big);
                 Object.DestroyImmediate(tex);
             }

@@ -21,6 +21,7 @@ Remove-Item "$proj\PSXRacing_selftest_log.txt" -ErrorAction SilentlyContinue
 $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
 Start-Process -FilePath $unity -WindowStyle Hidden -ArgumentList @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
+    "-buildTarget",$(if ($env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET } else { "WebGL" }),
     "-executeMethod","PSXRacing.EditorTools.LifeSimSelfTest.Run",
     "-logFile","$proj\selftest.log","-accept-apiupdate") | Out-Null
 

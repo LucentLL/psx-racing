@@ -1100,7 +1100,7 @@ namespace PSXRacing.EditorTools
             { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
             tex.SetPixels32(px);
             tex.Apply();
-            File.WriteAllBytes(Path.Combine(OutDir, "centred_" + Path.GetFileName(tl.path)), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(OutDir, "centred_" + Path.GetFileName(tl.path)), tex.EncodeToPNG());
             return tex;
         }
 
@@ -1146,10 +1146,10 @@ namespace PSXRacing.EditorTools
                         for (int x = 0; x < PhoneW; x++)
                             dst[y * PhoneW + x] = src[Mathf.Min(h - 1, y * h / PhoneH) * w + Mathf.Min(w - 1, x * w / PhoneW)];
                     big.SetPixels32(dst); big.Apply();
-                    File.WriteAllBytes(file, big.EncodeToPNG());
+                    ShotSidecar.WritePng(file, big.EncodeToPNG());
                     Object.DestroyImmediate(big);
                 }
-                else File.WriteAllBytes(file, tex.EncodeToPNG());
+                else ShotSidecar.WritePng(file, tex.EncodeToPNG());
             }
             else Debug.LogWarning("[Lanes] RenderRequest unsupported");
             cam.targetTexture = keepTarget;

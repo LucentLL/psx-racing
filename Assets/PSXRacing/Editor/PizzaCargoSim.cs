@@ -105,7 +105,7 @@ namespace PSXRacing.EditorTools
             tex.Apply();
             RenderTexture.active = prev;
             cam.targetTexture = null;
-            File.WriteAllBytes(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             rt.Release();
             Object.DestroyImmediate(rt);
@@ -1563,7 +1563,7 @@ namespace PSXRacing.EditorTools
             LastClearFraction = clear / (float)(W * H);
             Debug.Log("[PizzaSim] " + name + " is " +
                       (LastClearFraction * 100f).ToString("0") + "% transparent");
-            File.WriteAllBytes(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             cam.targetTexture = null;
             rt.Release();
