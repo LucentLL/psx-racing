@@ -68,16 +68,16 @@
     }
   },
   "dem": {
-    "version": 2,
-    "nx": 811,
-    "nz": 916,
-    "cell": 60,
+    "version": 3,
+    "nx": 1621,
+    "nz": 1831,
+    "cell": 30,
     "x0": -26158.3,
     "z0": -21898.3,
     "datum_m": 97,
     "scale_m": 0.1,
     "min_asl": 97.5,
-    "max_asl": 293.3
+    "max_asl": 294.3
   },
   "bld": {
     "version": 1,
@@ -92,20 +92,20 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 3052736,
-      "sha256": "1010373729107d3df6a1ffdcf9021d7c2590179c1cd68ebbe32b8ee08216da14"
+      "bytes": 3052800,
+      "sha256": "1e6496f270847a9577d170bf0e5c1b3f5c6bf0a32ee03a9f2b3c41e4e6ac7e9a"
     },
     "charlotte_dem.bytes": {
-      "bytes": 1485788,
-      "sha256": "683cc978fac5fe958b1522c3ad262aa1ff040407114284cc57989862e31afbda"
+      "bytes": 3174661,
+      "sha256": "eab411f020ba9caa4c55cbd69073bf217ee4797a19cf4a16f9c7f8c7ace0e841"
     },
     "charlotte_bld.bytes": {
       "bytes": 1742686,
       "sha256": "01edae01ac7d007e1aa7b7b3e530b2662fe5252654d129048ea378843ca4655d"
     },
     "charlotte_routes.json": {
-      "bytes": 16538,
-      "sha256": "fd63b91df928bfacd38b31256ef1e96aba5adfd50d024359cd328ae740a14578"
+      "bytes": 16603,
+      "sha256": "acdacb4cc83781e34617cf36853209b2651c5f63a56e9c57155cc4b4e494822a"
     }
   },
   "generated": {

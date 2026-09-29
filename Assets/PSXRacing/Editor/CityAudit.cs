@@ -2422,7 +2422,7 @@ namespace PSXRacing.EditorTools
                 if (ok) bedsOk++;
                 string held = holdEdge >= 0 ? $", held up there by e{holdEdge} '{map.edges[holdEdge].name}''s corridor (WP-14)" : "";
                 Line($"    creek {t.id,-14} 3DEP 1 m bed {t.bedASL:0.00} m: carved terrain {tMin + datum:0.00} ({err:+0.00;-0.00}); graded ground {gMin + datum:0.00} ({gErr:+0.00;-0.00}{held}); " +
-                     $"60 m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); {water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
+                     $"{CityElevation.DemCellM:0} m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); {water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
             }
             Check(bedsOk == CreekTransects.Length, $"every creek transect's bed is within {CreekBedTolM:0.0} m of 3DEP on the carved terrain (terrain fidelity, critic C2)",
                   $"{bedsOk} of {CreekTransects.Length}");

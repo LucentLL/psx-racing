@@ -56,7 +56,8 @@
 //   charlotte_city.bytes    PSXC v2: a section table, then META NODE NAME EDGE
 //                           PNTS WATR WBED XING SPAN ROUT and GHSH, the graph
 //                           hash (WBED, the creek beds, since WP-04b)
-//   charlotte_dem.bytes     PDEM v2: height grid, datum pinned at 97.0 m
+//   charlotte_dem.bytes     PDEM v3: the 30 m height grid in delta-coded
+//                           blocks (lib/pdem3.mjs), datum pinned at 97.0 m
 //   charlotte_bld.bytes     PBLD v1: footprints
 //   charlotte_routes.json   the menu's copy of the routes
 //   tools/city/charlotte_*.png   debug plots (with --out only; gitignored)
@@ -91,6 +92,7 @@ import { load3dep } from './lib/dem3dep.mjs';
 import { buildWaters, waterInputPaths } from './lib/water.mjs';
 import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
 import { readCredits } from './lib/sources.mjs';
+import { encodePdem3 } from './lib/pdem3.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -145,7 +147,11 @@ const XDEDUP_M = 8;                    // two crossings of one pair closer than 
 const BANK_M = 6;                      // dry bank either side of water under a deck
 /// The creek beds (WBED) are stored as u16 centimetres above the datum.
 const BED_UNITS = 100;
-const DEM_CELL = 60;                   // metres per height sample
+/// Metres per height sample: 30 since WP-13 (60 from WP-04). The roads still
+/// read a 60 m grid (CityElevation.BuildRoadDem rebuilds it from these nodes),
+/// so the 30 m nodes are the 60 m lattice's nodes and the midpoints between.
+const DEM_CELL = 30;
+const ROAD_GRID_CELL = 60;
 const DEM_MARGIN = 1500;
 /// THE DATUM, metres above sea level: world y = 0. PINNED (WP-02). It was
 /// floor(lowest grid height) - 2, which is 97 on today's grid (lowest 99.2 m,
@@ -164,7 +170,7 @@ const DEM_SCALE = 1 / DEM_UNITS;
 /// would otherwise wrap to a 6.5 km spike, or be silently flattened. The two
 /// boxes are the quarry pits USGS 3DEP puts below 97.5 m: the Pineville
 /// Quarry floor (69.1 m in the 1/3" DEM) and the Arrowood Quarry (89.5 m on
-/// the 30 m grid), so a pit loses up to ~27 m of depth on the 60 m grid
+/// the 30 m grid), so a pit loses up to ~28 m of depth on the 30 m grid
 /// (WP-04; the skadi grid before it never went below 99.2 m).
 /// Keyed by the OpenStreetMap way that outlines each pit (ODbL); boxes are
 /// [south, west, north, east] in degrees, ~100 m beyond the cells.
@@ -675,12 +681,13 @@ const nodeCtl = new Uint8Array(nodes.length);
 }
 
 // ------------------------------------------------------------------- DEM
-const demNX = Math.ceil((bbox.x1 - bbox.x0) / DEM_CELL) + 1;
-const demNZ = Math.ceil((bbox.z1 - bbox.z0) / DEM_CELL) + 1;
+const demK = ROAD_GRID_CELL / DEM_CELL;
+const demNX = demK * Math.ceil((bbox.x1 - bbox.x0) / ROAD_GRID_CELL) + 1;
+const demNZ = demK * Math.ceil((bbox.z1 - bbox.z0) / ROAD_GRID_CELL) + 1;
 console.log(`DEM grid ${demNX} x ${demNZ} at ${DEM_CELL} m over ${((bbox.x1 - bbox.x0) / 1000).toFixed(1)} x ${((bbox.z1 - bbox.z0) / 1000).toFixed(1)} km`);
 // Every node is the MEAN of the 3DEP 1/3" pixels (about 8.4 x 10.3 m) whose
-// centres lie in its own 60 m cell: an area average, so the grid neither
-// aliases the 10 m detail nor loses the ridges and valleys a 60 m grid can
+// centres lie in its own 30 m cell: an area average, so the grid neither
+// aliases the 10 m detail nor loses the ridges and valleys a 30 m grid can
 // hold. NOTHING FILTERS IT AFTERWARDS. The opening (erode, dilate), closing
 // and Gaussian that stood here until WP-04 were written against radar
 // "roofs": the source was taken to be SRTM with uptown's towers 200 m proud.
@@ -1154,17 +1161,14 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   console.log(`charlotte_city.bytes ${(bytes.length / 1024).toFixed(0)} KB (PSXC v2: ${[...sec].map(([t, b]) => `${t} ${(b.length / 1024).toFixed(0)}`).join(', ')} KB); graph hash ${hashHex(ghash)}`);
 }
 
-// ---- DEM: PDEM v2 (the v1 header plus the scale the reader multiplies by)
+// ---- DEM: PDEM v3 (WP-13): the v2 header, then the grid in delta-coded
+// blocks the game decodes one at a time (lib/pdem3.mjs has the layout)
 {
-  const w = new Writer();
-  w.u32(0x4D454450); // "PDEM"
-  w.u32(2);
-  w.u32(demNX); w.u32(demNZ);
-  w.f32(bbox.x0); w.f32(bbox.z0); w.f32(DEM_CELL); w.f32(demBase); w.f32(DEM_SCALE);
-  for (let i = 0; i < dem.length; i++) w.u16(Math.round(Math.max(0, dem[i] - demBase) * DEM_UNITS));
-  const bytes = w.bytes();
+  const q = new Uint16Array(dem.length);
+  for (let i = 0; i < dem.length; i++) q[i] = Math.round(Math.max(0, dem[i] - demBase) * DEM_UNITS);
+  const bytes = encodePdem3({ nx: demNX, nz: demNZ, x0: bbox.x0, z0: bbox.z0, cell: DEM_CELL, base: demBase, scale: DEM_SCALE, q });
   emit('charlotte_dem.bytes', bytes);
-  console.log(`charlotte_dem.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  console.log(`charlotte_dem.bytes ${(bytes.length / 1024).toFixed(0)} KB (PDEM v3, ${demNX} x ${demNZ} at ${DEM_CELL} m in ${Math.ceil((demNX - 1) / 32) * Math.ceil((demNZ - 1) / 32)} blocks)`);
 }
 
 // ---- buildings

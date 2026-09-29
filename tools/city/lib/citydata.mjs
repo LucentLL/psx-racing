@@ -43,6 +43,8 @@
 //            | EDGE with each edge's n x f32 x, z inline after its u16 n
 //            | WATR | XING | SPAN | ROUT              (no table, no hash)
 //
+//   PDEM v3  the v2 header, then u32 B, nbx, nbz, a block index and the grid
+//            in delta-coded blocks (lib/pdem3.mjs; WP-13, the 30 m grid)
 //   PDEM v2  u32 magic | i32 ver 2 | u32 nx, nz | f32 x0, z0, cell, base, scale
 //            | nx*nz u16 (u16 * scale = metres above base)
 //   PDEM v1  the same without scale (it was 0.1, hard-coded in the reader)
@@ -52,6 +54,7 @@
 // Edge flags: 1 link, 2 oneway, 4 bridge, 8 tunnel, 16 centre turn lane, 32 roundabout.
 
 import { crc32 } from 'node:zlib';
+import { decodePdem3 } from './pdem3.mjs';
 
 export const LANE_M = 3.6576;
 export const STATION_STEP = 10;          // CityElevation.StationStep
@@ -262,6 +265,7 @@ export function parseCity(buf) {
 }
 
 export function parseDem(buf) {
+  if (buf.length >= 8 && buf.readUInt32LE(0) === 0x4D454450 && buf.readInt32LE(4) === 3) return demFromGrid(decodePdem3(buf));
   const r = new Reader(buf);
   if (r.u32() !== 0x4D454450) throw new Error('charlotte_dem.bytes: bad magic');
   const version = r.i32();
@@ -285,6 +289,49 @@ export function parseDem(buf) {
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
   };
   return { version, nx, nz, x0, z0, cell, base, scale, h, at, asl: (x, z) => at(x, z) + base };
+}
+
+/// A decoded PDEM v3 grid as parseDem returns every version: heights in
+/// metres above the base (the f32 scale taken as the double the v1/v2 reader
+/// uses for 0.1), and CityElevation.BaseY's bilinear read.
+function demFromGrid(g) {
+  const { nx, nz, x0, z0, cell, base, scale, q } = g;
+  const mul = scale === Math.fround(0.1) ? 0.1 : scale;
+  const h = new Float32Array(nx * nz);
+  for (let i = 0; i < h.length; i++) h[i] = q[i] * mul;
+  const at = (x, z) => {
+    const fx = (x - x0) / cell, fz = (z - z0) / cell;
+    const ix = Math.min(nx - 2, Math.max(0, Math.floor(fx))), iz = Math.min(nz - 2, Math.max(0, Math.floor(fz)));
+    const tx = Math.min(1, Math.max(0, fx - ix)), tz = Math.min(1, Math.max(0, fz - iz));
+    const a = h[iz * nx + ix], b = h[iz * nx + ix + 1], c = h[(iz + 1) * nx + ix], d = h[(iz + 1) * nx + ix + 1];
+    return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+  };
+  return { version: g.version, nx, nz, x0, z0, cell, base, scale, block: g.B, h, q, at, asl: (x, z) => at(x, z) + base };
+}
+
+/// The 60 m grid the ROADS read (CityElevation.BuildRoadDem, WP-13): the 30 m
+/// nodes weighted [1/4, 1/2, 1/4] each way onto every second node, in the
+/// stored steps, edges divided by the weight they got; float32 like the game.
+/// A grid already at 60 m comes back as its steps.
+export function roadGridSteps(dem, roadCell = 60) {
+  const q = dem.q || Uint16Array.from(dem.h, v => Math.round(v / (dem.scale === Math.fround(0.1) ? 0.1 : dem.scale)));
+  const f = Math.max(1, Math.round(roadCell / dem.cell)) === 2 ? 2 : 1;
+  const nx = Math.floor((dem.nx - 1) / f) + 1, nz = Math.floor((dem.nz - 1) / f) + 1;
+  const out = new Float32Array(nx * nz);
+  if (f === 1) { for (let i = 0; i < out.length; i++) out[i] = q[i]; return { nx, nz, cell: dem.cell * f, steps: out }; }
+  const F = Math.fround;
+  for (let iz = 0; iz < dem.nz; iz++) {
+    const z0 = iz >> 1, zOdd = iz & 1;
+    for (let ix = 0; ix < dem.nx; ix++) {
+      const v = q[iz * dem.nx + ix], x0 = ix >> 1, xOdd = ix & 1;
+      const add = (zz, xx, w) => { if (zz < nz && xx < nx) out[zz * nx + xx] = F(out[zz * nx + xx] + F(w * v)); };
+      if (!zOdd) { if (!xOdd) add(z0, x0, 0.25); else { add(z0, x0, 0.125); add(z0, x0 + 1, 0.125); } }
+      else for (let zz = z0; zz <= z0 + 1; zz++) { if (!xOdd) add(zz, x0, 0.125); else { add(zz, x0, 0.0625); add(zz, x0 + 1, 0.0625); } }
+    }
+  }
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++)
+    out[z * nx + x] = F(out[z * nx + x] / F((z === 0 || z === nz - 1 ? 0.75 : 1) * (x === 0 || x === nx - 1 ? 0.75 : 1)));
+  return { nx, nz, cell: dem.cell * f, steps: out };
 }
 
 export function parseBld(buf) {

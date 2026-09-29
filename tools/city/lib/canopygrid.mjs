@@ -58,11 +58,16 @@ export function loadCanopyRaster(year = 2024) {
   return { meta, px, at, u8Path: u8 };
 }
 
-/// The DEM's lattice, off charlotte_dem.bytes' PDEM header.
+/// The canopy's lattice: the 60 m lattice of charlotte_dem.bytes' PDEM
+/// header. Since WP-13 the DEM is a 30 m grid whose every second node is that
+/// lattice (the roads' grid); the canopy stays on it (its PCAN header carries
+/// its own lattice, and a crown-density map gains nothing at 30 m).
 export function demLattice(demBytes) {
   const b = demBytes;
   if (b.toString('latin1', 0, 4) !== 'PDEM') throw new Error('charlotte_dem.bytes: bad magic');
-  return { nx: b.readInt32LE(8), nz: b.readInt32LE(12), x0: b.readFloatLE(16), z0: b.readFloatLE(20), cell: b.readFloatLE(24) };
+  const lat = { nx: b.readInt32LE(8), nz: b.readInt32LE(12), x0: b.readFloatLE(16), z0: b.readFloatLE(20), cell: b.readFloatLE(24) };
+  if (Math.round(60 / lat.cell) === 2) { lat.nx = (lat.nx - 1) / 2 + 1; lat.nz = (lat.nz - 1) / 2 + 1; lat.cell = 60; }
+  return lat;
 }
 
 export const MagicCanopy = 'PCAN';

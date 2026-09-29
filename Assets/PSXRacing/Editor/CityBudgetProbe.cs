@@ -360,7 +360,9 @@ namespace PSXRacing.EditorTools
             if (cityTa != null)
             {
                 byte[] a = cityTa.bytes, b = bldTa != null ? bldTa.bytes : null;
-                long demBytes = demTa != null ? demTa.bytes.Length : 0;
+                // what the grid holds resident (WP-13: the v3 blob and its block
+                // cache; before, the whole ushort[]), not the file's length
+                long demBytes = demTa != null ? CityElevation.DemResidentBytes : 0;
                 System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();
                 long before = System.GC.GetTotalMemory(true);
                 var again = CityMap.Parse(a, b);
@@ -369,7 +371,7 @@ namespace PSXRacing.EditorTools
                 L("");
                 L($"solve phases: {CityElevation.LastSolvePhases}");
                 L($"parse {CityMap.LastParseMs:0} ms, solve {CityMap.LastSolveMs:0} ms (editor); the parsed + solved map holds {heldMb:0.0} MB of managed heap " +
-                  $"({again.edges.Length} edges, {again.footprints.Length} footprints); the DEM array is {demBytes / (1024f * 1024f):0.0} MB more (ushort[], loaded once); " +
+                  $"({again.edges.Length} edges, {again.footprints.Length} footprints); the DEM holds {demBytes / (1024f * 1024f):0.0} MB more (PDEM v{CityElevation.DemVersion}: {(CityElevation.DemVersion >= 3 ? "the compressed blocks and " + CityElevation.BlockCacheSlots + " decoded" : "the whole ushort[]")}, {CityElevation.BlockDecodes} block decodes so far); " +
                   $"data bytes: city {a.Length / 1024} KB, bld {(b != null ? b.Length / 1024 : 0)} KB, dem {demBytes / 1024} KB");
                 summary.Add($"budget: parse {CityMap.LastParseMs:0} ms + solve {CityMap.LastSolveMs:0} ms, map heap {heldMb:0.0} MB (+{demBytes / (1024f * 1024f):0.0} MB DEM)");
                 System.GC.KeepAlive(again);

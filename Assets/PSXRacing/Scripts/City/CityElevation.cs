@@ -9,9 +9,9 @@ namespace PSXRacing.City
     ///
     /// The circuits' rule carries over whole: the land is graded TO the road,
     /// never the other way round. Every edge starts life following the real
-    /// ground (a 60 m SRTM grid, see <see cref="BaseY"/>), smoothed and
-    /// grade-limited (the grid is the USGS 3DEP bare earth averaged over each
-    /// 60 m cell since WP-04, no longer filtered); then OpenStreetMap's FACTS
+    /// ground (the 60 m road grid, see <see cref="RoadBaseY"/>), smoothed and
+    /// grade-limited (the USGS 3DEP bare earth averaged over each 60 m cell,
+    /// rebuilt from the 30 m land grid since WP-13); then OpenStreetMap's FACTS
     /// turn into structure:
     ///
     ///   bridge=yes on an edge     -> the whole edge is a deck: it holds a
@@ -207,23 +207,52 @@ namespace PSXRacing.City
             e.cls >= 5 && !e.link ? 0.04f : e.link ? 0.08f : e.cls == 4 ? 0.05f : e.cls == 0 ? 0.08f : 0.065f;
 
         // ------------------------------------------------------------------
-        //  Base terrain: the real one. A 60 m grid baked by the exporter from
-        //  USGS 3DEP 1/3" bare earth, each node the mean of its 60 m cell
-        //  (WP-04; until then the AWS skadi tiles, opened, closed and blurred
-        //  flat), bilinear per query. Heights are metres above the DATUM, pinned at 97.0 m ASL
-        //  (WP-02; it used to be the grid's lowest point less two metres, and
-        //  would have moved with the ground), so world y = 0 is 97 m ASL.
+        //  Base terrain: the real one. A 30 m grid baked by the exporter from
+        //  USGS 3DEP 1/3" bare earth, each node the mean of its 30 m cell
+        //  (WP-13; 60 m from WP-04, and before that the AWS skadi tiles,
+        //  opened, closed and blurred flat), bilinear per query. Heights are
+        //  metres above the DATUM, pinned at 97.0 m ASL (WP-02; it used to be
+        //  the grid's lowest point less two metres, and would have moved with
+        //  the ground), so world y = 0 is 97 m ASL.
         //
-        //  PDEM v2 header: u32 'PDEM' | i32 2 | u32 nx, nz | f32 x0, z0,
-        //  cell, base, scale | nx*nz u16, where u16 * scale is metres above
-        //  base. v1 had no scale (0.1, hard-coded here until WP-02) and is
-        //  still read.
+        //  PDEM v3 (WP-13): u32 'PDEM' | i32 3 | u32 nx, nz | f32 x0, z0,
+        //  cell, base, scale | u32 B, nbx, nbz | u32 off[nbx*nbz + 1] |
+        //  payload. The grid is cut into blocks of B x B cells (B + 1 nodes a
+        //  side, one node shared with the next block, so a cell never
+        //  straddles two), each node a zigzag varint residual against a
+        //  planar prediction from the nodes before it (tools/city/lib/
+        //  pdem3.mjs writes it). The compressed blob is all that stays
+        //  resident: a block is decoded when a query first lands in it, into
+        //  a cache of BlockCacheSlots blocks (a tile build touches one to
+        //  four), so the whole u16 grid (5.9 MB at 30 m) is never held.
+        //
+        //  PDEM v2 / v1 (a plain nx*nz u16 grid after the header; v1 without
+        //  the scale, 0.1 hard-coded) are still read: the grid is then one
+        //  resident array, as it was.
         // ------------------------------------------------------------------
         const uint MagicDem = 0x4D454450;   // "PDEM"
         static bool demTried;
-        static int demNX, demNZ;
+        static int demNX, demNZ, demVersion;
         static float demX0, demZ0, demCell, demBase, demScale = 0.1f;
+        /// <summary>v1/v2: the whole grid.</summary>
         static ushort[] dem;
+        /// <summary>v3: the blocks' bytes, where their payload starts, and
+        /// each block's offset into it.</summary>
+        static byte[] demBlob;
+        static int demPay, demB, demNBX, demNBZ;
+        static int[] demOff;
+        /// <summary>v3: how many decoded blocks are held. 128 blocks of
+        /// 33 x 33 nodes are 279 KB; the road grid's one pass over the city
+        /// (BuildRoadDem) walks a row of 51 blocks at a time.</summary>
+        public const int BlockCacheSlots = 128;
+        static ushort[][] slotData;
+        static int[] slotBlock, blockSlot;
+        static int slotHand;
+        /// <summary>Blocks decoded since the grid loaded (the budget probe's
+        /// cache census).</summary>
+        public static long BlockDecodes { get; private set; }
+
+        static bool DemLoaded => dem != null || demBlob != null;
 
         static void EnsureDem()
         {
@@ -232,18 +261,19 @@ namespace PSXRacing.City
             var ta = Resources.Load<TextAsset>("charlotte_dem");
             if (ta == null) { Debug.LogWarning("[City] charlotte_dem.bytes missing — using value-noise terrain"); return; }
             // Take the bytes and let the asset go BEFORE the grid is built,
-            // so the TextAsset's copy and the ushort[] are never both held.
+            // so the TextAsset's copy and the grid are never both held.
             byte[] bytes = ta.bytes;
             Resources.UnloadAsset(ta);
             LoadDem(bytes);
         }
 
         /// <summary>
-        /// Install a height grid from PDEM bytes (v1 or v2), wherever they
+        /// Install a height grid from PDEM bytes (v1, v2 or v3), wherever they
         /// came from: Resources today (<see cref="EnsureDem"/>), a separately
-        /// downloaded Charlotte data file later (plan WP-29, critic C46). The
-        /// u16 payload is block-copied, not read one value at a time. Returns
-        /// false (and keeps the previous grid) on a bad header.
+        /// downloaded Charlotte data file later (plan WP-29, critic C46). v3
+        /// keeps the bytes themselves (the blocks decode from them on demand);
+        /// v1/v2's u16 payload is block-copied, not read one value at a time.
+        /// Returns false (and keeps the previous grid) on a bad header.
         /// </summary>
         public static bool LoadDem(byte[] bytes)
         {
@@ -251,64 +281,181 @@ namespace PSXRacing.City
             if (bytes == null || bytes.Length < 32) { Debug.LogError("[City] charlotte_dem.bytes: too short"); return false; }
             int version, nx, nz, headLen;
             float x0, z0, cell, bas, scale;
+            int B = 0, nbx = 0, nbz = 0;
+            int[] off = null;
             using (var r = new BinaryReader(new MemoryStream(bytes)))
             {
                 if (r.ReadUInt32() != MagicDem) { Debug.LogError("[City] charlotte_dem.bytes: bad magic"); return false; }
                 version = r.ReadInt32();
-                if (version != 1 && version != 2) { Debug.LogError("[City] charlotte_dem.bytes: version " + version + " (reader knows 1 and 2)"); return false; }
+                if (version < 1 || version > 3) { Debug.LogError("[City] charlotte_dem.bytes: version " + version + " (reader knows 1, 2 and 3)"); return false; }
                 nx = r.ReadInt32(); nz = r.ReadInt32();
                 x0 = r.ReadSingle(); z0 = r.ReadSingle(); cell = r.ReadSingle(); bas = r.ReadSingle();
                 scale = version >= 2 ? r.ReadSingle() : 0.1f;
+                if (version >= 3)
+                {
+                    B = r.ReadInt32(); nbx = r.ReadInt32(); nbz = r.ReadInt32();
+                    if (B < 1 || nbx != (nx - 2) / Mathf.Max(1, B) + 1 || nbz != (nz - 2) / Mathf.Max(1, B) + 1 || (long)12 * 4 + 4L * (nbx * nbz + 1) > bytes.Length)
+                    { Debug.LogError($"[City] charlotte_dem.bytes: v3 block table {nbx} x {nbz} of {B} does not fit a {nx} x {nz} grid"); return false; }
+                    off = new int[nbx * nbz + 1];
+                    for (int k = 0; k < off.Length; k++) off[k] = (int)r.ReadUInt32();
+                }
                 headLen = (int)r.BaseStream.Position;
             }
-            long want = (long)nx * nz * 2;
-            if (nx < 2 || nz < 2 || !(cell > 0f) || !(scale > 0f) || headLen + want != bytes.Length)
+            if (nx < 2 || nz < 2 || !(cell > 0f) || !(scale > 0f))
             {
-                Debug.LogError($"[City] charlotte_dem.bytes: header says {nx} x {nz} (cell {cell}, scale {scale}) but holds {bytes.Length - headLen} bytes of grid");
+                Debug.LogError($"[City] charlotte_dem.bytes: header says {nx} x {nz} (cell {cell}, scale {scale})");
                 return false;
             }
-            var grid = new ushort[nx * nz];
-            if (System.BitConverter.IsLittleEndian) System.Buffer.BlockCopy(bytes, headLen, grid, 0, (int)want);
-            else for (int i = 0; i < grid.Length; i++) grid[i] = (ushort)(bytes[headLen + 2 * i] | bytes[headLen + 2 * i + 1] << 8);
+            if (version >= 3)
+            {
+                if (headLen + (long)off[off.Length - 1] != bytes.Length)
+                {
+                    Debug.LogError($"[City] charlotte_dem.bytes: v3 index says {off[off.Length - 1]} bytes of blocks, the file holds {bytes.Length - headLen}");
+                    return false;
+                }
+                demBlob = bytes; demPay = headLen; demOff = off; demB = B; demNBX = nbx; demNBZ = nbz;
+                blockSlot = new int[nbx * nbz];
+                for (int k = 0; k < blockSlot.Length; k++) blockSlot[k] = -1;
+                slotData = new ushort[BlockCacheSlots][];
+                slotBlock = new int[BlockCacheSlots];
+                for (int k = 0; k < BlockCacheSlots; k++) slotBlock[k] = -1;
+                slotHand = 0;
+                BlockDecodes = 0;
+                dem = null;
+            }
+            else
+            {
+                long want = (long)nx * nz * 2;
+                if (headLen + want != bytes.Length)
+                {
+                    Debug.LogError($"[City] charlotte_dem.bytes: header says {nx} x {nz} (cell {cell}, scale {scale}) but holds {bytes.Length - headLen} bytes of grid");
+                    return false;
+                }
+                var grid = new ushort[nx * nz];
+                if (System.BitConverter.IsLittleEndian) System.Buffer.BlockCopy(bytes, headLen, grid, 0, (int)want);
+                else for (int i = 0; i < grid.Length; i++) grid[i] = (ushort)(bytes[headLen + 2 * i] | bytes[headLen + 2 * i + 1] << 8);
+                dem = grid;
+                demBlob = null; demOff = null; blockSlot = null; slotData = null; slotBlock = null;
+            }
+            demVersion = version;
             demNX = nx; demNZ = nz; demX0 = x0; demZ0 = z0; demCell = cell; demBase = bas; demScale = scale;
-            dem = grid;
             return true;
         }
 
+        /// <summary>The decoded block (bx, bz), <paramref name="w"/> nodes a
+        /// row: from the cache, or decoded into the next slot round.</summary>
+        static ushort[] Block(int bx, int bz, out int w)
+        {
+            w = Mathf.Min(demB, demNX - 1 - bx * demB) + 1;
+            int id = bz * demNBX + bx;
+            int slot = blockSlot[id];
+            if (slot >= 0) return slotData[slot];
+            slot = slotHand;
+            slotHand = (slotHand + 1) % BlockCacheSlots;
+            if (slotBlock[slot] >= 0) blockSlot[slotBlock[slot]] = -1;
+            var data = slotData[slot] ??= new ushort[(demB + 1) * (demB + 1)];
+            int h = Mathf.Min(demB, demNZ - 1 - bz * demB) + 1;
+            int p = demPay + demOff[id];
+            var src = demBlob;
+            for (int j = 0; j < h; j++)
+                for (int i = 0; i < w; i++)
+                {
+                    uint z = 0; int sh = 0; byte c;
+                    do { c = src[p++]; z |= (uint)(c & 0x7F) << sh; sh += 7; } while ((c & 0x80) != 0);
+                    int res = (z & 1) != 0 ? -(int)((z + 1) >> 1) : (int)(z >> 1);
+                    int k = j * w + i;
+                    int pred = i == 0 && j == 0 ? 0
+                             : j == 0 ? data[k - 1]
+                             : i == 0 ? data[k - w]
+                             : data[k - 1] + data[k - w] - data[k - w - 1];
+                    data[k] = (ushort)(pred + res);
+                }
+            slotBlock[slot] = id;
+            blockSlot[id] = slot;
+            BlockDecodes++;
+            return data;
+        }
+
+        /// <summary>One grid node's stored step (v1/v2 array or v3 block).</summary>
+        static int Node(int ix, int iz)
+        {
+            if (dem != null) return dem[iz * demNX + ix];
+            int bx = Mathf.Min(ix / demB, demNBX - 1), bz = Mathf.Min(iz / demB, demNBZ - 1);
+            var blk = Block(bx, bz, out int w);
+            return blk[(iz - bz * demB) * w + ix - bx * demB];
+        }
+
         /// <summary>Metres per stored height step (the PDEM header's scale).</summary>
-        public static float DemScale { get { EnsureDem(); return dem != null ? demScale : 0f; } }
+        public static float DemScale { get { EnsureDem(); return DemLoaded ? demScale : 0f; } }
+        /// <summary>Metres between the grid's nodes (30 since WP-13).</summary>
+        public static float DemCellM { get { EnsureDem(); return DemLoaded ? demCell : 0f; } }
+        public static int DemVersion { get { EnsureDem(); return DemLoaded ? demVersion : 0; } }
+        /// <summary>What the grid holds resident: v3's compressed blob and the
+        /// decoded block cache, or v1/v2's whole array.</summary>
+        public static long DemResidentBytes
+        {
+            get
+            {
+                EnsureDem();
+                if (dem != null) return dem.LongLength * 2;
+                if (demBlob == null) return 0;
+                long n = demBlob.LongLength + (demOff.LongLength + blockSlot.LongLength + slotBlock.LongLength) * 4;
+                foreach (var s in slotData) if (s != null) n += s.LongLength * 2;
+                return n;
+            }
+        }
 
         /// <summary>The DEM's datum in metres above sea level: add it to a
         /// world y to get an altitude. 0 without a DEM.</summary>
-        public static float DatumASL { get { EnsureDem(); return dem != null ? demBase : 0f; } }
-        public static bool HasDem { get { EnsureDem(); return dem != null; } }
+        public static float DatumASL { get { EnsureDem(); return DemLoaded ? demBase : 0f; } }
+        public static bool HasDem { get { EnsureDem(); return DemLoaded; } }
 
         public static float BaseY(float x, float z)
         {
             EnsureDem();
-            if (dem == null) return NoiseY(x, z);
+            if (!DemLoaded) return NoiseY(x, z);
             x /= CityMap.LayoutScale; z /= CityMap.LayoutScale;
             float fx = (x - demX0) / demCell, fz = (z - demZ0) / demCell;
             int ix = Mathf.Clamp(Mathf.FloorToInt(fx), 0, demNX - 2);
             int iz = Mathf.Clamp(Mathf.FloorToInt(fz), 0, demNZ - 2);
             float tx = Mathf.Clamp01(fx - ix), tz = Mathf.Clamp01(fz - iz);
-            float a = dem[iz * demNX + ix], b = dem[iz * demNX + ix + 1];
-            float c = dem[(iz + 1) * demNX + ix], d = dem[(iz + 1) * demNX + ix + 1];
+            float a, b, c, d;
+            if (dem != null)
+            {
+                a = dem[iz * demNX + ix]; b = dem[iz * demNX + ix + 1];
+                c = dem[(iz + 1) * demNX + ix]; d = dem[(iz + 1) * demNX + ix + 1];
+            }
+            else
+            {
+                // ix <= nx - 2, so the cell's four nodes are in this one block
+                int bx = Mathf.Min(ix / demB, demNBX - 1), bz = Mathf.Min(iz / demB, demNBZ - 1);
+                var blk = Block(bx, bz, out int w);
+                int k = (iz - bz * demB) * w + ix - bx * demB;
+                a = blk[k]; b = blk[k + 1]; c = blk[k + w]; d = blk[k + w + 1];
+            }
             return ((a * (1f - tx) + b * tx) * (1f - tz) + (c * (1f - tx) + d * tx) * tz) * demScale;
         }
 
         // ------------------------------------------------------------------
         //  THE ROADS' GROUND (WP-04). The solve reads the grid through a
-        //  Gaussian of RoadDemSigmaCells cells; the land (Ground) reads it raw.
-        //  On the real 3DEP ground two carriageways 20-40 m apart, or a ramp
-        //  and the road it runs inside, sampled the grid's local slope at
-        //  their own centrelines and came out at different heights (1.85 m
-        //  between I-277's squeezed carriageways, a 2.5 m step where a slip
-        //  lane changes host), which the filtered grid had hidden. Smoothing
-        //  what the ROADS read, not the land, puts every road that shares a
-        //  hillside on the same hill; the corridor grading still meets the
-        //  real land beside them. WP-06 replaces it with measured road
-        //  profiles (plan R2).
+        //  Gaussian of RoadDemSigmaCells cells of a 60 m grid; the land
+        //  (Ground) reads the 30 m grid raw. On the real 3DEP ground two
+        //  carriageways 20-40 m apart, or a ramp and the road it runs inside,
+        //  sampled the grid's local slope at their own centrelines and came
+        //  out at different heights (1.85 m between I-277's squeezed
+        //  carriageways, a 2.5 m step where a slip lane changes host), which
+        //  the filtered grid had hidden. Smoothing what the ROADS read, not
+        //  the land, puts every road that shares a hillside on the same hill;
+        //  the roadside grading still meets the real land beside them. WP-06
+        //  replaces it with measured road profiles (plan R2).
+        //
+        //  WP-13: the roads keep reading a 60 m grid. It is rebuilt from the
+        //  30 m nodes with the [1/4, 1/2, 1/4] weights each way, which is the
+        //  60 m cell's area mean again (a 60 m cell is its own 30 m cell and
+        //  half of each neighbour's), so the solved roads stay where WP-04 put
+        //  them and only the land beside them gains the finer ground. It also
+        //  keeps the one transient array at 811 x 916 floats (3 MB) instead of
+        //  the 30 m grid's 12 MB.
         // ------------------------------------------------------------------
         public static float RoadDemSigmaCells = ReadRoadSigma();
         static float ReadRoadSigma()
@@ -318,33 +465,84 @@ namespace PSXRacing.City
             return v != null && float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) ? f : RoadDemSigmaDefault;
         }
         public const float RoadDemSigmaDefault = 0.8f;
+        /// <summary>The cell of the grid the roads read (see above).</summary>
+        public const float RoadGridCellM = 60f;
         static float[] roadDem;
+        static int roadNX, roadNZ;
+        static float roadCell;
 
         /// <summary>The grid the solve reads (see RoadDemSigmaCells), built at
         /// the start of a solve and dropped at its end.</summary>
         static void BuildRoadDem()
         {
             roadDem = null;
-            if (dem == null || !(RoadDemSigmaCells > 0.05f)) return;
-            int nx = demNX, nz = demNZ;
+            if (!DemLoaded || !(RoadDemSigmaCells > 0.05f)) return;
+            // 30 m nodes -> the 60 m grid (every second node, 1-2-1 each way)
+            int f = Mathf.Max(1, Mathf.RoundToInt(RoadGridCellM / demCell));
+            if (f != 1 && f != 2) f = 1;
+            int nx = (demNX - 1) / f + 1, nz = (demNZ - 1) / f + 1;
+            // ONE grid-sized array (3 MB for 811 x 916): the coarse grid is
+            // built into it, its rows are blurred through a row buffer, then
+            // each column in place through a column buffer. A second full
+            // array would be 3 MB more of a phone's WebGL heap at load, which
+            // never shrinks.
+            var outp = new float[nx * nz];
+            if (f == 1)
+            {
+                for (int z = 0; z < nz; z++) for (int x = 0; x < nx; x++) outp[z * nx + x] = Node(x, z);
+            }
+            else
+            {
+                // row by row of 30 m nodes, so the block cache walks one row of
+                // blocks at a time; each node adds its weight to the coarse
+                // nodes it belongs to, and the edges divide by what they got
+                for (int iz = 0; iz < demNZ; iz++)
+                {
+                    int z0 = iz / 2; bool zOdd = (iz & 1) != 0;
+                    for (int ix = 0; ix < demNX; ix++)
+                    {
+                        float v = Node(ix, iz);
+                        int x0 = ix / 2; bool xOdd = (ix & 1) != 0;
+                        if (!zOdd)
+                        {
+                            if (!xOdd) outp[z0 * nx + x0] += 0.25f * v;
+                            else { outp[z0 * nx + x0] += 0.125f * v; if (x0 + 1 < nx) outp[z0 * nx + x0 + 1] += 0.125f * v; }
+                        }
+                        else
+                        {
+                            for (int zz = z0; zz <= z0 + 1 && zz < nz; zz++)
+                            {
+                                if (!xOdd) outp[zz * nx + x0] += 0.125f * v;
+                                else { outp[zz * nx + x0] += 0.0625f * v; if (x0 + 1 < nx) outp[zz * nx + x0 + 1] += 0.0625f * v; }
+                            }
+                        }
+                    }
+                }
+                // an edge node lost the half of its kernel outside the grid
+                for (int z = 0; z < nz; z++)
+                {
+                    float wz = z == 0 || z == nz - 1 ? 0.75f : 1f;
+                    for (int x = 0; x < nx; x++)
+                        outp[z * nx + x] /= wz * (x == 0 || x == nx - 1 ? 0.75f : 1f);
+                }
+            }
             float sg = RoadDemSigmaCells;
             int r = Mathf.CeilToInt(sg * 3f);
             var k = new float[2 * r + 1];
             float ks = 0f;
             for (int i = -r; i <= r; i++) { k[i + r] = Mathf.Exp(-0.5f * i * i / (sg * sg)); ks += k[i + r]; }
             for (int i = 0; i < k.Length; i++) k[i] /= ks;
-            // ONE grid-sized array (3 MB for 811 x 916): the rows are blurred
-            // into it, then each column in place through a column buffer. A
-            // second full array would be 3 MB more of a phone's WebGL heap at
-            // load, which never shrinks.
-            var outp = new float[nx * nz];
+            var row = new float[nx];
             for (int z = 0; z < nz; z++)
+            {
+                System.Array.Copy(outp, z * nx, row, 0, nx);
                 for (int x = 0; x < nx; x++)
                 {
                     float acc = 0f;
-                    for (int i = -r; i <= r; i++) acc += k[i + r] * dem[z * nx + Mathf.Clamp(x + i, 0, nx - 1)];
+                    for (int i = -r; i <= r; i++) acc += k[i + r] * row[Mathf.Clamp(x + i, 0, nx - 1)];
                     outp[z * nx + x] = acc;
                 }
+            }
             var col = new float[nz];
             for (int x = 0; x < nx; x++)
             {
@@ -356,6 +554,7 @@ namespace PSXRacing.City
                     outp[z * nx + x] = acc * demScale;
                 }
             }
+            roadNX = nx; roadNZ = nz; roadCell = demCell * f;
             roadDem = outp;
         }
 
@@ -365,12 +564,12 @@ namespace PSXRacing.City
         {
             if (roadDem == null) return BaseY(x, z);
             x /= CityMap.LayoutScale; z /= CityMap.LayoutScale;
-            float fx = (x - demX0) / demCell, fz = (z - demZ0) / demCell;
-            int ix = Mathf.Clamp(Mathf.FloorToInt(fx), 0, demNX - 2);
-            int iz = Mathf.Clamp(Mathf.FloorToInt(fz), 0, demNZ - 2);
+            float fx = (x - demX0) / roadCell, fz = (z - demZ0) / roadCell;
+            int ix = Mathf.Clamp(Mathf.FloorToInt(fx), 0, roadNX - 2);
+            int iz = Mathf.Clamp(Mathf.FloorToInt(fz), 0, roadNZ - 2);
             float tx = Mathf.Clamp01(fx - ix), tz = Mathf.Clamp01(fz - iz);
-            float a = roadDem[iz * demNX + ix], b = roadDem[iz * demNX + ix + 1];
-            float c = roadDem[(iz + 1) * demNX + ix], d = roadDem[(iz + 1) * demNX + ix + 1];
+            float a = roadDem[iz * roadNX + ix], b = roadDem[iz * roadNX + ix + 1];
+            float c = roadDem[(iz + 1) * roadNX + ix], d = roadDem[(iz + 1) * roadNX + ix + 1];
             return (a * (1f - tx) + b * tx) * (1f - tz) + (c * (1f - tx) + d * tx) * tz;
         }
 
