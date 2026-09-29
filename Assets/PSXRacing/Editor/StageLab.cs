@@ -10,10 +10,11 @@ namespace PSXRacing.EditorTools
     /// <summary>
     /// ONE STAGE, BUILT AND AUDITED, in minutes rather than a forty-minute
     /// verify: for shaping the stage builder against a road it does not yet
-    /// handle (Chimney Rock's 6 m switchbacks, NC 226's cut banks - both in
-    /// TrackCatalog.HeldBack). Builds each venue named in PSX_LAB_IDS (a held
-    /// venue included), then runs the self-test's roadside checks and the
-    /// obstacle audit's passes on that scene alone.
+    /// handle (it was built for Chimney Rock's 6 m switchbacks and NC 226's
+    /// cut banks while they waited in TrackCatalog.HeldBack; both have since
+    /// shipped). Builds each venue named in PSX_LAB_IDS (a scened or a held
+    /// venue), then runs the self-test's roadside checks and the obstacle
+    /// audit's passes on that scene alone.
     ///
     ///   tools\stage-lab.ps1 ChimneyRock,GillespieGap  ->  PSXRacing_stage_lab.txt
     /// </summary>
@@ -49,6 +50,9 @@ namespace PSXRacing.EditorTools
                         TerrainAudit.AuditOne(def, terrain);
                         sb.AppendLine(terrain.ToString());
                         sb.AppendLine(DownFaces(path));
+                        // And the paint on the tarmac: lanes even either side
+                        // of a centre line on the ribbon's centre, lines smooth.
+                        sb.AppendLine(LaneAudit.AuditForLab(def, path));
                     }
                     string probes = System.Environment.GetEnvironmentVariable("PSX_LAB_WP") ?? "";
                     foreach (var pr in probes.Split(','))
@@ -107,20 +111,39 @@ namespace PSXRacing.EditorTools
             int w = int.Parse(spec.Substring(0, spec.Length - 1));
             float side = char.ToUpperInvariant(spec[spec.Length - 1]) == 'L' ? -1f : 1f;
             Vector3 c = tp.GetPoint(w);
-            Vector3 r = Vector3.Cross(Vector3.up, tp.GetTangent(w)).normalized * side;
+            // The obstacle audit's frame (the chord from the station before to
+            // the one after, as the builder lays its rows), so a face the audit
+            // names at "e m past the tarmac edge" is on this line.
+            Vector3 r = TrackObstacleAudit.RightAt(tp, w) * side;
             float half = tp.roadWidth * 0.5f;
-            string lastName = null; float lastY = float.NaN;
+            string lastName = null; float lastY = float.NaN, walkY = float.NaN, lastWalk = float.NaN;
             for (float e = -0.1f; e <= 20f; e += 0.05f)
             {
                 Vector3 o = c + r * (half + e) + Vector3.up * 30f;
                 string name = "(none)"; float y = float.NaN;
                 if (Physics.Raycast(o, Vector3.down, out var hit, 80f, ~(1 << 2), QueryTriggerInteraction.Ignore))
                 { name = hit.collider.name; y = hit.point.y - c.y; }
+                // And the audit's own walk: cast from a head over the last
+                // sample, again from higher when that falls suddenly - it can
+                // pass UNDER a surface the straight-down cast from 30 m meets.
+                float wy = float.NaN;
+                Vector3 at = c + r * (half + e);
+                float from = float.IsNaN(walkY) ? c.y + 1.2f : c.y + walkY + 1.2f;
+                if (Physics.Raycast(new Vector3(at.x, from, at.z), Vector3.down, out var wh, 40f, ~(1 << 2), QueryTriggerInteraction.Ignore))
+                    wy = wh.point.y - c.y;
+                if ((float.IsNaN(wy) || (!float.IsNaN(walkY) && wy < walkY - 0.3f)) &&
+                    Physics.Raycast(new Vector3(at.x, (float.IsNaN(walkY) ? c.y : c.y + walkY) + 6f, at.z), Vector3.down, out var wh2, 46f, ~(1 << 2), QueryTriggerInteraction.Ignore) &&
+                    (float.IsNaN(walkY) || wh2.point.y - c.y >= walkY - 0.3f))
+                    wy = wh2.point.y - c.y;
+                if (!float.IsNaN(wy)) walkY = wy;
                 bool jump = !float.IsNaN(lastY) && !float.IsNaN(y) && Mathf.Abs(y - lastY) > 0.04f;
-                if (name != lastName || jump || Mathf.Abs(e - Mathf.Round(e)) < 0.026f)
+                bool wjump = !float.IsNaN(lastWalk) && !float.IsNaN(wy) && Mathf.Abs(wy - lastWalk) > 0.04f;
+                bool differ = !float.IsNaN(wy) && !float.IsNaN(y) && Mathf.Abs(wy - y) > 0.02f;
+                if (name != lastName || jump || wjump || Mathf.Abs(e - Mathf.Round(e)) < 0.026f)
                     sb.AppendLine("  e " + e.ToString("0.00") + "  dy " + (float.IsNaN(y) ? "-" : y.ToString("0.000")) +
-                                  "  " + name + (jump ? "   <-- step " + (y - lastY).ToString("0.000") : ""));
-                lastName = name; lastY = y;
+                                  "  " + name + (jump ? "   <-- step " + (y - lastY).ToString("0.000") : "") +
+                                  (differ || wjump ? "   [audit walk " + wy.ToString("0.000") + (wjump ? " step " + (wy - lastWalk).ToString("0.000") : "") + "]" : ""));
+                lastName = name; lastY = y; lastWalk = wy;
             }
             return sb.ToString();
         }

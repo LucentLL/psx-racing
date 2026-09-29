@@ -7,6 +7,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\replay-check.ps1
 #
 # Exit code 0 = the report has no FAIL; 1 = it does, or the run threw.
+param([switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
@@ -22,7 +23,10 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
 Remove-Item "$proj\PSXRacing_replay_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: this one enters play mode and exits itself when it is done.
-Invoke-UnityJob -Log "$proj\replaycheck.log" -MaxMinutes 20 -UnityArgs @(
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\replaycheck.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.ReplayCheck.Run",
     "-logFile","$proj\replaycheck.log","-accept-apiupdate") | Out-Null

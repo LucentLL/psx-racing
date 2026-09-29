@@ -7,10 +7,11 @@
 # shells survive, so this is a ~4 minute answer rather than a 40 minute one.
 #
 # Exit code 0 = every twin lines up; 1 = something in the report says FAIL.
+param([switch]$NoWatch, [int]$MaxMinutes = 25)
 $ErrorActionPreference = "Stop"
-$unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src   = Split-Path -Parent $PSScriptRoot
+. "$PSScriptRoot\unity-wait.ps1"
 
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
@@ -21,24 +22,15 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
 Remove-Item "$proj\PSXRacing_reverse_check.txt" -ErrorAction SilentlyContinue
 
 # NO -quit: this one enters play mode and exits itself when the list is done.
-$before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
-Start-Process -FilePath $unity -WindowStyle Hidden -ArgumentList @(
+# Invoke-UnityJob waits for the child editor to APPEAR (the launcher exits
+# immediately) and then to stay gone, counting only this sandbox's processes.
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\reversecheck.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.ReverseRaceCheck.Run",
     "-logFile","$proj\reversecheck.log","-accept-apiupdate") | Out-Null
-
-# Wait for the child editor to APPEAR (the launcher exits immediately), then
-# for it to stay gone.
-$appeared = $false
-$deadline = (Get-Date).AddMinutes(25)
-$gone = 0
-while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds 5
-    $now = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
-    $new = @($now | Where-Object { $before -notcontains $_ })
-    if ($new.Count -gt 0) { $appeared = $true; $gone = 0; continue }
-    if ($appeared) { $gone++; if ($gone -ge 3) { break } }
-}
 
 Select-String -Path "$proj\reversecheck.log" -Pattern "error CS" | Select-Object -First 15 | ForEach-Object { $_.Line }
 if (Test-Path "$proj\PSXRacing_reverse_check.txt") {

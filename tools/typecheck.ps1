@@ -13,6 +13,16 @@
 
 param(
     [string]$Project = (Split-Path -Parent $PSScriptRoot),
+    # Where the .cs files come from, when that is not -Project: a source
+    # checkout (a git worktree has no csproj and no Library) compiled against
+    # a sandbox's references, e.g.
+    #   -Project C:\Users\mcgee\PSXRec -Source "C:\Users\mcgee\PSX Racing-rec"
+    [string]$Source = "",
+    # Extra defines for BOTH assemblies, the way the WebGL build adds an
+    # edition's: -Define PSX_EDITION_MAIN (or PSX_EDITION_CITY). The editor
+    # never has either, so without this the #if branches of Edition.cs are
+    # only ever compiled by a player build.
+    [string]$Define = "",
     [string]$Editor  = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor",
     # Where the response files and DLLs land. Two concurrent runs sharing the
     # default trample each other's .rsp mid-compile, so an agent working
@@ -50,11 +60,12 @@ function Get-Defines($csprojName) {
 }
 
 # Source list from DISK, split on whether any path segment is named Editor.
-$all = Get-ChildItem (Join-Path $Project "Assets") -Recurse -Filter *.cs -File
+$srcRoot = if ($Source) { (Resolve-Path $Source).Path } else { $Project }
+$all = Get-ChildItem (Join-Path $srcRoot "Assets") -Recurse -Filter *.cs -File
 $runtimeSrc = @()
 $editorSrc  = @()
 foreach ($f in $all) {
-    $rel = $f.FullName.Substring($Project.Length).TrimStart('\')
+    $rel = $f.FullName.Substring($srcRoot.Length).TrimStart('\')
     if (($rel -split '\\') -contains 'Editor') { $editorSrc += $f.FullName }
     else { $runtimeSrc += $f.FullName }
 }
@@ -70,6 +81,7 @@ function Write-Rsp($file, $refs, $defines, $sources, $target) {
     [void]$sb.AppendLine("/nowarn:0169,0649,0414,CS8632")
     [void]$sb.AppendLine("/target:library")
     [void]$sb.AppendLine("/out:`"$target`"")
+    if ($Define) { $defines = if ($defines) { "$defines;$Define" } else { $Define } }
     if ($defines) { [void]$sb.AppendLine("/define:$defines") }
     foreach ($r in $refs)    { [void]$sb.AppendLine("/r:`"$r`"") }
     foreach ($s in $sources) { [void]$sb.AppendLine("`"$s`"") }

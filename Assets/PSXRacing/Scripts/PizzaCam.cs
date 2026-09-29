@@ -207,7 +207,7 @@ namespace PSXRacing
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             var capGO = new GameObject("Caption", typeof(RectTransform));
             capGO.transform.SetParent(panel.transform, false);
-            caption = capGO.AddComponent<Text>();
+            caption = capGO.AddComponent<SafeText>();
             caption.font = font;
             caption.fontSize = 15;
             // Right-aligned: the panel stands on the right edge, and a caption

@@ -371,7 +371,7 @@ namespace PSXRacing.LifeSim
         {
             var go = new GameObject("Label");
             go.transform.SetParent(parent, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = Font;
             // Hard floor on type size. This menu is played on a phone held at
             // arm's length, and a number of call sites were asking for 13-15,

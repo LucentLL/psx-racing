@@ -164,10 +164,7 @@ namespace PSXRacing.Town
             // are four from your own street now (IN TOWN, CHARLOTTE, GO RACING,
             // INSPECT A CAR) because the house stopped offering them, so the
             // pitch has to answer to the count rather than the other way round.
-            int doors = 1;                                   // the way on
-            if (carrying) doors += 1;                        // MAKE THE DELIVERY
-            else { doors += 2; if (!fromTown) doors += 1; }  // Charlotte, racing, the paper
-            SetRowBudget(doors, y);
+            SetRowBudget(DoorCount(carrying, fromTown, Edition.HasCharlotte), y);
 
             if (carrying)
             {
@@ -214,11 +211,14 @@ namespace PSXRacing.Town
                 // it is a destination now, because the house asks which car and
                 // the line asks where. It is the one door here that does not
                 // lead to a place you could have walked to; that is the point
-                // of it.
-                Row(panel, ref y, "FREE ROAM — CHARLOTTE",
-                    canDrive ? "An hour out on the interstate. Nothing is scored."
-                             : "Not enough fuel to go anywhere.",
-                    canDrive, () => Leave("charlotte"));
+                // of it. Only where this build HAS Charlotte: the MAIN edition
+                // ships none of it (see Edition), and DoorCount budgets one
+                // door fewer to match.
+                if (Edition.HasCharlotte)
+                    Row(panel, ref y, "FREE ROAM — CHARLOTTE",
+                        canDrive ? "An hour out on the interstate. Nothing is scored."
+                                 : "Not enough fuel to go anywhere.",
+                        canDrive, () => Leave("charlotte"));
 
                 // THE RACE STARTS HERE. It used to drop the player on the home
                 // screen holding the blurb below as an instruction — "set the
@@ -299,6 +299,24 @@ namespace PSXRacing.Town
         /// </summary>
         void SetRowBudget(int rows, float firstY) =>
             rowPitch = PitchFor(rows, firstY, MenuKit.DesignHeight);
+
+        /// <summary>
+        /// COUNT THE DOORS BEFORE DRAWING ONE — as a pure function, so the
+        /// self-test can hold the count to the rows Build draws. The budget
+        /// used to be three and the fourth row was simply never offered; there
+        /// are four from your own street (IN TOWN, CHARLOTTE, GO RACING,
+        /// INSPECT A CAR) where the build has Charlotte, and three where it
+        /// does not (MAIN: no FREE ROAM — CHARLOTTE row at all).
+        /// </summary>
+        public static int DoorCount(bool carrying, bool fromTown, bool hasCharlotte)
+        {
+            int doors = 1;                                   // the way on
+            if (carrying) return doors + 1;                  // MAKE THE DELIVERY
+            if (hasCharlotte) doors += 1;                    // FREE ROAM — CHARLOTTE
+            doors += 1;                                      // GO RACING
+            if (!fromTown) doors += 1;                       // the paper
+            return doors;
+        }
 
         /// <summary>40 top + 40 bottom — see the Stretch call in Build.</summary>
         public const float PanelInset = 80f;

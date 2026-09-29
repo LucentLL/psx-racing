@@ -3,7 +3,10 @@
 # no scene build: the scenes must already be built there).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\race-play-check.ps1 -Venue GillespieGap -Seconds 150 -Seed 0
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "")
+#   ... -Venue ChimneyRock -Seconds 600 -Finish -MaxMinutes 30   (the whole race: every rival home)
+#   ...  -Edition MAIN   plays it AS the MAIN edition (Scripts/Edition.cs): the
+#                        runtime's filters and door rules are MAIN's. ALL by default.
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20, [switch]$Finish, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -18,7 +21,14 @@ $env:PSX_RACE_SECONDS = "$Seconds"
 $env:PSX_RACE_SEED = "$Seed"
 $env:PSX_RACE_HOUR = $Hour
 $env:PSX_RACE_MISTAKE = $Mistake
-Invoke-UnityJob -Log "$proj\raceplay.log" -MaxMinutes 20 -UnityArgs @(
+$env:PSX_EDITION = $Edition.ToUpperInvariant()
+# -Finish: the whole distance, on past the player's flag until every rival is
+# home, failing a rival that never gets there or drives the wrong way.
+$env:PSX_RACE_FINISH = if ($Finish) { "1" } else { "" }
+# Watched by default: a visible editor plays the test in front of you.
+# -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
+# budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\raceplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.RacePlayCheck.Run",
     "-logFile","$proj\raceplay.log","-accept-apiupdate") | Out-Null

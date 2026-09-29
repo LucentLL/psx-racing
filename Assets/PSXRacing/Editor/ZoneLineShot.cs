@@ -67,11 +67,12 @@ namespace PSXRacing.EditorTools
         /// the line at a driver's eye, looking in.</summary>
         const float ArrivalDistance = 25f, ArrivalEye = 1.2f;
 
-        // ---- the chase rig: ChaseCamera's defaults, read off the scene's own
-        // component where there is one so a retune of the rig moves these
-        // shots with it. LengthFit's 0.9-1.3 on the distance is ignored.
-        const float ChaseDistance = 5.4f, ChaseHeight = 1.8f, ChaseLookHeight = 0.9f,
-                    ChaseLookAhead = 1.5f, ChaseFov = 58f;
+        // ---- the chase rig: ChaseCamera.SteadyPose for the reference FD at
+        // rest and 16:9, so a retune of the rig moves these shots with it.
+        // (This used to read distance / height / lookHeight / baseFOV off the
+        // scene's component — the baked, stale copy — and ignore everything
+        // else the rig does.)
+        const float ChaseFov = 58f;
 
         static bool failed;
 
@@ -136,11 +137,8 @@ namespace PSXRacing.EditorTools
             var camGO = GameObject.Find("PSXCamera");
             var cam = camGO != null ? camGO.GetComponent<Camera>() : null;
             if (cam == null) { Fail(tag + ": scene has no PSXCamera"); return; }
-            var chase = camGO.GetComponent<ChaseCamera>();
-            float back = chase != null ? chase.distance : ChaseDistance;
-            float high = chase != null ? chase.height : ChaseHeight;
-            float look = chase != null ? chase.lookHeight : ChaseLookHeight;
-            float fov = chase != null ? chase.baseFOV : ChaseFov;
+            var rigCar = RigCar();
+            float fov = ChaseCamera.FOVFor(ChaseCamera.View.Chase, ChaseFov, 0f, ChaseCamera.DefaultSpeedFullMps);
 
             // The baked hour's fog, ambient and snap flag. Nothing ticks in
             // batch mode, so the ExecuteAlways Update never runs this for us
@@ -155,7 +153,7 @@ namespace PSXRacing.EditorTools
             // ---- the departure approach: inside the zone, heading out ----
             foreach (float d in Distances)
             {
-                ChaseRig(line, inward, d, back, high, look, out var eye, out var rot);
+                ChaseRig(line, inward, d, rigCar, out var eye, out var rot);
                 foreach (int lines in LineCounts)
                 {
                     int n = ShootAndCount(cam, line, dir, tag, d, lines, eye, rot, fov, "");
@@ -184,7 +182,7 @@ namespace PSXRacing.EditorTools
             {
                 TimeOfDay.Apply(TimeOfDay.Noon, globals.sun);
                 globals.Apply();
-                ChaseRig(line, inward, 40f, back, high, look, out var eye, out var rot);
+                ChaseRig(line, inward, 40f, rigCar, out var eye, out var rot);
                 int n = ShootAndCount(cam, line, dir, tag, 40f, 240, eye, rot, fov, "noon");
                 Require(n, MinPixels40mNoon240, tag, 40f, 240, "noon");
                 TimeOfDay.Apply(TimeOfDay.Sunset, globals.sun);
@@ -193,17 +191,32 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>Where ChaseCamera.Follow would put the eye for a car D
-        /// metres inside the zone heading out: behind it along `inward`,
-        /// looking at its waist a little ahead of it. The car is seated on the
-        /// road by raycast — the neighbourhood's street falls five metres
-        /// between the 100 m mark and the line.</summary>
-        static void ChaseRig(Transform line, Vector3 inward, float d, float back, float high,
-                             float look, out Vector3 eye, out Quaternion rot)
+        /// metres inside the zone heading out: its steady-state chase pose
+        /// (ChaseCamera.SteadyPose) for a virtual car stood there facing out.
+        /// The car is seated on the road by raycast — the neighbourhood's
+        /// street falls five metres between the 100 m mark and the line.</summary>
+        static void ChaseRig(Transform line, Vector3 inward, float d, Transform rigCar,
+                             out Vector3 eye, out Quaternion rot)
         {
             Vector3 car = OnRoad(line.position + inward * d, line.position.y);
-            eye = car + inward * back + Vector3.up * high;
-            Vector3 at = car + Vector3.up * look - inward * ChaseLookAhead;
-            rot = Quaternion.LookRotation(at - eye, Vector3.up);
+            rigCar.SetPositionAndRotation(car, Quaternion.LookRotation(-inward, Vector3.up));
+            ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, rigCar,
+                                   RigFrame, default, out eye, out rot, out _, out _);
+        }
+
+        /// <summary>The reference FD's frame, off its shell and its own
+        /// reference width: there is no car in these scenes to read one from.</summary>
+        static ChaseCamera.CarFrame RigFrame =>
+            ChaseCamera.FrameOf(new Vector3(0f, 0.72f, -0.039f), new Vector3(1.614f, 1.0f, 4.1f),
+                                CarModelLibrary.Load(CarModelLibrary.Default), 2.425f, 0.9386f, 0);
+
+        static Transform rigCarT;
+        /// <summary>A bare transform to stand the virtual car on (never saved:
+        /// the scene is reopened per line and never written).</summary>
+        static Transform RigCar()
+        {
+            if (rigCarT == null) rigCarT = new GameObject("ZoneLineRigCar") { hideFlags = HideFlags.HideAndDontSave }.transform;
+            return rigCarT;
         }
 
         /// <summary>The road surface under a point, ignoring triggers; the

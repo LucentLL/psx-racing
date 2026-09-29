@@ -36,10 +36,17 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Check City Spawns (play mode)")]
         public static void Run()
         {
+            EditionParking.RecoverIfNeeded();   // a killed edition build's park, back first
             log = new StringBuilder();
             failures = 0;
             roamIdx = TrackCatalog.IndexOf("Charlotte");
             raceIdx = TrackCatalog.IndexOf("UptownLoop");
+            // Which edition this plays AS (PSX_EDITION / -psxEdition; ALL by
+            // default). Under CITY the two drives are launched through the
+            // CITY front end's own request (CityFrontEnd.FillFreeRoam /
+            // FillRace), so the check plays what the test page hands over.
+            log.AppendLine("edition " + Edition.Name(Edition.Current));
+            if (!Edition.HasCharlotte) Fail("this edition has no Charlotte - run it as CITY or ALL");
 
             var scenes = EditorBuildSettings.scenes;
             foreach (var (name, idx) in new[] { ("Charlotte", roamIdx), ("UptownLoop", raceIdx) })
@@ -65,6 +72,14 @@ namespace PSXRacing.EditorTools
         /// <summary>What LifeHomeScreen.StartFreeRoam hands over.</summary>
         internal static void PrimeRoam()
         {
+            if (Edition.Current == EditionKind.City)
+            {
+                Check(PSXRacing.LifeSim.CityFrontEnd.FillFreeRoam(PSXRacing.LifeSim.CityFrontEnd.DefaultCarId(),
+                          TimeOfDay.Noon, 0, out int scene) && scene == TrackCatalog.SceneIndex(roamIdx),
+                      "CITY front end: FREE ROAM fills the handoff for the Charlotte scene",
+                      RaceHandoff.CarSpecId);
+                return;
+            }
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.FreeRoam = true;
@@ -77,6 +92,14 @@ namespace PSXRacing.EditorTools
         /// <summary>What a race entered from the LifeSim carries.</summary>
         internal static void PrimeRace()
         {
+            if (Edition.Current == EditionKind.City)
+            {
+                Check(PSXRacing.LifeSim.CityFrontEnd.FillRace(raceIdx, PSXRacing.LifeSim.CityFrontEnd.DefaultCarId(),
+                          TimeOfDay.Noon, 0, out int scene) && scene == TrackCatalog.SceneIndex(raceIdx),
+                      "CITY front end: UPTOWN LOOP fills the handoff with a field",
+                      RaceHandoff.OpponentSpecIds);
+                return;
+            }
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = raceIdx;
@@ -177,6 +200,9 @@ namespace PSXRacing.EditorTools
                 CityPlayCheck.Check(Mathf.Abs(player.transform.position.y - y0) < 0.6f,
                     "the player is still at street height after two seconds",
                     (player.transform.position.y - y0).ToString("+0.00;-0.00") + " m from where it was seated");
+
+                yield return StartCoroutine(OrderBay(mode));
+                yield return StartCoroutine(PauseCheck("roam"));
             }
 
             // ---- THE 277 RACE ---------------------------------------------
@@ -233,6 +259,270 @@ namespace PSXRacing.EditorTools
 
             CityPlayCheck.Finish();
             EditorApplication.Exit(CityPlayCheck.failures == 0 ? 0 : 1);
+        }
+
+        /// <summary>
+        /// STOPPED IN A DRIVE-THRU'S ORDER BAY, with the controls live - the
+        /// exact conditions under which DriveThru prompts "ORDER AT ...". In
+        /// the CITY edition nothing may offer an order (DriveThru.Serves: an
+        /// order is paid from, and saved to, a career the test page does not
+        /// have): no centre prompt, no ORDER button, no food signpost in the
+        /// lap slot, no store open. In ALL and MAIN the same stop must prompt,
+        /// which is what proves the car really was in the bay. The frame is
+        /// saved (watched runs) as Screenshots\city_play_orderbay.png.
+        /// </summary>
+        IEnumerator OrderBay(CityMode mode)
+        {
+            CityPlayCheck.Line("a drive-thru's order bay (" + Edition.Name(Edition.Current) + "):");
+            var player = mode.player;
+            var world = mode.world;
+            if (!world.NearestFood(player.transform.position, out string label, out Vector2 at, out float far))
+            {
+                CityPlayCheck.Fail("the city has no restaurant to stop at");
+                yield break;
+            }
+            // Drive there first (a teleport onto the nearest street): the city
+            // streams around the PLAYER, and a tile stood up far from it is
+            // dropped again on the next frame.
+            var map = world.Map;
+            if (!map.NearestRoadPoint(at, 250f, false, out int ei, out float ea, out float ed))
+            {
+                CityPlayCheck.Fail("no street within 250 m of " + label + " (" + at + ")");
+                yield break;
+            }
+            Vector2 rp = map.edges[ei].PointAt(ea), rt = map.edges[ei].TangentAt(ea);
+            player.TeleportTo(new Vector3(rp.x, map.edges[ei].YAt(ea) + 0.45f, rp.y),
+                              Quaternion.LookRotation(new Vector3(rt.x, 0f, rt.y), Vector3.up));
+            world.EnsureRing(new Vector3(rp.x, player.transform.position.y, rp.y), 1);
+            float tw = Time.time;
+            while (Time.time - tw < 1.5f) yield return null;
+            DriveThru bay = null;
+            float best = float.MaxValue;
+            foreach (var d in Object.FindObjectsByType<DriveThru>(FindObjectsSortMode.None))
+            {
+                float dd = (new Vector2(d.transform.position.x, d.transform.position.z) - at).sqrMagnitude;
+                if (dd < best) { best = dd; bay = d; }
+            }
+            var box = bay != null ? bay.GetComponent<BoxCollider>() : null;
+            int bays = Object.FindObjectsByType<DriveThru>(FindObjectsSortMode.None).Length;
+            if (box == null || Mathf.Sqrt(best) > 60f)
+            {
+                CityPlayCheck.Fail("no order bay streamed in at " + label + " (" + at + "): " + bays +
+                                   " in the scene" + (bay != null ? ", nearest " + Mathf.Sqrt(best).ToString("0") + " m away" : ""));
+                yield break;
+            }
+            if (!BaySpot(box, player.Body, out Vector3 spot, out Quaternion facing, out string whyNot))
+            {
+                CityPlayCheck.Fail("no clear, flat spot for a car inside " + bay.Title + "'s order bay (" + whyNot + ")");
+                yield break;
+            }
+            player.TeleportTo(spot, facing);
+            // Past the attribution's seven seconds, so the lap slot is the
+            // signpost's, and long enough for the bay to claim a stopped car.
+            // Held where it was put (an apron has a fall to it, and a car with
+            // nobody on the brake creeps): stopped is the condition under test.
+            float t0 = Time.time;
+            while (Time.time - t0 < 2.5f || mode.SessionSeconds < 8f)
+            {
+                if (player.Body != null && Time.time - t0 > 0.3f)
+                {
+                    player.Body.linearVelocity = new Vector3(0f, Mathf.Min(0f, player.Body.linearVelocity.y), 0f);
+                    player.Body.angularVelocity = Vector3.zero;
+                }
+                yield return new WaitForFixedUpdate();
+            }
+            yield return null;
+            // THE EDITOR'S OWN FAULT, not the game's: in this harness the
+            // free-roam street map's "Streets" graphic turns up with no
+            // CanvasRenderer and every canvas update throws after it, which
+            // would also stop the HUD text below from updating (the WebGL
+            // player draws the same map - see the browser captures). Give it
+            // one before reading the HUD.
+            int fixedUi = 0;
+            foreach (var g in Object.FindObjectsByType<UnityEngine.UI.Graphic>(FindObjectsSortMode.None))
+                if (g.GetComponent<CanvasRenderer>() == null) { g.gameObject.AddComponent<CanvasRenderer>(); fixedUi++; }
+            if (fixedUi > 0)
+                CityPlayCheck.Line("  note " + fixedUi + " UI graphic(s) had no CanvasRenderer in this editor (the street map's " +
+                                   "\"Streets\"); added one before reading the HUD - an editor-side fault, reported separately");
+
+            bool inside = InBay(box, player.transform.position, 0f);
+            float kmh = Mathf.Abs(player.speedKmh);
+            CityPlayCheck.Check(inside && kmh <= 4.5f, "the player is stopped inside " + bay.Title + "'s order bay",
+                (inside ? "inside" : "OUTSIDE") + ", " + kmh.ToString("0.0") + " km/h, " +
+                Vector3.Distance(player.transform.position, box.bounds.center).ToString("0.0") + " m from its centre");
+
+            var hud = Object.FindFirstObjectByType<RaceHUD>();
+            string center = hud != null && hud.centerText != null ? hud.centerText.text : "";
+            string lap = hud != null && hud.lastLapText != null ? hud.lastLapText.text : "";
+            var touch = TouchControls.Instance;
+            string action = "";
+            if (touch != null)
+                foreach (var b in touch.GetComponentsInChildren<UnityEngine.UI.Button>(false))
+                {
+                    var tx = b.GetComponentInChildren<UnityEngine.UI.Text>();
+                    if (tx != null && tx.text == "ORDER") action = "ORDER";
+                }
+            bool storeOpen = false;
+            foreach (var s in Object.FindObjectsByType<PSXRacing.OnFoot.StoreScreen>(FindObjectsSortMode.None))
+                if (s.IsOpen) storeOpen = true;
+
+            if (DriveThru.Serves)
+            {
+                CityPlayCheck.Check(DriveThru.AtBay && center.Contains("ORDER AT"),
+                    "the window offers an order (" + Edition.Name(Edition.Current) + " has a career)", center);
+            }
+            else
+            {
+                CityPlayCheck.Check(!DriveThru.AtBay && DriveThru.Prompt == null && !center.Contains("ORDER"),
+                    "CITY: no ORDER prompt at the window", "centre: '" + center + "'");
+                CityPlayCheck.Check(action == "", "CITY: no ORDER button");
+                CityPlayCheck.Check(!lap.Contains(label) && !lap.Contains(" km") && !lap.EndsWith(" m"),
+                    "CITY: no food signpost in the lap slot", "lap slot: '" + lap + "'");
+                CityPlayCheck.Check(!storeOpen, "CITY: no store is open");
+            }
+            yield return StartCoroutine(Shot("orderbay"));
+        }
+
+        /// <summary>The pause menu over the drive: EXIT TO MENU is the CITY
+        /// page's way home. Opened through PauseMenu's own SetOpen and closed
+        /// again. (Its picture is the browser capture of the real build: an
+        /// overlay canvas is not in a camera render.)</summary>
+        IEnumerator PauseCheck(string what)
+        {
+            var pm = Object.FindFirstObjectByType<PauseMenu>();
+            var set = typeof(PauseMenu).GetMethod("SetOpen",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (pm == null || set == null) { CityPlayCheck.Fail("no pause menu to open"); yield break; }
+            set.Invoke(pm, new object[] { true });
+            yield return null;
+            bool exit = false;
+            foreach (var tx in pm.GetComponentsInChildren<UnityEngine.UI.Text>(false))
+                if (tx.text == "EXIT TO MENU") exit = true;
+            CityPlayCheck.Check(PauseMenu.IsOpen && exit, "the pause menu opens over the drive with EXIT TO MENU");
+            set.Invoke(pm, new object[] { false });
+            yield return null;
+        }
+
+        /// <summary>
+        /// What the game camera sees now, through the game's own dither, to
+        /// Screenshots\city_play_&lt;name&gt;.png - rendered on request from
+        /// the PSX camera (CamFramePlayCheck's way), in a hidden run as well as
+        /// a watched one. Not ScreenCapture: in the watched editor the Game
+        /// view came back BLACK (2026-09-29, pause menu included - the view
+        /// was not being presented), so a capture of it proves nothing.
+        /// </summary>
+        IEnumerator Shot(string name)
+        {
+            yield return new WaitForEndOfFrame();
+            string dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Application.dataPath), "Screenshots");
+            System.IO.Directory.CreateDirectory(dir);
+            string path = System.IO.Path.Combine(dir, "city_play_" + name + ".png");
+            if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+            var cam = Camera.main;
+            string why = null;
+            if (cam == null) why = "no main camera";
+            else
+            {
+                var target = cam.targetTexture;
+                int w = target != null ? target.width : 640, h = target != null ? target.height : 360;
+                var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
+                rt.Create();
+                StreetLights.Push(cam.transform.position, cam.transform.forward);
+                var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+                if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request))
+                {
+                    UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                    var shown = PSXScreenshotTool.Dithered(rt);
+                    var prev = RenderTexture.active;
+                    RenderTexture.active = shown;
+                    var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                    tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                    tex.Apply();
+                    RenderTexture.active = prev == rt || prev == shown ? null : prev;
+                    if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
+                    System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+                    Object.DestroyImmediate(tex);
+                }
+                else why = "the pipeline takes no render request";
+                cam.targetTexture = target;
+                rt.Release();
+                Object.DestroyImmediate(rt);
+            }
+            CityPlayCheck.Line("  shot " + (System.IO.File.Exists(path) ? path + " (the game camera; the HUD text is checked above)"
+                                                                          : "not written (" + name + ": " + why + ")"));
+        }
+
+        /// <summary>A place inside the bay's box where a car fits: flat ground
+        /// under it, nothing solid in a car-sized box above that, and the whole
+        /// car inside the bay. Nearest the bay's centre first (the window). The
+        /// burger bay is centred on the menu board and the pizzeria's on the
+        /// building, so the centre itself is usually taken.</summary>
+        static bool BaySpot(BoxCollider box, Rigidbody self, out Vector3 spot, out Quaternion facing, out string why)
+        {
+            var t = box.transform;
+            var b = box.bounds;
+            Vector3 fwd = Vector3.ProjectOnPlane(t.forward, Vector3.up).normalized;
+            var facings = new[] { Quaternion.LookRotation(fwd, Vector3.up),
+                                  Quaternion.LookRotation(Vector3.Cross(Vector3.up, fwd), Vector3.up) };
+            var half = new Vector3(1.05f, 0.5f, 2.3f);
+            var cands = new System.Collections.Generic.List<Vector3>();
+            for (int iz = -8; iz <= 8; iz++)
+                for (int ix = -8; ix <= 8; ix++)
+                    cands.Add(t.TransformPoint(box.center + new Vector3(ix / 8f * 0.9f * box.size.x * 0.5f, 0f,
+                                                                         iz / 8f * 0.9f * box.size.z * 0.5f)));
+            Vector3 mid = b.center;
+            cands.Sort((p, q) => (new Vector2(p.x - mid.x, p.z - mid.z)).sqrMagnitude
+                                 .CompareTo((new Vector2(q.x - mid.x, q.z - mid.z)).sqrMagnitude));
+            int noGround = 0, steep = 0, blocked = 0, outside = 0;
+            foreach (var w in cands)
+            {
+                // The GROUND inside the box's height, not a canopy or a roof over it.
+                RaycastHit ground = default;
+                bool found = false;
+                foreach (var h in Physics.RaycastAll(new Vector3(w.x, b.max.y + 0.5f, w.z), Vector3.down,
+                             b.size.y + 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    if (h.point.y >= b.min.y - 1.5f && (!found || h.point.y < ground.point.y)) { ground = h; found = true; }
+                if (!found) { noGround++; continue; }
+                if (ground.normal.y < 0.94f) { steep++; continue; }
+                Vector3 s = ground.point + Vector3.up * 0.45f;
+                bool placed = false;
+                foreach (var f in facings)
+                {
+                    // the whole footprint in the bay, not just the origin
+                    bool inBay = true;
+                    foreach (var c in new[] { new Vector3(-1, 0, -1), new Vector3(1, 0, -1), new Vector3(-1, 0, 1), new Vector3(1, 0, 1) })
+                        if (!InBay(box, s + f * Vector3.Scale(c, new Vector3(half.x, 0f, half.z)), 0f)) inBay = false;
+                    if (!inBay) { outside++; continue; }
+                    bool hit = false;
+                    foreach (var c in Physics.OverlapBox(ground.point + Vector3.up * 1.05f, half, f,
+                                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                        if (self == null || c.attachedRigidbody != self) { hit = true; break; }
+                    if (hit) { blocked++; continue; }
+                    spot = s; facing = f; why = null;
+                    placed = true;
+                    return true;
+                }
+                if (placed) break;
+            }
+            spot = Vector3.zero; facing = Quaternion.identity;
+            why = cands.Count + " spots: " + noGround + " no ground, " + steep + " not flat, " + outside +
+                  " car not wholly in the box, " + blocked + " blocked by something solid";
+            return false;
+        }
+
+        /// <summary>Is a car standing at <paramref name="p"/> (its origin; the
+        /// body reaches ~1.4 m up from the ground under it) in the bay's
+        /// trigger: inside its footprint, in the box's own axes, and its height
+        /// span overlapping the box's - the trigger fires on any overlap of the
+        /// car's colliders, and the bay box starts a little above an apron
+        /// that sits below the shell.</summary>
+        static bool InBay(BoxCollider box, Vector3 p, float margin)
+        {
+            Vector3 l = box.transform.InverseTransformPoint(p) - box.center;
+            Vector3 h = box.size * 0.5f;
+            if (Mathf.Abs(l.x) > h.x + margin || Mathf.Abs(l.z) > h.z + margin) return false;
+            var b = box.bounds;
+            return p.y + 1.4f >= b.min.y && p.y - 0.6f <= b.max.y;
         }
 
         /// <summary>On a street, at the street's own height, with a collider

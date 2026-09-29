@@ -126,14 +126,19 @@ namespace PSXRacing.LifeSim
         /// evening whether or not the box arrives, and charging again at the
         /// junction would make one drop eat two thirds of a day.
         /// </summary>
-        public static void LaunchDelivery(LifeState S)
+        /// <returns>False when nothing was loaded — nothing to launch, or a
+        /// drop at a venue this build does not carry. The caller draws a page;
+        /// a LoadScene on a scene the build lacks is a black screen.</returns>
+        public static bool LaunchDelivery(LifeState S)
         {
-            if (!FillDeliveryHandoff(S)) return;
+            if (!FillDeliveryHandoff(S)) return false;
 
             int track = TrackIndex;
+            int scene = TrackCatalog.SceneIndex(track);
+            if (!TrackCatalog.SceneShipped(scene)) return false;
             ClearRun();
             LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(track));
+            return TrackCatalog.TryLoadScene(scene, TrackCatalog.At(track).id);
         }
 
         /// <summary>
@@ -152,7 +157,8 @@ namespace PSXRacing.LifeSim
             if (S == null) return false;
             var car = S.ActiveCar;
             if (car == null || !Carrying) { ClearRun(); return false; }
-            if (TrackIndex < 0 || TrackIndex >= TrackCatalog.All.Length)
+            // Re-rolled, too, when the drop is not a venue this build carries.
+            if (!TrackCatalog.Offered(TrackIndex))
                 TrackIndex = LifeRules.DeliveryTrackIndex(S);
 
             RaceHandoff.ClearAll();

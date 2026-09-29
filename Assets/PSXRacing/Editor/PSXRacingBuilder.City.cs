@@ -529,9 +529,42 @@ namespace PSXRacing.EditorTools
             CityMeshes.Surface surf = CityMeshes.Surface.AsphaltOld)
         {
             EnsureCityFolders();
+            TrackLaneLadder(totalM, oneWay, out int lanesPerSide, out float shoulderM, out float laneM);
+            string file = TrackRoadTexFile(totalM, oneWay, surf);
+            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf, laneM);
+            return CityTexDir + "/" + file;
+        }
+
+        static string TrackRoadTexFile(float totalM, bool oneWay, CityMeshes.Surface surf) =>
+            "city_road_track_" + Mathf.RoundToInt(totalM * 10f) + (oneWay ? "_ow" : "") + "_" + SurfaceKey(surf) + ".png";
+
+        /// <summary>Where EnsureTrackRoadTex paints a circuit's surface (for
+        /// the self-test, which reads it without drawing).</summary>
+        internal static string TrackRoadTexPath(float totalM, bool oneWay, CityMeshes.Surface surf) =>
+            CityTexDir + "/" + TrackRoadTexFile(totalM, oneWay, surf);
+
+        /// <summary>
+        /// The lane ladder a circuit or stage ribbon is painted with: as many
+        /// 12 ft lanes a side as leave a shoulder of 0.4 m or more, the rest
+        /// split evenly into two shoulders.
+        ///
+        /// A road NARROWER than its lanes at 12 ft (a two-way road under
+        /// 2 x LaneM = 7.3 m: every real-width stage, 6.1-6.7 m) has no
+        /// shoulder and its lanes FITTED to it, each total / lanes. The
+        /// shoulder used to clamp to zero while the ladder kept the full
+        /// 3.658 m lane, which put the double yellow 3.658 m in from the
+        /// LEFT edge: on a 6.4 m Parkway loop a 3.60 m lane beside a 2.68 m
+        /// one ("one side of the road looks wider than the other", owner
+        /// 2026-09-28), while traffic, the grid and the AI all used the
+        /// ribbon's centre as the lane boundary. Every width of 7.3 m and up
+        /// keeps LaneM exactly, so the circuits' textures do not move.
+        /// </summary>
+        internal static void TrackLaneLadder(float totalM, bool oneWay,
+            out int lanesPerSide, out float shoulderM, out float laneM)
+        {
             const float MinShoulder = 0.4f;
-            int lanesPerSide = 1;
-            float shoulderM = Mathf.Max(0f, (totalM - (oneWay ? LaneM : LaneM * 2f)) * 0.5f);
+            lanesPerSide = 1;
+            shoulderM = Mathf.Max(0f, (totalM - (oneWay ? LaneM : LaneM * 2f)) * 0.5f);
             for (int n = 2; n <= 4; n++)
             {
                 float sh = (totalM - n * (oneWay ? LaneM : LaneM * 2f)) * 0.5f;
@@ -539,11 +572,11 @@ namespace PSXRacing.EditorTools
                 lanesPerSide = n;
                 shoulderM = sh;
             }
-
-            string file = "city_road_track_" + Mathf.RoundToInt(totalM * 10f) +
-                          (oneWay ? "_ow" : "") + "_" + SurfaceKey(surf) + ".png";
-            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf);
-            return CityTexDir + "/" + file;
+            int laneCount = oneWay ? lanesPerSide : lanesPerSide * 2;
+            float fitted = (totalM - 2f * shoulderM) / laneCount;
+            // Only a road that cannot hold its lanes at 12 ft is fitted; the
+            // tolerance keeps float noise on a wide road off the painter.
+            laneM = fitted < LaneM - 1e-4f ? fitted : LaneM;
         }
 
         /// <summary>Concrete, for anything structural: bridge decks, piers, and
@@ -560,10 +593,14 @@ namespace PSXRacing.EditorTools
         const string CityPackDir = CityTexDir + "/Pack";
 
         /// <summary>The circuit painter: symmetric shoulders, a given total
-        /// width, the double yellow on a two-way road.</summary>
+        /// width, the double yellow on a two-way road. Every lane is
+        /// <paramref name="laneM"/> wide (<see cref="TrackLaneLadder"/>), so
+        /// on a two-way road the centre line lands at total / 2 whatever the
+        /// width - the pixel columns mirror about the middle of the texture,
+        /// and the ribbon's u = 0.5 is its centre.</summary>
         static void DrawRoadTexCore(string file, int lanesPerSide, float medianM, bool grassMed,
                                     float shoulderM, float total, int width, bool oneWay,
-                                    CityMeshes.Surface surf)
+                                    CityMeshes.Surface surf, float laneM)
         {
             int laneCount = oneWay ? lanesPerSide : lanesPerSide * 2;
             int h = 64;
@@ -572,11 +609,11 @@ namespace PSXRacing.EditorTools
             var edgeLines = new List<float> { shoulderM + PaintHalf, total - shoulderM - PaintHalf };
             float cursor = shoulderM;
             for (int i = 1; i < (oneWay ? laneCount : lanesPerSide); i++)
-                whiteLines.Add(cursor + LaneM * i);
-            float medStart = shoulderM + lanesPerSide * LaneM;
+                whiteLines.Add(cursor + laneM * i);
+            float medStart = shoulderM + lanesPerSide * laneM;
             if (!oneWay)
                 for (int i = 1; i < lanesPerSide; i++)
-                    whiteLines.Add(medStart + medianM + LaneM * i);
+                    whiteLines.Add(medStart + medianM + laneM * i);
 
             WriteTexture(CityTexDir + "/" + file, width, h, (x, y) =>
             {
