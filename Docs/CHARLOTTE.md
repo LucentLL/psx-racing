@@ -601,6 +601,28 @@ and no console errors. WebGL.data is 81.40 MiB (80.98 before; the 95 MiB
 gate is far off). The CREDITS page now carries five sources and lays them
 out in two columns on a phone.
 
+**Where the hills and the creeks show (2026-09-29, for the owner's first
+drive).** Every water span was ranked by how deep a valley its road drops
+into (the lower of the two rims within 800 m along the same street, minus
+the creek's bed), and the best near uptown were walked on the SOLVED road
+(`Edge.YAt`) and shot at the driver's eye and from above in the city
+sandbox:
+
+| Spot | Road climbs out of the creek, each side (within 800 m) | Steepest 50 m | Water in view |
+|---|---|---|---|
+| West Trade Street at Irwin Creek, 1.4 km west of Trade & Tryon (down from uptown, up to Beatties Ford Road) | 24.4 / 27.0 m | 5.2% | beside West 5th Street, one block north (21.4 / 25.3 m, 8.0%) |
+| State Street and Rozzelles Ferry Road at Stewart Creek, ~3 km NW | 26.9 / 24.5 m (State); 25.9 / 20.1 m (Rozzelles) | 6.2% | the widest creek near uptown |
+| Archdale Drive at Little Sugar Creek, ~9 km S | 20.5 / 26.3 m, a second dip beyond | 7.3% | yes |
+
+On a race route, the Independence Sprint falls 30.9 m in 1.44 km from the
+Pecan Avenue crest to the Briar Creek Road dip, with Briar Creek beside the
+expressway. At the driver's eye these read as gentle: the grades are
+Charlotte's real 3-5%, and the land beside the road is still the 11.5 m flat
+verge (WP-14). The raised views show the valleys and the water best. The
+same shots caught painted lines that look kinked on East 4th Street at
+Little Sugar Creek, Rozzelles Ferry Road and Archdale Drive (for the
+smooth-lines gate).
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not
