@@ -41,6 +41,7 @@ Shader "PSX/LitTransparent"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
@@ -58,6 +59,8 @@ Shader "PSX/LitTransparent"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
             // The per-pixel lights: the cars' headlights - a shop window at
             // night takes the beam like the wall beside it - and the street
             // lamps and tail lamps. Each declares its own table; both guarded.
@@ -147,7 +150,7 @@ Shader "PSX/LitTransparent"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                fixed4 tex = tex2D(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
+                fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
                 // Guarded like the vertex normal (normalize(0) is a NaN GLSL
                 // ES leaves undefined). Both tables add to the vertex light,
                 // not to the result: a lamp on a pane lights the pane.

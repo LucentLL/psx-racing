@@ -22,6 +22,7 @@ Shader "PSX/Decal"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Tint ("Tint", Color) = (1,1,1,1)
     }
     SubShader
@@ -40,6 +41,8 @@ Shader "PSX/Decal"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -96,7 +99,7 @@ Shader "PSX/Decal"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                fixed4 tex = tex2D(_MainTex, i.uv);
+                fixed4 tex = PSXMainTex(_MainTex, i.uv);
                 fixed4 c = tex * i.color;
                 c.rgb = lerp(c.rgb, _PSXFogColor.rgb, i.fog);
                 return c;

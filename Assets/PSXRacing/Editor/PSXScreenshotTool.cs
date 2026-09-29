@@ -1261,6 +1261,14 @@ namespace PSXRacing.EditorTools
                 // belt to those braces, and it is also the only push a tool
                 // gets on an editor whose hook has not been installed yet.
                 StreetLights.Push(pos, rot * Vector3.forward);
+                // THE 16-BIT TEXELS DECODED (the colour pass, C1b). Edit mode
+                // has no sceneLoaded, so nothing else has told the materials
+                // of the scene this tool just opened (or the car it just
+                // dressed) that their textures arrive undecoded; the editor
+                // hook does it before every edit-mode camera render too, and
+                // this is the belt to it. The count goes in the sidecar.
+                PSXTexDecode.StampAll();
+                ShotSidecar.Pending["texDecode"] = PSXTexDecode.CountDecoding();
                 // THE LENS, when the environment asks for it. The lens is a
                 // URP pass on the base camera (SpeedBlurFeature's LensPass),
                 // not a Blit property, so a shot that wants droplets has to

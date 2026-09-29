@@ -4,6 +4,7 @@
     py tools/colour/colour_stats.py compare <A.png> <B.png>        per-region deltas (same target only)
     py tools/colour/colour_stats.py gate   <webgl dir> <baseline dir>   the road-colour gate
     py tools/colour/colour_stats.py agree  <editor.png> <player.png>  harness vs editor, per region
+    py tools/colour/colour_stats.py match  <candidate dir> <baseline dir> [tol]   every region AND pixel vs the decoded baseline
     ... --json out.json   also write every number as JSON
 
 Every frame is a PNG at native resolution with its sidecar (<png>.json,
@@ -363,6 +364,61 @@ def cmd_agree(editor_png, player_png, js, tol=2.0):
     return not bad
 
 
+def cmd_match(cand_dir, base_dir, js, tol=1.0):
+    """C1b's proof (the 16-bit decode): a frame drawn with the set decoded in
+    the shader matches the decoded BASELINE (StandaloneWindows64, the GPU's
+    own sRGB decode, from before the pass) - every projected region within
+    `tol` codes (mean Ycode on Box4 pixels), and the whole frame pixel by
+    pixel (Box4 Ycode) reported as mean / p99 / share over 2 codes. Pairs
+    are matched by file name; any target may be the candidate (a Standalone
+    candidate proves the decode is exact, a WebGL one adds the 565 read)."""
+    rows, frames, worst = [], [], (0.0, "")
+    for p in sorted(glob.glob(os.path.join(cand_dir, "*_world.png"))):
+        q = os.path.join(base_dir, os.path.basename(p))
+        if not os.path.exists(q):
+            continue
+        C, B = Frame(p), Frame(q)
+        if B.target not in ("StandaloneWindows64", "StandaloneWindows"):
+            raise SystemExit(f"REFUSED: {q} is {B.target}, the baseline must be the decoded import (StandaloneWindows64)")
+        if C.rgb.shape != B.rgb.shape:
+            print(f"  SIZE {os.path.basename(p)} {C.rgb.shape} vs {B.rgb.shape}"); continue
+        if not C.regions():
+            # a player frame (tools/colour/shot-link.mjs) carries no boxes: the
+            # same eye, so the baseline's projected boxes are its boxes
+            C.sc = dict(C.sc or {}, regions=B.regions())
+        d = np.abs(C.Yc4 - B.Yc4)
+        fr = {"frame": os.path.basename(p), "cand": C.target, "mean_abs": float(d.mean()), "p99_abs": float(np.percentile(d, 99)),
+              "share_gt2": float((d > 2).mean()), "max_abs": float(d.max())}
+        frames.append(fr)
+        rc, rb = C.region_table(), B.region_table()
+        for n, a in rc.items():
+            b = rb.get(n)
+            if not b or a["m"] is None or b["m"] is None or not (a["visible"] and a["inFrame"]):
+                continue
+            dd = a["m"]["Ycode_mean"] - b["m"]["Ycode_mean"]
+            ok = abs(dd) <= tol
+            rows.append({"frame": fr["frame"], "region": n, "surface": a["surface"], "cand": a["m"]["Ycode_mean"],
+                         "base": b["m"]["Ycode_mean"], "delta": dd, "ok": ok})
+            if abs(dd) > worst[0]:
+                worst = (abs(dd), f"{fr['frame']} {n} [{a['surface']}] {b['m']['Ycode_mean']:.1f} -> {a['m']['Ycode_mean']:.1f}")
+    bad = [r for r in rows if not r["ok"]]
+    for r in bad[:40]:
+        print(f"  OFF  {r['frame'][:58]:58s} {r['region']:14s} base {r['base']:6.1f} cand {r['cand']:6.1f} ({r['delta']:+.2f}) [{r['surface']}]")
+    frames.sort(key=lambda f: -f["mean_abs"])
+    for f in frames[:12]:
+        print(f"  frame {f['frame'][:62]:62s} mean|d| {f['mean_abs']:.2f}  p99 {f['p99_abs']:.1f}  >2: {100 * f['share_gt2']:.2f}%  max {f['max_abs']:.0f}")
+    if frames:
+        allm = np.array([f["mean_abs"] for f in frames])
+        print(f"  {len(frames)} frames: mean|dYcode| median {np.median(allm):.3f}, worst {allm.max():.3f}")
+    ds = np.array([r["delta"] for r in rows]) if rows else np.zeros(1)
+    print(f"  regions: mean delta {ds.mean():+.3f}, mean |delta| {np.abs(ds).mean():.3f}, worst {worst[0]:.2f} ({worst[1]})")
+    print(f"DECODE MATCH: {len(rows) - len(bad)}/{len(rows)} regions within {tol} code(s) of the decoded baseline")
+    if js:
+        with open(js, "w") as fh:
+            json.dump({"rows": rows, "frames": frames}, fh, indent=1)
+    return not bad and len(rows) > 0
+
+
 def main(argv):
     js = None
     if "--json" in argv:
@@ -378,6 +434,8 @@ def main(argv):
         return 0 if cmd_gate(rest[0], rest[1], js) else 1
     if cmd == "agree":
         return 0 if cmd_agree(rest[0], rest[1], js) else 1
+    if cmd == "match":
+        return 0 if cmd_match(rest[0], rest[1], js, float(rest[2]) if len(rest) > 2 else 1.0) else 1
     print(__doc__); return 2
 
 

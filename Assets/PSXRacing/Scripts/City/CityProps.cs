@@ -125,7 +125,7 @@ namespace PSXRacing.City
         {
             if (cache.TryGetValue(kind, out var go)) return go;
             if (!Defs.TryGetValue(kind, out var def)) return null;
-            go = Resources.Load<GameObject>(def.res);
+            go = PSXTexDecode.LoadPrefab(def.res);
             if (go == null && warned.Add(kind))
                 Debug.LogWarning("[City] prop prefab missing: " + def.res +
                                  " — run the scene build to bake CityProps.");

@@ -570,7 +570,7 @@ namespace PSXRacing
             var spec = SeatAt(stage);
             innerHalf = spec.bolsterHalf - BolsterSlabHalf;
             tall = spec.NominalHeightMm * 0.001f;
-            var prefab = Resources.Load<GameObject>(PizzaCargoBakerNames.SeatFor(stage));
+            var prefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.SeatFor(stage));
             var mark = prefab != null ? prefab.transform.Find("Bolster") : null;
             if (mark != null) { innerHalf = mark.localPosition.x; tall = mark.localPosition.y; }
         }
@@ -1247,7 +1247,7 @@ namespace PSXRacing
             // the bench's, so a box that looks like it is on the seat is.
             float boxHalf = 0.205f;
             {
-                var probe = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+                var probe = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
                 if (probe != null)
                 {
                     var pbb = Bounds(probe);
@@ -1258,9 +1258,9 @@ namespace PSXRacing
             bool modelSeat = false;
             // The rung's own seat if the owner made one (the buckets), else the
             // stock seat — which the sport and bucket rungs dress with slabs.
-            var seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.SeatFor(SeatStage));
+            var seatPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.SeatFor(SeatStage));
             bool ownSeat = seatPrefab != null;
-            if (seatPrefab == null) seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Seat);
+            if (seatPrefab == null) seatPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Seat);
             var squabMark = seatPrefab != null ? seatPrefab.transform.Find("SquabPoint") : null;
             var frontMark = seatPrefab != null ? seatPrefab.transform.Find("CushionFront") : null;
             if (squabMark != null && frontMark != null)
@@ -1313,7 +1313,7 @@ namespace PSXRacing
             // The same measurement the stack below is built from.
             float pitch = 0.075f + 0.004f;
             {
-                var probe = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+                var probe = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
                 if (probe != null)
                 {
                     var pbb = Bounds(probe);
@@ -1448,7 +1448,7 @@ namespace PSXRacing
             Slab(tray, "FootwellR", new Vector3(floorHalfW - 0.02f, kerbY, floorZc),
                  new Vector3(0.04f, KerbH, floorLen), visible: false);
 
-            var boxPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+            var boxPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
             if (boxPrefab == null)
             {
                 Debug.LogWarning("[PizzaCargo] no baked box prefab — run PSX Racing/Bake Pizza Cargo");
@@ -1743,7 +1743,7 @@ namespace PSXRacing
             // body the moment the box opens, with the box's own velocity, so
             // the old worry that "a body that pops into existence mid-crash
             // arrives with no velocity and looks pasted on" does not apply.
-            var topPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Topping(topping));
+            var topPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Topping(topping));
             if (topPrefab != null)
             {
                 // Just clear of the tray floor. The prefabs are seated on their
@@ -2935,7 +2935,7 @@ namespace PSXRacing
         /// never baked — a bake from before the variants existed has only
         /// the one.</summary>
         public static GameObject LoadBottle(int i) =>
-            Resources.Load<GameObject>(BottleVariant(i)) ?? Resources.Load<GameObject>(Bottle);
+            PSXTexDecode.LoadPrefab(BottleVariant(i)) ?? PSXTexDecode.LoadPrefab(Bottle);
         /// <summary>How many toppings the baker writes. A saved order names its
         /// pizzas by index into this, so it is append-only.</summary>
         public const int ToppingCount = 10;

@@ -67,6 +67,7 @@ Shader "PSX/Lit"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
@@ -127,6 +128,8 @@ Shader "PSX/Lit"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
             // The per-pixel lights: the cars' headlights...
             #include "PSXHeadlights.cginc"
             // ...and the street lamps and tail lamps (the NIGHT PASS in the
@@ -409,7 +412,7 @@ Shader "PSX/Lit"
                 float3 gx = ddx(float3(i.wpos.xz, uv.x));
                 float3 gy = ddy(float3(i.wpos.xz, uv.x));
 
-                fixed4 tex = tex2D(_MainTex, uv) * _Color;
+                fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
                 clip(tex.a - _Cutoff);
 
                 // The pixel's normal, guarded like the vertex's: two

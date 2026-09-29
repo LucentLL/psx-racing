@@ -35,7 +35,9 @@ Shader "PSX/Water"
     Properties
     {
         _MainTex ("Water (shallow)", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _DeepTex ("Water (deep)", 2D) = "white" {}
+        [HideInInspector] _DeepTexRaw ("16-bit texel decode, deep (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _SandColor ("Sand under the shallows", Color) = (0.62, 0.56, 0.42, 1)
         // THE SWELL (owner, 2026-09-26: "Ocean, specially the ocean, not the
@@ -56,12 +58,15 @@ Shader "PSX/Water"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
             #include "PSXHeadlights.cginc"
             #include "PSXLamps.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
             sampler2D _DeepTex;
+            float _DeepTexRaw;
             fixed4 _Color;
             fixed4 _SandColor;
             float _OceanWaves;
@@ -234,9 +239,9 @@ Shader "PSX/Water"
                 float t = _Time.y;
                 float2 uvA = i.uv + SCROLL_A * t;
                 float2 uvB = i.uv * SCALE_B + SCROLL_B * t;
-                fixed3 a = tex2D(_MainTex, uvA).rgb;
-                fixed3 b = tex2D(_MainTex, uvB).rgb;
-                fixed3 deepTex = tex2D(_DeepTex, uvA * 0.83 + uvB * 0.17).rgb;
+                fixed3 a = PSXMainTex(_MainTex, uvA).rgb;
+                fixed3 b = PSXMainTex(_MainTex, uvB).rgb;
+                fixed3 deepTex = PSXTexDecode(tex2D(_DeepTex, uvA * 0.83 + uvB * 0.17).rgb, _DeepTexRaw);
 
                 // A normal from the two sheets: where one is brighter than the
                 // other the surface leans. Cheap, and it moves with them.

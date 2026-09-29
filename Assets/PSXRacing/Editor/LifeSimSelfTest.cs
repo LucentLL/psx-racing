@@ -110,6 +110,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestSenseOfSpeed), TestSenseOfSpeed);
             Guard(nameof(TestNightLook), TestNightLook);
             Guard(nameof(TestDayLook), TestDayLook);
+            Guard(nameof(TestTexDecode), TestTexDecode);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -11730,6 +11731,18 @@ namespace PSXRacing.EditorTools
         // ==================================================================
         //  THE DAY LOOK (2026-09-21, the Forza daylight pass)
         // ==================================================================
+
+        /// <summary>THE 16-BIT DECODE (the colour pass, C1b): the set is
+        /// imported as linear data and decoded in the shaders, the release
+        /// budget and the labels agree, no .mat stores the flag, every prefab
+        /// leaves Resources through PSXTexDecode.LoadPrefab, and (with a GPU)
+        /// the grey card matches. The play-mode half is
+        /// tools\colour\texdecode-audit.ps1 (TexDecodeAudit.Run).</summary>
+        static void TestTexDecode()
+        {
+            Line("16-bit texture decode:");
+            foreach (var r in TexDecodeAudit.EditChecks(gpu: true)) Check(r.ok, r.what, r.got);
+        }
 
         /// <summary>
         /// The owner, with five daylight frames of Forza Horizon: improved

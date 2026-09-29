@@ -160,6 +160,9 @@ namespace PSXRacing.EditorTools
             if (imp != null)
             {
                 p["sRGBTexture"] = imp.sRGBTexture;
+                // C1b: the 16-bit set is imported as linear data and decoded in
+                // the shader (PSXTexDecode); the label is how the budget knows it.
+                p["psx16"] = ReleaseBudget.HasPsx16Label(AssetDatabase.AssetPathToGUID(cachedProbePath));
                 var web = imp.GetPlatformTextureSettings("WebGL");
                 p["webglOverride"] = web != null && web.overridden ? web.format.ToString() : "none";
             }

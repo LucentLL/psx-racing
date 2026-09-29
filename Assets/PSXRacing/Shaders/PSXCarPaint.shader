@@ -136,6 +136,7 @@ Shader "PSX/CarPaint"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
@@ -155,6 +156,8 @@ Shader "PSX/CarPaint"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
             #include "PSXHeadlights.cginc"
             // The street lamps and tail lamps, per pixel (the NIGHT PASS in
             // the header). Declares its own _PSXLamp* table; guarded.
@@ -297,7 +300,7 @@ Shader "PSX/CarPaint"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                fixed4 tex = tex2D(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
+                fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
                 clip(tex.a - _Cutoff);
 
                 float3 N = normalize(i.wnrm);
