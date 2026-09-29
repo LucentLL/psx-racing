@@ -47,7 +47,9 @@
 //       an arc bumps, jogs, kinks, waves and squeeze zigzags passed at 4-10
 //       times the straight-road limit): judged in the ARC'S FRAME (lib/kink.mjs
 //       arcFrame) they fail as on a straight; clean arcs, WP-11 fillets, sub-V
-//       features, eased tapers and long S-bends on a curve do not
+//       features, eased tapers and long S-bends on a curve do not; review 7:
+//       the offline rules parser reads a const float as C# holds it (the arc
+//       frame's discrete tests flipped between the gates on V as a double)
 //   T   a HOOK (review 6: a corner in a line's last metres passed until its
 //       end stood 8V off): the corner extrapolated from the approach, at most
 //       the end's own offset, fails; a turn whose end stands under V off, or a
@@ -68,6 +70,7 @@ import { fileURLToPath } from 'node:url';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts } from './lib/paintruns.mjs';
 import { city, bent, fillet, sagChord, gateOf, fwd, DEG } from './lib/synthcity.mjs';
+import { arcFrame } from './lib/kink.mjs';
 import { summarize, ratchet, packKeys, packTiles, SCHEMA, statesOf, beforeAfter } from './lib/gatebase.mjs';
 import * as GB from './lib/gatebase.mjs';
 import { readFileSync } from 'node:fs';
@@ -574,6 +577,24 @@ if (want('C')) {
     for (const [Rc, L] of [[300, 8], [100, 6], [60, 5]]) { const n = Math.round(120 / L) + 10, res = gt(filletAll(polyArc(Rc, L, n, -1, 0))); probe(`C5 an R ${Rc} m data curve drawn every ${L} m, WP-11 filleted (tangent arcs, 2 cm sagitta): nothing`, gated(res).length === 0, fmt(res)); }
     const n = Math.round(120 / 8) + 10, spiked = gt(filletAll(polyArc(300, 8, n, Math.round(n / 2), 0.25)));
     probe('C5 the R 300 m curve with one data vertex 25 cm out, WP-11 filleted (19 cm off the clean fillet): a KINK on all 7 lines', b2l(spiked) === 7, fmt(spiked));
+  }
+  // review 7: SmoothRules' numbers are C# FLOATS. Read as doubles offline, V was 1.5e-8 off the mesh gate's and the arc
+  // frame's discrete tests (|k| <= tolK at exactly R 2000, the V/4 fit, the V/50 chord points, a ceil at an exact ratio)
+  // flipped between the two gates: an R 2000 bump failed offline at 1.20x and read 0.04x in CitySmooth
+  {
+    const fl = [['V', 0.025], ['CollinearDeg', 0.02], ['ExistInsetM', 0.3], ['MatchM', 3.6576], ['DashTol', 0.2]].filter(([k, v]) => !(R[k] === Math.fround(v) && R[k] !== v));
+    const tb = R.RMin.motorway === Math.fround(150) && R.TaperFloor.local === Math.fround(15) && R.RMin.local === Math.fround(7.5);
+    const frameOf = Rc => {
+      const k = 1 / Rc, X = [], Z = [];
+      for (let s = 0; s <= 100 + 1e-9; s += 1) { const th = k * s, o = s - 50, d = o >= 0 && o <= 8 ? 0.03 * (1 - Math.cos(2 * Math.PI * o / 8)) / 2 : 0; X.push(Math.sin(th) / k - Math.sin(th) * d); Z.push((1 - Math.cos(th)) / k + Math.cos(th) * d); }
+      const n = X.length, C = [0], TH = new Array(n).fill(0);
+      for (let i = 1; i < n; i++) C.push(C[i - 1] + Math.hypot(X[i] - X[i - 1], Z[i] - Z[i - 1]));
+      for (let i = 1; i + 1 < n; i++) { const ux = X[i] - X[i - 1], uz = Z[i] - Z[i - 1], vx = X[i + 1] - X[i], vz = Z[i + 1] - Z[i]; TH[i] = Math.atan2(ux * vz - uz * vx, ux * vx + uz * vz); }
+      return !!arcFrame(X, Z, C, TH, R);
+    };
+    const f2000 = frameOf(2000), f1999 = frameOf(1999);
+    probe('C7 the rules parser reads a const float as C# holds it (Math.fround: V 0.02500000037) and the RClass tables as floats; an exact R 2000 arc with a 3 cm bump then has no frame, as in CitySmooth (the float tolK holds it), and R 1999 has one',
+      fl.length === 0 && tb && !f2000 && f1999, `V ${R.V}; not float: ${fl.map(x => x[0]).join(', ') || 'none'}; tables ${tb ? 'float' : 'NOT float'}; R 2000 frame ${f2000 ? 'yes' : 'no'}, R 1999 ${f1999 ? 'yes' : 'no'}`);
   }
   // legitimate curves and sub-V features on them
   for (const [label, pts] of [['a clean arc of R 1000 m sampled every 1 m', arcPts(grid(0, 60, 1), () => 0, 1000)], ['a clean arc of R 30 m sampled every 1 m', arcPts(grid(0, 60, 1), () => 0, 30)],

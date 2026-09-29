@@ -3,22 +3,37 @@
 // implementations of the gate (CitySmooth.cs and linecheck.mjs) therefore run
 // on the same V, the same R_min table and the same check states; a constant
 // this parser cannot find is an error, never a silent default.
+//
+// A `const float` is read as C# holds it: the nearest float (Math.fround), not
+// the decimal the source spells. 0.025f is 0.02500000037 in CitySmooth, and a
+// double 0.025 here moved scores by ~1e-8 - harmless until the arc frame's
+// discrete tests (|k| <= tolK at exactly R 2000, the curvature-step test, the
+// V/4 fit, the V/50 chord points, ceil(L / sqrt(4V/k))) flipped on it and the
+// two gates disagreed (review 7). A `const double` stays a double, and so do
+// the RClass tables' values once rounded to float (RClass.r is a float).
 import { readFileSync } from 'node:fs';
+
+// A literal only: an expression (`V * 2f`) would parse as its first number.
+function csNumber(v, name) {
+  if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(v)) throw new Error(`SmoothRules.cs: ${name} = ${v} is not a numeric literal`);
+  return parseFloat(v);
+}
 
 export function readSmoothRules(csPath) {
   const src = readFileSync(csPath, 'utf8');
   const R = { source: csPath };
-  for (const m of src.matchAll(/public const (float|int|bool) (\w+) = ([^;]+);/g)) {
+  for (const m of src.matchAll(/public const (float|double|int|bool) (\w+) = ([^;]+);/g)) {
     const [, type, name, raw] = m;
     const v = raw.trim();
     if (type === 'bool') R[name] = v === 'true';
     else if (type === 'int') R[name] = parseInt(v, 10);
-    else R[name] = parseFloat(v.replace(/f$/, ''));
+    else if (type === 'double') R[name] = csNumber(v.replace(/[dD]$/, ''), name);
+    else R[name] = Math.fround(csNumber(v.replace(/[fF]$/, ''), name));
   }
   const table = name => {
     const m = src.match(new RegExp(`${name} =\\s*\\{([\\s\\S]*?)\\};`));
     if (!m) throw new Error(`SmoothRules.cs: no ${name} table`);
-    return [...m[1].matchAll(/new RClass\("([a-z_]+)", ([0-9.]+)f\)/g)].map(x => ({ cls: x[1], r: parseFloat(x[2]) }));
+    return [...m[1].matchAll(/new RClass\("([a-z_]+)", ([0-9.]+)f\)/g)].map(x => ({ cls: x[1], r: Math.fround(parseFloat(x[2])) }));
   };
   R.RMin = Object.fromEntries(table('RMin').map(x => [x.cls, x.r]));
   R.CurbReturn = Object.fromEntries(table('CurbReturn').map(x => [x.cls, x.r]));

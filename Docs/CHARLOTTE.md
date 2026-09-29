@@ -565,7 +565,22 @@ in OSM).
     20,481 polylines - 15,490 of them the city's own gate strands, every line
     kind, and 5,000 random features on straights and arcs - 199,519 scored
     past V, 14,835 of them in the arc frame and 6,989 hooks: identical to
-    1.7e-8, the same rule and the same silent vertices every time).
+    2.7e-10, the same rule and the same silent vertices every time). The
+    offline rules parser reads a `const float` as C# holds it (Math.fround:
+    V is 0.02500000037, not 0.025) and a `const double` as a double; review 7
+    found the arc frame's discrete tests (|k| <= tolK at exactly R 2000, the
+    V/4 fit, the V/50 chord points, a ceil at an exact ratio) flipping on the
+    1.5e-8 difference - 39 score and 5 rule-label mismatches in 2,996 random
+    lines, an R 2000 bump failed offline at 1.20x and read 0.04x in C#. With
+    the float values: 0 mismatches of any kind on 4,492 random lines (arcs of
+    R 15-4000, bumps, jogs, waves, hooks, exempt vertices) and the exact R
+    1999/2000/2001 arcs, run against the COMPILED CitySmooth by reflection,
+    largest relative difference 0. The re-record that came with it
+    (`--allow-loosen`, listed in its commit) moved only samples sitting
+    exactly on a limit: 16 keys one ratio quantum lower (a value divided by
+    the float V or DashTol), and a plan line's existence where a tapered half
+    width reaches exactly its offset + `ExistInsetM` (A1: 25 keys gone, 293
+    lower, 688 shorter, 325 m; C2: one end at exactly one lane, MatchM).
   - C (continuity): C1 GAP, C2 END (only at junction fan mouths, dead ends,
     a gore NOSE - a collapsed section within 2 m - or plan lane drops; an end
     with a partner within a lane is a JUMP, not an end; a bend fan's mouths
@@ -592,14 +607,15 @@ in OSM).
   **a disagreement is a gate bug**, fixed before anything else. Only the mesh
   gate sees tile seams, fans and heights. linecheck's replica follows the
   builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
-  same commit. `node tools/city/gateprobes.mjs` runs 224 synthetic probes with
+  same commit. `node tools/city/gateprobes.mjs` runs 225 synthetic probes with
   known answers (split kinks, legitimate fillets and S-bends, a kink behind a
   sub-V step, bend fans, attach arcs, straight roads, hedged corners, notches,
   jogs of every width, bumps and zigzags, waves, jogs into a fan mouth, legal
   vertices beside a jog, bumps and notches wider than the cap, C2's closed
   list, squeezed edges against I7 - also inside a slow rise - an edge pulled
   in without a squeeze, features on a curve and the curves that are no
-  features, hooks at a line's end, the ratchet, STALE, the gate's code and the
+  features, the rules read as C# floats, hooks at a line's end, the ratchet,
+  STALE, the gate's code and the
   pin in the fingerprint, the loosening refusal, the gate moving with the
   data, the builder replica as data); every review finding is one, and
   all must pass - `linecheck --ratchet` runs them. `metrics.mjs` gains a SMOOTH section: B2/B3 on

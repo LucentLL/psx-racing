@@ -161,7 +161,7 @@ export function smoothSection(city, rulesPath) {
     note: 'the design line only (exported centreline and its half-width offsets, mitre-joined, through 2-arm nodes); the mesh gate (CitySmooth / linecheck.mjs) measures what is drawn',
   };
   const out = [];
-  out.push(`\nSMOOTH (the smoothness gate's B2 KINK and B3 CURVE on the design line; V ${R.V * 100} cm, chords capped at ${R.ChordCapM} m)`);
+  out.push(`\nSMOOTH (the smoothness gate's B2 KINK and B3 CURVE on the design line; V ${+(R.V * 100).toFixed(2)} cm, chords capped at ${R.ChordCapM} m)`);
   out.push(`  ${lines.length} lines through 2-arm nodes, ${total.vertices} turning vertices: B2 fails at ${total.b2_centre} centreline and ${total.b2_offset} offset-curve vertices; B3 under the class R_min at ${total.b3_centre}, inner offset under ${R.InnerEdgeMinRM} m at ${total.b3_inner}`);
   if (worstB2) out.push(`  worst B2 ${json.worst_b2_centre.f_cm} cm (${json.worst_b2_centre.deg} deg, ${worstB2.cls}) at ${json.worst_b2_centre.at}; worst B3 R ${json.worst_b3_centre?.r_m} m against ${json.worst_b3_centre?.limit_m} m (${worstB3?.cls}) at ${json.worst_b3_centre?.at}`);
   out.push('  class            vertices  B2 centre  B2 offsets  B3 centre  B3 inner');
