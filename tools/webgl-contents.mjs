@@ -23,7 +23,13 @@
 //     this script is in) is in the player's Resources container, except what
 //     the edition may leave out (MAIN: charlotte_*, cityprops/*; CITY:
 //     pizzacargo/*, the root .json stage bakes) - and the build's park list
-//     stays inside that allowance.
+//     stays inside that allowance;
+//   * and SHADERS: every shader the runtime code names (a runtime .cs string
+//     literal that is a .shader's declared name, or Shader.Find's argument) is
+//     the own name of a Shader object in the player - Shader.Find finds nothing
+//     else there (2026-09-29: CITY without PSX/Glow, no car lamps) - and the
+//     build report's "runtime-shader" list (PSXBuildWebGL / RuntimeShaders.cs)
+//     is the same list.
 // Why BuildReport.packedAssets is not the proof: an incremental build that
 // reuses its packed content reports none (the MAIN build of 2026-09-29 said
 // 0 packed sources; the CITY build beside it listed 3640), and a report is
@@ -109,11 +115,13 @@ if (du) {
     parts.push((bl.f & 0x3f) === 0 ? c : lz4(c, bl.u));
   }
   const data = Buffer.concat(parts);
-  for (const n of nodes) serialized.push({ name: n.name, text: data.toString("latin1", n.off, n.off + n.size), size: n.size });
+  for (const n of nodes) serialized.push({ name: n.name, text: data.toString("latin1", n.off, n.off + n.size), size: n.size,
+                                           buf: data.subarray(n.off, n.off + n.size) });
 }
 for (const f of files)
-  if (/\.assets$|^globalgamemanagers|^level\d+$/.test(f.name))
-    serialized.push({ name: f.name, text: buf.toString("latin1", f.off, f.off + f.size), size: f.size });
+  if (/\.assets$|^globalgamemanagers|^level\d+$|unity_builtin_extra$/.test(f.name))
+    serialized.push({ name: f.name, text: buf.toString("latin1", f.off, f.off + f.size), size: f.size,
+                      buf: buf.subarray(f.off, f.off + f.size) });
 
 const MiB = n => (n / 1048576).toFixed(2) + " MiB";
 console.log("webgl-contents " + dataFile);
@@ -242,6 +250,226 @@ else {
   });
   if (overPark.length) fail("the build parked " + overPark.join(", ") + ", which " + edition + " must ship");
   else if (parked.length) ok("everything the build parked is " + edition + "'s to leave out (" + parked.length + ")");
+}
+
+// ---- every shader the runtime NAMES must be a Shader in the player ----
+//
+// 2026-09-29: /city/ went live with no lamp glow on any car and "CarLights:
+// PSX/Glow shader missing" x6. CarLights makes its materials by Shader.Find,
+// which in a player finds only a shader the build packed; MAIN's scenes kept
+// PSX/Glow by accident and CITY's do not. The rule is RuntimeShaders.cs's
+// (Assets/PSXRacing/Editor), applied here independently to the same files: a
+// runtime .cs (under Assets, in no Editor folder) naming a shader in a string
+// literal - the declared name of a .shader under Assets, anywhere, or the
+// argument of Shader.Find("...") / the const an identifier argument names.
+// Comments do not count. Each name must be the OWN name of a Shader object
+// (class 48) in the player's serialized files - found through the object
+// table, not by searching the bytes, so a fallback name or a code string is
+// not a shader. And the build's "runtime-shader" list (psx-build-report.txt)
+// must be this same list: two scans of one rule that disagree mean one is
+// wrong.
+function lexCs(s) {
+  // Comments blanked (newlines kept), strings kept; each literal's text and
+  // line. The same lexer as RuntimeShaders.Lex.
+  let i = 0, line = 1;
+  const out = [], lits = [];
+  const at = k => (k < s.length ? s[k] : "\0");
+  const copy = () => { const c = s[i++]; out.push(c); if (c === "\n") line++; };
+  const blank = () => { const c = s[i++]; out.push(c === "\n" ? "\n" : " "); if (c === "\n") line++; };
+  function code(hole) {
+    let depth = 0;
+    while (i < s.length) {
+      const c = s[i], d = at(i + 1);
+      if (c === "/" && d === "/") { while (i < s.length && s[i] !== "\n") blank(); continue; }
+      if (c === "/" && d === "*") {
+        blank(); blank();
+        while (i < s.length && !(s[i] === "*" && at(i + 1) === "/")) blank();
+        if (i < s.length) { blank(); blank(); }
+        continue;
+      }
+      if (hole) {
+        if (c === "{") depth++;
+        else if (c === "}") { if (depth === 0) return; depth--; }
+      }
+      if (c === "'") {
+        copy();
+        while (i < s.length && s[i] !== "'" && s[i] !== "\n") { if (s[i] === "\\") copy(); if (i < s.length) copy(); }
+        if (i < s.length && s[i] === "'") copy();
+        continue;
+      }
+      let j = i, verbatim = false, interp = false;
+      while (j < s.length && j - i < 2 && (s[j] === "@" || s[j] === "$")) { if (s[j] === "@") verbatim = true; else interp = true; j++; }
+      if (j < s.length && s[j] === '"') { while (i < j) copy(); str(verbatim, interp); continue; }
+      copy();
+    }
+  }
+  function str(verbatim, interp) {
+    const from = line;
+    copy();
+    let text = "", holes = false;
+    while (i < s.length) {
+      const c = s[i];
+      if (verbatim && c === '"' && at(i + 1) === '"') { copy(); copy(); text += '"'; continue; }
+      if (c === '"') { copy(); break; }
+      if (!verbatim && c === "\n") break;
+      if (!verbatim && c === "\\") { copy(); if (i < s.length) { text += "\u0001"; copy(); } continue; }
+      if (interp && c === "{") {
+        if (at(i + 1) === "{") { copy(); copy(); text += "{"; continue; }
+        holes = true; copy(); code(true); if (i < s.length) copy();
+        continue;
+      }
+      if (interp && c === "}" && at(i + 1) === "}") { copy(); copy(); text += "}"; continue; }
+      text += c; copy();
+    }
+    if (!holes) lits.push({ text, line: from });
+  }
+  code(false);
+  return { code: out.join(""), lits };
+}
+
+// A SerializedFile's object table (format 14+, no type trees - a player's):
+// [{ cls, off, size }], or null when the bytes are not a serialized file.
+function objectTable(b) {
+  if (!b || b.length < 48) return null;
+  const version = b.readUInt32BE(8);
+  if (version < 14 || version > 40) return null;
+  let q = 16;
+  const big = b[q] !== 0; q += 4;
+  let dataOffset;
+  if (version >= 22) {
+    q += 4;
+    const fileSize = Number(b.readBigUInt64BE(q)); q += 8;
+    dataOffset = Number(b.readBigUInt64BE(q)); q += 8;
+    q += 8;
+    if (fileSize !== b.length) return null;
+  } else {
+    if (b.readUInt32BE(4) !== b.length) return null;
+    dataOffset = b.readUInt32BE(12);
+  }
+  const i32 = () => { const v = big ? b.readInt32BE(q) : b.readInt32LE(q); q += 4; return v; };
+  const u32 = () => { const v = big ? b.readUInt32BE(q) : b.readUInt32LE(q); q += 4; return v; };
+  const i64 = () => { const v = Number(big ? b.readBigInt64BE(q) : b.readBigInt64LE(q)); q += 8; return v; };
+  q = b.indexOf(0, q) + 1;                    // the Unity version string
+  i32();                                      // target platform
+  if (b[q++] !== 0) return null;              // type trees: not a player's file
+  const types = [];
+  for (let n = i32(), k = 0; k < n; k++) {
+    const cls = i32();
+    if (version >= 16) q += 1;                // stripped
+    if (version >= 17) q += 2;                // script type index
+    if ((version < 16 && cls < 0) || (version >= 16 && cls === 114)) q += 16;
+    q += 16;                                  // type hash
+    types.push(cls);
+  }
+  const objs = [];
+  for (let n = i32(), k = 0; k < n; k++) {
+    q = (q + 3) & ~3;
+    i64();                                    // path id
+    const start = version >= 22 ? i64() : u32();
+    const size = u32();
+    const cls = types[i32()];
+    if (dataOffset + start + size > b.length) return null;
+    objs.push({ cls, off: dataOffset + start, size });
+  }
+  return objs;
+}
+
+// A Shader object's own name. Its m_Name is empty in a player; the parsed
+// form's name is the first length-prefixed string holding a "/" that is
+// followed by two more strings (custom editor, fallback). A fallback name
+// comes after it, so it is never taken for the shader's own.
+function shaderOwnName(ob) {
+  const pstr = p => {
+    if (p + 4 > ob.length) return null;
+    const L = ob.readUInt32LE(p);
+    if (L > 255 || p + 4 + L > ob.length) return null;
+    const s = ob.toString("latin1", p + 4, p + 4 + L);
+    return /^[\x20-\x7e]*$/.test(s) ? { s, next: (p + 4 + L + 3) & ~3 } : null;
+  };
+  for (let p = 0; p + 12 <= ob.length; p += 4) {
+    const S = pstr(p);
+    if (!S || S.s.length < 3 || !S.s.includes("/")) continue;
+    const C = pstr(S.next); if (!C) continue;
+    const F = pstr(C.next); if (!F) continue;
+    if (F.s && !F.s.includes("/")) continue;
+    return S.s;
+  }
+  return null;
+}
+
+{
+  const assets = path.join(srcRoot, "Assets");
+  const walkFiles = (d, ext, acc = []) => {
+    if (!fs.existsSync(d)) return acc;
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walkFiles(f, ext, acc);
+      else if (e.name.endsWith(ext)) acc.push(f);
+    }
+    return acc;
+  };
+  const rel = f => path.relative(assets, f).split(path.sep).join("/");
+  const declared = new Map();
+  for (const f of walkFiles(assets, ".shader")) {
+    const m = /^\s*Shader\s+"([^"]+)"/m.exec(lexCs(fs.readFileSync(f, "utf8")).code);
+    if (m && !declared.has(m[1])) declared.set(m[1], "Assets/" + rel(f));
+  }
+  const needs = new Map();
+  const add = (name, site) => { const s = needs.get(name) || []; if (!s.includes(site)) s.push(site); needs.set(name, s); };
+  const consts = new Map(), idents = [], indirect = [];
+  const csFiles = walkFiles(assets, ".cs").map(f => ({ f, r: rel(f) })).filter(x => !x.r.split("/").includes("Editor"))
+                                          .sort((a, b) => (a.r < b.r ? -1 : a.r > b.r ? 1 : 0));
+  for (const { f, r } of csFiles) {
+    const { code, lits } = lexCs(fs.readFileSync(f, "utf8"));
+    for (const l of lits) if (declared.has(l.text)) add(l.text, r + ":" + l.line);
+    for (const m of code.matchAll(/\bconst\s+string\s+([A-Za-z_]\w*)\s*=\s*"((?:[^"\\\n]|\\.)*)"/g)) consts.set(m[1], m[2]);
+    for (const m of code.matchAll(/\bShader\s*\.\s*Find\s*\(\s*(?:@?"((?:[^"\\\n]|\\.)*)"|([A-Za-z_][\w.]*))\s*\)/g)) {
+      const site = r + ":" + code.slice(0, m.index).split("\n").length;
+      if (m[1] !== undefined) add(m[1], site); else idents.push({ id: m[2], site, call: m[0].replace(/\s+/g, "") });
+    }
+  }
+  for (const x of idents) {
+    const last = x.id.slice(x.id.lastIndexOf(".") + 1);
+    if (consts.has(last)) add(consts.get(last), x.site); else indirect.push(x.site + " " + x.call);
+  }
+  const want = [...needs.keys()].sort();
+
+  // The player's shaders, by their own names.
+  const own = new Map();
+  let shaderObjs = 0, unnamed = 0;
+  for (const s of serialized) {
+    const objs = objectTable(s.buf);
+    if (!objs) continue;
+    for (const o of objs) {
+      if (o.cls !== 48) continue;
+      shaderObjs++;
+      const n = shaderOwnName(s.buf.subarray(o.off, o.off + o.size));
+      if (n === null) { unnamed++; continue; }
+      own.set(n, (own.get(n) || 0) + 1);
+    }
+  }
+  const dup = [...own].filter(([, c]) => c > 1).map(([n, c]) => n + " x" + c);
+  console.log("  shaders in the player: " + shaderObjs + " Shader objects, " + own.size + " names" +
+              (unnamed ? ", " + unnamed + " unread" : "") + (dup.length ? "; packed more than once: " + dup.join(", ") : ""));
+  if (!csFiles.length) fail("no runtime .cs under " + assets + " to learn the runtime's shader names from (--source <checkout>)");
+  else if (!shaderObjs) fail("no Shader object found in the player's serialized files - cannot check the runtime's shaders");
+  else {
+    const missing = want.filter(n => !own.has(n));
+    if (missing.length)
+      fail(missing.length + " shader(s) the runtime names are NOT in the player - Shader.Find returns null there: " +
+           missing.map(n => n + " (" + needs.get(n).join(" ") + ")").join(", ") +
+           ". Add each to GraphicsSettings' Always Included Shaders (see RuntimeShaders.cs).");
+    else ok("every shader the runtime names is in the player: " + want.length + " (" + want.join(", ") + ")" +
+            (indirect.length ? "  [indirect lookups, fed by those literals: " + indirect.join("; ") + "]" : ""));
+  }
+  // The build's own list (RuntimeShaders) must be this one.
+  const listed = report.filter(l => /^\s+runtime-shader /.test(l)).map(l => l.trim().slice(15).split(" | ")[0].trim()).sort();
+  if (!listed.length)
+    console.log("  note the build report lists no runtime shaders (a build from before RuntimeShaders) - the player check above stands alone");
+  else if (listed.join("\n") !== want.join("\n"))
+    fail("the build's runtime-shader list and this scan disagree - build: " + listed.join(", ") + "; here: " + want.join(", ") +
+         " (RuntimeShaders.cs and tools/webgl-contents.mjs must apply one rule; or the source moved since the build)");
+  else ok("the build's runtime-shader list is this scan's (" + listed.length + ")");
 }
 
 console.log(bad ? "WEBGL CONTENTS FAILED (" + bad + ")" : "WEBGL CONTENTS OK - " + edition);

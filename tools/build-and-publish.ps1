@@ -208,6 +208,10 @@ function Invoke-GitOut([string[]]$GitArgs, [switch]$AllowFail) {
 # charlotte_* and no CityProps; CITY: no pizza cargo). node only, no Unity,
 # ~20 s. A build from before the editions has no report and fails the scene
 # check - that is the point: it cannot be told apart from the whole game.
+# It also finds, among the player's Shader objects, every shader the runtime
+# code names (Shader.Find in a player finds nothing else: 2026-09-29, CITY
+# shipped without PSX/Glow and no car had lamps) - see RuntimeShaders.cs,
+# which fails the WebGL build itself on the same gap before it starts.
 function Test-WebglContents([string]$Dir, [string]$Ed) {
     $node = Get-Command node -ErrorAction SilentlyContinue
     if (-not $node) {
@@ -417,7 +421,7 @@ if (-not $SkipBuild) {
 
     if (-not (Test-Path "$proj\Build\WebGL\build_ok.txt")) {
         Write-Host "BUILD FAILED - see $proj\build.log" -ForegroundColor Red
-        Select-String -Path "$proj\build.log" -Pattern "IL2CPP error|Error building Player|error CS" |
+        Select-String -Path "$proj\build.log" -Pattern "IL2CPP error|Error building Player|error CS|RUNTIME SHADER MISSING" |
             Select-Object -First 6 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(200, $_.Line.Length)) }
         exit 1
     }
