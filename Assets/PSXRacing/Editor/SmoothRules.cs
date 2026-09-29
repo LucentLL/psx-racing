@@ -45,10 +45,16 @@ namespace PSXRacing.EditorTools
         /// next to a kink) are noise and never shorten the chord, so a lone
         /// kink is judged over the full ChordCapM; a curve that keeps turning
         /// ends it. On a smoothly sampled curve neighbouring turns share a
-        /// chord, so the chord stops at the neighbour. A turn back of this share
-        /// or more makes a HEDGED window, judged by its net turn and its jog
-        /// (lib/kink.mjs); a jog or a hedged corner is judged between straights
-        /// at least 1 / KinkNoiseShare times its own length.</summary>
+        /// chord, so the chord stops at the neighbour; a vertex whose chords both
+        /// stop at a turn BACK is a zigzag peak and scores twice its sagitta. A
+        /// turn back of this share or more makes a HEDGED window, judged by its
+        /// net turn; between two straights (min(1 / KinkNoiseShare times its own
+        /// length, ChordCapM) either side, or straight on to the line's end at
+        /// least its length away) also at its drawn corner with signed rounding,
+        /// by how far it is drawn outside every smooth transition (a bump, a
+        /// notch) and by its jog, the part of the step faster than the plan's
+        /// fastest ease (a smoothstep over the shortest TaperFloor)
+        /// (lib/kink.mjs).</summary>
         public const float KinkNoiseShare = 0.25f;
         /// <summary>B2 judges a corner split over close vertices as one
         /// (tools/city/lib/kink.mjs) as the chase view shows it out to this
@@ -220,7 +226,7 @@ namespace PSXRacing.EditorTools
             new CheckDef("A5", "STRAY", State.Ratchet, "no paint where the plan has no line of its colour", "M0 (tapers), R4"),
             new CheckDef("A5b", "MISSING", State.Report, "every plan line drawn (report-only until the line model draws it)", "R4 (WP-11b)"),
             new CheckDef("B1", "JITTER", State.Ratchet, "no line jitters past V from its local circle", "R4"),
-            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta; a corner split over close vertices is one corner, a hedged one is its net turn, a jog its step; a bend fan is judged across)", "R4"),
+            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta, twice it at a zigzag peak; a corner split over close vertices is one corner, a hedged one is its net turn, a bump or notch its excursion, a jog its step faster than the plan's ease; a bend fan is judged across)", "R4"),
             new CheckDef("B3", "CURVE", State.Ratchet, "no ribbon bends tighter than its class allows", "R4 (fans WP-19)"),
             new CheckDef("B4", "JUMP", State.Ratchet, "no line steps sideways past V where it continues", "R4 (WP-11b)"),
             new CheckDef("B4s", "SEAM", State.Zero, "no line steps at a tile seam (identical sections)", "now"),

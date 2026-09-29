@@ -9,9 +9,11 @@
 //             (a same-way cluster judged as one vertex, less its own rounding;
 //             collinear vertices under CollinearDeg dropped first; the chords
 //             reach past neighbours turning under KinkNoiseShare of the turn;
-//             a turn and a turn back is judged by its net turn, a sideways
-//             step between two straights by its size - lib/kink.mjs
-//             kinkScores, the gate's own rule)
+//             a zigzag peak scores twice its sagitta; a turn and a turn back
+//             is judged by its net turn and, between two straights, by how
+//             far it is drawn outside every smooth transition - a bump, a
+//             notch - and by the part of a sideways step faster than the
+//             plan's ease - lib/kink.mjs kinkScores, the gate's own rule)
 //   B3 CURVE  R = CurveHalfM / (heading change of the chords either side) under
 //             the class's R_min (the centreline), or under InnerEdgeMinRM (the
 //             inner offset curve)

@@ -177,17 +177,23 @@ function kasaResidual(xs, zs, c) {
 /// L: the class's taper floor. The cut is split at its turning points (V
 /// hysteresis) into rises and falls; two terms, per sample, in metres:
 ///   EASE  inside each rise or fall of height H, any two samples w < L apart
-///         may differ by at most H g(w / L), g(x) = 1.5x - 0.5x^3 - the most a
-///         smoothstep of height H over L changes over any w (the plan's taper
-///         shape). The excess is how much of the change came faster than a
-///         taper over the floor: a squeeze arriving or leaving in 8 m instead
-///         of 15, or in steps;
+///         may differ by at most H_L g(w / L), g(x) = 1.5x - 0.5x^3 - the most
+///         a smoothstep of height H_L over L changes over any w (the plan's
+///         taper shape). H_L is the LOCAL height: the change across the floor-
+///         length window centred on the pair (from the last sample at or
+///         before its start to the first at or after its end, inside the
+///         rise), never more than H - so a fast step inside a tall, slow rise
+///         no longer borrows the whole rise's height (review 4: 1 m in 8.9 m
+///         after a slow 1 m ramp over 80 m read 0). The excess is how much of
+///         the change came faster than a taper over the floor: a squeeze
+///         arriving or leaving in 8 m instead of 15, or in steps;
 ///   HOLD  at a dip between two cuts (a turning-point minimum between two
 ///         maxima) narrower than L where it drops below the lower of them:
 ///         that lower cut less the cut - an edge coming back out between cuts
 ///         less than a floor apart, where I7 holds it in.
-/// A cut eased as a smoothstep over L or longer, and held between cuts, reads
-/// 0 on both at every sample (a pointwise bound: no sampling slack). A
+/// A cut eased as a smoothstep over L or longer (or several stacked), and held
+/// between cuts, reads 0 on both at every sample (a pointwise bound: no
+/// sampling slack; the sampled window only widens H_L). A
 /// clipped or collapsed sample (X3/X2) breaks the signal and reads 0.
 export function squeezeDev(smp, sgn, L, V) {
   const n = smp.length, dev = new Float64Array(n);
@@ -212,11 +218,21 @@ export function squeezeDev(smp, sgn, L, V) {
     for (let t = 0; t + 1 < tp.length; t++) {
       const a = tp[t], b = tp[t + 1], H = Math.abs(c[b] - c[a]);
       if (H <= V) continue;
-      for (let i = a; i < b; i++)
+      for (let i = a; i < b; i++) {
+        // the floor window centred on the pair (i, j): kl the last sample at or before its start, kh the first at or
+        // after its end (inside the rise); both only move forward as j does
+        let kl = i, kh = i + 1;
         for (let j = i + 1; j <= b && s[j] - s[i] < L; j++) {
-          const e = Math.abs(c[j] - c[i]) - H * g((s[j] - s[i]) / L);
+          const mid = (s[i] + s[j]) / 2, lo = mid - L / 2, hi = mid + L / 2;
+          if (j === i + 1) { while (kl > a && s[kl] > lo) kl--; }
+          else while (kl < i && s[kl + 1] <= lo) kl++;
+          if (kh < j) kh = j;
+          while (kh < b && s[kh] < hi) kh++;
+          const HL = Math.min(H, Math.abs(c[kh] - c[kl]));
+          const e = Math.abs(c[j] - c[i]) - HL * g((s[j] - s[i]) / L);
           if (e > 0) { bump(i, e); bump(j, e); }
         }
+      }
     }
     // HOLD, per dip between two cuts
     for (let t = 1; t + 1 < tp.length; t++) {

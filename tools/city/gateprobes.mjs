@@ -11,20 +11,27 @@
 //   D   D1: a branch's attach arc is report-only, the same pair elsewhere gated
 //   S   straight roads: nothing gated
 //   H   a HEDGED corner (a turn and a turn back of a quarter of it or more
-//       within a metre or two) judged by its net turn; S-bends of sampled
-//       arcs are not
-//   G   a JOG (a sideways step between two straights, the K7 case) of V or
-//       more fails; a sub-V one does not
+//       within a metre or two) judged by its net turn; a NOTCH (counter-turns
+//       either side, the drawing overshooting its net corner) by its signed
+//       rounding; S-bends of sampled arcs are not
+//   G   a JOG (a sideways step between two straights, the K7 case; review 4:
+//       over any transition up to ChordCapM) fails by the part of it that
+//       came faster than the plan's ease; a sub-V one, or a slow drift, does
+//       not
+//   Z   a BUMP (off a straight and back) and a ZIGZAG (review 4: where the net
+//       turn is 0 nothing measured the excursion): peak deviation past V fails
 //   E   C2's closed list: a line starting along a branch's attach arc is no
 //       legitimate end; at a gore NOSE (a collapsed section) it is
 //   Q   a SQUEEZED ribbon edge against its I7 envelope: a squeeze that arrives
 //       faster than a taper over the class floor, steps, or wanders back out
-//       fails A1; one eased over the floor or longer does not
+//       fails A1 - also inside a taller, slow rise (review 4: the envelope
+//       took the whole rise's height); one eased over the floor or longer, or
+//       several stacked, does not
 //   R   the ratchet: growth inside a key's bucket, a second run, a move, a
 //       worse peak all FAIL; the same data PASSES; other inputs are STALE,
 //       and STALE FAILS; a check gating looser than its baseline FAILS
 //
-//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|E|Q|R ...]      exit 1 on any failed probe
+//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|Z|E|Q|R ...]    exit 1 on any failed probe
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSmoothRules } from './lib/smoothrules.mjs';
@@ -189,13 +196,22 @@ if (want('H')) {
     const res = gateOf(city([{ pts, rank }]), R, layouts);
     probe(`H3 S-bend: R ${R0} m turning ${D} deg and back, ${L} m between, chords at the 2 cm sagitta: no KINK`, count(res, 'B2') === 0, fmt(res));
   }
+  // review 4: a NOTCH - a corner with counter-turns either side, its drawing overshooting the net corner - in a window
+  // wider than 2.5 m got only the roundest drawing's credit, and passed while its lone net corner failed
+  for (const [c, a, g, w] of [[1.8, 6, 1.5], [1.5, 5, 2], [1.2, 4, 1.5], [1.8, 6, 1.5, { rank: 2, lanes: 4 }]]) {
+    const res = gateOf(city([{ pts: bent([-c, a, -c], [g, g]), ...(w || {}) }]), R, layouts), lone = gateOf(city([{ pts: bent([a - 2 * c], []), ...(w || {}) }]), R, layouts);
+    const lines = new Set(gated(lone).filter(r => r.check === 'B2').map(r => r.lineId));
+    const got = new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId));
+    probe(`H4 notch [-${c}, ${a}, -${c}] deg ${g} m apart on ${res.S.E[0].profile.key} (net ${(a - 2 * c).toFixed(1)}): a KINK on every line its lone net corner fails (${lines.size}), at least as bad (x${worst(lone, 'B2').toFixed(2)})`,
+      lines.size > 0 && [...lines].every(l => got.has(l)) && worst(res, 'B2') >= worst(lone, 'B2') * 0.99, fmt(res));
+  }
 }
 
 // ---- G: jogs (K7, review 2's open list): a sideways step between two straights
 if (want('G')) {
   console.log('G  B2 KINK: a jog - a sideways step of V or more between two straights - fails (B4 fails the same step at a node)');
   const lines7 = res => new Set(gated(res).filter(r => r.check === 'B2' && /jog/.test(r.what || '')).map(r => r.lineId)).size;
-  for (const [t, g] of [[3, 0.6], [2.5, 0.6], [1, 2], [3, 2]]) {
+  for (const [t, g] of [[3, 0.6], [2.8, 0.6], [1, 2], [3, 2]]) {
     const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
     probe(`G1 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm jog on all 7 lines`, lines7(res) === 7, fmt(res));
   }
@@ -203,8 +219,54 @@ if (want('G')) {
     const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
     probe(`G2 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm step, under V: nothing`, gated(res).length === 0, fmt(res));
   }
+  // the part of a step that came faster than the plan's fastest ease (a smoothstep over the street's 15 m floor) is judged
+  for (const [t, g, why] of [[2.5, 0.6, 'of which 2.45 cm came faster than the ease'], [0.17, 10, 'a slow drift: 0.44 cm faster than the ease']]) {
+    const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
+    probe(`G2 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm step, ${why}: nothing`, gated(res).length === 0, fmt(res));
+  }
   const res = gateOf(tw2(bent([1, 1, -1, -1], [0.5, 0.5, 0.5])), R, layouts);
   probe('G3 a 3.5 cm jog eased over four vertices 0.5 m apart: a jog', count(res, 'B2', r => /jog/.test(r.what || '')) > 0, fmt(res));
+  // review 4: the rule stopped at a 2.5 m transition (its straights had to be 4x the window inside the 10 m chord cap)
+  for (const [t1, t2, g, w] of [[1.2, 1.2, 3], [1.7, 1.7, 5], [3.3, 3.4, 3.2], [1.5, 1.5, 6], [2, 2, 9], [1.7, 1.7, 5, { rank: 2, lanes: 4 }], [3.3, 3.4, 3.2, { rank: 3, oneway: true, lanes: 3 }]]) {
+    const pts = bent([t1, -t2], [g]), res = gateOf(city([{ pts, ...(w || {}) }]), R, layouts);
+    const jl = new Set(gated(res).filter(r => r.check === 'B2' && /jog/.test(r.what || '')).map(r => r.lineId)), bl = new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId));
+    probe(`G4 [+${t1}, -${t2}] deg ${g} m apart on ${res.S.E[0].profile.key}: a ${(g * Math.sin(t1 * DEG) * 100).toFixed(1)} cm step: a jog on every line`, jl.size >= 5 && jl.size === bl.size, `${jl.size} lines; ${fmt(res)}`);
+  }
+  // a short S-bend of sampled arcs between straights is a step too: R 30 m arcs turning 3 degrees each way shift the line
+  // 8.2 cm in 3.1 m. The long S-bends (H3) are not: they never fit a ChordCapM window
+  {
+    const R0 = 30, D = 3, c = sagChord(R0, hw2), n = Math.max(1, Math.ceil(R0 * D * DEG / c)), dh = D * DEG / n, ch = 2 * R0 * Math.sin(dh / 2);
+    const pts = [[0, 0]]; let h = 10 * DEG, p = fwd(pts[0], h, 64.3); pts.push(p);
+    for (let k = 0; k < n; k++) { h += k === 0 ? dh / 2 : dh; p = fwd(p, h, ch); pts.push(p); }
+    h += dh / 2;
+    for (let k = 0; k < n; k++) { h -= k === 0 ? dh / 2 : dh; p = fwd(p, h, ch); pts.push(p); }
+    h -= dh / 2; pts.push(fwd(p, h, 64.3));
+    const res = gateOf(tw2(pts), R, layouts);
+    probe('G5 a 3.1 m S-bend of R 30 m arcs (8.2 cm across) between straights: a jog on all 7 lines', new Set(gated(res).filter(r => r.check === 'B2' && /jog/.test(r.what || '')).map(r => r.lineId)).size === 7, fmt(res));
+  }
+}
+
+// ---- Z: bumps and zigzags (review 4): where the approach and exit lines coincide (net turn 0) no rule measured the excursion
+if (want('Z')) {
+  console.log('Z  B2 KINK: a bump off a straight and back, and a zigzag - peak deviation past V (gate spec section 2) fails');
+  const b2lines = res => new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId)).size;
+  const peak = pts => { const [a, b] = [pts[0], pts[1]], ux = b[0] - a[0], uz = b[1] - a[1], L = Math.hypot(ux, uz); const lat = pts.slice(1, -1).map(p => ((p[0] - a[0]) * uz - (p[1] - a[1]) * ux) / L); return Math.max(...lat) - Math.min(...lat); };
+  for (const [t, g, w] of [[2, 2], [3, 1.5], [1, 4], [1, 2], [1.5, 3], [2, 2, { rank: 2, lanes: 4 }], [2, 2, { rank: 5, lanes: 3, oneway: true }]]) {
+    const pts = bent([t, -2 * t, t], [g, g]), res = gateOf(city([{ pts, ...(w || {}) }]), R, layouts);
+    const n = b2lines(res), lines = res.S.E[0].profile.key === 'tw2' ? 7 : 5;
+    probe(`Z1 bump [${t}, ${-2 * t}, ${t}] deg ${g} m apart on ${res.S.E[0].profile.key}: ${(peak(pts) * 100).toFixed(1)} cm off the straight over ${2 * g} m: a KINK on ${lines === 7 ? 'all 7' : 'at least 5'} lines`,
+      n >= lines && gated(res).some(r => r.check === 'B2' && /bump|zigzag/.test(r.what || '')), fmt(res));
+  }
+  const zig = (t, g, legs) => { const turns = [t / 2]; for (let i = 1; i < legs; i++) turns.push(i % 2 ? -t : t); turns.push(legs % 2 ? -t / 2 : t / 2); return bent(turns, turns.slice(1).map(() => g)); };
+  for (const [t, g, legs] of [[3, 3, 8], [2, 5, 6], [3, 2, 8], [1.5, 5, 6]]) {
+    const pts = zig(t, g, legs), res = gateOf(tw2(pts), R, layouts);
+    probe(`Z2 zigzag +-${t} deg every ${g} m (+-${(peak(pts) * 50).toFixed(1)} cm about its mean line): a KINK on all 7 lines`, b2lines(res) === 7, fmt(res));
+  }
+  for (const [label, pts] of [['Z3 zigzag +-2 deg every 2 m (+-1.7 cm)', zig(2, 2, 8)], ['Z3 zigzag +-1 deg every 4 m (+-1.7 cm)', zig(1, 4, 6)],
+    ['Z3 bump [0.5, -1, 0.5] deg 2 m apart (1.7 cm)', bent([0.5, -1, 0.5], [2, 2])], ['Z3 bump [0.3, -0.6, 0.3] deg 4 m apart (2.1 cm over 8 m)', bent([0.3, -0.6, 0.3], [4, 4])]]) {
+    const res = gateOf(tw2(pts), R, layouts);
+    probe(`${label}, under V: nothing`, gated(res).length === 0, fmt(res));
+  }
 }
 
 // ---- E: C2's closed list (review 3: any clipped section within 2 m excused an end as a "gore")
@@ -236,8 +298,8 @@ if (want('Q')) {
     if (t <= L) return Rj - Math.sqrt(Rj * Rj - t * t);
     const u = 2 * L - t; return D - (Rj - Math.sqrt(Rj * Rj - u * u));
   };
-  const sq = (cutAt, { step = 0.5, lanes = 2, rank = 0 } = {}) => {
-    const pts = []; for (let i = 0; i <= 120 / step; i++) pts.push(fwd([0, 0], 20 * DEG, i * step));
+  const sq = (cutAt, { step = 0.5, lanes = 2, rank = 0, len = 120 } = {}) => {
+    const pts = []; for (let i = 0; i <= len / step; i++) pts.push(fwd([0, 0], 20 * DEG, i * step));
     return gateOf(city([{ pts, lanes, rank }]), R, layouts, { tweakSecs: S => S.E[0].secs.forEach(x => {
       const d = cutAt(x.s); if (!(d > 0)) return;
       x.L = [x.L[0] + x.right[0] * d, x.L[1] + x.right[1] * d]; x.latL += d; x.uL = 0.5 - x.latL / S.E[0].width; x.sqL = true; }) });
@@ -260,6 +322,19 @@ if (want('Q')) {
     ['Q2 0.3 m in over 15 m, sections every 2 m', s => 0.3 * ss((s - 40) / 15), { step: 2 }],
     ['Q2 held 0.5 m in, 2 cm (sub-V) dips every other section', s => s < 40 ? 0.5 * ss((s - 25) / 15) : 0.5 - (Math.round(s / 2) % 2 ? 0.02 : 0)],
     ['Q2 a tw4 secondary 1 m in over its 30 m floor', s => ss((s - 40) / 30), { lanes: 4, rank: 2 }],
+  ]) { const res = sq(cut, o); probe(`${label}: no A1 on the edge`, env(res).length === 0, w(res)); }
+  // review 4: EASE took the WHOLE rise's height, so a fast step hidden inside a taller, slow rise passed
+  for (const [label, cut, o] of [
+    ['Q3 1 m in by two R 20 m arcs (8.9 m), after a slow 1 m ramp over 80 m', s => ss((s - 20) / 80) + arcStep(s, 100, 20, 1), { len: 200 }],
+    ['Q3 0.6 m in over 4 m inside a slow 2 m ramp over 150 m', s => 2 * ss((s - 20) / 150) + 0.6 * ss((s - 100) / 4), { len: 200 }],
+    ['Q3 a tw4 secondary 1 m in by two R 40 m arcs (12.6 m), after a slow 1.5 m ramp over 150 m', s => 1.5 * ss((s - 50) / 150) + arcStep(s, 200, 40, 1), { len: 400, lanes: 4, rank: 2 }],
+  ]) { const res = sq(cut, o); probe(`${label}: A1 on the edge`, env(res).length > 0 && Math.max(...env(res).map(r => r.ratio)) > 5, w(res)); }
+  for (const [label, cut, o] of [
+    ['Q4 2 m in over 45 m (three floors)', s => 2 * ss((s - 40) / 45), { len: 160 }],
+    ['Q4 1 m in over 15 m, then 1 m more over 15 m', s => ss((s - 40) / 15) + ss((s - 55) / 15)],
+    ['Q4 1 m in over 15 m, then 1 m more over 15 m, 10 m later', s => ss((s - 40) / 15) + ss((s - 65) / 15)],
+    ['Q4 a slow 1 m ramp over 80 m, then 1 m more over the 15 m floor', s => ss((s - 20) / 80) + ss((s - 110) / 15), { len: 200 }],
+    ['Q4 1 m in over 15 m, sections every 2 m', s => ss((s - 40) / 15), { step: 2 }],
   ]) { const res = sq(cut, o); probe(`${label}: no A1 on the edge`, env(res).length === 0, w(res)); }
 }
 
