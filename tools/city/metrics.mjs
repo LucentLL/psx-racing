@@ -519,6 +519,70 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
     const L30 = R.height.transects.roadside.at_30m, L60 = R.height.transects.roadside.at_60m;
     P(`    land beside the road, |land-road| p90: at 30 m ${L30.p90_game} m (real ${L30.p90_real}), at 60 m ${L60.p90_game} m (real ${L60.p90_real}); share over 2 m at 60 m ${L60.share_over_2m_game} (real ${L60.share_over_2m_real})`);
   }
+  // --- the creek beds (WP-04b, critic C2): the seven creek transects of
+  // truth/creek_transects.json (3DEP 1 m; the bed is each line's lowest
+  // point). Per transect, within 60 m of that bed along the line: the lowest
+  // 60 m grid, and the lowest CARVED TERRAIN - the grid cut down to every
+  // creek's and ravine's stored bed the way CityElevation.Ground cuts it
+  // before any road grades the land (its constants are read out of the C#,
+  // so this cannot drift from the game). Data without WBED carves nothing
+  // here (the old fixed 3.6 m carve along RG2's lines is not emulated).
+  {
+    const CT = JSON.parse(readFileSync(join(TRUTH, 'creek_transects.json'), 'utf8')).transects;
+    const K = (() => {
+      const cs = readFileSync(join(HERE, '..', '..', 'Assets', 'PSXRacing', 'Scripts', 'City', 'CityElevation.cs'), 'utf8');
+      const num = name => { const m = new RegExp(`\\b${name}\\s*=\\s*([\\d.]+)f`).exec(cs); if (!m) throw new Error(`CityElevation.cs: no ${name}`); return +m[1]; };
+      return { below: num('WaterBelowBed'), carve: num('CarveBelowWater'), flatMin: num('CreekFlatMin'), flatPad: num('CreekFlatPad'),
+               bank: num('BankSlope'), ravBelow: num('RavineBelowBed'), ravFlat: num('RavineFlat'), reach: num('CarveReachM') };
+    })();
+    const lines = city.waters.filter(w => !w.lake && w.bed && w.bed.length).map(w => {
+      const acc = [0]; for (let i = 1; i < w.pts.length; i++) acc.push(acc[i - 1] + Math.hypot(w.pts[i][0] - w.pts[i - 1][0], w.pts[i][1] - w.pts[i - 1][1]));
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const [x, z] of w.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+      return { w, acc, box: [x0 - K.reach, z0 - K.reach, x1 + K.reach, z1 + K.reach], width: w.ravine ? Math.max(1, w.width) : Math.max(4, w.width) };
+    });
+    // CityElevation.BedYAt: samples every bedStep from the first point, the last at the line's end
+    const bedAt = (w, len, s) => { const b = w.bed; if (b.length === 1 || !(w.bedStep > 0)) return b[0];
+      const last = b.length - 1, sLast = (last - 1) * w.bedStep;
+      if (s >= sLast) return b[last - 1] + (b[last] - b[last - 1]) * Math.min(1, Math.max(0, (s - sLast) / Math.max(1e-3, len - sLast)));
+      const f = Math.max(0, s) / w.bedStep, k = Math.min(last - 1, Math.floor(f)); return b[k] + (b[k + 1] - b[k]) * (f - k); };
+    const carved = (x, z) => {
+      let y = dem.asl(x, z);
+      for (const L of lines) {
+        if (x < L.box[0] || x > L.box[2] || z < L.box[1] || z > L.box[3]) continue;
+        const p = L.w.pts;
+        let best = Infinity, sBest = 0;
+        for (let i = 1; i < p.length; i++) {
+          const dx = p[i][0] - p[i - 1][0], dz = p[i][1] - p[i - 1][1], l2 = dx * dx + dz * dz;
+          const t = l2 > 1e-8 ? Math.max(0, Math.min(1, ((x - p[i - 1][0]) * dx + (z - p[i - 1][1]) * dz) / l2)) : 0;
+          const d = Math.hypot(x - p[i - 1][0] - dx * t, z - p[i - 1][1] - dz * t);
+          if (d < best) { best = d; sBest = L.acc[i - 1] + Math.sqrt(l2) * t; }
+        }
+        if (best >= K.reach) continue;
+        const bed = bedAt(L.w, L.acc[L.acc.length - 1], sBest);
+        const floor = L.w.ravine ? bed - K.ravBelow : bed - K.below - K.carve;
+        const flat = L.w.ravine ? K.ravFlat : Math.max(K.flatMin, L.width * 0.5 + K.flatPad);
+        y = Math.min(y, floor + Math.max(0, best - flat) * K.bank);
+      }
+      return y;
+    };
+    const per = {};
+    for (const t of CT) {
+      const br = t.bearing_deg * Math.PI / 180, cx = toX(t.centre[1]), cz = toZ(t.centre[0]);
+      let gMin = Infinity, cMin = Infinity;
+      for (let a = t.bed.along_m - 60; a <= t.bed.along_m + 60; a += 1) {
+        const x = cx + Math.sin(br) * a, z = cz + Math.cos(br) * a;
+        gMin = Math.min(gMin, dem.asl(x, z)); cMin = Math.min(cMin, carved(x, z));
+      }
+      per[t.id] = { bed_3dep_1m: t.bed.asl, grid60_error: r2(gMin - t.bed.asl), carved_error: r2(cMin - t.bed.asl) };
+    }
+    const errs = Object.values(per).map(v => v.carved_error);
+    R.height.creeks = { note: 'lowest within 60 m of the 3DEP 1 m bed along each creek transect: the 60 m grid, and the grid carved to the stored beds (CityElevation.Ground before the road corridors)',
+                        within_1m: errs.filter(v => Math.abs(v) <= 1).length, transects: errs.length, worst: r2(errs.reduce((m, v) => Math.abs(v) > Math.abs(m) ? v : m, 0)), per_transect: per };
+    const c = R.height.creeks;
+    P(`  creek beds (${c.transects} transects, 3DEP 1 m): carved terrain within 1 m at ${c.within_1m} of ${c.transects}, worst ${c.worst >= 0 ? '+' : ''}${c.worst} m` +
+      (lines.length ? '' : ' (NO WBED in this data: nothing carved)'));
+    P('    ' + Object.entries(per).map(([id, v]) => `${id} ${v.carved_error >= 0 ? '+' : ''}${v.carved_error} (grid ${v.grid60_error >= 0 ? '+' : ''}${v.grid60_error})`).join(', '));
+  }
 }
 
 // ================================================================ CONTROL

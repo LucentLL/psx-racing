@@ -333,22 +333,29 @@ namespace PSXRacing.City
             float ks = 0f;
             for (int i = -r; i <= r; i++) { k[i + r] = Mathf.Exp(-0.5f * i * i / (sg * sg)); ks += k[i + r]; }
             for (int i = 0; i < k.Length; i++) k[i] /= ks;
-            var tmp = new float[nx * nz];
+            // ONE grid-sized array (3 MB for 811 x 916): the rows are blurred
+            // into it, then each column in place through a column buffer. A
+            // second full array would be 3 MB more of a phone's WebGL heap at
+            // load, which never shrinks.
             var outp = new float[nx * nz];
             for (int z = 0; z < nz; z++)
                 for (int x = 0; x < nx; x++)
                 {
                     float acc = 0f;
                     for (int i = -r; i <= r; i++) acc += k[i + r] * dem[z * nx + Mathf.Clamp(x + i, 0, nx - 1)];
-                    tmp[z * nx + x] = acc;
+                    outp[z * nx + x] = acc;
                 }
-            for (int z = 0; z < nz; z++)
-                for (int x = 0; x < nx; x++)
+            var col = new float[nz];
+            for (int x = 0; x < nx; x++)
+            {
+                for (int z = 0; z < nz; z++) col[z] = outp[z * nx + x];
+                for (int z = 0; z < nz; z++)
                 {
                     float acc = 0f;
-                    for (int i = -r; i <= r; i++) acc += k[i + r] * tmp[Mathf.Clamp(z + i, 0, nz - 1) * nx + x];
+                    for (int i = -r; i <= r; i++) acc += k[i + r] * col[Mathf.Clamp(z + i, 0, nz - 1)];
                     outp[z * nx + x] = acc * demScale;
                 }
+            }
             roadDem = outp;
         }
 
@@ -370,10 +377,64 @@ namespace PSXRacing.City
         /// <summary>How far apart two carriageways of one divided road may be
         /// and still read one terrain line (see <see cref="PairedRoadBaseY"/>).</summary>
         public const float PairReachM = 45f;
-        static readonly HashSet<int> pairScratch = new HashSet<int>();
         /// <summary>Stations and nodes that read the ground at a divided
         /// road's midline in the last solve.</summary>
         public static int PairedStations { get; private set; }
+        /// <summary>Per edge, the edges that may be its opposite carriageway
+        /// (see <see cref="PairedRoadBaseY"/>): one-way, not a ramp, the same
+        /// name, their boxes within <see cref="PairReachM"/>. Found once per
+        /// solve by name, so a station tests a handful of edges instead of
+        /// querying the segment hash (that query cost the solve 0.4 s).</summary>
+        static int[][] pairCands;
+        /// <summary>Per candidate edge, the box of every block of
+        /// <see cref="PairBlock"/> segments, so a station skips the blocks
+        /// that cannot hold its foot (I-485's edges run to hundreds of
+        /// points).</summary>
+        static Rect[][] pairBlocks;
+        const int PairBlock = 16;
+
+        static bool PairCarriageway(CityMap.Edge e) => e.oneway && !e.link && !string.IsNullOrEmpty(e.name);
+
+        static void BuildPairCandidates(CityMap map)
+        {
+            pairCands = new int[map.edges.Length][];
+            pairBlocks = new Rect[map.edges.Length][];
+            var byName = new Dictionary<string, List<int>>();
+            foreach (var o in map.edges)
+            {
+                if (!PairCarriageway(o) || o.pts.Length < 2) continue;
+                if (!byName.TryGetValue(o.name, out var l)) byName[o.name] = l = new List<int>();
+                l.Add(o.index);
+                int segs = o.pts.Length - 1, nb = (segs + PairBlock - 1) / PairBlock;
+                var blocks = new Rect[nb];
+                for (int b = 0; b < nb; b++)
+                {
+                    int s0 = b * PairBlock, s1 = Mathf.Min(segs, s0 + PairBlock);
+                    Vector2 mn = o.pts[s0], mx = o.pts[s0];
+                    for (int k = s0 + 1; k <= s1; k++) { mn = Vector2.Min(mn, o.pts[k]); mx = Vector2.Max(mx, o.pts[k]); }
+                    blocks[b] = Rect.MinMaxRect(mn.x, mn.y, mx.x, mx.y);
+                }
+                pairBlocks[o.index] = blocks;
+            }
+            var box = new Rect[map.edges.Length];
+            foreach (var l in byName.Values)
+                foreach (int i in l)
+                {
+                    var o = map.edges[i];
+                    Vector2 mn = o.pts[0], mx = o.pts[0];
+                    foreach (var q in o.pts) { mn = Vector2.Min(mn, q); mx = Vector2.Max(mx, q); }
+                    box[i] = Rect.MinMaxRect(mn.x - PairReachM, mn.y - PairReachM, mx.x + PairReachM, mx.y + PairReachM);
+                }
+            var tmp = new List<int>();
+            foreach (var e in map.edges)
+            {
+                if (!PairCarriageway(e) || e.cls < 2 || !byName.TryGetValue(e.name, out var l)) continue;
+                tmp.Clear();
+                foreach (int i in l)
+                    if (i != e.index && box[i].Overlaps(box[e.index])) tmp.Add(i);
+                if (tmp.Count > 0) pairCands[e.index] = tmp.ToArray();
+            }
+        }
 
         /// <summary>
         /// The roads' ground under a carriageway of a DIVIDED road, read at
@@ -388,24 +449,33 @@ namespace PSXRacing.City
         /// </summary>
         static float PairedRoadBaseY(CityMap map, CityMap.Edge e, Vector2 p, Vector2 dir)
         {
-            if (!e.oneway || e.link || e.cls < 2 || string.IsNullOrEmpty(e.name)) return RoadBaseY(p.x, p.y);
-            pairScratch.Clear();
-            map.EdgeSegsInRect(p - Vector2.one * PairReachM, p + Vector2.one * PairReachM, pairScratch);
+            var cands = pairCands != null && e.index < pairCands.Length ? pairCands[e.index] : null;
+            if (cands == null) return RoadBaseY(p.x, p.y);
             float best = PairReachM; Vector2 q = p; bool found = false;
-            foreach (int packed in pairScratch)
+            foreach (int oi in cands)
             {
-                var o = map.edges[packed >> 12];
-                if (o == e || !o.oneway || o.link || o.name != e.name) continue;
-                int si = packed & 0xFFF;
-                if (si + 1 >= o.pts.Length) continue;
-                Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
-                float L2 = d.sqrMagnitude;
-                if (L2 < 1e-6f) continue;
-                if (Vector2.Dot(d / Mathf.Sqrt(L2), dir) > -0.85f) continue;   // not running the other way
-                float t = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
-                var f = a + d * t;
-                float dist = Vector2.Distance(p, f);
-                if (dist < best) { best = dist; q = f; found = true; }
+                var o = map.edges[oi];
+                var blocks = pairBlocks[oi];
+                for (int si = 0; si + 1 < o.pts.Length; si++)
+                {
+                    if (si % PairBlock == 0)
+                    {
+                        var bb = blocks[si / PairBlock];
+                        if (p.x < bb.xMin - best || p.x > bb.xMax + best || p.y < bb.yMin - best || p.y > bb.yMax + best)
+                        { si += PairBlock - 1; continue; }
+                    }
+                    Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                    // a cheap reject before the foot: both ends past the reach on one side
+                    if ((a.x < p.x - best && a.x + d.x < p.x - best) || (a.x > p.x + best && a.x + d.x > p.x + best) ||
+                        (a.y < p.y - best && a.y + d.y < p.y - best) || (a.y > p.y + best && a.y + d.y > p.y + best)) continue;
+                    float L2 = d.sqrMagnitude;
+                    if (L2 < 1e-6f) continue;
+                    if (Vector2.Dot(d / Mathf.Sqrt(L2), dir) > -0.85f) continue;   // not running the other way
+                    float t = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
+                    var f = a + d * t;
+                    float dist = Vector2.Distance(p, f);
+                    if (dist < best) { best = dist; q = f; found = true; }
+                }
             }
             if (!found) return RoadBaseY(p.x, p.y);
             PairedStations++;
@@ -455,13 +525,23 @@ namespace PSXRacing.City
         public static bool[] TrenchedCrossings { get; private set; }
         public static int TrenchCount { get; private set; }
 
+        /// <summary>Where the last solve spent its time (ms per phase), for
+        /// the budget probe.</summary>
+        public static string LastSolvePhases { get; private set; } = "";
+
         public static void Solve(CityMap map)
         {
+            var phaseClock = System.Diagnostics.Stopwatch.StartNew();
+            var phases = new System.Text.StringBuilder();
+            void Phase(string name) { phases.Append(name).Append(' ').Append(phaseClock.ElapsedMilliseconds).Append(", "); phaseClock.Restart(); }
             crossingOn = null;
             crossingTarget = null;
             EnsureDem();
             BuildRoadDem();
+            Phase("road grid");
+            BuildPairCandidates(map);
             PrepareWater(map);
+            Phase("pairs+water");
             map.nodeY = new float[map.nodes.Length];
             PairedStations = 0;
             for (int i = 0; i < map.nodes.Length; i++)
@@ -500,10 +580,12 @@ namespace PSXRacing.City
                 // under them does.
                 if (e.bridge) for (int i = 0; i < n; i++) e.stElev[i] = true;
             }
+            Phase("profiles");
 
             // 2. trenches, before anything lifts anything: they only ever
             // LOWER a freeway, and every raise below reads the lowered height.
             SinkTrenches(map);
+            Phase("trenches");
 
             // 2b. every ramp beside its mainline IS the mainline there. Seated
             // now, so no junction below reads a ramp end that disagrees with
@@ -513,6 +595,7 @@ namespace PSXRacing.City
             PrepareSeats(map);
             SeatPrepMs = seatClock.ElapsedMilliseconds;
             SeatBranches(map);
+            Phase("seats");
 
             // 3-7. structure and junction agreement, to a fixed point.
             //
@@ -616,7 +699,11 @@ namespace PSXRacing.City
             MeasureSags(map);
 
             // (10. the water was prepared first: PrepareWater)
+            Phase("raises+structure");
+            LastSolvePhases = phases.ToString().TrimEnd(' ', ',') + " ms";
             roadDem = null;
+            pairCands = null;
+            pairBlocks = null;
         }
 
         /// <summary>
@@ -946,18 +1033,36 @@ namespace PSXRacing.City
         {
             var sb = new System.Text.StringBuilder();
             foreach (var (ei, st, h, hs) in seated)
-                if (ei == edge) sb.Append($" st{st}->e{h}@{hs:0}");
+                if (ei == edge && h >= 0) sb.Append($" st{st}->e{h}@{hs:0}");
             foreach (var (ei, b, d) in climbs)
                 if (ei == edge) sb.Append($" climb from st{b} dir{d}");
             return sb.Length == 0 ? " (no seats)" : sb.ToString();
         }
 
+        /// <summary>The steepest a lane seated on two hosts may climb between
+        /// its two seated runs (see PrepareSeats; the grade audit's ceiling is
+        /// 16%, and the raises after the seats can still move a host).</summary>
+        const float SeatStepGrade = 0.10f;
+        /// <summary>The step between two such runs that starts the split: a
+        /// grade this steep is near the audit's ceiling; anything gentler was
+        /// always left as it was.</summary>
+        const float SeatStepTrigger = 0.13f;
+        /// <summary>Stations given up by runs meeting on two hosts, last solve.</summary>
+        public static int SeatStepsSplit { get; private set; }
+
         static void PrepareSeats(CityMap map)
         {
             seated.Clear();
             climbs.Clear();
+            seatRuns.Clear();
+            seatPairs.Clear();
+            SeatStepsSplit = 0;
             foreach (var e in map.edges) e.stSeat = null;
             var seats = CityMeshes.BranchSeats(map, CityMeshes.ComputeTrims(map));
+            // Each run's stations inside the gore, first, per edge, so the
+            // runs of one edge can be judged against each other.
+            var runs = new List<(CityMeshes.Seat seat, int ei, int first, int last, int dir)>();
+            var runsOf = new Dictionary<int, List<int>>();
             foreach (var seat in seats)
                 foreach (var (ei, s0, s1, dir) in seat.pieces)
                 {
@@ -967,28 +1072,134 @@ namespace PSXRacing.City
                     for (int i = 0; i < n; i++)
                         if (e.stS[i] >= s0 - 0.01f && e.stS[i] <= s1 + 0.01f) { if (first < 0) first = i; last = i; }
                     if (first < 0) continue;
-                    // ONE station past the far end of the run: the height
-                    // between the last seated station and the next is a lerp,
-                    // and a climb starting inside the run lifts its last few
-                    // metres off the host before the tile stops clipping them.
-                    if (dir > 0 && last < n - 1) last++;
-                    if (dir < 0 && first > 0) first--;
-                    int added = 0;
-                    for (int i = first; i <= last; i++)
-                    {
-                        int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
-                        if (h < 0 || h == ei) continue;
-                        e.stSeat ??= new bool[n];
-                        if (e.stSeat[i]) continue;      // already seated from its other end
-                        e.stSeat[i] = true;
-                        seated.Add((ei, i, h, hs));
-                        added++;
-                    }
-                    if (added == 0) continue;
-                    int boundary = dir > 0 ? last : first;
-                    if ((dir > 0 && boundary < n - 1) || (dir < 0 && boundary > 0))
-                        climbs.Add((ei, boundary, dir));
+                    if (!runsOf.TryGetValue(ei, out var l)) runsOf[ei] = l = new List<int>(2);
+                    l.Add(runs.Count);
+                    runs.Add((seat, ei, first, last, dir));
                 }
+            // Each run's range as it will be seated: ONE station past its far
+            // end (the height between the last seated station and the next
+            // is a lerp, and a climb starting inside the run lifts its last
+            // few metres off the host before the tile stops clipping them).
+            int R = runs.Count;
+            var rFirst = new int[R];
+            var rLast = new int[R];
+            for (int r = 0; r < R; r++)
+            {
+                var (seat, ei, first, last, dir) = runs[r];
+                int n = map.edges[ei].stS.Length;
+                if (dir > 0 && last < n - 1) last++;
+                if (dir < 0 && first > 0) first--;
+                rFirst[r] = first; rLast[r] = last;
+            }
+            // Two runs of one edge walked in from its opposite ends: where
+            // they overlap, the run seated first keeps the shared stations
+            // (the seating below skips a station already seated), so the
+            // other's range starts, or ends, where it really does. Each such
+            // pair is watched by SeatBranches (see SplitTwoHosts).
+            var pairsOf = new List<(int ei, int a, int b)>();
+            foreach (var kv in runsOf)
+            {
+                var list = kv.Value;
+                if (list.Count < 2) continue;
+                foreach (int a in list)
+                    foreach (int b in list)
+                    {
+                        if (runs[a].dir <= 0 || runs[b].dir >= 0 || runs[a].seat == runs[b].seat) continue;
+                        if (rFirst[a] > rLast[a] || rFirst[b] > rLast[b]) continue;
+                        if (rFirst[b] <= rLast[a])
+                        {
+                            if (a < b) rFirst[b] = rLast[a] + 1; else rLast[a] = rFirst[b] - 1;
+                            if (rFirst[a] > rLast[a] || rFirst[b] > rLast[b]) continue;
+                        }
+                        pairsOf.Add((kv.Key, a, b));
+                    }
+            }
+            var runSlot = new int[R];
+            for (int r = 0; r < R; r++)
+            {
+                runSlot[r] = -1;
+                var seat = runs[r].seat;
+                int ei = runs[r].ei, first = rFirst[r], last = rLast[r], dir = runs[r].dir;
+                if (first > last) continue;
+                var e = map.edges[ei];
+                int n = e.stS.Length;
+                var mine = new List<int>();
+                for (int i = first; i <= last; i++)
+                {
+                    int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
+                    if (h < 0 || h == ei) continue;
+                    e.stSeat ??= new bool[n];
+                    if (e.stSeat[i]) continue;      // already seated from its other end
+                    e.stSeat[i] = true;
+                    mine.Add(seated.Count);
+                    seated.Add((ei, i, h, hs));
+                }
+                if (mine.Count == 0) continue;
+                int boundary = dir > 0 ? last : first;
+                int climb = -1;
+                if ((dir > 0 && boundary < n - 1) || (dir < 0 && boundary > 0))
+                {
+                    climb = climbs.Count;
+                    climbs.Add((ei, boundary, dir));
+                }
+                runSlot[r] = seatRuns.Count;
+                seatRuns.Add((mine, climb, dir));
+            }
+            foreach (var (ei, a, b) in pairsOf)
+                if (runSlot[a] >= 0 && runSlot[b] >= 0) seatPairs.Add((ei, runSlot[a], runSlot[b]));
+        }
+
+        /// <summary>The seated runs that meet another from their edge's other
+        /// end: each run's indices into <see cref="seated"/> (in station
+        /// order), its entry in <see cref="climbs"/> (or -1) and its
+        /// direction; and the pairs, as (edge, run from the a end, run from
+        /// the b end).</summary>
+        static readonly List<(List<int> seats, int climb, int dir)> seatRuns = new List<(List<int>, int, int)>(1024);
+        static readonly List<(int edge, int a, int b)> seatPairs = new List<(int, int, int)>(64);
+
+        /// <summary>
+        /// TWO HOSTS AT ONCE (WP-04). A short slip lane beside one road at its
+        /// a end and another at its b end is seated on both, and where the two
+        /// runs meet it steps from one host's height to the other's between
+        /// two stations. On the old filtered ground the roads of a corner
+        /// agreed; on the real 3DEP ground they stand 1.3-1.8 m apart, and the
+        /// step was a 16-19% grade in 7-9 m (e271 between a ramp and Little
+        /// Rock Road; e9017, W. T. Harris Boulevard's ramp). So each time the
+        /// hosts have moved, a step steeper than <see cref="SeatStepTrigger"/>
+        /// is split: the longer run gives up its station at the meeting point,
+        /// alternately, until the lane can climb from one host to the other at
+        /// <see cref="SeatStepGrade"/> over the stations freed (its climbs run
+        /// from the new ends). Stations are only ever freed, never re-seated,
+        /// so the solve's passes still converge.
+        /// </summary>
+        static void SplitTwoHosts(CityMap map)
+        {
+            foreach (var (ei, a, b) in seatPairs)
+            {
+                var e = map.edges[ei];
+                var A = seatRuns[a]; var B = seatRuns[b];
+                bool split = false;
+                for (int guard = 0; guard < 64 && A.seats.Count > 0 && B.seats.Count > 0; guard++)
+                {
+                    int ia = seated[A.seats[A.seats.Count - 1]].st, ib = seated[B.seats[0]].st;
+                    if (ib <= ia) break;
+                    float dy = Mathf.Abs(e.stY[ia] - e.stY[ib]);
+                    float span = Mathf.Max(0.5f, e.stS[ib] - e.stS[ia]);
+                    if (dy <= (split ? SeatStepGrade : SeatStepTrigger) * span) break;
+                    split = true;
+                    bool fromA = A.seats.Count >= B.seats.Count;
+                    var run = fromA ? A : B;
+                    int k = fromA ? run.seats.Count - 1 : 0;
+                    var t = seated[run.seats[k]];
+                    seated[run.seats[k]] = (t.edge, t.st, -1, 0f);
+                    e.stSeat[t.st] = false;
+                    run.seats.RemoveAt(k);
+                    if (run.climb >= 0)
+                        climbs[run.climb] = run.seats.Count == 0 ? (ei, -1, run.dir)
+                            : (ei, seated[run.seats[fromA ? run.seats.Count - 1 : 0]].st, run.dir);
+                    SeatStepsSplit++;
+                }
+            }
         }
 
         /// <summary>Put every seated station back on its host, meet the
@@ -999,15 +1210,18 @@ namespace PSXRacing.City
         {
             if (seated.Count == 0) return 0;
             foreach (var (ei, st, h, hs) in seated)
-                map.edges[ei].stY[st] = map.edges[h].YAt(hs);
+                if (h >= 0) map.edges[ei].stY[st] = map.edges[h].YAt(hs);
+            SplitTwoHosts(map);
             foreach (var (ei, st, h, hs) in seated)
             {
+                if (h < 0) continue;   // freed (SplitTwoHosts)
                 var e = map.edges[ei];
                 if (st == 0) SeatNode(map, e.a, e.stY[0]);
                 else if (st == e.stY.Length - 1) SeatNode(map, e.b, e.stY[st]);
             }
             int moves = 0;
-            foreach (var (ei, boundary, dir) in climbs) moves += ClimbOut(map, map.edges[ei], boundary, dir, farEnds: true);
+            foreach (var (ei, boundary, dir) in climbs)
+                if (boundary >= 0) moves += ClimbOut(map, map.edges[ei], boundary, dir, farEnds: true);
             return moves;
         }
 
@@ -1137,7 +1351,7 @@ namespace PSXRacing.City
         static void InheritSeatStructure(CityMap map)
         {
             foreach (var (ei, st, h, hs) in seated)
-                if (map.edges[h].ElevatedAt(hs)) map.edges[ei].stElev[st] = true;
+                if (h >= 0 && map.edges[h].ElevatedAt(hs)) map.edges[ei].stElev[st] = true;
         }
 
         /// <summary>How far along the over road, either side of the crossing

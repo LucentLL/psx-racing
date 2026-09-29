@@ -292,44 +292,59 @@ namespace PSXRacing.City
 
         // ---- spatial hash over edge SEGMENTS ------------------------------
         public const float Cell = 64f;
-        readonly Dictionary<long, List<int>> segCells = new Dictionary<long, List<int>>();
+        /// <summary>The roads' (edge, segment) pairs by 64 m cell. A
+        /// <see cref="CellIndex"/> since WP-04: as a List per cell (about
+        /// 100,000 of them) it held several MB of the heap, which paid for the
+        /// water's own index.</summary>
+        readonly CellIndex segCells = new CellIndex(Cell);
         // Entries pack (edge << 12 | segment) — supports 4096 segments per edge.
         static long CellKey(int cx, int cz) => ((long)cx << 24) ^ (cz & 0xFFFFFF);
         public static int PackSeg(int edge, int seg) => (edge << 12) | seg;
 
         /// <summary>The water's (water, segment) pairs by cell: creeks and
         /// lake shores on <see cref="Cell"/>, ravines on
-        /// <see cref="RavineCell"/>. Compact (<see cref="CellIndex"/>): the
-        /// 2,000 km of creek and ravine lines of WP-04b as a List per cell were
-        /// 3-4 MB of the heap.</summary>
+        /// <see cref="RavineCell"/> (WP-04b).</summary>
         readonly CellIndex waterCells = new CellIndex(Cell);
         readonly CellIndex ravineCells = new CellIndex(RavineCell);
 
-        /// <summary>A frozen cell -> entries index: one dictionary of ranges
-        /// into one array, built once from (cell, entry) pairs.</summary>
+        /// <summary>
+        /// A frozen cell -> entries index, built once from (cell, entry) pairs:
+        /// one exact-size dictionary from a cell to its slot, and each slot's
+        /// entries as a range of one flat array. STABLE: a cell's entries come
+        /// back in the order they were added, as they did from the List per
+        /// cell this replaced (the ground sums what it finds in that order).
+        /// </summary>
         sealed class CellIndex
         {
             readonly float cell;
             List<long> keys = new List<long>(1024);
             List<int> vals = new List<int>(1024);
-            Dictionary<long, (int start, int count)> ranges = new Dictionary<long, (int, int)>();
+            Dictionary<long, int> slots = new Dictionary<long, int>();
+            int[] starts = { 0 };
             int[] entries = System.Array.Empty<int>();
             public CellIndex(float cell) { this.cell = cell; }
+            public int CellCount => starts.Length - 1;
+            public int EntryCount => entries.Length;
             public void Add(long key, int val) { keys.Add(key); vals.Add(val); }
             public void Freeze()
             {
-                var k = keys.ToArray(); var v = vals.ToArray();
-                keys = null; vals = null;
-                System.Array.Sort(k, v);
-                entries = v;
-                ranges = new Dictionary<long, (int, int)>();
-                for (int i = 0; i < k.Length;)
+                int n = keys.Count;
+                var slotOf = new int[n];
+                var counts = new List<int>(n / 2 + 1);
+                slots = new Dictionary<long, int>();
+                for (int i = 0; i < n; i++)
                 {
-                    int j = i + 1;
-                    while (j < k.Length && k[j] == k[i]) j++;
-                    ranges[k[i]] = (i, j - i);
-                    i = j;
+                    if (!slots.TryGetValue(keys[i], out int s)) { s = counts.Count; slots[keys[i]] = s; counts.Add(0); }
+                    slotOf[i] = s;
+                    counts[s]++;
                 }
+                starts = new int[counts.Count + 1];
+                for (int s = 0; s < counts.Count; s++) starts[s + 1] = starts[s] + counts[s];
+                var cursor = (int[])starts.Clone();
+                entries = new int[n];
+                for (int i = 0; i < n; i++) entries[cursor[slotOf[i]]++] = vals[i];
+                slots.TrimExcess();
+                keys = null; vals = null;
             }
             public void Query(Vector2 min, Vector2 max, HashSet<int> outSegs)
             {
@@ -337,8 +352,8 @@ namespace PSXRacing.City
                 int z0 = Mathf.FloorToInt(min.y / cell), z1 = Mathf.FloorToInt(max.y / cell);
                 for (int cx = x0; cx <= x1; cx++)
                     for (int cz = z0; cz <= z1; cz++)
-                        if (ranges.TryGetValue(CellKey(cx, cz), out var r))
-                            for (int i = r.start; i < r.start + r.count; i++) outSegs.Add(entries[i]);
+                        if (slots.TryGetValue(CellKey(cx, cz), out int s))
+                            for (int i = starts[s], end = starts[s + 1]; i < end; i++) outSegs.Add(entries[i]);
             }
         }
         /// <summary>Ravines hash on coarser cells: 1,545 small streams on
@@ -748,14 +763,11 @@ namespace PSXRacing.City
             {
                 for (int i = 0; i + 1 < e.pts.Length; i++)
                 {
-                    ForCellsOnSeg(e.pts[i], e.pts[i + 1], (cx, cz) =>
-                    {
-                        long k = CellKey(cx, cz);
-                        if (!segCells.TryGetValue(k, out var list)) segCells[k] = list = new List<int>(4);
-                        list.Add(PackSeg(e.index, i));
-                    });
+                    int packed = PackSeg(e.index, i);
+                    ForCellsOnSeg(e.pts[i], e.pts[i + 1], Cell, (cx, cz) => segCells.Add(CellKey(cx, cz), packed));
                 }
             }
+            segCells.Freeze();
             var lakeList = new List<int>();
             for (int w = 0; w < waters.Length; w++)
             {
@@ -817,15 +829,7 @@ namespace PSXRacing.City
 
         /// <summary>Visit every (edge, segment) whose segment's cells overlap
         /// the world-space rectangle, deduplicated per edge-segment.</summary>
-        public void EdgeSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs)
-        {
-            int x0 = Mathf.FloorToInt(min.x / Cell), x1 = Mathf.FloorToInt(max.x / Cell);
-            int z0 = Mathf.FloorToInt(min.y / Cell), z1 = Mathf.FloorToInt(max.y / Cell);
-            for (int cx = x0; cx <= x1; cx++)
-                for (int cz = z0; cz <= z1; cz++)
-                    if (segCells.TryGetValue(CellKey(cx, cz), out var list))
-                        foreach (var p in list) outSegs.Add(p);
-        }
+        public void EdgeSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => segCells.Query(min, max, outSegs);
 
         public void WaterSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => waterCells.Query(min, max, outSegs);
 

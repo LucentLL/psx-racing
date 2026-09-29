@@ -241,6 +241,7 @@ namespace PSXRacing.EditorTools
                 long after = System.GC.GetTotalMemory(true);
                 float heldMb = (after - before) / (1024f * 1024f);
                 L("");
+                L($"solve phases: {CityElevation.LastSolvePhases}");
                 L($"parse {CityMap.LastParseMs:0} ms, solve {CityMap.LastSolveMs:0} ms (editor); the parsed + solved map holds {heldMb:0.0} MB of managed heap " +
                   $"({again.edges.Length} edges, {again.footprints.Length} footprints); the DEM array is {demBytes / (1024f * 1024f):0.0} MB more (ushort[], loaded once); " +
                   $"data bytes: city {a.Length / 1024} KB, bld {(b != null ? b.Length / 1024 : 0)} KB, dem {demBytes / 1024} KB");

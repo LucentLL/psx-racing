@@ -43,7 +43,7 @@
 //   tools/city/cache/buildings_core.json footprints in the core (OSM)
 //   tools/city/cache/3dep/box13.f32     USGS 3DEP 1/3" over the DEM box (public
 //                                       domain; fetch/fetch_3dep.mjs; or
-//                                       %PSX_GIS_DIR%dep)
+//                                       %PSX_GIS_DIR%\3dep)
 //   tools/city/cache/water/*.geojson    creeks, lakes and the county line
 //                                       (fetch/fetch_water.mjs; CC0 and
 //                                       public domain, see SOURCES.md)
@@ -1313,7 +1313,7 @@ function inputFiles() {
   add('tools/city/cache/nodes_all.json', join(CACHE, 'nodes_all.json'), 'overpass');
   add('tools/city/cache/streets_core.json', join(CACHE, 'streets_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
-  // the 3DEP box (PSX_GIS_DIRdep when that is set) and its georeference
+  // the 3DEP box (%PSX_GIS_DIR%\3dep when that is set) and its georeference
   add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');
   add('tools/city/cache/3dep/box13.json', dem3.jsonPath, '3dep');
   for (const f of waterInputPaths(CACHE)) add(f.label, f.path, 'water');

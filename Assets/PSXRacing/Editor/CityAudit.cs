@@ -2064,11 +2064,14 @@ namespace PSXRacing.EditorTools
         //  pre-WP-04 values beside them), or on the plan's own targets.
         // ==================================================================
 
-        /// <summary>The five creek transects of survey_src_terrain section 1,
-        /// the bed of each on the USGS 3DEP 1 m DEM (tools/city/truth/
-        /// creek_transects.json, made by make_creek_truth.mjs): id, line
-        /// centre (lat, lon), bearing, half length, bed metres ASL, the bed's
-        /// offset along the line, and the line's relief.</summary>
+        /// <summary>The seven creek transects, the bed of each on the USGS
+        /// 3DEP 1 m DEM (tools/city/truth/creek_transects.json, made by
+        /// make_creek_truth.mjs): id, line centre (lat, lon), bearing, half
+        /// length, bed metres ASL, the bed's offset along the line, and the
+        /// line's relief. The first five are survey_src_terrain's (its "briar"
+        /// line bottoms out in Edwards Branch and its "mcalpine" line in a
+        /// tributary); the last two cross Briar and McAlpine Creeks
+        /// themselves.</summary>
         static readonly (string id, double lat, double lon, float bearing, float half, float bedASL, float bedAt, float relief)[] CreekTransects =
         {
             ("little_sugar", 35.248572, -80.812851, 90f, 600f, 204.60f, 2f, 18.91f),
@@ -2076,6 +2079,8 @@ namespace PSXRacing.EditorTools
             ("stewart", 35.246464, -80.869493, 90f, 600f, 194.43f, 0f, 24.18f),
             ("briar", 35.2045, -80.7925, 90f, 600f, 201.32f, 270f, 14.99f),
             ("mcalpine", 35.168, -80.748, 45f, 600f, 195.82f, -176f, 21.66f),
+            ("briar_creek", 35.208963, -80.802556, 92f, 300f, 192.97f, 0f, 12.70f),
+            ("mcalpine_creek", 35.148652, -80.748212, 177f, 300f, 170.57f, 2f, 14.57f),
         };
         /// <summary>The creek bed within this of the 3DEP 1 m bed (critic C2).</summary>
         const float CreekBedTolM = 1.0f;
@@ -2106,23 +2111,38 @@ namespace PSXRacing.EditorTools
                 if (w.lake) lakes++; else if (w.ravine) ravines++; else creeks++;
                 if (w.bedY != null) beds += w.bedY.Length;
             }
-            Line($"terrain fidelity (WP-04): datum {datum:0.0} m; the roads read the grid through a {CityElevation.RoadDemSigmaCells:0.0#}-cell Gaussian ({CityElevation.PairedStations} stations and nodes at a divided road's midline); water: {creeks} creek lines, {ravines} ravines, {lakes} lakes, " +
+            Line($"terrain fidelity (WP-04): datum {datum:0.0} m; the roads read the grid through a {CityElevation.RoadDemSigmaCells:0.0#}-cell Gaussian ({CityElevation.PairedStations} stations and nodes at a divided road's midline; {CityElevation.SeatStepsSplit} seated stations freed where a lane meets two hosts); water: {creeks} creek lines, {ravines} ravines, {lakes} lakes, " +
                  $"{beds} bed samples{(beds == 0 ? " (NO WBED: the fixed 3.6 m carve)" : "")}; {map.wspans.Length} water spans");
 
-            // ---- creek beds at the five transects
+            // ---- creek beds at the seven transects. JUDGED ON THE TERRAIN:
+            // the 60 m grid carved by the water, before any road grades the
+            // land to itself - the quantity survey_src_terrain's "creek-bed
+            // error" measured on the shipped grid. The graded ground the
+            // player drives over is reported beside it with the road that
+            // holds it: a creek within the corridor of a road (Irwin Creek,
+            // 14 m off I-77's pavement) is under that road's flat verge and
+            // blend until WP-14 regrades the roadside.
             int bedsOk = 0;
             foreach (var t in CreekTransects)
             {
                 var c = LLtoGame(t.lat, t.lon);
                 float br = t.bearing * Mathf.Deg2Rad;
                 var dir = new Vector2(Mathf.Sin(br), Mathf.Cos(br));
-                float gMin = float.MaxValue, dMin = float.MaxValue, gAt = 0f;
+                float gMin = float.MaxValue, dMin = float.MaxValue, tMin = float.MaxValue, gAt = 0f, tAt = 0f;
+                int holdEdge = -1;
                 for (float a = t.bedAt - 60f; a <= t.bedAt + 60f; a += 1f)
                 {
                     var q = c + dir * a;
-                    float g = CityElevation.GroundY(map, q.x, q.y), d = CityElevation.BaseY(q.x, q.y);
+                    float g = CityElevation.Ground(map, q.x, q.y, out var terms), d = CityElevation.BaseY(q.x, q.y);
                     if (g < gMin) { gMin = g; gAt = a; }
+                    if (terms.dem < tMin) { tMin = terms.dem; tAt = a; }
                     if (d < dMin) dMin = d;
+                }
+                {
+                    // what holds the graded ground above the carved terrain at the terrain's low point
+                    var q = c + dir * tAt;
+                    CityElevation.Ground(map, q.x, q.y, out var th);
+                    if (th.result > th.dem + 0.05f) holdEdge = th.floorEdge >= 0 ? th.floorEdge : th.protectEdge;
                 }
                 float gHi = float.MinValue, gLo = float.MaxValue;
                 for (float a = -t.half; a <= t.half; a += 2f)
@@ -2148,13 +2168,14 @@ namespace PSXRacing.EditorTools
                     water = w.ravine ? $"ravine '{w.name}' {dd:0.0} m off (no water)"
                         : $"creek '{w.name}' {dd:0.0} m off, water {CityElevation.CreekSurfaceY(w, sw, at) + datum:0.00} m ({CityElevation.CreekSurfaceY(w, sw, at) + datum - t.bedASL:+0.00;-0.00})";
                 }
-                float err = gMin + datum - t.bedASL;
+                float err = tMin + datum - t.bedASL, gErr = gMin + datum - t.bedASL;
                 bool ok = Mathf.Abs(err) <= CreekBedTolM;
                 if (ok) bedsOk++;
-                Line($"    creek {t.id,-13} 3DEP 1 m bed {t.bedASL:0.00} m: ground {gMin + datum:0.00} ({err:+0.00;-0.00}), 60 m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); " +
-                     $"{water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
+                string held = holdEdge >= 0 ? $", held up there by e{holdEdge} '{map.edges[holdEdge].name}''s corridor (WP-14)" : "";
+                Line($"    creek {t.id,-14} 3DEP 1 m bed {t.bedASL:0.00} m: carved terrain {tMin + datum:0.00} ({err:+0.00;-0.00}); graded ground {gMin + datum:0.00} ({gErr:+0.00;-0.00}{held}); " +
+                     $"60 m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); {water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
             }
-            Check(bedsOk == CreekTransects.Length, $"every creek transect's bed is within {CreekBedTolM:0.0} m of 3DEP (terrain fidelity, critic C2)",
+            Check(bedsOk == CreekTransects.Length, $"every creek transect's bed is within {CreekBedTolM:0.0} m of 3DEP on the carved terrain (terrain fidelity, critic C2)",
                   $"{bedsOk} of {CreekTransects.Length}");
 
             // ---- crests on the three routes, and the land beside them
