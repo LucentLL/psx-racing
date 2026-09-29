@@ -976,6 +976,27 @@ namespace PSXRacing.EditorTools
                       n.Shader == null ? "no shader has that name: " + string.Join(" ", n.Sites) : null);
                 Check(n.AlwaysIncluded, n.Name + " is in GraphicsSettings' always-included shaders", string.Join(" ", n.Sites));
             }
+            // THE CITY KIT (Resources): the streamed city, its canopy trees and
+            // its lamp posts draw with the kit's materials, so their shaders
+            // ship wherever the kit does - listed, and checked in the player
+            // by the build report and webgl-contents.mjs.
+            Check(r.KitNote == null && r.Kit.Count > 0, "the city kit's shaders are listed (" + RuntimeShaders.KitPath + ")",
+                  r.KitNote ?? string.Join(", ", r.Kit.Select(n => n.Name)));
+            var kitLit = r.Kit.FirstOrDefault(n => n.Name == "PSX/Lit");
+            Check(kitLit != null && kitLit.Sites.Any(s => s.StartsWith("CityKit.trees", System.StringComparison.Ordinal)) &&
+                  kitLit.Sites.Any(s => s.StartsWith("CityKit.slots", System.StringComparison.Ordinal)),
+                  "the city's roads, buildings and canopy trees draw with PSX/Lit, a kit shader",
+                  kitLit == null ? "PSX/Lit is not among the kit's" : string.Join(" ", kitLit.Sites));
+            Check(kitLit != null && kitLit.AlwaysIncluded, "and PSX/Lit is always included as well (CityWorld names it for the lamp posts)");
+            foreach (var n in r.Kit)
+                Check(n.Shader != null && !ShaderUtil.ShaderHasError(n.Shader), "kit shader " + n.Name + " exists and compiles",
+                      string.Join(" ", n.Sites));
+            Check(r.KitErrors.Count == 0, "no kit material without a shader, no kit shader gone", string.Join("; ", r.KitErrors));
+            var kitLines = RuntimeShaders.ReportLines(r, null, new[] { System.IO.Path.GetFileName(RuntimeShaders.KitPath) }, out _);
+            Check(kitLines.Any(l => l.StartsWith("kit-shaders none (the city kit was parked", System.StringComparison.Ordinal)) &&
+                  !kitLines.Any(l => l.TrimStart().StartsWith("kit-shader ", System.StringComparison.Ordinal)),
+                  "a build that parks the kit asks for none of its shaders");
+
             var gaps = RuntimeShaders.Gaps(r);
             Check(gaps.Count == 0, "the WebGL build's pre-flight finds no runtime shader gap", string.Join("; ", gaps));
         }

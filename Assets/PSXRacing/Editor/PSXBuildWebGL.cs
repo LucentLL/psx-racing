@@ -100,7 +100,8 @@ namespace PSXRacing.EditorTools
                     return false;
                 }
                 Debug.Log("[PSXBuildWebGL] Runtime shaders: " + shaders.Needs.Count + " named, every one always included - " +
-                          string.Join(", ", shaders.Needs.Select(n => n.Name)));
+                          string.Join(", ", shaders.Needs.Select(n => n.Name)) + "; city kit shaders: " +
+                          (shaders.KitNote ?? string.Join(", ", shaders.Kit.Select(n => n.Name))));
 
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
@@ -180,7 +181,7 @@ namespace PSXRacing.EditorTools
                     EditionParking.Restore();
                 }
                 var s = report.summary;
-                var shaderLines = RuntimeShaders.ReportLines(shaders, report, out var unpacked);
+                var shaderLines = RuntimeShaders.ReportLines(shaders, report, parked, out var unpacked);
                 WriteReport(report, outDir, edition, scenePaths, parked, shaderLines);
                 Debug.Log($"[PSXBuildWebGL] Result={s.result} size={s.totalSize / (1024 * 1024)}MB " +
                           $"errors={s.totalErrors} time={s.totalTime}");

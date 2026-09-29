@@ -29,7 +29,11 @@
 //     the own name of a Shader object in the player - Shader.Find finds nothing
 //     else there (2026-09-29: CITY without PSX/Glow, no car lamps) - and the
 //     build report's "runtime-shader" list (PSXBuildWebGL / RuntimeShaders.cs)
-//     is the same list.
+//     is the same list;
+//   * and the CITY KIT's shaders (Resources/CityKit.asset: the streamed city,
+//     its canopy trees and lamp posts draw with its materials, which no scene
+//     holds) are Shaders in the player whenever the edition must ship the
+//     kit, and the report's "kit-shader" list is this read of the kit.
 // Why BuildReport.packedAssets is not the proof: an incremental build that
 // reuses its packed content reports none (the MAIN build of 2026-09-29 said
 // 0 packed sources; the CITY build beside it listed 3640), and a report is
@@ -470,6 +474,81 @@ function shaderOwnName(ob) {
     fail("the build's runtime-shader list and this scan disagree - build: " + listed.join(", ") + "; here: " + want.join(", ") +
          " (RuntimeShaders.cs and tools/webgl-contents.mjs must apply one rule; or the source moved since the build)");
   else ok("the build's runtime-shader list is this scan's (" + listed.length + ")");
+
+  // ---- the city kit's shaders: in the player wherever the kit is ----
+  //
+  // The other way the runtime reaches a shader (RuntimeShaders.Kit): the
+  // streamed city, its canopy trees (WP-08) and its lamp posts draw with the
+  // materials of Resources/CityKit.asset, which CityKit.Get() loads - no scene
+  // holds them. They ride in with the kit, so an edition that must ship the
+  // kit (every Resources asset it may not leave out, above) must have each
+  // one as a Shader in WebGL.data: every shader a kit material uses and every
+  // one the kit's own shaders list names, read here from the source asset by
+  // GUID. And the build's "kit-shader" list must be this one.
+  const kitFile = path.join(assets, "PSXRacing", "Resources", "CityKit.asset");
+  // "  kit-shader NAME | always-included|with the kit | packed|... | path | fields"
+  const reportKitRows = report.filter(l => /^\s+kit-shader /.test(l)).map(l => l.trim().slice(11).split(" | ").map(x => x.trim()));
+  // An engine shader cannot be named from the source (no .shader, no GUID of
+  // its own); the build lists it, this read counts it, neither compares it.
+  const reportKit = reportKitRows.filter(c => c[2] !== "engine").map(c => c[0]).sort();
+  const reportKitNone = report.find(l => /^kit-shaders none/.test(l));
+  if (!fs.existsSync(kitFile)) {
+    if (reportKit.length) fail("the build lists kit shaders (" + reportKit.join(", ") + ") and the source has no " + kitFile);
+    else console.log("  note no city kit in the source (" + kitFile + ") - no kit shaders to ask for");
+  } else if (mayOmit("citykit.asset")) {
+    console.log("  note " + edition + " may leave the city kit out - its shaders are not asked for");
+  } else {
+    const guidIn = f => { const m = /guid:\s*([0-9a-f]{32})/.exec(fs.readFileSync(f, "utf8")); return m ? m[1] : null; };
+    const shaderByGuid = new Map();
+    for (const f of walkFiles(assets, ".shader")) {
+      const m = /^\s*Shader\s+"([^"]+)"/m.exec(lexCs(fs.readFileSync(f, "utf8")).code);
+      const g = fs.existsSync(f + ".meta") ? guidIn(f + ".meta") : null;
+      if (m && g) shaderByGuid.set(g, m[1]);
+    }
+    const matByGuid = new Map();
+    for (const f of walkFiles(assets, ".mat.meta")) { const g = guidIn(f); if (g) matByGuid.set(g, f.slice(0, -5)); }
+    const kit = fs.readFileSync(kitFile, "utf8");
+    const kitNames = new Map();   // name -> what reaches it
+    const reach = (name, what) => { const s = kitNames.get(name) || new Set(); s.add(what); kitNames.set(name, s); };
+    const unread = [];
+    // the kit's own shaders list: fileID 4800000 references (a .shader asset)
+    for (const m of kit.matchAll(/\{fileID:\s*4800000,\s*guid:\s*([0-9a-f]{32}),\s*type:\s*3\}/g)) {
+      const n = shaderByGuid.get(m[1]);
+      if (n) reach(n, "shaders list"); else unread.push("shaders list " + m[1]);
+    }
+    // every material it names (slots, lamp posts, trees, the reserved fields)
+    let mats = 0, engine = 0;
+    for (const m of kit.matchAll(/\{fileID:\s*2100000,\s*guid:\s*([0-9a-f]{32}),\s*type:\s*2\}/g)) {
+      mats++;
+      const mf = matByGuid.get(m[1]);
+      if (!mf || !fs.existsSync(mf)) { unread.push("material " + m[1] + " (no .mat in the source)"); continue; }
+      const sm = /m_Shader:\s*\{fileID:\s*(-?\d+),\s*guid:\s*([0-9a-f]{32})/.exec(fs.readFileSync(mf, "utf8"));
+      const n = sm ? shaderByGuid.get(sm[2]) : null;
+      if (n) reach(n, "materials");
+      else if (sm && /^0{16}[ef]0{15}$/.test(sm[2])) engine++;    // the engine's own (built-in extra)
+      else unread.push("material " + path.basename(mf) + (sm ? " on shader " + sm[2] + " (not a project .shader)" : " with no m_Shader"));
+    }
+    if (engine) console.log("  note " + engine + " city kit material(s) use an engine shader - not nameable from the source, not checked here");
+    const wantKit = [...kitNames.keys()].sort();
+    if (unread.length) fail("the city kit names " + unread.length + " thing(s) this check cannot resolve to a project shader: " +
+                            unread.slice(0, 8).join("; ") + (unread.length > 8 ? "; ..." : ""));
+    if (!wantKit.length) fail("the city kit (" + mats + " materials) resolves to no shader at all");
+    else if (shaderObjs) {
+      const missingKit = wantKit.filter(n => !own.has(n));
+      if (missingKit.length)
+        fail(missingKit.length + " city kit shader(s) are NOT in the player - the city, its trees or its lamp posts draw pink there: " +
+             missingKit.join(", ") + " (is Resources/CityKit.asset in the player? see the Resources lines above)");
+      else ok("every city kit shader is in the player: " + wantKit.length + " (" +
+              wantKit.map(n => n + " via " + [...kitNames.get(n)].join("+")).join(", ") + "; " + mats + " kit materials)");
+    }
+    if (reportKitNone) fail("the build says " + reportKitNone.trim() + ", and " + edition + " must ship the city kit");
+    else if (!reportKit.length)
+      console.log("  note the build report lists no kit shaders (a build from before the kit check) - the player check above stands alone");
+    else if (reportKit.join("\n") !== wantKit.join("\n"))
+      fail("the build's kit-shader list and this read of the kit disagree - build: " + reportKit.join(", ") + "; here: " +
+           wantKit.join(", ") + " (RuntimeShaders.ScanKit and tools/webgl-contents.mjs must read one kit; or the kit moved since the build)");
+    else ok("the build's kit-shader list is this read of the kit's (" + reportKit.length + ")");
+  }
 }
 
 console.log(bad ? "WEBGL CONTENTS FAILED (" + bad + ")" : "WEBGL CONTENTS OK - " + edition);

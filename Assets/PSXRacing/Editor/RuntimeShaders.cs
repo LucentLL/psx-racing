@@ -59,6 +59,25 @@ namespace PSXRacing.EditorTools
     ///      runs: the same rule applied independently to the same files, each
     ///      name looked up among the Shader objects IN WebGL.data, and its
     ///      list compared with the report's.
+    ///
+    /// PSX/Lit HAS ONE KEYWORD NOW (PSX_ATLAS_RECT, shader_feature_local:
+    /// WP-07's city prop atlas). Always included means every variant, so it
+    /// ships both, a pair per pass - the atlas variant the city's merged
+    /// restaurants and houses draw with included, whatever the scenes hold.
+    ///
+    /// THE CITY KIT (Resources/CityKit.asset, WP-07/08) is the other way the
+    /// runtime reaches a shader: CityKit.Get() is a Resources.Load, and the
+    /// streamed city, its canopy trees and its lamp posts draw with the kit's
+    /// materials - no scene holds them. Those shaders need not be always
+    /// included (an edition that ships the kit ships them with it, and one
+    /// that parks it has no city), so they are a list of their own,
+    /// <see cref="Result.Kit"/>: every shader a kit material uses (slots,
+    /// lamp posts, the five tree dresses, the reserved fields) and every one
+    /// its own shaders list names. The pre-flight fails on a kit material
+    /// with no shader or a kit shader that is gone; the build report lists
+    /// them as "kit-shader" lines and fails the build on one it did not pack;
+    /// and webgl-contents.mjs finds each in WebGL.data whenever the edition
+    /// ships the kit, and compares the list with its own read of the asset.
     /// </summary>
     public static class RuntimeShaders
     {
@@ -84,7 +103,19 @@ namespace PSXRacing.EditorTools
             /// listed so a reader can see every lookup.</summary>
             public readonly List<string> Indirect = new List<string>();
             public int RuntimeFiles, ShaderFiles;
+
+            /// <summary>The city kit's shaders (see the class notes), by name;
+            /// each Need's Sites say which kit fields reach it ("CityKit.trees x5").
+            /// Empty, with <see cref="KitNote"/> saying why, when there is no kit.</summary>
+            public readonly List<Need> Kit = new List<Need>();
+            /// <summary>Kit entries that would draw pink or not at all: a
+            /// material with no shader, a shaders-list entry that is gone.</summary>
+            public readonly List<string> KitErrors = new List<string>();
+            public string KitNote;
         }
+
+        /// <summary>The one city kit (PSXRacingBuilder.EnsureCityKit writes it).</summary>
+        public const string KitPath = "Assets/PSXRacing/Resources/" + PSXRacing.City.CityKit.ResourcePath + ".asset";
 
         static string ProjectRoot => Directory.GetParent(Application.dataPath).FullName;
 
@@ -157,7 +188,55 @@ namespace PSXRacing.EditorTools
                 n.AlwaysIncluded = n.Shader != null && always.Contains(n.Shader);
                 r.Needs.Add(n);
             }
+            ScanKit(r, always);
             return r;
+        }
+
+        /// <summary>Every shader the city kit reaches: its materials' and its
+        /// shaders list's. Sites are the kit fields, counted.</summary>
+        static void ScanKit(Result r, HashSet<Shader> always)
+        {
+            var kit = AssetDatabase.LoadAssetAtPath<PSXRacing.City.CityKit>(KitPath);
+            if (kit == null) { r.KitNote = "no city kit at " + KitPath; return; }
+            var found = new Dictionary<string, (Shader sh, Dictionary<string, int> fields)>(StringComparer.Ordinal);
+            void Add(Shader sh, string field)
+            {
+                if (!found.TryGetValue(sh.name, out var e))
+                    found[sh.name] = e = (sh, new Dictionary<string, int>(StringComparer.Ordinal));
+                e.fields.TryGetValue(field, out int c);
+                e.fields[field] = c + 1;
+            }
+            void Mat(Material m, string field)
+            {
+                if (m == null) return;               // an empty slot draws nothing; EnsureCityKit warns
+                if (m.shader == null) { r.KitErrors.Add("CityKit." + field + " material " + m.name + " has no shader"); return; }
+                Add(m.shader, "CityKit." + field);
+            }
+            if (kit.slots != null) foreach (var m in kit.slots) Mat(m, "slots");
+            Mat(kit.lampPost, "lampPost");
+            if (kit.trees != null) foreach (var m in kit.trees) Mat(m, "trees");
+            Mat(kit.furniture, "furniture");
+            Mat(kit.paint, "paint");
+            Mat(kit.signs, "signs");
+            if (kit.shaders != null)
+                for (int i = 0; i < kit.shaders.Length; i++)
+                {
+                    if (kit.shaders[i] == null) r.KitErrors.Add("CityKit.shaders[" + i + "] is missing (a shader the kit held is gone)");
+                    else Add(kit.shaders[i], "CityKit.shaders");
+                }
+            foreach (var kv in found.OrderBy(k => k.Key, StringComparer.Ordinal))
+            {
+                var n = new Need
+                {
+                    Name = kv.Key,
+                    Shader = kv.Value.sh,
+                    AssetPath = AssetDatabase.GetAssetPath(kv.Value.sh),
+                    AlwaysIncluded = always.Contains(kv.Value.sh),
+                };
+                foreach (var f in kv.Value.fields.OrderBy(k => k.Key, StringComparer.Ordinal))
+                    n.Sites.Add(f.Key + " x" + f.Value);
+                r.Kit.Add(n);
+            }
         }
 
         /// <summary>The shaders GraphicsSettings' Always Included list holds.</summary>
@@ -189,6 +268,10 @@ namespace PSXRacing.EditorTools
                              " - an edition whose scenes do not reference it strips it and Shader.Find returns null in the player." +
                              " Add " + (n.AssetPath ?? n.Name) + " to Project Settings > Graphics > Always Included Shaders.");
             }
+            // The kit's shaders ride in with the kit (Resources), so only a
+            // broken entry stops the build: it would draw pink in every edition.
+            foreach (var e in r.KitErrors)
+                gaps.Add(e + " - rebuild the kit (PSXRacingBuilder.EnsureCityKit, any city scene build)");
             return gaps;
         }
 
@@ -199,7 +282,16 @@ namespace PSXRacing.EditorTools
         /// source path, so they are left to tools/webgl-contents.mjs, which
         /// finds every name among the player's Shader objects.
         /// </summary>
-        public static List<string> ReportLines(Result r, BuildReport report, out List<string> failures)
+        public static List<string> ReportLines(Result r, BuildReport report, out List<string> failures) =>
+            ReportLines(r, report, null, out failures);
+
+        /// <summary><see cref="ReportLines(Result, BuildReport, out List{string})"/>,
+        /// plus the city kit's "kit-shader" lines: none when this build parked
+        /// the kit (<paramref name="parked"/>: EditionParking's list, as
+        /// Resources-relative names), else each kit shader with the same
+        /// packing verdict, and a project one the report did not pack fails
+        /// the build.</summary>
+        public static List<string> ReportLines(Result r, BuildReport report, IList<string> parked, out List<string> failures)
         {
             failures = new List<string>();
             var packed = new HashSet<string>(StringComparer.Ordinal);
@@ -230,6 +322,32 @@ namespace PSXRacing.EditorTools
             }
             foreach (var s in r.Indirect)
                 lines.Add("  runtime-shader-indirect " + s + " - its names reach it as literals, counted above");
+
+            // The city kit's, by the same packing rule. A parked kit shipped
+            // nothing, so it asks for nothing (webgl-contents asks the same).
+            string kitFile = Path.GetFileName(KitPath);
+            bool kitParked = parked != null && parked.Any(p => string.Equals(p, kitFile, StringComparison.OrdinalIgnoreCase));
+            if (r.KitNote != null) lines.Add("kit-shaders none (" + r.KitNote + ")");
+            else if (kitParked) lines.Add("kit-shaders none (the city kit was parked for this edition)");
+            else
+            {
+                lines.Add("kit-shaders " + r.Kit.Count + " (the city kit's materials and shaders list: RuntimeShaders.Kit; " +
+                          "tools/webgl-contents.mjs checks each in the player)");
+                foreach (var n in r.Kit)
+                {
+                    bool project = n.AssetPath != null &&
+                                   (n.AssetPath.StartsWith("Assets/", StringComparison.Ordinal) ||
+                                    n.AssetPath.StartsWith("Packages/", StringComparison.Ordinal));
+                    string packing = !project ? "engine"
+                                   : !listed ? "packing not listed"
+                                   : packed.Contains(n.AssetPath) ? "packed" : "NOT PACKED";
+                    if (packing == "NOT PACKED")
+                        failures.Add(n.Name + " (" + n.AssetPath + ") is a city kit shader and the build did not pack it (" +
+                                     string.Join(", ", n.Sites) + ")");
+                    lines.Add("  kit-shader " + n.Name + " | " + (n.AlwaysIncluded ? "always-included" : "with the kit") +
+                              " | " + packing + " | " + (n.AssetPath ?? "(no asset)") + " | " + string.Join(" ", n.Sites));
+                }
+            }
             return lines;
         }
 
