@@ -225,6 +225,62 @@ namespace PSXRacing.EditorTools
             Debug.Log($"[CityRefSpots] {shots} shots of {Spots.Length} spots to {dir}");
         }
 
+        /// <summary>
+        /// THE TREES IN EVERY DRESS (WP-08): three of the spots - Queens Road
+        /// in Myers Park, Central Avenue in Plaza Midwood, the wooded I-485 -
+        /// shot five times, the city's trees wearing each season's atlas in
+        /// turn (winter, spring, summer, fall, snow; the ground keeps its baked
+        /// fall, as it does in every edit-mode shot). To
+        /// Screenshots/City/trees/&lt;spot&gt;_&lt;dress&gt;.png.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityRefSpots.RunTreeDresses
+        /// </summary>
+        public static void RunTreeDresses()
+        {
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[CityRefSpots] no city data"); return; }
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City", "trees");
+            Directory.CreateDirectory(dir);
+            PSXRacingBuilder.EnsureCityTextures();
+            Shader.SetGlobalFloat("_PSXFogNear", 300f);
+            Shader.SetGlobalFloat("_PSXFogFar", FarM);
+            Shader.SetGlobalColor("_PSXFogColor", new Color(0.72f, 0.78f, 0.86f));
+            Shader.SetGlobalFloat("_PSXSnap", 0f);
+            Shader.SetGlobalColor("_PSXAmbient", new Color(0.55f, 0.55f, 0.6f));
+            Shader.SetGlobalVector("_PSXLightDir", new Vector4(-0.4f, 0.8f, -0.3f, 0f).normalized);
+            Shader.SetGlobalColor("_PSXLightColor", new Color(0.9f, 0.87f, 0.8f));
+            var kit = CityKit.Get();
+            var go = new GameObject("~cityTreeDresses");
+            var world = go.AddComponent<CityWorld>();
+            int shots = 0;
+            try
+            {
+                foreach (var sp in Spots)
+                {
+                    if (sp.id != "sv_a8_queens" && sp.id != "sv_a11_central" && sp.id != "sv_a4_i485") continue;
+                    if (!Snap(map, LL(sp.lat, sp.lon), sp.road, out var e, out float s, out _)) continue;
+                    var p = e.PointAt(s);
+                    float h = sp.hdg * Mathf.Deg2Rad;
+                    var eye = new Vector3(p.x, e.YAt(s) + EyeM, p.y);
+                    var look = eye + new Vector3(Mathf.Sin(h), 0f, Mathf.Cos(h)) * 50f + Vector3.down * 1.0f;
+                    world.EnsureRing(eye, 1);
+                    for (int d = 0; d < Seasons.DressCount; d++)
+                    {
+                        foreach (var r in go.GetComponentsInChildren<MeshRenderer>(false))
+                            if (r.gameObject.name == "Trees" && kit != null && kit.trees != null && d < kit.trees.Length) r.sharedMaterial = kit.trees[d];
+                        Shoot(dir, sp.id + "_" + Seasons.DressNames[d].ToLowerInvariant(), eye, Quaternion.LookRotation(look - eye), 0f);
+                        shots++;
+                    }
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            Debug.Log($"[CityRefSpots] {shots} tree dress shots to {dir}");
+        }
+
         static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho)
         {
             var camGO = new GameObject("~refCam");

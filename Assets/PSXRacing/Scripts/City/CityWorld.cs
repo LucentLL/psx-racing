@@ -81,7 +81,10 @@ namespace PSXRacing.City
         {
             public int tx, tz;
             public float buildMs, attachMs, cookMs, propsMs, totalMs;
-            public int colliders, props;
+            /// <summary>The trees (WP-08): the occupancy mask, planting and
+            /// the mesh (<see cref="CityTrees.Build"/>), then standing them up.</summary>
+            public float treesMs, treePlantMs;
+            public int colliders, props, trees;
         }
 
         /// <summary>The most recent tile build, anywhere.</summary>
@@ -365,6 +368,25 @@ namespace PSXRacing.City
             }
             double tProps = clock.Elapsed.TotalMilliseconds;
 
+            // THE TREES (WP-08), after everything they must keep clear of:
+            // the tile's roads, fill houses and lamps are in tm, the lots in
+            // the building table. Their mesh is dropped with the tile's.
+            int treeCount = 0;
+            float treePlantMs = 0f;
+            if (CityTrees.Enabled)
+            {
+                var tt = CityTrees.Build(Map, nodeTrims, buildings, tm, tx, tz);
+                treeCount = tt.trees.Count;
+                treePlantMs = tt.ms;
+                if (tt.mesh != null)
+                {
+                    AttachTrees(root, tt, CityTrees.MaterialFor(CityTrees.DressNow()));
+                    System.Array.Resize(ref meshes, meshes.Length + 1);
+                    meshes[meshes.Length - 1] = tt.mesh;
+                }
+            }
+            double tTrees = clock.Elapsed.TotalMilliseconds;
+
             // THE LIGHT the street lamps throw (the posts are Attach's). A
             // NightGlow of its own per tile, under its own child, so the posts
             // are not among what it switches, and Init'd by hand: it is added
@@ -391,8 +413,8 @@ namespace PSXRacing.City
             {
                 tx = tx, tz = tz,
                 buildMs = (float)tBuild, attachMs = (float)(tAttach - tBuild), cookMs = cookMs,
-                propsMs = (float)(tProps - tAttach), totalMs = (float)clock.Elapsed.TotalMilliseconds,
-                colliders = colliders, props = props,
+                propsMs = (float)(tProps - tAttach), treesMs = (float)(tTrees - tProps), treePlantMs = treePlantMs, totalMs = (float)clock.Elapsed.TotalMilliseconds,
+                colliders = colliders, props = props, trees = treeCount,
             };
             LastTiming = timing;
             recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
@@ -516,6 +538,39 @@ namespace PSXRacing.City
                 }
             }
             return meshes.ToArray();
+        }
+
+        /// <summary>
+        /// Stand a tile's trees up under its root (WP-08): the cards as one
+        /// render-only mesh on the Foliage layer (one draw; SunShadows makes
+        /// it one cutout caster), and a capsule up every trunk within
+        /// <see cref="CityTrees.TrunkReachM"/> of a carriageway, all on ONE
+        /// Solid-layer object named <see cref="CityTrees.TrunkName"/> - the
+        /// way the lamp posts are - so the audits can look through them by
+        /// name. A null material stands the trunks with the cards switched off.
+        /// </summary>
+        public static void AttachTrees(GameObject root, CityTrees.TreeTile tt, Material mat)
+        {
+            if (tt == null || tt.mesh == null) return;
+            var g = Child(root, "Trees", CityTrees.FoliageLayer);
+            g.AddComponent<MeshFilter>().sharedMesh = tt.mesh;
+            var mr = g.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.enabled = mat != null;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            if (tt.solids == 0) return;
+            var origin = root.transform.position;
+            var c = Child(root, CityTrees.TrunkName, SolidLayer);
+            foreach (var t in tt.trees)
+            {
+                if (!t.solid) continue;
+                var cap = c.AddComponent<CapsuleCollider>();
+                cap.direction = 1;
+                cap.radius = t.r;
+                cap.height = Mathf.Max(CityTrees.TrunkHeightM, t.r * 2f + 0.01f);
+                cap.center = t.foot - origin + Vector3.up * (CityTrees.TrunkHeightM * 0.5f);
+            }
         }
 
         /// <summary>A lamp post collider's square side, a hair over the drawn

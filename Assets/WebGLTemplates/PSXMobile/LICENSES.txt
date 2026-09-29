@@ -24,6 +24,11 @@ Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Pro
   https://www.usgs.gov/3d-hydrography-program
   In: charlotte_city.bytes
 
+Tree canopy: USDA Forest Service, NLCD Tree Canopy Cover (2024)
+  Licence: public domain
+  https://data.fs.usda.gov/geodata/rastergateway/treecanopycover/
+  In: charlotte_canopy.bytes
+
 Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
   Licence: public domain; attribution requested
   https://github.com/tilezen/joerd/blob/master/docs/attribution.md

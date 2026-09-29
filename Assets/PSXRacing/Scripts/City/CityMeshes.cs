@@ -359,6 +359,10 @@ namespace PSXRacing.City
             public readonly List<(int edge, int side, float s0, float s1)> vergeSpans = new List<(int, int, float, float)>();
             public readonly List<(Vector3 a, Vector3 b, Vector3 forward, bool elevated)> goreNoses = new List<(Vector3, Vector3, Vector3, bool)>();
             public float vergeMetres, railMetres;
+            /// <summary>The fill houses BuildHouses stood (world plan: centre,
+            /// unit long axis, half extents), for the roadside occupancy mask
+            /// (WP-08): a tree must not grow through one.</summary>
+            public readonly List<(Vector2 c, Vector2 u, float hu, float hv)> houseBoxes = new List<(Vector2, Vector2, float, float)>();
         }
 
         // ---- growable buckets, one per slot, reused across tiles ----------
@@ -7296,6 +7300,7 @@ namespace PSXRacing.City
                     float y0 = g - BuildingSink;
                     EmitGableHouse(tm, c, u, hu, hv, y0, y0 + BuildingSink + eaveH, y0 + BuildingSink + eaveH + riseH, Slot.FacadeHouse);
                     tm.houseCount++;
+                    tm.houseBoxes.Add((c, u, hu, hv));
                 }
         }
 

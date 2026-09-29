@@ -191,6 +191,73 @@ namespace PSXRacing.EditorTools
                     tint: new Color(0.42f, 0.43f, 0.46f), affine: 0f);
 
         /// <summary>
+        /// The city's trees (WP-08), one material per season dress in
+        /// <see cref="Seasons"/> order: the stage forest's five atlases
+        /// (Art/BRP/Gen, the owner's CC0 retro tree pack composed with every
+        /// billboard's painted trunk under the crossing of its cards), so they
+        /// cost the city no new texture. Cut out at 0.5 and drawn both sides,
+        /// like the forest (one winding per card; PSX/Lit's _Cull 0 flips the
+        /// normal to the eye). CityTrees.MaterialFor picks the day's.
+        /// </summary>
+        internal static Material[] CityTreeMats()
+        {
+            var mats = new Material[Seasons.DressCount];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                bool fall = d == (int)Season.Fall;
+                string tex = Root + "/Art/BRP/Gen/TreeAtlas" + (fall ? "" : "_" + DressSuffix[d]) + ".png";
+                mats[d] = MakeMat("CityTrees" + (fall ? "" : "_" + DressSuffix[d]), tex, cutoff: 0.5f, twoSided: true);
+            }
+            return mats;
+        }
+
+        /// <summary>
+        /// How far each atlas cell's painted tree reaches out from its trunk
+        /// below each twentieth of its height, as a fraction of the card's
+        /// width, the widest of the five dresses (a tree is planted once and
+        /// wears all five): [cell * 21 + level], level L covering the rows
+        /// under L/20 of the height. CityTrees keeps a card's low foliage off
+        /// the pavement with it. The composer slides every billboard's painted
+        /// trunk to the cell's middle column (TreeKit.CentreOnTrunk), so the
+        /// middle is where the trunk is. Read off the atlas PNGs; nothing drawn.
+        /// </summary>
+        internal static float[] CityTreeLowReach()
+        {
+            const int cell = 128, levels = CityTrees.ReachLevels;
+            var reach = new float[16 * levels];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                bool fall = d == (int)Season.Fall;
+                string path = ProjectRootPath(Root + "/Art/BRP/Gen/TreeAtlas" + (fall ? "" : "_" + DressSuffix[d]) + ".png");
+                if (!File.Exists(path)) { Log("WARN: tree atlas missing " + path); continue; }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                tex.LoadImage(File.ReadAllBytes(path));
+                var px = tex.GetPixels32();   // bottom-up rows, as the UVs read it
+                int W = tex.width;
+                UnityEngine.Object.DestroyImmediate(tex);
+                var cum = new float[cell];
+                for (int c = 0; c < 16; c++)
+                {
+                    int x0 = (c % 4) * cell, y0 = (c / 4) * cell;
+                    float run = 0f;
+                    for (int y = 0; y < cell; y++)
+                    {
+                        for (int x = 0; x < cell; x++)
+                            if (px[(y0 + y) * W + x0 + x].a > 127) run = Mathf.Max(run, Mathf.Abs(x + 0.5f - cell * 0.5f) / cell);
+                        cum[y] = run;   // the widest of the rows 0..y
+                    }
+                    // level L: the rows under L/20 of the height
+                    for (int L = 1; L < levels; L++)
+                    {
+                        int top = Mathf.Clamp(Mathf.CeilToInt(L * cell / (float)(levels - 1)) - 1, 0, cell - 1);
+                        reach[c * levels + L] = Mathf.Max(reach[c * levels + L], cum[top]);
+                    }
+                }
+            }
+            return reach;
+        }
+
+        /// <summary>
         /// Write (or rewrite) Resources/CityKit.asset from the one material
         /// table, CityMaterials(), plus the lamp posts, and hand it back.
         /// Every city scene build and every city tool (EnsureCityTextures)
@@ -207,11 +274,15 @@ namespace PSXRacing.EditorTools
             kit.slots = CityMaterials();
             kit.slotCount = kit.slots.Length;
             kit.lampPost = CityLampPostMat();
+            kit.trees = CityTreeMats();
+            kit.treeLowReach = CityTreeLowReach();
             var shaders = new List<Shader>();
             foreach (var m in kit.slots)
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             if (kit.lampPost != null && kit.lampPost.shader != null && !shaders.Contains(kit.lampPost.shader))
                 shaders.Add(kit.lampPost.shader);
+            foreach (var m in kit.trees)
+                if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
             {
                 var sh = Shader.Find(name);

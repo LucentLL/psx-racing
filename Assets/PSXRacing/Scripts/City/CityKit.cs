@@ -37,6 +37,8 @@ namespace PSXRacing.City
         [Header("Reserved for later packages")]
         [Tooltip("WP-08 canopy trees, one per season dress (Seasons.DressCount).")]
         public Material[] trees;
+        [Tooltip("WP-08: per atlas cell, how far the painted tree reaches out from its trunk below each twentieth of its height (cells x 21 levels, fraction of the card width; the widest of the five dresses).")]
+        public float[] treeLowReach;
         [Tooltip("WP-15 roadside furniture atlas (poles, arms, cobra-heads).")]
         public Material furniture;
         [Tooltip("WP-17 markings.")]

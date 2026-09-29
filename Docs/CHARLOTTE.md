@@ -768,6 +768,143 @@ GUIDs back over 219 of them and broke every prefab and scene that used them;
 `city-rebake.ps1` does not copy `Materials`, and a full scene build puts a
 sandbox right.
 
+## WP-08 (2026-09-29, release R3): the trees
+
+The owner, after driving it: "its all so barren and flat". The city had not
+one tree; now each 256 m tile plants the trees the present-day canopy map
+says it has, a typical tile 150-300 and a wooded one 400. Branch
+`charlotte-scenery`.
+
+**The canopy map** (`Resources/charlotte_canopy.bytes`, PCAN v1, its own file
+so the lines release can re-export the road data without touching it). The
+USDA Forest Service's NLCD Tree Canopy Cover, v2025.6, the 2024 layer (the
+owner's PRESENT DAY; public domain, credited on the CREDITS page and in
+`LICENSES.txt`). `tools/city/fetch/fetch_canopy.mjs` asks the USFS image
+service on the Interagency Imagery Portal for exactly that raster over the DEM
+box, in its own Albers projection and pixel lattice, uncompressed, and caches
+it (4.4 MB, gitignored). `tools/city/canopy.mjs` averages it onto the DEM's
+own 60 m lattice (4 x 4 samples a cell, `lib/canopygrid.mjs` projects each to
+Albers, checked against the ArcGIS geometry service to 0.9 m) and stores it in
+4-point steps: 743 KB raw, **393 KB Brotli** (536 KB in whole percent).
+`--check` rebuilds it byte for byte. The box averages 39.8% canopy, the 8 km
+core 23.8%, the square kilometre round uptown 5.1%. `CityCanopy` reads it.
+
+**What is already beside the road** (`Scripts/City/RoadsideOccupancy.cs`): a
+2 m mask per tile, built once, that every roadside object asks before it
+stands (the plan's one occupancy mask; poles and signs take their places from
+it in later packages). It reserves the pavement and the clear zone past it
+(freeway 9 m, trunk 6, arterial 3.5, collector 2.5, local 2, a ramp 4.5), each
+junction's fan, at every corner of a real junction a sight triangle with 10 m
+legs along the two kerb lines and a furniture spot behind the corner, the
+real footprints, the procedural and prop lots (a restaurant's with 10 m of
+lane, bay and parking round it: the first plant put a trunk in the
+pizzeria's order bay, which the budget probe's bay camera found), the fill
+houses, the lamp feet, creeks and lakes, and the ground under every deck.
+Every mark is widened by half a cell's diagonal, so any point of a free cell
+is clear. **The road's edges are read in one place**, `RoadEdgeAt` (the
+centreline and drawn half width at an arc position): the lines release
+replaces that one body, and everything placed from the mask re-seats with
+the lines. 1.0 ms a tile in the editor.
+
+**The trees** (`Scripts/City/CityTrees.cs`). Each 16 m square of a tile
+plants canopy x 256 m2 / 95 m2 (the plan's crown) trees on the free cells of
+the mask, never two trunks within 6 m; what the road squares cannot plant is
+planted in a second pass on free ground within 14 m of a carriageway (the
+canopy the map shows over a street is the crowns of the trees beside it);
+along every grounded freeway two rows of hardwoods stand just past the clear
+zone where the canopy map has woods, a tree every 7 m, out of the share of
+the square they stand in (the tree walls). Every choice is a hash of the
+square's (or the freeway station's) global index, and a square belongs to one
+tile: the same trees on every build, none twice across a seam, and nothing
+depends on which tile was built first. Species by place: willow-oak rows in
+the old city (inside 4.5 km of uptown), 45% pine in the suburbs past it,
+crape myrtles along the commercial arterials, sycamores by the creeks, now
+and then a bare one. They wear the stage forest's five season atlases (the
+owner's CC0 retro tree pack, already shipped: 0 MB), one material per dress
+in the city kit, chosen by the calendar. Broadleaf 11.5-16 m (a crown of
+about 118 m2: at 95 m2 the crowns, which overlap where they are planted at
+random, drew 5-7 points less canopy along the roads than the map has), pines
+15-22 m. Two crossed cards a tree, one mesh a tile on the Foliage layer: one
+draw and one sun-map caster a tile. Phones plant 60% (the owner's lower
+tier, `Application.isMobilePlatform`).
+
+**No leaves in a lane.** A third of the billboards paint foliage to the
+ground. The kit measures each atlas cell off the five PNGs (how far the
+painted tree reaches out from its trunk below each twentieth of its height,
+the widest of the dresses), and a tree whose card could reach a road is
+turned to 45 degrees to it and grown, shrunk or given another billboard of
+its species until what it paints below 4.2 m over EVERY road near it stays
+0.4 m off the pavement; failing that it is stood back by as much. The first
+version trusted the stage forest's "foliage starts at 28% of the height" and
+the first shot of Dilworth Road put an orange maple across the lane at eye
+height.
+
+**Trunks stop cars.** A capsule up every trunk within 25 m of a carriageway
+(4 m tall, radius off the card), all of a tile's on one Solid-layer object
+named `TreeTrunk`, stood up by `CityWorld.AttachTrees` with the cards.
+
+**Checked:**
+
+- **TreeAudit** (in `CityAudit`, and alone as `CityAudit.RunTrees`, about a
+  minute): 514 tiles (the plan's shot spots with their neighbours and every
+  9th tile of the network), 126,257 trees. Against the geometry measured
+  again, not the mask: 0 trunks on pavement, in a clear zone, in a fan, in a
+  building, lot or fill house, in water, under a deck or on a reserved cell;
+  0 cards painting leaves over a road below 4.2 m; 0 outside the tile that
+  planted them; the same trees on a second build. Planted against what the
+  canopy asks: median 1.00, 483 of 490 tiles within +-20% (the lowest, 0.46,
+  a tile that is mostly water). Canopy within 25 m of the centreline by
+  class, the crowns against the 30 m map over exactly the audit's sample
+  points (`canopy.mjs` prints the truth table): secondary 9.8% against 13.0,
+  motorway 11.4 / 14.9, core arterials 6.2 / 8.1, core residential 28.8 /
+  31.0, every one within the plan's 5 points. (The shipped 60 m grid reads
+  15.2 / 23.9 / 8.9 / 31.4 at the same points: its cells smear the woods
+  beside a freeway over the freeway.)
+- **city-play-check** drives the real car at the trunks nearest Queens Road
+  West in Myers Park, dead on and 0.9 m to the side at 50 km/h: all eight
+  runs stop the car (it arrives at 52-53 km/h and leaves at 0-10), none
+  with the trunk inside its body. "Inside" is judged against the car's own
+  collider (a 1.45 x 1.02 x 3.20 m box), which the check now reads off the
+  car: the stage harness's generic 4.1 m box put the two thinnest trunks
+  "inside" a nose the car does not have. The first runs found a trunk in
+  the pizzeria's order bay (hence the lot margin) and the run-up raycast
+  starting under the city's ground (world y is 97 m ASL down).
+- The DRIVE AUDIT's five zeros and the roadside audit's zeros are unchanged
+  (the trees are not in the tiles the drive audit stands up; they stand on
+  their own in EnsureTile).
+- Reference spots against WP-07 (`Screenshots/City/ref_wp08`), and the
+  trees in all five dresses at three spots (`Screenshots/City/trees`,
+  `CityRefSpots.RunTreeDresses`).
+
+**Measured** (`city_budget.txt`; its A/B pass is now the same sites with no
+trees):
+
+| | with trees | without (same run) |
+|---|---|---|
+| tile build, all 225 tiles | p50 26.4, p95 82.1 ms | p50 29.6, p95 81.8 ms |
+| the trees' own share of a tile, p95 by site | 2.6-4.0 ms (freeway, suburbs, uptown); 8.0-11.2 ms (the old city: Tryon, Dilworth, Plaza Midwood) | - |
+| draws in a view | +7 to +12 (one a tile in view; the most at Plaza Midwood) | - |
+| sun-map casters in the ring | +25 (one a tile) | - |
+| colliders in the ring | +500 to +3,100 (the trunk capsules; 3,510 at Dilworth) | - |
+| worst view | 209 draws (uptown) | 200 |
+
+The trees' share splits into planting (the mask 0.9 ms of it on average) and
+standing up (the cards and the capsules, about 3 ms of a dense tile). The
+share is what the plan's "+1.5 ms at p95" asked about; the tile p95 itself
+moved 0.3 ms because the slowest tiles (uptown, the freeway interchanges)
+have few trees. Every number is from an editor sharing the machine with six
+other Unity jobs: only the A/B inside one run means anything, and per-site
+p95s moved by up to 40 ms between runs. The in-view draws are past the plan's
++10% ratchet at the sparser sites (Beatties Ford 27 -> 36), which WP-07's
+prepay was for (88 draws saved in a suburb view, 300+ at a restaurant). The
+phone reading (FPS overlay CITY line at Queens Road West, critic C30) is the
+owner's to take; over 16.7 ms a tile there, WP-09 time-slices the build.
+
+**Size.** `charlotte_canopy.bytes` +393 KB Brotli (the plan's 0.3-0.5 MB);
+the tree materials are 5 small .mat files over atlases the stages already
+ship. `charlotte_city.bytes` changes only in its attribution (the USFS
+credit line; every other section byte-identical).
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -180,6 +181,7 @@ namespace PSXRacing.EditorTools
 
                 yield return Restaurant(mode, roamSpawn, CityProps.Burger);
                 yield return Restaurant(mode, roamSpawn, CityProps.Pizzeria);
+                yield return Trunks(mode, roamSpawn);
             }
 
             // ---- THE 277 RACE ---------------------------------------------
@@ -372,6 +374,143 @@ namespace PSXRacing.EditorTools
             player.TeleportTo(home, player.transform.rotation);
             yield return null;
         }
+
+        /// <summary>
+        /// THE CITY'S TREES STOP A CAR (WP-08; the stage trees' tree-play-check
+        /// in Charlotte, critic C42). Stand the car on Queens Road West in Myers
+        /// Park, under the densest canopy on the plan's list, find the trunk
+        /// colliders the tiles stood (CityTrees.TrunkName), and drive the real
+        /// car at the nearest ones from the road at 50 km/h, dead on and a
+        /// car's half-width to the side: it must never get the trunk inside
+        /// its body, and must be all but stopped. A run whose way to the tree
+        /// is blocked (a wall, another trunk) is not a run.
+        /// </summary>
+        IEnumerator Trunks(CityMode mode, Vector3 home)
+        {
+            CityPlayCheck.Line("the city's trees (WP-08):");
+            var world = mode.world; var player = mode.player; var map = world.Map;
+            const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
+            double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
+            var at = new Vector2((float)((-80.83678 - Lon0) * mLon), (float)((35.19280 - Lat0) * 111132.0));
+            if (!map.NearestRoadPoint(at, 200f, true, out int ei, out float es, out _)) { CityPlayCheck.Fail("no road at Myers Park"); yield break; }
+            var road = map.edges[ei].PointAt(es);
+            player.TeleportTo(new Vector3(road.x, map.edges[ei].YAt(es) + 0.6f, road.y), player.transform.rotation);
+            for (int k = 0; k < 10; k++) yield return null;
+            world.EnsureRing(player.transform.position, 1);
+            yield return null;
+
+            var trunks = new List<CapsuleCollider>();
+            foreach (var c in Object.FindObjectsByType<CapsuleCollider>(FindObjectsSortMode.None))
+                if (c.gameObject.name == CityTrees.TrunkName) trunks.Add(c);
+            int trees = 0;
+            foreach (var r in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+                if (r.gameObject.name == "Trees") trees += r.GetComponent<MeshFilter>().sharedMesh.vertexCount / 8;
+            CityPlayCheck.Check(trees > 100 && trunks.Count > 20, "Myers Park stands trees, the ones near the road with trunks",
+                trees + " trees, " + trunks.Count + " trunk capsules on the live tiles");
+            if (trunks.Count == 0) yield break;
+
+            // nearest the car's road first
+            var p0 = new Vector2(player.transform.position.x, player.transform.position.z);
+            trunks.Sort((a, b) => Vector2.Distance(Plan(a), p0).CompareTo(Vector2.Distance(Plan(b), p0)));
+            foreach (var mb in player.GetComponents<MonoBehaviour>())
+                if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = false;
+            int solidMask = 1 << CityWorld.SolidLayer, groundMask = ~((1 << 2) | solidMask);
+            int runs = 0, tried = 0;
+            // THE CAR'S OWN SOLID, in its frame: "inside the body" is judged
+            // against the box the physics has (the stage harness's generic
+            // 4.1 m box is 0.4 m longer at the nose than this car's collider,
+            // so a trunk the collider stopped cleanly read as inside it)
+            var body = player.GetComponentInChildren<BoxCollider>();
+            Vector3 bc = new Vector3(0f, 0.72f, 0.05f), bh = new Vector3(0.86f, 0.5f, 2.05f);
+            if (body != null && !body.isTrigger)
+            {
+                bc = player.transform.InverseTransformPoint(body.transform.TransformPoint(body.center));
+                bh = Vector3.Scale(body.size * 0.5f, body.transform.lossyScale);
+            }
+            CityPlayCheck.Line($"  the car's solid: a box {bh.x * 2f:0.00} x {bh.y * 2f:0.00} x {bh.z * 2f:0.00} m centred ({bc.x:0.00},{bc.y:0.00},{bc.z:0.00}) in its frame");
+            foreach (var cap in trunks)
+            {
+                if (runs >= 4 || tried >= 40) break;
+                if (cap == null) continue;
+                var trunk = cap.transform.TransformPoint(cap.center);
+                var tp = new Vector2(trunk.x, trunk.z);
+                if (!map.NearestRoadPoint(tp, 30f, false, out int re, out float rs, out _)) continue;
+                var rp = map.edges[re].PointAt(rs);
+                var dir2 = tp - rp;
+                if (dir2.sqrMagnitude < 1f) continue;
+                tried++;
+                // the way in from the road, or up to 80 degrees either side of
+                // it: the first whose 16 m run-up is open at a car's width
+                // (a leafy street lines both kerbs with trunks and posts)
+                var fromRoad = new Vector3(dir2.x, 0f, dir2.y).normalized;
+                var dir = Vector3.zero;
+                string why = "";
+                foreach (float turn in new[] { 0f, 40f, -40f, 80f, -80f })
+                {
+                    var d = Quaternion.Euler(0f, turn, 0f) * fromRoad;
+                    var st = new Vector3(trunk.x, trunk.y, trunk.z) - d * 16f;
+                    if (!Physics.Raycast(st + Vector3.up * 60f, Vector3.down, out var g0, 150f, groundMask)) { why = "no ground at the run-up"; continue; }
+                    var e0 = g0.point + Vector3.up * 1.0f;
+                    var hitsIn = Physics.SphereCastAll(e0, 1.0f, d, 16f - 2f, solidMask, QueryTriggerInteraction.Ignore);
+                    if (hitsIn.Length > 0) { why = "blocked by " + hitsIn[0].collider.name; continue; }
+                    // and the run-up itself is drivable: not a slope a car cannot hold
+                    if (Mathf.Abs(g0.point.y - trunk.y + cap.height * 0.5f) > 2.5f) { why = "run-up " + (g0.point.y - trunk.y + cap.height * 0.5f).ToString("0.0") + " m off the trunk's ground"; continue; }
+                    dir = d; break;
+                }
+                if (dir == Vector3.zero) { if (tried <= 5) CityPlayCheck.Line("  --   trunk at (" + trunk.x.ToString("0") + "," + trunk.z.ToString("0") + "): " + why); continue; }
+                foreach (float off in new[] { 0f, 0.9f })
+                {
+                    var side = Vector3.Cross(Vector3.up, dir);
+                    var start = new Vector3(trunk.x, trunk.y, trunk.z) - dir * 16f + side * off;
+                    if (!Physics.Raycast(start + Vector3.up * 60f, Vector3.down, out var g, 150f, groundMask)) continue;
+                    player.TeleportTo(g.point + Vector3.up * 0.6f, Quaternion.LookRotation(dir, Vector3.up));
+                    player.throttleInput = 0f; player.brakeInput = 1f; player.steerInput = 0f;
+                    for (int k = 0; k < 30; k++) yield return new WaitForFixedUpdate();
+                    if (cap == null) break;
+                    player.brakeInput = 0f;
+                    player.Body.linearVelocity = player.transform.forward * (50f / 3.6f);
+                    bool inside = false, reached = false; float arrive = 0f, closest = float.MaxValue;
+                    string insideAt = "";
+                    for (int k = 0; k < Mathf.RoundToInt(2.5f / Time.fixedDeltaTime); k++)
+                    {
+                        player.throttleInput = 0.6f; player.steerInput = 0f; player.brakeInput = 0f;
+                        yield return new WaitForFixedUpdate();
+                        float slack = cap.radius * 0.5f, dist = float.MaxValue;
+                        for (float up = 0f; up <= 3.5f; up += 0.25f)
+                        {
+                            var local = player.transform.InverseTransformPoint(new Vector3(trunk.x, trunk.y - cap.height * 0.5f + up, trunk.z)) - bc;
+                            var over = new Vector3(Mathf.Max(0f, Mathf.Abs(local.x) - bh.x), Mathf.Max(0f, Mathf.Abs(local.y) - bh.y), Mathf.Max(0f, Mathf.Abs(local.z) - bh.z));
+                            dist = Mathf.Min(dist, over.magnitude);
+                            if (Mathf.Abs(local.x) < bh.x - slack && Mathf.Abs(local.y) < bh.y - slack && Mathf.Abs(local.z) < bh.z - slack)
+                            {
+                                if (!inside)
+                                {
+                                    var ea = player.transform.eulerAngles;
+                                    insideAt = $"; inside at step {k}, {up:0.00} m up the trunk, car-frame ({local.x:0.00},{local.y:0.00},{local.z:0.00}), pitch {Mathf.DeltaAngle(0f, ea.x):0} roll {Mathf.DeltaAngle(0f, ea.z):0}, {player.Body.linearVelocity.magnitude * 3.6f:0} km/h";
+                                }
+                                inside = true;
+                            }
+                        }
+                        closest = Mathf.Min(closest, dist);
+                        if (!reached && dist < 2.5f) { reached = true; arrive = player.Body.linearVelocity.magnitude; }
+                    }
+                    float end = player.Body.linearVelocity.magnitude;
+                    string what = $"trunk at ({trunk.x:0},{trunk.z:0}), r {cap.radius:0.00}, {(off == 0f ? "dead on" : "offset " + off.ToString("0.0") + " m")}";
+                    string got = $"closest {closest:0.00} m, arrived at {arrive * 3.6f:0} km/h, left at {end * 3.6f:0} km/h{insideAt}";
+                    if (!reached) { CityPlayCheck.Line("  --   " + what + ": never got there  [" + got + "]"); continue; }
+                    CityPlayCheck.Check(!inside && end < 3f, what + " stops the car", got);
+                    if (off == 0f) runs++;
+                }
+            }
+            foreach (var mb in player.GetComponents<MonoBehaviour>())
+                if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = true;
+            CityPlayCheck.Check(runs >= 3, "at least three city trunks were driven at", runs + " of " + tried + " tried");
+            player.TeleportTo(home, Quaternion.identity);
+            for (int k = 0; k < 10; k++) yield return null;
+        }
+
+        static Vector2 Plan(Collider c) { var p = c.bounds.center; return new Vector2(p.x, p.z); }
+
 
         /// <summary>On a street, at the street's own height, with a collider
         /// under it. Returns the origin's height for the settle check.</summary>
