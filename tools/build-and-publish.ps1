@@ -95,8 +95,10 @@
 # /city/ publish that would ship the whole game, is refused before the build
 # and again before the deploy (the build's psx-edition.txt is read, so a
 # -SkipBuild of an old or mismatched build is refused too). Any other
-# -PagesDir defaults to ALL. -AllowEditionMismatch overrides - only when the
-# owner asks for exactly that.
+# -PagesDir is a preview of whichever -Edition is named (ALL by default):
+# -PagesDir colour -Edition MAIN -PagesLabel "COLOUR PREVIEW" is the MAIN game
+# with a branch's changes, beside the real one. -AllowEditionMismatch
+# overrides - only when the owner asks for exactly that.
 #
 # EVERY DOOR IS OPENED IN THE PLAYER BEFORE IT GOES LIVE (tools\door-tour.mjs,
 # see Test-DoorTour below): since the editions a door finds its scene through
@@ -145,7 +147,13 @@ if ($PagesDir) {
 
 # THE EDITION. Resolved and checked BEFORE a forty-minute build.
 $RootEdition = "MAIN"    # the site root's edition; "ALL" once MAIN and CITY are united
-$expectEdition = if ($PagesDir -eq "city") { "CITY" } elseif ($PagesDir) { "ALL" } else { $RootEdition }
+# The root and /city/ have fixed editions. Any other -PagesDir is a preview
+# folder with no edition of its own: it ships the -Edition it is given (ALL
+# when none is named), and every check below holds the build to that edition
+# (2026-09-29: /colour/ = the MAIN game with the colour fix).
+$expectEdition = if ($PagesDir -eq "city") { "CITY" }
+                 elseif ($PagesDir) { if ($Edition) { $Edition.ToUpperInvariant() } else { "ALL" } }
+                 else { $RootEdition }
 if (-not $Edition) { $Edition = $expectEdition }
 $Edition = $Edition.ToUpperInvariant()
 if (@("MAIN", "CITY", "ALL") -notcontains $Edition) {
