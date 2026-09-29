@@ -49,6 +49,9 @@ namespace PSXRacing.EditorTools
                         TerrainAudit.AuditOne(def, terrain);
                         sb.AppendLine(terrain.ToString());
                         sb.AppendLine(DownFaces(path));
+                        // And the paint on the tarmac: lanes even either side
+                        // of a centre line on the ribbon's centre, lines smooth.
+                        sb.AppendLine(LaneAudit.AuditForLab(def, path));
                     }
                     string probes = System.Environment.GetEnvironmentVariable("PSX_LAB_WP") ?? "";
                     foreach (var pr in probes.Split(','))

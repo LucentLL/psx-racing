@@ -64,6 +64,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestRaceField), TestRaceField);
             Guard(nameof(TestBlacklist), TestBlacklist);
             Guard(nameof(TestTracks), TestTracks);
+            Guard(nameof(TestLaneLadder), TestLaneLadder);
             Guard(nameof(TestParkwayLoops), TestParkwayLoops);
             Guard(nameof(TestReplay), TestReplay);
             Guard(nameof(TestRaceMap), TestRaceMap);
@@ -1263,6 +1264,64 @@ namespace PSXRacing.EditorTools
                 if (pct > worst) worst = pct;
             }
             return worst;
+        }
+
+        /// <summary>
+        /// THE LANES ON A CIRCUIT OR STAGE RIBBON ARE EVEN. 2026-09-28, the
+        /// owner: "one side of the road looks wider than the other". The
+        /// painter kept a 12 ft lane on roads too narrow for two of them and
+        /// put the double yellow 3.658 m in from the left edge of every
+        /// real-width stage (6.1-6.7 m) - a 3.60 m lane beside a 2.68 m one on
+        /// the Parkway loops. Scene-free: the lane ladder for every venue's
+        /// width puts its lanes edge to edge with the centre line at the
+        /// middle, and the PNG the painter wrote (when this project holds one)
+        /// has its centre line at u = 0.5 and mirrored edge lines. The built
+        /// ribbons themselves are LaneAudit's (tools\verify.ps1).
+        /// </summary>
+        static void TestLaneLadder()
+        {
+            Line("lane ladder (circuit + stage road paint):");
+            var venues = new List<TrackCatalog.TrackDef>(TrackCatalog.Scened);
+            venues.AddRange(TrackCatalog.HeldBack);
+            int bad = 0, painted = 0, missing = 0, off = 0;
+            string first = null, firstPaint = null;
+            var seen = new HashSet<string>();
+            foreach (var t in venues)
+            {
+                if (t.city) continue;               // the city paints by road class
+                bool oneWay = t.drag || t.oneWay;
+                string key = t.roadWidth.ToString("0.00") + (oneWay ? " ow" : "");
+                if (!seen.Add(key)) continue;
+                PSXRacingBuilder.TrackLaneLadder(t.roadWidth, oneWay, out int perSide, out float shoulder, out float lane);
+                int count = oneWay ? perSide : perSide * 2;
+                float filled = 2f * shoulder + count * lane;
+                float centre = shoulder + perSide * lane;
+                bool ok = shoulder >= 0f && lane <= PSXRacing.City.RoadProfiles.LaneM + 1e-4f &&
+                          Mathf.Abs(filled - t.roadWidth) < 1e-3f &&
+                          (oneWay || Mathf.Abs(centre - t.roadWidth * 0.5f) < 1e-3f);
+                if (!ok)
+                {
+                    bad++;
+                    if (first == null)
+                        first = t.id + " " + t.roadWidth.ToString("0.00") + " m: " + count + " lanes of " + lane.ToString("0.000") +
+                                " + shoulders " + shoulder.ToString("0.000") + ", centre at " + centre.ToString("0.000");
+                }
+                for (int s = 0; s < PSXRacing.City.CityMeshes.SurfaceCount; s++)
+                {
+                    string png = PSXRacingBuilder.TrackRoadTexPath(t.roadWidth, oneWay, (PSXRacing.City.CityMeshes.Surface)s);
+                    var lines = LaneAudit.ReadLinesAt(png);
+                    if (lines == null) { missing++; continue; }
+                    painted++;
+                    string why = LaneAudit.PaintProblem(lines);
+                    if (why != null) { off++; if (firstPaint == null) firstPaint = System.IO.Path.GetFileName(png) + ": " + why; }
+                }
+            }
+            Check(bad == 0, "every venue's lanes fill its road edge to edge, the centre line at the middle, no lane over 12 ft",
+                  bad == 0 ? seen.Count + " widths" : bad + " do not, first " + first);
+            if (painted == 0) Skip("no track road PNG in this project to read (" + missing + " not drawn here)");
+            else
+                Check(off == 0, "every track road PNG paints its centre line at u = 0.5 with mirrored edge lines",
+                      off == 0 ? painted + " read" + (missing > 0 ? ", " + missing + " not drawn here" : "") : off + " do not, first " + firstPaint);
         }
 
         static void TestTracks()

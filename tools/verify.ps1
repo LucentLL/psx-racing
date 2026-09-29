@@ -2,7 +2,7 @@
 #
 #   mirror -> bake car shells -> build the six circuits -> LifeSim self-test
 #   -> town probe -> terrain audit -> obstacle audit (with the edge pass)
-#   -> city audit -> reference screenshots
+#   -> lane audit -> city audit -> reference screenshots
 #
 #   powershell -ExecutionPolicy Bypass -File tools\verify.ps1
 #   powershell -ExecutionPolicy Bypass -File tools\verify.ps1 -NoMirror
@@ -77,7 +77,8 @@ if ($NoMirror) {
 # never writes its own output, and the previous run's file then reads as a pass
 # over a run that died -- which has happened here more than once.
 foreach ($f in @("PSXRacing_terrain_audit.txt", "PSXRacing_selftest_log.txt",
-                 "PSXRacing_townprobe.txt", "PSXRacing_obstacle_audit.txt", "city_audit.txt")) {
+                 "PSXRacing_townprobe.txt", "PSXRacing_obstacle_audit.txt", "city_audit.txt",
+                 "PSXRacing_lane_audit.txt")) {
     if (Test-Path "$proj\$f") { Remove-Item "$proj\$f" -Force }
 }
 
@@ -177,7 +178,7 @@ if (Test-Path "$proj\PSXRacing_townprobe.txt") {
     $bad++
 }
 
-Write-Host "[5/7] Terrain + obstacle audits..." -ForegroundColor Cyan
+Write-Host "[5/7] Terrain + obstacle + lane audits..." -ForegroundColor Cyan
 Invoke-UnityJob -Log "$proj\terrain.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TerrainAudit.Run",
@@ -239,6 +240,37 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
     Select-String -Path "$proj\obstacle.log" -Pattern "error CS|Exception" -ErrorAction SilentlyContinue |
         Select-Object -First 6 | ForEach-Object { $_.Line }
     $failLines.Add("[obstacle] wrote nothing - it threw")
+    $bad++
+}
+
+# THE PAINT ON THE TARMAC. 2026-09-28: every real-width stage shipped with its
+# double yellow 3.658 m in from the LEFT edge (a 3.60 m lane beside a 2.68 m
+# one on the Parkway loops) because nothing measured paint against pavement.
+# LaneAudit cuts every ribbon every 2 m against its own triangles and fails a
+# venue whose lanes differ by more than 2.5 cm, whose centre line stands off
+# the ribbon's centre, whose paint zigzags off its smooth line, or whose
+# texture is not centred. Held-back venues are reported, never failed.
+Invoke-UnityJob -Log "$proj\laneaudit.log" -UnityArgs @(
+    "-quit","-batchmode","-nographics","-projectPath",$proj,
+    "-executeMethod","PSXRacing.EditorTools.LaneAudit.Run",
+    "-logFile","$proj\laneaudit.log","-accept-apiupdate") | Out-Null
+if (Test-Path "$proj\PSXRacing_lane_audit.txt") {
+    $laneFails = 0
+    $inSummary = $false
+    foreach ($line in Get-Content "$proj\PSXRacing_lane_audit.txt") {
+        if ($line -ceq 'SUMMARY') { $inSummary = $true }
+        if ($inSummary) { Write-Host "[lanes] $line" }
+        if ($line -cmatch '^\s*FAIL ') { $failLines.Add("[lanes] " + $line.Trim()); $laneFails++ }
+    }
+    if ($laneFails -gt 0) {
+        Write-Host "LANE AUDIT: $laneFails failing line(s)" -ForegroundColor Red
+        $bad++
+    }
+} else {
+    Write-Host "LANE AUDIT WROTE NOTHING - see $proj\laneaudit.log" -ForegroundColor Red
+    Select-String -Path "$proj\laneaudit.log" -Pattern "error CS|Exception" -ErrorAction SilentlyContinue |
+        Select-Object -First 6 | ForEach-Object { $_.Line }
+    $failLines.Add("[lanes] wrote nothing - it threw")
     $bad++
 }
 

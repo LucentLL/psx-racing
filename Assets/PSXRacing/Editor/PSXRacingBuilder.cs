@@ -1883,8 +1883,20 @@ namespace PSXRacing.EditorTools
             // A loop needs one extra ring to close back onto waypoint 0; a strip
             // stops at its last waypoint. Everything else is identical.
             int last = Loop ? n : n - 1;
-            var verts = new Vector3[(last + 1) * 2];
-            var uvs = new Vector2[(last + 1) * 2];
+            // THREE vertices a ring: left edge, CENTRE, right edge (u 0, 0.5,
+            // 1). The centre column is where the painted centre line runs, so
+            // that line lies along mesh edges instead of across the diagonal
+            // of a two-triangle quad. On a bend the rungs are not parallel,
+            // and a line at u = c across one split quad misses the smooth
+            // (bilinear) line by up to 2c(1-c) of the rungs' mismatch: 3-5 cm
+            // on the tight stages' hairpins (lane census 2026-09-28, gate
+            // 2.5 cm), a centre line that zigzags quad by quad. With the
+            // column the worst is 2 mm. The ring is flat across (RightAt is
+            // horizontal), so the centre vertex lies ON the old surface; the
+            // collider only moves where a quad was twisted, and toward the
+            // smooth surface. RoadStride is what the audits read.
+            var verts = new Vector3[(last + 1) * RoadStride];
+            var uvs = new Vector2[(last + 1) * RoadStride];
             // Two triangle lists, one per surface. A bridge deck is poured
             // concrete and the ribbon over it was blacktop, so a viaduct read
             // as a road that happened to have a parapet - the deck, the piers
@@ -1912,20 +1924,27 @@ namespace PSXRacing.EditorTools
                 // 12 cm above the ground plane: enough depth separation that the
                 // road doesn't z-fight ("flash orange") against it at distance
                 Vector3 center = pts[idx] + Vector3.up * RoadLift;
-                verts[i * 2] = center - right * (RoadWidth * 0.5f);
-                verts[i * 2 + 1] = center + right * (RoadWidth * 0.5f);
+                int v0 = i * RoadStride;
+                verts[v0] = center - right * (RoadWidth * 0.5f);
+                verts[v0 + 1] = center;
+                verts[v0 + 2] = center + right * (RoadWidth * 0.5f);
                 // U ACROSS the carriageway, V along it — Charlotte's mapping,
                 // and the reason its markings are the right size. The old
                 // mapping ran U along the road and squeezed the whole texture
                 // across the width, so a photographed road surface was
                 // stretched over 12 m and its one painted line was the only
                 // marking a circuit had.
-                uvs[i * 2] = new Vector2(0f, dist / TrackRoadVTile);
-                uvs[i * 2 + 1] = new Vector2(1f, dist / TrackRoadVTile);
+                uvs[v0] = new Vector2(0f, dist / TrackRoadVTile);
+                uvs[v0 + 1] = new Vector2(0.5f, dist / TrackRoadVTile);
+                uvs[v0 + 2] = new Vector2(1f, dist / TrackRoadVTile);
                 dist += Spacing;
                 if (i < last)
                 {
-                    int a = i * 2;
+                    // L0 C0 R0 on this ring, L1 C1 R1 on the next. Each half
+                    // is split on the diagonal the two-triangle quad used
+                    // (next ring's left to this ring's right), wound up.
+                    int l0 = v0, c0 = v0 + 1, r0 = v0 + 2;
+                    int l1 = v0 + RoadStride, c1 = l1 + 1, r1 = l1 + 2;
                     // A quad counts as deck if EITHER end stands on one, so the
                     // concrete reaches the abutment rather than stopping a
                     // waypoint short of it with a stripe of tarmac in mid-air.
@@ -1935,7 +1954,7 @@ namespace PSXRacing.EditorTools
                     // structure under it still start and stop together.
                     int nxt = Loop ? (i + 1) % n : i + 1;
                     var into = (onDeck[idx] || onDeck[nxt]) ? deckTris : tris;
-                    into.AddRange(new[] { a, a + 2, a + 1, a + 1, a + 2, a + 3 });
+                    into.AddRange(new[] { l0, l1, c0, c0, l1, c1, c0, c1, r0, r0, c1, r1 });
                 }
             }
 
@@ -3953,6 +3972,11 @@ namespace PSXRacing.EditorTools
         /// Was written as a bare 0.12 in three places that all had to agree.
         /// </summary>
         internal const float RoadLift = 0.12f;
+
+        /// <summary>Vertices per ring of the tarmac ribbon (BuildRoad): left
+        /// edge, centre, right edge, at u 0 / 0.5 / 1. The lane audit reads
+        /// the ribbon by it.</summary>
+        internal const int RoadStride = 3;
 
         /// <summary>
         /// Structural depth of the pavement — surface course over base over
