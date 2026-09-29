@@ -905,6 +905,21 @@ returns. The FPS overlay's CITY line counts a tree frame like a tile build.
   review it takes its trunks from the table and checks each was stood once
   the car was beside it: 8 of 8 stopped (52-53 km/h in, 0-10 out), 52
   capsules standing round the car where 123 solid trunks are within 150 m.
+- **race-play-check on the three city routes** (review; G-play): 5 seeds a
+  route, each raced with the trees and without (`-Venues ... -Seeds 0,1,2,3,4
+  -Trees ab`, 30 races of 150 s in one launch, about 75 minutes). **No car
+  hit a tree trunk in any of the 30** (hits into `TreeTrunk` counted from
+  6 m/s). Rivals retired, trees on against off: Uptown Loop 7 / 8, Tryon
+  13 / 11, Independence 5 / 5, all 25 / 24 of 45 starts. The two runs of a
+  seed are identical until something differs in frame timing (a tree frame
+  shifts what the traffic draws), then diverge: Tryon's two extra were a
+  rival into traffic at 77 s and, in seed 4, a different chain after a car
+  contact at 18 s - neither near a tree. What does retire them is older than
+  the trees: 62 hard hits into other racers, 57 into traffic (most in the
+  first 30 s: C18's grid clearance), 33 into lamp posts on Tryon (poles in
+  race run-off: plan section 5, the lamps' own package), 5 into barriers.
+  19 of the 30 races fail the check's own "at most one rival retires",
+  with trees and without alike.
 - The DRIVE AUDIT's five zeros and the roadside audit's zeros are unchanged
   (the trees are not in the tiles the drive audit stands up; they stand on
   their own in EnsureTile).
