@@ -149,6 +149,13 @@ namespace PSXRacing.EditorTools
                 world.EnsureTile(Mathf.FloorToInt(map.uptown.x / CityMeshes.TileSize), Mathf.FloorToInt(map.uptown.y / CityMeshes.TileSize));
                 if (timings.Count > 0) L($"warm-up tile (not counted): {timings[0].totalMs:0.0} ms");
                 world.DropAll();
+                // and every prop both ways once, so neither pass of the A/B
+                // below pays a first load, or the first cook of a piece's
+                // MeshCollider, that the other then finds warm (a variant
+                // carries the full prefab's own meshes and colliders)
+                foreach (var kv in CityProps.Defs)
+                    foreach (var pf in new[] { CityProps.Prefab(kv.Key), CityProps.CityPrefab(kv.Key) })
+                        if (pf != null) Object.DestroyImmediate(Object.Instantiate(pf));
 
                 for (int pass = 0; pass < 2; pass++)
                 foreach (var site in sites)

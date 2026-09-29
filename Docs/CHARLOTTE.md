@@ -623,6 +623,120 @@ same shots caught painted lines that look kinked on East 4th Street at
 Little Sugar Creek, Rozzelles Ferry Road and Archdale Drive (for the
 smooth-lines gate).
 
+## WP-07 (2026-09-29): the draw-call prepay, the city kit, the lamp metal
+
+Nothing new to see: this package pays for the trees, poles and signs that
+come next. Branch `charlotte-scenery`.
+
+**The city prop variants** (`Editor/CityPropBaker.cs`, run by every
+`BakeCityProps`). The streamed city stands up a cheaper copy of the four
+props that cost it the most draw calls; everything else (the Emerald Isle
+beach town, the house, town and seller scenes) keeps the full prefabs. The
+copies live in `Resources/CityProps/City`, and `CityProps.CityPrefab` hands
+them to `CityWorld` (and to `CityPreview`).
+
+| Prop | Draws before | City variant |
+|---|---|---|
+| `house_simple` | 13 | 1 |
+| `trailer_00` / `_02` / `_05` | 9 / 10 / 10 | 1 each |
+| `burger_drive` | 355 | 37 beyond 40 m |
+| `pizzeria` | 396 | 24 beyond 40 m |
+
+- **Houses and trailers: one atlas each family.** The pack materials TILE
+  (a wall's UVs run to 8), so a plain atlas cannot hold them. Every vertex
+  carries its texture's cell in its COLOUR (texel corner and side in a
+  256 px sheet), and PSX/Lit's `PSX_ATLAS_RECT` variant wraps the UV inside
+  the cell with `frac()`. Point-sampled with no mips, the wrap is exact. The
+  cells are the pack textures themselves, resampled from their source files
+  (64 px, the busiest one 128 px); nothing is drawn. The foundation skirt
+  is folded in. `Art/City/Props/city_house_atlas.png`,
+  `city_trailer_atlas.png`.
+- **Two traps, both caught by the first render.** Medium mesh compression
+  quantises vertex colours to SIX bits, which moved every cell off its
+  texels (black seams down every repeat): meshes that carry cells are never
+  compressed, and the bake reads the cells back off the saved asset. And
+  the pack textures ship to WebGL as RGB565 (`ReleaseBudget`), which samples
+  without the sRGB decode; an atlas left at 24-bit sRGB drew every house a
+  fifth darker. The atlas takes the same WebGL override. After both, the
+  comparison sheet (`CityPropBaker.CompareShots`,
+  `Screenshots/City/props_compare.png`, full prefab beside variant from two
+  corners) measures a brightness ratio of 1.000-1.001 on every prop, and a
+  mean per-pixel difference of 2-3 levels in 255 (the 64 px cells).
+- **The restaurants keep being places** (plan critic C1). The shell is merged
+  by material (21 and 20 materials); the door leaves keep their own
+  renderers because they swing; every piece keeps its collider (248 and 71,
+  the same count as the full prefab); the order bay is untouched. What is
+  ROOM is decided by looking: rays from 24 bearings at 1.2, 3 and 7 m and
+  from above, to each piece's bounds; a piece no ray reaches without passing
+  another piece's collider goes behind `CityPropInterior`, which draws it
+  only while the car or the camera is within 40 m (off again past 46 m). The
+  city props wear opaque windows, so from outside the room is never seen.
+  `city-play-check` now pulls into a drive-thru bay: ORDER is offered, the
+  room is drawn, and it goes 70 m away with the lot still standing.
+  (Charlotte has no getting out of the car; the walk-in rooms keep their
+  colliders and doors for when it does.)
+
+**The city kit** (`Scripts/City/CityKit.cs`, `Resources/CityKit.asset`).
+Every city runtime material in one Resources asset: the 96 slot materials,
+the lamp posts, the shaders they use (so WebGL keeps them), and empty
+places for WP-08's trees (one per season dress), WP-15's furniture atlas,
+WP-17's markings and WP-23's sign faces. `CityWorld` reads it; the scenes
+no longer serialize a materials array (`CityWorld.materials` is
+`[NonSerialized]`, for tools only). `PSXRacingBuilder.EnsureCityKit`
+rewrites it from `CityMaterials()` at every city scene build and every
+city tool run. **From here a new city material is a kit change, never a
+rebake of the four city scenes.** The four were rebuilt once here with
+`tools/city-rebake.ps1` (the city scenes and the prop variants only, about
+two minutes warm; it leaves the full build's log alone).
+
+**The lamp posts** wear pack metal: the house pack's `Metal.jpg` (already
+shipped with the house), UVs a metre a repeat, tinted so the posts land on
+the dark weathered tone they had as a flat tint (worked in linear light:
+the texture is RGB565, sampled without the decode).
+
+**Measured** (`city_budget.txt`, which now runs every site twice, with the
+variants and with the full prefabs, and adds the first drive-thru and the
+first pizzeria lot):
+
+| Site | Most draws saved in one view |
+|---|---|
+| suburb 6 km (Randolph Rd) | 88 (target 20+) |
+| Providence Rd | 93 |
+| Dilworth | 24 |
+| burger lot | 342 |
+| pizza lot | 429 (target 300+) |
+
+Sun-map casters at the burger lot fell from 346 to 57. The busiest view in
+the city is unchanged (200 draws, uptown). Tile build p95 over the nine
+sites: 75.8 ms against WP-04's 68.4 (+11%, inside the +15% ratchet), taken
+with other Unity jobs still on the machine (parse 176 ms against 162); the
+same tiles in the same run with the full prefabs gave 72.9 ms. (The committed
+`city_budget.txt` is a later run under heavier load, 84.3 against 137.3 ms:
+only the A/B inside one run means anything while the machine is shared.) The probe now
+also prints each site's prop stand-up time, with every prop instantiated once
+both ways before it starts (the variants carry the full prefabs' own
+meshes and colliders, so whichever pass ran first paid their first load and
+MeshCollider cook): a restaurant lot 10.4 ms with the variants against
+11.9 ms; 25 suburb houses 5.0 against 2.7 ms (about 0.1 ms a house, left
+for now). Map heap 18.3 MB (18.2 at WP-04). WebGL.data 81.40 -> 81.67 MiB
+(+0.27, the package's budget 0.3).
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city` after a full scene build, GUID audit OK, served
+from 127.0.0.1): FREE ROAM CHARLOTTE loads (`[City] parsed in 116 ms,
+elevation solved in 470 ms`, `buildings placed: 5625 (+10 restaurants ...)`),
+no console errors, no missing-kit or missing-variant warning; the build log
+shows PSX/Lit compiled for gles3 with both variants (plain and
+`PSX_ATLAS_RECT`).
+
+**A sandbox trap met on the way.** 221 of the committed `.mat.meta` files in
+`Materials` have no `.mat` beside them (the scene build makes those), so every
+sandbox mints its own GUIDs for them. Copying `Materials` from a fresh
+worktree (every mtime new, so `/XO` lets it all through) put the source's
+GUIDs back over 219 of them and broke every prefab and scene that used them;
+`city-rebake.ps1` does not copy `Materials`, and a full scene build puts a
+sandbox right.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not
