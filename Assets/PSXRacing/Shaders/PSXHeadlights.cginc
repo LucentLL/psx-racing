@@ -22,21 +22,38 @@
 //   * It has a FLAT TOP. A low beam is cut off just under the horizontal so
 //     it does not dazzle oncoming traffic: on a garage door it is a bright
 //     band at bumper height with a sharp upper edge, on a wall ahead the same.
-//     `cut` is that edge - full below the lamp's own level, gone a couple of
-//     degrees above it - measured against the beam AXIS, which CarLights aims
-//     a degree and a half down.
+//     `cut` is that edge - full below 0.57 degrees under the lamp's own
+//     level (the ECE low beam's cutoff), gone 0.34 degrees above it -
+//     measured against the beam AXIS, which CarLights aims a degree and a
+//     half down. It used to be full only 2.4 degrees down: on a level road
+//     that is 16 m out from a lamp 0.65 m up, so the flat top was also a
+//     distance falloff that took two thirds of the beam off the road at 58 m.
 //   * It is WIDE. Halogen low beams spread about thirty degrees either side
 //     and are brightest inside ten; `spread` is a smoothstep between the two
 //     cosines CarLights packs into the w channels.
-//   * It REACHES. Useful light to seventy-odd metres, brightest close in and
-//     fading rather than stopping: t * sqrt(t) over the range.
+//   * It is FLAT, and it REACHES (the colour pass, C5, 2026-09-29). A low
+//     beam is aimed so the ROAD it lights reads about evenly from the bumper
+//     to fifty-odd metres: the hot spot is thrown at the far road, where it
+//     arrives at a grazing angle, and little goes down at the tarmac under
+//     the lamp. So the beam here is a plateau - BEAM_NEAR of it at the
+//     bumper, full from BEAM_NEAR_TO metres, fading out over the last
+//     BEAM_FADE_M of the range - where it used to be t * sqrt(t): three
+//     times the plateau at 5 m and nearly gone by 50, the owner's
+//     "headlights so bright ... they completely wash out anything in front
+//     of the car". His NFS reference measures the headlit road 2.3-3.6x the
+//     unlit road beside it, flat within 0.3 stop out to about 65 m.
 //   * The ROAD lights at a grazing angle. A plain N.L on the tarmac twenty
 //     metres out is 0.03 and the road would stay black under a beam that
 //     visibly lights it in every night drive anyone has ever taken. Real
-//     lamps get away with it through sheer intensity; here `facing` is a
-//     smoothstep that saturates by 0.08 of N.L, so the road takes most of
-//     the beam, a wall facing the car takes all of it, and the BACK of a sign
-//     takes none.
+//     lamps get away with it by aiming their intensity there; here `facing`
+//     is a smoothstep that saturates by 0.02 of N.L (a road 32 m out under a
+//     lamp 0.65 m up), so the road takes the whole plateau, a wall facing
+//     the car takes all of it, and the BACK of a sign takes none.
+//   * It SPILLS. Outside the beam's 34 degrees a real lamp still throws a
+//     wide, weak foreground light - the verge beside the car is dim, not
+//     black. BEAM_SPILL of the plateau, out to 70 degrees, fading from 10 m
+//     to 25 m, under a soft top of its own so it does not light the trees
+//     overhead.
 //
 // Eight slots. CarLights fills them nearest-camera-first, two per car (the
 // two lamps are two lobes that merge a few metres out, which is what the
@@ -49,55 +66,34 @@
 
 #define PSX_MAX_HEADLIGHTS 8
 
+// THE LOW BEAM'S SHAPE (see the header). Distances in metres; the cut is the
+// slope over the beam axis (fy / fz), the axis being BeamDipDeg (1.5) down.
+#define BEAM_NEAR          0.55    // the tarmac at the bumper, as a share of the plateau...
+#define BEAM_NEAR_FROM     3.0     // ...rising from here...
+#define BEAM_NEAR_TO       10.0    // ...to the whole plateau here
+#define BEAM_FADE_M        20.0    // the plateau fades out over the last this-many metres of the range
+#define BEAM_CUT_LO        0.016   // the flat top: full below this slope over the axis (0.57 deg under level)...
+#define BEAM_CUT_HI        0.032   // ...none above this one (0.34 deg over level)
+#define BEAM_FACE_LO       -0.05   // N.L at which a surface starts to take the beam...
+#define BEAM_FACE_HI       0.02    // ...and takes all of it (grazing road)
+#define BEAM_SPILL         0.12    // the spill lobe, as a share of the plateau
+#define BEAM_SPILL_COS     0.342   // cos 70 deg: where the spill ends sideways (whole inside the beam's own 34)
+#define BEAM_SPILL_FROM    10.0    // the spill is whole to here...
+#define BEAM_SPILL_TO      25.0    // ...and gone by here
+#define BEAM_SPILL_CUT_LO  0.05    // its own soft top: whole below 3 deg over the axis...
+#define BEAM_SPILL_CUT_HI  0.25    // ...gone by 14
+
 float  _PSXHeadCount;
 float4 _PSXHeadPos[PSX_MAX_HEADLIGHTS];    // xyz lamp (world), w = range in metres
 float4 _PSXHeadFwd[PSX_MAX_HEADLIGHTS];    // xyz beam axis (unit), w = cos of the outer half-spread
 float4 _PSXHeadRight[PSX_MAX_HEADLIGHTS];  // xyz lamp right (unit), w = cos of the inner half-spread
-float4 _PSXHeadColor[PSX_MAX_HEADLIGHTS];  // rgb = colour x intensity
-
-/// Light arriving at world point `wpos` on a surface with normal `N` from
-/// every headlight in the table. Zero-cost when the count is zero (one
-/// uniform branch), which is every daylight hour.
-float3 PSXHeadlights(float3 wpos, float3 N)
-{
-    float3 sum = float3(0.0, 0.0, 0.0);
-    if (_PSXHeadCount < 0.5) return sum;
-    int count = (int)_PSXHeadCount;
-    for (int j = 0; j < PSX_MAX_HEADLIGHTS; j++)
-    {
-        if (j >= count) break;
-        float3 d = wpos - _PSXHeadPos[j].xyz;
-        float dist = length(d);
-        float3 F = _PSXHeadFwd[j].xyz;
-        float3 R = _PSXHeadRight[j].xyz;
-        float3 U = cross(F, R);
-        float fz = dot(d, F);
-        float fx = dot(d, R);
-        float fy = dot(d, U);
-        // Horizontal spread: the angle off the axis in the lamp's own
-        // horizontal plane, as a cosine.
-        float hz = fz * rsqrt(fx * fx + fz * fz + 1e-4);
-        float spread = smoothstep(_PSXHeadFwd[j].w, _PSXHeadRight[j].w, hz);
-        // The low-beam cutoff: a flat top a hair above the axis.
-        float slope = fy / max(fz, 0.25);
-        float cut = 1.0 - smoothstep(-0.015, 0.035, slope);
-        // Nothing behind the lens.
-        float front = saturate(fz * 1.5);
-        float t = saturate(1.0 - dist / max(_PSXHeadPos[j].w, 1.0));
-        float att = t * sqrt(t);
-        // Grazing surfaces still light; back faces do not.
-        float nl = dot(N, -d) / max(dist, 0.05);
-        float facing = smoothstep(-0.05, 0.08, nl);
-        sum += _PSXHeadColor[j].rgb * (spread * cut * front * att * facing);
-    }
-    return sum;
-}
+float4 _PSXHeadColor[PSX_MAX_HEADLIGHTS];  // rgb = LINEAR colour x intensity (the plateau), w = the glints' multiplier on it
 
 // ---------------------------------------------------------------------------
 //  THE SAME BEAMS SEEN IN A WET ROAD, AND IN THE RAIN (2026-09-21, the NFS
-//  night pass). PSXHeadlights above is untouched and still what every lit
-//  surface adds; these are for the shaders that also want a GLINT (the wet
-//  road, the car paint) or a light with no surface under it (rain streaks).
+//  night pass). Every lit surface adds the diffuse; the shaders that also
+//  want a GLINT (the wet road, the car paint) or a light with no surface
+//  under it (rain streaks, lit smoke and snow) call the variants below.
 //
 //  The glint is the oncoming car's lamps smeared down a wet road toward the
 //  camera: Blinn-Phong on each lamp, gated by the lamp FACING the point
@@ -107,11 +103,14 @@ float3 PSXHeadlights(float3 wpos, float3 N)
 //  which is exactly where a driver's eye is. It reaches 1.6 beam ranges,
 //  fading, so a reflection is already there before the beam itself arrives.
 //  And it is gated by the lamp being ABOVE the surface's plane (N.l >= 0):
-//  a wet deck cannot mirror a car on the road beneath it.
+//  a wet deck cannot mirror a car on the road beneath it. A glint is the
+//  LENS seen in a mirror, so it takes the table's w on top of the plateau's
+//  colour (CarLights.GlintIntensity): the C5 retune dimmed the road the lamp
+//  lights, not the lamp.
 //
 //  One loop per table (the rule PSXLamps.cginc follows too): a shader that
 //  wants diffuse AND glints calls PSXHeadlightsBoth and walks the eight slots
-//  once. Its diffuse is the same expression as PSXHeadlights, term for term.
+//  once; every variant is this one walk with literal switches.
 // ---------------------------------------------------------------------------
 
 /// The shared walk. facingOn 0 drops the surface's facing term (a point in
@@ -135,17 +134,28 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
         float fz = dot(d, F);
         float fx = dot(d, Rt);
         float fy = dot(d, U);
+        // Horizontal spread: the angle off the axis in the lamp's own
+        // horizontal plane, as a cosine.
         float hz = fz * rsqrt(fx * fx + fz * fz + 1e-4);
         float spread = smoothstep(_PSXHeadFwd[j].w, _PSXHeadRight[j].w, hz);
+        // The low-beam cutoff: a flat top just under the lamp's own level.
         float slope = fy / max(fz, 0.25);
-        float cut = 1.0 - smoothstep(-0.015, 0.035, slope);
+        float cut = 1.0 - smoothstep(BEAM_CUT_LO, BEAM_CUT_HI, slope);
+        // Nothing behind the lens.
         float front = saturate(fz * 1.5);
         float range = max(_PSXHeadPos[j].w, 1.0);
-        float t = saturate(1.0 - dist / range);
-        float att = t * sqrt(t);
+        // The plateau: BEAM_NEAR of it at the bumper, whole from
+        // BEAM_NEAR_TO, gone at the range.
+        float att = lerp(BEAM_NEAR, 1.0, smoothstep(BEAM_NEAR_FROM, BEAM_NEAR_TO, dist))
+                  * (1.0 - smoothstep(range - BEAM_FADE_M, range, dist));
+        // The spill: wide, weak, near the car, under a soft top of its own.
+        float spill = BEAM_SPILL * smoothstep(BEAM_SPILL_COS, _PSXHeadFwd[j].w, hz)
+                    * (1.0 - smoothstep(BEAM_SPILL_CUT_LO, BEAM_SPILL_CUT_HI, slope))
+                    * (1.0 - smoothstep(BEAM_SPILL_FROM, BEAM_SPILL_TO, dist));
+        // Grazing surfaces take the whole beam; back faces none.
         float nl = dot(N, -d) / max(dist, 0.05);
-        float facing = facingOn > 0.5 ? smoothstep(-0.05, 0.08, nl) : 1.0;
-        diff += _PSXHeadColor[j].rgb * (spread * cut * front * att * facing);
+        float facing = facingOn > 0.5 ? smoothstep(BEAM_FACE_LO, BEAM_FACE_HI, nl) : 1.0;
+        diff += _PSXHeadColor[j].rgb * ((spread * cut * att + spill) * front * facing);
 
         if (specOn > 0.5)
         {
@@ -162,9 +172,19 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
             // a lamp just under the plane. A hard step - every lamp above the
             // plane keeps its whole grazing streak.
             float seen = step(0.0, dot(N, l));
-            spec += _PSXHeadColor[j].rgb * (pow(nh, power) * spread * front * reach * seen);
+            spec += _PSXHeadColor[j].rgb * (max(_PSXHeadColor[j].w, 0.0) * pow(nh, power) * spread * front * reach * seen);
         }
     }
+}
+
+/// Light arriving at world point `wpos` on a surface with normal `N` from
+/// every headlight in the table. Zero-cost when the count is zero (one
+/// uniform branch), which is every daylight hour.
+float3 PSXHeadlights(float3 wpos, float3 N)
+{
+    float3 diff, spec;
+    PSXHeadlightsCore(wpos, N, float3(0.0, 1.0, 0.0), 1.0, 0.0, 1.0, diff, spec);
+    return diff;
 }
 
 /// Diffuse (identical to PSXHeadlights) and glints at `power` in one walk.

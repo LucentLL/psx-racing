@@ -5056,11 +5056,74 @@ namespace PSXRacing.EditorTools
                   "the HUD draws RGB only (a glyph is not a light source)", hud != null ? hud.GetInt("_ColorMask") : -1);
             // An interior (no hour applied) keeps the old picture: the switches
             // are never serialized, so no scene can carry them on.
-            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey" })
+            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey", "gradeSun" })
             {
                 var fi = typeof(PSXGlobals).GetField(f);
                 Check(fi != null && fi.IsNotSerialized, "PSXGlobals." + f + " is never serialized (TimeOfDay.Apply's alone)");
             }
+            TestColourPassLightsAndEye();
+        }
+
+        /// <summary>
+        /// THE COLOUR PASS, STEP 4 (C5-C12): the low beam, the tail lamps, the
+        /// lit particles, the HUD's edge, the eye's adaptation and the owner's
+        /// two open choices. The pictures are tools\colour\colour-shots.ps1's
+        /// (-Sets beam,fx,look) and colour_stats.py's (beam, fx, hud); what is
+        /// held here is the arithmetic and the switches.
+        /// </summary>
+        static void TestColourPassLightsAndEye()
+        {
+            Line("colour pass - lights, particles, HUD edge, eye:");
+            // C5/C6: a beam dimmer than the old 2.0 raw push, glints kept, a
+            // 5 W tail lamp under a street lamp's pool and the brake above it.
+            Check(CarLights.BeamIntensity > 0.1f && CarLights.BeamIntensity < 0.5f,
+                  "the low beam's plateau is measured, not the old 2.0 (C5)", CarLights.BeamIntensity);
+            Check(CarLights.GlintIntensity > CarLights.BeamIntensity, "the lamps' glints stay a light source's brightness");
+            Check(CarLights.TailLampDim < CarLights.TailLampBrake && CarLights.TailLampBrake <= 0.6f,
+                  "5 W tail lamps: dim under brake, brake at most 0.6 (C6)",
+                  CarLights.TailLampDim + " / " + CarLights.TailLampBrake);
+            string head = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXHeadlights.cginc")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXHeadlights.cginc") : "";
+            Check(head.Contains("#define BEAM_NEAR_TO") && head.Contains("#define BEAM_SPILL") && !head.Contains("t * sqrt(t);"),
+                  "the headlight include is the flat plateau with a spill lobe, not t*sqrt(t)");
+            string lights = System.IO.File.Exists("Assets/PSXRacing/Scripts/CarLights.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/CarLights.cs") : "";
+            Check(lights.Contains("Halogen.linear * bi"), "the beams are pushed as LINEAR light, as the street lamps are");
+            // C7: the smoke and the snow are lit; the marks are not.
+            var decal = Shader.Find("PSX/Decal");
+            Check(decal != null && decal.FindPropertyIndex("_Lit") >= 0, "PSX/Decal has the lit-particle switch");
+            var smoke = AssetDatabase.LoadAssetAtPath<Material>("Assets/PSXRacing/Materials/TireSmoke.mat");
+            var marks = AssetDatabase.LoadAssetAtPath<Material>("Assets/PSXRacing/Materials/SkidMark.mat");
+            if (smoke != null) Check(smoke.GetFloat("_Lit") > 0.5f, "the tyre smoke is lit by the scene (C7)");
+            if (marks != null) Check(marks.GetFloat("_Lit") < 0.5f, "the tyre marks are not (a dark mark stays dark)");
+            // C9: a HUD label's one-sided Shadow becomes the all-round edge.
+            var go = new GameObject("SelfTestHudText", typeof(RectTransform));
+            try
+            {
+                go.AddComponent<UnityEngine.UI.Text>();
+                go.AddComponent<UnityEngine.UI.Shadow>();
+                HudOnTop.OutlineText(go);
+                var sh = go.GetComponent<UnityEngine.UI.Shadow>();
+                Check(sh is HudTextEdge, "a HUD label's drop shadow becomes the all-round edge (C9)", sh != null ? sh.GetType().Name : "none");
+            }
+            finally { Object.DestroyImmediate(go); }
+            // C10: the eye.
+            Check(Mathf.Approximately(ExposureAdapt.TargetFor(1f, 1f), 1f), "an open sky by day: the eye at 1");
+            Check(Mathf.Approximately(ExposureAdapt.TargetFor(0f, 0f), 1f), "a roof at night: the eye at 1 (a tunnel at night is its lamps)");
+            float roofed = ExposureAdapt.TargetFor(0f, 1f);
+            Check(roofed > 2f && roofed <= ExposureAdapt.MaxGain + 1e-4f, "a roof by day opens the eye, at most +1.26 stops", roofed);
+            float in2 = ExposureAdapt.Step(1f, roofed, 2f), out1 = ExposureAdapt.Step(roofed, 1f, 1f);
+            Check(in2 > 2f, "two seconds into a tunnel the eye has opened (readable)", in2.ToString("0.00"));
+            Check(out1 < 1.1f, "a second after the exit it has closed again (the bloom settles)", out1.ToString("0.00"));
+            // C11 / C12: both ship off.
+            Check(!LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
+                  "the owner's two open choices (G1, cool darks) ship OFF until he says yes");
+            Check(TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Clear) == 1f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f
+                  && TimeOfDay.GradeSunFor(TimeOfDay.Dusk, Weather.Clear) == 0f,
+                  "G1's lift fade is keyed on a clear sunlit hour only");
+            string blit = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "";
+            Check(blit.Contains("if (_PSXGradeSun > 0.0)"), "and at 0 it is a branch not taken: the signed-off grade bit for bit");
         }
 
         static void TestPizzaCargo()

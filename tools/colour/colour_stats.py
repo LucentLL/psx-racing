@@ -6,6 +6,10 @@
     py tools/colour/colour_stats.py agree  <editor.png> <player.png>  harness vs editor, per region
     py tools/colour/colour_stats.py match  <candidate dir> <baseline dir> [tol]   every region AND pixel vs the decoded baseline
     py tools/colour/colour_stats.py pairs  <dir A> <dir B> [glob]  same-named frames A vs B (the A/B switch runs)
+    py tools/colour/colour_stats.py beam   <dir>                   night _dark vs _lit/_biNNN/_brake: the low beam and tail lamps
+    py tools/colour/colour_stats.py fx     <dir> [<unlit dir>]     particles vs their twins without (_noflk, _smoke): lit particles
+                                                                   (with a PSX_LITFX=0 run: both on the unlit footprint)
+    py tools/colour/colour_stats.py hud    <dir>                   _hud vs _world: label and dial contrast (WCAG), face luma
     ... --json out.json   also write every number as JSON
 
 Every frame is a PNG at native resolution with its sidecar (<png>.json,
@@ -300,8 +304,14 @@ ROAD_NIGHT_OFFBEAM = ("road_left_4", "road_right_4")
 def cmd_gate(webgl_dir, base_dir, js):
     """The road-colour gate: the owner's road colours are never lighter than
     the decoded baseline. By day: WebGL <= baseline +2 and >= baseline -10;
-    at night off the beam: within +-2. Pairs are matched by file name."""
-    rows, fails, n = [], 0, 0
+    at night off the beam: within +-2. Pairs are matched by file name.
+
+    Since the colour pass's C5/C10 two things light a road ON PURPOSE and are
+    reported, not failed: the car's OWN lamps (the low beam's spill lobe lights
+    the road 4 m beside the car at night; the beam is on by day in snow and
+    rain) - the road's own colour is judged on the lamps-off (_dark) frames -
+    and the eye's adaptation in a tunnel (the sidecar's adapt > 1)."""
+    rows, fails, n, info = [], 0, 0, 0
     for p in sorted(glob.glob(os.path.join(webgl_dir, "*_world.png"))):
         q = os.path.join(base_dir, os.path.basename(p))
         if not os.path.exists(q):
@@ -313,6 +323,9 @@ def cmd_gate(webgl_dir, base_dir, js):
             raise SystemExit(f"REFUSED: {q} is {B.target}, the gate's baseline must be the decoded import (StandaloneWindows64)")
         night = (W.sc.get("night") or 0) > 0.5
         names = ROAD_NIGHT_OFFBEAM if night else ROAD_DAY
+        var = W.sc.get("variant") or {}
+        own_lamps = bool(var.get("lit"))
+        eye = float(var.get("adapt", W.sc.get("adapt") or 1.0) or 1.0) > 1.01
         rw, rb = W.region_table(), B.region_table()
         for nme in names:
             a, b = rw.get(nme), rb.get(nme)
@@ -320,17 +333,28 @@ def cmd_gate(webgl_dir, base_dir, js):
                 continue
             if not (a["visible"] and a["inFrame"] and a["onGround"]) or a.get("clean") is False:
                 continue
-            n += 1
             d = a["m"]["Ycode_med"] - b["m"]["Ycode_med"]
             ok = (-2 <= d <= 2) if night else (-10 <= d <= 2)
-            fails += 0 if ok else 1
+            why = ""
+            if not ok and own_lamps:
+                why = "own lamps (C5)"
+            elif not ok and eye:
+                why = "eye (C10)"
+            if why:
+                info += 1
+            else:
+                n += 1
+                fails += 0 if ok else 1
             rows.append({"frame": os.path.basename(p), "region": nme, "surface": a["surface"], "night": night,
-                         "webgl": a["m"]["Ycode_med"], "baseline": b["m"]["Ycode_med"], "delta": d, "ok": ok,
+                         "webgl": a["m"]["Ycode_med"], "baseline": b["m"]["Ycode_med"], "delta": d, "ok": ok, "why": why,
                          "ratio_lin": a["m"]["Ylin"] / max(b["m"]["Ylin"], 1e-6)})
     for r in rows:
-        print(f"  {'ok  ' if r['ok'] else 'FAIL'} {r['frame'][:58]:58s} {r['region']:13s} "
-              f"base {r['baseline']:6.1f} webgl {r['webgl']:6.1f} ({r['delta']:+6.1f}, x{r['ratio_lin']:.2f} linear) [{r['surface']}]")
-    print(f"ROAD-COLOUR GATE: {n - fails}/{n} road regions pass" + ("" if fails == 0 else f" - {fails} FAIL (lighter than the owner's roads)"))
+        tag = "ok  " if r["ok"] else ("info" if r["why"] else "FAIL")
+        print(f"  {tag} {r['frame'][:58]:58s} {r['region']:13s} "
+              f"base {r['baseline']:6.1f} webgl {r['webgl']:6.1f} ({r['delta']:+6.1f}, x{r['ratio_lin']:.2f} linear) [{r['surface']}]"
+              + (f"  <- {r['why']}" if r["why"] else ""))
+    print(f"ROAD-COLOUR GATE: {n - fails}/{n} road regions pass" + ("" if fails == 0 else f" - {fails} FAIL (lighter than the owner's roads)")
+          + (f"; {info} lit on purpose (the car's own lamps, the eye) reported apart" if info else ""))
     if js:
         with open(js, "w") as fh:
             json.dump(rows, fh, indent=1)
@@ -476,6 +500,278 @@ def cmd_pairs(dir_a, dir_b, pattern, js):
             json.dump(out, fh, indent=1)
 
 
+BEAM_BOXES = ("beam_22", "beam_31", "beam_40", "beam_49", "beam_58")
+BEAM_NEAR = ("road_ahead_14", "road_left_4", "road_right_4", "outside_L", "outside_R", "verge_L", "verge_R")
+
+
+def _usable(r, road_only=True):
+    if r is None or r["m"] is None or not (r["visible"] and r["inFrame"]) or r.get("clean") is False:
+        return False
+    return (not road_only) or ("road" in (r.get("surface") or "").lower())
+
+
+def _rcode(m):
+    return 255.0 * float(enc(m["rgb_lin"][0]))
+
+
+def cmd_beam(d, js):
+    """THE LOW BEAM AND THE TAIL LAMPS (the colour pass, C5/C6), off the night
+    frames of a colour-shots run: each spot's _dark frame (its own lamps off)
+    against its _lit ones (the shipped intensity, and every _biNNN of a beam
+    sweep) and its _lit_brake one, box by box on the same road.
+      pool     Ylin lit / Ylin dark on each beam box that lies clean on road
+               (the NFS reference: 2.3-3.6x the unlit road)
+      flat     max / min of the lit Ylin over those boxes (<= 1.35), and of
+               the beam's own share (lit - dark)
+      reach    the 58 m box's pool (the road readable to ~55 m)
+      spill    outside_L/R lit / dark (15 m ahead, 2 m past the 34 deg edge)
+      tail     the road behind the car (tail_2): dim and braking against the
+               dark frame, in Ycode and in the red channel's code, and R-G."""
+    out = {}
+    for dark in sorted(glob.glob(os.path.join(d, "cs_*_night_*_dark_g1_world.png"))):
+        stem = os.path.basename(dark)[:-len("_dark_g1_world.png")]
+        D = Frame(dark)
+        rd = D.region_table()
+        lits = [p for p in sorted(glob.glob(os.path.join(d, stem + "_lit*_g1_world.png")))
+                if not any(k in os.path.basename(p) for k in ("_lens", "_onc", "_alpha"))]
+        if not lits:
+            continue
+        print(f"\n{stem}  (dark: {os.path.basename(dark)})")
+        res = {}
+        for p in lits:
+            L = Frame(p)
+            if L.target != D.target:
+                raise SystemExit(f"REFUSED: {p} and {dark} are different texture imports")
+            rl = L.region_table()
+            tag = os.path.basename(p)[len(stem):-len("_g1_world.png")]
+            bi = ((L.sc or {}).get("variant") or {}).get("beamIntensity")
+            row = {"beamIntensity": bi, "boxes": {}}
+            if "_brake" not in tag:
+                pools, lits_y, own = [], [], []
+                for n in BEAM_BOXES + BEAM_NEAR:
+                    a, b = rd.get(n), rl.get(n)
+                    road = n not in ("verge_L", "verge_R", "outside_L", "outside_R")
+                    if not (_usable(a, road) and _usable(b, road)):
+                        continue
+                    ya, yb = a["m"]["Ylin"], b["m"]["Ylin"]
+                    ratio = yb / max(ya, 1e-6)
+                    row["boxes"][n] = {"dark": a["m"]["Ycode_mean"], "lit": b["m"]["Ycode_mean"], "ratio": ratio,
+                                       "b": b["m"]["b"], "a": b["m"]["a"], "surface": b["surface"]}
+                    if n in BEAM_BOXES:
+                        pools.append(ratio); lits_y.append(yb); own.append(max(yb - ya, 1e-6))
+                if pools:
+                    row["pool_min"], row["pool_max"], row["pool_med"] = min(pools), max(pools), float(np.median(pools))
+                    row["flat"] = max(lits_y) / min(lits_y)
+                    row["flat_own"] = max(own) / min(own)
+                    row["boxes_used"] = len(pools)
+                bx = row["boxes"]
+                line = "  ".join(f"{n[5:] if n.startswith('beam_') else n} {bx[n]['dark']:.0f}->{bx[n]['lit']:.0f} x{bx[n]['ratio']:.2f}"
+                                 for n in BEAM_BOXES + BEAM_NEAR if n in bx)
+                head = (f"  {tag:14s} BI {bi if bi is not None else '?'}: "
+                        + (f"pool x{row['pool_min']:.2f}-{row['pool_max']:.2f} (med {row['pool_med']:.2f}, {row['boxes_used']} boxes)  "
+                           f"flat {row['flat']:.2f} (beam's own {row['flat_own']:.2f})" if pools else "no clean beam box on road"))
+                print(head)
+                print("      " + line)
+                hb = [f"{n} b* {bx[n]['b']:+.1f} a* {bx[n]['a']:+.1f}" for n in BEAM_BOXES if n in bx]
+                if hb:
+                    print("      headlit colour: " + ", ".join(hb))
+                # The beam's own irradiance at each box centre (CarLights.BeamLightAt,
+                # the shader's arithmetic on the CPU): its shape apart from the road.
+                model = {r["name"]: r.get("beamModel") for r in L.regions() if r.get("beamModel") is not None}
+                mv = [(n, model[n]) for n in ("road_ahead_14",) + BEAM_BOXES + ("outside_L", "outside_R") if n in model]
+                if mv and any(v > 0 for _, v in mv):
+                    row["model"] = dict(mv)
+                    bm = [v for n, v in mv if n in BEAM_BOXES and v > 0]
+                    mflat = (max(bm) / min(bm)) if bm else None
+                    row["model_flat"] = mflat
+                    print("      beam model (lin): " + "  ".join(f"{n.replace('beam_', '').replace('road_ahead_', 'r')} {v:.3f}" for n, v in mv)
+                          + (f"   flat {mflat:.2f}" if mflat else ""))
+            a, b = rd.get("tail_2"), rl.get("tail_2")
+            if _usable(a, True) and _usable(b, True):
+                dy = b["m"]["Ycode_mean"] - a["m"]["Ycode_mean"]
+                dr = _rcode(b["m"]) - _rcode(a["m"])
+                row["tail"] = {"dY": dy, "dR": dr, "RminusG": b["m"]["RminusG_code"], "dark": a["m"]["Ycode_mean"], "lit": b["m"]["Ycode_mean"]}
+                kind = "brake" if "_brake" in tag else "dim"
+                lim = 40 if kind == "brake" else 15
+                ok = dy <= lim and (kind == "brake" or dr <= 25) and b["m"]["RminusG_code"] >= 8
+                print(f"  {tag:14s} tail_2 ({kind}): {a['m']['Ycode_mean']:.1f} -> {b['m']['Ycode_mean']:.1f}  dY {dy:+.1f} (<= +{lim})  "
+                      f"dR {dr:+.1f}{' (<= +25)' if kind == 'dim' else ''}  R-G {b['m']['RminusG_code']:+.1f} (>= 8)  {'ok' if ok else 'MISS'}")
+            res[tag] = row
+        out[stem] = res
+    if js:
+        with open(js, "w") as fh:
+            json.dump(out, fh, indent=1)
+    return out
+
+
+def cmd_fx(d, js, before_dir=None):
+    """LIT PARTICLES (the colour pass, C7): every frame with particles against
+    its twin without them - <x>_g1_world vs <x>_noflk_g1_world (falling snow)
+    and <x>_smoke_g1_world vs <x>_g1_world (tyre smoke). The particle pixels
+    are those the particles moved by more than 3 codes; on them, Ylin with /
+    without: the median and p90, overall and where the background is dark
+    (Ycode < 30 without: 'outside all light' - target p90 <= 1.5 at night)."""
+    out = {}
+    pairs = []
+    for p in sorted(glob.glob(os.path.join(d, "*_noflk_g1_world.png"))):
+        pairs.append((p.replace("_noflk_g1_world.png", "_g1_world.png"), p, "flakes"))
+    for p in sorted(glob.glob(os.path.join(d, "*_smoke_g1_world.png"))):
+        pairs.append((p, p.replace("_smoke_g1_world.png", "_g1_world.png"), "smoke"))
+    for with_p, without_p, kind in pairs:
+        if not (os.path.exists(with_p) and os.path.exists(without_p)):
+            continue
+        A, B = Frame(with_p), Frame(without_p)
+        if A.target != B.target or A.rgb.shape != B.rgb.shape:
+            continue
+        diff = np.abs(A.Yc - B.Yc)
+        mask = diff > 3.0
+        share = float(mask.mean())
+        row = {"kind": kind, "share": share}
+        if mask.sum() >= 30:
+            r = A.Y[mask] / np.maximum(B.Y[mask], 1e-5)
+            row.update({"med": float(np.median(r)), "p90": float(np.percentile(r, 90)),
+                        "with_code_med": float(np.median(A.Yc[mask])), "without_code_med": float(np.median(B.Yc[mask]))})
+            dark = mask & (B.Yc < 30)
+            if dark.sum() >= 30:
+                rd = A.Y[dark] / np.maximum(B.Y[dark], 1e-5)
+                row.update({"dark_share": float(dark.mean()), "dark_med": float(np.median(rd)), "dark_p90": float(np.percentile(rd, 90)),
+                            "dark_with_code_med": float(np.median(A.Yc[dark]))})
+            # the particles' colour where they are (display-coded mean of A over the mask)
+            m = A.lin[mask].mean(0)
+            L = lab(m[None, :])[0]
+            row["a"], row["b"] = float(L[1]), float(L[2])
+        # A before-run (PSX_LITFX=0, unlit particles) given: read BOTH on the
+        # before-run's particle footprint - a lit flake in the dark is too
+        # faint to pass the 3-code threshold, so a mask taken off the lit
+        # frame would keep only the few it cannot darken.
+        if before_dir:
+            ub = os.path.join(before_dir, os.path.basename(with_p))
+            if os.path.exists(ub):
+                U = Frame(ub)
+                if U.rgb.shape == B.rgb.shape:
+                    um = np.abs(U.Yc - B.Yc) > 3.0
+                    if um.sum() >= 30:
+                        bg = float(B.Y[um].mean())
+                        row["foot_px"] = int(um.sum())
+                        row["foot_unlit_over_bg"] = float(U.Y[um].mean()) / max(bg, 1e-6)
+                        row["foot_lit_over_bg"] = float(A.Y[um].mean()) / max(bg, 1e-6)
+                        row["foot_codes"] = [float(ycode_of_lin(bg)), float(ycode_of_lin(U.Y[um].mean())), float(ycode_of_lin(A.Y[um].mean()))]
+        name = os.path.basename(with_p)
+        out[name] = row
+        s = f"  {kind:6s} {name:58s} covers {100*share:5.2f}%"
+        if "med" in row:
+            s += (f"  with/without x{row['med']:.2f} (p90 {row['p90']:.2f})  codes {row['without_code_med']:.0f}->{row['with_code_med']:.0f}"
+                  f"  a* {row['a']:+.1f} b* {row['b']:+.1f}")
+            if "dark_med" in row:
+                s += f"  | over dark ({100*row['dark_share']:.2f}%): x{row['dark_med']:.2f} p90 {row['dark_p90']:.2f} -> code {row['dark_with_code_med']:.0f}"
+        if "foot_px" in row:
+            c = row["foot_codes"]
+            s += (f"\n         on the unlit particles' footprint ({row['foot_px']} px): behind {c[0]:.0f}, unlit {c[1]:.0f} "
+                  f"(x{row['foot_unlit_over_bg']:.2f}), lit {c[2]:.0f} (x{row['foot_lit_over_bg']:.2f})")
+        print(s)
+    if js:
+        with open(js, "w") as fh:
+            json.dump(out, fh, indent=1)
+    return out
+
+
+def _dilate(m, r):
+    out = m.copy()
+    h, w = m.shape
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx == 0 and dy == 0:
+                continue
+            ys, ye = max(0, dy), h + min(0, dy)
+            xs, xe = max(0, dx), w + min(0, dx)
+            out[ys:ye, xs:xe] |= m[ys - dy:ye - dy, xs - dx:xe - dx]
+    return out
+
+
+def _wcag(lt, ls):
+    hi, lo = max(lt, ls), min(lt, ls)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def cmd_hud(d, js):
+    """THE HUD'S LEGIBILITY (the colour pass, C9), off each _hud frame and its
+    _world twin (the HUD is what differs between them):
+      text   the top band's labels: glyph pixels (HUD, brighter than the world
+             under them, Ycode >= 140) against their 2-px surround (the ring
+             round the glyphs: the outline and whatever is behind it) - WCAG
+             (L1 + .05) / (L2 + .05) on linear luminance, target >= 4.5
+      dials  the bottom band, left (tach) and right (speedo): the white
+             numerals and ticks against the 2-px ring round them inside the
+             face, target >= 4.5; and the smoked face's own display luma
+             (target <= .45 at noon and in snow)."""
+    out = {}
+    for hp in sorted(glob.glob(os.path.join(d, "*_g1_hud.png"))):
+        wp = hp[:-len("_hud.png")] + "_world.png"
+        if not os.path.exists(wp):
+            continue
+        H, W = Frame(hp, need_sidecar=False), Frame(wp, need_sidecar=False)
+        if H.rgb.shape != W.rgb.shape:
+            continue
+        h, w = H.h, H.w
+        mask = np.abs(H.rgb - W.rgb).max(-1) > 3 / 255.0
+        brighter = H.Y > W.Y
+        # white (or the night bulb's amber) glyphs and marks - not the green
+        # fuel bar, not the red needle and redline
+        R, G, B = H.rgb[..., 0], H.rgb[..., 1], H.rgb[..., 2]
+        grey = ~((G > R + 0.12) & (G > B + 0.12)) & ~(R > G + 0.30)
+        row = {}
+        # the labels, by thirds of the top band
+        top = np.zeros_like(mask); top[: int(0.14 * h), :] = True
+        for lab_, x0, x1 in (("text_left", 0, w // 3), ("text_mid", w // 3, 2 * w // 3), ("text_right", 2 * w // 3, w)):
+            band = top.copy(); band[:, :x0] = False; band[:, x1:] = False
+            glyph = mask & brighter & grey & (H.Yc >= 140) & band
+            if glyph.sum() < 12:
+                continue
+            # The text's whole footprint (its anti-aliased fringe included):
+            # every HUD pixel brighter than the world under it. The EDGE is
+            # the 1-px ring outside that footprint; how much of it the HUD
+            # darkened is the edge's coverage, and the contrast is the glyph
+            # core against the darkened edge pixels.
+            foot = mask & brighter & band
+            ring = _dilate(foot, 1) & ~foot & band
+            edge = ring & mask & ~brighter
+            ring2 = _dilate(glyph, 2) & ~glyph & band
+            lt, ls2 = float(np.median(H.Y[glyph])), float(np.median(H.Y[ring2]))
+            ls = float(np.median(H.Y[edge])) if edge.sum() >= 6 else float(np.median(H.Y[ring])) if ring.sum() else 1.0
+            row[lab_] = {"contrast": _wcag(lt, ls), "contrast2": _wcag(lt, ls2), "glyph": lt, "surround": ls,
+                         "edge_cover": float(edge.sum() / max(ring.sum(), 1)), "px": int(glyph.sum())}
+        # the dials
+        bot = np.zeros_like(mask); bot[int(0.60 * h):, :] = True
+        for lab_, x0, x1 in (("dial_left", 0, w // 2), ("dial_right", w // 2, w)):
+            band = bot.copy(); band[:, :x0] = False; band[:, x1:] = False
+            face = mask & ~brighter & band
+            marks = mask & brighter & grey & (H.Yc >= 150) & band
+            if marks.sum() < 12 or face.sum() < 50:
+                continue
+            foot = mask & brighter & band
+            ring = _dilate(foot & _dilate(marks, 1), 1) & ~foot & band
+            edge = ring & mask & ~brighter
+            ring2 = _dilate(marks, 2) & ~marks & mask & band
+            lt, ls2 = float(np.median(H.Y[marks])), float(np.median(H.Y[ring2]))
+            ls = float(np.median(H.Y[edge])) if edge.sum() >= 6 else float(np.median(H.Y[ring])) if ring.sum() else 1.0
+            row[lab_] = {"contrast": _wcag(lt, ls), "contrast2": _wcag(lt, ls2), "marks": lt, "surround": ls,
+                         "edge_cover": float(edge.sum() / max(ring.sum(), 1)),
+                         "face_luma": float(np.median(enc(H.Y[face]))), "behind_luma": float(np.median(enc(W.Y[face]))),
+                         "px": int(marks.sum())}
+        out[os.path.basename(hp)] = row
+        parts = []
+        for k, v in row.items():
+            s = f"{k} {v['contrast']:.1f}:1 (edge {100*v.get('edge_cover', 0):.0f}%, {v['contrast2']:.1f} at 2px)"
+            if "face_luma" in v:
+                s += f" (face {v['face_luma']:.2f} over {v['behind_luma']:.2f})"
+            parts.append(s)
+        print(f"  {os.path.basename(hp):52s} " + "  ".join(parts))
+    if js:
+        with open(js, "w") as fh:
+            json.dump(out, fh, indent=1)
+    return out
+
+
 def main(argv):
     js = None
     if "--json" in argv:
@@ -495,6 +791,12 @@ def main(argv):
         return 0 if cmd_match(rest[0], rest[1], js, float(rest[2]) if len(rest) > 2 else 1.0) else 1
     if cmd == "pairs":
         cmd_pairs(rest[0], rest[1], rest[2] if len(rest) > 2 else "*_world.png", js); return 0
+    if cmd == "beam":
+        cmd_beam(rest[0], js); return 0
+    if cmd == "fx":
+        cmd_fx(rest[0], js, rest[1] if len(rest) > 1 else None); return 0
+    if cmd == "hud":
+        cmd_hud(rest[0], js); return 0
     print(__doc__); return 2
 
 

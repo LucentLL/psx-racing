@@ -204,14 +204,22 @@ namespace PSXRacing
         /// Read only while <see cref="tone"/> is 1.</summary>
         [System.NonSerialized] public float exposure = 1f;
         /// <summary>THE EYE'S ADAPTATION (_PSXAdapt): multiplies the exposure
-        /// and the sky, fog and emitters. 1 until C10's roof probe drives it.
-        /// Read only while <see cref="tone"/> is 1.</summary>
+        /// and the sky, fog and emitters. Driven in play mode by the roof
+        /// probe (<see cref="ExposureAdapt"/>, C10): 1 under an open sky and
+        /// at night, up to 2.4 in a tunnel by day. Read only while
+        /// <see cref="tone"/> is 1.</summary>
         [System.NonSerialized] public float adapt = 1f;
         /// <summary>1 = PSX/Blit's halation and PSX/Lens's dirt glow by the
         /// framebuffer's emitter mask (_PSXEmitKey); 0 = by brightness, the
         /// old rule. TimeOfDay.Apply: 1 with an hour applied (PSX_EMITKEY=0 in
         /// a tool's environment turns it off).</summary>
         [System.NonSerialized] public float emitKey;
+        /// <summary>THE OWNER'S C11 CHOICE, "G1" (_PSXGradeSun, PSX/Blit): how
+        /// much of the grade's sun-keyed lift fade to take, 0..1 - 1 at a
+        /// clear morning, noon or afternoon WHEN <see cref="LookChoices.SunLift"/>
+        /// is on, 0 otherwise. It ships off: 0 is the signed-off grade bit
+        /// for bit. TimeOfDay.Apply writes it.</summary>
+        [System.NonSerialized] public float gradeSun;
 
         void OnEnable()
         {
@@ -226,9 +234,19 @@ namespace PSXRacing
             // And which camera's frame carries the emitter mask (the colour
             // pass): per camera, from the same callback.
             EmitterMask.EnsureHook();
+            // A new scene: the eye starts adapted to the open sky (C10).
+            if (Application.isPlaying) ExposureAdapt.Reset();
             Apply();
         }
-        void Update() => Apply();
+
+        void Update()
+        {
+            // THE EYE (the colour pass, C10): stepped here, in play mode,
+            // from the roof probe (ExposureAdapt). The tools set the field
+            // themselves (a settled value for the frame's pose).
+            if (Application.isPlaying) adapt = ExposureAdapt.Tick(this, Time.deltaTime);
+            Apply();
+        }
 
         public void Apply()
         {
@@ -255,6 +273,7 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXToneOn", tone > 0.5f ? 1f : 0f);
             Shader.SetGlobalFloat("_PSXExposure", Mathf.Max(0.01f, exposure));
             Shader.SetGlobalFloat("_PSXAdapt", Mathf.Max(0.01f, adapt));
+            Shader.SetGlobalFloat("_PSXGradeSun", Mathf.Clamp01(gradeSun));
             Shader.SetGlobalFloat("_PSXEmitKey", emitKey > 0.5f ? 1f : 0f);
             // The map itself is drawn per camera at render time (the hook in
             // OnEnable); this only says how strong and from where.

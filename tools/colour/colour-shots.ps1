@@ -15,6 +15,16 @@
 #   $env:PSX_EMITKEY='0'    the halation and lens dirt keyed on brightness again
 #   $env:PSX_HALATION='0'   the grade without its halation (the bloom on/off frames)
 #   $env:PSX_SHOT_ALPHA='1' also write each frame's emitter mask as <frame>_alpha.png
+# and, for step 4 of the pass (C5-C12):
+#   $env:PSX_BEAM_SWEEP='0.12,0.22,0.35'   -Sets beam: the night spots lit at each low-beam
+#                           intensity (CarLights.BeamIntensity) - colour_stats.py beam
+#   $env:PSX_CONE='0'       the beam in the air (PSX/Beam) at this strength for the whole run
+#   $env:PSX_LITFX='0'      the smoke and the snow unlit again (the C7 before-picture) - colour_stats.py fx
+#   $env:PSX_ADAPT='0'      the eye held at 1 (no C10 adaptation)
+#   $env:PSX_G1='1' / $env:PSX_COOLDARKS='1'   the owner's two open choices on for every frame
+#                           (-Sets look renders both ways by itself) - see Scripts\LookChoices.cs
+# Sets beyond the default: beam (the C5 sweep), fx (lit particles, each with
+# its twin without), look (C11/C12 A/B, with the HUD).
 #
 # WHY THE TARGET: a texture is imported for the editor's active build target,
 # and the release budget's 16-bit override exists only on WebGL, where WebGL2
@@ -44,7 +54,7 @@ if (-not $NoCopy) {
 $env:PSX_COLOUR_SETS = $Sets
 $out = if ($Out) { Join-Path $proj "Screenshots\$Out" } else { Join-Path $proj "Screenshots\colour_$Target" }
 $env:PSX_COLOUR_OUT = if ($Out) { $out } else { "" }
-foreach ($k in @("PSX_TONE", "PSX_EMITKEY", "PSX_HALATION", "PSX_SHOT_ALPHA")) {
+foreach ($k in @("PSX_TONE", "PSX_EMITKEY", "PSX_HALATION", "PSX_SHOT_ALPHA", "PSX_BEAM_SWEEP", "PSX_CONE", "PSX_LITFX", "PSX_ADAPT", "PSX_G1", "PSX_COOLDARKS")) {
     $v = [Environment]::GetEnvironmentVariable($k)
     if ($v) { Write-Host "  $k=$v" }
 }

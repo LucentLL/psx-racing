@@ -76,6 +76,18 @@
 // does not glow at all. Keyed by the global _PSXEmitKey, which TimeOfDay sets
 // outdoors: 0 - every interior, and PSX_EMITKEY=0 in a tool - is the old
 // rule, bit for bit. The grade itself is untouched.
+//
+// THE OWNER'S C11 CHOICE, "G1" (the colour pass, 2026-09-29; SHIPS OFF). The
+// matte lift is veiling glare, and the night end already takes most of it
+// away where there is little light to veil with. G1 is the other end: under a
+// hard clear sun a lens's veil is thin against the shadows it would lift,
+// so the lift fades by GRADE_SUN_LIFT_CUT (half) there - a floor of Ycode 16
+// instead of 28 through the dither, about 6.5 stops at noon instead of 6.2.
+// Keyed by the global _PSXGradeSun, which TimeOfDay writes only when
+// LookChoices.SunLift is on (1 at a clear morning, noon or afternoon); at 0 the
+// branch that applies it is not taken and the grade is the signed-off one bit
+// for bit. It also lowers how the owner's sunlit fresh asphalt DISPLAYS (about
+// 53 to 40), which is why it is his call.
 Shader "PSX/Blit"
 {
     Properties
@@ -111,6 +123,7 @@ Shader "PSX/Blit"
             float _PSXGradeNight;   // 0 day .. 1 night
             float4 _PSXMood;        // rgb = shadow hue at any brightness, a = amount
             float _PSXEmitKey;      // 1 = the halation glows by the emitter mask (alpha)
+            float _PSXGradeSun;     // the owner's C11 choice: 0 (ships) .. 1 at a clear sunlit hour
 
             // THE GRADE. Display-space numbers (the grade is done on gamma
             // values, like every grade); tools/grade/grade_proto.py is the
@@ -128,6 +141,9 @@ Shader "PSX/Blit"
             #define GRADE_NIGHT_LIFT_CUT  0.80  // how much of the matte lift a full night takes away
             #define GRADE_VIGNETTE_NIGHT  0.34  // the corners at night
             #define GRADE_SAT_COOL_NIGHT  1.00  // what blues and greens keep at night
+            // The owner's C11 choice (G1, ships off): how much of the lift a
+            // clear sunlit hour takes away, at _PSXGradeSun 1.
+            #define GRADE_SUN_LIFT_CUT    0.50
             // ...and the whole night picture is pushed a little PAST its own
             // colour. The day grade's faded print is 0.12-0.16 mean saturation;
             // the NFS night frames MEASURE 0.50-0.58, because at night almost
@@ -280,6 +296,14 @@ Shader "PSX/Blit"
                 // it IS lift + (GRADE_CEIL - lift) * s.
                 float3 lift = GRADE_LIFT * (1.0 - GRADE_NIGHT_LIFT_CUT * night);
                 float3 given = GRADE_LIFT - lift;
+                // G1, the owner's C11 choice (see the header): a uniform
+                // branch, not taken at _PSXGradeSun 0 - which is every frame
+                // until he says yes - so the grade above is untouched.
+                if (_PSXGradeSun > 0.0)
+                {
+                    lift -= GRADE_LIFT * (GRADE_SUN_LIFT_CUT * saturate(_PSXGradeSun));
+                    given = GRADE_LIFT - lift;
+                }
                 float3 s = saturate(c);
                 c = GRADE_LIFT + (GRADE_CEIL - GRADE_LIFT) * s - given * (1.0 - s);
 

@@ -39,6 +39,14 @@ namespace PSXRacing.EditorTools
     ///            from its own grid pose: the road-colour gate's baseline.
     ///   interior the garage sweep and the pizzeria (cs_I_*): the INTERIORS
     ///            target's frames (the LifeSim textures).
+    ///   beam     (not in the default) the night spots dark and lit at every
+    ///            low-beam intensity in PSX_BEAM_SWEEP (C5).
+    ///   fx       (not in the default) falling snow and tyre smoke, each with
+    ///            its twin without them (C7).
+    ///   look     (not in the default) the owner's two open choices, G1 and
+    ///            cool darks, off and on (C11/C12).
+    /// The protocol set also carries B1, the drag strip: the low beam's flat,
+    /// straight measuring road, dark / lit / braking.
     ///   explore  (not in the default) poses along the Samuel Street edge,
     ///            to find the owner's view.
     /// Every protocol frame is written twice: _world (HUD hidden, what the
@@ -71,6 +79,12 @@ namespace PSXRacing.EditorTools
             public bool hud;           // also write the _hud frame
             public bool gradeOff;      // also write the grade-off twin (A/B matrix)
             public bool oncoming;      // one of the field's cars 24 m ahead in the other lane, facing the eye, lamps lit
+            public float beam;         // the beam set's sweep: a CarLights.BeamIntensity to push instead (0 = the shipped one)
+            public bool smoke;         // the player's rear tyres smoking (a second and a half of a slide, stood still)
+            public bool noFlakes;      // the weather's dress and light with no falling snow/rain drawn (the particles' twin)
+            public bool sunLift;       // the owner's C11 choice ON for this frame (G1: the grade's lift fade in clear sun)
+            public bool coolNight;     // the owner's C12 choice ON for this frame (cool night darks)
+            public string extra = "";  // appended to the tag (the look switches' A/B twins: _cool, _sunlift ...)
             public string Tag()
             {
                 string s = TimeOfDay.At(hour).name.ToLowerInvariant() + "_" + weather.ToString().ToLowerInvariant() +
@@ -81,7 +95,12 @@ namespace PSXRacing.EditorTools
                 if (flat) s += "_flat";
                 if (keepField) s += "_field";
                 if (oncoming) s += "_onc";
-                return s;
+                if (beam > 0f) s += "_bi" + Mathf.RoundToInt(beam * 100f).ToString("000");
+                if (smoke) s += "_smoke";
+                if (noFlakes) s += "_noflk";
+                if (sunLift) s += "_sunlift";
+                if (coolNight) s += "_cool";
+                return s + extra;
             }
         }
 
@@ -104,18 +123,28 @@ namespace PSXRacing.EditorTools
             int keepDay = RaceHandoff.CalendarDay, keepWeather = RaceHandoff.WeatherOverride;
             string keepGrade = System.Environment.GetEnvironmentVariable("PSX_GRADE");
             var keepView = ChaseCamera.Current;
+            // PSX_CONE: the beam-in-the-air strength for the whole run (the
+            // C5 sweep); unset = the shipped rule.
+            string cone = System.Environment.GetEnvironmentVariable("PSX_CONE");
+            CarLights.ConeStrengthOverride = float.TryParse(cone, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float coneV) ? coneV : -1f;
+            if (CarLights.ConeStrengthOverride >= 0f) Line("  PSX_CONE=" + CarLights.ConeStrengthOverride);
             try
             {
                 ChaseCamera.PreviewView(ChaseCamera.View.Chase);
                 if (sets.Contains("pred")) Guard("pred", Prediction);
                 if (sets.Contains("protocol") || sets.Contains("ab")) Guard("protocol", () => ProtocolSet(sets.Contains("protocol"), sets.Contains("ab")));
                 if (sets.Contains("sweep")) Guard("sweep", Sweep);
+                if (sets.Contains("beam")) Guard("beam", BeamSet);
+                if (sets.Contains("fx")) Guard("fx", FxSet);
+                if (sets.Contains("look")) Guard("look", LookSet);
                 if (sets.Contains("explore")) Guard("explore", Explore);
                 if (sets.Contains("interior")) Guard("interior", Interiors);
             }
             finally
             {
                 EndFrame();
+                CarLights.ConeStrengthOverride = -1f;
                 RaceHandoff.CalendarDay = keepDay;
                 RaceHandoff.WeatherOverride = keepWeather;
                 System.Environment.SetEnvironmentVariable("PSX_GRADE", keepGrade);
@@ -235,6 +264,131 @@ namespace PSXRacing.EditorTools
                     if (OpenAt(t, out cam, out player, out pos, out rot))
                         Frame(cam, player, t, pos, rot, new Variant { hour = TimeOfDay.Noon });
                 }
+                // B1, the low beam's own road (C5): night without and with
+                // the lamps (the pool against the unlit road, box by box),
+                // braking (the tail lamps against the unlit road behind).
+                var b1 = ColourSpots.Find("B1");
+                if (OpenAt(b1, out cam, out player, out pos, out rot))
+                {
+                    Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off });
+                    Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On });
+                    Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, brake = true });
+                }
+            }
+        }
+
+        /// <summary>
+        /// THE OWNER'S TWO OPEN CHOICES, A/B (the colour pass; set "look"):
+        /// the same frames with each choice off (what ships) and on -
+        /// C11 "G1", the grade's lift fading under a clear sun (_sunlift), at
+        /// S1 noon, CityCircuit noon and dusk (where it must change nothing)
+        /// and Blowing Rock's noon snow; C12, cool night darks (_cool), at S1
+        /// and CityCircuit by night. With the HUD, so he sees the game.
+        /// </summary>
+        static void LookSet()
+        {
+            var s1 = ColourSpots.Find("S1");
+            if (OpenAt(s1, out var cam, out var player, out var pos, out var rot))
+            {
+                foreach (bool on in new[] { false, true })
+                {
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, hud = true, sunLift = on });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, hud = true, coolNight = on });
+                }
+            }
+            var cc = ColourSpots.Find("CC");
+            if (OpenAt(cc, out cam, out player, out pos, out rot))
+            {
+                foreach (bool on in new[] { false, true })
+                {
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Noon, hud = true, sunLift = on });
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Dusk, hud = true, sunLift = on });
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, hud = true, coolNight = on });
+                }
+            }
+            var s2 = ColourSpots.Find("S2");
+            if (OpenAt(s2, out cam, out player, out pos, out rot))
+                foreach (bool on in new[] { false, true })
+                    Frame(cam, player, s2, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, hud = true, sunLift = on });
+        }
+
+        /// <summary>
+        /// LIT PARTICLES (the colour pass, C7; set "fx"): each frame with its
+        /// twin without the particles - the falling snow (_noflk twin) and the
+        /// player's tyre smoke (_smoke frame against the plain one) - at night
+        /// in the dark, in the beams and in the tail lamps, and by day. The
+        /// pixels the particles cover are read against the same pixels
+        /// without them (colour_stats.py fx): at night outside every light a
+        /// flake or a puff may be at most 1.5x the ground behind it.
+        /// </summary>
+        static void FxSet()
+        {
+            var s1 = ColourSpots.Find("S1");
+            if (OpenAt(s1, out var cam, out var player, out var pos, out var rot))
+            {
+                foreach (bool lit in new[] { true, false })
+                {
+                    var l = lit ? Lights.On : Lights.Off;
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, weather = Weather.Snow, lights = l });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, weather = Weather.Snow, lights = l, noFlakes = true });
+                }
+                Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On });
+                Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, smoke = true });
+                Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, brake = true });
+                Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, brake = true, smoke = true });
+            }
+            var s3 = ColourSpots.Find("S3");
+            if (OpenAt(s3, out cam, out player, out pos, out rot))
+            {
+                Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On });
+                Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, smoke = true });
+                // Snow where no street lamp is: the flakes against the dark
+                // with nothing lighting them, and in the beams.
+                foreach (bool lit in new[] { false, true })
+                {
+                    var l = lit ? Lights.On : Lights.Off;
+                    Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, weather = Weather.Snow, lights = l });
+                    Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, weather = Weather.Snow, lights = l, noFlakes = true });
+                }
+            }
+            var s2 = ColourSpots.Find("S2");
+            if (OpenAt(s2, out cam, out player, out pos, out rot))
+            {
+                Frame(cam, player, s2, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow });
+                Frame(cam, player, s2, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, noFlakes = true });
+            }
+            var cc = ColourSpots.Find("CC");
+            if (OpenAt(cc, out cam, out player, out pos, out rot))
+            {
+                Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Noon });
+                Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Noon, smoke = true });
+            }
+        }
+
+        /// <summary>
+        /// THE LOW BEAM'S SWEEP (the colour pass, C5; set "beam"): the night
+        /// spots without their lamps and with them at every intensity in
+        /// PSX_BEAM_SWEEP (comma list of CarLights.BeamIntensity values;
+        /// empty = the shipped one), so the intensity is chosen off frames -
+        /// the pool against the unlit road, box by box - in one editor session.
+        /// </summary>
+        static void BeamSet()
+        {
+            var sweep = new List<float>();
+            string env = System.Environment.GetEnvironmentVariable("PSX_BEAM_SWEEP");
+            if (!string.IsNullOrWhiteSpace(env))
+                foreach (var p in env.Split(','))
+                    if (float.TryParse(p, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f)
+                        sweep.Add(f);
+            if (sweep.Count == 0) sweep.Add(0f);
+            foreach (var id in new[] { "B1", "S3", "CC", "S1" })
+            {
+                var spot = ColourSpots.Find(id);
+                if (!OpenAt(spot, out var cam, out var player, out var pos, out var rot)) continue;
+                var season = id == "S1" ? Season.Winter : Season.Fall;
+                Frame(cam, player, spot, pos, rot, new Variant { hour = TimeOfDay.Night, season = season, lights = Lights.Off });
+                foreach (float b in sweep)
+                    Frame(cam, player, spot, pos, rot, new Variant { hour = TimeOfDay.Night, season = season, lights = Lights.On, beam = b });
             }
         }
 
@@ -343,6 +497,11 @@ namespace PSXRacing.EditorTools
         {
             // only: the A/B set alone asks for just the grade-off twin of a
             // frame the protocol set would also have written grade-on.
+            // The owner's two open choices (LookChoices) for this frame only.
+            string keepG1 = System.Environment.GetEnvironmentVariable("PSX_G1");
+            string keepCool = System.Environment.GetEnvironmentVariable("PSX_COOLDARKS");
+            if (v.sunLift) System.Environment.SetEnvironmentVariable("PSX_G1", "1");
+            if (v.coolNight) System.Environment.SetEnvironmentVariable("PSX_COOLDARKS", "1");
             try
             {
                 var sun = NightLookShots.FindSun();
@@ -368,9 +527,14 @@ namespace PSXRacing.EditorTools
                 var hour = TimeOfDay.At(v.hour);
                 NightGlow.PreviewAll(hour.lightsOn);
                 bool lit = v.lights == Lights.On || (v.lights == Lights.Auto && (hour.lightsOn || Seasons.LightsOn(Seasons.CurrentWeather)));
+                CarLights.BeamIntensityOverride = v.beam;
                 foreach (var l in Object.FindObjectsByType<CarLights>(FindObjectsInactive.Exclude)) l.PreviewBuild(lit, v.brake);
                 foreach (var c in Object.FindObjectsByType<GaugeCluster>(FindObjectsInactive.Exclude)) c.Build();
-                foreach (var h in Object.FindObjectsByType<RaceHUD>(FindObjectsInactive.Exclude)) HudOnTop.Apply(h.gameObject);
+                foreach (var h in Object.FindObjectsByType<RaceHUD>(FindObjectsInactive.Exclude))
+                {
+                    HudOnTop.Apply(h.gameObject);
+                    PreviewHudText(h, spot);
+                }
                 Canvas.ForceUpdateCanvases();
 
                 // THE EYE, and the lens and the falling snow over it.
@@ -379,9 +543,25 @@ namespace PSXRacing.EditorTools
                 cam.ResetProjectionMatrix();
                 cam.fieldOfView = ColourSpots.Fov;
                 float night = Shader.GetGlobalFloat("_PSXNight");
+                // THE EYE'S ADAPTATION (C10), settled for this pose: a frame
+                // is a moment the player has been in a while (a tunnel two
+                // seconds in, not its first frame). PSX_ADAPT=0 holds it at 1.
+                if (globals != null)
+                {
+                    int vi = TrackCatalog.IndexOf(spot.venue);
+                    var vdef = vi >= 0 ? TrackCatalog.At(vi) : null;
+                    globals.adapt = ExposureAdapt.SteadyFor(eye, player.transform, sun != null ? -sun.transform.forward : Vector3.up,
+                                                            globals.night, Object.FindAnyObjectByType<TrackPath>(), vdef);
+                    globals.Apply();
+                }
                 float dirt = v.lens ? LensFx.DirtFor(night, 0f) : 0f;
                 if (v.lens) LensFx.PreviewSet(cam, 0f, dirt, 0f, 3.7f);
-                if (v.weather == Weather.Snow || v.weather == Weather.Rain) WeatherFx.Preview(v.weather, cam, 2.5f);
+                if ((v.weather == Weather.Snow || v.weather == Weather.Rain) && !v.noFlakes) WeatherFx.Preview(v.weather, cam, 2.5f);
+                if (v.smoke) SimulateSmoke(player);
+                // PSX_LITFX=0: the particles as they were before C7 (unlit) -
+                // the A/B's before-picture, on runtime copies, never the asset.
+                if (System.Environment.GetEnvironmentVariable("PSX_LITFX") == "0") UnlightParticles();
+                if (v.weather == Weather.Snow || v.smoke) Line("    particles: " + ParticleLitState());
                 CarLights.PushGlobals();
                 StreetLights.Push(eye, look * Vector3.forward);
 
@@ -411,6 +591,15 @@ namespace PSXRacing.EditorTools
                         ["hour"] = hour.name, ["weather"] = v.weather.ToString(), ["season"] = dressAsBaked ? "BAKED" : v.season.ToString(),
                         ["lights"] = v.lights.ToString(), ["lit"] = lit, ["brake"] = v.brake, ["lensDirt"] = dirt, ["shadowMap"] = !v.flat,
                         ["field"] = v.keepField,
+                        ["beamIntensity"] = CarLights.BeamIntensityNow,
+                        ["coneStrength"] = CarLights.ConeStrengthOverride >= 0f ? CarLights.ConeStrengthOverride
+                            : CarLights.BeamConeStrength * CarLights.BeamIntensityNow / CarLights.BeamIntensity,
+                        ["tailLamp"] = v.brake ? CarLights.TailLampBrake : CarLights.TailLampDim,
+                        ["extra"] = v.extra,
+                        ["sunLift"] = LookChoices.SunLift, ["gradeSun"] = globals != null ? globals.gradeSun : 0f,
+                        ["coolNight"] = LookChoices.CoolNight,
+                        ["adapt"] = globals != null ? globals.adapt : 1f, ["openness"] = ExposureAdapt.Openness,
+                        ["tunnel"] = ExposureAdapt.Tunnel,
                     },
                     ["pose"] = new Dictionary<string, object> { ["pos"] = pos, ["rot"] = new List<object> { rot.x, rot.y, rot.z, rot.w } },
                     ["eye"] = new Dictionary<string, object> { ["pos"] = eye, ["rot"] = new List<object> { look.x, look.y, look.z, look.w }, ["fov"] = ColourSpots.Fov },
@@ -435,14 +624,34 @@ namespace PSXRacing.EditorTools
                 foreach (var r in regions) { if (r.visible && r.inFrame) vis++; if (r.onGround) onGround++; }
                 Line($"  {stem}: weather {Seasons.CurrentWeather} dress {DressName()} lit {lit} lamps {StreetLights.PushedCount} " +
                      $"heads {CarLights.PushedCount} wet {Shader.GetGlobalFloat("_PSXWetness"):0.00} night {night:0.00} " +
-                     $"lens {dirt:0.00}  regions visible {vis}/{regions.Count}, on ground {onGround}");
+                     $"lens {dirt:0.00} adapt {(globals != null ? globals.adapt : 1f):0.00} (open {ExposureAdapt.Openness:0.00}{(ExposureAdapt.Tunnel ? ", tunnel" : "")})" +
+                     $"  regions visible {vis}/{regions.Count}, on ground {onGround}");
             }
             catch (System.Exception e)
             {
                 Problem(spot.id + " " + v.Tag() + " threw " + e.GetType().Name + ": " + e.Message);
                 Debug.LogException(e);
             }
-            finally { EndFrame(); }
+            finally
+            {
+                EndFrame();
+                System.Environment.SetEnvironmentVariable("PSX_G1", keepG1);
+                System.Environment.SetEnvironmentVariable("PSX_COOLDARKS", keepCool);
+            }
+        }
+
+        /// <summary>The HUD's labels as a drive shows them (C9: the text's
+        /// legibility is read on the _hud frames, and in edit mode nothing
+        /// ever writes them): in Charlotte the street name in the lap slot -
+        /// the owner's own frames had SAMUEL STREET there - elsewhere a lap
+        /// count, the clock, the position and the best lap.</summary>
+        static void PreviewHudText(RaceHUD h, ColourSpots.Spot spot)
+        {
+            bool city = spot != null && spot.venue == "Charlotte";
+            if (h.lapText != null) h.lapText.text = city ? "SAMUEL STREET" : "LAP 1/3";
+            if (h.timeText != null) h.timeText.text = "1'23\"456";
+            if (h.posText != null) h.posText.text = city ? "FREE ROAM" : "POS 1/4";
+            if (h.lastLapText != null) h.lastLapText.text = city ? "MAP DATA (C) OPENSTREETMAP CONTRIBUTORS" : "BEST 1'22\"901";
         }
 
         /// <summary>A region per street lamp in the pushed table
@@ -590,8 +799,105 @@ namespace PSXRacing.EditorTools
             hidden.Clear();
         }
 
+        // ------------------------------------------------------------------
+        //  Lit particles (the colour pass, C7): the tyre smoke, stood still
+        // ------------------------------------------------------------------
+
+        static readonly List<TireSmoke> smoked = new List<TireSmoke>();
+
+        /// <summary>A second and a half of the player's rear tyres sliding
+        /// hard with the car stood on its spot: TireSmoke's own Emit /
+        /// Integrate / BuildMesh on a clock of this tool's (TireFxPreview's
+        /// trick - the component reads CarController.wheelContacts, four plain
+        /// structs), so the smoke is the game's smoke in the game's material,
+        /// round the car the frame is taken of.</summary>
+        static void SimulateSmoke(GameObject player)
+        {
+            var car = player.GetComponent<CarController>();
+            var smoke = player.GetComponentInChildren<TireSmoke>(true);
+            if (car == null || smoke == null || smoke.material == null) { Line("  (no TireSmoke on the player's car: no smoke)"); return; }
+            var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            var holder = typeof(TireSmoke).GetField("holder", flags);
+            if (holder == null || holder.GetValue(smoke) == null) typeof(TireSmoke).GetMethod("Awake", flags)?.Invoke(smoke, null);
+            smoked.Add(smoke);
+            Random.InitState(4711);
+            var t = car.transform;
+            for (int i = 0; i < 90; i++)
+            {
+                for (int w = 0; w < 4; w++)
+                {
+                    bool front = w < 2;
+                    Vector3 local = new Vector3(w % 2 == 0 ? -0.73f : 0.73f, 0f, front ? 1.21f : -1.21f);
+                    Vector3 top = t.TransformPoint(local) + Vector3.up * 1.5f;
+                    Vector3 at = top - Vector3.up * (1.5f + ColourSpots.CarLift);
+                    foreach (var h in Physics.RaycastAll(top, Vector3.down, 4f))
+                        if (h.collider != null && !h.collider.isTrigger && !h.collider.transform.IsChildOf(t)) { at = h.point; break; }
+                    car.wheelContacts[w].grounded = true;
+                    car.wheelContacts[w].point = at;
+                    car.wheelContacts[w].normal = Vector3.up;
+                    car.wheelContacts[w].forward = t.forward;
+                    car.wheelContacts[w].slide = front ? 0f : 9f;
+                    car.wheelContacts[w].load = 3100f;
+                    car.wheelContacts[w].onRoad = true;
+                }
+                smoke.Tick(1f / 60f);
+            }
+        }
+
+        /// <summary>PSX_LITFX=0: every smoke puff and falling flake drawn with
+        /// _Lit 0 on a runtime copy of its material (the smoke's is an asset,
+        /// and an editor tool must never write one).</summary>
+        static void UnlightParticles()
+        {
+            foreach (var r in SceneRenderers())
+            {
+                var m = r != null ? r.sharedMaterial : null;
+                if (m == null || m.shader == null || m.shader.name != "PSX/Decal" || !m.HasProperty("_Lit") || m.GetFloat("_Lit") < 0.5f) continue;
+                var copy = new Material(m) { name = m.name + " (unlit A/B)", hideFlags = HideFlags.DontSave };
+                copy.SetFloat("_Lit", 0f);
+                r.sharedMaterial = copy;
+            }
+        }
+
+        /// <summary>Every renderer in the open scene, the hidden ones
+        /// included: the weather preview is DontSave, which
+        /// FindObjectsByType does not return.</summary>
+        static IEnumerable<Renderer> SceneRenderers()
+        {
+            foreach (var r in Resources.FindObjectsOfTypeAll<Renderer>())
+                if (r != null && r.gameObject.scene.IsValid() && r.gameObject.activeInHierarchy) yield return r;
+        }
+
+        /// <summary>For the log: every PSX/Decal renderer in the scene (the
+        /// flakes, the smoke) and its _Lit.</summary>
+        static string ParticleLitState()
+        {
+            var sb = new StringBuilder();
+            foreach (var r in SceneRenderers())
+            {
+                var m = r != null ? r.sharedMaterial : null;
+                if (m == null || m.shader == null || m.shader.name != "PSX/Decal") continue;
+                sb.Append(r.name).Append(" _Lit ").Append(m.HasProperty("_Lit") ? m.GetFloat("_Lit").ToString("0") : "-").Append("; ");
+            }
+            return sb.Length > 0 ? sb.ToString() : "none found";
+        }
+
+        static void ClearSmoke()
+        {
+            var holder = typeof(TireSmoke).GetField("holder", BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (var s in smoked)
+            {
+                if (s == null || holder == null) continue;
+                if (holder.GetValue(s) is GameObject go && go != null) Object.DestroyImmediate(go);
+                holder.SetValue(s, null);
+            }
+            smoked.Clear();
+        }
+
         static void EndFrame()
         {
+            ClearSmoke();
+            CarLights.BeamIntensityOverride = 0f;
             ShowCanvases();
             LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);
             WeatherFx.PreviewClear();

@@ -7664,6 +7664,9 @@ namespace PSXRacing.EditorTools
             if (mat == null) return null;
             mat.mainTexture = MakeSmokeTexture();
             mat.SetColor("_Tint", Color.white);
+            // Lit by the scene (the colour pass, C7): white by day, dark at
+            // night, red in a tail lamp - never a glowing puff at midnight.
+            mat.SetFloat("_Lit", 1f);
             mat.renderQueue = 3050;
             return mat;
         }
@@ -7970,9 +7973,9 @@ namespace PSXRacing.EditorTools
                 t.alignment = align;
                 t.horizontalOverflow = HorizontalWrapMode.Overflow;
                 t.verticalOverflow = VerticalWrapMode.Overflow;
-                var sh = go.AddComponent<Shadow>();
-                sh.effectColor = new Color(0f, 0f, 0f, 0.9f);
-                sh.effectDistance = new Vector2(1f, -1f);
+                // An edge on every side of every stroke (the colour pass, C9;
+                // HudOnTop.OutlineText converts scenes baked before this).
+                HudOnTop.AddOutline(go);
                 var rt = t.rectTransform;
                 rt.anchorMin = anchor; rt.anchorMax = anchor;
                 rt.pivot = new Vector2(anchor.x, 0.5f); // keep edge-anchored text on screen

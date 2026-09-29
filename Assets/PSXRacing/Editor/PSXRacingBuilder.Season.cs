@@ -380,7 +380,9 @@ namespace PSXRacing.EditorTools
             return GroundKind.None;
         }
 
-        // Winter, Spring, Summer, Fall, Snow. Fall is the baked look.
+        // Winter, Spring, Summer, Fall, Snow. Fall is the baked look. The Snow
+        // entries are not used for colour any more (SnowGroundTint and the
+        // snow turf, below); they stay so the tables keep one row per dress.
         static readonly Color[] DirtTints =
         {
             new Color(0.92f, 0.90f, 0.90f), new Color(0.85f, 1.00f, 0.72f), new Color(0.72f, 0.92f, 0.60f),
@@ -391,6 +393,24 @@ namespace PSXRacing.EditorTools
             new Color(0.82f, 0.78f, 0.66f), new Color(0.95f, 1.00f, 0.85f), Color.white,
             new Color(1.00f, 0.92f, 0.72f), new Color(1.8f, 1.8f, 1.9f),
         };
+
+        /// <summary>
+        /// SNOW IS SNOW (the colour pass, C8, 2026-09-29). The SNOW dress used
+        /// to multiply the ground's own grass or dirt by (1.8, 1.8, 1.9) -
+        /// x3.6-4.1 in linear light, on a texture that is green or brown: a
+        /// lime-green field once decoded, a white sheet while the 16-bit
+        /// textures were read raw ("noon, especially with snow, is blinding"),
+        /// and x13 on the coast, whose ground already carried a 1.8 tint. A
+        /// snowy ground now wears the snow turf the mountain stages already
+        /// had (Gen/Turf_Snow.png: blue-white with grey clumps, albedo about
+        /// 0.7), untinted but for a breath of blue, whatever it was before.
+        /// </summary>
+        static readonly Color SnowGroundTint = new Color(1.00f, 1.00f, 1.02f);
+        /// <summary>The snow turf every snowy ground wears: the Blue Ridge
+        /// stage's generated one (the forest stages' share folder), a fixed
+        /// path because the city, the town and the coast have no share folder
+        /// of their own - and it ships already, with every forest stage.</summary>
+        const string SnowTurfPath = Root + "/Art/BRP/Gen/Turf_Snow.png";
 
         // ------------------------------------------------------------------
         //  The registry, and the component
@@ -422,11 +442,55 @@ namespace PSXRacing.EditorTools
             var variants = new Material[Seasons.DressCount];
             for (int d = 0; d < Seasons.DressCount; d++)
             {
-                variants[d] = d == (int)Season.Fall
-                    ? baseMat
-                    : MakeMat(key + "_" + DressSuffix[d], texPath, affine: affine, tint: baseTint * tints[d]);
+                variants[d] = d == (int)Season.Fall ? baseMat
+                    : d == Seasons.DressSnow
+                        ? MakeMat(key + "_" + DressSuffix[d], SnowTurfPath, affine: affine, tint: SnowGroundTint)
+                        : MakeMat(key + "_" + DressSuffix[d], texPath, affine: affine, tint: baseTint * tints[d]);
             }
             RegisterSeasonal(baseMat, variants, role);
+        }
+
+        /// <summary>
+        /// C8 WITHOUT A SCENE BUILD: every generated SNOW ground material that
+        /// still wears a tinted grass or dirt (<see cref="RegisterSeasonalGround"/>'s
+        /// old rule) is given the snow turf and <see cref="SnowGroundTint"/> in
+        /// place - the same asset, the same GUID, so every scene that points at
+        /// it wears the new snow on its next load. The materials the builder
+        /// writes today already are; this is for the ones built before.
+        /// Returns how many it changed.
+        /// </summary>
+        public static int RedressSnowGrounds()
+        {
+            string turf = SnowTurfPath;
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(turf);
+            if (tex == null) { Debug.LogWarning("RedressSnowGrounds: " + turf + " is missing"); return 0; }
+            int n = 0;
+            foreach (var guid in AssetDatabase.FindAssets("t:Material _Snow", new[] { MatDir }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!path.EndsWith("_Snow.mat")) continue;
+                var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (m == null || m.mainTexture == null) continue;
+                string texPath = AssetDatabase.GetAssetPath(m.mainTexture);
+                if (GroundKindOf(texPath) == GroundKind.None) continue;   // already snow (turf, mottle, forest)
+                m.mainTexture = tex;
+                m.color = SnowGroundTint;
+                EditorUtility.SetDirty(m);
+                Debug.Log("RedressSnowGrounds: " + path + " (was " + Path.GetFileName(texPath) + ")");
+                n++;
+            }
+            if (n > 0) AssetDatabase.SaveAssets();
+            return n;
+        }
+
+        /// <summary>tools\colour\snow-redress.ps1: <see cref="RedressSnowGrounds"/>
+        /// on a built sandbox, a report line, and quit.</summary>
+        public static void RedressSnowGroundsFromCommandLine()
+        {
+            int n = RedressSnowGrounds();
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_snow_redress.txt"),
+                              "SNOW REDRESS OK: " + n + " snow ground material(s) now wear " + SnowTurfPath + "\n");
+            EditorApplication.Exit(0);
         }
 
         /// <summary>A material that changes TEXTURE with the season — the

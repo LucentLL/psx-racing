@@ -62,6 +62,12 @@ namespace PSXRacing
             new Spot { id = "CC",  venue = "CityCircuit", how = "grid", note = "the circuit's grid: the psx_hour_* view (S4 at dusk)" },
             new Spot { id = "T1",  venue = "LittleSwitzerland", how = "path", alongM = 3962f, note = "30 m short of the tunnel (3992-4180 m), looking in" },
             new Spot { id = "T2",  venue = "LittleSwitzerland", how = "path", alongM = 4086f, note = "inside the tunnel bore" },
+            // The colour pass's C5 (the low beam): a road that is FLAT and
+            // STRAIGHT for the whole 22-58 m of the beam boxes, so the beam's
+            // plateau is read on the road it lights and not on a verge, a
+            // crest or the far side of a bend (S3's stage road bends away by
+            // 31 m and climbs out of the cutoff by 40).
+            new Spot { id = "B1",  venue = "DragQuarter", how = "grid", note = "the quarter-mile strip: flat and straight, the low beam's measuring road" },
         };
 
         public static Spot Find(string id)
@@ -282,6 +288,10 @@ namespace PSXRacing
             /// the ground below (which projects huge).</summary>
             public bool clean;
             public string occluder;
+            /// <summary>The pushed headlight table's diffuse light at the box's
+            /// centre on an up-facing surface, luminance (CarLights.BeamLightAt):
+            /// the beam's own shape, apart from texture, lamps and fog.</summary>
+            public float beamModel;
             /// <summary>Normalised image box, origin TOP-left: x0, y0, x1, y1.</summary>
             public float x0, y0, x1, y1;
             public bool inFrame;
@@ -311,6 +321,8 @@ namespace PSXRacing
                 var h = new RegionHit { name = r.name, kind = r.kind };
                 Vector3 c = Ground(pos + right * r.x + flat * r.z, roadY + slope * r.z, car, out h.hit, out h.onGround);
                 h.world = c;
+                Vector3 bl = CarLights.BeamLightAt(c, Vector3.up);
+                h.beamModel = 0.2126f * bl.x + 0.7152f * bl.y + 0.0722f * bl.z;
                 float minx = 1f, miny = 1f, maxx = 0f, maxy = 0f;
                 int inFront = 0;
                 h.clean = h.onGround;
@@ -392,6 +404,7 @@ namespace PSXRacing
                     ["box"] = new List<object> { h.x0, h.y0, h.x1, h.y1 },
                     ["world"] = h.world, ["surface"] = h.hit ?? "", ["onGround"] = h.onGround,
                     ["inFrame"] = h.inFrame, ["visible"] = h.visible, ["occluder"] = h.occluder ?? "", ["clean"] = h.clean,
+                    ["beamModel"] = h.beamModel,
                 });
             return list;
         }

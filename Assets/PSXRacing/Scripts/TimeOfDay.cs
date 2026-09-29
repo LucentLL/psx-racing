@@ -432,6 +432,9 @@ namespace PSXRacing
                 globals.tone = ToneEnabled ? 1f : 0f;
                 globals.exposure = ExposureFor(p);
                 globals.emitKey = EmitKeyEnabled ? 1f : 0f;
+                // The owner's C11 choice (LookChoices.SunLift, off): the
+                // grade's lift fade under a clear sun.
+                globals.gradeSun = LookChoices.SunLift ? GradeSunFor(index, weather) : 0f;
             }
 
             lastSkyPreset = p; lastSkySun = sun; lastSkyIndex = index; lastSkyWeather = weather; skyApplied = true;
@@ -773,6 +776,22 @@ namespace PSXRacing
         }
 
         /// <summary>
+        /// THE OWNER'S C11 CHOICE, "G1" (LookChoices.SunLift; ships off):
+        /// how far PSX/Blit takes its sun-keyed lift fade - 1 at a CLEAR
+        /// morning, noon or afternoon, 0 at every other hour and in every
+        /// other weather (an overcast noon has no hard sun to cut the veil).
+        /// </summary>
+        public static float GradeSunFor(int hour, Weather w)
+        {
+            if (w != Weather.Clear) return 0f;
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Morning: case Noon: case Afternoon: return 1f;
+                default: return 0f;
+            }
+        }
+
+        /// <summary>
         /// How much of a city the loaded scene is, for the skyglow and the
         /// night mood: 1 in the streamed Charlotte (a CityWorld is there), 0.6
         /// on a venue with street lamps (a NightGlow is there — the circuits'
@@ -806,7 +825,10 @@ namespace PSXRacing
             {
                 case Night:
                 {
-                    var c = Color.Lerp(RuralNightMood, UrbanNightMood, Mathf.Clamp01(urban));
+                    // The owner's C12 choice (LookChoices.CoolNight, off): a
+                    // city's darks blue-teal instead of sodium brown.
+                    var urbanMood = LookChoices.CoolNight ? CoolUrbanNightMood : UrbanNightMood;
+                    var c = Color.Lerp(RuralNightMood, urbanMood, Mathf.Clamp01(urban));
                     // A city's darks are its sodium murk, and harder than a
                     // mountain's blue: the NFS city frames' darkest 5% measure
                     // SATURATED brown-orange (.037,.026,.002), the mountain
@@ -825,6 +847,10 @@ namespace PSXRacing
 
         static readonly Color RuralNightMood = new Color(0.55f, 0.62f, 1.00f, 1f);
         static readonly Color UrbanNightMood = new Color(1.00f, 0.72f, 0.42f, 1f);
+        /// <summary>C12's city night (LookChoices.CoolNight, off): the NFS
+        /// frames' blue-teal darks - a little greener than the mountain's
+        /// blue, the colour of a city's mixed light in wet haze.</summary>
+        static readonly Color CoolUrbanNightMood = new Color(0.70f, 0.86f, 1.00f, 1f);
 
         /// <summary>
         /// What weather leaves of the SUN: rain 0.50, fog 0.70, snow 0.80.
@@ -864,6 +890,11 @@ namespace PSXRacing
         /// sRGB, authored like every colour in the table (PSXGlobals and the
         /// sky material convert to linear on the way in).</summary>
         static readonly Color SodiumMurk = new Color(0.20f, 0.12f, 0.055f, 1f);
+        /// <summary>C12's murk (LookChoices.CoolNight, off): the city's haze
+        /// lit by mixed light - a cool slate at about the sodium murk's own
+        /// brightness, so the night gets no lighter or darker, only cooler.</summary>
+        static readonly Color CoolMurk = new Color(0.125f, 0.137f, 0.15f, 1f);
+        static Color Murk => LookChoices.CoolNight ? CoolMurk : SodiumMurk;
 
         /// <summary>
         /// SKYGLOW. A city at night lights the underside of its own haze:
@@ -886,11 +917,13 @@ namespace PSXRacing
         static void ApplySkyglow(ref Preset p, float g)
         {
             if (g <= 0f) return;
-            p.fogColor = Opaque(Color.Lerp(p.fogColor, SodiumMurk, 0.65f * g));
-            p.skyHorizon = Opaque(Color.Lerp(p.skyHorizon, SodiumMurk * 1.35f, 0.70f * g));
-            p.skyTop = Opaque(Color.Lerp(p.skyTop, SodiumMurk * 0.40f, 0.30f * g));
+            // The sodium murk as signed off, or the owner's C12 choice (off).
+            Color murk = Murk;
+            p.fogColor = Opaque(Color.Lerp(p.fogColor, murk, 0.65f * g));
+            p.skyHorizon = Opaque(Color.Lerp(p.skyHorizon, murk * 1.35f, 0.70f * g));
+            p.skyTop = Opaque(Color.Lerp(p.skyTop, murk * 0.40f, 0.30f * g));
             float lumA = Lum(p.ambient);
-            Color murkAtAmbient = SodiumMurk * (lumA / Lum(SodiumMurk));
+            Color murkAtAmbient = murk * (lumA / Lum(murk));
             // The ambient keeps its own alpha (the weather multiply above
             // already scaled it along with the colour, as it always has).
             float a = p.ambient.a;
