@@ -53,7 +53,9 @@
 //   L   NAMES (the first Unity run of the mesh gate): a run is named after the
 //       line its own samples lie on, a jump or a dash at the end on the lower
 //       way, and a centre line has no sign - so one run has one key whichever
-//       way a chain runs (the two gates orient chains differently)
+//       way a chain runs (the two gates orient chains differently); and B1's
+//       stations stand on the way's arc, so a strand cut anywhere else (the
+//       mesh gate's 3x3 ring) samples the same places
 //   T   a HOOK (review 6: a corner in a line's last metres passed until its
 //       end stood 8V off): the corner extrapolated from the approach, at most
 //       the end's own offset, fails; a turn whose end stands under V off, or a
@@ -75,6 +77,7 @@ import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts } from './lib/paintruns.mjs';
 import { city, bent, fillet, sagChord, gateOf, fwd, DEG } from './lib/synthcity.mjs';
 import { arcFrame, kinkScores } from './lib/kink.mjs';
+import { b1Stations } from './lib/linegate.mjs';
 import { summarize, ratchet, packKeys, packTiles, SCHEMA, statesOf, beforeAfter } from './lib/gatebase.mjs';
 import * as GB from './lib/gatebase.mjs';
 import { readFileSync } from 'node:fs';
@@ -638,6 +641,79 @@ if (want('C')) {
     probe('L3 a midline from a local street on into a tertiary one with a 20 degree corner: the corner is judged at the tertiary\'s R_min, whichever way the chain runs',
       r1.length > 0 && r2.length === r1.length && r1.every((x, i) => Math.abs(x - r2[i]) < 1e-9) && Math.abs(r1[0] * 3 / (20 * DEG) / want - 1) < 0.05,
       `B3 on the tertiary: ${r1.map(x => x.toFixed(2)).join(', ') || 'none'} / ${r2.map(x => x.toFixed(2)).join(', ') || 'none'} (R_min ${want} m)`);
+  }
+  // B1's stations were whole steps from the strand's MIDDLE: direction-proof, but a strand the mesh gate cut at its
+  // 3x3 ring and this gate did not (or cut elsewhere) put its samples at another phase, and a jitter read 1.1x in one
+  // gate and 0.9x in the other (review 8: most of the 1,508 / 1,684 B1 runs one gate had and the other lacked). They
+  // stand on the WAY's arc now (wayOff + s): the same strand read whole, cut 7.3 m in, cut mid-way through a kept
+  // segment, and backwards must sample the same world points over their common part - on one way (a line off the
+  // centreline: its s runs slower than its arc) and across a joint into another way (stepped from the segment's middle)
+  {
+    const H = R.JitterHalfM, st = R.JitterStepM;
+    let seed = 11; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    const mk = twoWays => { const P = []; let q = [0, 0], h = 0.3, s = 0, e = 0;
+      for (let i = 0; i < 40; i++) { const L = 1.5 + rnd() * 4; h += (rnd() - 0.5) * 6 * DEG; const nq = [q[0] + Math.sin(h) * L, q[1] + Math.cos(h) * L];
+        P.push({ x: q[0], z: q[1], e, s }); s += L / 1.13; q = nq; if (twoWays && i === 19) { e = 1; s = 3.7; } }
+      P.push({ x: q[0], z: q[1], e, s }); return P; };
+    const way = [7201, 7202], wayOffOf = [0, 0];
+    const stations = P => { const idx = P.map((_, i) => i), C = [0];
+      for (let i = 1; i < P.length; i++) C.push(C[i - 1] + Math.hypot(P[i].x - P[i - 1].x, P[i].z - P[i - 1].z));
+      const L = C.at(-1), out = [];
+      for (const a of b1Stations(P, idx, C, L, st, H, p => wayOffOf[p.e] + p.s, p => way[p.e])) {
+        if (Number.isNaN(a)) continue;
+        let i = 0; while (i + 2 < P.length && C[i + 1] < a) i++;
+        const t = (a - C[i]) / (C[i + 1] - C[i]); out.push([P[i].x + (P[i + 1].x - P[i].x) * t, P[i].z + (P[i + 1].z - P[i].z) * t]);
+      }
+      return out; };
+    const cutAt = (P, a) => { let acc = 0;
+      for (let i = 1; i < P.length; i++) { const d = Math.hypot(P[i].x - P[i - 1].x, P[i].z - P[i - 1].z);
+        if (acc + d > a) { const t = (a - acc) / d, A = P[i - 1], B = P[i];
+          return [{ x: A.x + (B.x - A.x) * t, z: A.z + (B.z - A.z) * t, e: A.e === B.e ? A.e : t < 0.5 ? A.e : B.e, s: A.e === B.e ? A.s + (B.s - A.s) * t : t < 0.5 ? A.s : B.s }, ...P.slice(i)]; }
+        acc += d; }
+      return P; };
+    const same = (a, b, lo) => { // every station of a that is past lo (a world point's distance from b's cut start) is one of b's
+      const far = a.filter(p => Math.hypot(p[0] - lo[0], p[1] - lo[1]) > H + 2 * st);
+      let miss = 0; for (const p of far) if (!b.some(q => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-6)) miss++;
+      return [far.length, miss]; };
+    let checked = 0, missed = 0, oldMoved = 0, oldChecked = 0;
+    for (const two of [false, true]) {
+      const P = mk(two), full = stations(P);
+      for (const cut of [7.3, 20.11]) {
+        const Q = cutAt(P, cut), part = stations(Q), start = [Q[0].x, Q[0].z];
+        const [n1, m1] = same(part, full, start); checked += n1; missed += m1;
+        // the old phase (whole steps from the strand's middle), for the record
+        const arcs = X => { const C = [0]; for (let i = 1; i < X.length; i++) C.push(C[i - 1] + Math.hypot(X[i].x - X[i - 1].x, X[i].z - X[i - 1].z)); return C; };
+        const Cf = arcs(P), Cq = arcs(Q), ph = x => (x.at(-1) / 2) % st;
+        const cutArc = Cf.at(-1) - Cq.at(-1);
+        for (let a = H + ph(Cq); a <= Cq.at(-1) - H; a += st) { oldChecked++; const d = ((a + cutArc - ph(Cf)) / st) % 1; if (Math.min(d, 1 - d) > 1e-6) oldMoved++; }
+      }
+      const R2 = [...P].reverse(), back = stations(R2);
+      const [n2, m2] = same(back, full, [P[0].x, P[0].z]); checked += n2; missed += m2;
+    }
+    probe('L4 B1 samples the same places however a strand is cut or walked: its stations stand on the way arc (wayOff + s), on one way and across a joint into another',
+      checked > 400 && missed === 0 && oldMoved > oldChecked / 2,
+      `${checked} stations compared (cut 7.3 m and 20.11 m in, and backwards), ${missed} not sampled by the other cut; the old phase (whole steps from the strand's middle) moved ${oldMoved} of ${oldChecked}`);
+  }
+  // review 8: the shape checks read a strand differently walked from its other end - the collinear drop kept vertices
+  // relative to the LAST kept one (a walk from each end kept different ones: 111 B2 and 2,610 B1 keys moved when the
+  // city's strands were reversed), B1 exempted a window by its segments' START, a station at a segment's midpoint took
+  // the name of whichever end came second, and a key's bad length took the whole arc from the previous bad sample.
+  // One city of wiggly lines - sub-millimetre vertex pairs, 0.005 degree turns, jogs, a lane drop at a joint - read
+  // with every strand reversed must give every B key the same ratio and bad length
+  {
+    let seed = 23; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    const wig = (p0, h0, n) => { const P = [p0]; let p = p0, h = h0;
+      for (let i = 0; i < n; i++) { const r = rnd(); const L = r < 0.1 ? 0.0004 : r < 0.3 ? 0.3 + rnd() : 2 + rnd() * 6; h += r < 0.5 ? (rnd() - 0.5) * 0.01 * DEG : (rnd() - 0.5) * 4 * DEG; p = fwd(p, h, L); P.push(p); }
+      return P; };
+    const A = wig([0, 0], 20 * DEG, 40), B = wig(A.at(-1), 22 * DEG, 40);
+    const c = city([{ pts: A, lanes: 4, rank: 2, wayId: 7301 }, { pts: B, lanes: 2, rank: 2, wayId: 7302 }, { pts: wig([200, 0], 80 * DEG, 30), lanes: 2, oneway: true, rank: 1, wayId: 7303 }]);
+    const keys = res => { const m = new Map(); for (const r of res.g.runs) if (/^B[123]$/.test(r.check) && r.kk) r.kk.forEach((k, i) => { const w = m.get(k) || [0, 0]; w[0] = Math.max(w[0], r.kq[i]); w[1] += r.kl[i]; m.set(k, w); }); return m; };
+    const f = keys(gateOf(c, R, layouts)), b = keys(gateOf(c, R, layouts, { reverseStrands: true }));
+    let differ = 0, first = '';
+    for (const k of new Set([...f.keys(), ...b.keys()])) { const x = f.get(k), y = b.get(k); if (!x || !y || Math.abs(x[0] - y[0]) > 1e-9 || Math.abs(x[1] - y[1]) > 1e-9) { differ++; if (!first) first = `${k} ${x ? x.map(v => v.toFixed(4)).join('/') : '-'} vs ${y ? y.map(v => v.toFixed(4)).join('/') : '-'}`; } }
+    const nb = c => [...f.keys()].filter(k => k.includes(':' + c + ':')).length;
+    probe('L5 every strand read backwards: every B1, B2 and B3 key the same ratio and bad length (the kept vertices, the B1 exemptions and names, and the bad length of a key no longer depend on the walk)',
+      f.size > 20 && nb('B1') > 0 && nb('B2') > 0 && differ === 0, `${f.size} keys (B1 ${nb('B1')}, B2 ${nb('B2')}, B3 ${nb('B3')}); ${differ} differ${first ? ' e.g. ' + first : ''}`);
   }
   // review 7: SmoothRules' numbers are C# FLOATS. Read as doubles offline, V was 1.5e-8 off the mesh gate's and the arc
   // frame's discrete tests (|k| <= tolK at exactly R 2000, the V/4 fit, the V/50 chord points, a ceil at an exact ratio)

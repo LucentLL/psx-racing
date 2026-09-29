@@ -53,6 +53,13 @@
 //                                                         PlanTaperShape; --model m0 implies smooth)
 //   --no-census / --no-gate                               skip a half
 //   --edges 12887,549                                     only the chains through these edges (debugging)
+//   --trace <csv> --trace-out <csv>                       the agreement instrument: for each row of <csv>
+//                                                         (idx,check,edge,line,s0,s1 - the OTHER gate's runs,
+//                                                         e.g. Editor/CitySmooth.cs's city_smooth.csv through
+//                                                         tools/city/gatecmp.mjs) this gate's highest reading
+//                                                         there, as a ratio to the check's limit, on the same
+//                                                         line (maxE) and line class (maxC), and how many
+//                                                         samples it took (nE, nC): idx,maxE,nE,maxC,nC
 // Baseline file default: tools/city/baseline/linecheck_baseline.json.
 // Regression probes (synthetic cities with known answers): node tools/city/gateprobes.mjs
 // About 1.5-3 minutes for the whole city (the census alone ~15 s of it).
@@ -181,7 +188,17 @@ if (!has('--no-gate')) {
   const keys = [...new Set(S.E.map(e => e.profile.key))];
   const { layouts, notes } = loadPaintLayouts(ART, keys);
   const only = argVal('--edges') ? new Set(argVal('--edges').split(',').map(Number)) : null;
-  gate = runGate(S, R, layouts, { planTaperShape: planTaper, refSpots, onlyEdges: only, log });
+  const traceIn = argVal('--trace');
+  const trace = traceIn ? readFileSync(resolve(UNITY, traceIn), 'utf8').split(/\r?\n/).slice(1).filter(Boolean).map(l => {
+    const [idx, check, e, line, s0, s1] = l.split(','); return { idx: +idx, check, e: +e, line, s0: +s0, s1: +s1 }; }) : null;
+  const strands = argVal('--strands') ? { edges: new Set(readFileSync(resolve(UNITY, argVal('--strands')), 'utf8').split(/\s+/).filter(Boolean).map(Number)), out: [] } : null;
+  gate = runGate(S, R, layouts, { planTaperShape: planTaper, refSpots, onlyEdges: only, log, trace, reverseStrands: has('--reverse'), strands });
+  if (strands && argVal('--strands-out')) writeFileSync(resolve(UNITY, argVal('--strands-out')), strands.out.join('\n') + '\n');
+  const traceOut = argVal('--trace-out');
+  if (trace && traceOut) {
+    writeFileSync(resolve(UNITY, traceOut), 'idx,maxE,nE,maxC,nC\n' + trace.map(t => `${t.idx},${Math.round(t.maxE * 1e5) / 1e5},${t.nE},${Math.round(t.maxC * 1e5) / 1e5},${t.nC}`).join('\n') + '\n');
+    console.log(`traced ${trace.length} places to ${traceOut}`);
+  }
   const runs = gate.runs;
   // ---- what this run measured: the baseline's fingerprint
   const paintFiles = [];
@@ -303,7 +320,7 @@ if (outDir) {
 }
 const csvPath = argVal('--csv');
 if (csvPath && gate) {
-  const cols = ['check', 'lineId', 'key', 'keys', 'way', 'e', 'name', 'cls', 'profile', 's', 's0', 's1', 'len', 'val', 'ratio', 'x', 'z', 'cause', 'data', 'pinned', 'reportOnly', 'what'];
+  const cols = ['check', 'lineId', 'key', 'keys', 'way', 'e', 'name', 'cls', 'profile', 's', 's0', 's1', 'len', 'val', 'ratio', 'x', 'z', 'cause', 'data', 'pinned', 'reportOnly', 'what', 'e0', 'e1'];
   const lines = [cols.join(',')];
   for (const r of gate.runs) lines.push(cols.map(c => { const v = c === 'keys' ? r.kk.length : r[c]; if (v === undefined || v === null) return ''; if (typeof v === 'number') return String(r3(v)); const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(','));
   writeFileSync(resolve(UNITY, csvPath), lines.join('\n') + '\n');

@@ -108,20 +108,85 @@ function turnOf(ax, az, bx, bz, cx, cz) {
 }
 /// Collinear vertices (|turn| < CollinearDeg) and near-duplicates dropped:
 /// the indices kept.
-function keepIdx(P, R) {
-  const n = P.length, keep = [];
-  if (!n) return keep;
-  keep.push(0);
-  const lim = R.CollinearDeg / DEG;
-  for (let i = 1; i + 1 < n; i++) {
-    const a = P[keep[keep.length - 1]], b = P[i], c = P[i + 1];
-    if (Math.hypot(b.x - a.x, b.z - a.z) < 1e-3) continue;
-    if (Math.hypot(c.x - b.x, c.z - b.z) < 1e-3) continue;
-    if (Math.abs(turnOf(a.x, a.z, b.x, b.z, c.x, c.z)) < lim) continue;
-    keep.push(i);
+/// The vertices the shape checks keep (Editor/CitySmooth.cs KeepIdx is the same code), the SAME whichever way a
+/// strand is walked (review 8: dropped relative to the last kept vertex, a walk from each end kept different vertices,
+/// and the two gates walk strands from different ends): a run of vertices each within 1 mm of the next is one vertex,
+/// the one with the smallest (x, z); a vertex is kept when the collinear walk from EITHER end keeps it (its turn from
+/// that walk's last kept vertex to the next is at least CollinearDeg); both ends are kept.
+export function keepIdx(P, R) {
+  const n = P.length;
+  if (!n) return [];
+  const rep = [];
+  for (let i = 0; i < n;) {
+    let j = i, best = i;
+    while (j + 1 < n && Math.hypot(P[j + 1].x - P[j].x, P[j + 1].z - P[j].z) < 1e-3) {
+      j++;
+      if (P[j].x < P[best].x || (P[j].x === P[best].x && P[j].z < P[best].z)) best = j;
+    }
+    rep.push(best); i = j + 1;
   }
-  if (n > 1) keep.push(n - 1);
+  const m = rep.length;
+  if (m <= 2) return rep;
+  const lim = R.CollinearDeg / DEG, mark = new Uint8Array(m);
+  mark[0] = 1; mark[m - 1] = 1;
+  for (let a = 0, k = 1; k + 1 < m; k++) {
+    const A = P[rep[a]], B = P[rep[k]], Cn = P[rep[k + 1]];
+    if (Math.hypot(B.x - A.x, B.z - A.z) < 1e-3) continue;
+    if (Math.abs(turnOf(A.x, A.z, B.x, B.z, Cn.x, Cn.z)) < lim) continue;
+    mark[k] = 1; a = k;
+  }
+  for (let a = m - 1, k = m - 2; k > 0; k--) {
+    const A = P[rep[a]], B = P[rep[k]], Cn = P[rep[k - 1]];
+    if (Math.hypot(B.x - A.x, B.z - A.z) < 1e-3) continue;
+    if (Math.abs(turnOf(A.x, A.z, B.x, B.z, Cn.x, Cn.z)) < lim) continue;
+    mark[k] = 1; a = k;
+  }
+  const keep = [];
+  for (let k = 0; k < m; k++) if (mark[k]) keep.push(rep[k]);
   return keep;
+}
+/// B1's sample stations on one strand, as sorted strand arcs with NaN between two windows that do not meet
+/// (Editor/CitySmooth.cs B1Stations is the same code). A window is +-H about each kept interior vertex, clipped to
+/// [H, Ltot - H]; windows closer than a step merge. Inside a window a station stands where the line's own way arc
+/// (wayArc: wayOff + s, the arc the ratchet keys are rounded on) is a whole number of steps and a half (never on a 5 m
+/// key boundary, where a sample's float s put it in one bucket walked one way and the next walked the other), interpolated along each
+/// kept segment - so a place is sampled the same whichever way a strand is walked and wherever it was cut (anchored
+/// to the strand's middle, as before, the two gates read B1 at a different phase wherever they cut a strand
+/// differently). A kept segment that crosses to another way, or along which the way's arc does not advance about
+/// as fast as the line (a fan's perimeter, a branching way's jump), is stepped from its own midpoint instead.
+export function b1Stations(P, idx, C, Ltot, step, H, wayArc, wayOf) {
+  const n = idx.length, W = new Float64Array(n), Wy = new Array(n);
+  for (let m = 0; m < n; m++) { const p = P[idx[m]]; W[m] = wayArc(p); Wy[m] = wayOf(p); }
+  const out = [];
+  let lo = 0, hi = -1, seg = 0;
+  const flush = () => {
+    if (hi < lo) return;
+    if (out.length) out.push(NaN);
+    while (seg > 0 && C[seg] > lo) seg--;
+    for (let m = seg; m + 1 < n && C[m] <= hi; m++) {
+      const a0 = C[m], a1 = C[m + 1], L = a1 - a0;
+      if (a1 < lo || L < 1e-9) continue;
+      seg = m;
+      const x0 = Math.max(lo, a0), x1 = Math.min(hi, a1), dw = W[m + 1] - W[m], adw = Math.abs(dw);
+      if (Wy[m] === Wy[m + 1] && adw >= 0.2 * L && adw <= 5 * L + 0.5 && adw > 1e-6) {
+        const w0 = W[m] + (x0 - a0) / L * dw, w1 = W[m] + (x1 - a0) / L * dw;
+        const k0 = Math.ceil(Math.min(w0, w1) / step - 0.5 - 1e-9), k1 = Math.floor(Math.max(w0, w1) / step - 0.5 + 1e-9);
+        if (dw > 0) for (let k = k0; k <= k1; k++) out.push(a0 + ((k + 0.5) * step - W[m]) / dw * L);
+        else for (let k = k1; k >= k0; k--) out.push(a0 + ((k + 0.5) * step - W[m]) / dw * L);
+      } else {
+        const mid = (a0 + a1) / 2, k0 = Math.ceil((x0 - mid) / step - 1e-9), k1 = Math.floor((x1 - mid) / step + 1e-9);
+        for (let k = k0; k <= k1; k++) out.push(mid + k * step);
+      }
+    }
+  };
+  for (let m = 1; m + 1 < n; m++) {
+    const a = Math.max(C[m] - H, H), b = Math.min(C[m] + H, Ltot - H);
+    if (b < a) continue;
+    if (hi >= lo && a <= hi + step) { if (b > hi) hi = b; continue; }
+    flush(); lo = a; hi = b;
+  }
+  flush();
+  return out;
 }
 function arcOf(P, idx) {
   const C = new Float64Array(idx.length);
@@ -229,6 +294,9 @@ export const SQUEEZE_WHAT = 'squeezed edge outside its I7 envelope (the cut ease
 // ------------------------------------------------------------ the gate
 /// S: a linesim with e.secs built. R: smoothrules. layouts: paintruns. opts:
 /// { planTaperShape: 'linear'|'smooth', refSpots: [[x,z]], log }.
+/// A line id without its offset ('CYs+0.12' -> 'CYs'): the agreement instrument's line class.
+export const lineClass = id => (id || '').replace(/[-+][0-9.]+$/, '');
+
 export function runGate(S, R, layouts, opts = {}) {
   const { E, T, nodeEdges } = S;
   const log = opts.log || (() => {});
@@ -364,6 +432,14 @@ export function runGate(S, R, layouts, opts = {}) {
   /// the lower s. One run gets one key whichever way the chain runs (this gate starts a chain at its lowest edge,
   /// CitySmooth at the first edge of the tile's ring: they named a jump after either end).
   const firstEnd = (p, q) => { const wp = E[p.e].wayId, wq = E[q.e].wayId; return wp !== wq ? wp < wq : p.e !== q.e ? p.e < q.e : p.s <= q.s; };
+  /// Two candidate joint pairs at the same distance: ordered by their end points (the firstEnd one first, then the
+  /// other), so the pairing does not depend on the order the chain's walk met the pieces.
+  const ptOrder = (p, q) => E[p.e].wayId - E[q.e].wayId || p.e - q.e || p.s - q.s || p.x - q.x || p.z - q.z;
+  function pairOrder(P1, P2) {
+    const ends = pr => { const u = pr.a.pts.at(-1), w = pr.b.pts[0]; return ptOrder(u, w) <= 0 ? [u, w] : [w, u]; };
+    const [a1, b1] = ends(P1), [a2, b2] = ends(P2);
+    return ptOrder(a1, a2) || ptOrder(b1, b2);
+  }
   function joinEnds(strand, pc, sh, bridge = false) {
     const a = strand[strand.length - 1], b = pc[0];
     const tx = bridge ? sh.x : a.x - b.x, tz = bridge ? sh.z : a.z - b.z;
@@ -540,11 +616,33 @@ export function runGate(S, R, layouts, opts = {}) {
   /// KeyStepM bucket it touches the worst value and the bad length there (the
   /// arc from the previous bad sample goes to the bucket of this one), and the
   /// side of the ribbon its samples there lie on: its ratchet keys.
+  // ---- the agreement instrument (opts.trace, linecheck --trace): this gate's highest reading, as a ratio to the
+  // check's limit, at each of the OTHER gate's runs - on the same check, edge and line (maxE) or line class (maxC,
+  // the offset dropped), within the given s range - so a run one gate has and the other lacks says what the other
+  // read there. Editor/CitySmooth.cs PSX_SMOOTH_TRACE is the same instrument on the meshes.
+  const TR = opts.trace ? new Map() : null;
+  if (TR) for (const t of opts.trace) {
+    const k = t.check + '|' + t.e; let l = TR.get(k); if (!l) TR.set(k, l = []);
+    l.push(Object.assign(t, { cls: lineClass(t.line), maxE: -1, nE: 0, maxC: -1, nC: 0 }));
+  }
+  const limitOf = check => check === 'A4' ? R.LineWidthTol : check === 'A5' || check === 'A5b' ? R.StrayM : check === 'C1' ? R.GapM
+    : check === 'C2' ? 1 : check === 'C3' ? R.DashTol : check === 'D1' ? R.CrossM : V;
+  const traceSample = (check, extra, e, s, val, rl, side, lid) => {
+    const l = TR.get(check + '|' + e); if (!l) return;
+    const line = extra && extra.kind === 'edge' && side ? 'R' + side : lid, cls = lineClass(line);
+    const r = check === 'B3' ? (rl > 0 && val > 0 ? rl / val : 0) : Math.abs(val) / limitOf(check);
+    for (const t of l) {
+      if (s < t.s0 || s > t.s1) continue;
+      if (line === t.line) { t.nE++; if (r > t.maxE) t.maxE = r; }
+      if (cls === t.cls) { t.nC++; if (r > t.maxC) t.maxC = r; }
+    }
+  };
   class RunBuilder {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
     /// A break in the samples (between B1 windows): closes, no arc across it.
     gap() { this.close(); this.px = NaN; }
     push(x, z, e, s, val, bad, tag, span, side, what, lid, rl) {
+      if (TR) traceSample(this.check, this.extra, e, s, val, rl, side, lid ?? this.lineId);
       if (!Number.isNaN(this.px)) this.arc += Math.hypot(x - this.px, z - this.pz);
       this.px = x; this.pz = z;
       if (!bad) { this.close(); return; }
@@ -562,12 +660,14 @@ export function runGate(S, R, layouts, opts = {}) {
       const worseThan = (v, r, cv, cr) => this.minIsWorse ? (r !== undefined && cr !== undefined ? v / r < cv / cr : v < cv) : Math.abs(v) > Math.abs(cv);
       const worse = worseThan(val, rl, c.val, c.rLimit);
       const bid = bucketOf(E[e], s), nb = c.bk.length;
+      // the arc from the previous bad sample: half to its bucket, half to this one's (all of it to this one's made a
+      // key's bad length depend on which way the line was walked - review 8)
       if (nb && c.bk[nb - 1] === bid) {
         if (worseThan(val, rl, c.bv[nb - 1], c.br[nb - 1])) { c.bv[nb - 1] = val; c.br[nb - 1] = rl; }
         c.bl[nb - 1] += inc;
         if (lid !== undefined && (c.bn[nb - 1] === undefined || lid < c.bn[nb - 1])) c.bn[nb - 1] = lid;
       }
-      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); c.bs.push(side); c.bn.push(lid); c.br.push(rl); }
+      else { if (nb) c.bl[nb - 1] += inc / 2; c.bk.push(bid); c.bv.push(val); c.bl.push(nb ? inc / 2 : inc); c.bs.push(side); c.bn.push(lid); c.br.push(rl); }
       if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; if (lid !== undefined) c.lineId = lid; if (rl !== undefined) c.rLimit = rl; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
@@ -733,8 +833,9 @@ export function runGate(S, R, layouts, opts = {}) {
               if (d > depth) { depth = d; other = oi; }
             }
             const cross = depth > R.CrossM, mz = cross && mergeZoneAt(e, s, E[other], x, z);
-            bD1.push(x, z, e.index, s, depth, cross && !mz, tag, span);
-            bD1m.push(x, z, e.index, s, depth, cross && mz, tag, span);
+            const into = cross ? `inside e${other}` : undefined;
+            bD1.push(x, z, e.index, s, depth, cross && !mz, tag, span, undefined, into);
+            bD1m.push(x, z, e.index, s, depth, cross && mz, tag, span, undefined, into);
           }
         }
         bA1.close(); bA4.close(); bA5.close(); bD1.close(); bD1m.close();
@@ -844,6 +945,7 @@ export function runGate(S, R, layouts, opts = {}) {
   /// limit came from the strand's first edge, and the two gates start strands at different edges), or 0: no B3.
   function shapeChecks(kind, lineId, pts, rLimit) {
     if (pts.length < 3) return;
+    if (opts.reverseStrands) pts = [...pts].reverse();   // a debugging switch (linecheck --reverse): the answer must not depend on it
     const keep = keepIdx(pts, R);
     if (keep.length < 3) return;
     const C = arcOf(pts, keep);
@@ -856,6 +958,11 @@ export function runGate(S, R, layouts, opts = {}) {
     let hw = 0;
     if (kind !== 'midline') for (const i of keep) if (E[pts[i].e].hw > hw) hw = E[pts[i].e].hw;
     const K2 = kinkScores(KX, KZ, C, TH, R, m => { const b = pts[keep[m]]; return !!(b.x3 || b.gore); }, hw);
+    // the strand dump (opts.strands, linecheck --strands; CitySmooth PSX_SMOOTH_STRANDS is the same)
+    if (opts.strands && keep.some(i => opts.strands.edges.has(pts[i].e))) {
+      opts.strands.out.push(`S ${kind} ${lineId} n ${keep.length}`);
+      keep.forEach((i, m) => { const p = pts[i]; opts.strands.out.push(`${p.e} ${+p.s.toFixed(4)} ${+p.x.toFixed(5)} ${+p.z.toFixed(5)} ${p.x3 || p.gore ? 1 : 0} ${+K2[m].toFixed(5)}`); });
+    }
     const b2 = [];
     for (let m = 1; m + 1 < keep.length; m++) {
       const b = pts[keep[m]];
@@ -885,35 +992,35 @@ export function runGate(S, R, layouts, opts = {}) {
     }
     // B1 JITTER: 0.25 m samples within JitterHalfM of a turning vertex, Kasa fit over +-JitterHalfM
     const step = R.JitterStepM, H = R.JitterHalfM, nH = Math.round(H / step);
-    // whole steps from the strand's MIDDLE, not from its start: the same samples - and readings - whichever way the
-    // strand is walked (the two gates walk chains from different ends)
-    const ph = (Ltot / 2) % step;
-    const cand = [];
-    for (let m = 1; m + 1 < keep.length; m++) {
-      const c = C[m];
-      for (let a = Math.ceil((c - H - ph) / step) * step + ph; a <= c + H + 1e-9; a += step) if (a >= H && a <= Ltot - H) cand.push(a);
-    }
+    // stations anchored to the WAY's arc (b1Stations): the same samples - and readings - whichever way the strand is
+    // walked and wherever a gate cuts it (the mesh gate cuts strands at its 3x3 ring, this one at a chain's ends)
+    const cand = b1Stations(pts, keep, C, Ltot, step, H, p => wayOff[p.e] + p.s, p => E[p.e].wayId);
     if (!cand.length) return;
-    cand.sort((a, b) => a - b);
     const b1 = [];
     const xs = new Float64Array(2 * nH + 1), zs = new Float64Array(2 * nH + 1);
     let last = -1, hint = 0, wlo = 0;
     for (const a of cand) {
-      if (Math.abs(a - last) < 1e-6) continue;
-      if (last >= 0 && a - last > step * 1.5) b1.push({ gap: true });
+      if (Number.isNaN(a)) { if (last >= 0) b1.push({ gap: true }); last = -1; continue; }   // between two windows
+      if (last >= 0 && Math.abs(a - last) < 1e-6) continue;
       last = a;
       let exempt = false;
       for (let j = -nH; j <= nH; j++) {
         const p = pointAtArc(pts, keep, C, a + j * step, hint);
         if (j === -nH) hint = p.i;
         xs[j + nH] = p.x; zs[j + nH] = p.z;
-        const src = pts[keep[p.i]];
-        if (src.x3 || src.gore) exempt = true;
+        // exempt where the line it samples is: on a vertex, that vertex; inside a segment, both its ends (review 8:
+        // the segment's START alone made a window exempt walked one way and judged walked the other)
+        const q0 = pts[keep[p.i]], q1 = pts[keep[Math.min(p.i + 1, keep.length - 1)]];
+        const x0 = !!(q0.x3 || q0.gore), x1 = !!(q1.x3 || q1.gore);
+        if (p.t <= 0 ? x0 : p.t >= 1 ? x1 : x0 && x1) exempt = true;
       }
       const centre = pointAtArc(pts, keep, C, a, hint), src = pts[keep[centre.i]], nxt = pts[keep[Math.min(centre.i + 1, keep.length - 1)]];
-      // the sample's own (edge, s): interpolated along its segment (a kept segment can be tens of metres long)
-      const sE = src.e === nxt.e ? src.e : centre.t < 0.5 ? src.e : nxt.e;
-      const sS = src.e === nxt.e ? src.s + (nxt.s - src.s) * centre.t : centre.t < 0.5 ? src.s : nxt.s;
+      // the sample's own (edge, s): interpolated along its segment (a kept segment can be tens of metres long); its
+      // side and name from the nearer end (a ribbon edge's side flips at a joint the chain runs backwards)
+      // (a station at the midpoint of a segment between two ways - the fallback - is a tie: the firstEnd end)
+      const near = centre.t < 0.5 - 1e-9 ? src : centre.t > 0.5 + 1e-9 ? nxt : firstEnd(src, nxt) ? src : nxt;
+      const sE = src.e === nxt.e ? src.e : near.e;
+      const sS = src.e === nxt.e ? src.s + (nxt.s - src.s) * centre.t : near.s;
       if (exempt) { b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: 0, bad: false }); continue; }
       // prefilter: every vertex of the window within V/2 of the window's chord -> the fit leaves < V
       const cx = xs[2 * nH] - xs[0], cz = zs[2 * nH] - zs[0], cl = Math.hypot(cx, cz) || 1;
@@ -924,7 +1031,7 @@ export function runGate(S, R, layouts, opts = {}) {
         dev = Math.max(dev, Math.abs(((p.x - xs[0]) * cz - (p.z - zs[0]) * cx) / cl));
       }
       const res = dev < V / 2 ? 0 : kasaResidual(xs, zs, nH);
-      b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side, lid: sE === src.e ? src.lid : nxt.lid });
+      b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: res, bad: res > V, span: near.span ?? near.sec, side: near.side, lid: near.lid });
     }
     emitRuns('B1', lineId, b1, V, { kind });
   }
@@ -949,7 +1056,7 @@ export function runGate(S, R, layouts, opts = {}) {
                    what: 'stub', reportOnly: 'a truncated dash under 1 m at a mouth or gore: report-only until WP-17', span: q.span });
     };
     for (let pi = 0; pi < pieces.length; pi++) {
-      const pts = pieces[pi].pts;
+      const pts = pieces[pi].pts, prevLast = pi > 0 ? pieces[pi - 1].pts.at(-1) : null;
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i];
         const segL = Math.hypot(b.x - a.x, b.z - a.z);
@@ -965,7 +1072,10 @@ export function runGate(S, R, layouts, opts = {}) {
           const tm = (ts[k - 1] + ts[k]) / 2, on = onAt(v0 + (v1 - v0) * tm), dl = segL * (ts[k] - ts[k - 1]);
           if (dl < 1e-9) continue;
           if (state !== on) {
-            const at = { x: a.x + (b.x - a.x) * ts[k - 1], z: a.z + (b.z - a.z) * ts[k - 1], e: a.e, s: a.s + (b.s - a.s) * ts[k - 1], span: b.span, lid: a.lid };
+            let at = { x: a.x + (b.x - a.x) * ts[k - 1], z: a.z + (b.z - a.z) * ts[k - 1], e: a.e, s: a.s + (b.s - a.s) * ts[k - 1], span: b.span, lid: a.lid };
+            // at the joint between two pieces: the joint's firstEnd point (review 8: a dash or gap ending at a joint was
+            // named after the piece the walk reached it on - e11484 one way, e1904 the other)
+            if (prevLast && i === 1 && k === 1 && firstEnd(prevLast, a)) at = { x: prevLast.x, z: prevLast.z, e: prevLast.e, s: prevLast.s, span: prevLast.span, lid: prevLast.lid };
             close(at, false);
             truncatedStart = state === null; state = on; len = 0; start = at;
           }
@@ -1067,7 +1177,7 @@ export function runGate(S, R, layouts, opts = {}) {
         const pa = a.pts[a.pts.length - 1], pb = b.pts[0], d = Math.hypot(pa.x - pb.x, pa.z - pb.z);
         if (d <= R.MatchM) pairs.push({ a, b, d });
       }
-      pairs.sort((p, q) => p.d - q.d);
+      pairs.sort((p, q) => p.d - q.d || pairOrder(p, q));
       for (const { a, b, d } of pairs) {
         if (a.next || b.prev) continue;
         a.next = b; b.prev = a;

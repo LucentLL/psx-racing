@@ -155,7 +155,139 @@ namespace PSXRacing.EditorTools
                 else for (int t = fa.triStart; t < fa.triStart + 3 * fa.triCount; t += 3) rec.tris.Add((W(st[t]), W(st[t + 1]), W(st[t + 2])));
                 f.fans.Add(rec);
             }
+            if (tapDump != null) DumpFrag(f);
             return f;
+        }
+
+        // ================================================================
+        //  The agreement instruments (FULL only; Docs/CHARLOTTE.md, "Smoothness
+        //  gate"): what the two gates were given, and what each read where the
+        //  other found a run. tools/city/gatecmp.mjs reads both.
+        // ================================================================
+
+        /// <summary>PSX_SMOOTH_TAPDUMP=&lt;file&gt;: every tile's tap, gzipped:
+        /// 'TAP1', then per tile (tx, tz, spans, gores, fans) and each ribbon
+        /// or gore quad as (edge, sA, sB, flagsA, flagsB, AL BL BR AR in x, z
+        /// from the tile's corner as floats, U at the four corners, the four
+        /// heights), each fan as (node, corners, mouths, corners' x, z from the
+        /// tile's corner and height). ('TAP2'.) The
+        /// builder's own sections and flags, tile by tile - so a run one gate
+        /// has and the other lacks can be put down to what each was GIVEN at
+        /// its own sections (the replica's flags and positions there), not to
+        /// what lies near it.</summary>
+        static BinaryWriter tapDump;
+        static void DumpFrag(Frag f)
+        {
+            var w = tapDump;
+            double ox = f.tx * (double)CityMeshes.TileSize, oz = f.tz * (double)CityMeshes.TileSize;
+            w.Write(f.tx); w.Write(f.tz); w.Write(f.quads.Count); w.Write(f.gores.Count); w.Write(f.fans.Count);
+            foreach (var list in new[] { f.quads, f.gores })
+                foreach (var q in list)
+                {
+                    w.Write(q.edge); w.Write(q.sA); w.Write(q.sB); w.Write(q.fA); w.Write(q.fB);
+                    foreach (var v in new[] { q.AL, q.BL, q.BR, q.AR }) { w.Write((float)(v.x - ox)); w.Write((float)(v.z - oz)); }
+                    w.Write(q.uAL.x); w.Write(q.uBL.x); w.Write(q.uBR.x); w.Write(q.uAR.x);
+                    foreach (var v in new[] { q.AL, q.BL, q.BR, q.AR }) w.Write((float)v.y);
+                }
+            foreach (var fa in f.fans)
+            {
+                w.Write(fa.node); w.Write(fa.corners.Length); w.Write(fa.mouths);
+                foreach (var c in fa.corners) { w.Write((float)(c.x - ox)); w.Write((float)(c.z - oz)); w.Write((float)c.y); }
+            }
+        }
+
+        /// <summary>PSX_SMOOTH_TRACE=&lt;csv&gt; (idx,check,edge,line,s0,s1:
+        /// the OTHER gate's runs, from tools/city/gatecmp.mjs): this gate's
+        /// highest reading at each, as a ratio to the check's limit, on the same
+        /// edge within [s0, s1], on the same line (maxE) and the same line class
+        /// (maxC: the offset dropped), and how many samples it took there (nE,
+        /// nC); written to PSX_SMOOTH_TRACE_OUT (idx,maxE,nE,maxC,nC).
+        /// linecheck.mjs --trace is the same instrument offline.</summary>
+        sealed class TraceAt { public int idx; public string line, cls; public double s0, s1, maxE = -1, maxC = -1; public int nE, nC; }
+        static Dictionary<long, List<TraceAt>> trace;
+        static readonly Dictionary<string, int> checkIx = new Dictionary<string, int>();
+        static long TraceKey(int ci, int e) => ((long)ci << 32) | (uint)e;
+        /// <summary>A line id without its offset ('CYs+0.12' -> 'CYs'; linegate.mjs lineClass).</summary>
+        static string LineClass(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "";
+            int i = id.Length;
+            while (i > 0 && (char.IsDigit(id[i - 1]) || id[i - 1] == '.')) i--;
+            return i < id.Length && i > 0 && (id[i - 1] == '+' || id[i - 1] == '-') ? id.Substring(0, i - 1) : id;
+        }
+        static double LimitOf(string check) => check == "A4" ? SmoothRules.LineWidthTol : check == "A5" || check == "A5b" ? SmoothRules.StrayM
+            : check == "C1" ? SmoothRules.GapM : check == "C2" ? 1 : check == "C3" ? SmoothRules.DashTol : check == "D1" ? SmoothRules.CrossM
+            : check == "B4s" ? SmoothRules.SeamM : V;
+        static void TraceSample(string check, string kind, int e, double s, double val, double rl, char side, string lid)
+        {
+            if (!checkIx.TryGetValue(check, out int ci) || !trace.TryGetValue(TraceKey(ci, e), out var list)) return;
+            string line = kind == "edge" && (side == 'L' || side == 'R') ? "R" + side : lid, cls = null;
+            double r = check == "B3" ? (rl > 0 && val > 0 ? rl / val : 0) : Math.Abs(val) / LimitOf(check);
+            foreach (var t in list)
+            {
+                if (s < t.s0 || s > t.s1) continue;
+                if (line == t.line) { t.nE++; if (r > t.maxE) t.maxE = r; }
+                cls ??= LineClass(line);
+                if (cls == t.cls) { t.nC++; if (r > t.maxC) t.maxC = r; }
+            }
+        }
+        /// <summary>PSX_SMOOTH_STRANDS=&lt;file of edge ids&gt;: every strand through
+        /// those edges as the shape checks see it - each kept vertex's edge, s,
+        /// x, z, exemption and B2 score - to PSX_SMOOTH_STRANDS_OUT, once per
+        /// analysing tile (linecheck --strands is the same dump offline): where
+        /// two gates given the same sections read a line differently, the two
+        /// polylines say why.</summary>
+        static HashSet<int> strandEdges;
+        static StreamWriter strandDump;
+        static void DumpStrand(string kind, string lineId, List<Pt> pts, List<int> keep, double[] K2)
+        {
+            bool any = false;
+            foreach (int i in keep) if (strandEdges.Contains(pts[i].e)) { any = true; break; }
+            if (!any) return;
+            var w = strandDump;
+            w.Write("S "); w.Write(kind); w.Write(' '); w.Write(lineId); w.Write(" tile "); w.Write(curTile >> 32); w.Write(','); w.Write((int)curTile); w.Write(" n "); w.Write(keep.Count); w.Write('\n');
+            for (int m = 0; m < keep.Count; m++)
+            {
+                var p = pts[keep[m]];
+                w.Write(p.e); w.Write(' '); w.Write(p.s.ToString("0.####", Inv)); w.Write(' '); w.Write(p.x.ToString("0.#####", Inv)); w.Write(' '); w.Write(p.z.ToString("0.#####", Inv));
+                w.Write(' '); w.Write(p.x3 || p.gore ? 1 : 0); w.Write(' '); w.Write(K2[m].ToString("0.#####", Inv)); w.Write('\n');
+            }
+        }
+        static void TraceBegin()
+        {
+            trace = null;
+            string path = Environment.GetEnvironmentVariable("PSX_SMOOTH_TRACE");
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            checkIx.Clear();
+            for (int i = 0; i < CheckOrder.Length; i++) checkIx[CheckOrder[i]] = i;
+            trace = new Dictionary<long, List<TraceAt>>();
+            var intern = new Dictionary<string, string>();
+            string In(string x) { if (!intern.TryGetValue(x, out var y)) intern[x] = y = x; return y; }
+            int n = 0;
+            foreach (var l in File.ReadLines(path))
+            {
+                if (n++ == 0 || l.Length == 0) continue;
+                var f = l.Split(',');
+                if (f.Length < 6 || !checkIx.TryGetValue(f[1], out int ci)) continue;
+                long k = TraceKey(ci, int.Parse(f[2], Inv));
+                if (!trace.TryGetValue(k, out var list)) trace[k] = list = new List<TraceAt>(2);
+                list.Add(new TraceAt { idx = int.Parse(f[0], Inv), line = In(f[3]), cls = In(LineClass(f[3])), s0 = double.Parse(f[4], Inv), s1 = double.Parse(f[5], Inv) });
+            }
+            Debug.Log($"[CitySmooth] tracing {n - 1} places of the other gate's runs ({path})");
+        }
+        static void TraceEnd()
+        {
+            if (trace == null) return;
+            string path = Environment.GetEnvironmentVariable("PSX_SMOOTH_TRACE_OUT");
+            if (string.IsNullOrEmpty(path)) path = Environment.GetEnvironmentVariable("PSX_SMOOTH_TRACE") + ".out.csv";
+            var all = new List<TraceAt>();
+            foreach (var l in trace.Values) all.AddRange(l);
+            all.Sort((a, b) => a.idx.CompareTo(b.idx));
+            var sb = new StringBuilder("idx,maxE,nE,maxC,nC\n");
+            foreach (var t in all) sb.Append(t.idx).Append(',').Append(t.maxE.ToString("0.#####", Inv)).Append(',').Append(t.nE).Append(',').Append(t.maxC.ToString("0.#####", Inv)).Append(',').Append(t.nC).Append('\n');
+            File.WriteAllText(path, sb.ToString());
+            Debug.Log($"[CitySmooth] traced {all.Count} places to {path}");
+            trace = null;
         }
 
         /// <summary>A gore quad in (A.out, B.out, B.in, A.in) order, as the
@@ -602,16 +734,7 @@ namespace PSXRacing.EditorTools
             if (rf.bad == null)
             {
                 rf.bad = new List<double>();
-                var keep = new List<int> { 0 };
-                double lim = SmoothRules.CollinearDeg / Deg;
-                for (int i = 1; i + 1 < rf.X.Length; i++)
-                {
-                    int a = keep[keep.Count - 1];
-                    if (Math.Abs(rf.X[i] - rf.X[a]) + Math.Abs(rf.Z[i] - rf.Z[a]) < 1e-3 || Math.Abs(rf.X[i + 1] - rf.X[i]) + Math.Abs(rf.Z[i + 1] - rf.Z[i]) < 1e-3) continue;
-                    if (Math.Abs(Turn(rf.X[a], rf.Z[a], rf.X[i], rf.Z[i], rf.X[i + 1], rf.Z[i + 1])) < lim) continue;
-                    keep.Add(i);
-                }
-                if (rf.X.Length > 1) keep.Add(rf.X.Length - 1);
+                var keep = KeepIdx(rf.X.Length, i => rf.X[i], i => rf.Z[i]);
                 int n = keep.Count;
                 var KX = new double[n]; var KZ = new double[n]; var C = new double[n]; var TH = new double[n];
                 for (int m = 0; m < n; m++)
@@ -657,6 +780,7 @@ namespace PSXRacing.EditorTools
             public void Gap() { Close(); px = double.NaN; }
             public void Push(double x, double y, double z, int e, double s, double val, bool bad, char tag = ' ', int span = -1, char side = ' ', string what = null, string lid = null, double rl = 0)
             {
+                if (trace != null) TraceSample(check, kind, e, s, val, rl > 0 ? rl : rLimit, side, lid ?? lineId);
                 if (!double.IsNaN(px)) arc += Math.Sqrt((x - px) * (x - px) + (z - pz) * (z - pz));
                 px = x; pz = z;
                 if (!bad) { Close(); return; }
@@ -675,7 +799,9 @@ namespace PSXRacing.EditorTools
                     cur.bl[nb - 1] += inc;
                     if (lid != null && (cur.bn[nb - 1] == null || string.CompareOrdinal(lid, cur.bn[nb - 1]) < 0)) cur.bn[nb - 1] = lid;
                 }
-                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); cur.bs.Add(side); cur.bn.Add(lid); cur.br.Add(rl); }
+                // the arc from the previous bad sample: half to its bucket, half to this one's (all of it to this one's
+                // made a key's bad length depend on which way the line was walked - review 8)
+                else { if (nb > 0) cur.bl[nb - 1] += inc / 2; cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(nb > 0 ? inc / 2 : inc); cur.bs.Add(side); cur.bn.Add(lid); cur.br.Add(rl); }
                 if (Worse(val, rl, cur.val, cur.rLimit))
                 { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; cur.what = what; if (lid != null) cur.lineId = lid; if (rl > 0) cur.rLimit = rl; }
             }
@@ -710,6 +836,26 @@ namespace PSXRacing.EditorTools
         /// then the lower edge, then the lower s - one run gets one key whichever
         /// way the chain runs (a chain starts here at the first edge of a tile's
         /// ring, in linegate.mjs at its lowest edge). linegate.mjs firstEnd.</summary>
+        /// <summary>Two candidate joint pairs at the same distance, ordered by
+        /// their end points (the FirstEnd one first, then the other), so the
+        /// pairing does not depend on the order the chain's walk met the pieces
+        /// (linegate.mjs pairOrder).</summary>
+        static int PtOrder(Pt p, Pt q)
+        {
+            uint wp = map.edges[p.e].wayId, wq = map.edges[q.e].wayId;
+            if (wp != wq) return wp.CompareTo(wq);
+            if (p.e != q.e) return p.e.CompareTo(q.e);
+            if (p.s != q.s) return p.s.CompareTo(q.s);
+            if (p.x != q.x) return p.x.CompareTo(q.x);
+            return p.z.CompareTo(q.z);
+        }
+        static int PairOrder(PieceRef a1, PieceRef b1, PieceRef a2, PieceRef b2)
+        {
+            (Pt, Pt) Ends(PieceRef a, PieceRef b) { var u = a.pts[a.pts.Count - 1]; var w = b.pts[0]; return PtOrder(u, w) <= 0 ? (u, w) : (w, u); }
+            var (p1, q1) = Ends(a1, b1); var (p2, q2) = Ends(a2, b2);
+            int c = PtOrder(p1, p2);
+            return c != 0 ? c : PtOrder(q1, q2);
+        }
         static bool FirstEnd(Pt p, Pt q)
         {
             uint wp = map.edges[p.e].wayId, wq = map.edges[q.e].wayId;
@@ -1294,8 +1440,10 @@ namespace PSXRacing.EditorTools
                             bA5.Push(x, y, z, e.index, s, Math.Min(dmin, 10), dmin > SmoothRules.StrayM, tag, span);
                             var (owner, depth) = grid.Under(x, y, z, chainSet);
                             bool cross = depth > SmoothRules.CrossM, mz = cross && MergeZoneAt(e.index, s, owner, x, z);
-                            bD1.Push(x, y, z, e.index, s, depth, cross && !mz, tag, span);
-                            bD1m.Push(x, y, z, e.index, s, depth, cross && mz, tag, span);
+                            // what the paint is inside: another road's ribbon, a gore quad or a junction fan
+                            string into = !cross ? null : owner >= 0 ? "inside e" + owner : owner == -2 ? "inside a gore quad" : "inside the fan at node " + (-10 - owner);
+                            bD1.Push(x, y, z, e.index, s, depth, cross && !mz, tag, span, ' ', into);
+                            bD1m.Push(x, y, z, e.index, s, depth, cross && mz, tag, span, ' ', into);
                         }
                     }
                     bA1.Close(); bA4.Close(); bA5.Close(); bD1.Close(); bD1m.Close();
@@ -1441,17 +1589,8 @@ namespace PSXRacing.EditorTools
         static void ShapeChecks(string kind, string lineId, List<Pt> pts, Func<int, double> rLimitOf, int node = -1)
         {
             if (pts.Count < 3) return;
-            // drop collinear vertices and duplicates
-            var keep = new List<int> { 0 };
-            double lim = SmoothRules.CollinearDeg / Deg;
-            for (int i = 1; i + 1 < pts.Count; i++)
-            {
-                var a = pts[keep[keep.Count - 1]]; var b = pts[i]; var c = pts[i + 1];
-                if (Dist(a, b) < 1e-3 || Dist(b, c) < 1e-3) continue;
-                if (Math.Abs(Turn(a.x, a.z, b.x, b.z, c.x, c.z)) < lim) continue;
-                keep.Add(i);
-            }
-            keep.Add(pts.Count - 1);
+            // drop duplicates and collinear vertices, the same whichever way the strand is walked (KeepIdx)
+            var keep = KeepIdx(pts.Count, i => pts[i].x, i => pts[i].z);
             if (keep.Count < 3) return;
             var C = new double[keep.Count];
             for (int m = 1; m < keep.Count; m++) C[m] = C[m - 1] + Dist(pts[keep[m - 1]], pts[keep[m]]);
@@ -1474,6 +1613,7 @@ namespace PSXRacing.EditorTools
             double hwMax = 0;
             if (kind == "edge" || kind == "paint") foreach (int i in keep) if (map.edges[pts[i].e].width * 0.5 > hwMax) hwMax = map.edges[pts[i].e].width * 0.5;
             var K2 = KinkScores(KX, KZ, C, TH, m => pts[keep[m]].x3 || pts[keep[m]].gore, out byte[] K2kind, out byte[] K2silent, hwMax);
+            if (strandDump != null) DumpStrand(kind, lineId, pts, keep, K2);
             var b2 = new RunBuilder("B2", lineId, kind) { node = node };
             for (int m = 1; m + 1 < keep.Count; m++)
             {
@@ -1504,23 +1644,18 @@ namespace PSXRacing.EditorTools
             }
             // B1 JITTER: 0.25 m samples within JitterHalfM of a kept vertex; Kasa (line fallback) over +-JitterHalfM
             double step = SmoothRules.JitterStepM, H = SmoothRules.JitterHalfM; int nH = (int)Math.Round(H / step);
-            // whole steps from the strand's MIDDLE, not from its start: the same samples - and readings - whichever
-            // way the strand is walked (linegate.mjs walks chains from their lowest edge, this gate from the first
-            // edge of a tile's ring)
-            double ph = (Ltot / 2) % step;
-            var cand = new List<double>();
-            for (int m = 1; m + 1 < keep.Count; m++)
-                for (double a = Math.Ceiling((C[m] - H - ph) / step) * step + ph; a <= C[m] + H + 1e-9; a += step)
-                    if (a >= H && a <= Ltot - H) cand.Add(a);
+            // stations anchored to the WAY's arc (B1Stations): the same samples - and readings - whichever way the
+            // strand is walked and wherever a gate cuts it (this gate cuts strands at its 3x3 ring, linegate.mjs at
+            // a chain's ends)
+            var cand = B1Stations(pts, keep, C, Ltot, step, H);
             if (cand.Count == 0) return;
-            cand.Sort();
             var b1 = new RunBuilder("B1", lineId, kind) { node = node };
             var xs = new double[2 * nH + 1]; var zs = new double[2 * nH + 1];
             double last = -1; int hint = 0, wlo = 0;
             foreach (double a in cand)
             {
-                if (Math.Abs(a - last) < 1e-6) continue;
-                if (last >= 0 && a - last > step * 1.5) b1.Gap();
+                if (double.IsNaN(a)) { if (last >= 0) b1.Gap(); last = -1; continue; }   // between two windows
+                if (last >= 0 && Math.Abs(a - last) < 1e-6) continue;
                 last = a;
                 bool exempt = false;
                 for (int j = -nH; j <= nH; j++)
@@ -1528,13 +1663,19 @@ namespace PSXRacing.EditorTools
                     var p = At(a + j * step, hint);
                     if (j == -nH) hint = p.i;
                     xs[j + nH] = p.x; zs[j + nH] = p.z;
-                    var src0 = pts[keep[p.i]];
-                    if (src0.x3 || src0.gore) exempt = true;
+                    // exempt where the line it samples is: on a vertex, that vertex; inside a segment, both its ends
+                    // (review 8: the segment's START alone made a window exempt walked one way and judged the other)
+                    var q0 = pts[keep[p.i]]; var q1 = pts[keep[Math.Min(p.i + 1, keep.Count - 1)]];
+                    bool x0 = q0.x3 || q0.gore, x1 = q1.x3 || q1.gore;
+                    if (p.t <= 0 ? x0 : p.t >= 1 ? x1 : x0 && x1) exempt = true;
                 }
                 var cen = At(a, hint); var src = pts[keep[cen.i]]; var nxt = pts[keep[Math.Min(cen.i + 1, keep.Count - 1)]];
-                // the sample's own (edge, s): interpolated along its segment (a kept segment can be tens of metres long)
-                int sE = src.e == nxt.e ? src.e : cen.t < 0.5 ? src.e : nxt.e;
-                double sS = src.e == nxt.e ? src.s + (nxt.s - src.s) * cen.t : cen.t < 0.5 ? src.s : nxt.s;
+                // the sample's own (edge, s): interpolated along its segment (a kept segment can be tens of metres long);
+                // its side and name from the nearer end (a ribbon edge's side flips at a joint the chain runs backwards)
+                // (a station at the midpoint of a segment between two ways - the fallback - is a tie: the FirstEnd end)
+                var near = cen.t < 0.5 - 1e-9 ? src : cen.t > 0.5 + 1e-9 ? nxt : FirstEnd(src, nxt) ? src : nxt;
+                int sE = src.e == nxt.e ? src.e : near.e;
+                double sS = src.e == nxt.e ? src.s + (nxt.s - src.s) * cen.t : near.s;
                 if (exempt) { b1.Push(cen.x, src.y, cen.z, sE, sS, 0, false); continue; }
                 double cxx = xs[2 * nH] - xs[0], czz = zs[2 * nH] - zs[0], cl = Math.Sqrt(cxx * cxx + czz * czz); if (cl < 1e-9) cl = 1;
                 double dev = 0;
@@ -1545,11 +1686,116 @@ namespace PSXRacing.EditorTools
                     dev = Math.Max(dev, Math.Abs(((p.x - xs[0]) * czz - (p.z - zs[0]) * cxx) / cl));
                 }
                 double res = dev < V / 2 ? 0 : KasaResidual(xs, zs, nH);
-                b1.Push(cen.x, src.y, cen.z, sE, sS, res, res > V, src.tag, src.span, src.side, null, sE == src.e ? src.lid : nxt.lid);
+                b1.Push(cen.x, src.y, cen.z, sE, sS, res, res > V, near.tag, near.span, near.side, null, near.lid);
             }
             b1.Close();
         }
         static double Dist(Pt a, Pt b) => Math.Sqrt((a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z));
+
+        /// <summary>The vertices the shape checks keep (linegate.mjs keepIdx is
+        /// the same code), the SAME whichever way a strand is walked (review 8:
+        /// dropped relative to the last kept vertex, a walk from each end kept
+        /// different vertices, and the two gates walk strands from different
+        /// ends): a run of vertices each within 1 mm of the next is one vertex,
+        /// the one with the smallest (x, z); a vertex is kept when the collinear
+        /// walk from EITHER end keeps it (its turn from that walk's last kept
+        /// vertex to the next is at least CollinearDeg); both ends are kept.</summary>
+        static List<int> KeepIdx(int n, Func<int, double> X, Func<int, double> Z)
+        {
+            var rep = new List<int>();
+            if (n == 0) return rep;
+            double D(int a, int b) => Math.Sqrt((X(b) - X(a)) * (X(b) - X(a)) + (Z(b) - Z(a)) * (Z(b) - Z(a)));
+            for (int i = 0; i < n;)
+            {
+                int j = i, best = i;
+                while (j + 1 < n && D(j, j + 1) < 1e-3)
+                {
+                    j++;
+                    if (X(j) < X(best) || (X(j) == X(best) && Z(j) < Z(best))) best = j;
+                }
+                rep.Add(best); i = j + 1;
+            }
+            int m = rep.Count;
+            if (m <= 2) return rep;
+            double lim = SmoothRules.CollinearDeg / Deg;
+            var mark = new bool[m];
+            mark[0] = true; mark[m - 1] = true;
+            for (int a = 0, k = 1; k + 1 < m; k++)
+            {
+                int A = rep[a], B = rep[k], Cn = rep[k + 1];
+                if (D(A, B) < 1e-3) continue;
+                if (Math.Abs(Turn(X(A), Z(A), X(B), Z(B), X(Cn), Z(Cn))) < lim) continue;
+                mark[k] = true; a = k;
+            }
+            for (int a = m - 1, k = m - 2; k > 0; k--)
+            {
+                int A = rep[a], B = rep[k], Cn = rep[k - 1];
+                if (D(A, B) < 1e-3) continue;
+                if (Math.Abs(Turn(X(A), Z(A), X(B), Z(B), X(Cn), Z(Cn))) < lim) continue;
+                mark[k] = true; a = k;
+            }
+            var keep = new List<int>();
+            for (int k = 0; k < m; k++) if (mark[k]) keep.Add(rep[k]);
+            return keep;
+        }
+
+        /// <summary>B1's sample stations on one strand, as sorted strand arcs
+        /// with NaN between two windows that do not meet (linegate.mjs
+        /// b1Stations is the same code). A window is +-H about each kept
+        /// interior vertex, clipped to [H, Ltot - H]; windows closer than a step
+        /// merge. Inside a window a station stands where the line's own way arc
+        /// (wayOff + s, the arc the ratchet keys are rounded on) is a whole
+        /// number of steps and a half (never on a 5 m key boundary, where a
+        /// sample's float s put it in one bucket walked one way and the next
+        /// walked the other), interpolated along each kept segment - so a place is
+        /// sampled the same whichever way a strand is walked and wherever it was
+        /// cut (anchored to the strand's middle, as before, the two gates read B1
+        /// at a different phase wherever they cut a strand differently). A kept
+        /// segment that crosses to another way, or along which the way's arc
+        /// does not advance about as fast as the line (a fan's perimeter, a
+        /// branching way's jump), is stepped from its own midpoint instead.</summary>
+        static List<double> B1Stations(List<Pt> pts, List<int> keep, double[] C, double Ltot, double step, double H)
+        {
+            int n = keep.Count;
+            var W = new double[n]; var Wy = new uint[n];
+            for (int m = 0; m < n; m++) { var p = pts[keep[m]]; W[m] = wayOff[p.e] + p.s; Wy[m] = map.edges[p.e].wayId; }
+            var outp = new List<double>();
+            double lo = 0, hi = -1; int seg = 0;
+            void Flush()
+            {
+                if (hi < lo) return;
+                if (outp.Count > 0) outp.Add(double.NaN);
+                while (seg > 0 && C[seg] > lo) seg--;
+                for (int m = seg; m + 1 < n && C[m] <= hi; m++)
+                {
+                    double a0 = C[m], a1 = C[m + 1], L = a1 - a0;
+                    if (a1 < lo || L < 1e-9) continue;
+                    seg = m;
+                    double x0 = Math.Max(lo, a0), x1 = Math.Min(hi, a1), dw = W[m + 1] - W[m], adw = Math.Abs(dw);
+                    if (Wy[m] == Wy[m + 1] && adw >= 0.2 * L && adw <= 5 * L + 0.5 && adw > 1e-6)
+                    {
+                        double w0 = W[m] + (x0 - a0) / L * dw, w1 = W[m] + (x1 - a0) / L * dw;
+                        double k0 = Math.Ceiling(Math.Min(w0, w1) / step - 0.5 - 1e-9), k1 = Math.Floor(Math.Max(w0, w1) / step - 0.5 + 1e-9);
+                        if (dw > 0) for (double k = k0; k <= k1; k++) outp.Add(a0 + ((k + 0.5) * step - W[m]) / dw * L);
+                        else for (double k = k1; k >= k0; k--) outp.Add(a0 + ((k + 0.5) * step - W[m]) / dw * L);
+                    }
+                    else
+                    {
+                        double mid = (a0 + a1) / 2, k0 = Math.Ceiling((x0 - mid) / step - 1e-9), k1 = Math.Floor((x1 - mid) / step + 1e-9);
+                        for (double k = k0; k <= k1; k++) outp.Add(mid + k * step);
+                    }
+                }
+            }
+            for (int m = 1; m + 1 < n; m++)
+            {
+                double a = Math.Max(C[m] - H, H), b = Math.Min(C[m] + H, Ltot - H);
+                if (b < a) continue;
+                if (hi >= lo && a <= hi + step) { if (b > hi) hi = b; continue; }
+                Flush(); lo = a; hi = b;
+            }
+            Flush();
+            return outp;
+        }
 
         /// <summary>B2's chord at kept vertex m (tools/city/lib/kink.mjs
         /// kinkChord): the arc to the nearest kept vertex on each side where the
@@ -2479,7 +2725,9 @@ namespace PSXRacing.EditorTools
                                    e0 = start.e, s0 = start.s, e1 = endPt.e, s1 = endPt.s, what = "stub", reportOnly = "a truncated dash under 1 m at a mouth or gore: report-only until WP-17", span = q.span });
             }
             var ts = new List<double>(8);
-            foreach (var pts in pieces)
+            for (int pi = 0; pi < pieces.Count; pi++)
+            {
+                var pts = pieces[pi]; bool joint = pi > 0; Pt prevLast = joint ? pieces[pi - 1][pieces[pi - 1].Count - 1] : default;
                 for (int i = 1; i < pts.Count; i++)
                 {
                     var a = pts[i - 1]; var b = pts[i];
@@ -2498,12 +2746,17 @@ namespace PSXRacing.EditorTools
                         if (state != on)
                         {
                             var at = new Pt { x = a.x + (b.x - a.x) * ts[k - 1], y = a.y + (b.y - a.y) * ts[k - 1], z = a.z + (b.z - a.z) * ts[k - 1], e = a.e, s = a.s + (b.s - a.s) * ts[k - 1], span = b.span, lid = a.lid };
+                            // at the joint between two pieces: the joint's FirstEnd point (review 8: a dash or gap ending at
+                            // a joint was named after the piece the walk reached it on - e11484 one way, e1904 the other)
+                            if (joint && i == 1 && k == 1 && FirstEnd(prevLast, a))
+                                at = new Pt { x = prevLast.x, y = prevLast.y, z = prevLast.z, e = prevLast.e, s = prevLast.s, span = prevLast.span, lid = prevLast.lid };
                             CloseRun(at, false);
                             truncatedStart = state < 0; state = on; len = 0; start = at;
                         }
                         len += dl;
                     }
                 }
+            }
             var lastPiece = pieces[pieces.Count - 1];
             CloseRun(lastPiece[lastPiece.Count - 1], true);
         }
@@ -2638,7 +2891,7 @@ namespace PSXRacing.EditorTools
                                 double d = Dist(a.pts[a.pts.Count - 1], b.pts[0]);
                                 if (d <= SmoothRules.MatchM) pairs.Add((a, b, d));
                             }
-                pairs.Sort((p, q) => p.d.CompareTo(q.d));
+                pairs.Sort((p, q) => p.d != q.d ? p.d.CompareTo(q.d) : PairOrder(p.a, p.b, q.a, q.b));
                 foreach (var (a, b, d) in pairs)
                 {
                     if (a.next != null || b.prev != null) continue;
@@ -3035,14 +3288,15 @@ namespace PSXRacing.EditorTools
             if (textureNotes.Count > 0) foreach (var n in textureNotes) sb.AppendLine("  TEXTURE " + n);
             File.WriteAllText(Path.Combine(root, "city_smooth.txt"), sb.ToString());
             // every run
-            var csv = new StringBuilder("check,lineId,key,way,edge,name,s,s0,s1,len,val,ratio,x,y,z,cause,data,pinned,reportOnly,what\n");
+            var csv = new StringBuilder("check,lineId,key,way,edge,name,s,s0,s1,len,val,ratio,x,y,z,cause,data,pinned,reportOnly,what,e0,e1\n");
             foreach (var r in runs)
             {
                 var e = map.edges[r.e];
                 csv.Append(r.check).Append(',').Append(r.lineId).Append(',').Append(r.key).Append(',').Append(e.wayId).Append(',').Append(r.e).Append(",\"")
                    .Append((e.name ?? "").Replace("\"", "\"\"")).Append("\",").Append(F(r.s)).Append(',').Append(F(r.s0)).Append(',').Append(F(r.s1)).Append(',').Append(F(r.len)).Append(',')
                    .Append(F(r.val)).Append(',').Append(F(r.ratio)).Append(',').Append(F(r.x)).Append(',').Append(F(r.y)).Append(',').Append(F(r.z)).Append(',').Append(r.cause).Append(',').Append(r.data)
-                   .Append(',').Append(r.pinned ? 1 : 0).Append(",\"").Append(r.reportOnly ?? "").Append("\",\"").Append(r.what ?? "").Append("\"\n");
+                   .Append(',').Append(r.pinned ? 1 : 0).Append(",\"").Append(r.reportOnly ?? "").Append("\",\"").Append(r.what ?? "").Append("\",")
+                   .Append(r.e0).Append(',').Append(r.e1).Append('\n');
             }
             File.WriteAllText(Path.Combine(root, "city_smooth.csv"), csv.ToString());
             // the worst N with what SHOTS needs
@@ -3637,11 +3891,28 @@ namespace PSXRacing.EditorTools
                 var t = CityMeshes.NodeTrims(m);
                 Setup(m, t);
                 var buildings = CityBuildings.Precompute(m);
+                string dumpPath = Environment.GetEnvironmentVariable("PSX_SMOOTH_TAPDUMP");
+                if (!string.IsNullOrEmpty(dumpPath))
+                {
+                    tapDump = new BinaryWriter(new GZipStream(File.Create(dumpPath), System.IO.Compression.CompressionLevel.Fastest));
+                    tapDump.Write(0x32504154);   // 'TAP2': TAP1 with heights
+                }
+                TraceBegin();
+                string se = Environment.GetEnvironmentVariable("PSX_SMOOTH_STRANDS"), so = Environment.GetEnvironmentVariable("PSX_SMOOTH_STRANDS_OUT");
+                if (!string.IsNullOrEmpty(se) && File.Exists(se) && !string.IsNullOrEmpty(so))
+                {
+                    strandEdges = new HashSet<int>();
+                    foreach (var l in File.ReadAllLines(se)) if (int.TryParse(l.Trim(), out int ei)) strandEdges.Add(ei);
+                    strandDump = new StreamWriter(so);
+                }
                 RasterPass(RoadTiles(), buildings, true);
+                if (strandDump != null) { strandDump.Dispose(); strandDump = null; Debug.Log("[CitySmooth] strands dumped to " + so); }
+                if (tapDump != null) { tapDump.Dispose(); tapDump = null; Debug.Log("[CitySmooth] tap dumped to " + dumpPath); }
+                TraceEnd();
                 status = Report(l => Debug.Log("[CitySmooth] " + l), (pass, what, detail) => Debug.Log($"[CitySmooth] {(pass ? "ok  " : "FAIL")} {what} - {detail}"));
             }
             catch (Exception ex) { Debug.LogException(ex); }
-            finally { collecting = false; CityMeshes.RecordTap = false; frags.Clear(); refCache.Clear(); }
+            finally { collecting = false; CityMeshes.RecordTap = false; frags.Clear(); refCache.Clear(); tapDump?.Dispose(); tapDump = null; trace = null; strandDump?.Dispose(); strandDump = null; }
             // 0 PASS, 1 FAIL (a STALE baseline fails too, until -WriteBaseline re-records it); a report-only cycle never fails
             if (Application.isBatchMode) EditorApplication.Exit(status == 0 || (SmoothRules.ReportOnly && status == 1) ? 0 : status);
         }

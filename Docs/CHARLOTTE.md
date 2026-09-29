@@ -867,7 +867,7 @@ in OSM).
   **a disagreement is a gate bug**, fixed before anything else. Only the mesh
   gate sees tile seams, fans and heights. linecheck's replica follows the
   builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
-  same commit. `node tools/city/gateprobes.mjs` runs 229 synthetic probes with
+  same commit. `node tools/city/gateprobes.mjs` runs 230 synthetic probes with
   known answers (split kinks, legitimate fillets and S-bends, a kink behind a
   sub-V step, bend fans, attach arcs, straight roads, hedged corners, notches,
   jogs of every width, bumps and zigzags, waves, jogs into a fan mouth, legal
@@ -876,12 +876,50 @@ in OSM).
   in without a squeeze, features on a curve and the curves that are no
   features, the rules read as C# floats, one run one name whichever way a
   chain runs, B2 the same read backwards, B3 at each sample's own class,
+  B1 sampling the same places however a strand is cut (L4),
   hooks at a line's end, the ratchet, STALE, the gate's code and the
   pin in the fingerprint, the loosening refusal, the gate moving with the
   data, the builder replica as data); every review finding is one, and
   all must pass - `linecheck --ratchet` runs them. `metrics.mjs` gains a SMOOTH section: B2/B3 on
   the exported centreline and its offset curves, in half a second, as an
   early warning.
+- **The agreement instruments** (review 8: a disagreement is put down to a
+  mechanism AT THE RUN'S OWN SECTIONS, never to what lies near it).
+  `tools/city/gatecmp.mjs compare` matches the two gates' runs and puts every
+  run one has and the other lacks down to the first of: *design* (B4s, a
+  junction fan's perimeter, a bend fan's mouth or a bend fan inside the
+  check's window, D1 inside a gore quad or a fan: the mesh gate only);
+  *agrees* (the other gate reads 1x or more at the run's own place on the
+  same line: both fail, and cut or key the run differently); *ring* (the
+  window reaches the joint where linecheck cuts a closed ring, or lies on a
+  small ring both gates cut); *level* (D1: the replica's plan test of level
+  against the builder's heights); *input* (along the line and its chain for
+  the check's window - B1 2.25 m, B2 KinkViewM, B3 CurveHalfM, C3 a dash and
+  a gap, else 1 m - or, for D1, the other road: the builder's tap and the
+  replica differ in a clip, squeeze or collapse flag, the builder's per-tile
+  tables disagreeing with themselves, a section only one cuts, a ribbon
+  corner or U more than 1 mm apart, the surface); *threshold* (the same
+  input, the other gate reading 0.9-1x there and this one under 1.1x);
+  *kept* and *float* (B-checks, from the strand dumps: the same sections to 1
+  mm but different kept vertices; or the same kept vertices, and
+  `lib/kink.mjs` run on each gate's own coordinates reproduces each gate's
+  own B2 - a discrete step flipping on a sub-millimetre difference); else
+  UNEXPLAINED, a gate bug. What each gate was GIVEN comes from `city-smooth.ps1
+  -Mode FULL -TapDump <file.gz>` (`PSX_SMOOTH_TAPDUMP`: every tile's tap -
+  each ribbon quad's edge, arcs, flags, corners, U and heights, gore quads,
+  fans - gzipped, 'TAP2') against `linesim.mjs`'s sections; what each READ at
+  the other's runs from the traces: `gatecmp.mjs places <csv>` lists a gate's
+  runs (the RunBuilder checks: not the events B4, B4s, C1-C3), and `-Trace
+  <places> -TraceOut <reads>` (`PSX_SMOOTH_TRACE`) or `linecheck --trace
+  <places> --trace-out <reads>` records the other gate's highest ratio there
+  on the same line and line class; how each KEPT a strand from
+  `PSX_SMOOTH_STRANDS` / `linecheck --strands <edge list> --strands-out
+  <file>` (every strand through those edges: its kept vertices, exemptions and
+  B2 scores). The traces check themselves: linecheck traced at its own
+  946,005 runs reads each at or above its own ratio, and gatecmp reports how
+  many PARTNERED runs the other gate reads at 1x or more (99.95%). `linecheck
+  --reverse` reads every strand backwards: the ratchet against the forward
+  run's baseline passes, check for check (review 8's L5, city-wide).
 - **Modes.** FAST runs inside `CityAudit.Run` (the drive and roadside
   audits' tiles, the reference spots, one band of 1/12 of the road tiles:
   `PSX_SMOOTH_BAND`). It is OPT-IN (`PSX_SMOOTH_FAST=1`, which
@@ -966,7 +1004,14 @@ in OSM).
   (0e4e6f8), then the merge into `charlotte` re-recorded the data move alone
   (NAME, SPAN and R1's `citydata.mjs` in the replica; no key compared): A1
   100,817 -> 100,799 runs, B2 472,742 -> 472,778, B1 254,788 -> 254,777, the
-  rest within a few runs, every worst unchanged. The creek (ways 1078015030, 16671358,
+  rest within a few runs, every worst unchanged. Review 8's gate fixes (the
+  gate alone moved, on the same data) re-recorded both baselines with
+  --allow-loosen, the loosening listed in their commit: B1's re-phased and
+  de-biased stations and B2's symmetric kept vertices move keys both ways
+  (offline B1 254,431 -> 256,561 runs, worst 16.7x -> 17.4x; B2 473,247 ->
+  473,450), the joint pairing and naming fixes RENAME B4, C2 and C3 keys
+  (the run counts unchanged but C3's +2), and a key's bad length is now
+  split between the two buckets an arc joins. The creek (ways 1078015030, 16671358,
   1252904925) is pinned: any run there fails from the day its fix lands
   (`SmoothRules.PinActive`). A check goes to hard zero when the package named
   in its row of `SmoothRules.Checks` lands; nothing is ever loosened.
@@ -989,14 +1034,14 @@ in OSM).
   `PSX_SMOOTH_SPOTS` shoots. Every run is in `city_smooth.csv`.
 - **The first Unity run (2026-09-29, R4 prep; the R4 BEFORE).** On
   PSXCity after the merges of main (watch mode, the stage lane ladder,
-  Chimney Rock) and of this gate into R1's city. FAST (inside CityAudit,
-  band 8 of 12): 1,037 tiles, 445 km of ribbon, 126,202 runs in 112 s, CITY
-  AUDIT OK, the drive audit's five zeros still zero. FULL (every tile a
-  ribbon reaches): 10,311 tiles, 3,701 km of ribbon, 14,222 km of line,
-  323,618 strands, 602-822 s (the machine shared with four other Unity
-  jobs; the backward B2 walk costs about a third). The mesh baseline
-  (`smooth_baseline.json`, entry `mesh`) is its first record. Both gates,
-  runs / metres / worst:
+  Chimney Rock - since held back again by main) and of this gate into R1's
+  city. FAST (inside CityAudit, band 8 of 12): 1,037 tiles, 445 km of
+  ribbon, 126,202 runs in 112 s, CITY AUDIT OK, the drive audit's five zeros
+  still zero. FULL (every tile a ribbon reaches): 10,311 tiles, 3,701 km of
+  ribbon, 14,222 km of line, 323,618 strands, 602-906 s (the machine shared
+  with one to five other Unity jobs; the backward B2 walk costs about a
+  third). Both gates, runs / metres / worst, as re-measured after review 8's
+  fixes (below; the first run's B-family figures in brackets):
 
   | check | CitySmooth (mesh) | linecheck (offline) |
   |---|---|---|
@@ -1007,51 +1052,107 @@ in OSM).
   | A4 LINEWIDTH | 29,993 / 289,054 m / 4.0x | 29,988 / 289,069 m / 4.0x |
   | A5 STRAY | 17,913 / 177,217 m / 5.72 m | 17,913 / 177,191 m / 5.64 m |
   | A5b MISSING (report) | 27,789 / 275,310 m | 29,052 / 334,592 m |
-  | B1 JITTER | 254,355 / 55,706 m / 41.7 cm | 254,431 / 55,717 m / 41.7 cm |
-  | B2 KINK | 474,902 / 1,019,010 m / 4.84 m (193.5x) | 473,247 / 1,027,599 m / 4.84 m |
-  | B3 CURVE | 9,054 / 11,813 m / R 2.4 m (37.4x) | 8,766 / 12,733 m / R 3.5 m (25.7x) |
+  | B1 JITTER | 256,408 / 56,539 m / 43.5 cm, 17.4x [254,355 / 55,706 m / 41.7 cm] | 256,561 / 56,604 m / 43.6 cm, 17.4x [254,431 / 55,717 m / 41.7 cm] |
+  | B2 KINK | 475,028 / 1,017,696 m / 4.84 m (193.5x) [474,902 / 1,019,010 m] | 473,450 / 1,025,855 m / 4.84 m [473,247 / 1,027,599 m] |
+  | B3 CURVE | 9,059 / 11,789 m / R 2.4 m (37.4x) [9,054 / 11,813 m] | 8,766 / 12,733 m / R 3.5 m (25.7x) |
   | B4 JUMP | 26,801 / 7.02 m (280.9x) | 26,809 / 7.02 m |
   | B4s SEAM (ZERO) | 4 / 71.5 cm | not measurable |
   | C1 GAP | 235 / 6,377 m / 602.9 m | 231 / 6,324 m / 592.5 m |
   | C2 END | 16,784 / 11.4x | 16,775 / 11.3x |
-  | C3 DASH | 10,920 / 43,362 m / 254% (+1,002 stubs, report) | 10,917 / 43,338 m / 254% (+1,005) |
+  | C3 DASH | 10,922 / 43,377 m / 250% (+1,002 stubs, report) [10,920] | 10,919 / 43,358 m / 250% (+1,005) [10,917] |
   | D1 CROSS | 3,378 / 10,470 m / 9.37 m (+801 on attach arcs) | 913 / 5,630 m / 9.37 m (+1,050) |
   | E1 FLOAT | 0 | 0 |
 
   The creek pin reads the same in both gates, check for check: A1 43 (1.92
-  m), A2 12 (33.3 cm), A3 4 (17.1 cm), A4 12, A5 6 (1.92 m), A5b 6, B1 8
-  (5.0 cm), B2 22 (16.9 cm), B4 8 (18.6 cm), C2 4 (3.5x), C3 2.
-  - **Run by run** (a run agrees when the other gate has one of the same
-    check on the same edge and line class whose arc overlaps it, else within
-    3 m with a ratio within 10%): the first comparison left 2-40% of some
-    checks unpartnered. Five gate bugs, fixed in both gates (ec28fd4,
-    1e38812): a centre line named -0.00 by float noise; a strand's runs named
-    after its identity chain's FIRST piece (the gates start chains at
-    different edges); a jump or a dash reported at whichever end the chain
-    reached second, and a joined joint's vertex named after it; B2 scoring a
-    line differently read backwards (2.6% of the vertices past V) and B1
-    sampling from the strand's start; B3 holding a whole midline strand to
-    its FIRST edge's class (a motorway midline judged at a link's 25 m).
-    After them, unpartnered: A1 129 / 64 (of 100,800), A2 2 / 3, A3 18 /
-    28, A4 14 / 8, A5 8 / 3, B1 1,508 / 1,684 (0.6%), B2 880 / 476 (0.2%),
-    B3 180 / 47, B4 2 / 12, C1 12 / 6, C2 71 / 64, C3 61 / 68, D1 2,318 /
-    106, B4s 4 / 0 (mesh / offline).
-  - **What those are**, classified against the replica: by design, a tile
-    seam (B4s), a junction fan's perimeter (249) and a bend fan's slab
-    (357: the mesh walks its perimeter, the replica bridges it straight),
-    D1 into fans, gore quads and at other heights (269); the replica's
-    stated approximations (`linesim.mjs` header) - clips computed city-wide
-    where the builder rebuilds `clips` / `clipPairs` per tile from the gores
-    within GoreReach + 20 m (BuildGores, CityMeshes L792/L800): within 6 m
-    of a clip range's end 2,418, inside one 1,078, at a gore gap 630, beside
-    a clip pair 97 or a clipped branch 118; no elevation solve (the
-    squeeze's height band, ArmsApart) 203; near the threshold (< 1.1x:
-    float32 vertices against doubles, a B1 sample phase on a strand the mesh
-    gate cuts at its 3x3 ring) 1,793; within 12 m of an edge end 1,182. 68
-    runs remain unexplained (0.007%), in a few places: the Independence
-    Expressway at (5530, -5), I-85 at (-11846, 6322), Freedom Drive e3503
-    (one ribbon edge's hedged corner 2.4x in each gate, the other edge in
-    the other), South Caldwell Street e25007. Open for WP-G.
+  m), A2 12 (33.3 cm), A3 4 (17.1 cm), A4 12, A5 6 (1.92 m), A5b 6, B1 9
+  (5.0 cm), B2 22 (16.9 cm), B4 8 (18.6 cm), C2 4 (3.5x), C3 2. The mesh
+  baseline (`smooth_baseline.json`, entry `mesh`) and the offline one are
+  recorded on this code.
+  - **A correction.** The first write-up of this run said 68 runs were left
+    unexplained. Its own per-place classifier had left 555; the 68 came from
+    a second pass that filed 272 runs reading 1.1-1.5x in one gate and nothing
+    in the other as "near the threshold" (under a 1.1x label) and 215 as "a
+    clip or clip pair within 40 m" - proximity, not a mechanism - and it left
+    the 106 "within 1.5 m of a tile seam" out. By its own 1.1x criterion 340
+    were unexplained (review 8).
+  - **Review 8's gate fixes, in both gates** (each shown by a probe, the
+    C#-against-JS extractions of the changed functions agreeing bit for bit:
+    688,700 B1 stations and 81,045 kept vertices):
+    - B1's stations stand on the WAY'S arc (wayOff + s, the arc the keys
+      are rounded on) at whole steps and a half, not at whole steps from the
+      strand's middle: the mesh gate cuts strands at its 3x3 ring, so the two
+      gates sampled a different phase wherever they cut a strand differently
+      (1,508 / 1,684 B1 runs one gate had and the other lacked; L4). The half
+      step keeps a station off the 5 m key boundaries, where a float s put a
+      sample in one bucket walked one way and the next the other way.
+    - Every B-check reads a strand the same walked from either end (L5: the
+      city with every strand reversed gives every key the same ratio and bad
+      length; before, 111 B2 and 2,610 B1 keys moved): the collinear drop
+      keeps a vertex when the walk from EITHER end keeps it (it dropped
+      relative to the last kept vertex, one walk at a time); B1 exempts a
+      window where the line it samples is exempt (both ends of a segment, or
+      the vertex it sits on - the segment's start alone exempted it one way
+      and judged it the other); a station at a segment's midpoint takes the
+      name of its FirstEnd end; a key's bad length gets half the arc from the
+      previous bad sample (it got all of it, in the walk's direction).
+    - A dash or gap ending at a joint is named after the joint's FirstEnd
+      piece (e11484 one way, e1904 the other); equal-distance joint pairs are
+      ordered by their end points, not by the order the walk met them.
+    - D1 names what the paint is inside ("inside e14400", a gore quad, the
+      fan at a node).
+  - **Run by run** (gatecmp.mjs, above). Unpartnered after the fixes: 4,362
+    mesh runs and 2,294 offline ones of about 1.0M each (5,435 / 3,409 in the
+    first run's comparison, A5b included). Per check (mesh / offline): A1 129 / 64, A2 2
+    / 3, A3 18 / 28, A4 14 / 8, A5 8 / 3, A5b 228 / 840, B1 433 / 529 (was
+    1,508 / 1,684), B2 929 / 572, B3 186 / 52, B4 6 / 14, B4s 4 / 0, C1 12 /
+    6, C2 71 / 64, C3 4 / 5 (was 61 / 68), D1 2,318 / 106. The reads check
+    themselves: 99.95% of the runs each gate partners read 1x or more in the
+    other. Every one of the 6,656 put down to a mechanism at its own
+    sections:
+    - by design 2,908: D1 inside a gore quad 1,886 or a junction fan 362
+      (the replica draws neither - D1 is the mesh gate's by design), a bend
+      fan's mouth 411 or a bend fan inside the check's window 4 (the mesh
+      walks the slab's perimeter), a junction fan's perimeter 241, a tile
+      seam 4;
+    - both gates fail there (the other reads 1x or more on the same line;
+      the run is cut or keyed differently) 1,452 - 1,028 of them A5b;
+    - the two gates were GIVEN different sections 1,720 (the tap against the
+      replica, over the check's window along the line and its chain): a
+      clip, squeeze or collapse flag 767, a section only one of them cuts 506
+      (361 cut by the builder only: its per-tile clip tables add samples), a ribbon
+      corner 1-5 mm apart 354 (the builder's float32 section math against
+      the replica's doubles), the other road's ribbon under D1's paint in one
+      of them 73, the builder's per-tile tables disagreeing with themselves 9,
+      the surface (on structure) 5, U 4, a corner over 5 mm apart 2;
+    - the same sections, and the other gate reads 0.9-1x there while this one
+      reads under 1.1x: 320;
+    - the same sections to 1 mm, but the collinear drop (0.02 degrees) kept
+      different vertices within the check's window 93, or the same kept
+      vertices and the kink rules - run by lib/kink.mjs on EACH gate's own
+      dumped coordinates - reproduce each gate's own reading 19: a discrete
+      step of the rules flips on a sub-millimetre difference (Endhaven Lane
+      e19051: a 9 cm segment's turn is -0.02 degrees in one and -0.04 in the
+      other, and a wave's lobes change);
+    - a closed ring 52: linecheck starts a chain at its lowest edge, so it
+      cuts each of the city's 7 rings of mitred joints at one joint (the two
+      I-485 carriageways, 105.8 and 105.6 km: at e625/e10056 a lane line's
+      1.27 m jump, 51x, is judged only by the mesh gate), and the mesh gate
+      cuts a small ring (5 of 78-129 m) at a joint of its own;
+    - D1's level 40: the replica's plan test (a crossing within 80 m, or
+      structure) separates two roads the builder draws on one level (24), or
+      the builder's surfaces stand more than CrossDyM apart where the replica
+      has no heights (16).
+    **52 remain UNEXPLAINED** (0.005%), open for WP-G: A5b 7 (report-only),
+    D1 10, B1 14, B2 2, B3 3, A3 4, A1 5, C2 7; by ratio, 20 under 1.1x, 16
+    at 1.1-1.5x, 7 at 1.5-3x, 9 at 3x or more (the worst: A5b 20x on seven clipped
+    edges offline only; D1 at Ballantyne Commons Parkway e16895 12.0x offline
+    only, the mesh gate reading 0 on the same pavement at one level; B2 at
+    e10046 and e14870, mesh only, no strand dumped there). The
+    list is `gatecmp.json`'s `UNEXPLAINED` rows.
+  - **Open for WP-G** from this comparison: close linecheck's rings (link the
+    closing joint and read the strand round it); the replica's section
+    fidelity (the builder's per-tile clip samples, its float32 section math:
+    506 + 354 + 93 + 19 runs); D1's heights offline; and the 52.
   - **B4s SEAM, a ZERO check, fails at 4 places** (report-only this cycle):
     Albemarle Road e1999 / e6285 at the x = 4864 seam (71.5 / 67.5 cm) and
     Cameron Boulevard e8145 / e12946 at the z = 13568 seam (24.4 / 23.5

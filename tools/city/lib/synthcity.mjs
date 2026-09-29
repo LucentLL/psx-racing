@@ -58,10 +58,10 @@ export const sagChord = (R, hw, eps = 0.02) => Math.sqrt(8 * eps * R * R / (R + 
 
 /// Run the replica and the gate. tweakT(S) edits the trims before sections are
 /// cut; tweakSecs(S) edits the sections before the gate reads them.
-export function gateOf(c, R, layouts, { model = 'asbuilt', tweakT, tweakSecs } = {}) {
+export function gateOf(c, R, layouts, { model = 'asbuilt', tweakT, tweakSecs, reverseStrands = false } = {}) {
   const S = createSim(c, model);
   if (tweakT) tweakT(S);
   for (const e of S.E) e.secs = S.sectionsOf(e);
   if (tweakSecs) tweakSecs(S);
-  return { S, g: runGate(S, R, layouts, { planTaperShape: model === 'm0' ? 'smooth' : 'linear', refSpots: [] }) };
+  return { S, g: runGate(S, R, layouts, { planTaperShape: model === 'm0' ? 'smooth' : 'linear', refSpots: [], reverseStrands }) };
 }

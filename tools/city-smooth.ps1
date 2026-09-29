@@ -7,6 +7,9 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-smooth.ps1 -Mode FAST [-Band 3]
 #   powershell -ExecutionPolicy Bypass -File tools\city-smooth.ps1 -Mode SHOTS [-Spots "x,z,edge,line;..."] [-Before <dir>]
 #   add -WriteBaseline to a FULL run to record tools\city\baseline\smooth_baseline.json
+#   add -TapDump <file.gz> and/or -Trace <csv> [-TraceOut <csv>] to a FULL run for the agreement
+#   instruments (tools\city\gatecmp.mjs: the builder's tap, tile by tile, and this gate's reading
+#   at each of the offline gate's runs)
 #   (REFUSED when it would loosen the gate - only the gate (SmoothRules.cs,
 #   CitySmooth.cs, the tap) moved and keys vanished or score lower; the gate
 #   moved together with the data (re-record in two steps, the gate change on
@@ -53,7 +56,10 @@ param(
     [switch]$AllowLoosen,
     [string]$Label = "",
     [string]$Out = "",
-    [string]$Before = ""
+    [string]$Before = "",
+    [string]$TapDump = "",
+    [string]$Trace = "",
+    [string]$TraceOut = ""
 )
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
@@ -79,6 +85,9 @@ $env:PSX_SMOOTH_SHOTS = "$Shots"
 $env:PSX_SMOOTH_WRITE_BASELINE = if ($WriteBaseline) { "1" } else { $null }
 $env:PSX_SMOOTH_ALLOW_LOOSEN = if ($AllowLoosen) { "1" } else { $null }
 $env:PSX_SMOOTH_FAST = if ($Mode -eq "FAST") { "1" } else { $null }
+$env:PSX_SMOOTH_TAPDUMP = if ($TapDump) { $TapDump } else { $null }
+$env:PSX_SMOOTH_TRACE = if ($Trace) { $Trace } else { $null }
+$env:PSX_SMOOTH_TRACE_OUT = if ($TraceOut) { $TraceOut } else { $null }
 $runStart = Get-Date
 
 function Invoke-Method([string]$Method, [string]$Expect, [int]$Minutes) {
@@ -138,7 +147,7 @@ if ($Mode -eq "SHOTS" -or ($Mode -eq "FULL" -and -not $NoShots)) {
     } else { $failed = $true }
 }
 
-foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_ALLOW_LOOSEN", "PSX_SMOOTH_FAST")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_ALLOW_LOOSEN", "PSX_SMOOTH_FAST", "PSX_SMOOTH_TAPDUMP", "PSX_SMOOTH_TRACE", "PSX_SMOOTH_TRACE_OUT")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
 $report = Join-Path $proj "city_smooth.txt"
 if (-not $WriteBaseline -and (Test-Path $report) -and (Select-String -Path $report -Pattern "^  STALE:" -Quiet)) {
     # the gate logs it as a FAIL (outside a report-only cycle); say why, loudly, whatever the log held
