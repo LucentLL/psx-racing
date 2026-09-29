@@ -1,0 +1,19 @@
+sign audit (WP-23): data 19 routes, 43 OSM billboards, 3960 businesses
+  ok  the sign data (charlotte_signs.bytes) loads
+  ok  the city kit's sign material wears the atlas and lights its faces at night (_NightMask, _NightWin, _NightFace)
+    3539 tiles (45 at the shot spots, the rest along the routes and the race routes), 1161 with signs; 268 bulletins, 61 posters (33 of them OSM's), 2769 business pole signs, 182 exit gantries (14 cantilevers); 679 solid posts and legs, 1027 floodlights, 4737 faces; place 0.2 ms a tile (max 14.8)
+    candidates that won their spacing but found no free ground: billboards 44, pole signs 1232, gantries 13
+  ok  the city stands billboards, business pole signs and exit gantries (sign audit) — 329, 2769, 182
+  ok  no post on pavement, in a clear zone, under a deck, in a building, lake or run-off, or on a reserved cell; nothing over pavement but a gantry's panels, 5.5 m up (sign audit) — 0
+  ok  every face turned to its traffic: dot 0.9 or better to a driver 150 m up the road (80 m for a business's cabinet) (sign audit) — 0 faces below; worst 0.918 at Bulletin (-3123,23288) 35.394112,-80.852028
+    gantry panels: the lowest 5.74 m over the road under it, at (-9123,-6616) 35.125026,-80.917968
+  ok  every sign in the tile that placed it, none placed twice across a seam (sign audit) — 0 outside, 0 twice
+  ok  a tile places the same signs every build (sign audit)
+  ok  a tile's signs are one mesh with one material: at most +1 draw (sign audit) — 0
+  ok  every billboard lit: two floodlights under a bulletin face, one under a poster (sign audit) — 1027 lamps for 268 bulletins, 61 posters
+  ok  billboard monopoles and gantry legs are solid; pole-sign cabinets break away (Q15) (sign audit) — 679 posts
+    billboards per route (placed / NCDOT's figure): US 21 0/0 (0.00 per km of 21 km, NCDOT 0.00); US 29 25/33 (0.53 per km of 47 km, NCDOT 0.70); NC 49 5/11 (0.13 per km of 37 km, NCDOT 0.29); I 85 56/66 (1.26 per km of 44 km, NCDOT 1.49); NC 273 12/14 (0.51 per km of 24 km, NCDOT 0.60); NC 27 5/4 (0.19 per km of 27 km, NCDOT 0.16); NC 16 31/28 (0.63 per km of 50 km, NCDOT 0.56); NC 115 6/8 (0.45 per km of 13 km, NCDOT 0.60); NC 51 19/21 (0.53 per km of 36 km, NCDOT 0.60); NC 160 12/14 (0.50 per km of 24 km, NCDOT 0.60); US 74 32/39 (1.03 per km of 31 km, NCDOT 1.25); I 485 31/30 (0.29 per km of 106 km, NCDOT 0.29); I 277 9/14 (1.27 per km of 7 km, NCDOT 1.97); I 77 53/57 (1.12 per km of 47 km, NCDOT 1.20); NC 24 21/20 (0.57 per km of 37 km, NCDOT 0.54); NC 218 2/2 (0.61 per km of 3 km, NCDOT 0.60); US 521 2/3 (0.40 per km of 5 km, NCDOT 0.60)
+  ok  billboard density on interstates within +-20% of NCDOT's (sign audit) — 149 placed for 167 (0.73 per km against 0.82; 204 km)
+  ok  billboard density on US and NC routes within +-20% of NCDOT's (sign audit) — 172 placed for 197 (0.48 per km against 0.55; 356 km)
+    exit gantries 182 over 223 km of motorway in the audited tiles' reach (NCDOT counts 1.01 per km; one per exit here; 13 exits found no legs)
+SIGN AUDIT OK

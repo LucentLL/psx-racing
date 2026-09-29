@@ -111,6 +111,11 @@ Shader "PSX/Lit"
         // no windows and never samples the mask.
         _NightMask ("Night windows", 2D) = "black" {}
         _NightWin ("Night windows on", Float) = 0
+        // LIT SIGN FACES (WP-23, Charlotte's billboards and pole signs): with
+        // _NightWin on, the mask's cover makes the texel glow in ITS OWN
+        // colours after dark (a floodlit or lit-from-inside face), not in a
+        // window's flat warm or cool. 0 everywhere else: a facade is unchanged.
+        _NightFace ("Night: lit sign faces", Float) = 0
         // THE SWASH (2026-09-26, the Tidewater pass): 1 on a beach's sand,
         // whose _ShoreY is the sea's height. 0 everywhere else, and then
         // nothing below is read.
@@ -153,6 +158,7 @@ Shader "PSX/Lit"
             float _Wet;
             sampler2D _NightMask;
             float _NightWin;
+            float _NightFace;
             float _Shore;
             float _ShoreY;
             float _AtlasPx;
@@ -248,6 +254,7 @@ Shader "PSX/Lit"
             #define WIN_SHOP           float3(1.00, 0.86, 0.62)   // shopfront glass: always lit at night
             #define WIN_DIM            0.55   // the dimmest lit window, as a share of the brightest
             #define WIN_GAIN           1.1
+            #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
             #define WIN_FOG_CUT        0.6    // a lit window is fogged only 40% as hard as the wall: it
                                               //   punches through the night haze the way a lamp does
             // THE ROOM BEHIND THE GLASS. A flat emission made every lit window
@@ -538,7 +545,16 @@ Shader "PSX/Lit"
                 // read only by a facade material, only at night; tex2Dlod
                 // because the mask has no mips (LOD 0 is what tex2D would
                 // pick) and needs no derivative inside this branch.
-                if (_NightWin > 0.5 && _PSXNight > 0.01)
+                if (_NightWin > 0.5 && _PSXNight > 0.01 && _NightFace > 0.5)
+                {
+                    // A lit sign: the face in its own colours, as bright as
+                    // the mask says (brightest at a billboard's foot, where
+                    // its floodlights are), fogged like a window.
+                    float4 m = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0));
+                    float3 glow = tex.rgb * (m.r * m.a * SIGN_GAIN * _PSXNight);
+                    col += glow * (1.0 - WIN_FOG_CUT * i.fog);
+                }
+                else if (_NightWin > 0.5 && _PSXNight > 0.01)
                 {
                     float4 m = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0));
                     // R = A = the window. Both, multiplied: right whether or

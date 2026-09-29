@@ -29,6 +29,11 @@ Tree canopy: USDA Forest Service, NLCD Tree Canopy Cover (2024)
   https://data.fs.usda.gov/geodata/rastergateway/treecanopycover/
   In: charlotte_canopy.bytes
 
+Billboard density: NCDOT GIS Unit (statistics only)
+  Licence: public record, no licence stated
+  https://connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx
+  In: charlotte_signs.bytes
+
 Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
   Licence: public domain; attribution requested
   https://github.com/tilezen/joerd/blob/master/docs/attribution.md

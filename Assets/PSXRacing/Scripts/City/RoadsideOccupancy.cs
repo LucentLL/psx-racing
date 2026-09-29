@@ -41,7 +41,7 @@ namespace PSXRacing.City
         public const float CellPadM = 1.4143f;
 
         public const byte Pavement = 1, Clear = 2, Sight = 4, Corner = 8, Building = 16, Water = 32, Deck = 64, Other = 128;
-        public static readonly string[] BitNames = { "pavement", "clear zone", "sight triangle", "corner spot", "building", "water", "under a deck", "lot or lamp" };
+        public static readonly string[] BitNames = { "pavement", "clear zone", "sight triangle", "corner spot", "building", "water", "under a deck", "lot, lamp or sign" };
 
         /// <summary>Sight triangle legs along each kerb line, metres.</summary>
         public const float SightLegM = 10f;
@@ -176,7 +176,7 @@ namespace PSXRacing.City
                         // the road's height where the point is square to it, not the piece's middle
                         float y = map.edges[pc.edge].YAt(pc.sa + (pc.sb - pc.sa) * t);
                         // every piece, not one per edge: a bend's pieces face different ways
-                        outList.Add(new NearRoad { a = pc.a, b = pc.b, hw = pc.hw, y = y, off = off, away = away });
+                        outList.Add(new NearRoad { a = pc.a, b = pc.b, hw = pc.hw, y = y, off = off, away = away, clear = pc.clear, deck = pc.deck, edge = pc.edge });
                     }
                 }
         }
@@ -197,8 +197,9 @@ namespace PSXRacing.City
 
         /// <summary>A stretch of road near a point: its centreline chord and
         /// half width, the road's height square to the point, how far off its
-        /// edge the point is and the unit direction from it to the point.</summary>
-        public struct NearRoad { public Vector2 a, b, away; public float hw, y, off; }
+        /// edge the point is and the unit direction from it to the point; its
+        /// clear zone, whether it is a deck, and its edge.</summary>
+        public struct NearRoad { public Vector2 a, b, away; public float hw, y, off, clear; public bool deck; public int edge; }
 
         /// <summary>The distance between two segments in plan.</summary>
         public static float SegSegDistance(Vector2 p0, Vector2 p1, Vector2 q0, Vector2 q1)

@@ -125,16 +125,17 @@ namespace PSXRacing.EditorTools
             // The package's A/B: the same sites again as the city was before
             // it, so what it costs is measured on identical tiles in one run
             // (the machine is shared; only an A/B inside one run means
-            // anything). WP-07's pass was the FULL prop prefabs; WP-08's is
-            // the city with NO TREES. Pass 0 is the game as it ships and is the
-            // only one in ALL; pass 1 is reported beside it.
+            // anything). WP-07's pass was the FULL prop prefabs; WP-08's the
+            // city with NO TREES; WP-23's is the city with NO SIGNS (trees on
+            // both ways). Pass 0 is the game as it ships and is the only one in
+            // ALL; pass 1 is reported beside it.
             var fullRows = new List<string>();
             var fullAll = new List<CityWorld.TileTiming>();
             var treeAll = new List<CityWorld.TileTiming>();
             var treeP95BySite = new Dictionary<string, float>();
             var drawsByPass = new Dictionary<string, int[]>[] { new Dictionary<string, int[]>(), new Dictionary<string, int[]>() };
             var tilesByPass = new Dictionary<string, List<float>>[] { new Dictionary<string, List<float>>(), new Dictionary<string, List<float>>() };
-            bool variantsWere = CityProps.UseCityVariants, treesWere = CityTrees.Enabled;
+            bool variantsWere = CityProps.UseCityVariants, treesWere = CityTrees.Enabled, signsWere = CitySigns.Enabled;
             var treesDensityWas = CityTrees.DensityOverride;
             CityTrees.DensityOverride = 1f;
             var sites = Sites(map);
@@ -152,6 +153,9 @@ namespace PSXRacing.EditorTools
                         sites.Add(new Site { name = n + "_bay", at = lot.pos, how = CityProps.FoodName(kind) + ": the chase camera of a car stopped in the order bay", extra = true, bay = true });
                         break;
                     }
+            // and the sign shots' two other roads (WP-23; I-77 north is one of the nine)
+            sites.Add(new Site { name = "i277_uptown", at = LL(35.2195, -80.8500), how = "I-277, the uptown loop's north side (WP-23 sign shots)", extra = true });
+            sites.Add(new Site { name = "south_blvd", at = LL(35.1930, -80.8680), how = "South Blvd, the commercial strip (WP-23 sign shots)", extra = true });
             try
             {
                 // warm-up: the first tile pays the JIT and the static caches
@@ -175,7 +179,8 @@ namespace PSXRacing.EditorTools
                 for (int pass = 0; pass < 2; pass++)
                 {
                     CityProps.UseCityVariants = true;
-                    CityTrees.Enabled = pass == 0;
+                    CityTrees.Enabled = true;
+                    CitySigns.Enabled = pass == 0;
                     if (pass == 0 && !site.extra)
                     {
                     // THE SPAWN SEAT here, by CityMode.SeatOnStreet's rule:
@@ -282,11 +287,11 @@ namespace PSXRacing.EditorTools
                     }
                     int colliders = go.GetComponentsInChildren<Collider>(false).Length;
                     var tot = new List<float>(); var bld = new List<float>(); var cook = new List<float>();
-                    int props = 0, treeN = 0; float propsMs = 0f; var treeMs = new List<float>(); var plantMs = new List<float>();
+                    int props = 0, treeN = 0, signN = 0; float propsMs = 0f; var treeMs = new List<float>(); var plantMs = new List<float>(); var signMs = new List<float>();
                     foreach (var t in timings) { tot.Add(t.totalMs); bld.Add(t.buildMs); cook.Add(t.cookMs); props += t.props; propsMs += t.propsMs; }
-                    foreach (var t in treeFrames) { treeN += t.trees; treeMs.Add(t.treesMs); plantMs.Add(t.treePlantMs); }
-                    int treeViews = 0;
-                    foreach (var r in rends) if (r.enabled && r.gameObject.name == "Trees") treeViews++;
+                    foreach (var t in treeFrames) { treeN += t.trees; signN += t.signs; treeMs.Add(t.treesMs); plantMs.Add(t.treePlantMs); signMs.Add(t.signsMs); }
+                    int treeViews = 0, signViews = 0;
+                    foreach (var r in rends) { if (r.enabled && r.gameObject.name == "Trees") treeViews++; if (r.enabled && r.gameObject.name == "Signs") signViews++; }
                     int dmax = Mathf.Max(Mathf.Max(draws[0], draws[1]), Mathf.Max(draws[2], draws[3]));
                     if (pass == 0 && !site.extra && dmax > worstDraw) { worstDraw = dmax; worstDrawAt = site.name; }
                     drawsByPass[pass][site.name] = draws;
@@ -294,7 +299,8 @@ namespace PSXRacing.EditorTools
                     tilesByPass[pass][site.name] = tot;
                     (pass == 0 ? rows : fullRows).Add($"{site.name,-14} {timings.Count,3} tiles  total p50 {P(tot, 50),5:0.0} p95 {P(tot, 95),5:0.0} max {P(tot, 100),5:0.0} ms  build p95 {P(bld, 95),5:0.0}  cook p95 {P(cook, 95),5:0.0}  " +
                              $"draws {draws[0],4}/{draws[1],4}/{draws[2],4}/{draws[3],4}  casters {casters,4} ({castersNear} in the 90 m box)  verts {verts / 1000,5}k  tris {tris / 1000,5}k  colliders {colliders,4}  props {props,3} ({propsMs:0.0} ms to stand up)  " +
-                             $"trees {treeN,5} on {treeViews} tiles, TREE FRAME p50 {P(treeMs, 50):0.0} p95 {P(treeMs, 95):0.0} max {P(treeMs, 100):0.0} ms (planting p95 {P(plantMs, 95):0.0}), {tableTrunks} solid trunks in the table");
+                             $"trees {treeN,5} on {treeViews} tiles, TREE FRAME p50 {P(treeMs, 50):0.0} p95 {P(treeMs, 95):0.0} max {P(treeMs, 100):0.0} ms (planting p95 {P(plantMs, 95):0.0}), {tableTrunks} solid trunks in the table; " +
+                             $"signs {signN,3} on {signViews} tiles (placing p95 {P(signMs, 95):0.0} ms of the tree frame)");
                     if (pass == 0) L($"{site.name}: {site.how}; eye ({eye.x:0},{eye.y:0.0},{eye.z:0}){(!site.bay && (dist > 30f || site.extra) ? $", {dist:0} m from the site" : "")}{bayNote}{roomNote}");
                     world.DropAll();
                 }
@@ -303,6 +309,7 @@ namespace PSXRacing.EditorTools
             {
                 CityProps.UseCityVariants = variantsWere;
                 CityTrees.Enabled = treesWere;
+                CitySigns.Enabled = signsWere;
                 CityTrees.DensityOverride = treesDensityWas;
                 CityWorld.TileBuilt -= onBuilt;
                 if (world != null) world.DropAll();
@@ -320,19 +327,19 @@ namespace PSXRacing.EditorTools
             // plan: this package decides WP-09's place (in the editor; the phone reading is C29's trigger)
             L($"WP-09 trigger (editor): tile p95 {(P(totAll, 95) > 8f ? "OVER" : "under")} 8 ms, worst view {(worstDraw > 300 ? "OVER" : "under")} 300 draws");
 
-            // ---- WP-08: the same sites with no trees -----------------------
+            // ---- WP-23: the same sites with no signs ------------------------
             L("");
-            L("WP-08 A/B - the same sites and tiles with NO TREES (the city before WP-08), each site built both ways back to back:");
-            foreach (var r in fullRows) L("notrees " + r);
+            L("WP-23 A/B - the same sites and tiles with NO SIGNS (the city before WP-23; trees both ways), each site built both ways back to back:");
+            foreach (var r in fullRows) L("nosigns " + r);
             var fullTot = new List<float>();
             foreach (var t in fullAll) fullTot.Add(t.totalMs);
-            L($"notrees ALL {fullAll.Count} tiles: total p50 {P(fullTot, 50):0.0} p95 {P(fullTot, 95):0.0} max {P(fullTot, 100):0.0} ms");
+            L($"nosigns ALL {fullAll.Count} tiles: total p50 {P(fullTot, 50):0.0} p95 {P(fullTot, 95):0.0} max {P(fullTot, 100):0.0} ms");
             // the trees' own cost, timed directly: a frame of their own per tile
             var treeTot = new List<float>(); var treePlant = new List<float>();
             foreach (var t in treeAll) { treeTot.Add(t.totalMs); treePlant.Add(t.treePlantMs); }
             L($"TREE FRAMES ALL {treeAll.Count} tiles: p50 {P(treeTot, 50):0.0} p95 {P(treeTot, 95):0.0} max {P(treeTot, 100):0.0} ms (planting p95 {P(treePlant, 95):0.0}); " +
               $"a tile's trees never share a frame with a tile build (CityWorld.PlantTrees), and stand no collider there (the trunk table stands them round the cars)");
-            L("draws the trees add, per heading (ahead/right/back/left), and the most in one view (one draw a tile in view; each tile's trees are also one sun-map caster):");
+            L("draws the SIGNS add, per heading (ahead/right/back/left), and the most in one view (one draw a tile with signs in view; no sun-map caster):");
             int mostAdded = 0; string mostAt = "";
             foreach (var site in sites)
             {
@@ -342,11 +349,11 @@ namespace PSXRacing.EditorTools
                 for (int h = 0; h < 4; h++) { parts[h] = (dv[h] - df[h]).ToString(); best = Mathf.Max(best, dv[h] - df[h]); }
                 float p95v = P(tilesByPass[0][site.name], 95), p95f = P(tilesByPass[1][site.name], 95);
                 treeP95BySite.TryGetValue(site.name, out float tf95);
-                L($"  {site.name,-14} added {string.Join("/", parts)}  most {best}  (tile build p95 {p95f:0.0} no trees, {p95v:0.0} trees; the trees' own frame p95 {tf95:0.0} ms)");
+                L($"  {site.name,-14} added {string.Join("/", parts)}  most {best}  (tile build p95 {p95f:0.0} no signs, {p95v:0.0} signs; the tree frame, signs included, p95 {tf95:0.0} ms)");
                 if (!site.extra && best > mostAdded) { mostAdded = best; mostAt = site.name; }
             }
-            summary.Add($"budget: WP-08 trees - at most +{mostAdded} draws in one view ({mostAt}; one per tile in view); tile build p95 {P(fullTot, 95):0.0} (no trees) / {P(totAll, 95):0.0} (trees) ms on the same tiles; " +
-                        $"trees on a frame of their own, p95 {P(treeTot, 95):0.0} / max {P(treeTot, 100):0.0} ms");
+            summary.Add($"budget: WP-23 signs - at most +{mostAdded} draws in one view ({mostAt}; one per tile with signs in view); tile build p95 {P(fullTot, 95):0.0} (no signs) / {P(totAll, 95):0.0} (signs) ms on the same tiles; " +
+                        $"tree frames (signs placed first on them) p95 {P(treeTot, 95):0.0} / max {P(treeTot, 100):0.0} ms");
 
             L("");
             L($"spawn seats (CityMode.SeatOnStreet's rule; datum {CityElevation.DatumASL:0.000} m ASL, graph hash {map.graphHash:x8})");

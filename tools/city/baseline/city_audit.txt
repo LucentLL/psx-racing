@@ -196,24 +196,42 @@ terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-ce
 tree audit (WP-08): canopy 2024 grid loaded
   ok  the canopy grid (charlotte_canopy.bytes) loads
   ok  the city kit holds a tree material per season dress and the atlas's low-foliage table
-    614 tiles, 136186 trees (11239 with a trunk collider), 7 tiles with none; per tile p50 227 p90 400 max 417; plant 2.2 ms a tile (the mask 1.2; max 36.7); grown for the overhang 4, shrunk 1269; in freeway tree walls 834
-    candidates refused: pavement 42903, clear zone 19912, sight triangle 126, building 30144, water 24200, under a deck 462, lot or lamp 203, card over the road too low 8, too close to another tree 105730
-  ok  the city plants trees (tree audit) — 136186
+    614 tiles, 136170 trees (11242 with a trunk collider), 7 tiles with none; per tile p50 227 p90 400 max 417; plant 2.5 ms a tile (the mask 1.4; max 41.1); grown for the overhang 4, shrunk 1267; in freeway tree walls 818
+    candidates refused: pavement 43164, clear zone 20082, sight triangle 126, building 30305, water 24209, under a deck 468, lot, lamp or sign 669, card over the road too low 8, too close to another tree 105853
+  ok  the city plants trees (tree audit) — 136170
   ok  no trunk on pavement, in a clear zone or fan, a building or lot, water, under a deck, or on a reserved cell; no low leaves over a road (tree audit) — 0
   ok  every tree stands in the tile that planted it: none doubled across a seam (tree audit) — 0
   ok  a tile plants the same trees every build (tree audit)
     race run-off (RaceRunOff: 8 m past the edge along the routes, 16 m on the outside of bends): 133 tiles; 100 route tiles audited besides the 514 above
   ok  no tree in the city race routes' run-off (tree audit) — 0
-    Q15: 11239 solid (a trunk of 30 cm or more within 25 m of a road: oak 5093, hardwood 3946, pine 1945, sycamore 255), 3783 within reach that break away (crape myrtles, snags, young trees, thin trunks)
+    Q15: 11242 solid (a trunk of 30 cm or more within 25 m of a road: oak 5106, hardwood 3932, pine 1948, sycamore 256), 3768 within reach that break away (crape myrtles, snags, young trees, thin trunks)
   ok  Q15: only trunks of 30 cm or more are solid; crape myrtles, snags and young trees break away (tree audit) — 0
     planted / what the canopy asks, 575 tiles asking 20+: median 1.00, 565 within +-20%; lowest 0.46 (30 of 66 at tile -39,77 (spread))
   ok  the planted count per tile matches the canopy map (median within +-20%) (tree audit) — median 1.00, 565 of 575 tiles within +-20%
   ok  canopy within 25 m of the centreline, secondary: the crowns within 5 points of the canopy map (tree audit) — crowns 9.9%, the 30 m map 13.0% (23746 points; here 23746), the shipped 60 m grid 15.2%
-  ok  canopy within 25 m of the centreline, motorway: the crowns within 5 points of the canopy map (tree audit) — crowns 11.4%, the 30 m map 14.9% (10739 points; here 10739), the shipped 60 m grid 23.9%
-  ok  canopy within 25 m of the centreline, core arterials: the crowns within 5 points of the canopy map (tree audit) — crowns 6.2%, the 30 m map 8.1% (12997 points; here 12997), the shipped 60 m grid 8.9%
+  ok  canopy within 25 m of the centreline, motorway: the crowns within 5 points of the canopy map (tree audit) — crowns 11.3%, the 30 m map 14.9% (10739 points; here 10739), the shipped 60 m grid 23.9%
+  ok  canopy within 25 m of the centreline, core arterials: the crowns within 5 points of the canopy map (tree audit) — crowns 6.3%, the 30 m map 8.1% (12997 points; here 12997), the shipped 60 m grid 8.9%
   ok  canopy within 25 m of the centreline, core residential: the crowns within 5 points of the canopy map (tree audit) — crowns 28.9%, the 30 m map 31.0% (23608 points; here 23608), the shipped 60 m grid 31.4%
-budget: 225 tiles at 9 sites, tile build p50 20.3 / p95 69.0 / max 149.7 ms (editor; WP-07's, kept as the ratchet: WP-08 adds nothing to a tile build - this run read p95 73.2 with trees and 78.8 without, the same code path), worst view 209 draws (trade_tryon)
-budget: WP-08 trees - at most +12 draws in one view (plaza_midwood; one per tile in view); tile build p95 78.8 (no trees) / 73.2 (trees) ms on the same tiles; trees on a frame of their own, p95 4.9 / max 13.6 ms
+sign audit (WP-23): data 19 routes, 43 OSM billboards, 3960 businesses
+  ok  the sign data (charlotte_signs.bytes) loads
+  ok  the city kit's sign material wears the atlas and lights its faces at night (_NightMask, _NightWin, _NightFace)
+    3539 tiles (45 at the shot spots, the rest along the routes and the race routes), 1163 with signs; 149 bulletins, 183 posters (33 of them OSM's), 2783 business pole signs, 182 exit gantries (14 cantilevers); 682 solid posts and legs, 856 floodlights, 4758 faces; place 0.2 ms a tile (max 13.6)
+    candidates that won their spacing but found no free ground: billboards 41, pole signs 1218, gantries 13
+  ok  the city stands billboards, business pole signs and exit gantries (sign audit) — 332, 2783, 182
+  ok  no post on pavement, in a clear zone, under a deck, in a building, lake or run-off, or on a reserved cell; nothing over pavement but a gantry's panels, 5.5 m up (sign audit) — 0
+  ok  every face turned to its traffic: dot 0.9 or better to a driver 150 m up the road (80 m for a business's cabinet) (sign audit) — 0 faces below; worst 0.924 at PoleSign (-6005,3468) 35.215765,-80.883698
+    gantry panels: the lowest 5.74 m over the road under it, at (-9123,-6616) 35.125026,-80.917968
+  ok  every sign in the tile that placed it, none placed twice across a seam (sign audit) — 0 outside, 0 twice
+  ok  a tile places the same signs every build (sign audit)
+  ok  a tile's signs are one mesh with one material: at most +1 draw (sign audit) — 0
+  ok  every billboard lit: two floodlights under a bulletin face, one under a poster (sign audit) — 856 lamps for 149 bulletins, 183 posters
+  ok  billboard monopoles and gantry legs are solid; pole-sign cabinets break away (Q15) (sign audit) — 682 posts
+    billboards per route (placed / NCDOT's figure): US 21 0/0 (0.00 per km of 21 km, NCDOT 0.00); US 29 26/33 (0.55 per km of 47 km, NCDOT 0.70); NC 49 5/11 (0.13 per km of 37 km, NCDOT 0.29); I 85 56/66 (1.26 per km of 44 km, NCDOT 1.49); NC 273 12/14 (0.51 per km of 24 km, NCDOT 0.60); NC 27 5/4 (0.19 per km of 27 km, NCDOT 0.16); NC 16 31/28 (0.63 per km of 50 km, NCDOT 0.56); NC 115 6/8 (0.45 per km of 13 km, NCDOT 0.60); NC 51 19/21 (0.53 per km of 36 km, NCDOT 0.60); NC 160 13/14 (0.55 per km of 24 km, NCDOT 0.60); US 74 32/39 (1.03 per km of 31 km, NCDOT 1.25); I 485 31/30 (0.29 per km of 106 km, NCDOT 0.29); I 277 9/14 (1.27 per km of 7 km, NCDOT 1.97); I 77 53/57 (1.12 per km of 47 km, NCDOT 1.20); NC 24 22/20 (0.59 per km of 37 km, NCDOT 0.54); NC 218 2/2 (0.61 per km of 3 km, NCDOT 0.60); US 521 2/3 (0.40 per km of 5 km, NCDOT 0.60)
+  ok  billboard density on interstates within +-20% of NCDOT's (sign audit) — 149 placed for 167 (0.73 per km against 0.82; 204 km)
+  ok  billboard density on US and NC routes within +-20% of NCDOT's (sign audit) — 175 placed for 197 (0.49 per km against 0.55; 356 km)
+    exit gantries 182 over 223 km of motorway in the audited tiles' reach (NCDOT counts 1.01 per km; one per exit here; 13 exits found no legs)
+budget: 225 tiles at 9 sites, tile build p50 25.2 / p95 86.1 / max 246.9 ms (editor), worst view 212 draws (trade_tryon)
+budget: WP-23 signs - at most +5 draws in one view (trade_tryon; one per tile with signs in view); tile build p95 80.7 (no signs) / 86.1 (signs) ms on the same tiles; tree frames (signs placed first on them) p95 5.8 / max 16.8 ms
 budget: spawn road y (m above the datum) trade_tryon 134.423, providence 116.583, i77_north 134.315, beatties_ford 144.019, tryon_start 130.193, dilworth 102.789, plaza_midwood 126.532, i485_south 119.308, suburb_6km 124.781
-budget: parse 180 ms + solve 1073 ms, map heap 18.4 MB (+1.4 MB DEM)
+budget: parse 193 ms + solve 1228 ms, map heap 16.4 MB (+1.4 MB DEM)
 CITY AUDIT OK

@@ -86,7 +86,10 @@ namespace PSXRacing.City
             /// Set on a TREE FRAME only: a tile's trees are planted on a frame
             /// of their own after its build (see <see cref="PlantTrees"/>).</summary>
             public float treesMs, treePlantMs;
-            public int colliders, props, trees;
+            /// <summary>The signs' share of a tree frame (WP-23: placed on the
+            /// same mask, before the trees), and how many.</summary>
+            public float signsMs;
+            public int colliders, props, trees, signs;
             /// <summary>This is a tile's trees being planted, not its build.</summary>
             public bool treeFrame;
         }
@@ -143,6 +146,11 @@ namespace PSXRacing.City
 
         /// <summary>Tiles whose trees are still to plant (the probe's check).</summary>
         public int TreesPending => treesPending.Count;
+
+        /// <summary>The live tiles' signs (WP-23), for the tools that look at
+        /// them (the sign shots stand their cameras where the drivers are).</summary>
+        public IEnumerable<CitySigns.SignTile> LiveSigns => liveSigns.Values;
+        readonly Dictionary<long, CitySigns.SignTile> liveSigns = new Dictionary<long, CitySigns.SignTile>();
 
         static double cookTicks;
         static readonly System.Diagnostics.Stopwatch cookClock = new System.Diagnostics.Stopwatch();
@@ -385,6 +393,7 @@ namespace PSXRacing.City
         void DropTile(long key)
         {
             treesPending.Remove(key);
+            liveSigns.Remove(key);
             if (Trunks != null) Trunks.RemoveTable(key);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
@@ -417,11 +426,40 @@ namespace PSXRacing.City
                 tile.meshes[tile.meshes.Length - 1] = tt.mesh;
             }
             if (Trunks != null && tt.solids > 0) Trunks.AddTable(key, tt.Trunks());
+            // THE SIGNS (WP-23), placed on the mask before the trees
+            var st = tt.signs;
+            if (st != null) liveSigns[key] = st;
+            if (st != null && st.mesh != null)
+            {
+                AttachSigns(tile.go, st, CitySigns.Material());
+                System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
+                tile.meshes[tile.meshes.Length - 1] = st.mesh;
+                tile.colliders += st.posts.Count;
+                // the billboards' floodlights join the tile's street lamps: one
+                // NightGlow, one halo draw a tile
+                if (st.lamps.Count > 0)
+                {
+                    var heads = new List<Vector3>(job.tm.lamps.Count + st.lamps.Count);
+                    foreach (var l in job.tm.lamps) heads.Add(job.tm.origin + l.head);
+                    heads.AddRange(st.lamps);
+                    var lt = tile.go.transform.Find("LampLights");
+                    GameObject lights = lt != null ? lt.gameObject : null;
+                    if (lights == null)
+                    {
+                        lights = new GameObject("LampLights");
+                        lights.transform.SetParent(tile.go.transform, false);
+                    }
+                    var glow = lights.GetComponent<NightGlow>();
+                    if (glow == null) glow = lights.AddComponent<NightGlow>();
+                    glow.Init(heads);
+                }
+            }
             var timing = new TileTiming
             {
                 tx = tx, tz = tz, treeFrame = true,
                 treesMs = (float)clock.Elapsed.TotalMilliseconds, treePlantMs = tt.ms,
                 totalMs = (float)clock.Elapsed.TotalMilliseconds, trees = tt.trees.Count,
+                signsMs = st != null ? st.ms : 0f, signs = st != null ? st.signs.Count : 0,
             };
             recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
             if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
@@ -477,7 +515,7 @@ namespace PSXRacing.City
             // (the tile's roads, fill houses and lamps are in tm, the lots in
             // the building table) and on a later frame: queued here with the
             // lattice this build cached, planted by PlantTrees.
-            if (CityTrees.Enabled) treesPending[key] = (tm, CityMeshes.TakeLattice());
+            if (CityTrees.Enabled || CitySigns.Enabled) treesPending[key] = (tm, CityMeshes.TakeLattice());
             double tTrees = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A
@@ -652,6 +690,43 @@ namespace PSXRacing.City
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             SunShadows.Register(g);
+            return g;
+        }
+
+        /// <summary>
+        /// Stand a tile's signs up under its root (WP-23): one render-only mesh
+        /// (one draw, the kit's atlas material; not a sun-map caster: a draw a
+        /// tile a frame for shadows few would see), and the billboards' and
+        /// gantries' posts as box colliders, all on one Solid-layer object
+        /// named <see cref="CitySigns.PostName"/>. A null material switches the
+        /// faces off (they still collide).
+        /// </summary>
+        public static GameObject AttachSigns(GameObject root, CitySigns.SignTile st, Material mat)
+        {
+            if (st == null || st.mesh == null) return null;
+            var g = Child(root, "Signs", 0);
+            g.AddComponent<MeshFilter>().sharedMesh = st.mesh;
+            var mr = g.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.enabled = mat != null;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            SunShadows.Exclude(g);
+            if (st.posts.Count > 0)
+            {
+                var c = Child(root, CitySigns.PostName, SolidLayer);
+                var origin = root.transform.position;
+                foreach (var p in st.posts)
+                {
+                    // one child per post: they stand at their own yaw
+                    var pg = new GameObject(CitySigns.PostName);
+                    pg.layer = SolidLayer;
+                    pg.transform.SetParent(c.transform, false);
+                    pg.transform.position = p.centre;
+                    pg.transform.rotation = Quaternion.Euler(0f, p.yawDeg, 0f);
+                    pg.AddComponent<BoxCollider>().size = p.size;
+                }
+            }
             return g;
         }
 

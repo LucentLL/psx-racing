@@ -281,13 +281,146 @@ namespace PSXRacing.EditorTools
             Debug.Log($"[CityRefSpots] {shots} tree dress shots to {dir}");
         }
 
+        /// <summary>
+        /// THE SIGNS, BEFORE AND AFTER (WP-23): at the plan's shot roads - I-77,
+        /// I-277, South Blvd - and the Independence strip, the camera stands
+        /// where a sign's own driver is (<see cref="CitySigns.Face.viewer"/>,
+        /// 150 m up the road at eye height) and looks at it: the nearest
+        /// billboard, exit gantry and business pole sign to each spot. Three
+        /// frames each: day with the signs (&lt;shot&gt;_after), the same camera
+        /// with the city built with NO signs (&lt;shot&gt;_before: the WP-08
+        /// city, trees and all), and the night (&lt;shot&gt;_night: the hour
+        /// through TimeOfDay, lamps and halos lit). To Screenshots/City/signs,
+        /// with signs_shots.txt saying where each camera stood.
+        /// Headless (with graphics): -executeMethod PSXRacing.EditorTools.CityRefSpots.RunSigns
+        /// </summary>
+        public static void RunSigns()
+        {
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[CityRefSpots] no city data"); return; }
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City", "signs");
+            Directory.CreateDirectory(dir);
+            foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
+            PSXRacingBuilder.EnsureCityTextures();
+            var spots = new[] { "sv_a3_i77w", "sv_a2_i277", "sv_a6_south", "sv_a5_strip", "sv_a14_i85" };
+            var cams = new List<(string name, Vector3 eye, Vector3 look, Vector2 at, string what)>();
+            var log = new StringBuilder("shot	eye_x	eye_y	eye_z	look_x	look_y	look_z	what\n");
+            var go = new GameObject("~citySignShots");
+            var world = go.AddComponent<CityWorld>();
+            bool signsWere = CitySigns.Enabled;
+            GameObject sunGo = null;
+            try
+            {
+                // ---- day, with the signs: choose the cameras and shoot
+                DayLight();
+                CitySigns.Enabled = true;
+                foreach (var sp in Spots)
+                {
+                    if (System.Array.IndexOf(spots, sp.id) < 0) continue;
+                    if (!Snap(map, LL(sp.lat, sp.lon), sp.road, out var e, out float s, out _)) continue;
+                    var p = e.PointAt(s);
+                    world.EnsureRing(new Vector3(p.x, 0f, p.y), 2);
+                    foreach (var kind in new[] { CitySigns.Kind.Bulletin, CitySigns.Kind.Gantry, CitySigns.Kind.PoleSign, CitySigns.Kind.Poster })
+                    {
+                        CitySigns.Face best = default; float bd = 700f; bool found = false;
+                        foreach (var st in world.LiveSigns)
+                            foreach (var f in st.faces)
+                            {
+                                if (f.kind != kind) continue;
+                                float d = Vector2.Distance(new Vector2(f.centre.x, f.centre.z), p);
+                                if (d < bd) { bd = d; best = f; found = true; }
+                            }
+                        if (!found) continue;
+                        // on the line from the driver it was turned to, a little
+                        // higher (a car's chase eye), near enough to read it: a
+                        // bulletin from 85 m, a poster 60, a cabinet 40, a gantry 110
+                        var toFace = best.centre - best.viewer;
+                        float keep = kind == CitySigns.Kind.Bulletin ? 85f : kind == CitySigns.Kind.Poster ? 60f : kind == CitySigns.Kind.PoleSign ? 40f : 110f;
+                        var eye = best.viewer + toFace.normalized * Mathf.Max(0f, toFace.magnitude - keep) + Vector3.up * 0.8f;
+                        var look = best.centre - Vector3.up * (best.h * 0.3f);
+                        string name = sp.id.Replace("sv_", "") + "_" + kind.ToString().ToLowerInvariant();
+                        world.EnsureRing(eye, 1);
+                        cams.Add((name, eye, look, p, $"{sp.what}: the nearest {kind} ({bd:0} m from the spot)"));
+                        Shoot(dir, name + "_after", eye, Quaternion.LookRotation(look - eye), 0f);
+                        // and the art itself, close, square in front of the face
+                        if (kind != CitySigns.Kind.Gantry)
+                        {
+                            var ce = best.centre + best.normal * (best.w * 1.4f) - Vector3.up * (best.h * 0.6f);
+                            Shoot(dir, name + "_close", ce, Quaternion.LookRotation(best.centre - ce), 0f);
+                        }
+                        log.Append($"{name}\t{eye.x:0.0}\t{eye.y:0.00}\t{eye.z:0.0}\t{look.x:0.0}\t{look.y:0.00}\t{look.z:0.0}\t{sp.what}: the nearest {kind}, {bd:0} m from the spot\n");
+                    }
+                    world.DropAll();
+                }
+                // ---- the same cameras, no signs (the city before WP-23)
+                CitySigns.Enabled = false;
+                foreach (var c in cams)
+                {
+                    world.EnsureRing(new Vector3(c.at.x, 0f, c.at.y), 2);
+                    world.EnsureRing(c.eye, 1);
+                    Shoot(dir, c.name + "_before", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    world.DropAll();
+                }
+                // ---- night, with the signs: the hour through TimeOfDay, as the
+                // night-look shots do it (edit mode runs no Awake: the lamps are
+                // lit by hand)
+                CitySigns.Enabled = true;
+                sunGo = new GameObject("~signSun");
+                var sun = sunGo.AddComponent<Light>();
+                sun.type = LightType.Directional;
+                var globals = sunGo.AddComponent<PSXGlobals>();
+                globals.sun = sun;
+                TimeOfDay.Apply(TimeOfDay.Night, sun);
+                globals.Apply();
+                nightSky = globals.fogColor;
+                foreach (var c in cams)
+                {
+                    world.EnsureRing(new Vector3(c.at.x, 0f, c.at.y), 2);
+                    world.EnsureRing(c.eye, 1);
+                    NightGlow.PreviewAll(true);
+                    globals.Apply();
+                    Shoot(dir, c.name + "_night", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                nightSky = null;
+                CitySigns.Enabled = signsWere;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+                if (sunGo != null) Object.DestroyImmediate(sunGo);
+            }
+            File.WriteAllText(Path.Combine(dir, "signs_shots.txt"), log.ToString());
+            Debug.Log($"[CityRefSpots] {cams.Count} sign cameras, {cams.Count * 3} shots to {dir}");
+        }
+
+        /// <summary>The background the sign shots' night frames clear to (the
+        /// hour's fog); null by day.</summary>
+        static Color? nightSky;
+
+        /// <summary>The preview's daylight (CityPreview.Run), so every package's
+        /// shots are lit alike.</summary>
+        static void DayLight()
+        {
+            nightSky = null;
+            Shader.SetGlobalFloat("_PSXFogNear", 300f);
+            Shader.SetGlobalFloat("_PSXFogFar", FarM);
+            Shader.SetGlobalColor("_PSXFogColor", new Color(0.72f, 0.78f, 0.86f));
+            Shader.SetGlobalFloat("_PSXSnap", 0f);
+            Shader.SetGlobalColor("_PSXAmbient", new Color(0.55f, 0.55f, 0.6f));
+            Shader.SetGlobalVector("_PSXLightDir", new Vector4(-0.4f, 0.8f, -0.3f, 0f).normalized);
+            Shader.SetGlobalColor("_PSXLightColor", new Color(0.9f, 0.87f, 0.8f));
+            Shader.SetGlobalFloat("_PSXNight", 0f);
+        }
+
         static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho)
         {
             var camGO = new GameObject("~refCam");
             var cam = camGO.AddComponent<Camera>();
             cam.transform.SetPositionAndRotation(pos, rot);
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.72f, 0.78f, 0.86f);
+            cam.backgroundColor = nightSky ?? new Color(0.72f, 0.78f, 0.86f);
             cam.nearClipPlane = 0.3f;
             cam.farClipPlane = ortho > 0f ? 400f : FarM;
             cam.fieldOfView = FovDeg;

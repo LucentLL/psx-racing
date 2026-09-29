@@ -367,6 +367,7 @@ namespace PSXRacing.EditorTools
             LampAudit(map, trims, buildings);
             TerrainFidelity(map);
             TreeAudit(map, trims, buildings);
+            SignAudit(map, trims, buildings);
 
             // ---- the budget (WP-01): nine sites through CityWorld's own
             // path; city_budget.txt holds the table, the audit its summary.
