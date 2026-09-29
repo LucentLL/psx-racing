@@ -23,6 +23,8 @@ namespace PSXRacing.EditorTools
     ///    trees, decals), linear data textures, sprites (UI is drawn after the
     ///    quantizer), the sky (its own compressed, mipped import), and the ROAD
     ///    textures - the road's colours are the owner's.
+    ///    SINCE 2026-09-29 ONLY UNDER Art/LifeSim (SixteenBitRoot): a 565
+    ///    texel has no sRGB decode on WebGL2, see SixteenBitCandidate.
     ///  * PROP MODELS: no tangents (no PSX shader has a TANGENT input) and
     ///    Medium mesh compression (16-bit positions over the model's own
     ///    bounds - under a millimetre on a house). Cars are left exact.
@@ -65,10 +67,26 @@ namespace PSXRacing.EditorTools
             return log.ToString();
         }
 
+        /// <summary>Where the 16-bit override may go. THE COLOUR HOTFIX
+        /// (2026-09-29, the colour plan's C1a): WebGL2 has no sRGB RGB565, and
+        /// the project is Linear, so a 565 texel's gamma code reaches the
+        /// shader AS linear light - up to x9 brighter on the darkest texels.
+        /// The "/Roads/" exclusion below only ever caught Art/Roads; every
+        /// venue's road samples an Art/City or Art/GasStation texture, and on
+        /// 2026-09-27 every road, deck, car, building and city surface went
+        /// 1.5-9x too bright in the player ("I'm not sure what happened to the
+        /// color"). Until the shaders decode those texels themselves (C1b),
+        /// the override is limited to Art/LifeSim - the interiors, and the
+        /// pack buildings the venues' scenery borrows from it, which stay raw
+        /// until C1b; 13.4 of the 17.9 MiB it saved - and everything else goes
+        /// back to the default import, which the GPU decodes as sRGB.</summary>
+        const string SixteenBitRoot = "Assets/PSXRacing/Art/LifeSim/";
+
         static bool SixteenBitCandidate(string path, TextureImporter imp)
         {
             if (!path.StartsWith("Assets/")) return false;
             string p = path.Replace('\\', '/');
+            if (!p.StartsWith(SixteenBitRoot)) return false;
             if (p.Contains("/Roads/") || p.Contains("/Resources/Sky/") || p.Contains("/UI/") || p.Contains("/Fonts/"))
                 return false;
             if (imp.textureType != TextureImporterType.Default) return false;   // sprites, normal maps, lightmaps
