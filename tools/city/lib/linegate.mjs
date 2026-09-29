@@ -59,7 +59,9 @@ export function planLinesOf(prof, R) {
   const out = [];
   out.push({ id: 'EL', anchor: 'EL', col: oneway ? 'Y' : 'W', dashed: false, inset: prof.shl + PH, off: hw - (prof.shl + PH), kind: 'edge' });
   out.push({ id: 'ER', anchor: 'ER', col: 'W', dashed: false, inset: prof.shr + PH, off: -(hw - (prof.shr + PH)), kind: 'edge' });
-  const C = (m, col, dashed, kind) => { const off = hw - m; out.push({ id: `C${col}${dashed ? 'd' : 's'}${off >= 0 ? '+' : '-'}${Math.abs(off).toFixed(2)}`, anchor: 'C', col, dashed, off, kind }); };
+  // a line within half a centimetre of the centreline is +0.00: its sign is float noise in the profile's width
+  // (C# adds the profile's float numbers, this file doubles), and a key must not flip on it (review of the first Unity run)
+  const C = (m, col, dashed, kind) => { const off = hw - m; out.push({ id: `C${col}${dashed ? 'd' : 's'}${off >= 0 || Math.abs(off) < 0.005 ? '+' : '-'}${Math.abs(off).toFixed(2)}`, anchor: 'C', col, dashed, off, kind }); };
   if (oneway) for (let i = 1; i < prof.lanes; i++) C(prof.shl + LANE * i, 'W', true, 'lane');
   else {
     const perSide = (prof.lanes - (turn ? 1 : 0)) / 2, medStart = prof.shl + perSide * LANE;
@@ -358,10 +360,20 @@ export function runGate(S, R, layouts, opts = {}) {
   /// applied to the strand's tail ({x, z}); the new one is returned. A
   /// strand's shape is unchanged by a move, and its positions are off by the
   /// sum of the sub-V steps it crossed.
+  /// Of the two ends of a jump or a dash, the one a run is reported at: the lower OSM way, then the lower edge, then
+  /// the lower s. One run gets one key whichever way the chain runs (this gate starts a chain at its lowest edge,
+  /// CitySmooth at the first edge of the tile's ring: they named a jump after either end).
+  const firstEnd = (p, q) => { const wp = E[p.e].wayId, wq = E[q.e].wayId; return wp !== wq ? wp < wq : p.e !== q.e ? p.e < q.e : p.s <= q.s; };
   function joinEnds(strand, pc, sh, bridge = false) {
     const a = strand[strand.length - 1], b = pc[0];
     const tx = bridge ? sh.x : a.x - b.x, tz = bridge ? sh.z : a.z - b.z;
     const moved = Math.abs(tx) > 1e-12 || Math.abs(tz) > 1e-12;
+    // the joint's one vertex is named after the end firstEnd picks (its place stays: either way the strand is the same
+    // shape, the next piece translated onto it), so its runs have one key whichever way the chain runs; exempt only if
+    // both ends are (never looser than either way)
+    if (!bridge && (b.e !== a.e || b.s !== a.s) && firstEnd(b, a))
+      strand[strand.length - 1] = { ...a, e: b.e, s: b.s, tag: b.tag, span: b.span, sec: b.sec, side: b.side, lid: b.lid, x3: !!(a.x3 && b.x3), gore: !!(a.gore && b.gore) };
+    else if (!bridge && ((a.x3 && !b.x3) || (a.gore && !b.gore))) strand[strand.length - 1] = { ...a, x3: !!(a.x3 && b.x3), gore: !!(a.gore && b.gore) };
     for (let i = bridge ? 0 : 1; i < pc.length; i++) strand.push(moved ? { ...pc[i], x: pc[i].x + tx, z: pc[i].z + tz } : pc[i]);
     return { x: tx, z: tz };
   }
@@ -532,7 +544,7 @@ export function runGate(S, R, layouts, opts = {}) {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
     /// A break in the samples (between B1 windows): closes, no arc across it.
     gap() { this.close(); this.px = NaN; }
-    push(x, z, e, s, val, bad, tag, span, side, what) {
+    push(x, z, e, s, val, bad, tag, span, side, what, lid) {
       if (!Number.isNaN(this.px)) this.arc += Math.hypot(x - this.px, z - this.pz);
       this.px = x; this.pz = z;
       if (!bad) { this.close(); return; }
@@ -540,23 +552,27 @@ export function runGate(S, R, layouts, opts = {}) {
       if (c && this.arc - c.lastArc > R.RunBreakM) { this.close(); c = null; }
       const inc = c ? this.arc - c.lastArc : 0;
       if (!c) {
-        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [], bs: [] };
+        c = this.cur = { check: this.check, lineId: lid ?? this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [], bs: [], bn: [] };
         if (what !== undefined) c.what = what;
         if (this.extra) Object.assign(c, this.extra);
       }
       c.len = this.arc - c.a0; c.lastArc = this.arc; c.e1 = e; c.s1 = s;
       const worse = this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val);
       const bid = bucketOf(E[e], s), nb = c.bk.length;
-      if (nb && c.bk[nb - 1] === bid) { if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val; c.bl[nb - 1] += inc; }
-      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); c.bs.push(side); }
-      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; }
+      if (nb && c.bk[nb - 1] === bid) {
+        if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val;
+        c.bl[nb - 1] += inc;
+        if (lid !== undefined && (c.bn[nb - 1] === undefined || lid < c.bn[nb - 1])) c.bn[nb - 1] = lid;
+      }
+      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); c.bs.push(side); c.bn.push(lid); }
+      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; if (lid !== undefined) c.lineId = lid; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
   }
   /// Emit runs from an ordered sample list: [{x, z, e, s, val, bad}] or {gap: true}.
   function emitRuns(check, lineId, samples, limit, extra = {}, minIsWorse = false) {
     const b = new RunBuilder(check, lineId, extra, minIsWorse);
-    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side, p.what); }
+    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side, p.what, p.lid); }
     b.close();
   }
 
@@ -841,7 +857,7 @@ export function runGate(S, R, layouts, opts = {}) {
       // collinear in the frame of its curve: no sample (lib/kink.mjs arcFrame)
       if (K2.silent && K2.silent[m]) continue;
       const f = K2[m];
-      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side, what: f > V ? kindText(K2.kind[m]) : null });
+      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side, what: f > V ? kindText(K2.kind[m]) : null, lid: b.lid });
     }
     emitRuns('B2', lineId, b2, V, { kind });
     // B3 CURVE (ribbon edges and midline only)
@@ -862,10 +878,13 @@ export function runGate(S, R, layouts, opts = {}) {
     }
     // B1 JITTER: 0.25 m samples within JitterHalfM of a turning vertex, Kasa fit over +-JitterHalfM
     const step = R.JitterStepM, H = R.JitterHalfM, nH = Math.round(H / step);
+    // whole steps from the strand's MIDDLE, not from its start: the same samples - and readings - whichever way the
+    // strand is walked (the two gates walk chains from different ends)
+    const ph = (Ltot / 2) % step;
     const cand = [];
     for (let m = 1; m + 1 < keep.length; m++) {
       const c = C[m];
-      for (let a = Math.ceil((c - H) / step) * step; a <= c + H + 1e-9; a += step) if (a >= H && a <= Ltot - H) cand.push(a);
+      for (let a = Math.ceil((c - H - ph) / step) * step + ph; a <= c + H + 1e-9; a += step) if (a >= H && a <= Ltot - H) cand.push(a);
     }
     if (!cand.length) return;
     cand.sort((a, b) => a - b);
@@ -898,7 +917,7 @@ export function runGate(S, R, layouts, opts = {}) {
         dev = Math.max(dev, Math.abs(((p.x - xs[0]) * cz - (p.z - zs[0]) * cx) / cl));
       }
       const res = dev < V / 2 ? 0 : kasaResidual(xs, zs, nH);
-      b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side });
+      b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side, lid: sE === src.e ? src.lid : nxt.lid });
     }
     emitRuns('B1', lineId, b1, V, { kind });
   }
@@ -913,12 +932,14 @@ export function runGate(S, R, layouts, opts = {}) {
     const close = (endPt, truncatedEnd) => {
       if (state === null) return;
       const lim = state ? [lo, hi] : [glo, ghi];
+      // reported at firstEnd, named after that end's line: one run whichever way the chain runs
+      const q = firstEnd(start, endPt) ? start : endPt, qid = q.lid ?? lineId;
       if (!truncatedStart && !truncatedEnd && (len < lim[0] || len > lim[1]))
-        out.push({ check: 'C3', lineId, e: endPt.e, s: endPt.s, x: endPt.x, z: endPt.z, val: len / (state ? R.DashM : R.DashGapM) - 1, len,
-                   e0: start.e, s0: start.s, e1: endPt.e, s1: endPt.s, what: state ? 'dash' : 'gap', span: endPt.span });
+        out.push({ check: 'C3', lineId: qid, e: q.e, s: q.s, x: q.x, z: q.z, val: len / (state ? R.DashM : R.DashGapM) - 1, len,
+                   e0: start.e, s0: start.s, e1: endPt.e, s1: endPt.s, what: state ? 'dash' : 'gap', span: q.span });
       else if (state && (truncatedStart || truncatedEnd) && len < R.StubM)
-        out.push({ check: 'C3', lineId, e: endPt.e, s: endPt.s, x: endPt.x, z: endPt.z, val: len / R.DashM - 1, len, e0: start.e, s0: start.s, e1: endPt.e, s1: endPt.s,
-                   what: 'stub', reportOnly: 'a truncated dash under 1 m at a mouth or gore: report-only until WP-17', span: endPt.span });
+        out.push({ check: 'C3', lineId: qid, e: q.e, s: q.s, x: q.x, z: q.z, val: len / R.DashM - 1, len, e0: start.e, s0: start.s, e1: endPt.e, s1: endPt.s,
+                   what: 'stub', reportOnly: 'a truncated dash under 1 m at a mouth or gore: report-only until WP-17', span: q.span });
     };
     for (let pi = 0; pi < pieces.length; pi++) {
       const pts = pieces[pi].pts;
@@ -937,7 +958,7 @@ export function runGate(S, R, layouts, opts = {}) {
           const tm = (ts[k - 1] + ts[k]) / 2, on = onAt(v0 + (v1 - v0) * tm), dl = segL * (ts[k] - ts[k - 1]);
           if (dl < 1e-9) continue;
           if (state !== on) {
-            const at = { x: a.x + (b.x - a.x) * ts[k - 1], z: a.z + (b.z - a.z) * ts[k - 1], e: a.e, s: a.s + (b.s - a.s) * ts[k - 1], span: b.span };
+            const at = { x: a.x + (b.x - a.x) * ts[k - 1], z: a.z + (b.z - a.z) * ts[k - 1], e: a.e, s: a.s + (b.s - a.s) * ts[k - 1], span: b.span, lid: a.lid };
             close(at, false);
             truncatedStart = state === null; state = on; len = 0; start = at;
           }
@@ -993,8 +1014,10 @@ export function runGate(S, R, layouts, opts = {}) {
             if (ed.linkIn === 'bend') { open.sh = joinEnds(open.pts, pc, open.sh, true); continue; }
             const d = Math.hypot(a.x - open.sh.x - b.x, a.z - open.sh.z - b.z);   // a's own position
             if (d <= V) { open.sh = joinEnds(open.pts, pc, open.sh); continue; }
-            runs.push({ check: 'B4', lineId: kindName === 'midline' ? 'MID' : 'R' + b.side, e: b.e, s: b.s, x: b.x, z: b.z, val: d, len: 0,
-                        e0: a.e, s0: a.s, e1: b.e, s1: b.s, kind: kindName, node: nodeOf(ed, 'start') });
+            // reported at firstEnd: the same run whichever way the chain runs
+            const useA = firstEnd(a, b), q = useA ? a : b;
+            runs.push({ check: 'B4', lineId: kindName === 'midline' ? 'MID' : 'R' + q.side, e: q.e, s: q.s, x: useA ? a.x - open.sh.x : b.x, z: useA ? a.z - open.sh.z : b.z, val: d, len: 0,
+                        e0: a.e, s0: a.s, e1: b.e, s1: b.s, kind: kindName, node: nodeOf(ed, 'start'), side: kindName === 'midline' ? undefined : q.side });
           }
           finish();
           open = { pts: [...pc], id: kindName === 'midline' ? 'MID' : 'R' + pc[0].side, rLimit: rLimitOf(ed), sh: { x: 0, z: 0 } };
@@ -1016,13 +1039,15 @@ export function runGate(S, R, layouts, opts = {}) {
     eds.forEach((ed, c) => {
       for (const L of ed.lines) for (const pc of L.pieces) {
         const pts = orient(ed, pc.pts);
+        const lid = L.plan ? L.plan.id : `T${L.run.col}u${L.run.u.toFixed(3)}`;
+        for (const q of pts) q.lid = lid;
         const first = pts[0], last = pts[pts.length - 1];
         const onSec = (p, which) => {
           const atStart = ed.fwd ? (p.tag === 'A' && p.span === 1) : (p.tag === 'B' && p.span === ed.nSpan);
           const atEnd = ed.fwd ? (p.tag === 'B' && p.span === ed.nSpan) : (p.tag === 'A' && p.span === 1);
           return which === 'start' ? atStart : atEnd;
         };
-        P.push({ c, ed, L, pts, col: L.run.col, dashed: L.run.dashed, id: L.plan ? L.plan.id : `T${L.run.col}u${L.run.u.toFixed(3)}`,
+        P.push({ c, ed, L, pts, col: L.run.col, dashed: L.run.dashed, id: lid,
                  startsAtJoint: c > 0 && ed.linkIn === 'mitre' && onSec(first, 'start'), endsAtJoint: c + 1 < eds.length && eds[c + 1].linkIn === 'mitre' && onSec(last, 'end'),
                  next: null, prev: null, joined: false });
       }
@@ -1041,8 +1066,10 @@ export function runGate(S, R, layouts, opts = {}) {
         a.next = b; b.prev = a;
         if (d <= V) b.joined = true;   // within V: one strand, so B1/B2 judge the node (joinEnds)
         else {
-          const pb = b.pts[0];
-          runs.push({ check: 'B4', lineId: b.id, e: pb.e, s: pb.s, x: pb.x, z: pb.z, val: d, len: 0, e0: a.pts.at(-1).e, s0: a.pts.at(-1).s, e1: pb.e, s1: pb.s, kind: 'paint', node: nodeOf(b.ed, 'start') });
+          const pb = b.pts[0], pa = a.pts.at(-1);
+          // at firstEnd, named after that end's line: one run, whichever way the chain runs
+          const useA = firstEnd(pa, pb), q = useA ? pa : pb;
+          runs.push({ check: 'B4', lineId: useA ? a.id : b.id, e: q.e, s: q.s, x: q.x, z: q.z, val: d, len: 0, e0: pa.e, s0: pa.s, e1: pb.e, s1: pb.s, kind: 'paint', node: nodeOf(b.ed, 'start') });
         }
       }
     }
@@ -1132,11 +1159,14 @@ export function runGate(S, R, layouts, opts = {}) {
     // one strand is RR on one edge and RL on the next, and a key labelled by the run's worst sample moved between
     // RL and RR - vanishing from the ratchet - whenever that worst moved to an edge the chain runs the other way)
     r.kk = []; r.kq = []; r.kl = [];
-    const addKey = (bid, v, l, side) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.kind === 'edge' && side ? 'R' + side : r.lineId}`); r.kq.push(ratioOf(v)); r.kl.push(l); };
-    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i], r.bs[i]));
+    // (and a painted line's bucket is named after the line its own samples lie on - the plan line of their edge: a
+    // strand crosses joints into other profiles, and named after its identity chain's first piece it took whichever
+    // line the chain happened to start from, so the two gates, which orient chains differently, named one run twice)
+    const addKey = (bid, v, l, side, name) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.kind === 'edge' && side ? 'R' + side : name ?? r.lineId}`); r.kq.push(ratioOf(v)); r.kl.push(l); };
+    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i], r.bs[i], r.bn ? r.bn[i] : undefined));
     else if (r.check === 'C1') for (let b = bucketOf(e, Math.min(r.s0, r.s1)); b <= bucketOf(e, Math.max(r.s0, r.s1)); b++) addKey(b, r.val, r.len);
     else addKey(bucketOf(e, r.s), r.val, 0);
-    delete r.bk; delete r.bv; delete r.bl; delete r.bs; delete r.lastArc;
+    delete r.bk; delete r.bv; delete r.bl; delete r.bs; delete r.bn; delete r.lastArc;
     r.tile = `${Math.floor(r.x / 256)},${Math.floor(r.z / 256)}`;
     if ((r.check === 'A5' || r.check === 'A5b') && r.len < minRunLen[r.check]) r.drop = true;
     // cause hint

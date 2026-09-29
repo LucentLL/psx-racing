@@ -328,8 +328,8 @@
   "chord_cap_m": 10,
   "lines": 11881,
   "vertices": 121043,
-  "b2_centre": 73174,
-  "b2_offset": 157434,
+  "b2_centre": 73283,
+  "b2_offset": 157641,
   "b3_centre": 10096,
   "b3_inner": 242,
   "worst_b2_centre": {
@@ -359,8 +359,8 @@
    },
    "motorway_link": {
     "vertices": 9576,
-    "b2_centre": 8275,
-    "b2_offset": 16678,
+    "b2_centre": 8284,
+    "b2_offset": 16698,
     "b3_centre": 2654,
     "b3_inner": 3
    },
@@ -373,15 +373,15 @@
    },
    "trunk_link": {
     "vertices": 2092,
-    "b2_centre": 1746,
-    "b2_offset": 3484,
+    "b2_centre": 1751,
+    "b2_offset": 3497,
     "b3_centre": 829,
     "b3_inner": 11
    },
    "primary": {
     "vertices": 11457,
-    "b2_centre": 6047,
-    "b2_offset": 14984,
+    "b2_centre": 6053,
+    "b2_offset": 15002,
     "b3_centre": 259,
     "b3_inner": 1
    },
@@ -394,8 +394,8 @@
    },
    "secondary": {
     "vertices": 27302,
-    "b2_centre": 16161,
-    "b2_offset": 37298,
+    "b2_centre": 16177,
+    "b2_offset": 37321,
     "b3_centre": 613,
     "b3_inner": 17
    },
@@ -408,27 +408,27 @@
    },
    "tertiary": {
     "vertices": 33759,
-    "b2_centre": 21894,
-    "b2_offset": 46303,
+    "b2_centre": 21924,
+    "b2_offset": 46348,
     "b3_centre": 542,
     "b3_inner": 39
    },
    "tertiary_link": {
     "vertices": 718,
-    "b2_centre": 498,
-    "b2_offset": 986,
+    "b2_centre": 525,
+    "b2_offset": 1040,
     "b3_centre": 101,
     "b3_inner": 0
    },
    "local": {
     "vertices": 24820,
-    "b2_centre": 11181,
-    "b2_offset": 22293,
+    "b2_centre": 11197,
+    "b2_offset": 22327,
     "b3_centre": 507,
     "b3_inner": 131
    }
   },
-  "elapsed_s": 2,
+  "elapsed_s": 3.9,
   "note": "the design line only (exported centreline and its half-width offsets, mitre-joined, through 2-arm nodes); the mesh gate (CitySmooth / linecheck.mjs) measures what is drawn"
  },
  "lanes": {
@@ -927,5 +927,5 @@
   "measured": false,
   "note": "Plan critic C12: centreline offset and drawn-minus-real width against Mecklenburg EdgeOfPavementImpervious (CC0/MIT) and County Streets PAVEMENTWIDTH (CC BY 4.0). Neither layer is fetched yet (they belong on D:\\gis\\charlotte, PSX_GIS_DIR); this section reports nothing until they are."
  },
- "elapsed_s": 24.4
+ "elapsed_s": 27.5
 }

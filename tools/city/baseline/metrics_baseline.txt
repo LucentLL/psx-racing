@@ -25,20 +25,20 @@ KINKS (free vertices: interior polyline points + 2-arm joins; roundabouts out)
   local              519   12.69    5.18    0.63            2365         424    123.2
 
 SMOOTH (the smoothness gate's B2 KINK and B3 CURVE on the design line; V 2.5 cm, chords capped at 10 m)
-  11881 lines through 2-arm nodes, 121043 turning vertices: B2 fails at 73174 centreline and 157434 offset-curve vertices; B3 under the class R_min at 10096, inner offset under 3 m at 242
+  11881 lines through 2-arm nodes, 121043 turning vertices: B2 fails at 73283 centreline and 157641 offset-curve vertices; B3 under the class R_min at 10096, inner offset under 3 m at 242
   worst B2 377.6 cm (173.1 deg, motorway) at 35.42326,-80.66992; worst B3 R 1 m against 150 m (motorway) at 35.42326,-80.66992
   class            vertices  B2 centre  B2 offsets  B3 centre  B3 inner
   motorway             5064       3022        6237       3010         1
-  motorway_link        9576       8275       16678       2654         3
+  motorway_link        9576       8284       16698       2654         3
   trunk                2321       1118        2779        769         0
-  trunk_link           2092       1746        3484        829        11
-  primary             11457       6047       14984        259         1
+  trunk_link           2092       1751        3497        829        11
+  primary             11457       6053       15002        259         1
   primary_link         2266       1934        3838        465        26
-  secondary           27302      16161       37298        613        17
+  secondary           27302      16177       37321        613        17
   secondary_link       1668       1298        2554        347        13
-  tertiary            33759      21894       46303        542        39
-  tertiary_link         718        498         986        101         0
-  local               24820      11181       22293        507       131
+  tertiary            33759      21924       46348        542        39
+  tertiary_link         718        525        1040        101         0
+  local               24820      11197       22327        507       131
 
 LANES
   centre turn lane painted on 154.8 km (2479 edges); tagged as one (lanes:both_ways / turn:lanes:both_ways) on 23.3 km; painted with no tag and forward+backward = lanes (a turn pocket painted as a TWLTL) 108.5 km
@@ -83,5 +83,5 @@ SIZE (Brotli q11, lgwin 24, each file alone: a proxy for WebGL.data.unityweb)
 
 ACCURACY: not measured - the county pavement layers (plan C12) are not fetched yet
 
-(24.4 s, data Assets/PSXRacing/Resources)
+(27.5 s, data Assets/PSXRacing/Resources)
 wrote tools/city/baseline/metrics_baseline.json

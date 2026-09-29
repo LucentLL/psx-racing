@@ -420,7 +420,34 @@ export const kindText = k => k === KIND_LONE ? null : KIND_TEXT[k & 7] + (k & KI
 /// rules on the line as drawn and on the line in its ARC'S FRAME (arcFrame),
 /// and .silent (Uint8Array, or undefined without a frame): the vertices
 /// collinear in the frame of their curve, which are no samples of the line.
+///
+/// BOTH WAYS (the first Unity run of the mesh gate): the rules walk the line
+/// from its first vertex to its last and take greedy decisions on the way (a
+/// cluster's or a hedged window's first member, a straight's start, a lobe's
+/// inflections), so the same line read backwards scored differently at 2.6% of
+/// the vertices past V - one read 0.27 cm one way and 10.9 cm the other. The
+/// two gates walk a chain from different ends (this one from its lowest edge,
+/// CitySmooth from the first edge of a tile's ring), so they disagreed there.
+/// A vertex now scores the worse of the line walked both ways (its rule with
+/// it), and is silent only when silent both ways: a line looks the same driven
+/// either way, and no reading loosens.
 export function kinkScores(X, Z, C, TH, R, exempt = null, halfWidth = 0) {
+  const n = C.length;
+  const a = kinkScoresOneWay(X, Z, C, TH, R, exempt, halfWidth);
+  if (n < 3) return a;
+  const Xr = new Float64Array(n), Zr = new Float64Array(n), Cr = new Float64Array(n), THr = new Float64Array(n), L = C[n - 1];
+  for (let m = 0; m < n; m++) { const r = n - 1 - m; Xr[m] = X[r]; Zr[m] = Z[r]; Cr[m] = L - C[r]; THr[m] = -TH[r]; }
+  const b = kinkScoresOneWay(Xr, Zr, Cr, THr, R, exempt === null ? null : (m => exempt(n - 1 - m)), halfWidth);
+  for (let m = 1; m + 1 < n; m++) { const r = n - 1 - m; if (b[r] > a[m] * (1 + 1e-9) + 1e-12) { a[m] = b[r]; a.kind[m] = b.kind[r]; } }
+  if (a.silent !== undefined && b.silent !== undefined) {
+    const silent = new Uint8Array(n);
+    for (let m = 1; m + 1 < n; m++) if (a.silent[m] && b.silent[n - 1 - m] && !(a[m] > R.V)) silent[m] = 1;
+    a.silent = silent;
+  } else a.silent = undefined;
+  return a;
+}
+/// The rules on the line walked one way (first vertex to last): kinkScores' header.
+function kinkScoresOneWay(X, Z, C, TH, R, exempt = null, halfWidth = 0) {
   const n = C.length, F = arcFrame(X, Z, C, TH, R, exempt);
   const score = scoresOn(X, Z, C, TH, R, exempt, halfWidth, false);
   if (F !== null) {

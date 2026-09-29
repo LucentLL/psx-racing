@@ -282,7 +282,9 @@ namespace PSXRacing.EditorTools
             void C(double m, char col, bool dashed)
             {
                 double off = hw - m;
-                o.Add(new PlanLine { id = "C" + col + (dashed ? "d" : "s") + (off >= 0 ? "+" : "-") + Math.Abs(off).ToString("0.00", Inv), anchor = 'C', col = col, dashed = dashed, off = off });
+                // within half a centimetre of the centreline a line is +0.00: its sign is float noise in the
+                // profile's width (linegate.mjs adds doubles), and a key must not flip on it
+                o.Add(new PlanLine { id = "C" + col + (dashed ? "d" : "s") + (off >= 0 || Math.Abs(off) < 0.005 ? "+" : "-") + Math.Abs(off).ToString("0.00", Inv), anchor = 'C', col = col, dashed = dashed, off = off });
             }
             if (pr.oneway) for (int i = 1; i < pr.lanes; i++) C(pr.shl + lane * i, 'W', true);
             else
@@ -378,6 +380,13 @@ namespace PSXRacing.EditorTools
             /// <summary>The ribbon side each bucket's samples lie on (a ribbon
             /// edge's key is the side of the edge it is on: linegate.mjs).</summary>
             public List<char> bs;
+            /// <summary>The painted line each bucket's samples lie on (their own
+            /// edge's plan line; the smallest name where two meet in a bucket):
+            /// a strand crosses joints into other profiles, and named after its
+            /// identity chain's first piece a run took whichever line the chain
+            /// started from - linegate.mjs, which starts chains elsewhere, named
+            /// one run two ways.</summary>
+            public List<string> bn;
             /// <summary>The keys, each with its worst ratio and its bad length (the
             /// arc between consecutive bad samples, to the bucket of the later).</summary>
             public List<string> kk; public List<double> kq, kl;
@@ -640,7 +649,7 @@ namespace PSXRacing.EditorTools
             bool Worse(double a, double b) => minIsWorse ? a < b : Math.Abs(a) > Math.Abs(b);
             /// <summary>A break in the samples: closes, no arc across it.</summary>
             public void Gap() { Close(); px = double.NaN; }
-            public void Push(double x, double y, double z, int e, double s, double val, bool bad, char tag = ' ', int span = -1, char side = ' ', string what = null)
+            public void Push(double x, double y, double z, int e, double s, double val, bool bad, char tag = ' ', int span = -1, char side = ' ', string what = null, string lid = null)
             {
                 if (!double.IsNaN(px)) arc += Math.Sqrt((x - px) * (x - px) + (z - pz) * (z - pz));
                 px = x; pz = z;
@@ -648,16 +657,21 @@ namespace PSXRacing.EditorTools
                 if (cur != null && arc - cur.lastArc > SmoothRules.RunBreakM) Close();
                 double inc = cur != null ? arc - cur.lastArc : 0;
                 if (cur == null)
-                    cur = new Run { check = check, lineId = lineId, kind = kind, reportOnly = reportOnly, e = e, s = s, x = x, y = y, z = z, val = val,
+                    cur = new Run { check = check, lineId = lid ?? lineId, kind = kind, reportOnly = reportOnly, e = e, s = s, x = x, y = y, z = z, val = val,
                                     e0 = e, s0 = s, e1 = e, s1 = s, tag = tag, span = span, side = side, rLimit = rLimit, node = node, len = -arc,
-                                    bk = new List<long>(), bv = new List<double>(), bl = new List<double>(), bs = new List<char>(), what = what };
+                                    bk = new List<long>(), bv = new List<double>(), bl = new List<double>(), bs = new List<char>(), bn = new List<string>(), what = what };
                 cur.e1 = e; cur.s1 = s; cur.lastArc = arc;
                 long bid = node >= 0 ? -(node * 4096L + Math.Min(Math.Max(span, 0), 4094) + 1) : Bucket(e, s);
                 int nb = cur.bk.Count;
-                if (nb > 0 && cur.bk[nb - 1] == bid) { if (Worse(val, cur.bv[nb - 1])) cur.bv[nb - 1] = val; cur.bl[nb - 1] += inc; }
-                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); cur.bs.Add(side); }
+                if (nb > 0 && cur.bk[nb - 1] == bid)
+                {
+                    if (Worse(val, cur.bv[nb - 1])) cur.bv[nb - 1] = val;
+                    cur.bl[nb - 1] += inc;
+                    if (lid != null && (cur.bn[nb - 1] == null || string.CompareOrdinal(lid, cur.bn[nb - 1]) < 0)) cur.bn[nb - 1] = lid;
+                }
+                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); cur.bs.Add(side); cur.bn.Add(lid); }
                 if (Worse(val, cur.val))
-                { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; cur.what = what; }
+                { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; cur.what = what; if (lid != null) cur.lineId = lid; }
             }
             public void Close()
             {
@@ -683,7 +697,28 @@ namespace PSXRacing.EditorTools
         // ================================================================
 
         struct Sec { public double s, px, pz, rx, rz; public ushort f; }
-        struct Pt { public double x, y, z, v, s; public int e, span, tile; public char tag, side; public bool x3, crop, gore, sq; }
+        struct Pt { public double x, y, z, v, s; public int e, span, tile; public char tag, side; public bool x3, crop, gore, sq; public string lid; }
+
+        /// <summary>Of the two ends of a jump or a dash, the one a run is reported
+        /// at (and the identity a joint's one vertex takes): the lower OSM way,
+        /// then the lower edge, then the lower s - one run gets one key whichever
+        /// way the chain runs (a chain starts here at the first edge of a tile's
+        /// ring, in linegate.mjs at its lowest edge). linegate.mjs firstEnd.</summary>
+        static bool FirstEnd(Pt p, Pt q)
+        {
+            uint wp = map.edges[p.e].wayId, wq = map.edges[q.e].wayId;
+            return wp != wq ? wp < wq : p.e != q.e ? p.e < q.e : p.s <= q.s;
+        }
+        /// <summary>The joint's one vertex a < V join keeps (a's place), named
+        /// after the end FirstEnd picks; exempt only if both ends are (never
+        /// looser than either way).</summary>
+        static Pt JointVertex(Pt a, Pt b)
+        {
+            var j = a;
+            if ((b.e != a.e || b.s != a.s) && FirstEnd(b, a)) { j.e = b.e; j.s = b.s; j.tag = b.tag; j.span = b.span; j.side = b.side; j.lid = b.lid; j.tile = b.tile; }
+            j.x3 = a.x3 && b.x3; j.gore = a.gore && b.gore;
+            return j;
+        }
 
         sealed class EdgeData
         {
@@ -841,6 +876,7 @@ namespace PSXRacing.EditorTools
                 var pieces = new List<List<Pt>>(); var rats = new List<List<double>>();
                 List<Pt> piece = null; List<double> rat = null;
                 double u = lay.runs[k].u;
+                string lid = PlanIdOf(lay, k);
                 for (int i = 0; i < n; i++)
                 {
                     var q = quads[i];
@@ -849,6 +885,7 @@ namespace PSXRacing.EditorTools
                     foreach (var sg in QuadIso(q, u))
                     {
                         var pa = MakePt(ed, i, sg.ax, sg.ay, sg.az, sg.av, sg.ea); var pb = MakePt(ed, i, sg.bx, sg.by, sg.bz, sg.bv, sg.eb);
+                        pa.lid = lid; pb.lid = lid;
                         double ratio = 1.0 / (sg.grad * W);
                         if (piece != null)
                         {
@@ -1435,7 +1472,7 @@ namespace PSXRacing.EditorTools
                 // collinear in the frame of its curve: no sample (ArcFrame)
                 if (K2silent != null && K2silent[m] != 0) continue;
                 double f = K2[m];
-                b2.Push(b.x, b.y, b.z, b.e, b.s, f, f > V, b.tag, b.span, b.side, f > V ? KindWhat(K2kind[m]) : null);
+                b2.Push(b.x, b.y, b.z, b.e, b.s, f, f > V, b.tag, b.span, b.side, f > V ? KindWhat(K2kind[m]) : null, b.lid);
             }
             b2.Close();
             // B3 CURVE (ribbon edges, midline, fans)
@@ -1456,9 +1493,13 @@ namespace PSXRacing.EditorTools
             }
             // B1 JITTER: 0.25 m samples within JitterHalfM of a kept vertex; Kasa (line fallback) over +-JitterHalfM
             double step = SmoothRules.JitterStepM, H = SmoothRules.JitterHalfM; int nH = (int)Math.Round(H / step);
+            // whole steps from the strand's MIDDLE, not from its start: the same samples - and readings - whichever
+            // way the strand is walked (linegate.mjs walks chains from their lowest edge, this gate from the first
+            // edge of a tile's ring)
+            double ph = (Ltot / 2) % step;
             var cand = new List<double>();
             for (int m = 1; m + 1 < keep.Count; m++)
-                for (double a = Math.Ceiling((C[m] - H) / step) * step; a <= C[m] + H + 1e-9; a += step)
+                for (double a = Math.Ceiling((C[m] - H - ph) / step) * step + ph; a <= C[m] + H + 1e-9; a += step)
                     if (a >= H && a <= Ltot - H) cand.Add(a);
             if (cand.Count == 0) return;
             cand.Sort();
@@ -1493,7 +1534,7 @@ namespace PSXRacing.EditorTools
                     dev = Math.Max(dev, Math.Abs(((p.x - xs[0]) * czz - (p.z - zs[0]) * cxx) / cl));
                 }
                 double res = dev < V / 2 ? 0 : KasaResidual(xs, zs, nH);
-                b1.Push(cen.x, src.y, cen.z, sE, sS, res, res > V, src.tag, src.span, src.side);
+                b1.Push(cen.x, src.y, cen.z, sE, sS, res, res > V, src.tag, src.span, src.side, null, sE == src.e ? src.lid : nxt.lid);
             }
             b1.Close();
         }
@@ -1758,7 +1799,33 @@ namespace PSXRacing.EditorTools
         /// vertices collinear in the frame of their curve, which are no samples
         /// of the line.</summary>
         static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt) => KinkScores(X, Z, C, TH, exempt, out _, out _);
+        /// <summary>BOTH WAYS (lib/kink.mjs kinkScores): the rules walk a line from
+        /// its first vertex to its last and take greedy decisions on the way, so
+        /// the same line read backwards scored differently at 2.6% of the vertices
+        /// past V (0.27 cm one way, 10.9 cm the other). The two gates walk a chain
+        /// from different ends. A vertex scores the worse of the line walked both
+        /// ways (its rule with it) and is silent only when silent both ways: a line
+        /// looks the same driven either way, and no reading loosens.</summary>
         static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind, out byte[] silent, double halfWidth = 0)
+        {
+            int n = C.Length;
+            var a = KinkScoresOneWay(X, Z, C, TH, exempt, out kind, out silent, halfWidth);
+            if (n < 3) return a;
+            double[] Xr = new double[n], Zr = new double[n], Cr = new double[n], THr = new double[n]; double L = C[n - 1];
+            for (int m = 0; m < n; m++) { int r = n - 1 - m; Xr[m] = X[r]; Zr[m] = Z[r]; Cr[m] = L - C[r]; THr[m] = -TH[r]; }
+            var b = KinkScoresOneWay(Xr, Zr, Cr, THr, exempt == null ? null : (Func<int, bool>)(m => exempt(n - 1 - m)), out byte[] kindR, out byte[] silentR, halfWidth);
+            for (int m = 1; m + 1 < n; m++) { int r = n - 1 - m; if (b[r] > a[m] * (1 + 1e-9) + 1e-12) { a[m] = b[r]; kind[m] = kindR[r]; } }
+            if (silent != null && silentR != null)
+            {
+                var both = new byte[n];
+                for (int m = 1; m + 1 < n; m++) if (silent[m] != 0 && silentR[n - 1 - m] != 0 && !(a[m] > SmoothRules.V)) both[m] = 1;
+                silent = both;
+            }
+            else silent = null;
+            return a;
+        }
+        /// <summary>The rules on the line walked one way (first vertex to last): KinkScores.</summary>
+        static double[] KinkScoresOneWay(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind, out byte[] silent, double halfWidth = 0)
         {
             int n = C.Length;
             var F = ArcFrame(X, Z, C, TH, exempt);
@@ -2391,12 +2458,14 @@ namespace PSXRacing.EditorTools
                 if (state < 0) return;
                 bool on = state == 1;
                 double l0 = on ? lo : glo, l1 = on ? hi : ghi;
+                // reported at the end FirstEnd picks, named after that end's line: one run whichever way the chain runs
+                var q = FirstEnd(start, endPt) ? start : endPt; string qid = q.lid ?? lineId;
                 if (!truncatedStart && !truncatedEnd && (len < l0 || len > l1))
-                    Keep(new Run { check = "C3", lineId = lineId, e = endPt.e, s = endPt.s, x = endPt.x, y = endPt.y, z = endPt.z, val = len / (on ? SmoothRules.DashM : SmoothRules.DashGapM) - 1, len = len,
-                                   e0 = start.e, s0 = start.s, e1 = endPt.e, s1 = endPt.s, what = on ? "dash" : "gap", span = endPt.span });
+                    Keep(new Run { check = "C3", lineId = qid, e = q.e, s = q.s, x = q.x, y = q.y, z = q.z, val = len / (on ? SmoothRules.DashM : SmoothRules.DashGapM) - 1, len = len,
+                                   e0 = start.e, s0 = start.s, e1 = endPt.e, s1 = endPt.s, what = on ? "dash" : "gap", span = q.span });
                 else if (on && (truncatedStart || truncatedEnd) && len < SmoothRules.StubM)
-                    Keep(new Run { check = "C3", lineId = lineId, e = endPt.e, s = endPt.s, x = endPt.x, y = endPt.y, z = endPt.z, val = len / SmoothRules.DashM - 1, len = len,
-                                   e0 = start.e, s0 = start.s, e1 = endPt.e, s1 = endPt.s, what = "stub", reportOnly = "a truncated dash under 1 m at a mouth or gore: report-only until WP-17", span = endPt.span });
+                    Keep(new Run { check = "C3", lineId = qid, e = q.e, s = q.s, x = q.x, y = q.y, z = q.z, val = len / SmoothRules.DashM - 1, len = len,
+                                   e0 = start.e, s0 = start.s, e1 = endPt.e, s1 = endPt.s, what = "stub", reportOnly = "a truncated dash under 1 m at a mouth or gore: report-only until WP-17", span = q.span });
             }
             var ts = new List<double>(8);
             foreach (var pts in pieces)
@@ -2417,7 +2486,7 @@ namespace PSXRacing.EditorTools
                         int on = OnAt(v0 + (v1 - v0) * tm) ? 1 : 0;
                         if (state != on)
                         {
-                            var at = new Pt { x = a.x + (b.x - a.x) * ts[k - 1], y = a.y + (b.y - a.y) * ts[k - 1], z = a.z + (b.z - a.z) * ts[k - 1], e = a.e, s = a.s + (b.s - a.s) * ts[k - 1], span = b.span };
+                            var at = new Pt { x = a.x + (b.x - a.x) * ts[k - 1], y = a.y + (b.y - a.y) * ts[k - 1], z = a.z + (b.z - a.z) * ts[k - 1], e = a.e, s = a.s + (b.s - a.s) * ts[k - 1], span = b.span, lid = a.lid };
                             CloseRun(at, false);
                             truncatedStart = state < 0; state = on; len = 0; start = at;
                         }
@@ -2494,10 +2563,16 @@ namespace PSXRacing.EditorTools
                             if (d <= V)
                             {
                                 shx = a.x - b.x; shz = a.z - b.z;
+                                open[open.Count - 1] = JointVertex(a, b);   // named after FirstEnd's end, its place kept
                                 for (int k = 1; k < pc.Count; k++) open.Add(Shift(pc[k], shx, shz));
                                 continue;
                             }
-                            if (atJoint) Keep(new Run { check = "B4", lineId = kindName == "midline" ? "MID" : "R" + b.side, kind = kindName, e = b.e, s = b.s, x = b.x, y = b.y, z = b.z, val = d, e0 = a.e, s0 = a.s, e1 = b.e, s1 = b.s, node = NodeAtStart(ed), side = b.side });
+                            // reported at the end FirstEnd picks: the same run whichever way the chain runs
+                            if (atJoint)
+                            {
+                                bool useA = FirstEnd(a, b); var q = useA ? a : b;
+                                Keep(new Run { check = "B4", lineId = kindName == "midline" ? "MID" : "R" + q.side, kind = kindName, e = q.e, s = q.s, x = useA ? a.x - shx : b.x, y = q.y, z = useA ? a.z - shz : b.z, val = d, e0 = a.e, s0 = a.s, e1 = b.e, s1 = b.s, node = NodeAtStart(ed), side = q.side });
+                            }
                         }
                         Finish();
                         open = new List<Pt>(pc); openId = kindName == "midline" ? "MID" : "R" + pc[0].side; openR = rLim(ed); shx = shz = 0;
@@ -2561,7 +2636,9 @@ namespace PSXRacing.EditorTools
                     else
                     {
                         var pb = b.pts[0]; var pa = a.pts[a.pts.Count - 1];
-                        Keep(new Run { check = "B4", lineId = b.id, kind = "paint", e = pb.e, s = pb.s, x = pb.x, y = pb.y, z = pb.z, val = d, e0 = pa.e, s0 = pa.s, e1 = pb.e, s1 = pb.s, node = NodeAtStart(b.ed) });
+                        // at the end FirstEnd picks, named after that end's line: one run, whichever way the chain runs
+                        bool useA = FirstEnd(pa, pb); var q = useA ? pa : pb;
+                        Keep(new Run { check = "B4", lineId = useA ? a.id : b.id, kind = "paint", e = q.e, s = q.s, x = q.x, y = q.y, z = q.z, val = d, e0 = pa.e, s0 = pa.s, e1 = pb.e, s1 = pb.s, node = NodeAtStart(b.ed) });
                     }
                 }
             }
@@ -2577,6 +2654,7 @@ namespace PSXRacing.EditorTools
                     {
                         // the next piece moved onto the strand's end: the (sub-V) step taken out, the shape kept
                         var a = strand[strand.Count - 1]; double shx = a.x - p.pts[0].x, shz = a.z - p.pts[0].z;
+                        strand[strand.Count - 1] = JointVertex(a, p.pts[0]);   // named after FirstEnd's end, its place kept
                         for (int k = 1; k < p.pts.Count; k++) strand.Add(Shift(p.pts[k], shx, shz));
                     }
                     else { if (strand != null) { strands++; ShapeChecks("paint", head.id, strand, 0); } strand = new List<Pt>(p.pts); }
@@ -2713,16 +2791,17 @@ namespace PSXRacing.EditorTools
                 // so one strand is RR on one edge and RL on the next; labelled by the run's worst sample, a key moved between
                 // RL and RR - vanishing from the ratchet - whenever that worst moved to an edge the chain runs the other way)
                 r.kk = new List<string>(); r.kq = new List<double>(); r.kl = new List<double>();
-                void AddKey(long bid, double v, double l, char side)
+                // (and a painted line's bucket is named after the line its own samples lie on: Run.bn)
+                void AddKey(long bid, double v, double l, char side, string name = null)
                 {
-                    string line = r.kind == "edge" && (side == 'L' || side == 'R') ? "R" + side : r.lineId;
+                    string line = r.kind == "edge" && (side == 'L' || side == 'R') ? "R" + side : name ?? r.lineId;
                     r.kk.Add(bid < 0 ? $"{e.wayId}:n{(-bid - 1) / 4096}c{(-bid - 1) % 4096}:{r.check}:FAN" : $"{bid / 1048576L}:{(bid % 1048576L).ToString(Inv)}:{r.check}:{line}");
                     r.kq.Add(RatioOf(v)); r.kl.Add(l);
                 }
-                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i], r.bl[i], r.bs[i]);
+                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i], r.bl[i], r.bs[i], r.bn != null ? r.bn[i] : null);
                 else if (r.check == "C1") for (long b = Bucket(r.e, Math.Min(r.s0, r.s1)); b <= Bucket(r.e, Math.Max(r.s0, r.s1)); b++) AddKey(b, r.val, r.len, ' ');
                 else AddKey(Bucket(r.e, r.s), r.val, 0, ' ');
-                r.bk = null; r.bv = null; r.bl = null; r.bs = null;
+                r.bk = null; r.bv = null; r.bl = null; r.bs = null; r.bn = null;
                 // causes: the tap's flags and the data near the worst sample
                 var causes = new List<string>();
                 double lo = r.check == "C1" ? Math.Min(r.s0, r.s1) - 1 : r.s - 1, hi = r.check == "C1" ? Math.Max(r.s0, r.s1) + 1 : r.s + 1;

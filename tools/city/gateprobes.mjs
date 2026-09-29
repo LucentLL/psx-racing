@@ -50,6 +50,10 @@
 //       features, eased tapers and long S-bends on a curve do not; review 7:
 //       the offline rules parser reads a const float as C# holds it (the arc
 //       frame's discrete tests flipped between the gates on V as a double)
+//   L   NAMES (the first Unity run of the mesh gate): a run is named after the
+//       line its own samples lie on, a jump or a dash at the end on the lower
+//       way, and a centre line has no sign - so one run has one key whichever
+//       way a chain runs (the two gates orient chains differently)
 //   T   a HOOK (review 6: a corner in a line's last metres passed until its
 //       end stood 8V off): the corner extrapolated from the approach, at most
 //       the end's own offset, fails; a turn whose end stands under V off, or a
@@ -70,7 +74,7 @@ import { fileURLToPath } from 'node:url';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts } from './lib/paintruns.mjs';
 import { city, bent, fillet, sagChord, gateOf, fwd, DEG } from './lib/synthcity.mjs';
-import { arcFrame } from './lib/kink.mjs';
+import { arcFrame, kinkScores } from './lib/kink.mjs';
 import { summarize, ratchet, packKeys, packTiles, SCHEMA, statesOf, beforeAfter } from './lib/gatebase.mjs';
 import * as GB from './lib/gatebase.mjs';
 import { readFileSync } from 'node:fs';
@@ -577,6 +581,48 @@ if (want('C')) {
     for (const [Rc, L] of [[300, 8], [100, 6], [60, 5]]) { const n = Math.round(120 / L) + 10, res = gt(filletAll(polyArc(Rc, L, n, -1, 0))); probe(`C5 an R ${Rc} m data curve drawn every ${L} m, WP-11 filleted (tangent arcs, 2 cm sagitta): nothing`, gated(res).length === 0, fmt(res)); }
     const n = Math.round(120 / 8) + 10, spiked = gt(filletAll(polyArc(300, 8, n, Math.round(n / 2), 0.25)));
     probe('C5 the R 300 m curve with one data vertex 25 cm out, WP-11 filleted (19 cm off the clean fillet): a KINK on all 7 lines', b2l(spiked) === 7, fmt(spiked));
+  }
+  // the first Unity run: the two gates named one run two ways. A strand's runs took the line id of the identity
+  // chain's FIRST piece (a tw4's yellow +0.12 named a tw5t's run +1.95), a jump or a dash across a joint was reported
+  // at whichever end the chain reached second, and a lane line at the centre was -0.00 in C# and +0.00 here. The two
+  // gates start chains at different edges, so every such run had two keys. Here: one city, its two ways given in both
+  // orders (the chain then runs one way and then the other), must give the same keys.
+  {
+    const A = []; { let p = [0, 0], h = 10 * DEG; A.push(p); p = fwd(p, h, 60); A.push(p); h += 3 * DEG; p = fwd(p, h, 40); A.push(p); }
+    const B = []; { let p = A.at(-1), h = 13 * DEG; B.push(p); p = fwd(p, h, 40); B.push(p); h -= 3 * DEG; p = fwd(p, h, 60); B.push(p); }
+    const wA = { pts: A, lanes: 4, rank: 2, wayId: 7001, name: 'L1 A' }, wB = { pts: [...B].reverse(), lanes: 5, turn: true, rank: 2, wayId: 7002, name: 'L1 B' };
+    const keysOf = res => res.g.runs.filter(r => !r.drop).flatMap(r => (r.kk || []).map((k, i) => `${k}@${(r.kq[i] || 0).toFixed(3)}`)).sort();
+    const k1 = keysOf(gateOf(city([wA, wB]), R, layouts)), k2 = keysOf(gateOf(city([wB, wA]), R, layouts));
+    const only1 = k1.filter(k => !k2.includes(k)), only2 = k2.filter(k => !k1.includes(k));
+    const foreign = k1.filter(k => (/^7001:.*:(CYs|CYd)[-+]1\.(95|71)/.test(k)) || (/^7002:.*:CYs[-+]0\.12/.test(k)));
+    const b4 = k1.filter(k => /:B4:/.test(k)).length, b2 = k1.filter(k => /:B2:/.test(k)).length;
+    probe('L1 one city, its two ways (tw4 then tw5t, the second drawn against the first) given in both orders: the same keys - every run named after its own line, a jump and a dash at the end on the lower way',
+      k1.length > 0 && b4 > 0 && b2 > 0 && only1.length === 0 && only2.length === 0 && foreign.length === 0,
+      `${k1.length} keys (${b2} B2, ${b4} B4); only in the first order ${only1.length}${only1.length ? ' e.g. ' + only1[0] : ''}; only in the second ${only2.length}${only2.length ? ' e.g. ' + only2[0] : ''}; a tw5t line named on the tw4 or the reverse ${foreign.length}`);
+    const ow2 = gateOf(city([{ pts: bent([3], [30]), lanes: 2, oneway: true, rank: 2, wayId: 7003 }]), R, layouts).g.runs;
+    const minus0 = ow2.filter(r => /[-]0\.00$/.test(r.lineId) || (r.kk || []).some(k => /[-]0\.00$/.test(k)));
+    probe('L1 a one-way two-lane street: its centre lane line is CWd+0.00, never -0.00 (the sign of a float\'s noise)',
+      ow2.some(r => /CWd\+0\.00$/.test(r.lineId)) && minus0.length === 0, `${ow2.filter(r => /CWd/.test(r.lineId)).length} runs on its lane line; -0.00 on ${minus0.length}`);
+  }
+  // B2 read both ways: the rules walk a line from one end and decide greedily (a cluster's first member, a straight's
+  // start, a lobe's inflections); before, 2.6% of the vertices past V scored differently read backwards (0.27 cm one
+  // way, 10.9 cm the other). 400 random lines of jogs, bumps, corners and short legs, and each backwards: the same
+  {
+    let seed = 5; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    const arrs = P => { const n = P.length, X = P.map(q => q[0]), Z = P.map(q => q[1]), C = [0], TH = new Array(n).fill(0);
+      for (let i = 1; i < n; i++) C.push(C[i - 1] + Math.hypot(X[i] - X[i - 1], Z[i] - Z[i - 1]));
+      for (let i = 1; i + 1 < n; i++) { const ux = X[i] - X[i - 1], uz = Z[i] - Z[i - 1], vx = X[i + 1] - X[i], vz = Z[i + 1] - Z[i]; TH[i] = Math.atan2(ux * vz - uz * vx, ux * vx + uz * vz); }
+      return [X, Z, C, TH]; };
+    let past = 0, differ = 0, worst = 0;
+    for (let c = 0; c < 400; c++) {
+      const P = [[0, 0]]; let h = rnd() * 6, q = [0, 0];
+      const n = 5 + Math.floor(rnd() * 25);
+      for (let i = 0; i < n; i++) { const L = rnd() < 0.3 ? 0.3 + rnd() : 1 + rnd() * 15; if (rnd() < 0.5) h += (rnd() - 0.5) * 8 * DEG; q = [q[0] + Math.sin(h) * L, q[1] + Math.cos(h) * L]; P.push(q); }
+      const a = kinkScores(...arrs(P), R), b = kinkScores(...arrs([...P].reverse()), R);
+      for (let m = 1; m + 1 < P.length; m++) { const x = a[m], y = b[P.length - 1 - m]; if (x > R.V || y > R.V) past++; const d = Math.abs(x - y) / Math.max(1e-9, x, y); if ((x > R.V || y > R.V) && d > 1e-9) { differ++; worst = Math.max(worst, d); } }
+    }
+    probe('L2 400 random lines of corners, jogs, bumps and short legs, each read backwards too: every vertex scores the same B2 either way (the worse of the two walks)',
+      past > 100 && differ === 0, `${past} vertices past V, ${differ} scoring differently backwards (worst ${(worst * 100).toFixed(1)}%)`);
   }
   // review 7: SmoothRules' numbers are C# FLOATS. Read as doubles offline, V was 1.5e-8 off the mesh gate's and the arc
   // frame's discrete tests (|k| <= tolK at exactly R 2000, the V/4 fit, the V/50 chord points, a ceil at an exact ratio)
