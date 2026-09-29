@@ -505,14 +505,67 @@ in OSM).
     geometry, not a wobble: WP-10 removes every sideways excursion under it
     before WP-11 fillets what is left, so a winding road's lobes pass and B3
     judges their radius (on an edge or paint line that test is the data
-    line's, so a lobe that close to the limit is left to the centreline). The
-    run text names which rule fired ("a zigzag peak", "a bump or notch", "a
-    hedged corner", "a jog", "a wave"). `tools/city/lib/kink.mjs` and
-    `CitySmooth.KinkScores` are the same code; a cross-check compiles the C#
-    out of CitySmooth.cs and runs it on the JS's inputs (201,364 vertices on
-    18,765 polylines, 8,000 of them the city's own, 90,882 scored past V under
-    every rule, 19,555 of them waves, and 527,427 squeeze samples: identical
-    to 1.5e-8, the same rule every time).
+    line's, so a lobe that close to the limit is left to the centreline).
+    A HOOK (review 6: the lone rule's chord toward a strand end is the stub d,
+    so it scored about the end's offset / 8, and a corner in a line's last
+    metres passed until its end stood 8V, 20 cm, off - Westinghouse Boulevard's
+    -6° 1.73 m before its mouth, 18.1 cm off): a lone vertex whose chord runs
+    on to the strand's end inside the 10 m cap takes the stub as the eye's
+    exit straight and scores the corner extrapolated from the approach, never
+    more than the end's own offset, min(min(c, 10 m)·|t|/8, d·sin|t|). A 6°
+    hook 1 m before a dead end reads 4.2x (10.5 cm), a 13° one 0.84 m before
+    it 10.2x on the ribbon edges (the paint stops short of it), a 6° one 1.2 m
+    before a T junction's fan mouth 2.7-4.4x on all 7 lines; a 2° turn 0.1 m
+    before the end (0.35 cm off) and a legal 1° vertex 3 m before it pass.
+    THE ARC'S FRAME (review 6: every rule that measures an excursion needed a
+    STRAIGHT reference - the lone chord stopped where the arc itself had
+    turned a quarter of the kink, OUTSIDE, JOG and the net corner needed
+    straights, the wave lobes needed turns of both signs - so on an arc
+    tighter than about R 500 a 20 cm bump over 8 m, a 20 cm jog over 4 m, a
+    3.5° kink against the curve, a ±9 cm wave, the owner's squeeze zigzag and
+    a WP-11-filleted data spike all passed): every rule runs a second time on
+    the line UNROLLED along the curvature of the constant-curvature reference
+    it runs on, and a vertex scores the worse reading ("..., on a curve
+    (judged in the frame of its arc)"). The reference: at probes 2.5 m apart,
+    the least-squares circle of the vertices that sample the 20 m window about
+    the probe (40 m for a coarsely drawn curve; three or more vertices, no gap
+    over half the half window, so a lone or split corner among straights is
+    no curve), every one within V/4 of it, a curvature under 2V/(10 m)² (R
+    2000) being a straight's; clean probes side by side on curvatures that far
+    apart hold a step, a clean island under 10 m is a smooth feature's top,
+    and each clean curvature is its run's median (those whose windows reach a
+    feature's tail left out); a stretch without one (a feature) takes the
+    curvature both its clean sides agree on, or the one a strand end leaves
+    while the line keeps within 4 lone limits of its heading (that end then
+    OPEN: no hook, no end-length straight there), else none - a curvature step
+    (a fillet's tangent point, an S-bend's inflection) has no frame. The
+    frame's points drop the curve's chord points (within V/50 of the chord:
+    diagonal crossings, tile cuts, which the frame would show as a sawtooth of
+    the chord's sagitta) and sample a straight piece inside a curve; in the
+    frame a vertex or cluster still curving the same way on both sides scores
+    nothing as a lone corner or cluster (its facets are the line's own, judged
+    as drawn). A raw vertex collinear in the frame of its curve is no sample
+    (runs do not split there, as they do not at a straight's collinear
+    vertices). A straight has no frame, so every straight-road reading is
+    unchanged; on R 1000 to R 50 the frame reproduces them: the largest
+    raised-cosine bump that passes is 2.5-2.6 cm over 8 m (was 3.9-35.4 cm),
+    a smooth jog over 4 m 3.7 cm (was 6.6-41.6), a lone kink against the curve
+    1.0-1.2° (was up to 7.1°), a sampled wave ±2.1-2.9 cm (was ±16.8 cm on R
+    100), a two-vertex data jog over 2 m 2.5 cm (was 13.6), a tent bump over 8
+    m 2.5-2.6 cm (was 13.7); the S7 squeeze zigzag reads 1.8-1.9x on R 300 to
+    R 100 (was nothing), and the R 300 data spike WP-11 filleted 3.5x. Clean
+    arcs, WP-11 fillets of R 300 / 100 / 60 data curves, eased bumps and
+    tapers, long S-bends and sub-V features on curves read 0. The raw reading
+    is kept as a floor (no key loosens), so the raw rules' own curve bias
+    stays (see "Open for the spec"). The run text names which rule fired ("a
+    zigzag peak", "a bump or notch", "a hedged corner", "a jog", "a wave", "a
+    hook"). `tools/city/lib/kink.mjs` and `CitySmooth.KinkScores /
+    KinkScoresOn / ArcFrame` are the same code; a cross-check compiles the C#
+    out of CitySmooth.cs and runs it on the JS's inputs (674,537 vertices on
+    20,481 polylines - 15,490 of them the city's own gate strands, every line
+    kind, and 5,000 random features on straights and arcs - 199,519 scored
+    past V, 14,835 of them in the arc frame and 6,989 hooks: identical to
+    1.7e-8, the same rule and the same silent vertices every time).
   - C (continuity): C1 GAP, C2 END (only at junction fan mouths, dead ends,
     a gore NOSE - a collapsed section within 2 m - or plan lane drops; an end
     with a partner within a lane is a JUMP, not an end; a bend fan's mouths
@@ -539,14 +592,16 @@ in OSM).
   **a disagreement is a gate bug**, fixed before anything else. Only the mesh
   gate sees tile seams, fans and heights. linecheck's replica follows the
   builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
-  same commit. `node tools/city/gateprobes.mjs` runs 191 synthetic probes with
+  same commit. `node tools/city/gateprobes.mjs` runs 224 synthetic probes with
   known answers (split kinks, legitimate fillets and S-bends, a kink behind a
   sub-V step, bend fans, attach arcs, straight roads, hedged corners, notches,
   jogs of every width, bumps and zigzags, waves, jogs into a fan mouth, legal
   vertices beside a jog, bumps and notches wider than the cap, C2's closed
   list, squeezed edges against I7 - also inside a slow rise - an edge pulled
-  in without a squeeze, the ratchet, STALE, the gate's code and the pin in
-  the fingerprint, the loosening refusal); every review finding is one, and
+  in without a squeeze, features on a curve and the curves that are no
+  features, hooks at a line's end, the ratchet, STALE, the gate's code and the
+  pin in the fingerprint, the loosening refusal, the gate moving with the
+  data, the builder replica as data); every review finding is one, and
   all must pass - `linecheck --ratchet` runs them. `metrics.mjs` gains a SMOOTH section: B2/B3 on
   the exported centreline and its offset curves, in half a second, as an
   early warning.
@@ -582,9 +637,11 @@ in OSM).
   rollout switches or the ranking; the creek pin's ways are in it), of the
   road PNGs, (mesh) of the DEM, of the GATE'S OWN CODE (review 5: a loosening
   edit to the gate moved no input, so it passed its own ratchet and was never
-  STALE - offline `tools/city/lib`'s replica, checks, plan, texture scan,
-  rules parser and ratchet; mesh `CitySmooth.cs` and the tap in CityMeshes),
-  and the model; every check's STATE; and the PINNED ways (a way dropped from
+  STALE - offline `tools/city/lib`'s checks, plan, texture scan, rules parser
+  and ratchet, `code`; mesh `CitySmooth.cs` and the tap in CityMeshes),
+  (offline) of the BUILDER REPLICA (`linesim.mjs`, `citydata.mjs`, `replica`:
+  review 6 - in the gate's digest, every builder fix mirrored there read as a
+  gate loosening), and the model; every check's STATE; and the PINNED ways (a way dropped from
   the pin fails, stale or not). A ratchet against other inputs is
   **STALE, and STALE FAILS**: linecheck exits 1, `city-smooth.ps1` exits 1,
   and the city audit writes a failing Check ("smoothness baseline measured on
@@ -598,12 +655,21 @@ in OSM).
   -Mode FULL -WriteBaseline`, which fails unless the sandbox's baseline was
   rewritten by that run) prints BEFORE -> AFTER per check (runs, metres,
   worst, keys) and what moved, for the commit message - and REFUSES, writing
-  nothing, when the re-record would LOOSEN the gate: the data did not move
-  (only the rules or the gate's code did) but keys vanished or score lower,
-  or a check state or a pinned way loosened (review 5: the previous re-record
-  dropped 763 B2 keys inside a total that grew by 20,342). Only a change to
-  the gate can do that; `--allow-loosen` (`-AllowLoosen`) records it anyway,
-  for a deliberate, signed-off change, its list in the commit. A ribbon
+  nothing, when the re-record would LOOSEN the gate: the GATE moved (its
+  rules or its check code) and the data did not, but keys vanished or score
+  lower (review 5: the previous re-record dropped 763 B2 keys inside a total
+  that grew by 20,342); the gate moved TOGETHER with the data (review 6: the
+  key comparison was skipped whenever any data input moved, so a loosening
+  rode along with a re-export or the charlotte merge's NAME/SPAN unseen) - it
+  is then re-recorded in two steps, the gate change on the old data first,
+  then the data; or a check state or a pinned way loosened. A move of the
+  data alone - a re-export, the builder replica (offline), the builder itself
+  (mesh: CityMeshes beyond the tap is in no input) - compares no keys and
+  records freely (a builder fix drops keys; review 6: the refusal read every
+  builder fix as a loosening, M0's U alone as 735k keys). A builder fix in
+  the same commit as a gate change is two steps too. `--allow-loosen`
+  (`-AllowLoosen`) records a refused re-record anyway, for a deliberate,
+  signed-off change, its list in the commit. A ribbon
   edge's key names the side of the edge its bucket lies on (RL / RR): a chain
   runs some edges backwards, and labelled by the run's worst sample a key
   jumped sides - vanishing from the ratchet - whenever the worst moved to
@@ -639,18 +705,31 @@ in OSM).
   `PSX_SMOOTH_SPOTS` shoots. Every run is in `city_smooth.csv`.
 - **Where it stands** (linecheck, graph 27bccd93, today's builder): 100,817
   A1 (1,049 of them, 32.2 km, squeezed edges outside their I7 envelope), 15,178
-  A2, 464,393 B2 runs over 985.9 km (401,881 DATA: OSM vertices, and corners
-  split over them; by the rule that gave each run its worst vertex: 310,334
-  lone, 54,335 split, 45,363 hedged, 17,427 jogs, 2,274 zigzag peaks, 13,760
-  bumps or notches and 20,900 waves - 20,429 of the waves, 434 km, BUILDER
-  paint on taper spans, the diagonal scallop the owner circled, now read as
-  the wave it is; 401 on the data line) and 254,788 B1 runs; 8,518 B3; 26,809
+  A2, 472,742 B2 runs over 1,026.6 km (409,247 DATA: OSM vertices, and
+  corners split over them; by the rule that gave each run its worst vertex:
+  296,905 lone, 52,391 split, 42,950 hedged, 28,667 hooks, 15,953 jogs, 2,236
+  zigzag peaks, 13,584 bumps or notches and 20,056 waves - most of the waves,
+  419 km, BUILDER paint on taper spans, the diagonal scallop the owner
+  circled) and 254,788 B1 runs; 8,518 B3; 26,809
   B4 jumps; 16,776 C2 (with the 101 bend fans' mouths - 87 of the fans turn
   60° or more - and 5,353 line ends along branch attach arcs), 10,917 C3; D1
   gates 914 runs / 5.6 km of paint inside another road, 6.2 km more is on
-  attach arcs. 1,433,226 keys. The worst B2 is Sunset Road's data dogleg
+  attach arcs. 1,446,475 keys. The worst B2 is Sunset Road's data dogleg
   (22.7°, -32.2°, -31.1°, 21.7° in 39 m), 4.84 m outside its net corner.
-  Review 5's fixes moved only B-family keys: B2 +328 runs, +90.5 km, +14,156
+  Review 6's fixes moved only B2: +8,349 runs, +40.7 km, 624,779 keys (+13,249
+  new, 27,233 scoring higher, 0 vanished, 0 lower - the re-record needed no
+  --allow-loosen); the runs with a new key are nearly all HOOKS (9,614, 7,333
+  of them DATA: a data vertex a metre or two before a fan mouth or dead end;
+  the reviewer's 40 hook spots all fail now on 4-9 lines each at 3-13x - 14
+  of them read nothing before - e.g. Westinghouse Boulevard 5.5x, Sam Drenan Road 6.7x,
+  Monroe Road 4.5x, East 16th Street 3.4x, Lawyers Road 5.6x). The ARC'S FRAME
+  acts on today's city almost nowhere: it needs a reference, vertices within
+  V/4 of one circle over 20-40 m, and today's curves are coarse, irregular
+  OSM polygons (of 15,490 city strands in the cross-check, 50 have a frame
+  and 2 vertices score in it; the reviewer's 7 candidate jogs on data curves
+  still read under V - their curves turn 2-10° a vertex, irregularly). It is
+  WP-11's acceptance test: its fillets and WP-11b's eased squeezes are the
+  sampled arcs the frame judges. Review 5's fixes moved only B-family keys: B2 +328 runs, +90.5 km, +14,156
   keys (0 vanished and 0 lower against the previous baseline, a ribbon edge's
   RL and RR compared as one line - the keys' side labelling moved; against
   round 3's baseline too, so the 763 keys the ease had dropped are back), B1
@@ -670,13 +749,37 @@ in OSM).
   and e14582's ribbon edge now reads B2 3.9 cm (3 runs, 1.6x): its eased
   taper curve is followed 12 m on by a -1.14° data vertex, a notch the wide
   rule sees (WP-10's Douglas-Peucker removes that vertex). The city under M0:
-  420,176 B2 runs (12,834 BUILDER), 42,198 A1, 12,344 B4 jumps (most of 1-2
-  m: M0 does not touch the lane-count steps at nodes). metrics' SMOOTH: B2 at
-  72,874 centreline and 156,852 offset-curve vertices (was 72,293 / 155,746).
+  428,412 B2 runs (13,538 BUILDER; 420,176 before the hook rule), 42,198 A1,
+  12,344 B4 jumps (most of 1-2 m: M0 does not touch the lane-count steps at
+  nodes). metrics' SMOOTH: B2 at 73,174 centreline and 157,434 offset-curve
+  vertices (72,874 / 156,852 before review 6).
   linecheck also reproduces the 2026-09-28 census exactly (all 23 rows:
   264.88 km of wobble of 5 cm or more, 75,073 edge kinks over 2°; `--model
   nominalU` its U-only run: 17.47 km).
 - **Open for the spec** (calibration questions, reported, not changed):
+  - The arc's frame is built from V and the chord cap, not from constants of
+    its own: a reference circle holds every vertex of a 20 m window within
+    V/4 (6.25 mm) and must be sampled (three vertices, no gap over 5 m; 40 m
+    and 10 m for a coarse curve); curvatures within 2V/(10 m)^2 (5e-4, R
+    2000) are one curve; a clean island under 10 m is no reference; a line
+    end takes the curve on while its heading stays within 4 lone limits
+    (4.6°); chord points are those within V/50 (0.5 mm) of the chord. A
+    rougher drawn curve (today's OSM ones) gets no frame.
+  - The raw rules keep their own curve bias, kept as a floor so that no key
+    loosens: on a gentle curve a wave's mean line (the chord of two
+    inflections) sags by the curve's sagitta and a cluster's summed turn
+    includes the curve's own turn, so a ±1.7 cm wave every 10 m on R 300 reads
+    past V (on a straight ±2.6 cm passes) and a ±8 cm wave every 16 m reads
+    5.3x there against 3.3x in the frame. Letting the frame replace the raw
+    reading inside a reference would be a deliberate --allow-loosen (an
+    earlier draft that did so dropped B2 keys on today's city).
+  - The hook rule cannot tell a hook from a curve cut off within its first
+    chord: a line that runs straight, turns at a tangent point into an R 30 m
+    arc sampled at the 2 cm sagitta, and ends 1-2 m on reads 1.3-1.7x (the
+    end stands 3.5-7 cm off the approach, as the arc itself does); an R 7.9 m
+    fillet cut 1 m in 2.7-4.0x; R 100 m passes. At an OPEN end of the frame (a
+    curve's reference carried on to the end) no hook is judged: a hook at the
+    end of a curving line is the raw rules' only.
   - `KinkViewM` = 40 m (the split-corner rule's viewing distance, from the
     spec's "at R 7.5 a 90° corner stays rounded out to about 40 m"; since
     review 5 also the widest window a bump or notch is judged over).
@@ -699,7 +802,8 @@ in OSM).
     class - so a motorway line is held to a street's ease; one of 2.5 m or
     less by the whole step (round 3's rule, restored). The cliff at 2.5 m (a
     3.3 cm step reads 1.32x over 2.5 m and passes over 2.6 m) wants a
-    decision if the discount is to stay. A jog on a curve is B1's (about half its step).
+    decision if the discount is to stay. A jog on a clean curve is judged in the
+    arc's frame as on a straight; on a rough one (no reference) only B1 sees it (about half its step).
   - An S-bend of sampled arcs SHORTER than the 10 m chord cap between two
     straights is a jog: R 30 m arcs turning 3° each way shift a line 8.2 cm in
     3.1 m (2.3x), and 8° each way 58 cm in 8.4 m (5.8x). Wider S-bends are

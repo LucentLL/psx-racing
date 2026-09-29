@@ -59,7 +59,8 @@
 //       fails, a re-record that loosens (keys vanished or lower, the data
 //       unmoved) is refused, a ribbon edge's key takes its bucket's side -
 //       review 6: the gate moving TOGETHER with the data is refused (two
-//       steps), the builder replica is data (a builder fix records freely)
+//       steps), the builder replica is data (a builder fix records freely),
+//       and the mesh gate's Loosenings keeps the same contract
 //
 //   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|Z|W|M|B|N|E|Q|P|C|T|R ...]    exit 1 on any failed probe
 import { dirname, join } from 'node:path';
@@ -690,6 +691,16 @@ if (want('R')) {
     probe('R16 the builder replica (linesim.mjs, citydata.mjs) has a digest of its own, out of the gate\'s: a replica move that drops keys (a builder fix) records freely; the same keys dropped by the check code are REFUSED',
       split && GB.REPLICA_CODE.every(f => !GB.CHECK_CODE.includes(f)) && GB.codeDigest(lib, GB.REPLICA_CODE) !== GB.codeDigest(lib) && fix.lines.length === 0 && chk.lines.some(l => /keys vanished/.test(l)) && B6one,
       `replica move: ${fix.lines.length ? fix.lines.join(' | ') : 'records'}; check code: ${chk.lines.map(l => l.trim()).join(' | ') || 'records'}`);
+  }
+  // the mesh gate: CitySmooth.Loosenings compares keys only when the gate ('rules', 'code') moved, refuses the gate moving
+  // with the data, and a builder change (CityMeshes beyond the tap: no input) compares nothing (source contract; the
+  // harness in the review notes runs it on the same cases)
+  {
+    const smooth = readFileSync(join(UNITY, 'Assets/PSXRacing/Editor/CitySmooth.cs'), 'utf8').replace(/\r\n/g, '\n');
+    const lo = (smooth.match(/static List<string> Loosenings\([^)]*\)\s*\{[\s\S]*?\n        \}/) || [''])[0];
+    probe('R17 the mesh gate\'s Loosenings keeps the contract: gate inputs are rules and code, the gate moving with the data is refused as two steps, keys are compared only when the gate alone moved',
+      /k == "rules" \|\| k == "code"/.test(lo) && /TOGETHER/.test(lo) && /if \(gate\.Count == 0 \|\| data\.Count > 0\) return o;/.test(lo),
+      lo ? lo.split('\n').filter(l => /TOGETHER|gate\.Count/.test(l)).map(l => l.trim().slice(0, 100)).join(' | ') : 'no Loosenings found');
   }
 }
 

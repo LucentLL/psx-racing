@@ -1426,14 +1426,16 @@ namespace PSXRacing.EditorTools
             // and a fan's perimeter
             double hwMax = 0;
             if (kind == "edge" || kind == "paint") foreach (int i in keep) if (map.edges[pts[i].e].width * 0.5 > hwMax) hwMax = map.edges[pts[i].e].width * 0.5;
-            var K2 = KinkScores(KX, KZ, C, TH, m => pts[keep[m]].x3 || pts[keep[m]].gore, out byte[] K2kind, hwMax);
+            var K2 = KinkScores(KX, KZ, C, TH, m => pts[keep[m]].x3 || pts[keep[m]].gore, out byte[] K2kind, out byte[] K2silent, hwMax);
             var b2 = new RunBuilder("B2", lineId, kind) { node = node };
             for (int m = 1; m + 1 < keep.Count; m++)
             {
                 var b = pts[keep[m]];
                 if (b.x3 || b.gore) { b2.Push(b.x, b.y, b.z, b.e, b.s, 0, false); continue; }
+                // collinear in the frame of its curve: no sample (ArcFrame)
+                if (K2silent != null && K2silent[m] != 0) continue;
                 double f = K2[m];
-                b2.Push(b.x, b.y, b.z, b.e, b.s, f, f > V, b.tag, b.span, b.side, f > V && K2kind[m] != KindLone ? KindText[K2kind[m]] : null);
+                b2.Push(b.x, b.y, b.z, b.e, b.s, f, f > V, b.tag, b.span, b.side, f > V ? KindWhat(K2kind[m]) : null);
             }
             b2.Close();
             // B3 CURVE (ribbon edges, midline, fans)
@@ -1586,11 +1588,15 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>What gave a vertex its B2 score (lib/kink.mjs KIND_*).</summary>
-        const byte KindLone = 0, KindCluster = 1, KindHedge = 2, KindJog = 3, KindZig = 4, KindOut = 5, KindWave = 6;
+        const byte KindLone = 0, KindCluster = 1, KindHedge = 2, KindJog = 3, KindZig = 4, KindOut = 5, KindWave = 6, KindHook = 7, KindArc = 8;
         static readonly string[] KindText = { "a lone corner", "a corner split over close vertices", "a hedged corner (turn and turn back; the net corner)",
             "a jog (a sideways step between two straights)", "a zigzag peak (the line turns back on both sides)",
             "a bump or notch (drawn outside every smooth transition between its straights)",
-            "a wave (lobes turning back on both sides, off their mean line)" };
+            "a wave (lobes turning back on both sides, off their mean line)",
+            "a hook (a corner just before the line's end: the approach extrapolated, at most the end's own offset)" };
+        /// <summary>The run text of a kind (lib/kink.mjs kindText): null for a
+        /// lone corner on the line as drawn.</summary>
+        static string KindWhat(byte k) => k == KindLone ? null : KindText[k & 7] + ((k & KindArc) != 0 ? ", on a curve (judged in the frame of its arc)" : "");
 
         /// <summary>The least sideways gap, anywhere along the window between
         /// the points A and B, between the line through A with unit direction u
@@ -1744,9 +1750,46 @@ namespace PSXRacing.EditorTools
         /// turn again by KinkNoiseShare of the window's excursion (round 3's
         /// rule, from the drawn segment), or runs within V of one straight line
         /// turning no more than the lone limit (StraightRun, from that line, less
-        /// its spread), or runs on to the strand's end.</summary>
-        static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt) => KinkScores(X, Z, C, TH, exempt, out _);
-        static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind, double halfWidth = 0)
+        /// its spread), or runs on to the strand's end; a HOOK, a lone corner
+        /// whose chord runs on to the strand's end inside the cap, by the corner
+        /// extrapolated from the other side, at most the end's own offset. The
+        /// worst of those rules on the line as drawn and on the line in its
+        /// ARC'S FRAME (ArcFrame; kind | KindArc). silent (or null): the
+        /// vertices collinear in the frame of their curve, which are no samples
+        /// of the line.</summary>
+        static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt) => KinkScores(X, Z, C, TH, exempt, out _, out _);
+        static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind, out byte[] silent, double halfWidth = 0)
+        {
+            int n = C.Length;
+            var F = ArcFrame(X, Z, C, TH, exempt);
+            var score = KinkScoresOn(X, Z, C, TH, exempt, out kind, halfWidth, false, false, false);
+            silent = null;
+            if (F != null)
+            {
+                var s2 = KinkScoresOn(F.X, F.Z, F.C, F.TH, m => F.ex[m] != 0, out byte[] k2, halfWidth, true, F.open0, F.open1);
+                for (int u = 1; u + 1 < F.C.Length; u++)
+                {
+                    int r = F.raw[u];
+                    if (r <= 0 || r >= n - 1 || (exempt != null && exempt(r))) continue;
+                    // the frame's reading where it is the worse one by more than rounding (a straight stretch reads the same in both)
+                    if (s2[u] > score[r] * (1 + 1e-9) + 1e-12) { score[r] = s2[u]; kind[r] = (byte)(k2[u] | KindArc); }
+                }
+                // a vertex collinear in the frame of its curve is no sample of the line, as a collinear vertex on a straight is none
+                silent = new byte[n];
+                for (int r = 1; r + 1 < n; r++) if (F.zone[r] != 0 && F.rep[r] == 0 && !(score[r] > SmoothRules.V)) silent[r] = 1;
+            }
+            return score;
+        }
+
+        /// <summary>The rules on one frame (lib/kink.mjs scoresOn), the line as
+        /// its arrays give it. frame: these ARE the frame's arrays - a vertex or
+        /// a cluster turning on both sides by the same way (a stretch that still
+        /// curves in the frame: its facets are the line's own, and a curve the
+        /// reference did not hold for would read twice its sagitta) scores
+        /// nothing as a lone corner or a cluster. open0 / open1: that end of the
+        /// line's frame is an extrapolation - no end rule there (no hook; a
+        /// straight that runs on to it is as long as it is).</summary>
+        static double[] KinkScoresOn(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind, double halfWidth, bool frame, bool open0, bool open1)
         {
             int n = C.Length;
             double V0 = SmoothRules.V, cap = SmoothRules.ChordCapM, share = SmoothRules.KinkNoiseShare, view = SmoothRules.KinkViewM, pMax = V0 * view / SmoothRules.PixelAtM;
@@ -1756,10 +1799,22 @@ namespace PSXRacing.EditorTools
             for (int m = 1; m + 1 < n; m++)
             {
                 if (Ex(m)) continue;
-                score[m] = KinkChord(C, TH, m) * Math.Abs(TH[m]) / 8;
+                double a = Math.Abs(TH[m]), thr = a * share;
+                int i0 = Reach(C, TH, m, -1, thr, cap, 0), i1 = Reach(C, TH, m, 1, thr, cap, 0);
+                double cm = C[m] - C[i0], cp = C[i1] - C[m];
+                score[m] = Math.Min(Math.Min(cm, cp), cap) * a / 8;
                 // a zigzag peak: the chord stops at a turn back on both sides
-                int sg = Math.Sign(TH[m]); double thr = Math.Abs(TH[m]) * share;
-                if (sg != 0 && StopSign(C, TH, m, -1, thr, cap) == -sg && StopSign(C, TH, m, 1, thr, cap) == -sg) { score[m] *= 2; kd[m] = KindZig; }
+                int sg = Math.Sign(TH[m]);
+                if (sg != 0 && StopSign(C, TH, m, -1, thr, cap) == -sg && StopSign(C, TH, m, 1, thr, cap) == -sg) { score[m] *= 2; kd[m] = KindZig; continue; }
+                if (frame && sg != 0 && StopSign(C, TH, m, -1, thr, cap) == sg && StopSign(C, TH, m, 1, thr, cap) == sg) { score[m] = 0; continue; }
+                // a HOOK: the chord runs on to the strand's end inside the cap (the stub)
+                bool endM = i0 == 0 && cm < cap && !open0, endP = i1 == n - 1 && cp < cap && !open1;
+                if (endM || endP)
+                {
+                    double app = endM && endP ? Math.Max(cm, cp) : endP ? Math.Min(cm, cap) : Math.Min(cp, cap), stub = endM && endP ? Math.Min(cm, cp) : endP ? cp : cm;
+                    double h = Math.Min(app * a / 8, stub * Math.Sin(Math.Min(a, Math.PI / 2)));
+                    if (h > score[m]) { score[m] = h; kd[m] = KindHook; }
+                }
             }
             double minTurn = 8 * V0 / cap;
             void Give(int j, int k, double s, double big, byte why)
@@ -1794,8 +1849,8 @@ namespace PSXRacing.EditorTools
             // how far the line runs within V of one straight line into m (back) and out of m (on), and that line: once each
             var runB = new double[n]; var runF = new double[n]; var lineB = new double[4 * n]; var lineF = new double[4 * n]; var tmp = new double[4];
             for (int m = 0; m < n; m++) { runB[m] = -1; runF[m] = -1; }
-            double Back(int m) { if (runB[m] < 0) { runB[m] = StraightRun(X, Z, C, TH, m, -1, V0, cap, minTurn, tmp); for (int q = 0; q < 4; q++) lineB[4 * m + q] = tmp[q]; } return runB[m]; }
-            double On(int m) { if (runF[m] < 0) { runF[m] = StraightRun(X, Z, C, TH, m, 1, V0, cap, minTurn, tmp); for (int q = 0; q < 4; q++) lineF[4 * m + q] = tmp[q]; } return runF[m]; }
+            double Back(int m) { if (runB[m] < 0) { runB[m] = StraightRun(X, Z, C, TH, m, -1, V0, cap, minTurn, tmp); if (double.IsPositiveInfinity(runB[m]) && open0) runB[m] = C[m] - C[0]; for (int q = 0; q < 4; q++) lineB[4 * m + q] = tmp[q]; } return runB[m]; }
+            double On(int m) { if (runF[m] < 0) { runF[m] = StraightRun(X, Z, C, TH, m, 1, V0, cap, minTurn, tmp); if (double.IsPositiveInfinity(runF[m]) && open1) runF[m] = C[n - 1] - C[m]; for (int q = 0; q < 4; q++) lineF[4 * m + q] = tmp[q]; } return runF[m]; }
             // no vertex within the cap from m (going dir) turns thr or more
             bool Quiet(int m, int dir, double thr)
             {
@@ -1832,7 +1887,8 @@ namespace PSXRacing.EditorTools
                 double vx = X[j] + ux * a, vz = Z[j] + uz * a;
                 double fMax = cap * aT / 8, dr = PathDist(j, k - 1, vx, vz, double.PositiveInfinity);
                 if (dr >= pMax || fMax - dr <= Math.Max(V0, dr)) return;
-                double thr = share * aT;
+                double thr = share * aT; int sT = Math.Sign(T);
+                if (frame && StopSign(C, TH, j, -1, thr, cap) == sT && StopSign(C, TH, k, 1, thr, cap) == sT) return;
                 int i0 = Reach(C, TH, j, -1, thr, cap, a), i1 = Reach(C, TH, k, 1, thr, cap, b);
                 double f = Math.Min(Math.Min(C[j] - C[i0] + a, C[i1] - C[k] + b), cap) * aT / 8;
                 double sc = (f - dr) * V0 / Math.Max(V0, dr);
@@ -1930,7 +1986,7 @@ namespace PSXRacing.EditorTools
                 {
                     double Ls = Math.Min(w / share, cap), thrS = share * Math.Max(exc, aT);
                     int o0 = Reach(C, TH, j, -1, thrS, cap, 0), o1 = Reach(C, TH, k, 1, thrS, cap, 0);
-                    oldA = C[j] - C[o0] >= Ls || o0 == 0; oldB = C[o1] - C[k] >= Ls || o1 == n - 1;
+                    oldA = C[j] - C[o0] >= Ls || (o0 == 0 && !open0); oldB = C[o1] - C[k] >= Ls || (o1 == n - 1 && !open1);
                     newA = Back(j) >= Ls; newB = On(k) >= Ls;
                     if (!(oldA || newA) || !(oldB || newB)) return;
                 }
@@ -2057,6 +2113,238 @@ namespace PSXRacing.EditorTools
                 double corner = share * LG[t];
                 for (int v = a; v <= b; v++) if (Math.Abs(TH[v]) >= corner && sc > score[v]) { score[v] = sc; kd[v] = KindWave; }
             }
+        }
+
+        /// <summary>A line in the frame of its arc (lib/kink.mjs arcFrame): its
+        /// kept vertices unrolled - X, Z, C, TH as KinkScoresOn takes them - ex
+        /// (1: no reference there, or an exempt vertex's segment), raw (the raw
+        /// kept vertex nearest each), rep (1: the raw vertex has a kept frame
+        /// vertex), zone (1: the raw vertex is on a reference curve), and the
+        /// ends whose frame is an extrapolation.</summary>
+        sealed class ArcFrameLine { public double[] X, Z, C, TH; public byte[] ex, rep, zone; public int[] raw; public bool open0, open1; }
+
+        /// <summary>THE ARC'S FRAME (lib/kink.mjs arcFrame, whose header is the
+        /// rule in full): the line unrolled along the curvature of the
+        /// constant-curvature reference it runs on, so that a curve's bumps,
+        /// jogs, kinks and waves are judged as a straight's are; null when it
+        /// runs on none. The reference at every probe (the kept vertices, and
+        /// points Lc / 4 apart along every segment): the least-squares circle of
+        /// the vertices sampling the 2 Lc window about it (4 Lc for a coarse
+        /// curve), every one within V / 4 of it; clean probes side by side on
+        /// curvatures tolK apart hold a step; an island of clean probes shorter
+        /// than Lc is a feature's top; each clean curvature the median of its
+        /// run's within 2 Lc (those within Lc of a gap left out); a gap takes the
+        /// curvature both its sides agree on, or the one a strand end leaves
+        /// while the line holds within 4 lone limits of it (the end then OPEN),
+        /// else none. The frame's points drop the chord points of a curve and
+        /// sample a straight piece in it; each piece is turned back by the
+        /// reference's turn so far.</summary>
+        static ArcFrameLine ArcFrame(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt)
+        {
+            int n = C.Length;
+            double Lc = SmoothRules.ChordCapM, V0 = SmoothRules.V, tolFit = V0 / 4, tolK = 2 * V0 / (Lc * Lc);
+            if (n < 3) return null;
+            double Ltot = C[n - 1];
+            if (!(Ltot >= 2 * Lc)) return null;
+            // a line whose every 2 Lc stretch turns (net) by under 2 Lc tolK runs on no curve worth a frame of its own
+            bool any = false;
+            {
+                int lo = 1, hi = 1; double sum = 0;
+                for (int m = 1; m + 1 < n; m++)
+                {
+                    while (hi + 1 < n && C[hi] <= C[m] + Lc) sum += TH[hi++];
+                    while (C[lo] < C[m] - Lc) sum -= TH[lo++];
+                    if (Math.Abs(sum) > 2 * Lc * tolK) { any = true; break; }
+                }
+            }
+            if (!any) return null;
+            // the probes: every kept vertex, and points at most Lc / 4 apart along every segment (PV: the vertex, or -1 - segment)
+            double q4 = Lc / 4; var PS = new List<double>(); var PV = new List<int>(); var VP = new int[n];
+            for (int i = 0; i < n; i++)
+            {
+                VP[i] = PS.Count; PS.Add(C[i]); PV.Add(i);
+                if (i + 1 < n) { double L = C[i + 1] - C[i]; int q = (int)Math.Ceiling(L / q4 - 1e-9); for (int k = 1; k < q; k++) { PS.Add(C[i] + L * k / q); PV.Add(-1 - i); } }
+            }
+            int SegAt(double a) { int lo = 0, hi = n - 1; while (hi - lo > 1) { int md = (lo + hi) >> 1; if (C[md] <= a) lo = md; else hi = md; } return lo; }
+            double Det3(double a0, double a1, double a2, double b0, double b1, double b2, double c0, double c1, double c2) =>
+                a0 * (b1 * c2 - b2 * c1) - a1 * (b0 * c2 - b2 * c0) + a2 * (b0 * c1 - b1 * c0);
+            // the curvature of the ONE circle the line runs within tolFit of over the 2 Lc window about s (the header); NaN if none
+            double CleanK(double s)
+            {
+                double a = 0, b = 0; int v0 = 0, v1 = -1; bool empty = false, ok = false;
+                for (double w = Lc; w <= 2 * Lc; w *= 2)
+                {
+                    a = s - w; b = s + w;
+                    if (a < 0) { b -= a; a = 0; }
+                    if (b > Ltot) { a = Math.Max(0, a - (b - Ltot)); b = Ltot; }
+                    // the vertices inside the window, and the strand's own end where the window reaches it
+                    int ia = SegAt(a), ib = SegAt(b);
+                    v0 = a <= 0 ? 0 : ia + 1; v1 = b >= Ltot ? n - 1 : C[ib] < b ? ib : ib - 1;
+                    if (w == Lc && v0 > v1) { empty = true; break; }
+                    if (v1 - v0 + 1 < 3) continue;
+                    double g = Math.Max(C[v0] - a, b - C[v1]);
+                    for (int i = v0; i < v1; i++) if (C[i + 1] - C[i] > g) g = C[i + 1] - C[i];
+                    if (g <= w / 2) { ok = true; break; }
+                }
+                if (empty) return 0;
+                if (!ok) return double.NaN;
+                // the least-squares (Kasa) circle through the window's vertices, about the first of them
+                double ox = X[v0], oz = Z[v0];
+                double n0 = 0, Sx = 0, Sz = 0, Sxx = 0, Szz = 0, Sxz = 0, Sxr = 0, Szr = 0, Sr = 0, sT = 0;
+                for (int i = v0; i <= v1; i++)
+                {
+                    double x = X[i] - ox, z = Z[i] - oz, q = x * x + z * z;
+                    n0++; Sx += x; Sz += z; Sxx += x * x; Szz += z * z; Sxz += x * z; Sxr += x * q; Szr += z * q; Sr += q;
+                    if (i > 0 && i < n - 1) sT += TH[i];
+                }
+                double dd = Det3(Sxx, Sxz, Sx, Sxz, Szz, Sz, Sx, Sz, n0);
+                double cx = 0, cz = 0, r = double.PositiveInfinity;
+                if (Math.Abs(dd) > 1e-30)
+                {
+                    double D = Det3(-Sxr, Sxz, Sx, -Szr, Szz, Sz, -Sr, Sz, n0) / dd, E = Det3(Sxx, -Sxr, Sx, Sxz, -Szr, Sz, Sx, -Sr, n0) / dd, F = Det3(Sxx, Sxz, -Sxr, Sxz, Szz, -Szr, Sx, Sz, -Sr) / dd;
+                    cx = -D / 2; cz = -E / 2; double r2 = cx * cx + cz * cz - F;
+                    if (r2 > 0 && !double.IsInfinity(r2) && !double.IsNaN(r2)) r = Math.Sqrt(r2);
+                }
+                double lo = 0, hi = 0;
+                // flatter than tolK (or no circle): the chord from the first vertex to the last is the reference, a straight
+                if (!(r < 1 / tolK))
+                {
+                    double lx = X[v1] - ox, lz = Z[v1] - oz, ll = Math.Sqrt(lx * lx + lz * lz);
+                    if (ll < 1e-9) return double.NaN;
+                    for (int i = v0; i <= v1; i++) { double d = ((X[i] - ox) * lz - (Z[i] - oz) * lx) / ll; if (d < lo) lo = d; else if (d > hi) hi = d; }
+                    return (hi - lo) / 2 <= tolFit ? 0 : double.NaN;
+                }
+                lo = double.PositiveInfinity; hi = double.NegativeInfinity;
+                for (int i = v0; i <= v1; i++) { double x = X[i] - ox - cx, z = Z[i] - oz - cz, d = Math.Sqrt(x * x + z * z) - r; if (d < lo) lo = d; if (d > hi) hi = d; }
+                if ((hi - lo) / 2 > tolFit || sT == 0) return double.NaN;
+                return Math.Sign(sT) / (r + (hi + lo) / 2);
+            }
+            // the reference at every probe (the header)
+            int NP = PS.Count; var K = new double[NP]; var okp = new byte[NP];
+            for (int p = 0; p < NP; p++) { double k = CleanK(PS[p]); if (!double.IsNaN(k)) { okp[p] = 1; K[p] = Math.Abs(k) <= tolK ? 0 : k; } }
+            var cl = (byte[])okp.Clone();
+            for (int p = 0; p + 1 < NP; p++) if (okp[p] != 0 && okp[p + 1] != 0 && Math.Abs(K[p] - K[p + 1]) > tolK) { cl[p] = 0; cl[p + 1] = 0; }
+            // a reference is a curve the line runs on: clean probes over Lc at least; a shorter island of them is a feature's top
+            for (int r0 = 0; r0 < NP;)
+            {
+                if (cl[r0] == 0) { r0++; continue; }
+                int r1 = r0; while (r1 + 1 < NP && cl[r1 + 1] != 0) r1++;
+                if (PS[r1] - PS[r0] < Lc) for (int p = r0; p <= r1; p++) cl[p] = 0;
+                r0 = r1 + 1;
+            }
+            var st = new byte[NP]; bool open0 = false, open1 = false;
+            // each clean probe's curvature made robust: the median over its clean run's probes within 2 Lc, leaving out those
+            // within Lc of an end of the run that a stretch without a reference borders, while others remain
+            double Med(List<double> v) { var a = v.ToArray(); Array.Sort(a); return a.Length % 2 == 1 ? a[(a.Length - 1) / 2] : (a[a.Length / 2 - 1] + a[a.Length / 2]) / 2; }
+            {
+                var K2 = new double[NP];
+                var v = new List<double>(); var w = new List<double>();
+                for (int r0 = 0; r0 < NP;)
+                {
+                    if (cl[r0] == 0) { r0++; continue; }
+                    int r1 = r0; while (r1 + 1 < NP && cl[r1 + 1] != 0) r1++;
+                    double lo = r0 > 0 ? PS[r0] + Lc : double.NegativeInfinity, hi = r1 + 1 < NP ? PS[r1] - Lc : double.PositiveInfinity;
+                    for (int p = r0; p <= r1; p++)
+                    {
+                        v.Clear(); w.Clear();
+                        for (int q = p; q >= r0 && PS[p] - PS[q] <= 2 * Lc; q--) { w.Add(K[q]); if (PS[q] >= lo && PS[q] <= hi) v.Add(K[q]); }
+                        for (int q = p + 1; q <= r1 && PS[q] - PS[p] <= 2 * Lc; q++) { w.Add(K[q]); if (PS[q] >= lo && PS[q] <= hi) v.Add(K[q]); }
+                        K2[p] = Med(v.Count > 0 ? v : w);
+                    }
+                    r0 = r1 + 1;
+                }
+                for (int p = 0; p < NP; p++) if (cl[p] != 0) K[p] = Math.Abs(K2[p]) <= tolK ? 0 : K2[p];
+            }
+            for (int p = 0; p < NP;)
+            {
+                if (cl[p] != 0) { st[p] = 1; p++; continue; }
+                int q = p; while (q < NP && cl[q] == 0) q++;
+                double kf = double.NaN;
+                if (p > 0 && q < NP) { double ka = K[p - 1], kb = K[q]; if (Math.Abs(ka - kb) <= tolK) kf = (ka + kb) / 2; }
+                else if (p > 0 || q < NP)
+                {
+                    // carried on to a strand end only while the line holds within 4 lone limits of its heading
+                    double k = p > 0 ? K[p - 1] : K[q], s0 = p > 0 ? PS[p - 1] : PS[q], t = 0, worst = 0;
+                    if (p > 0) { for (int i = 1; i + 1 < n; i++) if (C[i] > s0) { t += TH[i]; worst = Math.Max(worst, Math.Abs(t - k * (C[i] - s0))); } }
+                    else for (int i = n - 2; i >= 1; i--) if (C[i] < s0) { t += TH[i]; worst = Math.Max(worst, Math.Abs(t - k * (s0 - C[i]))); }
+                    if (worst <= 4 * 8 * V0 / Lc) { kf = k; if (p == 0) open0 = true; else open1 = true; }
+                }
+                for (int r = p; r < q; r++) { if (double.IsNaN(kf)) { st[r] = 0; K[r] = 0; } else { st[r] = 1; K[r] = Math.Abs(kf) <= tolK ? 0 : kf; } }
+                p = q;
+            }
+            bool curved = false;
+            for (int p = 0; p < NP; p++) if (K[p] != 0) { curved = true; break; }
+            if (!curved) return null;
+            // the frame's points: the kept vertices less the chord points of a curve (within V / 50 of the chord from the
+            // last point kept to the next vertex), and more along a piece longer than half again its longer neighbour
+            bool RawEx(int i) => exempt != null && i > 0 && i < n - 1 && exempt(i);
+            int ProbeAt(double s) { int lo = 0, hi = NP - 1; while (hi - lo > 1) { int md = (lo + hi) >> 1; if (PS[md] <= s) lo = md; else hi = md; } return s - PS[lo] <= PS[hi] - s ? lo : hi; }
+            double epsD = V0 / 50; var fv = new List<int> { 0 };
+            for (int i = 1; i + 1 < n; i++)
+            {
+                if (K[VP[i]] != 0 && !RawEx(i))
+                {
+                    int a = fv[fv.Count - 1], b = i + 1; double sx = X[b] - X[a], sz = Z[b] - Z[a], L2 = sx * sx + sz * sz;
+                    double t = L2 > 1e-12 ? Math.Max(0, Math.Min(1, ((X[i] - X[a]) * sx + (Z[i] - Z[a]) * sz) / L2)) : 0;
+                    double qx = X[a] + sx * t - X[i], qz = Z[a] + sz * t - Z[i];
+                    if (qx * qx + qz * qz < epsD * epsD) continue;
+                }
+                fv.Add(i);
+            }
+            fv.Add(n - 1);
+            var US = new List<double>(); var UX = new List<double>(); var UZ = new List<double>(); var UK = new List<double>(); var UE = new List<byte>(); var UR = new List<int>();
+            void Put(double s, int v, int seg)
+            {
+                int p = v >= 0 ? VP[v] : ProbeAt(s);
+                US.Add(s); UK.Add(K[p]);
+                if (v >= 0) { UX.Add(X[v]); UZ.Add(Z[v]); UR.Add(v); UE.Add((byte)(RawEx(v) || st[p] == 0 ? 1 : 0)); }
+                else
+                {
+                    double L = C[seg + 1] - C[seg], t = L > 1e-12 ? (s - C[seg]) / L : 0;
+                    UX.Add(X[seg] + (X[seg + 1] - X[seg]) * t); UZ.Add(Z[seg] + (Z[seg + 1] - Z[seg]) * t);
+                    UR.Add(s - C[seg] <= C[seg + 1] - s ? seg : seg + 1); UE.Add((byte)(RawEx(seg) || RawEx(seg + 1) || st[p] == 0 ? 1 : 0));
+                }
+            }
+            for (int f = 0; f < fv.Count; f++)
+            {
+                int v = fv[f];
+                Put(C[v], v, 0);
+                if (f + 1 == fv.Count) break;
+                int w = fv[f + 1]; double L = C[w] - C[v], kk = Math.Max(Math.Abs(K[VP[v]]), Math.Abs(K[VP[w]]));
+                double nb = Math.Max(f > 0 ? C[v] - C[fv[f - 1]] : 0, f + 2 < fv.Count ? C[fv[f + 2]] - C[w] : 0);
+                if (kk == 0 || L <= 1.5 * nb) continue;
+                int q = (int)Math.Ceiling(L / Math.Sqrt(4 * V0 / kk) - 1e-9);
+                for (int j = 1; j < q; j++) { double s2 = C[v] + L * j / q; Put(s2, -1, SegAt(s2)); }
+            }
+            // unrolled: each piece turned back by the reference's turn so far (its curvature times each point's Voronoi length)
+            int N = US.Count; var FX = new double[N]; var FZ = new double[N];
+            FX[0] = UX[0]; FZ[0] = UZ[0];
+            double B = 0;
+            for (int u = 0; u + 1 < N; u++)
+            {
+                if (u > 0) B += UK[u] * (US[u + 1] - US[u - 1]) / 2;
+                double dx = UX[u + 1] - UX[u], dz = UZ[u + 1] - UZ[u], c = Math.Cos(B), sn = Math.Sin(B);
+                FX[u + 1] = FX[u] + dx * c + dz * sn; FZ[u + 1] = FZ[u] - dx * sn + dz * c;
+            }
+            // its kept vertices, as the line's own are kept (a point with no reference, or on an exempt vertex's segment, always kept)
+            double lim = SmoothRules.CollinearDeg * Math.PI / 180;
+            double Dst(int p, int q) => Math.Sqrt((FX[q] - FX[p]) * (FX[q] - FX[p]) + (FZ[q] - FZ[p]) * (FZ[q] - FZ[p]));
+            var keep = new List<int> { 0 };
+            for (int u = 1; u + 1 < N; u++)
+            {
+                int w = keep[keep.Count - 1];
+                if (Dst(w, u) < 1e-3 || Dst(u, u + 1) < 1e-3) continue;
+                if (UE[u] == 0 && Math.Abs(Turn(FX[w], FZ[w], FX[u], FZ[u], FX[u + 1], FZ[u + 1])) < lim) continue;
+                keep.Add(u);
+            }
+            keep.Add(N - 1);
+            if (keep.Count < 3) return null;
+            int m2 = keep.Count;
+            var fr = new ArcFrameLine { X = new double[m2], Z = new double[m2], C = new double[m2], TH = new double[m2], ex = new byte[m2], raw = new int[m2], rep = new byte[n], zone = new byte[n], open0 = open0, open1 = open1 };
+            for (int i = 0; i < m2; i++) { int u = keep[i]; fr.X[i] = FX[u]; fr.Z[i] = FZ[u]; fr.ex[i] = UE[u]; fr.raw[i] = UR[u]; fr.rep[UR[u]] = 1; if (i > 0) fr.C[i] = fr.C[i - 1] + Dst(keep[i - 1], u); }
+            for (int i = 1; i + 1 < m2; i++) fr.TH[i] = Turn(fr.X[i - 1], fr.Z[i - 1], fr.X[i], fr.Z[i], fr.X[i + 1], fr.Z[i + 1]);
+            for (int i = 0; i < n; i++) fr.zone[i] = (byte)(st[VP[i]] == 1 && K[VP[i]] != 0 ? 1 : 0);
+            return fr;
         }
 
         /// <summary>B1's local model: the Kasa circle, or the least-squares line
@@ -2519,8 +2807,9 @@ namespace PSXRacing.EditorTools
         /// the explicit re-record (PSX_SMOOTH_WRITE_BASELINE=1 on a FULL run,
         /// tools\city-smooth.ps1 -WriteBaseline), which logs the BEFORE -> AFTER
         /// numbers for its commit - and is REFUSED (nothing written, FAIL) when
-        /// it would loosen the gate: the data did not move but keys vanished or
-        /// score lower, or a check state or a pinned way loosened (Loosenings;
+        /// it would loosen the gate: only the gate moved and keys vanished or
+        /// score lower, the gate moved together with the data (two steps), or
+        /// a check state or a pinned way loosened (Loosenings;
         /// PSX_SMOOTH_ALLOW_LOOSEN=1, -AllowLoosen, records it anyway, listed). A
         /// check gating looser, or a way pinned less, than when the baseline was
         /// recorded fails too, stale or not.</summary>
@@ -2572,7 +2861,7 @@ namespace PSXRacing.EditorTools
                     sb.AppendLine("LOOSENING (a re-record would loosen the gate):");
                     foreach (var l in loose) sb.AppendLine(l);
                     refused = !allow;
-                    string msg = refused ? "REFUSED - nothing was written: fix the gate, or re-run with -AllowLoosen for a deliberate, signed-off change and put the list in the commit"
+                    string msg = refused ? "REFUSED - nothing was written: fix the gate, or re-record in two steps (the gate change on the old data first, then the data), or re-run with -AllowLoosen for a deliberate, signed-off change and put the list in the commit"
                                          : "recorded anyway (PSX_SMOOTH_ALLOW_LOOSEN=1): put the list in the commit";
                     sb.AppendLine("  " + msg);
                     check?.Invoke(!refused, "smoothness re-record loosens nothing (keys, check states, pinned ways)", string.Join("; ", loose).Trim() + " - " + msg);
@@ -2708,25 +2997,35 @@ namespace PSXRacing.EditorTools
         /// <summary>What a re-record would LOOSEN (gatebase.mjs loosenings;
         /// review 5: re-recording after a gate change dropped 763 of the city's
         /// keys, hidden inside a total that grew): check states or pinned ways
-        /// loosened; and, when the DATA did not move (graph, container sections,
-        /// PNGs, DEM, model) - only the rules or the gate's code did - every key
-        /// that vanished or now scores lower. Only a change to the gate can do
-        /// that. An entry recorded before ribbon-edge keys took their bucket's
-        /// side (keySides) may hold a key under the edge's other side: the same
-        /// run, not a vanished key.</summary>
+        /// loosened; when the GATE moved ('rules' or 'code': SmoothRules.cs,
+        /// this file and the tap) and the data did not (graph, container
+        /// sections, PNGs, DEM, model), every key that vanished or now scores
+        /// lower - only the gate can do that; and when the gate moved TOGETHER
+        /// with the data (review 6: a loosening then rode along with a re-export
+        /// or the charlotte merge unseen), the move itself: re-record in two
+        /// steps, the gate change on the old data first. A move of the data
+        /// alone, or of the builder (CityMeshes beyond the tap is in no input:
+        /// a builder fix drops keys), compares no keys and records freely; a
+        /// builder fix in the same commit as a gate change is two steps too.
+        /// An entry recorded before ribbon-edge keys took their bucket's side
+        /// (keySides) may hold a key under the edge's other side: the same run,
+        /// not a vanished key.</summary>
         static List<string> Loosenings(Dictionary<string, Tally> sum, BaselineEntry b, Dictionary<string, string> inputs)
         {
             var o = new List<string>();
             foreach (var d in Demotions(b)) o.Add("  " + d);
-            bool moved = false;
+            var gate = new List<string>(); var data = new List<string>();
             var keys = new SortedSet<string>(b.inputs.Keys, StringComparer.Ordinal); keys.UnionWith(inputs.Keys);
             foreach (var k in keys)
             {
-                if (k == "rules" || k == "code") continue;
                 b.inputs.TryGetValue(k, out var x); inputs.TryGetValue(k, out var y);
-                if (x != y) moved = true;
+                if (x == y) continue;
+                if (k == "rules" || k == "code") gate.Add(k == "rules" ? "SmoothRules.cs rules" : "the gate's code");
+                else data.Add(k.StartsWith("sections") ? "container section " + k.Substring(Math.Min(k.Length, 9)) : k == "paint" ? "road PNGs" : k == "dem" ? "the DEM" : k);
             }
-            if (moved) return o;
+            if (gate.Count > 0 && data.Count > 0)
+                o.Add($"  the gate ({string.Join(", ", gate)}) moved TOGETHER with the data ({string.Join(", ", data)}): its keys cannot be compared across the data move, so a loosening would ride along unseen - re-record in two steps, the gate change on the old data first, then the data");
+            if (gate.Count == 0 || data.Count > 0) return o;
             foreach (var c in SmoothRules.Checks)
             {
                 if (!sum.TryGetValue(c.id, out var s) || !b.checks.TryGetValue(c.id, out var bc) || bc.keys == null) continue;

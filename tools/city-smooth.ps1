@@ -7,9 +7,12 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-smooth.ps1 -Mode FAST [-Band 3]
 #   powershell -ExecutionPolicy Bypass -File tools\city-smooth.ps1 -Mode SHOTS [-Spots "x,z,edge,line;..."] [-Before <dir>]
 #   add -WriteBaseline to a FULL run to record tools\city\baseline\smooth_baseline.json
-#   (REFUSED when it would loosen the gate - the data did not move but keys
-#   vanished or score lower, or a check state or a pinned way loosened; add
-#   -AllowLoosen for a deliberate, signed-off gate change, the list in the commit)
+#   (REFUSED when it would loosen the gate - only the gate (SmoothRules.cs,
+#   CitySmooth.cs, the tap) moved and keys vanished or score lower; the gate
+#   moved together with the data (re-record in two steps, the gate change on
+#   the old data first); or a check state or a pinned way loosened. A data or
+#   builder move alone records freely. Add -AllowLoosen for a deliberate,
+#   signed-off gate change, the list in the commit)
 #
 # Modes (gate spec 5.3):
 #   FAST   the city audit (CityAudit.Run) with its FAST hook: the drive and
