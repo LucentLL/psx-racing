@@ -105,6 +105,11 @@ namespace PSXRacing
         /// leaves rather than when its centre does.</summary>
         const float CarHalfWidth = 0.9f;
 
+        /// <summary>What each standing cell's object is called. The city names
+        /// its trunks as it always has (CityTrees.TrunkName), so the play check
+        /// and the hit log know a city tree by name.</summary>
+        public string standName = "Trunks";
+
         public int Count => trunks != null ? trunks.Length / 4 : 0;
 
         bool IsForest => cells != null && cells.Length == Count && Count > 0;
@@ -213,6 +218,92 @@ namespace PSXRacing
         }
 
         // ------------------------------------------------------------------
+        //  Streamed tables (the city: plan WP-08, AddTable / RemoveTable)
+        // ------------------------------------------------------------------
+        //
+        // Charlotte streams its trees a 256 m tile at a time, so its trunks
+        // cannot be one baked table: each tile hands its own over when its
+        // trees are planted and takes it back when the tile is dropped. A
+        // plain table (base and RADIUS per trunk), stood up round the cars by
+        // the same 40 m grid as a stage forest's - a tile stands no collider
+        // of its own, and a ring of 25 tiles holds a few hundred capsules
+        // round each car rather than thousands everywhere.
+
+        readonly Dictionary<long, List<(long table, Vector4 t)>> tableCells = new Dictionary<long, List<(long, Vector4)>>();
+        readonly Dictionary<long, List<long>> cellsOfTable = new Dictionary<long, List<long>>();
+        bool tablesChanged;
+
+        /// <summary>Hand over one tile's trunks (x, y, z of the base, then the
+        /// RADIUS), replacing any it handed over before.</summary>
+        public void AddTable(long key, List<Vector4> list)
+        {
+            RemoveTable(key);
+            if (list == null || list.Count == 0) return;
+            var cellsHere = new List<long>();
+            foreach (var t in list)
+            {
+                long k = Key(CellOf(t.x), CellOf(t.z));
+                if (!tableCells.TryGetValue(k, out var l)) tableCells[k] = l = new List<(long, Vector4)>();
+                if (!cellsHere.Contains(k)) cellsHere.Add(k);
+                l.Add((key, t));
+            }
+            cellsOfTable[key] = cellsHere;
+            foreach (long k in cellsHere) Invalidate(k);
+        }
+
+        /// <summary>Take a tile's trunks back (its tile was dropped).</summary>
+        public void RemoveTable(long key)
+        {
+            if (!cellsOfTable.TryGetValue(key, out var cellsHere)) return;
+            cellsOfTable.Remove(key);
+            foreach (long k in cellsHere)
+            {
+                if (tableCells.TryGetValue(k, out var l))
+                {
+                    l.RemoveAll(e => e.table == key);
+                    if (l.Count == 0) tableCells.Remove(k);
+                }
+                Invalidate(k);
+            }
+        }
+
+        /// <summary>Every streamed trunk within <paramref name="r"/> of a
+        /// point in plan (x, y, z of the base, radius): the city play check's
+        /// targets.</summary>
+        public void TableTrunksNear(Vector3 at, float r, List<Vector4> outList)
+        {
+            int cx = CellOf(at.x), cz = CellOf(at.z), n = Mathf.CeilToInt(r / Cell);
+            for (int x = cx - n; x <= cx + n; x++)
+                for (int z = cz - n; z <= cz + n; z++)
+                {
+                    if (!tableCells.TryGetValue(Key(x, z), out var l)) continue;
+                    foreach (var e in l)
+                    {
+                        float dx = e.t.x - at.x, dz = e.t.z - at.z;
+                        if (dx * dx + dz * dz <= r * r) outList.Add(e.t);
+                    }
+                }
+        }
+
+        /// <summary>Streamed trunks held right now, all tiles.</summary>
+        public int TableTrunks { get { int n = 0; foreach (var l in tableCells.Values) n += l.Count; return n; } }
+
+        /// <summary>A cell whose trunks changed comes down, and is stood again
+        /// by the next step's refresh if a car is round it.</summary>
+        void Invalidate(long k)
+        {
+            if (live.TryGetValue(k, out var go)) { Kill(go); live.Remove(k); }
+            tablesChanged = true;
+        }
+
+        /// <summary>The slowest single cell stood so far, milliseconds, and
+        /// how many capsules it held (the budget of standing trunks round the
+        /// cars rather than in the tile build).</summary>
+        public float WorstStandMs { get; private set; }
+        public int WorstStandCapsules { get; private set; }
+        static readonly System.Diagnostics.Stopwatch standClock = new System.Diagnostics.Stopwatch();
+
+        // ------------------------------------------------------------------
         //  Standing them up round the cars
         // ------------------------------------------------------------------
         readonly Dictionary<long, GameObject> live = new Dictionary<long, GameObject>();
@@ -279,7 +370,7 @@ namespace PSXRacing
                 long k = Key(CellOf(p.x), CellOf(p.z));
                 if (!lastCell.TryGetValue(c, out long was) || was != k) { lastCell[c] = k; moved = true; }
             }
-            if (moved) Refresh();
+            if (moved || tablesChanged) { tablesChanged = false; Refresh(); }
             StandPending();
             Brush();
         }
@@ -357,25 +448,44 @@ namespace PSXRacing
 
         void Stand(long k)
         {
-            if (!byCell.TryGetValue(k, out var list)) { live[k] = null; return; }
+            bool baked = byCell.TryGetValue(k, out var list);
+            bool streamed = tableCells.TryGetValue(k, out var tl) && tl.Count > 0;
+            if (!baked && !streamed) { live[k] = null; return; }
+            standClock.Restart();
             // One object per cell carrying every trunk in it as its own
             // capsule, at the world origin so each capsule's centre IS the
             // trunk's world position. Not parented: a stage's forest root is
             // not guaranteed to sit at the origin unscaled.
-            var go = new GameObject("Trunks");
+            var go = new GameObject(standName);
             go.layer = SolidLayer;
             go.isStatic = true;
             float h = trunkHeight;
-            foreach (int i in list)
-            {
-                var cap = go.AddComponent<CapsuleCollider>();
-                float r = RadiusOf(i);
-                cap.direction = 1;
-                cap.radius = r;
-                cap.height = Mathf.Max(h, r * 2f + 0.01f);
-                cap.center = new Vector3(trunks[i * 4], trunks[i * 4 + 1] + h * 0.5f, trunks[i * 4 + 2]);
-            }
+            int n = 0;
+            if (baked)
+                foreach (int i in list)
+                {
+                    AddCapsule(go, new Vector3(trunks[i * 4], trunks[i * 4 + 1], trunks[i * 4 + 2]), RadiusOf(i), h);
+                    n++;
+                }
+            if (streamed)
+                foreach (var e in tl)
+                {
+                    AddCapsule(go, new Vector3(e.t.x, e.t.y, e.t.z), e.t.w, h);
+                    n++;
+                }
             live[k] = go;
+            standClock.Stop();
+            float ms = (float)standClock.Elapsed.TotalMilliseconds;
+            if (ms > WorstStandMs) { WorstStandMs = ms; WorstStandCapsules = n; }
+        }
+
+        static void AddCapsule(GameObject go, Vector3 foot, float r, float h)
+        {
+            var cap = go.AddComponent<CapsuleCollider>();
+            cap.direction = 1;
+            cap.radius = r;
+            cap.height = Mathf.Max(h, r * 2f + 0.01f);
+            cap.center = foot + Vector3.up * (h * 0.5f);
         }
 
         // ------------------------------------------------------------------

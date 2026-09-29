@@ -378,8 +378,11 @@ namespace PSXRacing.EditorTools
         /// <summary>
         /// THE CITY'S TREES STOP A CAR (WP-08; the stage trees' tree-play-check
         /// in Charlotte, critic C42). Stand the car on Queens Road West in Myers
-        /// Park, under the densest canopy on the plan's list, find the trunk
-        /// colliders the tiles stood (CityTrees.TrunkName), and drive the real
+        /// Park, under the densest canopy on the plan's list, take the solid
+        /// trunks from the city's trunk table (CityWorld.Trunks, which stands
+        /// their capsules, named CityTrees.TrunkName, only round the cars -
+        /// each run checks its trunk was stood once the car was beside it),
+        /// and drive the real
         /// car at the nearest ones from the road at 50 km/h, dead on and a
         /// car's half-width to the side: it must never get the trunk inside
         /// its body, and must be all but stopped. A run whose way to the tree
@@ -399,19 +402,24 @@ namespace PSXRacing.EditorTools
             world.EnsureRing(player.transform.position, 1);
             yield return null;
 
-            var trunks = new List<CapsuleCollider>();
-            foreach (var c in Object.FindObjectsByType<CapsuleCollider>(FindObjectsSortMode.None))
-                if (c.gameObject.name == CityTrees.TrunkName) trunks.Add(c);
+            // the solid trunks are the city's trunk table's (WP-08 review: a
+            // tile stands no collider; the table stands them round the cars)
+            var table = world.Trunks;
+            var trunks = new List<Vector4>();
+            if (table != null) table.TableTrunksNear(player.transform.position, 150f, trunks);
+            for (int k = 0; k < 15; k++) yield return new WaitForFixedUpdate();
             int trees = 0;
             foreach (var r in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
                 if (r.gameObject.name == "Trees") trees += r.GetComponent<MeshFilter>().sharedMesh.vertexCount / 8;
-            CityPlayCheck.Check(trees > 100 && trunks.Count > 20, "Myers Park stands trees, the ones near the road with trunks",
-                trees + " trees, " + trunks.Count + " trunk capsules on the live tiles");
+            int standing = table != null ? table.LiveColliders : 0;
+            CityPlayCheck.Check(trees > 100 && trunks.Count > 20 && standing > 0, "Myers Park stands trees, the solid ones near the road in the trunk table, stood round the car",
+                $"{trees} trees on the live tiles, {trunks.Count} solid trunks in the table within 150 m, {standing} capsules standing round the cars; " +
+                $"slowest cell stood {(table != null ? table.WorstStandMs : 0f):0.00} ms ({(table != null ? table.WorstStandCapsules : 0)} capsules)");
             if (trunks.Count == 0) yield break;
 
             // nearest the car's road first
             var p0 = new Vector2(player.transform.position.x, player.transform.position.z);
-            trunks.Sort((a, b) => Vector2.Distance(Plan(a), p0).CompareTo(Vector2.Distance(Plan(b), p0)));
+            trunks.Sort((a, b) => Vector2.Distance(new Vector2(a.x, a.z), p0).CompareTo(Vector2.Distance(new Vector2(b.x, b.z), p0)));
             foreach (var mb in player.GetComponents<MonoBehaviour>())
                 if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = false;
             int solidMask = 1 << CityWorld.SolidLayer, groundMask = ~((1 << 2) | solidMask);
@@ -428,11 +436,13 @@ namespace PSXRacing.EditorTools
                 bh = Vector3.Scale(body.size * 0.5f, body.transform.lossyScale);
             }
             CityPlayCheck.Line($"  the car's solid: a box {bh.x * 2f:0.00} x {bh.y * 2f:0.00} x {bh.z * 2f:0.00} m centred ({bc.x:0.00},{bc.y:0.00},{bc.z:0.00}) in its frame");
-            foreach (var cap in trunks)
+            float capH = Mathf.Max(CityTrees.TrunkHeightM, 0.5f);
+            foreach (var tr in trunks)
             {
                 if (runs >= 4 || tried >= 40) break;
-                if (cap == null) continue;
-                var trunk = cap.transform.TransformPoint(cap.center);
+                // the capsule the table stands: base + half its height, its radius
+                var trunk = new Vector3(tr.x, tr.y + capH * 0.5f, tr.z);
+                var cap = new { radius = tr.w, height = Mathf.Max(capH, tr.w * 2f + 0.01f) };
                 var tp = new Vector2(trunk.x, trunk.z);
                 if (!map.NearestRoadPoint(tp, 30f, false, out int re, out float rs, out _)) continue;
                 var rp = map.edges[re].PointAt(rs);
@@ -466,7 +476,11 @@ namespace PSXRacing.EditorTools
                     player.TeleportTo(g.point + Vector3.up * 0.6f, Quaternion.LookRotation(dir, Vector3.up));
                     player.throttleInput = 0f; player.brakeInput = 1f; player.steerInput = 0f;
                     for (int k = 0; k < 30; k++) yield return new WaitForFixedUpdate();
-                    if (cap == null) break;
+                    // the table stood this trunk's cell when the car arrived beside it
+                    bool stood = false;
+                    foreach (var c in Physics.OverlapSphere(trunk, 0.05f, solidMask, QueryTriggerInteraction.Ignore))
+                        if (c.gameObject.name == CityTrees.TrunkName) stood = true;
+                    if (!stood) { CityPlayCheck.Check(false, $"the trunk table stood the trunk at ({trunk.x:0},{trunk.z:0}) once the car was 16 m from it"); break; }
                     player.brakeInput = 0f;
                     player.Body.linearVelocity = player.transform.forward * (50f / 3.6f);
                     bool inside = false, reached = false; float arrive = 0f, closest = float.MaxValue;
@@ -508,8 +522,6 @@ namespace PSXRacing.EditorTools
             player.TeleportTo(home, Quaternion.identity);
             for (int k = 0; k < 10; k++) yield return null;
         }
-
-        static Vector2 Plan(Collider c) { var p = c.bounds.center; return new Vector2(p.x, p.z); }
 
 
         /// <summary>On a street, at the street's own height, with a collider

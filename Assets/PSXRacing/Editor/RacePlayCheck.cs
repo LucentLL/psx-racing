@@ -22,12 +22,65 @@ namespace PSXRacing.EditorTools
         internal static StringBuilder log;
         internal static int failures;
 
+        // SEVERAL RACES IN ONE LAUNCH (WP-08 review: G-play wants the three
+        // city routes with fixed seeds, ten runs a route, trees on and off -
+        // sixty launches of the editor): PSX_RACE_VENUES is a comma list of
+        // venue ids, PSX_RACE_SEEDS a comma list of seeds, and PSX_CITY_TREES
+        // "0" (off), "1" (on, the default) or "ab" (every race twice, trees on
+        // then off). Each race enters play mode, races, leaves, and the next
+        // opens its scene; one report at the end with a line per race.
+        struct Job { public string venue; public int seed; public bool trees; }
+        static readonly List<Job> jobs = new List<Job>();
+        static int jobAt;
+        internal static int SeedNow => jobAt < jobs.Count ? jobs[jobAt].seed : 0;
+        internal static string VenueNow => jobAt < jobs.Count ? jobs[jobAt].venue : "?";
+        internal static readonly List<string> summaries = new List<string>();
+
         public static void Run()
         {
             log = new StringBuilder();
             failures = 0;
-            string id = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
-            if (string.IsNullOrEmpty(id)) id = "GillespieGap";
+            jobs.Clear(); summaries.Clear(); jobAt = 0;
+            string venues = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUES");
+            if (string.IsNullOrEmpty(venues)) venues = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
+            if (string.IsNullOrEmpty(venues)) venues = "GillespieGap";
+            string seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEEDS");
+            if (string.IsNullOrEmpty(seeds)) seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0";
+            string treesMode = System.Environment.GetEnvironmentVariable("PSX_CITY_TREES") ?? "1";
+            foreach (var v in venues.Split(','))
+                foreach (var sd in seeds.Split(','))
+                {
+                    if (string.IsNullOrWhiteSpace(v) || !int.TryParse(sd.Trim(), out int seed)) continue;
+                    if (treesMode == "ab")
+                    {
+                        jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = true });
+                        jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = false });
+                    }
+                    else jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = treesMode != "0" });
+                }
+            StartJob();
+        }
+
+        /// <summary>The race the current job asks for, or the report and the
+        /// exit when there are no more.</summary>
+        static void StartJob()
+        {
+            if (jobAt >= jobs.Count)
+            {
+                if (jobs.Count > 1)
+                {
+                    log.AppendLine();
+                    log.AppendLine("ALL RACES (venue, seed, trees; rivals retired; what the retired hit; city tree trunks hit):");
+                    foreach (var line in summaries) log.AppendLine("  " + line);
+                }
+                Finish();
+                EditorApplication.Exit(failures == 0 ? 0 : 1);
+                return;
+            }
+            var job = jobs[jobAt];
+            PSXRacing.City.CityTrees.Enabled = job.trees;
+            string id = job.venue;
+            System.Environment.SetEnvironmentVariable("PSX_RACE_SEED", job.seed.ToString());
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;
@@ -36,11 +89,11 @@ namespace PSXRacing.EditorTools
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path))
             {
                 Check(false, "the venue " + id + " is built");
-                Finish();
-                EditorApplication.Exit(1);
+                jobAt++;
+                StartJob();
                 return;
             }
-            log.AppendLine("race on " + id + ":");
+            log.AppendLine("race on " + id + (jobs.Count > 1 ? $" (seed {job.seed}, city trees {(job.trees ? "on" : "off")})" : "") + ":");
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
@@ -67,6 +120,29 @@ namespace PSXRacing.EditorTools
             if (st != PlayModeStateChange.EnteredPlayMode) return;
             EditorApplication.playModeStateChanged -= OnState;
             new GameObject("RacePlayCheckRunner").AddComponent<RacePlayCheckRunner>();
+        }
+
+        /// <summary>A race is done: its summary line kept, then out of play
+        /// mode and on to the next job (or the report).</summary>
+        internal static void RaceDone(string summary)
+        {
+            summaries.Add(summary);
+            jobAt++;
+            // the report so far, after every race: a long batch cut short
+            // still says what it raced
+            if (jobs.Count > 1)
+                File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_race_play_check.txt"),
+                    log + "\n(" + summaries.Count + " of " + jobs.Count + " races so far)\n  " + string.Join("\n  ", summaries) + "\n");
+            if (jobAt >= jobs.Count && jobs.Count <= 1) { Finish(); EditorApplication.Exit(failures == 0 ? 0 : 1); return; }
+            EditorApplication.playModeStateChanged += OnLeft;
+            EditorApplication.ExitPlaymode();
+        }
+
+        static void OnLeft(PlayModeStateChange st)
+        {
+            if (st != PlayModeStateChange.EnteredEditMode) return;
+            EditorApplication.playModeStateChanged -= OnLeft;
+            EditorApplication.delayCall += StartJob;
         }
 
         internal static void Check(bool ok, string what, object got = null)
@@ -109,6 +185,7 @@ namespace PSXRacing.EditorTools
             int seedN = 0;
             int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seedN);
             Random.InitState(9173 + seedN * 101);
+            NoRendering();
             float until = Time.realtimeSinceStartup + 15f;
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
@@ -144,6 +221,7 @@ namespace PSXRacing.EditorTools
             while (Time.time - t0 < seconds && rm.State == RaceManager.RaceState.Racing)
             {
                 yield return new WaitForSeconds(0.5f);
+                NoRendering();
                 foreach (var c in rm.allCars)
                 {
                     var ai = c != null ? c.GetComponent<AIDriver>() : null;
@@ -225,18 +303,43 @@ namespace PSXRacing.EditorTools
             }
             RacePlayCheck.Note($"hits by kind: {string.Join(", ", kinds)}");
             RacePlayCheck.Note($"raced {raced:0} s; {retiredAt.Count} of {rivals} rivals retired");
+            // did it FINISH (a run long enough for the route), and who crossed the line
+            var done = new List<string>();
+            foreach (var c in rm.allCars)
             {
-                // did it FINISH (a run long enough for the route), and who crossed the line
-                var done = new List<string>();
-                foreach (var c in rm.allCars)
-                {
-                    var p = c != null ? rm.GetProgress(c) : null;
-                    if (p != null && p.finished) done.Add(c.name);
-                }
-                RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
+                var p = c != null ? rm.GetProgress(c) : null;
+                if (p != null && p.finished) done.Add(c.name);
             }
+            RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
+            RacePlayCheck.Note($"city tree trunks hit: {trunkHits} (hard {trunkHard})");
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
+            var why = new List<string>();
+            foreach (var kv in retiredAt)
+            {
+                var r = kv.Key != null ? kv.Key.GetComponent<CollisionResponder>() : null;
+                why.Add($"{(kv.Key != null ? kv.Key.name : "?")} at {kv.Value:0}s into {(r != null ? r.WorstHitWhat : "?")}");
+            }
+            string venue = RacePlayCheck.VenueNow;
+            summary = $"{venue,-18} seed {RacePlayCheck.SeedNow,2} trees {(PSXRacing.City.CityTrees.Enabled ? "on " : "off")}: {retiredAt.Count} of {rivals} retired" +
+                      (why.Count > 0 ? " (" + string.Join("; ", why) + ")" : "") +
+                      $"; trunk hits {trunkHits} ({trunkHard} hard); raced {raced:0} s, {rm.State}, finished {done.Count}";
             Done();
+        }
+
+        string summary = "";
+        int trunkHits, trunkHard;
+
+        /// <summary>A -nographics editor has no GPU, and every camera still
+        /// asked for a frame: each failed with a logged error and a stack
+        /// trace, 1.4 GB of log for two races (WP-08 review), and the frames
+        /// slow enough to race slower than real time. Nothing the race does
+        /// reads a rendered frame, so the cameras are switched off (new ones,
+        /// the mirror and the pizza cam, are caught on the next pass).</summary>
+        static void NoRendering()
+        {
+            if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null) return;
+            foreach (var cam in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                if (cam.enabled) cam.enabled = false;
         }
 
         /// <summary>Per car, the last 3 s: time, lateral (m right of the
@@ -291,6 +394,7 @@ namespace PSXRacing.EditorTools
         void OnHit(CollisionResponder who, float speed, bool hard, string what)
         {
             if (speed < 6f || rm == null) return;
+            if (what == PSXRacing.City.CityTrees.TrunkName) { trunkHits++; if (hard) trunkHard++; }
             string kind = what.StartsWith("WallColl") ? "wall" : what.StartsWith("Bank") ? "rock" :
                           what.StartsWith("Traffic") || what.Contains("traffic") ? "traffic" :
                           who.GetComponentInParent<CarController>() != null && what.Length > 0 && IsCarName(what) ? "car" : what;
@@ -344,8 +448,10 @@ namespace PSXRacing.EditorTools
 
         void Done()
         {
-            RacePlayCheck.Finish();
-            EditorApplication.Exit(RacePlayCheck.failures == 0 ? 0 : 1);
+            CollisionResponder.HitReported -= OnHit;
+            CollisionResponder.HitReportedOn -= OnHitOn;
+            RaceManager.Respawned -= OnRespawn;
+            RacePlayCheck.RaceDone(summary.Length > 0 ? summary : "(no race)");
         }
     }
 }

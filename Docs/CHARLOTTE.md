@@ -839,9 +839,36 @@ version trusted the stage forest's "foliage starts at 28% of the height" and
 the first shot of Dilworth Road put an orange maple across the lane at eye
 height.
 
-**Trunks stop cars.** A capsule up every trunk within 25 m of a carriageway
-(4 m tall, radius off the card), all of a tile's on one Solid-layer object
-named `TreeTrunk`, stood up by `CityWorld.AttachTrees` with the cards.
+**Big trunks stop cars; small trees break away** (Q15: the plan's default,
+which the owner kept - trunks of 30 cm and up solid, small trees breakaway).
+A tree's trunk diameter comes from its height (an open-grown hardwood about
+4 cm a metre less 15, a pine grown in a stand 2.5 cm a metre less 12: a 12 m
+willow oak 33 cm, a 15 m pine 26 cm); crape myrtles (a clump of thin stems),
+dead snags and the young understory trees break away whatever their height.
+A trunk of 30 cm or more within 25 m of a carriageway is solid, and goes to
+the city's trunk table, `CityWorld.Trunks` (the plan's
+`TreeTrunks.AddTable/RemoveTable`): each tile hands its trunks over when its
+trees are planted and takes them back when it is dropped, and the table
+stands a capsule (4 m tall, radius off the card, on objects named
+`TreeTrunk`) only in the 40 m cells round each car, one cell a physics step,
+exactly as a stage forest's. A tile build stands no trunk collider at all.
+
+**Not in race run-off** (`Scripts/City/RaceRunOff.cs`, plan section 5).
+Along the Uptown Loop, Tryon and Independence routes the mask keeps 8 m
+past the drawn edge clear on both sides, and 16 m on the outside of every
+bend (the heading turning 12 degrees or more over 32 m), worked out once
+from the routes' edge chains with the half width read through `RoadEdgeAt`,
+and marked as clear zone. An arterial's own clear zone (3.5 m) is sized for
+a driver at the limit, not a racing car running wide.
+
+**On a frame of their own** (WP-09's third stage, for the trees only). A
+tile's trees are not planted in its build: `EnsureTile` queues them with the
+lattice its build cached (`CityMeshes.TakeLattice/PutLattice`, so they stand
+on the same triangles without GroundY at every corner again, which doubled
+the planting), and `CityWorld.Update` plants the nearest waiting tile on a
+frame that built no tile. A tile a car is in plants at once, and
+`EnsureRing` (spawns, race grids, the tools) plants its ring before it
+returns. The FPS overlay's CITY line counts a tree frame like a tile build.
 
 **Checked:**
 
@@ -860,6 +887,12 @@ named `TreeTrunk`, stood up by `CityWorld.AttachTrees` with the cards.
   31.0, every one within the plan's 5 points. (The shipped 60 m grid reads
   15.2 / 23.9 / 8.9 / 31.4 at the same points: its cells smear the woods
   beside a freeway over the freeway.)
+  After the review: 614 tiles (the 514 and the 100 tiles the three race
+  routes run through), 136,186 trees; 0 in a route's run-off (measured
+  against the route marks); Q15 holds for every tree (11,239 solid: oak
+  5,093, hardwood 3,946, pine 1,945, sycamore 255; no crape myrtle or snag;
+  3,783 within reach of a road break away); the canopy bands unchanged
+  (9.9 / 11.4 / 6.2 / 28.9 against 13.0 / 14.9 / 8.1 / 31.0).
 - **city-play-check** drives the real car at the trunks nearest Queens Road
   West in Myers Park, dead on and 0.9 m to the side at 50 km/h: all eight
   runs stop the car (it arrives at 52-53 km/h and leaves at 0-10), none
@@ -868,7 +901,10 @@ named `TreeTrunk`, stood up by `CityWorld.AttachTrees` with the cards.
   car: the stage harness's generic 4.1 m box put the two thinnest trunks
   "inside" a nose the car does not have. The first runs found a trunk in
   the pizzeria's order bay (hence the lot margin) and the run-up raycast
-  starting under the city's ground (world y is 97 m ASL down).
+  starting under the city's ground (world y is 97 m ASL down). Since the
+  review it takes its trunks from the table and checks each was stood once
+  the car was beside it: 8 of 8 stopped (52-53 km/h in, 0-10 out), 52
+  capsules standing round the car where 123 solid trunks are within 150 m.
 - The DRIVE AUDIT's five zeros and the roadside audit's zeros are unchanged
   (the trees are not in the tiles the drive audit stands up; they stand on
   their own in EnsureTile).
@@ -876,29 +912,42 @@ named `TreeTrunk`, stood up by `CityWorld.AttachTrees` with the cards.
   trees in all five dresses at three spots (`Screenshots/City/trees`,
   `CityRefSpots.RunTreeDresses`).
 
-**Measured** (`city_budget.txt`; its A/B pass is now the same sites with no
-trees):
+**Measured** (`city_budget.txt`; its A/B builds each site with trees and
+then without, back to back).
+
+The first version planted the trees and stood their capsules inside the tile
+build: the trees' own share of a tile was 2.6-4.9 ms at p95 by site, and
+8.0-11.2 ms in the old city (Tryon, Dilworth, Plaza Midwood), about 3 ms of
+it `AddComponent<CapsuleCollider>`, against the plan's +1.5 ms. Its headline
+"tile p95 81.8 -> 82.1 ms" was one of three noisy A/B runs (the others read
++14% and +24%), and the baseline was moved from WP-07's 69.0 ms to 82.1 on
+it. The review's answer:
 
 | | with trees | without (same run) |
 |---|---|---|
-| tile build, all 225 tiles | p50 26.4, p95 82.1 ms | p50 29.6, p95 81.8 ms |
-| the trees' own share of a tile, p95 by site | 2.6-4.0 ms (freeway, suburbs, uptown); 8.0-11.2 ms (the old city: Tryon, Dilworth, Plaza Midwood) | - |
+| tile build, all 225 tiles | p50 23.3, p95 73.2 ms | p50 23.8, p95 78.8 ms |
+| the trees' own frame, all tiles | p50 2.1, p95 4.9, max 13.6 ms | - |
+| the trees' own frame, p95 by site | 2.3-3.3 ms (freeways, suburbs, the restaurant lots); 4.6-4.8 (uptown, Tryon); 5.5-6.5 (Dilworth, Plaza Midwood) | - |
 | draws in a view | +7 to +12 (one a tile in view; the most at Plaza Midwood) | - |
 | sun-map casters in the ring | +25 (one a tile) | - |
-| colliders in the ring | +500 to +3,100 (the trunk capsules; 3,510 at Dilworth) | - |
+| colliders on the tiles | +0 (the table stands the trunks round the cars: 52 capsules at Myers Park, where 123 solid trunks are within 150 m) | - |
 | worst view | 209 draws (uptown) | 200 |
 
-The trees' share splits into planting (the mask 0.9 ms of it on average) and
-standing up (the cards and the capsules, about 3 ms of a dense tile). The
-share is what the plan's "+1.5 ms at p95" asked about; the tile p95 itself
-moved 0.3 ms because the slowest tiles (uptown, the freeway interchanges)
-have few trees. Every number is from an editor sharing the machine with six
-other Unity jobs: only the A/B inside one run means anything, and per-site
-p95s moved by up to 40 ms between runs. The in-view draws are past the plan's
-+10% ratchet at the sparser sites (Beatties Ford 27 -> 36), which WP-07's
-prepay was for (88 draws saved in a suburb view, 300+ at a restaurant). The
-phone reading (FPS overlay CITY line at Queens Road West, critic C30) is the
-owner's to take; over 16.7 ms a tile there, WP-09 time-slices the build.
+The tile build no longer carries the trees at all (same code with and
+without: the 5.6 ms between the columns is the machine, shared with other
+Unity jobs), so the plan's "tile p95 +1.5 ms at most" holds by construction,
+and the tile-build ratchet stays WP-07's 69.0 ms. The trees cost a frame of
+their own, never the same frame as a tile build, at 5.5-6.5 ms at p95 in the
+old city: the planting was also cut (the fit test stops at the first road a
+card would hang over and skips a road the leaves cannot reach, the kit's
+table is read once a tile, the second pass looks only 14 m for a road, the
+normals are handed over): at Dilworth planting went from 7.2 to 5.3 ms at
+p95, and the trees' whole cost from 10.3 to 5.5. The in-view
+draws are past the plan's +10% ratchet at the sparser sites (Beatties Ford
+27 -> 36), which WP-07's prepay was for (88 draws saved in a suburb view,
+300+ at a restaurant). The phone reading (FPS overlay CITY line at Queens
+Road West, critic C30) is the owner's to take; the line now counts tree
+frames too.
 
 **Size.** `charlotte_canopy.bytes` +393 KB Brotli (the plan's 0.3-0.5 MB);
 the tree materials are 5 small .mat files over atlases the stages already

@@ -3,7 +3,11 @@
 # no scene build: the scenes must already be built there).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\race-play-check.ps1 -Venue GillespieGap -Seconds 150 -Seed 0
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "")
+# Several races in ONE launch (a line per race at the end of the report):
+#   ... -Venues UptownLoop,TryonSprint,IndependenceSprint -Seeds 0,1,2,3,4 -Trees ab
+# -Trees: 1 city trees on (default), 0 off, ab every race twice (on, then off).
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "",
+      [string]$Venues = "", [string]$Seeds = "", [string]$Trees = "1", [int]$MaxMinutes = 0)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -18,7 +22,13 @@ $env:PSX_RACE_SECONDS = "$Seconds"
 $env:PSX_RACE_SEED = "$Seed"
 $env:PSX_RACE_HOUR = $Hour
 $env:PSX_RACE_MISTAKE = $Mistake
-Invoke-UnityJob -Log "$proj\raceplay.log" -MaxMinutes 20 -UnityArgs @(
+$env:PSX_RACE_VENUES = $Venues
+$env:PSX_RACE_SEEDS = $Seeds
+$env:PSX_CITY_TREES = $Trees
+# a race is at most $Seconds plus about a minute of loading; one launch runs them all
+$races = [Math]::Max(1, ($(if ($Venues) { $Venues } else { $Venue }).Split(",").Count) * ($(if ($Seeds) { $Seeds } else { "$Seed" }).Split(",").Count) * $(if ($Trees -eq "ab") { 2 } else { 1 }))
+if ($MaxMinutes -le 0) { $MaxMinutes = [Math]::Max(20, [int]($races * ($Seconds + 60) / 60) + 10) }
+Invoke-UnityJob -Log "$proj\raceplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.RacePlayCheck.Run",
     "-logFile","$proj\raceplay.log","-accept-apiupdate") | Out-Null

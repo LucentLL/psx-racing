@@ -47,10 +47,17 @@ namespace PSXRacing.City
     /// Along every grounded freeway, where the map has woods, two rows of
     /// hardwoods just past the clear zone: the tree walls.
     ///
-    /// SOLID within <see cref="TrunkReachM"/> of a carriageway: a capsule up
-    /// each trunk (CityWorld.AttachTrees), all on one object named
-    /// <see cref="TrunkName"/> so the audits look through them as they do
-    /// the lamp posts. Past that no car can reach one.
+    /// SOLID within <see cref="TrunkReachM"/> of a carriageway, and only a
+    /// trunk of <see cref="SolidTrunkM"/> or more (the owner kept the plan's
+    /// Q15 default: trunks of 30 cm and up are solid, small trees break away).
+    /// A crape myrtle, a dead snag or a young understory tree is BREAKAWAY: no
+    /// collider, the car goes through it. The solid ones are handed to the
+    /// city's <see cref="TreeTrunks"/> table (CityWorld), which stands a
+    /// capsule only round the cars, on objects named <see cref="TrunkName"/>.
+    /// Past TrunkReachM no car can reach one.
+    ///
+    /// NOT IN RACE RUN-OFF: the mask keeps the city routes' run-off clear
+    /// (<see cref="RaceRunOff"/>).
     /// </summary>
     public static class CityTrees
     {
@@ -90,6 +97,9 @@ namespace PSXRacing.City
         /// <summary>A trunk this close to a grounded carriageway's edge gets a
         /// collider.</summary>
         public const float TrunkReachM = 25f;
+        /// <summary>Q15 (plan default, kept by the owner): a trunk this thick
+        /// at chest height or more is solid; a smaller tree breaks away.</summary>
+        public const float SolidTrunkM = 0.30f;
         public const string TrunkName = "TreeTrunk";
         /// <summary>Solid up to here (a car's roof and then some; TreeTrunks').</summary>
         public const float TrunkHeightM = 4f;
@@ -125,6 +135,23 @@ namespace PSXRacing.City
         static bool Conifer(Species s) => s == Species.Pine;
         static float CardWidth(Species s, float h) => h * (Conifer(s) ? 0.62f : 1f);
 
+        /// <summary>
+        /// The trunk's diameter at chest height, metres, from the tree's height
+        /// (Q15 decides solid or breakaway on it). An open-grown street or yard
+        /// hardwood thickens about 4 cm a metre of height (a 12 m willow oak
+        /// is about 33 cm, a 16 m one 49 cm); a pine grown in a stand about
+        /// 2.5 cm (15 m: 26 cm, 20 m: 38 cm). A crape myrtle is a clump of
+        /// stems a hand or two thick, a young understory tree a sapling, and a
+        /// dead snag's wood is rotten: all three break away, whatever their
+        /// height.
+        /// </summary>
+        public static float TrunkDiameterM(Species s, float h, bool young)
+        {
+            if (young || s == Species.Myrtle) return 0.12f;
+            if (s == Species.Bare) return 0f;
+            return Mathf.Max(0.05f, Conifer(s) ? 0.025f * h - 0.12f : 0.04f * h - 0.15f);
+        }
+
         /// <summary>Levels of the kit's low-reach table (twentieths, and 0).</summary>
         public const int ReachLevels = 21;
         /// <summary>Heights a tree too close to a road is tried at, as
@@ -140,11 +167,19 @@ namespace PSXRacing.City
         {
             if (frac <= 0f) return 0f;
             var kit = CityKit.Get();
-            var t = kit != null ? kit.treeLowReach : null;
+            return LowReach(kit != null ? kit.treeLowReach : null, cell, frac);
+        }
+
+        /// <summary>As above off a table in hand (the planting reads the kit's
+        /// once a tile, not once a road a billboard a size).</summary>
+        static float LowReach(float[] t, int cell, float frac)
+        {
+            if (frac <= 0f) return 0f;
             if (t == null || t.Length < 16 * ReachLevels) return 0.5f;
             int L = Mathf.Clamp(Mathf.CeilToInt(frac * (ReachLevels - 1)), 0, ReachLevels - 1);
             return t[cell * ReachLevels + L];
         }
+        static float[] reachTable;
 
         /// <summary>The crown a tree draws, as a radius in plan: 0.45 of a
         /// broadleaf card's width (the atlas paints its crown 0.9 of the cell
@@ -162,6 +197,10 @@ namespace PSXRacing.City
             public Species species;
             /// <summary>Metres to the nearest grounded carriageway's edge.</summary>
             public float road;
+            /// <summary>Trunk diameter at chest height (<see cref="TrunkDiameterM"/>).</summary>
+            public float dbh;
+            /// <summary>Stands a collider: within reach of a road, and a trunk
+            /// of <see cref="SolidTrunkM"/> or more (Q15).</summary>
             public bool solid;
         }
 
@@ -182,6 +221,16 @@ namespace PSXRacing.City
             /// before the per-tile cap), and what was planted.</summary>
             public float wanted;
             public int solids, grown, shrunk, lined;
+            /// <summary>Trees within reach of a road that break away (Q15).</summary>
+            public int breakaway;
+            /// <summary>The solid trunks as the city's TreeTrunks table wants
+            /// them: base (x, y, z) and radius.</summary>
+            public List<Vector4> Trunks()
+            {
+                var l = new List<Vector4>(solids);
+                foreach (var t in trees) if (t.solid) l.Add(new Vector4(t.foot.x, t.foot.y, t.foot.z, t.r));
+                return l;
+            }
             public readonly int[] rejects = new int[RejectCount];
             /// <summary>Milliseconds: the whole plant, and the mask's share of it.</summary>
             public float ms, occMs;
@@ -189,7 +238,7 @@ namespace PSXRacing.City
 
         // ------------------------------------------------------------------
 
-        static readonly List<Vector3> vScratch = new List<Vector3>(4096);
+        static readonly List<Vector3> vScratch = new List<Vector3>(4096), nScratch = new List<Vector3>(4096);
         static readonly List<Vector2> uvScratch = new List<Vector2>(4096);
         static readonly List<int> tScratch = new List<int>(6144);
         static readonly float[] squareCanopy = new float[Squares * Squares];
@@ -222,6 +271,8 @@ namespace PSXRacing.City
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
+            var kit = CityKit.Get();
+            reachTable = kit != null ? kit.treeLowReach : null;
             var occ = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
             tt.occ = occ;
             tt.occMs = (float)clock.Elapsed.TotalMilliseconds;
@@ -329,7 +380,8 @@ namespace PSXRacing.City
                 byte b = occ.At(p);
                 if (b != 0) { tt.rejects[FirstBit(b)]++; return false; }
                 if (Taken(occ, p)) { tt.rejects[RejectSpacing]++; return false; }
-                float road = occ.RoadEdgeDistance(p, out float roadY, out int edge, out var roadDir);
+                // (the second pass needs only "within nearRoad": it looks no farther)
+                float road = occ.RoadEdgeDistance(p, nearRoad > 0f ? nearRoad : RoadsideOccupancy.NearReachM, out _, out int edge, out var roadDir);
                 if (nearRoad > 0f && road > nearRoad) return false;
                 if (Plant(map, occ, tt, p, gx, gz, k, canopy, distUp, road, edge, roadDir, out var push))
                 {
@@ -363,8 +415,8 @@ namespace PSXRacing.City
             float h = Mathf.Lerp(hr.x, hr.y, Hash01(gx, gz, 300 + k));
             // an understory under a thick canopy: young trees in the gaps a
             // driver's eye actually looks through
-            if (canopy >= 0.6f && sp != Species.Myrtle && Hash01(gx, gz, 400 + k) < 0.22f)
-                h *= 0.55f + 0.2f * Hash01(gx, gz, 500 + k);
+            bool young = canopy >= 0.6f && sp != Species.Myrtle && Hash01(gx, gz, 400 + k) < 0.22f;
+            if (young) h *= 0.55f + 0.2f * Hash01(gx, gz, 500 + k);
             float ground = CityMeshes.LatticeAt(map, p.x, p.y) - SinkM;
 
             // A CARD OVER THE TARMAC ONLY HIGH UP. A card is a flat plane as
@@ -390,7 +442,9 @@ namespace PSXRacing.City
                     foreach (float f in FitScales)
                     {
                         float hh = Mathf.Clamp(h0 * f, hr.x * 0.6f, hr.y * 1.3f);
-                        float over = Overhang(p, tryCell, hh, CardWidth(sp, hh), yaw, ground, out var away);
+                        // the first try measures the worst road (the push back
+                        // needs it); the rest only ask whether it fits
+                        float over = Overhang(p, tryCell, hh, CardWidth(sp, hh), yaw, ground, out var away, !(c == 0 && f == 1f));
                         if (c == 0 && f == 1f) { worst = over; worstAway = away; }
                         if (over > 0f) continue;
                         h = hh; cell = tryCell; fit = true;
@@ -406,9 +460,13 @@ namespace PSXRacing.City
                 foot = new Vector3(p.x, ground, p.y), h = h, w = w,
                 r = Mathf.Clamp(0.025f * w, TreeTrunks.MinRadius, 0.5f),
                 yawDeg = yaw, cell = cell, species = sp, road = road,
+                dbh = TrunkDiameterM(sp, h, young),
             };
-            t.solid = road <= TrunkReachM;
+            // Q15: a trunk a car can reach is solid if it is 30 cm or more;
+            // a smaller tree breaks away (no collider)
+            t.solid = road <= TrunkReachM && t.dbh >= SolidTrunkM;
             if (t.solid) tt.solids++;
+            else if (road <= TrunkReachM) tt.breakaway++;
             tt.trees.Add(t);
             return true;
         }
@@ -432,7 +490,7 @@ namespace PSXRacing.City
         static void BuildMesh(TreeTile tt)
         {
             if (tt.trees.Count == 0) return;
-            vScratch.Clear(); uvScratch.Clear(); tScratch.Clear();
+            vScratch.Clear(); uvScratch.Clear(); tScratch.Clear(); nScratch.Clear();
             var origin = new Vector3(tt.tx * CityMeshes.TileSize, 0f, tt.tz * CityMeshes.TileSize);
             const float pad = 1.5f / 512f;
             foreach (var t in tt.trees)
@@ -444,10 +502,15 @@ namespace PSXRacing.City
                 for (int q = 0; q < 2; q++)
                 {
                     float a = (t.yawDeg + q * 90f) * Mathf.Deg2Rad;
-                    var half = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * (t.w * 0.5f);
+                    float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                    var half = new Vector3(ca, 0f, sa) * (t.w * 0.5f);
                     int v = vScratch.Count;
                     vScratch.Add(b - half); vScratch.Add(b - half + Vector3.up * t.h);
                     vScratch.Add(b + half + Vector3.up * t.h); vScratch.Add(b + half);
+                    // the card's face normal, as RecalculateNormals made it
+                    // (up x half), handed over rather than worked out (WP-09)
+                    var nrm = new Vector3(sa, 0f, -ca);
+                    nScratch.Add(nrm); nScratch.Add(nrm); nScratch.Add(nrm); nScratch.Add(nrm);
                     uvScratch.Add(new Vector2(u0, v0)); uvScratch.Add(new Vector2(u0, v1));
                     uvScratch.Add(new Vector2(u1, v1)); uvScratch.Add(new Vector2(u1, v0));
                     tScratch.Add(v); tScratch.Add(v + 1); tScratch.Add(v + 2);
@@ -457,9 +520,9 @@ namespace PSXRacing.City
             var m = new Mesh { name = "trees" };
             if (vScratch.Count > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             m.SetVertices(vScratch);
+            m.SetNormals(nScratch);
             m.SetUVs(0, uvScratch);
             m.SetTriangles(tScratch, 0, false);
-            m.RecalculateNormals();
             m.RecalculateBounds();
             tt.mesh = m;
         }
@@ -474,8 +537,10 @@ namespace PSXRacing.City
 
         /// <summary>How far past the 0.4 m margin the worst road in
         /// <see cref="nearRoads"/> would have this tree's low leaves hang
-        /// (0 or less: it fits), and the way away from that road.</summary>
-        static float Overhang(Vector2 p, byte cell, float h, float w, float yaw, float ground, out Vector2 away)
+        /// (0 or less: it fits), and the way away from that road. With
+        /// <paramref name="anyOnly"/> it stops at the first road hung over
+        /// (the answer is then only "does not fit").</summary>
+        static float Overhang(Vector2 p, byte cell, float h, float w, float yaw, float ground, out Vector2 away, bool anyOnly = false)
         {
             float worst = float.MinValue;
             away = Vector2.zero;
@@ -485,11 +550,20 @@ namespace PSXRacing.City
             {
                 // each card's low foliage is a line through the trunk, reach
                 // either way; it must stay LeafMarginM off this road's pavement
-                float reach = LowReach(cell, (r.y + OverhangClearM - ground) / h) * w;
+                float reach = LowReach(reachTable, cell, (r.y + OverhangClearM - ground) / h) * w;
+                // a road farther off than the leaves reach cannot be hung
+                // over (and this bound is all a fit needs of it)
+                if (reach + LeafMarginM < r.off)
+                {
+                    float bound = reach + LeafMarginM - r.off;
+                    if (bound > worst) { worst = bound; away = r.away; }
+                    continue;
+                }
                 float d = Mathf.Min(RoadsideOccupancy.SegSegDistance(p - u0 * reach, p + u0 * reach, r.a, r.b),
                                     RoadsideOccupancy.SegSegDistance(p - u1 * reach, p + u1 * reach, r.a, r.b));
                 float over = r.hw + LeafMarginM - d;
                 if (over > worst) { worst = over; away = r.away; }
+                if (anyOnly && over > 0f) return over;
             }
             return worst;
         }

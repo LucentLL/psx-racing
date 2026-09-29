@@ -890,7 +890,13 @@ namespace PSXRacing.City
         //  the surface a verge has to cross.
         // ------------------------------------------------------------------
         const float LatticeCell = TileSize / GroundRes;
-        static readonly Dictionary<long, float> latticeCache = new Dictionary<long, float>(4096);
+        static Dictionary<long, float> latticeCache = new Dictionary<long, float>(4096);
+        /// <summary>WP-08: hand over the lattice the last tile build cached (a
+        /// fresh one takes its place), and put one back - so the trees, planted
+        /// on a later frame, stand on their tile's lattice without recomputing
+        /// GroundY at every corner.</summary>
+        public static Dictionary<long, float> TakeLattice() { var d = latticeCache; latticeCache = new Dictionary<long, float>(4096); return d; }
+        public static void PutLattice(Dictionary<long, float> d) { if (d != null) latticeCache = d; }
         static readonly Dictionary<long, bool> pavedCache = new Dictionary<long, bool>(1024);
         static long LatticeKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;
 

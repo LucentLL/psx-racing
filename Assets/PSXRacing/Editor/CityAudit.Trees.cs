@@ -98,8 +98,22 @@ namespace PSXRacing.EditorTools
             foreach (var n in map.nodes) { lo = Vector2.Min(lo, n); hi = Vector2.Max(hi, n); }
             for (float z = lo.y + 4 * ts; z < hi.y; z += 9 * ts)
                 for (float x = lo.x + 4 * ts; x < hi.x; x += 9 * ts) Add(new Vector2(x, z), "spread");
+            // and every tile the three city race routes run through (their
+            // run-off: WP-08 review). Not in the canopy bands, whose truth
+            // table is over exactly the tiles above.
+            int bandTiles = tiles.Count;
+            if (map.routes != null)
+                foreach (var r in map.routes)
+                    foreach (int ei in r.edges)
+                    {
+                        var e = map.edges[ei];
+                        for (float s = 0f; s <= e.length; s += 32f) Add(e.PointAt(s), "route " + r.id);
+                        Add(e.PointAt(e.length), "route " + r.id);
+                    }
 
-            int trees = 0, solids = 0, emptyTiles = 0;
+            int trees = 0, solids = 0, emptyTiles = 0, breakaway = 0, runOffTrees = 0, routeTiles = tiles.Count - bandTiles;
+            int qBad = 0; string qBadAt = "";
+            var solidBySpecies = new int[6];
             var bad = new Dictionary<string, int>();
             var badWhere = new Dictionary<string, string>();
             void Bad(string what, Vector3 at, string detail)
@@ -119,12 +133,13 @@ namespace PSXRacing.EditorTools
             int outside = 0;
             var byClass = new Dictionary<string, (int n, float data, float planted)>();
 
-            foreach (var (tx, tz, why) in tiles)
+            for (int ti = 0; ti < tiles.Count; ti++)
             {
+                var (tx, tz, why) = tiles[ti];
                 var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
                 var tt = CityTrees.Build(map, trims, buildings, tm, tx, tz);
                 msSum += tt.ms; msMax = Mathf.Max(msMax, tt.ms); occSum += tt.occMs;
-                trees += tt.trees.Count; solids += tt.solids; grown += tt.grown; shrunk += tt.shrunk; lined += tt.lined;
+                trees += tt.trees.Count; solids += tt.solids; grown += tt.grown; shrunk += tt.shrunk; lined += tt.lined; breakaway += tt.breakaway;
                 for (int k = 0; k < rejects.Length; k++) rejects[k] += tt.rejects[k];
                 perTile.Add(tt.trees.Count);
                 if (tt.trees.Count == 0) emptyTiles++;
@@ -146,6 +161,13 @@ namespace PSXRacing.EditorTools
                     if (p.x < min.x || p.y < min.y || p.x >= min.x + ts || p.y >= min.y + ts) { outside++; Bad("outside its tile", t.foot, ""); }
                     byte bits = tt.occ.At(p);
                     if (bits != 0) Bad("on a reserved cell of the mask", t.foot, "bits " + bits);
+                    // race run-off, measured against the route marks themselves
+                    if (RaceRunOff.Inside(map, trims, p)) { runOffTrees++; Bad("in race run-off", t.foot, why); }
+                    // Q15: solid only for a trunk of 30 cm or more, within reach of a road
+                    if (t.solid) solidBySpecies[(int)t.species]++;
+                    bool q15 = t.solid == (t.road <= CityTrees.TrunkReachM && t.dbh >= CityTrees.SolidTrunkM)
+                               && !(t.solid && (t.species == CityTrees.Species.Myrtle || t.species == CityTrees.Species.Bare));
+                    if (!q15) { qBad++; if (qBad == 1) qBadAt = $"({t.foot.x:0},{t.foot.z:0}) {t.species} dbh {t.dbh:0.00} road {t.road:0.0} solid {t.solid}"; }
 
                     // roads, measured again: every grounded piece's pavement and
                     // clear zone, every deck's plan plus its margin
@@ -233,7 +255,7 @@ namespace PSXRacing.EditorTools
 
                 // the canopy the crowns make within 25 m, for the class bands
                 // whose edges run through this tile (samples inside it only)
-                CanopyBands(map, tt, tx, tz, byClass);
+                if (ti < bandTiles) CanopyBands(map, tt, tx, tz, byClass);
                 if (tt.mesh != null) Object.DestroyImmediate(tt.mesh);
                 DiscardMeshes(tm);
             }
@@ -251,6 +273,13 @@ namespace PSXRacing.EditorTools
             Check(badTotal == 0, "no trunk on pavement, in a clear zone or fan, a building or lot, water, under a deck, or on a reserved cell; no low leaves over a road (tree audit)", badTotal);
             Check(outside == 0, "every tree stands in the tile that planted it: none doubled across a seam (tree audit)", outside);
             Check(same, "a tile plants the same trees every build (tree audit)");
+            Line($"    race run-off (RaceRunOff: {RaceRunOff.RunOffM:0} m past the edge along the routes, {RaceRunOff.CornerRunOffM:0} m on the outside of bends): " +
+                 $"{RaceRunOff.Tiles(map, trims)} tiles; {routeTiles} route tiles audited besides the {bandTiles} above");
+            Check(runOffTrees == 0, "no tree in the city race routes' run-off (tree audit)", runOffTrees);
+            Line($"    Q15: {solids} solid (a trunk of {CityTrees.SolidTrunkM * 100f:0} cm or more within {CityTrees.TrunkReachM:0} m of a road: oak {solidBySpecies[0]}, hardwood {solidBySpecies[1]}, pine {solidBySpecies[2]}, sycamore {solidBySpecies[4]}), " +
+                 $"{breakaway} within reach that break away (crape myrtles, snags, young trees, thin trunks)");
+            Check(qBad == 0 && solidBySpecies[(int)CityTrees.Species.Myrtle] == 0 && solidBySpecies[(int)CityTrees.Species.Bare] == 0,
+                  "Q15: only trunks of 30 cm or more are solid; crape myrtles, snags and young trees break away (tree audit)", qBad == 0 ? "0" : qBad + " e.g. " + qBadAt);
 
             ratios.Sort((a, b) => a.ratio.CompareTo(b.ratio));
             int inside = 0; foreach (var r in ratios) if (Mathf.Abs(r.ratio - 1f) <= PlantedTol) inside++;

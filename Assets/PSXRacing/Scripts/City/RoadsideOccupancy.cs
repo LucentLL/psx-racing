@@ -14,7 +14,8 @@ namespace PSXRacing.City
     /// It reserves:
     ///   * PAVEMENT and the CLEAR ZONE past its edge (freeway 9 m, arterial
     ///     3.5 m, collector 2.5 m, local 2 m; a ramp 4.5 m): the DOT roadside
-    ///     rule - nothing a car leaving the road at speed would hit;
+    ///     rule - nothing a car leaving the road at speed would hit; and along
+    ///     the city race routes their RUN-OFF (<see cref="RaceRunOff"/>);
     ///   * every junction's fan and, at each corner of a real junction, the
     ///     SIGHT TRIANGLE (10 m legs along the two kerb lines from where they
     ///     meet) and a FURNITURE SPOT just behind the corner, whether the
@@ -110,14 +111,21 @@ namespace PSXRacing.City
         public float RoadEdgeDistance(Vector2 p, out float roadY, out int edge) => RoadEdgeDistance(p, out roadY, out edge, out _);
 
         /// <summary>As above, and the direction that stretch of road runs.</summary>
-        public float RoadEdgeDistance(Vector2 p, out float roadY, out int edge, out Vector2 dir)
+        public float RoadEdgeDistance(Vector2 p, out float roadY, out int edge, out Vector2 dir) =>
+            RoadEdgeDistance(p, NearReachM, out roadY, out edge, out dir);
+
+        /// <summary>As above, looked for only out to <paramref name="reach"/>
+        /// (at most <see cref="NearReachM"/>): exact within it; past it, only
+        /// "farther than reach" (the nearest the scan saw, or NearReachM + 1).</summary>
+        public float RoadEdgeDistance(Vector2 p, float reach, out float roadY, out int edge, out Vector2 dir)
         {
             roadY = 0f; edge = -1; dir = Vector2.right;
+            reach = Mathf.Min(reach, NearReachM);
             float best = NearReachM + 1f;
             // a piece is in every bucket its capsule touches, so the buckets
             // within the reach of the point are enough; each piece once
             int stamp = NextStamp();
-            BucketRange(p, NearReachM, out int x0, out int z0, out int x1, out int z1);
+            BucketRange(p, reach, out int x0, out int z0, out int x1, out int z1);
             for (int z = z0; z <= z1; z++)
                 for (int x = x0; x <= x1; x++)
                 {
@@ -317,6 +325,10 @@ namespace PSXRacing.City
                     }
                 }
             }
+
+            // ---- race run-off along the city routes (RaceRunOff): clear zone
+            var runOff = RaceRunOff.For(map, trims, tx, tz);
+            if (runOff != null) foreach (var m in runOff) o.MarkCapsule(m.a, m.b, m.r + CellPadM, Clear);
 
             // ---- junctions: fans, sight triangles, furniture spots
             foreach (int nd in nodeScratch)
