@@ -2466,7 +2466,8 @@ namespace PSXRacing.EditorTools
                             else
                                 sliceVerts += SlicedShoulderZip(pts, gap, slices, side, tris, extraV, extraUV, uox, uoz, tile,
                                                                 prevStart, pos[s][prevIdx], es[s][prevIdx],
-                                                                start, pos[s][idx], es[s][idx]);
+                                                                start, pos[s][idx], es[s][idx],
+                                                                StageRowWalled(s, prevIdx) && StageRowWalled(s, idx));
                         }
                         prevStart = start;
                         prevIdx = idx;

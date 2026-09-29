@@ -4084,6 +4084,8 @@ namespace PSXRacing.EditorTools
                 ? MakeMat(MeshPrefix + "Guardrail", GuardrailTexPath, tint: new Color(1.45f, 1.45f, 1.5f), affine: 0f)
                 : MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
             railPostVerts.Clear(); railPostUvs.Clear(); railPostTris.Clear();
+            retainVerts.Clear(); retainUvs.Clear(); retainTris.Clear();
+            retainRuns = retainRings = 0; retainM = retainTallest = 0f;
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Walls");
             root.transform.SetParent(parent, false);
@@ -4113,6 +4115,26 @@ namespace PSXRacing.EditorTools
                               MakeMat("RailPost", GuardrailPostTexPath, affine: 0f), parent);
                 Log($"Guardrail posts: {railPostVerts.Count / PostVerts} timber posts.");
             }
+            // Every retaining wall under a rail in one mesh, in the stone the
+            // Parkway's guard walls wear (the owner's pack sheet, theme.wall).
+            if (retainVerts.Count > 0)
+            {
+                var retainMesh = new Mesh
+                {
+                    indexFormat = retainVerts.Count > 65000
+                        ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16,
+                    vertices = retainVerts.ToArray(), uv = retainUvs.ToArray(), triangles = retainTris.ToArray(),
+                };
+                SaveMesh(retainMesh, "RetainWalls");
+                var rgo = new GameObject("RetainWalls");
+                rgo.transform.SetParent(root.transform, false);
+                rgo.AddComponent<MeshFilter>().sharedMesh = retainMesh;
+                rgo.AddComponent<MeshRenderer>().sharedMaterial = MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
+                rgo.isStatic = true;
+            }
+            Log($"Retaining walls under the rails: {retainRuns} stretch(es), {retainRings} ring(s), {retainM:0} m of face, " +
+                $"tallest {retainTallest:0.0} m (where a footing hung in the air or over another leg below, and the rings " +
+                $"beside them whose posts would reach more than {RetainGrowDropM:0.0} m under the shoulder).");
         }
 
         /// <summary>The stage's rail posts, gathered run by run by
@@ -4277,12 +4299,94 @@ namespace PSXRacing.EditorTools
             /// at the face, the outside-of-bend chord sag, and the inside-of-
             /// bend radius (0 when not a tight inside).</summary>
             public float faceE, up, baseY, topY, collTopY, groundY, sag, tightR;
+            /// <summary>Not a station ring: a half ring on a tight inside, or
+            /// a slice of the road's curve (<see cref="slice"/>).</summary>
             public bool mid;
+            /// <summary>A ring laid on the ribbon's curve between two station
+            /// rings (CurveWallRing), at <see cref="t"/> along their gap.</summary>
+            public bool slice;
+            /// <summary>How far along the gap from the station ring before it
+            /// a non-station ring stands: j/k on a slice, 0.5 on a half ring.</summary>
+            public float t;
             /// <summary>The footing was stopped by StageWallMaxFoot over land
             /// further down (StageWallAirFootM).</summary>
             public bool footInAir;
             /// <summary>The station this ring stands at; -1 for a half ring.</summary>
             public int station;
+        }
+
+        /// <summary>
+        /// Is station <paramref name="i"/>'s shoulder on <paramref name="s"/> a
+        /// WALLED row - the flat shoulder that runs out to the wall's contact
+        /// line (StageEdgeProfile's Roadside.Walled, not a deck, not a buried
+        /// terminal)? Between two such rows the shoulder is laid on the road's
+        /// curve all the way out (SlicedShoulderZip, rigid) and the wall on the
+        /// same curve (CurveWallRing), so the rail follows the road round a
+        /// bend instead of turning a corner at every post. False off a stage.
+        /// </summary>
+        internal static bool StageRowWalled(int s, int i)
+        {
+            if (!stageDemLoaded || rsKind == null || i < 0 || i >= rsKind[s].Length) return false;
+            return GradedKind(s, i) == Roadside.Walled && !DeckCoversStation(i);
+        }
+
+        /// <summary>The ribbon's gap from station a to station b when b is
+        /// the next station along the route (the loop's last onto 0), else -1.</summary>
+        static int StationGap(int a, int b, int n)
+        {
+            if (a < 0 || b < 0) return -1;
+            if (b == a + 1) return a;
+            if (Loop && a == n - 1 && b == 0) return a;
+            return -1;
+        }
+
+        /// <summary>
+        /// A WALL RING ON THE ROAD'S CURVE, at t along the gap between station
+        /// rings a and b (both walled rows, StageRowWalled): the ribbon's own
+        /// frame there (RibbonFrame - the road, its kerb strips and the walled
+        /// shoulder are laid on the same slices), every offset and height the
+        /// lerp of the two stations', and the footing read from the land
+        /// behind the slice itself, as a station's is.
+        ///
+        /// Owner, 2026-09-28: "Nor should any sharp angles of road or road
+        /// lines." A wall run was one ring per station with straight chords
+        /// between, so round a hairpin the W-beam turned 40-50 degrees at every
+        /// post while the road beside it ran a smooth arc (Chimney Rock 715 and
+        /// 1049, 2026-09-29 review), and the strip of shoulder between them
+        /// widened and narrowed chord by chord.
+        /// </summary>
+        static WallRing CurveWallRing(List<Vector3> pts, in WallRing a, in WallRing b, int gap, float t, float side)
+        {
+            RibbonFrame(pts, gap, t, out Vector3 c, out Vector3 r);
+            var g = new WallRing
+            {
+                centre = c, right = r,
+                faceE = Mathf.Lerp(a.faceE, b.faceE, t),
+                up = Mathf.Lerp(a.up, b.up, t),
+                topY = Mathf.Lerp(a.topY, b.topY, t),
+                collTopY = Mathf.Lerp(a.collTopY, b.collTopY, t),
+                groundY = Mathf.Lerp(a.groundY, b.groundY, t),
+                sag = Mathf.Lerp(a.sag, b.sag, t),
+                tightR = Mathf.Max(a.tightR, b.tightR),
+                mid = true, slice = true, t = t,
+                station = -1,
+            };
+            float half = RoadWidth * 0.5f;
+            g.baseY = c.y - 0.45f;
+            if (!DeckCoversStation(a.station) && !DeckCoversStation(b.station))
+            {
+                Vector3 behind = c + r * (side * (half + g.faceE + StageWallFaceIn + StageWallDrawThick + StageWallFootSink));
+                float lattice = StageLatticeY(behind.x, behind.z);
+                float want = Mathf.Min(g.baseY, lattice - StageWallFootSink);
+                g.footInAir = want < c.y - StageWallMaxFoot;
+                g.baseY = Mathf.Max(want, c.y - StageWallMaxFoot);
+                if (!g.footInAir && g.baseY < c.y - StageWallAirFootM - RoadLift)
+                {
+                    Vector3 backAt = c + r * (side * (half + g.faceE + StageWallCollThick));
+                    g.footInAir = LowerLegBehind(pts, t < 0.5f ? a.station : b.station, backAt);
+                }
+            }
+            return g;
         }
 
         static WallRing StageWallRing(List<Vector3> pts, int i, int s, float side)
@@ -4359,6 +4463,7 @@ namespace PSXRacing.EditorTools
             tightR = Mathf.Max(a.tightR, b.tightR),
             footInAir = a.footInAir && b.footInAir,
             mid = true,
+            t = 0.5f,
             station = -1,
         };
 
@@ -4436,8 +4541,8 @@ namespace PSXRacing.EditorTools
         /// carries it (the post would hang through the concrete), or where the
         /// run hands over to a rock face.
         /// </summary>
-        static void DrawGuardrail(List<WallRing> rings, float[] extra, float side, float half, int s, float[] along,
-                                  List<Vector3> verts, List<Vector2> uvs, List<int> tris)
+        static void DrawGuardrail(List<Vector3> pts, List<WallRing> rings, float[] extra, bool[] retain, float side, float half,
+                                  int s, float[] along, List<Vector3> verts, List<Vector2> uvs, List<int> tris)
         {
             int R = rings.Count, P = RailSection.Length;
             // ON THE CONTACT LINE, not the stone's face. The wall solid's face
@@ -4519,13 +4624,16 @@ namespace PSXRacing.EditorTools
             int posts = 0;
             bool NoPost(int station) =>
                 station >= 0 && (DeckCoversStation(station) || rsFaceH[s][station] > 0f);
-            void Post(in WallRing g, float line)
+            // On a retaining wall (retain) the post stands in its coping, not
+            // down the fall to the land.
+            void Post(in WallRing g, float line, bool onWall)
             {
                 if (g.topY - g.groundY < RailPostMinH) return;
                 Vector3 c = g.centre + g.right * (side * (half + line + RailSection[2].back + RailPostW * 0.5f));
-                c.y = g.baseY;
+                float foot = onWall ? g.groundY - RetainPostSinkM : g.baseY;
+                c.y = foot;
                 int v0 = railPostUvs.Count;
-                float h = g.topY - 0.03f - g.baseY;
+                float h = g.topY - 0.03f - foot;
                 AppendPost(railPostVerts, railPostUvs, railPostTris, c, g.right, RailPostW, h);
                 // A strip of the timber sheet a post wide (0.15 m of its 256
                 // texels is about 40), a metre of grain per sheet height, and
@@ -4539,12 +4647,211 @@ namespace PSXRacing.EditorTools
                 ? !NoPost(rings[k - 1].station) && !NoPost(rings[k + 1].station)
                 : !NoPost(rings[k].station);
             // A post at every ring - station, or half ring on a tight inside -
-            // and one between two station rings: every 2 m either way.
+            // and one between two station rings: every 2 m either way. Between
+            // two station rings laid on the curve's slices, the one between
+            // stands on the curve too, half way along the gap.
+            int n = pts.Count;
             for (int k = 0; k < R; k++)
             {
-                if (Allowed(k)) Post(rings[k], Line(k));
-                if (k + 1 < R && !rings[k].mid && !rings[k + 1].mid && Allowed(k) && Allowed(k + 1))
-                    Post(MidWallRing(rings[k], rings[k + 1]), 0.5f * (Line(k) + Line(k + 1)));
+                if (rings[k].slice) continue;
+                if (Allowed(k)) Post(rings[k], Line(k), retain[k]);
+                if (rings[k].mid) continue;
+                int kb = k + 1;
+                while (kb < R && rings[kb].slice) kb++;
+                if (kb >= R || rings[kb].mid || !Allowed(k) || !Allowed(kb)) continue;
+                bool onWall = retain[k] && retain[kb];
+                if (kb == k + 1)
+                    Post(MidWallRing(rings[k], rings[kb]), 0.5f * (Line(k) + Line(kb)), onWall);
+                else
+                {
+                    int gap = StationGap(rings[k].station, rings[kb].station, n);
+                    if (gap < 0) continue;
+                    Post(CurveWallRing(pts, rings[k], rings[kb], gap, 0.5f, side), 0.5f * (Line(k) + Line(kb)), onWall);
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  Retaining walls under a guardrail
+        // ------------------------------------------------------------------
+        /// <summary>The retaining wall's face, past the wall's contact line:
+        /// outside the walled shoulder's tuck and skirt (0.5 m) and the rail's
+        /// posts (0.28 m), so nothing hanging off the shoulder shows in front
+        /// of it.</summary>
+        const float RetainFaceOutM = 0.6f;
+        /// <summary>Its coping's inner edge past the contact line: just behind
+        /// the posts.</summary>
+        const float RetainBackInM = 0.3f;
+        /// <summary>The coping stands this far over the shoulder at the face.</summary>
+        const float RetainCopeM = 0.05f;
+        /// <summary>Its footing goes this far under the land at its face.</summary>
+        const float RetainSinkM = 0.3f;
+        /// <summary>A rail post on the wall stands this far down into its coping.</summary>
+        const float RetainPostSinkM = 0.3f;
+        /// <summary>A ring next to the wall whose posts would reach further
+        /// than this under the shoulder is walled too.</summary>
+        const float RetainGrowDropM = 1.5f;
+
+        /// <summary>Every retaining wall on the stage in one mesh (one draw
+        /// call), gathered run by run and built at the end of BuildStageWalls.</summary>
+        static readonly List<Vector3> retainVerts = new List<Vector3>();
+        static readonly List<Vector2> retainUvs = new List<Vector2>();
+        static readonly List<int> retainTris = new List<int>();
+        static int retainRuns, retainRings;
+        static float retainM, retainTallest;
+
+        /// <summary>
+        /// WHERE A GUARDRAIL NEEDS A RETAINING WALL UNDER IT. The rings whose
+        /// footing hangs in the air - over a fall deeper than StageWallMaxFoot,
+        /// or reaching down toward another leg of the road below (the upper
+        /// leg of a switchback: Chimney Rock 1056-1068 L over the lower leg's
+        /// backslope, 922-934 L, 1035-1036 R) - and, grown out from them, the
+        /// rings on either side whose posts would still hang more than
+        /// RetainGrowDropM under the shoulder. Not on a deck, a rock hand-over
+        /// or a buried terminal.
+        ///
+        /// The 2026-09-29 review, from the lower leg at wp 1040: the upper
+        /// leg's W-beam "stands on posts metres long, with a tan strip hanging
+        /// across them" - the posts ran down to the land 5-7 m below, and the
+        /// walled shoulder's skirt (a metre of vertical face, its world-XZ UVs
+        /// smeared down it) hung in front of them. A mountain road's switchback
+        /// holds its upper leg up with a wall; so does this one now.
+        /// </summary>
+        static bool[] RetainingRings(List<WallRing> rings, int s)
+        {
+            int R = rings.Count;
+            var retain = new bool[R];
+            if (!theme.guardrail) return retain;
+            bool Can(int k)
+            {
+                var g = rings[k];
+                if (g.up < 0.999f) return false;
+                int a = g.station, b = g.station;
+                if (g.mid)
+                {
+                    // A slice or half ring: the stations either side.
+                    int ka = k, kb = k;
+                    while (ka > 0 && rings[ka].mid) ka--;
+                    while (kb < R - 1 && rings[kb].mid) kb++;
+                    a = rings[ka].station; b = rings[kb].station;
+                }
+                foreach (int st in new[] { a, b })
+                    if (st >= 0 && (DeckCoversStation(st) || rsFaceH[s][st] > 0f)) return false;
+                return true;
+            }
+            for (int k = 0; k < R; k++) retain[k] = rings[k].footInAir && Can(k);
+            for (bool grew = true; grew; )
+            {
+                grew = false;
+                for (int k = 0; k < R; k++)
+                {
+                    if (retain[k] || !Can(k) || rings[k].groundY - rings[k].baseY <= RetainGrowDropM) continue;
+                    if ((k > 0 && retain[k - 1]) || (k + 1 < R && retain[k + 1])) { retain[k] = true; grew = true; }
+                }
+            }
+            // A lone ring is not a wall.
+            for (int k = 0; k < R; k++)
+                if (retain[k] && (k == 0 || !retain[k - 1]) && (k + 1 >= R || !retain[k + 1])) retain[k] = false;
+            return retain;
+        }
+
+        /// <summary>
+        /// The retaining wall itself, for each stretch of retained rings: a
+        /// face of the Parkway's dry stone (theme.wall, the same pack sheet
+        /// the stone guard walls wear) RetainFaceOutM past the rail's contact
+        /// line, from its coping just over the shoulder down into the land,
+        /// a coping back to behind the posts, and the two ends - on the road's
+        /// curve wherever the rail is. Its collider is a wall solid of the same
+        /// shape (BuildWallSolid, "WallColl"): from the road below it is a
+        /// wall like any other, drawn exactly where a car meets it.
+        /// </summary>
+        static void DrawRetainingWall(List<WallRing> rings, float[] extra, bool[] retain, float side, float half,
+                                      Transform parent, PhysicsMaterial phys, int no)
+        {
+            int R = rings.Count;
+            const float Tex = 3.2f;
+            int sub = 0;
+            for (int k = 0; k < R; )
+            {
+                if (!retain[k]) { k++; continue; }
+                int k0 = k, k1 = k;
+                while (k1 + 1 < R && retain[k1 + 1]) k1++;
+                k = k1 + 1;
+                int m = k1 - k0 + 1;
+                var F = new Vector3[m]; var B = new Vector3[m];
+                var top = new float[m]; var bot = new float[m];
+                var ow = new Vector3[m];
+                for (int q = 0; q < m; q++)
+                {
+                    var g = rings[k0 + q];
+                    Vector3 outw = g.right * side; outw.y = 0f; outw.Normalize();
+                    float contact = g.faceE + extra[k0 + q];
+                    Vector3 f = g.centre + g.right * (side * (half + contact + RetainFaceOutM));
+                    Vector3 b = g.centre + g.right * (side * (half + contact + RetainBackInM));
+                    top[q] = g.groundY + RetainCopeM;
+                    bot[q] = Mathf.Min(StageLatticeY(f.x, f.z) - RetainSinkM, top[q] - 0.3f);
+                    F[q] = new Vector3(f.x, 0f, f.z);
+                    B[q] = new Vector3(b.x, 0f, b.z);
+                    ow[q] = outw;
+                    retainTallest = Mathf.Max(retainTallest, top[q] - bot[q]);
+                }
+                if (m < 2) continue;
+                // The collider first, from the rings as they are; it runs on
+                // WallSolidEndReachM past each end, and so does the drawing.
+                var fbL = new List<Vector3>(m); var ftL = new List<Vector3>(m); var owL = new List<Vector3>(m);
+                for (int q = 0; q < m; q++)
+                {
+                    fbL.Add(new Vector3(F[q].x, bot[q], F[q].z));
+                    ftL.Add(new Vector3(F[q].x, top[q], F[q].z));
+                    owL.Add(-ow[q]);
+                }
+                BuildWallSolid("WallColl", parent, fbL, ftL, owL, RetainFaceOutM - RetainBackInM, false, phys,
+                               "RetainColl" + no + "_" + sub++);
+
+                // The drawing, reaching as far as the solid does.
+                Vector3 d0 = F[0] - F[1]; d0.y = 0f; d0 = d0.normalized * WallSolidEndReachM;
+                Vector3 d1 = F[m - 1] - F[m - 2]; d1.y = 0f; d1 = d1.normalized * WallSolidEndReachM;
+                F[0] += d0; B[0] += d0; F[m - 1] += d1; B[m - 1] += d1;
+                float along = 0f;
+                for (int q = 0; q < m; q++)
+                {
+                    if (q > 0)
+                    {
+                        Vector3 st = F[q] - F[q - 1]; st.y = 0f;
+                        float a0 = along; along += st.magnitude;
+                        Vector3 p0 = F[q - 1], p1 = F[q];
+                        Vector3 away = ow[q - 1] + ow[q];
+                        // Face, toward the fall.
+                        WallQuad(retainVerts, retainUvs, retainTris,
+                                 new Vector3(p0.x, bot[q - 1], p0.z), new Vector3(p0.x, top[q - 1], p0.z),
+                                 new Vector3(p1.x, top[q], p1.z), new Vector3(p1.x, bot[q], p1.z),
+                                 new Vector2(a0 / Tex, bot[q - 1] / Tex), new Vector2(a0 / Tex, top[q - 1] / Tex),
+                                 new Vector2(along / Tex, top[q] / Tex), new Vector2(along / Tex, bot[q] / Tex), away);
+                        // Coping, up.
+                        Vector3 c0 = B[q - 1], c1 = B[q];
+                        float w = RetainFaceOutM - RetainBackInM;
+                        WallQuad(retainVerts, retainUvs, retainTris,
+                                 new Vector3(c0.x, top[q - 1], c0.z), new Vector3(p0.x, top[q - 1], p0.z),
+                                 new Vector3(p1.x, top[q], p1.z), new Vector3(c1.x, top[q], c1.z),
+                                 new Vector2(a0 / Tex, 0f), new Vector2(a0 / Tex, w / Tex),
+                                 new Vector2(along / Tex, w / Tex), new Vector2(along / Tex, 0f), Vector3.up);
+                    }
+                }
+                retainM += along;
+                // The two ends, facing on along the run.
+                for (int e = 0; e < 2; e++)
+                {
+                    int q = e == 0 ? 0 : m - 1, q2 = e == 0 ? 1 : m - 2;
+                    Vector3 onward = F[q] - F[q2]; onward.y = 0f;
+                    float w = RetainFaceOutM - RetainBackInM;
+                    WallQuad(retainVerts, retainUvs, retainTris,
+                             new Vector3(F[q].x, bot[q], F[q].z), new Vector3(F[q].x, top[q], F[q].z),
+                             new Vector3(B[q].x, top[q], B[q].z), new Vector3(B[q].x, bot[q], B[q].z),
+                             new Vector2(0f, bot[q] / Tex), new Vector2(0f, top[q] / Tex),
+                             new Vector2(w / Tex, top[q] / Tex), new Vector2(w / Tex, bot[q] / Tex), onward);
+                }
+                retainRuns++;
+                retainRings += m;
             }
         }
 
@@ -4554,11 +4861,12 @@ namespace PSXRacing.EditorTools
             int n = pts.Count, s = SideIx(side);
             float half = RoadWidth * 0.5f;
 
-            // The rings: one per station, a half-station ring on a tight
-            // inside, and — where the run ends into a tunnel — one on the
-            // portal's plane, so the stone meets the portal face instead of
-            // stopping a chord short of it.
-            var rings = new List<WallRing>(stations + 4);
+            // The rings: one per station, the road's own curve slices between
+            // two walled rows (CurveWallRing), a half-station ring on a tight
+            // inside anywhere else, and — where the run ends into a tunnel —
+            // one on the portal's plane, so the stone meets the portal face
+            // instead of stopping a chord short of it.
+            var rings = new List<WallRing>(stations * 2 + 4);
             var (before, after) = (-1, -1);
             if (RunEnd((from, stations), 0, n, out _, out int b0) && hasTunnels && tunnelIn[b0]) before = b0;
             if (RunEnd((from, stations), 1, n, out _, out int b1) && hasTunnels && tunnelIn[b1]) after = b1;
@@ -4567,7 +4875,12 @@ namespace PSXRacing.EditorTools
                 if (rings.Count > 0)
                 {
                     var prev = rings[rings.Count - 1];
-                    if (prev.tightR > 0f || ring.tightR > 0f) rings.Add(MidWallRing(prev, ring));
+                    int gap = StationGap(prev.station, ring.station, n);
+                    int k = gap >= 0 && StageRowWalled(s, prev.station) && StageRowWalled(s, ring.station)
+                        ? RibbonSlices(gap) : 1;
+                    if (k > 1)
+                        for (int j = 1; j < k; j++) rings.Add(CurveWallRing(pts, prev, ring, gap, j / (float)k, side));
+                    else if (prev.tightR > 0f || ring.tightR > 0f) rings.Add(MidWallRing(prev, ring));
                 }
                 rings.Add(ring);
             }
@@ -4660,28 +4973,35 @@ namespace PSXRacing.EditorTools
             // own solid, with its own caps.
             float[] extra = new float[R];
             {
-                var order = new List<int>(stations + 2);
-                if (before >= 0) order.Add(before);
-                for (int k = 0; k < stations; k++) order.Add(WrapIdx(from + k, n));
-                if (after >= 0) order.Add(after);
-                int q = 0;
                 for (int k = 0; k < R; k++)
                     if (!rings[k].mid)
-                        extra[k] = StageWallContactE(pts, order[q++], s, side) - rings[k].faceE;
-                // A mid ring is only ever inserted BETWEEN two station rings.
+                        extra[k] = StageWallContactE(pts, rings[k].station, s, side) - rings[k].faceE;
+                // A half ring or a curve slice is only ever inserted BETWEEN
+                // two station rings: its offset is theirs, lerped, so the face
+                // runs straight in offset along the curve.
                 for (int k = 1; k + 1 < R; k++)
-                    if (rings[k].mid) extra[k] = 0.5f * (extra[k - 1] + extra[k + 1]);
+                {
+                    if (!rings[k].mid) continue;
+                    int ka = k - 1, kb = k + 1;
+                    while (ka > 0 && rings[ka].mid) ka--;
+                    while (kb < R - 1 && rings[kb].mid) kb++;
+                    extra[k] = Mathf.Lerp(extra[ka], extra[kb], rings[k].t);
+                }
             }
             // A guardrail is drawn ON the contact line (see DrawGuardrail), so
             // it waits for it.
-            if (theme.guardrail) DrawGuardrail(rings, extra, side, half, s, along, verts, uvs, tris);
+            // A RETAINING WALL under the rail where the land behind falls away
+            // further than any post reaches (RetainingRings, DrawRetainingWall).
+            bool[] retain = RetainingRings(rings, s);
+            if (theme.guardrail) DrawGuardrail(pts, rings, extra, retain, side, half, s, along, verts, uvs, tris);
+            if (theme.guardrail) DrawRetainingWall(rings, extra, retain, side, half, parent, phys, no);
             bool ChordSolid(int k) =>   // the chord from ring k-1 to ring k
                 Mathf.Min(rings[k - 1].collTopY, rings[k].collTopY)
                 - Mathf.Max(rings[k - 1].groundY, rings[k].groundY) >= StageWallCollMinH;
             int sub = 0;
             // The collider's own footing: the drawing's, except where that
             // hangs in the air over a fall (StageWallAirFootM).
-            float CollFoot(int r) => rings[r].footInAir ? rings[r].groundY - StageWallAirFootM : rings[r].baseY;
+            float CollFoot(int r) => rings[r].footInAir || retain[r] ? rings[r].groundY - StageWallAirFootM : rings[r].baseY;
             for (int r = 0; r < R; r++)
                 if (rings[r].footInAir && !rings[r].mid)
                 {
@@ -4708,12 +5028,18 @@ namespace PSXRacing.EditorTools
                 for (int r = k0; r <= k1; r++)
                 {
                     var g = rings[r];
-                    depth?.Add(r == k0 || r == k1 ? StageRailEndThickM : StageWallCollThick);
+                    // A curve slice next to an end tapers by its distance from
+                    // it, over a station, as the chord it replaces did.
+                    float fromEnd = Mathf.Min(along[r] - along[k0], along[k1] - along[r]);
+                    depth?.Add(r == k0 || r == k1 ? StageRailEndThickM
+                               : g.slice && fromEnd < Spacing
+                                   ? Mathf.Lerp(StageRailEndThickM, StageWallCollThick, fromEnd / Spacing)
+                                   : StageWallCollThick);
                     Vector3 face = g.centre + g.right * (side * (half + g.faceE + extra[r]));
                     // A footing in the air keeps its own: a deep neighbour
                     // would pull it back down toward the road below.
                     float bottom = CollFoot(r);
-                    if (!g.footInAir)
+                    if (!g.footInAir && !retain[r])
                     {
                         if (r > k0) bottom = Mathf.Min(bottom, CollFoot(r - 1));
                         if (r < k1) bottom = Mathf.Min(bottom, CollFoot(r + 1));
