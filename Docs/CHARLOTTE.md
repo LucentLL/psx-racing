@@ -902,8 +902,20 @@ owner's to take; over 16.7 ms a tile there, WP-09 time-slices the build.
 
 **Size.** `charlotte_canopy.bytes` +393 KB Brotli (the plan's 0.3-0.5 MB);
 the tree materials are 5 small .mat files over atlases the stages already
-ship. `charlotte_city.bytes` changes only in its attribution (the USFS
-credit line; every other section byte-identical).
+ship (the Build Report lists each `TreeAtlas*.png` once: not stored twice,
+critic C34). `charlotte_city.bytes` changes only in its attribution (the
+USFS credit line; every other section byte-identical). WebGL.data 81.67 ->
+82.25 MiB (+0.58: the canopy grid as Unity compresses it, and the code),
+the largest file 82.25 MiB, under the 95 MiB ratchet (`size-ledger.py` now
+counts the canopy file with the rest of Charlotte's data).
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city`, BUILD OK, GUID audit OK), served from
+127.0.0.1: a new career on 1 January (the SNOW dress), out of the drive to
+the end of the street, FREE ROAM CHARLOTTE loads (`[City] parsed in 108 ms,
+elevation solved in 365 ms`), no console errors and no missing-canopy or
+missing-kit warning, and the trees stand along South Tryon in their snow
+dress. The CREDITS page shows the USFS line without clipping.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
