@@ -596,7 +596,7 @@ namespace PSXRacing.EditorTools
                                     off++; offHere++;
                                     Note(Mathf.Abs(d), $"OFF   {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} surface {d:+0.00;-0.00} m from the solve, hit {Path(hit.collider)} at ({w.x:0},{w.z:0}){CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
                                 }
-                                if (!float.IsNaN(prevY[k]) && Mathf.Abs(hit.point.y - prevY[k]) > 0.12f)
+                                if (!float.IsNaN(prevY[k]) && Mathf.Abs(hit.point.y - prevY[k]) > LaneStepM)
                                 {
                                     steps++; stepsHere++;
                                     Note(Mathf.Abs(hit.point.y - prevY[k]) + 1f, $"STEP  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} {hit.point.y - prevY[k]:+0.00;-0.00} m over 0.5 m, on {Path(hit.collider)} at ({w.x:0},{w.z:0}) deg{map.nodeEdges[e.a].Count}/{map.nodeEdges[e.b].Count} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0}{CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
@@ -686,9 +686,13 @@ namespace PSXRacing.EditorTools
         ///          any road surface carrying on flush beyond it — at wheel to
         ///          hip height (an overlap box, so a ray starting on a rail's
         ///          face cannot miss it the way CityEdgeProbe's did).
-        ///   LANES  counted, not failed: land the first thing over a lane, or
-        ///          anything solid within a car's height of it, every run
-        ///          listed with what it is and whose edge or fan chord.
+        ///   LANES  land the first thing over a lane, or anything solid within a
+        ///          car's height of it, every run listed with what it is and
+        ///          whose edge or fan chord. Failed (since the WP-04 reviews):
+        ///          a building wall; any solid but the named spots
+        ///          (KnownLaneSolids); land more than LaneStepM over the lane,
+        ///          or a hole to land that far under it, but the named spots
+        ///          (KnownLaneLand).
         ///   FANS   every lane mouth at a junction fan has road under it
         ///          (with the drive audit's tiles: <see cref="FanMouths"/>).
         ///   PITS   every lattice corner within PitReachM of a grounded
@@ -823,6 +827,34 @@ namespace PSXRacing.EditorTools
         static string KnownLaneSolid(long way, float x, float z)
         {
             foreach (var k in KnownLaneSolids)
+                if (k.way == way && Vector2.Distance(new Vector2(x, z), new Vector2(k.x, k.z)) <= KnownLaneReachM)
+                    return k.id;
+            return null;
+        }
+
+        /// <summary>A wheel's step: the drive audit's STEP threshold, and how
+        /// far land may stand over a lane (or a hole's floor under it) before
+        /// the lane survey fails on it (2026-09-29, the second WP-04 review).</summary>
+        const float LaneStepM = 0.12f;
+
+        /// <summary>
+        /// LAND IN LANES, NAMED, past <see cref="LaneStepM"/> — keyed as
+        /// <see cref="KnownLaneSolids"/> are. Empty: after the review's fixes
+        /// (the seam floored between two decks, a connector's quads halved
+        /// where their tucks would stand on the pavement) no land run on the
+        /// probed tiles reads more than LaneStepM from its lane. Nine runs
+        /// under it are still counted, each listed with the road under it:
+        /// the closest is East 13th Street (e10973) at +0.118 m, North
+        /// College Street's verge 4 cm over its mouth at node 8984 (+0.04
+        /// before WP-04's ground), then Arlington Avenue (e21874) at +0.11 m,
+        /// its own verge from before a bend past the chord its ribbon is drawn
+        /// on (+0.06 before). Both are for WP-14's grading.
+        /// </summary>
+        static readonly (string id, long way, float x, float z, string why)[] KnownLaneLand = { };
+
+        static string KnownLaneLandSpot(long way, float x, float z)
+        {
+            foreach (var k in KnownLaneLand)
                 if (k.way == way && Vector2.Distance(new Vector2(x, z), new Vector2(k.x, k.z)) <= KnownLaneReachM)
                     return k.id;
             return null;
@@ -1053,7 +1085,10 @@ namespace PSXRacing.EditorTools
                                         {
                                             laneLand++;
                                             string owner = LaneOwner(map, trims, ei, new Vector2(lh.point.x, lh.point.z), y, out string cls);
-                                            AddLaneRun(laneRuns, "land", e, k, s, tx, tz, w, $"land {dl:+0.00;-0.00} m on {HitPath(lh)}", cls, owner);
+                                            // and the road under it, if any: land ON the tarmac,
+                                            // or the floor of a gap in it
+                                            string under = RoadUnder(w, out float roadY) ? $", {lh.point.y - roadY:+0.00;-0.00} m over the road under it" : ", no road under it";
+                                            AddLaneRun(laneRuns, "land", e, k, s, tx, tz, w, $"land {dl:+0.00;-0.00} m on {HitPath(lh)}{under}", cls, owner, dl);
                                         }
                                         else if (lh.collider.gameObject.layer == CityWorld.SolidLayer && dl > 0.35f) laneSolid++;
                                     }
@@ -1324,7 +1359,8 @@ namespace PSXRacing.EditorTools
                      (still.Count < KnownRoadsideSpots.Length ? " - prune the ones gone: " + string.Join(", ", System.Linq.Enumerable.Where(System.Linq.Enumerable.Select(KnownRoadsideSpots, k => k.id), id => !knownSeen.Contains(id))) : ""));
             }
             // The counts are not checks; the buildings are, and since the
-            // WP-04 review so are the solids, by name (KnownLaneSolids, below).
+            // WP-04 reviews so are the solids, by name (KnownLaneSolids,
+            // below), and the land past a wheel's step (KnownLaneLand).
             // What was left after the second pass of 2026-09-14: a squeeze that splits two roads at one of
             // them's cross-sections and not at the other's (I-277 and I-77
             // beside their own carriageways and ramps, the link e7753 beside
@@ -1366,6 +1402,33 @@ namespace PSXRacing.EditorTools
                 foreach (var k in KnownLaneSolids) if (!laneKnownSeen.Contains(k.id)) goneIds.Add(k.id);
                 Line($"    named lane solids (KnownLaneSolids): {laneKnownSeen.Count} of {KnownLaneSolids.Length} still there" +
                      (goneIds.Count > 0 ? " - prune the ones gone: " + string.Join(", ", goneIds) : ""));
+            }
+            // THE LAND IN LANES IS A CHECK TOO, past a wheel's step (the second
+            // WP-04 review). A seam's floor seen through a crack, or a gap in the
+            // paving floored flush, reads a centimetre or two off the lane and
+            // is counted above; land more than the drive audit's step
+            // (LaneStepM) over a lane, or a hole to land that far under it, is
+            // a failure unless it is a named spot (KnownLaneLand). The review
+            // found such a hole on the Uptown Loop's tile — the ramp e280's
+            // crack to I-77 floored by nothing, the land 1.75 m down since
+            // WP-04 — in every audit from the WIP commit on, with CITY AUDIT
+            // still OK, because the survey only counted land.
+            {
+                int unnamedLand = 0, namedLand = 0, flushLand = 0;
+                var landKnownSeen = new HashSet<string>();
+                foreach (var r in laneRuns)
+                {
+                    if (r.kind != "land") continue;
+                    if (Mathf.Abs(r.dlWorst) <= LaneStepM) { flushLand++; continue; }
+                    r.known = KnownLaneLandSpot(r.way, r.x, r.z);
+                    if (r.known == null) unnamedLand++; else { namedLand++; landKnownSeen.Add(r.known); }
+                }
+                Check(unnamedLand == 0, $"no land stands over a lane, or opens under one, more than {LaneStepM} m but the named spots (lane survey)",
+                      $"{unnamedLand} runs not named; {namedLand} runs at the named spots; {flushLand} runs within {LaneStepM} m of the lane, counted above");
+                var goneLand = new List<string>();
+                foreach (var k in KnownLaneLand) if (!landKnownSeen.Contains(k.id)) goneLand.Add(k.id);
+                Line($"    named lane land (KnownLaneLand): {landKnownSeen.Count} of {KnownLaneLand.Length} still there" +
+                     (goneLand.Count > 0 ? " - prune the ones gone: " + string.Join(", ", goneLand) : ""));
             }
             Check(ledges == 0, "no unguarded ledge " + RoadsideRules.LedgeStepM + "-" + RoadsideRules.OpenDropM + " m deep within 1.5 m past a grounded edge (roadside audit)",
                   $"{ledges} of {vergePoints} verge points");
@@ -1420,6 +1483,9 @@ namespace PSXRacing.EditorTools
             public string kind, cls, what, owner, edgeName, known;
             public int edge, lane, tx, tz, count;
             public float s0, s1;
+            /// <summary>A land run: its probe furthest from the lane's solved
+            /// height (land over the lane, or the floor of a hole in it).</summary>
+            public float dlWorst;
             public long way;
             /// <summary>The run's first probe (world plan), and the race
             /// routes its edge is on ("" where none).</summary>
@@ -1427,7 +1493,8 @@ namespace PSXRacing.EditorTools
             public string route;
             public string Describe() =>
                 $"{(known != null ? "KNOWN " : "")}LANE  {(kind == "land" ? "land over" : "solid in")} lane{lane} of e{edge} {edgeName} s={s0:0.0}{(s1 > s0 + 0.5f ? $"..{s1:0.0}" : "")} ({count} probe{(count > 1 ? "s" : "")}) tile {tx},{tz}" +
-                $"{(route.Length > 0 ? " ROUTE " + route : "")} way {way} at ({x:0},{z:0}): {what}; {cls}{owner}";
+                $"{(route.Length > 0 ? " ROUTE " + route : "")} way {way} at ({x:0},{z:0}): {what}" +
+                $"{(kind == "land" && count > 1 ? $" (worst probe {dlWorst:+0.00;-0.00} m)" : "")}; {cls}{owner}";
         }
 
         /// <summary>Each race route's edges, by edge: the route ids, for the
@@ -1443,13 +1510,15 @@ namespace PSXRacing.EditorTools
         }
         static Dictionary<int, string> routeOfEdge = new Dictionary<int, string>();
 
-        static void AddLaneRun(List<LaneRun> runs, string kind, CityMap.Edge e, int lane, float s, int tx, int tz, Vector3 w, string what, string cls, string owner)
+        static void AddLaneRun(List<LaneRun> runs, string kind, CityMap.Edge e, int lane, float s, int tx, int tz, Vector3 w, string what, string cls, string owner,
+                               float dl = 0f)
         {
             for (int i = runs.Count - 1; i >= 0 && i >= runs.Count - 6; i--)
             {
                 var r = runs[i];
                 if (r.kind != kind || r.edge != e.index || r.lane != lane || r.cls != cls || s - r.s1 > 2.5f) continue;
                 r.s1 = s; r.count++;
+                if (Mathf.Abs(dl) > Mathf.Abs(r.dlWorst)) r.dlWorst = dl;
                 return;
             }
             runs.Add(new LaneRun
@@ -1457,7 +1526,18 @@ namespace PSXRacing.EditorTools
                 kind = kind, edge = e.index, edgeName = $"'{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")}", lane = lane,
                 s0 = s, s1 = s, tx = tx, tz = tz, what = what, cls = cls, owner = owner, count = 1,
                 way = e.wayId, x = w.x, z = w.z, route = routeOfEdge.TryGetValue(e.index, out var rt) ? rt : "",
+                dlWorst = dl,
             });
+        }
+
+        /// <summary>The road surface under a lane probe that met land first:
+        /// the highest Roads collider on the line down, if any.</summary>
+        static bool RoadUnder(Vector3 from, out float roadY)
+        {
+            roadY = float.NaN;
+            foreach (var h in Physics.RaycastAll(from, Vector3.down, 12f, ~0, QueryTriggerInteraction.Ignore))
+                if (h.collider.name == "Roads" && (float.IsNaN(roadY) || h.point.y > roadY)) roadY = h.point.y;
+            return !float.IsNaN(roadY);
         }
 
         /// <summary>

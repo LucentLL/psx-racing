@@ -60,7 +60,10 @@ namespace PSXRacing.EditorTools
                     foreach (var item in lanes.Split(';'))
                     {
                         var f = item.Trim().Split(':');
-                        if (f.Length == 4 && f[0] == "pt")
+                        if (f.Length == 6 && f[0] == "grid")
+                            SurfaceGrid(map, trims, buildings, float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv),
+                                        float.Parse(f[4], inv), float.Parse(f[5], inv), sb);
+                        else if (f.Length == 4 && f[0] == "pt")
                             LaneProbe(map, trims, buildings, -1, 0f, 0, new Vector3(float.Parse(f[1], inv), float.Parse(f[3], inv), float.Parse(f[2], inv)), sb);
                         else if (f.Length == 5 && f[0] == "fan")
                         {
@@ -88,9 +91,12 @@ namespace PSXRacing.EditorTools
         /// <summary>One lane-survey probe as the audit asks it (the lane line
         /// 0.55 m in from the lane extent, the 0.2 m column over the car
         /// band), and what stands there: the colliders in the column, a walk
-        /// across the lane edge of the solids in the band, and every rail the
-        /// tiles emitted within 4 m, by owner, with where its traffic face
-        /// stands against the lane line.</summary>
+        /// across the lane edge of the solids in the band, the first surface
+        /// across it (land named by the strip that laid it, at the probe
+        /// itself triangle by triangle), every rail the tiles emitted within
+        /// 4 m, by owner, with where its traffic face stands against the lane
+        /// line, and each road round it with its drawn outline's height at
+        /// the probe (as the strips read it).</summary>
         static void LaneProbe(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
                               int ei, float s, int lane, Vector3 point, StringBuilder sb, Vector2 ptOut = default)
         {
@@ -115,6 +121,7 @@ namespace PSXRacing.EditorTools
             var built = new List<Mesh>();
             CityMeshes.railLog.Clear();
             CityMeshes.armLog?.Clear();
+            CityMeshes.groundLog = new List<(string, Vector3, Vector3, Vector3)>();
             try
             {
                 for (int pass = 0; pass < 2; pass++)
@@ -185,6 +192,26 @@ namespace PSXRacing.EditorTools
                 finally { Physics.queriesHitBackfaces = back; }
                 sb.AppendLine(walk.ToString());
 
+                // across the lane edge: the first SURFACE met from above, any
+                // layer, every 5 cm (a hole in the lane, or land over it)
+                var surf = new StringBuilder("  surface across the lane line (d: first surface from 3 m up, y-lane, whose):");
+                for (float d = -1.0f; d <= 1.2f + 1e-3f; d += 0.05f)
+                {
+                    var q = p2 + outw * d;
+                    RaycastHit best = default; bool found = false;
+                    foreach (var h in Physics.RaycastAll(new Vector3(q.x, y + 3f, q.y), Vector3.down, 12f, ~0, QueryTriggerInteraction.Ignore))
+                        if (!found || h.point.y > best.point.y) { best = h; found = true; }
+                    string what = found ? ((best.collider.transform.parent != null ? best.collider.transform.parent.name + "/" : "") + best.collider.name) : "-";
+                    // on ground: the lattice's own height there, so a verge
+                    // strip (off the lattice) tells from the lattice (on it)
+                    string lat3 = found && best.collider.name == "Ground"
+                        ? $" (lattice {CityMeshes.LatticeAt(map, q.x, q.y) - y:+0.000;-0.000}){GroundOwner(q, best.point.y)}" : "";
+                    surf.Append($"\n    {d:+0.00;-0.00}: {(found ? (best.point.y - y).ToString("+0.000;-0.000") : "none")} {what}{lat3}");
+                    // at the probe itself, the triangles that laid it, vertex by vertex
+                    if (Mathf.Abs(d) < 0.01f && lat3.Length > 0) surf.Append(GroundTris(q, best.point.y, y));
+                }
+                sb.AppendLine(surf.ToString());
+
                 // the rails within 4 m, by owner
                 foreach (var r in CityMeshes.railLog)
                 {
@@ -232,8 +259,118 @@ namespace PSXRacing.EditorTools
                 {
                     var o = map.edges[kv.Key];
                     CityMeshes.LaneExtents(map, trims, o, kv.Value.at, out float ol, out float orr);
-                    sb.AppendLine($"  road e{kv.Key} '{o.name}'{(o.link ? " L" : "")}{(o.bridge ? " B" : "")} cls{o.cls} {kv.Value.d:0.0} m off at s={kv.Value.at:0.0}/{o.length:0}: y {o.YAt(kv.Value.at) - y:+0.00;-0.00} hw {o.width * 0.5f:0.0} lanes {ol:0.00}/{orr:0.00} elev {o.ElevatedAt(kv.Value.at)} trims {trims.atA[kv.Key]:0.0}/{trims.atB[kv.Key]:0.0} nodes {o.a}/{o.b}");
+                    float oh = CityMeshes.OutlineHeight(map, trims, kv.Key, p2.x, p2.y);
+                    sb.AppendLine($"  road e{kv.Key} '{o.name}'{(o.link ? " L" : "")}{(o.bridge ? " B" : "")} cls{o.cls} {kv.Value.d:0.0} m off at s={kv.Value.at:0.0}/{o.length:0}: y {o.YAt(kv.Value.at) - y:+0.00;-0.00} hw {o.width * 0.5f:0.0} lanes {ol:0.00}/{orr:0.00} elev {o.ElevatedAt(kv.Value.at)} trims {trims.atA[kv.Key]:0.0}/{trims.atB[kv.Key]:0.0} nodes {o.a}/{o.b}" +
+                                  $" outline {(float.IsNaN(oh) ? "off" : (oh - y).ToString("+0.000;-0.000"))}");
                 }
+                sb.AppendLine();
+            }
+            finally
+            {
+                CityMeshes.groundLog = null;
+                foreach (var m in built) if (m != null) Object.DestroyImmediate(m);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        /// <summary>What laid the ground met at a plan point at a height:
+        /// the strips and fills in <see cref="CityMeshes.groundLog"/> whose
+        /// triangle is there at that height, or the lattice.</summary>
+        static string GroundOwner(Vector2 q, float yHit)
+        {
+            if (CityMeshes.groundLog == null) return "";
+            var tags = new List<string>();
+            foreach (var (tag, a, b, c) in CityMeshes.groundLog)
+            {
+                float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+                if (Mathf.Abs(d) < 1e-9f) continue;
+                float wa = ((b.z - c.z) * (q.x - c.x) + (c.x - b.x) * (q.y - c.z)) / d;
+                float wb = ((c.z - a.z) * (q.x - c.x) + (a.x - c.x) * (q.y - c.z)) / d;
+                float wc = 1f - wa - wb;
+                if (wa < -1e-4f || wb < -1e-4f || wc < -1e-4f) continue;
+                float h = wa * a.y + wb * b.y + wc * c.y;
+                if (Mathf.Abs(h - yHit) < 0.02f && !tags.Contains(tag)) tags.Add(tag);
+            }
+            return tags.Count == 0 ? " [the lattice]" : " [" + string.Join("; ", tags) + "]";
+        }
+
+        static string GroundTris(Vector2 q, float yHit, float y)
+        {
+            var sb = new StringBuilder();
+            if (CityMeshes.groundLog == null) return "";
+            foreach (var (tag, a, b, c) in CityMeshes.groundLog)
+            {
+                float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+                if (Mathf.Abs(d) < 1e-9f) continue;
+                float wa = ((b.z - c.z) * (q.x - c.x) + (c.x - b.x) * (q.y - c.z)) / d;
+                float wb = ((c.z - a.z) * (q.x - c.x) + (a.x - c.x) * (q.y - c.z)) / d;
+                float wc = 1f - wa - wb;
+                if (wa < -1e-4f || wb < -1e-4f || wc < -1e-4f) continue;
+                float h = wa * a.y + wb * b.y + wc * c.y;
+                if (Mathf.Abs(h - yHit) >= 0.02f) continue;
+                sb.Append($"\n        tri {tag}: ({a.x:0.00},{a.z:0.00},{a.y - y:+0.000;-0.000}) ({b.x:0.00},{b.z:0.00},{b.y - y:+0.000;-0.000}) ({c.x:0.00},{c.z:0.00},{c.y - y:+0.000;-0.000})");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>"grid:x:z:y:half:step": the first surface met from 3 m
+        /// over <paramref name="y"/>, in a square round a world point, north
+        /// up: '=' a road, 'B' a barrier or rail, 'X' anything else solid,
+        /// ground 'o' within 0.3 m of y, 'v' lower (a hole), '^' higher, ' '
+        /// nothing. For mapping a hole in a lane or land over one.</summary>
+        static void SurfaceGrid(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                                float x, float z, float y, float half, float step, StringBuilder sb)
+        {
+            int tx = Mathf.FloorToInt(x / CityMeshes.TileSize), tz = Mathf.FloorToInt(z / CityMeshes.TileSize);
+            var root = new GameObject("~surfgrid");
+            var built = new List<Mesh>();
+            try
+            {
+                for (int pass = 0; pass < 2; pass++)
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            bool centre = dx == 0 && dz == 0;
+                            if (centre != (pass == 1)) continue;   // the centre LAST
+                            var tm = CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz);
+                            var go = new GameObject($"tile_{tx + dx}_{tz + dz}");
+                            go.transform.SetParent(root.transform, false);
+                            go.transform.position = tm.origin;
+                            built.AddRange(CityWorld.Attach(go, tm, null));
+                        }
+                Physics.SyncTransforms();
+                int n = Mathf.Clamp(Mathf.RoundToInt(half / step), 1, 80);
+                sb.AppendLine($"=== GRID round ({x:0.00},{z:0.00}) y {y:0.000}, {step:0.00} m cells, x {x - n * step:0.00}..{x + n * step:0.00} left to right, z north at the top");
+                float gMin = float.PositiveInfinity, gMax = float.NegativeInfinity;
+                for (int j = n; j >= -n; j--)
+                {
+                    var row = new StringBuilder($"  {z + j * step,9:0.00} ");
+                    for (int i = -n; i <= n; i++)
+                    {
+                        float qx = x + i * step, qz = z + j * step;
+                        RaycastHit best = default; bool found = false;
+                        foreach (var h in Physics.RaycastAll(new Vector3(qx, y + 3f, qz), Vector3.down, 12f, ~0, QueryTriggerInteraction.Ignore))
+                            if (!found || h.point.y > best.point.y) { best = h; found = true; }
+                        char c = ' ';
+                        if (found)
+                        {
+                            string nm = best.collider.name;
+                            float dy = best.point.y - y;
+                            if (nm == "Roads") c = '=';
+                            else if (nm == "Barriers") c = 'B';
+                            else if (nm == "Ground")
+                            {
+                                c = dy < -0.3f ? 'v' : dy > 0.3f ? '^' : 'o';
+                                gMin = Mathf.Min(gMin, dy); gMax = Mathf.Max(gMax, dy);
+                            }
+                            else c = 'X';
+                        }
+                        row.Append(c);
+                    }
+                    sb.AppendLine(row.ToString() + (j == 0 ? "  <- the point's row" : ""));
+                }
+                sb.AppendLine(new string(' ', 12 + n) + "^ the point's column");
+                if (gMin <= gMax) sb.AppendLine($"  ground cells {gMin:+0.00;-0.00}..{gMax:+0.00;-0.00} m against y");
                 sb.AppendLine();
             }
             finally
@@ -251,6 +388,7 @@ namespace PSXRacing.EditorTools
             int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
             var root = new GameObject("~rsprobe");
             var built = new List<Mesh>();
+            CityMeshes.groundLog = new List<(string, Vector3, Vector3, Vector3)>();
             try
             {
                 for (int pass = 0; pass < 2; pass++)
@@ -299,6 +437,7 @@ namespace PSXRacing.EditorTools
                     foreach (var h in Physics.RaycastAll(from, Vector3.down, 12f, ~0, QueryTriggerInteraction.Ignore))
                         if (!found || h.point.y > best.point.y) { best = h; found = true; }
                     string what = found ? ((best.collider.transform.parent != null ? best.collider.transform.parent.name + "/" : "") + best.collider.name) : "-";
+                    if (found && best.collider.name == "Ground") what += GroundOwner(new Vector2(from.x, from.z), best.point.y);
                     walk.Append($"\n    {d:+0.00;-0.00}: {(found ? (best.point.y - y).ToString("+0.000;-0.000") : "none")} {what}");
                 }
                 sb.AppendLine(walk.ToString());
@@ -339,6 +478,7 @@ namespace PSXRacing.EditorTools
             }
             finally
             {
+                CityMeshes.groundLog = null;
                 foreach (var m in built) if (m != null) Object.DestroyImmediate(m);
                 Object.DestroyImmediate(root);
             }

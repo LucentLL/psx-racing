@@ -96,6 +96,13 @@ namespace PSXRacing.City
         /// tiles it builds emit (<see cref="RailRecord"/>), so a solid met in
         /// a lane can be named by the rail that stands there.</summary>
         public static List<RailRecord> railLog;
+        /// <summary>Null in a build. A probe that sets it gets every ground
+        /// triangle the tiles lay off the lattice — verges, seams, half
+        /// strips, shelves, fan chord verges and corner fills — in world
+        /// space, with what laid it (<see cref="groundTag"/>), so land met
+        /// over a lane can be named by the strip that stands there.</summary>
+        public static List<(string tag, Vector3 a, Vector3 b, Vector3 c)> groundLog;
+        static string groundTag = "";
 
         public const float PierEvery = 26f;
         public const float BuildingSink = 0.55f;
@@ -895,6 +902,10 @@ namespace PSXRacing.City
             return y;
         }
 
+        /// <summary>For the roadside probe: <see cref="LatticeY"/>, to tell the
+        /// lattice from a verge strip where land stands over a lane.</summary>
+        public static float LatticeAt(CityMap map, float x, float z) => LatticeY(map, x, z);
+
         /// <summary>The ground mesh's height at a plan point: the triangle
         /// BuildGround drew there. Bucket.Up draws every cell's quad with its
         /// diagonal from (0,0) to (1,1). Reads the tile build's cache.</summary>
@@ -972,6 +983,10 @@ namespace PSXRacing.City
         /// <summary>Width of the flush strip laid under a ribbon side that
         /// stands down for another surface (see EmitSide).</summary>
         const float GapSeamM = 0.6f;
+        /// <summary>Width of that strip where the side is on a deck: the
+        /// crack between two decks is a few centimetres, and nothing beside a
+        /// deck hides a strip that runs out past the other surface.</summary>
+        const float DeckSeamM = 0.3f;
         /// <summary>How far that strip falls across its width.</summary>
         const float SeamFallM = 0.08f;
         /// <summary>How far a squeeze half strip looks for the pavement beside
@@ -1511,6 +1526,7 @@ namespace PSXRacing.City
                 // e2340 and e732, North Tryon Street's e14612).
                 var inX = n.inner - n.rL * (n.lSign * GoreSeamM);
                 var outX = n.outer - n.rM * (side * GoreSeamM);
+                if (groundLog != null) groundTag = "gore nose verge";
                 EmitVergeLine(map, trims, tm, new Vector3(outX.x - o3.x, n.yOut, outX.y - o3.z),
                               new Vector3(inX.x - o3.x, n.yIn, inX.y - o3.z), fwd, fwd, VergeShoulderM);
                 return;
@@ -3270,6 +3286,7 @@ namespace PSXRacing.City
             var fA = eA + new Vector3(outA.x, 0f, outA.y) * flare[i - 1];
             var fB = eB + new Vector3(outB.x, 0f, outB.y) * flare[i];
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
+            if (groundLog != null) groundTag = $"e{e.index} '{e.name}' side {(side < 0 ? "L" : "R")} span {A.s:0.0}..{B.s:0.0}";
 
             if (sf.rail)
             {
@@ -3322,7 +3339,25 @@ namespace PSXRacing.City
                 // past the approach's edge, under its rail (e23419, s 37-47).
                 // The approach rail stands over the fill a verge grades, as it
                 // does on the next span.
-                if (!GroundedDeckEnd(map, trims, tm, e, i, side)) return;
+                if (!GroundedDeckEnd(map, trims, tm, e, i, side))
+                {
+                    // THE SEAM BETWEEN TWO DECKS. A branch clipped against its
+                    // host on structure meets it along a seam drawn from two
+                    // sets of cross-sections, as on the ground (below), and it
+                    // opened to a crack a few centimetres wide. On the filtered
+                    // grid the land under an approach stood at the deck, so a
+                    // ray through the crack met grass a centimetre down; on the
+                    // real ground it met the land 1.75 m down, 30 m before the
+                    // ramp e280 joins I-77 (e2132) on the Uptown Loop's tile —
+                    // a hole for a wheel probe in the merge lane (WP-04 review).
+                    // The same flush strip floors it, under the other deck —
+                    // narrower: a seam on the ground lies under the verge
+                    // where it runs out past the other surface, and one 0.6 m
+                    // wide on a deck showed as grass past the ramp's rail
+                    // where e280 folds into I-77.
+                    if (sf.gap && !f.skip) EmitSeam(map, trims, tm, e, eA, eB, outA, outB, true);
+                    return;
+                }
                 var approachVerge = new StripShape { shoulder = ShoulderOf(e, side), maxRun = VergeMaxRunM };
                 EmitStrip(map, trims, tm, eA, eB, outA, outB, approachVerge);
                 tm.vergeSpans.Add((e.index, side, A.s, B.s));
@@ -3391,11 +3426,7 @@ namespace PSXRacing.City
                 // seam between them opened to a hand's width in places with the
                 // lattice under it. A flush strip under the seam floors it; it
                 // lies under the other surface everywhere else.
-                if (!f.skip)
-                {
-                    var seam = new StripShape { flat = true, fixedRun = true, seam = true, ownEdge = e.index, maxRun = GapSeamM, rise = -RoadsideRules.EdgeDropM };
-                    EmitStrip(map, trims, tm, eA, eB, outA, outB, seam);
-                }
+                if (!f.skip) EmitSeam(map, trims, tm, e, eA, eB, outA, outB, false);
                 return;
             }
             float strip = Mathf.Max(A.Strip(side), B.Strip(side));
@@ -3414,6 +3445,17 @@ namespace PSXRacing.City
             EmitStrip(map, trims, tm, eA, eB, outA, outB, verge);
             tm.vergeSpans.Add((e.index, side, A.s, B.s));
             tm.vergeMetres += len;
+        }
+
+        /// <summary>A flush strip under a gap side's seam with the surface
+        /// that owns the edge (EmitSide), an inch down and falling away under
+        /// that surface (SeamCeiling): GapSeamM wide on the ground,
+        /// DeckSeamM on a deck (<paramref name="onDeck"/>).</summary>
+        static void EmitSeam(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, bool onDeck)
+        {
+            var seam = new StripShape { flat = true, fixedRun = true, seam = true, deckSeam = onDeck, ownEdge = e.index,
+                                        maxRun = onDeck ? DeckSeamM : GapSeamM, rise = -RoadsideRules.EdgeDropM };
+            EmitStrip(map, trims, tm, eA, eB, outA, outB, seam);
         }
 
         /// <summary>
@@ -4500,6 +4542,9 @@ namespace PSXRacing.City
             /// host's lanes (see SeamCeiling). <see cref="ownEdge"/> is the
             /// edge laying it.</summary>
             public bool seam;
+            /// <summary>A seam laid on a deck, between two decks: held under
+            /// the pavement at its own level only (SeamCeiling).</summary>
+            public bool deckSeam;
             public int ownEdge;
             /// <summary>Laid along a line between two roads' corners — a fan's
             /// open chord, a gore nose — whose ends are solved against
@@ -4524,13 +4569,25 @@ namespace PSXRacing.City
             var pa = new Vector2(a.x + o.x, a.z + o.z); var pb = new Vector2(b.x + o.x, b.z + o.z);
             int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(pa, pb) / VergeStepM));
             GatherNear(map, pa, pb, sh.start + sh.maxRun + RoadsideRules.ToeTuckRunM);
+            string tagWas = groundTag;
+            if (groundLog != null) groundTag += sh.seam ? " seam" : sh.halfGap ? " half strip" : sh.flat ? " flat strip" : " verge";
+            LayStrip(map, trims, o, pa, pb, a.y, b.y, outA, outB, sh, steps);
+            groundTag = tagWas;
+        }
+
+        /// <summary>EmitStrip's cross-sections, quad by quad (world end
+        /// points, tarmac heights, outward units).</summary>
+        static void LayStrip(CityMap map, Trims trims, Vector3 o, Vector2 pa, Vector2 pb, float ya, float yb, Vector2 outA, Vector2 outB, StripShape sh, int steps)
+        {
             bool havePrev = false;
+            int prevTuck = -1;
             Bucket prevBk = null; int prevBase = -1;
             float tPrev = 0f;
             for (int j = 0; j <= steps; j++)
             {
                 float t = (float)j / steps;
-                bool ok = SolveStripAt(map, trims, pa, pb, a.y, b.y, outA, outB, sh, t, profCur);
+                bool ok = SolveStripAt(map, trims, pa, pb, ya, yb, outA, outB, sh, t, profCur);
+                int curTuck = ok ? stripTuckEdge : -1;
                 if (j > 0 && ok != havePrev)
                 {
                     // A refused cross-section took the whole quad to its good
@@ -4544,7 +4601,7 @@ namespace PSXRacing.City
                     for (int it = 0; it < StripRefineSteps; it++)
                     {
                         float tMid = 0.5f * (tOk + tBad);
-                        if (SolveStripAt(map, trims, pa, pb, a.y, b.y, outA, outB, sh, tMid, profEdge))
+                        if (SolveStripAt(map, trims, pa, pb, ya, yb, outA, outB, sh, tMid, profEdge))
                         {
                             tOk = tMid; found = true;
                             System.Array.Copy(profEdge, profNear, 4);
@@ -4553,17 +4610,80 @@ namespace PSXRacing.City
                     }
                     if (found)
                     {
-                        if (ok) { System.Array.Copy(profNear, profPrev, 4); havePrev = true; prevBk = null; }
+                        if (ok) { System.Array.Copy(profNear, profPrev, 4); havePrev = true; prevBk = null; prevTuck = -1; tPrev = tOk; }
                         else LayStripQuad(map, o, profNear, sh.noFins, ref prevBk, ref prevBase);
                     }
                 }
-                if (ok && havePrev) LayStripQuad(map, o, profCur, sh.noFins, ref prevBk, ref prevBase);
+                if (ok && havePrev)
+                {
+                    int tuck = curTuck >= 0 ? curTuck : prevTuck;
+                    if (tuck >= 0) LayTucked(map, trims, o, pa, pb, ya, yb, outA, outB, sh, tuck, tPrev, t, profCur, 0, ref prevBk, ref prevBase);
+                    else LayStripQuad(map, o, profCur, sh.noFins, ref prevBk, ref prevBase);
+                }
                 else prevBk = null;
                 if (ok) System.Array.Copy(profCur, profPrev, 4);
                 havePrev = ok;
+                prevTuck = curTuck;
                 tPrev = t;
             }
         }
+
+        /// <summary>
+        /// One quad of a strip that tucks under another road's pavement
+        /// (<paramref name="tuckEdge"/>) at either end, from
+        /// <see cref="profPrev"/> (at <paramref name="tA"/>) to
+        /// <paramref name="profB"/>: halved, down to
+        /// <see cref="TuckRefineDepth"/> halvings, where the straight quad's
+        /// tuck would stand ON that pavement between its two cross-sections.
+        /// Each cross-section tucks under the pavement where it meets it, and
+        /// the pavement between need not be straight: where a branch is
+        /// clipped against its host its edge climbs to the host's height
+        /// within a metre, and Armory Drive's connector, tucked under Sam
+        /// Ryburn Walk at both ends 2.5 m apart, stood as a grass wedge up to
+        /// 0.3 m over the lane between them (the second WP-04 review). Halving
+        /// every quad whose two tucks merely differed in height put ridges of
+        /// a few centimetres between neighbouring roads' connectors at twenty
+        /// junction corners, faces the body box met.
+        /// </summary>
+        static void LayTucked(CityMap map, Trims trims, Vector3 o, Vector2 pa, Vector2 pb, float ya, float yb, Vector2 outA, Vector2 outB, StripShape sh,
+                              int tuckEdge, float tA, float tB, Vector3[] profB, int depth, ref Bucket prevBk, ref int prevBase)
+        {
+            float stepM = (tB - tA) * Vector2.Distance(pa, pb);
+            if (depth < TuckRefineDepth && stepM > 2f * TuckRefineMinM && TuckOnPavement(map, trims, tuckEdge, profPrev, profB))
+            {
+                float tM = 0.5f * (tA + tB);
+                var pm = tuckProf[depth];
+                if (SolveStripAt(map, trims, pa, pb, ya, yb, outA, outB, sh, tM, pm))
+                {
+                    LayTucked(map, trims, o, pa, pb, ya, yb, outA, outB, sh, tuckEdge, tA, tM, pm, depth + 1, ref prevBk, ref prevBase);
+                    LayTucked(map, trims, o, pa, pb, ya, yb, outA, outB, sh, tuckEdge, tM, tB, profB, depth + 1, ref prevBk, ref prevBase);
+                    return;
+                }
+            }
+            LayStripQuad(map, o, profB, sh.noFins, ref prevBk, ref prevBase);
+        }
+
+        /// <summary>Would the straight quad between two cross-sections stand
+        /// on a ribbon's pavement, less than an inch under it? Read at the
+        /// middles of its tuck points (2, 3) and of its quad between them.</summary>
+        static bool TuckOnPavement(CityMap map, Trims trims, int edge, Vector3[] a, Vector3[] b)
+        {
+            var ol = OutlineOf(map, trims, edge);
+            if (ol.L == null) return false;
+            for (int k = 0; k < 3; k++)
+            {
+                var m = k == 2 ? (a[2] + a[3] + b[2] + b[3]) * 0.25f : (a[2 + k] + b[2 + k]) * 0.5f;
+                float h = OutlineHeightAt(ol, new Vector2(m.x, m.z));
+                if (!float.IsNaN(h) && m.y > h - RoadsideRules.EdgeDropM) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Halvings LayTucked spends at most: VergeStepM / 8.</summary>
+        const int TuckRefineDepth = 3;
+        /// <summary>The shortest quad LayTucked lays by halving.</summary>
+        const float TuckRefineMinM = 0.15f;
+        static readonly Vector3[][] tuckProf = { new Vector3[4], new Vector3[4], new Vector3[4] };
 
         /// <summary>Bisections EmitStrip spends closing in on a refused
         /// cross-section: VergeStepM / 16, 16 cm.</summary>
@@ -4600,7 +4720,14 @@ namespace PSXRacing.City
             // it is left out there.
             int bands = Collapsed(profPrev) || Collapsed(prof) ? 2 : 3;
             for (int q = 0; q < bands; q++)
+            {
                 StripTris(bk, prevBase + q, prevBase + q + 1, curBase + q + 1, curBase + q, noFins);
+                if (groundLog != null)
+                {
+                    groundLog.Add((groundTag + $" band{q}", profPrev[q], profPrev[q + 1], prof[q + 1]));
+                    groundLog.Add((groundTag + $" band{q}", profPrev[q], prof[q + 1], prof[q]));
+                }
+            }
             prevBase = curBase;
             System.Array.Copy(prof, profPrev, 4);
         }
@@ -4674,6 +4801,7 @@ namespace PSXRacing.City
         {
             graded = false;
             stoppedBy = float.NaN;
+            stripTuckEdge = -1;
             var s0 = edgeW + outw * sh.start;
             float y0 = sh.flat ? yEdge + sh.rise : yEdge - RoadsideRules.EdgeDropM;
             if (sh.fixedRun)
@@ -4726,7 +4854,7 @@ namespace PSXRacing.City
                     // between samples 2.5 m apart and the road above it bends at
                     // its stations, so a flat inch cleared its lanes by less
                     // than the sag between them
-                    SeamCeiling(map, trims, s0, outw, width, sh.ownEdge, seamCeil);
+                    SeamCeiling(map, trims, s0, outw, width, sh.ownEdge, sh.deckSeam, y0, seamCeil);
                     y0 = Mathf.Min(y0, seamCeil[0]);
                     // Not over a junction's fan: where the fan reaches under
                     // this edge it floors the gap itself, and a seam laid there
@@ -4752,6 +4880,7 @@ namespace PSXRacing.City
             // a metre above" is a deck the strip passes under only if it is
             // above THE STRIP, and a wall-top shelf is 0.81 m over the tarmac
             float run = ClearRun(map, trims, s0, outw, y0, sh.maxRun, out float blockedBy, out float edgeRun, out bool intoFan);
+            int blockEdge = clearRunBlockEdge;
             bool blocked = !float.IsNaN(blockedBy);
             float yOther = blockedBy - RoadsideRules.EdgeDropM;
             // A CONNECTOR to the road beside: the ground between two roads
@@ -4786,6 +4915,24 @@ namespace PSXRacing.City
                 // (a 10 cm fin 4 cm off e5252's edge)
                 var q3 = s0 + outw * (eEnd + RoadsideRules.ToeTuckRunM);
                 prof[3] = new Vector3(q3.x, yOther - RoadsideRules.ToeTuckM, q3.y);
+                // ...UNDER that pavement where the tuck lies, not at its height
+                // where the grade met it. A branch clipped against its host
+                // takes the host's height on its clipped edge and falls to its
+                // own within a metre of warped ribbon; a host's connector that
+                // met the branch at the high corner, on a ray crossing it at a
+                // slant, put its toe 0.4 m on over pavement 0.3 m lower (Armory
+                // Drive beside Sam Ryburn Walk, 0.3 m apart since WP-04).
+                // LayTucked keeps the quads between two cross-sections under
+                // it as well.
+                if (blockEdge >= 0)
+                {
+                    var ol = OutlineOf(map, trims, blockEdge);
+                    float h2 = OutlineHeightAt(ol, q2), h3 = OutlineHeightAt(ol, q3);
+                    if (!float.IsNaN(h2)) prof[2].y = Mathf.Min(prof[2].y, h2 - RoadsideRules.EdgeDropM);
+                    if (!float.IsNaN(h3)) prof[3].y = Mathf.Min(prof[3].y, h3 - RoadsideRules.ToeTuckM);
+                    prof[3].y = Mathf.Min(prof[3].y, prof[2].y - RoadsideRules.ToeTuckM);
+                }
+                stripTuckEdge = blockEdge;
                 return true;
             }
             if (run < 0.05f)
@@ -4885,10 +5032,19 @@ namespace PSXRacing.City
         /// seam met a ribbon drawn a few centimetres lower edge-on and stood
         /// level with it, never saw a gore, and let one falling 9% across a
         /// ramp pull its first centimetres a gore's fall under the edge it
-        /// starts from (lips of 6-17 cm beside e172 and East 13th Street).</summary>
-        static void SeamCeiling(CityMap map, Trims trims, Vector2 p, Vector2 outw, float run, int ownEdge, float[] ceil)
+        /// starts from (lips of 6-17 cm beside e172 and East 13th Street).
+        ///
+        /// A seam laid between two DECKS (<paramref name="onDeck"/>, EmitSide)
+        /// is held under the pavement at its own level instead, within
+        /// AttachDy of <paramref name="yRef"/>, decks and fans on structure
+        /// included: it runs under the other deck's lanes, and a road passing
+        /// under the bridge is not over it. (Held under the lowest pavement it
+        /// crossed, a seam over I-77 fell 2.7 m to its lanes.)</summary>
+        static void SeamCeiling(CityMap map, Trims trims, Vector2 p, Vector2 outw, float run, int ownEdge, bool onDeck, float yRef, float[] ceil)
         {
             GatherPavement(map, trims);
+            bool Holds(bool structure, float hy) =>
+                onDeck ? Mathf.Abs(hy - yRef) <= AttachDy : !structure;
             for (int q = 0; q <= 2; q++)
             {
                 float lowest = float.MaxValue;
@@ -4908,15 +5064,16 @@ namespace PSXRacing.City
                     if (ol.L == null || pt.x < ol.minX - pad || pt.x > ol.maxX + pad || pt.y < ol.minZ - pad || pt.y > ol.maxZ + pad) continue;
                     for (int i = 1; i < ol.L.Length; i++)
                     {
-                        if (ol.elev[i - 1] || ol.elev[i]) continue;   // a deck the seam passes under
+                        bool deck = ol.elev[i - 1] || ol.elev[i];
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (pt.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - pad || pt.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + pad ||
                             pt.y < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) - pad || pt.y > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z)) + pad) continue;
+                        if (!onDeck && deck) continue;   // a deck the seam passes under
                         // its sides moved OUT by the pad
-                        if (TriInterval(aL, bL, bR, -pad, 0f, 0f, pt, Vector2.right, 0f, out _, out _))
-                            lowest = Mathf.Min(lowest, TriHeight(aL, bL, bR, pt));
-                        else if (TriInterval(aL, bR, aR, 0f, -pad, 0f, pt, Vector2.right, 0f, out _, out _))
-                            lowest = Mathf.Min(lowest, TriHeight(aL, bR, aR, pt));
+                        float hy = float.NaN;
+                        if (TriInterval(aL, bL, bR, -pad, 0f, 0f, pt, Vector2.right, 0f, out _, out _)) hy = TriHeight(aL, bL, bR, pt);
+                        else if (TriInterval(aL, bR, aR, 0f, -pad, 0f, pt, Vector2.right, 0f, out _, out _)) hy = TriHeight(aL, bR, aR, pt);
+                        if (!float.IsNaN(hy) && Holds(deck, hy)) lowest = Mathf.Min(lowest, hy);
                     }
                 }
                 // and the painted gores, drawn by this tile or the next
@@ -4924,8 +5081,10 @@ namespace PSXRacing.City
                 {
                     if (pt.x < Mathf.Min(Mathf.Min(a.x, b.x), Mathf.Min(c.x, d.x)) || pt.x > Mathf.Max(Mathf.Max(a.x, b.x), Mathf.Max(c.x, d.x)) ||
                         pt.y < Mathf.Min(Mathf.Min(a.z, b.z), Mathf.Min(c.z, d.z)) || pt.y > Mathf.Max(Mathf.Max(a.z, b.z), Mathf.Max(c.z, d.z))) continue;
-                    if (TriInterval(a, b, c, pt, Vector2.right, 0f, out _, out _)) lowest = Mathf.Min(lowest, TriHeight(a, b, c, pt));
-                    else if (TriInterval(a, c, d, pt, Vector2.right, 0f, out _, out _)) lowest = Mathf.Min(lowest, TriHeight(a, c, d, pt));
+                    float gy = float.NaN;
+                    if (TriInterval(a, b, c, pt, Vector2.right, 0f, out _, out _)) gy = TriHeight(a, b, c, pt);
+                    else if (TriInterval(a, c, d, pt, Vector2.right, 0f, out _, out _)) gy = TriHeight(a, c, d, pt);
+                    if (!float.IsNaN(gy) && Holds(false, gy)) lowest = Mathf.Min(lowest, gy);
                 }
                 // and a grounded junction fan, past the first point: a seam
                 // starting on a fan is not laid (StartsOnFan), and one running
@@ -4937,11 +5096,16 @@ namespace PSXRacing.City
                     {
                         var fan = fanPolys[n];
                         float r = fan.reach + pad;
-                        if ((pt - fan.centre).sqrMagnitude > r * r || FanOnStructure(map, trims, n)) continue;
+                        if ((pt - fan.centre).sqrMagnitude > r * r) continue;
+                        bool onStructure = FanOnStructure(map, trims, n);
+                        if (!onDeck && onStructure) continue;
                         var T = fan.tris;
                         for (int i = 0; i + 2 < T.Length; i += 3)
                             if (TriInterval(T[i], T[i + 1], T[i + 2], -pad, -pad, -pad, pt, Vector2.right, 0f, out _, out _))
-                                lowest = Mathf.Min(lowest, TriHeight(T[i], T[i + 1], T[i + 2], pt));
+                            {
+                                float hy = TriHeight(T[i], T[i + 1], T[i + 2], pt);
+                                if (Holds(onStructure, hy)) lowest = Mathf.Min(lowest, hy);
+                            }
                     }
                 ceil[q] = lowest < float.MaxValue ? lowest - RoadsideRules.EdgeDropM : float.MaxValue;
             }
@@ -4959,6 +5123,7 @@ namespace PSXRacing.City
         static void StripQuad(CityMap map, TileMeshes tm, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
         {
             if ((b - a).sqrMagnitude < 1e-6f && (c - d).sqrMagnitude < 1e-6f) return;
+            if (groundLog != null) { groundLog.Add((groundTag, a, b, c)); groundLog.Add((groundTag, a, c, d)); }
             var cen = (a + b + c + d) * 0.25f;
             bool paved = PavedAt(map, cen.x, cen.z);
             var o = tm.origin;
@@ -5033,6 +5198,13 @@ namespace PSXRacing.City
         static float ClearRun(CityMap map, Trims trims, Vector2 p, Vector2 outw, float y, float maxRun, out float otherY)
             => ClearRun(map, trims, p, outw, y, maxRun, out otherY, out _, out _);
 
+        /// <summary>The ribbon that stopped the last ClearRun (-1: nothing,
+        /// or a junction fan).</summary>
+        static int clearRunBlockEdge = -1;
+        /// <summary>The ribbon the last SolveStrip's connector tucked under
+        /// (-1: none), for LayTucked.</summary>
+        static int stripTuckEdge = -1;
+
         /// <param name="edgeRun">How far along the ray the blocking pavement's
         /// edge is (the run stops a VergeClearPadM short of it); NaN when
         /// nothing blocks.</param>
@@ -5047,6 +5219,7 @@ namespace PSXRacing.City
         {
             float best = maxRun, oyBest = float.NaN, erBest = float.NaN;
             bool fanBest = false;
+            int blkBest = -1;
             GatherPavement(map, trims);
             float reach = maxRun + VergeClearPadM;
             var far = p + outw * reach;
@@ -5102,12 +5275,12 @@ namespace PSXRacing.City
                             // Independence Expressway over Albemarle Road, 0.9 m
                             // up) grew the upper road's verge across the lower
                             // one's outside lane.
-                            if (yIn < y - 0.1f && best > 0f && InsideDeep(ol, p)) { best = 0f; oyBest = yIn; erBest = 0f; fanBest = false; }
+                            if (yIn < y - 0.1f && best > 0f && InsideDeep(ol, p)) { best = 0f; oyBest = yIn; erBest = 0f; fanBest = false; blkBest = oi; }
                         }
                         else if (yIn <= y + overhead)
                         {
                             // heading in: met where it stands
-                            if (best > 0f) { best = 0f; oyBest = yIn; erBest = 0f; fanBest = false; }
+                            if (best > 0f) { best = 0f; oyBest = yIn; erBest = 0f; fanBest = false; blkBest = oi; }
                             continue;
                         }
                     }
@@ -5123,7 +5296,7 @@ namespace PSXRacing.City
                     // stopped VergeClearPadM short of the pavement, or at it
                     // where the ray starts inside that pad
                     float run = te <= VergeClearPadM ? te : te - VergeClearPadM;
-                    if (run < best) { best = run; oyBest = fy; erBest = te; fanBest = false; }
+                    if (run < best) { best = run; oyBest = fy; erBest = te; fanBest = false; blkBest = oi; }
                     break;
                 }
             }
@@ -5138,9 +5311,10 @@ namespace PSXRacing.City
                 // the pad as a ribbon's
                 float run = tIn <= VergeClearPadM ? tIn : tIn - VergeClearPadM;
                 if (run >= best) continue;
-                best = run; oyBest = fy; erBest = tIn; fanBest = true;
+                best = run; oyBest = fy; erBest = tIn; fanBest = true; blkBest = -1;
             }
             otherY = oyBest; edgeRun = erBest; intoFan = fanBest;
+            clearRunBlockEdge = blkBest;
             return best;
         }
 
@@ -5312,6 +5486,30 @@ namespace PSXRacing.City
             int i = tri >> 1;
             return (tri & 1) == 0 ? TriHeight(ol.L[i - 1], ol.L[i], ol.R[i], q)
                                   : TriHeight(ol.L[i - 1], ol.R[i], ol.R[i - 1], q);
+        }
+
+        /// <summary>For the roadside probe: <see cref="OutlineHeightAt"/> of
+        /// an edge's ribbon as the strips read it.</summary>
+        public static float OutlineHeight(CityMap map, Trims trims, int ei, float x, float z)
+            => OutlineHeightAt(OutlineOf(map, trims, ei), new Vector2(x, z));
+
+        /// <summary>A ribbon's drawn surface height over a plan point, the
+        /// lowest where two of its spans overlap there; NaN off its pavement.</summary>
+        static float OutlineHeightAt(Outline ol, Vector2 q)
+        {
+            float h = float.NaN;
+            if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) return h;
+            for (int i = 1; i < ol.L.Length; i++)
+            {
+                for (int k = 0; k < 2; k++)
+                {
+                    Vector3 a = ol.L[i - 1], b = k == 0 ? ol.L[i] : ol.R[i], c = k == 0 ? ol.R[i] : ol.R[i - 1];
+                    if (!TriInterval(a, b, c, q, Vector2.right, 0f, out _, out _)) continue;
+                    float t = TriHeight(a, b, c, q);
+                    if (float.IsNaN(h) || t < h) h = t;
+                }
+            }
+            return h;
         }
 
         /// <summary>Is a point on a ribbon's pavement at least
@@ -5698,8 +5896,11 @@ namespace PSXRacing.City
                     }
                     kerbBucket.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbFaceM, k0.pos.y, k1.pos.y - KerbFaceM, k1.pos.y,
                                           nrm, 0f, 0.6f, 0f, 0.05f);
+                    if (groundLog != null) groundTag = $"fan chord verge node {n} e{k0.edge}-e{k1.edge}";
                     EmitVergeLine(map, trims, tm, k0.pos, k1.pos, nrm, nrm, VergeShoulderM);
+                    if (groundLog != null) groundTag = $"corner fill node {n} arm e{k0.edge}";
                     CornerFill(map, trims, tm, n, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
+                    if (groundLog != null) groundTag = $"corner fill node {n} arm e{k1.edge}";
                     CornerFill(map, trims, tm, n, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
                 }
             }
@@ -6199,6 +6400,7 @@ namespace PSXRacing.City
         static void FillTri(CityMap map, TileMeshes tm, Vector3 a, Vector3 b, Vector3 c)
         {
             if (Fin(a, b, c)) return;
+            groundLog?.Add((groundTag, a, b, c));
             var n = Vector3.Cross(b - a, c - a);
             var cen = (a + b + c) / 3f;
             bool paved = PavedAt(map, cen.x, cen.z);

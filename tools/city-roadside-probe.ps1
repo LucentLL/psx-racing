@@ -14,6 +14,15 @@
 # point as the fan mouth probe places it, or "pt:x:z:y" for a world point.
 #   powershell -ExecutionPolicy Bypass -File tools\city-roadside-probe.ps1 -Lanes "1891:137:2;fan:6995:5914:1.0:-5.3"
 #
+# A lane probe also walks the first SURFACE across the lane line (any layer)
+# and names the strip that laid any land it meets (verge, seam, half strip,
+# fan chord verge or corner fill, by edge, side and span, from
+# CityMeshes.groundLog) or "the lattice"; the spot walk names it too.
+# "grid:x:z:y:half:step" maps the first surface round a world point, north
+# up: '=' road, 'B' barrier, 'X' other solid, ground 'o' within 0.3 m of y,
+# 'v' lower (a hole), '^' higher.
+#   powershell -ExecutionPolicy Bypass -File tools\city-roadside-probe.ps1 -Lanes "280:320.5:0;grid:-3455.22:5766.12:105.276:4:0.1"
+#
 # -ArmLog "edge,edge" also prints, under each lane probe, how the rail builder
 # read those edges' rails against the junction's other roads and its fan
 # (CityMeshes.RailOverArms), piece by piece.
