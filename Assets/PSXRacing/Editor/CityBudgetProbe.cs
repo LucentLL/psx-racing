@@ -37,7 +37,7 @@ namespace PSXRacing.EditorTools
     {
         const float EyeM = 1.2f, FarM = 500f, FovDeg = 58f, Aspect = 16f / 9f;
 
-        struct Site { public string name; public Vector2 at; public string how; public bool extra; }
+        struct Site { public string name; public Vector2 at; public string how; public bool extra, bay; }
 
         static Vector2 LL(double lat, double lon)
         {
@@ -134,12 +134,16 @@ namespace PSXRacing.EditorTools
             var sites = Sites(map);
             // and the two restaurant lots (plan WP-07: a restaurant site
             // loses 300 or more): the first drive-thru and the first pizzeria
-            // the placement table holds. Not in ALL, so ALL stays the nine.
+            // the placement table holds, seen from the road that fronts them
+            // and from the chase camera of a car stopped in the order bay.
+            // Not in ALL, so ALL stays the nine.
             foreach (byte kind in new[] { CityProps.Burger, CityProps.Pizzeria })
                 foreach (var lot in world.FoodLots)
                     if (lot.kind == kind)
                     {
-                        sites.Add(new Site { name = kind == CityProps.Burger ? "burger_lot" : "pizza_lot", at = lot.pos, how = CityProps.FoodName(kind) + " lot (restaurant prop, WP-07)", extra = true });
+                        string n = kind == CityProps.Burger ? "burger" : "pizza";
+                        sites.Add(new Site { name = n + "_lot", at = lot.pos, how = CityProps.FoodName(kind) + " lot from its road (restaurant prop, WP-07)", extra = true });
+                        sites.Add(new Site { name = n + "_bay", at = lot.pos, how = CityProps.FoodName(kind) + ": the chase camera of a car stopped in the order bay", extra = true, bay = true });
                         break;
                     }
             try
@@ -194,6 +198,40 @@ namespace PSXRacing.EditorTools
                         fwd = e.TangentAt(s);
                     }
                     else { eye = new Vector3(site.at.x, CityElevation.BaseY(site.at.x, site.at.y) + EyeM, site.at.y); fwd = Vector2.up; }
+                    string bayNote = "";
+                    // the player's car: under a road eye; in the bay, stopped
+                    // where it orders (CityPropBaker.BayStop), the chase rig's
+                    // default 5.4 m back and 1.8 m up, facing along the building
+                    Vector3 car = eye - Vector3.up * EyeM;
+                    if (site.bay)
+                    {
+                        DriveThru bay = null; float bayD = float.MaxValue;
+                        foreach (var d in go.GetComponentsInChildren<DriveThru>(false))
+                        {
+                            float dd = Vector2.Distance(new Vector2(d.transform.position.x, d.transform.position.z), site.at);
+                            if (dd < bayD) { bayD = dd; bay = d; }
+                        }
+                        if (bay != null && bayD < 60f)
+                        {
+                            car = CityPropBaker.BayStop(bay, bay.GetComponentInParent<CityPropInterior>(), out var along);
+                            eye = car - along * 5.4f + Vector3.up * 1.8f;
+                            fwd = new Vector2(along.x, along.z);
+                        }
+                        else bayNote = " (NO ORDER BAY FOUND - the lot's own road eye)";
+                    }
+
+                    // THE ROOM SWITCH at this eye and car, as the game runs it
+                    // (CityPropInterior: drawn from inside the hull, or through
+                    // a door that swings open for the car)
+                    int roomsOn = 0; float roomNear = float.MaxValue;
+                    foreach (var sw in go.GetComponentsInChildren<CityPropInterior>(false))
+                    {
+                        if (sw.Apply(eye, car)) roomsOn++;
+                        roomNear = Mathf.Min(roomNear, Mathf.Min(sw.DistanceTo(eye), sw.DistanceTo(car + Vector3.up * 0.7f)));
+                    }
+                    string roomNote = roomNear < float.MaxValue
+                        ? $"; nearest restaurant room {roomNear:0.0} m from the eye or car, {roomsOn} drawn by the switch"
+                        : "";
 
                     var rends = go.GetComponentsInChildren<MeshRenderer>(false);
                     int[] draws = new int[4];
@@ -235,7 +273,7 @@ namespace PSXRacing.EditorTools
                     tilesByPass[pass][site.name] = tot;
                     (pass == 0 ? rows : fullRows).Add($"{site.name,-14} {timings.Count,3} tiles  total p50 {P(tot, 50),5:0.0} p95 {P(tot, 95),5:0.0} max {P(tot, 100),5:0.0} ms  build p95 {P(bld, 95),5:0.0}  cook p95 {P(cook, 95),5:0.0}  " +
                              $"draws {draws[0],4}/{draws[1],4}/{draws[2],4}/{draws[3],4}  casters {casters,4} ({castersNear} in the 90 m box)  verts {verts / 1000,5}k  tris {tris / 1000,5}k  colliders {colliders,4}  props {props,3} ({propsMs:0.0} ms to stand up)");
-                    if (pass == 0) L($"{site.name}: {site.how}; eye ({eye.x:0},{eye.y:0.0},{eye.z:0}){(dist > 30f ? $", {dist:0} m from the site" : "")}");
+                    if (pass == 0) L($"{site.name}: {site.how}; eye ({eye.x:0},{eye.y:0.0},{eye.z:0}){(!site.bay && (dist > 30f || site.extra) ? $", {dist:0} m from the site" : "")}{bayNote}{roomNote}");
                     world.DropAll();
                 }
             }
@@ -266,7 +304,7 @@ namespace PSXRacing.EditorTools
             foreach (var t in fullAll) fullTot.Add(t.totalMs);
             L($"full ALL {fullAll.Count} tiles: total p50 {P(fullTot, 50):0.0} p95 {P(fullTot, 95):0.0} max {P(fullTot, 100):0.0} ms");
             L("draws saved by the variants, per heading (ahead/right/back/left), and the view that saved most:");
-            int suburbSaved = 0, lotSaved = 0;
+            int suburbSaved = 0, lotSaved = 0, baySaved = 0;
             foreach (var site in sites)
             {
                 if (!drawsByPass[0].TryGetValue(site.name, out var dv) || !drawsByPass[1].TryGetValue(site.name, out var df)) continue;
@@ -276,9 +314,10 @@ namespace PSXRacing.EditorTools
                 float p95v = P(tilesByPass[0][site.name], 95), p95f = P(tilesByPass[1][site.name], 95);
                 L($"  {site.name,-14} saved {string.Join("/", parts)}  most {best}  (tile p95 {p95f:0.0} -> {p95v:0.0} ms)");
                 if (site.name == "suburb_6km") suburbSaved = best;
-                if (site.extra) lotSaved = Mathf.Max(lotSaved, best);
+                if (site.extra && !site.bay) lotSaved = Mathf.Max(lotSaved, best);
+                if (site.bay) baySaved = Mathf.Max(baySaved, best);
             }
-            summary.Add($"budget: WP-07 prepay - suburb view saves {suburbSaved} draws (target 20+), a restaurant view saves {lotSaved} (target 300+)");
+            summary.Add($"budget: WP-07 prepay - suburb view saves {suburbSaved} draws (target 20+), a restaurant from its road saves {lotSaved} (target 300+), stopped in the order bay {baySaved}");
 
             L("");
             L($"spawn seats (CityMode.SeatOnStreet's rule; datum {CityElevation.DatumASL:0.000} m ASL, graph hash {map.graphHash:x8})");

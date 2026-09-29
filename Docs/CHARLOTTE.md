@@ -639,8 +639,8 @@ them to `CityWorld` (and to `CityPreview`).
 |---|---|---|
 | `house_simple` | 13 | 1 |
 | `trailer_00` / `_02` / `_05` | 9 / 10 / 10 | 1 each |
-| `burger_drive` | 355 | 37 beyond 40 m |
-| `pizzeria` | 396 | 24 beyond 40 m |
+| `burger_drive` | 355 | 37 from anywhere outside it |
+| `pizzeria` | 396 | 24 from anywhere outside it |
 
 - **Houses and trailers: one atlas each family.** The pack materials TILE
   (a wall's UVs run to 8), so a plain atlas cannot hold them. Every vertex
@@ -668,11 +668,39 @@ them to `CityWorld` (and to `CityPreview`).
   the same count as the full prefab); the order bay is untouched. What is
   ROOM is decided by looking: rays from 24 bearings at 1.2, 3 and 7 m and
   from above, to each piece's bounds; a piece no ray reaches without passing
-  another piece's collider goes behind `CityPropInterior`, which draws it
-  only while the car or the camera is within 40 m (off again past 46 m). The
-  city props wear opaque windows, so from outside the room is never seen.
-  `city-play-check` now pulls into a drive-thru bay: ORDER is offered, the
-  room is drawn, and it goes 70 m away with the lot still standing.
+  another piece's collider goes behind `CityPropInterior`. The city props
+  wear opaque windows, the pickup window too, so the room can be seen only
+  from inside the building or through a door standing open, and those are
+  the only two things that switch it on: the camera or the player within
+  1 m of the room's box (the room pieces' own bounds, baked as `hull`; off
+  again past 2 m), or any of the building's hinged doors off its stop
+  (checked every frame, so the room is there the frame a leaf moves; a
+  door opens for the car within 3.4 m of it).
+- **The first cut switched on by distance, and the review caught it.** It
+  drew the room whenever the car or camera was within 40 m of the lot, and
+  the probe measured in edit mode with the room baked off. Its restaurant
+  eyes were 19-32 m from the lots, so the 342 and 429 saved draws described
+  a state the game never showed there: driving past on the fronting road
+  the burger cost 307 draws against 355 and the pizzeria 392 against 396,
+  and up to 280 room pieces went back into the sun map. The probe now
+  applies the runtime rule at its eye (`CityPropInterior.Apply(eye, car)`,
+  doors included), and adds a second eye per restaurant: the chase camera
+  of a car stopped where it orders (`CityPropBaker.BayStop`: the
+  drive-thru's lane beside the menu board, the pizzeria's kerb; the
+  pizzeria's bay box is centred INSIDE the shop).
+- **Proved by rendering, not by argument.** `CompareShots` now also writes
+  `Screenshots/City/room_check.png` and renders each restaurant with the
+  room off and on, counting the pixels that change. From 32 street eyes
+  round each lot (1.2 and 3 m up, 23-27 m out) at most 4 pixels in 144,000
+  change (the burger; 0 for the pizzeria). From the bay's chase camera and
+  the driver's seat looking at the building, 0 change for both. From inside
+  the building, 18% and 83% change, so the test can see a room when there is
+  one. The rule lights none of those outside eyes.
+- `city-play-check` runs both restaurants: stopped at the bay ORDER is
+  offered and the room stays off (door shut); the camera put inside the
+  building draws it and taking it back out behind the car removes it; a car
+  pulled up to a door swings it open and the room is drawn through it; 70 m
+  off the door shuts and the room goes, with the lot still standing.
   (Charlotte has no getting out of the car; the walk-in rooms keep their
   colliders and doors for when it does.)
 
@@ -696,29 +724,32 @@ the texture is RGB565, sampled without the decode).
 
 **Measured** (`city_budget.txt`, which now runs every site twice, with the
 variants and with the full prefabs, and adds the first drive-thru and the
-first pizzeria lot):
+first pizzeria, each from its fronting road and from its order bay; the
+room switch applied at every eye, and it draws no room at any of the four):
 
 | Site | Most draws saved in one view |
 |---|---|
 | suburb 6 km (Randolph Rd) | 88 (target 20+) |
 | Providence Rd | 93 |
 | Dilworth | 24 |
-| burger lot | 342 |
-| pizza lot | 429 (target 300+) |
+| burger lot, from its road (22.8 m from the room) | 342 |
+| burger, stopped in the order bay (2.8 m) | 328 |
+| pizza lot, from its road (19.3 m) | 429 (target 300+) |
+| pizza, stopped at the kerb (5.2 m) | 408 |
 
-Sun-map casters at the burger lot fell from 346 to 57. The busiest view in
-the city is unchanged (200 draws, uptown). Tile build p95 over the nine
-sites: 75.8 ms against WP-04's 68.4 (+11%, inside the +15% ratchet), taken
-with other Unity jobs still on the machine (parse 176 ms against 162); the
-same tiles in the same run with the full prefabs gave 72.9 ms. (The committed
-`city_budget.txt` is a later run under heavier load, 84.3 against 137.3 ms:
-only the A/B inside one run means anything while the machine is shared.) The probe now
+Sun-map casters at the burger lot fell from 346 to 57 (the room's pieces
+cast only while it is drawn). The busiest view in the city is unchanged
+(200 draws, uptown). Tile build p95 over the nine sites: 69.0 ms against
+WP-04's 68.4 (+1%, inside the +15% ratchet), and 68.9 ms for the same
+tiles in the same run with the full prefabs (the first measurement, taken
+with 3-4 other Unity jobs on the machine, read 75.8 against 72.9: only the
+A/B inside one run means anything while the machine is shared). The probe now
 also prints each site's prop stand-up time, with every prop instantiated once
 both ways before it starts (the variants carry the full prefabs' own
 meshes and colliders, so whichever pass ran first paid their first load and
-MeshCollider cook): a restaurant lot 10.4 ms with the variants against
-11.9 ms; 25 suburb houses 5.0 against 2.7 ms (about 0.1 ms a house, left
-for now). Map heap 18.3 MB (18.2 at WP-04). WebGL.data 81.40 -> 81.67 MiB
+MeshCollider cook): a restaurant lot 10.5 / 12.7 ms with the variants
+against 9.2 / 13.7 ms (burger / pizza lot, within the run's noise); 25
+suburb houses 5.4 against 2.0 ms (about 0.1 ms a house, left for now). Map heap 18.3 MB (18.2 at WP-04). WebGL.data 81.40 -> 81.67 MiB
 (+0.27, the package's budget 0.3).
 
 **G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes

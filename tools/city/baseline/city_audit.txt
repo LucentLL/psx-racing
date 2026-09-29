@@ -193,8 +193,8 @@ terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-ce
   ok  cut (retaining) walls: at most +20% on WP-04's baseline (terrain fidelity) — 1071 m vs 1340 m on the roadside tiles
     decks over water: 560 spans judged; soffit under 1 m above the water 1, under the water 0; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792 (WP-25 asks >= 1 m); the solve lifted 12 spans to clear their water by 1.0 m, the most by 3.11 m
   ok  no water stands above a deck's soffit (terrain fidelity) — 0 of 560 spans; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792
-budget: 225 tiles at 9 sites, tile build p50 22.6 / p95 75.8 / max 167.1 ms (editor), worst view 200 draws (trade_tryon)
-budget: WP-07 prepay - suburb view saves 88 draws (target 20+), a restaurant view saves 429 (target 300+)
+budget: 225 tiles at 9 sites, tile build p50 20.3 / p95 69.0 / max 149.7 ms (editor), worst view 200 draws (trade_tryon)
+budget: WP-07 prepay - suburb view saves 88 draws (target 20+), a restaurant from its road saves 429 (target 300+), stopped in the order bay 408
 budget: spawn road y (m above the datum) trade_tryon 134.423, providence 116.583, i77_north 134.315, beatties_ford 144.019, tryon_start 130.193, dilworth 102.789, plaza_midwood 126.532, i485_south 119.308, suburb_6km 124.781
-budget: parse 176 ms + solve 1088 ms, map heap 18.3 MB (+1.4 MB DEM)
+budget: parse 183 ms + solve 1130 ms, map heap 18.3 MB (+1.4 MB DEM)
 CITY AUDIT OK

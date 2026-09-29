@@ -941,6 +941,11 @@ namespace PSXRacing.EditorTools
                     var room = v.GetComponent<PSXRacing.City.CityPropInterior>();
                     Check(room != null && room.interior != null && room.interior.Length > 50,
                           name + " (city) keeps its room behind the switch", room != null && room.interior != null ? room.interior.Length + " renderers" : "none");
+                    // the switch draws the room only from inside its hull, so
+                    // a hull left unbaked (zero size) would hide it for good
+                    Check(room != null && room.hull.size.x > 3f && room.hull.size.z > 3f && room.hull.size.y > 1.5f,
+                          name + " (city) has its room's hull baked (the switch's inside test)",
+                          room != null ? room.hull.size.ToString("0.0") : "none");
                     Check(v.GetComponentsInChildren<SwingDoor>(true).Length > 0, name + " (city) keeps its doors on hinges");
                     Check(draws <= 40, name + " (city) costs a few dozen draws at most from the street", draws);
                 }

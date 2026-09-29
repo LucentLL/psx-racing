@@ -178,7 +178,8 @@ namespace PSXRacing.EditorTools
                     "the player is still at street height after two seconds",
                     (player.transform.position.y - y0).ToString("+0.00;-0.00") + " m from where it was seated");
 
-                yield return Restaurant(mode, roamSpawn);
+                yield return Restaurant(mode, roamSpawn, CityProps.Burger);
+                yield return Restaurant(mode, roamSpawn, CityProps.Pizzeria);
             }
 
             // ---- THE 277 RACE ---------------------------------------------
@@ -238,83 +239,136 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// A CITY RESTAURANT (WP-07, plan critic C1). The streamed city now
-        /// stands up the MERGED variant of the drive-thru and the pizzeria;
-        /// what makes them places has to have come with it. Pull into the
-        /// first lot's order bay and stop: ORDER is offered, the room is drawn
-        /// (the viewer is within 40 m), every piece still collides; drive
-        /// away and the room goes again.
+        /// A CITY RESTAURANT (WP-07, plan critic C1), the first lot of each
+        /// kind. The streamed city stands up the MERGED variant of the
+        /// drive-thru and the pizzeria; what makes them places has to have
+        /// come with it, and the room behind the switch must be drawn exactly
+        /// when it can be seen. Stop where the car orders (the drive-thru's
+        /// lane, the pizzeria's kerb: CityPropBaker.BayStop): ORDER is
+        /// offered, every piece still collides, and the room is drawn only if
+        /// a door has swung open for the car (the doorway shows it) - the
+        /// windows are opaque. Put the camera inside the building: drawn;
+        /// back out behind the car: gone. Pull up to a door: it swings open
+        /// and the room is drawn through it. 70 m off: door shut, room gone.
         /// </summary>
-        IEnumerator Restaurant(CityMode mode, Vector3 home)
+        IEnumerator Restaurant(CityMode mode, Vector3 home, byte kind)
         {
-            CityPlayCheck.Line("a city restaurant (the WP-07 variant):");
+            string what = CityProps.FoodName(kind);
+            CityPlayCheck.Line($"a city restaurant, {what} (the WP-07 variant):");
             var world = mode.world;
             var player = mode.player;
             bool found = false;
             (byte kind, Vector2 pos) lot = default;
-            foreach (var l in world.FoodLots) { lot = l; found = true; break; }
-            CityPlayCheck.Check(found, "the city has restaurant lots", world.FoodLots.Count);
+            foreach (var l in world.FoodLots) if (l.kind == kind) { lot = l; found = true; break; }
+            CityPlayCheck.Check(found, what + ": the city has a lot", world.FoodLots.Count + " restaurant lots");
             if (!found) yield break;
+
+            // stand the lot up, find its bay and its room
+            DriveThru bay = null;
+            CityPropInterior room = null;
+            float best = float.MaxValue;
+            void FindLot()
+            {
+                bay = null; room = null; best = float.MaxValue;
+                foreach (var d in Object.FindObjectsByType<DriveThru>(FindObjectsSortMode.None))
+                {
+                    float dd = Vector2.Distance(new Vector2(d.transform.position.x, d.transform.position.z), lot.pos);
+                    if (dd < best) { best = dd; bay = d; }
+                }
+                if (bay != null) room = bay.GetComponentInParent<CityPropInterior>();
+            }
             world.EnsureRing(new Vector3(lot.pos.x, 0f, lot.pos.y), 1);
             yield return null;
-
-            DriveThru bay = null;
-            float best = float.MaxValue;
-            foreach (var d in Object.FindObjectsByType<DriveThru>(FindObjectsSortMode.None))
-            {
-                float dd = Vector2.Distance(new Vector2(d.transform.position.x, d.transform.position.z), lot.pos);
-                if (dd < best) { best = dd; bay = d; }
-            }
-            CityPlayCheck.Check(bay != null && best < 60f, "the lot's order bay stood up with it",
-                bay != null ? CityProps.FoodName(lot.kind) + ", " + best.ToString("0") + " m from the lot" : "no DriveThru in the scene");
+            FindLot();
+            CityPlayCheck.Check(bay != null && best < 60f, what + ": the lot's order bay stood up with it",
+                bay != null ? best.ToString("0") + " m from the lot" : "no DriveThru in the scene");
             if (bay == null) yield break;
-            var room = bay.GetComponentInParent<CityPropInterior>();
             CityPlayCheck.Check(room != null && room.transform.Find("CityMerged") != null,
-                "it is the city variant: a merged shell, the room behind a switch");
-            if (room != null)
-            {
-                int solids = 0;
-                foreach (var c in room.GetComponentsInChildren<Collider>(true)) if (!c.isTrigger) solids++;
-                CityPlayCheck.Check(solids > 20, "every piece of it still collides (walk-in, walls, counters)", solids + " colliders");
-            }
+                what + ": it is the city variant, a merged shell with the room behind a switch");
+            if (room == null) yield break;
+            int solids = 0;
+            foreach (var c in room.GetComponentsInChildren<Collider>(true)) if (!c.isTrigger) solids++;
+            CityPlayCheck.Check(solids > 20, what + ": every piece of it still collides (walk-in, walls, counters)", solids + " colliders");
 
-            // pull in and stop
-            var box = bay.GetComponent<BoxCollider>();
-            var at = box != null ? box.bounds.center : bay.transform.position;
-            float seat = room != null ? room.transform.position.y + CityProps.Defs[lot.kind].sink : at.y;
-            player.TeleportTo(new Vector3(at.x, seat + 0.6f, at.z), Quaternion.Euler(0f, bay.transform.eulerAngles.y, 0f));
+            // pull in where it orders and stop
+            var stop = CityPropBaker.BayStop(bay, room, out var along);
+            float seat = room.transform.position.y + CityProps.Defs[lot.kind].sink;
+            player.TeleportTo(new Vector3(stop.x, seat + 0.6f, stop.z), Quaternion.LookRotation(along, Vector3.up));
             float t0 = Time.time;
             while (Time.time - t0 < 2.5f && !DriveThru.AtBay) yield return null;
-            CityPlayCheck.Check(DriveThru.AtBay, "ORDER is offered, stopped in the bay", DriveThru.Prompt ?? "no prompt");
+            CityPlayCheck.Check(DriveThru.AtBay, what + ": ORDER is offered, stopped at the bay", DriveThru.Prompt ?? "no prompt");
             // The tiles built ahead of the teleport were dropped the frame
-            // after (the player was still uptown) and built again round the
-            // car: the restaurant standing now is a NEW instance.
-            room = null;
-            best = float.MaxValue;
-            foreach (var r in Object.FindObjectsByType<CityPropInterior>(FindObjectsSortMode.None))
-            {
-                float dd = Vector2.Distance(new Vector2(r.transform.position.x, r.transform.position.z), lot.pos);
-                if (dd < best) { best = dd; room = r; }
-            }
-            t0 = Time.time;
-            while (Time.time - t0 < 2f && room != null && !room.Shown) yield return null;
-            CityPlayCheck.Check(room != null && room.Shown, "the room is drawn with the player at the lot",
-                room == null ? "no switch" :
-                $"{(room.isActiveAndEnabled ? "running" : "NOT running")}, car {Vector3.Distance(player.transform.position, room.transform.position):0} m, " +
-                $"camera {(Camera.main != null ? Vector3.Distance(Camera.main.transform.position, room.transform.position).ToString("0") + " m" : "none")}, " +
-                $"world {(CityWorld.Active != null ? "active" : "none")}");
+            // after (the player was elsewhere) and built again round the car:
+            // the restaurant standing now is a NEW instance.
+            FindLot();
+            CityPlayCheck.Check(room != null && room.isActiveAndEnabled, what + ": the lot's room switch is running",
+                room == null ? "no switch" : $"world {(CityWorld.Active != null ? "active" : "none")}");
+            if (room == null) { player.TeleportTo(home, player.transform.rotation); yield break; }
+            var sw = room;
+            string Where() =>
+                $"car {sw.DistanceTo(player.transform.position):0.0} m, camera " +
+                $"{(Camera.main != null ? sw.DistanceTo(Camera.main.transform.position).ToString("0.0") + " m" : "none")} from the room's hull, " +
+                $"door {(sw.AnyDoorOpen() ? "OPEN" : "shut")}, room {(sw.Shown ? "DRAWN" : "off")}";
 
-            // and 70 m away, still on the same tiles (the lot must stand, or
-            // "switched off" would only mean "destroyed")
-            if (room != null)
+            // 1. At the bay the room is drawn exactly when a door has swung
+            // open for the car: the windows are opaque (CityPropBaker's room
+            // check renders it both ways from here and counts the pixels).
+            // A second is four of the switch's checks.
+            t0 = Time.time;
+            bool wrong = false;
+            while (Time.time - t0 < 1f) { wrong |= sw.Shown != sw.AnyDoorOpen(); yield return null; }
+            CityPlayCheck.Check(!wrong && sw.Shown == sw.AnyDoorOpen() && sw.DistanceTo(player.transform.position) > CityPropInterior.InM,
+                what + ": at the bay the room is drawn only if a door stands open (the windows hide it)", Where());
+
+            // 2. The camera inside the building: drawn; back out behind the
+            // car: gone again (unless a door is open for the car).
+            var chase = ChaseCamera.Active;
+            var cam = Camera.main;
+            if (cam != null)
             {
-                var away = room.transform.position + new Vector3(70f, 3f, 0f);
-                player.TeleportTo(away, player.transform.rotation);
+                if (chase != null) chase.enabled = false;
+                cam.transform.position = sw.transform.TransformPoint(sw.hull.center);
                 t0 = Time.time;
-                while (Time.time - t0 < 4f && room != null && room.Shown) yield return null;
-                CityPlayCheck.Check(room != null && !room.Shown, "and switched off again 70 m away, the lot still standing",
-                    room != null ? Vector3.Distance(player.transform.position, room.transform.position).ToString("0") + " m" : "the lot was dropped");
+                while (Time.time - t0 < 1f && !sw.Shown) yield return null;
+                CityPlayCheck.Check(sw.Shown, what + ": the room is drawn with the camera inside the building", Where());
+                if (chase != null) chase.enabled = true;
+                t0 = Time.time;
+                while (Time.time - t0 < 2f && sw.Shown != sw.AnyDoorOpen()) yield return null;
+                CityPlayCheck.Check(sw.Shown == sw.AnyDoorOpen(), what + ": and goes again with the camera back behind the car", Where());
             }
+            else CityPlayCheck.Check(false, what + ": a camera to put inside the building", "no Camera.main");
+
+            // 3. A door swung open (the car pulled up to it): the doorway
+            // shows the room, so it is drawn - the frame the leaf moves.
+            SwingDoor door = null;
+            var hc = sw.transform.TransformPoint(sw.hull.center);
+            float doorD = float.MaxValue;
+            foreach (var dr in sw.GetComponentsInChildren<SwingDoor>(true))
+            {
+                float dd = Vector3.Distance(dr.transform.position, hc);
+                if (dd < doorD) { doorD = dd; door = dr; }
+            }
+            if (door != null)
+            {
+                var n = door.transform.parent != null ? door.transform.parent.TransformDirection(door.throughNormal) : door.throughNormal;
+                n.y = 0f; n = n.sqrMagnitude > 1e-4f ? n.normalized : Vector3.forward;
+                if (Vector3.Dot(door.transform.position - hc, n) < 0f) n = -n;   // the outside
+                var p = door.transform.position + n * 2.8f;
+                player.TeleportTo(new Vector3(p.x, seat + 0.6f, p.z), Quaternion.LookRotation(Vector3.Cross(Vector3.up, n), Vector3.up));
+                t0 = Time.time;
+                while (Time.time - t0 < 2f && !(sw.AnyDoorOpen() && sw.Shown)) yield return null;
+                CityPlayCheck.Check(sw.AnyDoorOpen() && sw.Shown, what + ": a door swung open for the car and the room is drawn through it", Where());
+            }
+            else CityPlayCheck.Check(false, what + ": the restaurant has a hinged door", "none");
+
+            // 4. 70 m away, still on the same tiles (the lot must stand, or
+            // "switched off" would only mean "destroyed"): door shut, room off.
+            var away = sw.transform.position + new Vector3(70f, 3f, 0f);
+            player.TeleportTo(away, player.transform.rotation);
+            t0 = Time.time;
+            while (Time.time - t0 < 4f && sw != null && (sw.Shown || sw.AnyDoorOpen())) yield return null;
+            CityPlayCheck.Check(sw != null && !sw.Shown && !sw.AnyDoorOpen(), what + ": 70 m away the door shuts and the room goes, the lot still standing",
+                sw != null ? Where() : "the lot was dropped");
             player.TeleportTo(home, player.transform.rotation);
             yield return null;
         }

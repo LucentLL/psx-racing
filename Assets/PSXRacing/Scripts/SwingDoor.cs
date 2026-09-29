@@ -76,6 +76,10 @@ namespace PSXRacing
 
         /// <summary>0 shut, 1 fully open.</summary>
         float t;
+
+        /// <summary>Off its stop: the doorway shows what is behind it (the
+        /// city restaurants draw their room while it does).</summary>
+        public bool IsOpen => t > 0f;
         /// <summary>Which way this leaf is currently swinging. Held while the
         /// door is off its stop — see rule 2.</summary>
         float sign = 1f;

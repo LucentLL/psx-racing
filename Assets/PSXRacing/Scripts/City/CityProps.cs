@@ -138,8 +138,9 @@ namespace PSXRacing.City
         // The streamed city stands up a CHEAPER copy of the props that cost
         // it the most draw calls: the house (13 draws) and the trailers (9)
         // as one atlased mesh each, the two restaurants (about 350 and 400)
-        // as a merged shell with the room switched on only nearby
-        // (CityPropInterior). Baked by CityPropBaker beside the full prefabs.
+        // as a merged shell with the room drawn only from inside the building
+        // or through an open door (CityPropInterior). Baked by CityPropBaker
+        // beside the full prefabs.
         // Everywhere else - the Emerald Isle beach town, the house and town
         // scenes, which build from the FBXs or the full prefabs - is as it was.
 

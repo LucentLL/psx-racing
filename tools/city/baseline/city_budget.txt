@@ -1,7 +1,7 @@
 CITY BUDGET (editor; WP-01 instrument; plan section 2.4)
 eye 1.2 m over the nearest road, fov 58, aspect 16:9, far 500 m, four headings from the road's own; ring 5x5 tiles of 256 m via CityWorld.EnsureTile
 unity 6000.5.5f1, Intel(R) Core(TM) i7-10700K CPU @ 3.80GHz, 130962 MB
-warm-up tile (not counted): 200.7 ms
+warm-up tile (not counted): 77.6 ms
 trade_tryon: uptown, Trade & Tryon; eye (-2319,135.6,4732)
 providence: Providence Rd; eye (1184,117.8,-1795)
 i77_north: I-77 north (the toll-drop kink); eye (-2825,135.5,16870)
@@ -11,49 +11,57 @@ dilworth: Queens Rd W, Myers Park / Dilworth (Street View A8); eye (-1734,104.0,
 plaza_midwood: Central Ave, Plaza Midwood (Street View A11); eye (792,127.7,3958)
 i485_south: I-485, the wooded south-east stretch (Street View A4); eye (4887,120.5,-13765)
 suburb_6km: Randolph Rd, a prefab suburb 6.9 km out (outside the footprint core); eye (2544,126.0,-162)
-burger_lot: STACK BURGER lot (restaurant prop, WP-07); eye (2026,116.7,-3421), 32 m from the site
-pizza_lot: SLICE HOUSE lot (restaurant prop, WP-07); eye (-284,106.1,-1141)
+burger_lot: STACK BURGER lot from its road (restaurant prop, WP-07); eye (2026,116.7,-3421), 32 m from the site; nearest restaurant room 22.8 m from the eye or car, 0 drawn by the switch
+burger_bay: STACK BURGER: the chase camera of a car stopped in the order bay; eye (2042,117.0,-3435); nearest restaurant room 2.8 m from the eye or car, 0 drawn by the switch
+pizza_lot: SLICE HOUSE lot from its road (restaurant prop, WP-07); eye (-284,106.1,-1141), 19 m from the site; nearest restaurant room 19.3 m from the eye or car, 0 drawn by the switch
+pizza_bay: SLICE HOUSE: the chase camera of a car stopped in the order bay; eye (-302,106.3,-1147); nearest restaurant room 5.2 m from the eye or car, 0 drawn by the switch
 
 site           tiles  tile build (whole EnsureTile), mesh build, collider cook        draws ahead/right/back/left   sun-map casters   ring totals
-trade_tryon     25 tiles  total p50  54.1 p95  85.6 max 211.8 ms  build p95  79.5  cook p95   5.2  draws  139/ 157/ 161/ 200  casters   56 (5 in the 90 m box)  verts   415k  tris   273k  colliders  571  props   1 (2.2 ms to stand up)
-providence      25 tiles  total p50   6.9 p95  33.3 max  41.5 ms  build p95  30.2  cook p95   2.7  draws   86/  38/  44/  31  casters   55 (5 in the 90 m box)  verts   236k  tris   141k  colliders  208  props  20 (4.1 ms to stand up)
-i77_north       25 tiles  total p50  15.0 p95  38.6 max  67.2 ms  build p95  36.7  cook p95   2.3  draws   94/  63/  43/  57  casters   50 (10 in the 90 m box)  verts   170k  tris   100k  colliders  200  props   0 (0.0 ms to stand up)
-beatties_ford   25 tiles  total p50   5.3 p95  18.4 max  19.0 ms  build p95  15.5  cook p95   1.9  draws   27/  20/  39/  41  casters   25 (6 in the 90 m box)  verts   118k  tris    63k  colliders   92  props   0 (0.0 ms to stand up)
-tryon_start     25 tiles  total p50  45.7 p95  64.9 max 138.7 ms  build p95  59.6  cook p95   4.1  draws  132/ 133/ 168/ 156  casters   54 (5 in the 90 m box)  verts   359k  tris   241k  colliders  479  props   1 (0.2 ms to stand up)
-dilworth        25 tiles  total p50  57.5 p95 107.9 max 126.5 ms  build p95 102.5  cook p95   4.5  draws  151/ 135/  81/ 101  casters   75 (4 in the 90 m box)  verts   410k  tris   266k  colliders  366  props  22 (4.3 ms to stand up)
-plaza_midwood   25 tiles  total p50  55.3 p95  64.6 max  72.8 ms  build p95  60.5  cook p95   4.8  draws  147/ 168/ 140/ 150  casters   56 (4 in the 90 m box)  verts   355k  tris   234k  colliders  443  props   0 (0.0 ms to stand up)
-i485_south      25 tiles  total p50  19.5 p95  94.7 max 161.2 ms  build p95  91.1  cook p95   2.7  draws   67/  69/  40/  24  casters   39 (4 in the 90 m box)  verts   167k  tris   101k  colliders  196  props   0 (0.0 ms to stand up)
-suburb_6km      25 tiles  total p50   9.2 p95  19.7 max  20.3 ms  build p95  17.2  cook p95   1.6  draws   59/  54/  53/  36  casters   66 (8 in the 90 m box)  verts   252k  tris   147k  colliders  175  props  25 (5.0 ms to stand up)
-burger_lot      25 tiles  total p50   9.9 p95  30.4 max  49.5 ms  build p95  27.5  cook p95   2.2  draws   93/  97/  70/  82  casters   57 (16 in the 90 m box)  verts   262k  tris   162k  colliders  457  props  10 (10.4 ms to stand up)
-pizza_lot       25 tiles  total p50  14.1 p95  44.8 max  51.3 ms  build p95  40.6  cook p95   2.3  draws   95/  57/  91/  75  casters   64 (7 in the 90 m box)  verts   334k  tris   206k  colliders  282  props  26 (10.9 ms to stand up)
-ALL 225 tiles: total p50 24.0 p95 84.3 max 211.8 ms; mesh build p95 79.1; cook p95 4.6; worst view 200 draws at trade_tryon
+trade_tryon     25 tiles  total p50  48.3 p95  71.1 max 143.6 ms  build p95  66.6  cook p95   4.2  draws  139/ 157/ 161/ 200  casters   56 (5 in the 90 m box)  verts   415k  tris   273k  colliders  571  props   1 (2.1 ms to stand up)
+providence      25 tiles  total p50   7.5 p95  33.0 max  34.3 ms  build p95  28.9  cook p95   2.3  draws   86/  38/  44/  31  casters   55 (5 in the 90 m box)  verts   236k  tris   141k  colliders  208  props  20 (4.2 ms to stand up)
+i77_north       25 tiles  total p50  13.7 p95  32.8 max  53.5 ms  build p95  30.8  cook p95   2.1  draws   94/  63/  43/  57  casters   50 (10 in the 90 m box)  verts   170k  tris   100k  colliders  200  props   0 (0.0 ms to stand up)
+beatties_ford   25 tiles  total p50   4.4 p95  14.0 max  14.7 ms  build p95  12.2  cook p95   1.3  draws   27/  20/  39/  41  casters   25 (6 in the 90 m box)  verts   118k  tris    63k  colliders   92  props   0 (0.0 ms to stand up)
+tryon_start     25 tiles  total p50  40.1 p95  64.0 max 120.7 ms  build p95  59.6  cook p95   3.9  draws  132/ 133/ 168/ 156  casters   54 (5 in the 90 m box)  verts   359k  tris   241k  colliders  479  props   1 (0.1 ms to stand up)
+dilworth        25 tiles  total p50  48.6 p95  90.3 max 113.7 ms  build p95  84.6  cook p95   3.4  draws  151/ 135/  81/ 101  casters   75 (4 in the 90 m box)  verts   410k  tris   266k  colliders  366  props  22 (4.7 ms to stand up)
+plaza_midwood   25 tiles  total p50  45.0 p95  53.8 max  54.0 ms  build p95  50.1  cook p95   3.3  draws  147/ 168/ 140/ 150  casters   56 (4 in the 90 m box)  verts   355k  tris   234k  colliders  443  props   0 (0.0 ms to stand up)
+i485_south      25 tiles  total p50  16.3 p95  84.6 max 149.7 ms  build p95  81.3  cook p95   2.4  draws   67/  69/  40/  24  casters   39 (4 in the 90 m box)  verts   167k  tris   101k  colliders  196  props   0 (0.0 ms to stand up)
+suburb_6km      25 tiles  total p50   8.8 p95  19.3 max  19.4 ms  build p95  16.9  cook p95   1.9  draws   59/  54/  53/  36  casters   66 (8 in the 90 m box)  verts   252k  tris   147k  colliders  175  props  25 (5.4 ms to stand up)
+burger_lot      25 tiles  total p50   8.2 p95  27.8 max  42.6 ms  build p95  24.3  cook p95   2.6  draws   93/  97/  70/  82  casters   57 (16 in the 90 m box)  verts   262k  tris   162k  colliders  457  props  10 (10.5 ms to stand up)
+burger_bay      25 tiles  total p50   9.5 p95  32.4 max  38.3 ms  build p95  28.0  cook p95   2.2  draws   95/  94/  76/  83  casters   57 (15 in the 90 m box)  verts   262k  tris   162k  colliders  457  props  10 (7.2 ms to stand up)
+pizza_lot       25 tiles  total p50  13.0 p95  44.8 max  48.3 ms  build p95  41.4  cook p95   2.2  draws   95/  57/  91/  75  casters   64 (7 in the 90 m box)  verts   334k  tris   206k  colliders  282  props  26 (12.7 ms to stand up)
+pizza_bay       25 tiles  total p50  11.8 p95  38.8 max  48.6 ms  build p95  36.2  cook p95   2.4  draws   75/  95/  68/  90  casters   64 (7 in the 90 m box)  verts   334k  tris   206k  colliders  282  props  26 (9.8 ms to stand up)
+ALL 225 tiles: total p50 20.3 p95 69.0 max 149.7 ms; mesh build p95 65.8; cook p95 3.6; worst view 200 draws at trade_tryon
 WP-09 trigger (editor): tile p95 OVER 8 ms, worst view under 300 draws
 
 WP-07 A/B - the same sites and tiles with the FULL prop prefabs (the city before the variants):
-full trade_tryon     25 tiles  total p50  53.6 p95  88.1 max 167.7 ms  build p95  81.4  cook p95   5.5  draws  139/ 157/ 161/ 200  casters   56 (5 in the 90 m box)  verts   415k  tris   273k  colliders  571  props   1 (0.2 ms to stand up)
-full providence      25 tiles  total p50   8.6 p95  34.1 max  39.5 ms  build p95  30.6  cook p95   2.5  draws  179/  38/  73/  31  casters   75 (6 in the 90 m box)  verts   236k  tris   141k  colliders  208  props  20 (2.5 ms to stand up)
-full i77_north       25 tiles  total p50  16.2 p95  40.7 max  71.7 ms  build p95  37.7  cook p95   2.8  draws   94/  63/  43/  57  casters   50 (10 in the 90 m box)  verts   170k  tris   100k  colliders  200  props   0 (0.0 ms to stand up)
-full beatties_ford   25 tiles  total p50   6.0 p95  19.0 max  19.5 ms  build p95  16.7  cook p95   1.6  draws   27/  20/  39/  41  casters   25 (6 in the 90 m box)  verts   118k  tris    63k  colliders   92  props   0 (0.0 ms to stand up)
-full tryon_start     25 tiles  total p50  47.8 p95 100.8 max 146.4 ms  build p95  86.4  cook p95   4.1  draws  132/ 133/ 168/ 156  casters   54 (5 in the 90 m box)  verts   359k  tris   241k  colliders  479  props   1 (0.2 ms to stand up)
-full dilworth        25 tiles  total p50  86.6 p95 160.9 max 173.6 ms  build p95 148.8  cook p95   5.4  draws  151/ 135/ 105/ 101  casters   97 (4 in the 90 m box)  verts   410k  tris   266k  colliders  366  props  22 (2.6 ms to stand up)
-full plaza_midwood   25 tiles  total p50 103.3 p95 203.4 max 288.5 ms  build p95 195.7  cook p95  17.3  draws  147/ 168/ 140/ 150  casters   56 (4 in the 90 m box)  verts   355k  tris   234k  colliders  443  props   0 (0.0 ms to stand up)
-full i485_south      25 tiles  total p50  19.9 p95 132.8 max 166.1 ms  build p95 127.7  cook p95   3.5  draws   67/  69/  40/  24  casters   39 (4 in the 90 m box)  verts   167k  tris   101k  colliders  196  props   0 (0.0 ms to stand up)
-full suburb_6km      25 tiles  total p50  10.1 p95  21.9 max  22.2 ms  build p95  19.3  cook p95   2.1  draws  139/  66/ 141/  36  casters   91 (10 in the 90 m box)  verts   252k  tris   147k  colliders  175  props  25 (2.7 ms to stand up)
-full burger_lot      25 tiles  total p50  10.2 p95  32.6 max  54.0 ms  build p95  29.0  cook p95   2.6  draws   97/ 439/  71/  61  casters  346 (298 in the 90 m box)  verts   262k  tris   162k  colliders  457  props  10 (11.9 ms to stand up)
-full pizza_lot       25 tiles  total p50  13.7 p95  44.9 max  55.7 ms  build p95  41.6  cook p95   2.5  draws  145/  49/  97/ 504  casters  348 (266 in the 90 m box)  verts   334k  tris   206k  colliders  282  props  26 (11.2 ms to stand up)
-full ALL 225 tiles: total p50 28.0 p95 137.3 max 288.5 ms
+full trade_tryon     25 tiles  total p50  47.9 p95  71.0 max 154.2 ms  build p95  66.6  cook p95   4.0  draws  139/ 157/ 161/ 200  casters   56 (5 in the 90 m box)  verts   415k  tris   273k  colliders  571  props   1 (0.2 ms to stand up)
+full providence      25 tiles  total p50   5.4 p95  29.9 max  37.8 ms  build p95  27.4  cook p95   2.4  draws  179/  38/  73/  31  casters   75 (6 in the 90 m box)  verts   236k  tris   141k  colliders  208  props  20 (1.9 ms to stand up)
+full i77_north       25 tiles  total p50  12.2 p95  33.0 max  59.7 ms  build p95  30.5  cook p95   2.6  draws   94/  63/  43/  57  casters   50 (10 in the 90 m box)  verts   170k  tris   100k  colliders  200  props   0 (0.0 ms to stand up)
+full beatties_ford   25 tiles  total p50   4.4 p95  13.7 max  17.8 ms  build p95  11.8  cook p95   1.3  draws   27/  20/  39/  41  casters   25 (6 in the 90 m box)  verts   118k  tris    63k  colliders   92  props   0 (0.0 ms to stand up)
+full tryon_start     25 tiles  total p50  40.6 p95  62.9 max 116.8 ms  build p95  58.3  cook p95   3.9  draws  132/ 133/ 168/ 156  casters   54 (5 in the 90 m box)  verts   359k  tris   241k  colliders  479  props   1 (0.1 ms to stand up)
+full dilworth        25 tiles  total p50  46.0 p95 100.9 max 105.9 ms  build p95  95.2  cook p95   3.6  draws  151/ 135/ 105/ 101  casters   97 (4 in the 90 m box)  verts   410k  tris   266k  colliders  366  props  22 (2.0 ms to stand up)
+full plaza_midwood   25 tiles  total p50  43.9 p95  52.1 max  53.9 ms  build p95  48.2  cook p95   3.9  draws  147/ 168/ 140/ 150  casters   56 (4 in the 90 m box)  verts   355k  tris   234k  colliders  443  props   0 (0.0 ms to stand up)
+full i485_south      25 tiles  total p50  16.4 p95  94.2 max 145.3 ms  build p95  90.8  cook p95   2.5  draws   67/  69/  40/  24  casters   39 (4 in the 90 m box)  verts   167k  tris   101k  colliders  196  props   0 (0.0 ms to stand up)
+full suburb_6km      25 tiles  total p50   8.4 p95  17.8 max  22.0 ms  build p95  15.9  cook p95   1.6  draws  139/  66/ 141/  36  casters   91 (10 in the 90 m box)  verts   252k  tris   147k  colliders  175  props  25 (2.0 ms to stand up)
+full burger_lot      25 tiles  total p50   9.8 p95  25.3 max  51.1 ms  build p95  22.6  cook p95   2.2  draws   97/ 439/  71/  61  casters  346 (298 in the 90 m box)  verts   262k  tris   162k  colliders  457  props  10 (9.2 ms to stand up)
+full burger_bay      25 tiles  total p50   8.4 p95  31.3 max  51.4 ms  build p95  28.5  cook p95   2.4  draws  423/  96/  63/ 111  casters  346 (297 in the 90 m box)  verts   262k  tris   162k  colliders  457  props  10 (10.6 ms to stand up)
+full pizza_lot       25 tiles  total p50  15.5 p95  42.2 max  47.1 ms  build p95  39.7  cook p95   2.1  draws  145/  49/  97/ 504  casters  348 (266 in the 90 m box)  verts   334k  tris   206k  colliders  282  props  26 (13.7 ms to stand up)
+full pizza_bay       25 tiles  total p50  12.2 p95  41.4 max  49.7 ms  build p95  38.5  cook p95   2.0  draws  167/ 503/  57/  90  casters  348 (266 in the 90 m box)  verts   334k  tris   206k  colliders  282  props  26 (8.7 ms to stand up)
+full ALL 225 tiles: total p50 21.7 p95 68.9 max 154.2 ms
 draws saved by the variants, per heading (ahead/right/back/left), and the view that saved most:
-  trade_tryon    saved 0/0/0/0  most 0  (tile p95 88.1 -> 85.6 ms)
-  providence     saved 93/0/29/0  most 93  (tile p95 34.1 -> 33.3 ms)
-  i77_north      saved 0/0/0/0  most 0  (tile p95 40.7 -> 38.6 ms)
-  beatties_ford  saved 0/0/0/0  most 0  (tile p95 19.0 -> 18.4 ms)
-  tryon_start    saved 0/0/0/0  most 0  (tile p95 100.8 -> 64.9 ms)
-  dilworth       saved 0/0/24/0  most 24  (tile p95 160.9 -> 107.9 ms)
-  plaza_midwood  saved 0/0/0/0  most 0  (tile p95 203.4 -> 64.6 ms)
-  i485_south     saved 0/0/0/0  most 0  (tile p95 132.8 -> 94.7 ms)
-  suburb_6km     saved 80/12/88/0  most 88  (tile p95 21.9 -> 19.7 ms)
-  burger_lot     saved 4/342/1/-21  most 342  (tile p95 32.6 -> 30.4 ms)
-  pizza_lot      saved 50/-8/6/429  most 429  (tile p95 44.9 -> 44.8 ms)
+  trade_tryon    saved 0/0/0/0  most 0  (tile p95 71.0 -> 71.1 ms)
+  providence     saved 93/0/29/0  most 93  (tile p95 29.9 -> 33.0 ms)
+  i77_north      saved 0/0/0/0  most 0  (tile p95 33.0 -> 32.8 ms)
+  beatties_ford  saved 0/0/0/0  most 0  (tile p95 13.7 -> 14.0 ms)
+  tryon_start    saved 0/0/0/0  most 0  (tile p95 62.9 -> 64.0 ms)
+  dilworth       saved 0/0/24/0  most 24  (tile p95 100.9 -> 90.3 ms)
+  plaza_midwood  saved 0/0/0/0  most 0  (tile p95 52.1 -> 53.8 ms)
+  i485_south     saved 0/0/0/0  most 0  (tile p95 94.2 -> 84.6 ms)
+  suburb_6km     saved 80/12/88/0  most 88  (tile p95 17.8 -> 19.3 ms)
+  burger_lot     saved 4/342/1/-21  most 342  (tile p95 25.3 -> 27.8 ms)
+  burger_bay     saved 328/2/-13/28  most 328  (tile p95 31.3 -> 32.4 ms)
+  pizza_lot      saved 50/-8/6/429  most 429  (tile p95 42.2 -> 44.8 ms)
+  pizza_bay      saved 92/408/-11/0  most 408  (tile p95 41.4 -> 38.8 ms)
 
 spawn seats (CityMode.SeatOnStreet's rule; datum 97.000 m ASL, graph hash 27bccd93)
 spawn trade_tryon    edge 6238 way 648281647 at 124.290 m  seat (-2318.882,4731.831)  road y 134.4234  ground y at site 135.0625
@@ -66,5 +74,5 @@ spawn plaza_midwood  edge 10339 way 1009804344 at 29.887 m  seat (792.487,3957.8
 spawn i485_south     edge 13287 way 1099200241 at 29.923 m  seat (4887.107,-13764.670)  road y 119.3078  ground y at site 118.3573
 spawn suburb_6km     edge 756 way 16695042 at 776.074 m  seat (2544.198,-161.948)  road y 124.7808  ground y at site 125.3116
 
-solve phases: road grid 78, pairs+water 31, profiles 426, trenches 2, seats 109, raises+structure 613 ms
-parse 209 ms, solve 1262 ms (editor); the parsed + solved map holds 18.2 MB of managed heap (25042 edges, 31695 footprints); the DEM array is 1.4 MB more (ushort[], loaded once); data bytes: city 2981 KB, bld 1701 KB, dem 1450 KB
+solve phases: road grid 71, pairs+water 28, profiles 429, trenches 3, seats 121, raises+structure 475 ms
+parse 183 ms, solve 1130 ms (editor); the parsed + solved map holds 18.3 MB of managed heap (25042 edges, 31695 footprints); the DEM array is 1.4 MB more (ushort[], loaded once); data bytes: city 2981 KB, bld 1701 KB, dem 1450 KB

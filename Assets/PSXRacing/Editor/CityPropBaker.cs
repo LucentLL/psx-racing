@@ -19,8 +19,9 @@ namespace PSXRacing.EditorTools
     ///   trailers       9 draws  -> 1   ONE 256 px atlas per family, the
     ///                                  foundation skirt folded in.
     ///   burger_drive, pizzeria  -> the shell merged by material; the room
-    ///                                  (300-odd renderers) OFF until the
-    ///                                  viewer is within 40 m.
+    ///                                  (300-odd renderers) OFF unless the
+    ///                                  viewer is inside the building or a
+    ///                                  door stands open.
     ///
     /// THE ATLAS. The pack materials TILE - a wall's UVs run to 8 - so a
     /// plain atlas cannot hold them. Every vertex carries its texture's cell
@@ -37,8 +38,11 @@ namespace PSXRacing.EditorTools
     /// rays from a ring of viewpoints round the lot, at kerb, cab and first-
     /// floor height and from above, to points in each piece's bounds; a piece
     /// no ray reaches without passing through another piece's collider is
-    /// room, and goes behind CityPropInterior's switch. The city props wear
-    /// opaque windows, so from outside the room is never seen anyway.
+    /// room, and goes behind CityPropInterior's switch with its hull (the room
+    /// pieces' box). The city props wear opaque windows, so from outside the
+    /// room is never seen: the switch draws it only from inside the hull or
+    /// through an open door, and CompareShots proves the rest by rendering
+    /// it both ways from the street, the bay and the driver's seat.
     ///
     /// Run by BakeCityProps (every full scene build) and by
     /// PSXRacingBuilder.BuildCityScenesOnly; menu PSX Racing/Bake City Prop
@@ -448,6 +452,7 @@ namespace PSXRacing.EditorTools
                 AddMergedRenderer(go, mesh, mats);
                 var sw = go.AddComponent<CityPropInterior>();
                 sw.interior = room.ToArray();
+                sw.hull = RoomHull(go, room);
 
                 go.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
                 go.name = NameOf(kind);
@@ -457,13 +462,109 @@ namespace PSXRacing.EditorTools
                 int collAfter = go.GetComponentsInChildren<Collider>(true).Length;
                 int trigAfter = 0;
                 foreach (var c in go.GetComponentsInChildren<Collider>(true)) if (c.isTrigger) trigAfter++;
-                bool bay = go.GetComponentInChildren<DriveThru>(true) != null;
+                var bayDt = go.GetComponentInChildren<DriveThru>(true);
+                bool bay = bayDt != null;
+                string bayAt = "";
+                if (bayDt != null)
+                {
+                    var stop = BayStop(bayDt, sw, out _);
+                    bayAt = $", a car stopped to order {sw.DistanceTo(stop + Vector3.up * 0.7f):0.0} m outside it" +
+                            (sw.DoorOpensFor(stop) ? " with a door opening for it" : "");
+                }
                 PrefabUtility.SaveAsPrefabAsset(go, OutDir + "/" + NameOf(kind) + ".prefab");
-                report.Add($"{NameOf(kind)}: {drawsBefore} -> {drawsAfter} draws beyond {CityPropInterior.OnM:0} m " +
-                           $"(shell {shell.Count} pieces as {mats.Length} materials, {doors} door leaves on hinges; room {room.Count} renderers / {roomDraws} draws switched on within {CityPropInterior.OnM:0} m), " +
+                var hs = sw.hull.size;
+                report.Add($"{NameOf(kind)}: {drawsBefore} -> {drawsAfter} draws with the room off " +
+                           $"(shell {shell.Count} pieces as {mats.Length} materials, {doors} door leaves on hinges; room {room.Count} renderers / {roomDraws} draws, " +
+                           $"drawn only from inside its hull ({hs.x:0.0} x {hs.z:0.0} x {hs.y:0.0} m, +{CityPropInterior.InM:0.0} m{bayAt}) or through an open door), " +
                            $"{mesh.vertexCount} verts, colliders {collBefore} -> {collAfter} (triggers {trigBefore} -> {trigAfter}), order bay {(bay ? "kept" : "MISSING")}");
             }
             finally { Object.DestroyImmediate(go); }
+        }
+
+        /// <summary>
+        /// Where a car stops to order, on the ground, and the way it faces
+        /// (along the building's nearest face). The drive-thru's bay is a box
+        /// round its menu board, whose post stands at the centre; the
+        /// pizzeria's is the building's own box grown out to the kerb ("a
+        /// stopped car anywhere along either face"), whose centre is INSIDE
+        /// the shop. So the stop is the first of the centre, the front kerb,
+        /// the back and the two sides - each as it is and 2.2 m to either side
+        /// or end - that is inside the bay, 2 m or more clear of the room, open
+        /// to the sky (under a roof is inside a building), and has room for a
+        /// car (no collider in a 4.6 x 1.9 m footprint from 0.3 to 1.5 m up).
+        /// Shared by the room check, the budget probe and the play check.
+        /// </summary>
+        public static Vector3 BayStop(DriveThru bay, CityPropInterior room, out Vector3 along)
+        {
+            Physics.SyncTransforms();
+            var t = bay.transform;
+            var box = bay.GetComponent<BoxCollider>();
+            var c = box != null ? t.TransformPoint(box.center) : t.position;
+            var ext = box != null ? Vector3.Scale(box.size * 0.5f, t.lossyScale) : Vector3.one * 5f;
+            float ground = box != null ? t.TransformPoint(box.center - Vector3.up * box.size.y * 0.5f).y : c.y;
+            var f = t.forward; f.y = 0f; f = f.sqrMagnitude > 1e-4f ? f.normalized : Vector3.forward;
+            var r = Vector3.Cross(Vector3.up, f);
+            var bases = new[] { c, c + f * (ext.z - 2.5f), c - f * (ext.z - 2.5f), c + r * (ext.x - 1.2f), c - r * (ext.x - 1.2f) };
+            var nudges = new[] { Vector3.zero, f * 2.2f, -f * 2.2f, r * 2.2f, -r * 2.2f };
+
+            Vector3 Along(Vector3 q)
+            {
+                if (room == null) return f;
+                var o = q - room.ClosestPoint(q + Vector3.up * 0.7f);
+                o.y = 0f;
+                return o.sqrMagnitude > 1e-4f ? Vector3.Cross(Vector3.up, o.normalized) : f;
+            }
+
+            bool back = Physics.queriesHitBackfaces;
+            Physics.queriesHitBackfaces = true;   // a roof seen from under it
+            try
+            {
+                foreach (var b0 in bases)
+                    foreach (var n in nudges)
+                    {
+                        var q = new Vector3(b0.x + n.x, ground, b0.z + n.z);
+                        var lq = q - c;
+                        if (Mathf.Abs(Vector3.Dot(lq, f)) > ext.z - 0.5f || Mathf.Abs(Vector3.Dot(lq, r)) > ext.x - 0.5f) continue;
+                        if (room != null && room.DistanceTo(q + Vector3.up * 0.7f) < 2f) continue;
+                        // under a roof is inside a building (the pizzeria's
+                        // back rooms are clear of the room's box, and empty)
+                        if (Physics.Raycast(q + Vector3.up * 1.6f, Vector3.up, 15f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
+                        var a = Along(q);
+                        if (Physics.CheckBox(q + Vector3.up * 0.9f, new Vector3(0.95f, 0.6f, 2.3f), Quaternion.LookRotation(a, Vector3.up),
+                                             Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
+                        along = a;
+                        return q;
+                    }
+            }
+            finally { Physics.queriesHitBackfaces = back; }
+            var fallback = new Vector3(c.x, ground, c.z);
+            along = Along(fallback);
+            return fallback;
+        }
+
+        /// <summary>The room's box in the prop root's frame: every room piece's
+        /// own mesh bounds, carried into the root's space (the root stands
+        /// unscaled on the bake turntable).</summary>
+        static Bounds RoomHull(GameObject go, List<Renderer> room)
+        {
+            var toRoot = go.transform.worldToLocalMatrix;
+            bool any = false;
+            var hull = new Bounds();
+            foreach (var r in room)
+            {
+                var mf = r.GetComponent<MeshFilter>();
+                if (mf == null || mf.sharedMesh == null) continue;
+                var mb = mf.sharedMesh.bounds;
+                var m = toRoot * r.transform.localToWorldMatrix;
+                for (int c = 0; c < 8; c++)
+                {
+                    var p = m.MultiplyPoint3x4(mb.center + Vector3.Scale(mb.extents,
+                        new Vector3((c & 1) == 0 ? -1f : 1f, (c & 2) == 0 ? -1f : 1f, (c & 4) == 0 ? -1f : 1f)));
+                    if (!any) { hull = new Bounds(p, Vector3.zero); any = true; }
+                    else hull.Encapsulate(p);
+                }
+            }
+            return hull;
         }
 
         /// <summary>
@@ -701,9 +802,9 @@ namespace PSXRacing.EditorTools
         /// Screenshots/City/props_compare.png: every prop with a variant, the
         /// FULL prefab and the CITY variant side by side, from two corners at
         /// kerb-side distance, under the preview's daylight. The restaurants'
-        /// variant is shot with its room OFF (its state beyond 40 m) from
-        /// inside that distance, the hardest case: anything visible from
-        /// outside that the switch took away shows here. Headless:
+        /// variant is shot with its room OFF, its state everywhere outside
+        /// the building: anything visible from outside that the switch took
+        /// away shows here (and RoomShots counts it). Headless, with graphics:
         /// -executeMethod PSXRacing.EditorTools.CityPropBaker.CompareShots.
         /// </summary>
         [MenuItem("PSX Racing/City Prop Variants - Compare Shots")]
@@ -775,6 +876,7 @@ namespace PSXRacing.EditorTools
                 Directory.CreateDirectory(dir);
                 File.WriteAllBytes(Path.Combine(dir, "props_compare.png"), sheet.EncodeToPNG());
                 lines.Add("columns: FULL, CITY (front-right corner), FULL, CITY (front-left corner); rows: " + string.Join(", ", rows.ConvertAll(k => NameOf(k))));
+                RoomShots(cam, rt, shot, dir, lines);
                 File.WriteAllLines(Path.Combine(dir, "props_compare.txt"), lines);
                 foreach (var l in lines) Debug.Log("[CityProps] " + l);
             }
@@ -786,6 +888,132 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(sheet);
                 Object.DestroyImmediate(cam.gameObject);
             }
+        }
+
+        /// <summary>
+        /// THE ROOM CHECK (WP-07 review): each restaurant's city variant
+        /// rendered with its room OFF and ON from the places a driver's camera
+        /// goes, counting the pixels that change. From the street (16 eyes
+        /// round the lot, 1.2 and 3 m up), from the chase camera stopped in the
+        /// order bay (both ways through it) and from the driver's seat looking
+        /// at the pickup window, a room that cannot be seen changes nothing -
+        /// which is what lets CityPropInterior keep it off everywhere outside
+        /// the building. The eyes INSIDE the hull must change a great deal,
+        /// or the test would prove nothing. Screenshots/City/room_check.png:
+        /// per restaurant, the bay's chase camera off/on, the driver's seat
+        /// off/on, inside off/on.
+        /// </summary>
+        static void RoomShots(Camera cam, RenderTexture rt, Texture2D shot, string dir, List<string> lines)
+        {
+            int W = rt.width, H = rt.height;
+            var rows = new List<byte>();
+            foreach (var kv in CityProps.Defs) if (CityProps.HasCityVariant(kv.Key) && CityProps.IsFood(kv.Key)) rows.Add(kv.Key);
+            if (rows.Count == 0) return;
+            var sheet = new Texture2D(W * 6, H * rows.Count, TextureFormat.RGB24, false);
+            try
+            {
+                for (int ri = 0; ri < rows.Count; ri++)
+                {
+                    byte kind = rows[ri];
+                    var def = CityProps.Defs[kind];
+                    var pf = AssetDatabase.LoadAssetAtPath<GameObject>(OutDir + "/" + NameOf(kind) + ".prefab");
+                    if (pf == null) { lines.Add($"room check {NameOf(kind)}: NO VARIANT"); continue; }
+                    var go = (GameObject)Object.Instantiate(pf);
+                    try
+                    {
+                        go.transform.SetPositionAndRotation(Vector3.zero, Quaternion.Euler(0f, def.yawOffsetDeg, 0f));
+                        var sw = go.GetComponent<CityPropInterior>();
+                        if (sw == null || sw.interior == null) { lines.Add($"room check {NameOf(kind)}: NO SWITCH"); continue; }
+                        float ground = def.sink;
+                        var hc = go.transform.TransformPoint(sw.hull.center);
+                        float reach = Mathf.Max(sw.hull.extents.x, sw.hull.extents.z);
+
+                        Color32[] Grab()
+                        {
+                            cam.Render();
+                            RenderTexture.active = rt;
+                            shot.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+                            shot.Apply();
+                            RenderTexture.active = null;
+                            return shot.GetPixels32();
+                        }
+                        void Room(bool on) { foreach (var r in sw.interior) if (r != null) r.enabled = on; }
+                        // pixels that change with the room on, the two frames
+                        // written to the sheet when a column is given
+                        int Diff(Vector3 eye, Vector3 at, int col)
+                        {
+                            cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(at - eye, Vector3.up));
+                            Room(false); var a = Grab();
+                            if (col >= 0) sheet.SetPixels32(col * W, (rows.Count - 1 - ri) * H, W, H, a);
+                            Room(true); var b = Grab();
+                            if (col >= 0) sheet.SetPixels32((col + 1) * W, (rows.Count - 1 - ri) * H, W, H, b);
+                            Room(false);
+                            int n = 0;
+                            for (int i = 0; i < a.Length; i++)
+                                if (Mathf.Abs(a[i].r - b[i].r) > 2 || Mathf.Abs(a[i].g - b[i].g) > 2 || Mathf.Abs(a[i].b - b[i].b) > 2) n++;
+                            return n;
+                        }
+
+                        // the street: 16 eyes round the lot, 1.2 and 3 m up
+                        int street = 0, streetOn = 0;
+                        float R = reach + 15f;
+                        for (int k = 0; k < 16; k++)
+                            foreach (float h in new[] { 1.2f, 3f })
+                            {
+                                float az = k * Mathf.PI * 2f / 16f;
+                                var eye = new Vector3(hc.x + Mathf.Cos(az) * R, ground + h, hc.z + Mathf.Sin(az) * R);
+                                street = Mathf.Max(street, Diff(eye, new Vector3(hc.x, ground + 1.5f, hc.z), -1));
+                                if (sw.Inside(eye, CityPropInterior.InM) || sw.DoorOpensFor(eye)) streetOn++;
+                            }
+
+                        // the bay: a car stopped where it orders, facing along
+                        // the building either way; the chase rig's default
+                        // 5.4 m back and 1.8 m up, and the driver's seat
+                        // looking at the building (the pickup window)
+                        int chase = 0, seat = 0; string bayNote = "no bay";
+                        var bay = go.GetComponentInChildren<DriveThru>(true);
+                        if (bay != null)
+                        {
+                            var car = BayStop(bay, sw, out var along);
+                            var ruleOn = new List<string>();
+                            for (int w = 0; w < 2; w++)
+                            {
+                                var fw = w == 0 ? along : -along;
+                                var eye = car - fw * 5.4f + Vector3.up * 1.8f;
+                                chase = Mathf.Max(chase, Diff(eye, car + Vector3.up * 0.9f + fw * 2.5f, w == 0 ? 0 : -1));
+                                if (sw.Apply(eye, car)) ruleOn.Add(w == 0 ? "chase camera one way" : "chase camera the other way");
+                            }
+                            var seatEye = car + Vector3.up * 1.1f;
+                            var nearW = sw.ClosestPoint(seatEye);
+                            if ((nearW - seatEye).sqrMagnitude < 0.01f) nearW = hc;
+                            seat = Diff(seatEye, new Vector3(nearW.x, seatEye.y, nearW.z), 2);
+                            if (sw.Apply(seatEye, car)) ruleOn.Add("driver's seat");
+                            sw.Apply(Vector3.one * 1e6f, Vector3.one * 1e6f);
+                            bayNote = $"the car stops {sw.DistanceTo(car + Vector3.up * 0.7f):0.0} m from the room's hull, the chase camera " +
+                                      $"{Mathf.Min(sw.DistanceTo(car - along * 5.4f + Vector3.up * 1.8f), sw.DistanceTo(car + along * 5.4f + Vector3.up * 1.8f)):0.0} m, " +
+                                      $"a door {(sw.DoorOpensFor(car) ? "OPENS for it" : "stays shut")} (rule at the bay: {(ruleOn.Count > 0 ? "ON for " + string.Join(", ", ruleOn) : "off")})";
+                        }
+
+                        // inside the hull: the room must show
+                        int inside = 0;
+                        var inEye = new Vector3(hc.x, ground + 1.6f, hc.z);
+                        for (int k = 0; k < 4; k++)
+                        {
+                            var d = Quaternion.Euler(0f, 90f * k + def.yawOffsetDeg, 0f) * Vector3.forward;
+                            inside = Mathf.Max(inside, Diff(inEye, inEye + d * 5f - Vector3.up * 0.8f, k == 0 ? 4 : -1));
+                        }
+                        float px = W * H;
+                        lines.Add($"room check {NameOf(kind)}: pixels changed by drawing the room - street (32 eyes, {R:0} m) at most {street} ({100f * street / px:0.000}%), " +
+                                  $"bay chase camera {chase} ({100f * chase / px:0.000}%), driver's seat {seat} ({100f * seat / px:0.000}%); inside the hull {inside} ({100f * inside / px:0.0}%). " +
+                                  $"{bayNote}; street eyes the rule would light: {streetOn}");
+                    }
+                    finally { Object.DestroyImmediate(go); }
+                }
+                sheet.Apply();
+                File.WriteAllBytes(Path.Combine(dir, "room_check.png"), sheet.EncodeToPNG());
+                lines.Add("room_check.png columns: bay chase camera room OFF, ON; driver's seat OFF, ON; inside the hull OFF, ON; rows: " + string.Join(", ", rows.ConvertAll(k => NameOf(k))));
+            }
+            finally { Object.DestroyImmediate(sheet); }
         }
 
         static void EnsureFolder(string parent, string name)
