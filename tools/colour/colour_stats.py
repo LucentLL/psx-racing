@@ -5,6 +5,7 @@
     py tools/colour/colour_stats.py gate   <webgl dir> <baseline dir>   the road-colour gate
     py tools/colour/colour_stats.py agree  <editor.png> <player.png>  harness vs editor, per region
     py tools/colour/colour_stats.py match  <candidate dir> <baseline dir> [tol]   every region AND pixel vs the decoded baseline
+    py tools/colour/colour_stats.py pairs  <dir A> <dir B> [glob]  same-named frames A vs B (the A/B switch runs)
     ... --json out.json   also write every number as JSON
 
 Every frame is a PNG at native resolution with its sidecar (<png>.json,
@@ -229,7 +230,8 @@ def expand(args):
             out += sorted(glob.glob(os.path.join(a, "*.png")))
         else:
             out += sorted(glob.glob(a)) or [a]
-    return out
+    # A frame's emitter-mask picture (PSX_SHOT_ALPHA=1) is not a frame.
+    return [p for p in out if not p.endswith("_alpha.png")]
 
 
 def fmt(v, d=1):
@@ -419,6 +421,61 @@ def cmd_match(cand_dir, base_dir, js, tol=1.0):
     return not bad and len(rows) > 0
 
 
+DIFFUSE_KINDS = ("road", "beam", "outside", "tail", "verge", "car")
+
+
+def cmd_pairs(dir_a, dir_b, pattern, js):
+    """Every frame of A with a same-named twin in B (the colour pass's A/B
+    runs: tone off/on, halation off/on - same code, same sandbox session,
+    only an environment switch apart): the frame numbers side by side, and
+    each region's mean Ycode delta B - A. The diffuse regions' worst |delta|
+    is the bloom test's number (halation on minus off <= 2 codes on any
+    diffuse region); a lamp region's delta and b* are printed as well."""
+    out, worst_all = [], 0.0
+    for p in sorted(glob.glob(os.path.join(dir_a, pattern))):
+        if p.endswith("_alpha.png"):
+            continue
+        q = os.path.join(dir_b, os.path.basename(p))
+        if not os.path.exists(q):
+            continue
+        A, B = Frame(p), Frame(q)
+        if A.target != B.target:
+            raise SystemExit(f"REFUSED: {p} ({A.target}) and {q} ({B.target}) are different texture imports")
+        fa, fb = A.frame_stats(), B.frame_stats()
+        ra, rb = A.region_table(), B.region_table()
+        rows, worst = [], (0.0, "")
+        for n, a in ra.items():
+            b = rb.get(n)
+            if not b or a["m"] is None or b["m"] is None or not (a["visible"] and a["inFrame"]):
+                continue
+            d = b["m"]["Ycode_mean"] - a["m"]["Ycode_mean"]
+            rows.append({"region": n, "kind": a["kind"], "surface": a["surface"], "a": a["m"]["Ycode_mean"], "b": b["m"]["Ycode_mean"],
+                         "delta": d, "b_star_a": a["m"]["b"], "b_star_b": b["m"]["b"], "clean": a.get("clean")})
+            if a["kind"] in DIFFUSE_KINDS and a.get("clean") is not False and abs(d) > worst[0]:
+                worst = (abs(d), n)
+        worst_all = max(worst_all, worst[0])
+        d = np.abs(B.Yc4 - A.Yc4) if A.rgb.shape == B.rgb.shape else None
+        print(f"\n{os.path.basename(p)}")
+        for lab, f in (("A", fa), ("B", fb)):
+            print(f"  {lab}: p1 {f['p1']:.0f} p5 {f['p5']:.0f} p50 {f['p50']:.0f} p95 {f['p95']:.0f} p99 {f['p99']:.0f} "
+                  f">=235 {100*f['share_ge235']:.2f}% plateau {100*f['plateau']:.2f}% <=46 {100*f['share_le46']:.1f}% "
+                  f"<=4 {100*f['share_le4']:.2f}% 8-32 {100*f['share_8_32']:.1f}% stops {f['stops_p1_p99']:.2f} "
+                  f"logstd9 {fmt(f['logstd9'], 3)} S {f['sat_mean']:.3f}")
+        if d is not None:
+            print(f"  frame |dYcode| (Box4): mean {d.mean():.2f}  p99 {np.percentile(d, 99):.1f}  max {d.max():.0f}")
+        for r in rows:
+            tag = "" if r["clean"] is not False else "  (straddles)"
+            print(f"    {r['region']:14s} {r['kind']:7s} {r['a']:6.1f} -> {r['b']:6.1f} ({r['delta']:+6.1f})  "
+                  f"b* {r['b_star_a']:+5.1f} -> {r['b_star_b']:+5.1f}  [{r['surface']}]{tag}")
+        print(f"  worst diffuse |delta| {worst[0]:.1f} ({worst[1]})")
+        out.append({"frame": os.path.basename(p), "A": fa, "B": fb, "regions": rows, "worst_diffuse": worst[0],
+                    "frame_mean_abs": float(d.mean()) if d is not None else None})
+    print(f"\n{len(out)} pairs; worst diffuse |delta| over all: {worst_all:.1f}")
+    if js:
+        with open(js, "w") as fh:
+            json.dump(out, fh, indent=1)
+
+
 def main(argv):
     js = None
     if "--json" in argv:
@@ -436,6 +493,8 @@ def main(argv):
         return 0 if cmd_agree(rest[0], rest[1], js) else 1
     if cmd == "match":
         return 0 if cmd_match(rest[0], rest[1], js, float(rest[2]) if len(rest) > 2 else 1.0) else 1
+    if cmd == "pairs":
+        cmd_pairs(rest[0], rest[1], rest[2] if len(rest) > 2 else "*_world.png", js); return 0
     print(__doc__); return 2
 
 

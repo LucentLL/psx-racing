@@ -50,6 +50,12 @@ namespace PSXRacing
                     hideFlags = HideFlags.DontSave,
                 };
                 shared.SetInt("unity_GUIZTestMode", (int)CompareFunction.Always);
+                // RGB ONLY (the colour pass, C4). The HUD is drawn INTO the
+                // PSX framebuffer, whose alpha is the emitter mask the
+                // halation and the lens dirt glow by (Shaders/PSXTone.cginc).
+                // A glyph is not a light source: writing its coverage there
+                // would halo every white number on the screen.
+                shared.SetInt("_ColorMask", (int)(ColorWriteMask.Red | ColorWriteMask.Green | ColorWriteMask.Blue));
                 return shared;
             }
         }

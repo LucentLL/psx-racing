@@ -70,6 +70,7 @@ namespace PSXRacing.EditorTools
             public bool keepField;     // leave the scene's other cars where they are
             public bool hud;           // also write the _hud frame
             public bool gradeOff;      // also write the grade-off twin (A/B matrix)
+            public bool oncoming;      // one of the field's cars 24 m ahead in the other lane, facing the eye, lamps lit
             public string Tag()
             {
                 string s = TimeOfDay.At(hour).name.ToLowerInvariant() + "_" + weather.ToString().ToLowerInvariant() +
@@ -79,6 +80,7 @@ namespace PSXRacing.EditorTools
                 if (brake) s += "_brake";
                 if (flat) s += "_flat";
                 if (keepField) s += "_field";
+                if (oncoming) s += "_onc";
                 return s;
             }
         }
@@ -168,6 +170,10 @@ namespace PSXRacing.EditorTools
                     Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, brake = true });
                     Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow });
                     Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Dusk, season = Season.Winter });
+                    // The colour pass: the hours the exposure leaves at 1 must
+                    // barely move (the old light shoulder is gone at all of them).
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Afternoon, season = Season.Winter });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, oncoming = true, lens = true });
                     var s1d = ColourSpots.Find("S1d");
                     if (ColourSpots.Pose(s1d, player.transform, out var dpos, out var drot, out var dinfo))
                     {
@@ -214,6 +220,10 @@ namespace PSXRacing.EditorTools
                     Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off });
                     Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, brake = true });
                     Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Dusk });
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Afternoon });
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Morning });
+                    // Oncoming lamps through the lens: the glare keyed on sources.
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, oncoming = true, lens = true });
                 }
             }
 
@@ -349,6 +359,7 @@ namespace PSXRacing.EditorTools
                 SetField(player, v.keepField);
                 var car = player.GetComponent<CarController>();
                 if (car != null) car.TeleportTo(pos, rot); else player.transform.SetPositionAndRotation(pos, rot);
+                if (v.oncoming) PlaceOncoming(pos, rot);
                 var world = Object.FindAnyObjectByType<CityWorld>();
                 if (world != null) { world.EnsureRing(pos, 2); if (!dressAsBaked) Dress(); }
 
@@ -382,6 +393,12 @@ namespace PSXRacing.EditorTools
                 float aspect = 16f / 9f;
                 cam.aspect = aspect;
                 var regions = ColourSpots.Project(cam, pos, rot, player.transform, aspect);
+                // And the LAMP HEADS in view (the colour pass: the owner's
+                // yellow bulbs must stay yellow through the tone curve and
+                // the emitter-keyed halation) - the street lamps the table
+                // was just filled with for this eye, each a small box round
+                // its projected head.
+                AddLampHeads(cam, regions);
                 cam.ResetAspect();
 
                 string stem = "cs_" + spot.id + "_" + v.Tag();
@@ -428,6 +445,45 @@ namespace PSXRacing.EditorTools
             finally { EndFrame(); }
         }
 
+        /// <summary>A region per street lamp in the pushed table
+        /// (_PSXLampPos / _PSXLampColor, kind 0 = street) whose head is in
+        /// front of the eye and in frame: "lamp_&lt;slot&gt;", kind "lamp",
+        /// a box about ten framebuffer pixels across round the head, seen
+        /// or not by a ray from the eye (a lamp post's own head box does not
+        /// count as in the way: the ray stops half a metre short).</summary>
+        static void AddLampHeads(Camera cam, List<ColourSpots.RegionHit> regions)
+        {
+            int n = Mathf.RoundToInt(Shader.GetGlobalFloat("_PSXLampCount"));
+            if (n <= 0) return;
+            var pos = Shader.GetGlobalVectorArray("_PSXLampPos");
+            var col = Shader.GetGlobalVectorArray("_PSXLampColor");
+            if (pos == null || col == null) return;
+            Vector3 eye = cam.transform.position;
+            for (int i = 0; i < n && i < pos.Length && i < col.Length; i++)
+            {
+                if (col[i].w > 0.5f) continue;                       // a point lamp (a tail lamp), not a head
+                if (col[i].x + col[i].y + col[i].z < 1e-4f) continue; // off
+                Vector3 w = pos[i];
+                Vector3 v = cam.WorldToViewportPoint(w);
+                if (v.z <= 1f || v.x < 0.02f || v.x > 0.98f || v.y < 0.02f || v.y > 0.98f) continue;
+                const float hw = 0.006f, hh = 0.011f;
+                var h = new ColourSpots.RegionHit
+                {
+                    name = "lamp_" + i, kind = "lamp", world = w, hit = "projected",
+                    x0 = Mathf.Clamp01(v.x - hw), x1 = Mathf.Clamp01(v.x + hw),
+                    y0 = Mathf.Clamp01(1f - v.y - hh), y1 = Mathf.Clamp01(1f - v.y + hh),
+                    inFrame = true, onGround = false, clean = true, visible = true, occluder = "",
+                };
+                float d = Vector3.Distance(eye, w);
+                foreach (var hh2 in Physics.RaycastAll(eye, (w - eye) / Mathf.Max(d, 1e-3f), Mathf.Max(0f, d - 0.5f)))
+                {
+                    if (hh2.collider == null || hh2.collider.isTrigger) continue;
+                    h.visible = false; h.occluder = hh2.collider.name; break;
+                }
+                regions.Add(h);
+            }
+        }
+
         static void Shoot(Camera cam, string name, Vector3 eye, Quaternion look, Dictionary<string, object> meta, string layer)
         {
             foreach (var kv in meta) ShotSidecar.Pending[kv.Key] = kv.Value;
@@ -442,6 +498,9 @@ namespace PSXRacing.EditorTools
             if (File.Exists(dst + ".json")) File.Delete(dst + ".json");
             if (File.Exists(src)) File.Move(src, dst);
             if (File.Exists(src + ".json")) File.Move(src + ".json", dst + ".json");
+            // The emitter mask's picture, when PSX_SHOT_ALPHA=1 asked for it.
+            string asrc = Path.Combine(RootDir, "Screenshots", name + "_alpha.png"), adst = Path.Combine(OutDir, name + "_alpha.png");
+            if (File.Exists(asrc)) { if (File.Exists(adst)) File.Delete(adst); File.Move(asrc, adst); }
             shots++;
         }
 
@@ -476,6 +535,42 @@ namespace PSXRacing.EditorTools
                 c.gameObject.SetActive(false);
                 parked.Add(c.gameObject);
             }
+        }
+
+        /// <summary>THE ONCOMING CAR (the colour pass: glare keyed on light
+        /// sources). The first parked field car, back on the road 24 m ahead
+        /// of the player and 3.4 m to the left, turned to face the eye, so
+        /// its lenses are in view and its beams light the road toward us: the
+        /// halation and the lens dirt must glow round the LENSES and never
+        /// round the pool its beams throw.</summary>
+        static void PlaceOncoming(Vector3 pos, Quaternion rot)
+        {
+            // The same car every run (the find order is not): the first by
+            // name, so an A/B pair of runs lights the same road.
+            GameObject other = null;
+            foreach (var go in parked)
+            {
+                if (go == null) continue;
+                if (other == null) { other = go; continue; }
+                int c = string.CompareOrdinal(go.name, other.name);
+                Vector3 a = go.transform.position, b = other.transform.position;
+                if (c < 0 || (c == 0 && (a.x < b.x || (a.x == b.x && a.z < b.z)))) other = go;
+            }
+            if (other == null) { Line("  (no field car to bring back as the oncoming car)"); return; }
+            other.SetActive(true);
+            parked.Remove(other);
+            Vector3 fwd = rot * Vector3.forward;
+            Vector3 flat = new Vector3(fwd.x, 0f, fwd.z).normalized;
+            Vector3 left = -Vector3.Cross(Vector3.up, flat).normalized;
+            Vector3 at = pos + flat * 24f + left * 3.4f + Vector3.up * (fwd.y * 24f);
+            // Onto the road under it, as the player stands on his.
+            if (Physics.Raycast(at + Vector3.up * 6f, Vector3.down, out var hit, 14f)) at.y = hit.point.y + ColourSpots.CarLift;
+            var face = Quaternion.LookRotation(-flat, Vector3.up);
+            var cc = other.GetComponent<CarController>();
+            if (cc != null) cc.TeleportTo(at, face); else other.transform.SetPositionAndRotation(at, face);
+            Line($"  oncoming: {other.name} at {at} facing the eye");
+            // Parked again when the frame is done (SetField puts it back).
+            parked.Add(other);
         }
 
         static void HideCanvasesOn(Camera cam)

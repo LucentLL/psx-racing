@@ -85,6 +85,30 @@ Shader "PSX/Sky"
             // material's own rotation, the one the photograph is turned by.
             #include "PSXFogRing.cginc"
             #include "PSXAtmosphere.cginc"
+            // THE COLOUR PASS (C3, PSXTone.cginc): the sky is where the owner
+            // signed it off. It is not lit by anything, so it is never
+            // EXPOSED; it takes the eye's adaptation (1 until C10) and the
+            // tone curve's shoulder CHANNEL BY CHANNEL (PSXToneSky), which
+            // leaves every channel under 0.76 exactly as it was and turns the
+            // clip of the rest into a roll-off. Measured, 2026-09-29, S1 noon:
+            // the photograph's blue is over 1.0 across the whole top of the
+            // sky and its clouds over 1.0 in all three, the flat cream the
+            // owner's noon frame had; the hue-keeping curve the lit surfaces
+            // take would have darkened that sky 13%, and no curve at all left
+            // the clouds on the grade's ceiling (p99 235). The DYNAMIC sky
+            // ends in its own 1 - exp(-x) (PSXAtmosphere.cginc), its only
+            // curve above the horizon band.
+            #include "PSXTone.cginc"
+            // The EMITTER MASK in the sky: the sun's disc, and nothing else, so
+            // a bright noon sky no longer haloes onto itself and over the
+            // skyline. Taken from the scene's own light (the direction the
+            // photograph is turned to face), not from the picture's
+            // brightness: the noon photograph is over 1.0 in its blue across
+            // most of the sky (measured, 2026-09-29), and a brightness test
+            // marked the whole sky a light source. Cosines of the disc's
+            // angular radius: full inside 1.5 degrees, gone by 4.
+            #define SKY_SUN_COS_IN    0.99966
+            #define SKY_SUN_COS_OUT   0.99756
             // THE NIGHT SKY (the Tidewater pass). Stars twinkle - more near
             // the horizon, where the air is thicker - and a band of the Milky
             // Way crosses the sky: denser stars and a faint glow along a great
@@ -241,13 +265,30 @@ Shader "PSX/Sky"
                 // fades into, in every direction. The photograph keeps its
                 // hour's horizon stop, which its own ring was measured against.
                 float3 bandCol = _Dynamic > 0.5 ? _PSXFogColor.rgb : _HorizonColor.rgb;
-                col = lerp(col, bandCol * PSXFogRing(dir, _Rotation) + sunHaze, hz * hz);
+                // THE COLOUR PASS (see the note by the include): the eye's
+                // adaptation on all of it, and the shoulder channel by channel
+                // on the photograph, the band and the ground - the band exactly
+                // as the land's fog takes it (PSXFogTone), so the two still
+                // meet in the same paint. The dynamic sky above the band keeps
+                // its own 1 - exp(-x), its only curve. All a no-op with the
+                // tone off.
+                float adapt = PSXAdaptGain();
+                float3 upper = col * adapt;
+                if (_Dynamic < 0.5) upper = PSXToneSky(upper);
+                col = lerp(upper, PSXToneSky((bandCol * PSXFogRing(dir, _Rotation) + sunHaze) * adapt), hz * hz);
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.
-                col = lerp(col, _BottomColor.rgb, saturate(-y * 3.0 - 0.15));
+                col = lerp(col, PSXToneSky(_BottomColor.rgb * adapt), saturate(-y * 3.0 - 0.15));
 
-                return fixed4(col, 1);
+                // The sun's disc is the one emitter here (above the horizon:
+                // a sun below it is behind the ground, which the sky's lower
+                // half is painted as).
+                float emit = smoothstep(SKY_SUN_COS_OUT, SKY_SUN_COS_IN, dot(dir, normalize(_PSXLightDir.xyz)))
+                           * step(0.0, y);
+                // Opaque on any camera but the PSX camera's own frame, whose
+                // alpha is the emitter mask (PSXTone.cginc).
+                return fixed4(col, _PSXEmitWrite > 0.5 ? emit : 1.0);
             }
             ENDCG
         }

@@ -30,7 +30,10 @@ Shader "PSX/Decal"
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
         Pass
         {
-            Blend SrcAlpha OneMinusSrcAlpha
+            // The colour blends; the framebuffer's ALPHA is kept (Zero One):
+            // it is the emitter mask the surface under the mark or the smoke
+            // wrote (PSXTone.cginc), and neither is a light source.
+            Blend SrcAlpha OneMinusSrcAlpha, Zero One
             ZWrite Off
             Cull Off
             // Toward the camera in depth only. A decal sitting a millimetre
@@ -43,6 +46,8 @@ Shader "PSX/Decal"
             #include "UnityCG.cginc"
             // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
             #include "PSXTexDecode.cginc"
+            // The one tone curve and the adaptation (the colour pass).
+            #include "PSXTone.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -101,7 +106,9 @@ Shader "PSX/Decal"
             {
                 fixed4 tex = PSXMainTex(_MainTex, i.uv);
                 fixed4 c = tex * i.color;
-                c.rgb = lerp(c.rgb, _PSXFogColor.rgb, i.fog);
+                // (The haze is the sky's colour: adapted, never exposed nor
+                // curved, C3; the one curve goes on the mark or the smoke.)
+                c.rgb = lerp(PSXTone(c.rgb), PSXFogTone(_PSXFogColor.rgb), i.fog);
                 return c;
             }
             ENDCG

@@ -2249,6 +2249,7 @@ namespace PSXRacing.EditorTools
             TestTreesStopCars();
             TestForestIsThickAndHasBrush();
             TestPaintAndFilmGrade();
+            TestOneToneCurve();
             TestReversedStageDistance();
             TestDeliverySprint();
             TestNoDeletedMeshes();
@@ -5017,6 +5018,49 @@ namespace PSXRacing.EditorTools
             Check(Mathf.Approximately(FilmGradePrefs.Amount, FilmGradePrefs.Enabled ? 1f : 0f), "OFF is the picture as it was");
             FilmGradePrefs.Enabled = was;
             Check(FilmGradePrefs.Enabled == was, "and the switch is left where it was found");
+        }
+
+        /// <summary>
+        /// THE COLOUR PASS (C2-C4, 2026-09-29): one exposure and one tone
+        /// curve, and the glow keyed on light sources. The pixels are
+        /// tools\colour\colour-shots.ps1's to judge; what is held here is the
+        /// arithmetic and the switches that make an interior bit-identical and
+        /// the HUD no light source.
+        /// </summary>
+        static void TestOneToneCurve()
+        {
+            Line("one tone curve (colour pass):");
+            // The exposure: only the hours the old shoulder compressed.
+            float noon = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Clear);
+            float snow = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Snow);
+            Check(noon > 0.55f && noon < 0.8f, "a clear noon is exposed down (the old shoulder's own gain on a sunlit road)", noon.ToString("0.000"));
+            Check(snow > noon && snow < 1f, "a snowy noon less so", snow.ToString("0.000"));
+            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset, TimeOfDay.Dusk, TimeOfDay.Night })
+                Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f),
+                      TimeOfDay.At(h).name + " is exposed at exactly 1", TimeOfDay.ExposureFor(h, Weather.Clear));
+            float rain = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Rain);
+            Check(rain > snow && rain <= 1f, "a rainy noon, under cloud, is exposed least of the three", rain.ToString("0.000"));
+            // Every shader that ends in the curve has it, and compiles.
+            foreach (var sh in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Water", "PSX/Sky", "PSX/Decal",
+                                       "PSX/Glow", "PSX/Halo", "PSX/Beam", "PSX/Rain", "PSX/Blit", "PSX/Lens", "PSX/Shadow", "PSX/ZoneLine" })
+            {
+                var s = Shader.Find(sh);
+                Check(s != null && !ShaderUtil.ShaderHasError(s), sh + " compiles with the colour pass");
+            }
+            string tone = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXTone.cginc")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXTone.cginc") : "";
+            Check(tone.Contains("if (_PSXToneOn < 0.5) return c;"), "the curve is an exact no-op with the tone off (every interior)");
+            // The HUD writes no emitter mask.
+            var hud = HudOnTop.Material;
+            Check(hud != null && hud.HasProperty("_ColorMask") && hud.GetInt("_ColorMask") == 14,
+                  "the HUD draws RGB only (a glyph is not a light source)", hud != null ? hud.GetInt("_ColorMask") : -1);
+            // An interior (no hour applied) keeps the old picture: the switches
+            // are never serialized, so no scene can carry them on.
+            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey" })
+            {
+                var fi = typeof(PSXGlobals).GetField(f);
+                Check(fi != null && fi.IsNotSerialized, "PSXGlobals." + f + " is never serialized (TimeOfDay.Apply's alone)");
+            }
         }
 
         static void TestPizzaCargo()

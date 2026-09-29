@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 namespace PSXRacing
 {
@@ -425,6 +425,13 @@ namespace PSXRacing
                 globals.sunShadow = ShadowFor(index, weather);
                 globals.skyShade = SkyShadeFor(index);
                 globals.fogSun = FogSunFor(index, weather);
+                // And the COLOUR PASS (Shaders/PSXTone.cginc): one exposure
+                // for the hour as the weather left it, the one tone curve, and
+                // the halation keyed on light sources. The adaptation (C10) is
+                // not the hour's to set.
+                globals.tone = ToneEnabled ? 1f : 0f;
+                globals.exposure = ExposureFor(p);
+                globals.emitKey = EmitKeyEnabled ? 1f : 0f;
             }
 
             lastSkyPreset = p; lastSkySun = sun; lastSkyIndex = index; lastSkyWeather = weather; skyApplied = true;
@@ -462,6 +469,115 @@ namespace PSXRacing
         /// (0 = plain ambient, 1 = the sky's colour at the ambient's
         /// brightness). See <see cref="SkyAmbientFor"/>.</summary>
         public const float SkyAmbientPull = 0.75f;
+
+        // ================================================================
+        //  THE EXPOSURE (the colour pass, C2, 2026-09-29)
+        // ================================================================
+
+        /// <summary>
+        /// THE ANCHOR OF THE EXPOSURE: PSX/Lit's retired light shoulder (toe
+        /// 0.80, span 0.50, 2026-09-21), kept here as a NUMBER instead of a
+        /// curve. It used to take every light over 0.8 toward 1.3 - a clear
+        /// noon's 1.7-1.8 on a sunlit road to 1.21-1.23 - and then nothing
+        /// rolled off the RADIANCE, so the owner's sunlit concrete deck sat at
+        /// code 198, a snowfield on the clip, and the halation bloomed over
+        /// both.
+        ///
+        /// The exposure is now the shoulder's own gain AT THE HOUR'S SUNLIT
+        /// ROAD, applied to every light alike: S(L) / L, in the red and the
+        /// green, the smaller of the two. So a sunlit road - the owner's road
+        /// colours, which are never to get lighter - takes at most the light
+        /// it took before at every hour and weather (the road-colour gate),
+        /// while everything the shoulder used to lift or flatten is honest: a
+        /// shaded face is darker by the same gain (harsh sun), and a face lit
+        /// harder than the road is rolled off by the one tone curve on its
+        /// radiance instead of by a flattened light. Measured (sidecars,
+        /// 2026-09-29): a clear noon 0.68, a snowy one 0.76, a foggy one 0.82,
+        /// a rainy one 0.93; an afternoon 0.86 (0.92 in snow, 0.96 in fog); a
+        /// morning 0.98; dawn, sunset, dusk and night exactly 1.
+        ///
+        /// THE LIGHT IS THE LIGHT AS PUSHED. Shader.SetGlobalColor does NOT
+        /// linearise in this project (read back off the GPU, 2026-09-29: the
+        /// noon sun arrives as 1.340, 1.313, 1.233 and the noon ambient as
+        /// 0.52, 0.53, 0.58 - the table's numbers exactly). The hour table's
+        /// light colours are linear multipliers written as colours; the first
+        /// cut of this function linearised them (a noon sun of 1.9) and got
+        /// every exposure wrong - the deck 10 codes too dark at noon, 5 too
+        /// light in snow.
+        ///
+        /// Two more things the numbers taught:
+        ///   * THE ANCHOR ROAD LEANS <see cref="ExposureRoadTiltDeg"/> TOWARD
+        ///     THE SUN. The owner's Samuel Street deck does (it climbs toward
+        ///     both the noon and the afternoon sun: measured N.L 0.97 at noon
+        ///     against a level road's 0.93, 0.72 in the afternoon against
+        ///     0.62), and anchored on a level road it came out lighter than
+        ///     its baseline.
+        ///   * CHANNEL BY CHANNEL (see ExposureFor): on luminance, a snowy
+        ///     noon's sunlit deck came out 4.5 codes lighter in its green.
+        /// </summary>
+        public const float ExposureToe = 0.80f, ExposureSpan = 0.50f;
+
+        /// <summary>How far toward the sun the exposure's anchor road leans
+        /// (see <see cref="ExposureToe"/>): the owner's Samuel Street deck's
+        /// own lean, the steepest sunlit road the protocol measures. A level
+        /// sunlit road then keeps 97-100% of its old light.</summary>
+        public const float ExposureRoadTiltDeg = 8f;
+
+        /// <summary>The tone curve's switch for tools: PSX_TONE=0 in the
+        /// environment is the picture from before the colour pass (the A/B
+        /// the protocol measures). Always on in a build.</summary>
+        public static bool ToneEnabled => System.Environment.GetEnvironmentVariable("PSX_TONE") != "0";
+
+        /// <summary>The emitter-keyed halation's switch for tools:
+        /// PSX_EMITKEY=0 is the old brightness-keyed glow.</summary>
+        public static bool EmitKeyEnabled => System.Environment.GetEnvironmentVariable("PSX_EMITKEY") != "0";
+
+        /// <summary>
+        /// The hour's exposure, as the weather and the city's skyglow left its
+        /// light: S(L) / L, where L is the light on a sunlit road leaning
+        /// <see cref="ExposureRoadTiltDeg"/> toward the sun and S the retired
+        /// shoulder (see <see cref="ExposureToe"/>) - 1 whenever L is under
+        /// the toe - taken in the red and in the green and the smaller kept.
+        /// L is what the shaders receive: the sun's colour x intensity (as
+        /// PSXGlobals pushes it, unconverted) times the sine of its elevation
+        /// plus the tilt, plus the sky ambient an up-face takes.
+        /// </summary>
+        public static float ExposureFor(Preset p)
+        {
+            Color sun = p.sunColor * p.sunIntensity;
+            float el = p.sunEuler.x;
+            float sinEl = el <= 0f ? 0f : Mathf.Sin(Mathf.Min(90f, el + ExposureRoadTiltDeg) * Mathf.Deg2Rad);
+            Color sky = SkyAmbientFor(p);
+            // CHANNEL BY CHANNEL: the shoulder rolled each channel off on its
+            // own, so a luminance anchor lets the channel the light is richest
+            // in (the green of a snowy noon, the red of an afternoon sun) come
+            // out lighter than it was. The smaller of the red and green gains
+            // keeps both at or under their old light. NOT the blue: a road's
+            // blue is mostly the sky ambient's (0.75 of a noon's 1.9), and
+            // ruling on it takes 5% off every noon light to hold back a blue
+            // the old shoulder flattened - the sky's own fill on a sunlit
+            // road, which a real camera sees.
+            return Mathf.Min(ShoulderGain(sun.r * sinEl + sky.r), ShoulderGain(sun.g * sinEl + sky.g));
+        }
+
+        /// <summary>S(x) / x for the retired shoulder: 1 under its toe.</summary>
+        static float ShoulderGain(float x)
+        {
+            if (x <= ExposureToe) return 1f;
+            return (ExposureToe + ExposureSpan * (1f - Mathf.Exp(-(x - ExposureToe) / ExposureSpan))) / x;
+        }
+
+        /// <summary><see cref="ExposureFor(Preset)"/> for an hour and a
+        /// weather, the way Apply builds the preset (for the tools and the
+        /// self-test; the skyglow is left out, since it never touches an hour
+        /// with a sun in it).</summary>
+        public static float ExposureFor(int hour, Weather w)
+        {
+            var p = At(hour);
+            p.ambient *= Seasons.AmbientMul(w);
+            p.sunIntensity *= SunMul(w);
+            return ExposureFor(p);
+        }
 
         /// <summary>The luminance weights every colour sum in this file uses.
         /// (The same Rec.601 weights, rounded, that SkyAmbientFor always

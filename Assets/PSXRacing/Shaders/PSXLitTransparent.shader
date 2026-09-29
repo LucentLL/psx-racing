@@ -54,7 +54,12 @@ Shader "PSX/LitTransparent"
         {
             Cull Back
             ZWrite Off
-            Blend SrcAlpha OneMinusSrcAlpha
+            // Colour blends by the pane's alpha; the framebuffer's ALPHA is
+            // kept as it was (Zero One): it is the emitter mask the opaque
+            // pass under the glass wrote (PSXTone.cginc), and a pane is no
+            // light source. (Blended like the colour, a shop window wrote
+            // a*a + dst*(1-a) into it.)
+            Blend SrcAlpha OneMinusSrcAlpha, Zero One
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -66,6 +71,8 @@ Shader "PSX/LitTransparent"
             // lamps and tail lamps. Each declares its own table; both guarded.
             #include "PSXHeadlights.cginc"
             #include "PSXLamps.cginc"
+            // The hour's exposure and the one tone curve (PSXTone.cginc).
+            #include "PSXTone.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -106,7 +113,10 @@ Shader "PSX/LitTransparent"
             {
                 float4 pos : SV_POSITION;
                 float3 uvw : TEXCOORD0;
-                fixed4 light : COLOR0;
+                // A TEXCOORD, not COLOR0: with the colour pass's tone on the
+                // light is handed on unclamped (noon is 1.9), and a colour
+                // interpolator may be clamped to 0..1 by the hardware.
+                half3 light : TEXCOORD4;
                 fixed fog : TEXCOORD1;
                 float3 wpos : TEXCOORD2;
                 float3 wnrm : TEXCOORD3;
@@ -138,7 +148,9 @@ Shader "PSX/LitTransparent"
                 // under a blue sky.
                 fixed3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
                 fixed3 lighting = amb + _PSXLightColor.rgb * ndl;
-                o.light = fixed4(saturate(lighting), 1);
+                // The old clamp, unless the one curve is on: then the light
+                // goes on whole and the curve rolls the radiance off.
+                o.light = _PSXToneOn > 0.5 ? lighting : saturate(lighting);
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.wnrm = n;
 
@@ -156,12 +168,14 @@ Shader "PSX/LitTransparent"
                 // not to the result: a lamp on a pane lights the pane.
                 float nl2 = dot(i.wnrm, i.wnrm);
                 float3 N = nl2 > 1e-8 ? i.wnrm * rsqrt(nl2) : float3(0, 1, 0);
-                float3 light = i.light.rgb + PSXHeadlights(i.wpos, N) + PSXLamps(i.wpos, N);
+                float3 light = (i.light + PSXHeadlights(i.wpos, N) + PSXLamps(i.wpos, N)) * PSXExposureGain();
                 fixed3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 // The same haze the wall beside it fades into: brighter
                 // toward the sun (the DAY PASS, PSXSunShadow.cginc).
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
-                fixed3 col = lerp(lit, PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V), i.fog);
+                // The one curve on the lit pane; the haze is the sky's colour -
+                // adapted, neither exposed nor curved (C3).
+                fixed3 col = lerp(PSXTone(lit), PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V)), i.fog);
                 // Fog also closes the glass: at full fog a window is as opaque
                 // as the wall beside it, because both are simply haze by then.
                 return fixed4(col, lerp(tex.a, 1.0, i.fog));

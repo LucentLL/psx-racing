@@ -45,7 +45,10 @@ Shader "PSX/ZoneLine"
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
         Pass
         {
-            Blend SrcAlpha OneMinusSrcAlpha
+            // The colour blends; the framebuffer's ALPHA is kept (Zero One):
+            // it is the emitter mask (PSXTone.cginc), and the curtain is not
+            // one of the lights it marks.
+            Blend SrcAlpha OneMinusSrcAlpha, Zero One
             ZWrite Off
             Cull Off
             CGPROGRAM

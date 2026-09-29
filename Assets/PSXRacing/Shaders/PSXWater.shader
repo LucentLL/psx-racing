@@ -62,6 +62,9 @@ Shader "PSX/Water"
             #include "PSXTexDecode.cginc"
             #include "PSXHeadlights.cginc"
             #include "PSXLamps.cginc"
+            // The hour's exposure, the one tone curve and the emitter mask
+            // (the colour pass, PSXTone.cginc).
+            #include "PSXTone.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -279,10 +282,16 @@ Shader "PSX/Water"
                 float3 shallow = _SandColor.rgb * (a + b);
                 float3 deep = deepTex * _Color.rgb;
                 float3 body = lerp(deep, shallow, through);
-                float3 light = i.amb + i.sun * PSXSunShadow(i.wpos, float3(0, 1, 0), eyeDist, 0.0);
+                // Every light the water receives - and the glints it throws
+                // back, below - through the hour's exposure (the colour pass;
+                // exactly 1 with the tone off). The sky in it is the sky's.
+                float expo = PSXExposureGain();
+                float adapt = PSXAdaptGain();
+                float3 light = (i.amb + i.sun * PSXSunShadow(i.wpos, float3(0, 1, 0), eyeDist, 0.0)) * expo;
                 float3 lampD, lampS, headD, headS;
                 PSXLampsBoth(i.wpos, N, V, LAMP_POW, 1.0, lampD, lampS);
                 PSXHeadlightsBoth(i.wpos, N, V, LAMP_POW, 1.0, headD, headS);
+                lampD *= expo; lampS *= expo; headD *= expo; headS *= expo;
                 float3 lit = body * (light + lampD + headD);
 
                 // THE SKY IN IT, with the roughness tilt.
@@ -290,7 +299,7 @@ Shader "PSX/Water"
                 R.y = max(R.y, 0.004) + ROUGH * 1.3 * (1.0 - R.y);
                 R = normalize(R);
                 float fres = F0 + (1.0 - F0) * pow(1.0 - saturate(dot(N, V)), 5.0);
-                float3 sky = PSXSkyIn(R, SKY_LOD) * REFLECT_GAIN;
+                float3 sky = PSXSkyIn(R, SKY_LOD) * (REFLECT_GAIN * adapt);
                 float3 col = lerp(lit, sky, fres);
 
                 // THE GLITTER PATH: the light's highlight, broken into cells
@@ -301,8 +310,14 @@ Shader "PSX/Water"
                 float roll = WaterHash(cell + floor(t * GLINT_RATE) * float2(17.0, 31.0));
                 float sparkle = step(roll, g * 6.0);
                 float glintGain = GLINT_GAIN * lerp(1.0, GLINT_NIGHT, _PSXNight);
-                col += _PSXLightColor.rgb * sparkle * glintGain * PSXSunShadow(i.wpos, float3(0, 1, 0), eyeDist, 0.0);
-                col += (lampS + headS) * LAMP_GAIN * (0.3 + fres);
+                float3 sunGlint = _PSXLightColor.rgb * sparkle * glintGain * PSXSunShadow(i.wpos, float3(0, 1, 0), eyeDist, 0.0) * expo;
+                float3 lampGlint = (lampS + headS) * LAMP_GAIN * (0.3 + fres);
+                col += sunGlint;
+                col += lampGlint;
+                // THE EMITTER MASK (PSXTone.cginc): the glitter path and the
+                // street lamps' glints are light sources; the water under
+                // them - and our own beams spread over it - is not.
+                float emit = PSXEmitShare(sunGlint + lampS * (LAMP_GAIN * (0.3 + fres)), col);
 
                 // THE SHORE: foam either side of the waterline, running up and
                 // back on the swash, dithered by a hash rather than blended.
@@ -316,9 +331,14 @@ Shader "PSX/Water"
                 float capGrain = WaterHash(floor(i.wpos.xz * 3.0) + floor(t * 2.0) * 7.0);
                 col = lerp(col, FOAM_COLOR * light, step(capGrain, cap * cap * 0.9));
 
-                float3 fogCol = PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V);
-                col = lerp(col, fogCol, i.fog);
-                return fixed4(col, 1);
+                // THE ONE CURVE on the water's radiance, as on every lit
+                // surface (a no-op with the tone off), then the haze - the
+                // sky's colour, neither exposed nor curved (C3).
+                float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V));
+                col = lerp(PSXTone(col), fogCol, i.fog);
+                // The alpha: the emitter mask on the PSX camera's own frame;
+                // opaque on any other camera's render texture (PSXTone.cginc).
+                return fixed4(col, _PSXEmitWrite > 0.5 ? emit * (1.0 - i.fog) : 1.0);
             }
             ENDCG
         }

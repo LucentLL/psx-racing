@@ -119,11 +119,28 @@ namespace PSXRacing.EditorTools
             d["exposure"] = GlobalOrNull("_PSXExposure");
             d["adapt"] = GlobalOrNull("_PSXAdapt");
             d["toneOn"] = GlobalOrNull("_PSXToneOn");
+            // The emitter-keyed glow (C4) and the measuring switch that
+            // takes the halation out of the grade (PSX_HALATION=0).
+            d["emitKey"] = Shader.GetGlobalFloat("_PSXEmitKey");
+            // The light as the shaders received it (linear, as pushed): what
+            // an exposure is computed against.
+            d["light"] = new Dictionary<string, object>
+            {
+                ["sun"] = V4("_PSXLightColor"), ["dir"] = V4("_PSXLightDir"),
+                ["ambient"] = V4("_PSXAmbient"), ["skyAmbient"] = V4("_PSXSkyAmbient"),
+            };
+            d["halation"] = System.Environment.GetEnvironmentVariable("PSX_HALATION") == "0" ? 0f : 1f;
             d["wetness"] = Shader.GetGlobalFloat("_PSXWetness");
             d["night"] = Shader.GetGlobalFloat("_PSXNight");
             d["headlightsPushed"] = CarLights.PushedCount;
             d["streetLampsPushed"] = StreetLights.PushedCount;
             return d;
+        }
+
+        static List<object> V4(string name)
+        {
+            Vector4 v = Shader.GetGlobalVector(name);
+            return new List<object> { v.x, v.y, v.z, v.w };
         }
 
         static object GlobalOrNull(string name)

@@ -5,6 +5,16 @@
 #   powershell -ExecutionPolicy Bypass -File tools\colour\colour-shots.ps1 -Target StandaloneWindows64   # the decoded BASELINE
 #   ... -Sets pred,protocol,ab,sweep   (default: all)
 #   ... -NoCopy                        (the sandbox's code as it stands)
+#   ... -Out <folder name>             frames into <sandbox>\Screenshots\<name> instead of colour_<target>
+#
+# THE COLOUR PASS'S A/B SWITCHES (C2-C4) ride in the environment, so a
+# before and an after of the same code come from the same sandbox session
+# with identically named frames (compare them with colour_stats.py compare
+# / match / abpair):
+#   $env:PSX_TONE='0'       the exposure and the one tone curve off (the old per-surface roll-offs)
+#   $env:PSX_EMITKEY='0'    the halation and lens dirt keyed on brightness again
+#   $env:PSX_HALATION='0'   the grade without its halation (the bloom on/off frames)
+#   $env:PSX_SHOT_ALPHA='1' also write each frame's emitter mask as <frame>_alpha.png
 #
 # WHY THE TARGET: a texture is imported for the editor's active build target,
 # and the release budget's 16-bit override exists only on WebGL, where WebGL2
@@ -18,7 +28,7 @@
 # sidecar; log cs_log.txt ending "COLOUR SHOTS OK". Then measure:
 #   py tools\colour\colour_stats.py stats <sandbox>\Screenshots\colour_WebGL
 #   py tools\colour\colour_stats.py gate  <...>\colour_WebGL <...>\colour_StandaloneWindows64
-param([string]$Target = "WebGL", [string]$Sets = "", [switch]$NoCopy, [int]$MaxMinutes = 90)
+param([string]$Target = "WebGL", [string]$Sets = "", [switch]$NoCopy, [int]$MaxMinutes = 90, [string]$Out = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -32,7 +42,12 @@ if (-not $NoCopy) {
     Copy-Item "$src\ProjectSettings\GraphicsSettings.asset" "$proj\ProjectSettings\GraphicsSettings.asset" -Force
 }
 $env:PSX_COLOUR_SETS = $Sets
-$out = Join-Path $proj "Screenshots\colour_$Target"
+$out = if ($Out) { Join-Path $proj "Screenshots\$Out" } else { Join-Path $proj "Screenshots\colour_$Target" }
+$env:PSX_COLOUR_OUT = if ($Out) { $out } else { "" }
+foreach ($k in @("PSX_TONE", "PSX_EMITKEY", "PSX_HALATION", "PSX_SHOT_ALPHA")) {
+    $v = [Environment]::GetEnvironmentVariable($k)
+    if ($v) { Write-Host "  $k=$v" }
+}
 Remove-Item "$out\cs_log.txt" -ErrorAction SilentlyContinue
 $log = "$proj\colourshots_$Target.log"
 # NO -nographics: every frame is a render read back.

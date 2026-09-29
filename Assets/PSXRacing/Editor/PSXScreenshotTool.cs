@@ -1282,6 +1282,13 @@ namespace PSXRacing.EditorTools
                 RenderPipeline.SubmitRenderRequest(cam, request);
                 if (lensSet) LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);
 
+                // THE EMITTER MASK (the colour pass, C4): the camera's own
+                // frame carries it in its alpha, and PSX/Blit's halation glows
+                // by it. How much of the frame claims to be a light source
+                // goes in the sidecar, so a play-check can compare it as well
+                // as the colour; PSX_SHOT_ALPHA=1 also writes it as a picture.
+                EmitterStats(rt, fileName);
+
                 // THROUGH THE DITHER. The game shows this buffer through
                 // PSX/Blit (5-bit quantize, Bayer dither); a shot that skips
                 // that pass is a picture of a renderer the player does not
@@ -1312,6 +1319,43 @@ namespace PSXRacing.EditorTools
             rt.Release();
             Object.DestroyImmediate(rt);
             cam.transform.SetPositionAndRotation(oldPos, oldRot);
+        }
+
+        /// <summary>
+        /// The render's ALPHA - the emitter mask (Shaders/PSXTone.cginc) - in
+        /// numbers for the sidecar ("emitAlpha": the share of the frame over
+        /// 0.02 and over 0.5, and the mean), and with PSX_SHOT_ALPHA=1 as a
+        /// grey picture beside the frame (&lt;name&gt;_alpha.png, no sidecar,
+        /// so no measuring tool mistakes it for a frame).
+        /// </summary>
+        static void EmitterStats(RenderTexture rt, string fileName)
+        {
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var t = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            t.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            t.Apply();
+            RenderTexture.active = prev;
+            var px = t.GetPixels32();
+            int over2 = 0, over50 = 0; double sum = 0;
+            foreach (var c in px) { if (c.a > 5) over2++; if (c.a > 127) over50++; sum += c.a; }
+            float n = Mathf.Max(1, px.Length);
+            ShotSidecar.Pending["emitAlpha"] = new Dictionary<string, object>
+            {
+                ["share02"] = over2 / n, ["share50"] = over50 / n, ["mean"] = (float)(sum / n / 255.0),
+                ["writes"] = Shader.GetGlobalFloat("_PSXEmitWrite"), ["key"] = Shader.GetGlobalFloat("_PSXEmitKey"),
+            };
+            if (System.Environment.GetEnvironmentVariable("PSX_SHOT_ALPHA") == "1")
+            {
+                var g = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+                var o = new Color32[px.Length];
+                for (int i = 0; i < px.Length; i++) { byte a = px[i].a; o[i] = new Color32(a, a, a, 255); }
+                g.SetPixels32(o);
+                g.Apply();
+                File.WriteAllBytes(Path.Combine(OutDir, fileName + "_alpha.png"), g.EncodeToPNG());
+                Object.DestroyImmediate(g);
+            }
+            Object.DestroyImmediate(t);
         }
 
         /// <summary>
@@ -1362,6 +1406,10 @@ namespace PSXRacing.EditorTools
             // how to see a frame without it.
             if (tmp.HasProperty("_Grade"))
                 tmp.SetFloat("_Grade", System.Environment.GetEnvironmentVariable("PSX_GRADE") == "0" ? 0f : 1f);
+            // The grade without its halation (the colour protocol's bloom
+            // on/off frames): PSX_HALATION=0.
+            if (tmp.HasProperty("_GlowOff"))
+                tmp.SetFloat("_GlowOff", System.Environment.GetEnvironmentVariable("PSX_HALATION") == "0" ? 1f : 0f);
             var dst = new RenderTexture(src.width, src.height, 0, RenderTextureFormat.ARGB32)
             {
                 filterMode = FilterMode.Point,
