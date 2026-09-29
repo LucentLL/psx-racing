@@ -547,6 +547,23 @@ if (-not $SkipDeploy) {
     if (($SkipBuild -or $BuildDir) -and -not $AllowEditionMismatch) {
         if (-not (Test-WebglContents $build $buildEdition)) { exit 1 }
     }
+    # THE CREDITS IT CARRIES, every publish: LICENSES.txt beside index.html
+    # must be this edition's as tools\city\SOURCES.md has it now (CITY: the
+    # OpenStreetMap, USGS 3DEP, county and USGS water lines; MAIN: the stage
+    # roads and terrain), and no other edition's LICENSES-*.txt may be left
+    # beside it. tools\city\credits.mjs --build, node only, instant. Skipped
+    # on a checkout that has no credits.mjs (main before the Charlotte merge).
+    if (-not $AllowEditionMismatch -and (Test-Path "$PSScriptRoot\city\credits.mjs")) {
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if (-not $node) { Write-Host "CREDITS NOT CHECKED - node is not on PATH (tools\city\credits.mjs needs it). Refusing." -ForegroundColor Red; exit 1 }
+        $cOut = @(& $node.Source "$PSScriptRoot\city\credits.mjs" --build $build --edition $buildEdition 2>&1)
+        $cCode = $LASTEXITCODE
+        $cOut | ForEach-Object { Write-Host "  $_" }
+        if ($cCode -ne 0) {
+            Write-Host "CREDITS CHECK FAILED - $build does not carry the $buildEdition edition's LICENSES.txt (see above). node tools\city\credits.mjs --write, then rebuild." -ForegroundColor Red
+            exit 1
+        }
+    }
     # Every publish, fresh build or not: this is the player about to go live.
     if ($SkipDoorTour) {
         Write-Host "DOOR TOUR SKIPPED (-SkipDoorTour): no door of this player has been opened in a browser." -ForegroundColor Yellow
@@ -592,8 +609,10 @@ if (-not $SkipDeploy) {
         if (Test-Path "$build\StreamingAssets") { Copy-Item "$build\StreamingAssets" $target -Recurse; $names += "StreamingAssets" }
         # LICENSES.txt beside index.html: the data credits and licences, which
         # the WebGL template carries into every build (tools/city/credits.mjs
-        # writes it from tools/city/SOURCES.md; plan critic C17). Published with
-        # the build it came with, so a root publish replaces it like the rest.
+        # writes one per edition from tools/city/SOURCES.md and
+        # PSXBuildWebGL.PickLicenses keeps the build's own; plan critic C17).
+        # Published with the build it came with, so a root publish replaces it
+        # like the rest.
         if (Test-Path "$build\LICENSES.txt") { Copy-Item "$build\LICENSES.txt" $target; $names += "LICENSES.txt" }
 
         # CACHE BUSTING. Every deploy writes the same four payloads — the data, the

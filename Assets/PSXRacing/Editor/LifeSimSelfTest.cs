@@ -101,6 +101,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestEditions), TestEditions);
             Guard(nameof(TestEditionPark), TestEditionPark);
             Guard(nameof(TestGlyphs), TestGlyphs);
+            Guard(nameof(TestCredits), TestCredits);
             Guard(nameof(TestDoorAudit), TestDoorAudit);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
@@ -958,6 +959,40 @@ namespace PSXRacing.EditorTools
                 Check(label is UnityEngine.UI.Text, "and is still a Text to everything that looks for one");
             }
             finally { Object.DestroyImmediate(go); }
+        }
+
+        /// <summary>
+        /// THE DATA CREDITS, PER EDITION. The CITY door once said "Elevation:
+        /// NASA SRTM" in a hard-coded string while the city stood on USGS 3DEP.
+        /// Every credit now comes from tools/city/SOURCES.md through
+        /// tools/city/credits.mjs (which checks the files match the table);
+        /// this checks the game LOADS them: each edition's own page and door
+        /// line (not the fallback, not ALL's), OpenStreetMap on every one
+        /// (ODbL), drawable in the player's font, the CITY door printing
+        /// CITY's line, and each edition's page a subset of ALL's.
+        /// </summary>
+        static void TestCredits()
+        {
+            Line("data credits per edition (tools/city/SOURCES.md):");
+            string allPage = CreditsPanel.Text(EditionKind.All), allLine = CreditsPanel.Line(EditionKind.All);
+            foreach (var e in new[] { EditionKind.All, EditionKind.Main, EditionKind.City })
+            {
+                string n = Edition.Name(e), page = CreditsPanel.Text(e), line = CreditsPanel.Line(e);
+                Check(page != CreditsPanel.Fallback && page.Contains("OpenStreetMap"),
+                      n + "'s CREDITS page is the generated one and carries the OpenStreetMap line", page);
+                Check(line != CreditsPanel.LineFallback && line.Contains("OpenStreetMap"),
+                      n + "'s one-line credit is the generated one and carries OpenStreetMap", line);
+                Check(Glyphs.IsSafe(page) && Glyphs.IsSafe(line), n + "'s credits are drawable in the player's font");
+                if (e == EditionKind.All) continue;
+                Check(page != allPage && line != allLine,
+                      n + " loads its OWN page and line, not ALL's (psx_credits_" + n.ToLowerInvariant() + ", its row of psx_credits_line)");
+                string missing = null;
+                foreach (var l in page.Split('\n'))
+                    if (l.Trim().Length > 0 && !allPage.Contains(l.Trim())) { missing = l; break; }
+                Check(missing == null, n + "'s page is a subset of ALL's (one registry)", missing);
+            }
+            Check(LifeSim.CityFrontEnd.Credits == CreditsPanel.Line(EditionKind.City),
+                  "the CITY front page prints CITY's generated line", LifeSim.CityFrontEnd.Credits);
         }
 
         /// <summary>

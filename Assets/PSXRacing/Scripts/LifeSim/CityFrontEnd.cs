@@ -46,9 +46,17 @@ namespace PSXRacing.LifeSim
 
         /// <summary>What the data on this page is, and whose. ODbL requires the
         /// OpenStreetMap line wherever the map is shown; the race HUD carries
-        /// it in the drive, this carries it at the door.</summary>
-        public const string Credits =
-            "Map data © OpenStreetMap contributors (ODbL). Elevation: NASA SRTM.";
+        /// it in the drive, this carries it at the door. NOT written here: it
+        /// is the CITY row of Resources/psx_credits_line.txt, which
+        /// tools/city/credits.mjs makes from the Credits table of
+        /// tools/city/SOURCES.md (the "short" column of every row CITY
+        /// ships), so the door names the sources the city is actually built
+        /// from - since R1 the USGS 3DEP ground, not the SRTM a hard-coded
+        /// line here once claimed - and agrees with the CREDITS page and the
+        /// LICENSES.txt beside the build. CITY's by name, not the editor's
+        /// ALL: this page is only ever the CITY edition's door, and the menu
+        /// preview builds it in an editor that is ALL.</summary>
+        public static string Credits => CreditsPanel.Line(EditionKind.City);
 
         Canvas canvas;
         RectTransform bodyViewport;

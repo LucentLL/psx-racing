@@ -1,0 +1,6 @@
+# The one-line data credit each edition's front page prints (CreditsPanel.Line;
+# the CITY front page, CityFrontEnd, prints CITY's). One "EDITION: line" row each.
+# Generated from tools/city/SOURCES.md by tools/city/credits.mjs - do not edit.
+ALL: Map data (c) OpenStreetMap contributors, ODbL. Terrain and creek beds: USGS 3DEP. Creeks and lakes: Mecklenburg County GIS. Creeks and lakes outside the county: USGS 3DHP. Stage terrain: AWS Terrain Tiles, USGS.
+MAIN: Map data (c) OpenStreetMap contributors, ODbL. Stage terrain: AWS Terrain Tiles, USGS.
+CITY: Map data (c) OpenStreetMap contributors, ODbL. Terrain and creek beds: USGS 3DEP. Creeks and lakes: Mecklenburg County GIS. Creeks and lakes outside the county: USGS 3DHP.

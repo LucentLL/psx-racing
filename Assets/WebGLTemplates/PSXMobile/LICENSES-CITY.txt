@@ -1,34 +1,28 @@
-PSX Racing - map and terrain data: credits and licences
-=======================================================
+PSX Racing, CITY edition - map and terrain data: credits and licences
+=====================================================================
 
-The game's map and terrain data are adapted from the sources below:
+The CITY edition's map and terrain data are adapted from the sources below:
 simplified, re-projected and baked into the game's own formats.
 
 Road network data (c) OpenStreetMap contributors, ODbL 1.0
   Licence: ODbL 1.0
   https://opendatacommons.org/licenses/odbl/1-0/
-  In (CITY edition): charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json
-  In (MAIN edition): the stage roads (Resources/*_stage.json, bogue_*.json)
+  In: charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json
 
 Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP)
   Licence: public domain
   https://www.usgs.gov/3d-elevation-program
-  In (CITY edition): charlotte_dem.bytes, charlotte_city.bytes
+  In: charlotte_dem.bytes, charlotte_city.bytes
 
 Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0
   Licence: CC0 1.0
   https://creativecommons.org/publicdomain/zero/1.0/
-  In (CITY edition): charlotte_city.bytes
+  In: charlotte_city.bytes
 
 Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP)
   Licence: public domain
   https://www.usgs.gov/3d-hydrography-program
-  In (CITY edition): charlotte_city.bytes
-
-Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
-  Licence: public domain; attribution requested
-  https://github.com/tilezen/joerd/blob/master/docs/attribution.md
-  In (MAIN edition): the stages' ground, mountain roads and Bogue Banks (tools/roads, tools/brp, tools/bogue)
+  In: charlotte_city.bytes
 
 Contains information from OpenStreetMap, which is made available here
 under the Open Database License (ODbL): https://www.openstreetmap.org/copyright

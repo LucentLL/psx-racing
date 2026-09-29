@@ -10,31 +10,53 @@ copied.
 ## Credits
 
 **This table is read by tools** (`tools/city/lib/sources.mjs`). Each row is
-one credit line, and three things are made from it:
+one credit line, and everything that prints a credit is made from it:
 
-- `tools/city/export_osm.mjs` joins the lines (one per line, in this order)
-  into the attribution it writes into `charlotte_city.bytes` (section META) and
-  `charlotte_routes.json` (`attribution`);
-- `tools/city/credits.mjs --write` writes the pause menu's **CREDITS** page
-  (`Assets/PSXRacing/Resources/psx_credits.txt`, shown by `CreditsPanel`) and
+- `tools/city/export_osm.mjs` joins the `credit` lines (one per line, in this
+  order, every row) into the attribution it writes into `charlotte_city.bytes`
+  (section META) and `charlotte_routes.json` (`attribution`);
+- `tools/city/credits.mjs --write` writes, for each EDITION (see below), the
+  pause menu's **CREDITS** page (`Assets/PSXRacing/Resources/psx_credits.txt`
+  for ALL, `psx_credits_main.txt`, `psx_credits_city.txt`; `CreditsPanel.Text`
+  loads the one for the build), the one-line credit a front page prints
+  (`psx_credits_line.txt`, one `EDITION: line` row each, made from the `short`
+  column; the CITY front page, `CityFrontEnd`, prints CITY's) and
   **`LICENSES.txt`**, which every WebGL build carries beside `index.html`
-  (`Assets/WebGLTemplates/PSXMobile/LICENSES.txt`);
-- `node tools/city/credits.mjs` (no flag) checks both are up to date.
+  (`Assets/WebGLTemplates/PSXMobile/LICENSES.txt` for ALL, `LICENSES-MAIN.txt`,
+  `LICENSES-CITY.txt`; `PSXBuildWebGL.PickLicenses` publishes the build's own
+  edition's as `LICENSES.txt`);
+- `node tools/city/credits.mjs` (no flag) checks all of them are up to date,
+  and `credits.mjs --build <Build/WebGL> --edition CITY` checks the
+  `LICENSES.txt` a finished build carries is that edition's
+  (`tools/build-and-publish.ps1` runs it before a deploy).
 
-Both refuse to run if the table is missing or a row is malformed. Keep the
-`credit`, `licence` and `licence link` columns plain ASCII, one line, with no
-`|`. After an edit here: `credits.mjs --write`, then the export (`--out ...`),
-so the data, the page and the file say the same thing. The in-race HUD shows
-its own short OpenStreetMap line (`RaceHUD.OsmAttribution`) for the first seven
-seconds; the full credits are these lines.
+**THE EDITIONS** (the owner, 2026-09-28: "Charlotte map and Charlotte tracks
+should be in their own version until being united"): MAIN, at the site root,
+ships the stages and none of Charlotte's data; CITY, at `/city/`, ships
+Charlotte and none of the stages. So a credit belongs to the editions whose
+build carries its data, and that is what `shipped in` says: one
+`EDITION: what` group per edition, separated by `;` (MAIN or CITY). A row
+credits the editions it names there and no others; ALL (the one game again)
+credits every row.
 
-| id | credit | licence | licence link | shipped in |
-|---|---|---|---|---|
-| osm | Road network data (c) OpenStreetMap contributors, ODbL 1.0 | ODbL 1.0 | https://opendatacommons.org/licenses/odbl/1-0/ | charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json |
-| usgs3dep | Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP) | public domain | https://www.usgs.gov/3d-elevation-program | charlotte_dem.bytes, charlotte_city.bytes |
-| meckgis | Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0 | CC0 1.0 | https://creativecommons.org/publicdomain/zero/1.0/ | charlotte_city.bytes |
-| usgs3dhp | Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP) | public domain | https://www.usgs.gov/3d-hydrography-program | charlotte_city.bytes |
-| terrain | Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey | public domain; attribution requested | https://github.com/tilezen/joerd/blob/master/docs/attribution.md | the mountain stages' ground (tools/roads) |
+All of it refuses to run if the table is missing or a row is malformed. Keep
+the `credit`, `short`, `licence`, `licence link` and `shipped in` columns plain
+ASCII, one line, with no `|`. After an edit here: `credits.mjs --write`, then
+the export (`--out ...`), so the data, the pages and the files say the same
+thing. (The export writes every row into Charlotte's data, the stages' terrain
+line included - the attribution predates the editions, and narrowing it to
+CITY's rows changes `charlotte_city.bytes`, so it waits for the next export.)
+The in-race HUD shows its own short OpenStreetMap line
+(`RaceHUD.OsmAttribution`) for the first seven seconds; the full credits are
+these lines.
+
+| id | credit | short | licence | licence link | shipped in |
+|---|---|---|---|---|---|
+| osm | Road network data (c) OpenStreetMap contributors, ODbL 1.0 | Map data (c) OpenStreetMap contributors, ODbL | ODbL 1.0 | https://opendatacommons.org/licenses/odbl/1-0/ | CITY: charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json; MAIN: the stage roads (Resources/*_stage.json, bogue_*.json) |
+| usgs3dep | Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP) | Terrain and creek beds: USGS 3DEP | public domain | https://www.usgs.gov/3d-elevation-program | CITY: charlotte_dem.bytes, charlotte_city.bytes |
+| meckgis | Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0 | Creeks and lakes: Mecklenburg County GIS | CC0 1.0 | https://creativecommons.org/publicdomain/zero/1.0/ | CITY: charlotte_city.bytes |
+| usgs3dhp | Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP) | Creeks and lakes outside the county: USGS 3DHP | public domain | https://www.usgs.gov/3d-hydrography-program | CITY: charlotte_city.bytes |
+| terrain | Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey | Stage terrain: AWS Terrain Tiles, USGS | public domain; attribution requested | https://github.com/tilezen/joerd/blob/master/docs/attribution.md | MAIN: the stages' ground, mountain roads and Bogue Banks (tools/roads, tools/brp, tools/bogue) |
 
 ## Registry
 
