@@ -168,8 +168,8 @@ namespace PSXRacing.EditorTools
             Shader.SetGlobalColor("_PSXLightColor", new Color(0.9f, 0.87f, 0.8f));
 
             var go = new GameObject("~cityRefSpots");
+            // no materials handed in: the world reads the city kit, as the game does
             var world = go.AddComponent<CityWorld>();
-            world.materials = PSXRacingBuilder.CityMaterials();
             var log = new StringBuilder("id\tkind\tsnapped_to\tnamed\teye_x\teye_y\teye_z\tlook_x\tlook_y\tlook_z\twhat\n");
             int shots = 0;
             try

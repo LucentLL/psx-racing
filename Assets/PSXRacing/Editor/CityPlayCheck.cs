@@ -177,6 +177,8 @@ namespace PSXRacing.EditorTools
                 CityPlayCheck.Check(Mathf.Abs(player.transform.position.y - y0) < 0.6f,
                     "the player is still at street height after two seconds",
                     (player.transform.position.y - y0).ToString("+0.00;-0.00") + " m from where it was seated");
+
+                yield return Restaurant(mode, roamSpawn);
             }
 
             // ---- THE 277 RACE ---------------------------------------------
@@ -233,6 +235,88 @@ namespace PSXRacing.EditorTools
 
             CityPlayCheck.Finish();
             EditorApplication.Exit(CityPlayCheck.failures == 0 ? 0 : 1);
+        }
+
+        /// <summary>
+        /// A CITY RESTAURANT (WP-07, plan critic C1). The streamed city now
+        /// stands up the MERGED variant of the drive-thru and the pizzeria;
+        /// what makes them places has to have come with it. Pull into the
+        /// first lot's order bay and stop: ORDER is offered, the room is drawn
+        /// (the viewer is within 40 m), every piece still collides; drive
+        /// away and the room goes again.
+        /// </summary>
+        IEnumerator Restaurant(CityMode mode, Vector3 home)
+        {
+            CityPlayCheck.Line("a city restaurant (the WP-07 variant):");
+            var world = mode.world;
+            var player = mode.player;
+            bool found = false;
+            (byte kind, Vector2 pos) lot = default;
+            foreach (var l in world.FoodLots) { lot = l; found = true; break; }
+            CityPlayCheck.Check(found, "the city has restaurant lots", world.FoodLots.Count);
+            if (!found) yield break;
+            world.EnsureRing(new Vector3(lot.pos.x, 0f, lot.pos.y), 1);
+            yield return null;
+
+            DriveThru bay = null;
+            float best = float.MaxValue;
+            foreach (var d in Object.FindObjectsByType<DriveThru>(FindObjectsSortMode.None))
+            {
+                float dd = Vector2.Distance(new Vector2(d.transform.position.x, d.transform.position.z), lot.pos);
+                if (dd < best) { best = dd; bay = d; }
+            }
+            CityPlayCheck.Check(bay != null && best < 60f, "the lot's order bay stood up with it",
+                bay != null ? CityProps.FoodName(lot.kind) + ", " + best.ToString("0") + " m from the lot" : "no DriveThru in the scene");
+            if (bay == null) yield break;
+            var room = bay.GetComponentInParent<CityPropInterior>();
+            CityPlayCheck.Check(room != null && room.transform.Find("CityMerged") != null,
+                "it is the city variant: a merged shell, the room behind a switch");
+            if (room != null)
+            {
+                int solids = 0;
+                foreach (var c in room.GetComponentsInChildren<Collider>(true)) if (!c.isTrigger) solids++;
+                CityPlayCheck.Check(solids > 20, "every piece of it still collides (walk-in, walls, counters)", solids + " colliders");
+            }
+
+            // pull in and stop
+            var box = bay.GetComponent<BoxCollider>();
+            var at = box != null ? box.bounds.center : bay.transform.position;
+            float seat = room != null ? room.transform.position.y + CityProps.Defs[lot.kind].sink : at.y;
+            player.TeleportTo(new Vector3(at.x, seat + 0.6f, at.z), Quaternion.Euler(0f, bay.transform.eulerAngles.y, 0f));
+            float t0 = Time.time;
+            while (Time.time - t0 < 2.5f && !DriveThru.AtBay) yield return null;
+            CityPlayCheck.Check(DriveThru.AtBay, "ORDER is offered, stopped in the bay", DriveThru.Prompt ?? "no prompt");
+            // The tiles built ahead of the teleport were dropped the frame
+            // after (the player was still uptown) and built again round the
+            // car: the restaurant standing now is a NEW instance.
+            room = null;
+            best = float.MaxValue;
+            foreach (var r in Object.FindObjectsByType<CityPropInterior>(FindObjectsSortMode.None))
+            {
+                float dd = Vector2.Distance(new Vector2(r.transform.position.x, r.transform.position.z), lot.pos);
+                if (dd < best) { best = dd; room = r; }
+            }
+            t0 = Time.time;
+            while (Time.time - t0 < 2f && room != null && !room.Shown) yield return null;
+            CityPlayCheck.Check(room != null && room.Shown, "the room is drawn with the player at the lot",
+                room == null ? "no switch" :
+                $"{(room.isActiveAndEnabled ? "running" : "NOT running")}, car {Vector3.Distance(player.transform.position, room.transform.position):0} m, " +
+                $"camera {(Camera.main != null ? Vector3.Distance(Camera.main.transform.position, room.transform.position).ToString("0") + " m" : "none")}, " +
+                $"world {(CityWorld.Active != null ? "active" : "none")}");
+
+            // and 70 m away, still on the same tiles (the lot must stand, or
+            // "switched off" would only mean "destroyed")
+            if (room != null)
+            {
+                var away = room.transform.position + new Vector3(70f, 3f, 0f);
+                player.TeleportTo(away, player.transform.rotation);
+                t0 = Time.time;
+                while (Time.time - t0 < 4f && room != null && room.Shown) yield return null;
+                CityPlayCheck.Check(room != null && !room.Shown, "and switched off again 70 m away, the lot still standing",
+                    room != null ? Vector3.Distance(player.transform.position, room.transform.position).ToString("0") + " m" : "the lot was dropped");
+            }
+            player.TeleportTo(home, player.transform.rotation);
+            yield return null;
         }
 
         /// <summary>On a street, at the street's own height, with a collider

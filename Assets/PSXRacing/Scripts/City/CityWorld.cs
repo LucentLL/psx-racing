@@ -33,11 +33,18 @@ namespace PSXRacing.City
         /// skip it by name, since a pole standing beside a road is neither a
         /// barrier guarding a drop nor something in a lane.</summary>
         public const string LampPostName = "LampPost";
-        /// <summary>Galvanised steel gone dark with weather: the posts' tint.</summary>
+        /// <summary>Galvanised steel gone dark with weather: the posts' tint
+        /// when the build has no city kit (the fallback, never the look).</summary>
         static readonly Color LampPostColor = new Color(0.30f, 0.31f, 0.33f);
 
-        [Tooltip("One material per CityMeshes.Slot, in enum order.")]
-        public Material[] materials;
+        /// <summary>
+        /// One material per CityMeshes.Slot, in enum order - for a TOOL that
+        /// wants to hand in its own table. Left null, which is what the game
+        /// does, the world draws with the <see cref="CityKit"/> (WP-07): the
+        /// scenes no longer serialize a materials array, so a new city
+        /// material is a kit change and never a rebake of four scenes.
+        /// </summary>
+        [System.NonSerialized] public Material[] materials;
         public Transform player;
         /// <summary>Other cars the world must exist under: the AI field in a
         /// city race. Each keeps a 3x3 ring of tiles built around it.</summary>
@@ -178,6 +185,10 @@ namespace PSXRacing.City
         /// <summary>Every restaurant in the city, flattened out of the tile
         /// buckets once, so the HUD has something to point at.</summary>
         readonly List<(byte kind, Vector2 pos)> food = new List<(byte, Vector2)>();
+
+        /// <summary>Every restaurant lot (kind, centre), for the budget probe
+        /// and the play check.</summary>
+        public IReadOnlyList<(byte kind, Vector2 pos)> FoodLots { get { EnsureInit(); return food; } }
 
         void BuildFoodIndex()
         {
@@ -340,7 +351,7 @@ namespace PSXRacing.City
                 foreach (var b in lots)
                 {
                     if (b.kind == 0) continue;
-                    var prefab = CityProps.Prefab(b.kind);
+                    var prefab = CityProps.CityPrefab(b.kind);
                     if (prefab == null) continue;
                     var def = CityProps.Defs[b.kind];
                     float gy = CityBuildings.SeatY(Map, b.pos, b.w, b.d, b.yaw);
@@ -514,15 +525,16 @@ namespace PSXRacing.City
         static Material lampPostMat;
 
         /// <summary>
-        /// The posts' material: PSX/Lit, untextured, tinted, created once per
-        /// process and never saved (a new Slot for it would shift every road
-        /// slot and misalign the baked city scenes' materials arrays). Null
-        /// if the shader is not in the build: Attach then switches the
-        /// posts' renderer off rather than draw them pink, and they still
-        /// collide.
+        /// The posts' material: the city kit's pack metal (WP-07; the owner's
+        /// pack-texture rule). Without a kit, a PSX/Lit tint made once per
+        /// process and never saved, as it was before the kit existed. Null if
+        /// even the shader is missing: Attach then switches the posts'
+        /// renderer off rather than draw them pink, and they still collide.
         /// </summary>
         public static Material LampPostMaterial()
         {
+            var kit = CityKit.Get();
+            if (kit != null && kit.lampPost != null) return kit.lampPost;
             if (lampPostMat != null) return lampPostMat;
             var sh = Shader.Find("PSX/Lit");
             if (sh == null) return null;
@@ -556,8 +568,10 @@ namespace PSXRacing.City
         Material MatFor(CityMeshes.Slot slot)
         {
             int i = (int)slot;
-            if (materials != null && i < materials.Length && materials[i] != null)
-                return SeasonDress.Substitute(materials[i]);
+            var table = materials;
+            if (table == null) { var kit = CityKit.Get(); table = kit != null ? kit.slots : null; }
+            if (table != null && i < table.Length && table[i] != null)
+                return SeasonDress.Substitute(table[i]);
             return null;
         }
 

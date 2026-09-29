@@ -111,12 +111,16 @@ namespace PSXRacing.EditorTools
             }
 
             // ---- the streamed world --------------------------------------
+            // No materials on the component (WP-07): CityWorld reads them
+            // from the CityKit in Resources, written here for all four
+            // scenes, so the next city material is a kit change and not a
+            // rebake of every city scene.
             var worldGO = new GameObject("CityWorld");
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
-            world.materials = CityMaterials();
+            var kit = EnsureCityKit();
             RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
-                                   world.materials[(int)CityMeshes.Slot.Ground], Color.white, "grass");
+                                   kit.MaterialFor(CityMeshes.Slot.Ground), Color.white, "grass");
 
             // RaceManager + applier when there is a path, the free-roam
             // session GO otherwise — BuildCameraAndHUD makes that call.
@@ -164,6 +168,103 @@ namespace PSXRacing.EditorTools
             EnsureCityArt();
             AssetDatabase.Refresh();
             ConfigureTextureImporters();
+            EnsureCityKit();
+        }
+
+        // ------------------------------------------------------------------
+        //  THE CITY KIT (WP-07): every city material in one Resources asset.
+        // ------------------------------------------------------------------
+        const string CityKitPath = Root + "/Resources/" + CityKit.ResourcePath + ".asset";
+
+        /// <summary>The street-lamp posts' pack metal: the house pack's
+        /// Metal.jpg (a weathered galvanised grey that already ships with
+        /// the house props, so it costs no download), tinted down to the
+        /// dark weathered steel the untextured posts were. The sums, in the
+        /// linear light the shader works in: the old tint (0.30, 0.31, 0.33)
+        /// is (0.073, 0.078, 0.089); the texture ships as RGB565
+        /// (ReleaseBudget), which is sampled WITHOUT the sRGB decode, so its
+        /// mean (0.50, 0.51, 0.48) arrives as it stands; the tint that lands
+        /// on the old tone is therefore (0.146, 0.154, 0.184) linear, which
+        /// is written here as the colour it is authored in, (0.42, 0.43, 0.46).</summary>
+        internal static Material CityLampPostMat() =>
+            MakeMat("CityLampPost", LifeSimArtDir + "/House/Textures/Metal.jpg",
+                    tint: new Color(0.42f, 0.43f, 0.46f), affine: 0f);
+
+        /// <summary>
+        /// Write (or rewrite) Resources/CityKit.asset from the one material
+        /// table, CityMaterials(), plus the lamp posts, and hand it back.
+        /// Every city scene build and every city tool (EnsureCityTextures)
+        /// runs it, so what a tool photographs and what the game draws are
+        /// the same asset.
+        /// </summary>
+        internal static CityKit EnsureCityKit()
+        {
+            if (!AssetDatabase.IsValidFolder(Root + "/Resources"))
+                AssetDatabase.CreateFolder(Root, "Resources");
+            var kit = AssetDatabase.LoadAssetAtPath<CityKit>(CityKitPath);
+            bool made = kit == null;
+            if (made) kit = ScriptableObject.CreateInstance<CityKit>();
+            kit.slots = CityMaterials();
+            kit.slotCount = kit.slots.Length;
+            kit.lampPost = CityLampPostMat();
+            var shaders = new List<Shader>();
+            foreach (var m in kit.slots)
+                if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
+            if (kit.lampPost != null && kit.lampPost.shader != null && !shaders.Contains(kit.lampPost.shader))
+                shaders.Add(kit.lampPost.shader);
+            foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
+            {
+                var sh = Shader.Find(name);
+                if (sh != null && !shaders.Contains(sh)) shaders.Add(sh);
+            }
+            kit.shaders = shaders.ToArray();
+            int missing = 0;
+            foreach (var m in kit.slots) if (m == null) missing++;
+            if (missing > 0) Log("WARN: city kit: " + missing + " of " + kit.slots.Length + " slots have no material");
+            if (made) AssetDatabase.CreateAsset(kit, CityKitPath);
+            else EditorUtility.SetDirty(kit);
+            AssetDatabase.SaveAssets();
+            CityKit.Forget();
+            return kit;
+        }
+
+        /// <summary>
+        /// The four city scenes and nothing else (WP-07's one rebake, and the
+        /// fast loop for any city change that touches the scenes): the city
+        /// prop variants are baked from the full prefabs the last full build
+        /// left, then Charlotte and its three race scenes are rebuilt.
+        /// Leaves the build settings and every other scene alone, and writes
+        /// PSXRacing_city_build_log.txt, never the full build's log (which the
+        /// publish gate reads).
+        /// </summary>
+        [MenuItem("PSX Racing/Build City Scenes Only")]
+        public static void BuildCityScenesOnly()
+        {
+            log = new System.Text.StringBuilder();
+            try
+            {
+                Log("City scenes build started " + DateTime.Now);
+                EnsureFolders();
+                ConfigureTextureImporters();
+                EnsureRoadLayer();
+                psxLit = Shader.Find("PSX/Lit");
+                if (psxLit == null) throw new Exception("PSX/Lit shader not found - did shaders compile?");
+                foreach (var line in CityPropBaker.BakeVariants()) Log("  props " + line);
+                int n = 0;
+                foreach (var def in TrackCatalog.Scened)
+                    if (def.city) { BuildCityScene(def); n++; }
+                Log("CITY BUILD OK - " + n + " city scenes");
+            }
+            catch (Exception e)
+            {
+                Log("CITY BUILD FAILED: " + e.Message + " | " + e.StackTrace);
+                Debug.LogException(e);
+            }
+            finally
+            {
+                File.WriteAllText(ProjectRootPath("PSXRacing_city_build_log.txt"), log.ToString());
+                AssetDatabase.SaveAssets();
+            }
         }
 
         static void EnsureCityFolders()

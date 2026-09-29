@@ -2466,10 +2466,10 @@ namespace PSXRacing.City
         /// <summary>A box from its centre and three half-axis vectors, every
         /// face facing out (Bucket.Face decides the winding), less the faces
         /// in <paramref name="skip"/>. Four vertices a face, so the normals
-        /// come out flat.</summary>
+        /// come out flat. UVs in metres (WP-07): the posts wear the owner's
+        /// pack metal now, one repeat a metre, where they were a flat tint.</summary>
         static void EmitLampBox(Vector3 c, Vector3 ax, Vector3 ay, Vector3 az, int skip)
         {
-            var uv = Vector2.zero;
             for (int f = 0; f < 6; f++)
             {
                 if ((skip & (1 << f)) != 0) continue;
@@ -2478,7 +2478,9 @@ namespace PSXRacing.City
                 Vector3 v = f < 4 ? az : ay;
                 if ((f & 1) != 0) nrm = -nrm;
                 var q = c + nrm;
-                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm, uv, uv, uv, uv);
+                float lu = 2f * u.magnitude, lv = 2f * v.magnitude;
+                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm,
+                    new Vector2(lu, lv), new Vector2(lu, 0f), Vector2.zero, new Vector2(0f, lv));
             }
         }
 
