@@ -11,6 +11,15 @@
 #
 # Output: C:\Users\mcgee\PSXBuild\Screenshots\menu_*.png, and the fit / pad
 # reach lines from the log printed at the end.
+#
+#   ...  -Editions   only the two front ends, as their editions draw them:
+#                    MAIN's calendar, planner, pre-race, options, RIVALS and
+#                    NEWS, an old save that booked Charlotte (the toast and the
+#                    log lines), the WHERE TO? doors at the end of your street;
+#                    and the CITY front end's pages (the door, a race result, a
+#                    free-roam result, the cars, options), at 16:9, 19.5:9,
+#                    ~2.24:1 and 4:3 (LifeHomePreview.CaptureEditions).
+param([switch]$Editions)
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
 
@@ -25,7 +34,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
 # -nographics gives it a null one that reads back as a black PNG.
 $ok = Invoke-UnityJob -Log "$proj\menupreview.log" -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
-    "-executeMethod","PSXRacing.EditorTools.LifeHomePreview.Capture",
+    "-executeMethod",$(if ($Editions) { "PSXRacing.EditorTools.LifeHomePreview.CaptureEditions" } else { "PSXRacing.EditorTools.LifeHomePreview.Capture" }),
     "-logFile","$proj\menupreview.log","-accept-apiupdate")
 if (-not $ok) { exit 1 }
 
@@ -45,8 +54,16 @@ $lost = Select-String -Path "$proj\menupreview.log" -Pattern "UNREACHABLE BY PAD
 if ($lost) { $lost | ForEach-Object { $_.Line } } else { Write-Host "  every control reachable" }
 
 Write-Host "=== LAYOUT (content height vs viewport) ==="
-Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] (home|week|month|prerace|eat|bills|jobs|options)" |
+Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] (home|week|month|prerace|eat|bills|jobs|options|main_|city_)" |
     ForEach-Object { $_.Line }
+
+# "No text may clip" (owner, 2026-09-26): glyphs off screen, cut by a panel,
+# truncated, or printed over other text. The goal is zero.
+Write-Host "=== CLIP / OVERLAP ==="
+$clip = Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] CLIP " -CaseSensitive |
+        Where-Object { $_.Line -notmatch "CLIP TOTAL" }
+if ($clip) { $clip | ForEach-Object { $_.Line } } else { Write-Host "  none" }
+Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] CLIP TOTAL" | Select-Object -Last 1 | ForEach-Object { $_.Line }
 
 Write-Host "=== ERRORS / EXCEPTIONS ==="
 $err = Select-String -Path "$proj\menupreview.log" -Pattern "Exception|\[HomePreview\] no " | Select-Object -First 20

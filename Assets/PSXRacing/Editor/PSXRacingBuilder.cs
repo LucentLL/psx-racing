@@ -641,6 +641,17 @@ namespace PSXRacing.EditorTools
         {
             log = new StringBuilder();
             matByTex.Clear();
+            // A WebGL build killed while an edition's Resources were parked
+            // left them under _EditionParked: put them back BEFORE this build
+            // re-bakes Resources/CityProps and the pizza cargo over the top.
+            EditionParking.RecoverIfNeeded();
+            // THE BUILDER BUILDS EVERYTHING, whatever edition the job that
+            // called it targets (a WebGL build for -psxEdition MAIN rebuilds a
+            // missing scene through here): every venue's data must load, and
+            // Edition.Ships would hide Charlotte's routes from a MAIN-simulated
+            // editor. Put back whatever was simulated when it is done.
+            var editionWas = Edition.Simulated;
+            Edition.Simulate(EditionKind.All);
             try
             {
                 Log("PSX Racing scene build started " + DateTime.Now);
@@ -711,6 +722,7 @@ namespace PSXRacing.EditorTools
             }
             finally
             {
+                Edition.Simulate(editionWas);
                 File.WriteAllText(ProjectRootPath("PSXRacing_build_log.txt"), log.ToString());
                 AssetDatabase.SaveAssets();
             }
@@ -1378,16 +1390,33 @@ namespace PSXRacing.EditorTools
         /// PizzeriaSceneIndex are the other half of it, and anything new can
         /// only ever go on the END.
         /// </summary>
-        public static string[] SceneOrder()
+        public static string[] SceneOrder() => SceneOrder(EditionKind.All);
+
+        /// <summary>
+        /// The scenes ONE EDITION's player ships (see Edition): LifeHome (the
+        /// boot scene, index 0 in every edition), that edition's venues in
+        /// catalog order, and — where there is a career — the garage, the
+        /// pizzeria, the town, the seller's street and your own street.
+        ///
+        /// EditorBuildSettings is ALWAYS <see cref="SceneOrder()"/> (ALL): every
+        /// play check, audit and the self-test read it, and it is a strict
+        /// superset of both editions. Only PSXBuildWebGL asks for an edition,
+        /// and the runtime finds every scene by PATH (TrackCatalog.SceneIndex),
+        /// so a shorter list re-numbers nothing it depends on.
+        /// </summary>
+        public static string[] SceneOrder(EditionKind edition)
         {
             var list = new List<string> { LifeHomeSceneBuilder.ScenePath };
-            foreach (var t in TrackCatalog.Scened)
-                list.Add("Assets/PSXRacing/Scenes/" + t.id + ".unity");
-            list.Add(GarageSceneBuilder.ScenePath);
-            list.Add(PizzeriaSceneBuilder.ScenePath);
-            list.Add(TownScenePath);
-            list.Add(SellerLotSceneBuilder.ScenePath);
-            list.Add(NeighborhoodScenePath);
+            foreach (var t in TrackCatalog.ScenedFor(edition))
+                list.Add(TrackCatalog.ScenePathOf(t.id));
+            if (edition != EditionKind.City)
+            {
+                list.Add(GarageSceneBuilder.ScenePath);
+                list.Add(PizzeriaSceneBuilder.ScenePath);
+                list.Add(TownScenePath);
+                list.Add(SellerLotSceneBuilder.ScenePath);
+                list.Add(NeighborhoodScenePath);
+            }
             return list.ToArray();
         }
 

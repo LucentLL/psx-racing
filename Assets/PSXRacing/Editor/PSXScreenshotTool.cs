@@ -70,12 +70,12 @@ namespace PSXRacing.EditorTools
             var only = OnlyVenues();
             if (only != null)
             {
-                foreach (var def in TrackCatalog.Scened)
+                foreach (var def in TrackCatalog.ScenedFor(EditionTarget.Current))
                     if (only.Contains(def.id)) CaptureTrack(def);
                 Debug.Log("[PSXShot] Screenshots (PSX_SHOT_ONLY) written to " + OutDir);
                 return;
             }
-            foreach (var def in TrackCatalog.Scened) CaptureTrack(def);
+            foreach (var def in TrackCatalog.ScenedFor(EditionTarget.Current)) CaptureTrack(def);
             // The hour sweep and the camera sweep both go on the city circuit:
             // it is the one with buildings, trees, parked cars and a forecourt
             // all in shot, so it shows what an hour does to every kind of
@@ -119,7 +119,7 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(OutDir);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_ONLY");
             var want = string.IsNullOrEmpty(only) ? null : new HashSet<string>(only.Split(','));
-            foreach (var def in TrackCatalog.Scened)
+            foreach (var def in TrackCatalog.ScenedFor(EditionTarget.Current))
             {
                 if (want != null && !want.Contains(def.id)) continue;
                 if (!File.Exists("Assets/PSXRacing/Scenes/" + def.id + ".unity")) continue;

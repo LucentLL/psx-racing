@@ -165,7 +165,9 @@ namespace PSXRacing.LifeSim
                 return "three runs is a night — the lot is clearing out";
             var car = s.ActiveCar;
             if (!CarWhere.Available(s, car)) return "you have no car here to race";
-            if (r.trackIndex < 0 || r.trackIndex >= TrackCatalog.Count) return "nowhere to run it";
+            // Offered: in range, not the open city, and a road this edition
+            // carries — a lot rolled before the editions may name Tryon.
+            if (!TrackCatalog.Offered(r.trackIndex)) return "nowhere to run it";
             var track = TrackCatalog.At(r.trackIndex);
             if (car.fuel <= LifeRules.RequiredFuelPct(track, car))
                 return "not enough fuel for " + track.name.ToLowerInvariant() + " — fill up first";
@@ -272,19 +274,28 @@ namespace PSXRacing.LifeSim
         static int PickVenue(string[] ids, System.Random rng)
         {
             // Start at a seeded place and walk, so a missing id costs a step
-            // rather than the whole pick.
+            // rather than the whole pick. TryIndexOf, not IndexOf: IndexOf
+            // answers 0 for a missing id, so the walk never skipped anything
+            // and a missing venue silently became Sunset City GP. One draw
+            // off the dice whatever the list's length, so the crowd rolled
+            // after this is the same crowd in every edition.
             int start = rng.Next(ids.Length);
             for (int k = 0; k < ids.Length; k++)
             {
-                int idx = TrackCatalog.IndexOf(ids[(start + k) % ids.Length]);
-                if (idx >= 0) return idx;
+                if (TrackCatalog.TryIndexOfShipped(ids[(start + k) % ids.Length], out int idx) &&
+                    TrackCatalog.Offered(idx))
+                    return idx;
             }
             return -1;
         }
 
+        /// <summary>The roads a style races on. STREET is Charlotte's three;
+        /// MAIN ships no Charlotte, so there a street racer runs the grip
+        /// circuits — the town streets MAIN does have (Sunset City GP, Harbor
+        /// Point) rather than nowhere.</summary>
         static string[] VenuesFor(string style) =>
             style == "DRAG" ? DragVenues : style == "TOUGE" ? TougeVenues :
-            style == "STREET" ? StreetVenues : GripVenues;
+            style == "STREET" ? (Edition.HasCharlotte ? StreetVenues : GripVenues) : GripVenues;
 
         /// <summary>What kind of race a car is at the meet for. Weighted by
         /// what the car IS — a 450 hp muscle car is there for the strip and a

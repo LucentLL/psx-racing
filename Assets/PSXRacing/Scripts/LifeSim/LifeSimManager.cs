@@ -18,21 +18,53 @@ namespace PSXRacing.LifeSim
 
         static LifeState state;
 
+        /// <summary>What <see cref="State"/> hands out in an edition with no
+        /// career - see there.</summary>
+        static LifeState noCareerScratch;
+        static bool warnedNoCareer;
+
         /// <summary>The live state. Loads (or creates) lazily so any scene can
-        /// run first in the editor without a boot ceremony.</summary>
+        /// run first in the editor without a boot ceremony.
+        ///
+        /// NOT IN THE CITY EDITION. The Charlotte test page has no career
+        /// (Edition.HasCareer) and promises never to create one: its only
+        /// memory is the car, hour and weather picks (CityFrontEnd). Every
+        /// career surface there is closed at its door - the drive-thru windows
+        /// (DriveThru.Serves), the food signpost, the fuel truck, the pumps,
+        /// the debug bench - and this is the net under all of them: a CITY
+        /// build that still asks gets a blank, THROWAWAY state that is never
+        /// loaded from and never saved (Save() is a no-op there), with one
+        /// warning in the log naming the leak, so nothing reaches the test
+        /// page's save database and nothing shows a career's pocket.</summary>
         public static LifeState State
         {
             get
             {
+                if (!Edition.HasCareer)
+                {
+                    if (!warnedNoCareer)
+                    {
+                        warnedNoCareer = true;
+                        Debug.LogWarning("[LifeSim] the " + Edition.Name(Edition.Current) +
+                                         " edition has no career, but something asked for one - handing it a " +
+                                         "throwaway state that is never saved\n" + System.Environment.StackTrace);
+                    }
+                    return noCareerScratch ??= new LifeState();
+                }
                 if (state == null) state = Load() ?? NewGame();
                 return state;
             }
         }
 
-        public static bool HasSave => PlayerPrefs.HasKey(SaveKey);
+        /// <summary>Does this build keep a career on disk at all? False in the
+        /// CITY edition, where <see cref="Save"/> writes nothing.</summary>
+        public static bool Persists => Edition.HasCareer;
+
+        public static bool HasSave => Persists && PlayerPrefs.HasKey(SaveKey);
 
         public static void Save()
         {
+            if (!Persists) return;   // CITY: no career, nothing written (see State)
             if (state == null) return;
             PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(state));
             PlayerPrefs.Save();
@@ -46,10 +78,105 @@ namespace PSXRacing.LifeSim
                 var s = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(SaveKey));
                 if (s == null || s.saveVersion < 1) return null;
                 Migrate(s);
+                // After the migration, never inside it: this is not a save
+                // version (the catalog did not move — nothing was removed or
+                // reordered) but a question asked of THIS build on every load.
+                EditionSanitize(s);
                 return s;
             }
             catch { return null; }   // corrupt save: fall through to new game
         }
+
+        static string editionNote;
+
+        /// <summary>The last load's edition note, once — see
+        /// <see cref="EditionSanitize"/>. The home screen toasts it.</summary>
+        public static string TakeEditionNote()
+        {
+            string n = editionNote;
+            editionNote = null;
+            return n;
+        }
+
+        /// <summary>
+        /// A SAVE FROM BEFORE THE EDITIONS, loaded by one of them.
+        ///
+        /// Saves store venues by catalog INDEX, and the catalog is the same in
+        /// every edition (nothing is ever deleted — see Edition), so an old
+        /// career loads in MAIN pointing at Charlotte venues MAIN has no scene
+        /// for: a race booked on Tryon, a blacklist series opened on the 277,
+        /// the pre-race page's own default. Left alone, the booked block's RACE
+        /// button would load a scene that is not there — a black screen.
+        ///
+        /// So, on every load (idempotent; nothing to do in ALL):
+        ///   * a BOOKING at a venue this build does not carry is CANCELLED, with
+        ///     a line in the log naming it. Bookings are free, so nothing is
+        ///     owed back; the block is simply open again.
+        ///   * a live blacklist SERIES on such a road moves to one of the
+        ///     rival's roads that this build has (legs already run stand).
+        ///   * the pre-race DEFAULT venue goes back to the first one offered.
+        /// The first screen then says so in a toast (<see cref="TakeEditionNote"/>).
+        /// Public for the self-test (TestEditions).
+        /// </summary>
+        public static string EditionSanitize(LifeState s)
+        {
+            if (s == null || Edition.Current == EditionKind.All) return null;
+            var said = new System.Collections.Generic.List<string>();
+
+            if (s.bookings != null)
+            {
+                for (int i = s.bookings.Count - 1; i >= 0; i--)
+                {
+                    var b = s.bookings[i];
+                    if (b == null || TrackCatalog.Offered(b.trackIndex)) continue;
+                    string name = b.trackIndex >= 0 && b.trackIndex < TrackCatalog.Count
+                        ? TrackCatalog.At(b.trackIndex).name : "a venue";
+                    // The verb FIRST: RECENTLY cuts a long line short, and
+                    // "the race booked at TRYON STREET SPRI..." never got
+                    // as far as saying what happened to it.
+                    s.calendarLog.Add(LifeRules.LogDate(b.day) + ": cancelled, the race at " + name +
+                                      " (not in this edition of the game)");
+                    s.bookings.RemoveAt(i);
+                    said.Add(name);
+                }
+            }
+
+            string seriesWas = Blacklist.RepointSeries(s);
+            if (seriesWas != null)
+            {
+                string now = TrackCatalog.At(Blacklist.SeriesTrack(s)).name;
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": series moved to " + now + ", off " +
+                                  seriesWas + " (not in this edition of the game)");
+            }
+
+            if (!TrackCatalog.Offered(s.trackIndex)) s.trackIndex = TrackCatalog.FirstOffered();
+
+            if (said.Count > 0 || seriesWas != null)
+            {
+                // ONE SHORT toast line; RECENTLY has the whole story. At most
+                // NoteMax characters: the toast is centred over the bottom of
+                // the page, and on a 19.5:9 phone a 51-character one ran over
+                // the WEEK button's label (menu preview, main_oldsave). Only
+                // MAIN ever gets here (CITY has no career to load), and the
+                // only venues MAIN leaves out are Charlotte's.
+                string what = Edition.Current == EditionKind.Main ? "CHARLOTTE " : "";
+                string note =
+                    said.Count > 0 && seriesWas != null ? what + "RACES OFF, SERIES MOVED"
+                    : said.Count > 1 ? said.Count + " " + what + "RACES CANCELLED"
+                    : said.Count == 1 ? what + "RACE CANCELLED"
+                    : "SERIES MOVED OFF " + (what.Length > 0 ? what.Trim() : "ITS ROAD");
+                if (note.Length > NoteMax) note = Short(note, NoteMax);
+                editionNote = note;
+                return note;
+            }
+            return null;
+        }
+
+        /// <summary>The longest edition toast (see EditionSanitize).</summary>
+        public const int NoteMax = 34;
+
+        static string Short(string s, int max) =>
+            string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max - 3).TrimEnd() + "...";
 
         /// <summary>
         /// Forward-migrate an older save in place. Added fields need nothing —
