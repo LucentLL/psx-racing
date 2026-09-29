@@ -1133,17 +1133,21 @@ namespace PSXRacing.EditorTools
         /// squeezeDev). The cut (inward) is -sgn * err; L is the class's taper
         /// floor. The cut is split at its turning points (V hysteresis) into
         /// rises and falls. EASE: inside each rise or fall of height H, two
-        /// samples w &lt; L apart may differ by at most H g(w / L), g(x) = 1.5x -
-        /// 0.5x^3 (the most a smoothstep of height H over L changes over any w);
-        /// the excess came faster than a taper over the floor. HOLD: at a dip
+        /// samples w &lt; L apart may differ by at most H_L g(w / L), g(x) = 1.5x -
+        /// 0.5x^3 (the most a smoothstep of height H_L over L changes over any
+        /// w), H_L the LOCAL height: the change across the floor-length window
+        /// centred on the pair (the last sample at or before its start to the
+        /// first at or after its end, inside the rise), never more than H - a
+        /// fast step inside a tall, slow rise no longer borrows the whole rise's
+        /// height; the excess came faster than a taper over the floor. HOLD: at a dip
         /// between two cuts narrower than L where it drops below the lower of
         /// them, that lower cut less the cut - the edge came back out where I7
-        /// holds it in. A cut eased over L or longer and held between cuts reads
-        /// 0; a clipped or collapsed sample (X3/X2) breaks the signal, 0.</summary>
+        /// holds it in. A cut eased over L or longer (or several stacked) and
+        /// held between cuts reads 0 (the sampled window only widens H_L); a
+        /// clipped or collapsed sample (X3/X2) breaks the signal, 0.</summary>
         static double[] SqueezeDev(List<RibSample> smp, double sgn, double L)
         {
             int n = smp.Count; var dev = new double[n];
-            double G(double x) => x >= 1 ? 1 : 1.5 * x - 0.5 * x * x * x;
             for (int i0 = 0; i0 < n;)
             {
                 if (smp[i0].x3) { i0++; continue; }
@@ -1169,11 +1173,22 @@ namespace PSXRacing.EditorTools
                     int a = tp[t], b = tp[t + 1]; double H = Math.Abs(c[b] - c[a]);
                     if (H <= V) continue;
                     for (int i = a; i < b; i++)
+                    {
+                        // the floor window centred on the pair (i, j): kl the last sample at or before its start, kh the
+                        // first at or after its end (inside the rise); both only move forward as j does
+                        int kl = i, kh = i + 1;
                         for (int j = i + 1; j <= b && s[j] - s[i] < L; j++)
                         {
-                            double e = Math.Abs(c[j] - c[i]) - H * G((s[j] - s[i]) / L);
+                            double mid = (s[i] + s[j]) / 2, lo = mid - L / 2, hi = mid + L / 2;
+                            if (j == i + 1) { while (kl > a && s[kl] > lo) kl--; }
+                            else while (kl < i && s[kl + 1] <= lo) kl++;
+                            if (kh < j) kh = j;
+                            while (kh < b && s[kh] < hi) kh++;
+                            double HL = Math.Min(H, Math.Abs(c[kh] - c[kl]));
+                            double e = Math.Abs(c[j] - c[i]) - HL * EaseG((s[j] - s[i]) / L);
                             if (e > 0) { Bump(i, e); Bump(j, e); }
                         }
+                    }
                 }
                 // HOLD, per dip between two cuts
                 for (int t = 1; t + 1 < tp.Count; t++)
@@ -1523,20 +1538,28 @@ namespace PSXRacing.EditorTools
             return i;
         }
 
-        /// <summary>B2's score at every kept vertex (lib/kink.mjs kinkScores):
-        /// the worst of its lone facet sagitta and of every CLUSTER it is a
-        /// corner vertex of - consecutive vertices j..k turning the same way
-        /// (the other way by less than KinkNoiseShare of the turn is noise),
-        /// spanning at most ChordCapM, judged as one corner: Vc where the line
-        /// into j meets the line out of k, T the summed turn, dr the drawn
-        /// rounding (Vc to the polygon), f = min(c-, c+, ChordCapM) |T| / 8 from
-        /// Vc, gap = f - dr. Some distance of the chase view out to KinkViewM
-        /// shows a kink exactly when gap > max(V, dr) and dr is under a pixel
-        /// there (pMax = V KinkViewM / PixelAtM); the score is gap V / max(V, dr).
-        /// A lone vertex scores its facet sagitta, the spec's formula.</summary>
+        /// <summary>The sign of the turn that stops Reach(C, TH, m, dir, thr,
+        /// cap, 0): the one vertex turning thr or more, else the running sum; 0
+        /// when the strand's end or cap stops it instead (lib/kink.mjs
+        /// stopSign).</summary>
+        static int StopSign(double[] C, double[] TH, int m, int dir, double thr, double cap)
+        {
+            int n = C.Length, i = m + dir; double sum = 0;
+            while (i > 0 && i < n - 1 && Math.Abs(C[i] - C[m]) < cap)
+            {
+                sum += TH[i];
+                if (Math.Abs(TH[i]) >= thr) return Math.Sign(TH[i]);
+                if (Math.Abs(sum) >= thr) return Math.Sign(sum);
+                i += dir;
+            }
+            return 0;
+        }
+
         /// <summary>What gave a vertex its B2 score (lib/kink.mjs KIND_*).</summary>
-        const byte KindLone = 0, KindCluster = 1, KindHedge = 2, KindJog = 3;
-        static readonly string[] KindText = { "a lone corner", "a corner split over close vertices", "a hedged corner (turn and turn back; the net corner)", "a jog (a sideways step between two straights)" };
+        const byte KindLone = 0, KindCluster = 1, KindHedge = 2, KindJog = 3, KindZig = 4, KindOut = 5;
+        static readonly string[] KindText = { "a lone corner", "a corner split over close vertices", "a hedged corner (turn and turn back; the net corner)",
+            "a jog (a sideways step between two straights, faster than the plan's ease)", "a zigzag peak (the line turns back on both sides)",
+            "a bump or notch (drawn outside every smooth transition between its straights)" };
 
         /// <summary>The least sideways gap, anywhere along the window j..k,
         /// between the approach line (P[j-1] -> P[j]) and the exit line (P[k]
@@ -1560,43 +1583,115 @@ namespace PSXRacing.EditorTools
             return g0 * g1 <= 0 ? 0 : Math.Min(Math.Abs(g0), Math.Abs(g1));
         }
 
+        /// <summary>g(x) = 1.5x - 0.5x^3 (1 from x = 1): the most a smoothstep
+        /// of height 1 over a length L changes over any stretch x L - the
+        /// squeeze envelope's EASE (SqueezeDev) and the jog's (lib/kink.mjs
+        /// easeG).</summary>
+        static double EaseG(double x) => x >= 1 ? 1 : 1.5 * x - 0.5 * x * x * x;
+
+        /// <summary>The plan's fastest ease: the shortest class taper floor
+        /// (SmoothRules.TaperFloor; lib/kink.mjs minTaperFloor).</summary>
+        static double MinTaperFloor()
+        {
+            double m = double.PositiveInfinity;
+            foreach (var r in SmoothRules.TaperFloor) if (r.r < m) m = r.r;
+            return m;
+        }
+
+        /// <summary>The convex hull of a few points (Andrew's monotone chain,
+        /// counter-clockwise, collinear points dropped; the insertion sort of
+        /// lib/kink.mjs hullOf, so both order them identically).</summary>
+        static List<(double x, double z)> HullOf(List<(double x, double z)> pts)
+        {
+            var p = new List<(double x, double z)>(pts);
+            for (int i = 1; i < p.Count; i++)
+            {
+                var q = p[i]; int j = i - 1;
+                while (j >= 0 && (p[j].x > q.x || (p[j].x == q.x && p[j].z > q.z))) { p[j + 1] = p[j]; j--; }
+                p[j + 1] = q;
+            }
+            double Cr((double x, double z) o, (double x, double z) a, (double x, double z) b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+            var lo = new List<(double x, double z)>(); var up = new List<(double x, double z)>();
+            for (int i = 0; i < p.Count; i++) { var q = p[i]; while (lo.Count >= 2 && Cr(lo[lo.Count - 2], lo[lo.Count - 1], q) <= 0) lo.RemoveAt(lo.Count - 1); lo.Add(q); }
+            for (int i = p.Count - 1; i >= 0; i--) { var q = p[i]; while (up.Count >= 2 && Cr(up[up.Count - 2], up[up.Count - 1], q) <= 0) up.RemoveAt(up.Count - 1); up.Add(q); }
+            lo.RemoveAt(lo.Count - 1); up.RemoveAt(up.Count - 1);
+            lo.AddRange(up);
+            return lo;
+        }
+
+        /// <summary>How far (x, z) stands outside the convex polygon poly
+        /// (HullOf's order); 0 inside. One or two points are a point or a
+        /// segment (lib/kink.mjs outsideOf).</summary>
+        static double OutsideOf(List<(double x, double z)> poly, double x, double z)
+        {
+            int n = poly.Count;
+            if (n == 0) return 0;
+            if (n == 1) return Math.Sqrt((poly[0].x - x) * (poly[0].x - x) + (poly[0].z - z) * (poly[0].z - z));
+            bool inside = n >= 3; double d = double.PositiveInfinity;
+            for (int i = 0; i < n; i++)
+            {
+                var a = poly[i]; var b = poly[(i + 1) % n];
+                double sx = b.x - a.x, sz = b.z - a.z, L2 = sx * sx + sz * sz;
+                if (n >= 3 && sx * (z - a.z) - sz * (x - a.x) < -1e-9) inside = false;
+                double t = L2 > 1e-12 ? Math.Max(0, Math.Min(1, ((x - a.x) * sx + (z - a.z) * sz) / L2)) : 0;
+                double qx = a.x + sx * t - x, qz = a.z + sz * t - z, e = Math.Sqrt(qx * qx + qz * qz);
+                if (e < d) d = e;
+            }
+            return inside ? 0 : d;
+        }
+
         /// <summary>B2's score at every kept vertex (lib/kink.mjs kinkScores;
-        /// kind[m] names the rule): the worst of its lone facet sagitta, of every
-        /// CLUSTER it is a corner vertex of, and of every HEDGED window's net
-        /// corner and jog. A cluster: consecutive vertices j..k turning the same
-        /// way (the other way by less than KinkNoiseShare of the running turn is
-        /// noise) within ChordCapM, judged as one corner: Vc where the line into
-        /// j meets the line out of k, T the summed turn, dr the drawn rounding
-        /// (Vc to the polygon), f = min(c-, c+, ChordCapM) |T| / 8 from Vc, gap =
-        /// f - dr; some distance of the chase view out to KinkViewM shows a kink
-        /// exactly when gap > max(V, dr) with dr under a pixel there (pMax = V
-        /// KinkViewM / PixelAtM); the score is gap V / max(V, dr). A hedged window
-        /// (a counter-turn of KinkNoiseShare or more: [6, -2.4] degrees a metre
-        /// apart) is judged by its NET turn too - rounded at most as T/2 at each
-        /// end of its span, dr = (w/2) tan(|T|/2), chords from its middle; and,
-        /// between two straights (each at least w / KinkNoiseShare), at the drawn
-        /// Vc with the drawn polygon's rounding - and by its JOG: the least gap
-        /// between the approach and exit lines along it, scored when both
-        /// straights are at least w / KinkNoiseShare long. A lone vertex scores
-        /// its facet sagitta, the spec's formula.</summary>
+        /// kind[m] names the rule): the worst of its lone facet sagitta - twice
+        /// it at a ZIGZAG peak, whose chords stop at a turn back on both sides
+        /// (the eye's line is the zigzag's mean, "peak deviation &lt;= V") - of
+        /// every CLUSTER it is a corner vertex of, and of every HEDGED window's
+        /// net corner, outside distance and jog. A cluster: consecutive vertices
+        /// j..k turning the same way (the other way by less than KinkNoiseShare
+        /// of the running turn is noise) within ChordCapM, judged as one corner:
+        /// Vc where the line into j meets the line out of k, T the summed turn,
+        /// dr the drawn rounding (Vc to the polygon), f = min(c-, c+, ChordCapM)
+        /// |T| / 8 from Vc, gap = f - dr; some distance of the chase view out to
+        /// KinkViewM shows a kink exactly when gap > max(V, dr) with dr under a
+        /// pixel there (pMax = V KinkViewM / PixelAtM); the score is gap V /
+        /// max(V, dr). A hedged window (a counter-turn of KinkNoiseShare or
+        /// more: [6, -2.4] degrees a metre apart) is judged by its NET turn,
+        /// rounded at most as T/2 at each end of its span, dr = (w/2)
+        /// tan(|T|/2), chords from its middle; and, BETWEEN TWO STRAIGHTS (no
+        /// turn of KinkNoiseShare of its heading excursion for min(w /
+        /// KinkNoiseShare, ChordCapM) either side, or straight on to the line's
+        /// end at least w away), at the drawn Vc with the drawn polygon's
+        /// SIGNED rounding (minus the overshoot when the drawing passes outside
+        /// Vc: a notch), by how far its drawn vertices stand OUTSIDE the region
+        /// every smooth convex transition between the straights occupies (a
+        /// bump, a zigzag, a notch), and by its JOG: the least gap d between
+        /// the approach and exit lines, of which d (1 - g(w / Lf)) came faster
+        /// than the plan's fastest ease (Lf the shortest TaperFloor).</summary>
         static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt) => KinkScores(X, Z, C, TH, exempt, out _);
         static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind)
         {
             int n = C.Length;
             double V0 = SmoothRules.V, cap = SmoothRules.ChordCapM, share = SmoothRules.KinkNoiseShare, pMax = V0 * SmoothRules.KinkViewM / SmoothRules.PixelAtM;
+            double Lf = MinTaperFloor();
             var score = new double[n]; var kd = new byte[n]; kind = kd;
             bool Ex(int m) => exempt != null && exempt(m);
-            for (int m = 1; m + 1 < n; m++) if (!Ex(m)) score[m] = KinkChord(C, TH, m) * Math.Abs(TH[m]) / 8;
+            for (int m = 1; m + 1 < n; m++)
+            {
+                if (Ex(m)) continue;
+                score[m] = KinkChord(C, TH, m) * Math.Abs(TH[m]) / 8;
+                // a zigzag peak: the chord stops at a turn back on both sides
+                int sg = Math.Sign(TH[m]); double thr = Math.Abs(TH[m]) * share;
+                if (sg != 0 && StopSign(C, TH, m, -1, thr, cap) == -sg && StopSign(C, TH, m, 1, thr, cap) == -sg) { score[m] *= 2; kd[m] = KindZig; }
+            }
             double minTurn = 8 * V0 / cap;
             void Give(int j, int k, double s, double big, byte why)
             {
                 double corner = share * big;
                 for (int m = j; m <= k; m++) if (Math.Abs(TH[m]) >= corner && s > score[m]) { score[m] = s; kd[m] = why; }
             }
-            // the rounding of the drawn polygon P[i0]..P[i1 + 1] seen from (vx, vz), no more than dr0
-            double Rounding(int i0, int i1, double vx, double vz, double dr0)
+            // the least distance from (vx, vz) to the drawn segments P[i0]P[i0+1] .. P[i1]P[i1+1], no more than d0
+            double PathDist(int i0, int i1, double vx, double vz, double d0)
             {
-                double dr = dr0;
+                double dr = d0;
                 for (int i = i0; i <= i1 && dr > 0; i++)
                 {
                     double sx = X[i + 1] - X[i], sz = Z[i + 1] - Z[i], L2 = sx * sx + sz * sz;
@@ -1605,6 +1700,17 @@ namespace PSXRacing.EditorTools
                     if (d < dr) dr = d;
                 }
                 return dr;
+            }
+            // (vx, vz) inside the polygon P[j] .. P[k], closed by its chord (crossing number)
+            bool InsidePoly(int j, int k, double vx, double vz)
+            {
+                bool c = false;
+                for (int i = j; i <= k; i++)
+                {
+                    int i2 = i < k ? i + 1 : j; double xa = X[i], za = Z[i], xb = X[i2], zb = Z[i2];
+                    if ((za > vz) != (zb > vz) && vx < (xb - xa) * (vz - za) / (zb - za) + xa) c = !c;
+                }
+                return c;
             }
             void Cluster(int j, int k, double T, double big)
             {
@@ -1620,7 +1726,7 @@ namespace PSXRacing.EditorTools
                 double a = (dx * wz - dz * wx) / den, b = (ux * dz - uz * dx) / den;
                 if (!(a >= 0 && b >= 0)) return;
                 double vx = X[j] + ux * a, vz = Z[j] + uz * a;
-                double fMax = cap * aT / 8, dr = Rounding(j, k - 1, vx, vz, double.PositiveInfinity);
+                double fMax = cap * aT / 8, dr = PathDist(j, k - 1, vx, vz, double.PositiveInfinity);
                 if (dr >= pMax || fMax - dr <= Math.Max(V0, dr)) return;
                 double thr = share * aT;
                 int i0 = Reach(C, TH, j, -1, thr, cap, a), i1 = Reach(C, TH, k, 1, thr, cap, b);
@@ -1631,10 +1737,11 @@ namespace PSXRacing.EditorTools
             void Hedged(int j, int k, double T, double big, double exc)
             {
                 double w = C[k] - C[j], aT = Math.Abs(T);
-                if (aT > minTurn && aT < Math.PI * 0.95)
+                bool corner = aT > minTurn && aT < Math.PI * 0.95;
+                // the net corner, rounded at most as T / 2 at each end of the window (anywhere: a lower bound)
+                if (corner)
                 {
                     double h = w / 2, dre = h * Math.Tan(aT / 2), thr = share * aT;
-                    // the net corner, rounded at most as T / 2 at each end of the window
                     if (dre < pMax && cap * aT / 8 - dre > Math.Max(V0, dre))
                     {
                         int i0 = Reach(C, TH, j, -1, thr, cap, h), i1 = Reach(C, TH, k, 1, thr, cap, h);
@@ -1642,40 +1749,55 @@ namespace PSXRacing.EditorTools
                         double s = (f - dre) * V0 / Math.Max(V0, dre);
                         if (s > V0) Give(j, k, s, big, KindHedge);
                     }
-                    // between two straights: the drawn Vc, the drawn polygon's rounding (no more than the roundest drawing's)
-                    int o0 = Reach(C, TH, j, -1, thr, cap, 0), o1 = Reach(C, TH, k, 1, thr, cap, 0);
-                    if (Math.Min(Math.Min(C[j] - C[o0], C[o1] - C[k]), cap) * share >= w)
+                }
+                // between two straights (or straight on to the line's end at least w away)
+                double thrS = share * Math.Max(exc, aT), Ls = Math.Min(w / share, cap);
+                int o0 = Reach(C, TH, j, -1, thrS, cap, 0), o1 = Reach(C, TH, k, 1, thrS, cap, 0);
+                double l0 = C[j] - C[o0], l1 = C[o1] - C[k];
+                if (!((l0 >= Ls || (o0 == 0 && l0 >= w)) && (l1 >= Ls || (o1 == n - 1 && l1 >= w)))) return;
+                {
+                    double ux = X[j] - X[j - 1], uz = Z[j] - Z[j - 1], wx = X[k + 1] - X[k], wz = Z[k + 1] - Z[k];
+                    double ul = Math.Sqrt(ux * ux + uz * uz), wl = Math.Sqrt(wx * wx + wz * wz);
+                    if (ul < 1e-9 || wl < 1e-9) return;
+                    ux /= ul; uz /= ul; wx /= wl; wz /= wl;
+                    double den = ux * wz - uz * wx, dx = X[k] - X[j], dz = Z[k] - Z[j];
+                    bool meet = Math.Abs(den) > 1e-9;
+                    double a = meet ? (dx * wz - dz * wx) / den : 0, b = meet ? (ux * dz - uz * dx) / den : 0;
+                    double vx = X[j] + ux * a, vz = Z[j] + uz * a;
+                    // the net corner at the drawn Vc, its rounding the drawn polygon's, SIGNED: minus the overshoot where the drawing passes outside Vc
+                    if (corner && meet && -a <= ul && -b <= wl)
                     {
-                        double ux = X[j] - X[j - 1], uz = Z[j] - Z[j - 1], wx = X[k + 1] - X[k], wz = Z[k + 1] - Z[k];
-                        double ul = Math.Sqrt(ux * ux + uz * uz), wl = Math.Sqrt(wx * wx + wz * wz);
-                        double den = ul > 1e-9 && wl > 1e-9 ? (ux * wz - uz * wx) / (ul * wl) : 0;
-                        if (Math.Abs(den) > 1e-9)
+                        double dr = k > j + 1 && InsidePoly(j, k, vx, vz) ? -PathDist(j, k - 1, vx, vz, double.PositiveInfinity) : PathDist(j - 1, k, vx, vz, (w / 2) * Math.Tan(aT / 2));
+                        if (dr < pMax)
                         {
-                            ux /= ul; uz /= ul; wx /= wl; wz /= wl;
-                            double dx = X[k] - X[j], dz = Z[k] - Z[j];
-                            double a = (dx * wz - dz * wx) / den, b = (ux * dz - uz * dx) / den;
-                            if (-a <= ul && -b <= wl)   // Vc on the drawn approach, the drawn exit, or between them
-                            {
-                                double vx = X[j] + ux * a, vz = Z[j] + uz * a;
-                                double dr = Rounding(j - 1, k, vx, vz, dre);
-                                if (dr < pMax)
-                                {
-                                    int i0 = Reach(C, TH, j, -1, thr, cap, a), i1 = Reach(C, TH, k, 1, thr, cap, b);
-                                    double f = Math.Min(Math.Min(C[j] - C[i0] + a, C[i1] - C[k] + b), cap) * aT / 8;
-                                    double s = (f - dr) * V0 / Math.Max(V0, dr);
-                                    if (s > V0) Give(j, k, s, big, KindHedge);
-                                }
-                            }
+                            double thr = share * aT;
+                            int i0 = Reach(C, TH, j, -1, thr, cap, a), i1 = Reach(C, TH, k, 1, thr, cap, b);
+                            double f = Math.Min(Math.Min(C[j] - C[i0] + a, C[i1] - C[k] + b), cap) * aT / 8;
+                            double s = (f - dr) * V0 / Math.Max(V0, dr);
+                            if (s > V0) Give(j, k, s, big, KindHedge);
                         }
                     }
+                    // outside: the drawn vertices between j and k against the region every smooth convex transition occupies
+                    if (k > j + 1)
+                    {
+                        List<(double x, double z)> poly;
+                        if (meet && a >= 0 && b >= 0) poly = HullOf(new List<(double x, double z)> { (X[j], Z[j]), (vx, vz), (X[k], Z[k]) });
+                        else
+                        {
+                            double tk = (X[k] - X[j]) * ux + (Z[k] - Z[j]) * uz, tj = (X[j] - X[k]) * wx + (Z[j] - Z[k]) * wz;
+                            poly = HullOf(new List<(double x, double z)> { (X[j], Z[j]), (X[k], Z[k]), (X[j] + ux * tk, Z[j] + uz * tk), (X[k] + wx * tj, Z[k] + wz * tj) });
+                        }
+                        double od = 0;
+                        for (int i = j + 1; i < k; i++) { double o = OutsideOf(poly, X[i], Z[i]); if (o > od) od = o; }
+                        if (od > V0) Give(j, k, od, big, KindOut);
+                    }
                 }
-                // the jog: a step between two straights
+                // the jog: the part of a step between the two straights that came faster than the plan's fastest ease
                 double d = JogGap(X, Z, j, k);
                 if (d > V0)
                 {
-                    double thr = share * Math.Max(exc, aT);
-                    int i0 = Reach(C, TH, j, -1, thr, cap, 0), i1 = Reach(C, TH, k, 1, thr, cap, 0);
-                    if (Math.Min(Math.Min(C[j] - C[i0], C[i1] - C[k]), cap) * share >= w) Give(j, k, d, big, KindJog);
+                    double e = d * (1 - EaseG(w / Lf));
+                    if (e > V0) Give(j, k, e, big, KindJog);
                 }
             }
             for (int j = 1; j + 2 < n; j++)
