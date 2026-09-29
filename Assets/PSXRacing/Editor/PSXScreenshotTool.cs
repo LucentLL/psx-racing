@@ -292,7 +292,9 @@ namespace PSXRacing.EditorTools
             string venue = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             TrackCatalog.TrackDef def = null;
             foreach (var d in TrackCatalog.Scened) if (d.id == venue) { def = d; break; }
-            if (def == null) { Debug.LogError("[PSXShot] no scened venue " + venue); return; }
+            // A held-back venue too, on the scene the stage lab last built.
+            if (def == null) foreach (var d in TrackCatalog.HeldBack) if (d.id == venue) { def = d; break; }
+            if (def == null) { Debug.LogError("[PSXShot] no scened or held-back venue " + venue); return; }
             if (!Open(def, out var cam, out var player)) return;
             var path = Object.FindFirstObjectByType<TrackPath>();
             if (path == null || path.Count < 4) return;
