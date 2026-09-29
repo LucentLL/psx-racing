@@ -100,6 +100,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestDepartDoors), TestDepartDoors);
             Guard(nameof(TestEditions), TestEditions);
             Guard(nameof(TestEditionPark), TestEditionPark);
+            Guard(nameof(TestRuntimeShaders), TestRuntimeShaders);
             Guard(nameof(TestGlyphs), TestGlyphs);
             Guard(nameof(TestCredits), TestCredits);
             Guard(nameof(TestDoorAudit), TestDoorAudit);
@@ -923,6 +924,60 @@ namespace PSXRacing.EditorTools
                 Check(!System.IO.File.Exists(manifest) && !System.IO.Directory.Exists(EditionParking.ParkRoot) &&
                       !System.IO.Directory.Exists(inRes), "the test leaves no park behind");
             }
+        }
+
+        /// <summary>
+        /// EVERY SHADER THE RUNTIME NAMES IS IN EVERY EDITION'S PLAYER
+        /// (RuntimeShaders). CITY went live without PSX/Glow - CarLights makes
+        /// its lens materials by Shader.Find and only MAIN's scenes happened
+        /// to keep the shader - and the editor, which finds every shader in the
+        /// project, never showed it. The WebGL build refuses a gap before it
+        /// starts; this runs the same scan in every self-test, and checks the
+        /// lexer that decides what is a string and what is a comment.
+        /// </summary>
+        static void TestRuntimeShaders()
+        {
+            Line("shaders the runtime names (RuntimeShaders; every edition must carry them):");
+            const string Q = "\"";
+            string src = "// " + Q + "PSX/Glow" + Q + " in a line comment\n" +
+                         "var a = " + Q + "http://x" + Q + "; /* " + Q + "PSX/Lit" + Q + " */\n" +
+                         "var b = @" + Q + "q" + Q + Q + "r" + Q + ";\n" +
+                         "var c = $" + Q + "n={Shader.Find(" + Q + "UI/Default" + Q + ")}" + Q + ";\n" +
+                         "char d = '" + Q + "'; var e = " + Q + "PSX/Beam" + Q + ";\n";
+            string code = RuntimeShaders.Lex(src, out var lits);
+            var texts = lits.Select(l => l.text).ToList();
+            string got = string.Join(" | ", texts);
+            Check(!texts.Contains("PSX/Glow") && !texts.Contains("PSX/Lit"), "a shader name inside a comment is not a lookup", got);
+            Check(texts.Contains("http://x") && texts.Contains("q" + Q + "r"),
+                  "a string is read whole: a // inside one, a verbatim \"\"", got);
+            Check(texts.Contains("UI/Default") && code.Contains("Shader.Find(" + Q + "UI/Default" + Q + ")"),
+                  "an interpolation hole is code, and the string inside it is a literal", got);
+            Check(texts.Contains("PSX/Beam") && lits.First(l => l.text == "PSX/Beam").line == 5,
+                  "a '\"' char literal opens no string, and lines are counted through comments", got);
+            Check(!RuntimeShaders.IsRuntimePath("PSXRacing/Editor/X.cs") && !RuntimeShaders.IsRuntimePath("A/Editor/B/X.cs") &&
+                  RuntimeShaders.IsRuntimePath("PSXRacing/Scripts/EditorLike.cs"), "an Editor folder at any depth is not runtime code");
+
+            var r = RuntimeShaders.Scan();
+            Check(r.RuntimeFiles > 100 && r.ShaderFiles >= 17, "the scan reads the runtime code and every .shader",
+                  r.RuntimeFiles + " .cs, " + r.ShaderFiles + " .shader");
+            Check(r.Needs.Count >= 12, "the runtime names at least twelve shaders", r.Needs.Count);
+            var glow = r.Needs.FirstOrDefault(n => n.Name == "PSX/Glow");
+            Check(glow != null && glow.Sites.Any(x => x.Contains("/CarLights.cs:")),
+                  "PSX/Glow is found through CarLights' helper (a literal handed on to Shader.Find(shaderName))",
+                  glow == null ? "not found" : string.Join(" ", glow.Sites));
+            Check(r.Indirect.Any(x => x.Contains("CarLights.cs")), "and that indirect Shader.Find is listed as one",
+                  string.Join("; ", r.Indirect));
+            Check(r.Needs.Any(n => n.Name == "UI/Default" && n.Shader != null &&
+                                   !n.AssetPath.StartsWith("Assets/", System.StringComparison.Ordinal)),
+                  "an engine shader passed straight to Shader.Find (UI/Default) is counted too");
+            foreach (var n in r.Needs)
+            {
+                Check(n.Shader != null && !ShaderUtil.ShaderHasError(n.Shader), n.Name + " exists and compiles",
+                      n.Shader == null ? "no shader has that name: " + string.Join(" ", n.Sites) : null);
+                Check(n.AlwaysIncluded, n.Name + " is in GraphicsSettings' always-included shaders", string.Join(" ", n.Sites));
+            }
+            var gaps = RuntimeShaders.Gaps(r);
+            Check(gaps.Count == 0, "the WebGL build's pre-flight finds no runtime shader gap", string.Join("; ", gaps));
         }
 
         /// <summary>
