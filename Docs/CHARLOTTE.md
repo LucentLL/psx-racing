@@ -867,15 +867,16 @@ in OSM).
   **a disagreement is a gate bug**, fixed before anything else. Only the mesh
   gate sees tile seams, fans and heights. linecheck's replica follows the
   builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
-  same commit. `node tools/city/gateprobes.mjs` runs 225 synthetic probes with
+  same commit. `node tools/city/gateprobes.mjs` runs 229 synthetic probes with
   known answers (split kinks, legitimate fillets and S-bends, a kink behind a
   sub-V step, bend fans, attach arcs, straight roads, hedged corners, notches,
   jogs of every width, bumps and zigzags, waves, jogs into a fan mouth, legal
   vertices beside a jog, bumps and notches wider than the cap, C2's closed
   list, squeezed edges against I7 - also inside a slow rise - an edge pulled
   in without a squeeze, features on a curve and the curves that are no
-  features, the rules read as C# floats, hooks at a line's end, the ratchet,
-  STALE, the gate's code and the
+  features, the rules read as C# floats, one run one name whichever way a
+  chain runs, B2 the same read backwards, B3 at each sample's own class,
+  hooks at a line's end, the ratchet, STALE, the gate's code and the
   pin in the fingerprint, the loosening refusal, the gate moving with the
   data, the builder replica as data); every review finding is one, and
   all must pass - `linecheck --ratchet` runs them. `metrics.mjs` gains a SMOOTH section: B2/B3 on
@@ -885,7 +886,9 @@ in OSM).
   audits' tiles, the reference spots, one band of 1/12 of the road tiles:
   `PSX_SMOOTH_BAND`). It is OPT-IN (`PSX_SMOOTH_FAST=1`, which
   `city-smooth.ps1 -Mode FAST` sets) until its first Unity run validates the
-  tap and its cost; then `SmoothRules.FastInAudit` puts it in every city cycle.
+  tap and its cost; then `SmoothRules.FastInAudit` puts it in every city cycle
+  (done 2026-09-29: 1,037 tiles in 112-162 s inside the audit, its keys
+  matching the FULL baseline's - 0 new, 0 worse, 0 longer - CITY AUDIT OK).
   While `ReportOnly` even a crash of the gate is an info line, and the tap is
   switched off in a `finally` around the two audits. FULL
   (`tools/city-smooth.ps1 -Mode FULL`) runs every tile a ribbon reaches (each
@@ -984,6 +987,90 @@ in OSM).
   coordinates, lat/lon, the tile, the cause (TAPER, DIAGONAL, VERTEX, MITRE,
   SQUEEZE, CLIP, STRUCTURE-END, BEND-FAN, SEAM, FAN) and a spot token that
   `PSX_SMOOTH_SPOTS` shoots. Every run is in `city_smooth.csv`.
+- **The first Unity run (2026-09-29, R4 prep; the R4 BEFORE).** On
+  PSXCity after the merges of main (watch mode, the stage lane ladder,
+  Chimney Rock) and of this gate into R1's city. FAST (inside CityAudit,
+  band 8 of 12): 1,037 tiles, 445 km of ribbon, 126,202 runs in 112 s, CITY
+  AUDIT OK, the drive audit's five zeros still zero. FULL (every tile a
+  ribbon reaches): 10,311 tiles, 3,701 km of ribbon, 14,222 km of line,
+  323,618 strands, 602-822 s (the machine shared with four other Unity
+  jobs; the backward B2 walk costs about a third). The mesh baseline
+  (`smooth_baseline.json`, entry `mesh`) is its first record. Both gates,
+  runs / metres / worst:
+
+  | check | CitySmooth (mesh) | linecheck (offline) |
+  |---|---|---|
+  | A0 TEXTURE (ZERO) | 0 | 0 |
+  | A1 OFF | 100,812 / 1,082,476 m / 5.72 m (228.8x) | 100,799 / 1,080,536 m / 5.64 m (225.4x) |
+  | A2 SKEW | 15,179 / 80,455 m / 2.97 m | 15,181 / 80,457 m / 2.97 m |
+  | A3 INSET | 15,788 / 356,469 m / 1.69 m | 15,797 / 356,325 m / 1.69 m |
+  | A4 LINEWIDTH | 29,993 / 289,054 m / 4.0x | 29,988 / 289,069 m / 4.0x |
+  | A5 STRAY | 17,913 / 177,217 m / 5.72 m | 17,913 / 177,191 m / 5.64 m |
+  | A5b MISSING (report) | 27,789 / 275,310 m | 29,052 / 334,592 m |
+  | B1 JITTER | 254,355 / 55,706 m / 41.7 cm | 254,431 / 55,717 m / 41.7 cm |
+  | B2 KINK | 474,902 / 1,019,010 m / 4.84 m (193.5x) | 473,247 / 1,027,599 m / 4.84 m |
+  | B3 CURVE | 9,054 / 11,813 m / R 2.4 m (37.4x) | 8,766 / 12,733 m / R 3.5 m (25.7x) |
+  | B4 JUMP | 26,801 / 7.02 m (280.9x) | 26,809 / 7.02 m |
+  | B4s SEAM (ZERO) | 4 / 71.5 cm | not measurable |
+  | C1 GAP | 235 / 6,377 m / 602.9 m | 231 / 6,324 m / 592.5 m |
+  | C2 END | 16,784 / 11.4x | 16,775 / 11.3x |
+  | C3 DASH | 10,920 / 43,362 m / 254% (+1,002 stubs, report) | 10,917 / 43,338 m / 254% (+1,005) |
+  | D1 CROSS | 3,378 / 10,470 m / 9.37 m (+801 on attach arcs) | 913 / 5,630 m / 9.37 m (+1,050) |
+  | E1 FLOAT | 0 | 0 |
+
+  The creek pin reads the same in both gates, check for check: A1 43 (1.92
+  m), A2 12 (33.3 cm), A3 4 (17.1 cm), A4 12, A5 6 (1.92 m), A5b 6, B1 8
+  (5.0 cm), B2 22 (16.9 cm), B4 8 (18.6 cm), C2 4 (3.5x), C3 2.
+  - **Run by run** (a run agrees when the other gate has one of the same
+    check on the same edge and line class whose arc overlaps it, else within
+    3 m with a ratio within 10%): the first comparison left 2-40% of some
+    checks unpartnered. Five gate bugs, fixed in both gates (ec28fd4,
+    1e38812): a centre line named -0.00 by float noise; a strand's runs named
+    after its identity chain's FIRST piece (the gates start chains at
+    different edges); a jump or a dash reported at whichever end the chain
+    reached second, and a joined joint's vertex named after it; B2 scoring a
+    line differently read backwards (2.6% of the vertices past V) and B1
+    sampling from the strand's start; B3 holding a whole midline strand to
+    its FIRST edge's class (a motorway midline judged at a link's 25 m).
+    After them, unpartnered: A1 129 / 64 (of 100,800), A2 2 / 3, A3 18 /
+    28, A4 14 / 8, A5 8 / 3, B1 1,508 / 1,684 (0.6%), B2 880 / 476 (0.2%),
+    B3 180 / 47, B4 2 / 12, C1 12 / 6, C2 71 / 64, C3 61 / 68, D1 2,318 /
+    106, B4s 4 / 0 (mesh / offline).
+  - **What those are**, classified against the replica: by design, a tile
+    seam (B4s), a junction fan's perimeter (249) and a bend fan's slab
+    (357: the mesh walks its perimeter, the replica bridges it straight),
+    D1 into fans, gore quads and at other heights (269); the replica's
+    stated approximations (`linesim.mjs` header) - clips computed city-wide
+    where the builder rebuilds `clips` / `clipPairs` per tile from the gores
+    within GoreReach + 20 m (BuildGores, CityMeshes L792/L800): within 6 m
+    of a clip range's end 2,418, inside one 1,078, at a gore gap 630, beside
+    a clip pair 97 or a clipped branch 118; no elevation solve (the
+    squeeze's height band, ArmsApart) 203; near the threshold (< 1.1x:
+    float32 vertices against doubles, a B1 sample phase on a strand the mesh
+    gate cuts at its 3x3 ring) 1,793; within 12 m of an edge end 1,182. 68
+    runs remain unexplained (0.007%), in a few places: the Independence
+    Expressway at (5530, -5), I-85 at (-11846, 6322), Freedom Drive e3503
+    (one ribbon edge's hedged corner 2.4x in each gate, the other edge in
+    the other), South Caldwell Street e25007. Open for WP-G.
+  - **B4s SEAM, a ZERO check, fails at 4 places** (report-only this cycle):
+    Albemarle Road e1999 / e6285 at the x = 4864 seam (71.5 / 67.5 cm) and
+    Cameron Boulevard e8145 / e12946 at the z = 13568 seam (24.4 / 23.5
+    cm): the RR edge of each carriageway pair stands in a different place in
+    the two tiles that cut it. A BUILDER defect, not the gate's: `clipPairs`
+    and `clips` are rebuilt per tile from the gores that tile builds, and
+    Squeeze skips a neighbour in `clipPairs` - so the same section is
+    squeezed in one tile and not in the next (e1999/e6285 are a clip pair,
+    their gore's host chain ending at the seam). The census's clip bugs
+    (plan A4 WP-11b) own it; its zero date is R4.
+  - **Review 7's holes on curves** reproduce unchanged on this tree (WP-11
+    owns them): no frame near a tangent point or on a bend under about
+    80-100 m (a 30 cm jog on an R 100 bend of 30 degrees reads nothing; a
+    bump over 8 m passes up to 36 cm on R 300 52 m bends), the squeeze
+    zigzag S6/S7 on a bend reads nothing, split or hedged hooks pass with
+    the end 31-45 cm off (Camp Road e24806 45.5 cm, 1.14x on two lines
+    only), a hook at a curve's open end passes at 3.0-9.3 degrees, and R
+    2000-3000 has no reference (a 3 cm bump reads 0.04x at R 2001-3000,
+    1.11x at R 1999).
 - **Where it stands** (linecheck, graph 27bccd93, today's builder): 100,817
   A1 (1,049 of them, 32.2 km, squeezed edges outside their I7 envelope), 15,178
   A2, 472,742 B2 runs over 1,026.6 km (409,247 DATA: OSM vertices, and

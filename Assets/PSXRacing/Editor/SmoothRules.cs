@@ -202,10 +202,11 @@ namespace PSXRacing.EditorTools
         /// road tiles every cycle (PSX_SMOOTH_BAND = 0..BandCount-1, default
         /// the day of the year mod BandCount).</summary>
         public const int BandCount = 12;
-        /// <summary>FAST inside CityAudit.Run is OPT-IN (PSX_SMOOTH_FAST=1)
-        /// until its first run in Unity validates the tap and its cost (R4);
-        /// flip to true in that commit, and every city cycle then runs it.</summary>
-        public const bool FastInAudit = false;
+        /// <summary>FAST inside CityAudit.Run was OPT-IN (PSX_SMOOTH_FAST=1)
+        /// until its first run in Unity validated the tap and its cost: done
+        /// 2026-09-29 (R4 prep), 1,037 tiles in 112-162 s inside the audit, CITY
+        /// AUDIT OK. Every city cycle now runs it.</summary>
+        public const bool FastInAudit = true;
 
         // ---- rollout (gate spec section 8) ---------------------------------
         /// <summary>The first cycle only reports: its numbers become the

@@ -153,6 +153,24 @@ fan mouth probe: 304 fans on the probed tiles, 20472 probes; land or nothing 0, 
     FAN   node 597 arm e328 '' L way 16662393 0.3 m back from the mouth, lane line +2.5: a road +0.55 m off (tile_-26_-10/Roads) at (-6504.2,-2323.5) tile -26,-10 deg3 trim 7.0
     FAN   node 1362 arm e10610 'East 11th Street' way 1025215829 0.3 m back from the mouth, lane line +5.3: a road +0.47 m off (tile_-5_19/Roads) at (-1157.4,4865.3) tile -5,19 deg4 trim 6.3
     FAN   node 11493 arm e10610 'East 11th Street' way 1025215829 0.3 m back from the mouth, lane line +4.3: a road +0.44 m off (tile_-5_19/Roads) at (-1157.7,4864.2) tile -5,18 deg5 trim 6.3
+  info smoothness A0 TEXTURE: every painted run within half a texel of its plan line; every plan line painted, every run planned - 0 runs, worst 0.0 cm (x0.0) (baseline 0, ZERO: 0 new, 0 worse, 0 longer keys)
+  info smoothness A1 OFF: every painted line and edge within V of its plan (a squeezed edge within V of its I7 envelope) - 12679 runs, worst 4.63 m (x185.2) (baseline 12679, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness A2 SKEW: the centre pair centred on the drawn ribbon - 1727 runs, worst 1.80 m (x72.1) (baseline 1727, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness A3 INSET: every edge line at its inset from its own drawn edge - 2054 runs, worst 1.29 m (x51.6) (baseline 2054, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness A4 LINEWIDTH: rendered paint width within 25% of the painted run - 3708 runs, worst -99% (x4.0) (baseline 3708, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness A5 STRAY: no paint where the plan has no line of its colour - 2352 runs, worst 4.63 m (x9.3) (baseline 2352, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness A5b MISSING: every plan line drawn (report-only until the line model draws it) - 3696 runs, worst 10.00 m (x20.0) (baseline 3696, REPORT: 0 new, 0 worse, 0 longer keys)
+  info smoothness B1 JITTER: no line jitters past V from its local circle - 29362 runs, worst 34.1 cm (x13.6) (baseline 29362, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness B2 KINK: no line kinks past V (facet sagitta, twice it at a zigzag peak; a corner split over close vertices is one corner, a hedged one is its net turn, a bump or notch its excursion, a jog its step (faster than the plan's ease when wider than 2.5 m), a wave its lobes off their mean line; a bend fan is judged across) - 60876 runs, worst 3.00 m (x120.1) (baseline 60876, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness B3 CURVE: no ribbon bends tighter than its class allows - 1601 runs, worst R 2.4 m (x37.4) (baseline 1601, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness B4 JUMP: no line steps sideways past V where it continues - 3582 runs, worst 6.27 m (x250.9) (baseline 3582, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness B4s SEAM: no line steps at a tile seam (identical sections) - 2 runs, worst 24.4 cm (x24.4) (baseline 2, ZERO: 0 new, 0 worse, 0 longer keys)
+  info smoothness C1 GAP: no solid line interrupted between its plan ends - 43 runs, worst 155.61 m (x778.0) (baseline 43, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness C2 END: lines end only at legitimate ends (fan mouth, gore nose, dead end, plan lane drop) - 2248 runs, worst 9.5x (x9.5) (baseline 2248, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness C3 DASH: dash and gap lengths along the chained line - 1633 runs, worst 193% (x9.7) (baseline 1633, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness D1 CROSS: no paint inside other pavement at the same level (branch attach arcs report-only) - 478 runs, worst 7.56 m (x37.8) (baseline 478, RATCHET: 0 new, 0 worse, 0 longer keys)
+  info smoothness E1 FLOAT: strip paint 0.5-3 cm over the surface (strip paint only) - 0 runs, worst 0.0 cm (x0.0) (baseline 0, REPORT: 0 new, 0 worse, 0 longer keys)
+  smoothness gate: 1037 tiles, 126279 runs, city_smooth.txt written (162.0 s)
 lamps tile -11,17 (uptown): 15 of 15 stations; street 5 over 0.39 km, arterial 10 over 0.44 km
 lamps tile -10,17 (uptown): 18 of 18 stations; street 1 over 0.11 km, arterial 17 over 0.93 km
 lamps tile -9,17 (uptown): 20 of 20 stations; street 2 over 0.12 km, arterial 18 over 0.69 km
@@ -193,7 +211,7 @@ terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-ce
   ok  cut (retaining) walls: at most +20% on WP-04's baseline (terrain fidelity) — 1071 m vs 1340 m on the roadside tiles
     decks over water: 560 spans judged; soffit under 1 m above the water 1, under the water 0; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792 (WP-25 asks >= 1 m); the solve lifted 12 spans to clear their water by 1.0 m, the most by 3.11 m
   ok  no water stands above a deck's soffit (terrain fidelity) — 0 of 560 spans; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792
-budget: 225 tiles at 9 sites, tile build p50 21.3 / p95 69.3 / max 157.3 ms (editor), worst view 200 draws (trade_tryon)
+budget: 225 tiles at 9 sites, tile build p50 23.2 / p95 76.8 / max 175.4 ms (editor), worst view 200 draws (trade_tryon)
 budget: spawn road y (m above the datum) trade_tryon 134.423, providence 116.583, i77_north 134.315, beatties_ford 144.019, tryon_start 130.193, dilworth 102.789, plaza_midwood 126.532, i485_south 119.308, suburb_6km 124.781
-budget: parse 173 ms + solve 990 ms, map heap 18.2 MB (+1.4 MB DEM)
+budget: parse 194 ms + solve 1174 ms, map heap 10.3 MB (+1.4 MB DEM)
 CITY AUDIT OK
