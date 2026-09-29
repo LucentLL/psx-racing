@@ -14,9 +14,11 @@
 // Each entry carries the INPUTS it was measured on (inputsOf): the graph hash,
 // a digest of each container section the replica reads, of the geometry rules
 // in SmoothRules.cs (the creek pin's ways included), of the road PNGs, of the
-// GATE'S OWN CODE (GATE_CODE: the replica, the checks, this file - review 5: a
-// loosening edit to the gate left the inputs alone, so it passed its own
-// ratchet and was never STALE), and the model. A ratchet against an entry
+// GATE'S OWN CODE (CHECK_CODE: the checks, the rules parser, the texture scan,
+// this file - review 5: a loosening edit to the gate left the inputs alone, so
+// it passed its own ratchet and was never STALE), of the BUILDER REPLICA
+// (REPLICA_CODE: linesim.mjs and citydata.mjs, which mirror CityMeshes - a
+// builder fix moves them), and the model. A ratchet against an entry
 // whose inputs differ is STALE, and STALE FAILS (linecheck exits 1, the city
 // audit counts it): the data or the gate moved (a re-export, a merge that
 // brings new SPAN/XING rows, a threshold or a rule changed), so the keys
@@ -24,10 +26,15 @@
 // would let the regression that arrives with the move straight through. The
 // way out is the explicit re-record (--write-baseline), which prints the
 // before and after numbers (beforeAfter) for the commit that moves the inputs
-// - and REFUSES (loosenings) when the data did not move but keys vanished or
-// scored lower, or a check state or the pin loosened: only a change to the
-// gate can do that, and it is recorded only with --allow-loosen, its list in
-// the commit. Each entry also records every check's STATE and the PINNED ways:
+// - and REFUSES (loosenings) when the GATE moved (its rules or its check code)
+// and keys vanished or scored lower on the same data, or when the gate moved
+// together with the DATA (graph, sections, PNGs, DEM, model, plan taper, the
+// builder replica: review 6 - a loosening rode along with a re-export
+// unseen): it is then re-recorded in two steps, the gate change on the old
+// data first. A data or replica move alone may drop keys (a builder fix
+// does) and records freely; a check state or the pin never loosens. A refused
+// re-record is written only with --allow-loosen, its list in the commit.
+// Each entry also records every check's STATE and the PINNED ways:
 // a check that is looser now than when it was recorded (ZERO -> RATCHET ->
 // REPORT), or a way dropped from the pin, fails, stale or not - nothing ever
 // loosens.
@@ -138,26 +145,33 @@ export function rulesDigest(R) {
   for (const k of Object.keys(R).sort()) if (!NOT_MEASURED.has(k) && typeof R[k] !== 'function') o[k] = R[k];
   return sha12(JSON.stringify(o));
 }
-/// The gate's own code (tools/city/lib): the replica, the checks, the plan, the
-/// texture scan, the rules parser and this ratchet. Any edit to them can move
-/// a key, so it is an input like the data (a report-only edit to linecheck.mjs
-/// is not).
-export const GATE_CODE = ['citydata.mjs', 'gatebase.mjs', 'kink.mjs', 'linegate.mjs', 'linesim.mjs', 'paintiso.mjs', 'paintruns.mjs', 'png.mjs', 'smoothrules.mjs'];
-/// Their digest (line ends normalised, so a checkout's CRLF does not move it).
-export function codeDigest(libDir) {
+/// The gate's own code (tools/city/lib): the checks, the plan, the texture
+/// scan, the rules parser and this ratchet. Any edit to them can move a key,
+/// so it is an input (a report-only edit to linecheck.mjs is not).
+export const CHECK_CODE = ['gatebase.mjs', 'kink.mjs', 'linegate.mjs', 'paintiso.mjs', 'paintruns.mjs', 'png.mjs', 'smoothrules.mjs'];
+/// The builder replica (tools/city/lib): what the offline gate measures in
+/// place of the built meshes - a CityMeshes change updates it in the same
+/// commit (Docs/CHARLOTTE.md). It is DATA to the ratchet: a builder fix may
+/// drop keys, which is no loosening of the gate (review 6).
+export const REPLICA_CODE = ['citydata.mjs', 'linesim.mjs'];
+/// The digest of those files (line ends normalised, so a checkout's CRLF does not move it).
+export function codeDigest(libDir, files = CHECK_CODE) {
   const h = createHash('sha256');
-  for (const f of GATE_CODE) { h.update(f); h.update(readFileSync(`${libDir}/${f}`, 'utf8').replace(/\r\n/g, '\n')); }
+  for (const f of files) { h.update(f); h.update(readFileSync(`${libDir}/${f}`, 'utf8').replace(/\r\n/g, '\n')); }
   return h.digest('hex').slice(0, 12);
 }
 /// The inputs that are DATA (not the gate): what may legitimately make a key vanish.
-const DATA_INPUTS = ['graph', 'sections', 'paint', 'dem', 'model', 'planTaper'];
-/// The fingerprint: { graph, sections: {TAG: digest}, rules, paint, code, model, planTaper }.
+const DATA_INPUTS = ['graph', 'sections', 'paint', 'dem', 'model', 'planTaper', 'replica'];
+/// The inputs that are the GATE: its rules and its check code.
+const GATE_INPUTS = ['rules', 'code'];
+/// The fingerprint: { graph, sections: {TAG: digest}, rules, paint, code, replica, model, planTaper }.
 export function inputsOf({ cityBuf, city, graph, R, paintFiles, model, planTaper, libDir }) {
   const sections = {};
   for (const tag of GEOMETRY_SECTIONS) { const s = city.sections && city.sections[tag]; if (s) sections[tag] = sha12(cityBuf.subarray(s[0], s[1])); }
   const paint = createHash('sha256');
   for (const f of [...paintFiles].sort()) { paint.update(basename(f)); paint.update(readFileSync(f)); }
-  return { graph, sections, rules: rulesDigest(R), paint: paint.digest('hex').slice(0, 12), code: libDir ? codeDigest(libDir) : null, model, planTaper };
+  return { graph, sections, rules: rulesDigest(R), paint: paint.digest('hex').slice(0, 12), code: libDir ? codeDigest(libDir) : null,
+    replica: libDir ? codeDigest(libDir, REPLICA_CODE) : null, model, planTaper };
 }
 /// What differs between two fingerprints (empty: the same inputs).
 export function inputsDiff(was, now) {
@@ -166,15 +180,35 @@ export function inputsDiff(was, now) {
   if (was.graph !== now.graph) d.push(`graph ${was.graph} -> ${now.graph}`);
   for (const t of new Set([...Object.keys(was.sections || {}), ...Object.keys(now.sections || {})]))
     if ((was.sections || {})[t] !== (now.sections || {})[t]) d.push(`container section ${t}`);
-  for (const k of ['rules', 'paint', 'code', 'dem', 'model', 'planTaper'])
-    if ((was[k] ?? null) !== (now[k] ?? null)) d.push(k === 'rules' ? 'SmoothRules.cs geometry rules (or the pinned ways)' : k === 'paint' ? 'road PNGs' : k === 'code' ? "the gate's code (tools/city/lib)" : `${k} ${was[k]} -> ${now[k]}`);
+  for (const k of ['rules', 'paint', 'code', 'replica', 'dem', 'model', 'planTaper']) {
+    // an entry recorded before the replica had a digest of its own held it in 'code'
+    if (k === 'replica' && was.replica === undefined) continue;
+    if ((was[k] ?? null) !== (now[k] ?? null)) d.push(k === 'rules' ? 'SmoothRules.cs geometry rules (or the pinned ways)' : k === 'paint' ? 'road PNGs' : k === 'code' ? "the gate's check code (tools/city/lib)"
+      : k === 'replica' ? 'the builder replica (tools/city/lib linesim.mjs, citydata.mjs)' : `${k} ${was[k]} -> ${now[k]}`);
+  }
+  return d;
+}
+/// What of the DATA moved between two fingerprints (the graph, a container section, the PNGs, the DEM, the model, the
+/// plan taper, the builder replica): their names, [] when none did. An entry recorded before the replica had a digest
+/// of its own held it in 'code' (the gate).
+export function dataMoves(was, now) {
+  if (!was) return ['the baseline records no inputs'];
+  const d = [];
+  for (const k of DATA_INPUTS) {
+    if (k === 'replica' && was.replica === undefined) continue;
+    if (k === 'sections') {
+      const w = was.sections || {}, s = now.sections || {};
+      for (const t of [...new Set([...Object.keys(w), ...Object.keys(s)])].sort()) if (w[t] !== s[t]) d.push(`container section ${t}`);
+    } else if (JSON.stringify(was[k] ?? null) !== JSON.stringify(now[k] ?? null)) d.push(k === 'paint' ? 'road PNGs' : k === 'dem' ? 'the DEM' : k === 'replica' ? 'the builder replica' : k);
+  }
   return d;
 }
 /// Did the DATA move between two fingerprints (not just the rules or the gate's code)?
-export function dataMoved(was, now) {
-  if (!was) return true;
-  for (const k of DATA_INPUTS) if (JSON.stringify(was[k] ?? null) !== JSON.stringify(now[k] ?? null)) return true;
-  return false;
+export const dataMoved = (was, now) => dataMoves(was, now).length > 0;
+/// What of the GATE moved: its rules (SmoothRules.cs) or its check code.
+export function gateMoves(was, now) {
+  if (!was) return [];
+  return GATE_INPUTS.filter(k => (was[k] ?? null) !== (now[k] ?? null)).map(k => k === 'rules' ? 'SmoothRules.cs rules' : "the gate's check code");
 }
 
 export function readBaseline(path) {
@@ -217,16 +251,22 @@ export function demotions(base, R) {
 
 /// What a re-record would LOOSEN (review 5: re-recording after a gate change
 /// dropped 763 of the city's B2 keys, hidden inside a total that grew): check
-/// states or pinned ways loosened (demotions); and, when the DATA did not move
-/// - only the rules or the gate's code did - every key that vanished and every
-/// key that now scores lower, per check. Only a change to the gate can do that.
-/// Returns { dataMoved, lines } (lines empty: nothing loosens).
+/// states or pinned ways loosened (demotions); when the GATE moved (its rules
+/// or its check code) and the data did not, every key that vanished and every
+/// key that now scores lower, per check - only the gate can do that; and when
+/// the gate moved TOGETHER with the data (review 6: a loosening then rode along
+/// with a re-export or the charlotte merge unseen), the move itself: re-record
+/// in two steps, the gate change on the old data first. A move of the data
+/// alone (the graph, the sections, the PNGs, the DEM, the builder replica: a
+/// builder fix drops keys) loosens nothing. Returns { dataMoved, gateMoved,
+/// lines } (lines empty: nothing loosens).
 export function loosenings(summary, base, R, inputs) {
   const lines = [];
-  if (!base || base.schema !== SCHEMA) return { dataMoved: true, lines };
+  if (!base || base.schema !== SCHEMA) return { dataMoved: true, gateMoved: false, lines };
   for (const d of demotions(base, R)) lines.push(`  ${d}`);
-  const moved = dataMoved(base.inputs, inputs);
-  if (!moved)
+  const data = dataMoves(base.inputs, inputs), gate = gateMoves(base.inputs, inputs), moved = data.length > 0;
+  if (gate.length && moved) lines.push(`  the gate (${gate.join(', ')}) moved TOGETHER with the data (${data.join(', ')}): its keys cannot be compared across the data move, so a loosening would ride along unseen - re-record in two steps, the gate change on the old data first, then the data`);
+  if (gate.length && !moved)
     for (const c of R.Checks) {
       const s = summary[c.id], b = base.checks[c.id];
       if (!s || !b) continue;
@@ -242,7 +282,7 @@ export function loosenings(summary, base, R, inputs) {
       for (const [h, [q]] of unpackKeys(b.keys_b64)) { const x = now.get(h); if (x === undefined) gone++; else if (x < q) lower++; }
       if (gone || lower) lines.push(`  ${c.id} ${c.name}: ${gone} keys vanished, ${lower} keys score lower (the data did not move: the gate loosened)`);
     }
-  return { dataMoved: moved, lines };
+  return { dataMoved: moved, gateMoved: gate.length > 0, lines };
 }
 
 /// The before and after numbers of a re-record (--write-baseline): per check

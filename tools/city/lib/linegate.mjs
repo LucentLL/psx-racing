@@ -31,7 +31,7 @@
 // here), E1 (strip paint does not exist yet).
 import { quadIso, frameOf } from './paintiso.mjs';
 import { dot, sub } from './linesim.mjs';
-import { kinkScores, KIND_TEXT, KIND_LONE, turningPoints, easeInto } from './kink.mjs';
+import { kinkScores, kindText, turningPoints, easeInto } from './kink.mjs';
 
 const DEG = 180 / Math.PI;
 const LANE = 3.6576;
@@ -838,8 +838,10 @@ export function runGate(S, R, layouts, opts = {}) {
     for (let m = 1; m + 1 < keep.length; m++) {
       const b = pts[keep[m]];
       if (b.x3 || b.gore) { b2.push({ ...b, val: 0, bad: false }); continue; }
+      // collinear in the frame of its curve: no sample (lib/kink.mjs arcFrame)
+      if (K2.silent && K2.silent[m]) continue;
       const f = K2[m];
-      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side, what: f > V && K2.kind[m] !== KIND_LONE ? KIND_TEXT[K2.kind[m]] : null });
+      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side, what: f > V ? kindText(K2.kind[m]) : null });
     }
     emitRuns('B2', lineId, b2, V, { kind });
     // B3 CURVE (ribbon edges and midline only)

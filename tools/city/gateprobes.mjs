@@ -43,14 +43,25 @@
 //       fails A1 - also inside a taller, slow rise (review 4: the envelope
 //       took the whole rise's height); one eased over the floor or longer, or
 //       several stacked, does not
+//   C   ON A CURVE (review 6: every rule measured against a straight, so on
+//       an arc bumps, jogs, kinks, waves and squeeze zigzags passed at 4-10
+//       times the straight-road limit): judged in the ARC'S FRAME (lib/kink.mjs
+//       arcFrame) they fail as on a straight; clean arcs, WP-11 fillets, sub-V
+//       features, eased tapers and long S-bends on a curve do not
+//   T   a HOOK (review 6: a corner in a line's last metres passed until its
+//       end stood 8V off): the corner extrapolated from the approach, at most
+//       the end's own offset, fails; a turn whose end stands under V off, or a
+//       legal vertex a few metres before the end, does not
 //   R   the ratchet: growth inside a key's bucket, a second run, a move, a
 //       worse peak all FAIL; the same data PASSES; other inputs are STALE,
 //       and STALE FAILS; a check gating looser than its baseline FAILS -
 //       review 5: the gate's own code is an input, a way dropped from the pin
 //       fails, a re-record that loosens (keys vanished or lower, the data
-//       unmoved) is refused, a ribbon edge's key takes its bucket's side
+//       unmoved) is refused, a ribbon edge's key takes its bucket's side -
+//       review 6: the gate moving TOGETHER with the data is refused (two
+//       steps), the builder replica is data (a builder fix records freely)
 //
-//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|Z|W|M|B|N|E|Q|P|R ...]    exit 1 on any failed probe
+//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|Z|W|M|B|N|E|Q|P|C|T|R ...]    exit 1 on any failed probe
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSmoothRules } from './lib/smoothrules.mjs';
@@ -496,6 +507,116 @@ if (want('Q')) {
   ]) { const res = sq(cut, o); probe(`${label}: no A1 on the edge`, env(res).length === 0, w(res)); }
 }
 
+// ---- C: on a curve (review 6): every excursion rule needed a straight reference, so on an arc they had none
+if (want('C')) {
+  console.log("C  B2 KINK on a curve: bumps, jogs, kinks, waves and squeeze zigzags judged in the ARC'S FRAME, as on a straight");
+  const gt = pts => gateOf(tw2(pts), R, layouts);
+  const b2l = res => new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId)).size;
+  const arcHit = res => gated(res).some(r => r.check === 'B2' && /on a curve/.test(r.what || ''));
+  // a road along an arc of radius Rc (Infinity: straight) from heading 20 deg, its centreline displaced sideways by y(s),
+  // sampled at the arc lengths ss (sorted), with 60 m of the arc sampled every arcStep m before and after them
+  const h0 = 20 * DEG;
+  const arcPts = (ss, y, Rc, arcStep = 2) => {
+    const k = Number.isFinite(Rc) ? 1 / Rc : 0, all = [...new Set([...ss, ...Array.from({ length: Math.round((ss.at(-1) - ss[0] + 120) / arcStep) + 1 }, (_, i) => ss[0] - 60 + i * arcStep)].map(v => +v.toFixed(6)))].sort((a, b) => a - b);
+    return all.map(s => { const th = h0 + k * s, bx = k ? (Math.cos(h0) - Math.cos(th)) / k : Math.sin(h0) * s, bz = k ? (Math.sin(th) - Math.sin(h0)) / k : Math.cos(h0) * s, d = y(s); return [bx + Math.cos(th) * d, bz - Math.sin(th) * d]; });
+  };
+  const grid = (a, b, st) => { const o = []; for (let x = a; x <= b + 1e-9; x += st) o.push(x); return o; };
+  const rc = (h, W) => s => (s >= 0 && s <= W ? h * (1 - Math.cos(2 * Math.PI * s / W)) / 2 : 0);
+  const step = (h, W) => s => (s <= 0 ? 0 : s >= W ? h : h * (1 - Math.cos(Math.PI * s / W)) / 2);
+  const wave = (A, lam) => s => (s >= 0 && s <= 3 * lam ? A * Math.sin(2 * Math.PI * s / lam) : 0);
+  for (const [label, y, W, Rc] of [['a raised-cosine bump of 20 cm over 8 m', rc(0.2, 8), 8, 300], ['the same bump', rc(0.2, 8), 8, 100], ['a bump of 12 cm over 12 m', rc(0.12, 12), 12, 300],
+    ['a smooth jog of 20 cm over 4 m', step(0.2, 4), 4, 300], ['a wave of +-8 cm every 16 m (3 cycles)', wave(0.08, 16), 48, 100], ['a wave of +-15 cm every 24 m', wave(0.15, 24), 72, 50]]) {
+    const res = gt(arcPts(grid(0, W, 1), y, Rc));
+    probe(`C1 ${label} (1 m samples) on an arc of R ${Rc} m: a KINK on all 7 lines, in the frame of the arc`, b2l(res) === 7 && arcHit(res), fmt(res));
+  }
+  // a lone kink AGAINST the curve: the arc's own turns stopped its chord within a few metres
+  {
+    const arcKink = (Rc, st, t) => { const pts = [[0, 0]]; let h = 20 * DEG, p = fwd([0, 0], h, 60); pts.push(p); const n = Math.round(80 / st), dh = st / Rc;
+      for (let k = 0; k < n; k++) { h += (k === 0 ? dh / 2 : dh) + (k === Math.floor(n / 2) ? t * DEG : 0); p = fwd(p, h, st); pts.push(p); } h += dh / 2; pts.push(fwd(p, h, 60)); return pts; };
+    const res = gt(arcKink(100, 1, -3));
+    probe('C2 a lone 3 deg kink against an arc of R 100 m (vertices every 1 m): a KINK on all 7 lines', b2l(res) === 7, fmt(res));
+    const ok = gt(arcKink(100, 1, -1));
+    probe('C2 a lone 1 deg kink against the same arc (under the lone limit): nothing', gated(ok).length === 0, fmt(ok));
+  }
+  // sharp two- and three-vertex data features on an arc drawn every 2 m (the drawn line is the data line)
+  {
+    const arcData = (Rc, st, feat) => { const ss = new Set(); for (let s = 0; s <= 80 + 1e-9; s += st) ss.add(+s.toFixed(6)); for (const [o] of feat) ss.add(40 + o);
+      const lat = s => { const o = s - 40; if (o <= feat[0][0]) return 0; if (o >= feat.at(-1)[0]) return feat.at(-1)[1]; for (let i = 1; i < feat.length; i++) if (o <= feat[i][0]) return feat[i - 1][1] + (feat[i][1] - feat[i - 1][1]) * (o - feat[i - 1][0]) / (feat[i][0] - feat[i - 1][0]); };
+      return arcPts([...ss].sort((a, b) => a - b), lat, Rc, st); };
+    for (const [label, Rc, feat] of [['a two-vertex data jog of 8 cm over 2 m', 300, [[0, 0], [2, 0.08]]], ['a tent bump of 10 cm over 8 m', 100, [[0, 0], [4, 0.1], [8, 0]]]]) {
+      const res = gt(arcData(Rc, 2, feat));
+      probe(`C3 ${label} on an arc of R ${Rc} m drawn every 2 m: a KINK on all 7 lines`, b2l(res) === 7, fmt(res));
+    }
+  }
+  // the squeeze zigzag (review 4's S7, rises longer than the floor: only the wave rule sees it) on a curving road
+  {
+    const sq = (Rc, cut) => { const pts = [], k = 1 / Rc; for (let i = 0; i <= 400; i++) { const s = i * 0.5, th = h0 + k * s; pts.push([(Math.cos(h0) - Math.cos(th)) / k, (Math.sin(th) - Math.sin(h0)) / k]); }
+      return gateOf(city([{ pts }]), R, layouts, { tweakSecs: S => S.E[0].secs.forEach(x => { const d = cut(x.s); if (!(d > 0)) return; x.L = [x.L[0] + x.right[0] * d, x.L[1] + x.right[1] * d]; x.latL += d; x.uL = 0.5 - x.latL / S.E[0].width; x.sqL = true; }) }); };
+    const S7 = s => (s < 20 ? 0 : 0.1 * (1 - Math.cos(2 * Math.PI * (s - 20) / 32)));
+    for (const Rc of [300, 100]) { const res = sq(Rc, S7); probe(`C4 the L ribbon edge squeezed 0.2 m in and out every 32 m on a road curving at R ${Rc} m: a wave on the edge`, gated(res).some(r => r.check === 'B2' && r.lineId === 'RL' && /wave/.test(r.what || '')), fmt(res)); }
+    // eased over 20 m (over the 15 m floor itself the smoothstep's curvature step at each end reads as a split corner, on a
+    // straight as on a curve: a calibration question, not the frame's)
+    const eased = sq(300, s => { const u = Math.max(0, Math.min(1, (s - 40) / 20)); return u * u * (3 - 2 * u); });
+    probe('C4 the same edge squeezed 1 m in as a smoothstep over 20 m on R 300 m (an eased taper): no B2, no A1 against its envelope', count(eased, 'B2') === 0 && !gated(eased).some(r => r.check === 'A1' && /I7/.test(r.what || '')), fmt(eased));
+    const ss = u => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
+    const bumpE = gt(arcPts(grid(0, 30, 1), s => 0.3 * (s <= 15 ? ss(s / 15) : 1 - ss((s - 15) / 15)), 100));
+    probe("C4 an eased bump, 30 cm out over 15 m and back over 15 m (the plan's ease), on R 100 m: nothing", gated(bumpE).length === 0, fmt(bumpE));
+  }
+  // WP-11: a data curve drawn every 8 m, filleted with tangent arcs at the 2 cm sagitta - with a 25 cm spike, and without
+  {
+    const polyArc = (Rc, L, n, at, d) => { const pts = []; for (let i = 0; i <= n; i++) { const s = i * L, th = h0 + s / Rc; let x = (Math.cos(h0) - Math.cos(th)) * Rc, z = (Math.sin(th) - Math.sin(h0)) * Rc; if (i === at) { x += Math.cos(th) * d; z -= Math.sin(th) * d; } pts.push([x, z]); } return pts; };
+    const filletAll = P => { const out = [P[0]]; for (let i = 1; i + 1 < P.length; i++) { const a = P[i - 1], b = P[i], c = P[i + 1], u = [b[0] - a[0], b[1] - a[1]], v = [c[0] - b[0], c[1] - b[1]], lu = Math.hypot(...u), lv = Math.hypot(...v);
+      const th = Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]); if (Math.abs(th) < 1e-6) { out.push(b); continue; }
+      const t = Math.min(lu, lv) / 2, Rr = t / Math.tan(Math.abs(th) / 2), nS = Math.max(1, Math.ceil(Rr * Math.abs(th) / sagChord(Rr, hw2))), dh = th / nS, c0 = 2 * Rr * Math.sin(Math.abs(dh) / 2);
+      let h = Math.atan2(u[1], u[0]), q = [b[0] - u[0] / lu * t, b[1] - u[1] / lu * t]; out.push(q); for (let k = 0; k < nS; k++) { h += k === 0 ? dh / 2 : dh; q = [q[0] + Math.cos(h) * c0, q[1] + Math.sin(h) * c0]; out.push(q); } }
+      out.push(P.at(-1)); return out; };
+    for (const [Rc, L] of [[300, 8], [100, 6], [60, 5]]) { const n = Math.round(120 / L) + 10, res = gt(filletAll(polyArc(Rc, L, n, -1, 0))); probe(`C5 an R ${Rc} m data curve drawn every ${L} m, WP-11 filleted (tangent arcs, 2 cm sagitta): nothing`, gated(res).length === 0, fmt(res)); }
+    const n = Math.round(120 / 8) + 10, spiked = gt(filletAll(polyArc(300, 8, n, Math.round(n / 2), 0.25)));
+    probe('C5 the R 300 m curve with one data vertex 25 cm out, WP-11 filleted (19 cm off the clean fillet): a KINK on all 7 lines', b2l(spiked) === 7, fmt(spiked));
+  }
+  // legitimate curves and sub-V features on them
+  for (const [label, pts] of [['a clean arc of R 1000 m sampled every 1 m', arcPts(grid(0, 60, 1), () => 0, 1000)], ['a clean arc of R 30 m sampled every 1 m', arcPts(grid(0, 60, 1), () => 0, 30)],
+    ['a bump of 2 cm over 8 m on R 100 m (under V)', arcPts(grid(0, 8, 1), rc(0.02, 8), 100)], ['a wave of +-1.5 cm every 16 m on R 100 m (under V)', arcPts(grid(0, 48, 1), wave(0.015, 16), 100)],
+    ['a long S-bend of R 300 m arcs turning 20 deg each way', (() => { const pts = [[0, 0]]; let h = 10 * DEG, p = fwd([0, 0], h, 60); pts.push(p); const c = sagChord(300, hw2), nA = Math.ceil(300 * 20 * DEG / c), dh = 20 * DEG / nA, ch = 2 * 300 * Math.sin(dh / 2);
+      for (const sg of [1, -1]) { for (let k = 0; k < nA; k++) { h += sg * (k === 0 ? dh / 2 : dh); p = fwd(p, h, ch); pts.push(p); } h += sg * dh / 2; } pts.push(fwd(p, h, 60)); return pts; })()]]) {
+    const res = gt(pts);
+    probe(`C6 ${label}: nothing`, gated(res).length === 0, fmt(res));
+  }
+}
+
+// ---- T: a HOOK at a line's end (review 6: the lone rule's chord toward the end is the stub d, so f = d |t| / 8 ~ the
+// end's offset / 8 - a hook whose end stood up to 8V off passed)
+if (want('T')) {
+  console.log("T  B2 KINK: a HOOK - a corner whose chord runs on to the strand's end - by the approach extrapolated, at most the end's offset");
+  const gt = pts => gateOf(tw2(pts), R, layouts);
+  const b2l = (res, e) => new Set(gated(res).filter(r => r.check === 'B2' && (e === undefined || r.e === e)).map(r => r.lineId)).size;
+  const deadEnd = (t, d) => { const p0 = [0, 0], p1 = fwd(p0, 10 * DEG, 80), p2 = fwd(p1, (10 + t) * DEG, d); return gt([p0, p1, p2]); };
+  for (const [t, d] of [[6, 1], [4, 2.7]]) {
+    const res = deadEnd(t, d);
+    probe(`T1 a ${t} deg hook ${d} m before a dead end (the end ${(d * Math.sin(t * DEG) * 100).toFixed(1)} cm off the approach): a KINK on all 7 lines`, b2l(res) === 7 && gated(res).some(r => r.check === 'B2' && /hook/.test(r.what || '')), fmt(res));
+  }
+  {
+    // 0.84 m before the end the paint lines have stopped short of the corner: the ribbon edges and the midline carry it
+    const res = deadEnd(13, 0.84), on = new Set(gated(res).filter(r => r.check === 'B2' && /hook/.test(r.what || '')).map(r => r.lineId));
+    probe('T1 a 13 deg hook 0.84 m before a dead end (the end 18.9 cm off; review 6: 0.95x): a hook on both ribbon edges and the midline', ['RL', 'RR', 'MID'].every(l => on.has(l)), fmt(res));
+  }
+  // before a T junction's fan mouth: the side street bends t degrees d metres before its mouth
+  const tee = (t, d) => {
+    const probeCity = gateOf(city([{ pts: [[-80, 0], [0, 0]] }, { pts: [[0, 0], [80, 0]] }, { pts: [[0, 80], [0, 0]] }]), R, layouts);
+    const trim = probeCity.S.E[2].length - probeCity.S.E[2].secs.at(-1).s, zv = trim + d, sx = Math.tan(t * DEG) * zv;
+    return gateOf(city([{ pts: [[sx - 80, 0], [sx, 0]] }, { pts: [[sx, 0], [sx + 80, 0]] }, { pts: [[0, 80], [0, zv], [sx, 0]] }]), R, layouts);
+  };
+  // (the corner d metres from the data node; at 6 deg and 1 m the fan's mouth trims the corner itself away)
+  for (const [t, d] of [[6, 1.2], [5, 1]]) {
+    const res = tee(t, d);
+    probe(`T1 a ${t} deg hook ${d} m before a T junction's fan mouth: a hook on all 7 lines of the side street`, b2l(res, 2) === 7 && gated(res).some(r => r.e === 2 && /hook/.test(r.what || '')), gated(res).filter(r => r.e === 2).map(r => `${r.check} ${r.lineId} x${r.ratio.toFixed(2)}`).join(', ') || 'nothing on the side street');
+  }
+  for (const [t, d, why] of [[2, 0.1, 'the end 0.35 cm off'], [1, 3, 'a legal vertex']]) {
+    const res = deadEnd(t, d);
+    probe(`T2 a ${t} deg turn ${d} m before a dead end (${why}): nothing`, gated(res).length === 0, fmt(res));
+  }
+}
+
 // ---- R: the ratchet
 if (want('R')) {
   console.log('R  the ratchet (lib/gatebase.mjs, what linecheck.mjs runs)');
@@ -537,7 +658,7 @@ if (want('R')) {
   const Bk = entryOf(summ(jog([51, 76], 0.05)), inputs);
   const gone = loose(summ(jog([51], 0.05)), Bk, R, { ...inputs, code: 'changed' }), moved = loose(summ(jog([51], 0.05)), Bk, R, { ...inputs, graph: 'moved' });
   const lower = loose(summ(jog([51], 0.04)), entryOf(summ(jog([51], 0.05)), inputs), R, { ...inputs, rules: 'changed' });
-  probe('R13 a re-record that loosens - keys vanished or scoring lower while the data did not move (only the gate did) - is REFUSED; the same after a data move is not',
+  probe('R13 a re-record that loosens - keys vanished or scoring lower while the data did not move (only the gate did) - is REFUSED; the same after a data move alone is not',
     gone.lines.some(l => /B2 KINK: \d+ keys vanished/.test(l)) && lower.lines.some(l => /B2 KINK: 0 keys vanished, [1-9]\d* keys score lower/.test(l)) && moved.lines.length === 0,
     [...gone.lines, ...lower.lines].map(l => l.trim()).join(' | ') || 'nothing refused');
   // review 5: a ribbon edge's key took the side of the run's worst sample, so a key moved between RL and RR - vanishing from
@@ -553,6 +674,22 @@ if (want('R')) {
     probe("R14 a kink run across a node into an edge the chain runs backwards keys each bucket by its own edge's side (RL on one edge is RR on the other), not by the side of the run's worst",
       runs.length === 2 && runs.every(r => { const x = sideOf(r, 7101), y = sideOf(r, 7102); return x.size === 1 && y.size === 1 && [...x][0] !== [...y][0]; }),
       runs.map(r => r.kk.join(' ')).join(' | ') || gated(res).filter(r => r.check === 'B2').map(r => r.kk.join(' ')).join(' | '));
+  }
+  // review 6: a loosening rode along whenever any data input moved - the charlotte merge's NAME and SPAN, a re-export
+  {
+    const inp6 = { ...inputs, replica: 'q' }, B6 = entryOf(summ(jog([51, 76], 0.05)), inp6), B6one = entryOf(summ(jog([51], 0.05)), inp6);
+    const merge = loose(summ(jog([51, 76], 0.05)), B6, R, { ...inp6, code: 'changed', sections: { EDGE: 'a', NAME: 'n2', SPAN: 's2' } });
+    const png = loose(summ(jog([51], 0.05)), B6, R, { ...inp6, rules: 'changed', paint: 'p2' });
+    probe('R15 the gate moving TOGETHER with the data (its code with the charlotte merge\'s NAME and SPAN; its rules with a road PNG) is REFUSED - two steps, the gate change on the old data first - even when no key is lost',
+      merge.lines.some(l => /TOGETHER/.test(l) && /NAME/.test(l)) && png.lines.some(l => /TOGETHER/.test(l)) && merge.gateMoved && merge.dataMoved,
+      [...merge.lines, ...png.lines].map(l => l.trim().slice(0, 120)).join(' | ') || 'nothing refused');
+    // the builder replica is data: a builder fix mirrored in it drops keys and records freely; a check-code loosening does not
+    const fix = loose(summ(jog([51], 0.05)), B6, R, { ...inp6, replica: 'q2' });
+    const chk = loose(summ(jog([51], 0.05)), B6, R, { ...inp6, code: 'changed' });
+    const lib = join(HERE, 'lib'), split = typeof GB.codeDigest === 'function' && Array.isArray(GB.REPLICA_CODE) && Array.isArray(GB.CHECK_CODE);
+    probe('R16 the builder replica (linesim.mjs, citydata.mjs) has a digest of its own, out of the gate\'s: a replica move that drops keys (a builder fix) records freely; the same keys dropped by the check code are REFUSED',
+      split && GB.REPLICA_CODE.every(f => !GB.CHECK_CODE.includes(f)) && GB.codeDigest(lib, GB.REPLICA_CODE) !== GB.codeDigest(lib) && fix.lines.length === 0 && chk.lines.some(l => /keys vanished/.test(l)) && B6one,
+      `replica move: ${fix.lines.length ? fix.lines.join(' | ') : 'records'}; check code: ${chk.lines.map(l => l.trim()).join(' | ') || 'records'}`);
   }
 }
 

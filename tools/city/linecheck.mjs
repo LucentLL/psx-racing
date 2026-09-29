@@ -25,9 +25,14 @@
 //   --csv <file>                                          every violation run, one row each
 //   --write-baseline [file]                               record this model's numbers, keys and inputs;
 //                                                         REFUSED (exit 1, nothing written) when it would
-//                                                         loosen the gate: the data did not move but keys
-//                                                         vanished or score lower, or a check state or a
-//                                                         pinned way loosened (lib/gatebase.mjs loosenings)
+//                                                         loosen the gate: only the gate (rules, check
+//                                                         code) moved and keys vanished or score lower;
+//                                                         the gate moved TOGETHER with the data (graph,
+//                                                         sections, PNGs, model, builder replica: re-record
+//                                                         in two steps, the gate change on the old data
+//                                                         first); or a check state or a pinned way loosened
+//                                                         (lib/gatebase.mjs loosenings). A data or replica
+//                                                         move alone (a builder fix) records freely
 //   --allow-loosen                                        record it anyway, the loosening listed for the
 //                                                         commit (a deliberate, signed-off gate change)
 //   --ratchet [file]                                      compare with them (lib/gatebase.mjs): exit 1 on
@@ -269,12 +274,12 @@ if (!has('--no-gate')) {
     for (const l of beforeAfter(summary, base, R, inputs)) P(l);
     const loose = loosenings(summary, base, R, inputs);
     if (loose.lines.length) {
-      P(`LOOSENING (${loose.dataMoved ? 'the data moved too' : 'the data did not move: only the gate did'}):`);
+      P(`LOOSENING (${loose.gateMoved && loose.dataMoved ? 'the gate and the data moved together' : loose.gateMoved ? 'only the gate moved: the data did not' : 'check states or the creek pin'}):`);
       for (const l of loose.lines) P(l);
     }
     if (loose.lines.length && !has('--allow-loosen')) {
       verdict = { ok: false, lines: [] };
-      P(`\nREFUSED: this re-record would loosen the gate (above). Nothing was written. Fix the gate, or - for a deliberate, signed-off change - re-run with --allow-loosen and put the list in the commit.`);
+      P(`\nREFUSED: this re-record would loosen the gate (above). Nothing was written. Fix the gate, or re-record in two steps (the gate change on the old data first, then the data), or - for a deliberate, signed-off change - re-run with --allow-loosen and put the list in the commit.`);
     } else {
       writeBaseline(BASELINE, MODEL, summary, R, inputs);
       P(`\nwrote the baseline for ${MODEL} (graph ${graph}, inputs ${JSON.stringify(inputs)}) to ${BASELINE.replace(/\\/g, '/')}${loose.lines.length ? ' - LOOSENED, --allow-loosen' : ''}`);
