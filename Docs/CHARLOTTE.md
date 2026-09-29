@@ -1152,7 +1152,32 @@ in OSM).
   - **Open for WP-G** from this comparison: close linecheck's rings (link the
     closing joint and read the strand round it); the replica's section
     fidelity (the builder's per-tile clip samples, its float32 section math:
-    506 + 354 + 93 + 19 runs); D1's heights offline; and the 52.
+    506 + 354 + 93 + 19 runs); D1 offline - the replica draws no gore quads
+    and no fans, so linecheck cannot see 2,248 of the mesh gate's 3,378 D1
+    runs (paint into a gore 1,886, into a fan 362), and has no heights; and
+    the 52.
+  - **G-play, re-baselined (review 8).** The prep's Uptown runs retired 2
+    rivals each time against the 1 WP-04 recorded - one run of one seed. An
+    interleaved A/B on PSXCity, the same baked scenes, hidden (`-batchmode
+    -nographics`: a watched editor on this machine stops at "Revert All
+    Window Layouts"), seed 0, 330 s: A is charlotte f92348e's Scripts AND
+    Editor (before the R4-prep merges; its own RacePlayCheck, without the
+    autopilot's allowReverse = false), B this tree; one to three other Unity
+    jobs on the machine at each start.
+    - Uptown, A B B A A B B A A B: A retired 0, 1, 2, 2, 3 (mean 1.6), B 1,
+      1, 2, 1, 2 (mean 1.4). The causes are the same in both: the first-
+      corner pile-up at wp 150-370 (A 5: traffic 4, a barrier; B 3: traffic,
+      the player's car, the road's edge), the barrier at wp 1482 (A 1, B 2),
+      traffic at wp 2037 (A 1, B 1), a Transit at wp 1265 (A 1); B also had
+      one stall with no hit (wp 344).
+    - Independence, A B B A A B B A: A 1, 1, 0, 1 (mean 0.75), B 1, 3, 0, 0
+      (mean 1.0; with this tree's two single runs, 0 and 1, 0.83 over six),
+      all traffic but one contact with the player's car.
+    - Tryon: 3 and 3 on this tree (single runs; the baseline's 3).
+    The merged tree is no worse than the pre-merge one; a single run is a
+    draw from 0-3. G-play's baseline is now the mean of five or more
+    interleaved runs: Uptown 1.5, Independence 0.8, Tryon 3 (single runs, to
+    be sampled the same way the next time it moves).
   - **B4s SEAM, a ZERO check, fails at 4 places** (report-only this cycle):
     Albemarle Road e1999 / e6285 at the x = 4864 seam (71.5 / 67.5 cm) and
     Cameron Boulevard e8145 / e12946 at the z = 13568 seam (24.4 / 23.5
