@@ -28,10 +28,12 @@
 # the newly recorded one back. Reports land in -Out (default <sandbox>\
 # Screenshots\City\smooth_<Label>): city_smooth.txt / .csv / .json and shots.
 # Exit 1 when a gated check fails (after SmoothRules.ReportOnly is flipped),
-# when the job did not finish, or when it wrote nothing; exit 3 when the
+# when the job did not finish, or when it wrote nothing - and when the
 # baseline is STALE (its 'mesh' entry was measured on other inputs: graph,
-# container sections, rules, road PNGs or DEM) - re-record it with
-# -WriteBaseline and put the before/after numbers in the commit.
+# container sections, rules, road PNGs or DEM): a stale ratchet cannot tell a
+# regression from the move, so it FAILS until the explicit re-record, a FULL
+# run with -WriteBaseline, which logs BEFORE -> AFTER numbers for the commit
+# (and fails unless the sandbox's baseline was rewritten by this run).
 #
 # tools\city\linecheck.mjs is the same gate offline; the two must agree
 # (Docs\CHARLOTTE.md, "Smoothness gate"). Run it first: seconds, not minutes.
@@ -69,6 +71,7 @@ $env:PSX_SMOOTH_SPOTS = if ($Spots) { $Spots } else { $null }
 $env:PSX_SMOOTH_SHOTS = "$Shots"
 $env:PSX_SMOOTH_WRITE_BASELINE = if ($WriteBaseline) { "1" } else { $null }
 $env:PSX_SMOOTH_FAST = if ($Mode -eq "FAST") { "1" } else { $null }
+$runStart = Get-Date
 
 function Invoke-Method([string]$Method, [string]$Expect, [int]$Minutes) {
     $outFile = if ($Expect) { Join-Path $proj $Expect } else { $null }
@@ -102,11 +105,15 @@ if (Test-Path (Join-Path $proj "city_smooth.txt")) {
     }
 }
 if ($WriteBaseline) {
-    if (Test-Path $boxBase) {
+    # only a baseline THIS run wrote: the copy made before the run is the old one
+    if ((Test-Path $boxBase) -and (Get-Item $boxBase).LastWriteTime -ge $runStart) {
         New-Item -ItemType Directory -Force -Path (Split-Path $repoBase) | Out-Null
         Copy-Item $boxBase $repoBase -Force
-        Write-Host "baseline recorded: $repoBase (commit it with the before/after numbers)"
-    } else { Write-Host "no baseline was written in the sandbox" -ForegroundColor Red; $failed = $true }
+        $rep = @(Get-Content (Join-Path $proj "city_smooth.txt") -ErrorAction SilentlyContinue)
+        $at = ($rep | Select-String -Pattern '^BEFORE' | Select-Object -First 1)
+        if ($at) { $rep[($at.LineNumber - 1)..([Math]::Min($rep.Count - 1, $at.LineNumber + 18))] }
+        Write-Host "baseline recorded: $repoBase (commit it with the BEFORE -> AFTER numbers above, from city_smooth.txt)"
+    } else { Write-Host "no baseline was written by this run in the sandbox" -ForegroundColor Red; $failed = $true }
 }
 
 if ($Mode -eq "SHOTS" -or ($Mode -eq "FULL" -and -not $NoShots)) {
@@ -124,11 +131,12 @@ if ($Mode -eq "SHOTS" -or ($Mode -eq "FULL" -and -not $NoShots)) {
 }
 
 foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_FAST")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
-if ($failed) { Write-Host "CITY SMOOTH $Mode DONE - FAILED -> $Out" -ForegroundColor Red; exit 1 }
 $report = Join-Path $proj "city_smooth.txt"
 if (-not $WriteBaseline -and (Test-Path $report) -and (Select-String -Path $report -Pattern "^  STALE:" -Quiet)) {
-    Write-Host "CITY SMOOTH $Mode DONE - baseline STALE: re-record with -WriteBaseline (before/after numbers in the commit) -> $Out" -ForegroundColor Yellow
-    exit 3
+    # the gate logs it as a FAIL (outside a report-only cycle); say why, loudly, whatever the log held
+    Write-Host "baseline STALE: re-record with -Mode FULL -WriteBaseline (BEFORE -> AFTER numbers in the commit)" -ForegroundColor Red
+    if (-not (Select-String -Path $report -Pattern "REPORT-ONLY cycle" -Quiet)) { $failed = $true }
 }
+if ($failed) { Write-Host "CITY SMOOTH $Mode DONE - FAILED -> $Out" -ForegroundColor Red; exit 1 }
 Write-Host "CITY SMOOTH $Mode DONE -> $Out"
 exit 0

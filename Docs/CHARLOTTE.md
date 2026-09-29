@@ -390,7 +390,20 @@ in OSM).
   - A (position): A0 TEXTURE (every painted run within half a texel of its
     plan line, every plan line painted), A1 OFF against the plan, A2 SKEW of
     the centre pair on the drawn ribbon, A3 INSET of an edge line (against the
-    plan's inset), A4 LINEWIDTH, A5 STRAY, A5b MISSING (report-only).
+    plan's inset), A4 LINEWIDTH, A5 STRAY, A5b MISSING (report-only). A
+    SQUEEZED ribbon edge is no longer exempt from A1 (the spec's X6 still
+    exempts A2 and A3 there): it is judged against where plan I7 puts it, "the
+    cut needed, max-filtered over the taper floor and eased like a taper". The
+    cut (how far the drawn edge sits inside the design edge) is split at its
+    turning points into rises and falls; EASE: inside a rise or fall of height
+    H, two samples w apart (w under the floor L) may differ by at most H·g(w/L),
+    g(x) = 1.5x - 0.5x³, the most a smoothstep over L changes over any w; HOLD:
+    a dip between two cuts narrower than L, where the edge comes back out,
+    reads the lower cut less the cut. The floor is `SmoothRules.TaperFloor`
+    (the plan's proposed street 15 m, arterial and ramp 30 m, freeway 90 m). A
+    squeeze eased over its floor or longer and held between cuts reads 0; one
+    stepping in 1 m over 8 m (review 3's case) reads 39.5 cm. Per edge, not
+    yet per chain.
   - B (shape): B1 JITTER (circle fit over ±2 m), B2 KINK, B3 CURVE (radius
     under the class minimum), B4 JUMP where a line continues (its partner
     across a node is the nearest line of its colour and pattern within one
@@ -405,12 +418,35 @@ in OSM).
     polygon); the chase view out to `KinkViewM` (40 m, where a pixel is 16.7
     cm) shows a kink exactly when the gap f - dr passes max(V, dr) with dr
     under that pixel. A sampled arc, a WP-11 fillet or a bend spread over 5 m
-    or more never reads as a corner; B3 judges those.
-    `tools/city/lib/kink.mjs` and `CitySmooth.KinkScores` are the same code.
+    or more never reads as a corner; B3 judges those. A HEDGED corner - a turn
+    and a turn back of a quarter of it or more within a metre or two, [6, -2.4]
+    degrees a metre apart - stopped every chord at the counter-turn, so its
+    parts scored centimetres and nothing was reported; the painted lines do it
+    at nearly every section kink (the diagonal crossing lands a few cm from the
+    section and turns back). Every window of turns of both signs within 10 m is
+    now judged by its NET turn too: rounded at most as the net turn split in
+    two at the window's ends, dr = (w/2)·tan(T/2), with chords from its middle;
+    and between two straights (each at least 4 times the window) at the drawn
+    virtual corner with the drawn rounding. It scores at least what the lone
+    net corner scores (3.2x for [6, -2.4]); an S-bend of sampled arcs never
+    does (its chords stop at the next vertex). A JOG - the same window with
+    parallel approach and exit lines, [+3, -3] degrees 0.6 m apart stepping
+    the line 3.1 cm - scores its step (the least gap between the two lines
+    along the window) when it sits between two straights at least 4 times the
+    window long: B4 fails the same step past V at a node, and at 6 m 0.6 m of
+    road is 7 of the 240 rows, a 1.2 px jog in a straight line. The run text
+    names which rule fired ("a hedged corner", "a jog").
+    `tools/city/lib/kink.mjs` and `CitySmooth.KinkScores` are the same code;
+    a cross-check compiles the C# out of CitySmooth.cs and runs it on the JS's
+    inputs (105,092 vertices, 8,000 of them the city's own polylines, and
+    438,164 squeeze samples: identical to 1.5e-8, the same rule every time).
   - C (continuity): C1 GAP, C2 END (only at junction fan mouths, dead ends,
-    gores or plan lane drops; an end with a partner within a lane is a JUMP,
-    not an end; a bend fan's mouths are no legitimate end), C3 DASH (10 ft
-    dash / 30 ft gap ±20% along the chain).
+    a gore NOSE - a collapsed section within 2 m - or plan lane drops; an end
+    with a partner within a lane is a JUMP, not an end; a bend fan's mouths
+    are no legitimate end; a line starting or stopping along a branch's attach
+    arc, where the branch is only clipped, ends mid-road: review 3 found any
+    clipped section within 2 m excused 5,388 such ends), C3 DASH (10 ft dash /
+    30 ft gap ±20% along the chain).
   - D1 CROSS: paint more than 20 cm inside other pavement at the same level,
     against the triangles the renderer draws (a fan's star or its ear-clipped
     corners, read from the mesh; gore quads by their real long sides). Only a
@@ -430,10 +466,11 @@ in OSM).
   **a disagreement is a gate bug**, fixed before anything else. Only the mesh
   gate sees tile seams, fans and heights. linecheck's replica follows the
   builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
-  same commit. `node tools/city/gateprobes.mjs` runs 57 synthetic probes with
-  known answers (split kinks, legitimate fillets, a kink behind a sub-V step,
-  bend fans, attach arcs, straight roads, the ratchet); every review finding
-  is one, and all must pass. `metrics.mjs` gains a SMOOTH section: B2/B3 on
+  same commit. `node tools/city/gateprobes.mjs` runs 98 synthetic probes with
+  known answers (split kinks, legitimate fillets and S-bends, a kink behind a
+  sub-V step, bend fans, attach arcs, straight roads, hedged corners, jogs,
+  C2's closed list, squeezed edges against I7, the ratchet and STALE); every
+  review finding is one, and all must pass. `metrics.mjs` gains a SMOOTH section: B2/B3 on
   the exported centreline and its offset curves, in half a second, as an
   early warning.
 - **Modes.** FAST runs inside `CityAudit.Run` (the drive and roadside
@@ -466,16 +503,24 @@ in OSM).
   graph hash, a digest of each container section the gate reads (NODE, NAME,
   EDGE, PNTS, SPAN, XING), of the geometry rules in SmoothRules.cs (not the
   rollout switches or the ranking), of the road PNGs and (mesh) of the DEM,
-  and the model. A ratchet against other inputs is **STALE, not FAIL**
-  (linecheck exits 3, `city-smooth.ps1` exits 3, the city audit prints it as
-  info): the data moved, so the keys cannot tell a regression from the move.
-  Re-record in the commit that moves the inputs - a re-export, a merge that
-  brings new SPAN/XING rows, a threshold change - with the before and after
-  numbers (the STALE report prints the comparison for exactly that). A ZERO
-  check or the creek pin fails whatever the baseline. Merging `charlotte`
-  (WP-04's water spans: 264 -> 560) into this branch keeps graph 27bccd93 but
-  changes SPAN and NAME: the offline ratchet reports STALE there, as it must;
-  re-record after the merge. The creek (ways 1078015030, 16671358,
+  and the model; and every check's STATE. A ratchet against other inputs is
+  **STALE, and STALE FAILS**: linecheck exits 1, `city-smooth.ps1` exits 1,
+  and the city audit writes a failing Check ("smoothness baseline measured on
+  today's inputs"), counted in `CITY AUDIT: N FAILURES`, so `city-cycle.ps1`
+  and `verify.ps1` exit 1 (once `ReportOnly` is off). The data moved, so the
+  keys cannot tell a regression from the move, and a gate that went quiet
+  there (review 3: it used to print info lines) would pass whatever regression
+  arrives with it. The way out is the explicit re-record in the commit that
+  moves the inputs - a re-export, a merge that brings new SPAN/XING rows, a
+  threshold change: `linecheck.mjs --write-baseline` (or `city-smooth.ps1
+  -Mode FULL -WriteBaseline`, which fails unless the sandbox's baseline was
+  rewritten by that run) prints BEFORE -> AFTER per check (runs, metres,
+  worst, keys) and what moved, for the commit message. A check gating looser
+  than when its baseline was recorded (ZERO -> RATCHET -> REPORT) fails too,
+  stale or not; a ZERO check or the creek pin fails whatever the baseline.
+  Merging `charlotte` (WP-04's water spans: 264 -> 560) into this branch keeps
+  graph 27bccd93 but changes SPAN and NAME: the ratchet FAILS there as STALE
+  until the merge commit re-records. The creek (ways 1078015030, 16671358,
   1252904925) is pinned: any run there fails from the day its fix lands
   (`SmoothRules.PinActive`). A check goes to hard zero when the package named
   in its row of `SmoothRules.Checks` lands; nothing is ever loosened.
@@ -496,24 +541,44 @@ in OSM).
   coordinates, lat/lon, the tile, the cause (TAPER, DIAGONAL, VERTEX, MITRE,
   SQUEEZE, CLIP, STRUCTURE-END, BEND-FAN, SEAM, FAN) and a spot token that
   `PSX_SMOOTH_SPOTS` shoots. Every run is in `city_smooth.csv`.
-- **Where it stands** (linecheck, graph 27bccd93, today's builder): 99,791
-  A1, 15,178 A2, 450,639 B2 (392,717 DATA: OSM vertices, and corners split
-  over them) and 254,788 B1 runs; 8,518 B3; 26,809 B4 jumps; 11,426 C2 (with
-  the 101 bend fans' mouths; 87 of the fans turn 60° or more), 10,917 C3; D1
-  gates 914 runs / 5.6 km of paint inside another road, 6.2 km more is on
-  attach arcs. 1,347,186 keys. The creek as built: yellow 0.39 m off at s
-  51.6, white lane line 1.92 m off and STRAY, B2 9.7 cm, B4 18.6 cm. Under the
+- **Where it stands** (linecheck, graph 27bccd93, today's builder): 100,677
+  A1 (909 of them, 29.7 km, squeezed edges outside their I7 envelope), 15,178
+  A2, 465,790 B2 (397,065 DATA: OSM vertices, and corners split over them;
+  13,040 runs are hedged corners and 10,868 jogs, most of them paint at taper
+  diagonals and section kinks) and 254,788 B1 runs; 8,518 B3; 26,809 B4
+  jumps; 16,776 C2 (with the 101 bend fans' mouths - 87 of the fans turn 60°
+  or more - and 5,353 line ends along branch attach arcs), 10,917 C3; D1 gates
+  914 runs / 5.6 km of paint inside another road, 6.2 km more is on attach
+  arcs. 1,398,114 keys. Review 3's fixes moved A1 +886 runs, B2 +15,151 and C2
+  +5,350; nothing else. The creek as built: yellow 0.39 m off at s
+  51.6, white lane line 1.92 m off and STRAY, B2 9.7 cm (21 runs), B4 18.6 cm. Under the
   M0 stopgap (`--model m0`) the creek's centre and lane lines read 0; its tw4
   edge lines still slide 0.36 m to the drawn edge before the crop removes them
   (A1, A3, C2), and the city keeps 12,344 B4 jumps (most of 1-2 m: M0 does not
   touch the lane-count steps at nodes). linecheck also reproduces the
   2026-09-28 census exactly (264.88 km of wobble of 5 cm or more, 75,073 edge
   kinks over 2°; `--model nominalU` its U-only run: 17.47 km).
-- **Open for the spec** (the probes print them): B1 fails at 2.9 cm on the
-  INNER ribbon edge at the tangent points of an R_min street fillet (inner
-  radius about 3.5 m; the spec calibrated B1 on the centreline down to R 7.5);
-  B3 reads a sampled arc about 2% under its radius, so a WP-11 fillet needs a
-  few percent over R_min.
+- **Open for the spec** (calibration questions, reported, not changed):
+  - `KinkViewM` = 40 m (the split-corner rule's viewing distance, from the
+    spec's "at R 7.5 a 90° corner stays rounded out to about 40 m").
+  - B1 fails at 2.9 cm (1.15x) on the INNER ribbon edge at the tangent points
+    of an R_min street fillet (inner radius about 3.5 m; the spec calibrated B1
+    on the centreline down to R 7.5).
+  - B3 reads a sampled arc about 2% under its radius, so a WP-11 fillet needs a
+    few percent over R_min.
+  - The cluster rule (unchanged here) reads a smoothstep lane shift or squeeze
+    SAMPLED EVERY 0.5 m as a kink at its ends: 1 m over 10 m reads 2.0x, the
+    I7 squeeze of 1 m over its 15 m floor 1.6x on its edge and midline (at 2 m
+    sections both pass), and back-to-back R 12 m / 30° fillets with no tangent
+    read 1.1x. If R4 draws I7 or TAPR shifts as smoothstep at fine sections,
+    this needs a decision (the spec's Appendix A calls a 10 m eased taper a
+    pass).
+  - A jog is judged as a step only between straights at least 4 times as long
+    as its transition, so only up to 2.5 m (a quarter of the 10 m chord cap);
+    a longer shift is a curve for B1/B2/B3 (a 10 cm smoothstep shift over 4 m
+    passes everything), and a jog on a curve is B1's (about half its step).
+  - The squeeze envelope runs per edge, not per chain: a squeeze that crosses
+    a node is judged on each side separately.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
