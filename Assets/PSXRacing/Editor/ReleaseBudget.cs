@@ -98,7 +98,7 @@ namespace PSXRacing.EditorTools
         /// shader decode) is the same either way; this is only the download.
         /// C1b stage 1 shipped it false (every outdoor texture RGBA32 until
         /// the decode audit passed), stage 2 true.</summary>
-        internal const bool SixteenBitEverywhere = false;
+        internal const bool SixteenBitEverywhere = true;
         const string LifeSimRoot = "Assets/PSXRacing/Art/LifeSim/";
 
         /// <summary>A texture of the 16-bit set: an opaque, uncompressed,

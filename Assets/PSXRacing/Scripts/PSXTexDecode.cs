@@ -14,6 +14,9 @@ namespace PSXRacing
     /// what says so, and the only thing that does:
     ///
     ///     _MainTexRaw = 1  exactly when  _MainTex is a Texture2D with !isDataSRGB
+    ///                  2  when it is also RGB565 (the shader then reads each
+    ///                     texel from the centre of its 565 bin: Unity
+    ///                     quantizes by truncation, see PSXTexDecode.cginc)
     ///
     /// (and _DeepTexRaw for the water's second sheet). The rule reads the
     /// TEXTURE, never the build target: the sRGB import flag is the same on
@@ -49,6 +52,15 @@ namespace PSXRacing
         /// not colour) and never qualify.</summary>
         public static bool IsRaw(Texture t) => t is Texture2D t2 && !t2.isDataSRGB;
 
+        /// <summary>The flag a texture asks for: 0 (the GPU decodes it, or
+        /// it is no texture of ours), 1 (raw 8-bit codes), 2 (raw RGB565 -
+        /// the platform's own import, so it is read here, never baked).</summary>
+        public static int FlagFor(Texture t)
+        {
+            if (!IsRaw(t)) return 0;
+            return ((Texture2D)t).format == TextureFormat.RGB565 ? 2 : 1;
+        }
+
         /// <summary>What the flag must be on <paramref name="m"/> for
         /// <paramref name="flagId"/> (_MainTexRaw or _DeepTexRaw); -1 when the
         /// material's shader has no such flag.</summary>
@@ -56,7 +68,7 @@ namespace PSXRacing
         {
             if (m == null || !m.HasProperty(flagId)) return -1;
             int texId = flagId == DeepTexRawId ? DeepTexId : MainTexId;
-            return m.HasProperty(texId) && IsRaw(m.GetTexture(texId)) ? 1 : 0;
+            return m.HasProperty(texId) ? FlagFor(m.GetTexture(texId)) : 0;
         }
 
         /// <summary>Set the flags on one material from its textures. True

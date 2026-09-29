@@ -199,7 +199,10 @@ namespace PSXRacing.EditorTools
                     t565.LoadRawTextureData(new[] { (byte)(px & 0xff), (byte)(px >> 8) });
                     t565.Apply(false, false);
                     var ref8 = new Texture2D(1, 1, TextureFormat.RGBA32, false, false) { filterMode = FilterMode.Point };
-                    var c8 = new Color32((byte)Mathf.RoundToInt(r5 * 255f / 31f), (byte)Mathf.RoundToInt(g6 * 255f / 63f), (byte)Mathf.RoundToInt(r5 * 255f / 31f), 255);
+                    // The code the 565 level stands for: Unity truncates, so
+                    // level L is the bin 8L..8L+7 (4G..4G+3) and its centre
+                    // 8L+3.5 (4G+1.5), here 8L+4 (4G+2) - half a code off.
+                    var c8 = new Color32((byte)(8 * r5 + 4), (byte)(4 * g6 + 2), (byte)(8 * r5 + 4), 255);
                     ref8.SetPixels32(new[] { c8 });
                     ref8.Apply(false, false);
                     made.Add(t565); made.Add(ref8);
@@ -223,7 +226,7 @@ namespace PSXRacing.EditorTools
                         q.GetComponent<MeshRenderer>().sharedMaterial = m;
                         made.Add(q);
                     }
-                    if (mats[0].GetFloat(PSXTexDecode.MainTexRawId) != 1f || mats[1].GetFloat(PSXTexDecode.MainTexRawId) != 0f) flagsOk = false;
+                    if (mats[0].GetFloat(PSXTexDecode.MainTexRawId) != 2f || mats[1].GetFloat(PSXTexDecode.MainTexRawId) != 0f) flagsOk = false;
 
                     cam.Render();
                     var prev = RenderTexture.active;
@@ -248,8 +251,8 @@ namespace PSXRacing.EditorTools
                 Shader.SetGlobalFloat("_PSXFogNear", keepNear);
                 Shader.SetGlobalFloat("_PSXFogFar", keepFar);
             }
-            rows.Add(new Row { ok = flagsOk, what = "grey card: the 565 linear card is flagged to decode, the sRGB card is not" });
-            rows.Add(new Row { ok = worst <= 1.01f, what = "grey card: PSX/Lit's decode of a 565 texel matches the GPU's sRGB decode within 1 code (6 greys)",
+            rows.Add(new Row { ok = flagsOk, what = "grey card: the 565 linear card is flagged 2 (decode from the bin centre), the sRGB card 0" });
+            rows.Add(new Row { ok = worst <= 1.01f, what = "grey card: PSX/Lit's decode of a 565 texel matches the GPU's sRGB decode of its bin's centre code within 1 code (6 greys)",
                                got = $"worst {worst:0.00} codes ({worstAt});" + cardLog });
         }
 
@@ -327,9 +330,9 @@ namespace PSXRacing.EditorTools
                         var tex = m.GetTexture(id == PSXTexDecode.MainTexRawId ? "_MainTex" : "_DeepTex");
                         bool set = IsSet(tex, labelCache);
                         if (set) onSet++;
-                        // A texture of the set must arrive linear (want 1), and
-                        // the flag must be what the texture asks for.
-                        if ((got > 0.5f ? 1 : 0) != want || (set && want != 1))
+                        // A texture of the set must arrive linear (want 1 or 2),
+                        // and the flag must be what the texture asks for.
+                        if (Mathf.RoundToInt(got) != want || (set && want < 1))
                         {
                             miss++;
                             if (miss <= 6)
@@ -424,7 +427,7 @@ namespace PSXRacing.EditorTools
                         if (want < 0) continue;
                         liveries++;
                         bool set = TexDecodeAudit.IsSet(m.mainTexture, cache);
-                        if ((m.GetFloat(PSXTexDecode.MainTexRawId) > 0.5f ? 1 : 0) != want || (set && want != 1))
+                        if (Mathf.RoundToInt(m.GetFloat(PSXTexDecode.MainTexRawId)) != want || (set && want < 1))
                         { missL++; if (missL <= 6) TexDecodeAudit.Line("    livery MISSED: " + def.key + " / " + m.name); }
                     }
                     go = def.gameObject;
