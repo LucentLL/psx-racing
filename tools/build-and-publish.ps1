@@ -328,6 +328,11 @@ function Show-AuditWaiver {
     }
     if ($null -eq $problem) {
         Write-Host "Audits: the last tools\verify.ps1 passed on this source." -ForegroundColor Green
+        # ...on the owner-accepted spots too (TrackObstacleAudit.OwnerAccepted),
+        # which ship named, never silently.
+        foreach ($l in $lines) {
+            if ($l -clike "accepted: *") { Write-Host "   $l" -ForegroundColor Yellow }
+        }
         return
     }
     Write-Host $bar -ForegroundColor Yellow

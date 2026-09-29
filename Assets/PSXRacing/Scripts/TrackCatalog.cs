@@ -843,9 +843,9 @@ namespace PSXRacing
             //  descent could be a good sprint race", and "not every race needs
             //  to be a full circuit - you could take half of the Blowing Rock
             //  circuit and make it a sprint." SPRINTS, each with its twin (the
-            //  other direction), appended as ever. Two more waited in HeldBack
-            //  for the stage builder: NC 226 up to Gillespie Gap (appended,
-            //  v19) and Chimney Rock (still there: see HeldBack).
+            //  other direction), appended as ever. Two more - NC 226 up to
+            //  Gillespie Gap (v19) and Chimney Rock (v20) - waited in HeldBack
+            //  for the stage builder and were appended after these when ready.
             //
             //  The accurate Little Switzerland loop - the Parkway from
             //  Gillespie Gap to the village, NC 226A down the south face, NC
@@ -889,36 +889,23 @@ namespace PSXRacing
                 dragLabel = "THE GAP",
                 minCornerR = 8f,        // the turn onto the ramp at the gap, past the finish
             },
-        };
 
-        /// <summary>
-        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
-        /// stage the builder does not yet handle well enough to ship. The
-        /// stage lab (tools\stage-lab.ps1), the rail shots, the lane audit and
-        /// the self-test's roadside sweep build and measure what is in here.
-        ///
-        /// Chimney Rock. Size no longer holds it (the release budget took the
-        /// data to ~81 MiB; with it built in, 88.3 MiB). What holds it is its
-        /// ROADSIDE: the obstacle audit still fails four edge-face lines on it
-        /// (2026-09-29 verify: 1040-1041 L, 0.09 m at 5.6 m on the embankment
-        /// between the top switchback's legs; 983 R, 0.08 m at 7.7 m on a
-        /// natural 0.65 hillside past the foreslope's catch; 668 R, 0.06 m at
-        /// 7.25 m on a lattice facet between legs; 2 L past the reach, 0.08 m
-        /// at 8.85 m where its own ribbon ends over the land) - the owner's
-        /// rule is that roads meet the ground by DOT standards, and shipping
-        /// on those is his call, not the builder's. It was appended once
-        /// (4e02b49, save v20) and taken out again before anything was pushed,
-        /// so no v20 save exists anywhere.
-        ///
-        /// Not in <see cref="Authored"/> - a venue appended and then taken away
-        /// again would move every twin twice - until it passes; then appended
-        /// after Gillespie Gap, with a v20 remap like v19's (RemapV19Index by
-        /// identity, and RemapV18Index must leave it out of the v18 list as
-        /// well, or v18's index 19 reads CHIMNEY ROCK), and back into CarMeets'
-        /// touge venues.
-        /// </summary>
-        public static readonly TrackDef[] HeldBack =
-        {
+            // Chimney Rock's park road, out of HeldBack (2026-09-29): held
+            // for build SIZE (the release budget took the data to ~81 MiB,
+            // room for it), its hairpins built at the park road's real 6.1 m
+            // with the stage builder's end pads, square hairpin wall ends,
+            // rock tops carried to another leg's seam, the inside of a
+            // hairpin's carried slope eased down to the land where the fold
+            // stops it (ShoulderTuckCapSlope), a pad under the toe that
+            // crosses the apex over its pit (BuildApexPads), guardrails laid
+            // on the road's curve and dry-stone retaining walls under the
+            // top switchback's upper rail (08d044d). Appended - save v20
+            // (RemapV19Index). Appended once (4e02b49), held back again
+            // (cd63392) over four small edge-face ledges, and released on the
+            // owner's word ("Release now, fix after", 2026-09-29): those four
+            // ledges are a NAMED exception in the obstacle audit
+            // (TrackObstacleAudit.OwnerAccepted), each by station, side and
+            // height, and a fix is still owed.
             new TrackDef
             {
                 id = "ChimneyRock",
@@ -948,6 +935,22 @@ namespace PSXRacing
                 minCornerR = 5.5f,
             },
         };
+
+        /// <summary>
+        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
+        /// stage the builder does not yet handle well enough to ship. Empty
+        /// since Chimney Rock went into <see cref="Authored"/> (2026-09-29,
+        /// save v20); kept as the place the next one waits, because the stage
+        /// lab (tools\stage-lab.ps1), the rail shots, the lane audit and the
+        /// self-test's roadside sweep all build and measure what is in here
+        /// as well. A venue is NOT appended to Authored and then taken away
+        /// again - that would move every twin twice - so a road waits here
+        /// until it is ready; then it is appended, with a save remap like
+        /// v20's (see <see cref="RemapV19Index"/>). (Chimney Rock did go back
+        /// in here once, cd63392, before anything was pushed; the owner
+        /// released it on 2026-09-29.)
+        /// </summary>
+        public static readonly TrackDef[] HeldBack = { };
 
         /// <summary>
         /// A reverse twin: the same venue driven backwards, named the way Gran
@@ -1221,8 +1224,12 @@ namespace PSXRacing
         /// A venue index from a v18 save, in today's list. v19 appended
         /// Gillespie Gap to the authored list, which moved its twins one place
         /// and the sprint sections after them two - so the shift is not one
-        /// number. Mapped by IDENTITY: the v18 list is today's without the
-        /// venues v19 added, and an old index is that list's id, found again.
+        /// number. Mapped by IDENTITY: the v18 list is today's list without
+        /// the venues v19 AND v20 added (every later append has to come off
+        /// it too, or the v18 list gains a venue it never had - with Chimney
+        /// Rock left in, v18's index 19 would read CHIMNEY ROCK and every v18
+        /// twin and sprint would land one place off), and an old index is
+        /// that list's id, found again.
         /// </summary>
         public static int RemapV18Index(int oldIndex)
         {
@@ -1230,7 +1237,8 @@ namespace PSXRacing
             {
                 var ids = new System.Collections.Generic.List<string>();
                 foreach (var d in All)
-                    if (System.Array.IndexOf(V19Added, d.id) < 0) ids.Add(d.id);
+                    if (System.Array.IndexOf(V19Added, d.id) < 0 &&
+                        System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
                 v18Ids = ids.ToArray();
             }
             if (oldIndex < 0) return oldIndex;
@@ -1241,6 +1249,34 @@ namespace PSXRacing
         /// <summary>The venues v19 added (a twin is its base's id + "Rev").</summary>
         static readonly string[] V19Added = { "GillespieGap", "GillespieGapRev" };
         static string[] v18Ids;
+
+        /// <summary>
+        /// A venue index from a v19 save, in today's list. v20 appended
+        /// Chimney Rock after Gillespie Gap: its twin went in after the other
+        /// twins (every twin but the new one stands, Gillespie's moved one
+        /// place) and every sprint section moved two. Same identity shape as
+        /// <see cref="RemapV18Index"/>: the v19 list is today's without the
+        /// venues v20 added. The id lists are read when this is CALLED, so
+        /// the order the static initialisers are written in does not matter.
+        /// </summary>
+        public static int RemapV19Index(int oldIndex)
+        {
+            if (v19Ids == null)
+            {
+                var ids = new System.Collections.Generic.List<string>();
+                foreach (var d in All)
+                    if (System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
+                v19Ids = ids.ToArray();
+            }
+            if (oldIndex < 0) return oldIndex;
+            if (oldIndex >= v19Ids.Length) return Mathf.Clamp(oldIndex, 0, All.Length - 1);
+            int now = IndexOf(v19Ids[oldIndex]);
+            return now >= 0 ? now : 0;
+        }
+        /// <summary>The venues v20 added. A Chimney Rock sprint section added
+        /// in the same release would join this list.</summary>
+        static readonly string[] V20Added = { "ChimneyRock", "ChimneyRockRev" };
+        static string[] v19Ids;
 
         /// <summary>A venue index from a v12..v17 save, in today's list. Same
         /// shape as <see cref="RemapV10Index"/>.</summary>

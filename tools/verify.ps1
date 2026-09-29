@@ -40,10 +40,17 @@ if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
 
 # Every line that failed a stage, for the result file and the closing summary.
 $failLines = New-Object System.Collections.Generic.List[string]
+# Every owner-accepted exception the audits passed on (TrackObstacleAudit.
+# OwnerAccepted: named spots, each by station, side and height). Not failures,
+# but written down on every run, so a pass is never read as "nothing there".
+$acceptedLines = New-Object System.Collections.Generic.List[string]
 
 function Write-VerifyResult([int]$Bad) {
     $head = if ($Bad -gt 0) { "VERIFY FAILED ($Bad stage(s))" } else { "VERIFY PASS" }
-    $body = @($head, ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
+    $body = @($head, ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src")
+    # Before "failures:" - build-and-publish lists everything after that line.
+    $body += @($acceptedLines | ForEach-Object { "accepted: " + $_ })
+    $body += "failures:"
     $body += @($failLines)
     Set-Content -Path $resultFile -Value $body -Encoding ASCII
 }
@@ -228,6 +235,21 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
             $failLines.Add("[obstacle] " + $tagged)
             $obstacleFails++
         }
+        # The owner-accepted spots, each on its own run line (and the note
+        # when the build no longer finds one). Printed and written down every
+        # run; a face that is not exactly one of them is a FAIL line above.
+        if ($line -cmatch '^\s+owner-accepted ' -and $line -cnotmatch $obstaclePattern) {
+            $tagged = "[{0}] {1}" -f $venue, $line.Trim()
+            if ($line -cmatch '^\s{4}') {
+                Write-Host $tagged -ForegroundColor Yellow
+                $acceptedLines.Add("[obstacle] " + $tagged)
+            } elseif ($line -cmatch 'not found') {
+                Write-Host $tagged -ForegroundColor Yellow
+            }
+        }
+    }
+    if ($acceptedLines.Count -gt 0) {
+        Write-Host ("OBSTACLE AUDIT: {0} owner-accepted spot run(s), fix pending (TrackObstacleAudit.OwnerAccepted)" -f $acceptedLines.Count) -ForegroundColor Yellow
     }
     if ($obstacleFails -gt 0) {
         Write-Host "OBSTACLE AUDIT: $obstacleFails failing line(s)" -ForegroundColor Red
