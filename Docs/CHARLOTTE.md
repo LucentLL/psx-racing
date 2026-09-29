@@ -500,6 +500,12 @@ noisy, critic C18). The route profiles' sharp 4 m kinks (the approach
 cones' toes, not the ground) are the same count before and after (Uptown
 127 -> 120, Tryon 17 -> 18, Independence 14 -> 12 under R 250 m).
 
+**The WebGL build** (G-web, a local build served statically): FREE ROAM
+CHARLOTTE loads with "[City] parsed in 110 ms, elevation solved in 386 ms"
+and no console errors. WebGL.data is 81.40 MiB (80.98 before; the 95 MiB
+gate is far off). The CREDITS page now carries five sources and lays them
+out in two columns on a phone.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

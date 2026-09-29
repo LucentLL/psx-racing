@@ -5,7 +5,7 @@
   "files": [
    {
     "file": "WebGL.data.unityweb",
-    "bytes": 84911989
+    "bytes": 85358106
    },
    {
     "file": "WebGL.framework.js.unityweb",
@@ -17,56 +17,56 @@
    },
    {
     "file": "WebGL.wasm.unityweb",
-    "bytes": 7518465
+    "bytes": 7563485
    },
    {
     "file": "index.html",
     "bytes": 14088
    }
   ],
-  "largest_mib": 80.98
+  "largest_mib": 81.4
  },
  "data": {
   "charlotte_city.bytes": {
-   "raw": 2548264,
-   "brotli": 1240196
+   "raw": 3052736,
+   "brotli": 1553321
   },
   "charlotte_dem.bytes": {
    "raw": 1485788,
-   "brotli": 649729
+   "brotli": 779434
   },
   "charlotte_bld.bytes": {
    "raw": 1742686,
    "brotli": 1149298
   },
   "charlotte_routes.json": {
-   "raw": 16280,
-   "brotli": 5337
+   "raw": 16538,
+   "brotli": 5439
   }
  },
  "data_total": {
-  "raw": 5793018,
-  "brotli": 3044560
+  "raw": 6297748,
+  "brotli": 3487492
  },
  "build_report": {
   "log": "C:\\Users\\mcgee\\PSXCity\\build.log",
   "categories": {
-   "Textures": 66794291,
+   "Textures": 66689434,
    "Meshes": 91121254,
    "Animations": 0,
    "Sounds": 24746394,
    "Shaders": 528794,
-   "Other Assets": 7340032,
+   "Other Assets": 7864320,
    "Levels": 0,
    "File headers": 490086,
-   "Total User Assets": 191260262,
-   "Complete build size": 92589261
+   "Total User Assets": 191679693,
+   "Complete build size": 93113549
   },
-  "used_assets": 8572,
+  "used_assets": 8894,
   "charlotte": [
    {
     "asset": "Assets/PSXRacing/Resources/charlotte_city.bytes",
-    "bytes": 2516582
+    "bytes": 3040870
    },
    {
     "asset": "Assets/PSXRacing/Resources/charlotte_bld.bytes",
@@ -461,6 +461,10 @@
     "bytes": 25088
    },
    {
+    "asset": "Assets/PSXRacing/Resources/charlotte_routes.json",
+    "bytes": 16589
+   },
+   {
     "asset": "Assets/PSXRacing/Art/City/city_road_tw6_concrete_old.png",
     "bytes": 16486
    },
@@ -547,10 +551,6 @@
    {
     "asset": "Assets/PSXRacing/Art/City/Night/city_facade_glass_night.png",
     "bytes": 16486
-   },
-   {
-    "asset": "Assets/PSXRacing/Resources/charlotte_routes.json",
-    "bytes": 16282
    },
    {
     "asset": "Assets/PSXRacing/Art/City/city_road_junction_concrete_old.png",
@@ -727,9 +727,45 @@
    {
     "asset": "Assets/PSXRacing/Materials/CarModels/citroen_cx_velocity_red.mat",
     "bytes": 307
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityElevation.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityBuildings.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/RoadProfiles.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityWorld.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityProps.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMinimap.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMeshes.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMode.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMap.cs",
+    "bytes": 102
    }
   ],
-  "charlotte_bytes": 10913434
+  "charlotte_bytes": 11438947
  },
  "git": {
   "paths": {
@@ -739,19 +775,19 @@
     "disk": 2855229
    },
    "Assets/PSXRacing/Resources/charlotte_city.bytes": {
-    "versions": 3,
-    "bytes": 7672460,
-    "disk": 5217748
+    "versions": 4,
+    "bytes": 10725196,
+    "disk": 7303736
    },
    "Assets/PSXRacing/Resources/charlotte_dem.bytes": {
-    "versions": 3,
-    "bytes": 4457356,
-    "disk": 2694198
+    "versions": 4,
+    "bytes": 5943144,
+    "disk": 3702162
    },
    "Assets/PSXRacing/Resources/charlotte_routes.json": {
-    "versions": 2,
-    "bytes": 32456,
-    "disk": 15045
+    "versions": 3,
+    "bytes": 48994,
+    "disk": 23094
    },
    "tools/city/truth/city120.ptru.gz": {
     "versions": 1,
@@ -762,6 +798,16 @@
     "versions": 1,
     "bytes": 437262,
     "disk": 437407
+   },
+   "tools/city/truth/creek_transects.json": {
+    "versions": 2,
+    "bytes": 49062,
+    "disk": 17725
+   },
+   "tools/city/truth/make_creek_truth.mjs": {
+    "versions": 2,
+    "bytes": 9696,
+    "disk": 4743
    },
    "tools/city/truth/roadside.csv": {
     "versions": 1,
@@ -779,8 +825,8 @@
     "disk": 1187
    }
   },
-  "total_disk": 11864366,
-  "size_kib": 4126,
+  "total_disk": 14988835,
+  "size_kib": 203734,
   "size-pack_kib": 1151223
  }
 }
