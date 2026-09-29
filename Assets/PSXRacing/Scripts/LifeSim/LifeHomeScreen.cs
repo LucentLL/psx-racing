@@ -1887,9 +1887,13 @@ namespace PSXRacing.LifeSim
                 new Vector2(0f, 11f), TextAnchor.MiddleCenter,
                 anyCarFuelled ? Color.white : new Color(0.60f, 0.60f, 0.68f),
                 w - 24f, height: 24f, bold: true);
-            MenuKit.Label(driveRow.transform, DriveLine(), MenuKit.Tiny,
+            // Fitted to the button's own width, not a character count: a long
+            // venue booked at shift time ("RACE - CHIMNEY ROCK - PARK ROAD II
+            // . SHIFT AT TONY'S") ran 38 px past the button at 4:3 at 52
+            // characters (menu-preview CLIP home_night/tablet_4x3).
+            MenuKit.FitOneLine(MenuKit.Label(driveRow.transform, DriveLine(), MenuKit.Tiny,
                 new Vector2(0.5f, 0.5f), new Vector2(0f, -12f), TextAnchor.MiddleCenter,
-                DriveLineInk(), w - 24f, height: 22f);
+                DriveLineInk(), w - 24f, height: 22f), w - 24f);
             y -= 62f;
 
             // ---- the shift, ON FOOT ----
@@ -7244,8 +7248,8 @@ namespace PSXRacing.LifeSim
             float vw = Mathf.Min(ColW, 760f);
             float vx = -vw * 0.5f;
 
-            MenuKit.Label(body, DriveLine(), 16, new Vector2(0.5f, 1f), new Vector2(vx, y),
-                TextAnchor.MiddleLeft, DriveLineInk(), vw, height: 24f, bold: true);
+            MenuKit.FitOneLine(MenuKit.Label(body, DriveLine(), 16, new Vector2(0.5f, 1f), new Vector2(vx, y),
+                TextAnchor.MiddleLeft, DriveLineInk(), vw, height: 24f, bold: true), vw);
             y -= 26f;
             MenuKit.Label(body,
                 "Take one down to the end of the street. The line there asks where you are going.",

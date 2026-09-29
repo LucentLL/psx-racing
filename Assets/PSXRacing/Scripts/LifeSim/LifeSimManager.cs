@@ -532,6 +532,28 @@ namespace PSXRacing.LifeSim
                 }
                 s.saveVersion = 19;
             }
+
+            if (s.saveVersion < 20)
+            {
+                // v20 appended Chimney Rock's park road to the authored list
+                // after Gillespie Gap: its twin went in at the end of the
+                // twins, Gillespie's twin moved one place and every sprint
+                // section two. Only for a save WRITTEN under v19; older ones
+                // were mapped straight onto today's list above (RemapV18Index
+                // leaves Chimney Rock out of the v18 list for that reason).
+                // The three venue indices a save stores: the last one picked,
+                // the diary's bookings, and a blacklist series' road.
+                if (written >= 19)
+                {
+                    s.trackIndex = TrackCatalog.RemapV19Index(s.trackIndex);
+                    if (s.bookings != null)
+                        foreach (var b in s.bookings)
+                            if (b != null) b.trackIndex = TrackCatalog.RemapV19Index(b.trackIndex);
+                    if (s.blChallenge != null && s.blChallenge.trackIndex >= 0)
+                        s.blChallenge.trackIndex = TrackCatalog.RemapV19Index(s.blChallenge.trackIndex);
+                }
+                s.saveVersion = 20;
+            }
         }
 
         public static void DeleteSave()
