@@ -524,6 +524,14 @@ routes: Uptown Loop 3 (I-277 e2308 and e2321, both pre-WP-04; I-77 e1891, a
 face beside the lane line, new), Tryon 0, Independence 0. A new solid anywhere
 on the probed tiles fails the audit; WP-14 takes the named ones.
 
+Measured with it: `race-play-check` (330 s, seed 0) retires 1, 3 and 1 rivals
+on Uptown, Tryon and Independence (5; 7 before WP-04, 6 at R1 as first
+committed), none into a barrier (1 before WP-04, 2 at R1); `city-play-check`
+CITY SPAWNS OK. The tile build costs the same: `CityBudgetProbe` alone,
+interleaved with e565c40's builder in the same sandbox, p95 68.8 and 70.9 ms
+against 70.3 and 65.7 ms (p50 21.6/24.0 against 22.7/24.1); the probe's
+readings swing more than that between identical runs.
+
 **Irwin Creek** runs 14 m off I-77's pavement north of uptown: the carved
 terrain has its bed (-0.85 m), but the graded ground there is +1.95 m, held
 up by I-77's flat verge. Creeks beside roads are WP-14's too.

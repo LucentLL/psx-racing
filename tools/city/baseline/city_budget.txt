@@ -1,7 +1,7 @@
 CITY BUDGET (editor; WP-01 instrument; plan section 2.4)
 eye 1.2 m over the nearest road, fov 58, aspect 16:9, far 500 m, four headings from the road's own; ring 5x5 tiles of 256 m via CityWorld.EnsureTile
 unity 6000.5.5f1, Intel(R) Core(TM) i7-10700K CPU @ 3.80GHz, 130962 MB
-warm-up tile (not counted): 50.0 ms
+warm-up tile (not counted): 180.5 ms
 trade_tryon: uptown, Trade & Tryon; eye (-2319,135.6,4732)
 providence: Providence Rd; eye (1184,117.8,-1795)
 i77_north: I-77 north (the toll-drop kink); eye (-2825,135.5,16870)
@@ -13,16 +13,16 @@ i485_south: I-485, the wooded south-east stretch (Street View A4); eye (4887,120
 suburb_6km: Randolph Rd, a prefab suburb 6.9 km out (outside the footprint core); eye (2544,126.0,-162)
 
 site           tiles  tile build (whole EnsureTile), mesh build, collider cook        draws ahead/right/back/left   sun-map casters   ring totals
-trade_tryon     25 tiles  total p50  48.9 p95  65.4 max 110.7 ms  build p95  60.7  cook p95   4.9  draws  139/ 157/ 161/ 200  casters   56 (5 in the 90 m box)  verts   414k  tris   271k  colliders  571  props   1
-providence      25 tiles  total p50   7.9 p95  23.8 max  34.6 ms  build p95  18.4  cook p95   2.2  draws  179/  38/  73/  31  casters   75 (6 in the 90 m box)  verts   236k  tris   140k  colliders  208  props  20
-i77_north       25 tiles  total p50  12.6 p95  31.7 max  49.4 ms  build p95  29.6  cook p95   2.1  draws   94/  63/  43/  57  casters   50 (10 in the 90 m box)  verts   170k  tris   100k  colliders  200  props   0
-beatties_ford   25 tiles  total p50   3.9 p95  13.6 max  14.1 ms  build p95  11.7  cook p95   1.4  draws   27/  20/  39/  41  casters   25 (6 in the 90 m box)  verts   118k  tris    63k  colliders   92  props   0
-tryon_start     25 tiles  total p50  38.4 p95  58.2 max  83.4 ms  build p95  53.8  cook p95   3.6  draws  132/ 133/ 168/ 156  casters   54 (5 in the 90 m box)  verts   358k  tris   239k  colliders  479  props   1
-dilworth        25 tiles  total p50  45.9 p95  91.2 max 110.7 ms  build p95  86.8  cook p95   3.4  draws  151/ 135/ 105/ 101  casters   97 (4 in the 90 m box)  verts   409k  tris   265k  colliders  366  props  22
-plaza_midwood   25 tiles  total p50  45.1 p95  53.9 max  60.6 ms  build p95  49.0  cook p95   4.2  draws  147/ 168/ 140/ 150  casters   56 (4 in the 90 m box)  verts   354k  tris   234k  colliders  443  props   0
-i485_south      25 tiles  total p50  16.8 p95  73.8 max 124.0 ms  build p95  70.7  cook p95   2.3  draws   67/  69/  40/  24  casters   39 (4 in the 90 m box)  verts   166k  tris   100k  colliders  196  props   0
-suburb_6km      25 tiles  total p50   8.3 p95  18.5 max  19.2 ms  build p95  16.2  cook p95   1.6  draws  139/  66/ 141/  36  casters   91 (10 in the 90 m box)  verts   252k  tris   147k  colliders  175  props  25
-ALL 225 tiles: total p50 19.5 p95 62.3 max 124.0 ms; mesh build p95 58.8; cook p95 3.8; worst view 200 draws at trade_tryon
+trade_tryon     25 tiles  total p50  53.7 p95  76.1 max 177.2 ms  build p95  71.2  cook p95   4.7  draws  139/ 157/ 161/ 200  casters   56 (5 in the 90 m box)  verts   414k  tris   271k  colliders  571  props   1
+providence      25 tiles  total p50   6.8 p95  25.5 max  38.5 ms  build p95  22.9  cook p95   2.2  draws  179/  38/  73/  31  casters   75 (6 in the 90 m box)  verts   236k  tris   140k  colliders  208  props  20
+i77_north       25 tiles  total p50  14.2 p95  35.3 max  64.8 ms  build p95  32.7  cook p95   2.1  draws   94/  63/  43/  57  casters   50 (10 in the 90 m box)  verts   170k  tris   100k  colliders  200  props   0
+beatties_ford   25 tiles  total p50   5.1 p95  14.1 max  15.0 ms  build p95  12.2  cook p95   1.3  draws   27/  20/  39/  41  casters   25 (6 in the 90 m box)  verts   118k  tris    63k  colliders   92  props   0
+tryon_start     25 tiles  total p50  42.5 p95  63.0 max 110.5 ms  build p95  59.0  cook p95   4.1  draws  132/ 133/ 168/ 156  casters   54 (5 in the 90 m box)  verts   358k  tris   239k  colliders  479  props   1
+dilworth        25 tiles  total p50  51.0 p95 100.0 max 114.7 ms  build p95  94.9  cook p95   3.8  draws  151/ 135/ 105/ 101  casters   97 (4 in the 90 m box)  verts   409k  tris   265k  colliders  366  props  22
+plaza_midwood   25 tiles  total p50  48.2 p95  57.2 max  61.9 ms  build p95  53.7  cook p95   3.7  draws  147/ 168/ 140/ 150  casters   56 (4 in the 90 m box)  verts   354k  tris   234k  colliders  443  props   0
+i485_south      25 tiles  total p50  19.5 p95  83.9 max 161.1 ms  build p95  80.4  cook p95   2.4  draws   67/  69/  40/  24  casters   39 (4 in the 90 m box)  verts   166k  tris   100k  colliders  196  props   0
+suburb_6km      25 tiles  total p50  12.6 p95  21.3 max  21.6 ms  build p95  19.0  cook p95   1.6  draws  139/  66/ 141/  36  casters   91 (10 in the 90 m box)  verts   252k  tris   147k  colliders  175  props  25
+ALL 225 tiles: total p50 21.6 p95 68.8 max 177.2 ms; mesh build p95 65.3; cook p95 4.1; worst view 200 draws at trade_tryon
 WP-09 trigger (editor): tile p95 OVER 8 ms, worst view under 300 draws
 
 spawn seats (CityMode.SeatOnStreet's rule; datum 97.000 m ASL, graph hash 27bccd93)
@@ -36,5 +36,5 @@ spawn plaza_midwood  edge 10339 way 1009804344 at 29.887 m  seat (792.487,3957.8
 spawn i485_south     edge 13287 way 1099200241 at 29.923 m  seat (4887.107,-13764.670)  road y 119.3078  ground y at site 118.3573
 spawn suburb_6km     edge 756 way 16695042 at 776.074 m  seat (2544.198,-161.948)  road y 124.7808  ground y at site 125.3116
 
-solve phases: road grid 67, pairs+water 24, profiles 390, trenches 2, seats 111, raises+structure 466 ms
-parse 169 ms, solve 1063 ms (editor); the parsed + solved map holds 21.0 MB of managed heap (25042 edges, 31695 footprints); the DEM array is 1.4 MB more (ushort[], loaded once); data bytes: city 2981 KB, bld 1701 KB, dem 1450 KB
+solve phases: road grid 78, pairs+water 37, profiles 424, trenches 2, seats 119, raises+structure 508 ms
+parse 188 ms, solve 1171 ms (editor); the parsed + solved map holds 16.7 MB of managed heap (25042 edges, 31695 footprints); the DEM array is 1.4 MB more (ushort[], loaded once); data bytes: city 2981 KB, bld 1701 KB, dem 1450 KB
