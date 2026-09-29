@@ -360,18 +360,19 @@ namespace PSXRacing.City
             /// <summary>tm.roads' vertex index of each used slot's first vertex,
             /// in tm.roadSlots order (MeshFrom concatenates the buckets).</summary>
             public int[] slotBase;
-            public const ushort FMovedL = 1, FMovedR = 2, FClipL = 4, FClipR = 8, FCollapsed = 16, FElevated = 32;
+            public const ushort FSqueezedL = 1, FSqueezedR = 2, FClipL = 4, FClipR = 8, FCollapsed = 16, FElevated = 32;
         }
         static int[] tapSlotBase;
-        /// <summary>Moved L/R: the drawn edge stands inside the section's own
-        /// half width (a squeeze or a clip); clip: the inner side is the host's
-        /// edge; collapsed; on structure.</summary>
-        static ushort TapFlags(CityMap.Edge e, in Section c, Vector3 origin)
+        /// <summary>The section's CAUSES, never its symptoms: squeezed L/R -
+        /// SqueezeSection moved that edge in against a parallel neighbour (the
+        /// gate judges it against its I7 envelope; an edge that stands inside
+        /// its half width for any other reason is a regression the gate must
+        /// see against the design edge, so the drawn position must not decide
+        /// this: review 5); clip: the inner side is the host's edge; collapsed;
+        /// on structure. linesim.mjs sets its sqL / sqR the same way.</summary>
+        static ushort TapFlags(in Section c)
         {
-            var p = e.PointAt(c.s);
-            float latL = (c.L.x + origin.x - p.x) * c.right.x + (c.L.z + origin.z - p.y) * c.right.y;
-            float latR = (c.R.x + origin.x - p.x) * c.right.x + (c.R.z + origin.z - p.y) * c.right.y;
-            int f = (-latL < c.hw - 1e-3f ? RoadTap.FMovedL : 0) | (latR < c.hw - 1e-3f ? RoadTap.FMovedR : 0)
+            int f = (c.sqL ? RoadTap.FSqueezedL : 0) | (c.sqR ? RoadTap.FSqueezedR : 0)
                   | (c.clippedIn && c.innerSide < 0 ? RoadTap.FClipL : 0) | (c.clippedIn && c.innerSide > 0 ? RoadTap.FClipR : 0)
                   | (c.collapsed ? RoadTap.FCollapsed : 0) | (c.elev ? RoadTap.FElevated : 0);
             return (ushort)f;
@@ -1711,6 +1712,9 @@ namespace PSXRacing.City
             /// one barrier or one rail, and a verge only floors half the strip.</summary>
             public int nbL, nbR;
             public float nbAtL, nbAtR, stripL, stripR;
+            /// <summary>The squeeze moved that edge in (SqueezeSection): the
+            /// smoothness gate's tap reads the cause, not the drawn position.</summary>
+            public bool sqL, sqR;
             /// <summary>Texture U at each vertex, from its TRUE lateral
             /// offset. A squeezed or clipped ribbon crops the painted
             /// profile instead of compressing it, so the lane lines stay
@@ -1964,7 +1968,7 @@ namespace PSXRacing.City
                     float v0 = A.s / RoadVTile, v1 = B.s / RoadVTile;
                     if (tm.tap != null)
                         tm.tap.spans.Add(new RoadTap.Span { slot = (int)RoadSlot(e, f.elev), bucketV = bk.Count, edge = e.index, sA = A.s, sB = B.s,
-                                                             flagsA = TapFlags(e, A, tm.origin), flagsB = TapFlags(e, B, tm.origin) });
+                                                             flagsA = TapFlags(A), flagsB = TapFlags(B) });
                     // U = 0 on the left of travel (the R vertex), so a one-way
                     // carriageway's narrow inside shoulder and wide outside
                     // shoulder land where the painter put them. The winding
@@ -3424,9 +3428,9 @@ namespace PSXRacing.City
             Squeeze(map, trims, e, p, right, hw, y, ref sqL, ref sqR,
                     out sec.nbL, out sec.nbR, out sec.nbAtL, out sec.nbAtR, out sec.stripL, out sec.stripR);
             if (sqR < hwR - 1e-3f)
-                sec.R = new Vector3(p.x + right.x * sqR - tm.origin.x, y, p.y + right.y * sqR - tm.origin.z);
+            { sec.R = new Vector3(p.x + right.x * sqR - tm.origin.x, y, p.y + right.y * sqR - tm.origin.z); sec.sqR = true; }
             if (sqL < hwL - 1e-3f)
-                sec.L = new Vector3(p.x - right.x * sqL - tm.origin.x, y, p.y - right.y * sqL - tm.origin.z);
+            { sec.L = new Vector3(p.x - right.x * sqL - tm.origin.x, y, p.y - right.y * sqL - tm.origin.z); sec.sqL = true; }
         }
 
         /// <summary>The ribbon's half width each side at an arc position —

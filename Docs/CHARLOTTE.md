@@ -408,7 +408,13 @@ in OSM).
     street 15 m, arterial and ramp 30 m, freeway 90 m). A squeeze eased over
     its floor or longer, several stacked, and held between cuts reads 0; one
     stepping in 1 m over 8 m (review 3's case) reads 39.5 cm. Per edge, not
-    yet per chain.
+    yet per chain. The mesh gate's tap flags an edge SQUEEZED from its cause -
+    `SqueezeSection` moved it in against a parallel neighbour (`Section.sqL /
+    sqR`) - never from where the drawn edge stands (review 5: it flagged any
+    edge inside its half width, so a builder regression that pulled an edge in
+    was judged only against its own envelope and skipped A2/A3, while the
+    offline replica, which flags the squeeze only when it fired, failed it);
+    an edge in for any other cause is judged against the design edge.
   - B (shape): B1 JITTER (circle fit over ±2 m), B2 KINK, B3 CURVE (radius
     under the class minimum), B4 JUMP where a line continues (its partner
     across a node is the nearest line of its colour and pattern within one
@@ -431,12 +437,21 @@ in OSM).
     section and turns back). Every window of turns of both signs within 10 m is
     now judged by its NET turn too: rounded at most as the net turn split in
     two at the window's ends, dr = (w/2)·tan(T/2), with chords from its middle
-    (a lower bound, anywhere). A window BETWEEN TWO STRAIGHTS - the line does
-    not turn again by a quarter of the window's largest heading for min(4w, 10
-    m) on each side, or runs straight on to its end at least w away; a sampled
-    curve's next vertex stops that, so an S-bend of sampled arcs is
-    never one - is judged three more ways (review 4: where the net turn was 0,
-    or the window wider than 2.5 m, nothing measured the shape):
+    (a lower bound, anywhere). A window BETWEEN TWO STRAIGHTS is judged three
+    more ways (review 4: where the net turn was 0, or the window wider than 2.5
+    m, nothing measured the shape). A straight, for min(4w, 10 m) on each side:
+    the line does not turn again by a quarter of the window's largest heading
+    (round 3's rule, judged from the drawn segment into the window); OR it runs
+    within V of ONE straight line and turns over that stretch by no more than
+    the lone limit (review 5: a legal 0.57° vertex 9.4 m before North Irwin
+    Avenue's 11.5 cm jog switched every rule off; a single bend of up to 1.15°
+    at the middle of a 10 m stretch is still straight), judged from that line
+    - the strip's centre - less its own spread, so a zigzag of under V about a
+    straight is judged against its mean, not against one of its legs; OR it
+    runs on to the strand's END, whatever its length (review 5: Baxter
+    Street's jog, 0.79 m before the fan mouth that trims its ribbon, passed
+    both gates). A sampled curve turns too much to be a straight, so an S-bend
+    of sampled arcs is never between two:
     - its NET CORNER at the drawn virtual corner, rounded by the drawn polygon,
       SIGNED: a drawing that passes outside the corner (a NOTCH, [-1.8, 6,
       -1.8] degrees 1.5 m apart) is rounded by minus its overshoot, so it
@@ -448,23 +463,56 @@ in OSM).
       feet on the other line) - a BUMP off a straight and back ([2, -4, 2]
       degrees 2 m apart: 7.0 cm, 2.8x), a notch, a zigzag between straights;
     - its JOG: the least gap d between the approach and exit lines, a sideways
-      step, of which d·(1 - g(w/15 m)) came faster than the plan's fastest
-      ease (the squeeze envelope's smoothstep over the shortest TaperFloor):
-      [+3, -3] degrees 0.6 m apart (K7, 3.1 cm) 1.2x, an 18.2 cm step over 3.2
-      m (South Old Statesville Road) 5.0x, a 3 cm drift over 10 m nothing. B4
-      fails the same step past V at a node; at 6 m, 0.6 m of road is 7 of the
-      240 rows.
+      step. Drawn over a quarter of the chord cap (2.5 m) or less it scores
+      the whole step, as round 3 did (review 5: the ease applied there too
+      forgave 6-25% of a step, and the re-record dropped 763 of the city's
+      keys - they are back); drawn over more, the part d·(1 - g(w/15 m)) that
+      came faster than the plan's fastest ease (the squeeze envelope's
+      smoothstep over the shortest TaperFloor): [+3, -3] degrees 0.6 m apart
+      (K7, 3.1 cm) 1.26x, a 2.6 cm step over 0.6 m 1.05x, an 18.2 cm step over
+      3.2 m (South Old Statesville Road) 5.0x, a 3 cm drift over 10 m nothing.
+      B4 fails the same step past V at a node; at 6 m, 0.6 m of road is 7 of
+      the 240 rows.
+    WIDER WINDOWS, up to `KinkViewM` (review 5: a 14 cm bump on 4 m rises
+    passed once its top made it wider than the 10 m cap; East 12th Street's
+    notch, a 28.7 cm dip before a 1.9° corner over 10.6 m, passed): from a
+    feature's first real turn to its last (no vertex within 10 m either side
+    turning a quarter of its largest turn - a window ending inside an eased
+    transition's tail is not the feature), between straights of a whole 10 m
+    (within V of one line), the signed net corner as above and OUTSIDE by the
+    part of the excursion that came faster than the plan's ease (the squeeze
+    envelope's EASE on the outside distance): the 14 cm bump 3.4x, a 20 cm
+    raised-cosine bump over 16 m 2.9x, East 12th's notch 2.1x; an eased bump,
+    the plan's own out-and-back over two floors, reads 0. No jog there: a
+    wide S-bend between straights is a road's reverse curve, B3's.
     A ZIGZAG PEAK - a vertex whose chords stop at a turn BACK on both sides -
     scores twice its facet sagitta, c·turn/4: the eye's line is the zigzag's
     mean, not an arc through the neighbours (the spec's section 2, "symmetric
-    zigzag: peak deviation <= V"; ±3° every 3 m, ±3.9 cm, now 1.7x). The run
-    text names which rule fired ("a zigzag peak", "a bump or notch", "a
-    hedged corner", "a jog"). `tools/city/lib/kink.mjs` and
+    zigzag: peak deviation <= V"; ±3° every 3 m, ±3.9 cm, now 1.7x). A WAVE
+    (review 5: a sampled sinusoid of ±8 cm every 10 m, a zigzag whose peaks
+    are split in two or flat, a data zigzag WP-11 filleted into tangent arcs -
+    no sharp peak, no straights, no cluster - passed everything): the line's
+    LOBES are its runs of turns of one sign over its significant vertices
+    (turning a quarter of the largest turn within 5 m: a diagonal crossing is
+    no lobe); a lobe the line leaves and enters by turning back within 10 m
+    (as the zigzag peak's rule has it), next to another such lobe, stands off
+    the wave's MEAN LINE - the chord of its two inflections - and that
+    deviation, over at most 10 m, is judged at V: the ±8 cm wave 3.8x, ±20 cm
+    every 24 m 6.1x, a split-peak zigzag of 7.9 cm 2.0x, the filleted ±10°
+    zigzag 3.9x, the spec's own ±3 cm every 10 m 1.3x; a ±2 cm wave, a ±10 cm meander every 80 m, a single S-bend
+    and a lone bump (OUTSIDE's) do not. A lobe standing `SimplifyEpsM` (0.5 m,
+    the plan's WP-10 Douglas-Peucker tolerance) or more off its mean line is
+    geometry, not a wobble: WP-10 removes every sideways excursion under it
+    before WP-11 fillets what is left, so a winding road's lobes pass and B3
+    judges their radius (on an edge or paint line that test is the data
+    line's, so a lobe that close to the limit is left to the centreline). The
+    run text names which rule fired ("a zigzag peak", "a bump or notch", "a
+    hedged corner", "a jog", "a wave"). `tools/city/lib/kink.mjs` and
     `CitySmooth.KinkScores` are the same code; a cross-check compiles the C#
-    out of CitySmooth.cs and runs it on the JS's inputs (130,323 vertices on
-    15,764 polylines, 8,000 of them the city's own, 59,342 scored past V under
-    every rule, and 528,890 squeeze samples: identical to 1.5e-8, the same rule
-    every time).
+    out of CitySmooth.cs and runs it on the JS's inputs (201,364 vertices on
+    18,765 polylines, 8,000 of them the city's own, 90,882 scored past V under
+    every rule, 19,555 of them waves, and 527,427 squeeze samples: identical
+    to 1.5e-8, the same rule every time).
   - C (continuity): C1 GAP, C2 END (only at junction fan mouths, dead ends,
     a gore NOSE - a collapsed section within 2 m - or plan lane drops; an end
     with a partner within a lane is a JUMP, not an end; a bend fan's mouths
@@ -491,12 +539,15 @@ in OSM).
   **a disagreement is a gate bug**, fixed before anything else. Only the mesh
   gate sees tile seams, fans and heights. linecheck's replica follows the
   builder: a CityMeshes change updates `linesim.mjs` (and `--model`) in the
-  same commit. `node tools/city/gateprobes.mjs` runs 135 synthetic probes with
+  same commit. `node tools/city/gateprobes.mjs` runs 191 synthetic probes with
   known answers (split kinks, legitimate fillets and S-bends, a kink behind a
   sub-V step, bend fans, attach arcs, straight roads, hedged corners, notches,
-  jogs of every width, bumps and zigzags, C2's closed list, squeezed edges
-  against I7 - also inside a slow rise - the ratchet and STALE); every review
-  finding is one, and all must pass. `metrics.mjs` gains a SMOOTH section: B2/B3 on
+  jogs of every width, bumps and zigzags, waves, jogs into a fan mouth, legal
+  vertices beside a jog, bumps and notches wider than the cap, C2's closed
+  list, squeezed edges against I7 - also inside a slow rise - an edge pulled
+  in without a squeeze, the ratchet, STALE, the gate's code and the pin in
+  the fingerprint, the loosening refusal); every review finding is one, and
+  all must pass - `linecheck --ratchet` runs them. `metrics.mjs` gains a SMOOTH section: B2/B3 on
   the exported centreline and its offset curves, in half a second, as an
   early warning.
 - **Modes.** FAST runs inside `CityAudit.Run` (the drive and roadside
@@ -528,8 +579,13 @@ in OSM).
   -WriteBaseline`). Each entry records the INPUTS it was measured on: the
   graph hash, a digest of each container section the gate reads (NODE, NAME,
   EDGE, PNTS, SPAN, XING), of the geometry rules in SmoothRules.cs (not the
-  rollout switches or the ranking), of the road PNGs and (mesh) of the DEM,
-  and the model; and every check's STATE. A ratchet against other inputs is
+  rollout switches or the ranking; the creek pin's ways are in it), of the
+  road PNGs, (mesh) of the DEM, of the GATE'S OWN CODE (review 5: a loosening
+  edit to the gate moved no input, so it passed its own ratchet and was never
+  STALE - offline `tools/city/lib`'s replica, checks, plan, texture scan,
+  rules parser and ratchet; mesh `CitySmooth.cs` and the tap in CityMeshes),
+  and the model; every check's STATE; and the PINNED ways (a way dropped from
+  the pin fails, stale or not). A ratchet against other inputs is
   **STALE, and STALE FAILS**: linecheck exits 1, `city-smooth.ps1` exits 1,
   and the city audit writes a failing Check ("smoothness baseline measured on
   today's inputs"), counted in `CITY AUDIT: N FAILURES`, so `city-cycle.ps1`
@@ -541,9 +597,23 @@ in OSM).
   threshold change: `linecheck.mjs --write-baseline` (or `city-smooth.ps1
   -Mode FULL -WriteBaseline`, which fails unless the sandbox's baseline was
   rewritten by that run) prints BEFORE -> AFTER per check (runs, metres,
-  worst, keys) and what moved, for the commit message. A check gating looser
-  than when its baseline was recorded (ZERO -> RATCHET -> REPORT) fails too,
-  stale or not; a ZERO check or the creek pin fails whatever the baseline.
+  worst, keys) and what moved, for the commit message - and REFUSES, writing
+  nothing, when the re-record would LOOSEN the gate: the data did not move
+  (only the rules or the gate's code did) but keys vanished or score lower,
+  or a check state or a pinned way loosened (review 5: the previous re-record
+  dropped 763 B2 keys inside a total that grew by 20,342). Only a change to
+  the gate can do that; `--allow-loosen` (`-AllowLoosen`) records it anyway,
+  for a deliberate, signed-off change, its list in the commit. A ribbon
+  edge's key names the side of the edge its bucket lies on (RL / RR): a chain
+  runs some edges backwards, and labelled by the run's worst sample a key
+  jumped sides - vanishing from the ratchet - whenever the worst moved to
+  such an edge. A check gating looser than when its baseline was recorded
+  (ZERO -> RATCHET -> REPORT) fails too, stale or not; a ZERO check or the
+  creek pin fails whatever the baseline. **The offline ratchet runs in
+  `tools\city-cycle.ps1` and `tools\verify.ps1`** (`linecheck --no-census
+  --ratchet`, which also runs the probes; exit 1 fails them - review 5:
+  nothing ran it, and with the mesh gate report-only no regression failed any
+  automatic step).
   Merging `charlotte` (WP-04's water spans: 264 -> 560) into this branch keeps
   graph 27bccd93 but changes SPAN and NAME: the ratchet FAILS there as STALE
   until the merge commit re-records. The creek (ways 1078015030, 16671358,
@@ -569,39 +639,47 @@ in OSM).
   `PSX_SMOOTH_SPOTS` shoots. Every run is in `city_smooth.csv`.
 - **Where it stands** (linecheck, graph 27bccd93, today's builder): 100,817
   A1 (1,049 of them, 32.2 km, squeezed edges outside their I7 envelope), 15,178
-  A2, 464,065 B2 runs over 895.4 km (399,029 DATA: OSM vertices, and corners
-  split over them; by the rule that gave each run its worst vertex: 321,978
-  lone, 56,985 split, 38,498 hedged, 16,655 jogs, 28,760 zigzag peaks -
-  26,862 of them BUILDER paint at taper diagonals, 485 km, the squiggle the
-  owner circled - and 1,189 bumps or notches) and 254,788 B1 runs; 8,518 B3;
-  26,809 B4 jumps; 16,776 C2 (with the 101 bend fans' mouths - 87 of the fans
-  turn 60° or more - and 5,353 line ends along branch attach arcs), 10,917
-  C3; D1 gates 914 runs / 5.6 km of paint inside another road, 6.2 km more is
-  on attach arcs. 1,419,064 keys. Review 4's fixes moved A1 +140 runs (+2.6
-  km) and B2 -1,725 runs but +116.6 km (runs merged as more of each line went
-  bad) and +20,342 keys; nothing else. The reviewer's city examples are all
-  flagged but one (Blakeney Professional Drive's bump 4.3x, East Tremont
-  Avenue 2.1x, Camp Road 3.2x, North Tryon Street's notch 1.9x, South Old
-  Statesville Road's 18.2 cm jog 5.0x, Carson Boulevard 4.6x, Rocky River
-  Road 3.6x, Rea Road's and North Tryon Street's squeezes 4.9x / 4.3x);
-  Baxter Street's jog ends 0.8 m before the fan mouth that trims its ribbon,
-  so there is no exit straight to step from (the fan is the mesh gate's). On
-  the design centreline (review 4's census, per edge) the unflagged bumps
-  went 11 -> 2 and the unflagged 2.5-10 m jogs 367 -> 191: 160 of those are
-  gentle steps whose part faster than the ease is under V, 31 have another
-  corner within 10 m. The creek as built: yellow 0.39 m off at s 51.6, white
-  lane line 1.92 m off and STRAY, B2 16.7 cm (21 runs), B4 18.6 cm. Under the
-  M0 stopgap (`--model m0`) the creek's centre and lane lines read 0 (no B2
-  on the creek under the new rules either; the city's BUILDER B2 there moves
-  only 7,056 -> 7,944 runs); its tw4 edge lines still slide 0.36 m to the
-  drawn edge before the crop removes them (A1, A3, C2), and the city keeps
-  12,344 B4 jumps (most of 1-2 m: M0 does not touch the lane-count steps at
-  nodes). linecheck also reproduces the
-  2026-09-28 census exactly (264.88 km of wobble of 5 cm or more, 75,073 edge
-  kinks over 2°; `--model nominalU` its U-only run: 17.47 km).
+  A2, 464,393 B2 runs over 985.9 km (401,881 DATA: OSM vertices, and corners
+  split over them; by the rule that gave each run its worst vertex: 310,334
+  lone, 54,335 split, 45,363 hedged, 17,427 jogs, 2,274 zigzag peaks, 13,760
+  bumps or notches and 20,900 waves - 20,429 of the waves, 434 km, BUILDER
+  paint on taper spans, the diagonal scallop the owner circled, now read as
+  the wave it is; 401 on the data line) and 254,788 B1 runs; 8,518 B3; 26,809
+  B4 jumps; 16,776 C2 (with the 101 bend fans' mouths - 87 of the fans turn
+  60° or more - and 5,353 line ends along branch attach arcs), 10,917 C3; D1
+  gates 914 runs / 5.6 km of paint inside another road, 6.2 km more is on
+  attach arcs. 1,433,226 keys. The worst B2 is Sunset Road's data dogleg
+  (22.7°, -32.2°, -31.1°, 21.7° in 39 m), 4.84 m outside its net corner.
+  Review 5's fixes moved only B-family keys: B2 +328 runs, +90.5 km, +14,156
+  keys (0 vanished and 0 lower against the previous baseline, a ribbon edge's
+  RL and RR compared as one line - the keys' side labelling moved; against
+  round 3's baseline too, so the 763 keys the ease had dropped are back), B1
+  +5 and B3 +1 keys (the same relabelling). The reviewer's city lists: jogs
+  into a fan mouth 37 of 39 flagged (was 7; Carmel Road 5.2x, e10246 4.7x,
+  Baxter Street 3.6x, South Tryon Street 3.6x, Circumferential Road 3.0x - the
+  two left are a 6.4° stub 1.2 m from its mouth, lone-judged, and a 3.2 cm
+  step); jogs and bumps beside one legal vertex 13 of 18 (was 3; North Irwin
+  Avenue 2.6x, Pelton Street 1.2x, Matthews-Mint Hill Road 1.7x, Prospect
+  Street 2.2x, West Sugar Creek Road 2.6x - the five left are steps of 4-7
+  cm whose part faster than the ease is barely over V); wide shapes 8 of 24
+  (East 12th Street 2.2x; the rest sit on gentle curves, no straights). The
+  creek as built: yellow 0.39 m off at s 51.6, white lane line 1.92 m off and
+  STRAY, B2 16.9 cm (22 runs), B4 18.6 cm. Under the M0 stopgap (`--model
+  m0`) the creek's centre and lane lines read 0; its tw4 edge lines still
+  slide 0.36 m to the drawn edge before the crop removes them (A1, A3, C2),
+  and e14582's ribbon edge now reads B2 3.9 cm (3 runs, 1.6x): its eased
+  taper curve is followed 12 m on by a -1.14° data vertex, a notch the wide
+  rule sees (WP-10's Douglas-Peucker removes that vertex). The city under M0:
+  420,176 B2 runs (12,834 BUILDER), 42,198 A1, 12,344 B4 jumps (most of 1-2
+  m: M0 does not touch the lane-count steps at nodes). metrics' SMOOTH: B2 at
+  72,874 centreline and 156,852 offset-curve vertices (was 72,293 / 155,746).
+  linecheck also reproduces the 2026-09-28 census exactly (all 23 rows:
+  264.88 km of wobble of 5 cm or more, 75,073 edge kinks over 2°; `--model
+  nominalU` its U-only run: 17.47 km).
 - **Open for the spec** (calibration questions, reported, not changed):
   - `KinkViewM` = 40 m (the split-corner rule's viewing distance, from the
-    spec's "at R 7.5 a 90° corner stays rounded out to about 40 m").
+    spec's "at R 7.5 a 90° corner stays rounded out to about 40 m"; since
+    review 5 also the widest window a bump or notch is judged over).
   - B1 fails at 2.9 cm (1.15x) on the INNER ribbon edge at the tangent points
     of an R_min street fillet (inner radius about 3.5 m; the spec calibrated B1
     on the centreline down to R 7.5).
@@ -610,29 +688,47 @@ in OSM).
   - The cluster rule (unchanged here) reads a smoothstep lane shift or squeeze
     as a kink at its ends: 1 m over 10 m sampled every 0.5 m reads 2.0x, the
     I7 squeeze of 1 m over its 15 m floor 1.6x on its edge and midline (1.2x
-    at 2 m sections; two stacked 1.6x), and back-to-back R 12 m / 30° fillets
-    with no tangent read 1.1x. If R4 draws I7 or TAPR shifts as smoothstep,
-    this needs a decision (the spec's Appendix A calls a 10 m eased taper a
-    pass). The squeeze probes (Q2, Q4) assert only the I7 envelope.
-  - A jog is judged over any transition up to the 10 m chord cap, by the part
-    of its step that came faster than a smoothstep over the SHORTEST class
-    taper floor (the street's 15 m) - for every class, since B2 runs per line,
-    not per class. So a 2.6 cm step over 0.6 m (1.05 V; review 3's G1 case)
-    now passes (2.45 cm is faster than the ease), and a motorway line is held
-    to a street's ease. A jog on a curve is B1's (about half its step).
+    at 2 m sections; two stacked 1.6x), an eased 1 m bump over 15 + 15 m 1.8x,
+    and back-to-back R 12 m / 30° fillets with no tangent read 1.1x. If R4
+    draws I7 or TAPR shifts as smoothstep, this needs a decision (the spec's
+    Appendix A calls a 10 m eased taper a pass). The squeeze probes (Q2, Q4)
+    assert only the I7 envelope.
+  - A jog wider than a quarter of the cap is judged by the part of its step
+    that came faster than a smoothstep over the SHORTEST class taper floor
+    (the street's 15 m) - for every class, since B2 runs per line, not per
+    class - so a motorway line is held to a street's ease; one of 2.5 m or
+    less by the whole step (round 3's rule, restored). The cliff at 2.5 m (a
+    3.3 cm step reads 1.32x over 2.5 m and passes over 2.6 m) wants a
+    decision if the discount is to stay. A jog on a curve is B1's (about half its step).
   - An S-bend of sampled arcs SHORTER than the 10 m chord cap between two
     straights is a jog: R 30 m arcs turning 3° each way shift a line 8.2 cm in
-    3.1 m (2.3x), and 8° each way 58 cm in 8.4 m (5.8x). A sidestep that fast
-    is faster than any plan ease; if WP-11 ever fits a real reverse curve that
-    short, it needs a decision. Longer S-bends never fit a window.
-  - "Between two straights" is min(4w, 10 m) of line not turning by a quarter
-    of the window's heading on each side, or straight on to the line's end at
-    least w away; 31 of the census's remaining jogs have another corner closer
-    than that.
+    3.1 m (2.3x), and 8° each way 58 cm in 8.4 m (5.8x). Wider S-bends are
+    never judged as jogs (a road's reverse curve; B3's).
+  - A straight is now also a stretch within V of one line turning no more than
+    the lone limit, judged from that line less its spread: a single legal
+    vertex no longer switches the window rules off. The same test cuts both
+    ways: a zigzag of under V about a straight is judged against its mean, and
+    one that touches the straight at every trough - a row of 3.5 cm bumps
+    over 2 m legs - fails as its single bump does (review 4's control "zigzag
+    ±2° every 2 m" was that one-sided shape; the control is now centred).
+  - Wider windows judge OUTSIDE by the part faster than the plan's ease, and
+    the 10 m ones by the whole excursion (round 3/4's rule, kept so nothing
+    loosens): a 4 cm bump reads 1.6x over 10 m and 1.1x over 10.5 m. A row
+    of bumps wider than the cap is eased too (the ±1° every 4 m one-sided
+    zigzag, 3.5 cm peaks over 4 m legs, passes).
+  - The WAVE rule's geometry limit is the plan's WP-10 Douglas-Peucker
+    tolerance (`SimplifyEpsM`, 0.5 m): a lobe standing that far off its mean
+    line is a winding road's, B3's: the wave rule judges a lobe of 45 cm and
+    leaves one of 55 cm to the corner, cluster and curve rules (a ±60 cm wave
+    every 20 m still fails those, 17.8x); if WP-10 changes its tolerance, this
+    follows. A
+    wave longer than the cap is judged by its worst 10 m sub-chord (a ±10 cm
+    meander every 80 m passes, its 10 m chords sag under a cm).
   - A zigzag peak scores twice its facet sagitta (the spec's section 2 rule).
     The spec's Appendix A still lists "zigzag ±3 cm, 10 m period: B pass; A1
     catches it" - on a DATA line A1 cannot (the plan follows it), so B2 now
-    fails it (1.2x). The appendix row wants updating.
+    fails it (the sampled wave 1.3x, the sharp zigzag 1.2x). The appendix row
+    wants updating.
   - Owner question: a squeezed edge that weaves 0.5 m in and out every 36 m
     passes the I7 envelope (each rise is longer than the 15 m floor, and I7
     only holds dips narrower than the floor).

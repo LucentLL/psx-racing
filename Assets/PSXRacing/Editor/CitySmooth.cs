@@ -375,6 +375,9 @@ namespace PSXRacing.EditorTools
             /// <summary>Bucket ids the bad samples touched, with each one's worst value
             /// (see <see cref="Bucket"/>); FinishRuns turns them into keys + ratios.</summary>
             public List<long> bk; public List<double> bv, bl;
+            /// <summary>The ribbon side each bucket's samples lie on (a ribbon
+            /// edge's key is the side of the edge it is on: linegate.mjs).</summary>
+            public List<char> bs;
             /// <summary>The keys, each with its worst ratio and its bad length (the
             /// arc between consecutive bad samples, to the bucket of the later).</summary>
             public List<string> kk; public List<double> kq, kl;
@@ -647,12 +650,12 @@ namespace PSXRacing.EditorTools
                 if (cur == null)
                     cur = new Run { check = check, lineId = lineId, kind = kind, reportOnly = reportOnly, e = e, s = s, x = x, y = y, z = z, val = val,
                                     e0 = e, s0 = s, e1 = e, s1 = s, tag = tag, span = span, side = side, rLimit = rLimit, node = node, len = -arc,
-                                    bk = new List<long>(), bv = new List<double>(), bl = new List<double>(), what = what };
+                                    bk = new List<long>(), bv = new List<double>(), bl = new List<double>(), bs = new List<char>(), what = what };
                 cur.e1 = e; cur.s1 = s; cur.lastArc = arc;
                 long bid = node >= 0 ? -(node * 4096L + Math.Min(Math.Max(span, 0), 4094) + 1) : Bucket(e, s);
                 int nb = cur.bk.Count;
                 if (nb > 0 && cur.bk[nb - 1] == bid) { if (Worse(val, cur.bv[nb - 1])) cur.bv[nb - 1] = val; cur.bl[nb - 1] += inc; }
-                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); }
+                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); cur.bs.Add(side); }
                 if (Worse(val, cur.val))
                 { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; cur.what = what; }
             }
@@ -913,21 +916,28 @@ namespace PSXRacing.EditorTools
             return new Sec { s = s, px = p.x, pz = p.y, rx = rx, rz = rz, f = f };
         }
 
-        const ushort FMovedL = CityMeshes.RoadTap.FMovedL, FMovedR = CityMeshes.RoadTap.FMovedR, FClipL = CityMeshes.RoadTap.FClipL,
+        const ushort FSqueezedL = CityMeshes.RoadTap.FSqueezedL, FSqueezedR = CityMeshes.RoadTap.FSqueezedR, FClipL = CityMeshes.RoadTap.FClipL,
                      FClipR = CityMeshes.RoadTap.FClipR, FCollapsed = CityMeshes.RoadTap.FCollapsed;
 
+        /// <summary>A ribbon-edge point with the tap's CAUSES (review 5: the
+        /// tap once flagged any edge standing inside its half width, so an edge
+        /// a regression pulled in was judged only against its own envelope and
+        /// skipped A2/A3 - the offline gate, whose replica flags the squeeze
+        /// only when it fired, failed it): squeezed - judged against its I7
+        /// envelope; clipped inner or collapsed - X3/X2; cropped (A2/A3 skip) -
+        /// any of them, as linegate.mjs's cropL/cropR.</summary>
         static Pt RibPt(EdgeData ed, int i, Vector3d v, Sec c, char side, float s)
         {
-            bool crop = (c.f & (side == 'L' ? FMovedL : FMovedR)) != 0 || (c.f & FCollapsed) != 0;
+            bool sq = (c.f & (side == 'L' ? FSqueezedL : FSqueezedR)) != 0;
             bool x3 = (c.f & (side == 'L' ? FClipL : FClipR)) != 0 || (c.f & FCollapsed) != 0;
-            bool sq = (c.f & (side == 'L' ? FMovedL : FMovedR)) != 0;   // moved in, not by a clip (x3 wins): the squeeze, or a regression
+            bool crop = sq || x3;
             return new Pt { x = v.x, y = v.y, z = v.z, s = s, e = ed.e.index, span = i, tile = ed.quads[i].tx * 100000 + ed.quads[i].tz, tag = 'S', side = side, crop = crop, x3 = x3, sq = sq };
         }
         static Pt MidPt(EdgeData ed, int i, Vector3d L, Vector3d R, Sec c, float s)
         {
             bool clip = (c.f & (FClipL | FClipR | FCollapsed)) != 0;
             return new Pt { x = (L.x + R.x) * 0.5, y = (L.y + R.y) * 0.5, z = (L.z + R.z) * 0.5, s = s, e = ed.e.index, span = i, tag = 'S', x3 = clip,
-                            crop = clip || (c.f & (FMovedL | FMovedR)) != 0 };
+                            crop = clip || (c.f & (FSqueezedL | FSqueezedR)) != 0 };
         }
 
         /// <summary>(s, lat) of a point of quad i: exact on a section, else
@@ -1154,42 +1164,11 @@ namespace PSXRacing.EditorTools
                 int i1 = i0; while (i1 + 1 < n && !smp[i1 + 1].x3) i1++;
                 int m = i1 - i0 + 1; var s = new double[m]; var c = new double[m];
                 for (int k = 0; k < m; k++) { s[k] = smp[i0 + k].s; c[k] = -sgn * smp[i0 + k].err; }
-                // turning points (V hysteresis; a plateau's first sample)
-                var tp = new List<int> { 0 };
-                int mode = 0, cand = 0;
-                for (int k = 1; k < m; k++)
-                {
-                    if (mode == 0) { if (c[k] - c[0] > V) { mode = 1; cand = k; } else if (c[0] - c[k] > V) { mode = -1; cand = k; } continue; }
-                    if (mode > 0) { if (c[k] > c[cand]) cand = k; else if (c[cand] - c[k] > V) { tp.Add(cand); mode = -1; cand = k; } }
-                    else { if (c[k] < c[cand]) cand = k; else if (c[k] - c[cand] > V) { tp.Add(cand); mode = 1; cand = k; } }
-                }
-                if (mode != 0 && cand != 0) tp.Add(cand);
-                if (tp[tp.Count - 1] != m - 1) tp.Add(m - 1);
+                // turning points (V hysteresis; a plateau's first sample), then EASE per rise or fall (lib/kink.mjs)
+                var tp = TurningPoints(c, V);
                 int b0 = i0;
                 void Bump(int k, double e) { if (e > dev[b0 + k]) dev[b0 + k] = e; }
-                // EASE, per rise or fall
-                for (int t = 0; t + 1 < tp.Count; t++)
-                {
-                    int a = tp[t], b = tp[t + 1]; double H = Math.Abs(c[b] - c[a]);
-                    if (H <= V) continue;
-                    for (int i = a; i < b; i++)
-                    {
-                        // the floor window centred on the pair (i, j): kl the last sample at or before its start, kh the
-                        // first at or after its end (inside the rise); both only move forward as j does
-                        int kl = i, kh = i + 1;
-                        for (int j = i + 1; j <= b && s[j] - s[i] < L; j++)
-                        {
-                            double mid = (s[i] + s[j]) / 2, lo = mid - L / 2, hi = mid + L / 2;
-                            if (j == i + 1) { while (kl > a && s[kl] > lo) kl--; }
-                            else while (kl < i && s[kl + 1] <= lo) kl++;
-                            if (kh < j) kh = j;
-                            while (kh < b && s[kh] < hi) kh++;
-                            double HL = Math.Min(H, Math.Abs(c[kh] - c[kl]));
-                            double e = Math.Abs(c[j] - c[i]) - HL * EaseG((s[j] - s[i]) / L);
-                            if (e > 0) { Bump(i, e); Bump(j, e); }
-                        }
-                    }
-                }
+                EaseInto(s, c, tp, L, V, Bump);
                 // HOLD, per dip between two cuts
                 for (int t = 1; t + 1 < tp.Count; t++)
                 {
@@ -1279,9 +1258,11 @@ namespace PSXRacing.EditorTools
                     bA1.Close(); bA4.Close(); bA5.Close(); bD1.Close(); bD1m.Close();
                 }
             }
-            // ---- ribbon edges: A1-edge. An unsqueezed section against the design edge; a SQUEEZED one (the tap's moved
-            // flag; X6 no longer exempts it: a smooth squeeze step wandered through every shape check) against its I7
-            // envelope (SqueezeDev); a clipped inner edge or a gore nose (X3/X2) not at all - the host's edge carries it
+            // ---- ribbon edges: A1-edge. An unsqueezed section against the design edge - an edge standing inside its
+            // half width for any cause but the squeeze too (a regression); a SQUEEZED one (the tap's squeezed flag, set
+            // only where SqueezeSection moved it; X6 no longer exempts it: a smooth squeeze step wandered through every
+            // shape check) against its I7 envelope (SqueezeDev); a clipped inner edge or a gore nose (X3/X2) not at all -
+            // the host's edge carries it
             double floorM = SmoothRules.TaperFloorFor(SmoothRules.ClassOf(e.cls, e.link));
             foreach (char side in new[] { 'L', 'R' })
             {
@@ -1319,12 +1300,15 @@ namespace PSXRacing.EditorTools
                     b1.Close();
                 }
             }
+            // a span whose edge the squeeze moved in or a clip put on its host (either section), or collapsed: A2/A3 skip
+            // it (X6) - linegate.mjs's cropL / cropR, from the tap's causes
             bool Cropped(int span, char side)
             {
                 var q = ed.quads[span];
                 ushort f = (ushort)(q.fA | q.fB);
                 if ((f & FCollapsed) != 0) return true;
-                return side == 'L' ? (f & FMovedL) != 0 : side == 'R' ? (f & FMovedR) != 0 : (f & (FMovedL | FMovedR)) != 0;
+                ushort l = (ushort)(FSqueezedL | FClipL), r = (ushort)(FSqueezedR | FClipR);
+                return side == 'L' ? (f & l) != 0 : side == 'R' ? (f & r) != 0 : (f & (l | r)) != 0;
             }
             // ---- A2 SKEW (undivided two-way rows): the centre pair against the drawn midline
             if (lay.key != null && lay.key.StartsWith("tw"))
@@ -1438,7 +1422,11 @@ namespace PSXRacing.EditorTools
             var TH = new double[keep.Count]; var KX = new double[keep.Count]; var KZ = new double[keep.Count];
             for (int m = 0; m < keep.Count; m++) { KX[m] = pts[keep[m]].x; KZ[m] = pts[keep[m]].z; }
             for (int m = 1; m + 1 < keep.Count; m++) TH[m] = Turn(KX[m - 1], KZ[m - 1], KX[m], KZ[m], KX[m + 1], KZ[m + 1]);
-            var K2 = KinkScores(KX, KZ, C, TH, m => pts[keep[m]].x3 || pts[keep[m]].gore, out byte[] K2kind);
+            // the most any line of the strand stands off its data line (the WAVE rule's geometry test): 0 on the midline
+            // and a fan's perimeter
+            double hwMax = 0;
+            if (kind == "edge" || kind == "paint") foreach (int i in keep) if (map.edges[pts[i].e].width * 0.5 > hwMax) hwMax = map.edges[pts[i].e].width * 0.5;
+            var K2 = KinkScores(KX, KZ, C, TH, m => pts[keep[m]].x3 || pts[keep[m]].gore, out byte[] K2kind, hwMax);
             var b2 = new RunBuilder("B2", lineId, kind) { node = node };
             for (int m = 1; m + 1 < keep.Count; m++)
             {
@@ -1555,38 +1543,86 @@ namespace PSXRacing.EditorTools
             return 0;
         }
 
-        /// <summary>What gave a vertex its B2 score (lib/kink.mjs KIND_*).</summary>
-        const byte KindLone = 0, KindCluster = 1, KindHedge = 2, KindJog = 3, KindZig = 4, KindOut = 5;
-        static readonly string[] KindText = { "a lone corner", "a corner split over close vertices", "a hedged corner (turn and turn back; the net corner)",
-            "a jog (a sideways step between two straights, faster than the plan's ease)", "a zigzag peak (the line turns back on both sides)",
-            "a bump or notch (drawn outside every smooth transition between its straights)" };
-
-        /// <summary>The least sideways gap, anywhere along the window j..k,
-        /// between the approach line (P[j-1] -> P[j]) and the exit line (P[k]
-        /// -> P[k+1]), across their mean direction; 0 when they cross inside
-        /// the window (lib/kink.mjs jogGap).</summary>
-        static double JogGap(double[] X, double[] Z, int j, int k)
+        /// <summary>How far from kept vertex m, going dir (-1: back along the
+        /// line INTO m; +1: on along the line OUT of m), the line stays within V
+        /// of ONE straight line - every vertex passed within V either side of a
+        /// line parallel to the chord from P[m] to the far end (the farthest
+        /// vertex, or the point exactly cap away) - and turns, over the vertices
+        /// passed, by no more than maxTurn (the lone limit: a stretch that turns
+        /// more is a curve, however flat). Interpolated between the last vertex
+        /// inside and the first outside; +Infinity when it runs so to the
+        /// strand's end; at most cap. line (4 numbers): the last line accepted -
+        /// the unit chord from P[m] towards the far end, the strip centre's
+        /// offset along (cz, -cx), its half-width (lib/kink.mjs straightRun).</summary>
+        static double StraightRun(double[] X, double[] Z, double[] C, double[] TH, int m, int dir, double V0, double cap, double maxTurn, double[] line)
         {
-            double ux = X[j] - X[j - 1], uz = Z[j] - Z[j - 1], wx = X[k + 1] - X[k], wz = Z[k + 1] - Z[k];
-            double ul = Math.Sqrt(ux * ux + uz * uz), wl = Math.Sqrt(wx * wx + wz * wz);
-            if (ul < 1e-9 || wl < 1e-9) return 0;
-            ux /= ul; uz /= ul; wx /= wl; wz /= wl;
+            int n = C.Length;
+            double prevH = 0, pcx = 0, pcz = 0, pc = 0, turn = 0;
+            double Done(double len) { line[0] = pcx; line[1] = pcz; line[2] = pc; line[3] = prevH; return len; }
+            for (int i = m + dir; i >= 0 && i < n; i += dir)
+            {
+                double L = Math.Abs(C[i] - C[m]), Lp = Math.Abs(C[i - dir] - C[m]); bool cut = L > cap;
+                if (i != m + dir) { turn += TH[i - dir]; if (Math.Abs(turn) > maxTurn) return Done(Math.Min(cap, Lp)); }
+                // the far end: vertex i, or the point exactly cap away on the segment into it
+                double ex = X[i], ez = Z[i];
+                if (cut) { double t = (cap - Lp) / (L - Lp); ex = X[i - dir] + (X[i] - X[i - dir]) * t; ez = Z[i - dir] + (Z[i] - Z[i - dir]) * t; }
+                double cx = ex - X[m], cz = ez - Z[m], cl = Math.Sqrt(cx * cx + cz * cz), lo = 0, hi = 0;
+                if (cl > 1e-9)
+                {
+                    cx /= cl; cz /= cl;
+                    for (int q = m + dir; q != i; q += dir)
+                    {
+                        double d = (X[q] - X[m]) * cz - (Z[q] - Z[m]) * cx;
+                        if (d < lo) lo = d; else if (d > hi) hi = d;
+                    }
+                }
+                else { cx = 0; cz = 0; }
+                double h = (hi - lo) / 2;
+                if (h > V0) return Done(Math.Min(cap, Lp + ((cut ? cap : L) - Lp) * (V0 - prevH) / (h - prevH)));
+                pcx = cx; pcz = cz; pc = (lo + hi) / 2; prevH = h;
+                if (L >= cap) return Done(cap);
+            }
+            return Done(double.PositiveInfinity);
+        }
+
+        /// <summary>What gave a vertex its B2 score (lib/kink.mjs KIND_*).</summary>
+        const byte KindLone = 0, KindCluster = 1, KindHedge = 2, KindJog = 3, KindZig = 4, KindOut = 5, KindWave = 6;
+        static readonly string[] KindText = { "a lone corner", "a corner split over close vertices", "a hedged corner (turn and turn back; the net corner)",
+            "a jog (a sideways step between two straights)", "a zigzag peak (the line turns back on both sides)",
+            "a bump or notch (drawn outside every smooth transition between its straights)",
+            "a wave (lobes turning back on both sides, off their mean line)" };
+
+        /// <summary>The least sideways gap, anywhere along the window between
+        /// the points A and B, between the line through A with unit direction u
+        /// and the line through B with unit direction w, across their mean
+        /// direction; 0 when they cross inside it (lib/kink.mjs jogLines).</summary>
+        static double JogLines(double ax, double az, double ux, double uz, double bx, double bz, double wx, double wz)
+        {
             double mx = ux + wx, mz = uz + wz, ml = Math.Sqrt(mx * mx + mz * mz);
             if (ml < 1e-9) return 0;
             mx /= ml; mz /= ml;
             double nx = -mz, nz = mx, cu = ux * mx + uz * mz, cw = wx * mx + wz * mz;
             if (cu < 1e-6 || cw < 1e-6) return 0;
-            double x0 = X[j] * mx + Z[j] * mz, x1 = X[k] * mx + Z[k] * mz;
-            double LatIn(double x) => (X[j] * nx + Z[j] * nz) + (x - x0) * (ux * nx + uz * nz) / cu;
-            double LatOut(double x) => (X[k] * nx + Z[k] * nz) + (x - x1) * (wx * nx + wz * nz) / cw;
+            double x0 = ax * mx + az * mz, x1 = bx * mx + bz * mz;
+            double LatIn(double x) => (ax * nx + az * nz) + (x - x0) * (ux * nx + uz * nz) / cu;
+            double LatOut(double x) => (bx * nx + bz * nz) + (x - x1) * (wx * nx + wz * nz) / cw;
             double g0 = LatOut(x0) - LatIn(x0), g1 = LatOut(x1) - LatIn(x1);
             return g0 * g1 <= 0 ? 0 : Math.Min(Math.Abs(g0), Math.Abs(g1));
+        }
+        /// <summary>JogLines between the approach line (P[j-1] -> P[j]) and the
+        /// exit line (P[k] -> P[k+1]) (lib/kink.mjs jogGap).</summary>
+        static double JogGap(double[] X, double[] Z, int j, int k)
+        {
+            double ux = X[j] - X[j - 1], uz = Z[j] - Z[j - 1], wx = X[k + 1] - X[k], wz = Z[k + 1] - Z[k];
+            double ul = Math.Sqrt(ux * ux + uz * uz), wl = Math.Sqrt(wx * wx + wz * wz);
+            if (ul < 1e-9 || wl < 1e-9) return 0;
+            return JogLines(X[j], Z[j], ux / ul, uz / ul, X[k], Z[k], wx / wl, wz / wl);
         }
 
         /// <summary>g(x) = 1.5x - 0.5x^3 (1 from x = 1): the most a smoothstep
         /// of height 1 over a length L changes over any stretch x L - the
-        /// squeeze envelope's EASE (SqueezeDev) and the jog's (lib/kink.mjs
-        /// easeG).</summary>
+        /// squeeze envelope's EASE (SqueezeDev), the jog's and wide OUTSIDE's
+        /// (lib/kink.mjs easeG).</summary>
         static double EaseG(double x) => x >= 1 ? 1 : 1.5 * x - 0.5 * x * x * x;
 
         /// <summary>The plan's fastest ease: the shortest class taper floor
@@ -1596,6 +1632,55 @@ namespace PSXRacing.EditorTools
             double m = double.PositiveInfinity;
             foreach (var r in SmoothRules.TaperFloor) if (r.r < m) m = r.r;
             return m;
+        }
+
+        /// <summary>The turning points of a signal c (V hysteresis; a plateau's
+        /// first sample), the first and the last included (lib/kink.mjs
+        /// turningPoints).</summary>
+        static List<int> TurningPoints(double[] c, double V0)
+        {
+            int m = c.Length; var tp = new List<int> { 0 };
+            int mode = 0, cand = 0;
+            for (int k = 1; k < m; k++)
+            {
+                if (mode == 0) { if (c[k] - c[0] > V0) { mode = 1; cand = k; } else if (c[0] - c[k] > V0) { mode = -1; cand = k; } continue; }
+                if (mode > 0) { if (c[k] > c[cand]) cand = k; else if (c[cand] - c[k] > V0) { tp.Add(cand); mode = -1; cand = k; } }
+                else { if (c[k] < c[cand]) cand = k; else if (c[k] - c[cand] > V0) { tp.Add(cand); mode = 1; cand = k; } }
+            }
+            if (mode != 0 && cand != 0) tp.Add(cand);
+            if (tp[tp.Count - 1] != m - 1) tp.Add(m - 1);
+            return tp;
+        }
+        /// <summary>EASE: inside each rise or fall of height H &gt; V between
+        /// turning points tp of the signal c (at arc s), any two samples w &lt; L
+        /// apart may differ by at most H_L g(w / L), H_L the LOCAL height (the
+        /// change across the L-long window centred on the pair, inside the rise;
+        /// never more than H); bump gets every excess at both samples
+        /// (lib/kink.mjs easeInto).</summary>
+        static void EaseInto(double[] s, double[] c, List<int> tp, double L, double V0, Action<int, double> bump)
+        {
+            for (int t = 0; t + 1 < tp.Count; t++)
+            {
+                int a = tp[t], b = tp[t + 1]; double H = Math.Abs(c[b] - c[a]);
+                if (H <= V0) continue;
+                for (int i = a; i < b; i++)
+                {
+                    // the floor window centred on the pair (i, j): kl the last sample at or before its start, kh the
+                    // first at or after its end (inside the rise); both only move forward as j does
+                    int kl = i, kh = i + 1;
+                    for (int j = i + 1; j <= b && s[j] - s[i] < L; j++)
+                    {
+                        double mid = (s[i] + s[j]) / 2, lo = mid - L / 2, hi = mid + L / 2;
+                        if (j == i + 1) { while (kl > a && s[kl] > lo) kl--; }
+                        else while (kl < i && s[kl + 1] <= lo) kl++;
+                        if (kh < j) kh = j;
+                        while (kh < b && s[kh] < hi) kh++;
+                        double HL = Math.Min(H, Math.Abs(c[kh] - c[kl]));
+                        double e = Math.Abs(c[j] - c[i]) - HL * EaseG((s[j] - s[i]) / L);
+                        if (e > 0) { bump(i, e); bump(j, e); }
+                    }
+                }
+            }
         }
 
         /// <summary>The convex hull of a few points (Andrew's monotone chain,
@@ -1640,38 +1725,32 @@ namespace PSXRacing.EditorTools
             return inside ? 0 : d;
         }
 
-        /// <summary>B2's score at every kept vertex (lib/kink.mjs kinkScores;
-        /// kind[m] names the rule): the worst of its lone facet sagitta - twice
-        /// it at a ZIGZAG peak, whose chords stop at a turn back on both sides
-        /// (the eye's line is the zigzag's mean, "peak deviation &lt;= V") - of
-        /// every CLUSTER it is a corner vertex of, and of every HEDGED window's
-        /// net corner, outside distance and jog. A cluster: consecutive vertices
-        /// j..k turning the same way (the other way by less than KinkNoiseShare
-        /// of the running turn is noise) within ChordCapM, judged as one corner:
-        /// Vc where the line into j meets the line out of k, T the summed turn,
-        /// dr the drawn rounding (Vc to the polygon), f = min(c-, c+, ChordCapM)
-        /// |T| / 8 from Vc, gap = f - dr; some distance of the chase view out to
-        /// KinkViewM shows a kink exactly when gap > max(V, dr) with dr under a
-        /// pixel there (pMax = V KinkViewM / PixelAtM); the score is gap V /
-        /// max(V, dr). A hedged window (a counter-turn of KinkNoiseShare or
-        /// more: [6, -2.4] degrees a metre apart) is judged by its NET turn,
-        /// rounded at most as T/2 at each end of its span, dr = (w/2)
-        /// tan(|T|/2), chords from its middle; and, BETWEEN TWO STRAIGHTS (no
-        /// turn of KinkNoiseShare of its heading excursion for min(w /
-        /// KinkNoiseShare, ChordCapM) either side, or straight on to the line's
-        /// end at least w away), at the drawn Vc with the drawn polygon's
-        /// SIGNED rounding (minus the overshoot when the drawing passes outside
-        /// Vc: a notch), by how far its drawn vertices stand OUTSIDE the region
-        /// every smooth convex transition between the straights occupies (a
-        /// bump, a zigzag, a notch), and by its JOG: the least gap d between
-        /// the approach and exit lines, of which d (1 - g(w / Lf)) came faster
-        /// than the plan's fastest ease (Lf the shortest TaperFloor).</summary>
+        /// <summary>A reference line of a window (lib/kink.mjs segLine /
+        /// fitLine): a point on it, its unit direction of travel, how far it
+        /// holds, how far the drawn line strays either side of it there.</summary>
+        struct WinLine { public double px, pz, ux, uz, len, h; }
+
+        /// <summary>B2's score at every kept vertex (lib/kink.mjs kinkScores,
+        /// whose header is the rule in full; kind[m] names the rule): the worst
+        /// of its lone facet sagitta - twice it at a ZIGZAG peak, whose chords
+        /// stop at a turn back on both sides - of every CLUSTER it is a corner
+        /// vertex of, of every HEDGED window's net corner, and, between two
+        /// straights, the window's signed corner, OUTSIDE distance and JOG (up
+        /// to ChordCapM: the whole step over a quarter of the cap or less, else
+        /// the part faster than the plan's fastest ease; wider windows, up to
+        /// KinkViewM, the corner and the outside distance faster than the ease,
+        /// over the whole feature only), and of every WAVE lobe's deviation from
+        /// its mean line (under SimplifyEpsM). A straight: the line does not
+        /// turn again by KinkNoiseShare of the window's excursion (round 3's
+        /// rule, from the drawn segment), or runs within V of one straight line
+        /// turning no more than the lone limit (StraightRun, from that line, less
+        /// its spread), or runs on to the strand's end.</summary>
         static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt) => KinkScores(X, Z, C, TH, exempt, out _);
-        static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind)
+        static double[] KinkScores(double[] X, double[] Z, double[] C, double[] TH, Func<int, bool> exempt, out byte[] kind, double halfWidth = 0)
         {
             int n = C.Length;
-            double V0 = SmoothRules.V, cap = SmoothRules.ChordCapM, share = SmoothRules.KinkNoiseShare, pMax = V0 * SmoothRules.KinkViewM / SmoothRules.PixelAtM;
-            double Lf = MinTaperFloor();
+            double V0 = SmoothRules.V, cap = SmoothRules.ChordCapM, share = SmoothRules.KinkNoiseShare, view = SmoothRules.KinkViewM, pMax = V0 * view / SmoothRules.PixelAtM;
+            double Lf = MinTaperFloor(), eps = SmoothRules.SimplifyEpsM;
             var score = new double[n]; var kd = new byte[n]; kind = kd;
             bool Ex(int m) => exempt != null && exempt(m);
             for (int m = 1; m + 1 < n; m++)
@@ -1712,6 +1791,31 @@ namespace PSXRacing.EditorTools
                 }
                 return c;
             }
+            // how far the line runs within V of one straight line into m (back) and out of m (on), and that line: once each
+            var runB = new double[n]; var runF = new double[n]; var lineB = new double[4 * n]; var lineF = new double[4 * n]; var tmp = new double[4];
+            for (int m = 0; m < n; m++) { runB[m] = -1; runF[m] = -1; }
+            double Back(int m) { if (runB[m] < 0) { runB[m] = StraightRun(X, Z, C, TH, m, -1, V0, cap, minTurn, tmp); for (int q = 0; q < 4; q++) lineB[4 * m + q] = tmp[q]; } return runB[m]; }
+            double On(int m) { if (runF[m] < 0) { runF[m] = StraightRun(X, Z, C, TH, m, 1, V0, cap, minTurn, tmp); for (int q = 0; q < 4; q++) lineF[4 * m + q] = tmp[q]; } return runF[m]; }
+            // no vertex within the cap from m (going dir) turns thr or more
+            bool Quiet(int m, int dir, double thr)
+            {
+                for (int i = m + dir; i > 0 && i < n - 1 && Math.Abs(C[i] - C[m]) < cap; i += dir) if (Math.Abs(TH[i]) >= thr) return false;
+                return true;
+            }
+            // the drawn segment into j (dir -1) or out of k (dir +1)
+            bool SegLine(int m, int dir, out WinLine r)
+            {
+                double ux = dir < 0 ? X[m] - X[m - 1] : X[m + 1] - X[m], uz = dir < 0 ? Z[m] - Z[m - 1] : Z[m + 1] - Z[m], l = Math.Sqrt(ux * ux + uz * uz);
+                r = new WinLine { px = X[m], pz = Z[m], ux = l > 0 ? ux / l : 0, uz = l > 0 ? uz / l : 0, len = l, h = 0 };
+                return l >= 1e-9;
+            }
+            // the straight line the line runs within V of into m (dir -1) or out of m (+1): StraightRun's strip centre
+            bool FitLine(int m, int dir, out WinLine r)
+            {
+                var L = dir < 0 ? lineB : lineF; double cx = L[4 * m], cz = L[4 * m + 1], c = L[4 * m + 2];
+                r = new WinLine { px = X[m] + cz * c, pz = Z[m] - cx * c, ux = dir < 0 ? -cx : cx, uz = dir < 0 ? -cz : cz, len = Math.Min(dir < 0 ? runB[m] : runF[m], cap), h = L[4 * m + 3] };
+                return !(cx == 0 && cz == 0);
+            }
             void Cluster(int j, int k, double T, double big)
             {
                 double aT = Math.Abs(T);
@@ -1734,12 +1838,74 @@ namespace PSXRacing.EditorTools
                 double sc = (f - dr) * V0 / Math.Max(V0, dr);
                 if (sc > V0) Give(j, k, sc, big, KindCluster);
             }
+            // the window j..k between the approach line A (into j) and the exit line B (out of k), which turn aT between
+            // them: the net corner where they meet, the drawing's outside distance, and (up to ChordCapM) its jog - each
+            // less the lines' own spread (A.h + B.h)
+            void Between(int j, int k, double aT, double big, bool wide, WinLine A, WinLine B)
+            {
+                double w = C[k] - C[j], slop = A.h + B.h;
+                bool corner = aT > minTurn && aT < Math.PI * 0.95;
+                double ux = A.ux, uz = A.uz, wx = B.ux, wz = B.uz;
+                double den = ux * wz - uz * wx, dx = B.px - A.px, dz = B.pz - A.pz;
+                bool meet = Math.Abs(den) > 1e-9;
+                double a = meet ? (dx * wz - dz * wx) / den : 0, b = meet ? (ux * dz - uz * dx) / den : 0;
+                double vx = A.px + ux * a, vz = A.pz + uz * a;
+                // the net corner at Vc, its rounding the drawn polygon's, SIGNED: minus the overshoot where the drawing passes outside Vc
+                if (corner && meet && -a <= A.len && -b <= B.len)
+                {
+                    double dr = k > j + 1 && InsidePoly(j, k, vx, vz) ? -PathDist(j, k - 1, vx, vz, double.PositiveInfinity) : PathDist(j - 1, k, vx, vz, (w / 2) * Math.Tan(aT / 2));
+                    if (dr < pMax)
+                    {
+                        double thr = share * aT;
+                        int i0 = Reach(C, TH, j, -1, thr, cap, a), i1 = Reach(C, TH, k, 1, thr, cap, b);
+                        double f = Math.Min(Math.Min(C[j] - C[i0] + a, C[i1] - C[k] + b), cap) * aT / 8;
+                        double s = (f - dr) * V0 / Math.Max(V0, dr) - slop;
+                        if (s > V0) Give(j, k, s, big, KindHedge);
+                    }
+                }
+                // outside: the drawn vertices between j and k against the region every smooth convex transition occupies;
+                // wider than the cap, the part of it that came faster than the plan's ease
+                if (k > j + 1)
+                {
+                    List<(double x, double z)> poly;
+                    if (meet && a >= 0 && b >= 0) poly = HullOf(new List<(double x, double z)> { (A.px, A.pz), (vx, vz), (B.px, B.pz) });
+                    else
+                    {
+                        double tk = (B.px - A.px) * ux + (B.pz - A.pz) * uz, tj = (A.px - B.px) * wx + (A.pz - B.pz) * wz;
+                        poly = HullOf(new List<(double x, double z)> { (A.px, A.pz), (B.px, B.pz), (A.px + ux * tk, A.pz + uz * tk), (B.px + wx * tj, B.pz + wz * tj) });
+                    }
+                    int m = k - j + 1; var od = new double[m]; double odMax = 0;
+                    for (int i = 1; i + 1 < m; i++) { od[i] = OutsideOf(poly, X[j + i], Z[j + i]); if (od[i] > odMax) odMax = od[i]; }
+                    if (odMax - slop > V0)
+                    {
+                        if (!wide) Give(j, k, odMax - slop, big, KindOut);
+                        else
+                        {
+                            var sArc = new double[m]; for (int i = 0; i < m; i++) sArc[i] = C[j + i];
+                            double e = 0;
+                            EaseInto(sArc, od, TurningPoints(od, V0), Lf, V0, (q, x) => { if (x > e) e = x; });
+                            if (e - slop > V0) Give(j, k, e - slop, big, KindOut);
+                        }
+                    }
+                }
+                // the jog: a step between the two straights - the whole of it over a quarter of the cap or less, else the
+                // part that came faster than the plan's fastest ease
+                if (!wide)
+                {
+                    double d = JogLines(A.px, A.pz, ux, uz, B.px, B.pz, wx, wz) - slop;
+                    if (d > V0)
+                    {
+                        double e = w <= cap * share ? d : d * (1 - EaseG(w / Lf));
+                        if (e > V0) Give(j, k, e, big, KindJog);
+                    }
+                }
+            }
             void Hedged(int j, int k, double T, double big, double exc)
             {
-                double w = C[k] - C[j], aT = Math.Abs(T);
+                double w = C[k] - C[j], aT = Math.Abs(T); bool wide = w > cap;
                 bool corner = aT > minTurn && aT < Math.PI * 0.95;
                 // the net corner, rounded at most as T / 2 at each end of the window (anywhere: a lower bound)
-                if (corner)
+                if (corner && !wide)
                 {
                     double h = w / 2, dre = h * Math.Tan(aT / 2), thr = share * aT;
                     if (dre < pMax && cap * aT / 8 - dre > Math.Max(V0, dre))
@@ -1750,74 +1916,147 @@ namespace PSXRacing.EditorTools
                         if (s > V0) Give(j, k, s, big, KindHedge);
                     }
                 }
-                // between two straights (or straight on to the line's end at least w away)
-                double thrS = share * Math.Max(exc, aT), Ls = Math.Min(w / share, cap);
-                int o0 = Reach(C, TH, j, -1, thrS, cap, 0), o1 = Reach(C, TH, k, 1, thrS, cap, 0);
-                double l0 = C[j] - C[o0], l1 = C[o1] - C[k];
-                if (!((l0 >= Ls || (o0 == 0 && l0 >= w)) && (l1 >= Ls || (o1 == n - 1 && l1 >= w)))) return;
+                // between two straights
+                bool oldA = false, oldB = false, newA, newB;
+                if (wide)
                 {
-                    double ux = X[j] - X[j - 1], uz = Z[j] - Z[j - 1], wx = X[k + 1] - X[k], wz = Z[k + 1] - Z[k];
-                    double ul = Math.Sqrt(ux * ux + uz * uz), wl = Math.Sqrt(wx * wx + wz * wz);
-                    if (ul < 1e-9 || wl < 1e-9) return;
-                    ux /= ul; uz /= ul; wx /= wl; wz /= wl;
-                    double den = ux * wz - uz * wx, dx = X[k] - X[j], dz = Z[k] - Z[j];
-                    bool meet = Math.Abs(den) > 1e-9;
-                    double a = meet ? (dx * wz - dz * wx) / den : 0, b = meet ? (ux * dz - uz * dx) / den : 0;
-                    double vx = X[j] + ux * a, vz = Z[j] + uz * a;
-                    // the net corner at the drawn Vc, its rounding the drawn polygon's, SIGNED: minus the overshoot where the drawing passes outside Vc
-                    if (corner && meet && -a <= ul && -b <= wl)
-                    {
-                        double dr = k > j + 1 && InsidePoly(j, k, vx, vz) ? -PathDist(j, k - 1, vx, vz, double.PositiveInfinity) : PathDist(j - 1, k, vx, vz, (w / 2) * Math.Tan(aT / 2));
-                        if (dr < pMax)
-                        {
-                            double thr = share * aT;
-                            int i0 = Reach(C, TH, j, -1, thr, cap, a), i1 = Reach(C, TH, k, 1, thr, cap, b);
-                            double f = Math.Min(Math.Min(C[j] - C[i0] + a, C[i1] - C[k] + b), cap) * aT / 8;
-                            double s = (f - dr) * V0 / Math.Max(V0, dr);
-                            if (s > V0) Give(j, k, s, big, KindHedge);
-                        }
-                    }
-                    // outside: the drawn vertices between j and k against the region every smooth convex transition occupies
-                    if (k > j + 1)
-                    {
-                        List<(double x, double z)> poly;
-                        if (meet && a >= 0 && b >= 0) poly = HullOf(new List<(double x, double z)> { (X[j], Z[j]), (vx, vz), (X[k], Z[k]) });
-                        else
-                        {
-                            double tk = (X[k] - X[j]) * ux + (Z[k] - Z[j]) * uz, tj = (X[j] - X[k]) * wx + (Z[j] - Z[k]) * wz;
-                            poly = HullOf(new List<(double x, double z)> { (X[j], Z[j]), (X[k], Z[k]), (X[j] + ux * tk, Z[j] + uz * tk), (X[k] + wx * tj, Z[k] + wz * tj) });
-                        }
-                        double od = 0;
-                        for (int i = j + 1; i < k; i++) { double o = OutsideOf(poly, X[i], Z[i]); if (o > od) od = o; }
-                        if (od > V0) Give(j, k, od, big, KindOut);
-                    }
+                    // the whole feature: no vertex within the cap either side turns KinkNoiseShare of its largest turn
+                    double thrF = share * big;
+                    if (Math.Abs(TH[j]) < thrF || Math.Abs(TH[k]) < thrF || !Quiet(j, -1, thrF) || !Quiet(k, 1, thrF)) return;
+                    newA = true; newB = On(k) >= cap;
+                    if (!newB) return;
                 }
-                // the jog: the part of a step between the two straights that came faster than the plan's fastest ease
-                double d = JogGap(X, Z, j, k);
-                if (d > V0)
+                else
                 {
-                    double e = d * (1 - EaseG(w / Lf));
-                    if (e > V0) Give(j, k, e, big, KindJog);
+                    double Ls = Math.Min(w / share, cap), thrS = share * Math.Max(exc, aT);
+                    int o0 = Reach(C, TH, j, -1, thrS, cap, 0), o1 = Reach(C, TH, k, 1, thrS, cap, 0);
+                    oldA = C[j] - C[o0] >= Ls || o0 == 0; oldB = C[o1] - C[k] >= Ls || o1 == n - 1;
+                    newA = Back(j) >= Ls; newB = On(k) >= Ls;
+                    if (!(oldA || newA) || !(oldB || newB)) return;
+                }
+                bool haveSa = SegLine(j, -1, out var sa), haveSb = SegLine(k, 1, out var sb);
+                if (oldA && oldB && haveSa && haveSb) Between(j, k, Math.Abs(T), big, wide, sa, sb);
+                if (newA || newB)
+                {
+                    WinLine la = sa, lb = sb; bool okA = haveSa, okB = haveSb;
+                    if (newA) okA = FitLine(j, -1, out la);
+                    if (newB) okB = FitLine(k, 1, out lb);
+                    if (okA && okB) Between(j, k, Math.Abs(Math.Atan2(la.ux * lb.uz - la.uz * lb.ux, la.ux * lb.ux + la.uz * lb.uz)), big, wide, la, lb);
                 }
             }
             for (int j = 1; j + 2 < n; j++)
             {
                 if (TH[j] == 0 || Ex(j)) continue;
                 int sg = Math.Sign(TH[j]);
-                double T = TH[j], big = Math.Abs(TH[j]), bigAll = big, exc = big; bool hedge = false;
-                for (int k = j + 1; k + 1 < n && C[k] - C[j] <= cap; k++)
+                double T = TH[j], big = Math.Abs(TH[j]), bigAll = big, exc = big; bool hedge = false; int wideOk = -1;
+                for (int k = j + 1; k + 1 < n; k++)
                 {
+                    double w = C[k] - C[j];
+                    if (w > cap)
+                    {
+                        // wider windows only where the line runs within V of one straight line for the whole cap into j
+                        if (w > view) break;
+                        if (wideOk < 0) wideOk = Back(j) >= cap ? 1 : 0;
+                        if (wideOk == 0) break;
+                    }
                     if (Ex(k)) break;
                     double t = TH[k];
                     // a turn back of KinkNoiseShare of the running turn or more: no longer one cluster, a hedged window from here on
                     if (!hedge && Math.Sign(t) != sg && Math.Abs(t) >= share * Math.Abs(T)) hedge = true;
                     T += t; bigAll = Math.Max(bigAll, Math.Abs(t));
                     if (hedge) Hedged(j, k, T, bigAll, exc);
-                    else if (Math.Sign(t) == sg) { big = Math.Max(big, Math.Abs(t)); Cluster(j, k, T, big); }
+                    else if (w <= cap && Math.Sign(t) == sg) { big = Math.Max(big, Math.Abs(t)); Cluster(j, k, T, big); }
                     exc = Math.Max(exc, Math.Abs(T));
                 }
             }
+            Waves(X, Z, C, TH, share, cap, V0, eps, halfWidth, Ex, score, kd);
             return score;
+        }
+
+        /// <summary>B2's WAVE rule (lib/kink.mjs waves): lobes - runs of
+        /// significant vertices (turning KinkNoiseShare of the largest turn within
+        /// ChordCapM / 2) of one sign, consecutive ones at most ChordCapM apart;
+        /// a lobe the line leaves and enters by turning back within ChordCapM
+        /// (both neighbours turn the other way by KinkNoiseShare of its turn:
+        /// legs longer than the cap are lone corners), with such a lobe
+        /// beside it, is a wave's: its deviation from the chord of its
+        /// inflections (midway to each neighbour; over at most ChordCapM) scores,
+        /// under SimplifyEpsM (less the shrink of a lobe turning T on a line hw
+        /// off the data line: hw (1 - cos(T / 2))).</summary>
+        static void Waves(double[] X, double[] Z, double[] C, double[] TH, double share, double cap, double V0, double eps, double hw, Func<int, bool> Ex, double[] score, byte[] kd)
+        {
+            int n = C.Length;
+            var sig = new bool[n];
+            for (int m = 1; m + 1 < n; m++)
+            {
+                if (Ex(m) || TH[m] == 0) continue;
+                double big = 0;
+                for (int i = m; i > 0 && C[m] - C[i] <= cap / 2; i--) if (!Ex(i) && Math.Abs(TH[i]) > big) big = Math.Abs(TH[i]);
+                for (int i = m + 1; i + 1 < n && C[i] - C[m] <= cap / 2; i++) if (!Ex(i) && Math.Abs(TH[i]) > big) big = Math.Abs(TH[i]);
+                if (Math.Abs(TH[m]) >= share * big) sig[m] = true;
+            }
+            var LA = new List<int>(); var LB = new List<int>(); var LT = new List<double>(); var LG = new List<double>(); var LJ = new List<bool>();
+            bool broken = true;
+            for (int m = 1; m + 1 < n; m++)
+            {
+                if (Ex(m)) { broken = true; continue; }
+                if (!sig[m]) continue;
+                int q = LA.Count - 1;
+                if (q >= 0 && !broken && Math.Sign(TH[m]) == Math.Sign(LT[q]) && C[m] - C[LB[q]] <= cap)
+                {
+                    LB[q] = m; LT[q] += TH[m]; if (Math.Abs(TH[m]) > LG[q]) LG[q] = Math.Abs(TH[m]);
+                }
+                else { LJ.Add(q >= 0 && !broken && Math.Sign(TH[m]) != Math.Sign(LT[q]) && C[m] - C[LB[q]] <= cap); LA.Add(m); LB.Add(m); LT.Add(TH[m]); LG.Add(Math.Abs(TH[m])); }
+                broken = false;
+            }
+            int L = LA.Count;
+            if (L < 4) return;
+            bool TurnsBack(int t) => t > 0 && t + 1 < L && LJ[t] && LJ[t + 1] && Math.Abs(LT[t - 1]) >= share * Math.Abs(LT[t]) && Math.Abs(LT[t + 1]) >= share * Math.Abs(LT[t]);
+            (double x, double z) At(double s)
+            {
+                int lo = 0, hi = n - 1;
+                while (hi - lo > 1) { int md = (lo + hi) >> 1; if (C[md] <= s) lo = md; else hi = md; }
+                double l = C[hi] - C[lo], t = l > 1e-12 ? (s - C[lo]) / l : 0;
+                return (X[lo] + (X[hi] - X[lo]) * t, Z[lo] + (Z[hi] - Z[lo]) * t);
+            }
+            double Dev((double x, double z) p, (double x, double z) q, int lo, int hi, double sgn)
+            {
+                double cx = q.x - p.x, cz = q.z - p.z, cl = Math.Sqrt(cx * cx + cz * cz);
+                if (cl < 1e-9) return 0;
+                cx /= cl; cz /= cl;
+                double d = 0;
+                for (int v = lo; v <= hi; v++) { double e = sgn * (cx * (Z[v] - p.z) - cz * (X[v] - p.x)); if (e > d) d = e; }
+                return d;
+            }
+            for (int t = 1; t + 1 < L; t++)
+            {
+                if (!TurnsBack(t) || !(TurnsBack(t - 1) || TurnsBack(t + 1))) continue;
+                int a = LA[t], b = LB[t]; double sgn = LT[t] > 0 ? -1 : 1;
+                // the mean line: the chord of the lobe's inflections, midway between it and each neighbour
+                double s0 = (C[LB[t - 1]] + C[a]) / 2, s1 = (C[b] + C[LA[t + 1]]) / 2;
+                int lo0 = LB[t - 1] + 1, hi0 = LA[t + 1] - 1;
+                double D = Dev(At(s0), At(s1), lo0, hi0, sgn);
+                // geometry, not a wobble: the data line's lobe stands SimplifyEpsM off (this line's, less its offset's shrink)
+                if (D <= V0 || D + hw * (1 - Math.Cos(Math.Abs(LT[t]) / 2)) >= eps) continue;
+                double sc = D;
+                if (s1 - s0 > cap)
+                {
+                    // over at most ChordCapM: the worst sub-chord of the cap's length, one centred on each vertex (kept inside)
+                    sc = 0;
+                    for (int v = lo0; v <= hi0; v++)
+                    {
+                        double t0 = Math.Max(s0, Math.Min(s1 - cap, C[v] - cap / 2)), t1 = t0 + cap;
+                        int lo = lo0; while (lo <= hi0 && C[lo] <= t0) lo++;
+                        int hi = hi0; while (hi >= lo0 && C[hi] >= t1) hi--;
+                        if (lo > hi) continue;
+                        double e = Dev(At(t0), At(t1), lo, hi, sgn);
+                        if (e > sc) sc = e;
+                    }
+                }
+                if (!(sc > V0)) continue;
+                double corner = share * LG[t];
+                for (int v = a; v <= b; v++) if (Math.Abs(TH[v]) >= corner && sc > score[v]) { score[v] = sc; kd[v] = KindWave; }
+            }
         }
 
         /// <summary>B1's local model: the Kasa circle, or the least-squares line
@@ -2182,16 +2421,20 @@ namespace PSXRacing.EditorTools
                 // the ratchet keys (linegate.mjs): (way, round(s on way / KeyStepM), check, line) for EVERY bucket the run's
                 // bad samples touch, each with its own worst ratio and bad length; on a fan (way, n<node>c<corner>, check,
                 // FAN); a point run (B4, B4s, C2, C3) has its one (length 0), a gap (C1) every bucket it spans (the gap's length)
+                // (a ribbon edge's line is the side of the edge each bucket lies on: a chain runs some of its edges backwards,
+                // so one strand is RR on one edge and RL on the next; labelled by the run's worst sample, a key moved between
+                // RL and RR - vanishing from the ratchet - whenever that worst moved to an edge the chain runs the other way)
                 r.kk = new List<string>(); r.kq = new List<double>(); r.kl = new List<double>();
-                void AddKey(long bid, double v, double l)
+                void AddKey(long bid, double v, double l, char side)
                 {
-                    r.kk.Add(bid < 0 ? $"{e.wayId}:n{(-bid - 1) / 4096}c{(-bid - 1) % 4096}:{r.check}:FAN" : $"{bid / 1048576L}:{(bid % 1048576L).ToString(Inv)}:{r.check}:{r.lineId}");
+                    string line = r.kind == "edge" && (side == 'L' || side == 'R') ? "R" + side : r.lineId;
+                    r.kk.Add(bid < 0 ? $"{e.wayId}:n{(-bid - 1) / 4096}c{(-bid - 1) % 4096}:{r.check}:FAN" : $"{bid / 1048576L}:{(bid % 1048576L).ToString(Inv)}:{r.check}:{line}");
                     r.kq.Add(RatioOf(v)); r.kl.Add(l);
                 }
-                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i], r.bl[i]);
-                else if (r.check == "C1") for (long b = Bucket(r.e, Math.Min(r.s0, r.s1)); b <= Bucket(r.e, Math.Max(r.s0, r.s1)); b++) AddKey(b, r.val, r.len);
-                else AddKey(Bucket(r.e, r.s), r.val, 0);
-                r.bk = null; r.bv = null; r.bl = null;
+                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i], r.bl[i], r.bs[i]);
+                else if (r.check == "C1") for (long b = Bucket(r.e, Math.Min(r.s0, r.s1)); b <= Bucket(r.e, Math.Max(r.s0, r.s1)); b++) AddKey(b, r.val, r.len, ' ');
+                else AddKey(Bucket(r.e, r.s), r.val, 0, ' ');
+                r.bk = null; r.bv = null; r.bl = null; r.bs = null;
                 // causes: the tap's flags and the data near the worst sample
                 var causes = new List<string>();
                 double lo = r.check == "C1" ? Math.Min(r.s0, r.s1) - 1 : r.s - 1, hi = r.check == "C1" ? Math.Max(r.s0, r.s1) + 1 : r.s + 1;
@@ -2275,8 +2518,12 @@ namespace PSXRacing.EditorTools
         /// there would pass the regression that arrives with it. The way out is
         /// the explicit re-record (PSX_SMOOTH_WRITE_BASELINE=1 on a FULL run,
         /// tools\city-smooth.ps1 -WriteBaseline), which logs the BEFORE -> AFTER
-        /// numbers for its commit. A check gating looser than when the baseline
-        /// was recorded fails too, stale or not.</summary>
+        /// numbers for its commit - and is REFUSED (nothing written, FAIL) when
+        /// it would loosen the gate: the data did not move but keys vanished or
+        /// score lower, or a check state or a pinned way loosened (Loosenings;
+        /// PSX_SMOOTH_ALLOW_LOOSEN=1, -AllowLoosen, records it anyway, listed). A
+        /// check gating looser, or a way pinned less, than when the baseline was
+        /// recorded fails too, stale or not.</summary>
         static int Report(Action<string> line, Action<bool, string, object> check)
         {
             FinishRuns();
@@ -2306,7 +2553,7 @@ namespace PSXRacing.EditorTools
                                      : "A stale ratchet cannot tell a regression from the move, so this FAILS until the explicit re-record: tools\\city-smooth.ps1 -Mode FULL -WriteBaseline, which logs the before and after numbers for the commit; the comparison below is for that commit");
                 sb.AppendLine("  STALE: " + st);
                 if (writing || ReportOnly) line?.Invoke("  info smoothness baseline STALE: " + st);
-                else check?.Invoke(false, "smoothness baseline measured on today's inputs (graph, container sections, rules, road PNGs, DEM)", "STALE - " + st);
+                else check?.Invoke(false, "smoothness baseline measured on today's inputs (graph, container sections, rules, road PNGs, DEM, the gate's code)", "STALE - " + st);
             }
             if (demoted.Count > 0)
             {
@@ -2314,8 +2561,23 @@ namespace PSXRacing.EditorTools
                 if (ReportOnly) line?.Invoke("  info smoothness check states loosened since the baseline: " + string.Join(", ", demoted));
                 else check?.Invoke(false, "smoothness check states never loosen (against the baseline's)", string.Join(", ", demoted));
             }
+            bool refused = false;
             if (writing)
+            {
                 foreach (var l in BeforeAfter(sum, baseE, inputs)) { sb.AppendLine(l); line?.Invoke("  info " + l); }
+                var loose = baseE != null ? Loosenings(sum, baseE, inputs) : new List<string>();
+                bool allow = Environment.GetEnvironmentVariable("PSX_SMOOTH_ALLOW_LOOSEN") == "1";
+                if (loose.Count > 0)
+                {
+                    sb.AppendLine("LOOSENING (a re-record would loosen the gate):");
+                    foreach (var l in loose) sb.AppendLine(l);
+                    refused = !allow;
+                    string msg = refused ? "REFUSED - nothing was written: fix the gate, or re-run with -AllowLoosen for a deliberate, signed-off change and put the list in the commit"
+                                         : "recorded anyway (PSX_SMOOTH_ALLOW_LOOSEN=1): put the list in the commit";
+                    sb.AppendLine("  " + msg);
+                    check?.Invoke(!refused, "smoothness re-record loosens nothing (keys, check states, pinned ways)", string.Join("; ", loose).Trim() + " - " + msg);
+                }
+            }
             sb.AppendLine("  check          state    runs     metres   worst        x limit  data/builder   baseline");
             bool allOk = true, zeroOk = true;
             foreach (var c in SmoothRules.Checks)
@@ -2415,13 +2677,13 @@ namespace PSXRacing.EditorTools
             }
             js.Append(" ]\n}\n");
             File.WriteAllText(Path.Combine(root, "city_smooth.json"), js.ToString());
-            if (writing) WriteBaseline(sum, inputs, Path.Combine(root, "smooth_baseline.json"));
+            if (writing && !refused) WriteBaseline(sum, inputs, Path.Combine(root, "smooth_baseline.json"));
             line?.Invoke($"  smoothness gate: {analysed.Count} tiles, {runs.Count} runs, city_smooth.txt written ({Time.realtimeSinceStartup - t0:0.0} s)");
             Debug.Log("[CitySmooth] " + sb.ToString().Split('\n')[0]);
             // a ZERO check, the pin, a loosened check state or a STALE baseline fails; while re-recording (the explicit,
             // logged step) the ratchet comparisons are for the commit
             bool pinFails = SmoothRules.PinActive && pinRuns > 0;
-            return pinFails || !zeroOk || demoted.Count > 0 || (isStale && !writing) ? 1 : writing || allOk ? 0 : 1;
+            return pinFails || !zeroOk || refused || (demoted.Count > 0 && !writing) || (isStale && !writing) ? 1 : writing || allOk ? 0 : 1;
         }
 
         /// <summary>The checks gating looser now than when the entry was
@@ -2439,7 +2701,49 @@ namespace PSXRacing.EditorTools
                 if (!found) d.Add($"{kv.Key} {kv.Value} -> (removed)");
                 else if (Strict(ns) < Strict(kv.Value)) d.Add($"{kv.Key} {kv.Value} -> {ns}");
             }
+            foreach (uint w in b.pinned) if (Array.IndexOf(SmoothRules.PinnedWays, w) < 0) d.Add($"pin: way {w} dropped");
             return d;
+        }
+
+        /// <summary>What a re-record would LOOSEN (gatebase.mjs loosenings;
+        /// review 5: re-recording after a gate change dropped 763 of the city's
+        /// keys, hidden inside a total that grew): check states or pinned ways
+        /// loosened; and, when the DATA did not move (graph, container sections,
+        /// PNGs, DEM, model) - only the rules or the gate's code did - every key
+        /// that vanished or now scores lower. Only a change to the gate can do
+        /// that. An entry recorded before ribbon-edge keys took their bucket's
+        /// side (keySides) may hold a key under the edge's other side: the same
+        /// run, not a vanished key.</summary>
+        static List<string> Loosenings(Dictionary<string, Tally> sum, BaselineEntry b, Dictionary<string, string> inputs)
+        {
+            var o = new List<string>();
+            foreach (var d in Demotions(b)) o.Add("  " + d);
+            bool moved = false;
+            var keys = new SortedSet<string>(b.inputs.Keys, StringComparer.Ordinal); keys.UnionWith(inputs.Keys);
+            foreach (var k in keys)
+            {
+                if (k == "rules" || k == "code") continue;
+                b.inputs.TryGetValue(k, out var x); inputs.TryGetValue(k, out var y);
+                if (x != y) moved = true;
+            }
+            if (moved) return o;
+            foreach (var c in SmoothRules.Checks)
+            {
+                if (!sum.TryGetValue(c.id, out var s) || !b.checks.TryGetValue(c.id, out var bc) || bc.keys == null) continue;
+                var now = new Dictionary<uint, int>();
+                void Put(uint h, int q) { now[h] = now.TryGetValue(h, out int p) ? Math.Max(p, q) : q; }
+                foreach (var kv in s.keys)
+                {
+                    int q = QuantRatio(kv.Value.q);
+                    Put(Fnv1a(kv.Key), q);
+                    if (!b.keySides && (kv.Key.EndsWith(":RL") || kv.Key.EndsWith(":RR")))
+                        Put(Fnv1a(kv.Key.Substring(0, kv.Key.Length - 1) + (kv.Key.EndsWith("L") ? "R" : "L")), q);
+                }
+                int gone = 0, lower = 0;
+                foreach (var kv in bc.keys) { if (!now.TryGetValue(kv.Key, out int x)) gone++; else if (x < kv.Value.q) lower++; }
+                if (gone > 0 || lower > 0) o.Add($"  {c.id} {c.name}: {gone} keys vanished, {lower} keys score lower (the data did not move: the gate loosened)");
+            }
+            return o;
         }
 
         /// <summary>Distinct key hashes (what a baseline stores as "keys").</summary>
@@ -2483,6 +2787,10 @@ namespace PSXRacing.EditorTools
             public readonly Dictionary<string, string> inputs = new Dictionary<string, string>();
             /// <summary>Every check's gating state when recorded ("ZERO", "RATCHET", "REPORT"): none loosens.</summary>
             public readonly Dictionary<string, string> states = new Dictionary<string, string>();
+            /// <summary>The creek pin's ways when recorded: none is dropped.</summary>
+            public readonly List<uint> pinned = new List<uint>();
+            /// <summary>Recorded with a ribbon edge's keys on their bucket's side.</summary>
+            public bool keySides;
             public readonly Dictionary<string, BaselineCheck> checks = new Dictionary<string, BaselineCheck>();
         }
         const int Schema = 3;
@@ -2532,8 +2840,23 @@ namespace PSXRacing.EditorTools
             foreach (var r in SmoothRules.RMin) rs.Append("RMin.").Append(r.cls).Append('=').Append(r.r.ToString(Inv)).Append(';');
             foreach (var r in SmoothRules.CurbReturn) rs.Append("CurbReturn.").Append(r.cls).Append('=').Append(r.r.ToString(Inv)).Append(';');
             foreach (var r in SmoothRules.TaperFloor) rs.Append("TaperFloor.").Append(r.cls).Append('=').Append(r.r.ToString(Inv)).Append(';');
+            foreach (var w in SmoothRules.PinnedWays) rs.Append("PinnedWays.").Append(w.ToString(Inv)).Append(';');
             var rb = Encoding.UTF8.GetBytes(rs.ToString());
             o["rules"] = Sha12(rb, 0, rb.Length);
+            // the gate's own code (review 5: a loosening edit to the gate moved no input, so it passed its own ratchet):
+            // this file, and the tap in CityMeshes - its block and every line that records or sets what it reads
+            try
+            {
+                var code = new StringBuilder(File.ReadAllText(Path.Combine(Application.dataPath, "PSXRacing", "Editor", "CitySmooth.cs")).Replace("\r\n", "\n"));
+                string meshes = File.ReadAllText(Path.Combine(Application.dataPath, "PSXRacing", "Scripts", "City", "CityMeshes.cs")).Replace("\r\n", "\n");
+                int a = meshes.IndexOf("// ---- the smoothness gate's tap", StringComparison.Ordinal), z = a >= 0 ? meshes.IndexOf("// ---- growable buckets", a, StringComparison.Ordinal) : -1;
+                if (a >= 0 && z > a) code.Append(meshes, a, z - a);
+                foreach (var l in meshes.Split('\n'))
+                    if (System.Text.RegularExpressions.Regex.IsMatch(l, @"\btap\b|RecordTap|TapFlags|tapSlotBase|\bsq[LR]\b")) code.Append(l).Append('\n');
+                var cb = Encoding.UTF8.GetBytes(code.ToString());
+                o["code"] = Sha12(cb, 0, cb.Length);
+            }
+            catch (Exception ex) { o["code"] = "unreadable (" + ex.Message + ")"; }
             // the road PNGs (the paint runs are read out of them)
             string art = Path.Combine(Application.dataPath, "PSXRacing", "Art", "City");
             var pngs = Directory.Exists(art) ? Directory.GetFiles(art, "city_road_*.png") : new string[0];
@@ -2553,8 +2876,8 @@ namespace PSXRacing.EditorTools
             {
                 was.TryGetValue(k, out var a); now.TryGetValue(k, out var b);
                 if (a == b) continue;
-                d.Add(k == "graph" ? $"graph {a} -> {b}" : k.StartsWith("sections") ? "container section " + k.Substring(Math.Min(k.Length, 9)) : k == "rules" ? "SmoothRules.cs geometry rules"
-                    : k == "paint" ? "road PNGs" : k == "dem" ? "the DEM (charlotte_dem.bytes)" : $"{k} {a} -> {b}");
+                d.Add(k == "graph" ? $"graph {a} -> {b}" : k.StartsWith("sections") ? "container section " + k.Substring(Math.Min(k.Length, 9)) : k == "rules" ? "SmoothRules.cs geometry rules (or the pinned ways)"
+                    : k == "paint" ? "road PNGs" : k == "dem" ? "the DEM (charlotte_dem.bytes)" : k == "code" ? "the gate's code (CitySmooth.cs + the tap in CityMeshes.cs)" : $"{k} {a} -> {b}");
             }
             return d;
         }
@@ -2668,6 +2991,9 @@ namespace PSXRacing.EditorTools
                             }
                         if (ent.TryGetValue("states", out var so) && so is Dictionary<string, object> sts)
                             foreach (var st in sts) be.states[st.Key] = Convert.ToString(st.Value, Inv);
+                        if (ent.TryGetValue("pinned", out var po) && po is List<object> pl)
+                            foreach (var w in pl) be.pinned.Add(Convert.ToUInt32(w, Inv));
+                        be.keySides = ent.TryGetValue("keySides", out var ko) && ko is string ks0 && ks0 == "bucket";
                         foreach (var ck in checks)
                             if (ck.Value is Dictionary<string, object> c)
                                 be.checks[ck.Key] = new BaselineCheck
@@ -2702,7 +3028,8 @@ namespace PSXRacing.EditorTools
             for (int k = 0; k < SmoothRules.Checks.Length; k++)
                 sts.Append(k > 0 ? ", " : "").Append('"').Append(SmoothRules.Checks[k].id).Append("\": \"").Append(SmoothRules.Checks[k].state.ToString().ToUpperInvariant()).Append('"');
             sts.Append(" }");
-            sb.Append("  \"mesh\": { \"schema\": 3, \"date\": \"").Append(DateTime.UtcNow.ToString("yyyy-MM-dd", Inv)).Append("\", \"mode\": \"").Append(mode).Append("\", \"inputs\": ").Append(inp).Append(", \"states\": ").Append(sts).Append(", \"checks\": {\n");
+            sb.Append("  \"mesh\": { \"schema\": 3, \"date\": \"").Append(DateTime.UtcNow.ToString("yyyy-MM-dd", Inv)).Append("\", \"mode\": \"").Append(mode).Append("\", \"inputs\": ").Append(inp).Append(", \"states\": ").Append(sts)
+              .Append(", \"pinned\": [").Append(string.Join(", ", SmoothRules.PinnedWays)).Append("], \"keySides\": \"bucket\", \"checks\": {\n");
             int i = 0;
             foreach (var kv in sum)
             {

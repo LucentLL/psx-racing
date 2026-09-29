@@ -7,6 +7,9 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-smooth.ps1 -Mode FAST [-Band 3]
 #   powershell -ExecutionPolicy Bypass -File tools\city-smooth.ps1 -Mode SHOTS [-Spots "x,z,edge,line;..."] [-Before <dir>]
 #   add -WriteBaseline to a FULL run to record tools\city\baseline\smooth_baseline.json
+#   (REFUSED when it would loosen the gate - the data did not move but keys
+#   vanished or score lower, or a check state or a pinned way loosened; add
+#   -AllowLoosen for a deliberate, signed-off gate change, the list in the commit)
 #
 # Modes (gate spec 5.3):
 #   FAST   the city audit (CityAudit.Run) with its FAST hook: the drive and
@@ -44,6 +47,7 @@ param(
     [int]$Shots = 24,
     [switch]$NoShots,
     [switch]$WriteBaseline,
+    [switch]$AllowLoosen,
     [string]$Label = "",
     [string]$Out = "",
     [string]$Before = ""
@@ -70,6 +74,7 @@ $env:PSX_SMOOTH_BAND = if ($Band -ge 0) { "$Band" } else { $null }
 $env:PSX_SMOOTH_SPOTS = if ($Spots) { $Spots } else { $null }
 $env:PSX_SMOOTH_SHOTS = "$Shots"
 $env:PSX_SMOOTH_WRITE_BASELINE = if ($WriteBaseline) { "1" } else { $null }
+$env:PSX_SMOOTH_ALLOW_LOOSEN = if ($AllowLoosen) { "1" } else { $null }
 $env:PSX_SMOOTH_FAST = if ($Mode -eq "FAST") { "1" } else { $null }
 $runStart = Get-Date
 
@@ -130,7 +135,7 @@ if ($Mode -eq "SHOTS" -or ($Mode -eq "FULL" -and -not $NoShots)) {
     } else { $failed = $true }
 }
 
-foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_FAST")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_ALLOW_LOOSEN", "PSX_SMOOTH_FAST")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
 $report = Join-Path $proj "city_smooth.txt"
 if (-not $WriteBaseline -and (Test-Path $report) -and (Select-String -Path $report -Pattern "^  STALE:" -Quiet)) {
     # the gate logs it as a FAIL (outside a report-only cycle); say why, loudly, whatever the log held
