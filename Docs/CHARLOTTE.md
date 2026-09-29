@@ -633,6 +633,364 @@ same shots caught painted lines that look kinked on East 4th Street at
 Little Sugar Creek, Rozzelles Ferry Road and Archdale Drive (for the
 smooth-lines gate).
 
+## WP-07 (2026-09-29): the draw-call prepay, the city kit, the lamp metal
+
+Nothing new to see: this package pays for the trees, poles and signs that
+come next. Branch `charlotte-scenery`.
+
+**The city prop variants** (`Editor/CityPropBaker.cs`, run by every
+`BakeCityProps`). The streamed city stands up a cheaper copy of the four
+props that cost it the most draw calls; everything else (the Emerald Isle
+beach town, the house, town and seller scenes) keeps the full prefabs. The
+copies live in `Resources/CityProps/City`, and `CityProps.CityPrefab` hands
+them to `CityWorld` (and to `CityPreview`).
+
+| Prop | Draws before | City variant |
+|---|---|---|
+| `house_simple` | 13 | 1 |
+| `trailer_00` / `_02` / `_05` | 9 / 10 / 10 | 1 each |
+| `burger_drive` | 355 | 37 from anywhere outside it |
+| `pizzeria` | 396 | 24 from anywhere outside it |
+
+- **Houses and trailers: one atlas each family.** The pack materials TILE
+  (a wall's UVs run to 8), so a plain atlas cannot hold them. Every vertex
+  carries its texture's cell in its COLOUR (texel corner and side in a
+  256 px sheet), and PSX/Lit's `PSX_ATLAS_RECT` variant wraps the UV inside
+  the cell with `frac()`. Point-sampled with no mips, the wrap is exact. The
+  cells are the pack textures themselves, resampled from their source files
+  (64 px, the busiest one 128 px); nothing is drawn. The foundation skirt
+  is folded in. `Art/City/Props/city_house_atlas.png`,
+  `city_trailer_atlas.png`.
+- **Two traps, both caught by the first render.** Medium mesh compression
+  quantises vertex colours to SIX bits, which moved every cell off its
+  texels (black seams down every repeat): meshes that carry cells are never
+  compressed, and the bake reads the cells back off the saved asset. And
+  the pack textures ship to WebGL as RGB565 (`ReleaseBudget`), which samples
+  without the sRGB decode; an atlas left at 24-bit sRGB drew every house a
+  fifth darker. The atlas takes the same WebGL override. After both, the
+  comparison sheet (`CityPropBaker.CompareShots`,
+  `Screenshots/City/props_compare.png`, full prefab beside variant from two
+  corners) measures a brightness ratio of 1.000-1.001 on every prop, and a
+  mean per-pixel difference of 2-3 levels in 255 (the 64 px cells).
+- **The restaurants keep being places** (plan critic C1). The shell is merged
+  by material (21 and 20 materials); the door leaves keep their own
+  renderers because they swing; every piece keeps its collider (248 and 71,
+  the same count as the full prefab); the order bay is untouched. What is
+  ROOM is decided by looking: rays from 24 bearings at 1.2, 3 and 7 m and
+  from above, to each piece's bounds; a piece no ray reaches without passing
+  another piece's collider goes behind `CityPropInterior`. The city props
+  wear opaque windows, the pickup window too, so the room can be seen only
+  from inside the building or through a door standing open, and those are
+  the only two things that switch it on: the camera or the player within
+  1 m of the room's box (the room pieces' own bounds, baked as `hull`; off
+  again past 2 m), or any of the building's hinged doors off its stop
+  (checked every frame, so the room is there the frame a leaf moves; a
+  door opens for the car within 3.4 m of it).
+- **The first cut switched on by distance, and the review caught it.** It
+  drew the room whenever the car or camera was within 40 m of the lot, and
+  the probe measured in edit mode with the room baked off. Its restaurant
+  eyes were 19-32 m from the lots, so the 342 and 429 saved draws described
+  a state the game never showed there: driving past on the fronting road
+  the burger cost 307 draws against 355 and the pizzeria 392 against 396,
+  and up to 280 room pieces went back into the sun map. The probe now
+  applies the runtime rule at its eye (`CityPropInterior.Apply(eye, car)`,
+  doors included), and adds a second eye per restaurant: the chase camera
+  of a car stopped where it orders (`CityPropBaker.BayStop`: the
+  drive-thru's lane beside the menu board, the pizzeria's kerb; the
+  pizzeria's bay box is centred INSIDE the shop).
+- **Proved by rendering, not by argument.** `CompareShots` now also writes
+  `Screenshots/City/room_check.png` and renders each restaurant with the
+  room off and on, counting the pixels that change. From 32 street eyes
+  round each lot (1.2 and 3 m up, 23-27 m out) at most 4 pixels in 144,000
+  change (the burger; 0 for the pizzeria). From the bay's chase camera and
+  the driver's seat looking at the building, 0 change for both. From inside
+  the building, 18% and 83% change, so the test can see a room when there is
+  one. The rule lights none of those outside eyes.
+- `city-play-check` runs both restaurants: stopped at the bay ORDER is
+  offered and the room stays off (door shut); the camera put inside the
+  building draws it and taking it back out behind the car removes it; a car
+  pulled up to a door swings it open and the room is drawn through it; 70 m
+  off the door shuts and the room goes, with the lot still standing.
+  (Charlotte has no getting out of the car; the walk-in rooms keep their
+  colliders and doors for when it does.)
+
+**The city kit** (`Scripts/City/CityKit.cs`, `Resources/CityKit.asset`).
+Every city runtime material in one Resources asset: the 96 slot materials,
+the lamp posts, the shaders they use (so WebGL keeps them), and empty
+places for WP-08's trees (one per season dress), WP-15's furniture atlas,
+WP-17's markings and WP-23's sign faces. `CityWorld` reads it; the scenes
+no longer serialize a materials array (`CityWorld.materials` is
+`[NonSerialized]`, for tools only). `PSXRacingBuilder.EnsureCityKit`
+rewrites it from `CityMaterials()` at every city scene build and every
+city tool run. **From here a new city material is a kit change, never a
+rebake of the four city scenes.** The four were rebuilt once here with
+`tools/city-rebake.ps1` (the city scenes and the prop variants only, about
+two minutes warm; it leaves the full build's log alone).
+
+**The lamp posts** wear pack metal: the house pack's `Metal.jpg` (already
+shipped with the house), UVs a metre a repeat, tinted so the posts land on
+the dark weathered tone they had as a flat tint (worked in linear light:
+the texture is RGB565, sampled without the decode).
+
+**Measured** (`city_budget.txt`, which now runs every site twice, with the
+variants and with the full prefabs, and adds the first drive-thru and the
+first pizzeria, each from its fronting road and from its order bay; the
+room switch applied at every eye, and it draws no room at any of the four):
+
+| Site | Most draws saved in one view |
+|---|---|
+| suburb 6 km (Randolph Rd) | 88 (target 20+) |
+| Providence Rd | 93 |
+| Dilworth | 24 |
+| burger lot, from its road (22.8 m from the room) | 342 |
+| burger, stopped in the order bay (2.8 m) | 328 |
+| pizza lot, from its road (19.3 m) | 429 (target 300+) |
+| pizza, stopped at the kerb (5.2 m) | 408 |
+
+Sun-map casters at the burger lot fell from 346 to 57 (the room's pieces
+cast only while it is drawn). The busiest view in the city is unchanged
+(200 draws, uptown). Tile build p95 over the nine sites: 69.0 ms against
+WP-04's 68.4 (+1%, inside the +15% ratchet), and 68.9 ms for the same
+tiles in the same run with the full prefabs (the first measurement, taken
+with 3-4 other Unity jobs on the machine, read 75.8 against 72.9: only the
+A/B inside one run means anything while the machine is shared). The probe now
+also prints each site's prop stand-up time, with every prop instantiated once
+both ways before it starts (the variants carry the full prefabs' own
+meshes and colliders, so whichever pass ran first paid their first load and
+MeshCollider cook): a restaurant lot 10.5 / 12.7 ms with the variants
+against 9.2 / 13.7 ms (burger / pizza lot, within the run's noise); 25
+suburb houses 5.4 against 2.0 ms (about 0.1 ms a house, left for now). Map heap 18.3 MB (18.2 at WP-04). WebGL.data 81.40 -> 81.67 MiB
+(+0.27, the package's budget 0.3).
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city` after a full scene build, GUID audit OK, served
+from 127.0.0.1): FREE ROAM CHARLOTTE loads (`[City] parsed in 116 ms,
+elevation solved in 470 ms`, `buildings placed: 5625 (+10 restaurants ...)`),
+no console errors, no missing-kit or missing-variant warning; the build log
+shows PSX/Lit compiled for gles3 with both variants (plain and
+`PSX_ATLAS_RECT`).
+
+**A sandbox trap met on the way.** 221 of the committed `.mat.meta` files in
+`Materials` have no `.mat` beside them (the scene build makes those), so every
+sandbox mints its own GUIDs for them. Copying `Materials` from a fresh
+worktree (every mtime new, so `/XO` lets it all through) put the source's
+GUIDs back over 219 of them and broke every prefab and scene that used them;
+`city-rebake.ps1` does not copy `Materials`, and a full scene build puts a
+sandbox right.
+
+## WP-08 (2026-09-29, release R3): the trees
+
+The owner, after driving it: "its all so barren and flat". The city had not
+one tree; now each 256 m tile plants the trees the present-day canopy map
+says it has, a typical tile 150-300 and a wooded one 400. Branch
+`charlotte-scenery`.
+
+**The canopy map** (`Resources/charlotte_canopy.bytes`, PCAN v1, its own file
+so the lines release can re-export the road data without touching it). The
+USDA Forest Service's NLCD Tree Canopy Cover, v2025.6, the 2024 layer (the
+owner's PRESENT DAY; public domain, credited on the CREDITS page and in
+`LICENSES.txt`). `tools/city/fetch/fetch_canopy.mjs` asks the USFS image
+service on the Interagency Imagery Portal for exactly that raster over the DEM
+box, in its own Albers projection and pixel lattice, uncompressed, and caches
+it (4.4 MB, gitignored). `tools/city/canopy.mjs` averages it onto the DEM's
+own 60 m lattice (4 x 4 samples a cell, `lib/canopygrid.mjs` projects each to
+Albers, checked against the ArcGIS geometry service to 0.9 m) and stores it in
+4-point steps: 743 KB raw, **393 KB Brotli** (536 KB in whole percent).
+`--check` rebuilds it byte for byte. The box averages 39.8% canopy, the 8 km
+core 23.8%, the square kilometre round uptown 5.1%. `CityCanopy` reads it.
+
+**What is already beside the road** (`Scripts/City/RoadsideOccupancy.cs`): a
+2 m mask per tile, built once, that every roadside object asks before it
+stands (the plan's one occupancy mask; poles and signs take their places from
+it in later packages). It reserves the pavement and the clear zone past it
+(freeway 9 m, trunk 6, arterial 3.5, collector 2.5, local 2, a ramp 4.5), each
+junction's fan, at every corner of a real junction a sight triangle with 10 m
+legs along the two kerb lines and a furniture spot behind the corner, the
+real footprints, the procedural and prop lots (a restaurant's with 10 m of
+lane, bay and parking round it: the first plant put a trunk in the
+pizzeria's order bay, which the budget probe's bay camera found), the fill
+houses, the lamp feet, creeks and lakes, and the ground under every deck.
+Every mark is widened by half a cell's diagonal, so any point of a free cell
+is clear. **The road's edges are read in one place**, `RoadEdgeAt` (the
+centreline and drawn half width at an arc position): the lines release
+replaces that one body, and everything placed from the mask re-seats with
+the lines. 1.0 ms a tile in the editor.
+
+**The trees** (`Scripts/City/CityTrees.cs`). Each 16 m square of a tile
+plants canopy x 256 m2 / 95 m2 (the plan's crown) trees on the free cells of
+the mask, never two trunks within 6 m; what the road squares cannot plant is
+planted in a second pass on free ground within 14 m of a carriageway (the
+canopy the map shows over a street is the crowns of the trees beside it);
+along every grounded freeway two rows of hardwoods stand just past the clear
+zone where the canopy map has woods, a tree every 7 m, out of the share of
+the square they stand in (the tree walls). Every choice is a hash of the
+square's (or the freeway station's) global index, and a square belongs to one
+tile: the same trees on every build, none twice across a seam, and nothing
+depends on which tile was built first. Species by place: willow-oak rows in
+the old city (inside 4.5 km of uptown), 45% pine in the suburbs past it,
+crape myrtles along the commercial arterials, sycamores by the creeks, now
+and then a bare one. They wear the stage forest's five season atlases (the
+owner's CC0 retro tree pack, already shipped: 0 MB), one material per dress
+in the city kit, chosen by the calendar. Broadleaf 11.5-16 m (a crown of
+about 118 m2: at 95 m2 the crowns, which overlap where they are planted at
+random, drew 5-7 points less canopy along the roads than the map has), pines
+15-22 m. Two crossed cards a tree, one mesh a tile on the Foliage layer: one
+draw and one sun-map caster a tile. Phones plant 60% (the owner's lower
+tier, `Application.isMobilePlatform`).
+
+**No leaves in a lane.** A third of the billboards paint foliage to the
+ground. The kit measures each atlas cell off the five PNGs (how far the
+painted tree reaches out from its trunk below each twentieth of its height,
+the widest of the dresses), and a tree whose card could reach a road is
+turned to 45 degrees to it and grown, shrunk or given another billboard of
+its species until what it paints below 4.2 m over EVERY road near it stays
+0.4 m off the pavement; failing that it is stood back by as much. The first
+version trusted the stage forest's "foliage starts at 28% of the height" and
+the first shot of Dilworth Road put an orange maple across the lane at eye
+height.
+
+**Big trunks stop cars; small trees break away** (Q15: the plan's default,
+which the owner kept - trunks of 30 cm and up solid, small trees breakaway).
+A tree's trunk diameter comes from its height (an open-grown hardwood about
+4 cm a metre less 15, a pine grown in a stand 2.5 cm a metre less 12: a 12 m
+willow oak 33 cm, a 15 m pine 26 cm); crape myrtles (a clump of thin stems),
+dead snags and the young understory trees break away whatever their height.
+A trunk of 30 cm or more within 25 m of a carriageway is solid, and goes to
+the city's trunk table, `CityWorld.Trunks` (the plan's
+`TreeTrunks.AddTable/RemoveTable`): each tile hands its trunks over when its
+trees are planted and takes them back when it is dropped, and the table
+stands a capsule (4 m tall, radius off the card, on objects named
+`TreeTrunk`) only in the 40 m cells round each car, one cell a physics step,
+exactly as a stage forest's. A tile build stands no trunk collider at all.
+
+**Not in race run-off** (`Scripts/City/RaceRunOff.cs`, plan section 5).
+Along the Uptown Loop, Tryon and Independence routes the mask keeps 8 m
+past the drawn edge clear on both sides, and 16 m on the outside of every
+bend (the heading turning 12 degrees or more over 32 m), worked out once
+from the routes' edge chains with the half width read through `RoadEdgeAt`,
+and marked as clear zone. An arterial's own clear zone (3.5 m) is sized for
+a driver at the limit, not a racing car running wide.
+
+**On a frame of their own** (WP-09's third stage, for the trees only). A
+tile's trees are not planted in its build: `EnsureTile` queues them with the
+lattice its build cached (`CityMeshes.TakeLattice/PutLattice`, so they stand
+on the same triangles without GroundY at every corner again, which doubled
+the planting), and `CityWorld.Update` plants the nearest waiting tile on a
+frame that built no tile. A tile a car is in plants at once, and
+`EnsureRing` (spawns, race grids, the tools) plants its ring before it
+returns. The FPS overlay's CITY line counts a tree frame like a tile build.
+
+**Checked:**
+
+- **TreeAudit** (in `CityAudit`, and alone as `CityAudit.RunTrees`, about a
+  minute): 514 tiles (the plan's shot spots with their neighbours and every
+  9th tile of the network), 126,257 trees. Against the geometry measured
+  again, not the mask: 0 trunks on pavement, in a clear zone, in a fan, in a
+  building, lot or fill house, in water, under a deck or on a reserved cell;
+  0 cards painting leaves over a road below 4.2 m; 0 outside the tile that
+  planted them; the same trees on a second build. Planted against what the
+  canopy asks: median 1.00, 483 of 490 tiles within +-20% (the lowest, 0.46,
+  a tile that is mostly water). Canopy within 25 m of the centreline by
+  class, the crowns against the 30 m map over exactly the audit's sample
+  points (`canopy.mjs` prints the truth table): secondary 9.8% against 13.0,
+  motorway 11.4 / 14.9, core arterials 6.2 / 8.1, core residential 28.8 /
+  31.0, every one within the plan's 5 points. (The shipped 60 m grid reads
+  15.2 / 23.9 / 8.9 / 31.4 at the same points: its cells smear the woods
+  beside a freeway over the freeway.)
+  After the review: 614 tiles (the 514 and the 100 tiles the three race
+  routes run through), 136,186 trees; 0 in a route's run-off (measured
+  against the route marks); Q15 holds for every tree (11,239 solid: oak
+  5,093, hardwood 3,946, pine 1,945, sycamore 255; no crape myrtle or snag;
+  3,783 within reach of a road break away); the canopy bands unchanged
+  (9.9 / 11.4 / 6.2 / 28.9 against 13.0 / 14.9 / 8.1 / 31.0).
+- **city-play-check** drives the real car at the trunks nearest Queens Road
+  West in Myers Park, dead on and 0.9 m to the side at 50 km/h: all eight
+  runs stop the car (it arrives at 52-53 km/h and leaves at 0-10), none
+  with the trunk inside its body. "Inside" is judged against the car's own
+  collider (a 1.45 x 1.02 x 3.20 m box), which the check now reads off the
+  car: the stage harness's generic 4.1 m box put the two thinnest trunks
+  "inside" a nose the car does not have. The first runs found a trunk in
+  the pizzeria's order bay (hence the lot margin) and the run-up raycast
+  starting under the city's ground (world y is 97 m ASL down). Since the
+  review it takes its trunks from the table and checks each was stood once
+  the car was beside it: 8 of 8 stopped (52-53 km/h in, 0-10 out), 52
+  capsules standing round the car where 123 solid trunks are within 150 m.
+- **race-play-check on the three city routes** (review; G-play): 5 seeds a
+  route, each raced with the trees and without (`-Venues ... -Seeds 0,1,2,3,4
+  -Trees ab`, 30 races of 150 s in one launch, about 75 minutes). **No car
+  hit a tree trunk in any of the 30** (hits into `TreeTrunk` counted from
+  6 m/s). Rivals retired, trees on against off: Uptown Loop 7 / 8, Tryon
+  13 / 11, Independence 5 / 5, all 25 / 24 of 45 starts. The two runs of a
+  seed are identical until something differs in frame timing (a tree frame
+  shifts what the traffic draws), then diverge: Tryon's two extra were a
+  rival into traffic at 77 s and, in seed 4, a different chain after a car
+  contact at 18 s - neither near a tree. What does retire them is older than
+  the trees: 62 hard hits into other racers, 57 into traffic (most in the
+  first 30 s: C18's grid clearance), 33 into lamp posts on Tryon (poles in
+  race run-off: plan section 5, the lamps' own package), 5 into barriers.
+  19 of the 30 races fail the check's own "at most one rival retires",
+  with trees and without alike.
+- The DRIVE AUDIT's five zeros and the roadside audit's zeros are unchanged
+  (the trees are not in the tiles the drive audit stands up; they stand on
+  their own in EnsureTile).
+- Reference spots against WP-07 (`Screenshots/City/ref_wp08`), and the
+  trees in all five dresses at three spots (`Screenshots/City/trees`,
+  `CityRefSpots.RunTreeDresses`).
+
+**Measured** (`city_budget.txt`; its A/B builds each site with trees and
+then without, back to back).
+
+The first version planted the trees and stood their capsules inside the tile
+build: the trees' own share of a tile was 2.6-4.9 ms at p95 by site, and
+8.0-11.2 ms in the old city (Tryon, Dilworth, Plaza Midwood), about 3 ms of
+it `AddComponent<CapsuleCollider>`, against the plan's +1.5 ms. Its headline
+"tile p95 81.8 -> 82.1 ms" was one of three noisy A/B runs (the others read
++14% and +24%), and the baseline was moved from WP-07's 69.0 ms to 82.1 on
+it. The review's answer:
+
+| | with trees | without (same run) |
+|---|---|---|
+| tile build, all 225 tiles | p50 23.3, p95 73.2 ms | p50 23.8, p95 78.8 ms |
+| the trees' own frame, all tiles | p50 2.1, p95 4.9, max 13.6 ms | - |
+| the trees' own frame, p95 by site | 2.3-3.3 ms (freeways, suburbs, the restaurant lots); 4.6-4.8 (uptown, Tryon); 5.5-6.5 (Dilworth, Plaza Midwood) | - |
+| draws in a view | +7 to +12 (one a tile in view; the most at Plaza Midwood) | - |
+| sun-map casters in the ring | +25 (one a tile) | - |
+| colliders on the tiles | +0 (the table stands the trunks round the cars: 52 capsules at Myers Park, where 123 solid trunks are within 150 m) | - |
+| worst view | 209 draws (uptown) | 200 |
+
+The tile build no longer carries the trees at all (same code with and
+without: the 5.6 ms between the columns is the machine, shared with other
+Unity jobs), so the plan's "tile p95 +1.5 ms at most" holds by construction,
+and the tile-build ratchet stays WP-07's 69.0 ms. The trees cost a frame of
+their own, never the same frame as a tile build, at 5.5-6.5 ms at p95 in the
+old city: the planting was also cut (the fit test stops at the first road a
+card would hang over and skips a road the leaves cannot reach, the kit's
+table is read once a tile, the second pass looks only 14 m for a road, the
+normals are handed over): at Dilworth planting went from 7.2 to 5.3 ms at
+p95, and the trees' whole cost from 10.3 to 5.5. The in-view
+draws are past the plan's +10% ratchet at the sparser sites (Beatties Ford
+27 -> 36), which WP-07's prepay was for (88 draws saved in a suburb view,
+300+ at a restaurant). The phone reading (FPS overlay CITY line at Queens
+Road West, critic C30) is the owner's to take; the line now counts tree
+frames too.
+
+**Size.** `charlotte_canopy.bytes` +393 KB Brotli (the plan's 0.3-0.5 MB);
+the tree materials are 5 small .mat files over atlases the stages already
+ship (the Build Report lists each `TreeAtlas*.png` once: not stored twice,
+critic C34). `charlotte_city.bytes` changes only in its attribution (the
+USFS credit line; every other section byte-identical). WebGL.data 81.67 ->
+82.25 MiB (+0.58: the canopy grid as Unity compresses it, and the code),
+the largest file 82.25 MiB, under the 95 MiB ratchet (`size-ledger.py` now
+counts the canopy file with the rest of Charlotte's data).
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city`, BUILD OK, GUID audit OK), served from
+127.0.0.1: a new career on 1 January (the SNOW dress), out of the drive to
+the end of the street, FREE ROAM CHARLOTTE loads (`[City] parsed in 108 ms,
+elevation solved in 365 ms`), no console errors and no missing-canopy or
+missing-kit warning, and the trees stand along South Tryon in their snow
+dress. The CREDITS page shows the USFS line without clipping.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

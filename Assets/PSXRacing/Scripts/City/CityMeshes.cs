@@ -359,6 +359,10 @@ namespace PSXRacing.City
             public readonly List<(int edge, int side, float s0, float s1)> vergeSpans = new List<(int, int, float, float)>();
             public readonly List<(Vector3 a, Vector3 b, Vector3 forward, bool elevated)> goreNoses = new List<(Vector3, Vector3, Vector3, bool)>();
             public float vergeMetres, railMetres;
+            /// <summary>The fill houses BuildHouses stood (world plan: centre,
+            /// unit long axis, half extents), for the roadside occupancy mask
+            /// (WP-08): a tree must not grow through one.</summary>
+            public readonly List<(Vector2 c, Vector2 u, float hu, float hv)> houseBoxes = new List<(Vector2, Vector2, float, float)>();
         }
 
         // ---- growable buckets, one per slot, reused across tiles ----------
@@ -886,7 +890,13 @@ namespace PSXRacing.City
         //  the surface a verge has to cross.
         // ------------------------------------------------------------------
         const float LatticeCell = TileSize / GroundRes;
-        static readonly Dictionary<long, float> latticeCache = new Dictionary<long, float>(4096);
+        static Dictionary<long, float> latticeCache = new Dictionary<long, float>(4096);
+        /// <summary>WP-08: hand over the lattice the last tile build cached (a
+        /// fresh one takes its place), and put one back - so the trees, planted
+        /// on a later frame, stand on their tile's lattice without recomputing
+        /// GroundY at every corner.</summary>
+        public static Dictionary<long, float> TakeLattice() { var d = latticeCache; latticeCache = new Dictionary<long, float>(4096); return d; }
+        public static void PutLattice(Dictionary<long, float> d) { if (d != null) latticeCache = d; }
         static readonly Dictionary<long, bool> pavedCache = new Dictionary<long, bool>(1024);
         static long LatticeKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;
 
@@ -2466,10 +2476,10 @@ namespace PSXRacing.City
         /// <summary>A box from its centre and three half-axis vectors, every
         /// face facing out (Bucket.Face decides the winding), less the faces
         /// in <paramref name="skip"/>. Four vertices a face, so the normals
-        /// come out flat.</summary>
+        /// come out flat. UVs in metres (WP-07): the posts wear the owner's
+        /// pack metal now, one repeat a metre, where they were a flat tint.</summary>
         static void EmitLampBox(Vector3 c, Vector3 ax, Vector3 ay, Vector3 az, int skip)
         {
-            var uv = Vector2.zero;
             for (int f = 0; f < 6; f++)
             {
                 if ((skip & (1 << f)) != 0) continue;
@@ -2478,7 +2488,9 @@ namespace PSXRacing.City
                 Vector3 v = f < 4 ? az : ay;
                 if ((f & 1) != 0) nrm = -nrm;
                 var q = c + nrm;
-                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm, uv, uv, uv, uv);
+                float lu = 2f * u.magnitude, lv = 2f * v.magnitude;
+                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm,
+                    new Vector2(lu, lv), new Vector2(lu, 0f), Vector2.zero, new Vector2(0f, lv));
             }
         }
 
@@ -7294,6 +7306,7 @@ namespace PSXRacing.City
                     float y0 = g - BuildingSink;
                     EmitGableHouse(tm, c, u, hu, hv, y0, y0 + BuildingSink + eaveH, y0 + BuildingSink + eaveH + riseH, Slot.FacadeHouse);
                     tm.houseCount++;
+                    tm.houseBoxes.Add((c, u, hu, hv));
                 }
         }
 

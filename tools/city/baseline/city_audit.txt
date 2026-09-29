@@ -193,7 +193,27 @@ terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-ce
   ok  cut (retaining) walls: at most +20% on WP-04's baseline (terrain fidelity) — 1071 m vs 1340 m on the roadside tiles
     decks over water: 560 spans judged; soffit under 1 m above the water 1, under the water 0; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792 (WP-25 asks >= 1 m); the solve lifted 12 spans to clear their water by 1.0 m, the most by 3.11 m
   ok  no water stands above a deck's soffit (terrain fidelity) — 0 of 560 spans; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792
-budget: 225 tiles at 9 sites, tile build p50 21.3 / p95 69.3 / max 157.3 ms (editor), worst view 200 draws (trade_tryon)
+tree audit (WP-08): canopy 2024 grid loaded
+  ok  the canopy grid (charlotte_canopy.bytes) loads
+  ok  the city kit holds a tree material per season dress and the atlas's low-foliage table
+    614 tiles, 136186 trees (11239 with a trunk collider), 7 tiles with none; per tile p50 227 p90 400 max 417; plant 2.2 ms a tile (the mask 1.2; max 36.7); grown for the overhang 4, shrunk 1269; in freeway tree walls 834
+    candidates refused: pavement 42903, clear zone 19912, sight triangle 126, building 30144, water 24200, under a deck 462, lot or lamp 203, card over the road too low 8, too close to another tree 105730
+  ok  the city plants trees (tree audit) — 136186
+  ok  no trunk on pavement, in a clear zone or fan, a building or lot, water, under a deck, or on a reserved cell; no low leaves over a road (tree audit) — 0
+  ok  every tree stands in the tile that planted it: none doubled across a seam (tree audit) — 0
+  ok  a tile plants the same trees every build (tree audit)
+    race run-off (RaceRunOff: 8 m past the edge along the routes, 16 m on the outside of bends): 133 tiles; 100 route tiles audited besides the 514 above
+  ok  no tree in the city race routes' run-off (tree audit) — 0
+    Q15: 11239 solid (a trunk of 30 cm or more within 25 m of a road: oak 5093, hardwood 3946, pine 1945, sycamore 255), 3783 within reach that break away (crape myrtles, snags, young trees, thin trunks)
+  ok  Q15: only trunks of 30 cm or more are solid; crape myrtles, snags and young trees break away (tree audit) — 0
+    planted / what the canopy asks, 575 tiles asking 20+: median 1.00, 565 within +-20%; lowest 0.46 (30 of 66 at tile -39,77 (spread))
+  ok  the planted count per tile matches the canopy map (median within +-20%) (tree audit) — median 1.00, 565 of 575 tiles within +-20%
+  ok  canopy within 25 m of the centreline, secondary: the crowns within 5 points of the canopy map (tree audit) — crowns 9.9%, the 30 m map 13.0% (23746 points; here 23746), the shipped 60 m grid 15.2%
+  ok  canopy within 25 m of the centreline, motorway: the crowns within 5 points of the canopy map (tree audit) — crowns 11.4%, the 30 m map 14.9% (10739 points; here 10739), the shipped 60 m grid 23.9%
+  ok  canopy within 25 m of the centreline, core arterials: the crowns within 5 points of the canopy map (tree audit) — crowns 6.2%, the 30 m map 8.1% (12997 points; here 12997), the shipped 60 m grid 8.9%
+  ok  canopy within 25 m of the centreline, core residential: the crowns within 5 points of the canopy map (tree audit) — crowns 28.9%, the 30 m map 31.0% (23608 points; here 23608), the shipped 60 m grid 31.4%
+budget: 225 tiles at 9 sites, tile build p50 20.3 / p95 69.0 / max 149.7 ms (editor; WP-07's, kept as the ratchet: WP-08 adds nothing to a tile build - this run read p95 73.2 with trees and 78.8 without, the same code path), worst view 209 draws (trade_tryon)
+budget: WP-08 trees - at most +12 draws in one view (plaza_midwood; one per tile in view); tile build p95 78.8 (no trees) / 73.2 (trees) ms on the same tiles; trees on a frame of their own, p95 4.9 / max 13.6 ms
 budget: spawn road y (m above the datum) trade_tryon 134.423, providence 116.583, i77_north 134.315, beatties_ford 144.019, tryon_start 130.193, dilworth 102.789, plaza_midwood 126.532, i485_south 119.308, suburb_6km 124.781
-budget: parse 173 ms + solve 990 ms, map heap 18.2 MB (+1.4 MB DEM)
+budget: parse 180 ms + solve 1073 ms, map heap 18.4 MB (+1.4 MB DEM)
 CITY AUDIT OK

@@ -132,5 +132,47 @@ namespace PSXRacing.City
             cache[kind] = go;
             return go;
         }
+
+        // ---- the city variants (Charlotte WP-07) ------------------------
+        //
+        // The streamed city stands up a CHEAPER copy of the props that cost
+        // it the most draw calls: the house (13 draws) and the trailers (9)
+        // as one atlased mesh each, the two restaurants (about 350 and 400)
+        // as a merged shell with the room drawn only from inside the building
+        // or through an open door (CityPropInterior). Baked by CityPropBaker
+        // beside the full prefabs.
+        // Everywhere else - the Emerald Isle beach town, the house and town
+        // scenes, which build from the FBXs or the full prefabs - is as it was.
+
+        /// <summary>Resources folder of the city variants.</summary>
+        public const string CityVariantDir = "CityProps/City/";
+
+        /// <summary>The kinds that have a city variant.</summary>
+        public static bool HasCityVariant(byte kind) =>
+            kind == House || (kind >= Trailer0 && kind <= Trailer2) || IsFood(kind);
+
+        /// <summary>The budget probe's A/B switch: false stands the full
+        /// prefabs up in the city, as before WP-07.</summary>
+        public static bool UseCityVariants = true;
+
+        static readonly Dictionary<byte, GameObject> cityCache = new Dictionary<byte, GameObject>();
+
+        /// <summary>What a streamed city tile instantiates for a lot: the
+        /// city variant where one exists, else (or when it is missing, said
+        /// once) the full prefab.</summary>
+        public static GameObject CityPrefab(byte kind)
+        {
+            if (!UseCityVariants || !HasCityVariant(kind)) return Prefab(kind);
+            if (!cityCache.TryGetValue(kind, out var go))
+            {
+                if (!Defs.TryGetValue(kind, out var def)) return null;
+                go = Resources.Load<GameObject>(CityVariantDir + System.IO.Path.GetFileName(def.res));
+                if (go == null && warned.Add((byte)(kind | 0x80)))
+                    Debug.LogWarning("[City] city prop variant missing: " + CityVariantDir + System.IO.Path.GetFileName(def.res) +
+                                     " - the full prefab stands in (run the scene build to bake the variants).");
+                cityCache[kind] = go;
+            }
+            return go != null ? go : Prefab(kind);
+        }
     }
 }

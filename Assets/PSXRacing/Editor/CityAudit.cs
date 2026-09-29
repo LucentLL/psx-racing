@@ -23,7 +23,7 @@ namespace PSXRacing.EditorTools
     /// Menu: PSX Racing/Audit City. Headless: -executeMethod
     /// PSXRacing.EditorTools.CityAudit.Run (writes city_audit.txt at root).
     /// </summary>
-    public static class CityAudit
+    public static partial class CityAudit
     {
         static StringBuilder outLog;
         static int failures;
@@ -366,6 +366,7 @@ namespace PSXRacing.EditorTools
             fanMouths = null;
             LampAudit(map, trims, buildings);
             TerrainFidelity(map);
+            TreeAudit(map, trims, buildings);
 
             // ---- the budget (WP-01): nine sites through CityWorld's own
             // path; city_budget.txt holds the table, the audit its summary.

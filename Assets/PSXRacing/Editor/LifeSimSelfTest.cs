@@ -1494,6 +1494,37 @@ namespace PSXRacing.EditorTools
             }
             Check(missing == 0, "every CityProps row baked a prefab", missing + " missing");
 
+            // The streamed city's cheap copies (WP-07): baked, as cheap as
+            // they claim, and the restaurants still places - bay, room, doors.
+            foreach (var kv in PSXRacing.City.CityProps.Defs)
+            {
+                if (!PSXRacing.City.CityProps.HasCityVariant(kv.Key)) continue;
+                string name = System.IO.Path.GetFileName(kv.Value.res);
+                var v = AssetDatabase.LoadAssetAtPath<GameObject>(CityPropBaker.OutDir + "/" + name + ".prefab");
+                Check(v != null, "the city variant of " + name + " is baked");
+                if (v == null) continue;
+                int draws = CityPropBaker.DrawsOf(v);
+                if (PSXRacing.City.CityProps.IsFood(kv.Key))
+                {
+                    Check(v.GetComponentInChildren<DriveThru>(true) != null, name + " (city) keeps its order bay");
+                    var room = v.GetComponent<PSXRacing.City.CityPropInterior>();
+                    Check(room != null && room.interior != null && room.interior.Length > 50,
+                          name + " (city) keeps its room behind the switch", room != null && room.interior != null ? room.interior.Length + " renderers" : "none");
+                    // the switch draws the room only from inside its hull, so
+                    // a hull left unbaked (zero size) would hide it for good
+                    Check(room != null && room.hull.size.x > 3f && room.hull.size.z > 3f && room.hull.size.y > 1.5f,
+                          name + " (city) has its room's hull baked (the switch's inside test)",
+                          room != null ? room.hull.size.ToString("0.0") : "none");
+                    Check(v.GetComponentsInChildren<SwingDoor>(true).Length > 0, name + " (city) keeps its doors on hinges");
+                    Check(draws <= 40, name + " (city) costs a few dozen draws at most from the street", draws);
+                }
+                else
+                {
+                    Check(v.GetComponentInChildren<Collider>(true) != null, name + " (city) is solid to a car");
+                    Check(draws <= 2, name + " (city) is one or two draws", draws);
+                }
+            }
+
             // The restaurants are the only props the player goes LOOKING for,
             // and the placement gates (four lanes, 1.2-9.5 km from uptown,
             // 1.5 km apart, off a ramp, out of the water) are strict enough

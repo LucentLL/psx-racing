@@ -111,12 +111,16 @@ namespace PSXRacing.EditorTools
             }
 
             // ---- the streamed world --------------------------------------
+            // No materials on the component (WP-07): CityWorld reads them
+            // from the CityKit in Resources, written here for all four
+            // scenes, so the next city material is a kit change and not a
+            // rebake of every city scene.
             var worldGO = new GameObject("CityWorld");
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
-            world.materials = CityMaterials();
+            var kit = EnsureCityKit();
             RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
-                                   world.materials[(int)CityMeshes.Slot.Ground], Color.white, "grass");
+                                   kit.MaterialFor(CityMeshes.Slot.Ground), Color.white, "grass");
 
             // RaceManager + applier when there is a path, the free-roam
             // session GO otherwise — BuildCameraAndHUD makes that call.
@@ -164,6 +168,174 @@ namespace PSXRacing.EditorTools
             EnsureCityArt();
             AssetDatabase.Refresh();
             ConfigureTextureImporters();
+            EnsureCityKit();
+        }
+
+        // ------------------------------------------------------------------
+        //  THE CITY KIT (WP-07): every city material in one Resources asset.
+        // ------------------------------------------------------------------
+        const string CityKitPath = Root + "/Resources/" + CityKit.ResourcePath + ".asset";
+
+        /// <summary>The street-lamp posts' pack metal: the house pack's
+        /// Metal.jpg (a weathered galvanised grey that already ships with
+        /// the house props, so it costs no download), tinted down to the
+        /// dark weathered steel the untextured posts were. The sums, in the
+        /// linear light the shader works in: the old tint (0.30, 0.31, 0.33)
+        /// is (0.073, 0.078, 0.089); the texture ships as RGB565
+        /// (ReleaseBudget), which is sampled WITHOUT the sRGB decode, so its
+        /// mean (0.50, 0.51, 0.48) arrives as it stands; the tint that lands
+        /// on the old tone is therefore (0.146, 0.154, 0.184) linear, which
+        /// is written here as the colour it is authored in, (0.42, 0.43, 0.46).</summary>
+        internal static Material CityLampPostMat() =>
+            MakeMat("CityLampPost", LifeSimArtDir + "/House/Textures/Metal.jpg",
+                    tint: new Color(0.42f, 0.43f, 0.46f), affine: 0f);
+
+        /// <summary>
+        /// The city's trees (WP-08), one material per season dress in
+        /// <see cref="Seasons"/> order: the stage forest's five atlases
+        /// (Art/BRP/Gen, the owner's CC0 retro tree pack composed with every
+        /// billboard's painted trunk under the crossing of its cards), so they
+        /// cost the city no new texture. Cut out at 0.5 and drawn both sides,
+        /// like the forest (one winding per card; PSX/Lit's _Cull 0 flips the
+        /// normal to the eye). CityTrees.MaterialFor picks the day's.
+        /// </summary>
+        internal static Material[] CityTreeMats()
+        {
+            var mats = new Material[Seasons.DressCount];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                bool fall = d == (int)Season.Fall;
+                string tex = Root + "/Art/BRP/Gen/TreeAtlas" + (fall ? "" : "_" + DressSuffix[d]) + ".png";
+                mats[d] = MakeMat("CityTrees" + (fall ? "" : "_" + DressSuffix[d]), tex, cutoff: 0.5f, twoSided: true);
+            }
+            return mats;
+        }
+
+        /// <summary>
+        /// How far each atlas cell's painted tree reaches out from its trunk
+        /// below each twentieth of its height, as a fraction of the card's
+        /// width, the widest of the five dresses (a tree is planted once and
+        /// wears all five): [cell * 21 + level], level L covering the rows
+        /// under L/20 of the height. CityTrees keeps a card's low foliage off
+        /// the pavement with it. The composer slides every billboard's painted
+        /// trunk to the cell's middle column (TreeKit.CentreOnTrunk), so the
+        /// middle is where the trunk is. Read off the atlas PNGs; nothing drawn.
+        /// </summary>
+        internal static float[] CityTreeLowReach()
+        {
+            const int cell = 128, levels = CityTrees.ReachLevels;
+            var reach = new float[16 * levels];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                bool fall = d == (int)Season.Fall;
+                string path = ProjectRootPath(Root + "/Art/BRP/Gen/TreeAtlas" + (fall ? "" : "_" + DressSuffix[d]) + ".png");
+                if (!File.Exists(path)) { Log("WARN: tree atlas missing " + path); continue; }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                tex.LoadImage(File.ReadAllBytes(path));
+                var px = tex.GetPixels32();   // bottom-up rows, as the UVs read it
+                int W = tex.width;
+                UnityEngine.Object.DestroyImmediate(tex);
+                var cum = new float[cell];
+                for (int c = 0; c < 16; c++)
+                {
+                    int x0 = (c % 4) * cell, y0 = (c / 4) * cell;
+                    float run = 0f;
+                    for (int y = 0; y < cell; y++)
+                    {
+                        for (int x = 0; x < cell; x++)
+                            if (px[(y0 + y) * W + x0 + x].a > 127) run = Mathf.Max(run, Mathf.Abs(x + 0.5f - cell * 0.5f) / cell);
+                        cum[y] = run;   // the widest of the rows 0..y
+                    }
+                    // level L: the rows under L/20 of the height
+                    for (int L = 1; L < levels; L++)
+                    {
+                        int top = Mathf.Clamp(Mathf.CeilToInt(L * cell / (float)(levels - 1)) - 1, 0, cell - 1);
+                        reach[c * levels + L] = Mathf.Max(reach[c * levels + L], cum[top]);
+                    }
+                }
+            }
+            return reach;
+        }
+
+        /// <summary>
+        /// Write (or rewrite) Resources/CityKit.asset from the one material
+        /// table, CityMaterials(), plus the lamp posts, and hand it back.
+        /// Every city scene build and every city tool (EnsureCityTextures)
+        /// runs it, so what a tool photographs and what the game draws are
+        /// the same asset.
+        /// </summary>
+        internal static CityKit EnsureCityKit()
+        {
+            if (!AssetDatabase.IsValidFolder(Root + "/Resources"))
+                AssetDatabase.CreateFolder(Root, "Resources");
+            var kit = AssetDatabase.LoadAssetAtPath<CityKit>(CityKitPath);
+            bool made = kit == null;
+            if (made) kit = ScriptableObject.CreateInstance<CityKit>();
+            kit.slots = CityMaterials();
+            kit.slotCount = kit.slots.Length;
+            kit.lampPost = CityLampPostMat();
+            kit.trees = CityTreeMats();
+            kit.treeLowReach = CityTreeLowReach();
+            var shaders = new List<Shader>();
+            foreach (var m in kit.slots)
+                if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
+            if (kit.lampPost != null && kit.lampPost.shader != null && !shaders.Contains(kit.lampPost.shader))
+                shaders.Add(kit.lampPost.shader);
+            foreach (var m in kit.trees)
+                if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
+            foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
+            {
+                var sh = Shader.Find(name);
+                if (sh != null && !shaders.Contains(sh)) shaders.Add(sh);
+            }
+            kit.shaders = shaders.ToArray();
+            int missing = 0;
+            foreach (var m in kit.slots) if (m == null) missing++;
+            if (missing > 0) Log("WARN: city kit: " + missing + " of " + kit.slots.Length + " slots have no material");
+            if (made) AssetDatabase.CreateAsset(kit, CityKitPath);
+            else EditorUtility.SetDirty(kit);
+            AssetDatabase.SaveAssets();
+            CityKit.Forget();
+            return kit;
+        }
+
+        /// <summary>
+        /// The four city scenes and nothing else (WP-07's one rebake, and the
+        /// fast loop for any city change that touches the scenes): the city
+        /// prop variants are baked from the full prefabs the last full build
+        /// left, then Charlotte and its three race scenes are rebuilt.
+        /// Leaves the build settings and every other scene alone, and writes
+        /// PSXRacing_city_build_log.txt, never the full build's log (which the
+        /// publish gate reads).
+        /// </summary>
+        [MenuItem("PSX Racing/Build City Scenes Only")]
+        public static void BuildCityScenesOnly()
+        {
+            log = new System.Text.StringBuilder();
+            try
+            {
+                Log("City scenes build started " + DateTime.Now);
+                EnsureFolders();
+                ConfigureTextureImporters();
+                EnsureRoadLayer();
+                psxLit = Shader.Find("PSX/Lit");
+                if (psxLit == null) throw new Exception("PSX/Lit shader not found - did shaders compile?");
+                foreach (var line in CityPropBaker.BakeVariants()) Log("  props " + line);
+                int n = 0;
+                foreach (var def in TrackCatalog.Scened)
+                    if (def.city) { BuildCityScene(def); n++; }
+                Log("CITY BUILD OK - " + n + " city scenes");
+            }
+            catch (Exception e)
+            {
+                Log("CITY BUILD FAILED: " + e.Message + " | " + e.StackTrace);
+                Debug.LogException(e);
+            }
+            finally
+            {
+                File.WriteAllText(ProjectRootPath("PSXRacing_city_build_log.txt"), log.ToString());
+                AssetDatabase.SaveAssets();
+            }
         }
 
         static void EnsureCityFolders()

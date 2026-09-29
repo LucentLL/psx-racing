@@ -33,11 +33,18 @@ namespace PSXRacing.City
         /// skip it by name, since a pole standing beside a road is neither a
         /// barrier guarding a drop nor something in a lane.</summary>
         public const string LampPostName = "LampPost";
-        /// <summary>Galvanised steel gone dark with weather: the posts' tint.</summary>
+        /// <summary>Galvanised steel gone dark with weather: the posts' tint
+        /// when the build has no city kit (the fallback, never the look).</summary>
         static readonly Color LampPostColor = new Color(0.30f, 0.31f, 0.33f);
 
-        [Tooltip("One material per CityMeshes.Slot, in enum order.")]
-        public Material[] materials;
+        /// <summary>
+        /// One material per CityMeshes.Slot, in enum order - for a TOOL that
+        /// wants to hand in its own table. Left null, which is what the game
+        /// does, the world draws with the <see cref="CityKit"/> (WP-07): the
+        /// scenes no longer serialize a materials array, so a new city
+        /// material is a kit change and never a rebake of four scenes.
+        /// </summary>
+        [System.NonSerialized] public Material[] materials;
         public Transform player;
         /// <summary>Other cars the world must exist under: the AI field in a
         /// city race. Each keeps a 3x3 ring of tiles built around it.</summary>
@@ -74,7 +81,14 @@ namespace PSXRacing.City
         {
             public int tx, tz;
             public float buildMs, attachMs, cookMs, propsMs, totalMs;
-            public int colliders, props;
+            /// <summary>The trees (WP-08): the occupancy mask, planting and
+            /// the mesh (<see cref="CityTrees.Build"/>), then standing them up.
+            /// Set on a TREE FRAME only: a tile's trees are planted on a frame
+            /// of their own after its build (see <see cref="PlantTrees"/>).</summary>
+            public float treesMs, treePlantMs;
+            public int colliders, props, trees;
+            /// <summary>This is a tile's trees being planted, not its build.</summary>
+            public bool treeFrame;
         }
 
         /// <summary>The most recent tile build, anywhere.</summary>
@@ -100,11 +114,35 @@ namespace PSXRacing.City
         void OnEnable() => Active = this;
         void OnDisable() { if (Active == this) Active = null; }
 
-        /// <summary>Colliders on the live tiles (MeshColliders and boxes).</summary>
+        /// <summary>Colliders on the live tiles (MeshColliders and boxes), and
+        /// the tree trunks standing round the cars.</summary>
         public int LiveColliders
         {
-            get { int n = 0; foreach (var t in live.Values) n += t.colliders; return n; }
+            get
+            {
+                int n = Trunks != null ? Trunks.LiveColliders : 0;
+                foreach (var t in live.Values) n += t.colliders;
+                return n;
+            }
         }
+
+        /// <summary>
+        /// THE CITY'S TREE TRUNKS (WP-08; the plan's TreeTrunks AddTable /
+        /// RemoveTable). Every live tile hands its solid trunks to this one
+        /// table when its trees are planted and takes them back when it is
+        /// dropped; the table stands capsules only in the 40 m cells round each
+        /// car (TreeTrunks), so a tile build stands no trunk collider at all and
+        /// the ring holds a few hundred round the cars, not thousands.
+        /// </summary>
+        public TreeTrunks Trunks { get; private set; }
+
+        /// <summary>Tiles built whose trees are still to plant, with what their
+        /// build cached: its meshes (fill houses, lamps) and its lattice.</summary>
+        readonly Dictionary<long, (CityMeshes.TileMeshes tm, Dictionary<long, float> lattice)> treesPending =
+            new Dictionary<long, (CityMeshes.TileMeshes, Dictionary<long, float>)>();
+
+        /// <summary>Tiles whose trees are still to plant (the probe's check).</summary>
+        public int TreesPending => treesPending.Count;
 
         static double cookTicks;
         static readonly System.Diagnostics.Stopwatch cookClock = new System.Diagnostics.Stopwatch();
@@ -173,11 +211,21 @@ namespace PSXRacing.City
             nodeTrims = cachedTrims;
             buildings = cachedBuildings;
             BuildFoodIndex();
+            // the trunk table, on a child of its own that no scene saves
+            var tgo = new GameObject("CityTreeTrunks") { hideFlags = HideFlags.DontSave };
+            tgo.transform.SetParent(transform, false);
+            Trunks = tgo.AddComponent<TreeTrunks>();
+            Trunks.standName = CityTrees.TrunkName;
+            Trunks.trunkHeight = CityTrees.TrunkHeightM;
         }
 
         /// <summary>Every restaurant in the city, flattened out of the tile
         /// buckets once, so the HUD has something to point at.</summary>
         readonly List<(byte kind, Vector2 pos)> food = new List<(byte, Vector2)>();
+
+        /// <summary>Every restaurant lot (kind, centre), for the budget probe
+        /// and the play check.</summary>
+        public IReadOnlyList<(byte kind, Vector2 pos)> FoodLots { get { EnsureInit(); return food; } }
 
         void BuildFoodIndex()
         {
@@ -216,8 +264,8 @@ namespace PSXRacing.City
         }
 
         /// <summary>Build every tile within <paramref name="r"/> of the tile
-        /// under a point, synchronously. The grid of a city race calls this
-        /// before the countdown so nobody starts over thin air.</summary>
+        /// under a point, synchronously, trees and all. The grid of a city
+        /// race calls this before the countdown so nobody starts over thin air.</summary>
         public void EnsureRing(Vector3 at, int r)
         {
             int tx = Mathf.FloorToInt(at.x / CityMeshes.TileSize);
@@ -225,6 +273,10 @@ namespace PSXRacing.City
             for (int dz = -r; dz <= r; dz++)
                 for (int dx = -r; dx <= r; dx++)
                     EnsureTile(tx + dx, tz + dz);
+            // whoever asks for a ring is about to put a car (or a camera) in it
+            for (int dz = -r; dz <= r; dz++)
+                for (int dx = -r; dx <= r; dx++)
+                    PlantTrees(Key(tx + dx, tz + dz));
         }
 
         void Update()
@@ -235,13 +287,15 @@ namespace PSXRacing.City
             int ptz = Mathf.FloorToInt(p.z / CityMeshes.TileSize);
 
             // the ground under the car is not allowed to be missing — nor
-            // under any car the race is timing
-            EnsureTile(ptx, ptz);
+            // under any car the race is timing (and those plant their trees
+            // at once: a car is in them)
+            bool built = false;
+            if (EnsureTile(ptx, ptz)) { PlantTrees(Key(ptx, ptz)); built = true; }
             foreach (var a in anchors)
             {
                 if (a == null || !a.gameObject.activeInHierarchy) continue;
-                EnsureTile(Mathf.FloorToInt(a.position.x / CityMeshes.TileSize),
-                           Mathf.FloorToInt(a.position.z / CityMeshes.TileSize));
+                int ax = Mathf.FloorToInt(a.position.x / CityMeshes.TileSize), az = Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
+                if (EnsureTile(ax, az)) { PlantTrees(Key(ax, az)); built = true; }
             }
 
             // drop tiles outside every ring (+1 hysteresis so the boundary
@@ -293,7 +347,33 @@ namespace PSXRacing.City
             if (wanted.Count > 0)
             {
                 wanted.Sort((a, b) => a.d2.CompareTo(b.d2));
-                EnsureTile(wanted[0].tx, wanted[0].tz);
+                built |= EnsureTile(wanted[0].tx, wanted[0].tz);
+            }
+
+            // THE TREES ON A FRAME OF THEIR OWN (WP-08; WP-09's third stage,
+            // for the trees): a tile's build and its planting never share a
+            // frame. When no tile was built this frame, the nearest tile still
+            // waiting plants its trees (a tile is built at least a tile ahead
+            // of any car, and a car at 250 km/h is seconds from it). A waiting
+            // tile a car is IN plants now regardless: its trunks must stand.
+            if (treesPending.Count > 0)
+            {
+                long best = 0; float bestD = float.MaxValue; bool urgent = false;
+                foreach (var k in treesPending.Keys)
+                {
+                    int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
+                    bool near = tx == ptx && tz == ptz;
+                    foreach (var a in anchors)
+                    {
+                        if (near || a == null || !a.gameObject.activeInHierarchy) continue;
+                        near = tx == Mathf.FloorToInt(a.position.x / CityMeshes.TileSize) &&
+                               tz == Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
+                    }
+                    float cx = (tx + 0.5f) * CityMeshes.TileSize - p.x, cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
+                    float d2 = cx * cx + cz * cz - (near ? 1e12f : 0f);
+                    if (d2 < bestD) { bestD = d2; best = k; urgent = near; }
+                }
+                if (!built || urgent) PlantTrees(best);
             }
         }
 
@@ -304,6 +384,8 @@ namespace PSXRacing.City
 
         void DropTile(long key)
         {
+            treesPending.Remove(key);
+            if (Trunks != null) Trunks.RemoveTable(key);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
             if (t.go != null) Kill(t.go);
@@ -311,12 +393,49 @@ namespace PSXRacing.City
             foreach (var m in t.meshes) if (m != null) Kill(m);
         }
 
-        public void EnsureTile(int tx, int tz)
+        /// <summary>
+        /// Plant a built tile's trees, if they are still to plant (WP-08): the
+        /// occupancy mask, the planting and the mesh (CityTrees.Build, on the
+        /// lattice its build cached), the cards under the tile's root, and its
+        /// solid trunks handed to <see cref="Trunks"/>. Timed as a TREE FRAME
+        /// (<see cref="TileTiming.treeFrame"/>), which the FPS overlay's CITY
+        /// line counts like a tile build.
+        /// </summary>
+        public void PlantTrees(long key)
+        {
+            if (!treesPending.TryGetValue(key, out var job)) return;
+            treesPending.Remove(key);
+            if (!live.TryGetValue(key, out var tile) || tile.go == null) return;
+            int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            CityMeshes.PutLattice(job.lattice);
+            var tt = CityTrees.Build(Map, nodeTrims, buildings, job.tm, tx, tz);
+            if (tt.mesh != null)
+            {
+                AttachTrees(tile.go, tt, CityTrees.MaterialFor(CityTrees.DressNow()));
+                System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
+                tile.meshes[tile.meshes.Length - 1] = tt.mesh;
+            }
+            if (Trunks != null && tt.solids > 0) Trunks.AddTable(key, tt.Trunks());
+            var timing = new TileTiming
+            {
+                tx = tx, tz = tz, treeFrame = true,
+                treesMs = (float)clock.Elapsed.TotalMilliseconds, treePlantMs = tt.ms,
+                totalMs = (float)clock.Elapsed.TotalMilliseconds, trees = tt.trees.Count,
+            };
+            recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
+            if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
+            TileBuilt?.Invoke(timing);
+        }
+
+        /// <summary>Build a tile if it is not live. True when it was built
+        /// (its trees then wait for <see cref="PlantTrees"/>).</summary>
+        public bool EnsureTile(int tx, int tz)
         {
             EnsureInit();
-            if (Map == null) return;
+            if (Map == null) return false;
             long key = Key(tx, tz);
-            if (live.ContainsKey(key)) return;
+            if (live.ContainsKey(key)) return false;
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
@@ -340,7 +459,7 @@ namespace PSXRacing.City
                 foreach (var b in lots)
                 {
                     if (b.kind == 0) continue;
-                    var prefab = CityProps.Prefab(b.kind);
+                    var prefab = CityProps.CityPrefab(b.kind);
                     if (prefab == null) continue;
                     var def = CityProps.Defs[b.kind];
                     float gy = CityBuildings.SeatY(Map, b.pos, b.w, b.d, b.yaw);
@@ -353,6 +472,13 @@ namespace PSXRacing.City
                 }
             }
             double tProps = clock.Elapsed.TotalMilliseconds;
+
+            // THE TREES (WP-08) come after everything they must keep clear of
+            // (the tile's roads, fill houses and lamps are in tm, the lots in
+            // the building table) and on a later frame: queued here with the
+            // lattice this build cached, planted by PlantTrees.
+            if (CityTrees.Enabled) treesPending[key] = (tm, CityMeshes.TakeLattice());
+            double tTrees = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A
             // NightGlow of its own per tile, under its own child, so the posts
@@ -380,13 +506,14 @@ namespace PSXRacing.City
             {
                 tx = tx, tz = tz,
                 buildMs = (float)tBuild, attachMs = (float)(tAttach - tBuild), cookMs = cookMs,
-                propsMs = (float)(tProps - tAttach), totalMs = (float)clock.Elapsed.TotalMilliseconds,
+                propsMs = (float)(tProps - tAttach), treesMs = (float)(tTrees - tProps), totalMs = (float)clock.Elapsed.TotalMilliseconds,
                 colliders = colliders, props = props,
             };
             LastTiming = timing;
             recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
             if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
             TileBuilt?.Invoke(timing);
+            return true;
         }
 
         /// <summary>
@@ -507,6 +634,27 @@ namespace PSXRacing.City
             return meshes.ToArray();
         }
 
+        /// <summary>
+        /// Stand a tile's tree cards up under its root (WP-08): one
+        /// render-only mesh on the Foliage layer (one draw; SunShadows makes
+        /// it one cutout caster, registered here as it appears). A null
+        /// material switches the cards off. The trunks are not the tile's:
+        /// PlantTrees hands them to <see cref="Trunks"/>.
+        /// </summary>
+        public static GameObject AttachTrees(GameObject root, CityTrees.TreeTile tt, Material mat)
+        {
+            if (tt == null || tt.mesh == null) return null;
+            var g = Child(root, "Trees", CityTrees.FoliageLayer);
+            g.AddComponent<MeshFilter>().sharedMesh = tt.mesh;
+            var mr = g.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.enabled = mat != null;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            SunShadows.Register(g);
+            return g;
+        }
+
         /// <summary>A lamp post collider's square side, a hair over the drawn
         /// post's 0.26 m so a wheel never clips into the pole it touches.</summary>
         const float LampColliderM = 0.3f;
@@ -514,15 +662,16 @@ namespace PSXRacing.City
         static Material lampPostMat;
 
         /// <summary>
-        /// The posts' material: PSX/Lit, untextured, tinted, created once per
-        /// process and never saved (a new Slot for it would shift every road
-        /// slot and misalign the baked city scenes' materials arrays). Null
-        /// if the shader is not in the build: Attach then switches the
-        /// posts' renderer off rather than draw them pink, and they still
-        /// collide.
+        /// The posts' material: the city kit's pack metal (WP-07; the owner's
+        /// pack-texture rule). Without a kit, a PSX/Lit tint made once per
+        /// process and never saved, as it was before the kit existed. Null if
+        /// even the shader is missing: Attach then switches the posts'
+        /// renderer off rather than draw them pink, and they still collide.
         /// </summary>
         public static Material LampPostMaterial()
         {
+            var kit = CityKit.Get();
+            if (kit != null && kit.lampPost != null) return kit.lampPost;
             if (lampPostMat != null) return lampPostMat;
             var sh = Shader.Find("PSX/Lit");
             if (sh == null) return null;
@@ -556,8 +705,10 @@ namespace PSXRacing.City
         Material MatFor(CityMeshes.Slot slot)
         {
             int i = (int)slot;
-            if (materials != null && i < materials.Length && materials[i] != null)
-                return SeasonDress.Substitute(materials[i]);
+            var table = materials;
+            if (table == null) { var kit = CityKit.Get(); table = kit != null ? kit.slots : null; }
+            if (table != null && i < table.Length && table[i] != null)
+                return SeasonDress.Substitute(table[i]);
             return null;
         }
 

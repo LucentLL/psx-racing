@@ -6,7 +6,13 @@
 #   ... -Venue ChimneyRock -Seconds 600 -Finish -MaxMinutes 30   (the whole race: every rival home)
 #   ...  -Edition MAIN   plays it AS the MAIN edition (Scripts/Edition.cs): the
 #                        runtime's filters and door rules are MAIN's. ALL by default.
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20, [switch]$Finish, [string]$Edition = "ALL")
+# Several races in ONE launch (a line per race at the end of the report):
+#   ... -Venues UptownLoop,TryonSprint,IndependenceSprint -Seeds 0,1,2,3,4 -Trees ab
+# -Trees: 1 city trees on (default), 0 off, ab every race twice (on, then off).
+# -MaxMinutes: 0 (default) budgets the batch: 20 minutes, or more for many races.
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "",
+      [switch]$NoWatch, [int]$MaxMinutes = 0, [switch]$Finish, [string]$Edition = "ALL",
+      [string]$Venues = "", [string]$Seeds = "", [string]$Trees = "1")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -25,6 +31,12 @@ $env:PSX_EDITION = $Edition.ToUpperInvariant()
 # -Finish: the whole distance, on past the player's flag until every rival is
 # home, failing a rival that never gets there or drives the wrong way.
 $env:PSX_RACE_FINISH = if ($Finish) { "1" } else { "" }
+$env:PSX_RACE_VENUES = $Venues
+$env:PSX_RACE_SEEDS = $Seeds
+$env:PSX_CITY_TREES = $Trees
+# a race is at most $Seconds plus about a minute of loading; one launch runs them all
+$races = [Math]::Max(1, ($(if ($Venues) { $Venues } else { $Venue }).Split(",").Count) * ($(if ($Seeds) { $Seeds } else { "$Seed" }).Split(",").Count) * $(if ($Trees -eq "ab") { 2 } else { 1 }))
+if ($MaxMinutes -le 0) { $MaxMinutes = [Math]::Max(20, [int]($races * ($Seconds + 60) / 60) + 10) }
 # Watched by default: a visible editor plays the test in front of you.
 # -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
 # budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.

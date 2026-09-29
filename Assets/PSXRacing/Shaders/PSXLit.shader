@@ -116,6 +116,15 @@ Shader "PSX/Lit"
         // nothing below is read.
         _Shore ("Shore swash", Float) = 0
         _ShoreY ("Sea level", Float) = 0
+        // THE PROP ATLAS (Charlotte WP-07, PSX_ATLAS_RECT): one texture for a
+        // whole city house, whose pack materials TILE (UVs well past 0..1).
+        // Each vertex carries the texel rect of its own texture's cell in the
+        // vertex COLOUR (r, g = the cell's corner, b = its side - 1, in texels
+        // of a _AtlasPx sheet) and the pixel wraps its UV inside that cell
+        // with frac(). Point-sampled with no mips, so a wrap is exact. Only
+        // the city prop variants set the keyword; every other material is
+        // the variant it always was.
+        _AtlasPx ("Atlas side (px)", Float) = 256
     }
     SubShader
     {
@@ -126,6 +135,7 @@ Shader "PSX/Lit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma shader_feature_local __ PSX_ATLAS_RECT
             #include "UnityCG.cginc"
             // The per-pixel lights: the cars' headlights...
             #include "PSXHeadlights.cginc"
@@ -145,6 +155,7 @@ Shader "PSX/Lit"
             float _NightWin;
             float _Shore;
             float _ShoreY;
+            float _AtlasPx;
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -315,6 +326,9 @@ Shader "PSX/Lit"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
+            #ifdef PSX_ATLAS_RECT
+                fixed4 color : COLOR;       // the cell: see _AtlasPx
+            #endif
             };
 
             struct v2f
@@ -340,6 +354,11 @@ Shader "PSX/Lit"
                 // The horizon ring's ratio for this vertex's bearing: exactly
                 // 1 in a scene that never applied an hour.
                 half3 ring : TEXCOORD6;
+            #ifdef PSX_ATLAS_RECT
+                // the cell as a UV rect: xy its first texel's centre, zw the
+                // span from there to its last texel's centre
+                float4 atlas : TEXCOORD7;
+            #endif
             };
 
             v2f vert (appdata v)
@@ -396,12 +415,20 @@ Shader "PSX/Lit"
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
                 o.ring = PSXFogRing(wpos - _WorldSpaceCameraPos, _PSXSkyRotation);
+            #ifdef PSX_ATLAS_RECT
+                float4 cell = floor(v.color * 255.0 + 0.5);
+                float px = max(_AtlasPx, 1.0);
+                o.atlas = float4((cell.xy + 0.5) / px, cell.zz / px);
+            #endif
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
                 float2 uv = i.uvw.xy / i.uvw.z;
+            #ifdef PSX_ATLAS_RECT
+                uv = i.atlas.xy + frac(uv) * i.atlas.zw;
+            #endif
                 // Where the facade texture repeats, for the lit windows below.
                 // Taken HERE, before the clip and outside every branch: a
                 // derivative after a discard or inside flow control is
