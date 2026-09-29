@@ -28,7 +28,10 @@
 # the newly recorded one back. Reports land in -Out (default <sandbox>\
 # Screenshots\City\smooth_<Label>): city_smooth.txt / .csv / .json and shots.
 # Exit 1 when a gated check fails (after SmoothRules.ReportOnly is flipped),
-# when the job did not finish, or when it wrote nothing.
+# when the job did not finish, or when it wrote nothing; exit 3 when the
+# baseline is STALE (its 'mesh' entry was measured on other inputs: graph,
+# container sections, rules, road PNGs or DEM) - re-record it with
+# -WriteBaseline and put the before/after numbers in the commit.
 #
 # tools\city\linecheck.mjs is the same gate offline; the two must agree
 # (Docs\CHARLOTTE.md, "Smoothness gate"). Run it first: seconds, not minutes.
@@ -122,5 +125,10 @@ if ($Mode -eq "SHOTS" -or ($Mode -eq "FULL" -and -not $NoShots)) {
 
 foreach ($v in @("PSX_SMOOTH_BAND", "PSX_SMOOTH_SPOTS", "PSX_SMOOTH_SHOTS", "PSX_SMOOTH_WRITE_BASELINE", "PSX_SMOOTH_FAST")) { Remove-Item "env:$v" -ErrorAction SilentlyContinue }
 if ($failed) { Write-Host "CITY SMOOTH $Mode DONE - FAILED -> $Out" -ForegroundColor Red; exit 1 }
+$report = Join-Path $proj "city_smooth.txt"
+if (-not $WriteBaseline -and (Test-Path $report) -and (Select-String -Path $report -Pattern "^  STALE:" -Quiet)) {
+    Write-Host "CITY SMOOTH $Mode DONE - baseline STALE: re-record with -WriteBaseline (before/after numbers in the commit) -> $Out" -ForegroundColor Yellow
+    exit 3
+}
 Write-Host "CITY SMOOTH $Mode DONE -> $Out"
 exit 0

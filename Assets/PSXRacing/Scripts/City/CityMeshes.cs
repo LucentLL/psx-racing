@@ -348,8 +348,10 @@ namespace PSXRacing.City
             public struct Span { public int slot, bucketV, edge; public float sA, sB; public ushort flagsA, flagsB; }
             /// <summary>A junction fan: centre at bucketV, then count - 1
             /// corners anticlockwise; bit i of mouths = the chord from corner i
-            /// to i + 1 is a road mouth.</summary>
-            public struct Fan { public int slot, bucketV, count, node; public ulong mouths; }
+            /// to i + 1 is a road mouth. Its triangles are triCount of the
+            /// slot's, from index triStart of its list (a star from the centre,
+            /// or ear-clipped corners when they are not star-shaped).</summary>
+            public struct Fan { public int slot, bucketV, count, node, triStart, triCount; public ulong mouths; }
             public readonly List<Span> spans = new List<Span>();
             public readonly List<Fan> fans = new List<Fan>();
             /// <summary>Gore quads (junction-slab slot, no paint): pavement for
@@ -5224,7 +5226,7 @@ namespace PSXRacing.City
                     ulong mouths = 0;
                     for (int i = 0; i < corners.Count && i < 64; i++) if (corners[i].mouthNext) mouths |= 1UL << i;
                     tm.tap.fans.Add(new RoadTap.Fan { slot = (int)SlotOf(JunctionProfile, IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld),
-                                                      bucketV = centerI, count = corners.Count + 1, node = n, mouths = mouths });
+                                                      bucketV = centerI, count = corners.Count + 1, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
                 }
                 bk.v.Add(centre);
                 bk.uv.Add(new Vector2(np.x / 12f, np.y / 12f));
