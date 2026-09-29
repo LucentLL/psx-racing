@@ -268,7 +268,11 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
 # LaneAudit cuts every ribbon every 2 m against its own triangles and fails a
 # venue whose lanes differ by more than 2.5 cm, whose centre line stands off
 # the ribbon's centre, whose paint zigzags off its smooth line, or whose
-# texture is not centred. Held-back venues are reported, never failed.
+# texture is not centred - and (2026-09-29, "nor should any sharp angles of
+# road or road lines") any painted line, tarmac edge or kerb strip edge whose
+# chord misses the curve through its own rings by more than 2.5 cm: the V
+# corner every 4 m ring made on a bend before the ribbon was laid on a curve.
+# Held-back venues are reported, never failed.
 Invoke-UnityJob -Log "$proj\laneaudit.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.LaneAudit.Run",

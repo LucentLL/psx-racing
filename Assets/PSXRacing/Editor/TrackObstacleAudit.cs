@@ -2204,6 +2204,18 @@ namespace PSXRacing.EditorTools
         /// chord, whatever face it is on: a quarter chord. A run's end corner
         /// seen from the chord past it is half a chord along.</summary>
         const float GhostSquareAlongM = 0.25f * TrackCatalog.Spacing;
+        /// <summary>A drawn surface this far or more in front of a wall
+        /// solid's point, on the line from the road, hides that point
+        /// (HiddenFromRoad).</summary>
+        const float GhostHiddenM = 0.3f;
+
+        static string FacesText(List<(Vector3 origin, Vector3 dir)> faces)
+        {
+            var sb = new StringBuilder();
+            foreach (var fc in faces)
+                sb.Append($" ({fc.origin.x:0.0},{fc.origin.z:0.0})->({fc.dir.x:0.00},{fc.dir.z:0.00})");
+            return sb.ToString();
+        }
 
         static void AuditGhostBarriers(TrackCatalog.TrackDef def, TrackPath path,
                                        Collider[] colliders, float trackHalf, StringBuilder log)
@@ -2224,12 +2236,30 @@ namespace PSXRacing.EditorTools
             // faces, and file a fault where what is drawn there does not stand
             // where the collider does. (Why the band is the collider's own and
             // not the road's: see the note at the call below.)
+            bool trace = !string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("PSX_GHOST_TRACE"));
+            // HIDDEN FROM THE ROAD. A wall solid's point a car could only reach
+            // through something drawn - a rock face standing in front of a
+            // stone's end where the wall hands over to the cut, a backslope
+            // rising between the road and it - is not a ghost at that height:
+            // the car meets the drawn surface first. Asked along the same
+            // horizontal line the sample's own rays fly, from the chord's
+            // road point to where the road-side ray starts, and only a drawn
+            // surface GhostHiddenM short of that start counts.
+            bool HiddenFromRoad(Vector3 road, float y, Vector3 origin)
+            {
+                Vector3 a = new Vector3(road.x, road.y + y, road.z);
+                Vector3 d = new Vector3(origin.x - road.x, 0f, origin.z - road.z);
+                float len = d.magnitude;
+                if (len < GhostHiddenM * 2f) return false;
+                return world.RayOut(a, d / len, len - GhostHiddenM, out _) >= 0f;
+            }
             void Sample(Collider col, int i, Vector3 road, List<(Vector3 origin, Vector3 dir)> faces,
-                        float lo, float hi, float top, Vector3 where)
+                        float lo, float hi, float top, Vector3 where, bool askHidden = false)
             {
                 float drawnTop = lo - GhostStep, worstGap = 0f;
                 bool anyDrawn = false;
                 string hitName = null;
+                var why = trace ? new StringBuilder() : null;
                 for (float y = lo; y <= hi + 1e-3f; y += GhostStep)
                 {
                     string who = null;
@@ -2242,6 +2272,12 @@ namespace PSXRacing.EditorTools
                         if (h2 < 0f) continue;
                         if (hit < 0f || h2 < hit) { hit = h2; who = w2; }
                     }
+                    if (askHidden && HiddenFromRoad(road, y, faces[0].origin))
+                    {
+                        if (why != null) why.Append($" y{y:0.0}:hidden");
+                        continue;
+                    }
+                    if (why != null) why.Append($" y{y:0.0}:{(hit < 0f ? "-" : hit.ToString("0.00") + "@" + who)}");
                     // The first height with nothing in front of it is the top
                     // of the drawn barrier. Everything above that is overshoot,
                     // whether or not something reappears higher up - except the
@@ -2260,7 +2296,15 @@ namespace PSXRacing.EditorTools
 
                 if (worstGap <= GhostGap && over <= GhostOver) return;
 
+                // A wall solid is one of many "Track/Walls/WallColl": keyed by its
+                // mesh too, or the worst one hides every other run's fault.
                 string key = Key(col.transform);
+                var keyMesh = col as MeshCollider;
+                if (WallGeom.IsWallSolid(col) && keyMesh != null && keyMesh.sharedMesh != null)
+                    key += " [" + keyMesh.sharedMesh.name + "]";
+                if (why != null)
+                    log.AppendLine($"    ghost trace {key} chord {i} near {where.x:0.0},{where.y:0.0},{where.z:0.0} road y {road.y:0.00} " +
+                                   $"band {lo:0.00}..{hi:0.00} faces {FacesText(faces)}:{why}");
                 GhostFault f;
                 if (!faults.TryGetValue(key, out f))
                     faults[key] = f = new GhostFault { key = key, waypoint = i };
@@ -2465,7 +2509,7 @@ namespace PSXRacing.EditorTools
                     float lo = Mathf.Max(GhostStep, wallLo - road.y + 0.05f);
                     float hi = Mathf.Min(top, GhostSampleTop);
                     if (hi < lo) continue;      // overhead, or buried under the road
-                    Sample(col, i, road, wallFaces, lo, hi, top, near);
+                    Sample(col, i, road, wallFaces, lo, hi, top, near, askHidden: true);
                 }
             }
 

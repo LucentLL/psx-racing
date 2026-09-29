@@ -2092,7 +2092,7 @@ namespace PSXRacing.EditorTools
             + RoadsideRules.EndFlareStations * RoadsideRules.EndFlareRatio * Spacing + StageWallDrawThick + 1.5f;
         /// <summary>Wall stations the last laying left unwalled out of another
         /// stretch's kerb band, and run ends it carried square.</summary>
-        static int wallsTooTight, squaredEnds, rockFlarePockets, cutGapsFilled, squaredNearLeg;
+        static int wallsTooTight, squaredEnds, rockFlarePockets, cutGapsFilled, squaredNearLeg, flareFaced;
         /// <summary>A run end with another leg of the route this near on its
         /// side (m past the tarmac edge) ends square instead of buried.</summary>
         const float StageSquareNearLegM = 18f;
@@ -2219,7 +2219,7 @@ namespace PSXRacing.EditorTools
                 Array.Clear(metresBy, 0, metresBy.Length);
                 openM = cutM = 0f;
                 flaredOpen = flaredRock = 0;
-                wallsTooTight = squaredEnds = rockFlarePockets = cutGapsFilled = squaredNearLeg = 0;
+                wallsTooTight = squaredEnds = rockFlarePockets = cutGapsFilled = squaredNearLeg = flareFaced = 0;
                 catches.Clear();
 
                 for (int s = 0; s < 2; s++)
@@ -2331,7 +2331,49 @@ namespace PSXRacing.EditorTools
                         for (int end = 0; end < 2; end++)
                             if (RunEnd(run, end, n, out int endSt, out int beyond) && !tube[beyond] && tentBank[beyond]
                                 && !softRock[beyond])
+                            {
                                 overlap[endSt] = true;
+                                // AND OVER THE WHOLE FLARE WHERE THE HILL IS BEHIND IT.
+                                // A run that ends into a cut flares its stone out to
+                                // the face's toe over the stations before the end
+                                // (the wall ends below), and only the end station
+                                // was faced: behind the flared stone at the others
+                                // the land is graded as behind any wall - no higher
+                                // than the bench - so a rising hill came out a level
+                                // bench 0.30 m under the road behind a full-height
+                                // barrier, the pocket the owner's rule forbids
+                                // (Chimney Rock wp 914 R, "land -0.30 m from road
+                                // height 1.5 m behind WallColl (2.86 m out)", 14 m of
+                                // bench to the rock top). Each flare station whose
+                                // land behind the stone is a hill (the DEM there
+                                // BankRiseM over the road, the rock flare's own
+                                // test) is faced too, so the cut's rock top closes
+                                // over the ground behind it; the first that is not
+                                // ends it (the flare's own test buries the run there).
+                                // (A run end the wall pass carries square has no flare.)
+                                if (tightCut[beyond] ||
+                                    (TightInside(pts, endSt, side, out float fr) && fr < StageSquareEndR))
+                                    continue;
+                                float flareOffset = CutToeE - StageWallFaceIn - WallFaceE;
+                                int flareStations = Mathf.Min(Mathf.CeilToInt(flareOffset / (RoadsideRules.EndFlareRatio * Spacing)),
+                                                              run.len / 2);
+                                for (int j = 1; j <= flareStations; j++)
+                                {
+                                    int st = WrapIdx(endSt + (end == 0 ? j : -j), n);
+                                    // A bridge's approach rail and a portal's guard
+                                    // keep their full height (the invisible extra a
+                                    // faced hand-over drops): "all sections of
+                                    // bridges should have walls".
+                                    if (deck[st] || tube[st] || reason[st] == 1 || reason[st] == 4 || reason[st] == 5) break;
+                                    float frac = (flareStations - j) / (float)flareStations;
+                                    float behindE = WallFaceE + flareOffset * frac + StageWallFaceIn
+                                                  + StageWallCollThick + RoadsideRules.PocketBehindM;
+                                    Vector3 behind = pts[st] + rsRight[st] * (side * (RoadWidth * 0.5f + behindE));
+                                    if (StageDemY(behind.x, behind.z) - (pts[st].y + RoadLift) < BankRiseM) break;
+                                    overlap[st] = true;
+                                    flareFaced++;
+                                }
+                            }
 
                     // Cut faces defer to BUILT walls (not wanted ones: a wanted
                     // station in a run too short to build used to take the face
@@ -2600,6 +2642,7 @@ namespace PSXRacing.EditorTools
                 $"{wallsTooTight} hairpin-inside station-side(s) left unwalled out of another stretch's kerb band, " +
                 $"{squaredEnds} run end(s) carried square on a hairpin's inside; {rockFlarePockets} flared-to-rock end(s) buried instead over level land; {squaredNearLeg} square beside another leg; " +
                 $"{flaredOpen} run ends flared and buried into graded land, {flaredRock} flared into a rock face " +
+                $"({flareFaced} flare station(s) with the hill behind them faced as hand-overs) " +
                 $"({handOvers} hand-over station(s) faced at least {BankRiseM:0.0} m where the cut there was graded; " +
                 $"{softEnds} end(s) laid again as buried terminals because their cut was graded where they met it" +
                 (softened > 0 ? $", and {softened} more this plan still flares into graded cut (raise StageSoftRockRelays)" : "") +
@@ -3934,6 +3977,48 @@ namespace PSXRacing.EditorTools
         /// the valley the wall floated — and its collider, which stopped at
         /// plane - 0.4, left a window under itself.</summary>
         const float StageWallFootSink = 0.3f, StageWallMaxFoot = 6f;
+        /// <summary>
+        /// A COLLIDER'S FOOTING IN THE AIR. Where the land behind a wall is
+        /// more than StageWallMaxFoot under the road, the footing stops at the
+        /// clamp and hangs over the fall: under the drawing that is a post or a
+        /// column of stone reaching down the slope, and under the collider it
+        /// is a slab of invisible solid 1.2 m deep and six metres tall hanging
+        /// over whatever is below. Chimney Rock wp 1060-1064, the upper leg of
+        /// the top switchback: its guardrail's solid reached down to 1.0-1.4 m
+        /// over the LOWER leg's backslope (wp 1038, 14 m away and 7 m down),
+        /// "GHOST BARRIERS ... WallColl x14 held off by 3.99 m of air". There
+        /// the collider stops this far under the shoulder at its face instead:
+        /// the traffic face still has no window under it, and nothing reaches
+        /// down toward a road below. The drawing is left as it was.
+        /// </summary>
+        const float StageWallAirFootM = 0.5f;
+        /// <summary>A guardrail's collider depth at a run's end ring: the
+        /// beam, the valley to its post and the post.</summary>
+        const float StageRailEndThickM = 0.3f;
+        /// <summary>Another leg of the road this close (plan, centreline) to a
+        /// wall solid's back and this much lower is a road the solid's footing
+        /// reaches down toward (StageWallAirFootM).</summary>
+        const float StageLowerLegReachM = 10f, StageLowerLegDropM = 1.5f;
+        /// <summary>Stations along the route inside which a centreline is this
+        /// leg's own, not another's.</summary>
+        const int StageOtherLegStations = 10;
+
+        /// <summary>Is there another leg of the route (more than
+        /// StageOtherLegStations away) whose centreline passes within
+        /// StageLowerLegReachM of <paramref name="at"/> in plan, at least
+        /// StageLowerLegDropM under station <paramref name="i"/>?</summary>
+        static bool LowerLegBehind(List<Vector3> pts, int i, Vector3 at)
+        {
+            int n = pts.Count;
+            float r2 = StageLowerLegReachM * StageLowerLegReachM, top = pts[i].y - StageLowerLegDropM;
+            for (int j = 0; j < n; j++)
+            {
+                if (StationSep(i, j, n) <= StageOtherLegStations || pts[j].y > top) continue;
+                float dx = pts[j].x - at.x, dz = pts[j].z - at.z;
+                if (dx * dx + dz * dz < r2) return true;
+            }
+            return false;
+        }
         /// <summary>A buried terminal's chord with less stone than this over
         /// the foreslope at its face gets no collider (the wall solid ends
         /// there): what is left is a kerb of stone the shoulder ribbon rides
@@ -4004,6 +4089,8 @@ namespace PSXRacing.EditorTools
             root.transform.SetParent(parent, false);
 
             int runs = 0, walled = 0;
+            wallFootsInAir = 0;
+            wallFootsInAirAt.Clear();
             int solids0 = wallSolidCount;
             float solidM0 = wallSolidM;
             foreach (var run in rsWallRuns)
@@ -4013,7 +4100,9 @@ namespace PSXRacing.EditorTools
             }
             Log($"Stage guard {(theme.guardrail ? "rails" : "walls")}: {runs} warranted runs covering {walled * Spacing:0} m of shoulder " +
                 $"(of {n * Spacing * 2:0} m of roadside); {wallSolidCount - solids0} wall solid(s), " +
-                $"{wallSolidM - solidM0:0} m of collider face.");
+                $"{wallSolidM - solidM0:0} m of collider face; {wallFootsInAir} station ring(s) over a fall deeper than the " +
+                $"footing reaches or over another leg below, their collider stopped {StageWallAirFootM:0.0} m under the shoulder" +
+                (wallFootsInAirAt.Count > 0 ? " (" + string.Join(" ", wallFootsInAirAt) + ")." : "."));
             PlaceStagePosts(pts, parent);
             // Every rail post on the stage in one mesh, where the reflector
             // posts' mesh was: the timber costs no draw call the stone's
@@ -4029,6 +4118,10 @@ namespace PSXRacing.EditorTools
         /// <summary>The stage's rail posts, gathered run by run by
         /// DrawGuardrail and built as one mesh at the end of BuildStageWalls.</summary>
         static readonly List<Vector3> railPostVerts = new List<Vector3>();
+        /// <summary>Station rings this build whose footing hung in the air
+        /// (StageWallAirFootM).</summary>
+        static int wallFootsInAir;
+        static readonly List<string> wallFootsInAirAt = new List<string>();
         static readonly List<Vector2> railPostUvs = new List<Vector2>();
         static readonly List<int> railPostTris = new List<int>();
 
@@ -4185,6 +4278,9 @@ namespace PSXRacing.EditorTools
             /// bend radius (0 when not a tight inside).</summary>
             public float faceE, up, baseY, topY, collTopY, groundY, sag, tightR;
             public bool mid;
+            /// <summary>The footing was stopped by StageWallMaxFoot over land
+            /// further down (StageWallAirFootM).</summary>
+            public bool footInAir;
             /// <summary>The station this ring stands at; -1 for a half ring.</summary>
             public int station;
         }
@@ -4212,7 +4308,17 @@ namespace PSXRacing.EditorTools
                 Vector3 behind = pts[i] + g.right * (side * (RoadWidth * 0.5f + g.faceE + StageWallFaceIn
                                                               + StageWallDrawThick + StageWallFootSink));
                 float lattice = StageLatticeY(behind.x, behind.z);
-                g.baseY = Mathf.Max(Mathf.Min(g.baseY, lattice - StageWallFootSink), pts[i].y - StageWallMaxFoot);
+                float want = Mathf.Min(g.baseY, lattice - StageWallFootSink);
+                g.footInAir = want < pts[i].y - StageWallMaxFoot;
+                g.baseY = Mathf.Max(want, pts[i].y - StageWallMaxFoot);
+                // Or where the footing reaches down toward ANOTHER leg of the
+                // road below (a switchback's lower leg within reach of the
+                // solid's back): the same slab, seen from that road.
+                if (!g.footInAir && g.baseY < pts[i].y - StageWallAirFootM - RoadLift)
+                {
+                    Vector3 backAt = pts[i] + g.right * (side * (RoadWidth * 0.5f + g.faceE + StageWallCollThick));
+                    g.footInAir = LowerLegBehind(pts, i, backAt);
+                }
             }
             // A buried terminal's stone goes down to just under the foreslope —
             // measured at the stone's BACK, the lower edge of a falling slope,
@@ -4251,6 +4357,7 @@ namespace PSXRacing.EditorTools
             collTopY = Mathf.Min(a.collTopY, b.collTopY),
             groundY = (a.groundY + b.groundY) * 0.5f,
             tightR = Mathf.Max(a.tightR, b.tightR),
+            footInAir = a.footInAir && b.footInAir,
             mid = true,
             station = -1,
         };
@@ -4371,6 +4478,43 @@ namespace PSXRacing.EditorTools
                                  new Vector2(u1, V(j)), new Vector2(u1, V(j - 1)),
                                  face == 0 ? toRoad : -toRoad);
             }
+
+            // THE BEAM REACHES AS FAR AS ITS COLLIDER. The wall solid runs on
+            // WallSolidEndReachM past each end ring (BuildWallSolid); the beam
+            // stopped at the ring, so the last ten centimetres of collider -
+            // and the solid's end, seen from the road past a run's end - had
+            // nothing drawn in front of it (Chimney Rock wp 915 R, where the
+            // run hands over to the cut: "held off by 1.40 m of air"). Carried
+            // on as far, and closed with a flat end shoe, both sides.
+            if (R >= 2)
+                for (int endIx = 0; endIx < 2; endIx++)
+                {
+                    int k = endIx == 0 ? 0 : R - 1, k2 = endIx == 0 ? 1 : R - 2;
+                    Vector3 dir = Crease(k, 0) - Crease(k2, 0); dir.y = 0f;
+                    if (dir.sqrMagnitude < 1e-6f) continue;
+                    dir = dir.normalized * WallSolidEndReachM;
+                    Vector3 toRoad = -rings[k].right * side;
+                    float uA = along[k] / Spacing + 50f / 256f;
+                    float uB = uA + (endIx == 0 ? -WallSolidEndReachM : WallSolidEndReachM) / Spacing;
+                    for (int j = 1; j < P; j++)
+                        for (int face = 0; face < 2; face++)
+                            WallQuad(verts, uvs, tris,
+                                     Crease(k, j - 1), Crease(k, j), Crease(k, j) + dir, Crease(k, j - 1) + dir,
+                                     new Vector2(uA, V(j - 1)), new Vector2(uA, V(j)),
+                                     new Vector2(uB, V(j)), new Vector2(uB, V(j - 1)),
+                                     face == 0 ? toRoad : -toRoad);
+                    var g = rings[k];
+                    Vector3 front = g.centre + g.right * (side * (half + Line(k))) + dir;
+                    Vector3 deep = front + g.right * (side * RailSection[2].back);
+                    float yb = g.topY - RailSection[0].down, yt = g.topY - RailSection[RailSection.Length - 1].down;
+                    for (int face = 0; face < 2; face++)
+                        WallQuad(verts, uvs, tris,
+                                 new Vector3(front.x, yb, front.z), new Vector3(front.x, yt, front.z),
+                                 new Vector3(deep.x, yt, deep.z), new Vector3(deep.x, yb, deep.z),
+                                 new Vector2(uB, V(0)), new Vector2(uB, V(P - 1)),
+                                 new Vector2(uB + 0.02f, V(P - 1)), new Vector2(uB + 0.02f, V(0)),
+                                 face == 0 ? dir : -dir);
+                }
 
             int posts = 0;
             bool NoPost(int station) =>
@@ -4535,6 +4679,15 @@ namespace PSXRacing.EditorTools
                 Mathf.Min(rings[k - 1].collTopY, rings[k].collTopY)
                 - Mathf.Max(rings[k - 1].groundY, rings[k].groundY) >= StageWallCollMinH;
             int sub = 0;
+            // The collider's own footing: the drawing's, except where that
+            // hangs in the air over a fall (StageWallAirFootM).
+            float CollFoot(int r) => rings[r].footInAir ? rings[r].groundY - StageWallAirFootM : rings[r].baseY;
+            for (int r = 0; r < R; r++)
+                if (rings[r].footInAir && !rings[r].mid)
+                {
+                    wallFootsInAir++;
+                    if (wallFootsInAirAt.Count < 60) wallFootsInAirAt.Add(rings[r].station + (side < 0 ? "L" : "R"));
+                }
             for (int k = 1; k < R; )
             {
                 if (!ChordSolid(k)) { k++; continue; }
@@ -4543,20 +4696,35 @@ namespace PSXRacing.EditorTools
                 var faceBottom = new List<Vector3>(k1 - k0 + 1);
                 var faceTop = new List<Vector3>(k1 - k0 + 1);
                 var outward = new List<Vector3>(k1 - k0 + 1);
+                // A GUARDRAIL'S SOLID TAPERS TO THE BEAM AT ITS ENDS. The beam
+                // is 83 mm deep and the solid 1.2 m, so a run's end cap is a
+                // metre of invisible face, and a road that sees a run's end -
+                // the stretch coming into a hairpin, looking at its inside
+                // rail's first ring (Chimney Rock wp 1047 against 1050 L) -
+                // meets it as a force field. The end rings' depth is the
+                // beam's own plus its posts (StageRailEndThickM); the chord
+                // next to each end tapers into the full depth.
+                var depth = theme.guardrail ? new List<float>(k1 - k0 + 1) : null;
                 for (int r = k0; r <= k1; r++)
                 {
                     var g = rings[r];
+                    depth?.Add(r == k0 || r == k1 ? StageRailEndThickM : StageWallCollThick);
                     Vector3 face = g.centre + g.right * (side * (half + g.faceE + extra[r]));
-                    float bottom = g.baseY;
-                    if (r > k0) bottom = Mathf.Min(bottom, rings[r - 1].baseY);
-                    if (r < k1) bottom = Mathf.Min(bottom, rings[r + 1].baseY);
+                    // A footing in the air keeps its own: a deep neighbour
+                    // would pull it back down toward the road below.
+                    float bottom = CollFoot(r);
+                    if (!g.footInAir)
+                    {
+                        if (r > k0) bottom = Mathf.Min(bottom, CollFoot(r - 1));
+                        if (r < k1) bottom = Mathf.Min(bottom, CollFoot(r + 1));
+                    }
                     float top = g.collTopY;
                     faceBottom.Add(new Vector3(face.x, bottom - 0.1f, face.z));
                     faceTop.Add(new Vector3(face.x, top, face.z));
                     outward.Add(g.right * side);
                 }
                 BuildWallSolid("WallColl", parent, faceBottom, faceTop, outward, StageWallCollThick,
-                               false, phys, "CollGuard" + no + "_" + sub++);
+                               false, phys, "CollGuard" + no + "_" + sub++, depth);
                 k = k1 + 1;
             }
             var mesh = new Mesh
