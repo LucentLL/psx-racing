@@ -149,12 +149,19 @@ Invoke-UnityJob -Log "$proj\selftest.log" -UnityArgs @(
 # and either one teaches you to stop reading the exit code -- which is the only
 # thing an automated caller can read.
 $bad = 0
+# A failing check is a line that STARTS "  FAIL" (LifeSimSelfTest.Check, and a
+# section that threw), plus the "SELF-TEST FAILED (n)" summary. Anchored and
+# case-sensitive: a bare "FAIL" also matched PASSING lines whose label says it -
+# "  ok   control: MAIN's doors against CITY's player FAIL", "  ok   a cooling
+# failure can be booked in" - and 2026-09-29's result file listed seven of them
+# as failures beside the one that was.
+$selfTestFail = '^\s*FAIL\b|^\s*SELF-TEST FAILED'
 if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
-    Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL|SELF-TEST" |
+    Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "$selfTestFail|^\s*SELF-TEST" -CaseSensitive |
         ForEach-Object { $_.Line }
     if (Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "SELF-TEST FAILED" -Quiet) {
         $bad++
-        Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL" |
+        Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern $selfTestFail -CaseSensitive |
             ForEach-Object { $failLines.Add("[self-test] " + $_.Line.Trim()) }
     }
 } else {
