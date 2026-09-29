@@ -40,6 +40,12 @@ namespace PSXRacing.EditorTools
             failures = 0;
             roamIdx = TrackCatalog.IndexOf("Charlotte");
             raceIdx = TrackCatalog.IndexOf("UptownLoop");
+            // Which edition this plays AS (PSX_EDITION / -psxEdition; ALL by
+            // default). Under CITY the two drives are launched through the
+            // CITY front end's own request (CityFrontEnd.FillFreeRoam /
+            // FillRace), so the check plays what the test page hands over.
+            log.AppendLine("edition " + Edition.Name(Edition.Current));
+            if (!Edition.HasCharlotte) Fail("this edition has no Charlotte - run it as CITY or ALL");
 
             var scenes = EditorBuildSettings.scenes;
             foreach (var (name, idx) in new[] { ("Charlotte", roamIdx), ("UptownLoop", raceIdx) })
@@ -65,6 +71,14 @@ namespace PSXRacing.EditorTools
         /// <summary>What LifeHomeScreen.StartFreeRoam hands over.</summary>
         internal static void PrimeRoam()
         {
+            if (Edition.Current == EditionKind.City)
+            {
+                Check(PSXRacing.LifeSim.CityFrontEnd.FillFreeRoam(PSXRacing.LifeSim.CityFrontEnd.DefaultCarId(),
+                          TimeOfDay.Noon, 0, out int scene) && scene == TrackCatalog.SceneIndex(roamIdx),
+                      "CITY front end: FREE ROAM fills the handoff for the Charlotte scene",
+                      RaceHandoff.CarSpecId);
+                return;
+            }
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.FreeRoam = true;
@@ -77,6 +91,14 @@ namespace PSXRacing.EditorTools
         /// <summary>What a race entered from the LifeSim carries.</summary>
         internal static void PrimeRace()
         {
+            if (Edition.Current == EditionKind.City)
+            {
+                Check(PSXRacing.LifeSim.CityFrontEnd.FillRace(raceIdx, PSXRacing.LifeSim.CityFrontEnd.DefaultCarId(),
+                          TimeOfDay.Noon, 0, out int scene) && scene == TrackCatalog.SceneIndex(raceIdx),
+                      "CITY front end: UPTOWN LOOP fills the handoff with a field",
+                      RaceHandoff.OpponentSpecIds);
+                return;
+            }
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = raceIdx;

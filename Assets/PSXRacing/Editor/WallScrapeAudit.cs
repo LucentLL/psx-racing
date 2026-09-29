@@ -223,7 +223,7 @@ namespace PSXRacing.EditorTools
                 // proxy was not registered": a filter left enabled could still
                 // be acting on anything else that registered itself.
                 GhostContactFilter.Enabled = filterOn;
-                foreach (var def in TrackCatalog.Scened)
+                foreach (var def in TrackCatalog.ScenedFor(EditionTarget.Current))
                 {
                     if (def.city) continue;
                     if (filter != null && !filter.Contains(def.id)) continue;

@@ -60,7 +60,8 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             var log = new StringBuilder();
-            foreach (var def in TrackCatalog.Scened) AuditOne(def, log);
+            // The targeted edition's venues (EditionTarget; ALL by default).
+            foreach (var def in TrackCatalog.ScenedFor(EditionTarget.Current)) AuditOne(def, log);
 
             Debug.Log(log.ToString());
             System.IO.File.WriteAllText(

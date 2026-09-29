@@ -3,7 +3,9 @@
 # no scene build: the scenes must already be built there).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\race-play-check.ps1 -Venue GillespieGap -Seconds 150 -Seed 0
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20)
+#   ...  -Edition MAIN   plays it AS the MAIN edition (Scripts/Edition.cs): the
+#                        runtime's filters and door rules are MAIN's. ALL by default.
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -18,6 +20,7 @@ $env:PSX_RACE_SECONDS = "$Seconds"
 $env:PSX_RACE_SEED = "$Seed"
 $env:PSX_RACE_HOUR = $Hour
 $env:PSX_RACE_MISTAKE = $Mistake
+$env:PSX_EDITION = $Edition.ToUpperInvariant()
 # Watched by default: a visible editor plays the test in front of you.
 # -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
 # budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.

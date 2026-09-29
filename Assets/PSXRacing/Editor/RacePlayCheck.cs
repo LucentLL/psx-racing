@@ -41,6 +41,10 @@ namespace PSXRacing.EditorTools
                 return;
             }
             log.AppendLine("race on " + id + ":");
+            // The edition it plays AS (PSX_EDITION / -psxEdition; ALL by
+            // default): a MAIN run races under MAIN's runtime rules.
+            log.AppendLine("  edition " + Edition.Name(Edition.Current));
+            Check(Edition.Ships(TrackCatalog.At(index)), id + " is a venue this edition ships");
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;

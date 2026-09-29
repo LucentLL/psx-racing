@@ -146,6 +146,21 @@ namespace PSXRacing.LifeSim
 
         void Start()
         {
+            // THE CITY EDITION HAS NO HOUSE. The Charlotte test page is the
+            // city, its races, a car and the options — no career, no calendar,
+            // no save to spend a block from — so this scene is its own small
+            // front end there (CityFrontEnd), built before anything below can
+            // touch LifeSimManager.State and grow a career nobody asked for.
+            // Everything in this class is MAIN's (and ALL's) front end.
+            if (!Edition.HasCareer)
+            {
+                enabled = false;
+                var fe = GetComponent<CityFrontEnd>();
+                if (fe == null) fe = gameObject.AddComponent<CityFrontEnd>();
+                fe.Open();
+                return;
+            }
+
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "HomeCanvas", 10);
             MenuKit.Panel(canvas.transform, "Backdrop", MenuKit.Bg);
@@ -359,7 +374,9 @@ namespace PSXRacing.LifeSim
                 if (S.ActiveCar != null && S.ActiveCar.fuel > 1f)
                 {
                     BuildChrome();
-                    StartFreeRoam();
+                    // A refusal (MAIN ships no Charlotte) has toasted; the page
+                    // under the toast must still be drawn.
+                    if (!StartFreeRoam()) Rebuild();
                     return;
                 }
                 BuildChrome();
@@ -393,7 +410,13 @@ namespace PSXRacing.LifeSim
                 if (PizzaRun.Carrying && S.ActiveCar != null && S.ActiveCar.fuel > 1f)
                 {
                     BuildChrome();
-                    PizzaRun.LaunchDelivery(S);
+                    if (PizzaRun.LaunchDelivery(S)) return;
+                    // The drop's venue is not in this build: nothing loaded,
+                    // so the run is over and the page must be drawn.
+                    PizzaRun.AbandonRun(S, "the delivery never left the junction");
+                    LifeSimManager.Save();
+                    Rebuild();
+                    Toast("the run fell through — no drop to drive to");
                     return;
                 }
                 PizzaRun.AbandonRun(S, "the delivery fell through at the junction");
@@ -420,7 +443,8 @@ namespace PSXRacing.LifeSim
                 if (no == null)
                 {
                     BuildChrome();
-                    StartMeetRace(racer);
+                    // A refusal has toasted and loaded nothing; draw the page.
+                    if (!StartMeetRace(racer)) Rebuild();
                     return;
                 }
                 // It fell through between the lot and here. Back to the lot,
@@ -474,6 +498,13 @@ namespace PSXRacing.LifeSim
 
             BuildChrome();
             Rebuild();
+            // What the load did to a save from before the editions: a race
+            // booked at a venue this edition does not carry was cancelled,
+            // with a line in the log saying why (LifeSimManager.EditionSanitize).
+            // Said once, on the first screen, unless a result has the floor.
+            string editionNote = LifeSimManager.TakeEditionNote();
+            if (editionNote != null && raceSummary == null && driveSummary == null && walkout == null)
+                Toast(editionNote);
             if (walkout != null && raceSummary == null) Toast(walkout);
             if (raceSummary != null)
             {
@@ -1364,7 +1395,8 @@ namespace PSXRacing.LifeSim
             if (calWeekDay <= 0) calWeekDay = S.day;
             if (calVenue < 0 || calVenue >= TrackCatalog.Count)
                 calVenue = Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
-            if (TrackCatalog.At(calVenue).IsRoam) StepVenue(1);
+            // Not the open city, and not the other edition's venue.
+            if (!TrackCatalog.Offered(calVenue)) StepVenue(1);
         }
 
         void LookAtNow() => LookAt(S.day, S.slotIndex);
@@ -1440,12 +1472,11 @@ namespace PSXRacing.LifeSim
                 : Mathf.RoundToInt(t.LengthM) + " m  ·  " + t.laps + " laps";
 
         /// <summary>Step the save's default venue — the one an UNBOOKED race
-        /// opens on — skipping the open city, which is not a race venue.</summary>
+        /// opens on — skipping the open city, which is not a race venue, and
+        /// every venue this edition does not carry (TrackCatalog.Offered).</summary>
         void StepTrack(int step)
         {
-            int idx = S.trackIndex;
-            do { idx = (idx + step + TrackCatalog.Count) % TrackCatalog.Count; }
-            while (TrackCatalog.At(idx).IsRoam);   // the open city is not a race venue — FREE ROAM is its door
+            int idx = TrackCatalog.StepOffered(S.trackIndex, step);
             S.trackIndex = idx;
             LifeSimManager.Save();
             Rebuild();
@@ -4915,12 +4946,9 @@ namespace PSXRacing.LifeSim
         /// could never end — the same rule the delivery router keeps.</summary>
         void StepVenue(int step)
         {
-            int n = TrackCatalog.Count;
-            for (int i = 0; i < n; i++)
-            {
-                calVenue = ((calVenue + step) % n + n) % n;
-                if (!TrackCatalog.At(calVenue).IsRoam) return;
-            }
+            // Skipping the other edition's venues too: MAIN's diary cannot
+            // write in a Charlotte race it has no scene for.
+            calVenue = TrackCatalog.StepOffered(calVenue, step);
         }
 
         /// <summary>
@@ -5166,6 +5194,99 @@ namespace PSXRacing.LifeSim
             y -= 64f;
         }
 
+        /// <summary>One settings row: what it is called, what it says now,
+        /// the sentence under it, and what pressing it does.</summary>
+        public struct OptionSpec
+        {
+            public string name;
+            public System.Func<string> value;
+            public string blurb;
+            public System.Action apply;
+            public OptionSpec(string name, System.Func<string> value, string blurb, System.Action apply)
+            { this.name = name; this.value = value; this.blurb = blurb; this.apply = apply; }
+        }
+
+        /// <summary>
+        /// THE settings, as one list both front ends draw: MAIN's OPTIONS page
+        /// here and the CITY edition's (CityFrontEnd). Two copies of a settings
+        /// page would be two pages to keep in step, and the one that fell behind
+        /// would be the test page nobody looks at every day. Every row drives a
+        /// PlayerPrefs-backed static, the same one the pause menu toggles.
+        /// </summary>
+        public static System.Collections.Generic.List<OptionSpec> OptionSpecs()
+        {
+            var list = new System.Collections.Generic.List<OptionSpec>();
+            // FIRST, and not out of tidiness. It is the only row here that is
+            // about the screen rather than about the game, the only one the
+            // browser can undo behind the player's back — a tab switch, the
+            // notification shade, Back, Escape all drop fullscreen and a page
+            // may not restore it by itself — and on a phone it is worth about a
+            // third of the picture. Skipped where the platform cannot do it at
+            // all; see FullscreenPrefs.
+            if (FullscreenPrefs.Supported)
+                list.Add(new OptionSpec("FULLSCREEN", () => FullscreenPrefs.Label,
+                    "Fills the screen and puts the browser's bars away. Say it again if they come back.",
+                    () => FullscreenPrefs.Toggle()));
+            // On foot only - and the CITY edition has no feet: nobody gets
+            // out of a car there, so the row would be a switch for nothing.
+            if (Edition.HasCareer)
+                list.Add(new OptionSpec("LOOK Y", () => LookPrefs.Label,
+                    "Which way the view pitches on foot. NORMAL unless you fly.",
+                    () => LookPrefs.Toggle()));
+            list.Add(new OptionSpec("PICTURE", () => PSXQuality.Name,
+                "How coarse the picture is. SHARP is 480 lines; RETRO is a PlayStation.",
+                () => PSXQuality.Cycle(1)));
+            list.Add(new OptionSpec("CLUSTER BULB", () => ClusterBulbs.Name,
+                "The colour behind the dials after dark.",
+                () => ClusterBulbs.Cycle(1)));
+            list.Add(new OptionSpec("SPEED", () => SpeedUnits.Label,
+                "What the speedometer counts in. MPH by default — it is 1999 in North Carolina.",
+                () => SpeedUnits.Toggle()));
+            // The one sense-of-speed cue that is a style rather than a fact:
+            // the Carbon blur, which replaced the speed streaks. The pause
+            // menu carries the same switch; this is the copy you can reach
+            // without being in a car. Ships ON.
+            list.Add(new OptionSpec("SPEED BLUR", () => SpeedBlurPrefs.Label,
+                "The picture smears into a tunnel as the car gets fast. Off if you would rather it did not.",
+                () => SpeedBlurPrefs.Toggle()));
+            // The faded-print look over the whole picture. Ships ON: it is the
+            // picture the owner asked for ("like playing this game is a dream").
+            list.Add(new OptionSpec("FILM GRADE", () => FilmGradePrefs.Label,
+                "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",
+                () => FilmGradePrefs.Toggle()));
+            // The sky: the photographs, or the computed sky after Tidewater
+            // (2026-09-26). A switch so the two can be compared.
+            list.Add(new OptionSpec("SKY", () => SkyModePrefs.Label,
+                "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
+                () => SkyModePrefs.Toggle()));
+            // What lands on the camera's glass: rain drops that refract the
+            // street (and glow where a lamp is behind them) and the dust a
+            // bright light shows up at night — the owner's "particle effects
+            // on screen for rain and light", after NFS (2015). Ships ON; the
+            // pause menu carries the same switch.
+            list.Add(new OptionSpec("LENS FX", () => LensFxPrefs.Label,
+                "Rain drops and light bokeh on the lens. Off for a clean lens.",
+                () => LensFxPrefs.Toggle()));
+            // The day pass's shadow maps: the sun casting shadows, tunnels
+            // and underpasses going dark. Ships ON; the one switch on this
+            // page that is about SPEED - the maps are a second pass over the
+            // scene every frame, and on a slow phone that may be worth having
+            // back. (OPTIONS only: the pause column is full.)
+            list.Add(new OptionSpec("SUN SHADOWS", () => SunShadowPrefs.Label,
+                "Daylight casts shadows; tunnels go dark. Off if the game runs slowly by day.",
+                () => SunShadowPrefs.Toggle()));
+            // Frame pacing and the meter to judge it by (2026-09-25: "60fps
+            // minimum. Preferably 120fps"). MAX is the screen's own refresh -
+            // 120 on the owner's S24+ - and 60 is there for battery.
+            list.Add(new OptionSpec("FRAME RATE", () => FrameRatePrefs.Label,
+                "MAX runs as fast as the screen refreshes (up to 120). 60 saves battery.",
+                () => FrameRatePrefs.Toggle()));
+            list.Add(new OptionSpec("SHOW FPS", () => FpsOverlayPrefs.Label,
+                "Frame rate, frame time and the worst frame, along the bottom edge.",
+                () => FpsOverlayPrefs.Toggle()));
+            return list;
+        }
+
         /// <summary>
         /// Settings, in the one place a player can reach without being in a car.
         ///
@@ -5181,71 +5302,8 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             PageHeader(ref y, "OPTIONS");
 
-            // FIRST, and not out of tidiness. It is the only row here that is
-            // about the screen rather than about the game, the only one the
-            // browser can undo behind the player's back — a tab switch, the
-            // notification shade, Back, Escape all drop fullscreen and a page
-            // may not restore it by itself — and on a phone it is worth about a
-            // third of the picture. Skipped where the platform cannot do it at
-            // all; see FullscreenPrefs.
-            if (FullscreenPrefs.Supported)
-                OptionRow("FULLSCREEN", FullscreenPrefs.Label,
-                    "Fills the screen and puts the browser's bars away. Say it again if they come back.",
-                    () => FullscreenPrefs.Toggle(), ref y);
-            OptionRow("LOOK Y", LookPrefs.Label,
-                "Which way the view pitches on foot. NORMAL unless you fly.",
-                () => LookPrefs.Toggle(), ref y);
-            OptionRow("PICTURE", PSXQuality.Name,
-                "How coarse the picture is. SHARP is 480 lines; RETRO is a PlayStation.",
-                () => PSXQuality.Cycle(1), ref y);
-            OptionRow("CLUSTER BULB", ClusterBulbs.Name,
-                "The colour behind the dials after dark.",
-                () => ClusterBulbs.Cycle(1), ref y);
-            OptionRow("SPEED", SpeedUnits.Label,
-                "What the speedometer counts in. MPH by default — it is 1999 in North Carolina.",
-                () => SpeedUnits.Toggle(), ref y);
-            // The one sense-of-speed cue that is a style rather than a fact:
-            // the Carbon blur, which replaced the speed streaks. The pause
-            // menu carries the same switch; this is the copy you can reach
-            // without being in a car. Ships ON.
-            OptionRow("SPEED BLUR", SpeedBlurPrefs.Label,
-                "The picture smears into a tunnel as the car gets fast. Off if you would rather it did not.",
-                () => SpeedBlurPrefs.Toggle(), ref y);
-            // The faded-print look over the whole picture. Ships ON: it is the
-            // picture the owner asked for ("like playing this game is a dream").
-            OptionRow("FILM GRADE", FilmGradePrefs.Label,
-                "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",
-                () => FilmGradePrefs.Toggle(), ref y);
-            // What lands on the camera's glass: rain drops that refract the
-            // street (and glow where a lamp is behind them) and the dust a
-            // bright light shows up at night — the owner's "particle effects
-            // on screen for rain and light", after NFS (2015). Ships ON; the
-            // pause menu carries the same switch.
-            // The sky: the photographs, or the computed sky after Tidewater
-            // (2026-09-26). A switch so the two can be compared.
-            OptionRow("SKY", SkyModePrefs.Label,
-                "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
-                () => SkyModePrefs.Toggle(), ref y);
-            OptionRow("LENS FX", LensFxPrefs.Label,
-                "Rain drops and light bokeh on the lens. Off for a clean lens.",
-                () => LensFxPrefs.Toggle(), ref y);
-            // The day pass's shadow maps: the sun casting shadows, tunnels
-            // and underpasses going dark. Ships ON; the one switch on this
-            // page that is about SPEED - the maps are a second pass over the
-            // scene every frame, and on a slow phone that may be worth having
-            // back. (OPTIONS only: the pause column is full.)
-            OptionRow("SUN SHADOWS", SunShadowPrefs.Label,
-                "Daylight casts shadows; tunnels go dark. Off if the game runs slowly by day.",
-                () => SunShadowPrefs.Toggle(), ref y);
-            // Frame pacing and the meter to judge it by (2026-09-25: "60fps
-            // minimum. Preferably 120fps"). MAX is the screen's own refresh -
-            // 120 on the owner's S24+ - and 60 is there for battery.
-            OptionRow("FRAME RATE", FrameRatePrefs.Label,
-                "MAX runs as fast as the screen refreshes (up to 120). 60 saves battery.",
-                () => FrameRatePrefs.Toggle(), ref y);
-            OptionRow("SHOW FPS", FpsOverlayPrefs.Label,
-                "Frame rate, frame time and the worst frame, along the bottom edge.",
-                () => FpsOverlayPrefs.Toggle(), ref y);
+            foreach (var o in OptionSpecs())
+                OptionRow(o.name, o.value(), o.blurb, o.apply, ref y);
 
             MenuKit.Label(body, "The pause menu inside a race carries most of these,",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
@@ -5840,6 +5898,13 @@ namespace PSXRacing.LifeSim
         void StartTestDrive(Viewing v)
         {
             if (v == null || v.car == null) return;
+            // The same shortlist the delivery job rolls from: venues this car
+            // can actually finish on the fuel it has. A test drive that runs
+            // dry halfway round a mountain is a bug, not a discovery. (The
+            // roll only ever returns this edition's venues; checked anyway,
+            // because the alternative to a refusal is a black screen.)
+            int venue = Mathf.Clamp(LifeRules.DeliveryTrackIndex(S), 0, TrackCatalog.Count - 1);
+            if (!VenueHere(venue)) return;
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TestDrive = true;
@@ -5848,11 +5913,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.IsPractice = true;
             RaceHandoff.CarId = v.car.id;
             RaceHandoff.CarSpecId = v.car.specId;
-            // The same shortlist the delivery job rolls from: venues this car
-            // can actually finish on the fuel it has. A test drive that runs
-            // dry halfway round a mountain is a bug, not a discovery.
-            RaceHandoff.TrackIndex = Mathf.Clamp(LifeRules.DeliveryTrackIndex(S),
-                                                 0, TrackCatalog.Count - 1);
+            RaceHandoff.TrackIndex = venue;
             RaceHandoff.TimeOfDayIndex = RaceHour();
             RaceHandoff.StartFuelPct = v.car.fuel;
             // THE OVERLOAD. The one-argument version reads S.ActiveCar
@@ -6861,7 +6922,9 @@ namespace PSXRacing.LifeSim
             bool booked = bookedNow != null;
             int venue = booked ? bookedNow.trackIndex
                                : Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
-            if (TrackCatalog.At(venue).IsRoam) { S.trackIndex = 0; venue = 0; }   // saves never point races at the open city
+            // Saves never point races at the open city, nor at a venue this
+            // edition does not carry.
+            if (!TrackCatalog.Offered(venue)) { venue = TrackCatalog.FirstOffered(); S.trackIndex = venue; }
             var t = TrackCatalog.At(venue);
 
             float y = -14f;
@@ -7327,6 +7390,25 @@ namespace PSXRacing.LifeSim
             return false;
         }
 
+        /// <summary>
+        /// The other last gate: is this venue a race this BUILD can run? The
+        /// pickers never offer the other edition's venues, so this is for a
+        /// path nobody filtered — an old save, a meet roll, a series opened
+        /// before the editions. False means nothing was loaded and the player
+        /// has been told; a LoadScene on a scene the build lacks is a black
+        /// screen with no error.
+        /// </summary>
+        bool VenueHere(int trackIndex)
+        {
+            if (TrackCatalog.Offered(trackIndex) &&
+                TrackCatalog.SceneShipped(TrackCatalog.SceneIndex(trackIndex)))
+                return true;
+            string name = trackIndex >= 0 && trackIndex < TrackCatalog.Count
+                ? TrackCatalog.At(trackIndex).name : "that venue";
+            Toast(Clip(name, 22).ToUpperInvariant() + " — NOT IN THIS EDITION");
+            return false;
+        }
+
         /// <param name="hour">The <see cref="TimeOfDay"/> index to race at, or
         /// -1 for the block's own. The pre-race page passes the hour it SHOWED
         /// (a booking's, or the page's pick); a call-out from the RIVALS page
@@ -7334,6 +7416,12 @@ namespace PSXRacing.LifeSim
         void StartRace(bool practice = false, BlacklistRival rival = null, int hour = -1)
         {
             if (!CarIsHere()) return;
+            // THE VENUE MUST BE IN THIS BUILD, asked before anything is spent
+            // or stamped: a challenge leg begun and a scene that is not there
+            // would be a loss for a race that could never be run.
+            if (!VenueHere(rival != null ? Blacklist.SeriesTrack(S)
+                                         : Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1)))
+                return;
             // The race is the block. Whatever the drive out to it left owing,
             // ApplyRaceResult is about to charge — see driveUnpaid.
             driveUnpaid = false;
@@ -7405,9 +7493,10 @@ namespace PSXRacing.LifeSim
         /// lined up against and lost to has been raced, and so has one you
         /// quit out on.
         /// </summary>
-        void StartMeetRace(MeetRacer racer)
+        bool StartMeetRace(MeetRacer racer)
         {
-            if (racer == null || racer.spec == null || !CarIsHere()) return;
+            if (racer == null || racer.spec == null || !CarIsHere()) return false;
+            if (!VenueHere(Mathf.Clamp(racer.trackIndex, 0, TrackCatalog.Count - 1))) return false;
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.CarId = S.activeCar;
@@ -7437,6 +7526,7 @@ namespace PSXRacing.LifeSim
             FillCarRequest();
             LifeSimManager.Save();
             SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+            return true;
         }
 
         /// <summary>
@@ -7587,15 +7677,27 @@ namespace PSXRacing.LifeSim
             SceneManager.LoadScene(idx);
         }
 
-        void StartFreeRoam()
+        /// <returns>False when nothing was loaded (the car is not here, or
+        /// this edition has no Charlotte): the player has been told, and the
+        /// caller must draw a page.</returns>
+        bool StartFreeRoam()
         {
-            if (!CarIsHere()) return;
+            // MAIN ships no Charlotte (see Edition). The line at the end of the
+            // street never offers it there; this is for anything that asks
+            // anyway — a hop from an older build's state, say.
+            if (!TrackCatalog.TryIndexOfShipped("Charlotte", out int roam) ||
+                !TrackCatalog.SceneShipped(TrackCatalog.SceneIndex(roam)))
+            {
+                Toast("CHARLOTTE IS ITS OWN EDITION NOW — NOT IN THIS ONE");
+                return false;
+            }
+            if (!CarIsHere()) return false;
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.FreeRoam = true;
             RaceHandoff.CarId = S.activeCar;
             RaceHandoff.CarSpecId = S.ActiveCar != null ? S.ActiveCar.specId : "";
-            RaceHandoff.TrackIndex = TrackCatalog.IndexOf("Charlotte");
+            RaceHandoff.TrackIndex = roam;
             RaceHandoff.TimeOfDayIndex = RaceHour();
             RaceHandoff.StartFuelPct = S.ActiveCar != null ? S.ActiveCar.fuel : 100f;
 
@@ -7603,6 +7705,7 @@ namespace PSXRacing.LifeSim
 
             LifeSimManager.Save();
             SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+            return true;
         }
 
         /// <summary>

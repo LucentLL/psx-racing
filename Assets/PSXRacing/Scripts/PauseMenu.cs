@@ -280,7 +280,9 @@ namespace PSXRacing
             var tank = Tank;
             if (tank == null) return "FUEL TRUCK: N/A";
             if (tank.percent >= 99.5f) return "FUEL TRUCK: TANK FULL";
-            if (!RaceHandoff.FromLifeSim) return "FUEL TRUCK: FILL (FREE)";
+            // Free where there is no wallet: a standalone editor race, and the
+            // CITY edition, which has no career to bill.
+            if (!RaceHandoff.FromLifeSim || !Edition.HasCareer) return "FUEL TRUCK: FILL (FREE)";
             int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent, tank.Profile);
             var s = LifeSim.LifeSimManager.State;
             return s.money < cost
@@ -293,7 +295,7 @@ namespace PSXRacing
             var tank = Tank;
             if (tank == null || tank.percent >= 99.5f) return;
 
-            if (RaceHandoff.FromLifeSim)
+            if (RaceHandoff.FromLifeSim && Edition.HasCareer)
             {
                 var s = LifeSim.LifeSimManager.State;
                 int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent, tank.Profile);

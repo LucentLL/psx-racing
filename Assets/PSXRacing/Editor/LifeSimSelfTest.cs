@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -29,6 +30,19 @@ namespace PSXRacing.EditorTools
         {
             log = new StringBuilder();
             failures = 0;
+            // THE SELF-TEST IS ALWAYS THE WHOLE GAME, whatever edition the job
+            // around it targets (verify.ps1 -Edition MAIN sets PSX_EDITION for
+            // its audits): every test below was written against ALL, and the
+            // editions are tested as editions by TestEditions, which simulates
+            // each and puts this back.
+            var editionWas = Edition.Simulated;
+            Edition.Simulate(EditionKind.All);
+            try { RunAll(); }
+            finally { Edition.Simulate(editionWas); }
+        }
+
+        static void RunAll()
+        {
 
             // EACH ONE IN ITS OWN NET.
             //
@@ -81,6 +95,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCarWhere), TestCarWhere);
             Guard(nameof(TestCarMeets), TestCarMeets);
             Guard(nameof(TestDepartDoors), TestDepartDoors);
+            Guard(nameof(TestEditions), TestEditions);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -579,6 +594,232 @@ namespace PSXRacing.EditorTools
             Check(PSXRacing.Town.DepartScreen.PitchFor(4, FirstY, MenuKit.DesignHeightDesktop)
                       == 78f,
                   "and a desktop is never squeezed");
+        }
+
+        /// <summary>
+        /// THE TWO EDITIONS (see Edition). The editor is ALL, so every other
+        /// test here is the united game; this one SIMULATES each edition in
+        /// turn and holds the build to what the owner asked for — MAIN with
+        /// no Charlotte anywhere (not offered, not rolled, not shipped), CITY
+        /// with the city and nothing else — and a MAIN load of an old save
+        /// that points at Charlotte cancelling rather than crashing. Always
+        /// puts the simulation back, because every test after it is ALL.
+        /// </summary>
+        static void TestEditions()
+        {
+            Line("the editions (MAIN / CITY / ALL):");
+            var was = Edition.Simulated;
+            try { EditionChecks(); }
+            finally { Edition.Simulate(was); RaceHandoff.ClearAll(); }
+        }
+
+        static void EditionChecks()
+        {
+            Check(Edition.Baked == EditionKind.All,
+                  "the editor compiles as ALL (no PSX_EDITION_* define)", Edition.Baked);
+            Check(EditionTarget.DefineFor(EditionKind.Main) == "PSX_EDITION_MAIN" &&
+                  EditionTarget.DefineFor(EditionKind.City) == "PSX_EDITION_CITY" &&
+                  EditionTarget.DefineFor(EditionKind.All) == null,
+                  "the build passes one define per edition and none for ALL");
+
+            // ---- the rule: city => CITY, everything else => MAIN ----
+            string[] cityIds = { "Charlotte", "UptownLoop", "TryonSprint", "IndependenceSprint", "TryonSprintRev" };
+            foreach (var id in cityIds)
+                Check(TrackCatalog.TryIndexOf(id, out int ci) &&
+                      Edition.Of(TrackCatalog.At(ci)) == EditionKind.City,
+                      id + " is CITY's");
+            foreach (var id in new[] { "CityCircuit", "CityCircuitRev", "BlueRidge", "DragQuarter",
+                                       "BlowingRockSprint", "SwissNC226AUpper", "GillespieGap" })
+                Check(TrackCatalog.TryIndexOf(id, out int mi) &&
+                      Edition.Of(TrackCatalog.At(mi)) == EditionKind.Main,
+                      id + " is MAIN's (SUNSET CITY GP is a fictional circuit, not Charlotte)");
+            foreach (var h in TrackCatalog.HeldBack)
+                Check(Edition.Of(h) == EditionKind.Main, "held-back " + h.id + " is MAIN's");
+            int twinsOff = 0;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+            {
+                var t = TrackCatalog.At(i);
+                string baseId = t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : null;
+                if (baseId == null) continue;
+                if (Edition.Of(t) != Edition.Of(TrackCatalog.At(TrackCatalog.IndexOf(baseId)))) twinsOff++;
+            }
+            Check(twinsOff == 0, "every twin and sprint is in its road's edition", twinsOff);
+            Check(!TrackCatalog.TryIndexOf("NoSuchVenue", out int none) && none == -1 &&
+                  TrackCatalog.IndexOf("NoSuchVenue") == 0,
+                  "TryIndexOf says MISSING where IndexOf says 0 (the bug the pickers had)");
+
+            // ---- the scene lists the players ship ----
+            var all = PSXRacingBuilder.SceneOrder(EditionKind.All);
+            var main = PSXRacingBuilder.SceneOrder(EditionKind.Main);
+            var city = PSXRacingBuilder.SceneOrder(EditionKind.City);
+            Check(all.SequenceEqual(PSXRacingBuilder.SceneOrder()),
+                  "SceneOrder() is ALL - what the build settings hold");
+            Check(main[0] == LifeHomeSceneBuilder.ScenePath && city[0] == LifeHomeSceneBuilder.ScenePath,
+                  "LifeHome is scene 0 in both editions (the boot scene)");
+            var cityScenes = new HashSet<string>(cityIds.Where(id => !id.EndsWith("Rev"))
+                                                        .Select(TrackCatalog.ScenePathOf));
+            Check(!main.Any(cityScenes.Contains),
+                  "MAIN's player ships no Charlotte scene",
+                  string.Join(",", main.Where(cityScenes.Contains).Select(System.IO.Path.GetFileNameWithoutExtension)));
+            Check(main.Contains(TrackCatalog.ScenePathOf("CityCircuit")) &&
+                  main.Contains(TrackCatalog.ScenePathOf("BlueRidge")) &&
+                  main.Contains(GarageSceneBuilder.ScenePath) && main.Contains(PSXRacingBuilder.TownScenePath) &&
+                  main.Contains(PSXRacingBuilder.NeighborhoodScenePath),
+                  "MAIN keeps Sunset City GP, the stages and the career's scenes");
+            Check(city.Length == 1 + 4 && city.Skip(1).All(cityScenes.Contains),
+                  "CITY's player is LifeHome + Charlotte, Uptown, Tryon, Independence and nothing else",
+                  string.Join(",", city.Select(System.IO.Path.GetFileNameWithoutExtension)));
+            Check(main.Length + city.Length - 1 == all.Length &&
+                  new HashSet<string>(main.Concat(city)).SetEquals(all),
+                  "and MAIN + CITY is exactly ALL - united again, nothing lost",
+                  main.Length + "+" + city.Length + " vs " + all.Length);
+
+            // ---- what each build parks out of Resources ----
+            var parkMain = EditionParking.ParkListFor(EditionKind.Main);
+            var parkCity = EditionParking.ParkListFor(EditionKind.City);
+            Check(EditionParking.ParkListFor(EditionKind.All).Count == 0, "ALL parks nothing");
+            foreach (var want in new[] { "charlotte_city.bytes", "charlotte_bld.bytes", "charlotte_dem.bytes",
+                                         "charlotte_routes.json", "charlotte_thumb.png", "CityProps" })
+                Check(parkMain.Contains(want), "MAIN parks " + want, string.Join(",", parkMain));
+            Check(parkMain.All(n => n.StartsWith("charlotte_") || n == "CityProps"),
+                  "MAIN parks nothing but Charlotte's", string.Join(",", parkMain));
+            Check(parkCity.Contains("PizzaCargo") && parkCity.Contains("brp_stage.json") &&
+                  parkCity.Contains("chimney_stage.json") && parkCity.Contains("bogue_emerald.json"),
+                  "CITY parks the pizza cargo and the stage bakes (held back included)",
+                  string.Join(",", parkCity));
+            Check(parkCity.Count == 12, "CITY parks the cargo + all eleven stage bakes", parkCity.Count);
+            Check(!parkCity.Any(n => n.StartsWith("charlotte_") || n == "CityProps" || n == "Engines" ||
+                                     n == "CarModels" || n == "Sky" || n == "Sfx" || n.StartsWith("rg2_")),
+                  "CITY keeps Charlotte's data, the engines, the cars, the sky and the catalogs");
+            Check(!System.IO.File.Exists(EditionParking.ManifestPath),
+                  "nothing is parked right now (no manifest left by a killed build)");
+
+            // ================= MAIN =================
+            Edition.Simulate(EditionKind.Main);
+            Check(Edition.HasCareer && !Edition.HasCharlotte, "MAIN has the career and no Charlotte");
+            int offeredCity = 0, offered = 0;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.Offered(i)) { offered++; if (TrackCatalog.At(i).city) offeredCity++; }
+            Check(offeredCity == 0 && offered > 20, "MAIN offers no Charlotte venue", offered + " offered, " + offeredCity + " city");
+            Check(TrackCatalog.FirstOffered() == TrackCatalog.IndexOf("CityCircuit"),
+                  "MAIN's fallback venue is Sunset City GP");
+            // The steppers every picker uses, walked all the way round.
+            int at = 0, stepsCity = 0;
+            for (int k = 0; k < TrackCatalog.Count; k++)
+            {
+                at = TrackCatalog.StepOffered(at, 1);
+                if (TrackCatalog.At(at).city) stepsCity++;
+            }
+            Check(stepsCity == 0, "the venue steppers (diary, pre-race) never land on Charlotte in MAIN");
+            Check(!TrackCatalog.TryIndexOfShipped("Charlotte", out _), "MAIN has no free roam to load");
+            var uptown = TrackCatalog.At(TrackCatalog.IndexOf("UptownLoop"));
+            Check(uptown.LengthM == 0f && uptown.RaceMeters == 0f,
+                  "a Charlotte race in MAIN reads zero, and loads no route data (not shipped)");
+            Check(TrackCatalog.Thumbnail(TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"))) == null,
+                  "and no charlotte_thumb");
+            Check(PSXRacing.Town.DepartScreen.DoorCount(false, false, Edition.HasCharlotte) == 3,
+                  "MAIN's line at the end of your street has one door fewer (no FREE ROAM - CHARLOTTE)");
+
+            var ms = LifeRules.SeedNewGame("MAINTEST", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(ms);
+            ms.ActiveCar.fuel = 100f;
+            int badRoll = 0;
+            for (int k = 0; k < 300; k++)
+                if (!TrackCatalog.Offered(LifeRules.DeliveryTrackIndex(ms))) badRoll++;
+            Check(badRoll == 0, "300 delivery / test-drive rolls in MAIN never name Charlotte", badRoll);
+            var cityPool = Blacklist.PoolFor("city");
+            Check(cityPool.Count >= 2 && cityPool.All(id => TrackCatalog.TryIndexOfShipped(id, out _)),
+                  "a 'city' blacklist rival still has a real series pool in MAIN (the ovals merged in)",
+                  string.Join(",", cityPool));
+            Check(!Blacklist.PoolFor("drag").Contains("TryonSprint") && Blacklist.PoolFor("oval").Count >= 2,
+                  "and the drag and oval pools are untouched");
+            int meetBad = 0, meetRacers = 0;
+            for (int d = 1; d <= 21; d++)
+                foreach (var r in CarMeets.Roster(ms, d))
+                {
+                    meetRacers++;
+                    if (!TrackCatalog.Offered(r.trackIndex)) meetBad++;
+                }
+            Check(meetRacers > 0 && meetBad == 0,
+                  "three weeks of car meets in MAIN: every racer names a MAIN venue", meetBad + " of " + meetRacers);
+
+            // An old save that points at Charlotte, loaded by MAIN.
+            int tryon = TrackCatalog.IndexOf("TryonSprint"), circuit = TrackCatalog.IndexOf("CityCircuit");
+            ms.bookings.Clear();
+            ms.bookings.Add(new RaceBooking { day = ms.day + 2, slot = LifeRules.NightSlot, trackIndex = tryon });
+            ms.bookings.Add(new RaceBooking { day = ms.day + 3, slot = LifeRules.NightSlot, trackIndex = circuit });
+            ms.trackIndex = TrackCatalog.IndexOf("UptownLoop");
+            Blacklist.SeedBoard(ms);
+            ms.blChallenge = new RankChallenge
+            {
+                alias = "DEACON", openedDay = ms.day, deadlineDay = ms.day + 5, trackIndex = tryon, youLegs = 1,
+            };
+            int logBefore = ms.calendarLog.Count;
+            string note = LifeSimManager.EditionSanitize(ms);
+            LifeSimManager.TakeEditionNote();
+            Check(ms.bookings.Count == 1 && ms.bookings[0].trackIndex == circuit,
+                  "MAIN cancels the booked Tryon race and keeps the Sunset City GP one", ms.bookings.Count);
+            Check(ms.calendarLog.Count > logBefore &&
+                  ms.calendarLog.Skip(logBefore).Any(l => l.Contains("cancelled") && l.Contains("TRYON")),
+                  "and says so in the log");
+            Check(TrackCatalog.Offered(ms.trackIndex), "the pre-race default leaves Charlotte",
+                  TrackCatalog.At(ms.trackIndex).id);
+            Check(ms.blChallenge.Live && TrackCatalog.Offered(ms.blChallenge.trackIndex) &&
+                  ms.blChallenge.youLegs == 1,
+                  "a live series on Tryon moves to a MAIN road, with its legs kept",
+                  TrackCatalog.At(ms.blChallenge.trackIndex).id);
+            Check(TrackCatalog.Offered(Blacklist.SeriesTrack(ms)), "SeriesTrack names a road MAIN has");
+            Check(note != null && note.Length <= 56, "and the first screen gets one short toast about it", note);
+            Check(LifeSimManager.EditionSanitize(ms) == null, "a second load has nothing left to do (idempotent)");
+
+            var mainOpts = LifeHomeScreen.OptionSpecs();
+            Check(mainOpts.Any(o => o.name == "LOOK Y") && mainOpts.Any(o => o.name == "PICTURE"),
+                  "MAIN's OPTIONS keep every row");
+
+            // ================= CITY =================
+            Edition.Simulate(EditionKind.City);
+            Check(!Edition.HasCareer && Edition.HasCharlotte, "CITY has Charlotte and no career");
+            var cityOffered = new List<string>();
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.Offered(i)) cityOffered.Add(TrackCatalog.At(i).id);
+            Check(cityOffered.Count == 4 && cityOffered.All(id => cityIds.Contains(id)),
+                  "CITY offers the four Charlotte races and nothing else", string.Join(",", cityOffered));
+            var blue = TrackCatalog.At(TrackCatalog.IndexOf("BlueRidge"));
+            Check(blue.LengthM == 0f, "a mountain stage in CITY reads zero (its bake is not shipped)");
+            Check(DebugCarOps.Available == false || !RaceHandoff.FromLifeSim,
+                  "the debug bench (a career thing) is off in CITY");
+            int roamIdx = TrackCatalog.IndexOf("Charlotte");
+            Check(CityFrontEnd.FillFreeRoam(CityFrontEnd.DefaultCarId(), TimeOfDay.Night, 2, out int roamScene) &&
+                  RaceHandoff.FreeRoam && RaceHandoff.FromLifeSim && RaceHandoff.TrackIndex == roamIdx &&
+                  roamScene == TrackCatalog.SceneIndex(roamIdx) && RaceHandoff.WeatherOverride == 2 &&
+                  RaceHandoff.TimeOfDayIndex == TimeOfDay.Night,
+                  "CITY's FREE ROAM hands the scene the picked car, hour and weather", RaceHandoff.CarSpecId);
+            Check(!DebugCarOps.Available, "and a CITY drive has no debug bench (no career to bench)");
+            foreach (var id in cityOffered)
+            {
+                int vi = TrackCatalog.IndexOf(id);
+                bool ok = CityFrontEnd.FillRace(vi, CityFrontEnd.DefaultCarId(), TimeOfDay.Sunset, 0, out int sc);
+                Check(ok && !RaceHandoff.FreeRoam && RaceHandoff.TrackIndex == vi && sc > 0 &&
+                      !string.IsNullOrEmpty(RaceHandoff.OpponentSpecIds) &&
+                      RaceHandoff.OpponentSpecIds.Split(';').Length == 3 && TrackCatalog.At(vi).RaceMeters > 0f,
+                      "CITY's race door for " + id + " fills a three-car field", RaceHandoff.OpponentSpecIds);
+            }
+            Check(!CityFrontEnd.FillRace(TrackCatalog.IndexOf("BlueRidge"), CityFrontEnd.DefaultCarId(), 0, 0, out _),
+                  "and refuses a venue CITY does not carry");
+            var cityOpts = LifeHomeScreen.OptionSpecs();
+            Check(!cityOpts.Any(o => o.name == "LOOK Y") && cityOpts.Any(o => o.name == "PICTURE") &&
+                  cityOpts.Any(o => o.name == "SPEED"),
+                  "CITY's OPTIONS are MAIN's list less the on-foot row");
+            Check(PSXRacing.Town.DepartScreen.DoorCount(false, false, true) == 4,
+                  "and a build with Charlotte keeps the four doors");
+
+            // ================= back to ALL: nothing was cached under a simulation =================
+            Edition.Simulate(EditionKind.All);
+            Check(uptown.LengthM > 1000f && blue.LengthM > 1000f,
+                  "back in ALL, Uptown and Blue Ridge measure their real length (no token cached)",
+                  uptown.LengthM.ToString("0") + " / " + blue.LengthM.ToString("0"));
+            Check(TrackCatalog.Offered(TrackCatalog.IndexOf("TryonSprint")) && Edition.Ships(uptown),
+                  "and ALL offers everything again");
         }
 
         static void TestCarMeets()
@@ -1654,33 +1895,42 @@ namespace PSXRacing.EditorTools
                       "and re-points its bookings the same way", v10.bookings[0].trackIndex);
             }
 
-            // Every SCENED venue is at its own index; a reverse twin resolves
-            // to the venue it names. Walking Count rather than SceneCount is
-            // what caught the reverses being appended in the wrong place.
+            // EVERY VENUE RESOLVES TO ITS OWN SCENE, BY PATH. Since the editions
+            // (2026-09-28) a scene is found by path in the build that is running
+            // — a player of one edition carries fewer scenes, so a position is
+            // no longer a property of a scene. So: the build index SceneIndex
+            // answers must be the entry whose PATH is the venue's scene (its
+            // twin's for a reverse, its loop's for a sprint). Walking Count
+            // rather than SceneCount is what caught the reverses being appended
+            // in the wrong place.
+            var scenes = EditorBuildSettings.scenes;
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                int want = t.Reversed ? TrackCatalog.IndexOf(t.reverseOf) + 1
-                         : t.IsSprintVariant ? TrackCatalog.IndexOf(t.sprintOf) + 1 : i + 1;
-                Check(TrackCatalog.SceneIndex(i) == want,
-                      "scene index " + i + " (" + t.id + ") is " + want,
-                      TrackCatalog.SceneIndex(i));
+                string wantId = t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : t.id;
+                int got = TrackCatalog.SceneIndex(i);
+                Check(got > 0 && got < scenes.Length &&
+                      scenes[got].path == TrackCatalog.ScenePathOf(wantId),
+                      "scene index " + i + " (" + t.id + ") is the scene " + wantId + ".unity",
+                      got > 0 && got < scenes.Length ? scenes[got].path : got.ToString());
             }
-            // Build settings ARE the contract SceneIndex assumes. A track added
-            // to the catalog and not to the scene list sends the player to the
-            // wrong circuit, or to no scene at all.
-            var scenes = EditorBuildSettings.scenes;
+            // Build settings hold every scene the game has — ALL, whatever
+            // edition a tool is working for: the play checks, the audits and
+            // this test all read them, and they are a superset of both.
             Check(scenes.Length == TrackCatalog.SceneCount + 6,
                   "build settings hold home + every built circuit + garage + pizzeria + town + "
                   + "seller lot + neighbourhood", scenes.Length);
+            Check(scenes.Length > 0 && scenes[0].path == LifeHomeSceneBuilder.ScenePath,
+                  "build index 0 is LifeHome, the boot scene", scenes.Length > 0 ? scenes[0].path : "none");
             for (int i = 0; i < TrackCatalog.SceneCount && i + 1 < scenes.Length; i++)
                 Check(scenes[i + 1].path.EndsWith("/" + TrackCatalog.Scened[i].id + ".unity"),
                       "build index " + (i + 1) + " is " + TrackCatalog.Scened[i].id, scenes[i + 1].path);
-            // The garage is addressed by a formula off the catalog length, so
-            // the one way to get it wrong is to insert a scene before the
-            // circuits — which would also silently re-point every race.
-            Check(TrackCatalog.GarageSceneIndex == TrackCatalog.SceneCount + 1,
-                  "garage scene index sits after every built circuit",
+            // The walk-in scenes are found BY PATH as well now, and a wrong
+            // index is a black screen with no error: check each resolves to
+            // its own file.
+            Check(TrackCatalog.GarageSceneIndex > 0 &&
+                  TrackCatalog.GarageSceneIndex == TrackCatalog.BuildIndexOfScene("Garage"),
+                  "the garage is found by its path",
                   TrackCatalog.GarageSceneIndex);
             Check(TrackCatalog.GarageSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.GarageSceneIndex].path.EndsWith("/Garage.unity"),
@@ -1692,8 +1942,8 @@ namespace PSXRacing.EditorTools
             // is addressed by position, and DoWork sends the player there by
             // that number alone — a wrong one drops them onto a race track
             // holding nothing, with no way to tell what went wrong.
-            Check(TrackCatalog.PizzeriaSceneIndex == TrackCatalog.GarageSceneIndex + 1,
-                  "pizzeria scene index sits after the garage", TrackCatalog.PizzeriaSceneIndex);
+            Check(TrackCatalog.PizzeriaSceneIndex > 0,
+                  "the pizzeria is found by its path", TrackCatalog.PizzeriaSceneIndex);
             Check(TrackCatalog.PizzeriaSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.PizzeriaSceneIndex].path.EndsWith("/Pizzeria.unity"),
                   "build index " + TrackCatalog.PizzeriaSceneIndex + " is the pizzeria",
@@ -1704,22 +1954,22 @@ namespace PSXRacing.EditorTools
             // formula, same failure mode — and the town's is the worse of the
             // two, because it is what the walk-in garage's GET IN AND DRIVE
             // loads and a wrong index there is a black screen with no error.
-            Check(TrackCatalog.TownSceneIndex == TrackCatalog.PizzeriaSceneIndex + 1,
-                  "town scene index sits after the pizzeria", TrackCatalog.TownSceneIndex);
+            Check(TrackCatalog.TownSceneIndex > 0,
+                  "the town is found by its path", TrackCatalog.TownSceneIndex);
             Check(TrackCatalog.TownSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.TownSceneIndex].path.EndsWith("/Town.unity"),
                   "build index " + TrackCatalog.TownSceneIndex + " is the town",
                   TrackCatalog.TownSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.TownSceneIndex].path : "missing");
-            Check(TrackCatalog.SellerLotSceneIndex == TrackCatalog.TownSceneIndex + 1,
-                  "the seller's street sits after the town", TrackCatalog.SellerLotSceneIndex);
+            Check(TrackCatalog.SellerLotSceneIndex > 0,
+                  "the seller's street is found by its path", TrackCatalog.SellerLotSceneIndex);
             Check(TrackCatalog.SellerLotSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.SellerLotSceneIndex].path.EndsWith("/SellerLot.unity"),
                   "build index " + TrackCatalog.SellerLotSceneIndex + " is the seller's street",
                   TrackCatalog.SellerLotSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.SellerLotSceneIndex].path : "missing");
-            Check(TrackCatalog.NeighborhoodSceneIndex == TrackCatalog.SellerLotSceneIndex + 1,
-                  "your street sits after the seller s",
+            Check(TrackCatalog.NeighborhoodSceneIndex > 0,
+                  "your street is found by its path",
                   TrackCatalog.NeighborhoodSceneIndex);
             Check(TrackCatalog.NeighborhoodSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.NeighborhoodSceneIndex].path.EndsWith("/Neighborhood.unity"),

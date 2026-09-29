@@ -7,9 +7,12 @@
 # this is a ~5 minute answer.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\city-play-check.ps1
+#   ...  -Edition CITY   plays it AS the Charlotte test page (Scripts/Edition.cs):
+#                        both drives are launched through the CITY front end's
+#                        own request (CityFrontEnd.FillFreeRoam / FillRace).
 #
 # Exit code 0 = the report has no FAIL; 1 = it does, or the run threw.
-param([switch]$NoWatch, [int]$MaxMinutes = 20)
+param([switch]$NoWatch, [int]$MaxMinutes = 20, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src   = Split-Path -Parent $PSScriptRoot
@@ -28,6 +31,7 @@ robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E
 # Delete the marker first: a tool that throws never writes its log, and a stale
 # one certifies the previous run just as convincingly as a fresh one.
 Remove-Item "$proj\PSXRacing_city_play_check.txt" -ErrorAction SilentlyContinue
+$env:PSX_EDITION = $Edition.ToUpperInvariant()
 
 # NO -quit: this one enters play mode and exits itself when it is done.
 # Watched by default: a visible editor plays the test in front of you.

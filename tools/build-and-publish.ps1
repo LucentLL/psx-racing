@@ -80,9 +80,28 @@
 # charlotte branch: -PagesDir city). -AllowRootFromBranch overrides the
 # refusal. Pass it only when the owner has asked for that branch's build at
 # the root.
+#
+# THE EDITIONS (2026-09-28, the owner: "Charlotte map and Charlotte tracks
+# should be in their own version until being united"). One codebase, two
+# player builds, chosen by -Edition MAIN|CITY|ALL and baked in by
+# PSXBuildWebGL (-psxEdition: a scripting define, the edition's scene list,
+# and the other edition's Resources parked for the build):
+#   MAIN - every venue except Charlotte, and none of Charlotte's data.
+#   CITY - Charlotte's free roam and races, a car picker, the options.
+#   ALL  - the whole game, as one (what the editor always is).
+# THE PAIRING IS THE DEFAULT AND IS ENFORCED: the root is $RootEdition (MAIN
+# until the two are united - then that ONE line below becomes "ALL"), and
+# -PagesDir city is CITY. A root publish that would ship Charlotte, or a
+# /city/ publish that would ship the whole game, is refused before the build
+# and again before the deploy (the build's psx-edition.txt is read, so a
+# -SkipBuild of an old or mismatched build is refused too). Any other
+# -PagesDir defaults to ALL. -AllowEditionMismatch overrides - only when the
+# owner asks for exactly that.
 param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$DryRun,
       [switch]$AllowRootFromBranch,
+      [string]$Edition = "",
+      [switch]$AllowEditionMismatch,
       [string]$BuildDir = "",
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
@@ -117,6 +136,26 @@ if ($PagesDir) {
     }
     $pages = "$pages-$PagesDir"
 }
+
+# THE EDITION. Resolved and checked BEFORE a forty-minute build.
+$RootEdition = "MAIN"    # the site root's edition; "ALL" once MAIN and CITY are united
+$expectEdition = if ($PagesDir -eq "city") { "CITY" } elseif ($PagesDir) { "ALL" } else { $RootEdition }
+if (-not $Edition) { $Edition = $expectEdition }
+$Edition = $Edition.ToUpperInvariant()
+if (@("MAIN", "CITY", "ALL") -notcontains $Edition) {
+    Write-Host "-Edition '$Edition' must be MAIN, CITY or ALL." -ForegroundColor Red
+    exit 1
+}
+$where0 = if ($PagesDir) { "/$PagesDir/" } else { "the site root" }
+if (-not $SkipDeploy -and $Edition -ne $expectEdition) {
+    if ($AllowEditionMismatch) {
+        Write-Host "EDITION $Edition TO $where0, which is $expectEdition's, under -AllowEditionMismatch." -ForegroundColor Yellow
+    } else {
+        Write-Host "REFUSING: $where0 is the $expectEdition edition and this is -Edition $Edition. A root publish must not ship Charlotte and /city/ must not ship the whole game. -AllowEditionMismatch overrides (only when the owner asks)." -ForegroundColor Red
+        exit 1
+    }
+}
+Write-Host "Edition: $Edition" -ForegroundColor Cyan
 
 # Unity.exe is a launcher: it spawns the real editor and returns immediately, so
 # waiting on the call itself reads stale logs. Wait on the actual child PIDs.
@@ -258,6 +297,7 @@ if (-not $SkipBuild) {
         "-quit","-batchmode","-nographics","-projectPath",$proj,
         "-buildTarget","WebGL",
         "-executeMethod","PSXRacing.EditorTools.PSXBuildWebGL.BuildFromCommandLine",
+        "-psxEdition",$Edition,
         "-logFile","$proj\build.log","-accept-apiupdate") | Out-Null
 
     if (-not (Test-Path "$proj\Build\WebGL\build_ok.txt")) {
@@ -267,6 +307,15 @@ if (-not $SkipBuild) {
         exit 1
     }
     Get-Content "$proj\Build\WebGL\build_ok.txt"
+    $builtAs = if (Test-Path "$proj\Build\WebGL\psx-edition.txt") { (Get-Content "$proj\Build\WebGL\psx-edition.txt" -TotalCount 1).Trim() } else { "" }
+    if ($builtAs -ne $Edition) {
+        Write-Host "EDITION CHECK FAILED - asked for $Edition, the build says '$builtAs' (psx-edition.txt)." -ForegroundColor Red
+        exit 1
+    }
+    if (Test-Path "$proj\PSXRacing_webgl_report_$Edition.txt") {
+        Select-String -Path "$proj\PSXRacing_webgl_report_$Edition.txt" -Pattern '^(edition|result|scenes|parked|packed sources) ' |
+            ForEach-Object { "  report: " + $_.Line }
+    }
 
     # Belt and braces: a marker can be fresh while the player output is not, so
     # check the player itself.
@@ -316,12 +365,18 @@ function Show-AuditWaiver {
     } else {
         $lines = @(Get-Content $result)
         $verdict = if ($lines.Count -gt 0) { $lines[0] } else { "" }
+        # verify.ps1 writes "edition X" as its second line. A verify of one
+        # edition says nothing about another's scene list.
+        $verifiedAs = ($lines | Where-Object { $_ -cmatch '^edition ' } | Select-Object -First 1)
+        $verifiedAs = if ($verifiedAs) { $verifiedAs.Substring(8).Trim() } else { "ALL (before the editions)" }
         $newest = Get-ChildItem "$src\Assets\PSXRacing\Scripts", "$src\Assets\PSXRacing\Editor", "$src\Assets\PSXRacing\Shaders" `
                       -Recurse -File -ErrorAction SilentlyContinue |
                   Sort-Object LastWriteTime -Descending | Select-Object -First 1
         $stamp = (Get-Item $result).LastWriteTime
         if ($verdict -cnotmatch '^VERIFY PASS') {
             $problem = "THE LAST VERIFY FAILED ($verdict, $stamp)."
+        } elseif ($verifiedAs -ne $Edition -and $verifiedAs -ne "ALL") {
+            $problem = "THE LAST VERIFY WAS FOR EDITION $verifiedAs; THIS PUBLISH IS $Edition."
         } elseif ($newest -and $newest.LastWriteTime -gt $stamp) {
             $problem = "THE LAST VERIFY PASSED, BUT BEFORE THE SOURCE CHANGED: $($newest.Name) was written $($newest.LastWriteTime), the verify finished $stamp."
         }
@@ -355,6 +410,19 @@ if (-not $SkipDeploy) {
     $where = if ($PagesDir) { "gh-pages/$PagesDir/ (test page; the rest of gh-pages is kept)" } else { "gh-pages/ (root)" }
     Write-Host "[3/3] $how to $where from $build" -ForegroundColor Cyan
     if (-not (Test-Path "$build\index.html")) { Write-Host "No build to deploy." -ForegroundColor Red; exit 1 }
+    # WHAT IS IN THE BUILD, read from the build: a -SkipBuild of an older or
+    # other-edition output is checked the same as a fresh one. A build from
+    # before the editions has no psx-edition.txt and is the whole game (ALL).
+    $buildEdition = if (Test-Path "$build\psx-edition.txt") { (Get-Content "$build\psx-edition.txt" -TotalCount 1).Trim() } else { "ALL" }
+    if ($buildEdition -ne $Edition) {
+        if ($AllowEditionMismatch) {
+            Write-Host "DEPLOYING A $buildEdition BUILD AS $Edition under -AllowEditionMismatch." -ForegroundColor Yellow
+        } else {
+            Write-Host "REFUSING TO DEPLOY: $build is the $buildEdition edition and this publish is $Edition (psx-edition.txt). Rebuild with -Edition $Edition." -ForegroundColor Red
+            exit 1
+        }
+    }
+    Write-Host "  edition      : $buildEdition" -ForegroundColor Cyan
 
     # -File hands "-KeepDirs city,lab" over as ONE string; split it here.
     $KeepDirs = @($KeepDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -688,6 +756,7 @@ if (-not $SkipDeploy) {
                 "PSX Racing test build: tools\build-and-publish.ps1 -PagesDir $PagesDir",
                 "A root publish (no -PagesDir) keeps every gh-pages folder holding this file.",
                 "label: $PagesLabel",
+                "edition: $buildEdition",
                 "save: IndexedDB $saveDb (the game at the site root keeps /idbfs)",
                 "source at publish: $srcNote",
                 "build stamp: $($st.Stamp) (the ?v= on this folder's index.html)",

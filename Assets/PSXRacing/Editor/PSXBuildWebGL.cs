@@ -39,10 +39,12 @@ namespace PSXRacing.EditorTools
         /// Same shape of bug as CityPreview's private material table earlier the
         /// same day. Two lists that must agree will not.
         /// </summary>
-        static string[] ScenePaths() => PSXRacingBuilder.SceneOrder();
+        static string[] ScenePaths(EditionKind edition) => PSXRacingBuilder.SceneOrder(edition);
 
+        /// <summary>The editor menu builds ALL — the whole game, parking
+        /// nothing. The editions are built by the tools (-psxEdition).</summary>
         [MenuItem("PSX Racing/Build WebGL")]
-        public static void BuildMenu() => Run(DefaultOutput());
+        public static void BuildMenu() => Run(DefaultOutput(), EditionKind.All);
 
         static string DefaultOutput() =>
             Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Build", "WebGL");
@@ -54,28 +56,34 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < args.Length - 1; i++)
                 if (args[i] == "-psxOutput") outDir = args[i + 1];
 
-            int code = Run(outDir) ? 0 : 1;
+            // THE EDITION: -psxEdition MAIN|CITY|ALL (tools\build-and-publish.ps1
+            // passes it; a root publish is MAIN, a -PagesDir city publish CITY).
+            int code = Run(outDir, EditionTarget.Current) ? 0 : 1;
             EditorApplication.Exit(code);
         }
 
-        static bool Run(string outDir)
+        static bool Run(string outDir, EditionKind edition)
         {
+            // A previous edition build killed mid-flight left Resources parked.
+            EditionParking.RecoverIfNeeded();
+            string ed = Edition.Name(edition);
             try
             {
                 // The scene builder normally produces every scene, but a fresh
-                // sandbox copy may not have run it yet — and one MISSING
-                // circuit is as fatal as none, since the build index of every
-                // track after it would shift.
-                var scenePaths = ScenePaths();
+                // sandbox copy may not have run it yet — and a MISSING scene is
+                // a venue whose door loads nothing.
+                var scenePaths = ScenePaths(edition);
                 foreach (var p in scenePaths)
                 {
                     if (File.Exists(p)) continue;
                     Debug.LogError("[PSXBuildWebGL] Scene missing (" + p +
                                    "), running scene builder first.");
                     PSXRacingBuilder.Build();
-                    scenePaths = ScenePaths();
+                    scenePaths = ScenePaths(edition);
                     break;
                 }
+                Debug.Log("[PSXBuildWebGL] Edition " + ed + ": " + scenePaths.Length + " scenes - " +
+                          string.Join(", ", scenePaths.Select(Path.GetFileNameWithoutExtension)));
                 if (!File.Exists(LifeHomeSceneBuilder.ScenePath))
                     LifeHomeSceneBuilder.Build();
 
@@ -127,17 +135,37 @@ namespace PSXRacing.EditorTools
 
                 var options = new BuildPlayerOptions
                 {
-                    // LifeHome first: it is scene index 0, the boot scene.
+                    // LifeHome first: it is scene index 0, the boot scene, in
+                    // every edition. Nothing else depends on the order any
+                    // more: the runtime finds each scene by path.
                     scenes = scenePaths,
                     locationPathName = outDir,
                     target = BuildTarget.WebGL,
                     targetGroup = BuildTargetGroup.WebGL,
                     options = BuildOptions.None,
                 };
+                // THE SWITCH. The player's scripts compile with the edition's
+                // define (Edition.Baked); nothing is written to the project, so
+                // nothing needs restoring and nothing leaks into the editor.
+                string define = EditionTarget.DefineFor(edition);
+                if (define != null) options.extraScriptingDefines = new[] { define };
 
-                Debug.Log("[PSXBuildWebGL] Building to " + outDir);
-                BuildReport report = BuildPipeline.BuildPlayer(options);
+                // Resources ship whole, so the other edition's are moved out
+                // of Resources for exactly this one call — see EditionParking.
+                Debug.Log("[PSXBuildWebGL] Building " + ed + " to " + outDir);
+                BuildReport report;
+                List<string> parked = new List<string>();
+                try
+                {
+                    parked = EditionParking.Park(edition);
+                    report = BuildPipeline.BuildPlayer(options);
+                }
+                finally
+                {
+                    EditionParking.Restore();
+                }
                 var s = report.summary;
+                WriteReport(report, outDir, edition, scenePaths, parked);
                 Debug.Log($"[PSXBuildWebGL] Result={s.result} size={s.totalSize / (1024 * 1024)}MB " +
                           $"errors={s.totalErrors} time={s.totalTime}");
 
@@ -150,8 +178,10 @@ namespace PSXRacing.EditorTools
                     return false;
                 }
 
+                PickLicenses(outDir, edition);
+                File.WriteAllText(Path.Combine(outDir, "psx-edition.txt"), ed + "\n");
                 File.WriteAllText(Path.Combine(outDir, "build_ok.txt"),
-                    $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB");
+                    $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB edition {ed}");
                 return true;
             }
             catch (Exception e)
@@ -159,6 +189,79 @@ namespace PSXRacing.EditorTools
                 Debug.LogError("[PSXBuildWebGL] FAILED: " + e);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// WHAT THE PLAYER ACTUALLY CARRIES, written down: the edition, its
+        /// scenes, what was parked, and every source asset the build report
+        /// says was packed, largest first. The proof the tools grep ("MAIN has
+        /// no charlotte_*", "CITY has no stage scene") reads this file, not
+        /// the scene list that was asked for — asserting the request says
+        /// nothing about what shipped (the pizzeria lesson).
+        /// Written to the project root as PSXRacing_webgl_report_EDITION.txt
+        /// and beside the build as psx-build-report.txt (not published: the
+        /// deploy copies index.html, Build/, StreamingAssets/, LICENSES.txt).
+        /// </summary>
+        static void WriteReport(BuildReport report, string outDir, EditionKind edition,
+                                string[] scenes, List<string> parked)
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                var sum = report.summary;
+                sb.AppendLine("edition " + Edition.Name(edition));
+                sb.AppendLine("result " + sum.result + "  total " + (sum.totalSize / (1024.0 * 1024.0)).ToString("0.00") +
+                              " MiB  errors " + sum.totalErrors + "  time " + sum.totalTime);
+                sb.AppendLine("define " + (EditionTarget.DefineFor(edition) ?? "(none)"));
+                sb.AppendLine("scenes " + scenes.Length);
+                foreach (var p in scenes) sb.AppendLine("  scene " + p);
+                sb.AppendLine("parked " + parked.Count);
+                foreach (var p in parked) sb.AppendLine("  parked " + p);
+
+                var sizes = new Dictionary<string, ulong>(StringComparer.Ordinal);
+                foreach (var pa in report.packedAssets)
+                    foreach (var info in pa.contents)
+                    {
+                        string src = string.IsNullOrEmpty(info.sourceAssetPath) ? "(built-in)" : info.sourceAssetPath;
+                        sizes.TryGetValue(src, out ulong have);
+                        sizes[src] = have + info.packedSize;
+                    }
+                sb.AppendLine("packed sources " + sizes.Count);
+                foreach (var kv in sizes.OrderByDescending(k => k.Value))
+                    sb.AppendLine("  packed " + (kv.Value / 1024.0).ToString("0.0").PadLeft(10) + " KiB  " + kv.Key);
+                foreach (var f in report.GetFiles())
+                    sb.AppendLine("  file " + f.role + "  " + (f.size / 1024.0).ToString("0.0") + " KiB  " + f.path);
+
+                string text = sb.ToString();
+                File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName,
+                                  "PSXRacing_webgl_report_" + Edition.Name(edition) + ".txt"), text);
+                if (Directory.Exists(outDir)) File.WriteAllText(Path.Combine(outDir, "psx-build-report.txt"), text);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[PSXBuildWebGL] could not write the build report: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Credits PER EDITION. The WebGL template copies every file beside
+        /// its index.html into the build; a template carrying
+        /// LICENSES-MAIN.txt / LICENSES-CITY.txt / LICENSES-ALL.txt gets the
+        /// one for this edition published as LICENSES.txt and the others
+        /// dropped. (The Charlotte branch's credits.mjs writes one
+        /// LICENSES.txt today; on the merge it should write one per edition —
+        /// MAIN: OpenStreetMap for the stages + SRTM terrain; CITY:
+        /// OpenStreetMap Charlotte + its elevation sources. ODbL's attribution
+        /// belongs in both.) A template with neither is left as it was.
+        /// </summary>
+        static void PickLicenses(string outDir, EditionKind edition)
+        {
+            if (!Directory.Exists(outDir)) return;
+            var perEdition = Directory.GetFiles(outDir, "LICENSES-*.txt");
+            if (perEdition.Length == 0) return;
+            string mine = Path.Combine(outDir, "LICENSES-" + Edition.Name(edition) + ".txt");
+            if (File.Exists(mine)) File.Copy(mine, Path.Combine(outDir, "LICENSES.txt"), true);
+            foreach (var f in perEdition) File.Delete(f);
         }
     }
 }

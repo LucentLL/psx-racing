@@ -902,7 +902,8 @@ namespace PSXRacing
                                                  (rm.RetiredCount > 1 ? "S" : "") + " OUT (DNF)" : "");
                     center = head +
                              "\n\n" + how +
-                             (RaceHandoff.FromLifeSim ? " TO GO HOME" : " TO RESTART") +
+                             (!RaceHandoff.FromLifeSim ? " TO RESTART"
+                              : Edition.HasCareer ? " TO GO HOME" : " TO CONTINUE") +
                              ReplayOffer(touch);
                     break;
             }

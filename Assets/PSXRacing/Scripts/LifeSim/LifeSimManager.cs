@@ -46,10 +46,94 @@ namespace PSXRacing.LifeSim
                 var s = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(SaveKey));
                 if (s == null || s.saveVersion < 1) return null;
                 Migrate(s);
+                // After the migration, never inside it: this is not a save
+                // version (the catalog did not move — nothing was removed or
+                // reordered) but a question asked of THIS build on every load.
+                EditionSanitize(s);
                 return s;
             }
             catch { return null; }   // corrupt save: fall through to new game
         }
+
+        static string editionNote;
+
+        /// <summary>The last load's edition note, once — see
+        /// <see cref="EditionSanitize"/>. The home screen toasts it.</summary>
+        public static string TakeEditionNote()
+        {
+            string n = editionNote;
+            editionNote = null;
+            return n;
+        }
+
+        /// <summary>
+        /// A SAVE FROM BEFORE THE EDITIONS, loaded by one of them.
+        ///
+        /// Saves store venues by catalog INDEX, and the catalog is the same in
+        /// every edition (nothing is ever deleted — see Edition), so an old
+        /// career loads in MAIN pointing at Charlotte venues MAIN has no scene
+        /// for: a race booked on Tryon, a blacklist series opened on the 277,
+        /// the pre-race page's own default. Left alone, the booked block's RACE
+        /// button would load a scene that is not there — a black screen.
+        ///
+        /// So, on every load (idempotent; nothing to do in ALL):
+        ///   * a BOOKING at a venue this build does not carry is CANCELLED, with
+        ///     a line in the log naming it. Bookings are free, so nothing is
+        ///     owed back; the block is simply open again.
+        ///   * a live blacklist SERIES on such a road moves to one of the
+        ///     rival's roads that this build has (legs already run stand).
+        ///   * the pre-race DEFAULT venue goes back to the first one offered.
+        /// The first screen then says so in a toast (<see cref="TakeEditionNote"/>).
+        /// Public for the self-test (TestEditions).
+        /// </summary>
+        public static string EditionSanitize(LifeState s)
+        {
+            if (s == null || Edition.Current == EditionKind.All) return null;
+            var said = new System.Collections.Generic.List<string>();
+
+            if (s.bookings != null)
+            {
+                for (int i = s.bookings.Count - 1; i >= 0; i--)
+                {
+                    var b = s.bookings[i];
+                    if (b == null || TrackCatalog.Offered(b.trackIndex)) continue;
+                    string name = b.trackIndex >= 0 && b.trackIndex < TrackCatalog.Count
+                        ? TrackCatalog.At(b.trackIndex).name : "a venue";
+                    s.calendarLog.Add(LifeRules.LogDate(b.day) + ": the race booked at " + name +
+                                      " is cancelled — it is not in this edition of the game");
+                    s.bookings.RemoveAt(i);
+                    said.Add(name);
+                }
+            }
+
+            string seriesWas = Blacklist.RepointSeries(s);
+            if (seriesWas != null)
+            {
+                string now = TrackCatalog.At(Blacklist.SeriesTrack(s)).name;
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the blacklist series moves from " +
+                                  seriesWas + " to " + now + " — " + seriesWas +
+                                  " is not in this edition of the game");
+            }
+
+            if (!TrackCatalog.Offered(s.trackIndex)) s.trackIndex = TrackCatalog.FirstOffered();
+
+            if (said.Count > 0 || seriesWas != null)
+            {
+                // ONE toast line (a 760-unit label at the type floor holds
+                // ~55 capitals); the log above has the whole story.
+                string note =
+                    said.Count > 0 && seriesWas != null ? "RACES CANCELLED, SERIES MOVED — NOT IN THIS EDITION"
+                    : said.Count > 1 ? said.Count + " BOOKED RACES CANCELLED — NOT IN THIS EDITION"
+                    : said.Count == 1 ? "BOOKED RACE CANCELLED: " + Short(said[0], 22)
+                    : "BLACKLIST SERIES MOVED TO " + Short(TrackCatalog.At(Blacklist.SeriesTrack(s)).name, 20);
+                editionNote = note;
+                return note;
+            }
+            return null;
+        }
+
+        static string Short(string s, int max) =>
+            string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max - 1).TrimEnd() + "…";
 
         /// <summary>
         /// Forward-migrate an older save in place. Added fields need nothing —

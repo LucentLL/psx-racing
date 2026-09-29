@@ -57,7 +57,7 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             var log = new StringBuilder();
-            int problems = AuditScenes(PSXRacingBuilder.SceneOrder(), log);
+            int problems = AuditScenes(PSXRacingBuilder.SceneOrder(EditionTarget.Current), log);
             problems += AuditAtlases(log);
             log.AppendLine(problems == 0 ? "FOLIAGE OK" : "FOLIAGE PROBLEMS: " + problems);
             Debug.Log(log.ToString());

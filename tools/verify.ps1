@@ -29,11 +29,26 @@
 # tools\build-and-publish.ps1 can print what a deploy is shipping past. It is
 # deleted first thing, so a run that dies leaves no result rather than the last
 # one's.
-param([switch]$NoMirror)
+#
+# PER EDITION (see Scripts/Edition.cs): -Edition MAIN|CITY|ALL, ALL by
+# default. The scene build and the self-test are always the whole game (the
+# build settings are ALL; TestEditions checks both editions as editions).
+# What the edition changes is WHAT IS MEASURED: every audit walks that
+# edition's venues (PSX_EDITION for the Unity jobs -> EditionTarget), MAIN
+# skips the city audit (it ships no city), and CITY skips the town probe (it
+# ships no town). The result file records the edition on its second line and
+# tools\build-and-publish.ps1 holds a publish to it.
+param([switch]$NoMirror, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
+$Edition = $Edition.ToUpperInvariant()
+if (@("MAIN", "CITY", "ALL") -notcontains $Edition) { Write-Host "-Edition must be MAIN, CITY or ALL" -ForegroundColor Red; exit 1 }
+# Every Unity job below inherits it; the scene builder and the self-test force
+# ALL for themselves, the audits and the screenshots measure this edition.
+$env:PSX_EDITION = $Edition
+Write-Host "Verifying edition $Edition" -ForegroundColor Cyan
 
 $resultFile = "$proj\PSXRacing_verify_result.txt"
 if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
@@ -43,7 +58,7 @@ $failLines = New-Object System.Collections.Generic.List[string]
 
 function Write-VerifyResult([int]$Bad) {
     $head = if ($Bad -gt 0) { "VERIFY FAILED ($Bad stage(s))" } else { "VERIFY PASS" }
-    $body = @($head, ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
+    $body = @($head, "edition $Edition", ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
     $body += @($failLines)
     Set-Content -Path $resultFile -Value $body -Encoding ASCII
 }
@@ -149,6 +164,9 @@ if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
 # NbGroundY's drive side grades (2026-09-14), so any critical station on
 # either map is a regression.
 Write-Host "[4/7] Town probe..." -ForegroundColor Cyan
+if ($Edition -eq "CITY") {
+    Write-Host "  skipped: the CITY edition ships no town and no street" -ForegroundColor DarkGray
+} else {
 Invoke-UnityJob -Log "$proj\townprobe.log" -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TownProbe.Run",
@@ -176,6 +194,7 @@ if (Test-Path "$proj\PSXRacing_townprobe.txt") {
         Select-Object -First 6 | ForEach-Object { $_.Line }
     $failLines.Add("[town] wrote nothing - it threw")
     $bad++
+}
 }
 
 Write-Host "[5/7] Terrain + obstacle + lane audits..." -ForegroundColor Cyan
@@ -279,6 +298,9 @@ if (Test-Path "$proj\PSXRacing_lane_audit.txt") {
 # audit ran only from the city scripts, which exited 0 on "N FAILURES".
 # Graphics on, as the city scripts run it.
 Write-Host "[6/7] City audit..." -ForegroundColor Cyan
+if ($Edition -eq "MAIN") {
+    Write-Host "  skipped: the MAIN edition ships no Charlotte (city-verify.ps1 / -Edition CITY is its gate)" -ForegroundColor DarkGray
+} else {
 $cityOk = Invoke-UnityJob -Log "$proj\cityaudit.log" -MaxMinutes 25 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CityAudit.Run",
@@ -297,6 +319,7 @@ if (Test-Path "$proj\city_audit.txt") {
         Select-Object -First 6 | ForEach-Object { $_.Line }
     $failLines.Add("[city] wrote nothing - it threw or did not finish")
     $bad++
+}
 }
 
 # Graphics on: these render through the pipeline, and a headless editor has no
