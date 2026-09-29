@@ -2375,21 +2375,54 @@ namespace PSXRacing.EditorTools
 
             var pos = new Vector3[2][][];
             var es = new float[2][][];
+            // Per row: its slope was carried on past a tight bend's inside, and
+            // it ends on a slope rather than flat in front of whatever stops a
+            // car (BuildApexPads reads both).
+            var rowPastBend = new bool[2][];
+            var rowSloped = new bool[2][];
+            var rowTailed = new bool[2][];
             int toesDeep = 0, toesCaught = 0, toesPastBend = 0, toesTailed = 0;
+            regraded = tucksCapped = 0;
             for (int s = 0; s < 2; s++)
             {
                 float side = s == 0 ? -1f : 1f;
                 pos[s] = new Vector3[n][];
                 es[s] = new float[n][];
+                rowPastBend[s] = new bool[n];
+                rowSloped[s] = new bool[n];
+                rowTailed[s] = new bool[n];
                 for (int idx = 0; idx < n; idx++)
                 {
                     if (ShoulderStation(pts, idx, side, shoulderProfiles[s][idx],
                                         out pos[s][idx], out es[s][idx], out bool caught, out bool pastBend,
-                                        out bool tailed))
+                                        out bool tailed, out bool sloped))
                         toesDeep++;
+                    rowPastBend[s][idx] = pastBend;
+                    rowSloped[s][idx] = sloped;
+                    rowTailed[s][idx] = tailed;
                     if (caught) toesCaught++;
                     if (pastBend) toesPastBend++;
                     if (tailed) toesTailed++;
+                    // PSX_CUT_TRACE also prints the row as it will be laid:
+                    // e and height over the road of every point, and the
+                    // lattice under it (the stage lab's build log).
+                    if (stageDemLoaded && CutTrace(idx) && pos[s][idx] != null)
+                    {
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append("row trace ").Append(idx).Append(s == 0 ? " L" : " R")
+                          .Append(caught ? " caught" : "").Append(pastBend ? " pastBend" : "").Append(tailed ? " tailed" : "")
+                          .Append(" bend ").Append(ShoulderBendReach(pts, idx, side).ToString("0.00"))
+                          .Append(" fold ").Append(ShoulderFoldReach(pts, idx, side).ToString("0.00")).Append(':');
+                        float ry = pts[idx].y + RoadLift;
+                        for (int k = 0; k < pos[s][idx].Length; k++)
+                        {
+                            var q = pos[s][idx][k];
+                            sb.Append(' ').Append(es[s][idx][k].ToString("0.00")).Append('/')
+                              .Append((q.y - ry).ToString("0.00")).Append('[')
+                              .Append((ShoulderLatticeY(q.x, q.z) - ry).ToString("0.00")).Append(']');
+                        }
+                        Log(sb.ToString());
+                    }
                 }
             }
 
@@ -2484,13 +2517,282 @@ namespace PSXRacing.EditorTools
                 AssetDatabase.DeleteAsset(stale);
             }
 
+            // Round a hairpin's apex, where the carried slopes of the rows on
+            // its inside end over a pit, the crest between two rows' ends: an
+            // apex pad under it (BuildApexPads). Stage only.
+            if (stageDemLoaded)
+            {
+                int apexPads = BuildApexPads(pts, parent, pos, es, rowPastBend, rowTailed, rowSloped, mat, tile, uox, uoz, phys,
+                                             out int apexSamples, out int apexRimInAir);
+                Log($"Apex pads: {apexPads} crest(s) padded ({apexSamples} crest samples over the land; {apexRimInAir} crest(s) over land falling away too fast for one, left as they were).");
+            }
+
             Log($"Shoulders: {chunks} RoadEdge chunk(s), {faces} faces; " +
                 $"{bent} half-section(s) clipped on the inside of a tight bend; " +
                 $"{toesCaught} sloped end(s) carried on down to meet the ground lattice (or to the end of a recoverable run), " +
                 $"{toesPastBend} of them on past a tight bend's inside at 1V:{1f / RoadsideRules.TraversableSlope:0}H, " +
                 $"{toesTailed} down past the warrant's reach at 1V:{1f / ShoulderTailSlope:0.0}H to meet it; " +
-                $"{toesDeep} toe(s) skirted deeper than a tuck to get under the ground.");
+                $"{toesDeep} toe(s) skirted deeper than a tuck to get under the ground; " +
+                $"{regraded} section(s) on a hairpin's inside graded again at 1V:{1f / RoadsideRules.SteepestRecoverableSlope:0}H " +
+                $"where the fold stopped the carry in the air, {tucksCapped} tuck(s) eased down to the land from there.");
         }
+
+        // ------------------------------------------------------------------
+        //  Apex pads
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// THE APEX OF A HAIRPIN. On the inside of a switchback tighter than a
+        /// car's turning circle (Chimney Rock wp 715-720) the rows' carried
+        /// slopes run past the bend into the room left before the neighbouring
+        /// lines cross, and end there: each row's own toe meets the land on its
+        /// own line, but the zipper between two rows that end metres apart round
+        /// an apex over a pit lays its toe band across land that sags under it.
+        /// Crossed at an angle it stood 0.15 m over the land: "EDGE FACE left
+        /// wp 713-716, 0.15 m rise within 0.13 m at 5.90 m (running wide), on
+        /// RoadEdge" - the band between rows 717 and 718, whose carry ends 0.38 m
+        /// over the lattice, met from row 715's line. No per-row fix reaches it:
+        /// the rows cannot go further without folding. The same shape, a few
+        /// centimetres high on a 1V:2.5H tail, tipped a 0.052 m slope over the
+        /// edge audit's 0.06 m face where one leg of a switchback runs within
+        /// 8 m of the next (713-714 L onto the fan below 720-721 L, 809 R).
+        ///
+        /// So such a toe gets a pad under it. The pair's own triangles are laid
+        /// as the ribbon lays them (ZipShoulder); every one steeper than a face
+        /// (ApexPadTuckSlope) is a drop, and each point along its edges that
+        /// stands over the land (ApexPadMinGapM) and clear of the road
+        /// (ApexPadRoadClearM) is a crest sample. The pad is a fine grid
+        /// (ApexPadCell) whose height is the highest of cones stood on those
+        /// samples - ApexPadLiftM over the crest, falling away at ApexPadSlope
+        /// (1V:2.9H, under the face with room for the grid's own sag) until it
+        /// is under the lattice, where it is sunk ApexPadSinkM and not drawn.
+        /// The top surface there is then the ribbon, the pad or the land,
+        /// whichever is highest - all three continuous, so no edge stands in
+        /// the air. A pair whose pad cannot get under the land within
+        /// ApexPadReachMaxM (a crest over a hillside falling faster than the
+        /// pad) is left as it was, and counted.
+        ///
+        /// ONLY where a carry went on past a tight bend's inside or as a tail:
+        /// a pair of sloped ends, one of them carried so; or a flat end (a
+        /// wall's, a rock face's - whose toe stands over the land by design, in
+        /// front of what stops a car) beside such a carry, where only the band's
+        /// low part is padded (ApexPadFlatCapM). Every pad of a venue is one
+        /// mesh, "ApexPad" (a surface to the audits, like the end pads); the
+        /// build log names each pair padded.
+        /// </summary>
+        static int BuildApexPads(List<Vector3> pts, Transform parent, Vector3[][][] pos, float[][][] es,
+                                 bool[][] pastBendRow, bool[][] tailedRow, bool[][] slopedRow, Material mat, float tile,
+                                 float uox, float uoz, PhysicsMaterial phys, out int samplesTotal, out int rimInAir)
+        {
+            samplesTotal = 0; rimInAir = 0;
+            int n = pts.Count, last = Loop ? n : n - 1;
+            bool Tube(int i) => hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i];
+
+            // Crest samples over the land, one pad per pair of neighbouring
+            // rows (pads may overlap: the highest of two continuous surfaces
+            // is still continuous).
+            var groups = new List<List<Vector3>>();
+            var groupAt = new List<string>();
+            var pair = new List<Vector3>();
+            var pairTris = new List<int>();
+            for (int s = 0; s < 2; s++)
+            {
+                float side = s == 0 ? -1f : 1f;
+                for (int i = 0; i < last; i++)
+                {
+                    int a = i, b = Loop ? (i + 1) % n : i + 1;
+                    var A = pos[s][a];
+                    var B = pos[s][b];
+                    if (A == null || B == null || A.Length < 3 || B.Length < 3) continue;
+                    bool carriedA = pastBendRow[s][a] || tailedRow[s][a], carriedB = pastBendRow[s][b] || tailedRow[s][b];
+                    bool slopedA = slopedRow[s][a], slopedB = slopedRow[s][b];
+                    // Two sloped ends, one of them carried past the bend or on
+                    // as a tail; or a flat end (a wall's, a rock face's) beside
+                    // such a carried slope, where only the crest's low part -
+                    // the part out by the carried end - is padded.
+                    bool both = slopedA && slopedB && (carriedA || carriedB);
+                    bool mixed = (slopedA && carriedA && !slopedB) || (slopedB && carriedB && !slopedA);
+                    if (!both && !mixed) continue;
+                    if (Tube(a) || Tube(b) || DeckCoversStation(a) || DeckCoversStation(b)) continue;
+                    // The pair's own triangles, laid exactly as the ribbon lays
+                    // them (ZipShoulder); every one steeper than a face
+                    // (ApexPadTuckSlope) is a drop - a toe band, a fan's edge -
+                    // and the points along its edges that stand over the land
+                    // are the crest the pad goes under.
+                    pair.Clear(); pairTris.Clear();
+                    pair.AddRange(A); pair.AddRange(B);
+                    ZipShoulder(pairTris, 0, es[s][a], A.Length, es[s][b], side);
+                    // Never beside the road itself: a flat end's tuck at a
+                    // wall's foot, a kerb-side toe - those are the strip's and
+                    // the wall's business, and a pad there would stand beside
+                    // the kerb (an edge drop onto it at Chimney Rock wp 5 L).
+                    Vector3 outA = RightAt(pts, a) * side, outB = RightAt(pts, b) * side;
+                    float half = RoadWidth * 0.5f;
+                    List<Vector3> cur = null;
+                    for (int t = 0; t + 2 < pairTris.Count; t += 3)
+                    {
+                        Vector3 p0 = pair[pairTris[t]], p1 = pair[pairTris[t + 1]], p2 = pair[pairTris[t + 2]];
+                        Vector3 nrm = Vector3.Cross(p1 - p0, p2 - p0);
+                        float ny = Mathf.Abs(nrm.y);
+                        if (ny < 1e-6f) continue;
+                        float grad = new Vector2(nrm.x, nrm.z).magnitude / ny;
+                        if (grad <= ApexPadTuckSlope) continue;
+                        for (int e = 0; e < 3; e++)
+                        {
+                            Vector3 ca = e == 0 ? p0 : e == 1 ? p1 : p2;
+                            Vector3 cb = e == 0 ? p1 : e == 1 ? p2 : p0;
+                            float len = new Vector2(cb.x - ca.x, cb.z - ca.z).magnitude;
+                            int k = Mathf.Max(1, Mathf.CeilToInt(len / ApexPadCrestStepM));
+                            for (int j = 0; j <= k; j++)
+                            {
+                                Vector3 q = Vector3.Lerp(ca, cb, j / (float)k);
+                                float gap = q.y - ShoulderLatticeY(q.x, q.z);
+                                if (gap <= ApexPadMinGapM) continue;
+                                float eA = (q.x - pts[a].x) * outA.x + (q.z - pts[a].z) * outA.z - half;
+                                float eB = (q.x - pts[b].x) * outB.x + (q.z - pts[b].z) * outB.z - half;
+                                if (Mathf.Min(eA, eB) < ApexPadRoadClearM) continue;
+                                if (mixed && gap > ApexPadFlatCapM) continue;
+                                if (cur == null) { cur = new List<Vector3>(); groups.Add(cur); groupAt.Add(a + (s == 0 ? "L" : "R")); }
+                                cur.Add(q);
+                            }
+                        }
+                    }
+                }
+            }
+
+            int pads = 0;
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            var padded = new System.Text.StringBuilder();
+            var skipped = new System.Text.StringBuilder();
+            for (int gi = 0; gi < groups.Count; gi++)
+            {
+                var g = groups[gi];
+                samplesTotal += g.Count;
+                float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+                float maxGap = 0f;
+                foreach (var q in g)
+                {
+                    minX = Mathf.Min(minX, q.x); maxX = Mathf.Max(maxX, q.x);
+                    minZ = Mathf.Min(minZ, q.z); maxZ = Mathf.Max(maxZ, q.z);
+                    maxGap = Mathf.Max(maxGap, q.y - ShoulderLatticeY(q.x, q.z));
+                }
+                // Grown until every rim vertex is under the land, as far as
+                // ApexPadReachMaxM (land falling away faster than the pad for
+                // that long is counted in the log, not hidden).
+                float margin = Mathf.Min(ApexPadReachMaxM, (maxGap + ApexPadLiftM + 0.1f) / ApexPadSlope + 0.5f);
+                int cols, rows, liveRim;
+                float ox, oz;
+                float[] P, L;
+                while (true)
+                {
+                    ox = minX - margin; oz = minZ - margin;
+                    cols = Mathf.CeilToInt((maxX - minX + 2f * margin) / ApexPadCell);
+                    rows = Mathf.CeilToInt((maxZ - minZ + 2f * margin) / ApexPadCell);
+                    P = new float[(cols + 1) * (rows + 1)];
+                    L = new float[P.Length];
+                    liveRim = 0;
+                    for (int r = 0; r <= rows; r++)
+                        for (int c = 0; c <= cols; c++)
+                        {
+                            float x = ox + c * ApexPadCell, z = oz + r * ApexPadCell;
+                            float best = float.NegativeInfinity;
+                            foreach (var q in g)
+                            {
+                                float dx = x - q.x, dz = z - q.z;
+                                float h = q.y + ApexPadLiftM - ApexPadSlope * Mathf.Sqrt(dx * dx + dz * dz);
+                                if (h > best) best = h;
+                            }
+                            int v = r * (cols + 1) + c;
+                            P[v] = best;
+                            L[v] = ShoulderLatticeY(x, z);
+                            if ((r == 0 || c == 0 || r == rows || c == cols) && best > L[v] - ApexPadLiveM) liveRim++;
+                        }
+                    if (liveRim == 0 || margin >= ApexPadReachMaxM - 1e-3f) break;
+                    margin = Mathf.Min(ApexPadReachMaxM, margin + 1f);
+                }
+                // A crest over land that falls away faster than the pad for
+                // its whole reach would only move the edge out into the air:
+                // left as it was, and counted.
+                if (liveRim > 0) { rimInAir++; skipped.Append(' ').Append(groupAt[gi]).Append('/').Append(maxGap.ToString("0.00")); continue; }
+
+                int trisBefore = tris.Count;
+                var map = new int[P.Length];
+                for (int v = 0; v < map.Length; v++) map[v] = -1;
+                int cols1 = cols + 1;
+                float oxv = ox, ozv = oz;
+                float[] Pv = P, Lv = L;
+                int Vert(int r, int c)
+                {
+                    int v = r * cols1 + c;
+                    if (map[v] >= 0) return map[v];
+                    float x = oxv + c * ApexPadCell, z = ozv + r * ApexPadCell;
+                    map[v] = verts.Count;
+                    verts.Add(new Vector3(x, Mathf.Max(Pv[v], Lv[v] - ApexPadSinkM), z));
+                    uvs.Add(new Vector2((x - uox) / tile, (z - uoz) / tile));
+                    return map[v];
+                }
+                bool Live(int r, int c) { int v = r * cols1 + c; return Pv[v] > Lv[v] - ApexPadLiveM; }
+                for (int r = 0; r < rows; r++)
+                    for (int c = 0; c < cols; c++)
+                    {
+                        if (!Live(r, c) && !Live(r, c + 1) && !Live(r + 1, c) && !Live(r + 1, c + 1)) continue;
+                        int a = Vert(r, c), b = Vert(r, c + 1), d = Vert(r + 1, c + 1), e = Vert(r + 1, c);
+                        QuadFacing(verts, tris, a, b, d, e, Vector3.up);
+                    }
+                if (tris.Count > trisBefore) { pads++; padded.Append(' ').Append(groupAt[gi]).Append('/').Append(maxGap.ToString("0.00")); }
+            }
+            // One mesh for every pad on the venue: one draw call (the phone's
+            // cost), exact like the ribbon it finishes (a wheel reads it).
+            int meshes = 0;
+            if (tris.Count > 0)
+            {
+                var mesh = new Mesh
+                {
+                    indexFormat = verts.Count > 65000
+                        ? UnityEngine.Rendering.IndexFormat.UInt32
+                        : UnityEngine.Rendering.IndexFormat.UInt16,
+                };
+                mesh.SetVertices(verts);
+                mesh.SetUVs(0, uvs);
+                mesh.SetTriangles(tris, 0);
+                mesh.RecalculateNormals();
+                SaveMesh(mesh, "ApexPadMesh_0");
+                var go = new GameObject("ApexPad");
+                go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                var col = go.AddComponent<MeshCollider>();
+                col.sharedMesh = mesh;
+                col.sharedMaterial = phys;
+                go.isStatic = true;
+                meshes = 1;
+            }
+            if (pads > 0 || rimInAir > 0)
+                Log("Apex pads (first station of the pair / highest crest over the land): padded" + padded +
+                    "; left over falling land" + skipped);
+            // What an earlier bake left past this build's count.
+            for (int k = meshes; ; k++)
+            {
+                string stale = GenDir + "/" + MeshPrefix + "ApexPadMesh_" + k + ".asset";
+                if (AssetDatabase.LoadAssetAtPath<Mesh>(stale) == null) break;
+                AssetDatabase.DeleteAsset(stale);
+            }
+            return pads;
+        }
+
+        /// <summary>The apex pad (BuildApexPads): how steeply it falls from a
+        /// crest, how far over the crest it stands (the grid sags between its
+        /// vertices by up to ApexPadSlope x cell/sqrt2), how far over the land a
+        /// crest must stand to get one, the crest's sampling pitch, the grid's
+        /// cell, the furthest it reaches, how far under the land it is sunk where
+        /// it is not drawn, and how close under the land a vertex still counts
+        /// as drawn.</summary>
+        const float ApexPadSlope = 0.35f, ApexPadLiftM = 0.04f, ApexPadMinGapM = 0.01f,
+                    ApexPadCrestStepM = 0.1f, ApexPadCell = 0.2f, ApexPadReachMaxM = 6f,
+                    ApexPadSinkM = 0.05f, ApexPadLiveM = 0.02f,
+                    ApexPadTuckSlope = 0.46f, ApexPadFlatCapM = 0.25f,
+                    ApexPadRoadClearM = 2.5f;
 
         /// <summary>
         /// One station and side of the ribbon in world space: the profile's
@@ -2508,9 +2810,9 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static bool ShoulderStation(List<Vector3> pts, int idx, float side, List<Vector2> prof,
                                     out Vector3[] pos, out float[] es, out bool caught, out bool pastBend,
-                                    out bool tailed)
+                                    out bool tailed, out bool sloped)
         {
-            pos = null; es = null; caught = false; pastBend = false; tailed = false;
+            pos = null; es = null; caught = false; pastBend = false; tailed = false; sloped = false;
             if (prof == null || prof.Count == 0) return false;
             float half = RoadWidth * 0.5f;
             Vector3 outw = RightAt(pts, idx) * side;
@@ -2526,7 +2828,7 @@ namespace PSXRacing.EditorTools
             // Which kind of end this is decides the toe below: a slope is
             // carried on to the lattice and tucks from there; a flat end
             // keeps a plain tuck and lets only the skirt go down.
-            bool slopedEnd = false, kneed = false;
+            bool slopedEnd = false, kneed = false, foldedShort = false;
             float kneeE = 0f, kneeY = 0f;
             if (!onDeck && m >= 2)
             {
@@ -2549,16 +2851,63 @@ namespace PSXRacing.EditorTools
                     // reach (ShoulderTailSlope); a circuit's run-off keeps its
                     // carry as it was.
                     float tailE = stageDemLoaded ? ShoulderTailE : float.PositiveInfinity;
-                    if (ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, idx, side), ShoulderFoldReach(pts, idx, side),
-                                      tailE,
-                                      e =>
-                                      {
-                                          Vector3 q = at + outw * (half + e);
-                                          return ShoulderLatticeY(q.x, q.z);
-                                      },
-                                      out kneeE, out kneeY, out float carryE, out float carryY, out _, out pastBend,
-                                      out tailed))
+                    Func<float, float> latAt = e =>
                     {
+                        Vector3 q = at + outw * (half + e);
+                        return ShoulderLatticeY(q.x, q.z);
+                    };
+                    bool carried = ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, idx, side), ShoulderFoldReach(pts, idx, side),
+                                      tailE, latAt,
+                                      out kneeE, out kneeY, out float carryE, out float carryY, out bool carryMet, out pastBend,
+                                      out tailed);
+                    // THE FOLD STOPPED IT IN THE AIR: the inside of a hairpin
+                    // over a pit, where the neighbouring sections' lines cross
+                    // before a 1V:6H-then-1V:4H section can get down to the land
+                    // (Chimney Rock wp 715-717 L: the land 1.1-1.3 m under the
+                    // road 5 m out, the lines crossing at 5.7 m). The section is
+                    // graded again at the steepest recoverable slope from the
+                    // shoulder's end - RDG's limit for the clear zone, and never
+                    // closer to the lattice than ShoulderRegradeClearM, which the
+                    // solve already holds far under it in such a pit - and the
+                    // carry walked from its new end. Kept only where it ends
+                    // nearer the land than the section as designed did.
+                    if (carried && stageDemLoaded && pastBend && !carryMet)
+                    {
+                        var steeper = new List<Vector2>(prof);
+                        bool lowered = false;
+                        for (int k = 1; k < steeper.Count; k++)
+                        {
+                            float e = steeper[k].x;
+                            if (e <= ShoulderEndE + ShoulderMinStepM) continue;
+                            float line = ShoulderEndDy - (e - ShoulderEndE) * RoadsideRules.SteepestRecoverableSlope;
+                            float floorDy = latAt(e) - roadY + ShoulderRegradeClearM;
+                            float dy = Mathf.Max(line, floorDy);
+                            if (dy < steeper[k].y - 0.005f) { steeper[k] = new Vector2(e, dy); lowered = true; }
+                        }
+                        int m2 = steeper.Count;
+                        if (lowered && m2 >= 2)
+                        {
+                            float e2 = steeper[m2 - 1].x, y2 = roadY + steeper[m2 - 1].y;
+                            float slope2 = (steeper[m2 - 2].y - steeper[m2 - 1].y) /
+                                           Mathf.Max(steeper[m2 - 1].x - steeper[m2 - 2].x, 1e-5f);
+                            float fall2 = Mathf.Max(slope2, RoadsideRules.SteepestRecoverableSlope);
+                            if (ShoulderCarry(e2, y2, fall2, ShoulderBendReach(pts, idx, side), ShoulderFoldReach(pts, idx, side),
+                                              tailE, latAt,
+                                              out float kE2, out float kY2, out float cE2, out float cY2, out bool met2,
+                                              out bool pb2, out bool tl2)
+                                && cY2 - latAt(cE2) < carryY - latAt(carryE) - 0.01f)
+                            {
+                                prof = steeper;
+                                m = m2;
+                                kneeE = kE2; kneeY = kY2; carryE = cE2; carryY = cY2; carryMet = met2;
+                                pastBend = pb2; tailed = tl2;
+                                regraded++;
+                            }
+                        }
+                    }
+                    if (carried)
+                    {
+                        foldedShort = pastBend && !carryMet;
                         // A knee on the section's own last point is that point.
                         kneed = !float.IsNaN(kneeE) && kneeE > eEnd + ShoulderMinStepM;
                         eEnd = carryE;
@@ -2594,11 +2943,47 @@ namespace PSXRacing.EditorTools
             }
 
             float eTuck = eEnd + RoadsideRules.ToeTuckRunM, eSkirt = eTuck + ShoulderSkirtRunM;
+            // A CARRY THE FOLD STOPPED IN THE AIR (the inside of a hairpin,
+            // where the neighbouring sections' lines meet before the slope
+            // reaches the land): its tuck used to dive straight to the lattice,
+            // 0.2-0.3 m in 0.4 m - a face at Chimney Rock wp 2 L (0.07 m within
+            // 0.13 m) and 1049 L (0.10 m). It goes down at ShoulderTuckCapSlope
+            // instead, under the edge audit's face, for as long as it takes to
+            // get under the land, into the room left before the lines cross
+            // (less the skirt and a margin); a gap that room cannot close ends
+            // where the room does, still lower than the dive left it.
+            float capTuckY = float.NaN;
+            if (foldedShort && !onDeck)
+            {
+                float room = ShoulderLinesMeet(pts, idx, side, 1f) - ShoulderSkirtRunM - ShoulderTuckRoomMarginM;
+                float run = RoadsideRules.ToeTuckRunM;
+                for (float r = RoadsideRules.ToeTuckRunM; ; r += ShoulderCatchStepM)
+                {
+                    bool last = eEnd + r + ShoulderCatchStepM > room;
+                    Vector3 q = pts[idx] + outw * (half + eEnd + r);
+                    run = r;
+                    if (yEnd - ShoulderTuckCapSlope * r <= ShoulderLatticeY(q.x, q.z) - ShoulderTuckUnderM || last) break;
+                }
+                if (eEnd + run <= room + 1e-4f)
+                {
+                    eTuck = eEnd + run;
+                    eSkirt = eTuck + ShoulderSkirtRunM;
+                    capTuckY = yEnd - ShoulderTuckCapSlope * run;
+                    tucksCapped++;
+                }
+            }
             Vector3 tuck = pts[idx] + outw * (half + eTuck);
             Vector3 skirt = pts[idx] + outw * (half + eSkirt);
             float yTuck = yEnd - RoadsideRules.ToeTuckM, ySkirt = yTuck;
             bool deeper = false;
-            if (!onDeck)
+            if (!float.IsNaN(capTuckY))
+            {
+                yTuck = capTuckY;
+                ySkirt = Mathf.Max(yEnd - ShoulderSkirtMaxM,
+                    Mathf.Min(yTuck, ShoulderLatticeY(skirt.x, skirt.z) - RoadsideRules.ToeTuckM) - ShoulderSkirtSlackM);
+                deeper = true;
+            }
+            else if (!onDeck)
             {
                 float floor = yEnd - ShoulderSkirtMaxM;
                 float latTuck = ShoulderLatticeY(tuck.x, tuck.z) - RoadsideRules.ToeTuckM;
@@ -2619,6 +3004,7 @@ namespace PSXRacing.EditorTools
             skirt.y = ySkirt;
             pos[tail] = tuck; es[tail] = eTuck;
             pos[tail + 1] = skirt; es[tail + 1] = eSkirt;
+            sloped = slopedEnd;
             return deeper;
         }
 
@@ -2722,6 +3108,31 @@ namespace PSXRacing.EditorTools
                 carryY = y0 - steep * d;
                 break;
             }
+            // STILL IN THE AIR AT THE FOLD, past the clear zone: once more at
+            // the steepest slope that is still not a face to the body box
+            // (ShoulderTailSteepSlope, as the tail's second pass). A hairpin's
+            // inside over a pit - Chimney Rock wp 718-720 L, whose knees sit at
+            // 5.9-6.0 m with the lattice 0.2-0.5 m under the 1V:3H line when it
+            // runs out of room - ended in the air and its tuck dove to the land
+            // (0.13 m within 0.13 m at 7.30 m). Only where the first walk did
+            // not meet the land and its knee is past the clear zone, so a carry
+            // that met is laid exactly as before.
+            if (!met && steep < ShoulderTailSteepSlope &&
+                e0 >= ShoulderEndE + RoadsideRules.ClearZoneM + ShoulderMinStepM)
+            {
+                int more2 = Mathf.FloorToInt(Mathf.Min((ShoulderCarryMaxM - (yEnd - y0)) / ShoulderTailSteepSlope,
+                                                       foldE - e0) / ShoulderCatchStepM);
+                for (int k = 1; k <= more2; k++)
+                {
+                    float d = k * ShoulderCatchStepM;
+                    bool hit = y0 - ShoulderTailSteepSlope * d <= land(e0 + d);
+                    if (!hit && k < more2) continue;
+                    carryE = e0 + d;
+                    carryY = y0 - ShoulderTailSteepSlope * d;
+                    met = hit;
+                    break;
+                }
+            }
             return true;
         }
 
@@ -2781,6 +3192,21 @@ namespace PSXRacing.EditorTools
         /// <summary>The second tail's fall and reach (ShoulderTail): as steep
         /// as a rise the edge audit lets pass (0.46), and twice as long.</summary>
         const float ShoulderTailSteepSlope = 0.45f, ShoulderTailSteepRunM = 24f;
+
+        /// <summary>The tuck of a carry the fold stopped in the air
+        /// (ShoulderStation): its fall - under the edge audit's face
+        /// (RoadsideRules.FaceRiseFailM within FaceRunM, 0.46) with a margin -
+        /// how far under the land it goes before the skirt, and the room it
+        /// leaves short of where the neighbouring lines cross.</summary>
+        const float ShoulderTuckCapSlope = 0.42f, ShoulderTuckUnderM = 0.02f, ShoulderTuckRoomMarginM = 0.1f;
+
+        /// <summary>How close to the lattice a section graded again at 1V:4H
+        /// (ShoulderStation, a carry the fold stopped in the air) may come:
+        /// the stage's catch hold, clear of the terrain audit's 3 cm.</summary>
+        const float ShoulderRegradeClearM = 0.06f;
+        /// <summary>Sections graded again that way, and tucks eased down at
+        /// ShoulderTuckCapSlope, in this build (logged).</summary>
+        static int regraded, tucksCapped;
 
         /// <summary>
         /// Triangles between two stations' point runs, advancing along

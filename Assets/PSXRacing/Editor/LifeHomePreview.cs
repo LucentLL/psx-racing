@@ -78,6 +78,22 @@ namespace PSXRacing.EditorTools
             LifeRules.Book(st, st.day, LifeRules.NightSlot, 1, false);
             LifeRules.Book(st, st.day + 2, LifeRules.DaySlot, 3, false);
             LifeRules.Book(st, st.day + 9, LifeRules.NightSlot, 4, false);
+            // PSX_PREVIEW_VENUE=ChimneyRockRev: the default venue and every
+            // booking on that road, so a new venue's name is measured for
+            // clipping on every screen that prints one (the planner, the
+            // pre-race page, the week and month grids).
+            string previewVenue = System.Environment.GetEnvironmentVariable("PSX_PREVIEW_VENUE");
+            if (!string.IsNullOrEmpty(previewVenue))
+            {
+                int vi = TrackCatalog.IndexOf(previewVenue);
+                if (TrackCatalog.At(vi).id == previewVenue)
+                {
+                    st.trackIndex = vi;
+                    foreach (var b in st.bookings) if (b != null) b.trackIndex = vi;
+                    Debug.Log("[HomePreview] venue " + previewVenue + " (" + TrackCatalog.At(vi).name + ")");
+                }
+                else Debug.LogWarning("[HomePreview] no venue " + previewVenue);
+            }
             LifeSimManager.Save();
 
             Shoot(outDir, "home");

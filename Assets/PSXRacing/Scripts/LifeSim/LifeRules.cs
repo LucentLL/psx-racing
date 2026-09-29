@@ -419,7 +419,9 @@ namespace PSXRacing.LifeSim
         /// The two SYNTHETIC strips are excluded too, "for logic": a quarter
         /// mile of flat tarmac with a Christmas tree at one end is not a road
         /// anybody lives on, and a delivery that starts from a burnout box
-        /// reads as the game not knowing what a delivery is. The Bogue Banks
+        /// reads as the game not knowing what a delivery is. A venue marked
+        /// <c>noDelivery</c> is out too (Chimney Rock: a tourist lot up
+        /// hairpins no drop can make at par). The Bogue Banks
         /// bridges stay — drag PRESENTATION on a real road is still a real
         /// road with a house at the far end of it. Everything else is fair
         /// game: <see cref="DeliveryParSeconds"/> sizes the clock off the
@@ -454,9 +456,12 @@ namespace PSXRacing.LifeSim
                 // A sprint on a loop is the loop's road a second time; the
                 // loop is in the pool already. And the other edition's venue
                 // is not an address at all — asked FIRST, before
-                // RequiredFuelPct reads a distance this build has no data for.
+                // RequiredFuelPct reads a distance this build has no data for
+                // (Offered also turns away free roam, which is no address
+                // either). A noDelivery road (Chimney Rock's park road) is
+                // offered and still no drop.
                 if (!TrackCatalog.Offered(t)) continue;
-                if (t.drag || t.IsSprintVariant) continue;
+                if (t.drag || t.IsSprintVariant || t.noDelivery) continue;
                 if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
                 return idx;
             }
@@ -474,7 +479,7 @@ namespace PSXRacing.LifeSim
                 // cheapest run in the catalog by a mile — and the venue the
                 // roll refuses on principle would be the one a dry tank
                 // always gets.
-                if (!TrackCatalog.Offered(all[i]) || all[i].drag || all[i].IsSprintVariant) continue;
+                if (!TrackCatalog.Offered(all[i]) || all[i].drag || all[i].IsSprintVariant || all[i].noDelivery) continue;
                 float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
                 if (need < least) { least = need; cheapest = i; }
             }

@@ -274,6 +274,70 @@ namespace PSXRacing.EditorTools
             Debug.Log("[PSXShot] Camera-view shots of " + def.id + " written to " + OutDir);
         }
 
+        /// <summary>
+        /// A venue's named PLACES with the player's car standing on them
+        /// (tools\spot-shots.ps1): PSX_SHOT_VENUE, and PSX_SHOT_SPOTS as
+        /// "wp:name,wp:name" ("0:start,715:hairpin,1049:hairpin,1081:finish").
+        /// At each, the car is set down on the road at that station facing the
+        /// way the race runs, and shot the way CaptureCameras shoots it: the
+        /// game's own chase pose at rest (ChaseCamera.SteadyPose), and from
+        /// above the inside of the road there, where a hairpin's apex is - the
+        /// one view that shows the shoulder, the apex pad and the walls round
+        /// a switchback together. psx_spot_&lt;venue&gt;_&lt;wp&gt;_&lt;name&gt;_{chase,above}.png.
+        /// </summary>
+        [MenuItem("PSX Racing/Capture Spot Views")]
+        public static void CaptureSpotsOnly()
+        {
+            Directory.CreateDirectory(OutDir);
+            string venue = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
+            TrackCatalog.TrackDef def = null;
+            foreach (var d in TrackCatalog.Scened) if (d.id == venue) { def = d; break; }
+            if (def == null) { Debug.LogError("[PSXShot] no scened venue " + venue); return; }
+            if (!Open(def, out var cam, out var player)) return;
+            var path = Object.FindFirstObjectByType<TrackPath>();
+            if (path == null || path.Count < 4) return;
+            var t = player.transform;
+            // The car's height over its own road point, kept wherever it is put.
+            int home = path.NearestIndex(t.position);
+            float lift = t.position.y - path.GetPoint(home).y;
+            var frame = ChaseCamera.FrameOf(player);
+            float keepFov = cam.fieldOfView;
+            string spots = System.Environment.GetEnvironmentVariable("PSX_SHOT_SPOTS") ?? "0:start";
+            foreach (var part in spots.Split(','))
+            {
+                var kv = part.Split(':');
+                if (!int.TryParse(kv[0].Trim(), out int wp)) continue;
+                string name = kv.Length > 1 ? kv[1].Trim() : "spot";
+                int i = Mathf.Clamp(wp, 0, path.Count - 2);
+                Vector3 at = path.GetPoint(i);
+                Vector3 fwd = path.GetPoint(i + 1) - path.GetPoint(Mathf.Max(0, i - 1));
+                fwd.y = 0f;
+                fwd.Normalize();
+                Vector3 right = Vector3.Cross(Vector3.up, fwd).normalized;
+                // In the right-hand lane, as a car on the road would be.
+                Vector3 seat = at + right * (path.roadWidth * 0.25f) + Vector3.up * lift;
+                t.SetPositionAndRotation(seat, Quaternion.LookRotation(fwd, Vector3.up));
+                Physics.SyncTransforms();
+                string tag = "spot_" + def.id + "_" + wp + "_" + name;
+
+                ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, t,
+                                       frame, default, out Vector3 eye, out Quaternion eyeRot, out float eyeFov, out _);
+                cam.fieldOfView = eyeFov;
+                Shot(cam, tag + "_chase", eye, eyeRot);
+                cam.fieldOfView = keepFov;
+
+                // From above and behind, over the side the road turns to: the
+                // inside of the bend (the side the next stations lie on).
+                Vector3 ahead = path.GetPoint(Mathf.Min(path.Count - 1, i + 3)) - at;
+                float turn = Mathf.Sign(Vector3.Dot(ahead, right));
+                if (Mathf.Abs(Vector3.Dot(ahead, right)) < 0.5f) turn = 1f;
+                Vector3 focus = at + right * (turn * 6f);
+                Vector3 up = at - fwd * 16f - right * (turn * 6f) + Vector3.up * 13f;
+                Shot(cam, tag + "_above", up, Quaternion.LookRotation(focus - up));
+            }
+            Debug.Log("[PSXShot] Spot shots of " + def.id + " written to " + OutDir);
+        }
+
         // ------------------------------------------------------------------
         //  One pass per circuit
         // ------------------------------------------------------------------
