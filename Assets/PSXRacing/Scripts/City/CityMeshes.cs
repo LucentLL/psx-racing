@@ -359,6 +359,53 @@ namespace PSXRacing.City
             public readonly List<(int edge, int side, float s0, float s1)> vergeSpans = new List<(int, int, float, float)>();
             public readonly List<(Vector3 a, Vector3 b, Vector3 forward, bool elevated)> goreNoses = new List<(Vector3, Vector3, Vector3, bool)>();
             public float vergeMetres, railMetres;
+            /// <summary>The smoothness gate's tap; null unless <see cref="RecordTap"/>.</summary>
+            public RoadTap tap;
+        }
+
+        // ---- the smoothness gate's tap (Editor/CitySmooth.cs, gate spec 5.1) ----
+        /// <summary>Set only by the editor's smoothness gate. While it is set
+        /// every tile build records WHERE its ribbon quads and fans went, so the
+        /// gate can read them back out of <see cref="TileMeshes.roads"/> - the
+        /// mesh the renderer draws. One branch per quad when false; nothing in
+        /// the game sets it.</summary>
+        public static bool RecordTap;
+        public sealed class RoadTap
+        {
+            /// <summary>A ribbon quad: its slot, the index of its first vertex
+            /// in that slot's bucket (A.L, B.L, B.R, A.R follow), the edge, the
+            /// two sections' arcs and flags (<see cref="TapFlags"/>).</summary>
+            public struct Span { public int slot, bucketV, edge; public float sA, sB; public ushort flagsA, flagsB; }
+            /// <summary>A junction fan: centre at bucketV, then count - 1
+            /// corners anticlockwise; bit i of mouths = the chord from corner i
+            /// to i + 1 is a road mouth. Its triangles are triCount of the
+            /// slot's, from index triStart of its list (a star from the centre,
+            /// or ear-clipped corners when they are not star-shaped).</summary>
+            public struct Fan { public int slot, bucketV, count, node, triStart, triCount; public ulong mouths; }
+            public readonly List<Span> spans = new List<Span>();
+            public readonly List<Fan> fans = new List<Fan>();
+            /// <summary>Gore quads (junction-slab slot, no paint): pavement for
+            /// the gate's D1. sA/sB are arcs on the HOST edge.</summary>
+            public readonly List<Span> gores = new List<Span>();
+            /// <summary>tm.roads' vertex index of each used slot's first vertex,
+            /// in tm.roadSlots order (MeshFrom concatenates the buckets).</summary>
+            public int[] slotBase;
+            public const ushort FSqueezedL = 1, FSqueezedR = 2, FClipL = 4, FClipR = 8, FCollapsed = 16, FElevated = 32;
+        }
+        static int[] tapSlotBase;
+        /// <summary>The section's CAUSES, never its symptoms: squeezed L/R -
+        /// SqueezeSection moved that edge in against a parallel neighbour (the
+        /// gate judges it against its I7 envelope; an edge that stands inside
+        /// its half width for any other reason is a regression the gate must
+        /// see against the design edge, so the drawn position must not decide
+        /// this: review 5); clip: the inner side is the host's edge; collapsed;
+        /// on structure. linesim.mjs sets its sqL / sqR the same way.</summary>
+        static ushort TapFlags(in Section c)
+        {
+            int f = (c.sqL ? RoadTap.FSqueezedL : 0) | (c.sqR ? RoadTap.FSqueezedR : 0)
+                  | (c.clippedIn && c.innerSide < 0 ? RoadTap.FClipL : 0) | (c.clippedIn && c.innerSide > 0 ? RoadTap.FClipR : 0)
+                  | (c.collapsed ? RoadTap.FCollapsed : 0) | (c.elev ? RoadTap.FElevated : 0);
+            return (ushort)f;
         }
 
         // ---- growable buckets, one per slot, reused across tiles ----------
@@ -731,7 +778,7 @@ namespace PSXRacing.City
         public static TileMeshes Build(CityMap map, Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
-            var tm = new TileMeshes { origin = new Vector3(tx * TileSize, 0f, tz * TileSize) };
+            var tm = new TileMeshes { origin = new Vector3(tx * TileSize, 0f, tz * TileSize), tap = RecordTap ? new RoadTap() : null };
             var min = new Vector2(tx * TileSize, tz * TileSize);
             var max = min + new Vector2(TileSize, TileSize);
 
@@ -768,6 +815,7 @@ namespace PSXRacing.City
             tm.groundSlots = gSlots;
             tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots);
             tm.roadSlots = roadSlots;
+            if (tm.tap != null) tm.tap.slotBase = tapSlotBase;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
@@ -813,9 +861,11 @@ namespace PSXRacing.City
             mesh.SetUVs(0, uvs);
             mesh.subMeshCount = used.Count;
             int baseV = 0;
+            if (RecordTap) tapSlotBase = new int[used.Count];
             for (int i = 0; i < used.Count; i++)
             {
                 var bk = buckets[(int)used[i]];
+                if (RecordTap) tapSlotBase[i] = baseV;
                 var tris = new int[bk.t.Count];
                 for (int j = 0; j < tris.Length; j++) tris[j] = bk.t[j] + baseV;
                 mesh.SetTriangles(tris, i, false);
@@ -1391,6 +1441,8 @@ namespace PSXRacing.City
                         bool elev = H.ElevatedAt(smp.sM);
                         var bk = buckets[(int)SlotOf(JunctionProfile, SurfaceOf(H, elev))];
                         float v0 = prevArc / 12f, v1 = smp.hostArc / 12f;
+                        if (tm.tap != null)
+                            tm.tap.gores.Add(new RoadTap.Span { slot = (int)SlotOf(JunctionProfile, SurfaceOf(H, elev)), bucketV = bk.Count, edge = H.index, sA = prevArc, sB = smp.hostArc });
                         bk.Up(prevOut, vOut, vIn, pIn,
                               new Vector2(0f, v0), new Vector2(0f, v1), new Vector2(1f, v1), new Vector2(1f, v0));
                         quads++;
@@ -1702,6 +1754,9 @@ namespace PSXRacing.City
             /// one barrier or one rail, and a verge only floors half the strip.</summary>
             public int nbL, nbR;
             public float nbAtL, nbAtR, stripL, stripR;
+            /// <summary>The squeeze moved that edge in (SqueezeSection): the
+            /// smoothness gate's tap reads the cause, not the drawn position.</summary>
+            public bool sqL, sqR;
             /// <summary>Texture U at each vertex, from its TRUE lateral
             /// offset. A squeezed or clipped ribbon crops the painted
             /// profile instead of compressing it, so the lane lines stay
@@ -1953,6 +2008,9 @@ namespace PSXRacing.City
                     // concrete over the water.
                     var bk = buckets[(int)RoadSlot(e, f.elev)];
                     float v0 = A.s / RoadVTile, v1 = B.s / RoadVTile;
+                    if (tm.tap != null)
+                        tm.tap.spans.Add(new RoadTap.Span { slot = (int)RoadSlot(e, f.elev), bucketV = bk.Count, edge = e.index, sA = A.s, sB = B.s,
+                                                             flagsA = TapFlags(A), flagsB = TapFlags(B) });
                     // U = 0 on the left of travel (the R vertex), so a one-way
                     // carriageway's narrow inside shoulder and wide outside
                     // shoulder land where the painter put them. The winding
@@ -3830,9 +3888,9 @@ namespace PSXRacing.City
             Squeeze(map, trims, e, p, right, hw, y, ref sqL, ref sqR,
                     out sec.nbL, out sec.nbR, out sec.nbAtL, out sec.nbAtR, out sec.stripL, out sec.stripR);
             if (sqR < hwR - 1e-3f)
-                sec.R = new Vector3(p.x + right.x * sqR - tm.origin.x, y, p.y + right.y * sqR - tm.origin.z);
+            { sec.R = new Vector3(p.x + right.x * sqR - tm.origin.x, y, p.y + right.y * sqR - tm.origin.z); sec.sqR = true; }
             if (sqL < hwL - 1e-3f)
-                sec.L = new Vector3(p.x - right.x * sqL - tm.origin.x, y, p.y - right.y * sqL - tm.origin.z);
+            { sec.L = new Vector3(p.x - right.x * sqL - tm.origin.x, y, p.y - right.y * sqL - tm.origin.z); sec.sqL = true; }
         }
 
         /// <summary>The ribbon's half width each side at an arc position —
@@ -5837,6 +5895,13 @@ namespace PSXRacing.City
                 var centre = new Vector3(np.x - tm.origin.x, map.nodeY[n] + proud, np.y - tm.origin.z);
                 FanTriangles(corners, new Vector2(centre.x, centre.z), fanTris);
                 int centerI = bk.v.Count;
+                if (tm.tap != null)
+                {
+                    ulong mouths = 0;
+                    for (int i = 0; i < corners.Count && i < 64; i++) if (corners[i].mouthNext) mouths |= 1UL << i;
+                    tm.tap.fans.Add(new RoadTap.Fan { slot = (int)SlotOf(JunctionProfile, IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld),
+                                                      bucketV = centerI, count = corners.Count + 1, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
+                }
                 bk.v.Add(centre);
                 bk.uv.Add(new Vector2(np.x / 12f, np.y / 12f));
                 for (int i = 0; i < corners.Count; i++)

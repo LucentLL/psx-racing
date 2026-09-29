@@ -360,9 +360,15 @@ namespace PSXRacing.EditorTools
 
             fanMouths = new FanMouthTally();
             routeOfEdge = RouteEdges(map);
-            DriveAudit(map, trims, buildings);
-            RoadsideAudit(map, trims, buildings);
+            CitySmooth.BeginFast();   // the smoothness gate reads every tile the next two audits build (WP-G; opt-in until R4: PSX_SMOOTH_FAST=1)
+            try
+            {
+                DriveAudit(map, trims, buildings);
+                RoadsideAudit(map, trims, buildings);
+            }
+            finally { CitySmooth.EndCollect(); }   // the tap never outlives the two audits, even when one throws
             ReportFanMouths();
+            CitySmooth.EndFast(map, trims, buildings, Line, Check);
             fanMouths = null;
             LampAudit(map, trims, buildings);
             TerrainFidelity(map);
@@ -526,6 +532,7 @@ namespace PSXRacing.EditorTools
                             int dx = k < 8 ? (k % 3) - 1 : 0, dz = k < 8 ? (k / 3) - 1 : 0;
                             if (k < 8 && dx == 0 && dz == 0) continue;
                             var tm = CityMeshes.Build(map, trims, buildings, ptx + dx, ptz + dz);
+                            CitySmooth.Collect(ptx + dx, ptz + dz, tm);
                             var go = new GameObject($"tile_{ptx + dx}_{ptz + dz}");
                             go.transform.SetParent(root.transform, false);
                             go.transform.position = tm.origin;
@@ -982,10 +989,13 @@ namespace PSXRacing.EditorTools
                             if (dx == 0 && dz == 0) continue;
                             long nk = TileKey(tx + dx, tz + dz);
                             if (live.TryGetValue(nk, out var t)) { live[nk] = (t.go, ++clock); continue; }
-                            StandTm(tx + dx, tz + dz, CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz));
+                            var tmN = CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz);
+                            CitySmooth.Collect(tx + dx, tz + dz, tmN);
+                            StandTm(tx + dx, tz + dz, tmN);
                         }
                     // the centre LAST: CityMeshes' clip and gore tables are then this tile's
                     var tmC = CityMeshes.Build(map, trims, buildings, tx, tz);
+                    CitySmooth.Collect(tx, tz, tmC);
                     vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count; lampsBuilt += tmC.lamps.Count;
                     roadsideCutWallM += tmC.cutWallM;
                     footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
