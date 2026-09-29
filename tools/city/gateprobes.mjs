@@ -16,10 +16,26 @@
 //       rounding; S-bends of sampled arcs are not
 //   G   a JOG (a sideways step between two straights, the K7 case; review 4:
 //       over any transition up to ChordCapM) fails by the part of it that
-//       came faster than the plan's ease; a sub-V one, or a slow drift, does
-//       not
+//       came faster than the plan's ease - review 5: over a quarter of the cap
+//       or less by the whole step, as round 3 scored it (the ease there had
+//       dropped 763 of the city's keys); a sub-V one, or a slow drift, does not
 //   Z   a BUMP (off a straight and back) and a ZIGZAG (review 4: where the net
-//       turn is 0 nothing measured the excursion): peak deviation past V fails
+//       turn is 0 nothing measured the excursion): peak deviation past V fails;
+//       a zigzag of under V about the straight does not
+//   W   a WAVE (review 5): a smooth sampled wave, a zigzag with split or flat
+//       peaks, a data zigzag WP-11 filleted into tangent arcs - lobes turning
+//       back on both sides, off their mean line past V - fails; a sub-V one, a
+//       long gentle meander, a winding road's lobes (SimplifyEpsM or more) do not
+//   M   a jog that runs into a FAN MOUTH closer than its own width (review 5,
+//       Baxter Street): the exit straight is the strand's last segment
+//   B   one LEGAL vertex (under the lone limit) within 10 m of a jog or bump
+//       (review 5, North Irwin Avenue): the line still runs straight there
+//   N   bumps and notches WIDER than the 10 m chord cap (review 5, East 12th
+//       Street): judged between straights up to KinkViewM, by the part faster
+//       than the plan's ease - an eased bump, the plan's own, passes
+//   P   a ribbon edge pulled in WITHOUT a squeeze (review 5): judged against the
+//       design edge (A1) and by A2/A3, never against a squeeze envelope; the
+//       mesh gate's tap flags the squeeze from its cause (source contract)
 //   E   C2's closed list: a line starting along a branch's attach arc is no
 //       legitimate end; at a gore NOSE (a collapsed section) it is
 //   Q   a SQUEEZED ribbon edge against its I7 envelope: a squeeze that arrives
@@ -29,15 +45,20 @@
 //       several stacked, does not
 //   R   the ratchet: growth inside a key's bucket, a second run, a move, a
 //       worse peak all FAIL; the same data PASSES; other inputs are STALE,
-//       and STALE FAILS; a check gating looser than its baseline FAILS
+//       and STALE FAILS; a check gating looser than its baseline FAILS -
+//       review 5: the gate's own code is an input, a way dropped from the pin
+//       fails, a re-record that loosens (keys vanished or lower, the data
+//       unmoved) is refused, a ribbon edge's key takes its bucket's side
 //
-//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|Z|E|Q|R ...]    exit 1 on any failed probe
+//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|Z|W|M|B|N|E|Q|P|R ...]    exit 1 on any failed probe
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts } from './lib/paintruns.mjs';
 import { city, bent, fillet, sagChord, gateOf, fwd, DEG } from './lib/synthcity.mjs';
 import { summarize, ratchet, packKeys, packTiles, SCHEMA, statesOf, beforeAfter } from './lib/gatebase.mjs';
+import * as GB from './lib/gatebase.mjs';
+import { readFileSync } from 'node:fs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -220,9 +241,16 @@ if (want('G')) {
     probe(`G2 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm step, under V: nothing`, gated(res).length === 0, fmt(res));
   }
   // the part of a step that came faster than the plan's fastest ease (a smoothstep over the street's 15 m floor) is judged
-  for (const [t, g, why] of [[2.5, 0.6, 'of which 2.45 cm came faster than the ease'], [0.17, 10, 'a slow drift: 0.44 cm faster than the ease']]) {
+  for (const [t, g, why] of [[0.17, 10, 'a slow drift: 0.44 cm faster than the ease']]) {
     const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
     probe(`G2 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm step, ${why}: nothing`, gated(res).length === 0, fmt(res));
+  }
+  // review 5: over a quarter of the cap or less a step is scored whole, as round 3 did (the ease there - 6-25% of the step -
+  // dropped 763 of the city's keys when the baseline was re-recorded)
+  for (const [t, g] of [[2.5, 0.6], [1.2, 1.3], [0.7, 2.5]]) {
+    const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
+    const jl = new Set(gated(res).filter(r => r.check === 'B2' && /jog/.test(r.what || '')).map(r => r.lineId));
+    probe(`G6 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm step over ${g} m (a quarter of the cap or less): the whole step, a jog on all 7 lines`, jl.size === 7, fmt(res));
   }
   const res = gateOf(tw2(bent([1, 1, -1, -1], [0.5, 0.5, 0.5])), R, layouts);
   probe('G3 a 3.5 cm jog eased over four vertices 0.5 m apart: a jog', count(res, 'B2', r => /jog/.test(r.what || '')) > 0, fmt(res));
@@ -262,11 +290,141 @@ if (want('Z')) {
     const pts = zig(t, g, legs), res = gateOf(tw2(pts), R, layouts);
     probe(`Z2 zigzag +-${t} deg every ${g} m (+-${(peak(pts) * 50).toFixed(1)} cm about its mean line): a KINK on all 7 lines`, b2lines(res) === 7, fmt(res));
   }
-  for (const [label, pts] of [['Z3 zigzag +-2 deg every 2 m (+-1.7 cm)', zig(2, 2, 8)], ['Z3 zigzag +-1 deg every 4 m (+-1.7 cm)', zig(1, 4, 6)],
+  // centred on the straight (half legs at its ends): +-1.7 cm about the line the eye expects
+  const czig = (t, g, legs) => { const pts = zig(t, g, legs), turns = [t / 2]; for (let i = 1; i < legs; i++) turns.push(i % 2 ? -t : t); turns.push(legs % 2 ? -t / 2 : t / 2);
+    const gaps = turns.slice(1).map(() => g); gaps[0] = g / 2; gaps[gaps.length - 1] = g / 2; return pts && bent(turns, gaps); };
+  for (const [label, pts] of [['Z3 zigzag +-2 deg every 2 m, centred on the straight (+-1.7 cm)', czig(2, 2, 8)], ['Z3 zigzag +-1 deg every 4 m, centred (+-1.7 cm)', czig(1, 4, 6)],
+    ['Z3 zigzag +-1 deg every 4 m touching the straight at every trough (3.5 cm peaks, over 4 m legs: slower than the ease)', zig(1, 4, 6)],
     ['Z3 bump [0.5, -1, 0.5] deg 2 m apart (1.7 cm)', bent([0.5, -1, 0.5], [2, 2])], ['Z3 bump [0.3, -0.6, 0.3] deg 4 m apart (2.1 cm over 8 m)', bent([0.3, -0.6, 0.3], [4, 4])]]) {
     const res = gateOf(tw2(pts), R, layouts);
     probe(`${label}, under V: nothing`, gated(res).length === 0, fmt(res));
   }
+  // one-sided (touching the straight at every trough), a row of 3.5 cm bumps each faster than the ease: as its single bump
+  // (Z1 [1, -2, 1] 2 m apart) fails
+  {
+    const res = gateOf(tw2(zig(2, 2, 8)), R, layouts);
+    probe('Z4 zigzag +-2 deg every 2 m touching the straight at every trough (a row of 3.5 cm bumps over 2 m legs): a KINK on all 7 lines', b2lines(res) === 7, fmt(res));
+  }
+}
+
+// ---- W: waves (review 5): a line swinging to and fro with no sharp peak, no straights and no cluster passed everything
+if (want('W')) {
+  console.log('W  B2 KINK: a WAVE - lobes turning back on both sides - off its mean line past V (spec section 2: symmetric zigzag, peak deviation <= V)');
+  const waveLines = res => new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId)).size;
+  const hasWave = res => gated(res).some(r => r.check === 'B2' && /wave/.test(r.what || ''));
+  const h0 = 20 * DEG, ux = Math.sin(h0), uz = Math.cos(h0), nx = uz, nz = -ux;
+  const wavy = (A, lam, cyc, step) => { const pts = [[0, 0]], L = lam * cyc; for (let x = 0; x <= L + 1e-9; x += step) { const y = A * Math.sin(2 * Math.PI * x / lam); pts.push([ux * (60 + x) + nx * y, uz * (60 + x) + nz * y]); } pts.push([ux * (120 + L), uz * (120 + L)]); return pts; };
+  for (const [A, lam, step, w] of [[0.08, 10, 0.5], [0.15, 16, 1], [0.2, 24, 1], [0.08, 10, 0.5, { rank: 3, lanes: 4 }], [0.12, 16, 1, { rank: 3, lanes: 4 }]]) {
+    const res = gateOf(city([{ pts: wavy(A, lam, 3, step), ...(w || {}) }]), R, layouts), lines = res.S.E[0].profile.key === 'tw2' ? 7 : 9;
+    probe(`W1 a sampled wave +-${A * 100} cm every ${lam} m (samples ${step} m) on ${res.S.E[0].profile.key}: a wave on all ${lines} lines`, waveLines(res) === lines && hasWave(res), fmt(res));
+  }
+  const split = (a, g, sp) => { const turns = [a / 2], gaps = []; for (let i = 0; i < 8; i++) { const sg = i % 2 ? 1 : -1; turns.push(sg * a / 2, sg * a / 2); gaps.push(g - sp, sp); } turns.push(a / 2); gaps.push(g); return bent(turns, gaps); };
+  for (const [a, g, sp] of [[3, 4, 1], [2, 5, 1]]) {
+    const res = gateOf(tw2(split(a, g, sp)), R, layouts);
+    probe(`W2 a zigzag of +-${a} deg turns every ${g} m, each peak split in two ${sp} m apart: a KINK on all 7 lines`, waveLines(res) === 7, fmt(res));
+  }
+  {
+    const turns = []; for (let i = 0; i < 8; i++) turns.push(...(i % 2 === 0 ? [2, -2] : [-2, 2]));
+    const res = gateOf(tw2(bent(turns, turns.map(() => 4).slice(1))), R, layouts);
+    probe('W3 a flat-topped wave [2, -2, -2, 2, ...] deg every 4 m (14 cm peak to peak): a wave on all 7 lines', waveLines(res) === 7 && hasWave(res), fmt(res));
+  }
+  // what WP-11 makes of a data zigzag: tangent arcs meeting at the legs' midpoints, densified at the 2 cm sagitta
+  const arcChain = arcs => { const pts = [[0, 0]]; let h = 10 * DEG, p = fwd([0, 0], h, 60); pts.push(p);
+    for (const { R: R0, turn } of arcs) { const D = Math.abs(turn) * DEG, sg = Math.sign(turn), c = sagChord(R0, hw2), n = Math.max(1, Math.ceil(R0 * D / c)), dh = D / n, ch = 2 * R0 * Math.sin(dh / 2);
+      for (let k = 0; k < n; k++) { h += sg * (k === 0 ? dh / 2 : dh); p = fwd(p, h, ch); pts.push(p); } h += sg * dh / 2; }
+    pts.push(fwd(p, h, 60)); return pts; };
+  const filleted = (a, g) => { const R0 = (g / 2) / Math.tan(a / 2 * DEG), arcs = [{ R: R0, turn: a / 2 }]; for (let i = 0; i < 8; i++) arcs.push({ R: R0, turn: i % 2 === 0 ? -a : a }); arcs.push({ R: R0, turn: -a / 2 }); return arcChain(arcs); };
+  for (const [a, g] of [[10, 5], [12, 6]]) {
+    const res = gateOf(tw2(filleted(a, g)), R, layouts);
+    probe(`W4 a data zigzag of +-${a} deg every ${g} m WP-11 filleted into R ${((g / 2) / Math.tan(a / 2 * DEG)).toFixed(1)} m tangent arcs: a wave on all 7 lines`, waveLines(res) === 7 && hasWave(res), fmt(res));
+  }
+  for (const [label, pts] of [['W5 a wave of +-2 cm every 10 m (under V)', wavy(0.02, 10, 3, 0.5)], ['W5 a meander of +-10 cm every 80 m (1 m samples: its 10 m chords sag under a cm)', wavy(0.1, 80, 2, 1)],
+    ['W5 a winding road: R 60 m arcs turning +-30 deg (lobes of 1.2 m: geometry, SimplifyEpsM or more)', (() => { const arcs = [{ R: 60, turn: 15 }]; for (let i = 0; i < 6; i++) arcs.push({ R: 60, turn: i % 2 === 0 ? -30 : 30 }); arcs.push({ R: 60, turn: -15 }); return arcChain(arcs); })()],
+    ['W5 the same zigzag filleted at +-30 deg every 10 m (R 18.7 m: lobes of 0.63 m, geometry)', filleted(30, 10)]]) {
+    const res = gateOf(tw2(pts), R, layouts);
+    probe(`${label}: no wave`, !hasWave(res) && count(res, 'B2') === 0, fmt(res));
+  }
+}
+
+// ---- M: a jog into a fan mouth (review 5, Baxter Street: 12.2 cm over 2.7 m, 0.79 m before the mouth, passed both gates)
+if (want('M')) {
+  console.log('M  B2 KINK: a jog that ends closer to a fan mouth than its own width - the exit straight is the last segment');
+  const T = (step, w, d) => {
+    const probeCity = gateOf(city([{ pts: [[-80, 0], [0, 0]] }, { pts: [[0, 0], [80, 0]] }, { pts: [[0, 80], [0, 0]] }]), R, layouts);
+    const trim = probeCity.S.E[2].length - probeCity.S.E[2].secs.at(-1).s, zEnd = trim + d, zStart = zEnd + w;
+    return gateOf(city([{ pts: [[step - 80, 0], [step, 0]] }, { pts: [[step, 0], [step + 80, 0]] }, { pts: [[0, 80], [0, zStart], [step, zEnd], [step, 0]] }]), R, layouts);
+  };
+  const side = res => gated(res).filter(r => r.e === 2);
+  for (const [step, w, d] of [[0.105, 3, 2], [0.105, 3, 1], [0.14, 4, 2.5], [0.14, 4, 1]]) {
+    const res = T(step, w, d), jl = new Set(side(res).filter(r => r.check === 'B2' && /jog/.test(r.what || '')).map(r => r.lineId));
+    probe(`M1 a ${(step * 100).toFixed(1)} cm jog over ${w} m ending ${d} m before a T junction's fan mouth: a jog on all 7 lines of the side street`, jl.size === 7, `${jl.size} lines; ${side(res).map(r => r.check).join(' ') || 'nothing on the side street'}`);
+  }
+  const res = T(0, 3, 1);
+  probe('M2 the same side street with no jog: nothing on it', side(res).length === 0, side(res).map(r => `${r.check} ${r.lineId}`).join(', ') || 'nothing');
+}
+
+// ---- B: one legal vertex beside a jog or bump (review 5: 'no turn of 25%' made a 0.5 deg vertex switch the rules off)
+if (want('B')) {
+  console.log('B  B2 KINK: a jog or bump with one legal vertex (under the lone limit) within 10 m - the line still runs straight there');
+  const b2l = res => new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId)).size;
+  for (const [label, t, g] of [['jog [1.5, -1.5] over 4 m (10.5 cm)', [1.5, -1.5], [4]], ['jog [2, -2] over 3 m (10.5 cm)', [2, -2], [3]], ['bump [2, -2, -2, 2] 2/1/2 m (7 cm)', [2, -2, -2, 2], [2, 1, 2]]])
+    for (const [b, d, where] of [[0.5, 9.5, 'before'], [0.7, 6, 'before'], [1, 8, 'after'], [1, 5, 'before']]) {
+      const pts = where === 'before' ? bent([b, ...t], [d, ...g]) : bent([...t, b], [...g, d]);
+      const res = gateOf(tw2(pts), R, layouts);
+      probe(`B1 ${label} with a ${b} deg vertex ${d} m ${where} it: a KINK on all 7 lines`, b2l(res) === 7, fmt(res));
+    }
+  const res = gateOf(tw2(bent([1], [])), R, layouts);
+  probe('B2 the 1 deg vertex alone: nothing', gated(res).length === 0, fmt(res));
+}
+
+// ---- N: wider than the chord cap (review 5: every window rule stopped at 10 m, so a bump just wider passed)
+if (want('N')) {
+  console.log('N  B2 KINK: bumps and notches wider than ChordCapM, between straights, up to KinkViewM (the part faster than the ease)');
+  const b2l = res => new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId)).size;
+  const h0 = 20 * DEG, ux = Math.sin(h0), uz = Math.cos(h0), nx = uz, nz = -ux;
+  const shape = (f, W, step = 1) => { const pts = [[0, 0]]; for (let x = 0; x <= W + 1e-9; x += step) { const y = f(x); pts.push([ux * (60 + x) + nx * y, uz * (60 + x) + nz * y]); } pts.push([ux * (120 + W), uz * (120 + W)]); return pts; };
+  for (const [t, g1, g2] of [[2, 4, 3], [2, 4, 6], [2, 4, 9], [2, 5, 4], [2.2, 5, 5]]) {
+    const res = gateOf(tw2(bent([t, -t, -t, t], [g1, g2, g1])), R, layouts);
+    probe(`N1 a trapezoid bump [${t}, -${t}, -${t}, ${t}] deg, rises of ${g1} m, a ${g2} m top (${2 * g1 + g2} m): a KINK on all 7 lines`, b2l(res) === 7, fmt(res));
+  }
+  for (const [A, W] of [[0.1, 12], [0.2, 16], [0.15, 20]]) {
+    const res = gateOf(tw2(shape(x => A * 0.5 * (1 - Math.cos(2 * Math.PI * x / W)), W)), R, layouts);
+    probe(`N2 a raised-cosine bump of ${A * 100} cm over ${W} m (1 m samples): a KINK on all 7 lines`, b2l(res) === 7, fmt(res));
+  }
+  for (const [g1, g2] of [[6.5, 4.1], [8, 4.1]]) {
+    const res = gateOf(tw2(bent([-1.2, 2.35, 1.1], [g1, g2])), R, layouts);
+    probe(`N3 a notch [-1.2, 2.35, 1.1] deg ${g1} / ${g2} m apart (East 12th Street's shape, ${g1 + g2} m): a KINK on all 7 lines`, b2l(res) === 7, fmt(res));
+  }
+  const ss = u => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
+  for (const [H, L] of [[0.3, 15], [0.3, 20], [0.1, 15]]) {
+    const res = gateOf(tw2(shape(x => H * (x <= L ? ss(x / L) : 1 - ss((x - L) / L)), 2 * L)), R, layouts);
+    probe(`N4 an eased bump, ${H * 100} cm out over ${L} m and back over ${L} m (the plan's ease): no KINK`, count(res, 'B2') === 0, fmt(res));
+  }
+}
+
+// ---- P: a ribbon edge pulled in without a squeeze (review 5: the mesh tap's flag was the symptom, so any edge standing
+// inside its half width was judged only against its own envelope, and A2 / A3 skipped it)
+if (want('P')) {
+  console.log('P  a ribbon edge pulled in WITHOUT a squeeze: A1 against the design edge, A2, A3 - never the squeeze envelope');
+  const ss = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+  const pts = []; for (let i = 0; i <= 120; i++) pts.push(fwd([0, 0], 20 * DEG, i));
+  const pulled = (cut, sq) => gateOf(city([{ pts }]), R, layouts, { tweakSecs: S => S.E[0].secs.forEach(x => {
+    const d = cut(x.s); if (!(d > 0)) return;
+    x.L = [x.L[0] + x.right[0] * d, x.L[1] + x.right[1] * d]; x.latL += d; x.uL = 0.5 - x.latL / S.E[0].width; if (sq) x.sqL = true; }) });
+  for (const [label, cut] of [['0.3 m in over 16 m and held', s => 0.3 * ss((s - 30) / 16)], ['0.5 m in over 20 m, held 30 m, back out', s => 0.5 * ss((s - 20) / 20) * (1 - ss((s - 70) / 20))]]) {
+    const res = pulled(cut, false);
+    const a1 = gated(res).filter(r => r.check === 'A1' && r.lineId === 'RL'), a2 = count(res, 'A2'), a3 = count(res, 'A3');
+    probe(`P1 the L edge ${label}, no squeeze (sqL unset, as the tap now flags it): A1 against the design edge, A2 and A3`, a1.length > 0 && !a1.some(r => /I7/.test(r.what || '')) && a2 > 0 && a3 > 0,
+      `A1 ${a1.length} (x${Math.max(0, ...a1.map(r => r.ratio)).toFixed(1)}), A2 ${a2}, A3 ${a3}`);
+  }
+  // the mesh gate: CityMeshes.TapFlags must flag the squeeze from its CAUSE (the section's sqL / sqR, set by SqueezeSection),
+  // never from where the drawn edge stands; CitySmooth reads that flag as the squeeze, the clip flags as X3
+  const meshes = readFileSync(join(UNITY, 'Assets/PSXRacing/Scripts/City/CityMeshes.cs'), 'utf8'), smooth = readFileSync(join(UNITY, 'Assets/PSXRacing/Editor/CitySmooth.cs'), 'utf8');
+  const tf = (meshes.match(/static ushort TapFlags\([^)]*\)\s*\{[\s\S]*?\n        \}/) || [''])[0];
+  const sqSet = /SqueezeSection[\s\S]*?sec\.sqR = true[\s\S]*?sec\.sqL = true/.test(meshes);
+  const rib = (smooth.match(/static Pt RibPt\([^)]*\)\s*\{[\s\S]*?\n        \}/) || [''])[0];
+  probe('P2 the mesh tap flags the squeeze from its cause (TapFlags reads the section\'s sqL / sqR, which SqueezeSection sets; no drawn position), and CitySmooth reads it as the squeeze',
+    /c\.sqL/.test(tf) && /c\.sqR/.test(tf) && !/latL|PointAt/.test(tf) && sqSet && /FSqueezedL/.test(rib), tf ? 'TapFlags: ' + tf.split('\n').slice(1, 3).join(' ').replace(/\s+/g, ' ').slice(0, 160) : 'no TapFlags found');
 }
 
 // ---- E: C2's closed list (review 3: any clipped section within 2 m excused an end as a "gore")
@@ -365,6 +523,37 @@ if (want('R')) {
   probe('R9 a baseline that records no check states FAILS (re-record it)', !ns.ok && !!ns.demoted, ns.demoted && ns.demoted.join('; '));
   const ba = beforeAfter(summ(jog([51, 56], 0.06)), B, R, { ...inputs, sections: { EDGE: 'a', SPAN: 'b' } });
   probe('R10 the explicit re-record prints BEFORE -> AFTER for every check and what moved', ba.length === R.Checks.length + 2 && ba[0].includes('container section SPAN') && ba.some(l => /^  B1 JITTER .*->/.test(l)), ba[0]);
+  // review 5: the gate's own code is an input - a loosening edit to it used to pass its own ratchet, never STALE
+  const code = typeof GB.codeDigest === 'function' ? GB.codeDigest(join(HERE, 'lib')) : null;
+  const sc = ratchet(S0, B, R, { inputs: { ...inputs, code: 'another' } });
+  probe('R11 the gate\'s code (tools/city/lib) is in the fingerprint, and a baseline measured with other code is STALE, and FAILS', /^[0-9a-f]{12}$/.test(code || '') && !sc.ok && !!sc.stale && sc.stale.some(x => /code/.test(x)),
+    `digest ${code}; ${sc.stale ? sc.stale.join('; ') : 'not stale'}`);
+  // review 5: dropping a way from the creek pin changed neither fingerprint, and the pin then passed
+  const pinned = ratchet(S0, { ...B, pinned: [...R.PinnedWays, 424242] }, R, { inputs });
+  probe('R12 a way dropped from the creek pin since the baseline was recorded FAILS (and the pin\'s ways are in the rules digest)',
+    !pinned.ok && !!pinned.demoted && pinned.demoted.some(d => /424242/.test(d)) && typeof GB.rulesDigest === 'function' && GB.rulesDigest(R) !== GB.rulesDigest({ ...R, PinnedWays: R.PinnedWays.slice(1) }), pinned.demoted && pinned.demoted.join('; '));
+  // review 5: a re-record after a gate change dropped 763 of the city's keys inside a total that grew
+  const loose = typeof GB.loosenings === 'function' ? GB.loosenings : () => ({ dataMoved: true, lines: [] });
+  const Bk = entryOf(summ(jog([51, 76], 0.05)), inputs);
+  const gone = loose(summ(jog([51], 0.05)), Bk, R, { ...inputs, code: 'changed' }), moved = loose(summ(jog([51], 0.05)), Bk, R, { ...inputs, graph: 'moved' });
+  const lower = loose(summ(jog([51], 0.04)), entryOf(summ(jog([51], 0.05)), inputs), R, { ...inputs, rules: 'changed' });
+  probe('R13 a re-record that loosens - keys vanished or scoring lower while the data did not move (only the gate did) - is REFUSED; the same after a data move is not',
+    gone.lines.some(l => /B2 KINK: \d+ keys vanished/.test(l)) && lower.lines.some(l => /B2 KINK: 0 keys vanished, [1-9]\d* keys score lower/.test(l)) && moved.lines.length === 0,
+    [...gone.lines, ...lower.lines].map(l => l.trim()).join(' | ') || 'nothing refused');
+  // review 5: a ribbon edge's key took the side of the run's worst sample, so a key moved between RL and RR - vanishing from
+  // the ratchet - when a new rule scored an edge the chain runs the other way higher; now it is the side of its own bucket
+  {
+    // the chain runs edge 0 (way 7101) forward and edge 1 (way 7102, drawn from its far end) backwards: a 3 degree kink at
+    // the node and a 6 degree one 2 m on make one run on each ribbon edge, its worst on edge 1; that strand is RL on edge 0
+    // and RR on edge 1 (the other strand the other way round)
+    const a0 = [0, 0], a1 = fwd(a0, 0, 60), b1 = fwd(a1, 3 * DEG, 2), a2 = fwd(b1, 9 * DEG, 60);
+    const res = gateOf(city([{ pts: [a0, a1], wayId: 7101 }, { pts: [a2, b1, a1], wayId: 7102 }]), R, layouts);
+    const runs = gated(res).filter(r => r.check === 'B2' && r.kind === 'edge' && r.kk.some(k => k.startsWith('7101:')) && r.kk.some(k => k.startsWith('7102:')));
+    const sideOf = (r, w) => new Set(r.kk.filter(k => k.startsWith(w + ':')).map(k => k.split(':')[3]));
+    probe("R14 a kink run across a node into an edge the chain runs backwards keys each bucket by its own edge's side (RL on one edge is RR on the other), not by the side of the run's worst",
+      runs.length === 2 && runs.every(r => { const x = sideOf(r, 7101), y = sideOf(r, 7102); return x.size === 1 && y.size === 1 && [...x][0] !== [...y][0]; }),
+      runs.map(r => r.kk.join(' ')).join(' | ') || gated(res).filter(r => r.check === 'B2').map(r => r.kk.join(' ')).join(' | '));
+  }
 }
 
 console.log(`\n${passed} probes passed, ${failed} failed`);

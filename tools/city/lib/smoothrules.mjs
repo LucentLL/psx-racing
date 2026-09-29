@@ -35,7 +35,7 @@ export function readSmoothRules(csPath) {
     'LineWidthTol', 'StrayM', 'StrayRunM', 'ExistInsetM', 'EdgeLineInsetM', 'PlanTaperShape', 'JoinM', 'MatchM', 'SeamM', 'GapM',
     'FanMouthM', 'DashM', 'DashGapM', 'DashTol', 'StubM', 'CrossM', 'CrossDyM', 'GoreNoseM', 'DensifyEpsM', 'KeyStepM', 'WorstN',
     'DedupM', 'RefSpotReachM', 'RankRatioCap', 'ExposureRoute', 'ExposureRefSpot', 'BandCount', 'ReportOnly', 'PinActive', 'CurbReturnShare',
-    'KinkNoiseShare', 'RunBreakM', 'RatioQuantum', 'TexelPadM', 'FastInAudit', 'MergeMarginM', 'LengthQuantumM', 'KinkViewM', 'PixelAtM'];
+    'KinkNoiseShare', 'RunBreakM', 'RatioQuantum', 'TexelPadM', 'FastInAudit', 'MergeMarginM', 'LengthQuantumM', 'KinkViewM', 'PixelAtM', 'SimplifyEpsM'];
   for (const k of need) if (R[k] === undefined || Number.isNaN(R[k])) throw new Error(`SmoothRules.cs: constant ${k} not found`);
   if (R.Checks.length < 17) throw new Error(`SmoothRules.cs: ${R.Checks.length} checks parsed`);
   R.rMinFor = cls => R.RMin[cls] ?? 7.5;

@@ -48,13 +48,18 @@ namespace PSXRacing.EditorTools
         /// chord, so the chord stops at the neighbour; a vertex whose chords both
         /// stop at a turn BACK is a zigzag peak and scores twice its sagitta. A
         /// turn back of this share or more makes a HEDGED window, judged by its
-        /// net turn; between two straights (min(1 / KinkNoiseShare times its own
-        /// length, ChordCapM) either side, or straight on to the line's end at
-        /// least its length away) also at its drawn corner with signed rounding,
-        /// by how far it is drawn outside every smooth transition (a bump, a
-        /// notch) and by its jog, the part of the step faster than the plan's
-        /// fastest ease (a smoothstep over the shortest TaperFloor)
-        /// (lib/kink.mjs).</summary>
+        /// net turn; between two straights (for min(1 / KinkNoiseShare times its
+        /// own length, ChordCapM) either side the line turns again by less than
+        /// this share of the window's excursion, or runs within V of one line
+        /// turning no more than the lone limit, or runs on to its end) also at
+        /// its drawn corner with signed rounding, by how far it is drawn outside
+        /// every smooth transition (a bump, a notch) and by its jog - the whole
+        /// step over a quarter of ChordCapM or less, else the part faster than
+        /// the plan's fastest ease (a smoothstep over the shortest TaperFloor);
+        /// wider windows up to KinkViewM by their corner and outside distance,
+        /// eased. Lobes of this share of their neighbours or more, turning back
+        /// on both sides within ChordCapM, make a WAVE, judged against its mean
+        /// line (SimplifyEpsM) (lib/kink.mjs).</summary>
         public const float KinkNoiseShare = 0.25f;
         /// <summary>B2 judges a corner split over close vertices as one
         /// (tools/city/lib/kink.mjs) as the chase view shows it out to this
@@ -64,6 +69,16 @@ namespace PSXRacing.EditorTools
         /// The spec: "at R 7.5 a 90 degree corner stays rounded out to about
         /// 40 m".</summary>
         public const float KinkViewM = 40f;
+        /// <summary>B2's WAVE rule (tools/city/lib/kink.mjs): a line that
+        /// swings to and fro - two or more lobes in a row, each turning back on
+        /// both sides - is judged against its mean line (the chord of each
+        /// lobe's inflections): "symmetric zigzag: peak deviation &lt;= V". A
+        /// lobe standing this far or more off it is geometry, not a wobble:
+        /// the plan's WP-10 Douglas-Peucker (0.5 m) removes every sideways
+        /// excursion under it before WP-11 fillets what is left, so a winding
+        /// road's lobes pass and B3 judges their radius. The plan's number,
+        /// not a tuning knob.</summary>
+        public const float SimplifyEpsM = 0.5f;
         /// <summary>B1: resample step and the half window of the circle fit.</summary>
         public const float JitterStepM = 0.25f;
         public const float JitterHalfM = 2f;
@@ -226,7 +241,7 @@ namespace PSXRacing.EditorTools
             new CheckDef("A5", "STRAY", State.Ratchet, "no paint where the plan has no line of its colour", "M0 (tapers), R4"),
             new CheckDef("A5b", "MISSING", State.Report, "every plan line drawn (report-only until the line model draws it)", "R4 (WP-11b)"),
             new CheckDef("B1", "JITTER", State.Ratchet, "no line jitters past V from its local circle", "R4"),
-            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta, twice it at a zigzag peak; a corner split over close vertices is one corner, a hedged one is its net turn, a bump or notch its excursion, a jog its step faster than the plan's ease; a bend fan is judged across)", "R4"),
+            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta, twice it at a zigzag peak; a corner split over close vertices is one corner, a hedged one is its net turn, a bump or notch its excursion, a jog its step (faster than the plan's ease when wider than 2.5 m), a wave its lobes off their mean line; a bend fan is judged across)", "R4"),
             new CheckDef("B3", "CURVE", State.Ratchet, "no ribbon bends tighter than its class allows", "R4 (fans WP-19)"),
             new CheckDef("B4", "JUMP", State.Ratchet, "no line steps sideways past V where it continues", "R4 (WP-11b)"),
             new CheckDef("B4s", "SEAM", State.Zero, "no line steps at a tile seam (identical sections)", "now"),

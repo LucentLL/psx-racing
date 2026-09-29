@@ -23,16 +23,26 @@
 //   --data <dir>                                          measure an --out export instead of Resources
 //   --out <dir>                                           write linecheck.txt + linecheck.json there
 //   --csv <file>                                          every violation run, one row each
-//   --write-baseline [file]                               record this model's numbers, keys and inputs
+//   --write-baseline [file]                               record this model's numbers, keys and inputs;
+//                                                         REFUSED (exit 1, nothing written) when it would
+//                                                         loosen the gate: the data did not move but keys
+//                                                         vanished or score lower, or a check state or a
+//                                                         pinned way loosened (lib/gatebase.mjs loosenings)
+//   --allow-loosen                                        record it anyway, the loosening listed for the
+//                                                         commit (a deliberate, signed-off gate change)
 //   --ratchet [file]                                      compare with them (lib/gatebase.mjs): exit 1 on
 //                                                         any new key, a key worse or longer than its
 //                                                         baseline, more runs or metres, a worse worst
-//                                                         case, a check gating looser than when it was
-//                                                         recorded - and when the baseline is STALE
-//                                                         (measured on other inputs: graph, container
-//                                                         sections, rules, road PNGs, model), which fails
-//                                                         until the explicit re-record: --write-baseline
-//                                                         prints the BEFORE -> AFTER numbers for its commit
+//                                                         case, a check gating looser or a way pinned
+//                                                         less than when it was recorded - and when the
+//                                                         baseline is STALE (measured on other inputs:
+//                                                         graph, container sections, rules, road PNGs,
+//                                                         the gate's own code, model), which fails until
+//                                                         the explicit re-record: --write-baseline prints
+//                                                         the BEFORE -> AFTER numbers for its commit. It
+//                                                         also runs gateprobes.mjs: a failing probe fails
+//                                                         the ratchet (tools\city-cycle.ps1 and
+//                                                         tools\verify.ps1 run it; exit 1 fails them)
 //   --pin                                                 enforce the creek pin now (SmoothRules.PinActive)
 //   --plan-taper linear|smooth                            the plan's design taper (default: SmoothRules
 //                                                         PlanTaperShape; --model m0 implies smooth)
@@ -51,7 +61,8 @@ import { runCensus } from './lib/linecensus.mjs';
 import { runGate } from './lib/linegate.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts, SURFACES } from './lib/paintruns.mjs';
-import { summarize, readBaseline, writeBaseline, ratchet, inputsOf, beforeAfter } from './lib/gatebase.mjs';
+import { summarize, readBaseline, writeBaseline, ratchet, inputsOf, beforeAfter, loosenings } from './lib/gatebase.mjs';
+import { spawnSync } from 'node:child_process';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -170,14 +181,22 @@ if (!has('--no-gate')) {
   // ---- what this run measured: the baseline's fingerprint
   const paintFiles = [];
   for (const k of keys) for (const surf of SURFACES) { const f = join(ART, `city_road_${k}_${surf}.png`); if (existsSync(f)) paintFiles.push(f); }
-  const inputs = inputsOf({ cityBuf, city, graph, R, paintFiles, model: MODEL, planTaper });
+  const inputs = inputsOf({ cityBuf, city, graph, R, paintFiles, model: MODEL, planTaper, libDir: join(HERE, 'lib') });
   // ---- the per-check table: runs, metres, worst; every key with its worst ratio; runs per tile (lib/gatebase.mjs)
   summary = summarize(gate, R);
   const unit = (id, v) => id === 'A4' ? `${(v * 100).toFixed(0)}%` : id === 'B3' ? `R ${r1(v)} m` : id === 'C2' ? `${r1(v)}x` : id === 'C3' ? `${(v * 100).toFixed(0)}%`
     : Math.abs(v) >= 1 ? `${r2(Math.abs(v))} m` : `${(Math.abs(v) * 100).toFixed(1)} cm`;
   // ---- baseline / ratchet
   const base = readBaseline(BASELINE)?.entries?.[MODEL];
-  if (has('--ratchet')) verdict = ratchet(summary, base, R, { pin: pinActive, runs, inputs });
+  if (has('--ratchet')) {
+    verdict = ratchet(summary, base, R, { pin: pinActive, runs, inputs });
+    // the gate's own regression probes (synthetic cities with known answers): a gate that stopped seeing one fails
+    const pr = spawnSync(process.execPath, [join(HERE, 'gateprobes.mjs')], { encoding: 'utf8' });
+    const tail = (pr.stdout || '').trim().split('\n').pop();
+    const fails = (pr.stdout || '').split('\n').filter(l => l.startsWith('  FAIL'));
+    if (pr.status !== 0) { verdict.ok = false; verdict.lines.push(`  FAIL gateprobes.mjs: ${tail || pr.error || 'did not run'}`); for (const l of fails.slice(0, 10)) verdict.lines.push(`    ${l.trim()}`); }
+    else verdict.lines.push(`  ok   gateprobes.mjs: ${tail}`);
+  }
   P('');
   P(`SMOOTHNESS GATE  ${gate.stats.edges} ribbons, ${r1(gate.stats.ribbonKm)} km of ribbon, ${r1(gate.stats.lineKm)} km of painted line, ${gate.chains} chains, ${gate.stats.strands} strands`);
   P(`  bend fans (2-arm nodes drawn as junction slabs; plan A2: never legitimate): ${gate.stats.bendFans} (${gate.stats.bendFans60} turning 60 degrees or more) - each is judged across (B2/B3) and its mouths are no legitimate end (C2)`);
@@ -245,11 +264,21 @@ if (!has('--no-gate')) {
   gate.worst = worst;
   gate.pin = { active: pinActive, runs: pinRuns.length, byCheck: pinBy };
   if (has('--write-baseline')) {
-    // the explicit re-record: the numbers it replaces, for its commit
+    // the explicit re-record: the numbers it replaces, for its commit; refused when it would loosen the gate
     P('');
     for (const l of beforeAfter(summary, base, R, inputs)) P(l);
-    writeBaseline(BASELINE, MODEL, summary, R, inputs);
-    P(`\nwrote the baseline for ${MODEL} (graph ${graph}, inputs ${JSON.stringify(inputs)}) to ${BASELINE.replace(/\\/g, '/')}`);
+    const loose = loosenings(summary, base, R, inputs);
+    if (loose.lines.length) {
+      P(`LOOSENING (${loose.dataMoved ? 'the data moved too' : 'the data did not move: only the gate did'}):`);
+      for (const l of loose.lines) P(l);
+    }
+    if (loose.lines.length && !has('--allow-loosen')) {
+      verdict = { ok: false, lines: [] };
+      P(`\nREFUSED: this re-record would loosen the gate (above). Nothing was written. Fix the gate, or - for a deliberate, signed-off change - re-run with --allow-loosen and put the list in the commit.`);
+    } else {
+      writeBaseline(BASELINE, MODEL, summary, R, inputs);
+      P(`\nwrote the baseline for ${MODEL} (graph ${graph}, inputs ${JSON.stringify(inputs)}) to ${BASELINE.replace(/\\/g, '/')}${loose.lines.length ? ' - LOOSENED, --allow-loosen' : ''}`);
+    }
   }
 }
 P(`\n(${secs()} s, data ${DATA.replace(/\\/g, '/')})`);

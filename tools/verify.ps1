@@ -242,6 +242,18 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
     $bad++
 }
 
+# THE SMOOTHNESS GATE, offline (plan A4 G-offline): linecheck --ratchet against
+# its recorded baseline, with the gate's own probes. A new or worse violation,
+# a STALE baseline (the data or the gate's code moved: re-record, BEFORE ->
+# AFTER in the commit), a check or a pin gating looser, or a failing probe is a
+# failed stage. Nothing ran it before review 5. Offline, from the source tree.
+Write-Host "[6a/7] Smoothness gate, offline (linecheck --ratchet)..." -ForegroundColor Cyan
+& node "$src\tools\city\linecheck.mjs" --no-census --ratchet | Select-String -Pattern "^RATCHET|FAIL|STALE|gateprobes" | ForEach-Object { $_.Line }
+if ($LASTEXITCODE -ne 0) {
+    $failLines.Add("[smoothness] linecheck --ratchet exited $LASTEXITCODE (a new or worse violation, a STALE baseline, a loosened check or pin, or a failing probe)")
+    $bad++
+}
+
 # The city is not in either audit above (its tiles are built at runtime, and
 # its scene has no TrackPath), so it was never in verify at all: the city
 # audit ran only from the city scripts, which exited 0 on "N FAILURES".

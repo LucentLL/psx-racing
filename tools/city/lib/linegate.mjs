@@ -11,9 +11,10 @@
 //   * a PLAN built from data only (the graph, RoadProfiles' layout rules and
 //     the Trims taper TABLE, a design decision) - never the builder's
 //     sections, U or quads, so a bug in the line model cannot hide itself;
-//   * their own shape (jitter, facet sagitta - lone, split and hedged corners
-//     and jogs, lib/kink.mjs - radius); a squeezed ribbon edge also against
-//     its plan I7 envelope (squeezeDev);
+//   * their own shape (jitter, facet sagitta - lone, split and hedged corners,
+//     zigzag peaks, jogs, bumps and notches, waves, lib/kink.mjs - radius); a
+//     squeezed ribbon edge (the squeeze fired: sqL / sqR, the cause, as the
+//     mesh tap flags it) also against its plan I7 envelope (squeezeDev);
 //   * their continuity (jumps, gaps, ends - a gore NOSE, not any clip, is a
 //     legitimate end - dash lengths), chained through
 //     mitred nodes (two ends within V are one line, the step taken out for
@@ -30,7 +31,7 @@
 // here), E1 (strip paint does not exist yet).
 import { quadIso, frameOf } from './paintiso.mjs';
 import { dot, sub } from './linesim.mjs';
-import { kinkScores, KIND_TEXT, KIND_LONE } from './kink.mjs';
+import { kinkScores, KIND_TEXT, KIND_LONE, turningPoints, easeInto } from './kink.mjs';
 
 const DEG = 180 / Math.PI;
 const LANE = 3.6576;
@@ -197,43 +198,15 @@ function kasaResidual(xs, zs, c) {
 /// clipped or collapsed sample (X3/X2) breaks the signal and reads 0.
 export function squeezeDev(smp, sgn, L, V) {
   const n = smp.length, dev = new Float64Array(n);
-  const g = x => x >= 1 ? 1 : 1.5 * x - 0.5 * x * x * x;
   for (let i0 = 0; i0 < n;) {
     if (smp[i0].x3) { i0++; continue; }
     let i1 = i0; while (i1 + 1 < n && !smp[i1 + 1].x3) i1++;
     const m = i1 - i0 + 1, s = new Float64Array(m), c = new Float64Array(m);
     for (let k = 0; k < m; k++) { s[k] = smp[i0 + k].s; c[k] = -sgn * smp[i0 + k].err; }
-    // turning points (V hysteresis; a plateau's first sample)
-    const tp = [0];
-    let mode = 0, cand = 0;
-    for (let k = 1; k < m; k++) {
-      if (mode === 0) { if (c[k] - c[0] > V) { mode = 1; cand = k; } else if (c[0] - c[k] > V) { mode = -1; cand = k; } continue; }
-      if (mode > 0) { if (c[k] > c[cand]) cand = k; else if (c[cand] - c[k] > V) { tp.push(cand); mode = -1; cand = k; } }
-      else { if (c[k] < c[cand]) cand = k; else if (c[k] - c[cand] > V) { tp.push(cand); mode = 1; cand = k; } }
-    }
-    if (mode !== 0 && cand !== 0) tp.push(cand);
-    if (tp[tp.length - 1] !== m - 1) tp.push(m - 1);
+    // turning points (V hysteresis; a plateau's first sample), then EASE per rise or fall (lib/kink.mjs)
+    const tp = turningPoints(c, V);
     const bump = (k, e) => { if (e > dev[i0 + k]) dev[i0 + k] = e; };
-    // EASE, per rise or fall
-    for (let t = 0; t + 1 < tp.length; t++) {
-      const a = tp[t], b = tp[t + 1], H = Math.abs(c[b] - c[a]);
-      if (H <= V) continue;
-      for (let i = a; i < b; i++) {
-        // the floor window centred on the pair (i, j): kl the last sample at or before its start, kh the first at or
-        // after its end (inside the rise); both only move forward as j does
-        let kl = i, kh = i + 1;
-        for (let j = i + 1; j <= b && s[j] - s[i] < L; j++) {
-          const mid = (s[i] + s[j]) / 2, lo = mid - L / 2, hi = mid + L / 2;
-          if (j === i + 1) { while (kl > a && s[kl] > lo) kl--; }
-          else while (kl < i && s[kl + 1] <= lo) kl++;
-          if (kh < j) kh = j;
-          while (kh < b && s[kh] < hi) kh++;
-          const HL = Math.min(H, Math.abs(c[kh] - c[kl]));
-          const e = Math.abs(c[j] - c[i]) - HL * g((s[j] - s[i]) / L);
-          if (e > 0) { bump(i, e); bump(j, e); }
-        }
-      }
-    }
+    easeInto(s, c, tp, L, V, bump);
     // HOLD, per dip between two cuts
     for (let t = 1; t + 1 < tp.length; t++) {
       const k0 = tp[t];
@@ -553,8 +526,8 @@ export function runGate(S, R, layouts, opts = {}) {
   /// (no sample objects: the city is thirty million of them). A run breaks
   /// where two bad samples lie more than RunBreakM apart, and keeps for every
   /// KeyStepM bucket it touches the worst value and the bad length there (the
-  /// arc from the previous bad sample goes to the bucket of this one): its
-  /// ratchet keys.
+  /// arc from the previous bad sample goes to the bucket of this one), and the
+  /// side of the ribbon its samples there lie on: its ratchet keys.
   class RunBuilder {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
     /// A break in the samples (between B1 windows): closes, no arc across it.
@@ -567,7 +540,7 @@ export function runGate(S, R, layouts, opts = {}) {
       if (c && this.arc - c.lastArc > R.RunBreakM) { this.close(); c = null; }
       const inc = c ? this.arc - c.lastArc : 0;
       if (!c) {
-        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [] };
+        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [], bs: [] };
         if (what !== undefined) c.what = what;
         if (this.extra) Object.assign(c, this.extra);
       }
@@ -575,7 +548,7 @@ export function runGate(S, R, layouts, opts = {}) {
       const worse = this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val);
       const bid = bucketOf(E[e], s), nb = c.bk.length;
       if (nb && c.bk[nb - 1] === bid) { if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val; c.bl[nb - 1] += inc; }
-      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); }
+      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); c.bs.push(side); }
       if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
@@ -857,7 +830,10 @@ export function runGate(S, R, layouts, opts = {}) {
     const TH = new Float64Array(keep.length), KX = new Float64Array(keep.length), KZ = new Float64Array(keep.length);
     for (let m = 0; m < keep.length; m++) { KX[m] = pts[keep[m]].x; KZ[m] = pts[keep[m]].z; }
     for (let m = 1; m + 1 < keep.length; m++) TH[m] = turnOf(KX[m - 1], KZ[m - 1], KX[m], KZ[m], KX[m + 1], KZ[m + 1]);
-    const K2 = kinkScores(KX, KZ, C, TH, R, m => { const b = pts[keep[m]]; return !!(b.x3 || b.gore); });
+    // the most any line of the strand stands off its data line (the WAVE rule's geometry test): 0 on the midline
+    let hw = 0;
+    if (kind !== 'midline') for (const i of keep) if (E[pts[i].e].hw > hw) hw = E[pts[i].e].hw;
+    const K2 = kinkScores(KX, KZ, C, TH, R, m => { const b = pts[keep[m]]; return !!(b.x3 || b.gore); }, hw);
     const b2 = [];
     for (let m = 1; m + 1 < keep.length; m++) {
       const b = pts[keep[m]];
@@ -1150,12 +1126,15 @@ export function runGate(S, R, layouts, opts = {}) {
     // the ratchet keys: (way, round(s on way / KeyStepM), check, line) for EVERY bucket the run's bad samples touch,
     // each with its own worst ratio and bad length; a point run (B4, C2, C3) has its one (length 0), a gap (C1)
     // every bucket it spans (each with the gap's length)
+    // (a ribbon edge's line is the side of the edge each bucket lies on: a chain runs some of its edges backwards, so
+    // one strand is RR on one edge and RL on the next, and a key labelled by the run's worst sample moved between
+    // RL and RR - vanishing from the ratchet - whenever that worst moved to an edge the chain runs the other way)
     r.kk = []; r.kq = []; r.kl = [];
-    const addKey = (bid, v, l) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.lineId}`); r.kq.push(ratioOf(v)); r.kl.push(l); };
-    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i]));
+    const addKey = (bid, v, l, side) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.kind === 'edge' && side ? 'R' + side : r.lineId}`); r.kq.push(ratioOf(v)); r.kl.push(l); };
+    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i], r.bs[i]));
     else if (r.check === 'C1') for (let b = bucketOf(e, Math.min(r.s0, r.s1)); b <= bucketOf(e, Math.max(r.s0, r.s1)); b++) addKey(b, r.val, r.len);
     else addKey(bucketOf(e, r.s), r.val, 0);
-    delete r.bk; delete r.bv; delete r.bl; delete r.lastArc;
+    delete r.bk; delete r.bv; delete r.bl; delete r.bs; delete r.lastArc;
     r.tile = `${Math.floor(r.x / 256)},${Math.floor(r.z / 256)}`;
     if ((r.check === 'A5' || r.check === 'A5b') && r.len < minRunLen[r.check]) r.drop = true;
     // cause hint

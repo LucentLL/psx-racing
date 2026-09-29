@@ -12,8 +12,10 @@
 //             a zigzag peak scores twice its sagitta; a turn and a turn back
 //             is judged by its net turn and, between two straights, by how
 //             far it is drawn outside every smooth transition - a bump, a
-//             notch - and by the part of a sideways step faster than the
-//             plan's ease - lib/kink.mjs kinkScores, the gate's own rule)
+//             notch - and by a sideways step (whole over 2.5 m or less, else
+//             the part faster than the plan's ease); a wave's lobes by their
+//             deviation from its mean line - lib/kink.mjs kinkScores, the
+//             gate's own rule)
 //   B3 CURVE  R = CurveHalfM / (heading change of the chords either side) under
 //             the class's R_min (the centreline), or under InnerEdgeMinRM (the
 //             inner offset curve)
@@ -86,8 +88,9 @@ function offsetLine(pts, d) {
   return out;
 }
 
-/// B2 and B3 on one polyline. Returns the failing vertices.
-function shape(pts, R, rLimitAt) {
+/// B2 and B3 on one polyline (hw: how far it stands off the data line, for the
+/// WAVE rule's geometry test; 0 on the centreline). Returns the failing vertices.
+function shape(pts, R, rLimitAt, hw = 0) {
   // drop collinear vertices and duplicates
   const lim = R.CollinearDeg / DEG, keep = [0];
   for (let i = 1; i + 1 < pts.length; i++) {
@@ -110,7 +113,7 @@ function shape(pts, R, rLimitAt) {
   const b2 = [], b3 = [];
   const TH = new Float64Array(keep.length);
   for (let m = 1; m + 1 < keep.length; m++) TH[m] = turnAt(pts[keep[m - 1]], pts[keep[m]], pts[keep[m + 1]]);
-  const K2 = kinkScores(keep.map(i => pts[i][0]), keep.map(i => pts[i][1]), C, TH, R);
+  const K2 = kinkScores(keep.map(i => pts[i][0]), keep.map(i => pts[i][1]), C, TH, R, null, hw);
   for (let m = 1; m + 1 < keep.length; m++) {
     const i = keep[m], b = pts[i];
     const th = TH[m];
@@ -143,7 +146,7 @@ export function smoothSection(city, rulesPath) {
     for (const sgn of [1, -1]) {
       const off = offsetLine(L.pts, L.hw.map(h => sgn * h));
       // the INNER offset curve of a turn is the one on its side: + (left) for a left turn
-      const o = shape(off, R, (i, th) => Math.sign(th) === sgn ? R.InnerEdgeMinRM : 0);
+      const o = shape(off, R, (i, th) => Math.sign(th) === sgn ? R.InnerEdgeMinRM : 0, Math.max(...L.hw));
       for (const v of o.b2) { by[L.cls[v.i]].b2_offset++; total.b2_offset++; }
       for (const v of o.b3) { by[L.cls[v.i]].b3_inner++; total.b3_inner++; if (!worstB3i || v.R < worstB3i.R) worstB3i = { ...v, cls: L.cls[v.i] }; }
     }
