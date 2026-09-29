@@ -532,6 +532,57 @@ interleaved with e565c40's builder in the same sandbox, p95 68.8 and 70.9 ms
 against 70.3 and 65.7 ms (p50 21.6/24.0 against 22.7/24.1); the probe's
 readings swing more than that between identical runs.
 
+**Land in lanes (the second review of R1, 2026-09-29).** The lane survey
+counted land as the first thing over a lane without failing on it, and from
+the WIP commit on it listed a probe 0.55 m inside the ramp e280's merge lane,
+30 m before it joins I-77 on the Uptown Loop's tile, meeting land 1.75 m down
+(+0.01 m before WP-04). It was a crack under 5 cm wide along the seam where
+the clipped ramp meets I-77, both on structure: a gap side on the ground lays
+a flush strip under its seam, a deck span returned before it, and the land
+under the approach that used to stand at the deck is 1.75 m down on 3DEP. A
+wheel probe through the crack meets that drop. The builder now:
+
+- floors a gap side's seam on a deck too, with a strip 0.3 m wide held under
+  the pavement at its own level (`EmitSeam`, `SeamCeiling`; held under the
+  lowest pavement it crossed, a first try dropped seams 2.7 m onto the lanes
+  of I-77 and I-277 under five bridges);
+- keeps a connector's tuck under the pavement that stopped it where the tuck
+  lies (`Connect`), and halves a strip quad whose tuck would stand on that
+  pavement between its cross-sections (`LayTucked`): Armory Drive's
+  connector stood as a grass wedge from +0.04 m over Sam Ryburn Walk's lane
+  line to +0.29 m at its edge, where the branch's clipped end climbs 0.3 m to
+  Armory's height within a metre. (Halving every quad whose tucks differed
+  in height put ridges between neighbouring connectors at 20 junction
+  corners; gated on the pavement, none.)
+
+A new check fails on land more than 0.12 m over a lane, or a hole to land
+that far under one, anywhere on the probed tiles, unless it is a named spot
+(`CityAudit.LaneStepM`, the drive audit's step; `KnownLaneLand`, empty). The
+new audit on f957b12's builder fails on e280 alone; on this one it passes.
+Nine land runs under 0.12 m are still counted, each with the road under it:
+floors seen through cracks at gap spans with no road under them (e280 +0.01,
+e230 -0.02 and e8170 -0.01, seam strips; e9770 -0.06), verges flush in a
+paving gap (Baxter Street +0.00; East 10th Street +0.06, a gore nose verge
+5 cm over the road), Arlington Avenue's right lane line (-0.08, its own verge
+outside the chord its ribbon is drawn on), and two left for WP-14's grading:
+East 13th Street (e10973) +0.118 m, North College Street's verge 4 cm over
+its mouth at node 8984 (+0.04 before WP-04), and Arlington Avenue (e21874)
++0.11 m, its own verge from before a bend over the left lane line past it,
+where the ribbon's chord runs inside the lane extent (+0.06 before). `tools/city-roadside-probe.ps1` names the strip
+that laid any land it meets and maps the surface round a point ("grid:").
+
+Measured with it: CITY AUDIT OK, every line of the audit the same as before
+this fix but the land runs; solids over lanes unchanged (25 probes, 22 runs,
+all named). `city-play-check` CITY SPAWNS OK; `race-play-check` (330 s, seed
+0) finishes all three races and retires 1, 3 and 0 rivals on Uptown, Tryon
+and Independence (4; 5 after the rails fix, 7 before WP-04). Uptown's one is a
+planned driver error (MISTAKE at wp 1236, 158 km/h) that carried the Charger
+10 m off its line into a barrier at wp 1295, where R1 as first committed lost
+the Skyline the same way; Tryon's three are traffic and a lamp post, as before
+WP-04. `CityBudgetProbe` interleaved with f957b12's builder: p95 68.4 and 68.0 ms
+against 72.0 and 65.6 ms, worst view 200 draws both; uptown's 25 tiles carry
+273k triangles against 271k. `verify.ps1 -NoMirror`: VERIFY PASS.
+
 **Irwin Creek** runs 14 m off I-77's pavement north of uptown: the carved
 terrain has its bed (-0.85 m), but the graded ground there is +1.95 m, held
 up by I-77's flat verge. Creeks beside roads are WP-14's too.
@@ -832,7 +883,8 @@ alike). The city part:
   South Boulevard; deck rails where an edge's width changes at a node;
   Albemarle Road under the Independence Expressway's retaining wall, where
   seating the branch would put 16% grades off its deck) and 10 verge or
-  seam slivers of 1-6 cm over clipped lanes. Off the audited tiles: the 13
+  seam slivers of 1-6 cm over clipped lanes (land past 12 cm is checked
+  since the second review of R1: see "Land in lanes" under WP-04). Off the audited tiles: the 13
   junctions drawn into each other a level apart keep a 0.3-0.7 m step (the
   fans' to seat or split, not a rail's); squeezed rails stand in the mouths
   at node 625 (e343 beside Tyvola Road, where the squeeze ends between
