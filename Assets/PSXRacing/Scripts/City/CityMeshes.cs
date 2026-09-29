@@ -78,6 +78,25 @@ namespace PSXRacing.City
         /// nothing called them a wall). The overhang also floors the 0.3 m
         /// strip between two squeezed decks.</summary>
         public const float RailOverhangM = 0.3f;
+
+        /// <summary>One rail a tile emitted, for the probes: whose (an
+        /// edge's side, or a fan chord at a node), where (world space, the
+        /// drawn edge points it was laid along), and which way the traffic is
+        /// (<see cref="inA"/>/<see cref="inB"/>, unit, plan).</summary>
+        public struct RailRecord
+        {
+            public int edge, side, node;
+            public float s0, s1;
+            public Vector3 a, b;
+            public Vector2 inA, inB;
+            /// <summary>How far its solid reaches past the edge it was laid along.</summary>
+            public float overhang;
+        }
+        /// <summary>Null in a build. A probe that sets it gets every rail the
+        /// tiles it builds emit (<see cref="RailRecord"/>), so a solid met in
+        /// a lane can be named by the rail that stands there.</summary>
+        public static List<RailRecord> railLog;
+
         public const float PierEvery = 26f;
         public const float BuildingSink = 0.55f;
         /// <summary>A Jersey barrier: 81 cm tall, half a metre thick, on the
@@ -1500,6 +1519,7 @@ namespace PSXRacing.City
             float v0 = n.hostArc / RoadVTile;
             // across the nose, its traffic face toward the gore
             EmitRail(vOut, vIn, -fwd, -fwd, drop, true, true, v0, v0 + 0.5f);
+            railLog?.Add(new RailRecord { edge = -1, node = -2, a = vOut + o3, b = vIn + o3, inA = -fwd, inB = -fwd, overhang = RailOverhangM });
             // along the host's edge to its rail's restart (the gap ends one
             // metre past the last attached sample)
             if (host.Walk(Mathf.Min(n.hostArc + 1f, host.Length), out var Hn, out float sHn, out var pHn, out var dHn))
@@ -1509,6 +1529,7 @@ namespace PSXRacing.City
                 var e = pHn + rHn * (side * hw);
                 var inH = -rHn * side;
                 EmitRail(vOut, new Vector3(e.x - o3.x, Hn.YAt(sHn), e.y - o3.z), inH, inH, drop, true, true, v0, v0 + 1f / RoadVTile);
+                railLog?.Add(new RailRecord { edge = Hn.index, side = side, node = -2, s0 = sHn, s1 = sHn, a = vOut + o3, b = new Vector3(e.x, Hn.YAt(sHn), e.y), inA = inH, inB = inH, overhang = RailOverhangM });
             }
             // along the branch's inner edge to its rail's restart (two metres)
             if (br.Walk(Mathf.Min(travelled + 2f, br.Length), out var Eb, out float sEb, out var pEb, out var dEb))
@@ -1517,6 +1538,7 @@ namespace PSXRacing.City
                 var e = pEb + rLb * (n.lSign * trims.HalfWidthAt(Eb, sEb));
                 var inB = -rLb * n.lSign;
                 EmitRail(vIn, new Vector3(e.x - o3.x, Eb.YAt(sEb), e.y - o3.z), inB, inB, drop, true, true, v0, v0 + 2f / RoadVTile);
+                railLog?.Add(new RailRecord { edge = Eb.index, side = n.lSign < 0f ? -1 : 1, node = -2, s0 = sEb, s1 = sEb, a = vIn + o3, b = new Vector3(e.x, Eb.YAt(sEb), e.y), inA = inB, inB = inB, overhang = RailOverhangM });
             }
         }
 
@@ -3258,9 +3280,37 @@ namespace PSXRacing.City
                 // most 1V:6H past a 4% shoulder: half its offset buries its
                 // traffic face's foot under that verge (it is under the tarmac
                 // where the offset is still inside the edge).
-                EmitRail(eA + new Vector3(outA.x, 0f, outA.y) * outAm, eB + new Vector3(outB.x, 0f, outB.y) * outBm,
-                         -outA, -outB, drop, sf.capStart, sf.capEnd, v0, v1,
-                         f.elev ? 0f : 0.5f * outAm, f.elev ? 0f : 0.5f * outBm);
+                var rA = eA + new Vector3(outA.x, 0f, outA.y) * outAm;
+                var rB = eB + new Vector3(outB.x, 0f, outB.y) * outBm;
+                float sinkA = f.elev ? 0f : 0.5f * outAm, sinkB = f.elev ? 0f : 0.5f * outBm;
+                // Over a squeeze strip, as far as the neighbour's drawn
+                // pavement and no further (OverhangBeside): where that varies
+                // along the span the rail is laid in quarters, its outer face
+                // following the gap.
+                // And not on another arm's pavement at a junction
+                // (RailOverArms): those quarters are left out.
+                bool shortOver = OverhangBeside(map, trims, tm, e, A, B, side, outAm, outBm);
+                int armPieces = Mathf.Clamp(Mathf.CeilToInt(len / ArmSampleM), OverhangSamples - 1, MaxArmPieces);
+                bool overArm = RailOverArms(map, trims, tm, e, A, B, side, rA, rB, -outA, -outB, armPieces);
+                int pieces = overArm ? armPieces : shortOver ? OverhangSamples - 1 : 1;
+                for (int q = 0; q < pieces; q++)
+                {
+                    if (overArm && railOverArm[q]) continue;
+                    float t0 = (float)q / pieces, t1 = (float)(q + 1) / pieces;
+                    var a = Vector3.Lerp(rA, rB, t0); var b = Vector3.Lerp(rA, rB, t1);
+                    var ia = Vector2.Lerp(-outA, -outB, t0).normalized; var ib = Vector2.Lerp(-outA, -outB, t1).normalized;
+                    float ovA = pieces == 1 ? RailOverhangM : OverhangAtT(t0), ovB = pieces == 1 ? RailOverhangM : OverhangAtT(t1);
+                    bool capA = q == 0 ? sf.capStart : overArm && railOverArm[q - 1];
+                    bool capB = q == pieces - 1 ? sf.capEnd : overArm && railOverArm[q + 1];
+                    EmitRail(a, b, ia, ib, drop, capA, capB,
+                             Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1),
+                             Mathf.Lerp(sinkA, sinkB, t0), Mathf.Lerp(sinkA, sinkB, t1), ovA, ovB);
+                    railLog?.Add(new RailRecord
+                    {
+                        edge = e.index, side = side, node = -1, s0 = Mathf.Lerp(A.s, B.s, t0), s1 = Mathf.Lerp(A.s, B.s, t1),
+                        a = a + tm.origin, b = b + tm.origin, inA = ia, inB = ib, overhang = Mathf.Min(ovA, ovB),
+                    });
+                }
                 tm.railMetres += len;
             }
             if (f.elev)
@@ -3364,6 +3414,311 @@ namespace PSXRacing.City
             EmitStrip(map, trims, tm, eA, eB, outA, outB, verge);
             tm.vergeSpans.Add((e.index, side, A.s, B.s));
             tm.vergeMetres += len;
+        }
+
+        /// <summary>
+        /// How far a rail's solid may reach past the edge it stands on, over a
+        /// squeeze strip: RailOverhangM (it floors the strip between two decks
+        /// and closes the slot at a retaining face's foot), but never over the
+        /// neighbour's pavement as DRAWN. Two squeezed ribbons keep their
+        /// 0.3 m strip only at their own cross-sections, which are ten metres
+        /// apart and not at the same places; between them each is a chord, and
+        /// where the split between the two roads varies, one ribbon's edge ran
+        /// up to 0.4 m into the other's. A rail's overhang, reaching the full
+        /// 0.3 m past its edge, stood in the other road's outside lane there:
+        /// the lane survey found 21 such runs after WP-04 (e1913's rail under
+        /// I-277's e1912, e2309's beside e2303 on the Uptown Loop, e15185's
+        /// under the link e20364). The gap to the neighbour's drawn pavement is
+        /// read along the rail's own line at its ends and the three quarter
+        /// points between (<see cref="overhangAt"/>), and where any is short of
+        /// RailOverhangM the caller lays the rail in quarters, each reaching
+        /// that far. (One least overhang for the whole span left the strip
+        /// open to the lattice where the gap widened again: a 0.85 m lip
+        /// beside e1896's retaining face over the Tyvola ramp e328.) False
+        /// where no sample is short.
+        ///
+        /// Nor over ANY other road's drawn pavement a car could be on under
+        /// it: one whose surface there is within a car's height
+        /// (RoadsideRules.CarBandM) below the rail's foot, or no higher than
+        /// its top. Two roads drawn into each other at two heights put the
+        /// upper one's rail over the lower one's lanes, the overhang half a
+        /// metre in: Albemarle Road's deck rail (e2300) over the Independence
+        /// Expressway's right lane (e2291, 0.5 m lower, on the Independence
+        /// route) and East 12th Street's approach rail (e11146) over the link
+        /// e11144 (0.9 m lower), both after WP-04's ground, and before it US
+        /// 74's over I-277's left lane on the Uptown Loop (e2367 over e2321).
+        /// A deck over a road passes more than a car's height over it and
+        /// keeps its overhang.
+        /// </summary>
+        static bool OverhangBeside(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Section A, Section B, int side, float outAm, float outBm)
+        {
+            for (int q = 0; q < OverhangSamples; q++) overhangAt[q] = RailOverhangM;
+            int nbA = A.Nb(side), nbB = B.Nb(side);
+            bool shorter = false;
+            var o = tm.origin;
+            Vector2 outA = A.Out(side), outB = B.Out(side);
+            var pA = new Vector2(A.Edge(side).x + o.x, A.Edge(side).z + o.z) + outA * outAm;
+            var pB = new Vector2(B.Edge(side).x + o.x, B.Edge(side).z + o.z) + outB * outBm;
+            for (int k = 0; k < 2; k++)
+            {
+                int nb = k == 0 ? nbA : nbB;
+                if (nb < 0 || (k == 1 && nb == nbA)) continue;
+                var ol = OutlineOf(map, trims, nb);
+                if (ol.L == null) continue;
+                for (int q = 0; q < OverhangSamples; q++)
+                {
+                    float t = (float)q / (OverhangSamples - 1);
+                    var u = Vector2.Lerp(outA, outB, t);
+                    if (u.sqrMagnitude < 1e-6f) continue;
+                    u.Normalize();
+                    float g = PavementAlong(ol, Vector2.Lerp(pA, pB, t), u, overhangAt[q]);
+                    if (g < overhangAt[q] - 1e-3f) { overhangAt[q] = Mathf.Max(0f, g); shorter = true; }
+                }
+            }
+            // every other road within reach, by the height band
+            GatherNear(map, pA, pB, RailOverhangM);
+            GatherPavement(map, trims);
+            float yA = A.Edge(side).y + o.y, yB = B.Edge(side).y + o.y;
+            var bMin = Vector2.Min(pA, pB) - Vector2.one * RailOverhangM;
+            var bMax = Vector2.Max(pA, pB) + Vector2.one * RailOverhangM;
+            for (int k = 0; k < nearEdges.Count; k++)
+            {
+                int oi = nearEdges[k];
+                if (oi == e.index || oi == nbA || oi == nbB) continue;
+                var box = nearEdgeBox[k];
+                if (bMax.x < box.x || bMin.x > box.z || bMax.y < box.y || bMin.y > box.w) continue;
+                var ol = OutlineOf(map, trims, oi);
+                if (ol.L == null || bMax.x < ol.minX || bMin.x > ol.maxX || bMax.y < ol.minZ || bMin.y > ol.maxZ) continue;
+                for (int q = 0; q < OverhangSamples; q++)
+                {
+                    float t = (float)q / (OverhangSamples - 1);
+                    var u = Vector2.Lerp(outA, outB, t);
+                    if (u.sqrMagnitude < 1e-6f) continue;
+                    u.Normalize();
+                    float y = Mathf.Lerp(yA, yB, t);
+                    float g = PavementAlong(ol, Vector2.Lerp(pA, pB, t), u, overhangAt[q], y - RoadsideRules.CarBandM, y + RailH);
+                    if (g < overhangAt[q] - 1e-3f) { overhangAt[q] = Mathf.Max(0f, g); shorter = true; }
+                }
+            }
+            return shorter;
+        }
+        /// <summary>Where OverhangBeside reads the gap: the span's ends and
+        /// the three quarter points between.</summary>
+        const int OverhangSamples = 5;
+        static readonly float[] overhangAt = new float[OverhangSamples];
+
+        /// <summary>
+        /// Which pieces of a rail's run over a span stand on ANOTHER ROAD'S
+        /// pavement at a junction (<see cref="railOverArm"/>, by piece of
+        /// <paramref name="pieces"/>, about <see cref="ArmSampleM"/> each;
+        /// true where any does): a node's other arms, host and branch
+        /// included, and the node's fan. A piece is left out, and the rail
+        /// capped at it, where at its middle the rail's outer face stands
+        /// over such pavement (its back is to another road: there is no fall
+        /// behind it), or both its line and its traffic face do (it stands in
+        /// the other road), that pavement no more than a ledge (LedgeStepM)
+        /// under the rail's foot and no higher than its top. A squeezed
+        /// neighbour behind the rail does not count for the outer face: the
+        /// strip between them is the shared rail's (OverhangBeside).
+        ///
+        /// Two arms of one node meeting at an angle are drawn into each other
+        /// short of the fan, and a short arm's trim is capped at half its
+        /// length, so its mouth can stand inside the next arm's footprint.
+        /// Elizabeth Avenue's ten metres over Little Sugar Creek (e9267) are a
+        /// deck on the 3DEP ground, trimmed 4.9 m from node 6995 with a 7.6 m
+        /// half width, 0.25 m over North Kings Drive there, and its deck rail
+        /// stood 1.2 m tall across Kings Drive's left lane inside the fan, a
+        /// metre from Kings Drive's mouth (the fan mouth probe's "a solid",
+        /// WP-04 review). The first cut of this rule read one point per
+        /// quarter span, the rail's line 0.3 m inside the other arm's ribbon,
+        /// and not the fan: it found nothing there; the deck's edge runs
+        /// along the fan's side, and only the rail's outer face is over it
+        /// where the probe met the rail. On Tyvola Road's bridge
+        /// the rails of the host's pieces e14953 and e2726 ran on across the
+        /// lanes of the ramps clipped into them (e14947, e14950) for a metre
+        /// and a half next to the node, where the gore gap did not reach that
+        /// piece and the ramp's pavement lay behind the rail; a host and
+        /// branch are arms like any other here, and a quarter span left out
+        /// there would have opened more of the gore's edge over I-77 than the
+        /// ramp covers, so the rail is cut at half-metre pieces. And a road's
+        /// rail where a neighbour arm stands a third of a metre ABOVE it
+        /// (North Davidson Street's e14102 beside e14106 at node 13275)
+        /// guards no fall but put 0.6 m of rail into the upper road's lane.
+        /// </summary>
+        static bool RailOverArms(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Section A, Section B, int side,
+                                 Vector3 rA, Vector3 rB, Vector2 inA, Vector2 inB, int pieces)
+        {
+            for (int q = 0; q < pieces; q++) railOverArm[q] = false;
+            bool any = false;
+            // a squeezed neighbour's pavement behind the rail is the strip's
+            // other side (OverhangBeside and the shared rail own that)
+            int nbA = A.Nb(side), nbB = B.Nb(side);
+            if (armLog != null && armLogEdges.Contains(e.index))
+                armLog.Add($"e{e.index} span {A.s:0.00}..{B.s:0.00} of {e.length:0.0}, {pieces} pieces, rail ({rA.x + tm.origin.x:0.00},{rA.z + tm.origin.z:0.00})-({rB.x + tm.origin.x:0.00},{rB.z + tm.origin.z:0.00}), nodes {e.a}/{e.b}");
+            for (int end = 0; end < 2; end++)
+            {
+                int node = end == 0 ? e.a : e.b;
+                if (end == 1 && node == e.a) break;
+                if ((end == 0 ? A.s : e.length - B.s) > ArmOverlapReachM) continue;
+                bool fan = trims.patch[node] && FanPolyOf(map, trims, node).tris != null;
+                for (int q = 0; q < pieces; q++)
+                {
+                    if (railOverArm[q]) continue;
+                    float t = (q + 0.5f) / pieces;
+                    var p3 = Vector3.Lerp(rA, rB, t) + tm.origin;
+                    var line = new Vector2(p3.x, p3.z);
+                    var inw = Vector2.Lerp(inA, inB, t);
+                    if (inw.sqrMagnitude < 1e-6f) continue;
+                    inw.Normalize();
+                    var face = line + inw * RailW;
+                    var outer = line - inw * RailOverhangM;
+                    float lo = p3.y - RoadsideRules.LedgeStepM, hi = p3.y + RailH;
+                    bool onLine = OnArmOrFan(map, trims, e, node, fan, line, lo, hi, -1, -1),
+                         onFace = onLine && OnArmOrFan(map, trims, e, node, fan, face, lo, hi, -1, -1),
+                         onOuter = OnArmOrFan(map, trims, e, node, fan, outer, lo, hi, nbA, nbB);
+                    if (armLog != null && armLogEdges.Contains(e.index))
+                        armLog.Add($"e{e.index} s {Mathf.Lerp(A.s, B.s, t):0.00} node {node}{(fan ? " fan" : "")}: line ({line.x:0.00},{line.y:0.00}) y {p3.y:0.00} {(onLine ? "ON" : "off")}{DescribeArmOrFan(map, trims, e, node, fan, line)}; " +
+                                   $"face {(onFace ? "ON" : "off")}{DescribeArmOrFan(map, trims, e, node, fan, face)}; outer {(onOuter ? "ON" : "off")}{DescribeArmOrFan(map, trims, e, node, fan, outer)}");
+                    if ((onLine && onFace) || onOuter)
+                    {
+                        railOverArm[q] = true; any = true;
+                    }
+                }
+            }
+            return any;
+        }
+        /// <summary>Null in a build. A probe that sets it (and names edges in
+        /// <see cref="armLogEdges"/>) gets RailOverArms' reading of every
+        /// piece of those edges' rails.</summary>
+        public static List<string> armLog;
+        public static readonly HashSet<int> armLogEdges = new HashSet<int>();
+        /// <summary>For armLog: what pavement a point is on, and at what height.</summary>
+        static string DescribeArmOrFan(CityMap map, Trims trims, CityMap.Edge e, int node, bool fan, Vector2 q)
+        {
+            var sb = new System.Text.StringBuilder();
+            if (fan)
+            {
+                var T = fanPolys[node].tris;
+                for (int i = 0; i + 2 < T.Length; i += 3)
+                    if (TriInterval(T[i], T[i + 1], T[i + 2], q, Vector2.right, 0f, out _, out _)) { sb.Append($" [fan y {TriHeight(T[i], T[i + 1], T[i + 2], q):0.00}]"); break; }
+            }
+            foreach (int oi in map.nodeEdges[node])
+            {
+                if (oi == e.index) continue;
+                var ol = OutlineOf(map, trims, oi);
+                if (ol.L == null) { sb.Append($" [e{oi} no outline]"); continue; }
+                for (int i = 1; i < ol.L.Length; i++)
+                {
+                    Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
+                    if (TriInterval(aL, bL, bR, PavedInsetM, 0f, 0f, q, Vector2.right, 0f, out _, out _)) { sb.Append($" [e{oi} y {TriHeight(aL, bL, bR, q):0.00}]"); break; }
+                    if (TriInterval(aL, bR, aR, 0f, PavedInsetM, 0f, q, Vector2.right, 0f, out _, out _)) { sb.Append($" [e{oi} y {TriHeight(aL, bR, aR, q):0.00}]"); break; }
+                }
+            }
+            return sb.ToString();
+        }
+        /// <summary>The length of rail RailOverArms reads and leaves out at a
+        /// time, and the most pieces a span is cut into.</summary>
+        const float ArmSampleM = 0.5f;
+        const int MaxArmPieces = 64;
+        static readonly bool[] railOverArm = new bool[MaxArmPieces];
+        /// <summary>How far from a node a span's rail is checked against the
+        /// node's other arms: past a trim and a half width.</summary>
+        const float ArmOverlapReachM = 30f;
+
+        /// <summary>OverhangBeside's reach at a fraction of the span, between
+        /// its five samples.</summary>
+        static float OverhangAtT(float t)
+        {
+            float u = Mathf.Clamp01(t) * (OverhangSamples - 1);
+            int i = Mathf.Min((int)u, OverhangSamples - 2);
+            return Mathf.Lerp(overhangAt[i], overhangAt[i + 1], u - i);
+        }
+
+        /// <summary>Is a point (world plan) on the fan of <paramref name="node"/>
+        /// or on the drawn pavement of one of its arms other than
+        /// <paramref name="e"/>, with the surface there between
+        /// <paramref name="yLo"/> and <paramref name="yHi"/>?</summary>
+        static bool OnArmOrFan(CityMap map, Trims trims, CityMap.Edge e, int node, bool fan, Vector2 q, float yLo, float yHi, int notA, int notB)
+        {
+            if (fan && OnFan(fanPolys[node], q, yLo, yHi)) return true;
+            foreach (int oi in map.nodeEdges[node])
+            {
+                if (oi == e.index || oi == notA || oi == notB) continue;
+                var ol = OutlineOf(map, trims, oi);
+                if (ol.L != null && OnPavement(ol, q, yLo, yHi, PavedInsetM)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Is a point (world plan) on a ribbon's drawn pavement, at
+        /// least <paramref name="inset"/> inside its sides, with the surface
+        /// there between <paramref name="yLo"/> and <paramref name="yHi"/>?</summary>
+        static bool OnPavement(Outline ol, Vector2 q, float yLo, float yHi, float inset)
+        {
+            if (q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) return false;
+            for (int i = 1; i < ol.L.Length; i++)
+            {
+                Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
+                if (TriInterval(aL, bL, bR, inset, 0f, 0f, q, Vector2.right, 0f, out _, out _))
+                {
+                    float h = TriHeight(aL, bL, bR, q);
+                    if (h >= yLo && h <= yHi) return true;
+                }
+                if (TriInterval(aL, bR, aR, 0f, inset, 0f, q, Vector2.right, 0f, out _, out _))
+                {
+                    float h = TriHeight(aL, bR, aR, q);
+                    if (h >= yLo && h <= yHi) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Is a point (world plan) on a fan's pavement, its surface
+        /// there between <paramref name="yLo"/> and <paramref name="yHi"/>?</summary>
+        static bool OnFan(FanPoly fan, Vector2 q, float yLo, float yHi)
+        {
+            if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) return false;
+            var T = fan.tris;
+            for (int i = 0; i + 2 < T.Length; i += 3)
+            {
+                if (!TriInterval(T[i], T[i + 1], T[i + 2], q, Vector2.right, 0f, out _, out _)) continue;
+                float h = TriHeight(T[i], T[i + 1], T[i + 2], q);
+                if (h >= yLo && h <= yHi) return true;
+            }
+            return false;
+        }
+
+        /// <summary>How far along a ray (world plan) a ribbon's drawn outline
+        /// is first met, up to <paramref name="limit"/>; 0 where the ray
+        /// starts on it.</summary>
+        static float PavementAlong(Outline ol, Vector2 p, Vector2 dir, float limit)
+            => PavementAlong(ol, p, dir, limit, float.NegativeInfinity, float.PositiveInfinity);
+
+        /// <summary>The same, counting only pavement whose surface where the
+        /// ray meets it is between <paramref name="yLo"/> and
+        /// <paramref name="yHi"/>.</summary>
+        static float PavementAlong(Outline ol, Vector2 p, Vector2 dir, float limit, float yLo, float yHi)
+        {
+            var far = p + dir * limit;
+            if (Mathf.Max(p.x, far.x) < ol.minX || Mathf.Min(p.x, far.x) > ol.maxX ||
+                Mathf.Max(p.y, far.y) < ol.minZ || Mathf.Min(p.y, far.y) > ol.maxZ) return limit;
+            bool band = !float.IsNegativeInfinity(yLo) || !float.IsPositiveInfinity(yHi);
+            float best = limit;
+            for (int i = 1; i < ol.L.Length; i++)
+            {
+                Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
+                if (TriInterval(aL, bL, bR, p, dir, limit, out float t0, out float t1) && t1 - t0 > 1e-4f && t0 < best)
+                {
+                    float h = band ? TriHeight(aL, bL, bR, p + dir * (0.5f * (t0 + t1))) : 0f;
+                    if (!band || (h >= yLo && h <= yHi)) best = t0;
+                }
+                if (TriInterval(aL, bR, aR, p, dir, limit, out t0, out t1) && t1 - t0 > 1e-4f && t0 < best)
+                {
+                    float h = band ? TriHeight(aL, bR, aR, p + dir * (0.5f * (t0 + t1))) : 0f;
+                    if (!band || (h >= yLo && h <= yHi)) best = t0;
+                }
+            }
+            return best;
         }
 
         /// <summary>
@@ -3500,6 +3855,12 @@ namespace PSXRacing.City
         /// not one pavement: the overlap census's seam (CityAudit's MinDy).</summary>
         const float ArmSplitDyM = 0.25f;
 
+        /// <summary>How far off a segment's end, per metre beside it, a point
+        /// past the outside of a bend may be and still be squeezed against
+        /// the vertex (Squeeze): tan 26.6 degrees, as sharp a bend as two
+        /// roads the squeeze calls parallel (within 25.8 degrees) can make.</summary>
+        const float OutsideBendOverM = 0.5f;
+
         static void Squeeze(CityMap map, Trims trims, CityMap.Edge e, Vector2 p, Vector2 right, float hw, float y,
                             ref float hwL, ref float hwR, out int nbL, out int nbR,
                             out float nbAtL, out float nbAtR, out float stripL, out float stripR)
@@ -3520,8 +3881,34 @@ namespace PSXRacing.City
                 float L2 = d.sqrMagnitude;
                 if (L2 < 1e-6f) continue;
                 float t = Vector2.Dot(p - a, d) / L2;
-                if (t <= 0f || t >= 1f) continue;                 // beside a segment, not off its end
                 var tO = d / Mathf.Sqrt(L2);
+                if (t <= 0f || t >= 1f)
+                {
+                    // Beside a segment, not off its end — except past the
+                    // OUTSIDE of a bend, where a point is off the end of both
+                    // segments that meet at the vertex and nearest the vertex
+                    // itself. Every such section lost its squeeze: I-77's
+                    // e1877 drew full width 1.5 m into e1891's lanes for two
+                    // metres beside e1891's vertex at s=132.7, its rail with
+                    // it (WP-04 review). The vertex counts where the road runs
+                    // on through it (inside the edge, or a node of two), and
+                    // only as far off the end as a bend explains.
+                    int vi = t <= 0f ? si : si + 1;
+                    bool through = (vi > 0 && vi < o.pts.Length - 1)
+                                   || map.nodeEdges[vi == 0 ? o.a : o.b].Count == 2;
+                    float over = (t <= 0f ? -t : t - 1f) * Mathf.Sqrt(L2);
+                    float perp = Mathf.Abs(Vector2.Dot(p - a, new Vector2(-tO.y, tO.x)));
+                    if (!through || over > OutsideBendOverM * perp) continue;
+                    // At one height two ribbons drawn into each other are one
+                    // pavement (ArmsApart's rule), and a squeeze found at one
+                    // section alone notched Ashby Street's edge a metre in
+                    // beside Duls Lane's bend, grass in its lane — unless a
+                    // median barrier stands on the edge between them, in the
+                    // other's lanes wherever the squeeze dropped out (I-77's
+                    // carriageways e1255 and e1874, e2739 and e2741).
+                    if (Mathf.Abs(o.YAt(o.s[vi]) - y) <= ArmSplitDyM && !Barriered(e) && !Barriered(o)) continue;
+                    t = t <= 0f ? 0f : 1f;
+                }
                 if (Mathf.Abs(Vector2.Dot(tan, tO)) < 0.9f) continue;
                 var q = a + d * t;
                 float at = o.s[si] + Mathf.Sqrt(L2) * t;
@@ -4055,14 +4442,14 @@ namespace PSXRacing.City
         /// height it showed a slit of daylight a hand deep under the tip.
         /// </summary>
         static void EmitRail(Vector3 a, Vector3 b, Vector2 inA, Vector2 inB, float drop, bool capA, bool capB, float v0, float v1,
-                             float sinkA = 0f, float sinkB = 0f)
+                             float sinkA = 0f, float sinkB = 0f, float overhangA = RailOverhangM, float overhangB = RailOverhangM)
         {
             var bk = barrierBucket;
             var up = Vector3.up * RailH;
             var down = Vector3.down * drop;
             Vector3 iA = a + Flat(inA) * RailW, iB = b + Flat(inB) * RailW;
             Vector3 fA = iA + Vector3.down * sinkA, fB = iB + Vector3.down * sinkB;   // the traffic face's feet
-            Vector3 oA = a - Flat(inA) * RailOverhangM, oB = b - Flat(inB) * RailOverhangM;
+            Vector3 oA = a - Flat(inA) * overhangA, oB = b - Flat(inB) * overhangB;
             var inAvg = Flat(inA + inB);
             bk.Face(fA, iA + up, iB + up, fB, inAvg,
                     new Vector2(v0, 0.3f), new Vector2(v0, 0.45f), new Vector2(v1, 0.45f), new Vector2(v1, 0.3f));
@@ -4803,29 +5190,36 @@ namespace PSXRacing.City
                 {
                     int n = end == 0 ? o.a : o.b;
                     if (!trims.patch[n] || !nearFanSet.Add(n)) continue;
-                    if (!fanPolys.TryGetValue(n, out var fan))
-                    {
-                        // scratch lists of its own: BuildJunctions is walking its own
-                        FanCorners(map, trims, n, Vector3.zero, fanCornerScratch);
-                        var np = map.nodes[n];
-                        fan = new FanPoly { centre = np };
-                        if (fanCornerScratch.Count >= 3)
-                        {
-                            FanTriangles(fanCornerScratch, np, fanTriIndex);
-                            var centre = new Vector3(np.x, map.nodeY[n] + FanProudM, np.y);
-                            fan.tris = new Vector3[fanTriIndex.Count];
-                            for (int i = 0; i < fanTriIndex.Count; i++)
-                            {
-                                int c = fanTriIndex[i];
-                                fan.tris[i] = c == 0 ? centre : fanCornerScratch[c - 1].pos;
-                                fan.reach = Mathf.Max(fan.reach, Vector2.Distance(np, new Vector2(fan.tris[i].x, fan.tris[i].z)));
-                            }
-                        }
-                        fanPolys[n] = fan;
-                    }
+                    var fan = FanPolyOf(map, trims, n);
                     if (fan.tris != null && fan.tris.Length >= 3) nearFans.Add(n);
                 }
             }
+        }
+
+        /// <summary>A patched node's fan pavement (<see cref="FanPoly"/>),
+        /// built once per tile build; its tris are null where it has fewer
+        /// than three corners.</summary>
+        static FanPoly FanPolyOf(CityMap map, Trims trims, int n)
+        {
+            if (fanPolys.TryGetValue(n, out var fan)) return fan;
+            // scratch lists of its own: BuildJunctions is walking its own
+            FanCorners(map, trims, n, Vector3.zero, fanCornerScratch);
+            var np = map.nodes[n];
+            fan = new FanPoly { centre = np };
+            if (fanCornerScratch.Count >= 3)
+            {
+                FanTriangles(fanCornerScratch, np, fanTriIndex);
+                var centre = new Vector3(np.x, map.nodeY[n] + FanProudM, np.y);
+                fan.tris = new Vector3[fanTriIndex.Count];
+                for (int i = 0; i < fanTriIndex.Count; i++)
+                {
+                    int c = fanTriIndex[i];
+                    fan.tris[i] = c == 0 ? centre : fanCornerScratch[c - 1].pos;
+                    fan.reach = Mathf.Max(fan.reach, Vector2.Distance(np, new Vector2(fan.tris[i].x, fan.tris[i].z)));
+                }
+            }
+            fanPolys[n] = fan;
+            return fan;
         }
 
         /// <summary>A ribbon as the tiles draw it: every cross-section's two
@@ -5299,6 +5693,7 @@ namespace PSXRacing.City
                                                                          nrm, 0f, 0.6f, 0f, 0.15f);
                         EmitRail(k0.pos, k1.pos, -nrm, -nrm, onStructure ? dk : RailBuryM, true, true, 0f, len / RoadVTile);
                         tm.railMetres += len;
+                        railLog?.Add(new RailRecord { edge = -1, side = 0, node = n, a = k0.pos + tm.origin, b = k1.pos + tm.origin, inA = -nrm, inB = -nrm, overhang = RailOverhangM });
                         continue;
                     }
                     kerbBucket.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbFaceM, k0.pos.y, k1.pos.y - KerbFaceM, k1.pos.y,

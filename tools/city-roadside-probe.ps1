@@ -7,7 +7,17 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-roadside-probe.ps1 -Spots "328:111.4:1;11145:6.5:1"
 #
 # A spot is edge:s:side (side -1 left, 1 right), as the audit's notes name it.
-param([Parameter(Mandatory = $true)][string]$Spots)
+#
+# -Lanes asks the lane survey's question instead (what solid stands in a lane,
+# and whose rail it is): "edge:s:lane" as the audit's LANE lines name them
+# (lane 0 left, 1 middle, 2 right), "fan:node:edge:inset:lat" for a FAN note's
+# point as the fan mouth probe places it, or "pt:x:z:y" for a world point.
+#   powershell -ExecutionPolicy Bypass -File tools\city-roadside-probe.ps1 -Lanes "1891:137:2;fan:6995:5914:1.0:-5.3"
+#
+# -ArmLog "edge,edge" also prints, under each lane probe, how the rail builder
+# read those edges' rails against the junction's other roads and its fan
+# (CityMeshes.RailOverArms), piece by piece.
+param([string]$Spots = "", [string]$Lanes = "", [string]$ArmLog = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -21,6 +31,8 @@ robocopy "$src\Assets\PSXRacing\Resources" "$proj\Assets\PSXRacing\Resources" /E
 
 Remove-Item "$proj\city_roadside_probe.txt" -ErrorAction SilentlyContinue
 $env:PSX_RSPROBE = $Spots
+$env:PSX_LANEPROBE = $Lanes
+$env:PSX_ARMLOG = $ArmLog
 Invoke-UnityJob -Log "$proj\rsprobe.log" -MaxMinutes 15 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CityRoadsideProbe.Run",

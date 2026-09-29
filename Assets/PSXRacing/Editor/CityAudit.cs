@@ -359,6 +359,7 @@ namespace PSXRacing.EditorTools
                   $"{CityElevation.SeatedStationCount} stations seated");
 
             fanMouths = new FanMouthTally();
+            routeOfEdge = RouteEdges(map);
             DriveAudit(map, trims, buildings);
             RoadsideAudit(map, trims, buildings);
             ReportFanMouths();
@@ -772,6 +773,61 @@ namespace PSXRacing.EditorTools
         };
         const float KnownSpotReachM = 15f;
 
+        /// <summary>
+        /// SOLIDS IN LANES, NAMED (2026-09-29, the WP-04 review). Every run the
+        /// lane survey finds with something solid within a car's height over a
+        /// lane line, as the builder leaves them after WP-04, keyed by OSM way
+        /// and the run's first probe (within <see cref="KnownLaneReachM"/>).
+        /// Before the review's fixes the survey counted 67 such probes (30 a
+        /// road's own rail) against 46 (26) before WP-04; after them 25 (12),
+        /// in 22 runs: 8 were in the pre-WP-04 audit, 4 are on the Tyvola
+        /// Road tile the audit probes since WP-04 moved its twelve most
+        /// elevated tiles, and 10 are new with WP-04's ground. Of those ten,
+        /// nine are a rail's face within 10 cm of the lane line (a rail on its
+        /// own edge 0.45-0.65 m in from the lane extent, where a squeezed
+        /// ribbon's chord between two cross-sections runs inside the extent
+        /// read at that point), and one is a rail over a lane: East 12th
+        /// Street's approach rail over the link e11144, the two drawn into each
+        /// other 0.9 m apart in height. The ones whose cure is a squeeze
+        /// between two heights, a gore nose placed on the lane extent, or a
+        /// cut section are handed to WP-14 (roadside grading v2) with the
+        /// roadside spots above.
+        /// </summary>
+        static readonly (string id, long way, float x, float z, string why)[] KnownLaneSolids =
+        {
+            // in the pre-WP-04 audit (2565d60)
+            ("i277-2308", 159022503, -1300f, 5103f, "I-277 (Uptown Loop): its deck approach rail on the squeeze strip beside e9398 at its node"),
+            ("davidson-14101", 1181521355, -1093f, 4920f, "North Davidson Street: its deck rail on the squeeze strip, the face beside the lane line"),
+            ("davidson-14102", 1181521356, -1091f, 4922f, "North Davidson Street: the next piece's deck rail 0.4 m above stands over its right lane at node 13275"),
+            ("link-371", 16662607, -982f, 4535f, "the link e371: I-277's deck approach rail at its height beside the lane line"),
+            ("i277-us74-2321", 159022517, -1362f, 3924f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other"),
+            ("link-7753", 750025978, -2564f, 3908f, "the link e7753 beside South Boulevard: its own rail where the squeeze split varies"),
+            ("albemarle-2004-west", 116677926, 4270f, 1647f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
+            ("albemarle-2004-east", 116677926, 4246f, 1665f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
+            // Tyvola Road over I-77: probed since WP-04 (an elevated tile)
+            ("tyvola-2736", 172466508, -6598f, -2395f, "the gore nose rail where the ramp e2736 leaves Tyvola Road's bridge, across the ramp's left lane"),
+            ("tyvola-1896", 94753672, -6506f, -2334f, "the ramp e1896: its rail on the retaining face at the squeeze strip beside e328, the face beside the lane line"),
+            ("tyvola-1899", 94753674, -6585f, -2372f, "the ramp deck e1899 where it joins Tyvola Road's bridge: a rail over its left lane"),
+            ("tyvola-1900", 94753675, -6560f, -2403f, "the ramp deck e1900: Tyvola Road's rail at the deck gap, the face beside the lane line"),
+            // new with WP-04's ground
+            ("link-11144", 1039294228, -1160f, 5056f, "the link e11144 under East 12th Street's approach rail 0.7-0.9 m above, the two drawn into each other at node 11801"),
+            ("davidson-14100", 1181521353, -1093f, 4922f, "North Davidson Street: its deck rail on the squeeze strip at node 3566, the face beside the lane line"),
+            ("i277-2352", 159022555, -1302f, 3970f, "I-277: its deck rail on the squeeze strip beside e2316, the face beside the lane line"),
+            ("i277-2351", 159022554, -1544f, 3686f, "I-277: its rail on the squeeze strip beside e14177, the face beside the lane line"),
+            ("link-20364", 1516910799, -2198f, 3448f, "the link e20364: its rail on the retaining face at the squeeze strip beside South McDowell Street, the face beside the lane line"),
+            ("i77-1891", 94750540, -3732f, 5436f, "I-77 (Uptown Loop): the shared deck rail on the squeeze strip beside the other carriageway e1877, the face beside the lane line"),
+            ("ramp-2852", 173800811, 4134f, 1576f, "the ramp e2852: its rail on the squeeze strip beside e1229, the face beside the lane line"),
+        };
+        const float KnownLaneReachM = 6f;
+
+        static string KnownLaneSolid(long way, float x, float z)
+        {
+            foreach (var k in KnownLaneSolids)
+                if (k.way == way && Vector2.Distance(new Vector2(x, z), new Vector2(k.x, k.z)) <= KnownLaneReachM)
+                    return k.id;
+            return null;
+        }
+
         static string KnownRoadsideSpot(string kind, CityMap.Edge e, Vector3 at)
         {
             foreach (var k in KnownRoadsideSpots)
@@ -997,7 +1053,7 @@ namespace PSXRacing.EditorTools
                                         {
                                             laneLand++;
                                             string owner = LaneOwner(map, trims, ei, new Vector2(lh.point.x, lh.point.z), y, out string cls);
-                                            AddLaneRun(laneRuns, "land", e, k, s, tx, tz, $"land {dl:+0.00;-0.00} m on {HitPath(lh)}", cls, owner);
+                                            AddLaneRun(laneRuns, "land", e, k, s, tx, tz, w, $"land {dl:+0.00;-0.00} m on {HitPath(lh)}", cls, owner);
                                         }
                                         else if (lh.collider.gameObject.layer == CityWorld.SolidLayer && dl > 0.35f) laneSolid++;
                                     }
@@ -1036,7 +1092,7 @@ namespace PSXRacing.EditorTools
                                     if (col.name == "Solid") cls2 = "a pier or solid box";
                                     else if (col.name != "Buildings") owner2 = LaneOwner(map, trims, ei, new Vector2(at3.x, at3.z), y, out cls2);
                                     bandByClass.TryGetValue(cls2, out int bc); bandByClass[cls2] = bc + 1;
-                                    AddLaneRun(laneRuns, "band", e, k, s, tx, tz, $"{colPath} {height}", cls2, owner2);
+                                    AddLaneRun(laneRuns, "band", e, k, s, tx, tz, w, $"{colPath} {height}", cls2, owner2);
                                 }
                             for (int si = 0; si < 2; si++)
                             {
@@ -1240,6 +1296,17 @@ namespace PSXRacing.EditorTools
 
             Line($"roadside audit: {probeTiles.Count} tiles (routes + {RoadsideTopElevatedTiles} most elevated) built {vergeBuilt / 1000f:0.0} km of verge, {railBuilt / 1000f:0.0} km of rail, {nosesBuilt} gore noses, {lampsBuilt} street lamps (their posts looked through); " +
                  $"{vergePoints} verge points, {railPoints} rail probe points, {dropMetres:0} m of edge over a drop > {RoadsideRules.OpenDropM} m without a barrier");
+            {
+                // Which tiles: the routes' are fixed, the elevated ones follow
+                // the solve (WP-04's ground changed which), so a before and
+                // after of the lane survey compares on the route tiles.
+                var elevated = new StringBuilder();
+                var onRoute = new StringBuilder();
+                foreach (var (ptx, ptz, why) in probeTiles)
+                    (why.StartsWith("route") ? onRoute : elevated).Append($" {ptx},{ptz}");
+                Line($"    roadside tiles on the race routes:{onRoute}");
+                Line($"    roadside tiles, the elevated ones:{elevated}");
+            }
             foreach (var kv in gapByKind) Line($"    open {kv.Key}: {kv.Value:0} m");
             var pitLine = new StringBuilder($"    pits (lattice > 0.5 m under a grounded ribbon's design within {CityElevation.PitReachM} m): {pits}");
             foreach (var kv in pitByCause) pitLine.Append($"; {kv.Key} {kv.Value}");
@@ -1256,8 +1323,9 @@ namespace PSXRacing.EditorTools
                 Line($"    known roadside spots handed to WP-14 (not counted above; each note says KNOWN): {still.Count} of {KnownRoadsideSpots.Length} still there" +
                      (still.Count < KnownRoadsideSpots.Length ? " - prune the ones gone: " + string.Join(", ", System.Linq.Enumerable.Where(System.Linq.Enumerable.Select(KnownRoadsideSpots, k => k.id), id => !knownSeen.Contains(id))) : ""));
             }
-            // Not checks yet, but for the buildings. What is left (the second
-            // pass of 2026-09-14): a squeeze that splits two roads at one of
+            // The counts are not checks; the buildings are, and since the
+            // WP-04 review so are the solids, by name (KnownLaneSolids, below).
+            // What was left after the second pass of 2026-09-14: a squeeze that splits two roads at one of
             // them's cross-sections and not at the other's (I-277 and I-77
             // beside their own carriageways and ramps, the link e7753 beside
             // South Boulevard), a rail's overhang reaching over a 0.3 m squeeze
@@ -1276,6 +1344,29 @@ namespace PSXRacing.EditorTools
             Line(laneLine.ToString());
             Check(laneBuildings == 0, "no building wall stands within a car's height over a lane (lane survey)",
                   $"{laneBuildings} of {lanePoints} probes; {footprintsCut} footprints cut back off the drawn pavement and {footprintsLeftOut} left out on the probed tiles");
+            // THE SOLIDS IN LANES ARE A CHECK (2026-09-29, the WP-04 review).
+            // The survey above only counted them, and WP-04's first roadside
+            // fix put fifteen new rails into lanes, three on the Uptown Loop,
+            // with CITY AUDIT still OK. Every solid run must now be one of the
+            // named spots (KnownLaneSolids), each with its reason: a new one
+            // anywhere on the probed tiles fails, and a named one that has gone
+            // is reported so the list shrinks.
+            {
+                int unnamedRuns = 0, namedRuns = 0;
+                var laneKnownSeen = new HashSet<string>();
+                foreach (var r in laneRuns)
+                {
+                    if (r.kind != "band") continue;
+                    r.known = KnownLaneSolid(r.way, r.x, r.z);
+                    if (r.known == null) unnamedRuns++; else { namedRuns++; laneKnownSeen.Add(r.known); }
+                }
+                Check(unnamedRuns == 0, "nothing solid stands within a car's height over a lane but the named spots (lane survey)",
+                      $"{unnamedRuns} runs not named; {namedRuns} runs at the named spots, each note says KNOWN");
+                var goneIds = new List<string>();
+                foreach (var k in KnownLaneSolids) if (!laneKnownSeen.Contains(k.id)) goneIds.Add(k.id);
+                Line($"    named lane solids (KnownLaneSolids): {laneKnownSeen.Count} of {KnownLaneSolids.Length} still there" +
+                     (goneIds.Count > 0 ? " - prune the ones gone: " + string.Join(", ", goneIds) : ""));
+            }
             Check(ledges == 0, "no unguarded ledge " + RoadsideRules.LedgeStepM + "-" + RoadsideRules.OpenDropM + " m deep within 1.5 m past a grounded edge (roadside audit)",
                   $"{ledges} of {vergePoints} verge points");
             // every OPEN run (they are metres, and few), then the worst of each
@@ -1326,14 +1417,33 @@ namespace PSXRacing.EditorTools
         /// of one edge that met the same kind of thing, merged.</summary>
         class LaneRun
         {
-            public string kind, cls, what, owner, edgeName;
+            public string kind, cls, what, owner, edgeName, known;
             public int edge, lane, tx, tz, count;
             public float s0, s1;
+            public long way;
+            /// <summary>The run's first probe (world plan), and the race
+            /// routes its edge is on ("" where none).</summary>
+            public float x, z;
+            public string route;
             public string Describe() =>
-                $"LANE  {(kind == "land" ? "land over" : "solid in")} lane{lane} of e{edge} {edgeName} s={s0:0}{(s1 > s0 + 0.5f ? $"..{s1:0}" : "")} ({count} probe{(count > 1 ? "s" : "")}) tile {tx},{tz}: {what}; {cls}{owner}";
+                $"{(known != null ? "KNOWN " : "")}LANE  {(kind == "land" ? "land over" : "solid in")} lane{lane} of e{edge} {edgeName} s={s0:0.0}{(s1 > s0 + 0.5f ? $"..{s1:0.0}" : "")} ({count} probe{(count > 1 ? "s" : "")}) tile {tx},{tz}" +
+                $"{(route.Length > 0 ? " ROUTE " + route : "")} way {way} at ({x:0},{z:0}): {what}; {cls}{owner}";
         }
 
-        static void AddLaneRun(List<LaneRun> runs, string kind, CityMap.Edge e, int lane, float s, int tx, int tz, string what, string cls, string owner)
+        /// <summary>Each race route's edges, by edge: the route ids, for the
+        /// lane survey's notes (a solid in a race route's lane is named as
+        /// such).</summary>
+        static Dictionary<int, string> RouteEdges(CityMap map)
+        {
+            var d = new Dictionary<int, string>();
+            foreach (var r in map.routes)
+                foreach (var ei in r.edges)
+                    d[ei] = d.TryGetValue(ei, out var had) ? (had.Contains(r.id) ? had : had + "+" + r.id) : r.id;
+            return d;
+        }
+        static Dictionary<int, string> routeOfEdge = new Dictionary<int, string>();
+
+        static void AddLaneRun(List<LaneRun> runs, string kind, CityMap.Edge e, int lane, float s, int tx, int tz, Vector3 w, string what, string cls, string owner)
         {
             for (int i = runs.Count - 1; i >= 0 && i >= runs.Count - 6; i--)
             {
@@ -1346,6 +1456,7 @@ namespace PSXRacing.EditorTools
             {
                 kind = kind, edge = e.index, edgeName = $"'{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")}", lane = lane,
                 s0 = s, s1 = s, tx = tx, tz = tz, what = what, cls = cls, owner = owner, count = 1,
+                way = e.wayId, x = w.x, z = w.z, route = routeOfEdge.TryGetValue(e.index, out var rt) ? rt : "",
             });
         }
 
@@ -1487,7 +1598,7 @@ namespace PSXRacing.EditorTools
                                 else if (Mathf.Abs(d) > FanMouthOffM) { t.offLevel++; what = $"a road {d:+0.00;-0.00} m off ({path})"; sev = Mathf.Abs(d); }
                                 else continue;
                             }
-                            t.notes.Add((sev, $"FAN   node {n} arm e{ei} '{e.name}'{(e.link ? " L" : "")} {inset:0.0} m back from the mouth, lane line {lat:+0.0;-0.0}: {what} at ({w.x:0.0},{w.z:0.0}) tile {tx},{tz} deg{map.nodeEdges[n].Count} trim {trim:0.0}"));
+                            t.notes.Add((sev, $"FAN   node {n} arm e{ei} '{e.name}'{(e.link ? " L" : "")} way {e.wayId}{(routeOfEdge.TryGetValue(ei, out var rt) ? " ROUTE " + rt : "")} {inset:0.0} m back from the mouth, lane line {lat:+0.0;-0.0}: {what} at ({w.x:0.0},{w.z:0.0}) tile {tx},{tz} deg{map.nodeEdges[n].Count} trim {trim:0.0}"));
                         }
                     }
                 }
@@ -1500,6 +1611,11 @@ namespace PSXRacing.EditorTools
             if (t == null) return;
             Line($"fan mouth probe: {t.fans} fans on the probed tiles, {t.probes} probes; land or nothing {t.noRoad}, a road a level away {t.offLevel}, a solid {t.solid}");
             Check(t.noRoad == 0, "every lane mouth at a junction fan has road under it (fan mouth probe)", $"{t.noRoad} of {t.probes} probes");
+            // A solid at a lane mouth is a wall where cars turn: none before
+            // WP-04, two after its ground put a deck rail across North Kings
+            // Drive at node 6995 (the review), none since RailOverArms reads
+            // the fan. Listed only until then; a check from 2026-09-29.
+            Check(t.solid == 0, "nothing solid stands at a lane mouth of a junction fan (fan mouth probe)", $"{t.solid} of {t.probes} probes");
             t.notes.Sort((p, q) => q.sev.CompareTo(p.sev));
             var shown = new HashSet<string>();
             int lines = 0;

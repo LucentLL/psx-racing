@@ -366,6 +366,10 @@ are retired.
   up the tiles round a roadside audit note (LEDGE, LIP, FACE, OPEN) as the
   audit does and prints the first surface a walk out from the lane edge meets
   every 5 cm, the ground function's terms, and the roads round it.
+  `-Lanes "edge:s:lane;fan:node:edge:inset:lat"` asks a LANE or FAN note's
+  question instead: what stands in the lane's column, and every rail within
+  4 m by its owner (edge side and span, fan chord or gore nose); `-ArmLog
+  "edge,..."` adds how `RailOverArms` read those edges' rails, piece by piece.
 - The live URL is the real test.
 
 ### The refinement's instruments (WP-01, 2026-09-28)
@@ -487,6 +491,38 @@ the Tyvola ramp e2735), a steep verge in a 2.3 m cut on a ramp off I-277
 (e1489), a 5 cm lip between two touching roads (e9314), and two ledges
 (North Caldwell Street at East 12th, the ramp e2858 off the Independence
 Expressway). A failure anywhere else still fails the audit.
+
+**Rails in lanes (the review of R1, 2026-09-29).** The first of the fixes
+above (a rail at a squeezed neighbour's face) put rails into lanes. The lane
+survey's solids within 2 m over a lane (a road's own rail in brackets) went
+46 (26) before WP-04 -> 49 (15) on the new ground -> 67 (30) after that fix,
+three on the Uptown Loop, and the fan mouth probe found a 1.2 m deck rail
+across North Kings Drive's mouth at node 6995 (0 -> 2 probes). Neither was a
+check, so CITY AUDIT stayed OK. The builder now:
+
+- lays a rail's overhang over no squeezed neighbour's drawn pavement (the
+  chords between their cross-sections), nor over any road's within a car's
+  height below it (Albemarle Road's deck rail stood over the Independence
+  Expressway's right lane on the Independence route) (`OverhangBeside`);
+- squeezes a section past the outside of a bend against the vertex
+  (`Squeeze`);
+- cuts a rail at a junction, in half-metre pieces, where its back is to
+  another arm's or the fan's pavement at its height, or where it stands on
+  that pavement (`RailOverArms`): Elizabeth Avenue's deck at Kings Drive,
+  Tyvola Road's host rails across its ramps, North Davidson Street at node
+  13275.
+
+After: 25 probes (12) in 22 runs, the fan mouths 0. Two checks are new:
+nothing solid at a junction fan's lane mouths, and nothing solid over a lane
+but the named spots (`CityAudit.KnownLaneSolids`, 19 spots for the 22 runs).
+Of the 22, 8 were in the pre-WP-04 audit, 4 are on the Tyvola Road tile the
+audit probes since WP-04 moved its twelve most elevated tiles, and 10 are new
+with WP-04's ground: nine a rail's face within 10 cm of the lane line (a rail
+on its own edge 0.45-0.65 m in from the lane extent), one East 12th Street's
+approach rail over the link e11144, the two 0.9 m apart in height. On the race
+routes: Uptown Loop 3 (I-277 e2308 and e2321, both pre-WP-04; I-77 e1891, a
+face beside the lane line, new), Tryon 0, Independence 0. A new solid anywhere
+on the probed tiles fails the audit; WP-14 takes the named ones.
 
 **Irwin Creek** runs 14 m off I-77's pavement north of uptown: the carved
 terrain has its bed (-0.85 m), but the graded ground there is +1.95 m, held
@@ -782,7 +818,8 @@ alike). The city part:
     fan found 13 chords it railed, each stepping onto another junction's
     fan or an arm within 5 m of its trim, 4 of them standing in a lane
     mouth. Fan-mouth solids city-wide went 45 → 26.
-- **Left:** the lane survey's 46 solids over a lane (squeeze splits at one
+- **Left:** the lane survey's 46 solids over a lane (named and checked
+  since the review of R1: see "Rails in lanes" under WP-04; squeeze splits at one
   road's cross-sections and not the other's on I-277/I-77 and e7753 beside
   South Boulevard; deck rails where an edge's width changes at a node;
   Albemarle Road under the Independence Expressway's retaining wall, where
