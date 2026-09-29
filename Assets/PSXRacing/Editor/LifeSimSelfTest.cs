@@ -6298,114 +6298,70 @@ namespace PSXRacing.EditorTools
                       TrackCatalog.At(g).FinishIndex > 0,
                       "Gillespie Gap is an authored sprint with a finish", g);
                 // Everything appended since v18 that sits before the section
-                // moved it along: Gillespie and its twin (v19), Chimney Rock
-                // and its twin (v20).
+                // moved it along: Gillespie and its twin (v19).
                 int now = TrackCatalog.IndexOf("SwissNC226ALowerRev");
                 int shift = 0;
-                foreach (var id in new[] { "GillespieGap", "GillespieGapRev", "ChimneyRock", "ChimneyRockRev" })
+                foreach (var id in new[] { "GillespieGap", "GillespieGapRev" })
                 {
                     int k = TrackCatalog.IndexOf(id);
                     if (TrackCatalog.At(k).id == id && k < now) shift++;
                 }
-                Check(shift == 4, "four venues went in before a v18 save's NC 226A LOWER II", shift);
+                Check(shift == 2, "two venues went in before a v18 save's NC 226A LOWER II", shift);
                 var mig18 = new LifeState { saveVersion = 18 };
                 mig18.trackIndex = now - shift;
                 mig18.bookings.Add(new RaceBooking { day = 3, trackIndex = now - shift });
                 LifeSimManager.Migrate(mig18);
                 Check(mig18.trackIndex == now && mig18.bookings[0].trackIndex == now &&
                       mig18.saveVersion == new LifeState().saveVersion,
-                      "a v18 save's NC 226A LOWER II is still that section after the v19 and v20 migrations",
+                      "a v18 save's NC 226A LOWER II is still that section after the v19 migration",
                       TrackCatalog.At(mig18.trackIndex).id);
                 Check(TrackCatalog.RemapV18Index(3) == 3, "and v18 authored indices stand");
             }
 
-            // CHIMNEY ROCK (v20): the park road's switchbacks, appended after
-            // Gillespie Gap. In the list as the last scened venue, a sprint
-            // with a finish and a twin in the same scene; a v19 save's twins
-            // and sprint sections come out on the same road; and the trap the
-            // v18 remap had to be fixed for is pinned: no old index, from a
-            // v18 or a v19 save, may land on either Chimney Rock entry.
+            // CHIMNEY ROCK IS HELD BACK. It was appended once (4e02b49, save
+            // v20) and taken out again before anything was pushed: the
+            // obstacle audit still fails four edge-face lines on its roadside
+            // (TrackCatalog.HeldBack says which). Pinned: it is not in the list
+            // and nothing listed is held back; the save stays at v19, where
+            // new careers start and a v19 save stays as it is; no car meet
+            // names it (CarMeets looks venues up BY ID, and IndexOf answers 0
+            // - CITY CIRCUIT - for an id it does not know); and the held
+            // definition keeps what its release will need - a stage sprint
+            // with a finish, out of the delivery roll either way up.
             {
-                int c = TrackCatalog.IndexOf("ChimneyRock");
-                var cd = TrackCatalog.At(c);
-                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 1,
-                      "Chimney Rock is the last scened venue", c + " of " + TrackCatalog.SceneCount);
-                Check(cd.stage && !cd.loop && cd.FinishIndex > 0, "Chimney Rock is a stage sprint with a finish",
-                      cd.FinishIndex);
-                int cr = TrackCatalog.IndexOf("ChimneyRockRev");
-                Check(TrackCatalog.At(cr).id == "ChimneyRockRev" &&
-                      TrackCatalog.SceneIndex(cr) == TrackCatalog.SceneIndex(c),
-                      "and has its twin, raced in the same scene", cr);
-                // Never a pizza drop, either way up: the par pace (22 m/s)
-                // cannot be driven round its hairpins. The owner's call
-                // whether it gets a par of its own instead.
-                Check(cd.noDelivery && TrackCatalog.At(cr).noDelivery,
-                      "Chimney Rock and its twin are out of the delivery roll");
-                {
-                    // The rolls draw on UnityEngine.Random; hand its state back
-                    // afterwards, or every later check that reads a random tip
-                    // (the missed-shift dock, TestShiftRoster) sees another day.
-                    var keepRandom = Random.state;
-                    var ds = new LifeState { day = 1 };
-                    bool sentUp = false;
-                    for (int i = 0; i < 400 && !sentUp; i++)
-                    {
-                        int t = LifeRules.DeliveryTrackIndex(ds);
-                        if (t == c || t == cr) sentUp = true;
-                    }
-                    Random.state = keepRandom;
-                    Check(!sentUp, "and 400 rolls never send a drop up the park road");
-                }
-
-                var mig19 = new LifeState { saveVersion = 19 };
-                string[] probe = { "SwissNC226ALowerRev", "GillespieGapRev", "BlowingRockSprint" };
-                int[] moved = { 2, 1, 2 };
-                bool allSame = true;
-                string firstWrong = null;
-                for (int p = 0; p < probe.Length; p++)
-                {
-                    int nowIdx = TrackCatalog.IndexOf(probe[p]);
-                    int oldIdx = nowIdx - moved[p];
-                    var m = new LifeState { saveVersion = 19, trackIndex = oldIdx };
-                    m.bookings.Add(new RaceBooking { day = 3, trackIndex = oldIdx });
-                    m.blChallenge = new RankChallenge { trackIndex = oldIdx };
-                    LifeSimManager.Migrate(m);
-                    bool same = TrackCatalog.At(nowIdx).id == probe[p] && m.trackIndex == nowIdx &&
-                                m.bookings[0].trackIndex == nowIdx && m.blChallenge.trackIndex == nowIdx &&
-                                m.saveVersion == 20;
-                    if (!same) { allSame = false; if (firstWrong == null) firstWrong = probe[p] + " -> " + TrackCatalog.At(m.trackIndex).id; }
-                }
-                Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
-                      firstWrong ?? "all three");
-                LifeSimManager.Migrate(mig19);
-                Check(mig19.saveVersion == 20 && new LifeState().saveVersion == 20, "a v19 save migrates to v20, where new careers start");
-                Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
-                Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.IndexOf("GillespieGap"),
-                      "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));
-
-                // The trap: the v18 and v19 lists are today's without what was
-                // appended since. Leave an append in and every later index
-                // lands one place off - a v18 CITY CIRCUIT II would come back
-                // as CHIMNEY ROCK.
-                int oldLen18 = TrackCatalog.Count - 4, oldLen19 = TrackCatalog.Count - 2;
-                string leak = null;
-                for (int k = 0; k < oldLen18 && leak == null; k++)
-                {
-                    string id = TrackCatalog.At(TrackCatalog.RemapV18Index(k)).id;
-                    if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v18 " + k + " -> " + id;
-                }
-                for (int k = 0; k < oldLen19 && leak == null; k++)
-                {
-                    string id = TrackCatalog.At(TrackCatalog.RemapV19Index(k)).id;
-                    if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v19 " + k + " -> " + id;
-                }
-                Check(leak == null, "no v18 or v19 index lands on Chimney Rock", leak ?? "none of " + oldLen18 + " / " + oldLen19);
-
+                bool listed = false;
+                foreach (var a in TrackCatalog.All)
+                    if (a.id == "ChimneyRock" || a.id == "ChimneyRockRev") listed = true;
+                TrackCatalog.TrackDef held = null;
+                foreach (var h in TrackCatalog.HeldBack)
+                    if (h.id == "ChimneyRock") held = h;
+                Check(!listed && held != null, "Chimney Rock is held back, not in the list");
                 bool both = false;
                 foreach (var h in TrackCatalog.HeldBack)
                     foreach (var a in TrackCatalog.All)
                         if (a.id == h.id) both = true;
                 Check(!both, "no venue is both held back and in the list");
+                Check(held != null && held.stage && !held.loop && held.noDelivery && held.FinishIndex > 0,
+                      "the held Chimney Rock is a stage sprint with a finish, out of the delivery roll",
+                      held != null ? held.FinishIndex.ToString() : "missing");
+                var twinOf = typeof(TrackCatalog).GetMethod("ReverseTwin",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                var twin = held != null && twinOf != null ? twinOf.Invoke(null, new object[] { held }) as TrackCatalog.TrackDef : null;
+                Check(twin != null && twin.noDelivery, "and so is its twin, when it has one");
+                var mig19 = new LifeState { saveVersion = 19, trackIndex = TrackCatalog.Count - 1 };
+                LifeSimManager.Migrate(mig19);
+                Check(new LifeState().saveVersion == 19 && mig19.saveVersion == 19 &&
+                      mig19.trackIndex == TrackCatalog.Count - 1,
+                      "the save stays at v19: new careers start there, and a v19 save's last venue is still the last",
+                      new LifeState().saveVersion + " / " + mig19.saveVersion + " / " + mig19.trackIndex);
+                var meetField = typeof(PSXRacing.LifeSim.CarMeets).GetField("TougeVenues",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                var touge = meetField != null ? meetField.GetValue(null) as string[] : null;
+                string unknown = null;
+                if (touge != null)
+                    foreach (var id in touge)
+                        if (TrackCatalog.At(TrackCatalog.IndexOf(id)).id != id) unknown = id;
+                Check(touge != null && unknown == null, "every car meet venue is in the list", unknown ?? "all");
             }
 
             // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
