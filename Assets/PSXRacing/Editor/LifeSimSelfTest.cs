@@ -101,6 +101,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestEditions), TestEditions);
             Guard(nameof(TestEditionPark), TestEditionPark);
             Guard(nameof(TestGlyphs), TestGlyphs);
+            Guard(nameof(TestDoorAudit), TestDoorAudit);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -957,6 +958,105 @@ namespace PSXRacing.EditorTools
                 Check(label is UnityEngine.UI.Text, "and is still a Text to everything that looks for one");
             }
             finally { Object.DestroyImmediate(go); }
+        }
+
+        /// <summary>
+        /// EVERY DOOR AGAINST EACH EDITION'S OWN PLAYER LIST (DoorAudit). The
+        /// player resolves scenes through SceneUtility, a branch the editor
+        /// cannot run; the audit is the same code the player runs at boot, walked
+        /// here through PSXRacingBuilder.SceneOrder(edition) - the exact list
+        /// PSXBuildWebGL hands the player - via TrackCatalog's editor override.
+        /// And the controls that prove it can fail: MAIN's doors against CITY's
+        /// list, an ALL list under MAIN's rules, and one scene path spelled
+        /// differently (the failure the review asked about). Then the door
+        /// tour's own rules: local players only, and the doors it walks.
+        /// </summary>
+        static void TestDoorAudit()
+        {
+            Line("every door against each edition's player scene list (DoorAudit, DoorTour):");
+            try
+            {
+                foreach (var e in new[] { EditionKind.All, EditionKind.Main, EditionKind.City })
+                {
+                    TrackCatalog.EditorSceneListOverride = PSXRacingBuilder.SceneOrder(e);
+                    var r = DoorAudit.Run(e);
+                    Check(r.Ok && r.venueOk == r.venueDoors && r.absentOk == r.absentDoors && r.careerOk == r.careerDoors,
+                          Edition.Name(e) + ": " + r.venueOk + "/" + r.venueDoors + " venue doors, " + r.absentOk + "/" +
+                          r.absentDoors + " absent, " + r.careerOk + "/" + r.careerDoors + " career, " + r.scenes + " scenes",
+                          r.Ok ? null : string.Join(" | ", r.problems.Take(4)));
+                    if (e == EditionKind.Main)
+                        Check(r.absentDoors > 0 && r.venueDoors > 30, "MAIN has Charlotte's doors ABSENT and 30+ of its own");
+                    if (e == EditionKind.City)
+                        Check(r.venueDoors == TrackCatalog.All.Count(t => t.city) && r.venueDoors >= 4,
+                              "CITY's venue doors are exactly Charlotte's", r.venueDoors.ToString());
+                }
+
+                var main = PSXRacingBuilder.SceneOrder(EditionKind.Main);
+                TrackCatalog.EditorSceneListOverride = PSXRacingBuilder.SceneOrder(EditionKind.City);
+                var cross = DoorAudit.Run(EditionKind.Main);
+                Check(!cross.Ok && cross.venueOk == 0 && cross.problems.Any(p => p.StartsWith("UptownLoop ")),
+                      "control: MAIN's doors against CITY's player FAIL (none reach, Charlotte's resolve)",
+                      cross.problems.Count + " problems");
+                TrackCatalog.EditorSceneListOverride = PSXRacingBuilder.SceneOrder(EditionKind.All);
+                var leak = DoorAudit.Run(EditionKind.Main);
+                Check(!leak.Ok && leak.problems.Any(p => p.StartsWith("TryonSprint ")),
+                      "control: an ALL player under MAIN's rules FAILS (Charlotte slipped in)");
+                var bent = (string[])main.Clone();
+                int ci = System.Array.IndexOf(bent, TrackCatalog.ScenePathOf("ChimneyRock"));
+                Check(ci > 0, "MAIN ships Chimney Rock's scene");
+                if (ci > 0)
+                {
+                    bent[ci] = bent[ci].Replace("ChimneyRock", "chimneyrock");
+                    TrackCatalog.EditorSceneListOverride = bent;
+                    var spelt = DoorAudit.Run(EditionKind.Main);
+                    Check(!spelt.Ok && spelt.problems.Any(p => p.StartsWith("ChimneyRock ")) &&
+                          spelt.problems.Any(p => p.StartsWith("ChimneyRockRev ")) &&
+                          spelt.problems.Any(p => p.Contains("is no door's")),
+                          "control: one scene path spelled differently in the player fails its road, its twin, and the orphan",
+                          string.Join(" | ", spelt.problems.Take(3)));
+                }
+            }
+            finally
+            {
+                TrackCatalog.EditorSceneListOverride = null;
+            }
+            Check(TrackCatalog.ScenesInBuild == EditorBuildSettings.scenes.Count(s => s.enabled),
+                  "and the override is off again (the editor resolves through its build settings)");
+
+            Check(!DoorTour.RequestedBy("https://lucentll.github.io/psx-racing/?doortour=1") &&
+                  !DoorTour.RequestedBy("https://lucentll.github.io/psx-racing/city/?doortour"),
+                  "the door tour never wakes on the site, even when asked");
+            Check(DoorTour.RequestedBy("http://127.0.0.1:8123/index.html?doortour=1") &&
+                  DoorTour.RequestedBy("http://localhost:9000/?x=1&doortour"),
+                  "a player served from this machine tours when asked");
+            Check(!DoorTour.RequestedBy("http://127.0.0.1:8123/index.html") &&
+                  !DoorTour.RequestedBy("http://127.0.0.1/?notdoortour=1") && !DoorTour.RequestedBy(null),
+                  "and only when asked");
+            Check(!DoorTour.Active, "no tour runs in the editor");
+
+            var mainDoors = DoorTour.MainDoors(EditionKind.Main);
+            var labels = mainDoors.Select(d => d.label).ToList();
+            foreach (var want in new[] { "race CityCircuit", "race BlueRidge", "race BlueRidgeRev", "race BlowingRockSprint",
+                                         "race ChimneyRock", "IN TOWN", "walk-in garage", "seller viewing",
+                                         "test drive", "pizza delivery" })
+                Check(labels.Contains(want), "MAIN's tour walks '" + want + "'",
+                      labels.Contains(want) ? null : string.Join(", ", labels));
+            var roamDoor = mainDoors.Find(d => d.label.StartsWith("free roam"));
+            Check(roamDoor != null && roamDoor.refuse, "and MAIN's tour expects free roam REFUSED");
+            var staleDoor = mainDoors.Find(d => d.label.StartsWith("stale save"));
+            Check(staleDoor != null && staleDoor.expectScene == "CityCircuit",
+                  "and a stale save's Charlotte race to START Sunset City GP");
+            Check(mainDoors.Where(d => d.label.StartsWith("race ")).All(d =>
+                      TrackCatalog.TryIndexOf(d.label.Substring(5), out int v) && Edition.ShipsIn(TrackCatalog.At(v), EditionKind.Main)),
+                  "every race MAIN's tour starts is MAIN's");
+            var cityDoors = DoorTour.CityDoors();
+            int cityRaces = 0;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.At(i).IsCityRace) cityRaces++;
+            Check(cityDoors.Count == 1 + cityRaces && cityDoors[0].press == "Btn_roam" &&
+                  cityDoors.Skip(1).All(d => d.press.StartsWith("Btn_race_") && !d.refuse),
+                  "CITY's tour walks FREE ROAM and every city race's own button",
+                  string.Join(", ", cityDoors.Select(d => d.label)));
         }
 
         static void TestCarMeets()

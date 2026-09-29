@@ -97,12 +97,17 @@
 # -SkipBuild of an old or mismatched build is refused too). Any other
 # -PagesDir defaults to ALL. -AllowEditionMismatch overrides - only when the
 # owner asks for exactly that.
+#
+# EVERY DOOR IS OPENED IN THE PLAYER BEFORE IT GOES LIVE (tools\door-tour.mjs,
+# see Test-DoorTour below): since the editions a door finds its scene through
+# a branch only a player runs. -SkipDoorTour deploys without it, loudly.
 param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$DryRun,
       [switch]$AllowRootFromBranch,
       [string]$Edition = "",
       [switch]$AllowEditionMismatch,
       [switch]$AllowOlderCity,
+      [switch]$SkipDoorTour,
       [string]$BuildDir = "",
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
@@ -219,6 +224,35 @@ function Test-WebglContents([string]$Dir, [string]$Ed) {
     return $true
 }
 
+# THE DOORS, OPENED IN THE PLAYER ITSELF: tools\door-tour.mjs serves the build
+# on 127.0.0.1, opens it in headless Chrome with ?doortour and reads the
+# console - DoorAudit's boot line (every door of the edition resolved against
+# the PLAYER's scene list; the editor resolves through EditorBuildSettings and
+# cannot see a player-only mismatch) and one PASS/FAIL per door as DoorTour
+# presses the front end's own buttons (races at the line, a twin, a sprint,
+# Chimney Rock, IN TOWN, your street, the walk-in, a seller, a test drive, a
+# delivery; CITY: free roam and every city race). node + Chrome, no Unity,
+# ~10 min. Pictures of every arrival go to $proj\Screenshots\doortour_<ED>.
+# -SkipDoorTour publishes without it, loudly.
+function Test-DoorTour([string]$Dir, [string]$Ed) {
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Write-Host "DOORS NOT TOURED - node is not on PATH (tools\door-tour.mjs needs it). Refusing; -SkipDoorTour overrides." -ForegroundColor Red
+        return $false
+    }
+    $shotDir = "$proj\Screenshots\doortour_$Ed"
+    if (Test-Path $shotDir) { Remove-Item $shotDir -Recurse -Force }
+    Write-Host "  door tour    : opening every door of the $Ed player in headless Chrome..." -ForegroundColor Cyan
+    $out = @(& $node.Source "$PSScriptRoot\door-tour.mjs" $Dir --shots $shotDir 2>&1)
+    $code = $LASTEXITCODE
+    $out | ForEach-Object { Write-Host "  $_" }
+    if ($code -ne 0) {
+        Write-Host "DOOR TOUR FAILED - a door of the $Ed player does not open (see above; pictures in $shotDir). -SkipDoorTour overrides." -ForegroundColor Red
+        return $false
+    }
+    return $true
+}
+
 # THIS PUBLISH ONLY WAITS ON ITS OWN SANDBOX. Get-UnityPids (unity-wait.ps1)
 # filters by command line, so the owner opening their editor mid-build no
 # longer holds the deploy hostage -- see the note on that function.
@@ -273,8 +307,8 @@ if (-not $SkipDeploy -and -not $PagesDir -and $isLive) {
 # publish, from charlotte. In the main -> charlotte merge this file conflicts
 # (both sides changed it from an older base); charlotte's copy is byte-for-byte
 # main's from before the editions, so the resolution is main's copy - which
-# keeps the -Edition block, both Test-WebglContents calls and the deploy-time
-# psx-edition check.
+# keeps the -Edition block, both Test-WebglContents calls, the door tour and
+# the deploy-time psx-edition check.
 if (-not $SkipDeploy -and $Edition -eq "CITY" -and $isLive -and -not $AllowOlderCity) {
     $b = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
     $srcBranch = if ($b.Code -eq 0 -and $b.Out.Count) { ("" + $b.Out[0]).Trim() } else { "" }
@@ -513,6 +547,10 @@ if (-not $SkipDeploy) {
     if (($SkipBuild -or $BuildDir) -and -not $AllowEditionMismatch) {
         if (-not (Test-WebglContents $build $buildEdition)) { exit 1 }
     }
+    # Every publish, fresh build or not: this is the player about to go live.
+    if ($SkipDoorTour) {
+        Write-Host "DOOR TOUR SKIPPED (-SkipDoorTour): no door of this player has been opened in a browser." -ForegroundColor Yellow
+    } elseif (-not (Test-DoorTour $build $buildEdition)) { exit 1 }
 
     # -File hands "-KeepDirs city,lab" over as ONE string; split it here.
     $KeepDirs = @($KeepDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })

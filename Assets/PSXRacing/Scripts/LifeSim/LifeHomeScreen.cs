@@ -83,6 +83,16 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static string PendingGarageCar;
 
+        /// <summary>
+        /// A classified to open on arrival: the listing page for the paper's
+        /// car of this catalog id (the paper never lists one spec twice). Same
+        /// read-once contract as <see cref="PendingTab"/>. The door tour
+        /// (DoorTour) opens the seller's listing this way and then presses the
+        /// page's own GO AND SEE IT; a listing gone by then is simply the
+        /// market page.
+        /// </summary>
+        public static string PendingListing;
+
         /// <summary>The tab strip, in screen order, kept so the navigation graph
         /// can be rebuilt against it and so the shoulder buttons can page
         /// through it.</summary>
@@ -277,6 +287,13 @@ namespace PSXRacing.LifeSim
             {
                 inspectCarId = PendingInspectCar;
                 PendingInspectCar = null;
+            }
+            if (!string.IsNullOrEmpty(PendingListing))
+            {
+                var listing = S.newspaper.Find(l => l.specId == PendingListing);
+                PendingListing = null;
+                if (listing != null) { buyTarget = listing; buyFrom = "market"; tab = "buy"; }
+                else tab = "market";
             }
 
             // "work" is not a page — it is a HOP. The town's pizzeria door

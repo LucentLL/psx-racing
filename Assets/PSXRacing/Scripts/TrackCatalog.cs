@@ -1396,6 +1396,8 @@ namespace PSXRacing
             if (string.IsNullOrEmpty(sceneName)) return -1;
             string path = ScenePathOf(sceneName);
 #if UNITY_EDITOR
+            if (EditorSceneListOverride != null)
+                return System.Array.IndexOf(EditorSceneListOverride, path);
             int idx = 0;
             foreach (var s in UnityEditor.EditorBuildSettings.scenes)
             {
@@ -1409,12 +1411,51 @@ namespace PSXRacing
 #endif
         }
 
+#if UNITY_EDITOR
+        /// <summary>
+        /// Editor tooling only: resolve every scene against THIS list (one
+        /// edition's player list, PSXRacingBuilder.SceneOrder(edition))
+        /// instead of EditorBuildSettings, which is always ALL. The self-test
+        /// walks <see cref="DoorAudit"/> through each edition's list this way
+        /// - the nearest the editor can get to a player's own list. The
+        /// player's branch above (SceneUtility) is proved in the player itself:
+        /// DoorAudit runs at boot there, and tools\door-tour.mjs loads the
+        /// doors. null = EditorBuildSettings. Never left set: the caller
+        /// restores it in a finally.
+        /// </summary>
+        public static string[] EditorSceneListOverride;
+#endif
+
+        /// <summary>How many scenes THIS build carries (the player's list; in
+        /// the editor, <see cref="EditorSceneListOverride"/> when set).</summary>
+        public static int ScenesInBuild
+        {
+            get
+            {
+#if UNITY_EDITOR
+                if (EditorSceneListOverride != null) return EditorSceneListOverride.Length;
+#endif
+                return UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings;
+            }
+        }
+
+        /// <summary>The asset path of build index <paramref name="buildIndex"/>
+        /// in THIS build, or "" past the end. The reverse of
+        /// <see cref="BuildIndexOfScene"/>, asked of the same list.</summary>
+        public static string ScenePathAt(int buildIndex)
+        {
+            if (buildIndex < 0 || buildIndex >= ScenesInBuild) return "";
+#if UNITY_EDITOR
+            if (EditorSceneListOverride != null) return EditorSceneListOverride[buildIndex] ?? "";
+#endif
+            return UnityEngine.SceneManagement.SceneUtility.GetScenePathByBuildIndex(buildIndex) ?? "";
+        }
+
         /// <summary>Can this build index be loaded here? False for -1 and for
         /// anything past the end — both of which LoadScene turns into a black
         /// screen with no error.</summary>
         public static bool SceneShipped(int buildIndex) =>
-            buildIndex > 0 &&
-            buildIndex < UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings;
+            buildIndex > 0 && buildIndex < ScenesInBuild;
 
         /// <summary>
         /// Load a scene by build index if this build has it, and say so if it
