@@ -5661,7 +5661,7 @@ namespace PSXRacing.EditorTools
 
             int maxRowsPerChunk = 2 * (Mathf.FloorToInt(240f / TrackCatalog.Spacing) + 1);
             int badCollider = 0, down = 0, triCount = 0, rows = 0, widest = 0;
-            int unparsed = 0, backwards = 0, offStrip = 0, foreslopes = 0, faces = 0;
+            int unparsed = 0, backwards = 0, offStrip = 0, foreslopes = 0, faces = 0, sliceVerts = 0;
             float worstFall = 0f, worstRise = 0f, worstStrip = 0f;
             string whereFall = "", whereRise = "", whereStrip = "", whereOrder = "";
             foreach (var mf in chunks)
@@ -5685,10 +5685,32 @@ namespace PSXRacing.EditorTools
                 }
 
                 int rowStart = -1, rowPacked = -1, chunkRows = 0;
+                // A row is one run from the strip's edge outward ON its
+                // station's line. The vertices of a bend's slices (the ribbon
+                // follows a curve between stations, SlicedShoulderZip) come
+                // after every row in the chunk and lie between stations: the
+                // first one off the open row's line ends it, and they are
+                // counted, not parsed.
+                bool OnLine(Vector3 v, int packedRow)
+                {
+                    int st = packedRow >> 1;
+                    Vector3 d = v - wp[st];
+                    Vector3 r = right[st];
+                    float across = d.x * r.x + d.z * r.z;
+                    float offX = d.x - r.x * across, offZ = d.z - r.z * across;
+                    return offX * offX + offZ * offZ < 0.005f * 0.005f;
+                }
+                int sliceFrom = -1;
                 for (int k = 0; k <= vs.Length; k++)
                 {
                     int packed = k < vs.Length ? MatchStart(vs[k]) : -1;
-                    if (k < vs.Length && packed < 0) continue;
+                    if (k < vs.Length && packed < 0)
+                    {
+                        if (sliceFrom < 0 && rowStart >= 0 && !OnLine(vs[k], rowPacked)) sliceFrom = k;
+                        continue;
+                    }
+                    int rowEnd = sliceFrom >= 0 ? sliceFrom : k;
+                    if (sliceFrom >= 0) { sliceVerts += k - sliceFrom; sliceFrom = -1; }
                     if (rowStart < 0) unparsed += k;   // vertices before the first row this chunk
                     else
                     {
@@ -5697,7 +5719,7 @@ namespace PSXRacing.EditorTools
                         int i = rowPacked >> 1;
                         float side = (rowPacked & 1) == 0 ? -1f : 1f;
                         string where = "wp " + i + (side < 0f ? " left" : " right");
-                        int count = k - rowStart;
+                        int count = rowEnd - rowStart;
                         if (count < 3) { unparsed += count; }
                         else
                         {
@@ -5765,7 +5787,7 @@ namespace PSXRacing.EditorTools
             Check(down == 0, t.id + " no shoulder triangle faces down", down + " of " + triCount);
             Check(rows > 0 && unparsed == 0 && backwards == 0,
                   t.id + " every shoulder row starts on the kerb strip's outer edge and runs strictly outward",
-                  rows + " rows, " + unparsed + " vertices outside a row, " + backwards + " rows folding back" +
+                  rows + " rows (+" + sliceVerts + " vertices on a bend's slices), " + unparsed + " vertices outside a row, " + backwards + " rows folding back" +
                   (whereOrder != "" ? " (first " + whereOrder + ")" : ""));
             Check(widest <= maxRowsPerChunk, t.id + " no shoulder chunk carries more than 240 m of road",
                   widest / 2 + " stations in the widest");

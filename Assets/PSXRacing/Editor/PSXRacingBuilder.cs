@@ -1881,8 +1881,8 @@ namespace PSXRacing.EditorTools
         {
             int n = pts.Count;
             // A loop needs one extra ring to close back onto waypoint 0; a strip
-            // stops at its last waypoint. Everything else is identical.
-            int last = Loop ? n : n - 1;
+            // stops at its last waypoint (ribbonRings). Everything else is
+            // identical.
             // THREE vertices a ring: left edge, CENTRE, right edge (u 0, 0.5,
             // 1). The centre column is where the painted centre line runs, so
             // that line lies along mesh edges instead of across the diagonal
@@ -1895,8 +1895,16 @@ namespace PSXRacing.EditorTools
             // horizontal), so the centre vertex lies ON the old surface; the
             // collider only moves where a quad was twisted, and toward the
             // smooth surface. RoadStride is what the audits read.
-            var verts = new Vector3[(last + 1) * RoadStride];
-            var uvs = new Vector2[(last + 1) * RoadStride];
+            //
+            // And between two waypoints the rings are SLICES of a curve, not
+            // one chord (PSXRacingBuilder.Ribbon.cs): a station ring is the
+            // ring it always was, and a bend's painted lines and edges no
+            // longer turn a corner at every one.
+            PlanRibbonSmoothing(pts);
+            var rings = ribbonRings;
+            int ringCount = rings.Count;
+            var verts = new Vector3[ringCount * RoadStride];
+            var uvs = new Vector2[ringCount * RoadStride];
             // Two triangle lists, one per surface. A bridge deck is poured
             // concrete and the ribbon over it was blacktop, so a viaduct read
             // as a road that happened to have a parapet - the deck, the piers
@@ -1904,7 +1912,6 @@ namespace PSXRacing.EditorTools
             // you actually look at was not.
             var tris = new List<int>();      // submesh 0: tarmac
             var deckTris = new List<int>();  // submesh 1: the spans
-            float dist = 0f;
 
             // Same BridgeBlend the deck builder reads, so the concrete on the
             // driving surface starts and stops exactly where the structure
@@ -1917,14 +1924,14 @@ namespace PSXRacing.EditorTools
                     onDeck[i] = TrackCatalog.BridgeBlend(track, Mathf.Repeat(i * Spacing, lap)) > DeckBlendMin;
             }
 
-            for (int i = 0; i <= last; i++)
+            for (int ri = 0; ri < ringCount; ri++)
             {
-                int idx = Loop ? i % n : i;
-                Vector3 right = RightAt(pts, idx);
+                var ring = rings[ri];
+                Vector3 right = ring.right;
                 // 12 cm above the ground plane: enough depth separation that the
                 // road doesn't z-fight ("flash orange") against it at distance
-                Vector3 center = pts[idx] + Vector3.up * RoadLift;
-                int v0 = i * RoadStride;
+                Vector3 center = ring.centre + Vector3.up * RoadLift;
+                int v0 = ri * RoadStride;
                 verts[v0] = center - right * (RoadWidth * 0.5f);
                 verts[v0 + 1] = center;
                 verts[v0 + 2] = center + right * (RoadWidth * 0.5f);
@@ -1934,11 +1941,10 @@ namespace PSXRacing.EditorTools
                 // across the width, so a photographed road surface was
                 // stretched over 12 m and its one painted line was the only
                 // marking a circuit had.
-                uvs[v0] = new Vector2(0f, dist / TrackRoadVTile);
-                uvs[v0 + 1] = new Vector2(0.5f, dist / TrackRoadVTile);
-                uvs[v0 + 2] = new Vector2(1f, dist / TrackRoadVTile);
-                dist += Spacing;
-                if (i < last)
+                uvs[v0] = new Vector2(0f, ring.dist / TrackRoadVTile);
+                uvs[v0 + 1] = new Vector2(0.5f, ring.dist / TrackRoadVTile);
+                uvs[v0 + 2] = new Vector2(1f, ring.dist / TrackRoadVTile);
+                if (ri + 1 < ringCount)
                 {
                     // L0 C0 R0 on this ring, L1 C1 R1 on the next. Each half
                     // is split on the diagonal the two-triangle quad used
@@ -1951,8 +1957,10 @@ namespace PSXRacing.EditorTools
                     // That is exactly the length BuildBridges lays the deck
                     // to — one station past each end of the span
                     // (DeckCoversStation) — so the concrete ribbon and the
-                    // structure under it still start and stop together.
-                    int nxt = Loop ? (i + 1) % n : i + 1;
+                    // structure under it still start and stop together. A
+                    // slice is decked with the gap it lies in.
+                    int idx = Loop ? ring.gap % n : ring.gap;
+                    int nxt = Loop ? (ring.gap + 1) % n : ring.gap + 1;
                     var into = (onDeck[idx] || onDeck[nxt]) ? deckTris : tris;
                     into.AddRange(new[] { l0, l1, c0, c0, l1, c1, c0, c1, r0, r0, c1, r1 });
                 }
@@ -2418,13 +2426,20 @@ namespace PSXRacing.EditorTools
             var phys = SlidePhys();
 
             int per = Mathf.Max(1, Mathf.FloorToInt(ShoulderChunkM / Spacing));
-            int chunks = 0, faces = 0;
+            int chunks = 0, faces = 0, sliceVerts = 0;
             for (int c0 = 0; c0 < last; c0 += per)
             {
                 int c1 = Mathf.Min(last, c0 + per);
                 var verts = new List<Vector3>();
                 var uvs = new List<Vector2>();
                 var tris = new List<int>();
+                // A gap the road lays on a curve (PlanRibbonSmoothing) zips on
+                // the same slices, its inside moved with the kerb strip's edge
+                // (SlicedShoulderZip). The slices' vertices go on the END of
+                // the chunk, after every station's row, so a row is still one
+                // run of vertices from the strip's edge outward.
+                var extraV = new List<Vector3>();
+                var extraUV = new List<Vector2>();
                 for (int s = 0; s < 2; s++)
                 {
                     float side = s == 0 ? -1f : 1f;
@@ -2444,10 +2459,26 @@ namespace PSXRacing.EditorTools
                             }
                         }
                         if (prevStart >= 0 && start >= 0)
-                            ZipShoulder(tris, prevStart, es[s][prevIdx], start, es[s][idx], side);
+                        {
+                            int gap = i - 1, slices = RibbonSlices(gap);
+                            if (slices <= 1)
+                                ZipShoulder(tris, prevStart, es[s][prevIdx], start, es[s][idx], side);
+                            else
+                                sliceVerts += SlicedShoulderZip(pts, gap, slices, side, tris, extraV, extraUV, uox, uoz, tile,
+                                                                prevStart, pos[s][prevIdx], es[s][prevIdx],
+                                                                start, pos[s][idx], es[s][idx]);
+                        }
                         prevStart = start;
                         prevIdx = idx;
                     }
+                }
+                if (extraV.Count > 0)
+                {
+                    int baseIdx = verts.Count;
+                    verts.AddRange(extraV);
+                    uvs.AddRange(extraUV);
+                    for (int t = 0; t < tris.Count; t++)
+                        if (tris[t] < 0) tris[t] = baseIdx + (-tris[t] - 1);
                 }
                 if (tris.Count == 0) continue;
 
@@ -2498,7 +2529,7 @@ namespace PSXRacing.EditorTools
                 Log($"Apex pads: {apexPads} crest(s) padded ({apexSamples} crest samples over the land; {apexRimInAir} crest(s) over land falling away too fast for one, left as they were).");
             }
 
-            Log($"Shoulders: {chunks} RoadEdge chunk(s), {faces} faces; " +
+            Log($"Shoulders: {chunks} RoadEdge chunk(s), {faces} faces, {sliceVerts} vertices on the curve's slices; " +
                 $"{bent} half-section(s) clipped on the inside of a tight bend; " +
                 $"{toesCaught} sloped end(s) carried on down to meet the ground lattice (or to the end of a recoverable run), " +
                 $"{toesPastBend} of them on past a tight bend's inside at 1V:{1f / RoadsideRules.TraversableSlope:0}H, " +
@@ -3087,8 +3118,9 @@ namespace PSXRacing.EditorTools
             // runs out of room - ended in the air and its tuck dove to the land
             // (0.13 m within 0.13 m at 7.30 m). Only where the first walk did
             // not meet the land and its knee is past the clear zone, so a carry
-            // that met is laid exactly as before.
-            if (!met && steep < ShoulderTailSteepSlope &&
+            // that met is laid exactly as before. Stage only, as the tail is:
+            // a circuit's run-off keeps its carry as it was.
+            if (stageDemLoaded && !met && steep < ShoulderTailSteepSlope &&
                 e0 >= ShoulderEndE + RoadsideRules.ClearZoneM + ShoulderMinStepM)
             {
                 int more2 = Mathf.FloorToInt(Mathf.Min((ShoulderCarryMaxM - (yEnd - y0)) / ShoulderTailSteepSlope,
@@ -3772,28 +3804,28 @@ namespace PSXRacing.EditorTools
         /// one repeat per 2 m (the classic red/white dashing), v across.</summary>
         static Mesh FlatKerbMesh(List<Vector3> pts, float side)
         {
-            int n = pts.Count, last = Loop ? n : n - 1;
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
-            float dist = 0f;
+            // The road's own rings, slices and all (PlanRibbonSmoothing), so
+            // the strip's inner edge IS the tarmac's edge on a bend too.
+            var rings = ribbonRings;
 
-            for (int i = 0; i <= last; i++)
+            for (int ri = 0; ri < rings.Count; ri++)
             {
-                int idx = Loop ? i % n : i;
-                Vector3 outw = RightAt(pts, idx) * side;
+                var ring = rings[ri];
+                Vector3 outw = ring.right * side;
                 // Flush with the road ribbon, which ends exactly where this
                 // begins: they share an edge and never an area, so there is no
                 // depth to fight over.
-                Vector3 inner = pts[idx] + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
+                Vector3 inner = ring.centre + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
                 Vector3 outer = inner + outw * KerbWidth;
                 int v = verts.Count;
                 verts.Add(inner); verts.Add(outer);
                 // Repeat every 2 m of travel gives the classic red/white dashing.
-                uvs.Add(new Vector2(dist / 2f, 0f));
-                uvs.Add(new Vector2(dist / 2f, 1f));
-                dist += Spacing;
-                if (i < last) KerbQuad(tris, v, 2, side);
+                uvs.Add(new Vector2(ring.dist / 2f, 0f));
+                uvs.Add(new Vector2(ring.dist / 2f, 1f));
+                if (ri + 1 < rings.Count) KerbQuad(tris, v, 2, side);
             }
             return new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
         }
@@ -3821,24 +3853,25 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static Mesh StreetKerbMeshes(List<Vector3> pts, float side, out Mesh collider)
         {
-            int n = pts.Count, last = Loop ? n : n - 1;
+            int n = pts.Count;
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
             var tris = new List<int>();
             var cverts = new List<Vector3>();
             var ctris = new List<int>();
-            float dist = 0f;
+            // The road's own rings, slices and all (PlanRibbonSmoothing).
+            var rings = ribbonRings;
 
-            for (int i = 0; i <= last; i++)
+            for (int ri = 0; ri < rings.Count; ri++)
             {
-                int idx = Loop ? i % n : i;
-                Vector3 outw = RightAt(pts, idx) * side;
-                Vector3 rise = Vector3.up * KerbLiftAt(idx, n, side);
-                Vector3 a = pts[idx] + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
+                var ring = rings[ri];
+                Vector3 outw = ring.right * side;
+                Vector3 rise = Vector3.up * RibbonKerbLift(ring, n, side);
+                Vector3 a = ring.centre + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
                 Vector3 b = a + rise + outw * StreetKerbFaceBatter;
                 Vector3 c = a + rise + outw * StreetKerbTop;
                 Vector3 d = a + rise + outw * KerbWidth;
-                float u = dist / StreetKerbUTile;
+                float u = ring.dist / StreetKerbUTile;
                 int v = verts.Count;
                 verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
                 uvs.Add(new Vector2(u, 0f)); uvs.Add(new Vector2(u, 0.25f));
@@ -3846,9 +3879,8 @@ namespace PSXRacing.EditorTools
 
                 int w = cverts.Count;
                 cverts.Add(a); cverts.Add(a + rise + outw * StreetKerbRamp); cverts.Add(d);
-                dist += Spacing;
 
-                if (i < last)
+                if (ri + 1 < rings.Count)
                 {
                     // Face, top, pavement — three quads on a stride of four.
                     for (int k = 0; k < 3; k++) KerbQuad(tris, v + k, 4, side);
@@ -4089,11 +4121,13 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static GameObject BuildWallSolid(string name, Transform parent, List<Vector3> faceBottom, List<Vector3> faceTop,
                                          List<Vector3> outward, float thick, bool closedLoop, PhysicsMaterial phys,
-                                         string meshName)
+                                         string meshName, List<float> thickPer = null)
         {
             var fb = new List<Vector3>(faceBottom.Count);
             var ft = new List<Vector3>(faceBottom.Count);
             var ow = new List<Vector3>(faceBottom.Count);
+            // Depth per ring: `thick`, unless the caller gives one per ring.
+            var th = new List<float>(faceBottom.Count);
             const float MinSq = WallSolidMinRingM * WallSolidMinRingM;
             for (int k = 0; k < faceBottom.Count; k++)
             {
@@ -4112,6 +4146,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 fb.Add(faceBottom[k]); ft.Add(faceTop[k]); ow.Add(o);
+                th.Add(thickPer != null && k < thickPer.Count ? thickPer[k] : thick);
             }
             if (closedLoop && fb.Count > 1)
             {
@@ -4120,7 +4155,7 @@ namespace PSXRacing.EditorTools
                 if (d.sqrMagnitude < MinSq)
                 {
                     fb[0] = new Vector3(fb[0].x, Mathf.Min(fb[0].y, fb[j].y), fb[0].z);
-                    fb.RemoveAt(j); ft.RemoveAt(j); ow.RemoveAt(j);
+                    fb.RemoveAt(j); ft.RemoveAt(j); ow.RemoveAt(j); th.RemoveAt(j);
                 }
             }
             int R = fb.Count;
@@ -4145,9 +4180,9 @@ namespace PSXRacing.EditorTools
                 Vector3 d1 = fb[R - 1] - fb[R - 2]; d1.y = 0f;
                 d0 = d0.normalized * WallSolidEndReachM;
                 d1 = d1.normalized * WallSolidEndReachM;
-                fb.Insert(0, fb[0] + d0); ft.Insert(0, ft[0] + d0); ow.Insert(0, ow[0]);
+                fb.Insert(0, fb[0] + d0); ft.Insert(0, ft[0] + d0); ow.Insert(0, ow[0]); th.Insert(0, th[0]);
                 int e = fb.Count - 1;
-                fb.Add(fb[e] + d1); ft.Add(ft[e] + d1); ow.Add(ow[e]);
+                fb.Add(fb[e] + d1); ft.Add(ft[e] + d1); ow.Add(ow[e]); th.Add(th[e]);
                 R = fb.Count;
             }
 
@@ -4158,7 +4193,7 @@ namespace PSXRacing.EditorTools
             {
                 Vector3 top = ft[k];
                 top.y = Mathf.Max(top.y, fb[k].y + WallSolidMinRingM);
-                Vector3 back = ow[k] * thick;
+                Vector3 back = ow[k] * th[k];
                 verts.Add(fb[k]);            // 0 face foot
                 verts.Add(top);              // 1 face top
                 verts.Add(top + back);       // 2 back top
