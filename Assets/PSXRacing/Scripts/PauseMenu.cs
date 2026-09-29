@@ -777,7 +777,7 @@ namespace PSXRacing
             // Debug readout lives outside the panel so it stays up while driving
             var dbgGO = new GameObject("DebugText");
             dbgGO.transform.SetParent(canvasGO.transform, false);
-            debugText = dbgGO.AddComponent<Text>();
+            debugText = dbgGO.AddComponent<SafeText>();
             debugText.font = font;
             debugText.fontSize = 17;
             debugText.color = new Color(0.6f, 1f, 0.7f);
@@ -801,7 +801,7 @@ namespace PSXRacing
         {
             var go = new GameObject("Text");
             go.transform.SetParent(parent, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = font; t.fontSize = size; t.color = Color.white;
             t.alignment = TextAnchor.MiddleCenter;
             t.horizontalOverflow = HorizontalWrapMode.Overflow;

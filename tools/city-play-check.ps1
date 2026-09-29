@@ -11,6 +11,14 @@
 #                        both drives are launched through the CITY front end's
 #                        own request (CityFrontEnd.FillFreeRoam / FillRace).
 #
+# In free roam it also parks the car, stopped, in a drive-thru's order bay:
+# under ALL/MAIN the window must offer an order (proof the car is really in
+# the bay); under CITY nothing may - no prompt, no ORDER button, no food
+# signpost, no store (DriveThru.Serves: the test page has no career). The
+# game camera's frame of that stop goes to
+# <sandbox>\Screenshots\city_play_orderbay.png. Then it opens the pause menu
+# and checks EXIT TO MENU is on it.
+#
 # Exit code 0 = the report has no FAIL; 1 = it does, or the run threw.
 param([switch]$NoWatch, [int]$MaxMinutes = 20, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"

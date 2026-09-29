@@ -13,9 +13,12 @@
 # reach lines from the log printed at the end.
 #
 #   ...  -Editions   only the two front ends, as their editions draw them:
-#                    MAIN's calendar / pre-race / options and the CITY front
-#                    end's five pages, at 16:9, 19.5:9, ~2.24:1 and 4:3
-#                    (LifeHomePreview.CaptureEditions).
+#                    MAIN's calendar, planner, pre-race, options, RIVALS and
+#                    NEWS, an old save that booked Charlotte (the toast and the
+#                    log lines), the WHERE TO? doors at the end of your street;
+#                    and the CITY front end's pages (the door, a race result, a
+#                    free-roam result, the cars, options), at 16:9, 19.5:9,
+#                    ~2.24:1 and 4:3 (LifeHomePreview.CaptureEditions).
 param([switch]$Editions)
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"

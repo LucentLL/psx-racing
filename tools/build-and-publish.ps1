@@ -102,6 +102,7 @@ param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$AllowRootFromBranch,
       [string]$Edition = "",
       [switch]$AllowEditionMismatch,
+      [switch]$AllowOlderCity,
       [string]$BuildDir = "",
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
@@ -252,6 +253,64 @@ if (-not $SkipDeploy -and -not $PagesDir -and $isLive) {
             Write-Host "REFUSING A ROOT PUBLISH FROM $what. $liveUrl is the game, and only main publishes it. Publish this branch's test page with -PagesDir instead (the charlotte branch: -PagesDir city -> ${liveUrl}city/). -AllowRootFromBranch overrides this, and is only for when the owner has asked for this branch's build at the root." -ForegroundColor Red
             exit 1
         }
+    }
+}
+
+# /city/ SHIPS THE CHARLOTTE BRANCH'S CITY. The test page exists to show the
+# newest Charlotte, and that lives on the charlotte branch. A CITY build from
+# any other checkout (main, editions) carries whatever city data that branch
+# last merged (2026-09-29: charlotte_city.bytes 2.55 MB on main, 3.05 MB on
+# charlotte, and a different DEM) - a publish that would quietly put an OLDER
+# city on the page is refused. From the charlotte branch itself nothing is
+# compared: its working tree IS the newest city. Elsewhere, every
+# Resources\charlotte_* file here must be byte-identical to the tip of the
+# local 'charlotte' branch. -AllowOlderCity overrides (only when the owner asks).
+#
+# THE MERGE ORDER that makes this pass without the override - and makes the
+# charlotte branch's own /city/ publishes CITY-only at all (its copy of this
+# script predates -Edition and publishes the whole game): editions -> main
+# (after main's own release), then main -> charlotte, THEN the next /city/
+# publish, from charlotte. In the main -> charlotte merge this file conflicts
+# (both sides changed it from an older base); charlotte's copy is byte-for-byte
+# main's from before the editions, so the resolution is main's copy - which
+# keeps the -Edition block, both Test-WebglContents calls and the deploy-time
+# psx-edition check.
+if (-not $SkipDeploy -and $Edition -eq "CITY" -and $isLive -and -not $AllowOlderCity) {
+    $b = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
+    $srcBranch = if ($b.Code -eq 0 -and $b.Out.Count) { ("" + $b.Out[0]).Trim() } else { "" }
+    if ($srcBranch -cne "charlotte") {
+        $tip = Invoke-GitOut @("-C", $src, "ls-tree", "charlotte", "Assets/PSXRacing/Resources/") -AllowFail
+        if ($tip.Code -ne 0) {
+            Write-Host "REFUSING: a /city/ publish from '$srcBranch' needs the local 'charlotte' branch to compare the city data against, and git cannot read it ($($tip.Text)). -AllowOlderCity overrides." -ForegroundColor Red
+            exit 1
+        }
+        $theirs = @{}
+        foreach ($ln in $tip.Out) {
+            # "<mode> blob <sha><TAB><path>"
+            if (("" + $ln) -match '^\d+ blob ([0-9a-f]{40})\s+(.+)$') {
+                $leaf = Split-Path -Leaf $Matches[2]
+                if ($leaf -like 'charlotte_*' -and $leaf -notlike '*.meta') { $theirs[$leaf] = $Matches[1] }
+            }
+        }
+        $mine = @(Get-ChildItem "$src\Assets\PSXRacing\Resources" -File -Filter 'charlotte_*' | Where-Object { $_.Name -notlike '*.meta' })
+        $stale = New-Object System.Collections.Generic.List[string]
+        foreach ($f in $mine) {
+            $h = Invoke-GitOut @("-C", $src, "hash-object", "--", $f.FullName) -AllowFail
+            $sha = if ($h.Code -eq 0 -and $h.Out.Count) { ("" + $h.Out[0]).Trim() } else { "" }
+            if (-not $theirs.ContainsKey($f.Name)) { $stale.Add("$($f.Name) (not on charlotte)") }
+            elseif ($theirs[$f.Name] -ne $sha) { $stale.Add($f.Name) }
+        }
+        foreach ($n in $theirs.Keys) {
+            if (-not @($mine | Where-Object { $_.Name -eq $n }).Count) { $stale.Add("$n (only on charlotte)") }
+        }
+        if ($stale.Count) {
+            Write-Host ("REFUSING A /city/ PUBLISH FROM '$srcBranch': its Charlotte data is not the charlotte branch's (" +
+                        ($stale -join ', ') + "). /city/ is the Charlotte test page and shows the newest city: merge " +
+                        "main -> charlotte and publish /city/ from the charlotte branch (see the note above this check). " +
+                        "-AllowOlderCity overrides (only when the owner asks).") -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  city data    : identical to the charlotte branch ($($mine.Count) charlotte_* files)" -ForegroundColor Cyan
     }
 }
 

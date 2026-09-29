@@ -509,6 +509,40 @@ namespace PSXRacing.EditorTools
                 Shoot(outDir, "main_home", "main", mustFit: true, sizes: EditionSizes);
                 Shoot(outDir, "main_prerace", "prerace", sizes: EditionSizes);
                 Shoot(outDir, "main_options", "options", sizes: EditionSizes);
+                // The planner on an open block: its VENUE < > steps through
+                // MAIN's venues only (TrackCatalog.StepOffered).
+                Shoot(outDir, "main_plan_open", "main", mustFit: true, sizes: EditionSizes,
+                      calDay: st.day + 4, calSlot: LifeRules.DaySlot);
+
+                // THE OWNER'S OLD SAVE, loaded by MAIN: a race booked at Tryon
+                // and a blacklist series live on the Tryon road - the toast on
+                // the first screen and the RECENTLY lines it leaves
+                // (LifeSimManager.EditionSanitize). Re-planted before every
+                // size, because the toast is said once per load.
+                Blacklist.SeedBoard(st);
+                int tryon = TrackCatalog.IndexOf("TryonSprint");
+                int logKeep = st.calendarLog.Count;
+                Shoot(outDir, "main_oldsave", "main", mustFit: true, sizes: EditionSizes, before: () =>
+                {
+                    var s0 = LifeSimManager.State;
+                    if (s0.calendarLog.Count > logKeep) s0.calendarLog.RemoveRange(logKeep, s0.calendarLog.Count - logKeep);
+                    s0.bookings.RemoveAll(b => b.trackIndex == tryon);
+                    s0.bookings.Add(new RaceBooking { day = s0.day + 1, slot = LifeRules.NightSlot, trackIndex = tryon });
+                    s0.blChallenge = new RankChallenge
+                    {
+                        alias = "DEACON", openedDay = s0.day, deadlineDay = s0.day + 5, trackIndex = tryon, youLegs = 1,
+                    };
+                    LifeSimManager.EditionSanitize(s0);
+                });
+                LifeSimManager.TakeEditionNote();
+                LifeSimManager.Save();
+                // Where the city rivals' series land now (the moved call-out
+                // on the board), and the paper.
+                Shoot(outDir, "main_rivals", "rivals", sizes: EditionSizes);
+                Shoot(outDir, "main_news", "news", sizes: EditionSizes);
+                // THE LINE AT THE END OF YOUR STREET - the one place the owner
+                // saw "FREE ROAM - CHARLOTTE". Three doors in MAIN.
+                ShootDepart(outDir, "main_depart_home", EditionSizes);
                 LifeSimManager.DeleteSave();
 
                 // ---- CITY ----
@@ -552,6 +586,20 @@ namespace PSXRacing.EditorTools
                     RaceHandoff.RaceTimeSeconds = 331.27f;
                     RaceHandoff.HardHits = 1;
                 });
+                // And what a free-roam EXIT hands back (CityMode stamps it).
+                int roam = TrackCatalog.IndexOf("Charlotte");
+                Shoot(outDir, "city_roam_result", cityPage: "result", sizes: sizes, before: () =>
+                {
+                    RaceHandoff.ClearAll();
+                    RaceHandoff.FromLifeSim = true;
+                    RaceHandoff.FreeRoam = true;
+                    RaceHandoff.TrackIndex = roam;
+                    RaceHandoff.ResultReady = true;
+                    RaceHandoff.MetersDriven = 18400f;
+                    RaceHandoff.RaceTimeSeconds = 1265.4f;
+                    RaceHandoff.DriftSeconds = 42.3f;
+                    RaceHandoff.HardHits = 2;
+                });
                 Shoot(outDir, "city_car", cityPage: "car", sizes: sizes);
                 string make = DebugCarOps.MakeOf(CarCatalog.Get(CityFrontEnd.DefaultCarId()));
                 Shoot(outDir, "city_car_make", cityPage: "carmake", cityMake: make, sizes: sizes);
@@ -563,6 +611,85 @@ namespace PSXRacing.EditorTools
                 CityFrontEnd.PendingPage = null;
                 CityFrontEnd.PendingMake = null;
                 RaceHandoff.ClearAll();
+            }
+        }
+
+        /// <summary>
+        /// The zone line's WHERE TO? panel (Town.DepartScreen) over nothing,
+        /// the doors as the simulated edition draws them. There was no shot of
+        /// it at all, and it is the screen the owner first saw "FREE ROAM -
+        /// CHARLOTTE" on. Built through its private Build rather than Open: Open
+        /// stops a car and fades the audio, and there is neither here.
+        /// </summary>
+        static void ShootDepart(string outDir, string label, (string name, int w, int h)[] sizes, bool fromTown = false)
+        {
+            foreach (var size in sizes)
+            {
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                var cam = new GameObject("PreviewCam").AddComponent<Camera>();
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                // The panel is 90% opaque over the drive; a dusk-road grey
+                // stands in for the drive behind it.
+                cam.backgroundColor = new Color(0.22f, 0.24f, 0.28f);
+                cam.orthographic = true;
+                var rt = new RenderTexture(size.w, size.h, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+                cam.targetTexture = rt;
+                MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
+
+                var depart = new GameObject("Depart").AddComponent<PSXRacing.Town.DepartScreen>();
+                depart.fromTown = fromTown;
+                var build = typeof(PSXRacing.Town.DepartScreen).GetMethod("Build",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (build == null) { Debug.LogError("[HomePreview] DepartScreen has no Build()"); return; }
+                build.Invoke(depart, null);
+
+                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                {
+                    if (c.renderMode != RenderMode.ScreenSpaceOverlay) continue;
+                    c.renderMode = RenderMode.ScreenSpaceCamera;
+                    c.worldCamera = cam;
+                    c.planeDistance = 10f;
+                    var cs = c.GetComponent<CanvasScaler>();
+                    if (cs != null)
+                    {
+                        cs.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+                        cs.scaleFactor = size.h / MenuKit.DesignHeight;
+                    }
+                }
+                Canvas.ForceUpdateCanvases();
+                ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
+
+                // Every door and TURN BACK inside the panel, on the screen.
+                int doors = 0, off = 0;
+                foreach (var b in Object.FindObjectsByType<Button>(FindObjectsSortMode.None))
+                {
+                    doors++;
+                    var corners = new Vector3[4];
+                    ((RectTransform)b.transform).GetWorldCorners(corners);
+                    foreach (var p in corners)
+                    {
+                        Vector3 sp = cam.WorldToScreenPoint(p);
+                        if (sp.x < -1f || sp.y < -1f || sp.x > size.w + 1f || sp.y > size.h + 1f) { off++; break; }
+                    }
+                }
+                string line = "[HomePreview] " + label + "/" + size.name + " doors " + doors + (off > 0 ? ", " + off + " OFF SCREEN" : ", all on screen");
+                if (off > 0) Debug.LogError(line); else Debug.Log(line);
+
+                cam.Render();
+                var prev = RenderTexture.active;
+                RenderTexture.active = rt;
+                var tex = new Texture2D(size.w, size.h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, size.w, size.h), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev;
+                string path = Path.Combine(outDir, "menu_" + label + "_" + size.name + ".png");
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                Debug.Log("[HomePreview] wrote " + path);
+                Object.DestroyImmediate(tex);
+                cam.targetTexture = null;
+                rt.Release();
+                Object.DestroyImmediate(rt);
+                MenuKit.ScreenSizeOverride = Vector2.zero;
             }
         }
 

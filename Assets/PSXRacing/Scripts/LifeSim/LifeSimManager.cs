@@ -18,21 +18,53 @@ namespace PSXRacing.LifeSim
 
         static LifeState state;
 
+        /// <summary>What <see cref="State"/> hands out in an edition with no
+        /// career - see there.</summary>
+        static LifeState noCareerScratch;
+        static bool warnedNoCareer;
+
         /// <summary>The live state. Loads (or creates) lazily so any scene can
-        /// run first in the editor without a boot ceremony.</summary>
+        /// run first in the editor without a boot ceremony.
+        ///
+        /// NOT IN THE CITY EDITION. The Charlotte test page has no career
+        /// (Edition.HasCareer) and promises never to create one: its only
+        /// memory is the car, hour and weather picks (CityFrontEnd). Every
+        /// career surface there is closed at its door - the drive-thru windows
+        /// (DriveThru.Serves), the food signpost, the fuel truck, the pumps,
+        /// the debug bench - and this is the net under all of them: a CITY
+        /// build that still asks gets a blank, THROWAWAY state that is never
+        /// loaded from and never saved (Save() is a no-op there), with one
+        /// warning in the log naming the leak, so nothing reaches the test
+        /// page's save database and nothing shows a career's pocket.</summary>
         public static LifeState State
         {
             get
             {
+                if (!Edition.HasCareer)
+                {
+                    if (!warnedNoCareer)
+                    {
+                        warnedNoCareer = true;
+                        Debug.LogWarning("[LifeSim] the " + Edition.Name(Edition.Current) +
+                                         " edition has no career, but something asked for one - handing it a " +
+                                         "throwaway state that is never saved\n" + System.Environment.StackTrace);
+                    }
+                    return noCareerScratch ??= new LifeState();
+                }
                 if (state == null) state = Load() ?? NewGame();
                 return state;
             }
         }
 
-        public static bool HasSave => PlayerPrefs.HasKey(SaveKey);
+        /// <summary>Does this build keep a career on disk at all? False in the
+        /// CITY edition, where <see cref="Save"/> writes nothing.</summary>
+        public static bool Persists => Edition.HasCareer;
+
+        public static bool HasSave => Persists && PlayerPrefs.HasKey(SaveKey);
 
         public static void Save()
         {
+            if (!Persists) return;   // CITY: no career, nothing written (see State)
             if (state == null) return;
             PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(state));
             PlayerPrefs.Save();
@@ -99,8 +131,11 @@ namespace PSXRacing.LifeSim
                     if (b == null || TrackCatalog.Offered(b.trackIndex)) continue;
                     string name = b.trackIndex >= 0 && b.trackIndex < TrackCatalog.Count
                         ? TrackCatalog.At(b.trackIndex).name : "a venue";
-                    s.calendarLog.Add(LifeRules.LogDate(b.day) + ": the race booked at " + name +
-                                      " is cancelled: it is not in this edition of the game");
+                    // The verb FIRST: RECENTLY cuts a long line short, and
+                    // "the race booked at TRYON STREET SPRI..." never got
+                    // as far as saying what happened to it.
+                    s.calendarLog.Add(LifeRules.LogDate(b.day) + ": cancelled, the race at " + name +
+                                      " (not in this edition of the game)");
                     s.bookings.RemoveAt(i);
                     said.Add(name);
                 }
@@ -110,29 +145,35 @@ namespace PSXRacing.LifeSim
             if (seriesWas != null)
             {
                 string now = TrackCatalog.At(Blacklist.SeriesTrack(s)).name;
-                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the blacklist series moves from " +
-                                  seriesWas + " to " + now + ": " + seriesWas +
-                                  " is not in this edition of the game");
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": series moved to " + now + ", off " +
+                                  seriesWas + " (not in this edition of the game)");
             }
 
             if (!TrackCatalog.Offered(s.trackIndex)) s.trackIndex = TrackCatalog.FirstOffered();
 
             if (said.Count > 0 || seriesWas != null)
             {
-                // ASCII only: the player's built-in font has no em dash or
-                // ellipsis (a WebGL build drops them; see CityFrontEnd).
-                // ONE toast line (a 760-unit label at the type floor holds
-                // ~55 capitals); the log above has the whole story.
+                // ONE SHORT toast line; RECENTLY has the whole story. At most
+                // NoteMax characters: the toast is centred over the bottom of
+                // the page, and on a 19.5:9 phone a 51-character one ran over
+                // the WEEK button's label (menu preview, main_oldsave). Only
+                // MAIN ever gets here (CITY has no career to load), and the
+                // only venues MAIN leaves out are Charlotte's.
+                string what = Edition.Current == EditionKind.Main ? "CHARLOTTE " : "";
                 string note =
-                    said.Count > 0 && seriesWas != null ? "RACES CANCELLED, SERIES MOVED: NOT IN THIS EDITION"
-                    : said.Count > 1 ? said.Count + " BOOKED RACES CANCELLED: NOT IN THIS EDITION"
-                    : said.Count == 1 ? "BOOKED RACE CANCELLED: " + Short(said[0], 22)
-                    : "BLACKLIST SERIES MOVED TO " + Short(TrackCatalog.At(Blacklist.SeriesTrack(s)).name, 20);
+                    said.Count > 0 && seriesWas != null ? what + "RACES OFF, SERIES MOVED"
+                    : said.Count > 1 ? said.Count + " " + what + "RACES CANCELLED"
+                    : said.Count == 1 ? what + "RACE CANCELLED"
+                    : "SERIES MOVED OFF " + (what.Length > 0 ? what.Trim() : "ITS ROAD");
+                if (note.Length > NoteMax) note = Short(note, NoteMax);
                 editionNote = note;
                 return note;
             }
             return null;
         }
+
+        /// <summary>The longest edition toast (see EditionSanitize).</summary>
+        public const int NoteMax = 34;
 
         static string Short(string s, int max) =>
             string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max - 3).TrimEnd() + "...";

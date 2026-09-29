@@ -254,17 +254,6 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// Credits PER EDITION. The WebGL template copies every file beside
-        /// its index.html into the build; a template carrying
-        /// LICENSES-MAIN.txt / LICENSES-CITY.txt / LICENSES-ALL.txt gets the
-        /// one for this edition published as LICENSES.txt and the others
-        /// dropped. (The Charlotte branch's credits.mjs writes one
-        /// LICENSES.txt today; on the merge it should write one per edition —
-        /// MAIN: OpenStreetMap for the stages + SRTM terrain; CITY:
-        /// OpenStreetMap Charlotte + its elevation sources. ODbL's attribution
-        /// belongs in both.) A template with neither is left as it was.
-        /// </summary>
-        /// <summary>
         /// The loading screen's second line. The PSXMobile template prints
         /// SUNSET CITY GP under the title — the circuit the game began as, and
         /// a venue the CITY edition does not carry, so the Charlotte page
@@ -287,6 +276,17 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(idx, html.Replace(from, "<h2>CHARLOTTE</h2>"));
         }
 
+        /// <summary>
+        /// Credits PER EDITION. The WebGL template copies every file beside
+        /// its index.html into the build; a template carrying
+        /// LICENSES-MAIN.txt / LICENSES-CITY.txt / LICENSES-ALL.txt gets the
+        /// one for this edition published as LICENSES.txt and the others
+        /// dropped. (The Charlotte branch's credits.mjs writes one
+        /// LICENSES.txt today; on the merge it should write one per edition —
+        /// MAIN: OpenStreetMap for the stages + SRTM terrain; CITY:
+        /// OpenStreetMap Charlotte + its elevation sources. ODbL's attribution
+        /// belongs in both.) A template with neither is left as it was.
+        /// </summary>
         static void PickLicenses(string outDir, EditionKind edition)
         {
             if (!Directory.Exists(outDir)) return;

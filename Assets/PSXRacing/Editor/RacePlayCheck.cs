@@ -24,6 +24,7 @@ namespace PSXRacing.EditorTools
 
         public static void Run()
         {
+            EditionParking.RecoverIfNeeded();   // a killed edition build's park, back first
             log = new StringBuilder();
             failures = 0;
             string id = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");

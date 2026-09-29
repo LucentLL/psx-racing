@@ -28,6 +28,9 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Run LifeSim Self-Test")]
         public static void Run()
         {
+            // Resources first: a killed edition build may have left some of
+            // them parked, and every test below reads Resources.
+            EditionParking.RecoverIfNeeded();
             log = new StringBuilder();
             failures = 0;
             // THE SELF-TEST IS ALWAYS THE WHOLE GAME, whatever edition the job
@@ -96,6 +99,8 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCarMeets), TestCarMeets);
             Guard(nameof(TestDepartDoors), TestDepartDoors);
             Guard(nameof(TestEditions), TestEditions);
+            Guard(nameof(TestEditionPark), TestEditionPark);
+            Guard(nameof(TestGlyphs), TestGlyphs);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -697,6 +702,8 @@ namespace PSXRacing.EditorTools
             // ================= MAIN =================
             Edition.Simulate(EditionKind.Main);
             Check(Edition.HasCareer && !Edition.HasCharlotte, "MAIN has the career and no Charlotte");
+            Check(PSXRacing.DriveThru.Serves && LifeSimManager.Persists,
+                  "MAIN's drive-thrus serve and its career saves");
             int offeredCity = 0, offered = 0;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.Offered(i)) { offered++; if (TrackCatalog.At(i).city) offeredCity++; }
@@ -769,7 +776,8 @@ namespace PSXRacing.EditorTools
                   "a live series on Tryon moves to a MAIN road, with its legs kept",
                   TrackCatalog.At(ms.blChallenge.trackIndex).id);
             Check(TrackCatalog.Offered(Blacklist.SeriesTrack(ms)), "SeriesTrack names a road MAIN has");
-            Check(note != null && note.Length <= 56, "and the first screen gets one short toast about it", note);
+            Check(note != null && note.Length <= LifeSimManager.NoteMax && note.StartsWith("CHARLOTTE"),
+                  "and the first screen gets one short toast about it (clear of the WEEK button on a phone)", note);
             Check(LifeSimManager.EditionSanitize(ms) == null, "a second load has nothing left to do (idempotent)");
 
             var mainOpts = LifeHomeScreen.OptionSpecs();
@@ -813,13 +821,142 @@ namespace PSXRacing.EditorTools
             Check(PSXRacing.Town.DepartScreen.DoorCount(false, false, true) == 4,
                   "and a build with Charlotte keeps the four doors");
 
+            // NO CAREER COMES BACK THROUGH A RESTAURANT. The Charlotte tiles
+            // still place the drive-thrus (CityProps); in CITY their windows
+            // do not serve and the HUD does not signpost them, because an
+            // order is paid from, and saved to, a career.
+            Check(!PSXRacing.DriveThru.Serves, "CITY's drive-thrus take no orders and the HUD points at none");
+            Check(!LifeSimManager.Persists && !LifeSimManager.HasSave,
+                  "CITY keeps no career on disk (LifeSimManager.Persists)");
+            const string saveKey = "psxRacingLifeSave";
+            string savedBefore = PlayerPrefs.GetString(saveKey, "<none>");
+            var scratch = LifeSimManager.State;
+            scratch.money = 424242;
+            LifeSimManager.Save();
+            Check(PlayerPrefs.GetString(saveKey, "<none>") == savedBefore,
+                  "and a leak that asks for the State anyway gets a throwaway that Save() never writes");
+
             // ================= back to ALL: nothing was cached under a simulation =================
             Edition.Simulate(EditionKind.All);
+            Check(PSXRacing.DriveThru.Serves && LifeSimManager.Persists,
+                  "back in ALL the windows serve and the career saves");
+            Check(LifeSimManager.State != scratch, "and the career is not the CITY throwaway");
             Check(uptown.LengthM > 1000f && blue.LengthM > 1000f,
                   "back in ALL, Uptown and Blue Ridge measure their real length (no token cached)",
                   uptown.LengthM.ToString("0") + " / " + blue.LengthM.ToString("0"));
             Check(TrackCatalog.Offered(TrackCatalog.IndexOf("TryonSprint")) && Edition.Ships(uptown),
                   "and ALL offers everything again");
+        }
+
+        /// <summary>
+        /// A STUCK PARK IS LOUD AND FINAL (EditionParking). The chain the
+        /// review found: a killed MAIN build left a park; a tool's additive
+        /// copy re-occupied Resources; the next CITY build parked its own list
+        /// OVER the stuck manifest and its restore then deleted the park folder
+        /// with MAIN's items in it. Played here with a throwaway folder asset
+        /// (zz_selftest_park) and nothing else: a park whose Resources path is
+        /// occupied again stays parked with its manifest; Park refuses to start
+        /// over it and moves nothing; the parked copy survives; once the path
+        /// is free the restore puts it back and clears; and a park folder that
+        /// holds something with no manifest blocks a park too. Skipped (and
+        /// said so) when a real park is on disk - that is not the self-test's
+        /// to touch.
+        /// </summary>
+        static void TestEditionPark()
+        {
+            Line("the edition park (a stuck park blocks the next build):");
+            string manifest = EditionParking.ManifestPath;
+            if (System.IO.File.Exists(manifest) || System.IO.Directory.Exists(EditionParking.ParkRoot))
+            {
+                Check(false, "a real park is on disk (" + manifest + " or " + EditionParking.ParkRoot +
+                             ") - not testing over it");
+                return;
+            }
+            const string dummy = "zz_selftest_park";
+            string parent = System.IO.Path.GetDirectoryName(EditionParking.ParkRoot).Replace('\\', '/');
+            string parked = EditionParking.ParkRoot + "/" + dummy;
+            string inRes = EditionParking.ResourcesRoot + "/" + dummy;
+            try
+            {
+                AssetDatabase.CreateFolder(parent, System.IO.Path.GetFileName(EditionParking.ParkRoot));
+                AssetDatabase.CreateFolder(EditionParking.ParkRoot, dummy);
+                AssetDatabase.CreateFolder(EditionParking.ResourcesRoot, dummy);
+                System.IO.File.WriteAllText(manifest, "edition MAIN\npid 0\n" + dummy + "\n");
+
+                EditionParking.RecoverIfNeeded();
+                Check(System.IO.File.Exists(manifest) && AssetDatabase.IsValidFolder(parked),
+                      "a park whose Resources path is occupied again stays parked, manifest kept (STUCK)");
+                Check(EditionParking.BlockedReason() != null && EditionParking.BlockedReason().Contains(dummy),
+                      "and the reason names the stuck item");
+
+                bool threw = false;
+                try { EditionParking.Park(EditionKind.Main); }
+                catch (System.Exception) { threw = true; }
+                finally { if (!threw) EditionParking.Restore(); }
+                Check(threw, "Park refuses to start over a stuck park");
+                Check(System.IO.File.Exists(manifest) && System.IO.File.ReadAllText(manifest).Contains(dummy) &&
+                      !System.IO.File.ReadAllText(manifest).Contains("charlotte_"),
+                      "and leaves the stuck manifest's list as it was (not overwritten)");
+                Check(AssetDatabase.IsValidFolder(parked), "and the parked copy is not deleted");
+                Check(System.IO.File.Exists(EditionParking.ResourcesRoot + "/charlotte_city.bytes") ||
+                      !System.IO.File.Exists(EditionParking.ParkRoot + "/charlotte_city.bytes"),
+                      "and nothing of the refused build's own list moved");
+
+                AssetDatabase.DeleteAsset(inRes);
+                EditionParking.RecoverIfNeeded();
+                Check(!System.IO.File.Exists(manifest) && AssetDatabase.IsValidFolder(inRes) &&
+                      !AssetDatabase.IsValidFolder(EditionParking.ParkRoot),
+                      "once the path is free the restore puts it back, clears the manifest and the empty park");
+
+                AssetDatabase.CreateFolder(parent, System.IO.Path.GetFileName(EditionParking.ParkRoot));
+                AssetDatabase.CreateFolder(EditionParking.ParkRoot, dummy);
+                Check(EditionParking.BlockedReason() != null,
+                      "a park folder holding something with no manifest blocks a park too");
+            }
+            finally
+            {
+                System.IO.File.Delete(manifest);
+                if (AssetDatabase.IsValidFolder(inRes)) AssetDatabase.DeleteAsset(inRes);
+                if (AssetDatabase.IsValidFolder(EditionParking.ParkRoot)) AssetDatabase.DeleteAsset(EditionParking.ParkRoot);
+                Check(!System.IO.File.Exists(manifest) && !System.IO.Directory.Exists(EditionParking.ParkRoot) &&
+                      !System.IO.Directory.Exists(inRes), "the test leaves no park behind");
+            }
+        }
+
+        /// <summary>
+        /// THE PLAYER'S FONT HAS NO EM DASH (Glyphs). What the game draws goes
+        /// through Glyphs.Safe - SafeText for the labels it builds, RaceHUD's
+        /// setter for the baked HUD - and comes out in characters the font has.
+        /// </summary>
+        static void TestGlyphs()
+        {
+            Line("glyphs the WebGL font can draw:");
+            string em = ((char)0x2014).ToString(), ell = ((char)0x2026).ToString();
+            Check(Glyphs.Safe("UPTOWN LOOP " + em + " I-277") == "UPTOWN LOOP - I-277",
+                  "an em dash becomes a hyphen", Glyphs.Safe("UPTOWN LOOP " + em + " I-277"));
+            Check(Glyphs.Safe("WAIT" + ell) == "WAIT..." && Glyphs.Safe("A " + (char)0x2192 + " B") == "A -> B",
+                  "an ellipsis three dots, an arrow ->");
+            string plain = "FREE ROAM  " + (char)0x00b7 + "  CHARLOTTE  (c) 1999";
+            Check(ReferenceEquals(Glyphs.Safe(plain), plain),
+                  "ASCII and the middle dot pass through untouched, with no allocation");
+            int bad = 0;
+            string first = null;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+            {
+                var t = TrackCatalog.At(i);
+                foreach (var s in new[] { t.name, t.blurb })
+                    if (!Glyphs.IsSafe(Glyphs.Safe(s))) { bad++; first = first ?? s; }
+            }
+            Check(bad == 0, "every venue name and blurb comes out drawable", first);
+            var go = new GameObject("SafeTextProbe");
+            try
+            {
+                var label = go.AddComponent<SafeText>();
+                label.text = "E " + em + " ORDER AT STACK BURGER";
+                Check(label.text == "E - ORDER AT STACK BURGER", "a SafeText label stores the drawable string", label.text);
+                Check(label is UnityEngine.UI.Text, "and is still a Text to everything that looks for one");
+            }
+            finally { Object.DestroyImmediate(go); }
         }
 
         static void TestCarMeets()

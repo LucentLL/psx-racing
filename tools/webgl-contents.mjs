@@ -2,7 +2,7 @@
 // from the scene list that was asked for (asserting the request says nothing
 // about what shipped: the pizzeria lesson, see Docs / the build notes).
 //
-//   node tools/webgl-contents.mjs <Build/WebGL> [--edition MAIN|CITY|ALL] [--quiet]
+//   node tools/webgl-contents.mjs <Build/WebGL> [--edition MAIN|CITY|ALL] [--source <checkout>] [--quiet]
 //
 // Decodes Build/WebGL.data.unityweb (Brotli, the UnityWebData1.0 package,
 // then data.unity3d's UnityFS blocks - LZ4 decoded here, no npm packages) and
@@ -17,7 +17,13 @@
 //   * nothing the report says was PARKED is in the player (Resources ships
 //     whole, so a parked item that is present means the park did not hold);
 //   * the edition's own rules: MAIN has no Resources key "charlotte_*" and no
-//     "cityprops/*"; CITY has no "pizzacargo/*".
+//     "cityprops/*"; CITY has no "pizzacargo/*";
+//   * and PRESENCE, the half that catches a build missing its own data: every
+//     Resources asset of the source checkout (--source, default the checkout
+//     this script is in) is in the player's Resources container, except what
+//     the edition may leave out (MAIN: charlotte_*, cityprops/*; CITY:
+//     pizzacargo/*, the root .json stage bakes) - and the build's park list
+//     stays inside that allowance.
 // Why BuildReport.packedAssets is not the proof: an incremental build that
 // reuses its packed content reports none (the MAIN build of 2026-09-29 said
 // 0 packed sources; the CITY build beside it listed 3640), and a report is
@@ -25,10 +31,13 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { fileURLToPath } from "url";
 
 const args = process.argv.slice(2);
-const dir = args.find(a => !a.startsWith("--")) || ".";
+const valued = new Set(["--edition", "--source"]);
+const dir = args.find((a, i) => !a.startsWith("--") && !valued.has(args[i - 1])) || ".";
 const edArg = args.indexOf("--edition");
+const srcArg = args.indexOf("--source") >= 0 ? args[args.indexOf("--source") + 1] || "" : "";
 const quiet = args.includes("--quiet");
 const dataFile = fs.existsSync(path.join(dir, "Build")) ? fs.readdirSync(path.join(dir, "Build"))
   .filter(n => /\.data(\.unityweb|\.br|\.gz)?$/.test(n)).map(n => path.join(dir, "Build", n))[0] : dir;
@@ -155,6 +164,84 @@ for (const r of rules) {
   }
   if (where.length) fail(r.why + " - found in " + where.join(", "));
   else ok(r.why + " - absent");
+}
+
+// ---- Resources: what the edition MUST carry ----
+//
+// Absence alone passes a build that is missing its OWN data - a CITY player
+// with an empty Resources/CityProps (every tower gone) or a MAIN one without
+// its stage bakes would clear every rule above. So the other half: every
+// Resources asset in the SOURCE checkout (one key per non-folder .meta - the
+// source keeps the CityProps metas even though the prefabs are baked in the
+// sandbox) must be in the player's Resources container, except what this
+// edition is ALLOWED to leave out. That allowance is written here, by rule,
+// not read from the build's own park list - a park that took too much must
+// fail, not excuse itself:
+//   MAIN may leave out charlotte_* (root) and cityprops/*;
+//   CITY may leave out pizzacargo/* and the root .json stage bakes (every root
+//        .json but rg2_* and charlotte_*);
+//   ALL  may leave out nothing.
+// And the build's park list must stay inside the allowance.
+const mayOmit = k =>
+  edition === "MAIN" ? (/^charlotte_[^/]*$/.test(k) || k.startsWith("cityprops/"))
+  : edition === "CITY" ? (k.startsWith("pizzacargo/") || (!k.includes("/") && k.endsWith(".json") &&
+                                                          !/^(rg2_|charlotte_)/.test(k)))
+  : false;
+// mayOmit is asked of keys WITH their extension for the root-.json test.
+const srcRoot = srcArg || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const resDir = path.join(srcRoot, "Assets", "PSXRacing", "Resources");
+if (!fs.existsSync(resDir)) fail("no source Resources at " + resDir + " to check the player against (--source <checkout>)");
+else {
+  const want = [];   // { key, withExt }
+  const walk = d => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) { walk(f); continue; }
+      if (!e.name.endsWith(".meta")) continue;
+      if (/^\s*folderAsset:\s*yes\s*$/m.test(fs.readFileSync(f, "utf8"))) continue;
+      const rel = path.relative(resDir, f.slice(0, -5)).split(path.sep).join("/").toLowerCase();
+      want.push({ key: rel.replace(/\.[^./]+$/, ""), withExt: rel });
+    }
+  };
+  walk(resDir);
+  // The container's keys: 4-byte-aligned, length-prefixed strings in
+  // globalgamemanagers (the ResourceManager's m_Container), lower case.
+  const keys = new Set();
+  const ggm = serialized.find(s => s.name === "globalgamemanagers");
+  if (ggm) {
+    const b = Buffer.from(ggm.text, "latin1");
+    for (let p = 0; p + 8 <= b.length; p += 4) {
+      const L = b.readUInt32LE(p);
+      if (L < 1 || L > 240 || p + 4 + L > b.length) continue;
+      const s = b.toString("latin1", p + 4, p + 4 + L);
+      if (/^[a-z0-9_\-\/. ()']+$/.test(s)) keys.add(s);
+    }
+  }
+  const allowed = want.filter(w => mayOmit(w.withExt));
+  const must = want.filter(w => !mayOmit(w.withExt));
+  const missing = must.filter(w => !keys.has(w.key));
+  const byTop = {};
+  for (const w of must) {
+    const top = w.key.includes("/") ? w.key.split("/")[0] + "/*" : "(root)";
+    const e = byTop[top] || (byTop[top] = { n: 0, miss: 0 });
+    e.n++; if (!keys.has(w.key)) e.miss++;
+  }
+  const table = Object.entries(byTop).sort().map(([t, e]) => t + " " + (e.n - e.miss) + "/" + e.n).join(", ");
+  if (!ggm) fail("no globalgamemanagers in the player - cannot read its Resources");
+  else if (missing.length)
+    fail(missing.length + " Resources asset(s) " + edition + " must ship are NOT in the player: " +
+         missing.slice(0, 12).map(w => w.withExt).join(", ") + (missing.length > 12 ? ", ..." : "") +
+         "  [" + table + "]");
+  else ok("every Resources asset " + edition + " must ship is in the player: " + must.length + " of " +
+          want.length + " in the source (" + allowed.length + " it may leave out)  [" + table + "]");
+  // What the build parked must be inside the allowance.
+  const overPark = parked.filter(p => {
+    const pk = p.toLowerCase();
+    const inside = want.filter(w => w.withExt === pk || w.withExt.startsWith(pk + "/"));
+    return inside.length === 0 ? !mayOmit(pk) && !mayOmit(pk + "/x") : inside.some(w => !mayOmit(w.withExt));
+  });
+  if (overPark.length) fail("the build parked " + overPark.join(", ") + ", which " + edition + " must ship");
+  else if (parked.length) ok("everything the build parked is " + edition + "'s to leave out (" + parked.length + ")");
 }
 
 console.log(bad ? "WEBGL CONTENTS FAILED (" + bad + ")" : "WEBGL CONTENTS OK - " + edition);
