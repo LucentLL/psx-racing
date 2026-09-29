@@ -100,7 +100,7 @@ namespace PSXRacing.LifeSim
                     string name = b.trackIndex >= 0 && b.trackIndex < TrackCatalog.Count
                         ? TrackCatalog.At(b.trackIndex).name : "a venue";
                     s.calendarLog.Add(LifeRules.LogDate(b.day) + ": the race booked at " + name +
-                                      " is cancelled — it is not in this edition of the game");
+                                      " is cancelled: it is not in this edition of the game");
                     s.bookings.RemoveAt(i);
                     said.Add(name);
                 }
@@ -111,7 +111,7 @@ namespace PSXRacing.LifeSim
             {
                 string now = TrackCatalog.At(Blacklist.SeriesTrack(s)).name;
                 s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the blacklist series moves from " +
-                                  seriesWas + " to " + now + " — " + seriesWas +
+                                  seriesWas + " to " + now + ": " + seriesWas +
                                   " is not in this edition of the game");
             }
 
@@ -119,11 +119,13 @@ namespace PSXRacing.LifeSim
 
             if (said.Count > 0 || seriesWas != null)
             {
+                // ASCII only: the player's built-in font has no em dash or
+                // ellipsis (a WebGL build drops them; see CityFrontEnd).
                 // ONE toast line (a 760-unit label at the type floor holds
                 // ~55 capitals); the log above has the whole story.
                 string note =
-                    said.Count > 0 && seriesWas != null ? "RACES CANCELLED, SERIES MOVED — NOT IN THIS EDITION"
-                    : said.Count > 1 ? said.Count + " BOOKED RACES CANCELLED — NOT IN THIS EDITION"
+                    said.Count > 0 && seriesWas != null ? "RACES CANCELLED, SERIES MOVED: NOT IN THIS EDITION"
+                    : said.Count > 1 ? said.Count + " BOOKED RACES CANCELLED: NOT IN THIS EDITION"
                     : said.Count == 1 ? "BOOKED RACE CANCELLED: " + Short(said[0], 22)
                     : "BLACKLIST SERIES MOVED TO " + Short(TrackCatalog.At(Blacklist.SeriesTrack(s)).name, 20);
                 editionNote = note;
@@ -133,7 +135,7 @@ namespace PSXRacing.LifeSim
         }
 
         static string Short(string s, int max) =>
-            string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max - 1).TrimEnd() + "…";
+            string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max - 3).TrimEnd() + "...";
 
         /// <summary>
         /// Forward-migrate an older save in place. Added fields need nothing —

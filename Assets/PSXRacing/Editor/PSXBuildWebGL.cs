@@ -179,6 +179,7 @@ namespace PSXRacing.EditorTools
                 }
 
                 PickLicenses(outDir, edition);
+                SplashLine(outDir, edition);
                 File.WriteAllText(Path.Combine(outDir, "psx-edition.txt"), ed + "\n");
                 File.WriteAllText(Path.Combine(outDir, "build_ok.txt"),
                     $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB edition {ed}");
@@ -192,12 +193,14 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// WHAT THE PLAYER ACTUALLY CARRIES, written down: the edition, its
+        /// WHAT THE BUILD WAS ASKED TO CARRY, written down: the edition, its
         /// scenes, what was parked, and every source asset the build report
-        /// says was packed, largest first. The proof the tools grep ("MAIN has
-        /// no charlotte_*", "CITY has no stage scene") reads this file, not
-        /// the scene list that was asked for — asserting the request says
-        /// nothing about what shipped (the pizzeria lesson).
+        /// says was packed, largest first (none after an incremental reuse).
+        /// The proof of what
+        /// SHIPPED ("MAIN has no charlotte_*", "CITY has no stage scene") is
+        /// tools\webgl-contents.mjs, which reads WebGL.data itself and checks
+        /// it against the scene and parked lines here — asserting the request
+        /// says nothing about what shipped (the pizzeria lesson).
         /// Written to the project root as PSXRacing_webgl_report_EDITION.txt
         /// and beside the build as psx-build-report.txt (not published: the
         /// deploy copies index.html, Build/, StreamingAssets/, LICENSES.txt).
@@ -226,7 +229,14 @@ namespace PSXRacing.EditorTools
                         sizes.TryGetValue(src, out ulong have);
                         sizes[src] = have + info.packedSize;
                     }
-                sb.AppendLine("packed sources " + sizes.Count);
+                // Not always there: an incremental build that reuses its packed
+                // content reports NONE (2026-09-29: the MAIN rebuild after a
+                // killed first attempt said 0; the CITY build 3640). So this
+                // list is a size breakdown, never the proof - that is
+                // tools\webgl-contents.mjs, which unpacks WebGL.data itself and
+                // checks it against the scene and parked lists above.
+                sb.AppendLine(sizes.Count > 0 ? "packed sources " + sizes.Count
+                    : "packed sources: none reported for this target - run node tools/webgl-contents.mjs <build dir>");
                 foreach (var kv in sizes.OrderByDescending(k => k.Value))
                     sb.AppendLine("  packed " + (kv.Value / 1024.0).ToString("0.0").PadLeft(10) + " KiB  " + kv.Key);
                 foreach (var f in report.GetFiles())
@@ -254,6 +264,29 @@ namespace PSXRacing.EditorTools
         /// OpenStreetMap Charlotte + its elevation sources. ODbL's attribution
         /// belongs in both.) A template with neither is left as it was.
         /// </summary>
+        /// <summary>
+        /// The loading screen's second line. The PSXMobile template prints
+        /// SUNSET CITY GP under the title — the circuit the game began as, and
+        /// a venue the CITY edition does not carry, so the Charlotte page
+        /// would open on the name of a race it cannot run. CITY says
+        /// CHARLOTTE instead; MAIN and ALL keep the template's line. (The
+        /// -PagesDir deploy adds its own CHARLOTTE TEST tag beside it.)
+        /// </summary>
+        static void SplashLine(string outDir, EditionKind edition)
+        {
+            if (edition != EditionKind.City) return;
+            string idx = Path.Combine(outDir, "index.html");
+            if (!File.Exists(idx)) return;
+            string html = File.ReadAllText(idx);
+            const string from = "<h2>SUNSET CITY GP</h2>";
+            if (!html.Contains(from))
+            {
+                Debug.LogWarning("[PSXBuildWebGL] the template's splash line changed - CITY keeps it as written");
+                return;
+            }
+            File.WriteAllText(idx, html.Replace(from, "<h2>CHARLOTTE</h2>"));
+        }
+
         static void PickLicenses(string outDir, EditionKind edition)
         {
             if (!Directory.Exists(outDir)) return;

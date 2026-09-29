@@ -416,7 +416,7 @@ namespace PSXRacing.LifeSim
                     PizzaRun.AbandonRun(S, "the delivery never left the junction");
                     LifeSimManager.Save();
                     Rebuild();
-                    Toast("the run fell through — no drop to drive to");
+                    Toast("the run fell through: no drop to drive to");
                     return;
                 }
                 PizzaRun.AbandonRun(S, "the delivery fell through at the junction");
@@ -7405,7 +7405,8 @@ namespace PSXRacing.LifeSim
                 return true;
             string name = trackIndex >= 0 && trackIndex < TrackCatalog.Count
                 ? TrackCatalog.At(trackIndex).name : "that venue";
-            Toast(Clip(name, 22).ToUpperInvariant() + " — NOT IN THIS EDITION");
+            // ASCII only: the player's font has no em dash (see CityFrontEnd).
+            Toast(Clip(name, 22).ToUpperInvariant() + " IS NOT IN THIS EDITION");
             return false;
         }
 
@@ -7688,7 +7689,7 @@ namespace PSXRacing.LifeSim
             if (!TrackCatalog.TryIndexOfShipped("Charlotte", out int roam) ||
                 !TrackCatalog.SceneShipped(TrackCatalog.SceneIndex(roam)))
             {
-                Toast("CHARLOTTE IS ITS OWN EDITION NOW — NOT IN THIS ONE");
+                Toast("CHARLOTTE IS ITS OWN EDITION NOW, NOT THIS ONE");
                 return false;
             }
             if (!CarIsHere()) return false;

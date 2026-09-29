@@ -196,6 +196,28 @@ function Invoke-GitOut([string[]]$GitArgs, [switch]$AllowFail) {
     return [pscustomobject]@{ Code = $code; Out = $out; Text = ($out -join "`n") }
 }
 
+# THE EDITION'S CONTENTS, PROVED FROM THE PLAYER ITSELF: tools\webgl-contents.mjs
+# unpacks WebGL.data and checks its scene list against psx-build-report.txt,
+# that nothing the build PARKED is in it, and the edition's rules (MAIN: no
+# charlotte_* and no CityProps; CITY: no pizza cargo). node only, no Unity,
+# ~20 s. A build from before the editions has no report and fails the scene
+# check - that is the point: it cannot be told apart from the whole game.
+function Test-WebglContents([string]$Dir, [string]$Ed) {
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Write-Host "CONTENTS NOT CHECKED - node is not on PATH (tools\webgl-contents.mjs needs it). Refusing." -ForegroundColor Red
+        return $false
+    }
+    $out = @(& $node.Source "$PSScriptRoot\webgl-contents.mjs" $Dir --edition $Ed --quiet 2>&1)
+    $code = $LASTEXITCODE
+    $out | ForEach-Object { Write-Host "  $_" }
+    if ($code -ne 0) {
+        Write-Host "WEBGL CONTENTS CHECK FAILED - $Dir does not hold what the $Ed edition may ship (see above)." -ForegroundColor Red
+        return $false
+    }
+    return $true
+}
+
 # THIS PUBLISH ONLY WAITS ON ITS OWN SANDBOX. Get-UnityPids (unity-wait.ps1)
 # filters by command line, so the owner opening their editor mid-build no
 # longer holds the deploy hostage -- see the note on that function.
@@ -313,9 +335,13 @@ if (-not $SkipBuild) {
         exit 1
     }
     if (Test-Path "$proj\PSXRacing_webgl_report_$Edition.txt") {
-        Select-String -Path "$proj\PSXRacing_webgl_report_$Edition.txt" -Pattern '^(edition|result|scenes|parked|packed sources) ' |
+        Select-String -Path "$proj\PSXRacing_webgl_report_$Edition.txt" -Pattern '^(edition|result|scenes|parked) ' |
             ForEach-Object { "  report: " + $_.Line }
     }
+    # WHAT SHIPPED, read out of WebGL.data itself (scenes, parked Resources,
+    # the edition's rules). The label says what was asked for; this says
+    # what the player carries.
+    if (-not (Test-WebglContents "$proj\Build\WebGL" $Edition)) { exit 1 }
 
     # Belt and braces: a marker can be fresh while the player output is not, so
     # check the player itself.
@@ -423,6 +449,11 @@ if (-not $SkipDeploy) {
         }
     }
     Write-Host "  edition      : $buildEdition" -ForegroundColor Cyan
+    # A fresh build was checked straight after it was made; an older output
+    # (-SkipBuild, -BuildDir) is checked here, against the edition it claims.
+    if (($SkipBuild -or $BuildDir) -and -not $AllowEditionMismatch) {
+        if (-not (Test-WebglContents $build $buildEdition)) { exit 1 }
+    }
 
     # -File hands "-KeepDirs city,lab" over as ONE string; split it here.
     $KeepDirs = @($KeepDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })

@@ -149,7 +149,12 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             Section(ref y, lx, w, "FREE ROAM");
             bool roamHere = TrackCatalog.TryIndexOfShipped("Charlotte", out int roam);
-            Named(MenuKit.Button(body, "FREE ROAM — CHARLOTTE", new Vector2(0.5f, 1f),
+            // Plain ASCII and the middle dot only in anything the player
+            // reads: the player's built-in font (LegacyRuntime) has no em dash
+            // or ellipsis, and a WebGL build simply drops them - "FREE ROAM
+            // CHARLOTTE" with a hole in it. The editor's font falls back to
+            // the OS and hides this, so the menu preview cannot see it.
+            Named(MenuKit.Button(body, "FREE ROAM  ·  CHARLOTTE", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(lx, w), y), new Vector2(w, 56f),
                 roamHere ? (UnityEngine.Events.UnityAction)(() => StartFreeRoam()) : null, 22), "roam");
             y -= 62f;
@@ -255,7 +260,7 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             PageHeader(ref y, "PICK A CAR", () => Go("drive"));
             var spec = Car();
-            var now = MenuKit.Label(body, "DRIVING  " + (spec != null ? spec.name.ToUpperInvariant() : "—"),
+            var now = MenuKit.Label(body, "DRIVING  " + (spec != null ? spec.name.ToUpperInvariant() : "-"),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW, height: 26f);
             MenuKit.FitOneLine(now, ColW);
