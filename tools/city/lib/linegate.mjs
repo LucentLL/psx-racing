@@ -544,7 +544,7 @@ export function runGate(S, R, layouts, opts = {}) {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
     /// A break in the samples (between B1 windows): closes, no arc across it.
     gap() { this.close(); this.px = NaN; }
-    push(x, z, e, s, val, bad, tag, span, side, what, lid) {
+    push(x, z, e, s, val, bad, tag, span, side, what, lid, rl) {
       if (!Number.isNaN(this.px)) this.arc += Math.hypot(x - this.px, z - this.pz);
       this.px = x; this.pz = z;
       if (!bad) { this.close(); return; }
@@ -552,27 +552,30 @@ export function runGate(S, R, layouts, opts = {}) {
       if (c && this.arc - c.lastArc > R.RunBreakM) { this.close(); c = null; }
       const inc = c ? this.arc - c.lastArc : 0;
       if (!c) {
-        c = this.cur = { check: this.check, lineId: lid ?? this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [], bs: [], bn: [] };
+        c = this.cur = { check: this.check, lineId: lid ?? this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [], bs: [], bn: [], br: [] };
         if (what !== undefined) c.what = what;
         if (this.extra) Object.assign(c, this.extra);
+        if (rl !== undefined) c.rLimit = rl;
       }
       c.len = this.arc - c.a0; c.lastArc = this.arc; c.e1 = e; c.s1 = s;
-      const worse = this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val);
+      // a sample's own limit (B3: its own edge's class): the worst is the tightest against its own limit
+      const worseThan = (v, r, cv, cr) => this.minIsWorse ? (r !== undefined && cr !== undefined ? v / r < cv / cr : v < cv) : Math.abs(v) > Math.abs(cv);
+      const worse = worseThan(val, rl, c.val, c.rLimit);
       const bid = bucketOf(E[e], s), nb = c.bk.length;
       if (nb && c.bk[nb - 1] === bid) {
-        if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val;
+        if (worseThan(val, rl, c.bv[nb - 1], c.br[nb - 1])) { c.bv[nb - 1] = val; c.br[nb - 1] = rl; }
         c.bl[nb - 1] += inc;
         if (lid !== undefined && (c.bn[nb - 1] === undefined || lid < c.bn[nb - 1])) c.bn[nb - 1] = lid;
       }
-      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); c.bs.push(side); c.bn.push(lid); }
-      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; if (lid !== undefined) c.lineId = lid; }
+      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); c.bs.push(side); c.bn.push(lid); c.br.push(rl); }
+      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; if (lid !== undefined) c.lineId = lid; if (rl !== undefined) c.rLimit = rl; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
   }
   /// Emit runs from an ordered sample list: [{x, z, e, s, val, bad}] or {gap: true}.
   function emitRuns(check, lineId, samples, limit, extra = {}, minIsWorse = false) {
     const b = new RunBuilder(check, lineId, extra, minIsWorse);
-    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side, p.what, p.lid); }
+    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side, p.what, p.lid, p.rl); }
     b.close();
   }
 
@@ -836,6 +839,9 @@ export function runGate(S, R, layouts, opts = {}) {
   }
 
   // ---- B-family on one strand (an ordered, joined polyline)
+  /// rLimit: B3's limit, a function of an edge index (ribbon edges: InnerEdgeMinRM; the midline: its OWN edge's class
+  /// R_min - a strand that crosses from a link onto a motorway was judged at the link's 25 m all along, because the
+  /// limit came from the strand's first edge, and the two gates start strands at different edges), or 0: no B3.
   function shapeChecks(kind, lineId, pts, rLimit) {
     if (pts.length < 3) return;
     const keep = keepIdx(pts, R);
@@ -861,7 +867,7 @@ export function runGate(S, R, layouts, opts = {}) {
     }
     emitRuns('B2', lineId, b2, V, { kind });
     // B3 CURVE (ribbon edges and midline only)
-    if (rLimit > 0) {
+    if (typeof rLimit === 'function') {
       const b3 = [];
       let hint = 0;
       for (let m = 1; m + 1 < keep.length; m++) {
@@ -872,9 +878,10 @@ export function runGate(S, R, layouts, opts = {}) {
         const h1 = Math.atan2(b.z - p0.z, b.x - p0.x), h2 = Math.atan2(p1.z - b.z, p1.x - b.x);
         let dpsi = Math.abs(h2 - h1); if (dpsi > Math.PI) dpsi = 2 * Math.PI - dpsi;
         const Rr = dpsi > 1e-9 ? R.CurveHalfM / dpsi : Infinity;
-        b3.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: Rr, bad: Rr < rLimit, span: b.span ?? b.sec, side: b.side });
+        const lim = rLimit(b.e);
+        b3.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: Rr, bad: Rr < lim, span: b.span ?? b.sec, side: b.side, rl: lim });
       }
-      emitRuns('B3', lineId, b3, rLimit, { kind, rLimit }, true);
+      emitRuns('B3', lineId, b3, 0, { kind }, true);
     }
     // B1 JITTER: 0.25 m samples within JitterHalfM of a turning vertex, Kasa fit over +-JitterHalfM
     const step = R.JitterStepM, H = R.JitterHalfM, nH = Math.round(H / step);
@@ -1020,7 +1027,7 @@ export function runGate(S, R, layouts, opts = {}) {
                         e0: a.e, s0: a.s, e1: b.e, s1: b.s, kind: kindName, node: nodeOf(ed, 'start'), side: kindName === 'midline' ? undefined : q.side });
           }
           finish();
-          open = { pts: [...pc], id: kindName === 'midline' ? 'MID' : 'R' + pc[0].side, rLimit: rLimitOf(ed), sh: { x: 0, z: 0 } };
+          open = { pts: [...pc], id: kindName === 'midline' ? 'MID' : 'R' + pc[0].side, rLimit: rLimitOf, sh: { x: 0, z: 0 } };
         }
         // a strand that does not reach this edge's chain-end section cannot continue into the next edge
         if (open && open.pts[open.pts.length - 1].sec !== endSec) finish();
@@ -1031,7 +1038,7 @@ export function runGate(S, R, layouts, opts = {}) {
     // chain-right is the edge's L going forward, its R going backward
     joinStrands(ed => ed.fwd ? ed.rib.L : ed.rib.R, 'edge', () => R.InnerEdgeMinRM);
     joinStrands(ed => ed.fwd ? ed.rib.R : ed.rib.L, 'edge', () => R.InnerEdgeMinRM);
-    joinStrands(ed => ed.mid, 'midline', ed => R.rMinFor(ed.e.klass));
+    joinStrands(ed => ed.mid, 'midline', ei => R.rMinFor(E[ei].klass));
 
     // ---- painted lines: link pieces across joints (join <= JoinM, else JUMP within MatchM, else END)
     // every piece, oriented, tagged with whether it touches the chain-start / chain-end section of its edge
@@ -1162,11 +1169,12 @@ export function runGate(S, R, layouts, opts = {}) {
     // (and a painted line's bucket is named after the line its own samples lie on - the plan line of their edge: a
     // strand crosses joints into other profiles, and named after its identity chain's first piece it took whichever
     // line the chain happened to start from, so the two gates, which orient chains differently, named one run twice)
-    const addKey = (bid, v, l, side, name) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.kind === 'edge' && side ? 'R' + side : name ?? r.lineId}`); r.kq.push(ratioOf(v)); r.kl.push(l); };
-    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i], r.bs[i], r.bn ? r.bn[i] : undefined));
+    // (a B3 bucket against its own samples' limit)
+    const addKey = (bid, v, l, side, name, lim) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.kind === 'edge' && side ? 'R' + side : name ?? r.lineId}`); r.kq.push(r.check === 'B3' && lim !== undefined ? lim / Math.max(1e-6, v) : ratioOf(v)); r.kl.push(l); };
+    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i], r.bs[i], r.bn ? r.bn[i] : undefined, r.br ? r.br[i] : undefined));
     else if (r.check === 'C1') for (let b = bucketOf(e, Math.min(r.s0, r.s1)); b <= bucketOf(e, Math.max(r.s0, r.s1)); b++) addKey(b, r.val, r.len);
     else addKey(bucketOf(e, r.s), r.val, 0);
-    delete r.bk; delete r.bv; delete r.bl; delete r.bs; delete r.bn; delete r.lastArc;
+    delete r.bk; delete r.bv; delete r.bl; delete r.bs; delete r.bn; delete r.br; delete r.lastArc;
     r.tile = `${Math.floor(r.x / 256)},${Math.floor(r.z / 256)}`;
     if ((r.check === 'A5' || r.check === 'A5b') && r.len < minRunLen[r.check]) r.drop = true;
     // cause hint

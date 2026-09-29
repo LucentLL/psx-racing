@@ -624,6 +624,21 @@ if (want('C')) {
     probe('L2 400 random lines of corners, jogs, bumps and short legs, each read backwards too: every vertex scores the same B2 either way (the worse of the two walks)',
       past > 100 && differ === 0, `${past} vertices past V, ${differ} scoring differently backwards (worst ${(worst * 100).toFixed(1)}%)`);
   }
+  // B3's limit is the sample's OWN edge's class: it came from the strand's first edge, so a midline running from a
+  // local street (R_min 7.5 m) on into a tertiary one (10 m) judged the tertiary's corner at 7.5 m, or at 10 m, by
+  // which end the chain started from (the first Unity run: I-277's and the Independence Expressway's midlines were
+  // judged at a link's 25 m offline and at the motorway's 150 m in CitySmooth)
+  {
+    const A = []; { let p = [0, 0], h = 10 * DEG; A.push(p); p = fwd(p, h, 60); A.push(p); }
+    const B = []; { let p = A.at(-1), h = 10 * DEG; B.push(p); p = fwd(p, h, 20); B.push(p); h += 20 * DEG; p = fwd(p, h, 60); B.push(p); }
+    const wA = { pts: A, lanes: 2, rank: 0, wayId: 7101 }, wB = { pts: B, lanes: 2, rank: 1, wayId: 7102 };
+    const b3 = res => res.g.runs.filter(r => r.check === 'B3' && r.lineId === 'MID' && res.S.E[r.e].wayId === 7102).map(r => r.ratio);
+    const r1 = b3(gateOf(city([wA, wB]), R, layouts)), r2 = b3(gateOf(city([wB, wA]), R, layouts));
+    const want = R.rMinFor('tertiary');
+    probe('L3 a midline from a local street on into a tertiary one with a 20 degree corner: the corner is judged at the tertiary\'s R_min, whichever way the chain runs',
+      r1.length > 0 && r2.length === r1.length && r1.every((x, i) => Math.abs(x - r2[i]) < 1e-9) && Math.abs(r1[0] * 3 / (20 * DEG) / want - 1) < 0.05,
+      `B3 on the tertiary: ${r1.map(x => x.toFixed(2)).join(', ') || 'none'} / ${r2.map(x => x.toFixed(2)).join(', ') || 'none'} (R_min ${want} m)`);
+  }
   // review 7: SmoothRules' numbers are C# FLOATS. Read as doubles offline, V was 1.5e-8 off the mesh gate's and the arc
   // frame's discrete tests (|k| <= tolK at exactly R 2000, the V/4 fit, the V/50 chord points, a ceil at an exact ratio)
   // flipped between the two gates: an R 2000 bump failed offline at 1.20x and read 0.04x in CitySmooth

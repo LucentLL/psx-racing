@@ -387,6 +387,9 @@ namespace PSXRacing.EditorTools
             /// started from - linegate.mjs, which starts chains elsewhere, named
             /// one run two ways.</summary>
             public List<string> bn;
+            /// <summary>B3: the limit of each bucket's worst sample (its own
+            /// edge's class; linegate.mjs br).</summary>
+            public List<double> br;
             /// <summary>The keys, each with its worst ratio and its bad length (the
             /// arc between consecutive bad samples, to the bucket of the later).</summary>
             public List<string> kk; public List<double> kq, kl;
@@ -647,9 +650,12 @@ namespace PSXRacing.EditorTools
             /// <summary>The fan whose perimeter this is (-1: none): set on every run at creation.</summary>
             public int node = -1;
             bool Worse(double a, double b) => minIsWorse ? a < b : Math.Abs(a) > Math.Abs(b);
+            /// <summary>With the samples' own limits (B3: each sample against its own edge's class), the worst is the
+            /// tightest against its own limit.</summary>
+            bool Worse(double a, double ra, double b, double rb) => minIsWorse && ra > 0 && rb > 0 ? a / ra < b / rb : Worse(a, b);
             /// <summary>A break in the samples: closes, no arc across it.</summary>
             public void Gap() { Close(); px = double.NaN; }
-            public void Push(double x, double y, double z, int e, double s, double val, bool bad, char tag = ' ', int span = -1, char side = ' ', string what = null, string lid = null)
+            public void Push(double x, double y, double z, int e, double s, double val, bool bad, char tag = ' ', int span = -1, char side = ' ', string what = null, string lid = null, double rl = 0)
             {
                 if (!double.IsNaN(px)) arc += Math.Sqrt((x - px) * (x - px) + (z - pz) * (z - pz));
                 px = x; pz = z;
@@ -658,20 +664,20 @@ namespace PSXRacing.EditorTools
                 double inc = cur != null ? arc - cur.lastArc : 0;
                 if (cur == null)
                     cur = new Run { check = check, lineId = lid ?? lineId, kind = kind, reportOnly = reportOnly, e = e, s = s, x = x, y = y, z = z, val = val,
-                                    e0 = e, s0 = s, e1 = e, s1 = s, tag = tag, span = span, side = side, rLimit = rLimit, node = node, len = -arc,
-                                    bk = new List<long>(), bv = new List<double>(), bl = new List<double>(), bs = new List<char>(), bn = new List<string>(), what = what };
+                                    e0 = e, s0 = s, e1 = e, s1 = s, tag = tag, span = span, side = side, rLimit = rl > 0 ? rl : rLimit, node = node, len = -arc,
+                                    bk = new List<long>(), bv = new List<double>(), bl = new List<double>(), bs = new List<char>(), bn = new List<string>(), br = new List<double>(), what = what };
                 cur.e1 = e; cur.s1 = s; cur.lastArc = arc;
                 long bid = node >= 0 ? -(node * 4096L + Math.Min(Math.Max(span, 0), 4094) + 1) : Bucket(e, s);
                 int nb = cur.bk.Count;
                 if (nb > 0 && cur.bk[nb - 1] == bid)
                 {
-                    if (Worse(val, cur.bv[nb - 1])) cur.bv[nb - 1] = val;
+                    if (Worse(val, rl, cur.bv[nb - 1], cur.br[nb - 1])) { cur.bv[nb - 1] = val; cur.br[nb - 1] = rl; }
                     cur.bl[nb - 1] += inc;
                     if (lid != null && (cur.bn[nb - 1] == null || string.CompareOrdinal(lid, cur.bn[nb - 1]) < 0)) cur.bn[nb - 1] = lid;
                 }
-                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); cur.bs.Add(side); cur.bn.Add(lid); }
-                if (Worse(val, cur.val))
-                { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; cur.what = what; if (lid != null) cur.lineId = lid; }
+                else { cur.bk.Add(bid); cur.bv.Add(val); cur.bl.Add(inc); cur.bs.Add(side); cur.bn.Add(lid); cur.br.Add(rl); }
+                if (Worse(val, rl, cur.val, cur.rLimit))
+                { cur.val = val; cur.e = e; cur.s = s; cur.x = x; cur.y = y; cur.z = z; cur.tag = tag; cur.span = span; cur.side = side; cur.what = what; if (lid != null) cur.lineId = lid; if (rl > 0) cur.rLimit = rl; }
             }
             public void Close()
             {
@@ -1428,7 +1434,11 @@ namespace PSXRacing.EditorTools
         }
 
         // ---- the B-family on one strand
-        static void ShapeChecks(string kind, string lineId, List<Pt> pts, double rLimit, int node = -1)
+        /// <summary>rLimitOf: B3's limit for a sample on an edge (ribbon edges: InnerEdgeMinRM; the midline: its OWN
+        /// edge's class R_min - it came from the strand's first edge, so a midline from a link onto a motorway was
+        /// judged at the link's 25 m, or the motorway's 150 m, by where the strand started; linegate.mjs rLimit), or
+        /// null: no B3 (paint).</summary>
+        static void ShapeChecks(string kind, string lineId, List<Pt> pts, Func<int, double> rLimitOf, int node = -1)
         {
             if (pts.Count < 3) return;
             // drop collinear vertices and duplicates
@@ -1476,9 +1486,9 @@ namespace PSXRacing.EditorTools
             }
             b2.Close();
             // B3 CURVE (ribbon edges, midline, fans)
-            if (rLimit > 0)
+            if (rLimitOf != null)
             {
-                var b3 = new RunBuilder("B3", lineId, kind, null, true) { rLimit = rLimit, node = node };
+                var b3 = new RunBuilder("B3", lineId, kind, null, true) { node = node };
                 for (int m = 1; m + 1 < keep.Count; m++)
                 {
                     var b = pts[keep[m]];
@@ -1487,7 +1497,8 @@ namespace PSXRacing.EditorTools
                     double h1 = Math.Atan2(b.z - p0.z, b.x - p0.x), h2 = Math.Atan2(p1.z - b.z, p1.x - b.x), dpsi = Math.Abs(h2 - h1);
                     if (dpsi > Math.PI) dpsi = 2 * Math.PI - dpsi;
                     double Rr = dpsi > 1e-9 ? SmoothRules.CurveHalfM / dpsi : 1e9;
-                    b3.Push(b.x, b.y, b.z, b.e, b.s, Rr, Rr < rLimit, b.tag, b.span, b.side);
+                    double rMin = rLimitOf(b.e);
+                    b3.Push(b.x, b.y, b.z, b.e, b.s, Rr, Rr < rMin, b.tag, b.span, b.side, null, null, rMin);
                 }
                 b3.Close();
             }
@@ -2530,9 +2541,9 @@ namespace PSXRacing.EditorTools
             // the new piece moved onto the strand's end (shx, shz: the move applied to the strand's tail). Past V a
             // JUMP and a new strand. Across a BEND FAN the strand runs on across the slab: an edge along the slab's
             // own perimeter, the midline straight from mouth to mouth; no JUMP there, the slab's corner is the fault.
-            void JoinStrands(Func<EdgeData, List<List<Pt>>> get, string kindName, Func<EdgeData, double> rLim)
+            void JoinStrands(Func<EdgeData, List<List<Pt>>> get, string kindName, Func<int, double> rLim)
             {
-                List<Pt> open = null; string openId = null; double openR = 0, shx = 0, shz = 0;
+                List<Pt> open = null; string openId = null; Func<int, double> openR = rLim; double shx = 0, shz = 0;
                 void Finish() { if (open != null) { strands++; ShapeChecks(kindName, openId, open, openR); } open = null; }
                 for (int c = 0; c < eds.Count; c++)
                 {
@@ -2575,16 +2586,16 @@ namespace PSXRacing.EditorTools
                             }
                         }
                         Finish();
-                        open = new List<Pt>(pc); openId = kindName == "midline" ? "MID" : "R" + pc[0].side; openR = rLim(ed); shx = shz = 0;
+                        open = new List<Pt>(pc); openId = kindName == "midline" ? "MID" : "R" + pc[0].side; openR = rLim; shx = shz = 0;
                     }
                     if (open != null && Math.Abs(open[open.Count - 1].s - endS) > 1e-3) Finish();
                     if (pcs.Count == 0) Finish();
                 }
                 Finish();
             }
-            JoinStrands(ed => ed.fwd ? ed.ribL : ed.ribR, "edge", ed => SmoothRules.InnerEdgeMinRM);
-            JoinStrands(ed => ed.fwd ? ed.ribR : ed.ribL, "edge", ed => SmoothRules.InnerEdgeMinRM);
-            JoinStrands(ed => ed.mid, "midline", ed => SmoothRules.RMinFor(SmoothRules.ClassOf(ed.e.cls, ed.e.link)));
+            JoinStrands(ed => ed.fwd ? ed.ribL : ed.ribR, "edge", ei => SmoothRules.InnerEdgeMinRM);
+            JoinStrands(ed => ed.fwd ? ed.ribR : ed.ribL, "edge", ei => SmoothRules.InnerEdgeMinRM);
+            JoinStrands(ed => ed.mid, "midline", ei => SmoothRules.RMinFor(SmoothRules.ClassOf(map.edges[ei].cls, map.edges[ei].link)));
 
             // ---- painted lines: link pieces across joints
             var P = new List<PieceRef>();
@@ -2657,9 +2668,9 @@ namespace PSXRacing.EditorTools
                         strand[strand.Count - 1] = JointVertex(a, p.pts[0]);   // named after FirstEnd's end, its place kept
                         for (int k = 1; k < p.pts.Count; k++) strand.Add(Shift(p.pts[k], shx, shz));
                     }
-                    else { if (strand != null) { strands++; ShapeChecks("paint", head.id, strand, 0); } strand = new List<Pt>(p.pts); }
+                    else { if (strand != null) { strands++; ShapeChecks("paint", head.id, strand, null); } strand = new List<Pt>(p.pts); }
                 }
-                if (strand != null) { strands++; ShapeChecks("paint", head.id, strand, 0); }
+                if (strand != null) { strands++; ShapeChecks("paint", head.id, strand, null); }
                 EndChecks(seq[0], true); EndChecks(seq[seq.Count - 1], false);
                 if (head.dashed)
                 {
@@ -2759,7 +2770,7 @@ namespace PSXRacing.EditorTools
                 bool mouthNext = (f.mouths >> i & 1UL) != 0;
                 if (mouthNext || k == n)
                 {
-                    if (cur.Count >= 3) { strands++; ShapeChecks("fan", "FAN", cur, rLim, f.node); }
+                    if (cur.Count >= 3) { strands++; ShapeChecks("fan", "FAN", cur, ei => rLim, f.node); }
                     cur = new List<Pt>();
                 }
             }
@@ -2792,16 +2803,17 @@ namespace PSXRacing.EditorTools
                 // RL and RR - vanishing from the ratchet - whenever that worst moved to an edge the chain runs the other way)
                 r.kk = new List<string>(); r.kq = new List<double>(); r.kl = new List<double>();
                 // (and a painted line's bucket is named after the line its own samples lie on: Run.bn)
-                void AddKey(long bid, double v, double l, char side, string name = null)
+                // (a B3 bucket against its own samples' limit: Run.br)
+                void AddKey(long bid, double v, double l, char side, string name = null, double lim = 0)
                 {
                     string line = r.kind == "edge" && (side == 'L' || side == 'R') ? "R" + side : name ?? r.lineId;
                     r.kk.Add(bid < 0 ? $"{e.wayId}:n{(-bid - 1) / 4096}c{(-bid - 1) % 4096}:{r.check}:FAN" : $"{bid / 1048576L}:{(bid % 1048576L).ToString(Inv)}:{r.check}:{line}");
-                    r.kq.Add(RatioOf(v)); r.kl.Add(l);
+                    r.kq.Add(r.check == "B3" && lim > 0 ? lim / Math.Max(1e-6, v) : RatioOf(v)); r.kl.Add(l);
                 }
-                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i], r.bl[i], r.bs[i], r.bn != null ? r.bn[i] : null);
+                if (r.bk != null) for (int i = 0; i < r.bk.Count; i++) AddKey(r.bk[i], r.bv[i], r.bl[i], r.bs[i], r.bn != null ? r.bn[i] : null, r.br != null ? r.br[i] : 0);
                 else if (r.check == "C1") for (long b = Bucket(r.e, Math.Min(r.s0, r.s1)); b <= Bucket(r.e, Math.Max(r.s0, r.s1)); b++) AddKey(b, r.val, r.len, ' ');
                 else AddKey(Bucket(r.e, r.s), r.val, 0, ' ');
-                r.bk = null; r.bv = null; r.bl = null; r.bs = null; r.bn = null;
+                r.bk = null; r.bv = null; r.bl = null; r.bs = null; r.bn = null; r.br = null;
                 // causes: the tap's flags and the data near the worst sample
                 var causes = new List<string>();
                 double lo = r.check == "C1" ? Math.Min(r.s0, r.s1) - 1 : r.s - 1, hi = r.check == "C1" ? Math.Max(r.s0, r.s1) + 1 : r.s + 1;
