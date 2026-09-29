@@ -430,7 +430,9 @@ namespace PSXRacing.EditorTools
                 var edge = new Vector3(p.x + outw.x * hw, y, p.y + outw.y * hw);
                 var o3 = new Vector3(outw.x, 0f, outw.y);
                 var walk = new StringBuilder("  walk out (d: y-road, what):");
-                for (float d = -0.3f; d <= 2.501f; d += 0.05f)
+                // PSX_PROBE_WALK=<metres> walks further out (2.5 m by default), every 0.25 m past 2.5 m
+                float walkTo = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_PROBE_WALK") ?? "", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float wt) ? wt : 2.5f;
+                for (float d = -0.3f; d <= walkTo + 1e-3f; d += d < 2.5f ? 0.05f : 0.25f)
                 {
                     var from = edge + o3 * d + Vector3.up * 3f;
                     RaycastHit best = default; bool found = false;
@@ -443,7 +445,7 @@ namespace PSXRacing.EditorTools
                 sb.AppendLine(walk.ToString());
 
                 // the ground function's terms out from the edge
-                foreach (float d in new[] { 0.5f, 1f, 1.5f, 2f, 3f, 4f, 6f })
+                foreach (float d in new[] { 0.5f, 1f, 1.5f, 2f, 3f, 4f, 6f, 8f, 10f, 12f, 16f, 20f })
                 {
                     var q = new Vector2(edge.x, edge.z) + outw * d;
                     float g = CityElevation.Ground(map, q.x, q.y, out var t);

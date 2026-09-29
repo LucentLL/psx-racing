@@ -78,18 +78,10 @@ namespace PSXRacing.City
         /// <see cref="CapReach"/> band), which is all the at-grade decks
         /// needed.</summary>
         public const float CapPadM = 2f;
-        /// <summary>How far past its pavement a grounded road's land holds
-        /// at the road's own pin before it may fall away (at 1V:3H,
-        /// RoadsideRules.TraversableSlope) toward a lower neighbour. The
-        /// corridor MEAN used to average a street's verge halfway down to a
-        /// trench or a ramp 20-40 m away (-2.3 m 30 m from the 277 cut), so
-        /// the upper road stood on a ledge. One lattice diagonal past the
-        /// pavement, the same band <see cref="CapReach"/> protects a LOWER
-        /// road with: every lattice cell the verge can lie on has all four
-        /// corners at the pin. Where two roads are closer than both bands the
-        /// lower road's pavement still wins (grass through tarmac is worse),
-        /// and CityMeshes puts a warranted barrier on the upper edge.</summary>
-        public const float FloorFlatM = 6.5f + CapReach;
+        // (FloorFlatM, the 11.5 m every grounded road held its land flat for
+        // before it fell at 1V:3H, went with WP-14: a road's FLOOR is now its
+        // section's fill - flat across RoadsideRules.CityBenchM, then
+        // RoadsideRules.CityFillSlope - see Ground.)
         /// <summary>The longest run, along a road, between two corners of
         /// one 8 m lattice triangle: the cell diagonal. The sag allowance is
         /// measured over chords this long (it bounds the 8 m chords too).</summary>
@@ -2034,17 +2026,30 @@ namespace PSXRacing.City
         /// The ground height at a point, and why. In order:
         ///
         ///   1. the DEM, carved by creeks and sunk by lakes;
-        ///   2. blended toward the MEAN of every grounded corridor's pin
-        ///      (tarmac - <see cref="CorridorSink"/> - the sag allowance);
-        ///   3. raised to the highest road FLOOR: each grounded road holds its
-        ///      own pin out to <see cref="FloorFlatM"/> past its pavement,
-        ///      then lets it fall at 1V:3H — so a road's verge is never
-        ///      averaged down onto a neighbour's ledge;
-        ///   4. lowered to the lowest pin whose pavement this point's lattice
-        ///      cells can touch (<see cref="CapReach"/>): grass never comes
-        ///      through a lower road's lanes, and where 3 and 4 disagree the
-        ///      two roads cannot be graded apart at 8 m, the upper edge stands
-        ///      over a drop, and the tile puts a warranted rail on it;
+        ///   2. graded to every grounded road beside it by that road's DOT
+        ///      SECTION (WP-14, <see cref="RoadsideRules"/>), each side on its
+        ///      own: the land lies at the road's pin (tarmac -
+        ///      <see cref="CorridorSink"/> - the sag allowance) across the
+        ///      pavement and its BENCH, then
+        ///        a FILL falls from the bench at 1V:4H down to the land
+        ///        (raised to the highest such floor of all the roads, so a
+        ///        road's verge is never graded down onto a neighbour's ledge);
+        ///        a CUT stays at the pin across the lattice band
+        ///        (<see cref="RoadsideRules.CityCutBandM"/>: no 8 m lattice
+        ///        triangle that touches the pavement may rise above it) and
+        ///        climbs from there at the 1V:3H back slope up to the land
+        ///        (lowered to the lowest such cap, so grass never comes
+        ///        through a lower road's lanes; where a floor and a cap
+        ///        disagree the two roads cannot be graded apart, the upper
+        ///        edge stands over a drop, and the tile puts a warranted rail
+        ///        on it);
+        ///      and past <see cref="RoadsideRules.CityFadeStartM"/> a section
+        ///      lets go of the land by <see cref="RoadsideRules.CityFadeEndM"/>
+        ///      (a cut or fill deeper than its slope can reach by then steepens
+        ///      out there instead of ending in a cliff). It replaced a fixed
+        ///      corridor, flat to 11.5 m past the pavement and blended to the
+        ///      DEM over 26 m more, which read on every hill as a road on a
+        ///      flat strip;
         ///   5. under structure: no higher than any deck's pavement minus the
         ///      sink within the same band, and dug to UnderDeckAir under the
         ///      soffit within <see cref="CapPadM"/> of the deck — both from
@@ -2121,13 +2126,15 @@ namespace PSXRacing.City
             }
             terms.carve = demY - baseY;
 
-            // road corridors pin the land to the tarmac (grounded stations only)
+            // every grounded road beside the point grades it by its section
+            // (grounded stations only; WP-14)
             segScratch ??= new HashSet<int>();
             segScratch.Clear();
             float reachR = MaxCorridorHalf + CorridorBlend;
             map.EdgeSegsInRect(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
 
-            float wSum = 0f, tSum = 0f, wMax = 0f, tMin = float.MaxValue, floorMax = float.MinValue;
+            float land = baseY;
+            float floorMax = float.MinValue, cutMin = float.MaxValue, capMin = float.MaxValue;
             float deckProtect = float.MaxValue, deckCap = float.MaxValue;
             terms.dem = baseY;
             foreach (var packed in segScratch)
@@ -2140,12 +2147,11 @@ namespace PSXRacing.City
                 float t = Mathf.Clamp01(tRaw);
                 Vector2 q = a + d * t;
                 float dist = Vector2.Distance(p2, q);
-                float ch = Mathf.Min(e.CorridorHalf, MaxCorridorHalf);
-                if (dist > ch + CorridorBlend) continue;
+                float hw = e.width * 0.5f;
+                // metres past the pavement's edge (negative on it)
+                float past = dist - hw;
+                if (past > RoadsideRules.CityFadeEndM) continue;
                 float at = e.s[si] + Mathf.Sqrt(L2) * t;
-                float w = dist <= ch ? 1f
-                    : 1f - (dist - ch) / CorridorBlend;
-                w = w * w * (3f - 2f * w);
                 if (e.ElevatedAt(at))
                 {
                     // Structure does not pin the land — but the land may not
@@ -2165,10 +2171,11 @@ namespace PSXRacing.City
                     // cross, its footprint is dug to leave UnderDeckAir under
                     // the soffit. A cap, never a raise: under a real viaduct
                     // the valley is already deeper.
-                    if (dist <= e.width * 0.5f + CapPadM && deckY - DeckThick - UnderDeckAir < deckCap)
+                    if (dist <= hw + CapPadM && deckY - DeckThick - UnderDeckAir < deckCap)
                     { deckCap = deckY - DeckThick - UnderDeckAir; terms.deckEdge = ei; }
                     // ...and its pavement is protected like any road's: the
                     // lattice cells it touches never stand above it.
+                    float ch = Mathf.Min(e.CorridorHalf, MaxCorridorHalf);
                     if (dist <= ch + CapReach && deckY - CorridorSink < deckProtect)
                     { deckProtect = deckY - CorridorSink; if (terms.deckEdge < 0) terms.deckEdge = ei; }
                     continue;
@@ -2176,42 +2183,55 @@ namespace PSXRacing.City
                 // the sag allowance: extra sink where the profile is convex
                 // from below, so the straight lattice never rises above the
                 // bent road (see MeasureSags)
-                float target = e.YAt(at) - CorridorSink - e.SagAt(at);
-                wSum += w; tSum += target * w;
-                if (w > wMax) wMax = w;
-                // The protection below reaches CapReach past the corridor: a
-                // lattice vertex up to a cell outside it still shapes the cells
-                // under the pavement, and one beside the Independence
-                // Expressway — just outside its corridor, inside the blend of
-                // Briar Creek Road's abutment four metres higher and twenty
-                // away — took the mean of the two and stood 1.2 m proud. The
-                // cell it cornered rose through the expressway's outside lane.
-                if (dist <= ch + CapReach && target < tMin) { tMin = target; terms.protectEdge = ei; }
-                // The floor: this road's own pin, flat to FloorFlatM past its
-                // pavement and then a 1V:3H batter — but never more than this
-                // road alone would grade the point to, so it fades with the
-                // blend exactly as a lone road's embankment does.
-                float hw = e.width * 0.5f;
-                float floor = Mathf.Min(target - Mathf.Max(0f, dist - hw - FloorFlatM) * RoadsideRules.TraversableSlope,
-                                        Mathf.Lerp(baseY, target, w));
+                float pin = e.YAt(at) - CorridorSink - e.SagAt(at);
+                float bench = RoadsideRules.CityBenchM(e.cls, e.link);
+                // how firmly the section holds the land: whole to the fade's
+                // start, gone at its end
+                float hold = past <= RoadsideRules.CityFadeStartM ? 1f
+                    : 1f - (past - RoadsideRules.CityFadeStartM) / (RoadsideRules.CityFadeEndM - RoadsideRules.CityFadeStartM);
+                hold = hold * hold * (3f - 2f * hold);
+                // THE CUT (the land above the road): the pin across the
+                // lattice band, then the back slope up to the land.
+                float band = Mathf.Max(bench, RoadsideRules.CityCutBandM);
+                float cut = pin + Mathf.Max(0f, past - band) * RoadsideRules.BackSlope;
+                cut = Mathf.Lerp(baseY, cut, hold);
+                if (cut < cutMin) cutMin = cut;
+                // THE CAP (every road's protection, whatever grades the land
+                // round it): no vertex of an 8 m lattice triangle that can
+                // touch this pavement stands above it. Across the band that
+                // is the pin; from there to the lattice's reach the back
+                // slope, whose rise a triangle reaching back under the
+                // pavement carries over the edge by less than the sink
+                // (RoadsideRules.CityCutBandM); past the reach, nothing.
+                if (past <= RoadsideRules.CityLatticeReachM)
+                {
+                    float cap = pin + Mathf.Max(0f, past - RoadsideRules.CityCutBandM) * RoadsideRules.BackSlope;
+                    if (cap < capMin) { capMin = cap; terms.protectEdge = ei; }
+                }
+                // THE FLOOR (a fill's side): the pin across the bench, then
+                // 1V:4H down, fading with the hold as the cut does - but only
+                // where the land is BELOW it. Where the land stands above the
+                // road a floor is no fill, and lerped toward that land it
+                // raised what the cuts had graded down straight back up
+                // (I-277's floor stood the land 5 m over a ramp beside it).
+                float floor = pin - Mathf.Max(0f, past - bench) * RoadsideRules.CityFillSlope;
+                if (baseY < floor) floor = Mathf.Lerp(baseY, floor, hold);
                 if (floor > floorMax) { floorMax = floor; terms.floorEdge = ei; }
-                if (dist - hw <= PitReachM && (float.IsNaN(terms.nearFloor) || floor > terms.nearFloor))
-                { terms.nearFloor = floor; terms.nearEdge = ei; terms.nearDist = dist - hw; }
+                if (past <= PitReachM && (float.IsNaN(terms.nearFloor) || floor > terms.nearFloor))
+                { terms.nearFloor = floor; terms.nearEdge = ei; terms.nearDist = past; }
             }
-            if (wSum > 1e-4f)
+            if (floorMax > float.MinValue || cutMin < float.MaxValue)
             {
-                float target = tSum / wSum;
-                baseY = Mathf.Lerp(baseY, target, wMax);
-                terms.blended = baseY;
-                // The blend is a weighted MEAN, so where two roads at different
-                // heights share a corridor it settles BETWEEN them: below the
-                // upper road's verge, above the lower road's lanes. The upper
-                // road keeps its floor...
-                baseY = Mathf.Max(baseY, floorMax);
-                terms.floor = floorMax;
-                // ...and never above the LOWEST tarmac this point is actually
-                // beside.
-                if (tMin < float.MaxValue) { baseY = Mathf.Min(baseY, tMin); terms.protect = tMin; }
+                // the land cut down to every road's back slope...
+                if (cutMin < float.MaxValue) land = Mathf.Min(land, cutMin);
+                // ...held up by every road's fill (the upper road's verge is
+                // never cut down onto a neighbour's ledge)...
+                if (floorMax > float.MinValue) { land = Mathf.Max(land, floorMax); terms.floor = floorMax; }
+                terms.blended = land;
+                // ...and never above the LOWEST cap this point is beside:
+                // grass through a lower road's lanes is worse than a ledge
+                if (capMin < float.MaxValue) { land = Mathf.Min(land, capMin); terms.protect = capMin; }
+                baseY = land;
             }
             else terms.blended = baseY;
             if (deckProtect < float.MaxValue) { baseY = Mathf.Min(baseY, deckProtect); terms.deckProtect = deckProtect; }

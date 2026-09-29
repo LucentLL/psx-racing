@@ -51,6 +51,14 @@ namespace PSXRacing.EditorTools
             new Target("rozzelles_stewart", "Rozzelles", "Stewart", null, 35.2465, -80.8665, "Rozzelles Ferry Rd down to Stewart Creek"),
             new Target("archdale_littlesugar", "Archdale", "Little Sugar", null, 35.1500, -80.8500, "Archdale Dr down to Little Sugar Creek"),
             new Target("independence_briar", "Independence", "Briar", "Edwards", 35.2109, -80.8014, "the Independence Sprint (US 74) down to Briar Creek"),
+            // WP-14: four ordinary streets, no creek named - the camera finds
+            // the street's lowest point within 700 m of the spot (the budget
+            // probe's sites) and looks down into it, so the land either side
+            // of a street on a hill is in the frame
+            new Target("street_queens", "Queens Road", null, null, 35.1928, -80.8368, "Queens Rd W, Dilworth / Myers Park, into its dip"),
+            new Target("street_central", "Central Avenue", null, null, 35.2202, -80.8090, "Central Ave, Plaza Midwood, into its dip"),
+            new Target("street_providence", "Providence Road", null, null, 35.1684, -80.8047, "Providence Rd into its dip"),
+            new Target("street_beatties", "Beatties Ford", null, null, 35.4225, -80.9159, "Beatties Ford Rd, rural, into its dip"),
         };
 
         const float EyeM = 1.2f, FovDeg = 58f, FarM = 500f;

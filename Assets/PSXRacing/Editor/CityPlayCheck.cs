@@ -237,6 +237,8 @@ namespace PSXRacing.EditorTools
                 yield return Restaurant(mode, roamSpawn, CityProps.Pizzeria);
                 stage = "the city's trees";
                 yield return Trunks(mode, roamSpawn);
+                stage = "driving off the road (WP-14)";
+                yield return DriveOff(mode, roamSpawn);
                 stage = "the pause menu";
                 yield return StartCoroutine(PauseCheck("roam"));
             }
@@ -861,6 +863,126 @@ namespace PSXRacing.EditorTools
             foreach (var mb in player.GetComponents<MonoBehaviour>())
                 if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = true;
             CityPlayCheck.Check(runs >= 3, "at least three city trunks were driven at", runs + " of " + tried + " tried");
+            player.TeleportTo(home, Quaternion.identity);
+            for (int k = 0; k < 10; k++) yield return null;
+        }
+
+        /// <summary>
+        /// WP-14's play check: a car that leaves a race route at 25 m/s and
+        /// 15 degrees onto the graded roadside - down a fill's bank, up a
+        /// cut's back slope, onto a level verge - comes through it. Spots are
+        /// found on the three routes from the solved ground (the land 12 m
+        /// past the edge 1.5 m or more under the road, 1.5 m or more over it,
+        /// or level), grounded, 40 m from a node, with no other road near
+        /// and nothing solid in the run (a lamp post is not the grading's).
+        /// Judged while the car is inside the race run-off (RaceRunOff, kept
+        /// clear of trees) and while it brakes to a stop after: no hard stop
+        /// (a wall or a face), upright, and never more than a car's height
+        /// over the ground under it (no drop it fell off).
+        /// </summary>
+        IEnumerator DriveOff(CityMode mode, Vector3 home)
+        {
+            CityPlayCheck.Line("driving off the road onto the graded roadside (WP-14: 25 m/s, 15 degrees):");
+            var world = mode.world; var player = mode.player; var map = world.Map;
+            int solidMask = 1 << CityWorld.SolidLayer, groundMask = ~((1 << 2) | solidMask);
+            const float Speed = 25f, Angle = 15f, Probe = 12f, Need = 1.5f;
+            var picks = new List<(int e, float s, int side, string kind, float dy)>();
+            int want = 2, fills = 0, cuts = 0, level = 0;
+            if (map.routes != null)
+                foreach (var rt in map.routes)
+                    foreach (int ei in rt.edges)
+                    {
+                        var e = map.edges[ei];
+                        if (e.link || e.length < 90f) continue;
+                        for (float s = 40f; s <= e.length - 40f; s += 25f)
+                        {
+                            if (e.ElevatedAt(s)) continue;
+                            var c = e.PointAt(s); var t = e.TangentAt(s); var n = new Vector2(-t.y, t.x);
+                            float hw = e.width * 0.5f, y = e.YAt(s);
+                            bool took = false;
+                            for (int side = -1; side <= 1 && !took; side += 2)
+                            {
+                                var q = c + n * side * (hw + Probe);
+                                // no other road beside it: the run is this road's roadside
+                                if (map.NearestRoadPoint(q, hw + Probe + 6f, false, out int oe, out _, out float od) && oe != ei &&
+                                    od < map.edges[oe].width * 0.5f + 14f) continue;
+                                float dy = CityElevation.GroundY(map, q.x, q.y) - y;
+                                string kind = dy <= -Need ? "fill" : dy >= Need ? "cut" : Mathf.Abs(dy) < 0.3f ? "level" : null;
+                                if (kind == null) continue;
+                                if (kind == "fill" && fills >= want || kind == "cut" && cuts >= want || kind == "level" && level >= want) continue;
+                                picks.Add((ei, s, side, kind, dy));
+                                if (kind == "fill") fills++; else if (kind == "cut") cuts++; else level++;
+                                took = true;
+                            }
+                            if (took) s += 400f;   // spread them out
+                        }
+                    }
+            CityPlayCheck.Line($"  spots on the routes: {fills} fill, {cuts} cut, {level} level");
+            foreach (var mb in player.GetComponents<MonoBehaviour>())
+                if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = false;
+            int driven = 0, drivenFill = 0, drivenCut = 0;
+            foreach (var pk in picks)
+            {
+                var e = map.edges[pk.e];
+                var c = e.PointAt(pk.s); var t = e.TangentAt(pk.s); var n = new Vector2(-t.y, t.x) * pk.side;
+                float hw = e.width * 0.5f, y = e.YAt(pk.s);
+                // 2 m inside the edge, heading 15 degrees off the road toward it
+                var start2 = c + n * (hw - 2f) - t * 6f;
+                var dir2 = (t * Mathf.Cos(Angle * Mathf.Deg2Rad) + n * Mathf.Sin(Angle * Mathf.Deg2Rad)).normalized;
+                var start = new Vector3(start2.x, e.YAt(Mathf.Max(0f, pk.s - 6f)), start2.y);
+                var dir = new Vector3(dir2.x, 0f, dir2.y);
+                world.EnsureRing(start, 1);
+                for (int k = 0; k < 10; k++) yield return null;
+                // the run to RaceRunOff's reach past the edge, clear of solids
+                float runM = (2f + RaceRunOff.RunOffM) / Mathf.Sin(Angle * Mathf.Deg2Rad);
+                string what = $"{pk.kind} ({pk.dy:+0.0;-0.0} m 12 m out) beside e{pk.e} '{e.name}' s={pk.s:0} side {(pk.side < 0 ? "L" : "R")} ({c.x:0},{c.y:0})";
+                if (Physics.SphereCast(start + Vector3.up * 1.2f, 0.9f, dir, out var blk, runM, solidMask, QueryTriggerInteraction.Ignore))
+                { CityPlayCheck.Line($"  --   {what}: {blk.collider.name} in the run at {blk.distance:0.0} m, skipped"); continue; }
+                player.TeleportTo(start + Vector3.up * 0.6f, Quaternion.LookRotation(dir, Vector3.up));
+                player.throttleInput = 0f; player.brakeInput = 1f; player.steerInput = 0f;
+                for (int k = 0; k < 30; k++) yield return new WaitForFixedUpdate();
+                player.brakeInput = 0f;
+                player.Body.linearVelocity = player.transform.forward * Speed;
+                float lastV = Speed, worstLoss = 0f, minUp = 1f, worstAir = 0f, past = 0f;
+                bool left = false;
+                var edgeLine = c + n * hw;
+                for (int k = 0; k < Mathf.RoundToInt(7f / Time.fixedDeltaTime); k++)
+                {
+                    var pos = player.Body.position;
+                    past = Vector2.Dot(new Vector2(pos.x, pos.z) - edgeLine, n);
+                    bool inRunOff = past <= RaceRunOff.RunOffM;
+                    if (past > 0.5f) left = true;
+                    // coast across the run-off, then brake as a driver would on the grass
+                    player.throttleInput = 0f; player.steerInput = 0f;
+                    player.brakeInput = left && !inRunOff ? 1f : 0f;
+                    yield return new WaitForFixedUpdate();
+                    float v = player.Body.linearVelocity.magnitude;
+                    // the braking run past the run-off is judged until something
+                    // other than the land (a tree, a post) could be what stops it
+                    if (inRunOff)
+                    {
+                        worstLoss = Mathf.Max(worstLoss, lastV - v);
+                        minUp = Mathf.Min(minUp, player.transform.up.y);
+                        // the ground under the car, not the car: the highest hit that is not its own
+                        float gy = float.NegativeInfinity;
+                        foreach (var h in Physics.RaycastAll(player.Body.position + Vector3.up * 2f, Vector3.down, 40f, groundMask, QueryTriggerInteraction.Ignore))
+                            if (h.collider.attachedRigidbody != player.Body && h.point.y > gy) gy = h.point.y;
+                        if (!float.IsNegativeInfinity(gy)) worstAir = Mathf.Max(worstAir, player.Body.position.y - gy);
+                    }
+                    else minUp = Mathf.Min(minUp, player.transform.up.y);
+                    lastV = v;
+                    if (!inRunOff && v < 1f) break;
+                }
+                string got = $"left the pavement: {(left ? "yes" : "no")}; {past:0.0} m past the edge at the end; worst speed lost in one step across the run-off {worstLoss:0.0} m/s; lowest up {minUp:0.00}; most air under the body {worstAir:0.00} m; end {player.Body.linearVelocity.magnitude * 3.6f:0} km/h";
+                CityPlayCheck.Check(left && worstLoss < 4f && minUp > 0.7f && worstAir < 1.3f,
+                    $"a car driven off at 25 m/s and 15 degrees comes through the {what}", got);
+                driven++;
+                if (pk.kind == "fill") drivenFill++; else if (pk.kind == "cut") drivenCut++;
+            }
+            foreach (var mb in player.GetComponents<MonoBehaviour>())
+                if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = true;
+            CityPlayCheck.Check(driven >= 4 && drivenFill > 0 && drivenCut > 0, "the drive-off ran on fills and cuts (at least four spots)",
+                $"{driven} driven ({drivenFill} fill, {drivenCut} cut)");
             player.TeleportTo(home, Quaternion.identity);
             for (int k = 0; k < 10; k++) yield return null;
         }

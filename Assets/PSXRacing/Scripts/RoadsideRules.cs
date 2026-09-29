@@ -87,6 +87,47 @@ namespace PSXRacing
         public const float ToeTuckRunM = 0.4f;
 
         // ------------------------------------------------------------------
+        //  Charlotte's roadside SECTION (WP-14): how the land beside a
+        //  grounded city road is graded (CityElevation.Ground), per side.
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// The BENCH: metres past the pavement the land stays at the road's
+        /// level before a fill falls away: the verge's end, per class (plan
+        /// WP-14): a freeway's (or expressway's) outside shoulder and recovery
+        /// area 8 m; an arterial's clear zone plus a metre (4.5 m); a local
+        /// street 2 m. Ramps are arterials.
+        /// </summary>
+        public static float CityBenchM(int cls, bool link) =>
+            !link && cls >= 4 ? 8f : link || cls >= 2 ? ClearZoneM + 1f : 2f;
+        /// <summary>A FILL's foreslope from the bench down to the land: 1V:4H,
+        /// recoverable all the way down (the verge strip beside the pavement
+        /// falls at 1V:6H across the clear zone and then at this, so it
+        /// always comes down onto the fill).</summary>
+        public const float CityFillSlope = SteepestRecoverableSlope;
+        /// <summary>
+        /// A CUT stays at the road's level this far past the pavement before
+        /// its <see cref="BackSlope"/> climbs to the land. It is the 8 m
+        /// lattice's, not a design width: a lattice triangle whose far corner
+        /// is d metres out and whose near corner is under the pavement
+        /// crosses the edge with at most (8 sqrt 2 - d) / (8 sqrt 2) of that
+        /// corner's rise, and with the rise (d - 8.5) / 3 that is never more
+        /// than 6 cm, inside the 10 cm the lattice is sunk under the tarmac
+        /// (<see cref="CityHideMarginM"/>, less <see cref="LatticeUnderMinM"/>).
+        /// It was a flat 11.5 m with a 26 m blend past it.
+        /// </summary>
+        public const float CityCutBandM = 8.5f;
+        /// <summary>The longest side of an 8 m lattice triangle: past this no
+        /// corner of a triangle touching the pavement can be, and a road's
+        /// cap stops holding the land down.</summary>
+        public const float CityLatticeReachM = 11.31f;
+        /// <summary>Past the pavement, a section holds the land whole to
+        /// <see cref="CityFadeStartM"/> and lets go of it by
+        /// <see cref="CityFadeEndM"/>: a cut or fill too deep for its slope to
+        /// reach the land by then steepens out there rather than ending in a
+        /// cliff at the query's reach.</summary>
+        public const float CityFadeStartM = 20f, CityFadeEndM = 32f;
+
+        // ------------------------------------------------------------------
         //  Barrier warrant
         // ------------------------------------------------------------------
         /// <summary>A roadside is CRITICAL — a barrier is warranted — when,
