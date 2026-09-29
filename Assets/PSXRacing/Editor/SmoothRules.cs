@@ -45,7 +45,10 @@ namespace PSXRacing.EditorTools
         /// next to a kink) are noise and never shorten the chord, so a lone
         /// kink is judged over the full ChordCapM; a curve that keeps turning
         /// ends it. On a smoothly sampled curve neighbouring turns share a
-        /// chord, so the chord stops at the neighbour.</summary>
+        /// chord, so the chord stops at the neighbour. A turn back of this share
+        /// or more makes a HEDGED window, judged by its net turn and its jog
+        /// (lib/kink.mjs); a jog or a hedged corner is judged between straights
+        /// at least 1 / KinkNoiseShare times its own length.</summary>
         public const float KinkNoiseShare = 0.25f;
         /// <summary>B2 judges a corner split over close vertices as one
         /// (tools/city/lib/kink.mjs) as the chase view shows it out to this
@@ -131,7 +134,9 @@ namespace PSXRacing.EditorTools
         public const float FloatMaxM = 0.03f;
 
         // ---- exemptions ---------------------------------------------------------
-        /// <summary>X2: edge shape checks stand down within this of a gore nose.</summary>
+        /// <summary>X2: edge shape checks stand down within this of a gore nose
+        /// (a collapsed section); and C2's gore NOSE: a line may end within this
+        /// of one - not of a merely clipped section along a branch's attach arc.</summary>
         public const float GoreNoseM = 2f;
 
         // ---- the exporter's densify rule (plan A2 I5) ---------------------
@@ -208,19 +213,19 @@ namespace PSXRacing.EditorTools
         public static readonly CheckDef[] Checks =
         {
             new CheckDef("A0", "TEXTURE", State.Zero, "every painted run within half a texel of its plan line; every plan line painted, every run planned", "now"),
-            new CheckDef("A1", "OFF", State.Ratchet, "every painted line and edge within V of its plan", "M0 (tapers), R4"),
+            new CheckDef("A1", "OFF", State.Ratchet, "every painted line and edge within V of its plan (a squeezed edge within V of its I7 envelope)", "M0 (tapers), R4"),
             new CheckDef("A2", "SKEW", State.Ratchet, "the centre pair centred on the drawn ribbon", "M0 (tapers), R4"),
             new CheckDef("A3", "INSET", State.Ratchet, "every edge line at its inset from its own drawn edge", "M0 (tapers), R4"),
             new CheckDef("A4", "LINEWIDTH", State.Ratchet, "rendered paint width within 25% of the painted run", "M0 (tapers), R4"),
             new CheckDef("A5", "STRAY", State.Ratchet, "no paint where the plan has no line of its colour", "M0 (tapers), R4"),
             new CheckDef("A5b", "MISSING", State.Report, "every plan line drawn (report-only until the line model draws it)", "R4 (WP-11b)"),
             new CheckDef("B1", "JITTER", State.Ratchet, "no line jitters past V from its local circle", "R4"),
-            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta; a corner split over close vertices is one corner; a bend fan is judged across)", "R4"),
+            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta; a corner split over close vertices is one corner, a hedged one is its net turn, a jog its step; a bend fan is judged across)", "R4"),
             new CheckDef("B3", "CURVE", State.Ratchet, "no ribbon bends tighter than its class allows", "R4 (fans WP-19)"),
             new CheckDef("B4", "JUMP", State.Ratchet, "no line steps sideways past V where it continues", "R4 (WP-11b)"),
             new CheckDef("B4s", "SEAM", State.Zero, "no line steps at a tile seam (identical sections)", "now"),
             new CheckDef("C1", "GAP", State.Ratchet, "no solid line interrupted between its plan ends", "R4"),
-            new CheckDef("C2", "END", State.Ratchet, "lines end only at legitimate ends", "R4"),
+            new CheckDef("C2", "END", State.Ratchet, "lines end only at legitimate ends (fan mouth, gore nose, dead end, plan lane drop)", "R4"),
             new CheckDef("C3", "DASH", State.Ratchet, "dash and gap lengths along the chained line", "R4 (stubs WP-17)"),
             new CheckDef("D1", "CROSS", State.Ratchet, "no paint inside other pavement at the same level (branch attach arcs report-only)", "R4 (merge zones WP-18b)"),
             new CheckDef("E1", "FLOAT", State.Report, "strip paint 0.5-3 cm over the surface (strip paint only)", "WP-17/WP-27"),
@@ -251,6 +256,30 @@ namespace PSXRacing.EditorTools
             new RClass("tertiary_link", 10f),
             new RClass("local", 7.5f),
             new RClass("local_link", 7.5f),
+        };
+
+        /// <summary>The taper FLOOR by class (plan WP-10 item 6's proposed
+        /// values: street 15 m, arterial 30 m, freeway 90 m; ramps count as
+        /// arterial). Plan I7 eases the squeeze like a taper over it, so a
+        /// squeezed ribbon edge is judged against its I7 ENVELOPE (A1; X6 no
+        /// longer exempts it): the cut the edge takes inside its design edge,
+        /// max-dilated by a smoothstep falling to 0 over this length. A cut
+        /// that arrives or leaves faster than that, or wanders back out
+        /// between sections, sits outside its envelope.</summary>
+        public static readonly RClass[] TaperFloor =
+        {
+            new RClass("motorway", 90f),
+            new RClass("trunk", 90f),
+            new RClass("motorway_link", 30f),
+            new RClass("trunk_link", 30f),
+            new RClass("primary", 30f),
+            new RClass("secondary", 30f),
+            new RClass("tertiary", 30f),
+            new RClass("primary_link", 30f),
+            new RClass("secondary_link", 30f),
+            new RClass("tertiary_link", 30f),
+            new RClass("local", 15f),
+            new RClass("local_link", 15f),
         };
 
         /// <summary>WP-19's curb-return radius by junction class pair; a fan
@@ -291,6 +320,12 @@ namespace PSXRacing.EditorTools
             string plain = cls.EndsWith("_link") ? null : cls;
             foreach (var r in ClassWeight) if (r.cls == plain) return r.r;
             return 1f;
+        }
+
+        public static float TaperFloorFor(string cls)
+        {
+            foreach (var r in TaperFloor) if (r.cls == cls) return r.r;
+            return 15f;
         }
 
         public static float CurbReturnFor(string pair)

@@ -8,8 +8,10 @@
 //             vertex, and the same for every corner split over close vertices
 //             (a same-way cluster judged as one vertex, less its own rounding;
 //             collinear vertices under CollinearDeg dropped first; the chords
-//             reach past neighbours turning under KinkNoiseShare of the turn -
-//             lib/kink.mjs kinkScores, the gate's own rule)
+//             reach past neighbours turning under KinkNoiseShare of the turn;
+//             a turn and a turn back is judged by its net turn, a sideways
+//             step between two straights by its size - lib/kink.mjs
+//             kinkScores, the gate's own rule)
 //   B3 CURVE  R = CurveHalfM / (heading change of the chords either side) under
 //             the class's R_min (the centreline), or under InnerEdgeMinRM (the
 //             inner offset curve)

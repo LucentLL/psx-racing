@@ -10,16 +10,27 @@
 //   F   2-arm nodes drawn as fans (bend fans): judged across, mouths not legit
 //   D   D1: a branch's attach arc is report-only, the same pair elsewhere gated
 //   S   straight roads: nothing gated
+//   H   a HEDGED corner (a turn and a turn back of a quarter of it or more
+//       within a metre or two) judged by its net turn; S-bends of sampled
+//       arcs are not
+//   G   a JOG (a sideways step between two straights, the K7 case) of V or
+//       more fails; a sub-V one does not
+//   E   C2's closed list: a line starting along a branch's attach arc is no
+//       legitimate end; at a gore NOSE (a collapsed section) it is
+//   Q   a SQUEEZED ribbon edge against its I7 envelope: a squeeze that arrives
+//       faster than a taper over the class floor, steps, or wanders back out
+//       fails A1; one eased over the floor or longer does not
 //   R   the ratchet: growth inside a key's bucket, a second run, a move, a
-//       worse peak all FAIL; the same data PASSES; other inputs are STALE
+//       worse peak all FAIL; the same data PASSES; other inputs are STALE,
+//       and STALE FAILS; a check gating looser than its baseline FAILS
 //
-//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|R ...]      exit 1 on any failed probe
+//   node tools/city/gateprobes.mjs [K|A|J|F|D|S|H|G|E|Q|R ...]      exit 1 on any failed probe
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts } from './lib/paintruns.mjs';
 import { city, bent, fillet, sagChord, gateOf, fwd, DEG } from './lib/synthcity.mjs';
-import { summarize, ratchet, packKeys, packTiles, SCHEMA } from './lib/gatebase.mjs';
+import { summarize, ratchet, packKeys, packTiles, SCHEMA, statesOf, beforeAfter } from './lib/gatebase.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -152,6 +163,106 @@ if (want('S')) {
   probe('S2 tw4 split 100 / 77.3 / 130 m: the dash phase restart is C3 DASH, and nothing else', count(res, 'C3') > 0 && gated(res).every(r => r.check === 'C3'), fmt(res));
 }
 
+// ---- H: hedged corners (review 3): the parts scored centimetres, the net corner was never judged
+if (want('H')) {
+  console.log('H  B2 KINK: a turn and a turn back of a quarter of it or more is judged by its NET corner');
+  const lines7 = res => new Set(gated(res).filter(r => r.check === 'B2').map(r => r.lineId)).size;
+  const worst = (res, c) => Math.max(0, ...gated(res).filter(r => r.check === c).map(r => r.ratio));
+  for (const [a, b, g] of [[6, -2.4, 0.8], [6, -2.4, 1.2], [4, -1.1, 1], [3, -1.2, 0.8], [2, -0.52, 1.2]]) {
+    const res = gateOf(tw2(bent([a, b], [g])), R, layouts), lone = gateOf(tw2(bent([a + b], [])), R, layouts);
+    probe(`H1 [${a}, ${b}] deg ${g} m apart (net ${(a + b).toFixed(2)}): a KINK on all 7 lines, at least as bad as the lone net corner (x${worst(lone, 'B2').toFixed(2)})`,
+      lines7(res) === 7 && worst(res, 'B2') >= worst(lone, 'B2') * 0.99 && gated(res).some(r => r.check === 'B2' && /hedged/.test(r.what || '')), fmt(res));
+  }
+  for (const [label, w] of [['tw4 secondary', { rank: 2, lanes: 4 }], ['mw3 motorway', { rank: 5, lanes: 3, oneway: true }]]) {
+    const res = gateOf(city([{ pts: bent([6, -2.4], [1]), ...w }]), R, layouts);
+    probe(`H2 [6, -2.4] deg 1 m apart on a ${label}: a KINK`, count(res, 'B2') > 0, fmt(res));
+  }
+  // S-bends of sampled arcs turn and turn back too: the chords stop at the next vertex, so the net corner never shows
+  for (const [R0, D, L, rank] of [[30, 20, 0, 1], [30, 45, 0, 1], [30, 45, 2, 1], [100, 10, 0, 2], [100, 10, 5, 2], [12, 30, 1, 1], [12, 30, 5, 1]]) {
+    const hw = city([{ pts: [[0, 0], [0, 1]], rank }]).edges[0].hw, c = sagChord(R0, hw);
+    const n = Math.max(1, Math.ceil(R0 * D * DEG / c)), dh = D * DEG / n, ch = 2 * R0 * Math.sin(dh / 2);
+    const pts = [[0, 0]]; let h = 10 * DEG, p = fwd(pts[0], h, 64.3); pts.push(p);
+    for (let k = 0; k < n; k++) { h += k === 0 ? dh / 2 : dh; p = fwd(p, h, ch); pts.push(p); }
+    h += dh / 2; if (L > 0) { p = fwd(p, h, L); pts.push(p); }
+    for (let k = 0; k < n; k++) { h -= k === 0 ? dh / 2 : dh; p = fwd(p, h, ch); pts.push(p); }
+    h -= dh / 2; pts.push(fwd(p, h, 64.3));
+    const res = gateOf(city([{ pts, rank }]), R, layouts);
+    probe(`H3 S-bend: R ${R0} m turning ${D} deg and back, ${L} m between, chords at the 2 cm sagitta: no KINK`, count(res, 'B2') === 0, fmt(res));
+  }
+}
+
+// ---- G: jogs (K7, review 2's open list): a sideways step between two straights
+if (want('G')) {
+  console.log('G  B2 KINK: a jog - a sideways step of V or more between two straights - fails (B4 fails the same step at a node)');
+  const lines7 = res => new Set(gated(res).filter(r => r.check === 'B2' && /jog/.test(r.what || '')).map(r => r.lineId)).size;
+  for (const [t, g] of [[3, 0.6], [2.5, 0.6], [1, 2], [3, 2]]) {
+    const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
+    probe(`G1 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm jog on all 7 lines`, lines7(res) === 7, fmt(res));
+  }
+  for (const [t, g] of [[1.2, 0.3], [2, 0.6], [2.3, 0.6]]) {
+    const res = gateOf(tw2(bent([t, -t], [g])), R, layouts);
+    probe(`G2 [+${t}, -${t}] deg ${g} m apart: a ${(g * Math.sin(t * DEG) * 100).toFixed(1)} cm step, under V: nothing`, gated(res).length === 0, fmt(res));
+  }
+  const res = gateOf(tw2(bent([1, 1, -1, -1], [0.5, 0.5, 0.5])), R, layouts);
+  probe('G3 a 3.5 cm jog eased over four vertices 0.5 m apart: a jog', count(res, 'B2', r => /jog/.test(r.what || '')) > 0, fmt(res));
+}
+
+// ---- E: C2's closed list (review 3: any clipped section within 2 m excused an end as a "gore")
+if (want('E')) {
+  console.log('E  C2 END: only a gore NOSE (a collapsed section) excuses an end, not a branch\'s attach arc');
+  for (const ang of [15, 25, 35]) {
+    const h0 = [0, 0], h1 = fwd(h0, 0, 100), h2 = fwd(h1, 0, 100), b1 = fwd(h1, ang * DEG, 100);
+    const ways = [{ pts: [h0, h1] }, { pts: [h1, h2] }, { pts: [h1, b1] }];
+    const res = gateOf(city(ways), R, layouts);
+    const ends = gated(res).filter(r => r.check === 'C2' && r.e === 2 && /^start/.test(r.what));
+    probe(`E1 a side street leaving its host at ${ang} deg: its double yellow starts along the attach arc - C2 on both lines`,
+      ['CYs+0.12', 'CYs-0.12'].every(id => ends.some(r => r.lineId === id)), ends.map(r => `${r.lineId} s ${r.s.toFixed(1)}`).join(', '));
+    if (ang !== 25) continue;
+    // the same, with the sections by the yellows' starts made a gore nose
+    const at = ends.filter(r => r.lineId.startsWith('CY')).map(r => r.s);
+    const nose = gateOf(city(ways), R, layouts, { tweakSecs: S => S.E[2].secs.forEach(x => { if (at.some(s => Math.abs(x.s - s) <= 1)) x.collapsed = true; }) });
+    const e2 = gated(nose).filter(r => r.check === 'C2' && r.e === 2 && r.lineId.startsWith('CY') && /^start/.test(r.what));
+    probe('E2 the same starts within GoreNoseM of a collapsed section (a gore nose): legitimate', at.length > 0 && e2.length === 0, e2.map(r => r.what).join('; ') || `starts at s ${at.map(s => s.toFixed(1)).join(', ')}`);
+  }
+}
+
+// ---- Q: a squeezed ribbon edge against its I7 envelope (review 3: X6 exempted it, a smooth squeeze step passed)
+if (want('Q')) {
+  console.log('Q  A1 on a SQUEEZED ribbon edge: eased like a taper over the class floor (local 15 m, arterial 30 m), held between cuts');
+  const ss = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+  const arcStep = (x, x0, Rj, D) => {   // two tangent arcs of radius Rj stepping D (review 3's edgejog_crop.mjs)
+    const th = Math.acos(1 - D / 2 / Rj), L = Rj * Math.sin(th), t = x - x0;
+    if (t <= 0) return 0; if (t >= 2 * L) return D;
+    if (t <= L) return Rj - Math.sqrt(Rj * Rj - t * t);
+    const u = 2 * L - t; return D - (Rj - Math.sqrt(Rj * Rj - u * u));
+  };
+  const sq = (cutAt, { step = 0.5, lanes = 2, rank = 0 } = {}) => {
+    const pts = []; for (let i = 0; i <= 120 / step; i++) pts.push(fwd([0, 0], 20 * DEG, i * step));
+    return gateOf(city([{ pts, lanes, rank }]), R, layouts, { tweakSecs: S => S.E[0].secs.forEach(x => {
+      const d = cutAt(x.s); if (!(d > 0)) return;
+      x.L = [x.L[0] + x.right[0] * d, x.L[1] + x.right[1] * d]; x.latL += d; x.uL = 0.5 - x.latL / S.E[0].width; x.sqL = true; }) });
+  };
+  const env = res => gated(res).filter(r => r.check === 'A1' && r.lineId === 'RL' && /I7/.test(r.what || ''));
+  const w = res => env(res).length ? `A1 x${Math.max(...env(res).map(r => r.ratio)).toFixed(1)}; ${fmt(res)}` : fmt(res);
+  for (const [label, cut] of [
+    ['Q1 1 m in over ~8 m through two 15 deg arcs of R 15 m (review 3), U cropped', s => arcStep(s, 50, 15, 1)],
+    ['Q1 1 m in as a smoothstep over 8 m (a 15 m floor)', s => ss((s - 40) / 8)],
+    ['Q1 0.1 m in over 5 m', s => 0.1 * ss((s - 40) / 5)],
+    ['Q1 in steps: 0.5 m over 1 m, 10 m flat, 0.5 m over 1 m', s => s < 40 ? 0 : s < 41 ? 0.5 * (s - 40) : s < 51 ? 0.5 : s < 52 ? 0.5 + 0.5 * (s - 51) : 1],
+    ['Q1 held 0.5 m in, wandering +-5 cm every 2 m', s => s < 40 ? 0.5 * ss((s - 25) / 15) : 0.5 + (Math.round(s / 2) % 2 ? 0.05 : -0.05)],
+  ]) { const res = sq(cut); probe(`${label}: A1 on the edge (outside its I7 envelope)`, env(res).length > 0, w(res)); }
+  const t4 = sq(s => ss((s - 40) / 15), { lanes: 4, rank: 2 });
+  probe('Q1 a tw4 secondary squeezed 1 m over 15 m, under its 30 m floor: A1 on the edge', env(t4).length > 0, w(t4));
+  for (const [label, cut, o] of [
+    ['Q2 1 m in as a smoothstep over the 15 m floor', s => ss((s - 40) / 15)],
+    ['Q2 1 m in over 15 m, out over 15 m after a 15 m hold', s => ss((s - 30) / 15) * (1 - ss((s - 60) / 15))],
+    ['Q2 1 m in over 20 m', s => ss((s - 40) / 20)],
+    ['Q2 0.3 m in over 15 m, sections every 2 m', s => 0.3 * ss((s - 40) / 15), { step: 2 }],
+    ['Q2 held 0.5 m in, 2 cm (sub-V) dips every other section', s => s < 40 ? 0.5 * ss((s - 25) / 15) : 0.5 - (Math.round(s / 2) % 2 ? 0.02 : 0)],
+    ['Q2 a tw4 secondary 1 m in over its 30 m floor', s => ss((s - 40) / 30), { lanes: 4, rank: 2 }],
+  ]) { const res = sq(cut, o); probe(`${label}: no A1 on the edge`, env(res).length === 0, w(res)); }
+}
+
 // ---- R: the ratchet
 if (want('R')) {
   console.log('R  the ratchet (lib/gatebase.mjs, what linecheck.mjs runs)');
@@ -161,8 +272,8 @@ if (want('R')) {
     x.L = [x.L[0] + x.right[0] * d, x.L[1] + x.right[1] * d]; x.R = [x.R[0] + x.right[0] * d, x.R[1] + x.right[1] * d]; x.p = [x.p[0] + x.right[0] * d, x.p[1] + x.right[1] * d]; } }) });
   const summ = opts => summarize(gateOf(mk(), R, layouts, opts).g, R);
   const inputs = { graph: 'synthetic', sections: { EDGE: 'a' }, rules: 'r', paint: 'p', model: 'asbuilt', planTaper: 'linear' };
-  const entryOf = (s, inp) => { const checks = {}; for (const [id, c] of Object.entries(s)) { const k = packKeys(c.keys, R); checks[id] = { runs: c.runs, metres: Math.round(c.metres * 10) / 10, worst: c.worst, worstRatio: Math.round(c.worstRatio * 1000) / 1000, keys: k.n, keys_b64: k.b64, tiles_b64: packTiles(c.tiles) }; } return { schema: SCHEMA, date: 'probe', inputs: inp, checks }; };
-  const B = entryOf(summ(jog([51], 0.05)), inputs);
+  const entryOf = (s, inp, states = statesOf(R)) => { const checks = {}; for (const [id, c] of Object.entries(s)) { const k = packKeys(c.keys, R); checks[id] = { runs: c.runs, metres: Math.round(c.metres * 10) / 10, worst: c.worst, worstRatio: Math.round(c.worstRatio * 1000) / 1000, keys: k.n, keys_b64: k.b64, tiles_b64: packTiles(c.tiles) }; } return { schema: SCHEMA, date: 'probe', inputs: inp, ...(states ? { states } : {}), checks }; };
+  const S0 = summ(jog([51], 0.05)), B = entryOf(S0, inputs);
   const verdict = opts => ratchet(summ(opts), B, R, { inputs });
   probe('R1 the same data passes', verdict(jog([51], 0.05)).ok);
   probe('R2 a worse peak (6 cm) fails', !verdict(jog([51], 0.06)).ok);
@@ -170,8 +281,15 @@ if (want('R')) {
   probe('R4 held over s 48-52 fails', !verdict(jog([48, 49, 50, 51, 52], 0.05)).ok);
   probe('R5 a second run in the same bucket fails', !verdict(jog([51, 49], 0.05)).ok);
   probe('R6 moved to s 56 fails', !verdict(jog([56], 0.05)).ok);
-  const st = ratchet(summ(jog([51], 0.05)), B, R, { inputs: { ...inputs, sections: { EDGE: 'a', SPAN: 'b' } } });
-  probe('R7 other inputs (a new SPAN section) are STALE, not FAIL', !st.ok && !!st.stale && st.stale.some(s => s.includes('SPAN')), st.stale && st.stale.join('; '));
+  // STALE (review 3: it used to be information only, so the city audit went quiet exactly when a re-export landed)
+  const st = ratchet(S0, B, R, { inputs: { ...inputs, sections: { EDGE: 'a', SPAN: 'b' } } });
+  probe('R7 other inputs (a new SPAN section) are STALE, and STALE FAILS - even on the very same runs', !st.ok && !!st.stale && st.stale.some(s => s.includes('SPAN')) && st.lines.some(l => l.includes('FAIL baseline STALE')), st.stale && st.stale.join('; '));
+  const dm = ratchet(S0, entryOf(S0, inputs, { ...statesOf(R), B2: 'ZERO' }), R, { inputs });
+  probe('R8 a check gating looser than when its baseline was recorded (B2 ZERO -> RATCHET) FAILS on the same data', !dm.ok && !!dm.demoted && dm.demoted.some(d => d.startsWith('B2 ZERO -> RATCHET')), dm.demoted && dm.demoted.join('; '));
+  const ns = ratchet(S0, entryOf(S0, inputs, null), R, { inputs });
+  probe('R9 a baseline that records no check states FAILS (re-record it)', !ns.ok && !!ns.demoted, ns.demoted && ns.demoted.join('; '));
+  const ba = beforeAfter(summ(jog([51, 56], 0.06)), B, R, { ...inputs, sections: { EDGE: 'a', SPAN: 'b' } });
+  probe('R10 the explicit re-record prints BEFORE -> AFTER for every check and what moved', ba.length === R.Checks.length + 2 && ba[0].includes('container section SPAN') && ba.some(l => /^  B1 JITTER .*->/.test(l)), ba[0]);
 }
 
 console.log(`\n${passed} probes passed, ${failed} failed`);

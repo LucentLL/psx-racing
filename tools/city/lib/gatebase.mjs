@@ -14,11 +14,15 @@
 // Each entry carries the INPUTS it was measured on (inputsOf): the graph hash,
 // a digest of each container section the replica reads, of the geometry rules
 // in SmoothRules.cs, of the road PNGs, and the model. A ratchet against an
-// entry whose inputs differ is STALE, not FAIL: the data moved (a re-export,
-// a merge that brings new SPAN/XING rows, a threshold changed), so the keys
-// cannot tell a regression from the move. The fix is to re-record, with the
-// before and after numbers in the commit; the comparison is still printed so
-// that commit can see what moved.
+// entry whose inputs differ is STALE, and STALE FAILS (linecheck exits 1, the
+// city audit counts it): the data moved (a re-export, a merge that brings new
+// SPAN/XING rows, a threshold changed), so the keys cannot tell a regression
+// from the move, and a gate that went quiet there would let the regression
+// that arrives with the move straight through. The way out is the explicit
+// re-record (--write-baseline), which prints the before and after numbers
+// (beforeAfter) for the commit that moves the inputs. Each entry also records
+// every check's STATE: a check that is looser now than when it was recorded
+// (ZERO -> RATCHET -> REPORT) fails, stale or not - nothing ever loosens.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -161,26 +165,63 @@ export function writeBaseline(path, id, summary, R, inputs) {
     const k = packKeys(s.keys, R);
     checks[id2] = { runs: s.runs, metres: r1(s.metres), worst: r3(s.worst), worstRatio: r3(s.worstRatio), keys: k.n, keys_b64: k.b64, tiles_b64: packTiles(s.tiles) };
   }
-  B.entries[id] = { schema: SCHEMA, date: new Date().toISOString().slice(0, 10), V: R.V, inputs, checks };
+  B.entries[id] = { schema: SCHEMA, date: new Date().toISOString().slice(0, 10), V: R.V, inputs, states: statesOf(R), checks };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(B, null, 1) + '\n');
 }
 
-/// The ratchet (gate spec 1/8). Returns { ok, stale, zeroFail, lines }: stale (a
-/// list of what moved) when the entry was measured on other inputs - then the
-/// RATCHET checks are compared for information only ('moved', not FAIL) and ok
-/// is false without a failure: re-record. A ZERO check or the pin still fails
-/// (zeroFail): they need no baseline. opts.inputs: this run's fingerprint.
+/// Every check's gating state, as an entry records it.
+export const statesOf = R => Object.fromEntries(R.Checks.map(c => [c.id, c.state]));
+const STRICT = { REPORT: 0, RATCHET: 1, ZERO: 2 };
+/// The checks gating looser now than when the entry was recorded (ZERO ->
+/// RATCHET -> REPORT, or a check gone): ['B2 RATCHET -> REPORT', ...].
+export function demotions(base, R) {
+  if (!base || !base.states) return ['the baseline records no check states (it predates the demotion check): re-record it'];
+  const now = statesOf(R), d = [];
+  for (const [id, was] of Object.entries(base.states)) {
+    if (!(id in now)) d.push(`${id} ${was} -> (removed)`);
+    else if (STRICT[now[id]] < STRICT[was]) d.push(`${id} ${was} -> ${now[id]}`);
+  }
+  return d;
+}
+
+/// The before and after numbers of a re-record (--write-baseline): per check
+/// the replaced entry's runs, metres, worst and keys against this run's, and
+/// what moved in the inputs. They go into the commit that re-records.
+export function beforeAfter(summary, base, R, inputs) {
+  const lines = [];
+  if (!base || base.schema !== SCHEMA) { lines.push(`BEFORE: no schema-${SCHEMA} entry for this model (a first record)`); return lines; }
+  const moved = inputsDiff(base.inputs, inputs), dem = base.states ? demotions(base, R) : [];
+  lines.push(`BEFORE (${base.date}) -> AFTER (this run); inputs moved: ${moved.length ? moved.join('; ') : 'none'}${dem.length ? `; check states loosened: ${dem.join(', ')}` : ''}`);
+  lines.push(`  check          runs before -> after        metres before -> after     worst x before -> after     keys before -> after`);
+  const d = (x, y) => `${String(x).padStart(9)} -> ${String(y).padEnd(9)}`;
+  for (const c of R.Checks) {
+    const s = summary[c.id], b = base.checks[c.id] || { runs: 0, metres: 0, worstRatio: 0, keys: 0 };
+    lines.push(`  ${(c.id + ' ' + c.name).padEnd(14)} ${d(b.runs, s.runs)}  ${d(Math.round(b.metres), Math.round(r1(s.metres)))}  ${d(r1(b.worstRatio), r1(s.worstRatio))}  ${d(b.keys, new Set([...s.keys.keys()].map(fnv1a)).size)}`);
+  }
+  return lines;
+}
+
+/// The ratchet (gate spec 1/8). Returns { ok, stale, zeroFail, demoted, lines }.
+/// stale (a list of what moved) when the entry was measured on other inputs:
+/// then ok is FALSE - a stale ratchet cannot tell a regression from the move,
+/// so it FAILS until the explicit re-record (--write-baseline, with its before
+/// and after numbers); the RATCHET checks are still compared, as 'moved', for
+/// that commit. A ZERO check or the pin fails on its own (zeroFail: they need
+/// no baseline), and so does a check gating looser than when the entry was
+/// recorded (demoted). opts.inputs: this run's fingerprint.
 /// opts.tiles (a Set of "tx,tz"): compare run counts only against the
 /// baseline's runs in those tiles (a subset run, as FAST is on the meshes;
 /// metres are then left to the keys). opts.pin: fail on any run on a pinned way.
 export function ratchet(summary, base, R, opts = {}) {
   const lines = [];
   let ok = true, zeroOk = true;
-  if (!base || base.schema !== SCHEMA) { lines.push(`no ${base ? `schema-${SCHEMA} ` : ''}baseline for this model: record one with --write-baseline (a re-export re-records, with before/after numbers in the commit)`); return { ok: false, stale: null, zeroFail: false, lines }; }
+  if (!base || base.schema !== SCHEMA) { lines.push(`  FAIL no ${base ? `schema-${SCHEMA} ` : ''}baseline for this model: record one with --write-baseline (a re-export re-records, with before/after numbers in the commit)`); return { ok: false, stale: null, zeroFail: false, demoted: null, lines }; }
   const stale = opts.inputs ? inputsDiff(base.inputs, opts.inputs) : [];
   const FAIL = stale.length ? '  moved' : '  FAIL';
-  if (stale.length) lines.push(`STALE: the baseline (${base.date}) was measured on other inputs - ${stale.join('; ')}. Re-record it (--write-baseline) with the before and after numbers in the commit; the comparison below is for that commit, not a verdict.`);
+  if (stale.length) lines.push(`  FAIL baseline STALE: it (${base.date}) was measured on other inputs - ${stale.join('; ')}. A stale ratchet cannot tell a regression from the move, so this FAILS until the explicit re-record (--write-baseline prints the before and after numbers for the commit); the comparison below is for that commit.`);
+  const demoted = demotions(base, R);
+  if (demoted.length) { ok = false; lines.push(`  FAIL check states never loosen: ${demoted.join(', ')}`); }
   const tileSet = opts.tiles ? new Set([...opts.tiles].map(t => { const [tx, tz] = t.split(',').map(Number); return tileId(tx, tz); })) : null;
   for (const c of R.Checks) {
     const s = summary[c.id], b = base.checks[c.id];
@@ -210,5 +251,5 @@ export function ratchet(summary, base, R, opts = {}) {
     lines.push(`${n === 0 ? '  ok  ' : '  FAIL'} creek pin: ${n} runs on ways ${R.PinnedWays.join(', ')}`);
   }
   if (stale.length) ok = false;
-  return { ok, stale: stale.length ? stale : null, zeroFail: !zeroOk, lines };
+  return { ok, stale: stale.length ? stale : null, zeroFail: !zeroOk, demoted: demoted.length ? demoted : null, lines };
 }

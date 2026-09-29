@@ -11,9 +11,11 @@
 //   * a PLAN built from data only (the graph, RoadProfiles' layout rules and
 //     the Trims taper TABLE, a design decision) - never the builder's
 //     sections, U or quads, so a bug in the line model cannot hide itself;
-//   * their own shape (jitter, facet sagitta - lone and split corners,
-//     lib/kink.mjs - radius);
-//   * their continuity (jumps, gaps, ends, dash lengths), chained through
+//   * their own shape (jitter, facet sagitta - lone, split and hedged corners
+//     and jogs, lib/kink.mjs - radius); a squeezed ribbon edge also against
+//     its plan I7 envelope (squeezeDev);
+//   * their continuity (jumps, gaps, ends - a gore NOSE, not any clip, is a
+//     legitimate end - dash lengths), chained through
 //     mitred nodes (two ends within V are one line, the step taken out for
 //     the shape checks) and bend fans (2-arm nodes drawn as slabs: judged
 //     across, their mouths no legitimate end);
@@ -28,7 +30,7 @@
 // here), E1 (strip paint does not exist yet).
 import { quadIso, frameOf } from './paintiso.mjs';
 import { dot, sub } from './linesim.mjs';
-import { kinkScores } from './kink.mjs';
+import { kinkScores, KIND_TEXT, KIND_LONE } from './kink.mjs';
 
 const DEG = 180 / Math.PI;
 const LANE = 3.6576;
@@ -167,6 +169,71 @@ function kasaResidual(xs, zs, c) {
   if (circSS >= lineSS) return lineRes;
   return Math.abs(Math.hypot(cx, cz) - r);   // the centre sample is the origin
 }
+
+/// A1 on a SQUEEZED ribbon edge, against where plan I7 puts it: "the cut per
+/// chain is the cut needed, max-filtered over the taper floor and eased like
+/// a taper". smp: the edge's A1 samples in order of s ({s, err, x3}); err is
+/// the signed offset from the design edge, so the cut (inward) is -sgn * err;
+/// L: the class's taper floor. The cut is split at its turning points (V
+/// hysteresis) into rises and falls; two terms, per sample, in metres:
+///   EASE  inside each rise or fall of height H, any two samples w < L apart
+///         may differ by at most H g(w / L), g(x) = 1.5x - 0.5x^3 - the most a
+///         smoothstep of height H over L changes over any w (the plan's taper
+///         shape). The excess is how much of the change came faster than a
+///         taper over the floor: a squeeze arriving or leaving in 8 m instead
+///         of 15, or in steps;
+///   HOLD  at a dip between two cuts (a turning-point minimum between two
+///         maxima) narrower than L where it drops below the lower of them:
+///         that lower cut less the cut - an edge coming back out between cuts
+///         less than a floor apart, where I7 holds it in.
+/// A cut eased as a smoothstep over L or longer, and held between cuts, reads
+/// 0 on both at every sample (a pointwise bound: no sampling slack). A
+/// clipped or collapsed sample (X3/X2) breaks the signal and reads 0.
+export function squeezeDev(smp, sgn, L, V) {
+  const n = smp.length, dev = new Float64Array(n);
+  const g = x => x >= 1 ? 1 : 1.5 * x - 0.5 * x * x * x;
+  for (let i0 = 0; i0 < n;) {
+    if (smp[i0].x3) { i0++; continue; }
+    let i1 = i0; while (i1 + 1 < n && !smp[i1 + 1].x3) i1++;
+    const m = i1 - i0 + 1, s = new Float64Array(m), c = new Float64Array(m);
+    for (let k = 0; k < m; k++) { s[k] = smp[i0 + k].s; c[k] = -sgn * smp[i0 + k].err; }
+    // turning points (V hysteresis; a plateau's first sample)
+    const tp = [0];
+    let mode = 0, cand = 0;
+    for (let k = 1; k < m; k++) {
+      if (mode === 0) { if (c[k] - c[0] > V) { mode = 1; cand = k; } else if (c[0] - c[k] > V) { mode = -1; cand = k; } continue; }
+      if (mode > 0) { if (c[k] > c[cand]) cand = k; else if (c[cand] - c[k] > V) { tp.push(cand); mode = -1; cand = k; } }
+      else { if (c[k] < c[cand]) cand = k; else if (c[k] - c[cand] > V) { tp.push(cand); mode = 1; cand = k; } }
+    }
+    if (mode !== 0 && cand !== 0) tp.push(cand);
+    if (tp[tp.length - 1] !== m - 1) tp.push(m - 1);
+    const bump = (k, e) => { if (e > dev[i0 + k]) dev[i0 + k] = e; };
+    // EASE, per rise or fall
+    for (let t = 0; t + 1 < tp.length; t++) {
+      const a = tp[t], b = tp[t + 1], H = Math.abs(c[b] - c[a]);
+      if (H <= V) continue;
+      for (let i = a; i < b; i++)
+        for (let j = i + 1; j <= b && s[j] - s[i] < L; j++) {
+          const e = Math.abs(c[j] - c[i]) - H * g((s[j] - s[i]) / L);
+          if (e > 0) { bump(i, e); bump(j, e); }
+        }
+    }
+    // HOLD, per dip between two cuts
+    for (let t = 1; t + 1 < tp.length; t++) {
+      const k0 = tp[t];
+      if (!(c[k0] < c[tp[t - 1]] && c[k0] < c[tp[t + 1]])) continue;
+      const H = Math.min(c[tp[t - 1]], c[tp[t + 1]]);
+      let kL = k0, kR = k0;
+      while (kL > 0 && c[kL] < H) kL--;
+      while (kR < m - 1 && c[kR] < H) kR++;
+      if (s[kR] - s[kL] >= L) continue;
+      for (let k = kL + 1; k < kR; k++) bump(k, H - c[k]);
+    }
+    i0 = i1 + 1;
+  }
+  return dev;
+}
+export const SQUEEZE_WHAT = 'squeezed edge outside its I7 envelope (the cut eased like a taper over the class floor)';
 
 // ------------------------------------------------------------ the gate
 /// S: a linesim with e.secs built. R: smoothrules. layouts: paintruns. opts:
@@ -476,7 +543,7 @@ export function runGate(S, R, layouts, opts = {}) {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
     /// A break in the samples (between B1 windows): closes, no arc across it.
     gap() { this.close(); this.px = NaN; }
-    push(x, z, e, s, val, bad, tag, span, side) {
+    push(x, z, e, s, val, bad, tag, span, side, what) {
       if (!Number.isNaN(this.px)) this.arc += Math.hypot(x - this.px, z - this.pz);
       this.px = x; this.pz = z;
       if (!bad) { this.close(); return; }
@@ -485,6 +552,7 @@ export function runGate(S, R, layouts, opts = {}) {
       const inc = c ? this.arc - c.lastArc : 0;
       if (!c) {
         c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [] };
+        if (what !== undefined) c.what = what;
         if (this.extra) Object.assign(c, this.extra);
       }
       c.len = this.arc - c.a0; c.lastArc = this.arc; c.e1 = e; c.s1 = s;
@@ -492,14 +560,14 @@ export function runGate(S, R, layouts, opts = {}) {
       const bid = bucketOf(E[e], s), nb = c.bk.length;
       if (nb && c.bk[nb - 1] === bid) { if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val; c.bl[nb - 1] += inc; }
       else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); }
-      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; }
+      if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; if (what !== undefined) c.what = what; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
   }
   /// Emit runs from an ordered sample list: [{x, z, e, s, val, bad}] or {gap: true}.
   function emitRuns(check, lineId, samples, limit, extra = {}, minIsWorse = false) {
     const b = new RunBuilder(check, lineId, extra, minIsWorse);
-    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side); }
+    for (const p of samples) { if (p.gap) b.gap(); else b.push(p.x, p.z, p.e, p.s, p.val, p.bad, p.tag, p.span, p.side, p.what); }
     b.close();
   }
 
@@ -566,7 +634,7 @@ export function runGate(S, R, layouts, opts = {}) {
           const P2 = side === 'L' ? sec.L : sec.R;
           const crop = side === 'L' ? (sec.sqL || (sec.clippedIn && sec.innerSide < 0) || sec.collapsed) : (sec.sqR || (sec.clippedIn && sec.innerSide > 0) || sec.collapsed);
           const x3 = (sec.clippedIn && sec.innerSide === (side === 'L' ? -1 : 1)) || sec.collapsed;
-          return { x: P2[0], z: P2[1], s: sec.s, lat: side === 'L' ? sec.latL : sec.latR, sec: si, crop, x3, e: e.index, side };
+          return { x: P2[0], z: P2[1], s: sec.s, lat: side === 'L' ? sec.latL : sec.latR, sec: si, crop, x3, sq: side === 'L' ? sec.sqL : sec.sqR, e: e.index, side };
         };
         if (!piece) { piece = [mk(sp.A, sp.i - 1)]; rib[side].push(piece); }
         piece.push(mk(sp.B, sp.i));
@@ -664,25 +732,33 @@ export function runGate(S, R, layouts, opts = {}) {
         bA1.close(); bA4.close(); bA5.close(); bD1.close(); bD1m.close();
       }
     }
-    // ---- ribbon edges: A1-edge (uncropped sections only: X6)
+    // ---- ribbon edges: A1-edge. An unsqueezed section against the design edge; a SQUEEZED one (X6 no longer exempts
+    // it: a smooth squeeze step wandered through every shape check) against its I7 envelope (squeezeDev); a clipped
+    // inner edge or a gore nose (X3/X2) not at all - the host's edge carries it
     for (const side of ['L', 'R']) {
       const sgn = side === 'L' ? -1 : 1;
       for (const pc of rib[side]) {
-        const bA1 = new RunBuilder('A1', 'R' + side);
+        const smp = [];
         for (let i = 1; i < pc.length; i++) {
           const a = pc[i - 1], b = pc[i];
           const segL = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(segL / BIN));
           const sda = sdOf(a.x, a.z, a.s), sdb = sdOf(b.x, b.z, b.s);
           fillGrid(gridRib[side], a, b, sda, sdb);
-          const cropped = a.crop || b.crop;
+          const x3 = a.x3 || b.x3, sq = !x3 && (a.sq || b.sq);
           for (let m = i === 1 ? 0 : 1; m <= n; m++) {
             const t = m / n, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t, s = a.s + (b.s - a.s) * t;
-            if (cropped) { bA1.push(x, z, e.index, s, 0, false); continue; }
-            const sd = m === 0 ? sda : m === n ? sdb : sdOf(x, z, s);
-            const err = sd - sgn * hwD(e, s);
-            bA1.push(x, z, e.index, s, err, Math.abs(err) > V, m === 0 || m === n ? 'S' : 'I', b.sec, side);
+            const sd = x3 ? 0 : m === 0 ? sda : m === n ? sdb : sdOf(x, z, s);
+            smp.push({ x, z, s, x3, sq, err: x3 ? 0 : sd - sgn * hwD(e, s), tag: m === 0 || m === n ? 'S' : 'I', sec: b.sec });
           }
         }
+        const dev = smp.some(q => q.sq) ? squeezeDev(smp, sgn, R.taperFloorFor(e.klass), V) : null;
+        const bA1 = new RunBuilder('A1', 'R' + side);
+        smp.forEach((q, i) => {
+          if (q.x3) { bA1.push(q.x, q.z, e.index, q.s, 0, false); return; }
+          const d = dev ? dev[i] : 0, env = d > V && (q.sq || d > Math.abs(q.err));
+          const val = q.sq || d > Math.abs(q.err) ? d : q.err;
+          bA1.push(q.x, q.z, e.index, q.s, val, env || (!q.sq && Math.abs(q.err) > V), q.tag, q.sec, side, env ? SQUEEZE_WHAT : null);
+        });
         bA1.close();
       }
     }
@@ -771,7 +847,7 @@ export function runGate(S, R, layouts, opts = {}) {
       const b = pts[keep[m]];
       if (b.x3 || b.gore) { b2.push({ ...b, val: 0, bad: false }); continue; }
       const f = K2[m];
-      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side });
+      b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side, what: f > V && K2.kind[m] !== KIND_LONE ? KIND_TEXT[K2.kind[m]] : null });
     }
     emitRuns('B2', lineId, b2, V, { kind });
     // B3 CURVE (ribbon edges and midline only)
@@ -999,11 +1075,10 @@ export function runGate(S, R, layouts, opts = {}) {
         if (node >= 0 && T.patch[node] && !isBendFan(node)) legit = 'fan mouth';   // a bend fan's mouths are no legitimate end (plan A2)
         else if (node >= 0 && nodeEdges[node].length === 1) legit = 'dead end';
         else if (node >= 0 && (T.branchA[e.index] >= 0 && node === e.a || T.branchB[e.index] >= 0 && node === e.b)) legit = 'branch mouth';
-        else {
-          // inside a clip (a gore) within GoreNoseM
-          const sc = ed.secs.find(c => (c.clipped || c.collapsed) && Math.abs(c.s - pt.s) <= R.GoreNoseM);
-          if (sc) legit = 'gore';
-        }
+        // a gore NOSE only (gate spec 4.3's closed list): a collapsed section - the branch wholly inside its host - within
+        // GoreNoseM. A line that starts or stops along a branch's attach arc, where the branch is only clipped, ends
+        // mid-road: the crop drew it there, and the markings layer (WP-17/18b) ends it at the nose
+        else if (ed.secs.some(c => c.collapsed && Math.abs(c.s - pt.s) <= R.GoreNoseM)) legit = 'gore nose';
         const plan = p.L.plan;
         if (!legit && plan) {
           // the plan drops or adds the line here (its existence changes within FanMouthM); or at a joint the plan across
@@ -1027,9 +1102,11 @@ export function runGate(S, R, layouts, opts = {}) {
         // a legitimate place is still a stray end when the line is off its plan there
         let err = 0;
         if (plan) err = sdRef(ed.ref, pt.x, pt.z, pt.s) - (planOff(plan, e, pt.s) + p.L.q);
+        const inArc = !legit && ed.secs.some(c => c.clipped && Math.abs(c.s - pt.s) <= R.GoreNoseM);
         if (!legit || Math.abs(err) > R.StrayM)
           runs.push({ check: 'C2', lineId: p.id, e: e.index, s: pt.s, x: pt.x, z: pt.z, val: Math.max(1, Math.abs(err) / R.StrayM), len: 0, e0: e.index, s0: pt.s, e1: e.index, s1: pt.s,
-                      what: `${which} ${legit ? `at a ${legit} but ${Math.abs(err).toFixed(2)} m off its plan` : node >= 0 && isBendFan(node) ? "at a bend fan's mouth (a 2-arm node drawn as a junction slab)" : 'mid-road'}`, span: pt.span });
+                      what: `${which} ${legit ? `at a ${legit} but ${Math.abs(err).toFixed(2)} m off its plan` : node >= 0 && isBendFan(node) ? "at a bend fan's mouth (a 2-arm node drawn as a junction slab)"
+                        : inArc ? 'mid-road, along a branch attach arc (clipped; no gore nose within GoreNoseM)' : 'mid-road'}`, span: pt.span });
       }
       // C3 DASH along the identity chain
       if (head.dashed) {

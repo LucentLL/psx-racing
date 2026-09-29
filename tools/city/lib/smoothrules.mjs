@@ -23,6 +23,7 @@ export function readSmoothRules(csPath) {
   R.RMin = Object.fromEntries(table('RMin').map(x => [x.cls, x.r]));
   R.CurbReturn = Object.fromEntries(table('CurbReturn').map(x => [x.cls, x.r]));
   R.ClassWeight = Object.fromEntries(table('ClassWeight').map(x => [x.cls, x.r]));
+  R.TaperFloor = Object.fromEntries(table('TaperFloor').map(x => [x.cls, x.r]));
   const cm = src.match(/Checks =\s*\{([\s\S]*?)\};/);
   if (!cm) throw new Error('SmoothRules.cs: no Checks table');
   R.Checks = [...cm[1].matchAll(/new CheckDef\("(\w+)", "(\w+)", State\.(\w+), "([^"]*)", "([^"]*)"\)/g)]
@@ -38,6 +39,7 @@ export function readSmoothRules(csPath) {
   for (const k of need) if (R[k] === undefined || Number.isNaN(R[k])) throw new Error(`SmoothRules.cs: constant ${k} not found`);
   if (R.Checks.length < 17) throw new Error(`SmoothRules.cs: ${R.Checks.length} checks parsed`);
   R.rMinFor = cls => R.RMin[cls] ?? 7.5;
+  R.taperFloorFor = cls => R.TaperFloor[cls] ?? 15;
   R.weightFor = cls => cls.endsWith('_link') ? 1 : (R.ClassWeight[cls] ?? 1);
   R.check = id => R.Checks.find(c => c.id === id);
   return R;

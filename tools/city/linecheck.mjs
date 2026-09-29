@@ -27,9 +27,12 @@
 //   --ratchet [file]                                      compare with them (lib/gatebase.mjs): exit 1 on
 //                                                         any new key, a key worse or longer than its
 //                                                         baseline, more runs or metres, a worse worst
-//                                                         case; exit 3 (STALE, not FAIL) when the baseline
-//                                                         was measured on other inputs (graph, container
-//                                                         sections, rules, road PNGs, model): re-record
+//                                                         case, a check gating looser than when it was
+//                                                         recorded - and when the baseline is STALE
+//                                                         (measured on other inputs: graph, container
+//                                                         sections, rules, road PNGs, model), which fails
+//                                                         until the explicit re-record: --write-baseline
+//                                                         prints the BEFORE -> AFTER numbers for its commit
 //   --pin                                                 enforce the creek pin now (SmoothRules.PinActive)
 //   --plan-taper linear|smooth                            the plan's design taper (default: SmoothRules
 //                                                         PlanTaperShape; --model m0 implies smooth)
@@ -48,7 +51,7 @@ import { runCensus } from './lib/linecensus.mjs';
 import { runGate } from './lib/linegate.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { loadPaintLayouts, SURFACES } from './lib/paintruns.mjs';
-import { summarize, readBaseline, writeBaseline, ratchet, inputsOf } from './lib/gatebase.mjs';
+import { summarize, readBaseline, writeBaseline, ratchet, inputsOf, beforeAfter } from './lib/gatebase.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -236,12 +239,15 @@ if (!has('--no-gate')) {
   P(`  ${pinRuns.length ? Object.entries(pinBy).map(([k, v]) => `${k} ${v.n} (worst ${unit(k, v.val)})`).join(', ') : 'no violations: 0.000 on every check'}`);
   if (verdict) {
     P('');
-    P(`RATCHET against ${BASELINE.replace(/\\/g, '/')} [${MODEL}]: ${verdict.ok ? 'PASS' : verdict.stale && !verdict.zeroFail ? 'STALE (re-record; not a verdict)' : 'FAIL'}${R.ReportOnly ? ' (SmoothRules.ReportOnly: the city audit would only report this)' : ''}`);
+    P(`RATCHET against ${BASELINE.replace(/\\/g, '/')} [${MODEL}]: ${verdict.ok ? 'PASS' : `FAIL${verdict.stale ? ' (the baseline is STALE: re-record it with --write-baseline, before/after numbers in the commit)' : ''}`}${R.ReportOnly ? ' (SmoothRules.ReportOnly: the city audit would only report this)' : ''}`);
     for (const l of verdict.lines) P('  ' + l);
   }
   gate.worst = worst;
   gate.pin = { active: pinActive, runs: pinRuns.length, byCheck: pinBy };
   if (has('--write-baseline')) {
+    // the explicit re-record: the numbers it replaces, for its commit
+    P('');
+    for (const l of beforeAfter(summary, base, R, inputs)) P(l);
     writeBaseline(BASELINE, MODEL, summary, R, inputs);
     P(`\nwrote the baseline for ${MODEL} (graph ${graph}, inputs ${JSON.stringify(inputs)}) to ${BASELINE.replace(/\\/g, '/')}`);
   }
@@ -269,7 +275,7 @@ if (csvPath && gate) {
   writeFileSync(resolve(UNITY, csvPath), lines.join('\n') + '\n');
   console.log(`wrote ${gate.runs.length} runs to ${csvPath}`);
 }
-process.exit(verdict && !verdict.ok ? (verdict.stale && !verdict.zeroFail ? 3 : 1) : 0);
+process.exit(verdict && !verdict.ok ? 1 : 0);
 
 // ------------------------------------------------------------------ baseline helpers
 function pick(r) {
