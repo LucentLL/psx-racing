@@ -11,10 +11,14 @@
 //   * a PLAN built from data only (the graph, RoadProfiles' layout rules and
 //     the Trims taper TABLE, a design decision) - never the builder's
 //     sections, U or quads, so a bug in the line model cannot hide itself;
-//   * their own shape (jitter, facet sagitta, radius);
+//   * their own shape (jitter, facet sagitta - lone and split corners,
+//     lib/kink.mjs - radius);
 //   * their continuity (jumps, gaps, ends, dash lengths), chained through
-//     mitred nodes;
-//   * other pavement (paint inside another ribbon at the same level).
+//     mitred nodes (two ends within V are one line, the step taken out for
+//     the shape checks) and bend fans (2-arm nodes drawn as slabs: judged
+//     across, their mouths no legitimate end);
+//   * other pavement (paint inside another ribbon at the same level; only a
+//     branch's attach arc is report-only).
 // Every lateral limit is V (SmoothRules.cs, read by smoothrules.mjs).
 //
 // Editor/CitySmooth.cs is the same gate on the BUILT meshes. The two must
@@ -24,7 +28,7 @@
 // here), E1 (strip paint does not exist yet).
 import { quadIso, frameOf } from './paintiso.mjs';
 import { dot, sub } from './linesim.mjs';
-import { kinkChord } from './kink.mjs';
+import { kinkScores } from './kink.mjs';
 
 const DEG = 180 / Math.PI;
 const LANE = 3.6576;
@@ -125,7 +129,7 @@ function pointAtArc(P, idx, C, a, hint) {
   while (i + 2 < idx.length && C[i + 1] < a) i++;
   const p = P[idx[i]], q = P[idx[i + 1]], L = C[i + 1] - C[i];
   const t = L > 1e-9 ? Math.max(0, Math.min(1, (a - C[i]) / L)) : 0;
-  return { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t, i };
+  return { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t, i, t };
 }
 /// B1's local model of a window: the Kasa least-squares circle, or the
 /// least-squares line when the line fits the window at least as well (Kasa's
@@ -234,7 +238,7 @@ export function runGate(S, R, layouts, opts = {}) {
     return ex;
   };
 
-  // ---- chains through mitred nodes
+  // ---- chains through mitred nodes and BEND FANS
   const hasRibbon = e => e.secs && e.secs.length >= 2;
   const endsAt = (e, n) => hasRibbon(e) && (e.a === n ? e.secs[0].s < 1e-6 : Math.abs(e.secs[e.secs.length - 1].s - e.length) < 1e-6);
   const jointAt = (e, n) => {
@@ -243,6 +247,25 @@ export function runGate(S, R, layouts, opts = {}) {
     if (o < 0 || o === e.index || E[o].a === E[o].b) return -1;
     return endsAt(e, n) && endsAt(E[o], n) ? o : -1;
   };
+  /// A 2-arm node the builder draws as a junction slab (past ContinueCos,
+  /// ComputeTrims patches it): plan A2 - a 2-arm node is never a junction
+  /// corner however sharp - and A7. The gate chains the two arms across it
+  /// (so B2/B3 judge the corner the slab draws), and a line ending at its
+  /// mouths is no legitimate end (C2).
+  const armsOf = n => nodeEdges[n].filter(i => E[i].a !== E[i].b);
+  const isBendFan = n => !!T.patch[n] && armsOf(n).length === 2;
+  const bendAt = (e, n) => {
+    if (e.a === e.b || !isBendFan(n) || !hasRibbon(e)) return -1;
+    const arms = armsOf(n), o = arms[0] === e.index ? arms[1] : arms[1] === e.index ? arms[0] : -1;
+    return o >= 0 && o !== e.index && hasRibbon(E[o]) ? o : -1;
+  };
+  const linkAt = (e, n) => { const o = jointAt(e, n); if (o >= 0) return { o, kind: 'mitre' }; const b = bendAt(e, n); return b >= 0 ? { o: b, kind: 'bend' } : null; };
+  let bendFans = 0, bendFans60 = 0;
+  for (let n = 0; n < nodeEdges.length; n++) if (isBendFan(n)) {
+    bendFans++;
+    const [i, j] = armsOf(n), a = S.outDir(E[i], n), b = S.outDir(E[j], n);
+    if (180 - Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1]))) * DEG >= 60) bendFans60++;
+  }
   const chainOf = new Int32Array(E.length).fill(-1);
   const chains = [];
   for (const e0 of E) {
@@ -250,28 +273,42 @@ export function runGate(S, R, layouts, opts = {}) {
     // walk back to the start (or round a ring)
     let cur = e0, enter = e0.a, guard = 0;
     for (;;) {
-      const o = jointAt(cur, enter);
-      if (o < 0 || o === e0.index || ++guard > 100000) break;
-      const oe = E[o];
+      const l = linkAt(cur, enter);
+      if (!l || l.o === e0.index || chainOf[l.o] >= 0 || ++guard > 100000) break;
+      const oe = E[l.o];
       enter = oe.a === enter ? oe.b : oe.a;
       cur = oe;
     }
     const list = [];
-    let at = cur, from = enter;
+    let at = cur, from = enter, linkIn = null;
     const id = chains.length;
     for (;;) {
       if (chainOf[at.index] >= 0) break;
       chainOf[at.index] = id;
       const fwd = at.a === from;
-      list.push({ e: at, fwd });
+      list.push({ e: at, fwd, linkIn });
       const exit = fwd ? at.b : at.a;
-      const o = jointAt(at, exit);
-      if (o < 0) break;
-      at = E[o]; from = exit;
+      const l = linkAt(at, exit);
+      if (!l) break;
+      at = E[l.o]; from = exit; linkIn = l.kind;
     }
     chains.push(list);
   }
-  log(`gate: ${chains.length} chains`);
+  log(`gate: ${chains.length} chains, ${bendFans} bend fans`);
+  /// Two strand ends within V are one strand: a sub-V step is invisible, and
+  /// a kink right at the node must still be judged by B1/B2. The shape checks
+  /// then run on the concatenated polyline with the step taken out: the new
+  /// piece (copied) is moved onto the strand's end. sh is the move already
+  /// applied to the strand's tail ({x, z}); the new one is returned. A
+  /// strand's shape is unchanged by a move, and its positions are off by the
+  /// sum of the sub-V steps it crossed.
+  function joinEnds(strand, pc, sh, bridge = false) {
+    const a = strand[strand.length - 1], b = pc[0];
+    const tx = bridge ? sh.x : a.x - b.x, tz = bridge ? sh.z : a.z - b.z;
+    const moved = Math.abs(tx) > 1e-12 || Math.abs(tz) > 1e-12;
+    for (let i = bridge ? 0 : 1; i < pc.length; i++) strand.push(moved ? { ...pc[i], x: pc[i].x + tx, z: pc[i].z + tz } : pc[i]);
+    return { x: tx, z: tz };
+  }
 
   // ---- the design centreline of each edge, extended through its joints (A-family reference)
   function refLine(e) {
@@ -322,19 +359,24 @@ export function runGate(S, R, layouts, opts = {}) {
     const side = tx * (z - fz) - tz * (x - fx);
     return (side >= 0 ? 1 : -1) * Math.sqrt(best);
   }
-  /// B2 on the design polyline near s (the DATA / BUILDER cause hint).
+  /// B2 (lone and clustered, lib/kink.mjs) on the design polyline within 1 m
+  /// of s: the DATA / BUILDER cause hint.
   const refCache = new Map();
   function dataKinkNear(e, s) {
     let ref = refCache.get(e.index);
-    if (!ref) { ref = refLine(e); refCache.set(e.index, ref); }
-    const t = s + ref.off;
-    for (let i = 1; i + 1 < ref.X.length; i++) {
-      if (Math.abs(ref.S[i] - t) > 1) continue;
-      const th = Math.abs(turnOf(ref.X[i - 1], ref.Z[i - 1], ref.X[i], ref.Z[i], ref.X[i + 1], ref.Z[i + 1]));
-      const cm = Math.min(ref.S[i] - ref.S[i - 1], ref.S[i + 1] - ref.S[i], R.ChordCapM);
-      if (cm * th / 8 > V) return true;
+    if (!ref) {
+      ref = refLine(e);
+      const P = ref.X.map((x, i) => ({ x, z: ref.Z[i] }));
+      const keep = keepIdx(P, R), C = arcOf(P, keep);
+      const KX = keep.map(i => P[i].x), KZ = keep.map(i => P[i].z), TH = new Float64Array(keep.length);
+      for (let m = 1; m + 1 < keep.length; m++) TH[m] = turnOf(KX[m - 1], KZ[m - 1], KX[m], KZ[m], KX[m + 1], KZ[m + 1]);
+      const sc = kinkScores(KX, KZ, C, TH, R);
+      ref.bad = [];
+      for (let m = 1; m + 1 < keep.length; m++) if (sc[m] > V) ref.bad.push(ref.S[keep[m]]);
+      refCache.set(e.index, ref);
     }
-    return false;
+    const t = s + ref.off;
+    return ref.bad.some(sv => Math.abs(sv - t) <= 1);
   }
 
   // ---- D1: every ribbon triangle in a 16 m grid (the census's overlap machinery)
@@ -399,11 +441,23 @@ export function runGate(S, R, layouts, opts = {}) {
     const latL = A.latL + (B.latL - A.latL) * t, latR = A.latR + (B.latR - A.latR) * t;
     return Math.max(0, Math.min(lat - latL, latR - lat));
   }
-  /// A plan merge zone is a branch/host pair only: the trims' branch table and
-  /// the BranchSeats chains built from it (the replica's clip pairs). Sharing a
-  /// fan or a mitred node is NOT a merge zone: paint there inside another road
-  /// is "paint crossing the junction", which D1 gates.
-  const mergeZone = (e, o) => S.isClipPair(e.index, o.index);
+  /// A plan merge zone (gate spec 4.4: report-only until WP-18b) is a branch
+  /// ATTACH ARC only: where a branch runs beside its host, the branch's clip
+  /// range (EmitBranch's attached samples, a metre either side, out to the
+  /// node - BranchSeats' pieces on the meshes) plus MergeMarginM. The paint of
+  /// either road inside the other there is report-only; the same pair
+  /// anywhere else - a branch bending back across its host 60 m on - is
+  /// gated, and so is paint sharing a fan or a mitred node with another road
+  /// ("paint crossing the junction").
+  function mergeZoneAt(e, s, o, x, z) {
+    if (!S.isClipPair(e.index, o.index)) return false;
+    const M = R.MergeMarginM;
+    for (const c of S.clipsOf(e.index)) if (c.host.edges.includes(o) && s >= c.sFrom - M && s <= c.sTo + M) return true;
+    const oc = S.clipsOf(o.index).filter(c => c.host.edges.includes(e));
+    if (!oc.length) return false;
+    const so = S.projectOn(o, [x, z]);
+    return oc.some(c => so >= c.sFrom - M && so <= c.sTo + M);
+  }
 
   // ---- runs
   const runs = [];
@@ -414,8 +468,10 @@ export function runGate(S, R, layouts, opts = {}) {
   const minRunLen = { A5: R.StrayRunM, A5b: R.StrayRunM };
   /// Consecutive bad samples along one line, merged into a run and streamed
   /// (no sample objects: the city is thirty million of them). A run breaks
-  /// where two bad samples lie more than RunBreakM apart, and keeps the worst
-  /// value of every KeyStepM bucket it touches (its ratchet keys).
+  /// where two bad samples lie more than RunBreakM apart, and keeps for every
+  /// KeyStepM bucket it touches the worst value and the bad length there (the
+  /// arc from the previous bad sample goes to the bucket of this one): its
+  /// ratchet keys.
   class RunBuilder {
     constructor(check, lineId, extra = null, minIsWorse = false) { this.check = check; this.lineId = lineId; this.extra = extra; this.minIsWorse = minIsWorse; this.cur = null; this.arc = 0; this.px = NaN; this.pz = NaN; }
     /// A break in the samples (between B1 windows): closes, no arc across it.
@@ -426,15 +482,16 @@ export function runGate(S, R, layouts, opts = {}) {
       if (!bad) { this.close(); return; }
       let c = this.cur;
       if (c && this.arc - c.lastArc > R.RunBreakM) { this.close(); c = null; }
+      const inc = c ? this.arc - c.lastArc : 0;
       if (!c) {
-        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [] };
+        c = this.cur = { check: this.check, lineId: this.lineId, e, s, x, z, val, len: 0, a0: this.arc, lastArc: this.arc, e0: e, s0: s, e1: e, s1: s, tag, span, side, bk: [], bv: [], bl: [] };
         if (this.extra) Object.assign(c, this.extra);
       }
       c.len = this.arc - c.a0; c.lastArc = this.arc; c.e1 = e; c.s1 = s;
       const worse = this.minIsWorse ? val < c.val : Math.abs(val) > Math.abs(c.val);
       const bid = bucketOf(E[e], s), nb = c.bk.length;
-      if (nb && c.bk[nb - 1] === bid) { if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val; }
-      else { c.bk.push(bid); c.bv.push(val); }
+      if (nb && c.bk[nb - 1] === bid) { if (this.minIsWorse ? val < c.bv[nb - 1] : Math.abs(val) > Math.abs(c.bv[nb - 1])) c.bv[nb - 1] = val; c.bl[nb - 1] += inc; }
+      else { c.bk.push(bid); c.bv.push(val); c.bl.push(inc); }
       if (worse) { c.val = val; c.e = e; c.s = s; c.x = x; c.z = z; c.tag = tag; c.span = span; c.side = side; }
     }
     close() { if (this.cur) { runs.push(this.cur); this.cur = null; } }
@@ -552,7 +609,7 @@ export function runGate(S, R, layouts, opts = {}) {
       const lineId = plan ? plan.id : `T${col}${L.run.dashed ? 'd' : 's'}u${L.run.u.toFixed(3)}`;
       for (const pc of L.pieces) {
         const bA1 = new RunBuilder('A1', lineId), bA4 = new RunBuilder('A4', lineId), bA5 = new RunBuilder('A5', lineId);
-        const bD1 = new RunBuilder('D1', lineId), bD1m = new RunBuilder('D1', lineId, { reportOnly: 'merge zone (a branch/host pair: the trims branch table or BranchSeats): report-only until WP-18b' });
+        const bD1 = new RunBuilder('D1', lineId), bD1m = new RunBuilder('D1', lineId, { reportOnly: 'merge zone (a branch attach arc: the clip range + MergeMarginM): report-only until WP-18b' });
         for (let i = 1; i < pc.pts.length; i++) {
           const a = pc.pts[i - 1], b = pc.pts[i];
           const segL = Math.hypot(b.x - a.x, b.z - a.z);
@@ -599,7 +656,7 @@ export function runGate(S, R, layouts, opts = {}) {
               const d = depthInEdge(E[oi], x, z);
               if (d > depth) { depth = d; other = oi; }
             }
-            const cross = depth > R.CrossM, mz = cross && mergeZone(e, E[other]);
+            const cross = depth > R.CrossM, mz = cross && mergeZoneAt(e, s, E[other], x, z);
             bD1.push(x, z, e.index, s, depth, cross && !mz, tag, span);
             bD1m.push(x, z, e.index, s, depth, cross && mz, tag, span);
           }
@@ -704,17 +761,16 @@ export function runGate(S, R, layouts, opts = {}) {
     if (keep.length < 3) return;
     const C = arcOf(pts, keep);
     const Ltot = C[C.length - 1];
-    // B2 KINK at every kept interior vertex; the chords reach past noise turns (lib/kink.mjs)
-    const TH = new Float64Array(keep.length);
-    for (let m = 1; m + 1 < keep.length; m++) {
-      const a = pts[keep[m - 1]], b = pts[keep[m]], c = pts[keep[m + 1]];
-      TH[m] = turnOf(a.x, a.z, b.x, b.z, c.x, c.z);
-    }
+    // B2 KINK at every kept interior vertex: lone and clustered corners (lib/kink.mjs)
+    const TH = new Float64Array(keep.length), KX = new Float64Array(keep.length), KZ = new Float64Array(keep.length);
+    for (let m = 0; m < keep.length; m++) { KX[m] = pts[keep[m]].x; KZ[m] = pts[keep[m]].z; }
+    for (let m = 1; m + 1 < keep.length; m++) TH[m] = turnOf(KX[m - 1], KZ[m - 1], KX[m], KZ[m], KX[m + 1], KZ[m + 1]);
+    const K2 = kinkScores(KX, KZ, C, TH, R, m => { const b = pts[keep[m]]; return !!(b.x3 || b.gore); });
     const b2 = [];
     for (let m = 1; m + 1 < keep.length; m++) {
       const b = pts[keep[m]];
       if (b.x3 || b.gore) { b2.push({ ...b, val: 0, bad: false }); continue; }
-      const f = kinkChord(C, TH, m, R.KinkNoiseShare, R.ChordCapM) * Math.abs(TH[m]) / 8;
+      const f = K2[m];
       b2.push({ x: b.x, z: b.z, e: b.e, s: b.s, val: f, bad: f > V, tag: b.tag, span: b.span ?? b.sec, side: b.side });
     }
     emitRuns('B2', lineId, b2, V, { kind });
@@ -758,8 +814,11 @@ export function runGate(S, R, layouts, opts = {}) {
         const src = pts[keep[p.i]];
         if (src.x3 || src.gore) exempt = true;
       }
-      const centre = pointAtArc(pts, keep, C, a, hint), src = pts[keep[centre.i]];
-      if (exempt) { b1.push({ x: centre.x, z: centre.z, e: src.e, s: src.s, val: 0, bad: false }); continue; }
+      const centre = pointAtArc(pts, keep, C, a, hint), src = pts[keep[centre.i]], nxt = pts[keep[Math.min(centre.i + 1, keep.length - 1)]];
+      // the sample's own (edge, s): interpolated along its segment (a kept segment can be tens of metres long)
+      const sE = src.e === nxt.e ? src.e : centre.t < 0.5 ? src.e : nxt.e;
+      const sS = src.e === nxt.e ? src.s + (nxt.s - src.s) * centre.t : centre.t < 0.5 ? src.s : nxt.s;
+      if (exempt) { b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: 0, bad: false }); continue; }
       // prefilter: every vertex of the window within V/2 of the window's chord -> the fit leaves < V
       const cx = xs[2 * nH] - xs[0], cz = zs[2 * nH] - zs[0], cl = Math.hypot(cx, cz) || 1;
       let dev = 0;
@@ -769,7 +828,7 @@ export function runGate(S, R, layouts, opts = {}) {
         dev = Math.max(dev, Math.abs(((p.x - xs[0]) * cz - (p.z - zs[0]) * cx) / cl));
       }
       const res = dev < V / 2 ? 0 : kasaResidual(xs, zs, nH);
-      b1.push({ x: centre.x, z: centre.z, e: src.e, s: src.s, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side });
+      b1.push({ x: centre.x, z: centre.z, e: sE, s: sS, val: res, bad: res > V, span: src.span ?? src.sec, side: src.side });
     }
     emitRuns('B1', lineId, b1, V, { kind });
   }
@@ -826,9 +885,14 @@ export function runGate(S, R, layouts, opts = {}) {
   for (const chain of chains) {
     chainNo++;
     if (opts.onlyEdges && !chain.some(c => opts.onlyEdges.has(c.e.index))) continue;
-    const chainSet = new Set(chain.map(c => c.e.index));
-    const eds = chain.map(c => ({ ...extract(c.e), fwd: c.fwd }));
-    for (const ed of eds) checkEdge(ed, chainSet);
+    // D1 leaves out the line's own road: the edges mitred to it (a bend fan's other arm is NOT its own road -
+    // paint of one arm inside the other is paint crossing the slab's corner)
+    const eds = chain.map(c => ({ ...extract(c.e), fwd: c.fwd, linkIn: c.linkIn }));
+    const groupOf = [];
+    eds.forEach((ed, c) => { groupOf.push(c > 0 && ed.linkIn === 'mitre' ? groupOf[c - 1] : c); });
+    const groups = new Map();
+    eds.forEach((ed, c) => { let g = groups.get(groupOf[c]); if (!g) groups.set(groupOf[c], g = new Set()); g.add(ed.e.index); });
+    eds.forEach((ed, c) => checkEdge(ed, groups.get(groupOf[c])));
 
     // orient every strand to the chain's direction
     const orient = (ed, pts) => ed.fwd ? pts : [...pts].reverse();
@@ -839,7 +903,11 @@ export function runGate(S, R, layouts, opts = {}) {
       if (!coll.length) continue;
       for (const side of ['L', 'R']) for (const pc of ed.rib[side]) for (const p of pc) if (coll.some(s => Math.abs(s - p.s) <= R.GoreNoseM)) p.gore = true;
     }
-    // ---- ribbon edges and midline: join across joints (<= JoinM), else a JUMP (B4) and a new strand
+    // ---- ribbon edges and midline: across a mitred joint the strand runs on when the two ends are within V
+    // (a sub-V step is invisible, and a kink right at the node must still be judged: joinEnds moves the next
+    // piece onto the strand's end), else a JUMP (B4) and a new strand. Across a BEND FAN (a 2-arm node drawn as a junction
+    // slab; plan A2/A7: never legitimate) it runs on straight across the slab, from mouth to mouth, so B2/B3
+    // judge the corner the slab draws; no JUMP there - the slab's corner is the fault, and it is reported.
     const joinStrands = (getPieces, kindName, rLimitOf) => {
       let open = null;   // the strand still open at the chain's current end
       const finish = () => { if (open) { stats.strands++; shapeChecks(kindName, open.id, open.pts, open.rLimit); } open = null; };
@@ -852,13 +920,14 @@ export function runGate(S, R, layouts, opts = {}) {
           const pc = pcs[i];
           if (i === 0 && open && pc[0].sec === startSec) {
             const a = open.pts[open.pts.length - 1], b = pc[0];
-            const d = Math.hypot(a.x - b.x, a.z - b.z);
-            if (d <= R.JoinM) { open.pts.push(...pc.slice(1)); continue; }
-            if (d > V) runs.push({ check: 'B4', lineId: kindName === 'midline' ? 'MID' : 'R' + b.side, e: b.e, s: b.s, x: b.x, z: b.z, val: d, len: 0,
+            if (ed.linkIn === 'bend') { open.sh = joinEnds(open.pts, pc, open.sh, true); continue; }
+            const d = Math.hypot(a.x - open.sh.x - b.x, a.z - open.sh.z - b.z);   // a's own position
+            if (d <= V) { open.sh = joinEnds(open.pts, pc, open.sh); continue; }
+            runs.push({ check: 'B4', lineId: kindName === 'midline' ? 'MID' : 'R' + b.side, e: b.e, s: b.s, x: b.x, z: b.z, val: d, len: 0,
                         e0: a.e, s0: a.s, e1: b.e, s1: b.s, kind: kindName, node: nodeOf(ed, 'start') });
           }
           finish();
-          open = { pts: [...pc], id: kindName === 'midline' ? 'MID' : 'R' + pc[0].side, rLimit: rLimitOf(ed) };
+          open = { pts: [...pc], id: kindName === 'midline' ? 'MID' : 'R' + pc[0].side, rLimit: rLimitOf(ed), sh: { x: 0, z: 0 } };
         }
         // a strand that does not reach this edge's chain-end section cannot continue into the next edge
         if (open && open.pts[open.pts.length - 1].sec !== endSec) finish();
@@ -884,7 +953,8 @@ export function runGate(S, R, layouts, opts = {}) {
           return which === 'start' ? atStart : atEnd;
         };
         P.push({ c, ed, L, pts, col: L.run.col, dashed: L.run.dashed, id: L.plan ? L.plan.id : `T${L.run.col}u${L.run.u.toFixed(3)}`,
-                 startsAtJoint: c > 0 && onSec(first, 'start'), endsAtJoint: c + 1 < eds.length && onSec(last, 'end'), next: null, prev: null, joined: false });
+                 startsAtJoint: c > 0 && ed.linkIn === 'mitre' && onSec(first, 'start'), endsAtJoint: c + 1 < eds.length && eds[c + 1].linkIn === 'mitre' && onSec(last, 'end'),
+                 next: null, prev: null, joined: false });
       }
     });
     for (let c = 0; c + 1 < eds.length; c++) {
@@ -899,8 +969,8 @@ export function runGate(S, R, layouts, opts = {}) {
       for (const { a, b, d } of pairs) {
         if (a.next || b.prev) continue;
         a.next = b; b.prev = a;
-        if (d <= R.JoinM) b.joined = true;
-        else if (d > V) {
+        if (d <= V) b.joined = true;   // within V: one strand, so B1/B2 judge the node (joinEnds)
+        else {
           const pb = b.pts[0];
           runs.push({ check: 'B4', lineId: b.id, e: pb.e, s: pb.s, x: pb.x, z: pb.z, val: d, len: 0, e0: a.pts.at(-1).e, s0: a.pts.at(-1).s, e1: pb.e, s1: pb.s, kind: 'paint', node: nodeOf(b.ed, 'start') });
         }
@@ -911,11 +981,11 @@ export function runGate(S, R, layouts, opts = {}) {
       if (head.prev) continue;
       const seq = [];
       for (let p = head; p; p = p.next) seq.push(p);
-      // B-family on joined runs of the sequence
-      let strand = null;
+      // B-family on joined runs of the sequence (a pair within V is one strand: joinEnds)
+      let strand = null, sh = null;
       for (const p of seq) {
-        if (strand && p.joined) strand.push(...p.pts.slice(1));
-        else { if (strand) { stats.strands++; shapeChecks('paint', head.id, strand, 0); } strand = [...p.pts]; }
+        if (strand && p.joined) sh = joinEnds(strand, p.pts, sh);
+        else { if (strand) { stats.strands++; shapeChecks('paint', head.id, strand, 0); } strand = [...p.pts]; sh = { x: 0, z: 0 }; }
       }
       if (strand) { stats.strands++; shapeChecks('paint', head.id, strand, 0); }
       // C2 END at both ends of the identity chain; C1 across a joint
@@ -926,7 +996,7 @@ export function runGate(S, R, layouts, opts = {}) {
         const atEdgeEnd = Math.abs(pt.s - sMin) <= R.FanMouthM ? 'a' : Math.abs(pt.s - sMax) <= R.FanMouthM ? 'b' : null;
         const node = atEdgeEnd === 'a' ? e.a : atEdgeEnd === 'b' ? e.b : -1;
         let legit = null;
-        if (node >= 0 && T.patch[node]) legit = 'fan mouth';
+        if (node >= 0 && T.patch[node] && !isBendFan(node)) legit = 'fan mouth';   // a bend fan's mouths are no legitimate end (plan A2)
         else if (node >= 0 && nodeEdges[node].length === 1) legit = 'dead end';
         else if (node >= 0 && (T.branchA[e.index] >= 0 && node === e.a || T.branchB[e.index] >= 0 && node === e.b)) legit = 'branch mouth';
         else {
@@ -959,7 +1029,7 @@ export function runGate(S, R, layouts, opts = {}) {
         if (plan) err = sdRef(ed.ref, pt.x, pt.z, pt.s) - (planOff(plan, e, pt.s) + p.L.q);
         if (!legit || Math.abs(err) > R.StrayM)
           runs.push({ check: 'C2', lineId: p.id, e: e.index, s: pt.s, x: pt.x, z: pt.z, val: Math.max(1, Math.abs(err) / R.StrayM), len: 0, e0: e.index, s0: pt.s, e1: e.index, s1: pt.s,
-                      what: `${which} ${legit ? `at a ${legit} but ${Math.abs(err).toFixed(2)} m off its plan` : 'mid-road'}`, span: pt.span });
+                      what: `${which} ${legit ? `at a ${legit} but ${Math.abs(err).toFixed(2)} m off its plan` : node >= 0 && isBendFan(node) ? "at a bend fan's mouth (a 2-arm node drawn as a junction slab)" : 'mid-road'}`, span: pt.span });
       }
       // C3 DASH along the identity chain
       if (head.dashed) {
@@ -985,13 +1055,14 @@ export function runGate(S, R, layouts, opts = {}) {
     const ratioOf = v => r.check === 'B3' ? limit / Math.max(1e-6, v) : r.check === 'C2' ? v : Math.abs(v) / limit;
     r.ratio = ratioOf(r.val);
     // the ratchet keys: (way, round(s on way / KeyStepM), check, line) for EVERY bucket the run's bad samples touch,
-    // each with its own worst ratio; a point run (B4, C2, C3) has its one, a gap (C1) every bucket it spans
-    r.kk = []; r.kq = [];
-    const addKey = (bid, v) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.lineId}`); r.kq.push(ratioOf(v)); };
-    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i]));
-    else if (r.check === 'C1') for (let b = bucketOf(e, Math.min(r.s0, r.s1)); b <= bucketOf(e, Math.max(r.s0, r.s1)); b++) addKey(b, r.val);
-    else addKey(bucketOf(e, r.s), r.val);
-    delete r.bk; delete r.bv; delete r.lastArc;
+    // each with its own worst ratio and bad length; a point run (B4, C2, C3) has its one (length 0), a gap (C1)
+    // every bucket it spans (each with the gap's length)
+    r.kk = []; r.kq = []; r.kl = [];
+    const addKey = (bid, v, l) => { r.kk.push(`${Math.floor(bid / BUCKETS)}:${bid % BUCKETS}:${r.check}:${r.lineId}`); r.kq.push(ratioOf(v)); r.kl.push(l); };
+    if (r.bk) r.bk.forEach((bid, i) => addKey(bid, r.bv[i], r.bl[i]));
+    else if (r.check === 'C1') for (let b = bucketOf(e, Math.min(r.s0, r.s1)); b <= bucketOf(e, Math.max(r.s0, r.s1)); b++) addKey(b, r.val, r.len);
+    else addKey(bucketOf(e, r.s), r.val, 0);
+    delete r.bk; delete r.bv; delete r.bl; delete r.lastArc;
     r.tile = `${Math.floor(r.x / 256)},${Math.floor(r.z / 256)}`;
     if ((r.check === 'A5' || r.check === 'A5b') && r.len < minRunLen[r.check]) r.drop = true;
     // cause hint
@@ -1005,12 +1076,16 @@ export function runGate(S, R, layouts, opts = {}) {
     if (near.some(c => c.sqL || c.sqR)) causes.push('SQUEEZE');
     if (near.some(c => c.clipped || c.collapsed)) causes.push('CLIP');
     if (near.some(c => c.structEnd)) causes.push('STRUCTURE-END');
+    // at a bend fan's mouth: the slab's corner, a DATA fault (WP-11 fillets every 2-arm node)
+    const atBend = e.secs && ((isBendFan(e.a) && r.s - e.secs[0].s <= R.GoreNoseM) || (isBendFan(e.b) && e.secs[e.secs.length - 1].s - r.s <= R.GoreNoseM));
+    if (atBend) causes.push('BEND-FAN');
     r.cause = causes.join('+') || '-';
-    r.data = dataKinkNear(e, r.s) ? 'DATA' : 'BUILDER';
+    r.data = atBend || dataKinkNear(e, r.s) ? 'DATA' : 'BUILDER';
     r.pinned = pinned.has(e.wayId);
     r.exposure = exposureAt(e.index, r.x, r.z);
     r.score = Math.min(r.ratio, R.RankRatioCap) * R.weightFor(e.klass) * r.exposure;
   }
   const kept = runs.filter(r => !r.drop);
+  stats.bendFans = bendFans; stats.bendFans60 = bendFans60;
   return { runs: kept, stats, texQ, texCap, texNotes, texFails, chains: chains.length };
 }

@@ -1,22 +1,35 @@
 // gatebase.mjs - the smoothness gate's tally, baseline and RATCHET for the
 // offline tool (linecheck.mjs; probes import it too, so what they test is the
 // ratchet that runs). Editor/CitySmooth.cs reads and writes the same baseline
-// format (schema 2) for its own graph:mesh entries.
+// format (schema 3) for its own 'mesh' entry.
 //
 // Keys are (wayId, round(s on way / KeyStepM), check, line): a run carries one
-// for EVERY 5 m bucket its bad samples touch, each with its own worst ratio.
-// The ratchet fails on a new key, on a key worse than its baseline ratio, on
-// more runs, or on a worse city-wide worst; a ZERO check fails on any run, a
-// REPORT check never fails.
+// for EVERY 5 m bucket its bad samples touch, each with its own worst ratio and
+// its BAD LENGTH there (the arc between consecutive bad samples, summed over
+// the runs that share the key). The ratchet fails on a new key, on a key worse
+// than its baseline ratio, on a key longer than its baseline length, on more
+// runs, on more metres or on a worse city-wide worst; a ZERO check fails on
+// any run, a REPORT check never fails.
+//
+// Each entry carries the INPUTS it was measured on (inputsOf): the graph hash,
+// a digest of each container section the replica reads, of the geometry rules
+// in SmoothRules.cs, of the road PNGs, and the model. A ratchet against an
+// entry whose inputs differ is STALE, not FAIL: the data moved (a re-export,
+// a merge that brings new SPAN/XING rows, a threshold changed), so the keys
+// cannot tell a regression from the move. The fix is to re-record, with the
+// before and after numbers in the commit; the comparison is still printed so
+// that commit can see what moved.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { dirname, basename } from 'node:path';
 
+export const SCHEMA = 3;
 const r1 = v => Math.round(v * 10) / 10, r3 = v => Math.round(v * 1000) / 1000;
 
 /// Per check: runs, metres, worst, DATA/BUILDER, report-only runs, every key
-/// with its worst ratio, and runs per tile (the tile of the run's worst sample,
-/// "tx,tz"). A0 TEXTURE counts the texture's faults.
+/// with its worst ratio and bad length, and runs per tile (the tile of the
+/// run's worst sample, "tx,tz"). A0 TEXTURE counts the texture's faults.
 export function summarize(gate, R) {
   const summary = {};
   for (const c of R.Checks) summary[c.id] = { id: c.id, name: c.name, state: c.state, runs: 0, metres: 0, worst: 0, worstRatio: 0, data: 0, builder: 0, reportOnlyRuns: 0, reportOnlyMetres: 0, keys: new Map(), tiles: new Map() };
@@ -24,7 +37,11 @@ export function summarize(gate, R) {
     const s = summary[r.check]; if (!s) continue;
     if (r.reportOnly) { s.reportOnlyRuns++; s.reportOnlyMetres += r.len; continue; }
     s.runs++; s.metres += r.len;
-    r.kk.forEach((k, i) => { if (!(s.keys.get(k) >= r.kq[i])) s.keys.set(k, r.kq[i]); });
+    r.kk.forEach((k, i) => {
+      const o = s.keys.get(k);
+      if (!o) s.keys.set(k, { q: r.kq[i], l: r.kl[i] });
+      else { if (r.kq[i] > o.q) o.q = r.kq[i]; o.l += r.kl[i]; }
+    });
     s.tiles.set(r.tile, (s.tiles.get(r.tile) || 0) + 1);
     if (r.ratio > s.worstRatio) { s.worstRatio = r.ratio; s.worst = r.val; }
     if (r.data === 'DATA') s.data++; else s.builder++;
@@ -32,7 +49,7 @@ export function summarize(gate, R) {
   for (const f of gate.texFails || []) {
     const s = summary.A0; if (!s) break;
     s.runs++; s.builder++;
-    s.keys.set(`tex:${f.key}_${f.surf}:${f.what}`, f.ratio);
+    s.keys.set(`tex:${f.key}_${f.surf}:${f.what}`, { q: f.ratio, l: 0 });
     if (f.ratio > s.worstRatio) { s.worstRatio = f.ratio; s.worst = f.val; }
   }
   return summary;
@@ -54,24 +71,29 @@ export function quantRatio(r, R) {
   return q;
 }
 export const unquant = (q, R) => Math.fround(R.RatioQuantum) ** q;
+/// A bad length stored in LengthQuantumM steps, rounded up.
+export const quantLen = (l, R) => l > 1e-9 ? Math.ceil(l / Math.fround(R.LengthQuantumM) - 1e-6) : 0;
 function leb(bytes, v) { do { let b = v & 0x7f; v = Math.floor(v / 128); if (v) b |= 0x80; bytes.push(b); } while (v); }
 function* unleb(raw) { let v = 0, mul = 1; for (const b of raw) { v += (b & 0x7f) * mul; if (b & 0x80) mul *= 128; else { yield v; v = 0; mul = 1; } } }
 
-/// Schema 2: every key as (FNV-1a hash delta, quantised worst ratio) LEB128
-/// pairs sorted by hash, gzipped, base64.
+/// Schema 3: every key as (FNV-1a hash delta, quantised worst ratio,
+/// quantised bad length) LEB128 triples sorted by hash, gzipped, base64.
 export function packKeys(keys, R) {
   const byHash = new Map();
-  for (const [k, ratio] of keys) { const h = fnv1a(k), q = quantRatio(ratio, R); if (!(byHash.get(h) >= q)) byHash.set(h, q); }
+  for (const [k, o] of keys) {
+    const h = fnv1a(k), q = quantRatio(o.q, R), l = quantLen(o.l, R), p = byHash.get(h);
+    if (!p) byHash.set(h, [q, l]); else { p[0] = Math.max(p[0], q); p[1] += l; }
+  }
   const hs = [...byHash.keys()].sort((a, b) => a - b);
   const bytes = [];
   let prev = 0;
-  for (const h of hs) { leb(bytes, h - prev); prev = h; leb(bytes, byHash.get(h)); }
+  for (const h of hs) { const [q, l] = byHash.get(h); leb(bytes, h - prev); prev = h; leb(bytes, q); leb(bytes, l); }
   return { n: hs.length, b64: gzipSync(Buffer.from(bytes), { level: 9 }).toString('base64') };
 }
 export function unpackKeys(b64) {
   const it = unleb(gunzipSync(Buffer.from(b64, 'base64'))), map = new Map();
   let prev = 0;
-  for (;;) { const d = it.next(); if (d.done) break; prev += d.value; map.set(prev, it.next().value); }
+  for (;;) { const d = it.next(); if (d.done) break; prev += d.value; map.set(prev, [it.next().value, it.next().value]); }
   return map;
 }
 /// Runs per tile: tile id ((tx + 32768) << 16 | (tz + 32768)) deltas and counts.
@@ -90,59 +112,103 @@ export function unpackTiles(b64) {
   return map;
 }
 
+// ------------------------------------------------------------ the inputs a baseline was measured on
+export const sha12 = data => createHash('sha256').update(data).digest('hex').slice(0, 12);
+/// The container sections the replica reads (NAME: D1's same-road rule).
+export const GEOMETRY_SECTIONS = ['NODE', 'NAME', 'EDGE', 'PNTS', 'SPAN', 'XING'];
+/// SmoothRules members that decide no violation (the rollout switches and the
+/// ranking): changing them leaves a baseline valid.
+const NOT_MEASURED = new Set(['source', 'ReportOnly', 'PinActive', 'FastInAudit', 'WorstN', 'DedupM', 'ShotsN', 'ShotsDedupM', 'RefSpotReachM',
+  'ExposureRoute', 'ExposureRefSpot', 'RankRatioCap', 'BandCount', 'ClassWeight', 'Checks', 'PinnedWays']);
+export function rulesDigest(R) {
+  const o = {};
+  for (const k of Object.keys(R).sort()) if (!NOT_MEASURED.has(k) && typeof R[k] !== 'function') o[k] = R[k];
+  return sha12(JSON.stringify(o));
+}
+/// The fingerprint: { graph, sections: {TAG: digest}, rules, paint, model, planTaper }.
+export function inputsOf({ cityBuf, city, graph, R, paintFiles, model, planTaper }) {
+  const sections = {};
+  for (const tag of GEOMETRY_SECTIONS) { const s = city.sections && city.sections[tag]; if (s) sections[tag] = sha12(cityBuf.subarray(s[0], s[1])); }
+  const paint = createHash('sha256');
+  for (const f of [...paintFiles].sort()) { paint.update(basename(f)); paint.update(readFileSync(f)); }
+  return { graph, sections, rules: rulesDigest(R), paint: paint.digest('hex').slice(0, 12), model, planTaper };
+}
+/// What differs between two fingerprints (empty: the same inputs).
+export function inputsDiff(was, now) {
+  if (!was) return ['the baseline records no inputs (an older schema)'];
+  const d = [];
+  if (was.graph !== now.graph) d.push(`graph ${was.graph} -> ${now.graph}`);
+  for (const t of new Set([...Object.keys(was.sections || {}), ...Object.keys(now.sections || {})]))
+    if ((was.sections || {})[t] !== (now.sections || {})[t]) d.push(`container section ${t}`);
+  for (const k of ['rules', 'paint', 'dem', 'model', 'planTaper'])
+    if ((was[k] ?? null) !== (now[k] ?? null)) d.push(k === 'rules' ? 'SmoothRules.cs geometry rules' : k === 'paint' ? 'road PNGs' : `${k} ${was[k]} -> ${now[k]}`);
+  return d;
+}
+
 export function readBaseline(path) {
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, 'utf8'));
 }
-export function writeBaseline(path, id, summary, R) {
+/// Record the entry `id` (the builder model: asbuilt, m0, ...) with its inputs.
+export function writeBaseline(path, id, summary, R, inputs) {
   const B = readBaseline(path) || {};
-  B.schema = 2; B.tool = 'tools/city/linecheck.mjs';
-  B.note = 'per graph hash and builder model: per-check runs, metres and worst; every violation key (way, round(s on way / 5 m), check, line) with its worst ratio, as FNV-1a hash deltas + ratio quanta (RatioQuantum) in LEB128, gzipped; runs per tile';
+  B.schema = SCHEMA; B.tool = 'tools/city/linecheck.mjs';
+  B.note = 'per builder model: the inputs it was measured on (graph hash, container section, rules and paint digests); per-check runs, metres and worst; every violation key (way, round(s on way / 5 m), check, line) with its worst ratio and bad length, as FNV-1a hash deltas + ratio quanta (RatioQuantum) + length quanta (LengthQuantumM) in LEB128, gzipped; runs per tile';
   B.entries = B.entries || {};
-  for (const k of Object.keys(B.entries)) if (B.entries[k].schema !== 2) delete B.entries[k];   // schema 1 keys carry no ratios: re-record
+  for (const k of Object.keys(B.entries)) if (B.entries[k].schema !== SCHEMA) delete B.entries[k];   // older schemas: re-record
   const checks = {};
   for (const [id2, s] of Object.entries(summary)) {
     const k = packKeys(s.keys, R);
     checks[id2] = { runs: s.runs, metres: r1(s.metres), worst: r3(s.worst), worstRatio: r3(s.worstRatio), keys: k.n, keys_b64: k.b64, tiles_b64: packTiles(s.tiles) };
   }
-  B.entries[id] = { schema: 2, date: new Date().toISOString().slice(0, 10), V: R.V, checks };
+  B.entries[id] = { schema: SCHEMA, date: new Date().toISOString().slice(0, 10), V: R.V, inputs, checks };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(B, null, 1) + '\n');
 }
 
-/// The ratchet (gate spec 1/8). opts.tiles (a Set of "tx,tz"): compare run
-/// counts only against the baseline's runs in those tiles (a subset run, as
-/// FAST is on the meshes). opts.pin: fail on any run on a pinned way.
+/// The ratchet (gate spec 1/8). Returns { ok, stale, zeroFail, lines }: stale (a
+/// list of what moved) when the entry was measured on other inputs - then the
+/// RATCHET checks are compared for information only ('moved', not FAIL) and ok
+/// is false without a failure: re-record. A ZERO check or the pin still fails
+/// (zeroFail): they need no baseline. opts.inputs: this run's fingerprint.
+/// opts.tiles (a Set of "tx,tz"): compare run counts only against the
+/// baseline's runs in those tiles (a subset run, as FAST is on the meshes;
+/// metres are then left to the keys). opts.pin: fail on any run on a pinned way.
 export function ratchet(summary, base, R, opts = {}) {
   const lines = [];
-  let ok = true;
-  if (!base || base.schema !== 2) { lines.push(`no ${base ? 'schema-2 ' : ''}baseline for this graph and model: record one with --write-baseline (a re-export re-records, with before/after numbers in the commit)`); return { ok: false, lines }; }
+  let ok = true, zeroOk = true;
+  if (!base || base.schema !== SCHEMA) { lines.push(`no ${base ? `schema-${SCHEMA} ` : ''}baseline for this model: record one with --write-baseline (a re-export re-records, with before/after numbers in the commit)`); return { ok: false, stale: null, zeroFail: false, lines }; }
+  const stale = opts.inputs ? inputsDiff(base.inputs, opts.inputs) : [];
+  const FAIL = stale.length ? '  moved' : '  FAIL';
+  if (stale.length) lines.push(`STALE: the baseline (${base.date}) was measured on other inputs - ${stale.join('; ')}. Re-record it (--write-baseline) with the before and after numbers in the commit; the comparison below is for that commit, not a verdict.`);
   const tileSet = opts.tiles ? new Set([...opts.tiles].map(t => { const [tx, tz] = t.split(',').map(Number); return tileId(tx, tz); })) : null;
   for (const c of R.Checks) {
     const s = summary[c.id], b = base.checks[c.id];
     if (c.state === 'REPORT') { lines.push(`  ok   ${c.id} ${c.name}: report-only (${s.runs} runs)`); continue; }
     if (c.state === 'ZERO') {
-      const pass = s.runs === 0; ok = ok && pass;
+      const pass = s.runs === 0; ok = ok && pass; zeroOk = zeroOk && pass;
       lines.push(`${pass ? '  ok  ' : '  FAIL'} ${c.id} ${c.name}: ${s.runs} runs (ZERO)`); continue;
     }
-    if (!b) { ok = false; lines.push(`  FAIL ${c.id} ${c.name}: not in the baseline`); continue; }
+    if (!b) { ok = false; lines.push(`${FAIL} ${c.id} ${c.name}: not in the baseline`); continue; }
     const old = unpackKeys(b.keys_b64);
-    let fresh = 0, worseKeys = 0, ex = null;
-    for (const [k, ratio] of s.keys) {
-      const q = old.get(fnv1a(k));
-      if (q === undefined) { fresh++; ex = ex || `new ${k} x${r1(ratio)}`; }
-      else if (ratio > unquant(q, R) * (1 + 1e-9)) { worseKeys++; ex = ex || `worse ${k} x${r1(ratio)} (baseline x${r1(unquant(q, R))})`; }
+    let fresh = 0, worseKeys = 0, longerKeys = 0, ex = null;
+    for (const [k, o] of s.keys) {
+      const bq = old.get(fnv1a(k));
+      if (bq === undefined) { fresh++; ex = ex || `new ${k} x${r1(o.q)}`; continue; }
+      if (o.q > unquant(bq[0], R) * (1 + 1e-9)) { worseKeys++; ex = ex || `worse ${k} x${r1(o.q)} (baseline x${r1(unquant(bq[0], R))})`; }
+      if (quantLen(o.l, R) > bq[1]) { longerKeys++; ex = ex || `longer ${k} ${r1(o.l)} m (baseline ${r1(bq[1] * R.LengthQuantumM)} m)`; }
     }
     let baseRuns = b.runs;
     if (tileSet) { baseRuns = 0; for (const [t, n] of unpackTiles(b.tiles_b64)) if (tileSet.has(t)) baseRuns += n; }
-    const worse = s.worstRatio > b.worstRatio + 1e-3, more = s.runs > baseRuns;
-    const pass = !fresh && !worseKeys && !worse && !more; ok = ok && pass;
-    lines.push(`${pass ? '  ok  ' : '  FAIL'} ${c.id} ${c.name}: ${s.runs} runs (baseline ${baseRuns}${tileSet ? ' in these tiles' : ''})${more ? ' MORE' : ''}, worst x${r1(s.worstRatio)} (baseline x${r1(b.worstRatio)})${worse ? ' WORSE' : ''}, ${fresh} new keys, ${worseKeys} worse keys of ${s.keys.size}${ex ? `; e.g. ${ex}` : ''}`);
+    const worse = s.worstRatio > b.worstRatio + 1e-3, more = s.runs > baseRuns, moreM = !tileSet && s.metres > b.metres + 0.05 + 1e-6;
+    const pass = !fresh && !worseKeys && !longerKeys && !worse && !more && !moreM; ok = ok && pass;
+    lines.push(`${pass ? '  ok  ' : FAIL} ${c.id} ${c.name}: ${s.runs} runs (baseline ${baseRuns}${tileSet ? ' in these tiles' : ''})${more ? ' MORE' : ''}, ${r1(s.metres)} m (baseline ${b.metres})${moreM ? ' LONGER' : ''}, worst x${r1(s.worstRatio)} (baseline x${r1(b.worstRatio)})${worse ? ' WORSE' : ''}, ${fresh} new / ${worseKeys} worse / ${longerKeys} longer keys of ${s.keys.size}${ex ? `; e.g. ${ex}` : ''}`);
   }
   if (opts.pin) {
     const n = (opts.runs || []).filter(r => r.pinned && !r.reportOnly).length;
-    ok = ok && n === 0;
+    ok = ok && n === 0; zeroOk = zeroOk && n === 0;
     lines.push(`${n === 0 ? '  ok  ' : '  FAIL'} creek pin: ${n} runs on ways ${R.PinnedWays.join(', ')}`);
   }
-  return { ok, lines };
+  if (stale.length) ok = false;
+  return { ok, stale: stale.length ? stale : null, zeroFail: !zeroOk, lines };
 }

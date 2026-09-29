@@ -37,13 +37,24 @@ namespace PSXRacing.EditorTools
         /// 8V/10 m = 1.15 degrees.</summary>
         public const float ChordCapM = 10f;
         /// <summary>B2's chords c-, c+ run to the nearest kept vertex on each
-        /// side that turns at least this share of the vertex's own turn;
-        /// smaller turns (the bisector pinch, diagonal crossings, sections
-        /// turning a few hundredths of a degree next to a kink) are noise and
-        /// never shorten the chord, so a lone kink is judged over the full
-        /// ChordCapM. On a smoothly sampled curve neighbouring turns share a
-        /// chord, so they are never this much smaller.</summary>
+        /// side where the line has turned again by this share of the vertex's
+        /// (or the cluster's: a corner split over close vertices, judged as
+        /// one, tools/city/lib/kink.mjs) own turn - one vertex turning that
+        /// much, or several adding up to it. Smaller turns (the bisector pinch,
+        /// diagonal crossings, sections turning a few hundredths of a degree
+        /// next to a kink) are noise and never shorten the chord, so a lone
+        /// kink is judged over the full ChordCapM; a curve that keeps turning
+        /// ends it. On a smoothly sampled curve neighbouring turns share a
+        /// chord, so the chord stops at the neighbour.</summary>
         public const float KinkNoiseShare = 0.25f;
+        /// <summary>B2 judges a corner split over close vertices as one
+        /// (tools/city/lib/kink.mjs) as the chase view shows it out to this
+        /// distance, where a pixel is V * KinkViewM / PixelAtM (16.7 cm): a
+        /// bend rounded by less than that reads as SHARP somewhere in the
+        /// view, one rounded by more reads as a curve everywhere and is B3's.
+        /// The spec: "at R 7.5 a 90 degree corner stays rounded out to about
+        /// 40 m".</summary>
+        public const float KinkViewM = 40f;
         /// <summary>B1: resample step and the half window of the circle fit.</summary>
         public const float JitterStepM = 0.25f;
         public const float JitterHalfM = 2f;
@@ -80,7 +91,9 @@ namespace PSXRacing.EditorTools
 
         // ---- family B: shape; chaining -----------------------------------------
         /// <summary>Two line ends within this across a section, node or seam
-        /// are one line.</summary>
+        /// are one point. Within V they are still one line: the shape checks
+        /// run on the joined polyline with the (invisible) step taken out, so a
+        /// kink at the node is judged; past V the step is a JUMP.</summary>
         public const float JoinM = 0.002f;
         /// <summary>Otherwise a line is matched to the nearest piece of its
         /// colour and pattern within this - one lane (RoadProfiles.LaneM) -
@@ -109,6 +122,11 @@ namespace PSXRacing.EditorTools
         /// (|dy| within <see cref="CrossDyM"/>, CityMeshes' ArmSplitDyM).</summary>
         public const float CrossM = 0.20f;
         public const float CrossDyM = 0.25f;
+        /// <summary>D1's plan merge zone (report-only until WP-18b) is a branch
+        /// ATTACH ARC: the branch's clip range (BranchSeats' pieces; EmitBranch's
+        /// attached samples, a metre either side, out to the node) plus this.
+        /// The same branch/host pair anywhere else is gated.</summary>
+        public const float MergeMarginM = 1f;
         public const float FloatMinM = 0.005f;
         public const float FloatMaxM = 0.03f;
 
@@ -135,6 +153,10 @@ namespace PSXRacing.EditorTools
         /// <summary>Baseline ratios are stored rounded UP to a power of this
         /// (0.1% steps), so the same data always passes its own baseline.</summary>
         public const float RatioQuantum = 1.001f;
+        /// <summary>Every key also stores its bad length (metres of bad samples
+        /// in its bucket) rounded UP to this: a violation that lengthens inside
+        /// buckets it already touches trips the ratchet too.</summary>
+        public const float LengthQuantumM = 0.1f;
         public const int WorstN = 40;
         public const float DedupM = 40f;
         public const int ShotsN = 24;
@@ -193,14 +215,14 @@ namespace PSXRacing.EditorTools
             new CheckDef("A5", "STRAY", State.Ratchet, "no paint where the plan has no line of its colour", "M0 (tapers), R4"),
             new CheckDef("A5b", "MISSING", State.Report, "every plan line drawn (report-only until the line model draws it)", "R4 (WP-11b)"),
             new CheckDef("B1", "JITTER", State.Ratchet, "no line jitters past V from its local circle", "R4"),
-            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta)", "R4"),
+            new CheckDef("B2", "KINK", State.Ratchet, "no line kinks past V (facet sagitta; a corner split over close vertices is one corner; a bend fan is judged across)", "R4"),
             new CheckDef("B3", "CURVE", State.Ratchet, "no ribbon bends tighter than its class allows", "R4 (fans WP-19)"),
             new CheckDef("B4", "JUMP", State.Ratchet, "no line steps sideways past V where it continues", "R4 (WP-11b)"),
             new CheckDef("B4s", "SEAM", State.Zero, "no line steps at a tile seam (identical sections)", "now"),
             new CheckDef("C1", "GAP", State.Ratchet, "no solid line interrupted between its plan ends", "R4"),
             new CheckDef("C2", "END", State.Ratchet, "lines end only at legitimate ends", "R4"),
             new CheckDef("C3", "DASH", State.Ratchet, "dash and gap lengths along the chained line", "R4 (stubs WP-17)"),
-            new CheckDef("D1", "CROSS", State.Ratchet, "no paint inside other pavement at the same level (branch/host merge zones report-only)", "R4 (merge zones WP-18b)"),
+            new CheckDef("D1", "CROSS", State.Ratchet, "no paint inside other pavement at the same level (branch attach arcs report-only)", "R4 (merge zones WP-18b)"),
             new CheckDef("E1", "FLOAT", State.Report, "strip paint 0.5-3 cm over the surface (strip paint only)", "WP-17/WP-27"),
         };
 

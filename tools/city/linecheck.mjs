@@ -23,17 +23,20 @@
 //   --data <dir>                                          measure an --out export instead of Resources
 //   --out <dir>                                           write linecheck.txt + linecheck.json there
 //   --csv <file>                                          every violation run, one row each
-//   --write-baseline [file]                               record this graph+model's numbers and keys
-//   --ratchet [file]                                      compare with them: exit 1 on any new key, any
-//                                                         key worse than its baseline ratio, a count
-//                                                         increase or a worse worst case (lib/gatebase.mjs;
-//                                                         keys per 5 m bucket, so growth adds keys)
+//   --write-baseline [file]                               record this model's numbers, keys and inputs
+//   --ratchet [file]                                      compare with them (lib/gatebase.mjs): exit 1 on
+//                                                         any new key, a key worse or longer than its
+//                                                         baseline, more runs or metres, a worse worst
+//                                                         case; exit 3 (STALE, not FAIL) when the baseline
+//                                                         was measured on other inputs (graph, container
+//                                                         sections, rules, road PNGs, model): re-record
 //   --pin                                                 enforce the creek pin now (SmoothRules.PinActive)
 //   --plan-taper linear|smooth                            the plan's design taper (default: SmoothRules
 //                                                         PlanTaperShape; --model m0 implies smooth)
 //   --no-census / --no-gate                               skip a half
 //   --edges 12887,549                                     only the chains through these edges (debugging)
 // Baseline file default: tools/city/baseline/linecheck_baseline.json.
+// Regression probes (synthetic cities with known answers): node tools/city/gateprobes.mjs
 // About 1.5-3 minutes for the whole city (the census alone ~15 s of it).
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -44,8 +47,8 @@ import { createSim, MODELS } from './lib/linesim.mjs';
 import { runCensus } from './lib/linecensus.mjs';
 import { runGate } from './lib/linegate.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
-import { loadPaintLayouts } from './lib/paintruns.mjs';
-import { summarize, readBaseline, writeBaseline, ratchet } from './lib/gatebase.mjs';
+import { loadPaintLayouts, SURFACES } from './lib/paintruns.mjs';
+import { summarize, readBaseline, writeBaseline, ratchet, inputsOf } from './lib/gatebase.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -161,25 +164,30 @@ if (!has('--no-gate')) {
   const only = argVal('--edges') ? new Set(argVal('--edges').split(',').map(Number)) : null;
   gate = runGate(S, R, layouts, { planTaperShape: planTaper, refSpots, onlyEdges: only, log });
   const runs = gate.runs;
+  // ---- what this run measured: the baseline's fingerprint
+  const paintFiles = [];
+  for (const k of keys) for (const surf of SURFACES) { const f = join(ART, `city_road_${k}_${surf}.png`); if (existsSync(f)) paintFiles.push(f); }
+  const inputs = inputsOf({ cityBuf, city, graph, R, paintFiles, model: MODEL, planTaper });
   // ---- the per-check table: runs, metres, worst; every key with its worst ratio; runs per tile (lib/gatebase.mjs)
   summary = summarize(gate, R);
   const unit = (id, v) => id === 'A4' ? `${(v * 100).toFixed(0)}%` : id === 'B3' ? `R ${r1(v)} m` : id === 'C2' ? `${r1(v)}x` : id === 'C3' ? `${(v * 100).toFixed(0)}%`
     : Math.abs(v) >= 1 ? `${r2(Math.abs(v))} m` : `${(Math.abs(v) * 100).toFixed(1)} cm`;
   // ---- baseline / ratchet
-  const base = readBaseline(BASELINE)?.entries?.[`${graph}:${MODEL}`];
-  if (has('--ratchet')) verdict = ratchet(summary, base, R, { pin: pinActive, runs });
+  const base = readBaseline(BASELINE)?.entries?.[MODEL];
+  if (has('--ratchet')) verdict = ratchet(summary, base, R, { pin: pinActive, runs, inputs });
   P('');
   P(`SMOOTHNESS GATE  ${gate.stats.edges} ribbons, ${r1(gate.stats.ribbonKm)} km of ribbon, ${r1(gate.stats.lineKm)} km of painted line, ${gate.chains} chains, ${gate.stats.strands} strands`);
+  P(`  bend fans (2-arm nodes drawn as junction slabs; plan A2: never legitimate): ${gate.stats.bendFans} (${gate.stats.bendFans60} turning 60 degrees or more) - each is judged across (B2/B3) and its mouths are no legitimate end (C2)`);
   P(`  check          state    runs     metres   worst        x V/limit  data/builder   baseline`);
   for (const c of R.Checks) {
     const s = summary[c.id];
     const b = base?.checks?.[c.id];
     const bl = b ? `${b.runs} runs, worst ${unit(c.id, b.worst)}` : '-';
     P(`  ${(c.id + ' ' + c.name).padEnd(14)} ${c.state.padEnd(8)} ${String(s.runs).padStart(6)} ${String(Math.round(s.metres)).padStart(10)}   ${unit(c.id, s.worst).padEnd(12)} ${r1(s.worstRatio).toString().padStart(6)}   ${`${s.data}/${s.builder}`.padEnd(14)} ${bl}`);
-    if (s.reportOnlyRuns) P(`  ${''.padEnd(14)} ${'REPORT'.padEnd(8)} ${String(s.reportOnlyRuns).padStart(6)} ${String(Math.round(s.reportOnlyMetres)).padStart(10)}   ${c.id === 'D1' ? 'inside a branch/host merge zone (trims branch table, BranchSeats; report-only until WP-18b)' : 'truncated dash stubs at mouths and gores (report-only until WP-17)'}`);
+    if (s.reportOnlyRuns) P(`  ${''.padEnd(14)} ${'REPORT'.padEnd(8)} ${String(s.reportOnlyRuns).padStart(6)} ${String(Math.round(s.reportOnlyMetres)).padStart(10)}   ${c.id === 'D1' ? 'inside a branch attach arc (its clip range + MergeMarginM; report-only until WP-18b)' : 'truncated dash stubs at mouths and gores (report-only until WP-17)'}`);
   }
-  P(`  keys: one per ${R.KeyStepM} m bucket a run's bad samples touch, each with its worst ratio (${[...Object.values(summary)].reduce((a, s) => a + s.keys.size, 0)} in all)`);
-  P(`  not measurable offline: B4s SEAM (tile seams: one city-wide replica cuts every span once), B2/B3 on FAN perimeters and D1 into fans (the replica builds no fans), heights (D1's same-level test is the census's plan approximation), E1 (no strip paint yet)`);
+  P(`  keys: one per ${R.KeyStepM} m bucket a run's bad samples touch, each with its worst ratio and bad length (${[...Object.values(summary)].reduce((a, s) => a + s.keys.size, 0)} in all)`);
+  P(`  not measurable offline: B4s SEAM (tile seams: one city-wide replica cuts every span once), B2/B3 on FAN perimeters and D1 into fans (the replica builds no fans; across a bend fan it bridges the ribbon edges straight, the mesh gate along the slab's perimeter), heights (D1's same-level test is the census's plan approximation), E1 (no strip paint yet)`);
   P(`  texel quantisation per profile (texture run centre vs RoadProfiles; subtracted from A1-A3/A5/C2 up to half a texel, A0 fails past it): ${Object.entries(gate.texQ).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v * 100).toFixed(1)}/${(gate.texCap[k] * 100).toFixed(1)}`).join(', ')} cm`);
   if (gate.texNotes.length) for (const n of gate.texNotes.slice(0, 10)) P(`  TEXTURE ${n}`);
   if (notes.length) for (const n of notes.slice(0, 10)) P(`  PNG ${n}`);
@@ -228,14 +236,14 @@ if (!has('--no-gate')) {
   P(`  ${pinRuns.length ? Object.entries(pinBy).map(([k, v]) => `${k} ${v.n} (worst ${unit(k, v.val)})`).join(', ') : 'no violations: 0.000 on every check'}`);
   if (verdict) {
     P('');
-    P(`RATCHET against ${BASELINE.replace(/\\/g, '/')} [${graph}:${MODEL}]: ${verdict.ok ? 'PASS' : 'FAIL'}${R.ReportOnly ? ' (SmoothRules.ReportOnly: the city audit would only report this)' : ''}`);
+    P(`RATCHET against ${BASELINE.replace(/\\/g, '/')} [${MODEL}]: ${verdict.ok ? 'PASS' : verdict.stale && !verdict.zeroFail ? 'STALE (re-record; not a verdict)' : 'FAIL'}${R.ReportOnly ? ' (SmoothRules.ReportOnly: the city audit would only report this)' : ''}`);
     for (const l of verdict.lines) P('  ' + l);
   }
   gate.worst = worst;
   gate.pin = { active: pinActive, runs: pinRuns.length, byCheck: pinBy };
   if (has('--write-baseline')) {
-    writeBaseline(BASELINE, `${graph}:${MODEL}`, summary, R);
-    P(`\nwrote the baseline for ${graph}:${MODEL} to ${BASELINE.replace(/\\/g, '/')}`);
+    writeBaseline(BASELINE, MODEL, summary, R, inputs);
+    P(`\nwrote the baseline for ${MODEL} (graph ${graph}, inputs ${JSON.stringify(inputs)}) to ${BASELINE.replace(/\\/g, '/')}`);
   }
 }
 P(`\n(${secs()} s, data ${DATA.replace(/\\/g, '/')})`);
@@ -261,7 +269,7 @@ if (csvPath && gate) {
   writeFileSync(resolve(UNITY, csvPath), lines.join('\n') + '\n');
   console.log(`wrote ${gate.runs.length} runs to ${csvPath}`);
 }
-process.exit(verdict && !verdict.ok ? 1 : 0);
+process.exit(verdict && !verdict.ok ? (verdict.stale && !verdict.zeroFail ? 3 : 1) : 0);
 
 // ------------------------------------------------------------------ baseline helpers
 function pick(r) {
