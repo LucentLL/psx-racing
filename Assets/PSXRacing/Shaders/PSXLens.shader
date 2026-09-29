@@ -141,6 +141,12 @@ Shader "PSX/Lens"
             #else
             #define DIRT_KNEE         0.78
             #endif
+            // The emitter band the dirt glows by (review, 2026-09-29): a tap
+            // counts only by how far its alpha (the emitter mask) is ABOVE this
+            // - the band PSX/Lit keeps lit windows under (WIN_EMIT, the same
+            // number). Lamp heads, lenses and glints (alpha near 1) light the
+            // grime as before; a wall of lit windows does not.
+            #define DIRT_SRC_MIN      0.25
             #define DIRT_CELL_A       0.07    // disc cells, picture heights
             #define DIRT_CELL_B       0.11
             #define DIRT_FILL         0.60    // share of cells holding a disc
@@ -188,7 +194,8 @@ Shader "PSX/Lens"
             float3 LensGlare(float2 uv)
             {
                 float4 t = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0);
-                return max(t.rgb - DIRT_KNEE, 0.0) * lerp(1.0, t.a, saturate(_PSXEmitKey));
+                float src = saturate((t.a - DIRT_SRC_MIN) * (1.0 / (1.0 - DIRT_SRC_MIN)));
+                return max(t.rgb - DIRT_KNEE, 0.0) * lerp(1.0, src, saturate(_PSXEmitKey));
             }
 
             // The drop covering this pixel best, so far.

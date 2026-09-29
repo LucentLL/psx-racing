@@ -286,6 +286,15 @@ Shader "PSX/Lit"
             // Shopfronts take it too: a lit shop window is the goods in it.
             #define WIN_DETAIL_LO      0.50   // glow over a black texel, as a share of the flat glow
             #define WIN_DETAIL_HI      1.50   // glow over a white texel
+            // A LIT WINDOW IS A DIM LIGHT SOURCE (review, 2026-09-29): its
+            // share of the emitter mask is scaled into the LOW band of the
+            // alpha (0..WIN_EMIT). PSX/Lens's dirt only takes the band above
+            // it (DIRT_SRC_MIN, the same number) - lamp heads, lenses, glints,
+            // a lamp's streak in the water - so a tower of lit windows no longer
+            // throws the orange rings of grime the owner's night frame had over
+            // the Samuel Street block. The halation still reads the whole
+            // alpha: windows keep a soft glow, a quarter of a lamp's.
+            #define WIN_EMIT           0.25
 
             // A sine-free hash (Dave Hoskins' hash12): sin() of a large world
             // coordinate loses its fraction on a mobile GPU, this does not.
@@ -608,7 +617,7 @@ Shader "PSX/Lit"
                     // Added after the fog, and fogged only 40% as hard.
                     float3 win = glow * ((1.0 - WIN_FOG_CUT * i.fog) * adapt);
                     col += win;
-                    emit = max(emit, PSXEmitShare(win, col));
+                    emit = max(emit, PSXEmitShare(win, col) * WIN_EMIT);
                 }
                 // The alpha is the emitter mask (PSXTone.cginc) on the PSX
                 // camera's own frame: this pass blends nothing, the clip above

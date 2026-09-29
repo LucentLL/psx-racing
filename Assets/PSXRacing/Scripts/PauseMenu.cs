@@ -599,6 +599,7 @@ namespace PSXRacing
             var menuBtn = MakeButton(canvasGO.transform, "MENU", font, new Vector2(0f, 1f),
                        new Vector2(24f, -24f), MenuButtonSize, 20, () => SetOpen(true));
             menuBtn.navigation = new Navigation { mode = Navigation.Mode.None };
+            DarkenMenuButton(menuBtn);
             menuBtnRT = (RectTransform)menuBtn.transform;
             PlaceMenuButton();
 
@@ -814,6 +815,42 @@ namespace PSXRacing
             rt.anchoredPosition = pos;
             rt.sizeDelta = new Vector2(420f, 50f);
             return t;
+        }
+
+        /// <summary>
+        /// THE ALWAYS-VISIBLE MENU BUTTON, LEGIBLE AT NOON (the colour pass,
+        /// C9 review, 2026-09-29). It was MakeButton's pause-panel style - a
+        /// 16% WHITE box with white text and no edge - which is right over the
+        /// panel's charcoal and wrong over the game: at a clear noon it sits on
+        /// the sky (about code 190), white on white-ish, under 2:1, the most
+        /// washed-out thing in the owner's noon frame. It lives on its own
+        /// overlay canvas at device resolution, which HudOnTop never sees, so
+        /// the HUD's edge never reached it.
+        ///
+        /// Now a smoked charcoal box (72%: the canvas blends in linear light,
+        /// so over a 0.52 sky the box is about 0.16 and the white label 5:1
+        /// before its edge) and the HUD's black text edge (HudTextEdge), with
+        /// the tint states re-based on the dark box: hover a lighter smoke,
+        /// press the pause panel's gold. At night the box is all but the dark
+        /// it stands on.
+        /// </summary>
+        static void DarkenMenuButton(Button btn)
+        {
+            if (btn == null) return;
+            if (btn.targetGraphic is Image img) img.color = Color.white;   // the tint states carry the colour
+            var c = btn.colors;
+            c.normalColor = new Color(0.07f, 0.07f, 0.07f, 0.72f);
+            c.highlightedColor = new Color(0.22f, 0.22f, 0.22f, 0.80f);
+            c.pressedColor = new Color(1f, 0.85f, 0.35f, 0.75f);
+            c.selectedColor = c.normalColor;
+            c.disabledColor = c.normalColor;
+            btn.colors = c;
+            var t = btn.GetComponentInChildren<Text>(true);
+            if (t != null && t.GetComponent<HudTextEdge>() == null)
+            {
+                var edge = HudOnTop.AddOutline(t.gameObject, 0.9f, 1);
+                edge.effectDistance = new Vector2(1.5f, 1.5f);
+            }
         }
 
         static Button MakeButton(Transform parent, string label, Font font, Vector2 anchor,

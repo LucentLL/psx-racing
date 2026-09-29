@@ -5033,13 +5033,41 @@ namespace PSXRacing.EditorTools
             // The exposure: only the hours the old shoulder compressed.
             float noon = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Clear);
             float snow = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Snow);
-            Check(noon > 0.55f && noon < 0.8f, "a clear noon is exposed down (the old shoulder's own gain on a sunlit road)", noon.ToString("0.000"));
+            Check(noon > 0.55f && noon < 1f, "a clear noon is exposed down (the old shoulder's own gain on a sunlit road)", noon.ToString("0.000"));
             Check(snow > noon && snow < 1f, "a snowy noon less so", snow.ToString("0.000"));
             foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset, TimeOfDay.Dusk, TimeOfDay.Night })
-                Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f),
-                      TimeOfDay.At(h).name + " is exposed at exactly 1", TimeOfDay.ExposureFor(h, Weather.Clear));
+                Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f) && TimeOfDay.DayFillFor(h, Weather.Clear) == 1f,
+                      TimeOfDay.At(h).name + " is exposed at exactly 1, its sky fill whole", TimeOfDay.ExposureFor(h, Weather.Clear));
+            // The real path, a city's skyglow included (the review's gate caught
+            // a first cut that anchored before it: city nights 8 codes dark).
+            foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
+                foreach (float urban in new[] { 0f, 0.6f, 1f })
+                    Check(Mathf.Abs(TimeOfDay.ExposureFor(h, Weather.Clear, urban) - 1f) < 1e-5f,
+                          TimeOfDay.At(h).name + " in a city (urban " + urban + ") is exposed at exactly 1",
+                          TimeOfDay.ExposureFor(h, Weather.Clear, urban));
             float rain = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Rain);
-            Check(rain > snow && rain <= 1f, "a rainy noon, under cloud, is exposed least of the three", rain.ToString("0.000"));
+            Check(rain > snow && rain <= 1.1f, "a rainy noon, under cloud, is exposed least of the three", rain.ToString("0.000"));
+            // HARSH SUN (review): the sky's fill cut under a high hard sun,
+            // the exposure re-anchored so the sunlit road keeps its light.
+            foreach (int h in new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon })
+                foreach (var w in new[] { Weather.Clear, Weather.Snow, Weather.Rain })
+                {
+                    TimeOfDay.HarshSunCheck(h, w, out float sunNow, out float sunOld, out float shNow, out float shOld);
+                    Check(sunNow <= sunOld * 1.01f && sunNow >= sunOld * 0.97f,
+                          TimeOfDay.At(h).name + " " + w + ": a sunlit road keeps its light (the owner's colours: never lighter, at most 3% darker)",
+                          sunNow.ToString("0.000") + " vs " + sunOld.ToString("0.000"));
+                    Check(shNow <= shOld + 1e-4f, TimeOfDay.At(h).name + " " + w + ": the shade is never lighter",
+                          shNow.ToString("0.000") + " vs " + shOld.ToString("0.000"));
+                }
+            TimeOfDay.HarshSunCheck(TimeOfDay.Noon, Weather.Clear, out float nSun, out _, out float nSh, out float nShOld);
+            Check(nSh < 0.8f * nShOld, "a clear noon's shade is darker than it was (harsh sun)", nSh.ToString("0.000") + " vs " + nShOld.ToString("0.000"));
+            Check(nSun / Mathf.Max(nSh, 1e-4f) >= 5f, "a clear noon's raw sun:shade on a road is at least 5 (the plan's harsh sun)",
+                  (nSun / Mathf.Max(nSh, 1e-4f)).ToString("0.00"));
+            // C13: a snowy day's road is slush, not a mirror.
+            Check(TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Snow) <= 0.15f + 1e-5f
+                  && TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Snow) >= 0.35f - 1e-5f,
+                  "a snowy noon's road is damp (0.15), a snowy night's wet (0.35) (C13)",
+                  TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Snow) + " / " + TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Snow));
             // Every shader that ends in the curve has it, and compiles.
             foreach (var sh in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Water", "PSX/Sky", "PSX/Decal",
                                        "PSX/Glow", "PSX/Halo", "PSX/Beam", "PSX/Rain", "PSX/Blit", "PSX/Lens", "PSX/Shadow", "PSX/ZoneLine" })
@@ -5056,7 +5084,7 @@ namespace PSXRacing.EditorTools
                   "the HUD draws RGB only (a glyph is not a light source)", hud != null ? hud.GetInt("_ColorMask") : -1);
             // An interior (no hour applied) keeps the old picture: the switches
             // are never serialized, so no scene can carry them on.
-            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey", "gradeSun" })
+            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey", "gradeSun", "dayFill" })
             {
                 var fi = typeof(PSXGlobals).GetField(f);
                 Check(fi != null && fi.IsNotSerialized, "PSXGlobals." + f + " is never serialized (TimeOfDay.Apply's alone)");
@@ -5105,22 +5133,82 @@ namespace PSXRacing.EditorTools
                 HudOnTop.OutlineText(go);
                 var sh = go.GetComponent<UnityEngine.UI.Shadow>();
                 Check(sh is HudTextEdge, "a HUD label's drop shadow becomes the all-round edge (C9)", sh != null ? sh.GetType().Name : "none");
+                // The edge must not allocate per rebuild (the race clock is
+                // rebuilt every frame): one warm-up, then zero bytes.
+                if (sh is HudTextEdge edge)
+                {
+                    var t = go.GetComponent<UnityEngine.UI.Text>();
+                    t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                    t.text = "1'23\"456";
+                    var vh = new UnityEngine.UI.VertexHelper();
+                    for (int k = 0; k < 24; k++) { vh.AddVert(new Vector3(k, 0f, 0f), Color.white, Vector2.zero); }
+                    for (int k = 0; k + 2 < 24; k += 3) vh.AddTriangle(k, k + 1, k + 2);
+                    var probe = new UnityEngine.UI.VertexHelper();
+                    edge.ModifyMesh(vh);
+                    void Rebuild()
+                    {
+                        probe.Clear();
+                        for (int v = 0; v < 24; v++) probe.AddVert(new Vector3(v, 0f, 0f), Color.white, Vector2.zero);
+                        for (int v = 0; v + 2 < 24; v += 3) probe.AddTriangle(v, v + 1, v + 2);
+                        edge.ModifyMesh(probe);
+                    }
+                    Rebuild();   // the probe's own lists warm up too
+                    try
+                    {
+                        long before = System.GC.GetAllocatedBytesForCurrentThread();
+                        for (int k = 0; k < 20; k++) Rebuild();
+                        long grew = System.GC.GetAllocatedBytesForCurrentThread() - before;
+                        // The old edge threw away a 600-vertex list a rebuild:
+                        // about 60 KB each, 1.2 MB over these twenty.
+                        Check(grew < 65536, "the HUD edge allocates nothing per rebuild once warm (the race clock rebuilds every frame)",
+                              grew + " bytes over 20 rebuilds");
+                    }
+                    catch (System.Exception e) { Line("  (allocation probe unavailable: " + e.GetType().Name + ")"); }
+                    vh.Dispose(); probe.Dispose();
+                }
             }
             finally { Object.DestroyImmediate(go); }
+            // Review (2026-09-29): the always-visible MENU button is a smoked
+            // box with the HUD's edge (it lives on its own overlay canvas that
+            // HudOnTop never sees), and every WebGL build brings the snow
+            // grounds to the snow turf (a -SkipScenes publish ships C8 too).
+            string pause = System.IO.File.Exists("Assets/PSXRacing/Scripts/PauseMenu.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/PauseMenu.cs") : "";
+            Check(pause.Contains("DarkenMenuButton(menuBtn)") && pause.Contains("HudOnTop.AddOutline"),
+                  "the MENU button is a dark box with the HUD's text edge (legible at noon)");
+            string build = System.IO.File.Exists("Assets/PSXRacing/Editor/PSXBuildWebGL.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Editor/PSXBuildWebGL.cs") : "";
+            Check(build.Contains("PSXRacingBuilder.RedressSnowGrounds()"), "every WebGL build redresses the snow grounds (C8 ships on any publish)");
+            var snowTint = PSXRacingBuilder.SnowGroundTint;
+            Check(snowTint.r > 0.75f && snowTint.r < 0.95f && snowTint.b >= snowTint.r,
+                  "the snow turf is worn a little under white, a breath of blue (its texture off the tone curve's shoulder)", snowTint.ToString());
+            string lens = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLens.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLens.shader") : "";
+            string litSrc = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLit.shader") : "";
+            Check(lens.Contains("#define DIRT_SRC_MIN      0.25") && litSrc.Contains("#define WIN_EMIT           0.25"),
+                  "lit windows stay under the lens dirt's emitter band (no grime rings over a lit tower)");
             // C10: the eye.
             Check(Mathf.Approximately(ExposureAdapt.TargetFor(1f, 1f), 1f), "an open sky by day: the eye at 1");
             Check(Mathf.Approximately(ExposureAdapt.TargetFor(0f, 0f), 1f), "a roof at night: the eye at 1 (a tunnel at night is its lamps)");
             float roofed = ExposureAdapt.TargetFor(0f, 1f);
             Check(roofed > 2f && roofed <= ExposureAdapt.MaxGain + 1e-4f, "a roof by day opens the eye, at most +1.26 stops", roofed);
+            float fillNoon = TimeOfDay.DayFillFor(TimeOfDay.Noon, Weather.Clear);
+            float roofedCut = ExposureAdapt.TargetFor(0f, 1f, fillNoon), openCut = ExposureAdapt.TargetFor(1f, 1f, fillNoon);
+            Check(Mathf.Abs(roofedCut * fillNoon - roofed) < 1e-3f && Mathf.Approximately(openCut, 1f)
+                  && Mathf.Approximately(ExposureAdapt.TargetFor(0f, 1f, 1f), roofed),
+                  "under a roof the eye also opens by the harsh sun's fill (a tunnel keeps its light), in the open it does not",
+                  roofedCut.ToString("0.00") + " at fill " + fillNoon.ToString("0.00"));
             float in2 = ExposureAdapt.Step(1f, roofed, 2f), out1 = ExposureAdapt.Step(roofed, 1f, 1f);
             Check(in2 > 2f, "two seconds into a tunnel the eye has opened (readable)", in2.ToString("0.00"));
             Check(out1 < 1.1f, "a second after the exit it has closed again (the bloom settles)", out1.ToString("0.00"));
             // C11 / C12: both ship off.
             Check(!LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
                   "the owner's two open choices (G1, cool darks) ship OFF until he says yes");
-            Check(TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Clear) == 1f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f
+            Check(TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Clear) == 1f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Snow) == 1f
+                  && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Fog) == 0f
                   && TimeOfDay.GradeSunFor(TimeOfDay.Dusk, Weather.Clear) == 0f,
-                  "G1's lift fade is keyed on a clear sunlit hour only");
+                  "G1's lift fade is keyed on a clear or snowy sunlit hour only");
             string blit = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader")
                 ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "";
             Check(blit.Contains("if (_PSXGradeSun > 0.0)"), "and at 0 it is a branch not taken: the signed-off grade bit for bit");

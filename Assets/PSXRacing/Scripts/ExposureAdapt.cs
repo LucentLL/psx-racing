@@ -76,6 +76,27 @@ namespace PSXRacing
         public static float TargetFor(float openness, float day) =>
             Mathf.Min(MaxGain, 1f + Strength * (1f - Mathf.Clamp01(openness)) * Mathf.Clamp01(day));
 
+        /// <summary>
+        /// The settled gain with the hour's SKY FILL (PSXGlobals.dayFill, the
+        /// harsh sun - TimeOfDay.HarshSunFill; review 2026-09-29). Under an
+        /// open sky a sunlit hour now keeps only part of its sky light, so the
+        /// shade beside a sunlit road is darker - but inside a tunnel or under
+        /// a deck the ONLY light is that sky light, and a fixed eye would take
+        /// the whole cut there too (the Little Switzerland bore measured 44 to
+        /// 38 on its road at a fill of 0.5, under the plan's 40-90 for its
+        /// walls). An eye adapts to what it stands in: it opens by the fill's
+        /// inverse in proportion to how closed-in it is, so a tunnel keeps the
+        /// light it had while the open shade outside gets the harsh sun. At a
+        /// fill of 1 (every other hour, and any scene without an hour) this is
+        /// <see cref="TargetFor(float, float)"/> exactly.
+        /// </summary>
+        public static float TargetFor(float openness, float day, float fill)
+        {
+            float closed = 1f - Mathf.Clamp01(openness);
+            float f = fill > 0f ? Mathf.Clamp(fill, 0.1f, 1f) : 1f;
+            return TargetFor(openness, day) * Mathf.Lerp(1f, 1f / f, closed * Mathf.Clamp01(day));
+        }
+
         /// <summary>One step of the eye toward <paramref name="target"/>.</summary>
         public static float Step(float current, float target, float dt)
         {
@@ -145,7 +166,7 @@ namespace PSXRacing
             Tunnel = rm != null && InVenueTunnel(car, rm.path, RaceHUD.VenueDef());
             if (Tunnel) open = 0f;
             Openness = open;
-            Target = TargetFor(open, 1f - g.night);
+            Target = TargetFor(open, 1f - g.night, g.dayFill);
             Current = Step(Current, Target, dt);
             return Current;
         }
@@ -157,7 +178,7 @@ namespace PSXRacing
         /// and <paramref name="def"/> may be null.
         /// </summary>
         public static float SteadyFor(Vector3 eye, Transform car, Vector3 toSun, float night,
-                                      TrackPath path, TrackCatalog.TrackDef def)
+                                      TrackPath path, TrackCatalog.TrackDef def, float dayFill = 1f)
         {
             if (!Enabled) return 1f;
             pathHint = -1;
@@ -165,7 +186,7 @@ namespace PSXRacing
             Tunnel = InVenueTunnel(car, path, def);
             if (Tunnel) open = 0f;
             Openness = open;
-            Target = TargetFor(open, 1f - night);
+            Target = TargetFor(open, 1f - night, dayFill);
             return Target;
         }
     }

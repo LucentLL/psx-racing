@@ -23,8 +23,13 @@
 #   $env:PSX_ADAPT='0'      the eye held at 1 (no C10 adaptation)
 #   $env:PSX_G1='1' / $env:PSX_COOLDARKS='1'   the owner's two open choices on for every frame
 #                           (-Sets look renders both ways by itself) - see Scripts\LookChoices.cs
+# and, for the review (2026-09-29):
+#   $env:PSX_DAYFILL='0.4'  the harsh sun's sky fill (TimeOfDay.HarshSunFill) for the whole run
+#   $env:PSX_DAYFILL_SWEEP='1,0.4,0.35' / $env:PSX_SNOWTINT_SWEEP='0.82,0.85,0.88'   -Sets tune
 # Sets beyond the default: beam (the C5 sweep), fx (lit particles, each with
-# its twin without), look (C11/C12 A/B, with the HUD).
+# its twin without), look (C11/C12 A/B, with the HUD), tune (the review's fill
+# and snow sweeps). The protocol set now also shoots the game's own CHASE and
+# CLOSE rigs (_rigchase/_rigclose) and downtown Charlotte (CD).
 #
 # WHY THE TARGET: a texture is imported for the editor's active build target,
 # and the release budget's 16-bit override exists only on WebGL, where WebGL2
@@ -54,7 +59,7 @@ if (-not $NoCopy) {
 $env:PSX_COLOUR_SETS = $Sets
 $out = if ($Out) { Join-Path $proj "Screenshots\$Out" } else { Join-Path $proj "Screenshots\colour_$Target" }
 $env:PSX_COLOUR_OUT = if ($Out) { $out } else { "" }
-foreach ($k in @("PSX_TONE", "PSX_EMITKEY", "PSX_HALATION", "PSX_SHOT_ALPHA", "PSX_BEAM_SWEEP", "PSX_CONE", "PSX_LITFX", "PSX_ADAPT", "PSX_G1", "PSX_COOLDARKS")) {
+foreach ($k in @("PSX_TONE", "PSX_EMITKEY", "PSX_HALATION", "PSX_SHOT_ALPHA", "PSX_BEAM_SWEEP", "PSX_CONE", "PSX_LITFX", "PSX_ADAPT", "PSX_G1", "PSX_COOLDARKS", "PSX_DAYFILL", "PSX_DAYFILL_SWEEP", "PSX_SNOWTINT_SWEEP")) {
     $v = [Environment]::GetEnvironmentVariable($k)
     if ($v) { Write-Host "  $k=$v" }
 }

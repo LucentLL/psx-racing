@@ -68,6 +68,10 @@ namespace PSXRacing
             // crest or the far side of a bend (S3's stage road bends away by
             // 31 m and climbs out of the cutoff by 40).
             new Spot { id = "B1",  venue = "DragQuarter", how = "grid", note = "the quarter-mile strip: flat and straight, the low beam's measuring road" },
+            // Review (2026-09-29): downtown Charlotte, where lit window walls
+            // stand over fresh asphalt - the low beam on the owner's darkest
+            // road next to the brightest emitters, and the lens over them.
+            new Spot { id = "CD",  venue = "Charlotte", how = "grid", note = "downtown Charlotte (the venue's own grid pose, Uptown): window walls over fresh asphalt" },
         };
 
         public static Spot Find(string id)
@@ -295,6 +299,12 @@ namespace PSXRacing
             /// <summary>Normalised image box, origin TOP-left: x0, y0, x1, y1.</summary>
             public float x0, y0, x1, y1;
             public bool inFrame;
+            /// <summary>The box's centre sees the sun (a ray toward it clears
+            /// everything, the car included) - false in any shade; null (not
+            /// written) when no sun direction was given (night, the harness).
+            /// The road-colour gate judges the owner's colours on sunlit road
+            /// and the harsh-sun targets on shade (review, 2026-09-29).</summary>
+            public bool? sunVis;
         }
 
         /// <summary>
@@ -306,6 +316,17 @@ namespace PSXRacing
         /// screen-fixed boxes: the sky high in the middle, the car's roof.
         /// </summary>
         public static List<RegionHit> Project(Camera cam, Vector3 pos, Quaternion rot, Transform car, float aspect)
+            => Project(cam, pos, rot, car, aspect, Vector3.zero);
+
+        /// <summary>As above, with the direction TOWARD the sun (zero = none):
+        /// then every road box says whether its centre is sunlit
+        /// (<see cref="RegionHit.sunVis"/>). Every frame also carries
+        /// "car_box", the car's collider projected (its screen rectangle): the
+        /// car's own shadow on the road is then found by PIXELS against the
+        /// frame's no-shadow twin (colour_stats.py shade) - where a geometric
+        /// box from the collider missed the rendered shadow (the sun map draws
+        /// the body's mesh, not its box).</summary>
+        public static List<RegionHit> Project(Camera cam, Vector3 pos, Quaternion rot, Transform car, float aspect, Vector3 toSun)
         {
             var list = new List<RegionHit>();
             // A car just teleported (and, in edit mode, anything moved at
@@ -343,7 +364,10 @@ namespace PSXRacing
                 // Seen, or behind something (the car, a wall, a parapet)?
                 h.visible = true; h.occluder = "";
                 Vector3 eye = cam.transform.position;
-                var hits = Physics.RaycastAll(eye, (c - eye).normalized, Vector3.Distance(eye, c) - 0.15f);
+                // EVERY layer: a car's colliders are on Ignore Raycast (the
+                // suspension rays skip them), and the car in front of a box -
+                // the CLOSE rig's view over the boot - is exactly what this asks.
+                var hits = Physics.RaycastAll(eye, (c - eye).normalized, Vector3.Distance(eye, c) - 0.15f, ~0, QueryTriggerInteraction.Ignore);
                 foreach (var hh in hits)
                 {
                     if (hh.collider == null) continue;
@@ -352,8 +376,10 @@ namespace PSXRacing
                     h.occluder = hh.collider.name + (car != null && hh.collider.transform.IsChildOf(car) ? " (the car)" : "");
                     break;
                 }
+                if (toSun.sqrMagnitude > 0.5f) h.sunVis = SeesSun(c, toSun);
                 list.Add(h);
             }
+            AddCarBox(list, cam, car);
             // The sky: a fixed box high in the middle of the frame.
             list.Add(new RegionHit { name = "sky_top", kind = "sky", x0 = 0.40f, x1 = 0.60f, y0 = 0.03f, y1 = 0.12f, inFrame = true, visible = true, clean = true, occluder = "", hit = "screen" });
             // The car's roof, projected.
@@ -393,19 +419,65 @@ namespace PSXRacing
             return at;
         }
 
+        /// <summary>Whether a point on a surface sees the sun: nothing solid
+        /// (the car included) on a ray toward it within 400 m.</summary>
+        public static bool SeesSun(Vector3 at, Vector3 toSun)
+        {
+            var from = at + Vector3.up * 0.05f;
+            // Every layer: the car's own colliders are on Ignore Raycast, and
+            // its shadow is the one this must see.
+            foreach (var hh in Physics.RaycastAll(from, toSun.normalized, 400f, ~0, QueryTriggerInteraction.Ignore))
+                if (hh.collider != null && !hh.collider.isTrigger) return false;
+            return true;
+        }
+
+        /// <summary>The car's collider, projected: the screen rectangle of its
+        /// eight corners ("car_box", kind "car"; onGround false). What the
+        /// shade measure leaves out - the car's own pixels - and where it
+        /// looks for the car's shadow (round and under it).</summary>
+        static void AddCarBox(List<RegionHit> list, Camera cam, Transform car)
+        {
+            if (car == null) return;
+            var box = car.GetComponent<BoxCollider>();
+            Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
+            Vector3 e = (box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f)) * 0.5f;
+            float minx = 1f, miny = 1f, maxx = 0f, maxy = 0f;
+            int inFront = 0;
+            for (int k = 0; k < 8; k++)
+            {
+                Vector3 local = c + new Vector3((k & 1) == 0 ? -e.x : e.x, (k & 2) == 0 ? -e.y : e.y, (k & 4) == 0 ? -e.z : e.z);
+                Vector3 v = cam.WorldToViewportPoint(car.TransformPoint(local));
+                if (v.z <= 0.05f) continue;
+                inFront++;
+                minx = Mathf.Min(minx, v.x); maxx = Mathf.Max(maxx, v.x);
+                miny = Mathf.Min(miny, 1f - v.y); maxy = Mathf.Max(maxy, 1f - v.y);
+            }
+            if (inFront < 8) return;
+            list.Add(new RegionHit
+            {
+                name = "car_box", kind = "car", world = car.position, hit = "projected",
+                x0 = Mathf.Clamp01(minx), x1 = Mathf.Clamp01(maxx), y0 = Mathf.Clamp01(miny), y1 = Mathf.Clamp01(maxy),
+                inFrame = true, visible = true, clean = true, occluder = "", onGround = false,
+            });
+        }
+
         /// <summary>The sidecar's "regions" entry.</summary>
         public static List<object> ToSidecar(List<RegionHit> hits)
         {
             var list = new List<object>();
             foreach (var h in hits)
-                list.Add(new Dictionary<string, object>
+            {
+                var d = new Dictionary<string, object>
                 {
                     ["name"] = h.name, ["kind"] = h.kind,
                     ["box"] = new List<object> { h.x0, h.y0, h.x1, h.y1 },
                     ["world"] = h.world, ["surface"] = h.hit ?? "", ["onGround"] = h.onGround,
                     ["inFrame"] = h.inFrame, ["visible"] = h.visible, ["occluder"] = h.occluder ?? "", ["clean"] = h.clean,
                     ["beamModel"] = h.beamModel,
-                });
+                };
+                if (h.sunVis.HasValue) d["sunVis"] = h.sunVis.Value;
+                list.Add(d);
+            }
             return list;
         }
     }

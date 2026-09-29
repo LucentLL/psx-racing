@@ -22,7 +22,10 @@ namespace PSXRacing
     ///   ?psxshot=venue,spot,hour,weather,season,cam,lights,lens,grade[,name[,hud]]
     ///       one frame. hour: TimeOfDay index or name; weather: Clear|Fog|
     ///       Rain|Snow; season: Winter|Spring|Summer|Fall|Baked; cam: chase
-    ///       (the protocol eye) | game (the chase rig left running); lights:
+    ///       (the protocol eye) | game (the chase rig left running) | rigchase
+    ///       / rigclose (the rig left running in that view: the player's own
+    ///       picture, with hud=1 the real HUD - the MENU button, the map);
+    ///       lights:
     ///       auto|on|off; lens, grade: 0|1; hud: 0 (hidden) | 1.
     ///   &amp;pose=x,y,z,qx,qy,qz,qw   the car's pose (from the editor frame's
     ///       sidecar), so both pictures are the same place to the millimetre.
@@ -235,7 +238,7 @@ namespace PSXRacing
                 if (lights.HasValue) CarLights.SetAll(lights.Value);
                 if (s.hud == 0) HideHud(hidden);
                 yield return null;
-                if (cam != null && s.cam != "game") Aim(cam, pos, rot);
+                if (cam != null && !RigCam(s.cam)) Aim(cam, pos, rot);
             }
             yield return new WaitForEndOfFrame();
             var tex = ScreenCapture.CaptureScreenshotAsTexture();
@@ -280,11 +283,16 @@ namespace PSXRacing
             var chase = FindAnyObjectByType<ChaseCamera>();
             var camGo = GameObject.Find("PSXCamera");
             var cam = camGo != null ? camGo.GetComponent<Camera>() : Camera.main;
-            if (s.cam == "game") return cam;
+            if (s.cam == "rigclose") ChaseCamera.PreviewView(ChaseCamera.View.Close);
+            else if (s.cam == "rigchase") ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            if (RigCam(s.cam)) return cam;
             if (chase != null) chase.enabled = false;
             if (cam != null) Aim(cam, pos, rot);
             return cam;
         }
+
+        /// <summary>A camera the game's own rig drives (not re-aimed here).</summary>
+        static bool RigCam(string c) => c == "game" || c == "rigclose" || c == "rigchase";
 
         static void Aim(Camera cam, Vector3 pos, Quaternion rot)
         {

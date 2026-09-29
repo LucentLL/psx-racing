@@ -45,6 +45,15 @@ namespace PSXRacing.EditorTools
     ///            its twin without them (C7).
     ///   look     (not in the default) the owner's two open choices, G1 and
     ///            cool darks, off and on (C11/C12).
+    ///   tune     (not in the default; review 2026-09-29) the harsh sun's
+    ///            fill (PSX_DAYFILL_SWEEP, TimeOfDay.HarshSunFill) at S1, the
+    ///            circuit and the snow spots, and the snow's brightness
+    ///            (PSX_SNOWTINT_SWEEP, runtime copies of the snow grounds).
+    /// The protocol set also carries (review, 2026-09-29) the PLAYER'S OWN
+    /// CAMERA: S1 by noon and night and S3 by night through the game's CHASE
+    /// and CLOSE rigs at rest (ChaseCamera.SteadyPose, _rigchase/_rigclose)
+    /// with LENS FX as it ships (on); and downtown Charlotte (CD) at night,
+    /// its window walls with and without the lens.
     /// The protocol set also carries B1, the drag strip: the low beam's flat,
     /// straight measuring road, dark / lit / braking.
     ///   explore  (not in the default) poses along the Samuel Street edge,
@@ -84,6 +93,9 @@ namespace PSXRacing.EditorTools
             public bool noFlakes;      // the weather's dress and light with no falling snow/rain drawn (the particles' twin)
             public bool sunLift;       // the owner's C11 choice ON for this frame (G1: the grade's lift fade in clear sun)
             public bool coolNight;     // the owner's C12 choice ON for this frame (cool night darks)
+            public string rig = "";    // "chase" / "close": the game's chase rig at rest instead of the protocol eye
+            public float dayFill;      // the tune set: a TimeOfDay.HarshSunFill for this frame (0 = the constant)
+            public float snowTint;     // the tune set: the snow grounds' colour x this (0 = as dressed)
             public string extra = "";  // appended to the tag (the look switches' A/B twins: _cool, _sunlift ...)
             public string Tag()
             {
@@ -100,6 +112,9 @@ namespace PSXRacing.EditorTools
                 if (noFlakes) s += "_noflk";
                 if (sunLift) s += "_sunlift";
                 if (coolNight) s += "_cool";
+                if (!string.IsNullOrEmpty(rig)) s += "_rig" + rig;
+                if (dayFill > 0f) s += "_df" + Mathf.RoundToInt(dayFill * 100f).ToString("000");
+                if (snowTint > 0f) s += "_st" + Mathf.RoundToInt(snowTint * 100f).ToString("000");
                 return s + extra;
             }
         }
@@ -138,6 +153,7 @@ namespace PSXRacing.EditorTools
                 if (sets.Contains("beam")) Guard("beam", BeamSet);
                 if (sets.Contains("fx")) Guard("fx", FxSet);
                 if (sets.Contains("look")) Guard("look", LookSet);
+                if (sets.Contains("tune")) Guard("tune", TuneSet);
                 if (sets.Contains("explore")) Guard("explore", Explore);
                 if (sets.Contains("interior")) Guard("interior", Interiors);
             }
@@ -274,7 +290,154 @@ namespace PSXRacing.EditorTools
                     Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On });
                     Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, brake = true });
                 }
+                RigFrames();
+                // Downtown Charlotte at night (review): the low beam on fresh
+                // asphalt under window walls, and the lens over those walls.
+                var cd = ColourSpots.Find("CD");
+                if (OpenAt(cd, out cam, out player, out pos, out rot))
+                {
+                    Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off });
+                    Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On });
+                    Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, lens = true });
+                    Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, lens = true, rig = "close", hud = true });
+                }
             }
+        }
+
+        /// <summary>
+        /// THE PLAYER'S OWN CAMERA (review, 2026-09-29). Every other protocol
+        /// frame looks from the look tools' fixed eye (8 m back, the car about
+        /// 12% of the frame's width); the game's CHASE rig holds the car at
+        /// about 25% and CLOSE - the view in the owner's frames 4 and 5 and
+        /// both NFS references - at about 34%, where the near field of the low
+        /// beam, the tail lamps' glow and the dirt round our own lamps fill
+        /// the lower half of the screen. S1 by noon and by night, S3 by night,
+        /// both rigs at rest, LENS FX on (as it ships), with the HUD; and the
+        /// night twins without the lens and without the lamps, so the beam and
+        /// the dirt can be read apart.
+        /// </summary>
+        static void RigFrames()
+        {
+            var s1 = ColourSpots.Find("S1");
+            if (OpenAt(s1, out var cam, out var player, out var pos, out var rot))
+            {
+                // THE HARSH SUN'S OWN NUMBERS (review): the protocol view at noon
+                // and afternoon again with NO shadow maps (_flat) - the car's
+                // shadow is every road pixel near the car that the twin shows
+                // lit (colour_stats.py shade).
+                Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, flat = true });
+                Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Afternoon, season = Season.Winter, flat = true });
+                foreach (var rig in new[] { "chase", "close" })
+                {
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, rig = rig, hud = true });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, lens = true, rig = rig, hud = true });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, rig = rig });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.Off, rig = rig });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, rig = rig });
+                }
+            }
+            var cc = ColourSpots.Find("CC");
+            if (OpenAt(cc, out cam, out player, out pos, out rot))
+            {
+                Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Noon, flat = true });
+                Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Afternoon, flat = true });
+            }
+            var s3 = ColourSpots.Find("S3");
+            if (OpenAt(s3, out cam, out player, out pos, out rot))
+                foreach (var rig in new[] { "chase", "close" })
+                {
+                    Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, lens = true, rig = rig, hud = true });
+                    Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, rig = rig });
+                    Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off, rig = rig });
+                }
+        }
+
+        /// <summary>
+        /// THE REVIEW'S TUNING SWEEPS (set "tune", 2026-09-29): the harsh sun's
+        /// fill (PSX_DAYFILL_SWEEP, comma list of TimeOfDay.HarshSunFill
+        /// values; default 1,0.6,0.5,0.4,0.3) at S1 noon clear and snowy, S1
+        /// afternoon, the circuit at noon and morning, and Blowing Rock's snowy
+        /// noon; then the snow's own brightness (PSX_SNOWTINT_SWEEP, default
+        /// 1,0.9,0.8: the snow grounds' colour times that, on runtime copies)
+        /// at both snowy noons. Everything else as it ships.
+        /// </summary>
+        static void TuneSet()
+        {
+            var fills = Floats("PSX_DAYFILL_SWEEP", "1,0.6,0.5,0.4,0.3");
+            var tints = Floats("PSX_SNOWTINT_SWEEP", "1,0.9,0.8");
+            var s1 = ColourSpots.Find("S1");
+            if (OpenAt(s1, out var cam, out var player, out var pos, out var rot))
+            {
+                foreach (float f in fills)
+                {
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, dayFill = f });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, dayFill = f, flat = true });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, dayFill = f });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Afternoon, season = Season.Winter, dayFill = f });
+                }
+                foreach (float t in tints)
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, snowTint = t });
+            }
+            var cc = ColourSpots.Find("CC");
+            if (OpenAt(cc, out cam, out player, out pos, out rot))
+                foreach (float f in fills)
+                {
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Noon, dayFill = f });
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Noon, dayFill = f, flat = true });
+                    Frame(cam, player, cc, pos, rot, new Variant { hour = TimeOfDay.Morning, dayFill = f });
+                }
+            var s2 = ColourSpots.Find("S2");
+            if (OpenAt(s2, out cam, out player, out pos, out rot))
+            {
+                foreach (float f in fills)
+                    Frame(cam, player, s2, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, dayFill = f });
+                foreach (float t in tints)
+                    Frame(cam, player, s2, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, snowTint = t });
+            }
+        }
+
+        static List<float> Floats(string env, string dflt)
+        {
+            var list = new List<float>();
+            string v = System.Environment.GetEnvironmentVariable(env);
+            foreach (var p in (string.IsNullOrWhiteSpace(v) ? dflt : v).Split(','))
+                if (float.TryParse(p, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f)
+                    list.Add(f);
+            return list;
+        }
+
+        /// <summary>The tune set's snow brightness: every renderer wearing a
+        /// SNOW ground (Turf_Snow) gets a runtime copy of its material with
+        /// the colour times <paramref name="k"/> - never the asset - put back
+        /// by <see cref="UntintSnow"/> when the frame ends.</summary>
+        static void TintSnow(float k)
+        {
+            foreach (var r in SceneRenderers())
+            {
+                var mats = r.sharedMaterials;
+                bool any = false;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var m = mats[i];
+                    if (m == null || m.mainTexture == null || m.mainTexture.name != "Turf_Snow" || !m.HasProperty("_Color")) continue;
+                    var copy = new Material(m) { name = m.name + " (snow x" + k + ")", hideFlags = HideFlags.DontSave };
+                    var c = m.color;
+                    copy.color = new Color(c.r * k, c.g * k, c.b * k, c.a);
+                    mats[i] = copy;
+                    any = true;
+                }
+                if (!any) continue;
+                tinted.Add(new KeyValuePair<Renderer, Material[]>(r, r.sharedMaterials));
+                r.sharedMaterials = mats;
+            }
+        }
+
+        static readonly List<KeyValuePair<Renderer, Material[]>> tinted = new List<KeyValuePair<Renderer, Material[]>>();
+
+        static void UntintSnow()
+        {
+            foreach (var kv in tinted) if (kv.Key != null) kv.Key.sharedMaterials = kv.Value;
+            tinted.Clear();
         }
 
         /// <summary>
@@ -294,6 +457,12 @@ namespace PSXRacing.EditorTools
                 {
                     Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, hud = true, sunLift = on });
                     Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, hud = true, coolNight = on });
+                    // "Especially with snow" (review): G1 at the owner's own
+                    // spot on a snowy noon, in his CLOSE view.
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, hud = true, sunLift = on });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, weather = Weather.Snow, hud = true, sunLift = on, rig = "close" });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Noon, season = Season.Winter, hud = true, sunLift = on, rig = "close" });
+                    Frame(cam, player, s1, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, lights = Lights.On, lens = true, hud = true, coolNight = on, rig = "close" });
                 }
             }
             var cc = ColourSpots.Find("CC");
@@ -381,7 +550,7 @@ namespace PSXRacing.EditorTools
                     if (float.TryParse(p, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f)
                         sweep.Add(f);
             if (sweep.Count == 0) sweep.Add(0f);
-            foreach (var id in new[] { "B1", "S3", "CC", "S1" })
+            foreach (var id in new[] { "B1", "S3", "CC", "S1", "CD" })
             {
                 var spot = ColourSpots.Find(id);
                 if (!OpenAt(spot, out var cam, out var player, out var pos, out var rot)) continue;
@@ -500,8 +669,10 @@ namespace PSXRacing.EditorTools
             // The owner's two open choices (LookChoices) for this frame only.
             string keepG1 = System.Environment.GetEnvironmentVariable("PSX_G1");
             string keepCool = System.Environment.GetEnvironmentVariable("PSX_COOLDARKS");
+            string keepFill = System.Environment.GetEnvironmentVariable("PSX_DAYFILL");
             if (v.sunLift) System.Environment.SetEnvironmentVariable("PSX_G1", "1");
             if (v.coolNight) System.Environment.SetEnvironmentVariable("PSX_COOLDARKS", "1");
+            if (v.dayFill > 0f) System.Environment.SetEnvironmentVariable("PSX_DAYFILL", v.dayFill.ToString(System.Globalization.CultureInfo.InvariantCulture));
             try
             {
                 var sun = NightLookShots.FindSun();
@@ -521,6 +692,7 @@ namespace PSXRacing.EditorTools
                 if (v.oncoming) PlaceOncoming(pos, rot);
                 var world = Object.FindAnyObjectByType<CityWorld>();
                 if (world != null) { world.EnsureRing(pos, 2); if (!dressAsBaked) Dress(); }
+                if (v.snowTint > 0f) TintSnow(v.snowTint);
 
                 TimeOfDay.Apply(v.hour, sun);
                 if (globals != null) globals.Apply();
@@ -538,10 +710,24 @@ namespace PSXRacing.EditorTools
                 Canvas.ForceUpdateCanvases();
 
                 // THE EYE, and the lens and the falling snow over it.
-                ColourSpots.Eye(pos, rot, out Vector3 eye, out Quaternion look);
-                cam.transform.SetPositionAndRotation(eye, look);
+                Vector3 eye; Quaternion look;
+                float rigShift = 0f;
                 cam.ResetProjectionMatrix();
-                cam.fieldOfView = ColourSpots.Fov;
+                if (string.IsNullOrEmpty(v.rig))
+                {
+                    ColourSpots.Eye(pos, rot, out eye, out look);
+                    cam.fieldOfView = ColourSpots.Fov;
+                }
+                else
+                {
+                    // The game's own rig at rest for this car (ChaseCamera.Fit),
+                    // at the protocol's 16:9: what the player sees standing here.
+                    var view = v.rig == "close" ? ChaseCamera.View.Close : ChaseCamera.View.Chase;
+                    ChaseCamera.SteadyPose(view, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, player.transform,
+                                           ChaseCamera.FrameOf(player), default, out eye, out look, out float rigFov, out rigShift);
+                    cam.fieldOfView = rigFov;
+                }
+                cam.transform.SetPositionAndRotation(eye, look);
                 float night = Shader.GetGlobalFloat("_PSXNight");
                 // THE EYE'S ADAPTATION (C10), settled for this pose: a frame
                 // is a moment the player has been in a while (a tunnel two
@@ -551,7 +737,7 @@ namespace PSXRacing.EditorTools
                     int vi = TrackCatalog.IndexOf(spot.venue);
                     var vdef = vi >= 0 ? TrackCatalog.At(vi) : null;
                     globals.adapt = ExposureAdapt.SteadyFor(eye, player.transform, sun != null ? -sun.transform.forward : Vector3.up,
-                                                            globals.night, Object.FindAnyObjectByType<TrackPath>(), vdef);
+                                                            globals.night, Object.FindAnyObjectByType<TrackPath>(), vdef, globals.dayFill);
                     globals.Apply();
                 }
                 float dirt = v.lens ? LensFx.DirtFor(night, 0f) : 0f;
@@ -572,7 +758,13 @@ namespace PSXRacing.EditorTools
                 // THE BOXES, projected from where they are on the road.
                 float aspect = 16f / 9f;
                 cam.aspect = aspect;
-                var regions = ColourSpots.Project(cam, pos, rot, player.transform, aspect);
+                if (Mathf.Abs(rigShift) > 1e-5f)
+                    cam.projectionMatrix = ChaseCamera.ShiftedProjection(cam.fieldOfView, aspect, cam.nearClipPlane, cam.farClipPlane, rigShift);
+                // The sun's direction, by day: the boxes then say which are in
+                // the sun, and the car's shadow gets its own pair of boxes.
+                Vector3 toSun = sun != null && Shader.GetGlobalFloat("_PSXNight") < 0.5f && sun.transform.forward.y < -0.1f
+                    ? -sun.transform.forward : Vector3.zero;
+                var regions = ColourSpots.Project(cam, pos, rot, player.transform, aspect, toSun);
                 // And the LAMP HEADS in view (the colour pass: the owner's
                 // yellow bulbs must stay yellow through the tone curve and
                 // the emitter-keyed halation) - the street lamps the table
@@ -600,9 +792,13 @@ namespace PSXRacing.EditorTools
                         ["coolNight"] = LookChoices.CoolNight,
                         ["adapt"] = globals != null ? globals.adapt : 1f, ["openness"] = ExposureAdapt.Openness,
                         ["tunnel"] = ExposureAdapt.Tunnel,
+                        ["rig"] = v.rig ?? "",
+                        ["dayFill"] = TimeOfDay.HarshSunFillNow,
+                        ["snowTint"] = v.snowTint,
+                        ["exposure"] = globals != null ? globals.exposure : 1f,
                     },
                     ["pose"] = new Dictionary<string, object> { ["pos"] = pos, ["rot"] = new List<object> { rot.x, rot.y, rot.z, rot.w } },
-                    ["eye"] = new Dictionary<string, object> { ["pos"] = eye, ["rot"] = new List<object> { look.x, look.y, look.z, look.w }, ["fov"] = ColourSpots.Fov },
+                    ["eye"] = new Dictionary<string, object> { ["pos"] = eye, ["rot"] = new List<object> { look.x, look.y, look.z, look.w }, ["fov"] = cam.fieldOfView, ["shift"] = rigShift },
                     ["regions"] = ColourSpots.ToSidecar(regions),
                 };
 
@@ -637,6 +833,8 @@ namespace PSXRacing.EditorTools
                 EndFrame();
                 System.Environment.SetEnvironmentVariable("PSX_G1", keepG1);
                 System.Environment.SetEnvironmentVariable("PSX_COOLDARKS", keepCool);
+                System.Environment.SetEnvironmentVariable("PSX_DAYFILL", keepFill);
+                cam.ResetProjectionMatrix();
             }
         }
 
@@ -897,6 +1095,7 @@ namespace PSXRacing.EditorTools
         static void EndFrame()
         {
             ClearSmoke();
+            UntintSnow();
             CarLights.BeamIntensityOverride = 0f;
             ShowCanvases();
             LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);

@@ -32,11 +32,26 @@ namespace PSXRacing
         /// a 5x5 square.</summary>
         public int radius = 2;
 
+        /// <summary>
+        /// ONE LIST FOR EVERY EDGE, REUSED (review, 2026-09-29). The first cut
+        /// made a new List per rebuild, sized for 25 copies of the text: the
+        /// race clock is Set every frame (RaceHUD), so an 8-glyph "1'23"456"
+        /// was ~48 vertices x 25 x 108 bytes = ~130 KB of garbage a frame,
+        /// ~7.8 MB/s at 60 fps, on WebGL's non-incremental collector - a
+        /// hitch every few seconds on a phone. Unity's own Shadow borrows a
+        /// pooled list; so does this. Rebuilds happen on the main thread only
+        /// (the canvas update), so one static list is enough, and after the
+        /// first rebuild of the longest text its capacity never grows again:
+        /// zero bytes a frame.
+        /// </summary>
+        static readonly List<UIVertex> scratch = new List<UIVertex>(1024);
+
         public override void ModifyMesh(VertexHelper vh)
         {
             if (!IsActive()) return;
             int r = Mathf.Clamp(radius, 1, 3);
-            var verts = new List<UIVertex>();
+            var verts = scratch;
+            verts.Clear();
             vh.GetUIVertexStream(verts);
             int copies = (2 * r + 1) * (2 * r + 1);   // the rings and the text itself
             int needed = verts.Count * copies;
@@ -59,6 +74,7 @@ namespace PSXRacing
                     }
             vh.Clear();
             vh.AddUIVertexTriangleStream(verts);
+            verts.Clear();
         }
     }
 }

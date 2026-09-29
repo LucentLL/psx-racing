@@ -10,6 +10,8 @@
     py tools/colour/colour_stats.py fx     <dir> [<unlit dir>]     particles vs their twins without (_noflk, _smoke): lit particles
                                                                    (with a PSX_LITFX=0 run: both on the unlit footprint)
     py tools/colour/colour_stats.py hud    <dir>                   _hud vs _world: label and dial contrast (WCAG), face luma
+    py tools/colour/colour_stats.py shade  <dir>                   each frame vs its no-shadow twin (_flat): the car's own
+                                                                   shadow on the road, sun:shade and the shade's b* (harsh sun)
     ... --json out.json   also write every number as JSON
 
 Every frame is a PNG at native resolution with its sidecar (<png>.json,
@@ -301,17 +303,39 @@ ROAD_DAY = ("road_ahead_14", "road_left_4", "road_right_4")
 ROAD_NIGHT_OFFBEAM = ("road_left_4", "road_right_4")
 
 
-def cmd_gate(webgl_dir, base_dir, js):
-    """The road-colour gate: the owner's road colours are never lighter than
-    the decoded baseline. By day: WebGL <= baseline +2 and >= baseline -10;
-    at night off the beam: within +-2. Pairs are matched by file name.
+def is_road(surface):
+    """The owner's road colours are the ROAD's: the ribbon and the decks
+    ('Road', 'Roads', a '...RoadDeck...'), never the shoulder beside it
+    ('RoadEdge': the builder's batter, a verge texture) or a kerb."""
+    s = (surface or "").lower()
+    if "edge" in s or "kerb" in s:
+        return False
+    return s in ("road", "roads") or "roaddeck" in s or s.startswith("road_") or s.startswith("roads_")
 
-    Since the colour pass's C5/C10 two things light a road ON PURPOSE and are
-    reported, not failed: the car's OWN lamps (the low beam's spill lobe lights
-    the road 4 m beside the car at night; the beam is on by day in snow and
-    rain) - the road's own colour is judged on the lamps-off (_dark) frames -
-    and the eye's adaptation in a tunnel (the sidecar's adapt > 1)."""
-    rows, fails, n, info = [], 0, 0, 0
+
+def cmd_gate(webgl_dir, base_dir, js):
+    """The road-colour gate: the owner's road colours are never LIGHTER than
+    the decoded baseline, and a sunlit road is not darker than the plan's trim.
+
+    The rule (the plan's "never-lighter gate", made exact on review 2026-09-29):
+      * only the ROAD is judged (is_road): a box that lands on the shoulder
+        (RoadEdge, the builder's verge batter) or a kerb is listed, not judged;
+      * the ceiling is everywhere: WebGL <= baseline + 2 by day, and within
+        +-2 at night off the beam;
+      * the floor (baseline - 10: the exposure's trim of the retired 1.25
+        light shoulder) is for the owner's colours IN SUNLIGHT on a clear day
+        against an unclipped baseline. A road in shade by day (the sidecar's
+        sunVis false - the harsh sun, C2 and the review's fill cut, darkens the
+        shade on purpose: the plan's own model put a car's shadow on the
+        ConcreteNew deck at 85 against a baseline near 140), a road under a
+        snow, rain or fog sky (a different exposure), and a baseline that was
+        itself on the grade's ceiling (Ycode >= 230: clipped, "blinding", no
+        colour to hold) are reported as EXEMPT with the reason, not failed;
+      * lit on purpose, reported apart: the car's own lamps AT NIGHT (the low
+        beam's spill lights the road beside the car; the road's own colour is
+        judged on the _dark frames), and the eye's adaptation in a tunnel.
+        By day the car's lamps are no excuse: they are nothing against the sun."""
+    rows, fails, n, info, exempt, notroad = [], 0, 0, 0, 0, 0
     for p in sorted(glob.glob(os.path.join(webgl_dir, "*_world.png"))):
         q = os.path.join(base_dir, os.path.basename(p))
         if not os.path.exists(q):
@@ -324,9 +348,11 @@ def cmd_gate(webgl_dir, base_dir, js):
         night = (W.sc.get("night") or 0) > 0.5
         names = ROAD_NIGHT_OFFBEAM if night else ROAD_DAY
         var = W.sc.get("variant") or {}
+        weather = (var.get("weather") or W.sc.get("weather") or "Clear")
         own_lamps = bool(var.get("lit"))
         eye = float(var.get("adapt", W.sc.get("adapt") or 1.0) or 1.0) > 1.01
         rw, rb = W.region_table(), B.region_table()
+        sunvis = {r["name"]: r.get("sunVis") for r in W.regions()}
         for nme in names:
             a, b = rw.get(nme), rb.get(nme)
             if not a or not b or a["m"] is None or b["m"] is None:
@@ -334,27 +360,60 @@ def cmd_gate(webgl_dir, base_dir, js):
             if not (a["visible"] and a["inFrame"] and a["onGround"]) or a.get("clean") is False:
                 continue
             d = a["m"]["Ycode_med"] - b["m"]["Ycode_med"]
-            ok = (-2 <= d <= 2) if night else (-10 <= d <= 2)
-            why = ""
-            if not ok and own_lamps:
-                why = "own lamps (C5)"
-            elif not ok and eye:
-                why = "eye (C10)"
-            if why:
+            base = b["m"]["Ycode_med"]
+            row = {"frame": os.path.basename(p), "region": nme, "surface": a["surface"], "night": night,
+                   "webgl": a["m"]["Ycode_med"], "baseline": base, "delta": d,
+                   "ratio_lin": a["m"]["Ylin"] / max(b["m"]["Ylin"], 1e-6), "sunVis": sunvis.get(nme), "weather": weather}
+            if not is_road(a["surface"]):
+                row.update(ok=True, why="not road (" + a["surface"] + ")", tag="skip")
+                notroad += 1
+                rows.append(row)
+                continue
+            why, tag = "", ""
+            if night:
+                ok = -2 <= d <= 2
+                if not ok and own_lamps:
+                    why, tag = "own lamps at night (C5)", "info"
+            else:
+                over = d > 2
+                under = d < -10
+                ok = not over and not under
+                if over and eye:
+                    why, tag = "eye (C10)", "info"
+                elif under:
+                    reasons = []
+                    if sunvis.get(nme) is False:
+                        reasons.append("in shade (harsh sun)")
+                    if weather != "Clear":
+                        reasons.append(weather.lower() + " sky")
+                    if base >= 230:
+                        reasons.append("baseline clipped (%.0f)" % base)
+                    if reasons:
+                        why, tag = "darker, exempt: " + ", ".join(reasons), "exempt"
+            if tag == "info":
                 info += 1
+            elif tag == "exempt":
+                exempt += 1
             else:
                 n += 1
-                fails += 0 if ok else 1
-            rows.append({"frame": os.path.basename(p), "region": nme, "surface": a["surface"], "night": night,
-                         "webgl": a["m"]["Ycode_med"], "baseline": b["m"]["Ycode_med"], "delta": d, "ok": ok, "why": why,
-                         "ratio_lin": a["m"]["Ylin"] / max(b["m"]["Ylin"], 1e-6)})
+                if not ok:
+                    fails += 1
+                    tag = "FAIL"
+                    why = ("LIGHTER than the owner's road" if d > 0 else
+                           "darker than the owner's road at night (+-2)" if night else
+                           "darker than the floor (baseline -10) in sunlight")
+            row.update(ok=ok, why=why, tag=tag or "ok")
+            rows.append(row)
     for r in rows:
-        tag = "ok  " if r["ok"] else ("info" if r["why"] else "FAIL")
-        print(f"  {tag} {r['frame'][:58]:58s} {r['region']:13s} "
-              f"base {r['baseline']:6.1f} webgl {r['webgl']:6.1f} ({r['delta']:+6.1f}, x{r['ratio_lin']:.2f} linear) [{r['surface']}]"
+        tag = r["tag"]
+        sv = "" if r.get("sunVis") is None else (" sun" if r["sunVis"] else " shade")
+        print(f"  {tag:6s} {r['frame'][:58]:58s} {r['region']:13s} "
+              f"base {r['baseline']:6.1f} webgl {r['webgl']:6.1f} ({r['delta']:+6.1f}, x{r['ratio_lin']:.2f} linear) [{r['surface']}{sv}]"
               + (f"  <- {r['why']}" if r["why"] else ""))
-    print(f"ROAD-COLOUR GATE: {n - fails}/{n} road regions pass" + ("" if fails == 0 else f" - {fails} FAIL (lighter than the owner's roads)")
-          + (f"; {info} lit on purpose (the car's own lamps, the eye) reported apart" if info else ""))
+    print(f"ROAD-COLOUR GATE: {n - fails}/{n} road regions pass" + ("" if fails == 0 else f" - {fails} FAIL")
+          + (f"; {exempt} darker and exempt (shade / weather / clipped baseline)" if exempt else "")
+          + (f"; {info} lit on purpose (own lamps at night, the eye) reported apart" if info else "")
+          + (f"; {notroad} boxes off the road (shoulder, kerb) not judged" if notroad else ""))
     if js:
         with open(js, "w") as fh:
             json.dump(rows, fh, indent=1)
@@ -772,6 +831,73 @@ def cmd_hud(d, js):
     return out
 
 
+def cmd_shade(d, js):
+    """THE HARSH SUN'S NUMBERS (review, 2026-09-29): each daylight frame
+    against its no-shadow twin (<x>_flat_<...>: the sun map and the sky map
+    off, ColourShots' Variant.flat), pixel by pixel.
+
+    Near the car - a window round its projected collider ("car_box" in the
+    sidecar), one car-width to each side and a car-height below - and outside
+    the car's own rectangle:
+      shade   pixels at most 0.6 of their no-shadow twin's luminance: the
+              car's shadow (and any other shadow that falls there)
+      sun     pixels within 3% of their twin (lit), whose twin luminance is
+              within 12% of the shade pixels' twin median - the same surface
+              in the sun
+    Reported: the shadow's Ycode (target 70-95 on the S1 ConcreteNew deck),
+    sun:shade in linear (target >= 5), shade b* - sun b* (target <= -3), and
+    the pixel counts. The twin differs only by the maps (same pose, hour,
+    exposure), so a pixel's ratio IS its shadow."""
+    out = {}
+    for fp in sorted(glob.glob(os.path.join(d, "*_flat*_g1_world.png"))):
+        name = os.path.basename(fp)
+        twin = name.replace("_flat", "", 1)
+        tp = os.path.join(d, twin)
+        if not os.path.exists(tp) or "_field" in name:
+            continue
+        A, Fl = Frame(tp), Frame(fp)
+        if A.target != Fl.target or A.rgb.shape != Fl.rgb.shape:
+            continue
+        box = next((r for r in A.regions() if r["name"] == "car_box"), None)
+        if box is None:
+            print(f"  {twin}: no car_box in the sidecar (an older run)"); continue
+        h, w = A.h, A.w
+        x0, y0, x1, y1 = box["box"]
+        X0, X1, Y0, Y1 = int(x0 * w), int(x1 * w), int(y0 * h), int(y1 * h)
+        cw, ch = X1 - X0, Y1 - Y0
+        WX0, WX1 = max(0, X0 - cw), min(w, X1 + cw)
+        WY0, WY1 = max(0, Y0 + ch // 3), min(h, Y1 + ch)
+        win = np.zeros((h, w), bool)
+        win[WY0:WY1, WX0:WX1] = True
+        win[Y0:Y1, X0:X1] = False
+        ya, yf = A.Y4, Fl.Y4          # Box4: the dither averaged out
+        ratio = ya / np.maximum(yf, 1e-5)
+        shade = win & (ratio <= 0.6) & (yf > 0.02)
+        row = {"window": [WX0, WY0, WX1, WY1], "car": [X0, Y0, X1, Y1], "shade_px": int(shade.sum())}
+        if shade.sum() >= 40:
+            ref = float(np.median(yf[shade]))
+            sun = win & (np.abs(ratio - 1) <= 0.03) & (np.abs(yf / ref - 1) <= 0.12)
+            row["sun_px"] = int(sun.sum())
+            if sun.sum() >= 40:
+                ys, yu = float(np.median(ya[shade])), float(np.median(ya[sun]))
+                ls = lab(A.b4[shade].mean(0)[None, :])[0]
+                lu = lab(A.b4[sun].mean(0)[None, :])[0]
+                row.update(shadow_code=float(ycode_of_lin(ys)), sun_code=float(ycode_of_lin(yu)),
+                           sun_shade=yu / max(ys, 1e-6), db=float(ls[2] - lu[2]))
+        out[twin] = row
+        if "sun_shade" in row:
+            ok = (70 <= row["shadow_code"] <= 95) and row["sun_shade"] >= 5 and row["db"] <= -3
+            print(f"  {twin[:52]:52s} shadow {row['shadow_code']:.0f} (70-95)  sun {row['sun_code']:.0f}  "
+                  f"sun:shade {row['sun_shade']:.2f} (>= 5)  shade b* - sun b* {row['db']:+.1f} (<= -3)  "
+                  f"[{row['shade_px']} / {row['sun_px']} px]  {'ok' if ok else 'MISS'}")
+        else:
+            print(f"  {twin[:52]:52s} too few shadow / sun pixels near the car ({row.get('shade_px')} / {row.get('sun_px', 0)})")
+    if js:
+        with open(js, "w") as fh:
+            json.dump(out, fh, indent=1)
+    return out
+
+
 def main(argv):
     js = None
     if "--json" in argv:
@@ -797,6 +923,8 @@ def main(argv):
         cmd_fx(rest[0], js, rest[1] if len(rest) > 1 else None); return 0
     if cmd == "hud":
         cmd_hud(rest[0], js); return 0
+    if cmd == "shade":
+        cmd_shade(rest[0], js); return 0
     print(__doc__); return 2
 
 

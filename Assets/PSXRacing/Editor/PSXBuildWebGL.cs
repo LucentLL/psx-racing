@@ -94,6 +94,18 @@ namespace PSXRacing.EditorTools
                 if (!File.Exists(LifeHomeSceneBuilder.ScenePath))
                     LifeHomeSceneBuilder.Build();
 
+                // THE SNOW DRESS SHIPS WITH EVERY BUILD (the colour pass, C8
+                // review, 2026-09-29). A snowy ground is the snow turf now
+                // (PSXRacingBuilder.RegisterSeasonalGround), but a sandbox whose
+                // scenes were baked before that still holds the old generated
+                // *_Snow materials - grass or dirt x(1.8, 1.8, 1.9), a lime field
+                // once decoded - and a -SkipScenes publish, the usual one, builds
+                // the sandbox exactly as it stands. So every build brings them to
+                // the current rule first: same assets, same GUIDs, idempotent
+                // (nothing to do on a fresh bake).
+                int redressed = PSXRacingBuilder.RedressSnowGrounds();
+                Debug.Log("[PSXBuildWebGL] snow grounds brought to the snow turf: " + redressed);
+
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
                 PlayerSettings.runInBackground = true;

@@ -102,17 +102,27 @@ namespace PSXRacing
         /// a white blob to the car's roof that was gone by 40 m. Now the
         /// colour goes through .linear, as the street lamps' always did, and
         /// the beam is a flat plateau pinned by MEASUREMENT against the NFS
-        /// (2015) night the owner asked for: the headlit road 2.3-3.6x the
-        /// unlit road beside it (his reference: 2.3-3.6x, flat within 0.3
-        /// stop from the car to about 65 m). Swept 0.12-0.50 on the colour
-        /// protocol's night spots (tools\colour\colour-shots.ps1 -Sets beam,
-        /// PSX_BEAM_SWEEP): 0.22 keeps the moonlit Blue Ridge road inside
-        /// that band at every box on the road, the owner's Samuel Street
-        /// concrete in the beam at the plan's 120-165, and old asphalt at
-        /// NFS's 38-47 - a plateau of 0.33 of light (two lamps), where the
-        /// old beam put 3.2 at 5 m.
+        /// (2015) night the owner asked for.
+        ///
+        /// 0.42 (review, 2026-09-29), not the first cut's 0.22. That one was
+        /// pinned on ONE of the plan's numbers - the headlit road 2.3-3.6x the
+        /// unlit road on the moonlit Blue Ridge stage - and missed the rest in
+        /// both directions: a plateau of 0.33 of light where the plan asks
+        /// 0.55-0.70, old asphalt in the beam at 36 (38-60), and on the owner's
+        /// fresh #1e1e22 asphalt under street lamps (the drag strip, the
+        /// circuit, downtown) a beam a reviewer could not tell from lamps-off
+        /// (x1.24-1.49 over the lamp-lit road; the plan asks 1.5-3). Swept
+        /// 0.22-0.50 on the protocol's night spots (colour-shots -Sets beam,
+        /// PSX_BEAM_SWEEP, the cone held at 0.03): at 0.42 the plateau is 0.64
+        /// of light (the plan pinned "about 0.42 for 0.62"), Blue Ridge's old
+        /// asphalt 48-50 at 14-22 m, the Samuel Street concrete 134 at 14 m
+        /// (120-165), fresh asphalt 24-25 (20-32), the lamp-lit circuit
+        /// x1.8-3.0 and the strip x1.4-1.6 over its street lamps; 0.50 put the
+        /// plateau over 0.70. Still flat - the beam's own light is the plateau
+        /// from 10 m to 55 m (PSXHeadlights.cginc) - and nowhere near the old
+        /// blob: the deck at 14 m is 134, where the owner's frame had 235.
         /// </summary>
-        public const float BeamIntensity = 0.22f;
+        public const float BeamIntensity = 0.42f;
         /// <summary>
         /// What each lamp's GLINTS take instead (the streak of an oncoming
         /// car's lamps down a wet road, the lamps of the car behind in your

@@ -220,6 +220,14 @@ namespace PSXRacing
         /// is on, 0 otherwise. It ships off: 0 is the signed-off grade bit
         /// for bit. TimeOfDay.Apply writes it.</summary>
         [System.NonSerialized] public float gradeSun;
+        /// <summary>THE HOUR'S SKY FILL (TimeOfDay.DayFillFor, the harsh
+        /// sun, review 2026-09-29): the share of its sky light a sunlit hour
+        /// keeps - 1 at every hour but a clear or snowy morning, noon or
+        /// afternoon. Not a shader global: the eye (<see cref="ExposureAdapt"/>)
+        /// opens by its inverse under a roof, so a tunnel is as readable as it
+        /// was while the open shade outside got darker. 0 (a scene that never
+        /// applied an hour) reads as 1.</summary>
+        [System.NonSerialized] public float dayFill = 1f;
 
         void OnEnable()
         {

@@ -10,8 +10,9 @@ namespace PSXRacing
     ///
     ///   C11, "G1" (<see cref="SunLift"/>): the film grade's matte lift - its
     ///   "faded print" floor, (0.112, 0.108, 0.104), about Ycode 28 through
-    ///   the 6-bit dither - fades by half in clear sunlight (morning, noon,
-    ///   afternoon), the way a lens's veiling glare would under a hard sun:
+    ///   the 6-bit dither - fades by half in clear or snowy daylight (morning,
+    ///   noon, afternoon; snow joined on review, 2026-09-29 - "noon,
+    ///   especially with snow"), the way a lens's veiling glare would under a hard sun:
     ///   deeper blacks and about 6.5 stops at noon instead of 6.2, and the
     ///   owner's sunlit fresh asphalt DISPLAYS darker (about 53 to 40). Every
     ///   other hour, the night end and FILM GRADE OFF are bit for bit as they
