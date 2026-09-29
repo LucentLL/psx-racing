@@ -1,9 +1,9 @@
 GRAPH
-  20194 nodes, 25042 edges, 179325 points, 3845.6 km; 782 grade separations (782 by tag), 264 water spans, 791 bridge edges, 32 waters
+  20194 nodes, 25042 edges, 179325 points, 3845.6 km; 782 grade separations (782 by tag), 560 water spans, 791 bridge edges, 1890 waters
   node degrees 0:0 1:925 2:10990 3:6067 4:2088 5:118 6:6 7:0
   km by class: motorway 445.8, motorway_link 257.1, trunk 146.7, trunk_link 29.0, primary 489.9, primary_link 31.0, secondary 914.7, secondary_link 17.9, tertiary 988.9, tertiary_link 5.5, local 519.1
   routes: uptown 9.20 km / 68 edges, tryon 6.02 km / 78 edges, independence 7.02 km / 38 edges
-  DEM 811 x 916 at 60 m, datum 97 m, 99.2..273.9 m ASL; 31695 footprints
+  DEM 811 x 916 at 60 m, datum 97 m, 97.5..293.3 m ASL; 31695 footprints
   PSXC v2, graph hash 27bccd93; PDEM v2, step 0.1 m
 
 KINKS (free vertices: interior polyline points + 2-arm joins; roundabouts out)
@@ -30,21 +30,24 @@ LANES
   width basis: 12 ft (3.6576 m) every lane, RoadProfiles
 
 HEIGHT (against USGS 3DEP, tools/city/truth; the shipped DEM, not the solved roads)
-  Trade & Tryon: game DEM 227.38 m ASL, 3DEP/EPQS 232.59 m (-5.21 m)
-  city-wide DEM vs 3DEP: bias -1.86 m, RMSE 3.63 m (p1 -10.9, p99 4.1); high ridges -7.29 m, deep valleys +2.18 m
-    relief in 600 m p50 12.1 m (real 17.6), p90 19.7 (real 27.2); slope p90 at 120 m 4.35% (real 7.95%)
-  core relief kept 0.34 (fidelity 0.15), RMSE 2.53 m, bias -0.98 m; slope p90 4% (real 13%), over 8%: 0.001 (real 0.243)
-  transects (44.8 km measured of 51.8): game DEM on the road line RMSE 2.84 m, fidelity 0.07, climb kept 0.8, crests+dips kept 13/91 (14%)
-    game road~ (solver step 1): RMSE 2.84 m, grade p95 3.2% (real 4%), crests+dips kept 9/91 (10%)
-    uptown         5.05 km  RMSE  4.24  bias  -1.36  kept  2/19  crest R min 4383 m (real 1701)
-    tryon          5.57 km  RMSE  2.42  bias  -1.63  kept  1/13  crest R min 4961 m (real 645)
-    independence   6.35 km  RMSE  2.24  bias  -0.75  kept  2/11  crest R min 5371 m (real 2255)
-    dilworth       2.68 km  RMSE  1.89  bias  -1.53  kept   1/6  crest R min 6180 m (real 852)
-    freedom        6.08 km  RMSE  2.73  bias  -1.76  kept  0/16  crest R min 2889 m (real 679)
-    tyvola         6.24 km  RMSE     3  bias     -2  kept  2/14  crest R min 2354 m (real 622)
-    providence        7 km  RMSE  2.11  bias  -1.57  kept  1/11  crest R min 3392 m (real 803)
-    i485           5.84 km  RMSE  3.33  bias  -1.76  kept   0/1  crest R min 4297 m (real 717)
-    land beside the road, |land-road| p90: at 30 m 0.76 m (real 3.55), at 60 m 1.5 m (real 5.7); share over 2 m at 60 m 0.028 (real 0.396)
+  Trade & Tryon: game DEM 232.06 m ASL, 3DEP/EPQS 232.59 m (-0.53 m)
+  city-wide DEM vs 3DEP: bias 0 m, RMSE 0.64 m (p1 -1.6, p99 1.8); high ridges 0.26 m, deep valleys -0.33 m
+    relief in 600 m p50 18.2 m (real 17.6), p90 28 (real 27.2); slope p90 at 120 m 8.61% (real 7.95%)
+  game grid slope at 60 m: p50 4.5%, p90 10.3%, p99 18.36%; cells over 6%: 34.3% (3DEP at 60 m: p90 9.02%, 28.6%)
+  core relief kept 0.77 (fidelity 0.55), RMSE 1.01 m, bias 0.32 m; slope p90 7.2% (real 13%), over 8%: 0.067 (real 0.243)
+  transects (44.8 km measured of 51.8): game DEM on the road line RMSE 1.07 m, fidelity 0.12, climb kept 1.14, crests+dips kept 58/91 (64%)
+    game road~ (solver step 1, the grid through a 0.8-cell Gaussian): RMSE 1.61 m, grade p95 3.9% (real 4%), crests+dips kept 40/91 (44%)
+    uptown         5.05 km  RMSE  2.75  bias  -0.36  kept  6/19  crest R min 2940 m (real 1701)
+    tryon          5.57 km  RMSE  0.83  bias   0.17  kept  7/13  crest R min 2345 m (real 645)
+    independence   6.35 km  RMSE  1.33  bias   0.46  kept  5/11  crest R min 3086 m (real 2255)
+    dilworth       2.68 km  RMSE  0.54  bias   0.15  kept   2/6  crest R min 5332 m (real 852)
+    freedom        6.08 km  RMSE  0.95  bias  -0.31  kept 10/16  crest R min 2628 m (real 679)
+    tyvola         6.24 km  RMSE  1.64  bias   0.11  kept  3/14  crest R min 1572 m (real 622)
+    providence        7 km  RMSE  0.72  bias   0.02  kept  7/11  crest R min 2687 m (real 803)
+    i485           5.84 km  RMSE   2.5  bias   0.22  kept   0/1  crest R min 2825 m (real 717)
+    land beside the road, |land-road| p90: at 30 m 1.69 m (real 3.55), at 60 m 2.88 m (real 5.7); share over 2 m at 60 m 0.224 (real 0.396)
+  creek beds (7 transects, 3DEP 1 m): carved terrain within 1 m at 7 of 7, worst -0.85 m
+    little_sugar -0.12 (grid +3.91), irwin -0.85 (grid +3.87), stewart -0.35 (grid +4.19), briar -0.61 (grid +2.21), mcalpine +0.25 (grid +2.64), briar_creek -0.46 (grid +2.35), mcalpine_creek -0.42 (grid +3.37)
 
 CONTROL (OSM highway=traffic_signals/stop/give_way matched to graph nodes by id)
   1668 signals, 140 stops, 5 give-ways; 1483 on junction nodes (3+ arms), 322 mid-way (2 arms), 8 at dead ends
@@ -55,14 +58,14 @@ CONTROL (OSM highway=traffic_signals/stop/give_way matched to graph nodes by id)
     arterial_x_minor       542 junctions   113 signal    1 stop  controlled 21.0%
 
 SIZE (Brotli q11, lgwin 24, each file alone: a proxy for WebGL.data.unityweb)
-  charlotte_city.bytes     2.548 MB raw    1.240 MB brotli
-  charlotte_dem.bytes      1.486 MB raw    0.650 MB brotli
+  charlotte_city.bytes     3.053 MB raw    1.553 MB brotli
+  charlotte_dem.bytes      1.486 MB raw    0.779 MB brotli
   charlotte_bld.bytes      1.743 MB raw    1.149 MB brotli
-  charlotte_routes.json    0.016 MB raw    0.005 MB brotli
-  total                    5.793 MB raw    3.045 MB brotli
-  charlotte_city.bytes by section: HEAD 0/0 KB, META 0/0 KB, NODE 182/152 KB, NAME 30/11 KB, EDGE 876/197 KB, PNTS 1435/937 KB, WATR 8/7 KB, XING 13/7 KB, SPAN 3/3 KB, ROUT 1/0 KB, GHSH 0/0 KB
+  charlotte_routes.json    0.017 MB raw    0.005 MB brotli
+  total                    6.298 MB raw    3.487 MB brotli
+  charlotte_city.bytes by section: HEAD 0/0 KB, META 0/0 KB, NODE 182/152 KB, NAME 33/12 KB, EDGE 876/197 KB, PNTS 1435/937 KB, WATR 350/258 KB, WBED 155/58 KB, XING 13/7 KB, SPAN 7/5 KB, ROUT 1/0 KB, GHSH 0/0 KB
 
 ACCURACY: not measured - the county pavement layers (plan C12) are not fetched yet
 
-(20.4 s, data Assets/PSXRacing/Resources)
+(23 s, data Assets/PSXRacing/Resources)
 wrote tools/city/baseline/metrics_baseline.json

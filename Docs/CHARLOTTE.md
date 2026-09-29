@@ -34,25 +34,31 @@ data (it refuses to run without them):
 - `buildings_core.json` — 35,112 building elements in the same core, with
   `height` / `building:levels` where mapped (every tower in uptown is).
 - `nodes_all.json` — signal / stop / yield nodes, matched to graph nodes BY ID.
-- Four 1" height tiles, N34W081, N34W082, N35W081 and N35W082
-  (`tools/roads/cache/*.hgt.gz`, via `tools/roads/lib.mjs`). They come from the
-  AWS Terrain Tiles "skadi" set (Tilezen), which in the US is a BARE-EARTH
-  mosaic built from USGS NED/3DEP. It is not SRTM radar and has no towers in
-  it: a 1 km window round the Bank of America tower reads 215-232 m, and the
-  tile agrees with 3DEP lidar to 1.5 m RMSE (survey_flatness, 2026-09-27).
-  Tilezen asks for a credit, which was missing until WP-02: "Terrain: AWS
-  Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S.
-  Geological Survey" is now the second credit line.
-- The water still comes from RG2's hand-traced creeks and Lake Wylie
-  (`baselineWater.ts`), co-registered onto the OSM frame by ICP against RG2's
-  own merged I-485 row (23 m residual). Since WP-02 these are **vendored** in
-  `tools/city/vendor/rg2/` (the water file byte for byte, the two I-485 rows
-  cut out with their source files' sha256 and commits; `vendor/README.md` has
-  the provenance), so the export no longer needs an RG2 checkout, and a
-  missing Overpass cache is an error rather than a silent fall-back to RG2's
-  older snapshot. What RG2's `Maps/Rivers and Lake.png` was drawn over is NOT
-  recorded anywhere; that is an open question for the owner (WP-04b replaces
-  this water anyway).
+- **The ground (WP-04):** the USGS 3D Elevation Program's 1/3 arc-second
+  bare-earth DEM (about 10 m; public domain, credit "U.S. Geological Survey,
+  3D Elevation Program"), cells n35w081, n35w082, n36w081 and n36w082.
+  `tools/city/fetch/fetch_3dep.mjs` range-reads only the tiles of those Cloud
+  Optimized GeoTIFFs that cover the DEM box (about 0.1 GB of the 1.94 GB; its
+  own TIFF directory reader, LZW decoder and floating-point predictor, no npm
+  packages) into `tools/city/cache/3dep/box13.f32` (137 MB, gitignored; or
+  `%PSX_GIS_DIR%\3dep`), with `box13.json` holding the georeference, the
+  source files' Last-Modified/ETag and the sha256. Until WP-04 the ground was
+  the AWS Terrain Tiles "skadi" 1" tiles (Tilezen; also bare earth, built from
+  USGS NED/3DEP, 1.5 m RMSE against 3DEP), which the mountain stages still
+  use, so their credit line stays.
+- **The water (WP-04b):** creek centrelines from Mecklenburg County GIS
+  "Creeks and Streams" inside the county (CC0, the county's Open Mapping
+  licence) and USGS 3D Hydrography Program flowlines outside it (public
+  domain), lakes and ponds from the county's "Lakes and Ponds" and 3DHP's
+  waterbodies, the county line from Census TIGER.
+  `tools/city/fetch/fetch_water.mjs` pages them out of the ArcGIS services,
+  sorted by object id, into `tools/city/cache/water/` (gitignored;
+  `fetch/water_manifest.json` has each query, count and sha256). They replace
+  RG2's hand-traced creeks and Lake Wylie, which were registered onto the OSM
+  frame with a 23 m ICP residual and passed within 50 m of none of the five
+  surveyed creek beds; that file stays vendored in `tools/city/vendor/rg2/` as
+  the record (what `Maps/Rivers and Lake.png` was drawn over was never
+  recorded), and nothing ships from it now.
 
 Every input is pinned in `tools/city/cache_manifest.json` (size, sha256, and
 the Overpass `timestamp_osm_base`: 2026-09-12T02:44:33Z for the arterials and
@@ -83,37 +89,55 @@ What the exporter makes of it:
   lists `tools/clt/fetch_clt.mjs` verified on 2026-09-07 (every id still
   present). Uptown Loop 9.20 km (loop, 1.61 km on structure), Tryon Street
   Sprint 6.02 km, Independence Sprint 7.02 km.
-- **The ground**: a 60 m grid (811 x 916) over the whole beltway, sampled
-  from the four skadi tiles, then opened, closed and blurred. The filter was
-  written to take out "roofs", on the belief that the source was radar with
-  uptown's towers 200 m proud. The source is bare earth, so the filter removes
-  real ridges and valleys instead: only 34% of the core's relief survives, and
-  city-wide the grid is 3.63 m RMSE from 3DEP (1.53 m before the filter).
-  Heights are stored in decimetres above the **datum, pinned at 97.0 m**
-  (`DEM_BASE`, WP-02). It used to be `floor(min) - 2`, which is also 97 on
-  this grid (the lowest cell, 99.2 m, is the Pineville Quarry pit at
-  35.1203, -80.8975) but would have moved with any new ground, and every
-  world y with it. The lowest the ground may go is 97.5 m (`DEM_FLOOR`): a
-  cell below it is clamped up only inside a named pit box (`DEM_CLAMP`: the
-  Pineville and Arrowood quarries, keyed by their OSM ways), and anywhere else
-  the export fails, because a u16 below the datum wraps to a 6.5 km spike.
-  3DEP puts those pits at 70.5 m and 89.5 m, so they lose up to ~27 m of
-  depth when WP-04 ships it; today's grid clamps nothing.
+- **The ground**: a 60 m grid (811 x 916) over the whole beltway, each node
+  the MEAN of the 3DEP 1/3" pixels whose centres lie in its own 60 m cell,
+  with **no filter after it** (WP-04, 2026-09-28). Until then it was the skadi
+  tiles run through an opening, a closing and a blur written to take out
+  "roofs", on the belief that the source was radar with uptown's towers 200 m
+  proud; the source was bare earth, so the filter removed real ridges and
+  valleys instead (34% of the core's relief survived; 3.63 m RMSE from 3DEP).
+  Now: 0.64 m RMSE city-wide, 77% of the core's relief kept, Trade & Tryon
+  232.06 m against 232.59 m (it was 227.38). Heights are stored in decimetres
+  above the **datum, pinned at 97.0 m** (`DEM_BASE`, WP-02); it used to be
+  `floor(min) - 2`, which would have moved with the new ground and every world
+  y with it. The lowest the ground may go is 97.5 m (`DEM_FLOOR`): a cell
+  below it is clamped up only inside a named pit box (`DEM_CLAMP`: the
+  Pineville and Arrowood quarries, keyed by their OSM ways; 3DEP puts their
+  floors at 69-71 m and 89.5 m, so they lose up to ~27 m of depth), and
+  anywhere else the export fails, because a u16 below the datum wraps to a
+  6.5 km spike. The grid now runs 97.5..293.3 m ASL (it was 99.2..273.9).
+- **The water** (`tools/city/lib/water.mjs`, WP-04b): 239 creek lines (719
+  km: the county's open channels draining more than a square mile, 3DHP
+  channels of Strahler order 4 or more outside), 1,545 RAVINES (1,251 km: the
+  smaller streams, county classes draining 100-640 acres and 3DHP order 2-3,
+  carved into the ground but dry, with no span), and 106 lakes of 2 ha or
+  more that are flat in the hydro-flattened 3DEP (the level is the median of
+  their pixels). Each creek and ravine carries its BED: the lowest 3DEP pixel
+  within a few metres of the surveyed line every 20 m (40 m for a ravine),
+  made to fall downstream. Width is modelled from the stream order (6 m at
+  order 4 to 40 m). 560 water spans (264 with RG2's lines): every road over a
+  creek is a deck (the owner's rule), a road over a ravine keeps its
+  embankment (culverts are WP-25's).
 - **31,695 footprints** (styles glass / midrise / brick / house / shops,
   gabled where the polygon is a house's), counter-clockwise, with heights.
 
-Outputs (all in `Assets/PSXRacing/Resources`): `charlotte_city.bytes` (2.5 MB
-graph + water + separations + spans + routes; a versioned binary the runtime
-reads through a BinaryReader — the JSON equivalent was 9 MB), `charlotte_dem.bytes`
-(1.5 MB), `charlotte_bld.bytes` (1.7 MB), `charlotte_routes.json` (the menu's
-copy of the routes: lengths, lines, a 20 m polyline each). 5.8 MB raw, about
-3.0 MB Brotli. Debug plots land in `tools/city/charlotte_*.png`.
+Outputs (all in `Assets/PSXRacing/Resources`): `charlotte_city.bytes` (3.05 MB
+graph + water + beds + separations + spans + routes; a versioned binary the
+runtime reads through a BinaryReader — the JSON equivalent was 9 MB),
+`charlotte_dem.bytes` (1.5 MB), `charlotte_bld.bytes` (1.7 MB),
+`charlotte_routes.json` (the menu's copy of the routes: lengths, lines, a 20 m
+polyline each). 6.30 MB raw, 3.49 MB Brotli (5.79 / 3.04 MB before WP-04: the
+water +0.31 MB Brotli, the unfiltered ground +0.13 MB). Debug plots land in
+`tools/city/charlotte_*.png`.
 
 **The container (WP-02, 2026-09-28).** `charlotte_city.bytes` is `PSXC`
 version 2: a header and a **section table** ({tag, offset, length}), then the
 sections META (attribution, uptown), NODE, NAME, EDGE (the edge records and
-their point counts), PNTS (every edge's points, in edge order), WATR, XING,
-SPAN, ROUT and **GHSH, the graph hash**. `CityMap.Parse` reads the sections it
+their point counts), PNTS (every edge's points, in edge order), WATR (each
+water's kind since WP-04b: 0 creek, 1 lake, 2 ravine), WBED (WP-04b: each
+water's bed, u16 cm above the datum then i16 cm steps, a lake's one value its
+level; optional, a file without it still parses), XING, SPAN, ROUT and
+**GHSH, the graph hash**. `CityMap.Parse` reads the sections it
 knows by tag and skips any other, so a later export can add a section (lanes,
 controls, station heights) without breaking an older build. Version 1 was the
 same content as one sequential record, with the points inline in EDGE;
@@ -219,10 +243,18 @@ spatial-hash cell — same shelf / sink / blend shape as the circuits.
 Load order: bytes → graph → **crossing facts** → elevation profiles → tile
 index. `CityElevation.Solve`:
 
-1. Every edge follows the DEM, Gaussian-smoothed over 25 m, grade-limited
-   (4% freeways, 5% expressways, 6.5% streets, 8% ramps and local streets).
-   A tagged bridge is structure end to end and holds at least the line
-   between its ends.
+1. Every edge follows THE ROADS' GROUND, Gaussian-smoothed over 25 m,
+   grade-limited (4% freeways, 5% expressways, 6.5% streets, 8% ramps and
+   local streets). A tagged bridge is structure end to end and holds at least
+   the line between its ends. Since WP-04 the roads' ground is the DEM through
+   a 0.8-cell (48 m) Gaussian (`RoadDemSigmaDefault`; the land itself reads
+   the raw grid): on the unfiltered 3DEP ground two carriageways 20-40 m apart,
+   or a ramp and the road it runs inside, read the grid's slope at their own
+   centrelines and came out up to 2.5 m apart. A carriageway of a divided road
+   (one-way, not a ramp, named) reads it at the MIDLINE between itself and its
+   nearest opposite carriageway of the same name within 45 m
+   (`PairedRoadBaseY`), so both climb the same hill. WP-06 replaces all of
+   this with measured road profiles.
 2. **Trenches.** A freeway mainline crossed by a surface street is DUG under
    it (5 m + deck, 4.5% approaches). Charlotte's inner freeways (the Belk,
    Brookshire) run in cuts under streets that stay at grade; raising every
@@ -238,7 +270,10 @@ index. `CityElevation.Solve`:
    trench pass, or it would pin the ground up under itself and float.
 3. Raises: every separation lifts its OVER edge clear of the under road by
    5 m + deck at 4.5% approaches; humps that overlap merge into viaducts.
-   Water spans hold their line. Junction nodes take their highest incident
+   Water spans hold their line, and since WP-04b are lifted (never lowered)
+   until their soffit clears the water under them by 1 m, with 4.5%
+   approaches: the water is at its real level now, and a road the 60 m grid
+   averages down into a valley would otherwise have the creek over its deck. Junction nodes take their highest incident
    end. Iterated to a fixed point, then the interiors relax (never steeper
    than an edge's own ends), then fresh raises alternate with APPROACH CONES:
    every node standing above the ground seeds a 4.5% cone through the graph
@@ -248,6 +283,26 @@ index. `CityElevation.Solve`:
    road runs after the relax.
 4. Structure = tagged bridge, water span, trench-crossing stations, or more
    than 1.4 m above the DEM.
+
+Ramps seated beside their hosts (the 2026-09-12 pass below) gained one rule
+with the real ground: a short lane seated on one road at its a end and
+another at its b end stepped from one host's height to the other's between
+two stations, 16-19% on three slip lanes whose two roads now stand 1.3-1.8 m
+apart. `SplitTwoHosts` frees stations at the meeting point, each time the
+hosts move, while the step is steeper than 13%, until 10%, and the lane
+climbs between them (10 stations city-wide).
+
+The ground under the water (`CityElevation.Ground`, WP-04b): each creek's and
+ravine's line is carved to its stored bed - a creek's floor 0.9 m under the
+bed (the water 0.1 m under it), flat for max(6 m, half its width + 3 m) each
+side, then banks at 1V:2H up to the land; a ravine 0.4 m under its bed, 3 m
+each side - as a MIN with the grid, so a valley the grid already shows is not
+dug twice. The road corridors then grade the land to the roads as before (a
+creek within a road's 11.5 m flat verge is under it until WP-14). A creek's
+water is a sheet at bed - 0.1 m in 8 m pieces that follow the bed, from bank
+to bank; a piece over a grounded road's pavement lower than the water is left
+out, so water never stands on a road. A lake is one flat surface 0.3 m under
+its level in the hydro-flattened 3DEP.
 
 ## Buildings
 
@@ -307,6 +362,10 @@ are retired.
   the two spawn bugs of 2026-09-12 were invisible to everything above.
 - `tools/city-ground-probe.ps1 -At "x,z"`: which corridors set the ground
   height round a point, for chasing a GRASS note from the drive audit.
+- `tools/city-roadside-probe.ps1 -Spots "edge:s:side;..."` (WP-04): stands
+  up the tiles round a roadside audit note (LEDGE, LIP, FACE, OPEN) as the
+  audit does and prints the first surface a walk out from the lane edge meets
+  every 5 cm, the ground function's terms, and the roads round it.
 - The live URL is the real test.
 
 ### The refinement's instruments (WP-01, 2026-09-28)
@@ -363,6 +422,83 @@ before and after. The baselines are in `tools/city/baseline/`.
   - the 24 kink spots (the verdicts plus the census's worst 20), each also
     from above;
   - the 11 named crests and dips.
+- **TerrainFidelity** (WP-04, in `CityAudit`): the creek bed at the seven
+  creek transects of `tools/city/truth/creek_transects.json` (3DEP 1 m;
+  `make_creek_truth.mjs`), judged on the carved terrain within 1 m and the
+  graded ground reported beside it; the sharpest crest on each route off
+  structure (the crests2 method: a 16 m Gaussian, no crest under R 400 m,
+  critic C23); the land beside the routes at 30/60/100 m; stations made
+  structure by the 3.5 m last resort and cut-wall metres against their
+  pre-WP-04 values (+25% / +20% at most); every water span's soffit above its
+  water. `metrics.mjs` measures the creek beds offline the same way (HEIGHT,
+  "creek beds").
+
+## WP-04 and WP-04b (release R1, 2026-09-28): the hills and the creeks
+
+**What changed.** The ground is 3DEP's 1/3" bare earth averaged over each
+60 m cell with no filter after it, and the water is the county's and USGS's
+surveyed creeks and lakes with beds sampled from 3DEP (the sources and the
+rules are under "The source" above; the solve and the ground under
+"Elevation"). Same grid (811 x 916), same format for the DEM, the datum
+still 97.0 m.
+
+**Measured before -> after** (`metrics.mjs`, `CityAudit`; before = the data
+and code at 2565d60):
+
+| Measure | Before | After | Plan target |
+|---|---|---|---|
+| DEM RMSE against 3DEP (city, 120 m) | 3.63 m | 0.64 m | <= 1.0 m |
+| Core relief kept (8 x 8 km, 10 m truth) | 0.34 | 0.77 | >= 0.70 |
+| Grid slope p90 at 60 m | 4.49% | 10.3% | >= 8% |
+| Cells steeper than 6% | 2.8% | 34.3% | >= 15% |
+| Trade & Tryon | 227.38 m (-5.21) | 232.06 m (-0.53) | |
+| Transects: crests and dips kept (DEM on the road line) | 13 of 91 | 58 of 91 | |
+| Creek beds within 1 m of 3DEP (7 transects, carved terrain) | 0 of 7 (+3.5..+6.8 m) | 7 of 7 (-0.85..+0.25 m) | <= 1.0 m |
+| Sharpest route crest off structure (16 m Gaussian) | R 487 m | R 490 m | >= R 400 m |
+| Stations made structure by the 3.5 m margin | 1,874 | 1,494 | <= +25% |
+| Cut walls on the 118 roadside tiles | 1.34 km | 1.07 km | <= +20% |
+| Freeway trenches under streets | 230 | 212 | |
+| Water spans | 264 | 560 | > 200 |
+| Worst grade (not a sliver) | 15.2% | 13.0% | <= 16% |
+| Data, Brotli | 3.04 MB | 3.49 MB | DEM +0.15, water +0.1-0.3 |
+
+The land beside the routes stands further from the road now (|land - road|
+p90 at 30 m: 0.76 -> 1.69 m on the transects), which is still the 11.5 m flat
+verge and the corridor blend; WP-14 regrades the roadside.
+
+**What the real ground broke, and the fixes.** Adjacent roads stand up to a
+metre or more apart where the filtered grid had them level:
+
+- divided carriageways read their own side of a hillside: they read the
+  midline now (`PairedRoadBaseY`), and the roads read the grid through a
+  0.8-cell Gaussian;
+- a slip lane seated on two hosts stepped between them: `SplitTwoHosts`;
+- a squeezed neighbour higher than the edge left a slot at its retaining
+  face's foot (0.4 m beside a Tyvola ramp, 3.7 m between I-77's viaduct
+  carriageways): the lower edge gets a rail over the strip;
+- a squeeze step grew past a ledge between two sections: judged at the
+  unsqueezed end too;
+- water spans whose road the grid averages into a valley had the creek
+  over the deck: lifted to clear it by 1 m (12 spans, up to 3.1 m).
+
+Six roadside spots are left for WP-14 and named in `CityAudit`
+(`KnownRoadsideSpots`): two 1 m open deck edges at gore gaps (I-277 e1237,
+the Tyvola ramp e2735), a steep verge in a 2.3 m cut on a ramp off I-277
+(e1489), a 5 cm lip between two touching roads (e9314), and two ledges
+(North Caldwell Street at East 12th, the ramp e2858 off the Independence
+Expressway). A failure anywhere else still fails the audit.
+
+**Irwin Creek** runs 14 m off I-77's pavement north of uptown: the carved
+terrain has its bed (-0.85 m), but the graded ground there is +1.95 m, held
+up by I-77's flat verge. Creeks beside roads are WP-14's too.
+
+**Play.** `city-play-check` seats free roam and the 277 grid as before. The
+three city races (race-play-check, 330 s, seed 0) all finish, before and
+after; rivals retired before -> after: Uptown 1 -> 2, Tryon 3 -> 3,
+Independence 3 -> 1 (the planned driver error and traffic make single runs
+noisy, critic C18). The route profiles' sharp 4 m kinks (the approach
+cones' toes, not the ground) are the same count before and after (Uptown
+127 -> 120, Tryon 17 -> 18, Independence 14 -> 12 under R 250 m).
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

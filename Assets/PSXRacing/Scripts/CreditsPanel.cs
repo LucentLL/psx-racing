@@ -107,15 +107,54 @@ namespace PSXRacing
             // never wider than a comfortable reading width.
             float colW = Mathf.Min(900f, MenuKit.HalfWidth * 2f - 96f);
             float y = -104f;
+            string text = Text();
             // Left-aligned text: x is the column's LEFT edge (MenuKit pivots a
             // label on its alignment), so the column is centred by starting it
             // half its width left of the middle.
-            MenuKit.Para(parent, Text(), 20, top, new Vector2(-colW * 0.5f, y), out float used,
-                         TextAnchor.UpperLeft, Color.white, colW);
+            var one = MenuKit.Para(parent, text, 20, top, new Vector2(-colW * 0.5f, y), out float used,
+                                   TextAnchor.UpperLeft, Color.white, colW);
+            // TWO COLUMNS where one runs past BACK's room (WP-04: five credits
+            // since the 3DEP ground and the county and USGS water, and a phone's
+            // canvas is 560 units tall, so BACK stood off the bottom of it). The
+            // paragraphs are split where the taller column is shortest; the
+            // type stays at 20 (the owner's floor).
+            float room = MenuKit.DesignHeight + y - 18f - 44f - 16f;
+            if (used > room)
+            {
+                var paras = text.Split(new[] { "\n\n" }, System.StringSplitOptions.None);
+                float wide = Mathf.Min(1500f, MenuKit.HalfWidth * 2f - 96f), gap = 40f, half = (wide - gap) * 0.5f;
+                float Measure(string s)
+                {
+                    var t = MenuKit.Para(parent, s, 20, top, Vector2.zero, out float h, TextAnchor.UpperLeft, Color.white, half);
+                    Kill(t.gameObject);
+                    return h;
+                }
+                int bestK = -1; float bestH = used;
+                for (int k = 1; k < paras.Length; k++)
+                {
+                    float h = Mathf.Max(Measure(string.Join("\n\n", paras, 0, k)), Measure(string.Join("\n\n", paras, k, paras.Length - k)));
+                    if (h < bestH) { bestH = h; bestK = k; }
+                }
+                if (bestK > 0)
+                {
+                    Kill(one.gameObject);
+                    MenuKit.Para(parent, string.Join("\n\n", paras, 0, bestK), 20, top, new Vector2(-wide * 0.5f, y), out float hL,
+                                 TextAnchor.UpperLeft, Color.white, half);
+                    MenuKit.Para(parent, string.Join("\n\n", paras, bestK, paras.Length - bestK), 20, top, new Vector2(-wide * 0.5f + half + gap, y), out float hR,
+                                 TextAnchor.UpperLeft, Color.white, half);
+                    used = Mathf.Max(hL, hR);
+                }
+            }
             y -= used + 18f;
             var back = MenuKit.Button(parent, "BACK", top, new Vector2(0f, y - 22f), new Vector2(260f, 44f), Close, 22);
             back.navigation = new Navigation { mode = Navigation.Mode.None };
             return back;
+        }
+
+        /// <summary>Destroy a laid-out object in play mode or in the preview tool.</summary>
+        static void Kill(GameObject go)
+        {
+            if (Application.isPlaying) { go.SetActive(false); Destroy(go); } else DestroyImmediate(go);
         }
     }
 }

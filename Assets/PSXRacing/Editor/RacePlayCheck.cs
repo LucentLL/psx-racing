@@ -225,6 +225,16 @@ namespace PSXRacing.EditorTools
             }
             RacePlayCheck.Note($"hits by kind: {string.Join(", ", kinds)}");
             RacePlayCheck.Note($"raced {raced:0} s; {retiredAt.Count} of {rivals} rivals retired");
+            {
+                // did it FINISH (a run long enough for the route), and who crossed the line
+                var done = new List<string>();
+                foreach (var c in rm.allCars)
+                {
+                    var p = c != null ? rm.GetProgress(c) : null;
+                    if (p != null && p.finished) done.Add(c.name);
+                }
+                RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
+            }
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
             Done();
         }
