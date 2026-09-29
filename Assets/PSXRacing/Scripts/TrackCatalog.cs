@@ -916,9 +916,12 @@ namespace PSXRacing
             // (RemapV19Index). Appended once (4e02b49), held back again
             // (cd63392) over four small edge-face ledges, and released on the
             // owner's word ("Release now, fix after", 2026-09-29): those four
-            // ledges are a NAMED exception in the obstacle audit
+            // ledges were a NAMED exception in the obstacle audit
             // (TrackObstacleAudit.OwnerAccepted), each by station, side and
-            // height, and a fix is still owed.
+            // height. Three were fixed the same day (the builder's rise holds
+            // and the end pad carrying the end row's shoulder); 983 R, a
+            // natural hillside past the catch, stays named until the owner
+            // picks a guardrail or a fill (OwnerAccepted says why).
             new TrackDef
             {
                 id = "ChimneyRock",

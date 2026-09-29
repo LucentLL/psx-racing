@@ -1231,6 +1231,78 @@ namespace PSXRacing.EditorTools
                 carryPasses = pass + 1;
             }
 
+            // Past every catch, inside the edge audit's reach: land that climbs
+            // like a wall is TILTED down by its uphill corner (CollectRiseHolds).
+            // Not a least-squares share: that lowers a facet nearly level and
+            // leaves its slope - the very thing a wheel meets - where it was.
+            // Only the corner furthest out along the line comes down, by what
+            // it takes to bring the sample under its target.
+            var riseTilt = new Dictionary<long, float>();
+            int riseHalves = 0, risePasses = 0, riseRefused = 0;
+            bool riseConverged = false;
+            int WantUnderTilt(float x, float z, float target, Vector3 origin, Vector3 outw)
+            {
+                int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
+                float u = x / NearCell - gx, w = z / NearCell - gz;
+                int bx, bz;
+                float wa, wb, wc;
+                if (w >= u) { bx = gx; bz = gz + 1; wa = 1f - w; wb = w - u; wc = u; }
+                else { bx = gx + 1; bz = gz; wa = 1f - u; wb = u - w; wc = w; }
+                float excess = StageLatticeVertexY(gx, gz) * wa + StageLatticeVertexY(bx, bz) * wb
+                             + StageLatticeVertexY(gx + 1, gz + 1) * wc - target;
+                if (excess <= 0f) return 0;
+                if (StageLatticeNearTube(gx, gz) || StageLatticeNearTube(bx, bz)
+                    || StageLatticeNearTube(gx + 1, gz + 1))
+                    return -1;
+                float Out(int vx, int vz) => (vx * NearCell - origin.x) * outw.x + (vz * NearCell - origin.z) * outw.z;
+                float oa = Out(gx, gz), ob = Out(bx, bz), oc = Out(gx + 1, gz + 1);
+                long key; float weight;
+                if (oa >= ob && oa >= oc) { key = LatticeKey(gx, gz); weight = wa; }
+                else if (ob >= oc) { key = LatticeKey(bx, bz); weight = wb; }
+                else { key = LatticeKey(gx + 1, gz + 1); weight = wc; }
+                // A sample the uphill corner barely weighs would ask it for
+                // metres: that facet is not this line's to tilt.
+                if (weight < StageRiseTiltMinWeight) return -1;
+                float drop = (excess + StageLatticeSolveSlackM) / weight;
+                riseTilt.TryGetValue(key, out float tilted);
+                if (tilted + drop > StageRiseTiltMaxM) return -1;
+                Want(key, drop);
+                return 1;
+            }
+            var riseList = new List<(Vector3 at, Vector3 origin, Vector3 outw)>();
+            for (int pass = 0; pass < StageRiseHoldPasses; pass++)
+            {
+                riseList.Clear();
+                int h = CollectRiseHolds(pts, riseList);
+                if (pass == 0) riseHalves = h;
+                want.Clear();
+                foreach (var r in riseList)
+                    if (WantUnderTilt(r.at.x, r.at.z, r.at.y, r.origin, r.outw) < 0 && pass == 0) riseRefused++;
+                if (want.Count == 0) { riseConverged = true; break; }
+                foreach (var kv in want)
+                {
+                    riseTilt.TryGetValue(kv.Key, out float had);
+                    riseTilt[kv.Key] = had + kv.Value;
+                }
+                Apply();
+                risePasses = pass + 1;
+            }
+            float riseDeepest = 0f;
+            var riseAt = new System.Text.StringBuilder();
+            foreach (var kv in riseTilt)
+            {
+                riseDeepest = Mathf.Max(riseDeepest, kv.Value);
+                float cx = (int)(kv.Key >> 32) * NearCell, cz = (int)(uint)kv.Key * NearCell;
+                riseAt.Append(' ').Append(cx.ToString("0")).Append(',').Append(cz.ToString("0"))
+                      .Append(" -").Append(kv.Value.ToString("0.00"));
+            }
+            if (riseHalves > 0 || riseTilt.Count > 0)
+                Log($"Stage ground lattice, past the catch: {riseHalves} half-section(s) where the land climbed faster than " +
+                    $"a face inside the edge audit's reach; {riseTilt.Count} uphill corner(s) tilted down (up to {riseDeepest:0.00} m:{riseAt}), " +
+                    $"{riseRefused} sample(s) left (a corner the sample barely weighs, a tunnel's quad, or more than " +
+                    $"{StageRiseTiltMaxM:0.0} m asked); {risePasses} pass(es)" +
+                    (riseConverged ? "." : ", and its last pass still asked: raise StageRiseHoldPasses."));
+
             // Where the deepest one is, so a bake log can be checked against
             // the ground there without a replica.
             float wx = (int)(worstKey >> 32) * NearCell, wz = (int)(uint)worstKey * NearCell;
@@ -1456,6 +1528,184 @@ namespace PSXRacing.EditorTools
         /// <summary>How far inside a tail's crossing a graze has to be before
         /// it is held (the crossing's own run-in is the audit's to excuse).</summary>
         const float StageTailGrazeClearM = 2.5f;
+
+        /// <summary>
+        /// THE LAND PAST A CATCH MAY NOT CLIMB LIKE A WALL INSIDE THE EDGE
+        /// AUDIT'S REACH.
+        ///
+        /// A section is graded to meet the land, and where it meets it the
+        /// ribbon ends and the lattice is what a car that ran wide finds next.
+        /// The obstacle audit walks that land out to
+        /// TrackObstacleAudit.EdgeReachM and fails any rise of more than
+        /// RoadsideRules.FaceRiseFailM within FaceRunM (0.46) as an EDGE FACE.
+        /// Between two legs of a switchback the 12 m facets can climb faster
+        /// than that just past a catch, where the corner under the other leg
+        /// stands metres up: Chimney Rock 668 R (a facet at 1V:2.1H out of the
+        /// cut's pinned bench toward the leg 5 m above, 0.06 m within 0.13 m
+        /// at 6.95-7.25 m) and 1040-1041 L (the land rising at 0.6 in the
+        /// 0.1-0.2 m between the backslope's carry and the upper leg's
+        /// retaining wall, 0.08-0.09 m at 5.4-5.6 m) - the two ledges of the
+        /// four the owner accepted on 2026-09-29 that climb.
+        ///
+        /// So each open or graded half-section whose section (or its carry)
+        /// met the land is walked from that catch to the reach, and where the
+        /// land climbs faster than <see cref="StageRiseSlope"/> - only on a
+        /// line where some window already climbs more than
+        /// <see cref="StageRiseTriggerM"/>, so a hillside comfortably under the
+        /// face is left exactly as it was - each sample is held under the
+        /// envelope that climbs no faster than that from the land before it.
+        /// PrepareStageLattice meets a hold by TILTING the facet: only its
+        /// corner furthest out along the line comes down. The walk stops where
+        /// the line enters another leg's road or its wall's footprint (the
+        /// retaining face RetainFaceOutM past the rail): past there it is under
+        /// that leg's structure, the walk the audit takes ends at the stone,
+        /// and the land beyond is the other leg's own.
+        ///
+        /// A FALLING facet is not held here: a steep hillside beyond a catch
+        /// can only be eased by lowering its near corners, which digs the
+        /// land from under the catch (Chimney Rock 983 R: the crease 7.55 m
+        /// out, the valley 7 m down the next cell - 2 m of dig for 0.46).
+        /// Returns how many half-sections asked.
+        /// </summary>
+        static int CollectRiseHolds(List<Vector3> pts, List<(Vector3 at, Vector3 origin, Vector3 outw)> into)
+        {
+            int n = pts.Count, asked = 0;
+            float half = RoadWidth * 0.5f;
+            float reach = TrackObstacleAudit.EdgeReachM + RoadsideRules.FaceRunM + StageRiseReachSlackM;
+            float pitch = StageCarryReadPitchM;
+            var land = new List<float>();
+            var legs = new List<int>();
+            for (int i = 0; i < n; i++)
+            {
+                if ((hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i]) || DeckCoversStation(i)) continue;
+                // The other legs near enough to stand across this station's reach.
+                legs.Clear();
+                float near2 = (2f * half + reach + StageRiseLegFootprintM + Spacing) * (2f * half + reach + StageRiseLegFootprintM + Spacing);
+                for (int j = 0; j < n; j++)
+                {
+                    if (StationSep(i, j, n) <= StageOtherLegStations) continue;
+                    float dx = pts[j].x - pts[i].x, dz = pts[j].z - pts[i].z;
+                    if (dx * dx + dz * dz < near2) legs.Add(j);
+                }
+                for (int s = 0; s < 2; s++)
+                {
+                    var kind = GradedKind(s, i);
+                    if (kind == Roadside.Cut) { if (rsCutFaced != null && rsCutFaced[s][i]) continue; }
+                    else if (kind != Roadside.Open) continue;
+                    var prof = shoulderProfiles[s][i];
+                    int m = prof != null ? prof.Count : 0;
+                    if (m < 2) continue;
+                    float side = s == 0 ? -1f : 1f;
+                    Vector3 at = pts[i], outw = rsRight[i] * side;
+                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + prof[m - 1].y;
+                    float Land(float e)
+                    {
+                        Vector3 q = at + outw * (half + e);
+                        return StageLatticeY(q.x, q.z);
+                    }
+                    // Where the land starts showing: the section's own end, or
+                    // where its carry met the land. A carry that never met it
+                    // ends in the air, and that is not this rule's to mend.
+                    float e0 = eEnd;
+                    float slope = (prof[m - 2].y - prof[m - 1].y) / Mathf.Max(prof[m - 1].x - prof[m - 2].x, 1e-5f);
+                    if (Mathf.Abs(slope) >= ShoulderSlopedEnd && Land(eEnd) < yEnd)
+                    {
+                        float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
+                        if (!ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, i, side), ShoulderFoldReach(pts, i, side),
+                                           ShoulderTailE, Land, out _, out _, out float catchE, out _, out bool met, out _, out _)
+                            || !met)
+                            continue;
+                        // The carry reports the first step at or under the land;
+                        // the land crossed its line somewhere in the step before.
+                        e0 = Mathf.Max(eEnd, catchE - ShoulderCatchStepM);
+                    }
+                    if (e0 + RoadsideRules.FaceRunM >= reach) continue;
+
+                    // Stop where the line enters another leg.
+                    float eStop = reach;
+                    for (float e = e0; e <= reach && legs.Count > 0; e += pitch)
+                        if (InOtherLegFootprint(pts, legs, at + outw * (half + e))) { eStop = e; break; }
+                    if (eStop - e0 < 2f * pitch) continue;
+
+                    land.Clear();
+                    for (float e = e0; e <= eStop + 1e-4f; e += pitch) land.Add(Land(e));
+                    // The climb over the audit's run, as a grade times that run:
+                    // over the whole run where it fits, over what is left of the
+                    // line where it does not (the 0.2 m between a carry and
+                    // another leg's retaining face).
+                    int win = Mathf.RoundToInt(RoadsideRules.FaceRunM / pitch);
+                    float worst = 0f;
+                    for (int k = 0; k + 1 < land.Count; k++)
+                    {
+                        int d = Mathf.Min(win, land.Count - 1 - k);
+                        if (d < 2) continue;
+                        worst = Mathf.Max(worst, (land[k + d] - land[k]) / (d * pitch) * RoadsideRules.FaceRunM);
+                    }
+                    if (worst <= StageRiseTriggerM) continue;
+
+                    float env = land[0];
+                    int holds = 0;
+                    for (int k = 1; k < land.Count; k++)
+                    {
+                        float cap = env + StageRiseSlope * pitch;
+                        if (land[k] > cap)
+                        {
+                            Vector3 q = at + outw * (half + e0 + k * pitch);
+                            into.Add((new Vector3(q.x, cap, q.z), at, outw));
+                            env = cap;
+                            holds++;
+                        }
+                        else env = land[k];
+                    }
+                    if (holds > 0) asked++;
+                    if (holds > 0 || CutTrace(i))
+                        Log($"  rise wp {i} {(side < 0 ? "L" : "R")}: land from {e0:0.00} to {eStop:0.00} m" +
+                            $"{(eStop < reach ? " (another leg)" : "")}, climbs {worst:0.000} m in {RoadsideRules.FaceRunM:0.00} m; {holds} hold(s)");
+                }
+            }
+            return asked;
+        }
+
+        /// <summary>Is <paramref name="q"/> (plan) on one of these other legs'
+        /// road, kerb strip or, on a walled side, anywhere out to its retaining
+        /// face (<see cref="StageWallContactE"/> + RetainFaceOutM)? Each leg
+        /// station owns the half Spacing either side of its own line.</summary>
+        static bool InOtherLegFootprint(List<Vector3> pts, List<int> legs, Vector3 q)
+        {
+            float half = RoadWidth * 0.5f;
+            foreach (int j in legs)
+            {
+                Vector3 rj = rsRight[j];
+                Vector3 fj = Vector3.Cross(rj, Vector3.up);
+                float dx = q.x - pts[j].x, dz = q.z - pts[j].z;
+                float along = dx * fj.x + dz * fj.z;
+                if (Mathf.Abs(along) > Spacing * 0.5f + 0.1f) continue;
+                float lat = dx * rj.x + dz * rj.z;
+                int sj = lat < 0f ? 0 : 1;
+                float e = Mathf.Abs(lat) - half;
+                float limit = rsKind[sj][j] == Roadside.Walled && !BuriedTerminal(sj, j)
+                    ? StageWallContactE(pts, j, sj, sj == 0 ? -1f : 1f) + RetainFaceOutM
+                    : KerbWidth + StageRiseLegFootprintM;
+                if (e <= limit) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The rise holds (<see cref="CollectRiseHolds"/>): the
+        /// steepest the land past a catch is let climb inside the reach
+        /// (0.049 m in the audit's 0.13 m against its 0.06 - room for a
+        /// crease's centimetre of mesh quantisation); the rise within
+        /// RoadsideRules.FaceRunM that sets a line off (within 3 mm of the
+        /// face: a line under it is left alone); how
+        /// far past the reach the walk goes; the solves; the least weight an
+        /// uphill corner must have at a sample to be tilted for it, and the
+        /// most it may be tilted in all; and how far past the kerb strip of an
+        /// unwalled other leg its footprint reaches.</summary>
+        // Trigger 0.057 and a metre at most: at 0.055 Chimney Rock 904 L, a
+        // hillside that passes at 0.056, asked 1.62 m of one corner.
+        const float StageRiseSlope = 0.38f, StageRiseTriggerM = 0.057f, StageRiseReachSlackM = 0.25f,
+                    StageRiseTiltMinWeight = 0.05f, StageRiseTiltMaxM = 1f, StageRiseLegFootprintM = 0.5f;
+        const int StageRiseHoldPasses = 4;
 
         /// <summary>
         /// THE FILL BEHIND A STONE IS BELOW THE ROAD.
@@ -3447,6 +3697,9 @@ namespace PSXRacing.EditorTools
         const float EndPadLengthM = 14f, EndPadCoreM = 6f;
         static float EndPadCoreHalf => RoadWidth * 0.5f + KerbWidth;
         static float EndPadHalf => EndPadCoreHalf + 4f;
+        /// <summary>Past a sloped end row's last point, how far the pad grades
+        /// on to the land beside it (BuildStageEndPads).</summary>
+        const float EndPadRimM = 4f;
 
         /// <summary>A route end's frame: the end station, the way out past it,
         /// a right-angle across it, the tarmac's height there (a hair under it)
@@ -3486,27 +3739,110 @@ namespace PSXRacing.EditorTools
             // A metre a cell: flat where it matters, and ~12 KB a pad against a
             // shipped build that stands a hair under GitHub's 100 MB file limit.
             const float cell = 1f;
-            int nl = Mathf.CeilToInt(2f * EndPadHalf / cell);
             int ns = Mathf.CeilToInt((EndPadLengthM + 0.25f) / cell);
+            float half = RoadWidth * 0.5f;
+            int rowsMet = 0;
             for (int end = 0; end < 2; end++)
             {
                 EndPadFrame(pts, end, out Vector3 o, out Vector3 fwd, out Vector3 rt, out float y0, out float g);
                 var verts = new List<Vector3>();
                 var uvs = new List<Vector2>();
                 var tris = new List<int>();
+
+                // THE PAD MEETS THE END ROW. On a route with ends the first and
+                // last station's shoulder rows are the ribbon's own edge, and a
+                // pad that carried only the road and graded down to the land
+                // 4 m past the strip left that edge standing over it - up to
+                // 0.4 m along Chimney Rock's start row, whose left shoulder is
+                // carried 8.8 m out on the inside of the 30 degree start corner
+                // (the owner-accepted 2 L, 2026-09-29: 0.08 m where row 2's line
+                // crosses row 0's). So beside the core, where the end row ends
+                // on a slope (an open or graded side), the pad's first row IS
+                // that row - its own points, a hair under - carried back at the
+                // road's grade and graded onto the land like the core, with a
+                // rim past the row's end. A flat end (a wall's face, a tube's
+                // wall, a deck) keeps the old section: the stone stands there.
+                int row = end == 0 ? 0 : pts.Count - 1;
+                bool rtIsRight = Vector3.Dot(rt, RightAt(pts, row)) > 0f;
+                var rowPos = new Vector3[2][];
+                var rowEs = new float[2][];
+                var surfEnd = new float[2];
+                for (int ps = 0; ps < 2; ps++)
+                {
+                    int s = (ps == 1) == rtIsRight ? 1 : 0;
+                    surfEnd[ps] = KerbWidth;
+                    if (shoulderEndRows == null) continue;
+                    var (rp, re) = shoulderEndRows[end, s];
+                    int m = rp != null ? rp.Length - 2 : 0;     // the surface: all but the tuck and the skirt
+                    if (m < 2 || re[m - 1] <= KerbWidth + 0.05f) continue;
+                    float slope = (rp[m - 2].y - rp[m - 1].y) / Mathf.Max(re[m - 1] - re[m - 2], 1e-5f);
+                    if (Mathf.Abs(slope) < ShoulderSlopedEnd) continue;
+                    rowPos[ps] = rp; rowEs[ps] = re;
+                    surfEnd[ps] = re[m - 1];
+                    rowsMet++;
+                }
+                float RowY(int ps, float e)
+                {
+                    var rp = rowPos[ps]; var re = rowEs[ps];
+                    int m = rp.Length - 2;
+                    if (e <= re[0]) return rp[0].y;
+                    for (int k = 1; k < m; k++)
+                        if (e <= re[k]) return Mathf.Lerp(rp[k - 1].y, rp[k].y, Mathf.InverseLerp(re[k - 1], re[k], e));
+                    return rp[m - 1].y;
+                }
+                // Across: the core every metre, and on a met side the row's
+                // own points (so the pad's first row is that polyline) and its
+                // rim every metre; on the other side the old graded 4 m.
+                var across = new List<float>();
+                for (int ps = 0; ps < 2; ps++)
+                {
+                    float sgn = ps == 0 ? -1f : 1f;
+                    float outer = rowPos[ps] != null ? surfEnd[ps] + EndPadRimM : EndPadHalf - half;
+                    for (float e = -half; e < outer; e += cell) across.Add(sgn * (half + e));
+                    across.Add(sgn * (half + outer));
+                    across.Add(sgn * (half + KerbWidth));
+                    if (rowPos[ps] != null)
+                    {
+                        for (int k = 0; k < rowEs[ps].Length - 2; k++) across.Add(sgn * (half + rowEs[ps][k]));
+                        across.Add(sgn * (half + surfEnd[ps]));
+                    }
+                }
+                across.Sort();
+                for (int k = across.Count - 1; k > 0; k--)
+                    if (across[k] - across[k - 1] < 0.05f) across.RemoveAt(across[k] > 0f ? k - 1 : k);
+                int nl = across.Count - 1;
+
                 for (int js = 0; js <= ns; js++)
                 {
-                    // The first row a quarter metre back under the tarmac's end.
-                    float s = -0.25f + js * cell;
                     for (int jl = 0; jl <= nl; jl++)
                     {
-                        float l = -EndPadHalf + jl * cell;
+                        float l = across[jl];
+                        int ps = l < 0f ? 0 : 1;
+                        float e = Mathf.Abs(l) - half;
+                        bool met = rowPos[ps] != null && e > KerbWidth + 1e-3f;
+                        // The first row a quarter metre back under the tarmac's
+                        // end; beside it, ON the end row's line.
+                        float s = js == 0 && met ? 0f : -0.25f + js * cell;
                         Vector3 p = o + fwd * s + rt * l;
-                        float baseY = y0 + g * Mathf.Max(s, 0f) - (s < 0f ? 0.01f : 0f);
-                        float w = Mathf.SmoothStep(0f, 1f, Mathf.Max(
-                            Mathf.InverseLerp(EndPadCoreM, EndPadLengthM, s),
-                            Mathf.InverseLerp(EndPadCoreHalf, EndPadHalf, Mathf.Abs(l))));
-                        p.y = Mathf.Lerp(baseY, StageLatticeY(p.x, p.z) + 0.03f, w);
+                        float land = StageLatticeY(p.x, p.z) + 0.03f;
+                        float sPos = Mathf.Max(s, 0f);
+                        float wS = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EndPadCoreM, EndPadLengthM, s));
+                        if (met)
+                        {
+                            float baseY = e <= surfEnd[ps]
+                                ? RowY(ps, e) - 0.005f + g * sPos
+                                : Mathf.Lerp(RowY(ps, surfEnd[ps]) - 0.005f + g * sPos, land,
+                                             Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(surfEnd[ps], surfEnd[ps] + EndPadRimM, e)));
+                            p.y = Mathf.Lerp(baseY, land, wS);
+                        }
+                        else
+                        {
+                            float baseY = y0 + g * sPos - (s < 0f ? 0.01f : 0f);
+                            float w = rowPos[ps] != null ? wS : Mathf.SmoothStep(0f, 1f, Mathf.Max(
+                                Mathf.InverseLerp(EndPadCoreM, EndPadLengthM, s),
+                                Mathf.InverseLerp(EndPadCoreHalf, EndPadHalf, Mathf.Abs(l))));
+                            p.y = Mathf.Lerp(baseY, land, w);
+                        }
                         verts.Add(p);
                         uvs.Add(new Vector2((p.x - uox) / tile, (p.z - uoz) / tile));
                     }
@@ -3533,7 +3869,8 @@ namespace PSXRacing.EditorTools
                 col.sharedMaterial = SlidePhys();
                 go.isStatic = true;
             }
-            Log($"Stage end pads: the road's surface carried {EndPadCoreM:0} m on past both ends, graded onto the land by {EndPadLengthM:0} m.");
+            Log($"Stage end pads: the road's surface carried {EndPadCoreM:0} m on past both ends, graded onto the land by {EndPadLengthM:0} m; " +
+                $"{rowsMet} end row side(s) sloped, whose shoulder the pad carries too.");
         }
 
         static float SeaDepthAt(float x, float z, float y)

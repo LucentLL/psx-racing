@@ -2333,6 +2333,11 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static List<Vector2>[][] shoulderProfiles;
 
+        /// <summary>[end, side]: the first (0) and last (1) station's rows as
+        /// BuildShoulders laid them - points, then the tuck and the skirt - on
+        /// a stage with ends; null otherwise. Read by BuildStageEndPads.</summary>
+        static (Vector3[] pos, float[] es)[,] shoulderEndRows;
+
         /// <summary>
         /// Emit the shoulder ribbon down both sides of the road from a
         /// per-station profile. Replaces BuildRoadEdge.
@@ -2432,6 +2437,22 @@ namespace PSXRacing.EditorTools
                         Log(sb.ToString());
                     }
                 }
+            }
+
+            // The two end rows as laid, for a stage's end pads
+            // (BuildStageEndPads): on a route with ends the first and last
+            // rows' lines are the ribbon's own edge, and the pad has to meet
+            // them there.
+            shoulderEndRows = null;
+            if (!Loop && stageDemLoaded)
+            {
+                shoulderEndRows = new (Vector3[] pos, float[] es)[2, 2];
+                for (int end = 0; end < 2; end++)
+                    for (int s = 0; s < 2; s++)
+                    {
+                        int idx = end == 0 ? 0 : n - 1;
+                        shoulderEndRows[end, s] = (pos[s][idx], es[s][idx]);
+                    }
             }
 
             // Looks like the ground beside it, because it IS that ground now:
@@ -2660,6 +2681,8 @@ namespace PSXRacing.EditorTools
                     Vector3 outA = RightAt(pts, a) * side, outB = RightAt(pts, b) * side;
                     float half = RoadWidth * 0.5f;
                     List<Vector3> cur = null;
+                    int steepTris = 0, overLand = 0, nearRoad = 0, overCap = 0;
+                    float maxOver = 0f;
                     for (int t = 0; t + 2 < pairTris.Count; t += 3)
                     {
                         Vector3 p0 = pair[pairTris[t]], p1 = pair[pairTris[t + 1]], p2 = pair[pairTris[t + 2]];
@@ -2668,6 +2691,7 @@ namespace PSXRacing.EditorTools
                         if (ny < 1e-6f) continue;
                         float grad = new Vector2(nrm.x, nrm.z).magnitude / ny;
                         if (grad <= ApexPadTuckSlope) continue;
+                        steepTris++;
                         for (int e = 0; e < 3; e++)
                         {
                             Vector3 ca = e == 0 ? p0 : e == 1 ? p1 : p2;
@@ -2679,15 +2703,22 @@ namespace PSXRacing.EditorTools
                                 Vector3 q = Vector3.Lerp(ca, cb, j / (float)k);
                                 float gap = q.y - ShoulderLatticeY(q.x, q.z);
                                 if (gap <= ApexPadMinGapM) continue;
+                                overLand++;
+                                maxOver = Mathf.Max(maxOver, gap);
                                 float eA = (q.x - pts[a].x) * outA.x + (q.z - pts[a].z) * outA.z - half;
                                 float eB = (q.x - pts[b].x) * outB.x + (q.z - pts[b].z) * outB.z - half;
-                                if (Mathf.Min(eA, eB) < ApexPadRoadClearM) continue;
-                                if (mixed && gap > ApexPadFlatCapM) continue;
+                                if (Mathf.Min(eA, eB) < ApexPadRoadClearM) { nearRoad++; continue; }
+                                if (mixed && gap > ApexPadFlatCapM) { overCap++; continue; }
                                 if (cur == null) { cur = new List<Vector3>(); groups.Add(cur); groupAt.Add(a + (s == 0 ? "L" : "R")); }
                                 cur.Add(q);
                             }
                         }
                     }
+                    if (stageDemLoaded && CutTrace(a))
+                        Log($"  apex pair {a}-{b} {(s == 0 ? "L" : "R")}: {(both ? "both sloped" : "flat beside carried")}, " +
+                            $"{pairTris.Count / 3} tris, {steepTris} steeper than {ApexPadTuckSlope:0.00}, {overLand} edge points over the land " +
+                            $"(highest {maxOver:0.000} m), {nearRoad} within {ApexPadRoadClearM:0.0} m of the road, {overCap} over the flat cap, " +
+                            $"{(cur != null ? cur.Count : 0)} crest samples; sliced gap {RibbonSlices(a)}");
                 }
             }
 

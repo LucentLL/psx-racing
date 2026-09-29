@@ -567,7 +567,7 @@ namespace PSXRacing.EditorTools
         /// <summary>How far past the tarmac edge the profile and the barrier
         /// rays reach when nothing stops them first. Past the clear zone
         /// (kerb + 3.5 m) and the barrier warrant (kerb + 5 m).</summary>
-        const float EdgeReachM = 8f;
+        internal const float EdgeReachM = 8f;
         /// <summary>How far an OPEN half-section's profile is always carried on
         /// past <see cref="EdgeReachM"/> (MeasureFarFace): the toe of a stage
         /// shoulder's carried foreslope at its depth cap — its ribbon to the
@@ -732,38 +732,37 @@ namespace PSXRacing.EditorTools
         /// dated).
         ///
         /// Chimney Rock, 2026-09-29. The owner: "Release now, fix after" - the
-        /// park road ships with these four small ledges, the only failing
-        /// lines of the 2026-09-29 verify, and a fix follows.
+        /// park road shipped with four small ledges, the only failing lines of
+        /// that day's verify, and a fix followed the same day for three:
+        /// 1040-1041 L (the land climbing into the upper leg's retaining wall)
+        /// and 668 R (a facet climbing toward the leg above) by
+        /// PSXRacingBuilder's rise holds, which tilt the lattice past a catch
+        /// down by its uphill corner; 2 L past the reach (the start row's
+        /// shoulder standing over the land along its own line) by the end pad,
+        /// which now carries the end row's shoulder as well as the road. Their
+        /// entries are out.
+        ///
+        /// 983 R STAYS, and why. A foreslope graded at 1V:4H meets the land
+        /// 6.0 m out; 7.55 m out a 12 m lattice crease drops into the next
+        /// cell, whose far corners lie in the valley 7 m down toward the leg
+        /// below - a natural hillside falling at about 1V:1.6H. No lattice
+        /// that only lowers can ease a falling facet but by digging its near
+        /// corners (about 2 m, under the catch), and no ribbon meets land that
+        /// falls faster than it. What is left is a design change: a guardrail
+        /// (the fall starts 3 m past the clear zone and 1.7 m past the
+        /// warrant's reach, so the DOT rule does not call for one) or a fill
+        /// carried 15 m down the valley side (the tail, whose fans beside a
+        /// short catch stand metres over the land - 981-982 R already does).
+        /// The owner's call.
         /// </summary>
         internal static readonly AcceptedFace[] OwnerAccepted =
         {
-            new AcceptedFace
-            {
-                venue = "ChimneyRock", pastReach = false, side = -1, fromWp = 1040, toWp = 1041,
-                maxRiseM = 0.09f, atM = 5.6f,
-                accepted = "owner accepted 2026-09-29, fix pending",
-                what = "the embankment between the top switchback's legs, the upper leg 5-7 m up 14 m away",
-            },
             new AcceptedFace
             {
                 venue = "ChimneyRock", pastReach = false, side = 1, fromWp = 983, toWp = 983,
                 maxRiseM = 0.08f, atM = 7.7f,
                 accepted = "owner accepted 2026-09-29, fix pending",
                 what = "a natural 0.65 hillside knee past the foreslope's catch",
-            },
-            new AcceptedFace
-            {
-                venue = "ChimneyRock", pastReach = false, side = 1, fromWp = 668, toWp = 668,
-                maxRiseM = 0.06f, atM = 7.25f,
-                accepted = "owner accepted 2026-09-29, fix pending",
-                what = "a 0.47 lattice facet between switchback legs, on the threshold",
-            },
-            new AcceptedFace
-            {
-                venue = "ChimneyRock", pastReach = true, side = -1, fromWp = 2, toWp = 2,
-                maxRiseM = 0.08f, atM = 8.85f,
-                accepted = "owner accepted 2026-09-29, fix pending",
-                what = "the road's own shoulder ribbon ending over the land at the 30 deg start corner",
             },
         };
 

@@ -6963,16 +6963,18 @@ namespace PSXRacing.EditorTools
                 Check(touge != null && System.Array.IndexOf(touge, "ChimneyRock") >= 0,
                       "and the touge meets race up the park road");
 
-                // IT SHIPS ON FOUR NAMED LEDGES, NOT A WAIVER. The owner,
-                // 2026-09-29: "Release now, fix after". The obstacle audit
-                // passes on exactly those four spots (OwnerAccepted), each by
-                // station, side, height and position; anything else, or any of
-                // them grown, still fails. Pinned: the list is those four, each
-                // small, short and dated, and the matcher refuses a face one
-                // station on, a centimetre taller, on the other side, of the
-                // other kind, half a metre off or on another venue.
+                // IT SHIPPED ON FOUR NAMED LEDGES, NOT A WAIVER. The owner,
+                // 2026-09-29: "Release now, fix after". Three are fixed (the
+                // rise holds took 1040-1041 L and 668 R, the end pad 2 L past
+                // the reach) and their entries are out; 983 R stays, a natural
+                // hillside no lowering fixes (TrackObstacleAudit.OwnerAccepted
+                // says why), until the owner picks a rail or a fill. Pinned:
+                // the list is that one, small, short and dated, the matcher
+                // refuses a face one station on, a centimetre taller, on the
+                // other side, of the other kind, half a metre off or on another
+                // venue - and the three fixed spots are no longer on it.
                 var acc = TrackObstacleAudit.OwnerAccepted;
-                Check(acc.Length == 4, "the obstacle audit's owner-accepted list is Chimney Rock's four ledges", acc.Length);
+                Check(acc.Length == 1, "the obstacle audit's owner-accepted list is Chimney Rock's one ledge left, 983 R", acc.Length);
                 string badEntry = null;
                 foreach (var e in acc)
                 {
@@ -6980,7 +6982,7 @@ namespace PSXRacing.EditorTools
                     foreach (var d in TrackCatalog.Scened) if (d.id == e.venue) listedVenue = true;
                     bool ok = listedVenue && e.venue == "ChimneyRock" && (e.side == -1 || e.side == 1) &&
                               e.fromWp >= 0 && e.toWp >= e.fromWp && e.toWp - e.fromWp <= 1 &&
-                              // printed to the centimetre: 668 R prints 0.06, just over the 0.06 line
+                              // printed to the centimetre (668 R, since fixed, printed 0.06, just over the 0.06 line)
                               e.maxRiseM >= RoadsideRules.FaceRiseFailM && e.maxRiseM < 0.10f &&
                               e.atM > 0f && e.atM < 12f &&
                               e.accepted == "owner accepted 2026-09-29, fix pending" &&
@@ -6989,23 +6991,23 @@ namespace PSXRacing.EditorTools
                 }
                 Check(badEntry == null,
                       "each is one listed spot: a side, at most two stations, under 0.10 m, dated and marked fix pending",
-                      badEntry ?? "all four");
-                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.08f, 5.40f) >= 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1040, 0.09f, 5.60f) >= 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) >= 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.062f, 6.95f) >= 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 2, 0.08f, 8.85f) >= 0,
-                      "the audit passes on the four as they were measured");
-                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1042, 0.08f, 5.40f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1039, 0.08f, 5.40f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.10f, 5.40f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.07f, 7.25f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 1041, 0.08f, 5.40f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 1041, 0.08f, 5.40f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 2, 0.08f, 8.85f) < 0 &&
+                      badEntry ?? "all");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) >= 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.70f) >= 0,
+                      "the audit passes on 983 R as it was measured");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.08f, 5.40f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1040, 0.09f, 5.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.062f, 6.95f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 2, 0.08f, 8.85f) < 0,
+                      "and no longer on the three it fixed: 1040-1041 L, 668 R, 2 L past the reach");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 984, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 982, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.09f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, 1, 983, 0.08f, 7.60f) < 0 &&
                       TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 8.30f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRockRev", false, -1, 1041, 0.08f, 5.40f) < 0 &&
-                      TrackObstacleAudit.AcceptedFor("GillespieGap", false, -1, 1041, 0.08f, 5.40f) < 0,
+                      TrackObstacleAudit.AcceptedFor("ChimneyRockRev", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("GillespieGap", false, 1, 983, 0.08f, 7.60f) < 0,
                       "and on nothing else: a station on, a centimetre taller, the other side or kind, half a metre off, another venue");
             }
 
