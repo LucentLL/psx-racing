@@ -2787,14 +2787,22 @@ namespace PSXRacing
         /// </summary>
         public float SeatPenetration()
         {
-            var seatModel = tray != null ? tray.Find("SeatModel") : null;
-            if (seatModel == null) return 0f;
-            var seatCols = seatModel.GetComponentsInChildren<Collider>();
             var load = new List<Collider>();
             foreach (var s in slots)
                 if (s.box != null) load.AddRange(s.box.GetComponentsInChildren<Collider>());
             foreach (var b in bottles)
                 if (b != null) load.AddRange(b.GetComponentsInChildren<Collider>());
+            return SunkInSeat(load);
+        }
+
+        /// <summary>How deep the deepest of <paramref name="load"/> is sunk
+        /// into the seat model's colliders, in metres, at the poses their
+        /// transforms hold right now. Zero on the slab bench.</summary>
+        float SunkInSeat(IList<Collider> load)
+        {
+            var seatModel = tray != null ? tray.Find("SeatModel") : null;
+            if (seatModel == null) return 0f;
+            var seatCols = seatModel.GetComponentsInChildren<Collider>();
             float worst = 0f;
             foreach (var a in load)
             {
@@ -2829,6 +2837,54 @@ namespace PSXRacing
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             rb.WakeUp();
+        }
+
+        /// <summary>
+        /// THE HARNESS'S OTHER HAND: put box <paramref name="i"/> where it was
+        /// stacked, moved <paramref name="alongPanM"/> forward ALONG THE PAN,
+        /// lying at the pan's angle, at rest, and leave the settling to
+        /// physics. Returns how far it had to be lifted to clear the seat's
+        /// padding (zero where the cushion is under the pan's line).
+        ///
+        /// For a case that needs a box somewhere it was not spawned, without
+        /// asking the solver to take it there. Case 11 used to SHOVE a lone
+        /// box forward at 1.3 g for 22 steps against a pan that holds about
+        /// 0.9: a slide driven by the difference, across a seat of convex
+        /// pieces, so where it stopped (13-15 cm in five bakes, 29 cm and on
+        /// the floor in a sixth) depended on the order the bake's objects
+        /// came out in and not on the code. A
+        /// placement integrates nothing. The pose is arithmetic on the spawn
+        /// point, and the physics after it is a box at rest settling a few
+        /// millimetres onto a cushion that holds it with most of its grip to
+        /// spare: a stable rest, where a difference in the last bit of a
+        /// float dies away instead of growing.
+        /// </summary>
+        public float PlaceBoxAlongPan(int i, float alongPanM)
+        {
+            if (!Valid(i) || slots[i].box == null || tray == null) return 0f;
+            var rb = slots[i].box;
+            var t = rb.transform;
+            // The spawn's own pose: base on the pan's normal, the spawn's
+            // clearance above the pan's line, turned to the pan. Moved along
+            // the pan it stays exactly that far above the line.
+            t.rotation = tray.rotation * PanRot;
+            t.position = tray.TransformPoint(slots[i].startLocal + PanRot * new Vector3(0f, 0f, alongPanM));
+            // The line is not the cushion. Where the padding stands proud of
+            // it the box would be handed to the solver INSIDE the seat, and
+            // the solver's answer to that is to fire it out: lift it clear.
+            var cols = rb.GetComponentsInChildren<Collider>();
+            float lifted = 0f;
+            while (lifted < 0.05f && SunkInSeat(cols) > 0f)
+            {
+                t.position += t.up * 0.001f;
+                lifted += 0.001f;
+            }
+            rb.position = t.position;
+            rb.rotation = t.rotation;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            rb.WakeUp();
+            return lifted;
         }
 
         // ------------------------------------------------------------------

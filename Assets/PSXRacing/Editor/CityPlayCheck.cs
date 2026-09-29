@@ -55,7 +55,9 @@ namespace PSXRacing.EditorTools
                 if (idx < 0 || s < 0 || s >= scenes.Length || !System.IO.File.Exists(scenes[s].path))
                     Fail(name + ": scene not built");
             }
-            if (failures > 0) { Finish(); return; }
+            // Exit too: the job runs without -quit (it leaves for play mode), so
+            // a return here would leave a batch editor open with nothing to do.
+            if (failures > 0) { Finish(); EditorApplication.Exit(1); return; }
 
             EditorSceneManager.OpenScene(scenes[TrackCatalog.SceneIndex(roamIdx)].path);
             PrimeRoam();
@@ -155,6 +157,31 @@ namespace PSXRacing.EditorTools
         const float FieldSpreadM = 80f;
         const float LineReachM = 60f;
 
+        /// <summary>Real seconds the whole drive may take in play mode before
+        /// the check calls itself HUNG and exits. A hidden job is never killed
+        /// by tools\unity-wait.ps1 (the rule is for imports), so a wait that
+        /// never comes - WaitForEndOfFrame in batch mode did - kept a play
+        /// mode editor spinning past the tool's budget with its log growing
+        /// without end. The drive itself takes well under a minute.</summary>
+        const float HangSeconds = 480f;
+        float bornAt;
+        bool finished;
+        string stage = "free roam";
+
+        void Awake() { bornAt = Time.realtimeSinceStartup; }
+
+        /// <summary>Unscaled, and in Update: runs whatever the coroutine is
+        /// stuck on (a paused game's timeScale 0 included).</summary>
+        void Update()
+        {
+            if (finished || Time.realtimeSinceStartup - bornAt < HangSeconds) return;
+            finished = true;
+            CityPlayCheck.Fail("HUNG: no end after " + HangSeconds.ToString("0") + " s of play, stuck in " + stage +
+                               " (a wait that never came)");
+            CityPlayCheck.Finish();
+            EditorApplication.Exit(1);
+        }
+
         IEnumerator Start()
         {
             DontDestroyOnLoad(gameObject);
@@ -201,11 +228,14 @@ namespace PSXRacing.EditorTools
                     "the player is still at street height after two seconds",
                     (player.transform.position.y - y0).ToString("+0.00;-0.00") + " m from where it was seated");
 
+                stage = "the drive-thru's order bay";
                 yield return StartCoroutine(OrderBay(mode));
+                stage = "the pause menu";
                 yield return StartCoroutine(PauseCheck("roam"));
             }
 
             // ---- THE 277 RACE ---------------------------------------------
+            stage = "the 277 race";
             CityPlayCheck.PrimeRace();
             SceneManager.LoadScene(TrackCatalog.SceneIndex(CityPlayCheck.raceIdx));
             yield return null;
@@ -257,6 +287,8 @@ namespace PSXRacing.EditorTools
                     spread.ToString("0") + " m apart");
             }
 
+            if (finished) yield break;   // the hang watchdog already reported
+            finished = true;
             CityPlayCheck.Finish();
             EditorApplication.Exit(CityPlayCheck.failures == 0 ? 0 : 1);
         }
@@ -380,6 +412,7 @@ namespace PSXRacing.EditorTools
                     "CITY: no food signpost in the lap slot", "lap slot: '" + lap + "'");
                 CityPlayCheck.Check(!storeOpen, "CITY: no store is open");
             }
+            stage = "the order bay's picture";
             yield return StartCoroutine(Shot("orderbay"));
         }
 
@@ -413,14 +446,23 @@ namespace PSXRacing.EditorTools
         /// </summary>
         IEnumerator Shot(string name)
         {
-            yield return new WaitForEndOfFrame();
+            // A frame, never WaitForEndOfFrame: batch mode has no game view, so
+            // it never comes. A hidden run (-NoWatch) hung right here, in play
+            // mode, for its whole budget and past it, writing ~150 MB of
+            // per-frame render errors a minute (2026-09-29, 5 GB). The render
+            // request below is synchronous and needs no point in the frame.
+            yield return null;
             string dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Application.dataPath), "Screenshots");
             System.IO.Directory.CreateDirectory(dir);
             string path = System.IO.Path.Combine(dir, "city_play_" + name + ".png");
             if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
             var cam = Camera.main;
             string why = null;
-            if (cam == null) why = "no main camera";
+            // -nographics: a Null device renders nothing (RenderTexture.Create
+            // fails), so there is no picture to take - said, not attempted.
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                why = "no graphics device - a -nographics run";
+            else if (cam == null) why = "no main camera";
             else
             {
                 var target = cam.targetTexture;

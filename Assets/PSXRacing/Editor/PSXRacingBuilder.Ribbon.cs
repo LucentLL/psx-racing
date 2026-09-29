@@ -42,8 +42,14 @@ namespace PSXRacing.EditorTools
     ///    edge and eases back to its chord (smoothstep) across the next
     ///    RibbonFadeMinM or RibbonFadeFactor times the move, never past the end
     ///    of its surface: the toe, the tuck and the skirt, the lattice that was
-    ///    solved under them, the apex pads and every wall stay where the plan
-    ///    put them. A walled row eases back to the wall's contact line.
+    ///    solved under them and the apex pads stay where the plan put them.
+    ///  - Between two WALLED rows (StageRowWalled) the shoulder moves whole,
+    ///    out to the wall's contact line and its tuck and skirt with it, and
+    ///    the wall - rail, stone, posts and collider - stands on the same
+    ///    slices (CurveWallRing), so a guardrail follows the road round a
+    ///    hairpin instead of turning a corner at every post (2026-09-29
+    ///    review, Chimney Rock 715 and 1049). A gap into a buried terminal,
+    ///    a deck or a tunnel portal keeps its chord.
     ///
     /// Only render and collider geometry change. Waypoint indices, the TrackPath
     /// and everything keyed to a station are exactly what they were. LaneAudit
@@ -278,8 +284,15 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static int SlicedShoulderZip(List<Vector3> pts, int gap, int k, float side, List<int> tris,
                                      List<Vector3> extraV, List<Vector2> extraUV, float uox, float uoz, float tile,
-                                     int a0, Vector3[] pa, float[] ea, int b0, Vector3[] pb, float[] eb)
+                                     int a0, Vector3[] pa, float[] ea, int b0, Vector3[] pb, float[] eb,
+                                     bool rigid = false)
         {
+            // RIGID: both rows are walled shoulders (StageRowWalled), and the
+            // wall between them stands on the same slices of the curve
+            // (CurveWallRing). The whole row moves with the curve - the flat
+            // shoulder out to the wall's contact line, its tuck and its skirt -
+            // so the collider's face and the shoulder's end meet all the way
+            // round the bend, as they do at a station.
             var steps = ZipSteps(ea, eb);
             int R = steps.Count + 1;
             var ri = new int[R];
@@ -298,7 +311,7 @@ namespace PSXRacing.EditorTools
             float SurfEnd(float[] e) => e[Mathf.Max(e.Length - 3, 0)];
             float feA = Mathf.Max(Mathf.Min(fs + fadeLen, SurfEnd(ea)), fs + 0.1f);
             float feB = Mathf.Max(Mathf.Min(fs + fadeLen, SurfEnd(eb)), fs + 0.1f);
-            bool Cut(int r) => !(ea[ri[r]] >= feA && eb[rj[r]] >= feB);
+            bool Cut(int r) => rigid || !(ea[ri[r]] >= feA && eb[rj[r]] >= feB);
 
             // V(r, j): the rung's point at j/k, as a vertex index (or code).
             var mids = new int[R][];
@@ -315,7 +328,7 @@ namespace PSXRacing.EditorTools
                     Vector3 p = Vector3.Lerp(pa[ri[r]], pb[rj[r]], t);
                     float e = Mathf.Lerp(ea[ri[r]], eb[rj[r]], t);
                     float fe = Mathf.Lerp(feA, feB, t);
-                    float w = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(fs, fe, e));
+                    float w = rigid ? 1f : 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(fs, fe, e));
                     if (w > 0f) p += RibbonDisp(pts, gap, t, side * (half + e)) * w;
                     extraV.Add(p);
                     extraUV.Add(new Vector2((p.x - uox) / tile, (p.z - uoz) / tile));

@@ -106,6 +106,21 @@ namespace PSXRacing.EditorTools
                 int redressed = PSXRacingBuilder.RedressSnowGrounds();
                 Debug.Log("[PSXBuildWebGL] snow grounds brought to the snow turf: " + redressed);
 
+                // EVERY SHADER THE RUNTIME NAMES SHIPS IN EVERY EDITION: each
+                // must be in GraphicsSettings' Always Included Shaders, checked
+                // here in a second rather than found missing on the live page
+                // (2026-09-29: CITY stripped PSX/Glow and every car lost its
+                // lamps). See RuntimeShaders.
+                var shaders = RuntimeShaders.Scan();
+                var gaps = RuntimeShaders.Gaps(shaders);
+                if (gaps.Count > 0)
+                {
+                    foreach (var g in gaps) Debug.LogError("[PSXBuildWebGL] RUNTIME SHADER MISSING: " + g);
+                    return false;
+                }
+                Debug.Log("[PSXBuildWebGL] Runtime shaders: " + shaders.Needs.Count + " named, every one always included - " +
+                          string.Join(", ", shaders.Needs.Select(n => n.Name)));
+
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
                 PlayerSettings.runInBackground = true;
@@ -185,7 +200,8 @@ namespace PSXRacing.EditorTools
                     EditionParking.Restore();
                 }
                 var s = report.summary;
-                WriteReport(report, outDir, edition, scenePaths, parked);
+                var shaderLines = RuntimeShaders.ReportLines(shaders, report, out var unpacked);
+                WriteReport(report, outDir, edition, scenePaths, parked, shaderLines);
                 Debug.Log($"[PSXBuildWebGL] Result={s.result} size={s.totalSize / (1024 * 1024)}MB " +
                           $"errors={s.totalErrors} time={s.totalTime}");
 
@@ -195,6 +211,13 @@ namespace PSXRacing.EditorTools
                         foreach (var msg in step.messages)
                             if (msg.type == LogType.Error || msg.type == LogType.Exception)
                                 Debug.LogError($"[PSXBuildWebGL] {step.name}: {msg.content}");
+                    return false;
+                }
+                // The player exists, but not as a success: no build_ok.txt, so
+                // build-and-publish refuses it.
+                if (unpacked.Count > 0)
+                {
+                    foreach (var u in unpacked) Debug.LogError("[PSXBuildWebGL] RUNTIME SHADER MISSING: " + u);
                     return false;
                 }
 
@@ -214,7 +237,8 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// WHAT THE BUILD WAS ASKED TO CARRY, written down: the edition, its
-        /// scenes, what was parked, and every source asset the build report
+        /// scenes, what was parked, the shaders the runtime names
+        /// (RuntimeShaders), and every source asset the build report
         /// says was packed, largest first (none after an incremental reuse).
         /// The proof of what
         /// SHIPPED ("MAIN has no charlotte_*", "CITY has no stage scene") is
@@ -226,7 +250,7 @@ namespace PSXRacing.EditorTools
         /// deploy copies index.html, Build/, StreamingAssets/, LICENSES.txt).
         /// </summary>
         static void WriteReport(BuildReport report, string outDir, EditionKind edition,
-                                string[] scenes, List<string> parked)
+                                string[] scenes, List<string> parked, List<string> shaderLines)
         {
             try
             {
@@ -240,6 +264,9 @@ namespace PSXRacing.EditorTools
                 foreach (var p in scenes) sb.AppendLine("  scene " + p);
                 sb.AppendLine("parked " + parked.Count);
                 foreach (var p in parked) sb.AppendLine("  parked " + p);
+                // "runtime-shader" lines: RuntimeShaders' list, which
+                // webgl-contents.mjs compares with its own scan of the source.
+                foreach (var l in shaderLines) sb.AppendLine(l);
 
                 var sizes = new Dictionary<string, ulong>(StringComparer.Ordinal);
                 foreach (var pa in report.packedAssets)

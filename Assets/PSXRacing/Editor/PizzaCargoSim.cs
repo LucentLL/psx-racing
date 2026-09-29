@@ -325,6 +325,14 @@ namespace PSXRacing.EditorTools
         /// its pizza, and PizzaCargo.PizzaOffFloor for the reading.</summary>
         const float OnItsLidDeg = 180f;
 
+        /// <summary>Case 11's hard pop: how far up the pan, from where it was
+        /// stacked, the lone box is PLACED so its lid has room to get past
+        /// upright before the seat back. Where the old 1.3 g shove stopped it
+        /// in five bakes out of six (13-15 cm, lid resting at 147-151); the
+        /// sixth slid it 29 cm and off the seat. The cushion ends 4 cm
+        /// ahead of the box's middle here, which is still on it.</summary>
+        const float HardPopRoomM = 0.14f;
+
         /// <summary>Fraction of the last shot that was fully transparent. The
         /// owner asked for no black and no void around the cargo, and "the
         /// background is clear" is a property of the PIXELS, not of a colour
@@ -931,11 +939,12 @@ namespace PSXRacing.EditorTools
                 // not moving, so unlike every other case in here this reads the
                 // same in every build — which is what lets the self-test pin it.
                 //
-                // Twice. A gentle pop (450 degrees a second, what a 1.5 m/s
-                // slam gives): the lid flaps up, falls shut, and the pizza
-                // under it is packed again. Then, with the box slid forward to
-                // leave it room, a hard one (850): over the top, and it stays
-                // open leaning on the seat back. Never off.
+                // Twice, each on a lone box of its own. A gentle pop (450
+                // degrees a second, what a 1.5 m/s slam gives): the lid flaps
+                // up, falls shut, and the pizza under it is packed again. Then,
+                // on a box PLACED forward to leave the lid room, a hard one
+                // (850): over the top, and it stays open leaning on the seat
+                // back. Never off.
                 {
                     var c = PizzaCargo.Spawn(null, new[] { 2 }, 0, seatStage: 0);
                     if (c != null)
@@ -954,12 +963,32 @@ namespace PSXRacing.EditorTools
                                   " deg, ends " + r.lidFlapEndDeg.ToString("0.0") + ", pizza " +
                                   (r.lidFlapWasLoose ? "out while it was up, " : "NEVER RELEASED, ") +
                                   (r.lidFlapRepacked ? "packed again" : "STILL A BODY") + "  " + c.Describe());
+                        Object.DestroyImmediate(c.gameObject);
+                    }
 
-                        // Forward, so the lid can get past upright before it
-                        // meets the seat back: half a g of braking for a second
-                        // slides nothing (the pan holds 0.9), so it is shoved.
-                        Step(c, new Vector3(0f, 0f, -1.3f * 9.81f), Quaternion.identity, 22);
-                        Step(c, Vector3.zero, Quaternion.identity, 50);
+                    // FORWARD, so the lid can get past upright before it meets
+                    // the seat back — and PLACED there, not shoved. This was
+                    // 1.3 g of braking for 22 steps against a pan that holds
+                    // about 0.9: a slide driven by the few tenths of a g between
+                    // the two, across a seat made of convex pieces, which is the
+                    // kind of motion this harness is chaotic in — so how far it
+                    // went was the BAKE's object order talking. Five bakes
+                    // stopped the box 13-15 cm up the
+                    // pan and the lid rested at 147-151; a sixth (2026-09-29,
+                    // no cargo code changed) slid it 29 cm, off the lip into
+                    // the footwell, and the lid fell shut on its spilled pizza
+                    // at 21. Where the box stands is this case's PREMISE, not
+                    // its question, so it is put where those five bakes left
+                    // it and allowed to settle; a box at rest on a pan that
+                    // grips it with most of its friction to spare reads the
+                    // same whatever order the solver meets its contacts in.
+                    c = PizzaCargo.Spawn(null, new[] { 2 }, 0, seatStage: 0);
+                    if (c != null)
+                    {
+                        float lifted = c.PlaceBoxAlongPan(0, HardPopRoomM);
+                        Step(c, Vector3.zero, Quaternion.identity, 60);
+                        Vector3 settledAt = c.BoxOffset(0);
+                        float settledSpeed = c.BoxVelocityLocal(0).magnitude;
                         c.PopLid(0, 850f);
                         Step(c, Vector3.zero, Quaternion.identity, 14);
                         if (shoot) Shoot(c, dir, "sim_11_lid_up");
@@ -979,8 +1008,11 @@ namespace PSXRacing.EditorTools
                         r.lidsOff += c.LidsOffTheirBox();
                         if (shoot) Shoot(c, dir, "sim_11_lid_open");
                         Debug.Log("[PizzaSim] lid, hard pop with room behind: rests at " +
-                                  r.lidThrownEndDeg.ToString("0.0") + " deg, box slid " +
-                                  c.BoxOffset(0).ToString("F2") + "  " + c.Describe());
+                                  r.lidThrownEndDeg.ToString("0.0") + " deg; box placed " +
+                                  HardPopRoomM.ToString("0.00") + " m up the pan (lifted " +
+                                  lifted.ToString("0.000") + " m clear of the seat), settled at " +
+                                  settledAt.ToString("F3") + " moving " + settledSpeed.ToString("0.000") +
+                                  " m/s, ends at " + c.BoxOffset(0).ToString("F3") + "  " + c.Describe());
                         Object.DestroyImmediate(c.gameObject);
                     }
                 }

@@ -100,6 +100,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestDepartDoors), TestDepartDoors);
             Guard(nameof(TestEditions), TestEditions);
             Guard(nameof(TestEditionPark), TestEditionPark);
+            Guard(nameof(TestRuntimeShaders), TestRuntimeShaders);
             Guard(nameof(TestGlyphs), TestGlyphs);
             Guard(nameof(TestDoorAudit), TestDoorAudit);
             Guard(nameof(TestCityProps), TestCityProps);
@@ -923,6 +924,60 @@ namespace PSXRacing.EditorTools
                 Check(!System.IO.File.Exists(manifest) && !System.IO.Directory.Exists(EditionParking.ParkRoot) &&
                       !System.IO.Directory.Exists(inRes), "the test leaves no park behind");
             }
+        }
+
+        /// <summary>
+        /// EVERY SHADER THE RUNTIME NAMES IS IN EVERY EDITION'S PLAYER
+        /// (RuntimeShaders). CITY went live without PSX/Glow - CarLights makes
+        /// its lens materials by Shader.Find and only MAIN's scenes happened
+        /// to keep the shader - and the editor, which finds every shader in the
+        /// project, never showed it. The WebGL build refuses a gap before it
+        /// starts; this runs the same scan in every self-test, and checks the
+        /// lexer that decides what is a string and what is a comment.
+        /// </summary>
+        static void TestRuntimeShaders()
+        {
+            Line("shaders the runtime names (RuntimeShaders; every edition must carry them):");
+            const string Q = "\"";
+            string src = "// " + Q + "PSX/Glow" + Q + " in a line comment\n" +
+                         "var a = " + Q + "http://x" + Q + "; /* " + Q + "PSX/Lit" + Q + " */\n" +
+                         "var b = @" + Q + "q" + Q + Q + "r" + Q + ";\n" +
+                         "var c = $" + Q + "n={Shader.Find(" + Q + "UI/Default" + Q + ")}" + Q + ";\n" +
+                         "char d = '" + Q + "'; var e = " + Q + "PSX/Beam" + Q + ";\n";
+            string code = RuntimeShaders.Lex(src, out var lits);
+            var texts = lits.Select(l => l.text).ToList();
+            string got = string.Join(" | ", texts);
+            Check(!texts.Contains("PSX/Glow") && !texts.Contains("PSX/Lit"), "a shader name inside a comment is not a lookup", got);
+            Check(texts.Contains("http://x") && texts.Contains("q" + Q + "r"),
+                  "a string is read whole: a // inside one, a verbatim \"\"", got);
+            Check(texts.Contains("UI/Default") && code.Contains("Shader.Find(" + Q + "UI/Default" + Q + ")"),
+                  "an interpolation hole is code, and the string inside it is a literal", got);
+            Check(texts.Contains("PSX/Beam") && lits.First(l => l.text == "PSX/Beam").line == 5,
+                  "a '\"' char literal opens no string, and lines are counted through comments", got);
+            Check(!RuntimeShaders.IsRuntimePath("PSXRacing/Editor/X.cs") && !RuntimeShaders.IsRuntimePath("A/Editor/B/X.cs") &&
+                  RuntimeShaders.IsRuntimePath("PSXRacing/Scripts/EditorLike.cs"), "an Editor folder at any depth is not runtime code");
+
+            var r = RuntimeShaders.Scan();
+            Check(r.RuntimeFiles > 100 && r.ShaderFiles >= 17, "the scan reads the runtime code and every .shader",
+                  r.RuntimeFiles + " .cs, " + r.ShaderFiles + " .shader");
+            Check(r.Needs.Count >= 12, "the runtime names at least twelve shaders", r.Needs.Count);
+            var glow = r.Needs.FirstOrDefault(n => n.Name == "PSX/Glow");
+            Check(glow != null && glow.Sites.Any(x => x.Contains("/CarLights.cs:")),
+                  "PSX/Glow is found through CarLights' helper (a literal handed on to Shader.Find(shaderName))",
+                  glow == null ? "not found" : string.Join(" ", glow.Sites));
+            Check(r.Indirect.Any(x => x.Contains("CarLights.cs")), "and that indirect Shader.Find is listed as one",
+                  string.Join("; ", r.Indirect));
+            Check(r.Needs.Any(n => n.Name == "UI/Default" && n.Shader != null &&
+                                   !n.AssetPath.StartsWith("Assets/", System.StringComparison.Ordinal)),
+                  "an engine shader passed straight to Shader.Find (UI/Default) is counted too");
+            foreach (var n in r.Needs)
+            {
+                Check(n.Shader != null && !ShaderUtil.ShaderHasError(n.Shader), n.Name + " exists and compiles",
+                      n.Shader == null ? "no shader has that name: " + string.Join(" ", n.Sites) : null);
+                Check(n.AlwaysIncluded, n.Name + " is in GraphicsSettings' always-included shaders", string.Join(" ", n.Sites));
+            }
+            var gaps = RuntimeShaders.Gaps(r);
+            Check(gaps.Count == 0, "the WebGL build's pre-flight finds no runtime shader gap", string.Join("; ", gaps));
         }
 
         /// <summary>
@@ -7089,6 +7144,67 @@ namespace PSXRacing.EditorTools
                     foreach (var a in TrackCatalog.All)
                         if (a.id == h.id) both = true;
                 Check(!both, "no venue is both held back and in the list");
+
+                // The car meets look venues up BY ID, and IndexOf answers 0 -
+                // CITY CIRCUIT - for an id it does not know: every touge id
+                // must be a listed venue, and the park road is one of them.
+                var meetField = typeof(PSXRacing.LifeSim.CarMeets).GetField("TougeVenues",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                var touge = meetField != null ? meetField.GetValue(null) as string[] : null;
+                string unknown = null;
+                if (touge != null)
+                    foreach (var id in touge)
+                        if (TrackCatalog.At(TrackCatalog.IndexOf(id)).id != id) unknown = id;
+                Check(touge != null && unknown == null, "every car meet venue is in the list", unknown ?? "all");
+                Check(touge != null && System.Array.IndexOf(touge, "ChimneyRock") >= 0,
+                      "and the touge meets race up the park road");
+
+                // IT SHIPPED ON FOUR NAMED LEDGES, NOT A WAIVER. The owner,
+                // 2026-09-29: "Release now, fix after". Three are fixed (the
+                // rise holds took 1040-1041 L and 668 R, the end pad 2 L past
+                // the reach) and their entries are out; 983 R stays, a natural
+                // hillside no lowering fixes (TrackObstacleAudit.OwnerAccepted
+                // says why), until the owner picks a rail or a fill. Pinned:
+                // the list is that one, small, short and dated, the matcher
+                // refuses a face one station on, a centimetre taller, on the
+                // other side, of the other kind, half a metre off or on another
+                // venue - and the three fixed spots are no longer on it.
+                var acc = TrackObstacleAudit.OwnerAccepted;
+                Check(acc.Length == 1, "the obstacle audit's owner-accepted list is Chimney Rock's one ledge left, 983 R", acc.Length);
+                string badEntry = null;
+                foreach (var e in acc)
+                {
+                    bool listedVenue = false;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == e.venue) listedVenue = true;
+                    bool ok = listedVenue && e.venue == "ChimneyRock" && (e.side == -1 || e.side == 1) &&
+                              e.fromWp >= 0 && e.toWp >= e.fromWp && e.toWp - e.fromWp <= 1 &&
+                              // printed to the centimetre (668 R, since fixed, printed 0.06, just over the 0.06 line)
+                              e.maxRiseM >= RoadsideRules.FaceRiseFailM && e.maxRiseM < 0.10f &&
+                              e.atM > 0f && e.atM < 12f &&
+                              e.accepted == "owner accepted 2026-09-29, fix pending" &&
+                              !string.IsNullOrEmpty(e.what);
+                    if (!ok && badEntry == null) badEntry = e.Where;
+                }
+                Check(badEntry == null,
+                      "each is one listed spot: a side, at most two stations, under 0.10 m, dated and marked fix pending",
+                      badEntry ?? "all");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) >= 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.70f) >= 0,
+                      "the audit passes on 983 R as it was measured");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.08f, 5.40f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1040, 0.09f, 5.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.062f, 6.95f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 2, 0.08f, 8.85f) < 0,
+                      "and no longer on the three it fixed: 1040-1041 L, 668 R, 2 L past the reach");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 984, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 982, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.09f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 8.30f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRockRev", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("GillespieGap", false, 1, 983, 0.08f, 7.60f) < 0,
+                      "and on nothing else: a station on, a centimetre taller, the other side or kind, half a metre off, another venue");
             }
 
             // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
