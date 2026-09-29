@@ -2802,16 +2802,32 @@ namespace PSXRacing.City
                     bool share = nb >= 0 && nb < e.index;
                     if (!sf.gap && !f.skip && f.decided)
                     {
+                        // A span squeezed at one end only: the step to that
+                        // neighbour at the OTHER end too. Sections can be ten
+                        // metres apart, and near a node, where one road's
+                        // height turns away from the other's, the step grew
+                        // past a ledge between them (North College Street's
+                        // two carriageways, 0.26 m apart at the squeezed end
+                        // and 0.33 m at the unsqueezed one; WP-04).
+                        int squeeze = 0;
+                        if (nb >= 0 && !f.wedge && (A.Nb(side) < 0) != (B.Nb(side) < 0))
+                        {
+                            float st = StepToNeighbour(map, tm, A.Nb(side) < 0 ? A : B, side, nb);
+                            if (!float.IsNaN(st)) squeeze = SqueezeDrop(map, trims, e, nbSec, side, st);
+                        }
                         bool wanted = f.elev || approach
                                       || (!f.wedge && ((DropAt(map, trims, tm, e, i - 1, side) | DropAt(map, trims, tm, e, i, side)
-                                                        | DropMid(map, trims, tm, e, i, side)) & DropWarrant) != 0);
-                        if (wanted && share && NeighbourDrawsRail(map, trims, e, nbSec, side)) wanted = false;
+                                                        | DropMid(map, trims, tm, e, i, side) | squeeze) & DropWarrant) != 0);
+                        // A neighbour more than a ledge ABOVE us draws its rail
+                        // on its own edge, over our heads: it guards nothing
+                        // on ours (WP-04).
+                        if (wanted && share && NeighbourDrawsRail(map, trims, e, nbSec, side) && !NeighbourAbove(map, nbSec, side)) wanted = false;
                         sf.rail = wanted;
                         // on a retaining face only where the verge cannot grade
                         // the land (DropFrom); an approach rail over land a verge
                         // reaches stands over that verge
                         if (sf.rail && !f.elev)
-                            sf.retain = ((DropAt(map, trims, tm, e, i - 1, side) | DropAt(map, trims, tm, e, i, side)) & DropUngraded) != 0;
+                            sf.retain = ((DropAt(map, trims, tm, e, i - 1, side) | DropAt(map, trims, tm, e, i, side) | squeeze) & DropUngraded) != 0;
                     }
                     // Decided from data alone (no ground probe), for every span
                     // of the edge: a retaining run's length and gaps reach
@@ -3005,13 +3021,58 @@ namespace PSXRacing.City
                     // stands between. Past SharedGuardDyM no barrier the lower
                     // road draws guards this edge.
                     float step = ed.y - map.edges[sec.Nb(side)].YAt(sec.NbAt(side));
-                    if (step > SharedGuardDyM || (step > RoadsideRules.LedgeStepM && !StripBarriered(map, trims, e, sec, side)))
-                        drop = DropWarrant | DropUngraded;
+                    drop = SqueezeDrop(map, trims, e, sec, side, step);
                 }
             }
             dropCache[key] = drop;
             return drop;
         }
+
+        /// <summary>
+        /// What a squeeze strip warrants, from the step between this edge and
+        /// the neighbour across it (positive: the neighbour is LOWER). A
+        /// lower neighbour: see <see cref="DropAt"/>. A HIGHER one (WP-04):
+        /// more than RoadsideRules.LedgeStepM up, its edge stands on a
+        /// retaining face at the far side of the strip, and a wheel of ours
+        /// drops into the slot at that face's foot, down to whatever the
+        /// lattice is there (a 0.4 m slot beside the Tyvola ramp e328, e1896
+        /// 1.3 m over it; a 3.7 m slot between I-77's viaduct carriageways a
+        /// metre apart). The Roadside Design Guide shields a face in the
+        /// clear zone: a rail on OUR edge, over the strip, unless a median
+        /// barrier already stands there. On the old filtered ground adjacent
+        /// roads were never that far apart.
+        /// </summary>
+        static int SqueezeDrop(CityMap map, Trims trims, CityMap.Edge e, Section nbSec, int side, float step)
+        {
+            if (step > SharedGuardDyM || (step > RoadsideRules.LedgeStepM && !StripBarriered(map, trims, e, nbSec, side)))
+                return DropWarrant | DropUngraded;
+            if (-step > RoadsideRules.LedgeStepM && !StripBarriered(map, trims, e, nbSec, side))
+                return DropWarrant;
+            return 0;
+        }
+
+        /// <summary>The step (positive: the neighbour lower) from a section's
+        /// drawn edge to squeezed neighbour <paramref name="nb"/>, measured at
+        /// the edge point's foot on the neighbour: for the end of a span that
+        /// is not itself squeezed, against the neighbour the other end names.
+        /// NaN where the foot is not beside the neighbour's pavement.</summary>
+        static float StepToNeighbour(CityMap map, TileMeshes tm, Section sec, int side, int nb)
+        {
+            if (sec.collapsed) return float.NaN;
+            var ed = sec.Edge(side);
+            var o = map.edges[nb];
+            var pW = new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z);
+            CityElevation.ProjectOn(o, pW, out float at);
+            if (at <= 0.01f || at >= o.length - 0.01f) return float.NaN;
+            if (Vector2.Distance(pW, o.PointAt(at)) > o.width * 0.5f + 1.5f) return float.NaN;
+            return ed.y - o.YAt(at);
+        }
+
+        /// <summary>Does the squeezed neighbour stand more than a ledge above
+        /// this edge? Then the rail it draws on its own edge is over our
+        /// head, not between our lanes and the slot at its face.</summary>
+        static bool NeighbourAbove(CityMap map, Section sec, int side) =>
+            sec.Nb(side) >= 0 && map.edges[sec.Nb(side)].YAt(sec.NbAt(side)) - sec.Edge(side).y > RoadsideRules.LedgeStepM;
 
         /// <summary>The same question halfway along a span. Sections can be
         /// ten metres apart and the lattice is eight: a pit narrower than a

@@ -32,46 +32,52 @@
       "timestamp_osm_base": "2026-09-12T02:39:51Z"
     },
     {
-      "file": "tools/roads/cache/N34W082.hgt.gz",
-      "kind": "skadi",
-      "bytes": 8050679,
-      "sha256": "adb2976945586114281088919c16856c88ea8d21335a29801293751aa6e66e39"
+      "file": "tools/city/cache/3dep/box13.f32",
+      "kind": "3dep",
+      "bytes": 137075328,
+      "sha256": "87822424ec850e4bb8e0e3a6fe59a1643168632b6baeed714a14644f62dc62c8"
     },
     {
-      "file": "tools/roads/cache/N34W081.hgt.gz",
-      "kind": "skadi",
-      "bytes": 6826524,
-      "sha256": "a2e9b3814397e437a7cd5d32b51d617b1f9d48d7fbc08018146cc1d5aa7d9f6e"
+      "file": "tools/city/cache/3dep/box13.json",
+      "kind": "3dep",
+      "bytes": 2095,
+      "sha256": "86871a6520f549ea5840a49c18e46bb938c2e4d93eb473784b79ae99d106c33a"
     },
     {
-      "file": "tools/roads/cache/N35W082.hgt.gz",
-      "kind": "skadi",
-      "bytes": 10114125,
-      "sha256": "c13334900407e1c80cb4a944ea6611dfbd8806794687e447f0c0f4c7409b87cc"
+      "file": "tools/city/cache/water/meck_creeks.geojson",
+      "kind": "water",
+      "bytes": 16292794,
+      "sha256": "2a75c9b3f5e19d631ceb8beef1266c49230cb1c8bc4022a425bfc35d1c26fe80"
     },
     {
-      "file": "tools/roads/cache/N35W081.hgt.gz",
-      "kind": "skadi",
-      "bytes": 8026641,
-      "sha256": "74a8666e437a5d9161537006a5d1cbfd2c85b2b767f43d33d34b2c4c7e3475c1"
+      "file": "tools/city/cache/water/meck_lakes.geojson",
+      "kind": "water",
+      "bytes": 28749078,
+      "sha256": "760235e051f1ad88964dc2c3dfb75ab06555c138603d36fc33d5d80470b039ad"
     },
     {
-      "file": "tools/city/vendor/rg2/baselineWater.ts",
-      "kind": "vendor",
-      "bytes": 12935,
-      "sha256": "fd98fa2f3ca216b05ddac921502cb5542c6817e418447e38b62925a027360da8"
+      "file": "tools/city/cache/water/usgs_flowlines.geojson",
+      "kind": "water",
+      "bytes": 18730218,
+      "sha256": "53df1b23a70fa69ae3aa834341d14cbf0ab8a4ea93d77d110c3264895748b651"
     },
     {
-      "file": "tools/city/vendor/rg2/i485_fit.json",
-      "kind": "vendor",
-      "bytes": 7365,
-      "sha256": "f5ee06376b3b2a212bf72fecb2e53549140804bcaa7025963a065b9d63019a44"
+      "file": "tools/city/cache/water/usgs_waterbodies.geojson",
+      "kind": "water",
+      "bytes": 12331360,
+      "sha256": "c5669d52d04978f479848072170d8fe2b96f5a8ff501304463907fde1804088d"
+    },
+    {
+      "file": "tools/city/cache/water/county.geojson",
+      "kind": "water",
+      "bytes": 160114,
+      "sha256": "1c525747581233fb61494ac36dadcb52d3c2000227a316470c0901bdf13baa07"
     },
     {
       "file": "tools/city/SOURCES.md#credits",
       "kind": "registry",
-      "bytes": 161,
-      "sha256": "d440a58a7df7858482773f6d16376b40856cd4e25d2b3ec64435fd1064becd13"
+      "bytes": 416,
+      "sha256": "e762a178863a6892dcc714a2e7ceafe7d28195673369457a90697caf0f626da7"
     }
   ]
 }
