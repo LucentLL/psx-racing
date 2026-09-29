@@ -82,6 +82,17 @@ if ($NoMirror) {
     # pass is a renderer FEATURE, and a sandbox without it renders a game with no blur
     # while every assertion about SpeedBlur.cs passes.
     robocopy "$src\Assets\Settings" "$proj\Assets\Settings" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    # The WebGL template ships BESIDE the player (index.html, and LICENSES.txt,
+    # which PSXBuildWebGL.PickLicenses picks per edition from LICENSES-MAIN /
+    # LICENSES-CITY.txt), and link.xml is what keeps IL2CPP's stripper off
+    # OSSpecificSynchronizationContext. Neither is under Scripts/Editor/Shaders,
+    # so a -NoMirror pass followed by build-and-publish -SkipScenes built with
+    # whatever the sandbox last had: 2026-09-29, the per-edition LICENSES files
+    # were in the source and not in the sandbox, and the CITY player would have
+    # carried ALL's credits (the SRTM line the CITY door no longer has).
+    # Mirrored like code: a stale extra LICENSES-*.txt must not linger.
+    robocopy "$src\Assets\WebGLTemplates" "$proj\Assets\WebGLTemplates" /MIR /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    robocopy "$src\Assets\PSXRacing" "$proj\Assets\PSXRacing" link.xml link.xml.meta /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 } else {
     foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
