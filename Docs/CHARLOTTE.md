@@ -3246,6 +3246,54 @@ through, or over (the Tryon Sprint's nearest crossing among them).
 from `power=line` (the layer is fetched): a two-way road's line takes a
 hashed side.
 
+## WP-15 and the launch fix together (2026-09-30): rails out of the lanes
+
+`charlotte` merged `charlotte-poles` (WP-15) and `charlotte-launch` (vertical
+curves, `JoinBuriedEnds`, seat pins, `CityLaunchDrive`/`CityLaunchAudit`).
+The one conflict in code was `RawSectionsOf`: city-r1 builds its sections
+through `SectionAt` and eases the squeeze, and `JoinBuriedEnds` runs after
+that on the final list. The two recorded baselines keep city-r1's
+measurements plus the lines only WP-15 recorded (no tool reads them; not
+re-measured). The data checks (`export_osm --check`, signs, canopy, credits)
+are byte-identical.
+
+**A junction's rail never stands in a lane** (`CityMeshes.RailRunsOffLanes`).
+The launch branch's drive met a 2 m barrier on North Caldwell Street where
+the link e11144 leaves it (around (-1152.5,5052.5)). The probe named it: the
+GORE NOSE at the merge of North Caldwell (e11145) into its host East 12th
+Street (e11148, node 11802). Its outer end is on East 12th's edge, which the
+line model draws 0.65 m inside North Caldwell's one lane, and the block ran
+from there to North Caldwell's far edge, across the lane. Node 3578's fan
+chord rail stood over the same lane 0.3-0.8 m up (the audit's known
+`caldwell-11145`). The rails a junction lays off two roads' geometry, a gore
+nose's block, its two tails and a fan's chord, now keep only their pieces in
+no lane. A point is in a lane when drawn pavement (a ribbon, or a fan other
+than the chord's own; one road, or two meeting on a seam) lies 0.3 m to both
+sides of it, at a height the rail stands in: its top over the lane's wheels,
+its foot under `RoadsideRules.OpenDropM` over the lane. The cut therefore
+opens no drop the rail census fails. A road's own side rails are untouched.
+Not measured city-wide (no audit run for this merge).
+
+Drives (`CityLaunchDrive`, RX-7, `PSX_LAUNCH_WALK`):
+- West Trade Street at (-3157,5588), SE-bound at 140 km/h: ok, never airborne.
+- East Woodlawn Road at South Boulevard, 110 km/h: ok both ways; the ESE
+  run crosses the buried stub e11126.
+- North Caldwell into East 12th, 70 km/h: the nose is gone and the car
+  reaches the break at 63 km/h, but it LAUNCHES on the merge crest there and
+  lands against East 12th's far rail. The path climbs 0.22 m in 2 m onto
+  East 12th (129.37 -> 129.59), then falls at 2%: a 13% grade break.
+  e11145 has stations only at 0, 8 and 16 m. The seam is at 5.5-6.4 m,
+  0.20-0.28 m under the host, and the clipped vertex takes the host's height
+  there. The launch branch's own profile at this spot was the same shape
+  (7.5% up, then 3% down); its car never got past the nose. Open.
+
+city-play-check CITY: 3 failures, all in WP-14's drive-off stage. e4746
+North Tryon and the fill/cut count are known. The fill picker now takes
+e14612 North Tryon s=165 R instead of e1499 I-277, because the merge's
+heights moved which fill comes first. There the verge falls 1V:4 to a shelf
+0.63 m down (2.5-6 m out) and then drops 1V:4 again to -1.9 m at 12 m. The
+car gets 1.48 m of air and tilts to up 0.40. This is WP-14 grading.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

@@ -432,6 +432,22 @@ namespace PSXRacing.EditorTools
             foreach (var f in Directory.GetFiles(dir, "*_" + label + "_*.png")) File.Delete(f);
             PSXRacingBuilder.EnsureCityTextures();
             var spots = new[] { "sv_a15_albemarle", "sv_a11_central", "sv_a10_rockyriver", "sv_a13_brentwood", "sv_a1_trade", "sv_a1_tryon", "sv_a8_queens" };
+            // PSX_POLE_EXTRA="name,lat,lon,road,hdg;...": cameras of one's own
+            // beside the plan's (a junction a fix was made at), shot the same way
+            var all = new List<Spot>(Spots);
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var part in (System.Environment.GetEnvironmentVariable("PSX_POLE_EXTRA") ?? "").Split(';'))
+            {
+                var f = part.Split(',');
+                if (f.Length == 5 && double.TryParse(f[1], System.Globalization.NumberStyles.Float, inv, out double la)
+                                  && double.TryParse(f[2], System.Globalization.NumberStyles.Float, inv, out double lo)
+                                  && float.TryParse(f[4], System.Globalization.NumberStyles.Float, inv, out float hd))
+                {
+                    all.Add(new Spot("sv_" + f[0].Trim(), Kind.StreetView, la, lo, f[3].Trim(), hd, f[0].Trim()));
+                    System.Array.Resize(ref spots, spots.Length + 1);
+                    spots[spots.Length - 1] = "sv_" + f[0].Trim();
+                }
+            }
             // PSX_POLE_SPOTS=a15_albemarle,a1_tryon: only those cameras (a lean run)
             string only = System.Environment.GetEnvironmentVariable("PSX_POLE_SPOTS");
             if (!string.IsNullOrEmpty(only))
@@ -447,7 +463,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 DayLight();
-                foreach (var sp in Spots)
+                foreach (var sp in all)
                 {
                     if (System.Array.IndexOf(spots, sp.id) < 0) continue;
                     if (!Snap(map, LL(sp.lat, sp.lon), sp.road, out var e, out float s, out _)) continue;
